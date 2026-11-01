@@ -72,4 +72,5 @@ def test_a_tie_assigns_control() -> None:
     result = support.fit(outcome_learner=blind)
     values = result.nuisance.regimes.values
     np.testing.assert_array_equal(values[:, 1, 0], np.zeros(result.data.n))
-    assert result.extra["learned_rule"].treated_shares == (0.0,) * 5
+    (split,) = result.extra["learned_rule"].splits
+    assert split.treated_shares == (0.0,) * 5

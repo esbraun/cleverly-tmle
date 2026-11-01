@@ -324,6 +324,14 @@ def _draw(record: StudyRecord, scenarios: Mapping[str, Scenario], key: Any) -> p
     return law_.draw(scenario.K, scenario.m, n, seed, scenario.law)
 
 
+def draw_from_seed(
+    scenarios: Sequence[Scenario], name: str, n: int, seed: int
+) -> tuple[pd.DataFrame, dict[str, float]]:
+    """One sample of scenario ``name`` from ``seed``, and the exact truth of its estimands."""
+    scenario = next(s for s in scenarios if s.name == name)
+    return law_.draw(scenario.K, scenario.m, n, seed, scenario.law), truths(scenario)
+
+
 def _fit_one(
     record: StudyRecord,
     scenarios: Mapping[str, Scenario],

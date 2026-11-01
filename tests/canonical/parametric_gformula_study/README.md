@@ -129,7 +129,7 @@ side, so it needs no Docker.
 ### Registration
 
 The fixture comparison does not fit the paired-row contract of a `reference`. A `reference`
-pairs rows by scenario and replicate in `replicates.csv.gz`, and `validate_replicates` requires a
+pairs rows by scenario and replicate in `replicates.parquet`, and `validate_replicates` requires a
 positive standard error and an interval for each. `pygformula` reports neither without a
 bootstrap, and each fixture is one panel with many seeds. So the record declares no comparator,
 and the fixture files are the `pygformula` evidence.

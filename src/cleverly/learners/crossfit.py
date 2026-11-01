@@ -55,20 +55,20 @@ and not on the installed scikit-learn.  The stratified splits stay on scikit-lea
 
 from __future__ import annotations
 
-import warnings
-
 # Imported at run time rather than under ``TYPE_CHECKING``: ``Sequence`` appears in a
 # dataclass field annotation, and a documentation build that resolves those annotations
 # needs the name to exist.
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from numbers import Integral
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 
 from .._typing import BoolArray, FloatArray, IntArray
+from .._warnings import suppressed as _suppressed
+from .._warnings import warn as _warn
 from ..exceptions import (
     CapabilityError,
     DataError,
@@ -316,7 +316,7 @@ def _cross_fit_policy_refusal(
     if repeats > 1 and not cross_fit:
         return Refusal(
             invalid,
-            "repeats takes the median over independent cross-fitting splits, and "
+            "repeats combines independent cross-fitting splits, and "
             f"{option_name}=False makes no split to draw or repeat. Enable cross-fitting"
             + _in_sample_offer(" or set repeats=1", learned_rule),
         )
@@ -673,24 +673,45 @@ class SplitPlan:
         return fold_fingerprint(self.assignments)
 
     def __repr__(self) -> str:
-        """Return a summary rather than every label.
+        """Return one line rather than every label.
 
         A plan holds one label per row per repeat, so the generated ``__repr__`` prints
         the whole dataset back: 150 KB for a 50,000-row plan, in a traceback or a
         notebook cell that asked for one line.  What identifies a plan is its shape and
         its fingerprint, and both are here.  The generator says whether a fit can accept
-        the plan at all: ``generator=None`` is a plan with no record, which every fit
-        refuses.
+        the plan at all: ``no generator`` is a plan with no record, which every fit
+        refuses.  ``bound`` marks a plan tied to one dataset's fingerprint, which
+        :attr:`source_fingerprint` holds.
         """
+        from .._summary import short_repr
+
+        facts: list[tuple[str, object]] = [
+            ("n", self.n),
+            ("folds", self.n_folds),
+            ("repeats", self.n_repeats),
+            # The generator's name without its package prefix, unlabelled, so the line keeps
+            # the fingerprint within 100 characters.
+            (
+                "",
+                "no generator"
+                if self.provenance is None
+                else self._generators().removeprefix("cleverly."),
+            ),
+            ("fingerprint", self.fingerprint),
+        ]
+        if self.source_fingerprint is not None:
+            facts.append(("", "bound"))
+        return short_repr("SplitPlan", facts)
+
+    def _generators(self) -> str:
         if self.provenance is None:
-            generator = "None"
-        else:
-            generator = "+".join(sorted({origin.generator for origin in self.provenance}))
-        bound = "" if self.source_fingerprint is None else f", source={self.source_fingerprint}"
-        return (
-            f"SplitPlan(n={self.n}, n_folds={self.n_folds}, n_repeats={self.n_repeats}, "
-            f"fingerprint={self.fingerprint}, generator={generator}{bound})"
-        )
+            return "None"
+        return "+".join(sorted({origin.generator for origin in self.provenance}))
+
+    def _cache_token(self) -> tuple[str, str | None, str]:
+        """The content an assessment cache keys this plan by: its repr leaves the source
+        digest out, so two plans bound to different data would otherwise share a key."""
+        return (self.fingerprint, self.source_fingerprint, self._generators())
 
     def to_folds(self) -> tuple[Folds, ...]:
         """Return fresh mutable-array fold objects for every repeat.
@@ -835,8 +856,7 @@ class SplitPlan:
                 )
             # The cap warning belongs to the fit that drew the split. This draw repeats it
             # to check the labels, and resolves no fold count for the fit.
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", UserWarning)
+            with _suppressed(UserWarning):
                 try:
                     redrawn = random_partition(
                         n, origin.requested_n_folds, cluster=cluster, seed=origin.seed
@@ -1141,7 +1161,7 @@ def resolve_n_folds(
             f"cannot cross-fit: {binding} {cap} {counted}, so no split into two folds exists"
         )
     if resolved < n_folds:
-        warnings.warn(
+        _warn(
             f"reducing n_folds from {n_folds} to {resolved}: {binding} {cap} {counted}",
             UserWarning,
             stacklevel=2,
@@ -1149,7 +1169,7 @@ def resolve_n_folds(
     if cluster is not None:
         n_groups = int(np.unique(cluster).size)
         if n_groups < resolved:
-            warnings.warn(
+            _warn(
                 f"reducing n_folds from {resolved} to {n_groups}: only {n_groups} clusters",
                 UserWarning,
                 stacklevel=2,
@@ -1407,9 +1427,15 @@ class CrossFitPlan:
         selection folds remain seeded. A seed is not enough to reproduce a generated
         split on its own; see :mod:`cleverly.provenance`.
     repeats : int
-        How many independent draws of the whole split the fit combines by median. ``1`` is
-        an ordinary fit.  A count layered over whichever ``scheme`` the data resolved to,
-        not a scheme of its own -- repeating a grouped split gives grouped splits.
+        How many independent draws of the whole split the fit combines, by
+        :attr:`aggregate`. ``1`` is an ordinary fit.  A count layered over whichever
+        ``scheme`` the data resolved to, not a scheme of its own -- repeating a grouped
+        split gives grouped splits.
+    aggregate : {"median", "mean"}
+        How the draws combine.  ``"median"`` on every fit but a learned-rule one, which
+        takes ``"mean"``: each split learns its own rules and so defines its own target,
+        and the reported target is the mean of those targets.  :meth:`describe` prints
+        it, and the one-line ``repr`` leaves it out.
     """
 
     n_folds: int = 10
@@ -1418,6 +1444,8 @@ class CrossFitPlan:
     stratify_by: tuple[str, ...] = ()
     random_state: int | None = None
     repeats: int = 1
+    # Left out of the one-line repr, which must stay short; :meth:`describe` prints it.
+    aggregate: Literal["median", "mean"] = field(default="median", repr=False)
 
     @property
     def cross_fit(self) -> bool:
@@ -1440,7 +1468,8 @@ class CrossFitPlan:
         by = f" stratified on {', '.join(self.stratify_by)}" if self.stratify_by else ""
         if not self.cross_fit:
             return "declared: no cross-fitting (cross_fit=False)"
-        over = f", median over {self.repeats} draws" if self.repeated else ""
+        noun = "splits" if self.aggregate == "mean" else "draws"
+        over = f", {self.aggregate} over {self.repeats} {noun}" if self.repeated else ""
         return f"declared: {self.n_folds}-fold {self.scheme}{by}{over}"
 
     def seeds(self) -> tuple[int | None, ...]:
@@ -1508,7 +1537,7 @@ def refuse_scheme(kind: str) -> None:
     if kind == "blocked":
         raise CapabilityError(
             "blocked temporal folds are not implemented. A contiguous-in-time split is "
-            "perfectly expressible as a fold assignment -- what is missing is the "
+            "perfectly expressible as a fold assignment; what is missing is the "
             "ordering it would need. CausalData declares an outcome, a treatment, "
             "baseline covariates and a cluster, and no node carries a time index; id= "
             "is the independent sampling unit, not a row or time key. LongitudinalData "
@@ -1524,7 +1553,7 @@ def refuse_scheme(kind: str) -> None:
             "rolling-origin folds are not implemented, and not for want of a time index. "
             "Their training sets are nested prefixes: some rows are never held out and "
             "others fall in several evaluation windows, so there is no one fold that "
-            "holds out each row. Cross-fitting here rests on exactly that -- Folds is an "
+            "holds out each row. Cross-fitting here rests on exactly that: Folds is an "
             "assignment of one fold per row, and NuisanceEstimates stores one "
             "out-of-fold prediction per row because of it. A rolling origin needs a "
             "different storage contract, not a different splitter.",

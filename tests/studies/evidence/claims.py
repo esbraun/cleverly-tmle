@@ -14,18 +14,20 @@ import math
 import re
 from collections.abc import Callable, Mapping
 
+import numpy as np
 import pandas as pd
 
 from tests.studies.evidence import failures, property_verdicts
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import StudyRecord
 
 #: Artefact file names, and the columns each is keyed by.
 ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
-    "replicates": ("replicates.csv.gz", ()),
+    "replicates": ("replicates.parquet", ()),
     "summary": ("summary.csv", ("implementation", "scenario", "estimand")),
     "performance": ("performance-tests.csv", ("implementation", "scenario", "estimand")),
     "equivalence": ("equivalence.csv", ("scenario", "estimand")),
-    "property_replicates": ("property-replicates.csv.gz", ()),
+    "property_replicates": ("property-replicates.parquet", ()),
     "properties": ("properties.csv", ("property", "cell")),
 }
 
@@ -40,8 +42,14 @@ FIT_DIAGNOSTICS = "fit_diagnostics"
 #: The second optional result file: the truth harness of a learned-rule study, one row per
 #: primary replication.  A study that declares it gains one ``mean_oracle_se_<scenario>``
 #: aggregate per scenario, so a page quotes the descriptive oracle standard error by name.
+#: ``learned-rule-strata`` writes one row per replication and parameter under its own name,
+#: :data:`STRATA_HARNESS_FILE`, and is read under the same short name.
 HARNESS_FILE = "harness.csv.gz"
+STRATA_HARNESS_FILE = "strata-harness.csv.gz"
 HARNESS = "harness"
+#: The descriptive margin columns of a harness (``learned-rule-strata``): each gains a
+#: ``<column>_mean_<scenario>`` aggregate, the mean over the scenario's replications.
+MARGIN_COLUMNS = ("boundary_disagreement", "boundary_treated_share")
 
 #: The failure files (RM39a2), which a study publishes only when a fit failed.  ``accounting``
 #: rows are quotable as ``accounting[performance/<implementation>/<scenario>/<estimand>/<leg>]``
@@ -98,12 +106,18 @@ _REFERENCE = re.compile(
 def load(record: StudyRecord) -> dict[str, pd.DataFrame]:
     """Every committed artefact of a study, keyed by its short name."""
     frames = {
-        name: pd.read_csv(record.artifact(filename)) for name, (filename, _) in ARTIFACTS.items()
+        name: (
+            read_rows(record.artifact(filename))
+            if filename.endswith(".parquet")
+            else pd.read_csv(record.artifact(filename))
+        )
+        for name, (filename, _) in ARTIFACTS.items()
     }
     if FIT_DIAGNOSTICS_FILE in record.extra_artifacts:
         frames[FIT_DIAGNOSTICS] = pd.read_csv(record.artifact(FIT_DIAGNOSTICS_FILE))
-    if HARNESS_FILE in record.extra_artifacts:
-        frames[HARNESS] = pd.read_csv(record.artifact(HARNESS_FILE))
+    harness_file = _harness_file(record)
+    if harness_file is not None:
+        frames[HARNESS] = pd.read_csv(record.artifact(harness_file))
     for name, (filename, _) in OPTIONAL_ARTIFACTS.items():
         if filename in record.extra_artifacts:
             frames[name] = pd.read_csv(record.artifact(filename))
@@ -197,7 +211,7 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
         ),
         "failure_rate": lambda data: (
             float(failures.missing_fits(_own(data.get(FAILURES)), record, str(record.reference)))
-            / float(record.replicates * len(record.scenarios))
+            / float(record.replicates * len(record.reported(str(record.reference))))
         ),
         "subject_failures": lambda data: float(
             failures.missing_fits(data.get(FAILURES), record, subject)
@@ -249,6 +263,38 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
             (data["summary"]["coverage"] < 1.0 - record.margins.alpha).sum()
         ),
         "summary_cells": lambda data: count(data["summary"]),
+    }
+
+
+def _convergence_aggregates(
+    record: StudyRecord,
+) -> dict[str, Callable[[Mapping[str, pd.DataFrame]], float]]:
+    """What the property rows record about the targeting loop, for a study that records it.
+
+    A study that names ``CONVERGENCE_SUMMARY`` in its property module writes ``nonconverged_fits``
+    and ``max_rounds`` into ``properties.csv``.  The sum counts a fit once for each cell that
+    reads it, so a fit shared by several cells is counted by each.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study whose property rows are read.
+
+    Returns
+    -------
+    dict
+        Empty for a study whose property module declares no convergence summary.
+    """
+    if not hasattr(record.properties(), "CONVERGENCE_SUMMARY"):
+        return {}
+    return {
+        "property_rows_nonconverged": lambda data: float(
+            (data["properties"]["nonconverged_fits"] > 0).sum()
+        ),
+        "property_nonconverged_fits": lambda data: float(
+            data["properties"]["nonconverged_fits"].sum()
+        ),
+        "property_max_rounds": lambda data: float(data["properties"]["max_rounds"].max()),
     }
 
 
@@ -384,6 +430,23 @@ def _mechanism_aggregates(
     }
 
 
+def _harness_file(record: StudyRecord) -> str | None:
+    """The truth-harness file a study publishes, or ``None`` for a study without one."""
+    for filename in (HARNESS_FILE, STRATA_HARNESS_FILE):
+        if filename in record.extra_artifacts:
+            return filename
+    return None
+
+
+def _harness_columns(record: StudyRecord) -> frozenset[str]:
+    """The header of a study's truth harness, or nothing before the study has run."""
+    harness_file = _harness_file(record)
+    if harness_file is None:
+        return frozenset()
+    path = record.artifact(harness_file)
+    return frozenset(pd.read_csv(path, nrows=0).columns) if path.exists() else frozenset()
+
+
 def _harness_aggregates(
     record: StudyRecord,
 ) -> dict[str, Callable[[Mapping[str, pd.DataFrame]], float]]:
@@ -392,6 +455,13 @@ def _harness_aggregates(
     The oracle standard error is a descriptive column that no verdict reads.  A page that
     compares it with the mean reported standard error still quotes it through here, so the
     number it prints is the one the artefact holds.
+
+    A harness that carries ``plug_in_truth`` (a rule-learner study's paired plug-in fit) also
+    gains, per scenario, the mean, the SD and the positive share of ``truth - plug_in_truth``,
+    the primary value gain over the plug-in rule: ``value_gain_mean_<scenario>``,
+    ``value_gain_sd_<scenario>`` and ``value_gain_positive_share_<scenario>``.  A harness that
+    carries a column of :data:`MARGIN_COLUMNS` gains its mean per scenario,
+    ``<column>_mean_<scenario>``.
 
     Parameters
     ----------
@@ -403,10 +473,22 @@ def _harness_aggregates(
     dict
         Empty for a study that publishes no harness.
     """
-    if HARNESS_FILE not in record.extra_artifacts:
+    if _harness_file(record) is None:
         return {}
     out: dict[str, Callable[[Mapping[str, pd.DataFrame]], float]] = {}
+    margins = [column for column in MARGIN_COLUMNS if column in _harness_columns(record)]
     for scenario in record.scenarios:
+        for column in margins:
+
+            def margin_mean(
+                data: Mapping[str, pd.DataFrame], scenario: str = scenario, column: str = column
+            ) -> float:
+                rows = _scenario(data[HARNESS], scenario)
+                if rows.empty:
+                    raise KeyError(f"the harness of {record.slug} has no rows for {scenario!r}")
+                return float(rows[column].mean())
+
+            out[f"{column}_mean_{scenario}"] = margin_mean
 
         def mean_oracle_se(data: Mapping[str, pd.DataFrame], scenario: str = scenario) -> float:
             rows = _scenario(data[HARNESS], scenario)
@@ -414,7 +496,24 @@ def _harness_aggregates(
                 raise KeyError(f"the harness of {record.slug} has no rows for {scenario!r}")
             return float(rows["oracle_se"].mean())
 
-        out[f"mean_oracle_se_{scenario}"] = mean_oracle_se
+        # A harness with one row per parameter (``estimand``) pools several parameters' oracle
+        # standard errors, so a single mean would describe none of them.
+        if "estimand" not in _harness_columns(record):
+            out[f"mean_oracle_se_{scenario}"] = mean_oracle_se
+        if "plug_in_truth" not in _harness_columns(record):
+            continue
+
+        def gain(data: Mapping[str, pd.DataFrame], scenario: str = scenario) -> np.ndarray:
+            rows = _scenario(data[HARNESS], scenario)
+            if rows.empty:
+                raise KeyError(f"the harness of {record.slug} has no rows for {scenario!r}")
+            return rows["truth"].to_numpy(float) - rows["plug_in_truth"].to_numpy(float)
+
+        out[f"value_gain_mean_{scenario}"] = lambda data, gain=gain: float(np.mean(gain(data)))
+        out[f"value_gain_sd_{scenario}"] = lambda data, gain=gain: float(np.std(gain(data), ddof=1))
+        out[f"value_gain_positive_share_{scenario}"] = lambda data, gain=gain: float(
+            np.mean(gain(data) > 0.0)
+        )
     return out
 
 
@@ -540,7 +639,8 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
                     "margin:efficiency_ratio_upper": high,
                 }
             )
-    if {"targeting_necessity", "stratum_targeting_necessity"} & set(record.property_cells):
+    displaced = set(record.property_cells) - record.bias_row_families
+    if {"targeting_necessity", "stratum_targeting_necessity"} & displaced:
         declared["margin:targeting_displacement"] = record.properties().TARGETING_DISPLACEMENT
     if "fold_locality" in record.property_cells:
         declared["margin:fold_locality_displacement"] = (
@@ -548,6 +648,10 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         )
     if "missingness_necessity" in record.property_cells:
         declared["margin:missingness_displacement"] = record.properties().MISSINGNESS_DISPLACEMENT
+    if "response_mask_necessity" in record.property_cells:
+        declared["margin:response_mask_displacement"] = (
+            record.properties().RESPONSE_MASK_DISPLACEMENT
+        )
     # Two studies use the family name.  The DR-TMLE studies compare a closed score with the
     # initial score, and their cells end in ``closed_score``.  A study with a corrected and an
     # uncorrected arm publishes the displacement of the pair instead.
@@ -562,7 +666,7 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         )
     elif correction_cells:
         declared["margin:correction_displacement"] = record.properties().CORRECTION_DISPLACEMENT
-    if set(record.property_cells) & {
+    if displaced & {
         "atom_necessity",
         "classifier_split",
         "branch_necessity",
@@ -575,9 +679,16 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         "repeated_outcome_necessity",
         "outcome_history_necessity",
         "full_history_necessity",
+        "bound_necessity",
     }:
         declared["margin:necessity_displacement"] = record.properties().NECESSITY_DISPLACEMENT
-    if "policy_necessity" in record.property_cells:
+    # X33's binding witness: the floor each of its two shares must reach.
+    if "binding_witness" in record.property_cells:
+        declared["margin:witness_share"] = record.properties().WITNESS_SHARE
+    # X33's failure rule: the largest share of unconverged fits a gated cell may carry.
+    if hasattr(record.properties(), "UNCONVERGED_SHARE"):
+        declared["margin:unconverged_share"] = record.properties().UNCONVERGED_SHARE
+    if "policy_necessity" in displaced:
         declared["margin:policy_displacement"] = record.properties().POLICY_DISPLACEMENT
     if "inverse_necessity" in record.property_cells:
         declared["margin:inverse_displacement"] = record.properties().INVERSE_DISPLACEMENT
@@ -589,7 +700,7 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         declared["margin:learner_weight_displacement"] = (
             record.properties().LEARNER_WEIGHT_DISPLACEMENT
         )
-    if "categorical_probability_necessity" in record.property_cells:
+    if "categorical_probability_necessity" in displaced:
         declared["margin:categorical_probability_displacement"] = (
             record.properties().CATEGORICAL_PROBABILITY_DISPLACEMENT
         )
@@ -643,6 +754,7 @@ def quantities(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.DataF
     return {
         **_aggregates(record),
         **_scenario_aggregates(record),
+        **_convergence_aggregates(record),
         **_score_audit_aggregates(record),
         **_mechanism_aggregates(record),
         **_harness_aggregates(record),

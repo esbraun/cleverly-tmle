@@ -1,0 +1,238 @@
+### dummy_outcome
+cleverly 0.1.5
+rows and columns: (4000, 6)
+['transition_score', 'transition_navigation', 'discharge_risk', 'age', 'prior_utilization', 'responded']
+   transition_score  transition_navigation  discharge_risk    age  prior_utilization  responded
+0             0.707                    1.0           0.049  0.518             -0.110        1.0
+1             0.567                    1.0          -0.089  0.503              0.511        1.0
+2             0.560                    0.0           0.345 -1.421             -0.570        1.0
+3             0.685                    1.0          -0.307  0.740              0.045        1.0
+4             0.174                    0.0          -0.394  0.378              0.326        1.0
+
+response rate:            0.763
+missing transition score: 949 rows
+population ATE:           0.1466
+mean baseline covariate by response status:
+           discharge_risk    age  prior_utilization
+responded                                          
+0.0                 0.781  0.012             -0.215
+1.0                -0.229 -0.012              0.056
+causal study protocol: schema 1; 1f8351d839cc8afe
+target population: Adults with a discharge-home order at a participating hospital during the enrollment period, whether or not they return the survey
+eligibility: ['Age 18 years or older', 'Discharge home ordered at a participating hospital']
+time zero: Discharge-home order, after baseline measurement and before the navigation offer
+treatment strategies: ['Offer standard transition navigation', 'Provide usual discharge support']
+treatment versions: ['Bedside transition plan and two scheduled navigator contacts within 30 days', 'No access to the transition-navigation offer']
+outcome: Patient-reported transition score, as a share of the maximum score, from the survey sent on day 30 and closed on day 45; the score lies between 0 and 1
+horizon: 30 days after discharge
+intercurrent-event handling: ['Use the transition score regardless of readmission', 'Analyze the offer regardless of completed contacts', 'The protocol scores death before day 30 as the worst transition score (composite strategy)']
+interference unit: Individual patient
+assumption rationale: ['The recorded baseline variables cover the measured common causes', 'Given the arm and the baseline variables, survey response carries no further information about the unobserved score (missingness at random)', 'The standardized offer and version records support consistency', 'Reserved navigator capacity and access controls support no interference']
+average treatment effect, E[Y^a] - E[Y^reference]
+identified by explicit-adjustment: E_W[E(transition_score | transition_navigation=a, responded=1, W)] - E_W[E(transition_score | transition_navigation=0, responded=1, W)] for a in [1]
+adjustment/history: ['discharge_risk', 'age', 'prior_utilization']
+required nuisances: ['outcome_regression', 'treatment_mechanism', 'missingness_mechanism']
+assumptions:
+  - consistency: Y = Y^a when A = a
+  - no interference: one unit's potential outcome does not depend on other units' treatment assignments
+  - no unmeasured confounding: Y^a is independent of A given W
+  - positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]
+  - missingness at random for responded: transition_score is independent of responded given (transition_navigation, W)
+  - response positivity for responded: P(responded = 1 | transition_navigation = a, W) > 0 almost surely wherever the target functional evaluates arm a
+causal study protocol: schema 1; 1f8351d839cc8afe
+Targeted maximum likelihood estimation
+======================================
+n = 4000 (3051 with an observed outcome); covariates = 3; P(A=1) = 0.4993
+causal estimand: average treatment effect, E[Y^a] - E[Y^reference]
+identification: explicit-adjustment; E_W[E(transition_score | transition_navigation=a, responded=1, W)] - E_W[E(transition_score | transition_navigation=0, responded=1, W)] for a in [1]
+required nuisances: outcome_regression, treatment_mechanism, missingness_mechanism
+identification assumptions: consistency: Y = Y^a when A = a; no interference: one unit's potential outcome does not depend on other units' treatment assignments; no unmeasured confounding: Y^a is independent of A given W; positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]; missingness at random for responded: transition_score is independent of responded given (transition_navigation, W); response positivity for responded: P(responded = 1 | transition_navigation = a, W) > 0 almost surely wherever the target functional evaluates arm a
+causal study protocol: schema 1; 1f8351d839cc8afe
+outcome family: gaussian; fluctuation: logistic (iterative)
+stacked CV-TMLE (Levy): nuisances cross-fitted over 5 folds; targeting: pooled
+propensity truncated to [0.009532, 0.9905]; ATT/ATC to [0.025, 0.975]
+P(Delta=1|A,W) truncated to [0.01, 1]
+data 20a917c8c326d554 | folds b3d93054673ed5ae | cleverly 0.1.5 | 2026-10-22T23:04:23+00:00
+
+estimand  psi      std_err   95% CI              p_value
+--------  -------  --------  ------------------  -------
+ate       0.14782  0.005219  [0.13759, 0.15805]  <1e-4  
+
+estimate:        0.1478
+standard error:  0.0052
+95% CI:          (0.1376, 0.1581)
+population ATE:  0.1466
+Refutation tests for 'ate'
+----------------------------------
+test           original  refuted (mean)  sd        expected                              rung  ok 
+-------------  --------  --------------  --------  ------------------------------------  ----  ---
+dummy_outcome  0.14782   -7.5502e-05     0.004668  readings inside their bands around 0  L2    yes
+
+dummy_outcome: process=bounded_beta_adjustment_dependent; family=gaussian; effect=0; successful=400; failed=0
+reading: bias -0.01617 [-0.1142, 0.08182] inside [-0.2, 0.2]; se_ratio 0.9705 [0.9108, 1.034] inside [0.85, 1.15]; coverage 0.9375 [0.9091, 0.9591] inside [0.88, 0.99]
+  bias = -0.01617, 95% interval [-0.1142, 0.08182], band [-0.2, 0.2]: inside
+  se_ratio = 0.9705, 95% interval [0.9108, 1.034], band [0.85, 1.15]: inside
+  coverage = 0.9375, 95% interval [0.9091, 0.9591], band [0.88, 0.99]: inside
+  On the generated law named here, the bias lies inside its equivalence band. Your own outcome law is not this one. On the generated law named here, the standard-error ratio lies inside its equivalence band. Your own outcome law is not this one. On the generated law named here, the 95% interval coverage lies inside its equivalence band. Your own outcome law is not this one. Generated law: bounded_beta_adjustment_dependent (phi 20), 400 draws on the held design, truth 0.
+
+VERDICT: every refutation test with a verdict passed it.
+SECONDS 370
+
+### simulated_outcome
+cleverly 0.1.5
+rows and columns: (4000, 6)
+['transition_score', 'transition_navigation', 'discharge_risk', 'age', 'prior_utilization', 'responded']
+   transition_score  transition_navigation  discharge_risk    age  prior_utilization  responded
+0             0.707                    1.0           0.049  0.518             -0.110        1.0
+1             0.567                    1.0          -0.089  0.503              0.511        1.0
+2             0.560                    0.0           0.345 -1.421             -0.570        1.0
+3             0.685                    1.0          -0.307  0.740              0.045        1.0
+4             0.174                    0.0          -0.394  0.378              0.326        1.0
+
+response rate:            0.763
+missing transition score: 949 rows
+population ATE:           0.1466
+mean baseline covariate by response status:
+           discharge_risk    age  prior_utilization
+responded                                          
+0.0                 0.781  0.012             -0.215
+1.0                -0.229 -0.012              0.056
+causal study protocol: schema 1; 1f8351d839cc8afe
+target population: Adults with a discharge-home order at a participating hospital during the enrollment period, whether or not they return the survey
+eligibility: ['Age 18 years or older', 'Discharge home ordered at a participating hospital']
+time zero: Discharge-home order, after baseline measurement and before the navigation offer
+treatment strategies: ['Offer standard transition navigation', 'Provide usual discharge support']
+treatment versions: ['Bedside transition plan and two scheduled navigator contacts within 30 days', 'No access to the transition-navigation offer']
+outcome: Patient-reported transition score, as a share of the maximum score, from the survey sent on day 30 and closed on day 45; the score lies between 0 and 1
+horizon: 30 days after discharge
+intercurrent-event handling: ['Use the transition score regardless of readmission', 'Analyze the offer regardless of completed contacts', 'The protocol scores death before day 30 as the worst transition score (composite strategy)']
+interference unit: Individual patient
+assumption rationale: ['The recorded baseline variables cover the measured common causes', 'Given the arm and the baseline variables, survey response carries no further information about the unobserved score (missingness at random)', 'The standardized offer and version records support consistency', 'Reserved navigator capacity and access controls support no interference']
+average treatment effect, E[Y^a] - E[Y^reference]
+identified by explicit-adjustment: E_W[E(transition_score | transition_navigation=a, responded=1, W)] - E_W[E(transition_score | transition_navigation=0, responded=1, W)] for a in [1]
+adjustment/history: ['discharge_risk', 'age', 'prior_utilization']
+required nuisances: ['outcome_regression', 'treatment_mechanism', 'missingness_mechanism']
+assumptions:
+  - consistency: Y = Y^a when A = a
+  - no interference: one unit's potential outcome does not depend on other units' treatment assignments
+  - no unmeasured confounding: Y^a is independent of A given W
+  - positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]
+  - missingness at random for responded: transition_score is independent of responded given (transition_navigation, W)
+  - response positivity for responded: P(responded = 1 | transition_navigation = a, W) > 0 almost surely wherever the target functional evaluates arm a
+causal study protocol: schema 1; 1f8351d839cc8afe
+Targeted maximum likelihood estimation
+======================================
+n = 4000 (3051 with an observed outcome); covariates = 3; P(A=1) = 0.4993
+causal estimand: average treatment effect, E[Y^a] - E[Y^reference]
+identification: explicit-adjustment; E_W[E(transition_score | transition_navigation=a, responded=1, W)] - E_W[E(transition_score | transition_navigation=0, responded=1, W)] for a in [1]
+required nuisances: outcome_regression, treatment_mechanism, missingness_mechanism
+identification assumptions: consistency: Y = Y^a when A = a; no interference: one unit's potential outcome does not depend on other units' treatment assignments; no unmeasured confounding: Y^a is independent of A given W; positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]; missingness at random for responded: transition_score is independent of responded given (transition_navigation, W); response positivity for responded: P(responded = 1 | transition_navigation = a, W) > 0 almost surely wherever the target functional evaluates arm a
+causal study protocol: schema 1; 1f8351d839cc8afe
+outcome family: gaussian; fluctuation: logistic (iterative)
+stacked CV-TMLE (Levy): nuisances cross-fitted over 5 folds; targeting: pooled
+propensity truncated to [0.009532, 0.9905]; ATT/ATC to [0.025, 0.975]
+P(Delta=1|A,W) truncated to [0.01, 1]
+data 20a917c8c326d554 | folds b3d93054673ed5ae | cleverly 0.1.5 | 2026-10-22T23:04:23+00:00
+
+estimand  psi      std_err   95% CI              p_value
+--------  -------  --------  ------------------  -------
+ate       0.14782  0.005219  [0.13759, 0.15805]  <1e-4  
+
+estimate:        0.1478
+standard error:  0.0052
+95% CI:          (0.1376, 0.1581)
+population ATE:  0.1466
+Refutation tests for 'ate'
+----------------------------------
+test               original  refuted (mean)  sd        expected                                    rung  ok
+-----------------  --------  --------------  --------  ------------------------------------------  ----  --
+simulated_outcome  0.14782   0.10231         0.004196  readings inside their bands around 0.10287  L2    NO
+
+simulated_outcome: process=bounded_beta_adjustment_dependent; family=gaussian; effect=0.10287; successful=400; failed=0
+reading: bias -0.134 [-0.232, -0.03598] outside [-0.2, 0.2]; standard-error ratio and coverage withheld (covariate part of the curve)
+  bias = -0.134, 95% interval [-0.232, -0.03598], band [-0.2, 0.2]: outside
+  On the generated law named here, the bias lies inside its equivalence band. Your own outcome law is not this one. Generated law: bounded_beta_adjustment_dependent (phi 20), 400 draws on the held design, truth 0.10287.
+
+VERDICT: at least one refutation test failed.
+SECONDS 565
+
+### plasmode
+cleverly 0.1.5
+rows and columns: (4000, 6)
+['transition_score', 'transition_navigation', 'discharge_risk', 'age', 'prior_utilization', 'responded']
+   transition_score  transition_navigation  discharge_risk    age  prior_utilization  responded
+0             0.707                    1.0           0.049  0.518             -0.110        1.0
+1             0.567                    1.0          -0.089  0.503              0.511        1.0
+2             0.560                    0.0           0.345 -1.421             -0.570        1.0
+3             0.685                    1.0          -0.307  0.740              0.045        1.0
+4             0.174                    0.0          -0.394  0.378              0.326        1.0
+
+response rate:            0.763
+missing transition score: 949 rows
+population ATE:           0.1466
+mean baseline covariate by response status:
+           discharge_risk    age  prior_utilization
+responded                                          
+0.0                 0.781  0.012             -0.215
+1.0                -0.229 -0.012              0.056
+causal study protocol: schema 1; 1f8351d839cc8afe
+target population: Adults with a discharge-home order at a participating hospital during the enrollment period, whether or not they return the survey
+eligibility: ['Age 18 years or older', 'Discharge home ordered at a participating hospital']
+time zero: Discharge-home order, after baseline measurement and before the navigation offer
+treatment strategies: ['Offer standard transition navigation', 'Provide usual discharge support']
+treatment versions: ['Bedside transition plan and two scheduled navigator contacts within 30 days', 'No access to the transition-navigation offer']
+outcome: Patient-reported transition score, as a share of the maximum score, from the survey sent on day 30 and closed on day 45; the score lies between 0 and 1
+horizon: 30 days after discharge
+intercurrent-event handling: ['Use the transition score regardless of readmission', 'Analyze the offer regardless of completed contacts', 'The protocol scores death before day 30 as the worst transition score (composite strategy)']
+interference unit: Individual patient
+assumption rationale: ['The recorded baseline variables cover the measured common causes', 'Given the arm and the baseline variables, survey response carries no further information about the unobserved score (missingness at random)', 'The standardized offer and version records support consistency', 'Reserved navigator capacity and access controls support no interference']
+average treatment effect, E[Y^a] - E[Y^reference]
+identified by explicit-adjustment: E_W[E(transition_score | transition_navigation=a, responded=1, W)] - E_W[E(transition_score | transition_navigation=0, responded=1, W)] for a in [1]
+adjustment/history: ['discharge_risk', 'age', 'prior_utilization']
+required nuisances: ['outcome_regression', 'treatment_mechanism', 'missingness_mechanism']
+assumptions:
+  - consistency: Y = Y^a when A = a
+  - no interference: one unit's potential outcome does not depend on other units' treatment assignments
+  - no unmeasured confounding: Y^a is independent of A given W
+  - positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]
+  - missingness at random for responded: transition_score is independent of responded given (transition_navigation, W)
+  - response positivity for responded: P(responded = 1 | transition_navigation = a, W) > 0 almost surely wherever the target functional evaluates arm a
+causal study protocol: schema 1; 1f8351d839cc8afe
+Targeted maximum likelihood estimation
+======================================
+n = 4000 (3051 with an observed outcome); covariates = 3; P(A=1) = 0.4993
+causal estimand: average treatment effect, E[Y^a] - E[Y^reference]
+identification: explicit-adjustment; E_W[E(transition_score | transition_navigation=a, responded=1, W)] - E_W[E(transition_score | transition_navigation=0, responded=1, W)] for a in [1]
+required nuisances: outcome_regression, treatment_mechanism, missingness_mechanism
+identification assumptions: consistency: Y = Y^a when A = a; no interference: one unit's potential outcome does not depend on other units' treatment assignments; no unmeasured confounding: Y^a is independent of A given W; positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]; missingness at random for responded: transition_score is independent of responded given (transition_navigation, W); response positivity for responded: P(responded = 1 | transition_navigation = a, W) > 0 almost surely wherever the target functional evaluates arm a
+causal study protocol: schema 1; 1f8351d839cc8afe
+outcome family: gaussian; fluctuation: logistic (iterative)
+stacked CV-TMLE (Levy): nuisances cross-fitted over 5 folds; targeting: pooled
+propensity truncated to [0.009532, 0.9905]; ATT/ATC to [0.025, 0.975]
+P(Delta=1|A,W) truncated to [0.01, 1]
+data 20a917c8c326d554 | folds b3d93054673ed5ae | cleverly 0.1.5 | 2026-10-22T23:04:23+00:00
+
+estimand  psi      std_err   95% CI              p_value
+--------  -------  --------  ------------------  -------
+ate       0.14782  0.005219  [0.13759, 0.15805]  <1e-4  
+
+estimate:        0.1478
+standard error:  0.0052
+95% CI:          (0.1376, 0.1581)
+population ATE:  0.1466
+Refutation tests for 'ate'
+----------------------------------
+test      original  refuted (mean)  sd        expected                                    rung  ok 
+--------  --------  --------------  --------  ------------------------------------------  ----  ---
+plasmode  0.14782   0.10308         0.004594  readings inside their bands around 0.10287  L2    yes
+
+plasmode: process=bounded_beta_adjustment_dependent; family=gaussian; effect=0.10287; successful=400; failed=0
+reading: bias 0.04522 [-0.05278, 0.1432] inside [-0.2, 0.2]; se_ratio 1.001 [0.932, 1.075] inside [0.85, 1.15]; coverage 0.95 [0.9238, 0.9692] inside [0.88, 0.99]
+  bias = 0.04522, 95% interval [-0.05278, 0.1432], band [-0.2, 0.2]: inside
+  se_ratio = 1.001, 95% interval [0.932, 1.075], band [0.85, 1.15]: inside
+  coverage = 0.95, 95% interval [0.9238, 0.9692], band [0.88, 0.99]: inside
+  On the plasmode law named here, the bias lies inside its equivalence band. The plasmode resembles your data and does not estimate its truth. On the plasmode law named here, the standard-error ratio lies inside its equivalence band. The plasmode resembles your data and does not estimate its truth. On the plasmode law named here, the 95% interval coverage lies inside its equivalence band. The plasmode resembles your data and does not estimate its truth. Generated law: bounded_beta_adjustment_dependent (phi 20), 400 draws on resampled covariates and a frozen treatment model clipped to [0.00953177, 0.990468], a frozen outcome response model, truth 0.10287.
+
+VERDICT: every refutation test with a verdict passed it.
+SECONDS 566
+

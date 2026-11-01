@@ -12,6 +12,8 @@ from typing import Any, TypeVar
 
 from joblib import Parallel, delayed
 
+from .._warnings import merge, run_recorded
+
 __all__ = ["map_parallel", "resolve_n_jobs"]
 
 T = TypeVar("T")
@@ -37,16 +39,31 @@ def map_parallel(
 
     Payloads that are tuples are splatted as positional arguments; anything
     else is passed as a single argument.
+
+    Each task runs under its own warning recorder and returns its records with its
+    value, because a worker's warnings never reach the parent. The parent merges them
+    in task order, and the serial path takes the same route, so a fit records the same
+    warnings at any ``n_jobs`` (:mod:`cleverly._warnings`).
     """
     items = list(payloads)
     jobs = resolve_n_jobs(n_jobs)
     if jobs == 1 or len(items) <= 1:
-        return [func(*item) if isinstance(item, tuple) else func(item) for item in items]
-
-    runner = Parallel(n_jobs=jobs, prefer=prefer)
-    return list(
-        runner(
-            delayed(func)(*item) if isinstance(item, tuple) else delayed(func)(item)
+        outcomes = [
+            run_recorded(func, *item) if isinstance(item, tuple) else run_recorded(func, item)
             for item in items
+        ]
+    else:
+        runner = Parallel(n_jobs=jobs, prefer=prefer)
+        outcomes = list(
+            runner(
+                delayed(run_recorded)(func, *item)
+                if isinstance(item, tuple)
+                else delayed(run_recorded)(func, item)
+                for item in items
+            )
         )
-    )
+    values = []
+    for value, records in outcomes:
+        merge(records)
+        values.append(value)
+    return values

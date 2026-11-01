@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from cleverly._summary._estimates import plain_support_reason
 from cleverly.estimators._option_support import OPTION_STUDIES_ROADMAP
 from tests.unit import test_patience as patience_module
 from tests.unit import test_stopping_rule_engines as engines
@@ -52,7 +53,9 @@ def test_a_declared_stopping_rule_is_experimental(rule: str) -> None:
     assert OPTION_STUDIES_ROADMAP in evidence(result)
     reason = result.estimates["ate"].support.reason
     assert f"stopping={rule!r}" in reason
-    assert f"experimental: {reason}" in result.summary()
+    assert "experimental" in result.summary().note_codes
+    settings = result.summary(detail="full").section("Settings").lines
+    assert any(plain_support_reason(reason) in line for line in settings)
 
 
 def test_outcome_by_arm_is_experimental() -> None:

@@ -28,18 +28,17 @@ from typing import Any
 
 import numpy as np
 
+from .._summary import Detail, Summary, check_detail
 from .._typing import FloatArray
 from ..data.weighting import (
     REPORTED_DRAW,
     SCORE_LOAD_SHAPE_MISMATCH,
     ScoreLoadRow,
     effective_sample_size,
-    format_score_load,
     score_load_row,
     validate_score_loads,
 )
 from ..utils.frames import emit_frame
-from ..utils.text import format_table
 from .base import RegimeSet
 
 __all__ = ["RegimeSupport", "SupportReport", "check_support"]
@@ -144,6 +143,31 @@ class RegimeSupport:
     score_load: _InterventionLoadRow | None = None
     score_load_omission: str | None = None
 
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """This regime's overlap, as one table.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds how to read each column.
+
+        Returns
+        -------
+        Summary
+            The summary.
+        """
+        from ._support_summary import regime_support_summary
+
+        return regime_support_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._support_summary import regime_support_repr
+
+        return regime_support_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
 
 #: Which score-load value each frame column reads, and what it carries when the row has no
 #: score load at all.  One list rather than four copies of the same null guard.
@@ -220,51 +244,30 @@ class SupportReport:
         ]
         return emit_frame(payload, data, backend=self.backend)
 
-    def summary(self) -> str:
-        """A short human-readable table.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """The overlap of each regime, with what each column means.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default="short"
+            ``"full"`` adds how to read each column, the ratio quantiles and the tail mass.
 
         Returns
         -------
-        str
-            A printable table, one line per row of the report.
+        Summary
+            The summary. It prints as text and renders as HTML in a notebook.
         """
-        if not self.regimes:
-            return "no regimes"
-        rows = [
-            [
-                name,
-                f"{item.min_support_propensity:.4g}",
-                f"{item.max_ratio:.4g}",
-                f"{item.effective_sample_size:.1f}",
-                # The table cell is fixed width, so it takes the terse style; every other
-                # reader of the same row takes a wordier one from the same formatter.
-                format_score_load(item.score_load, style="cell"),
-                str(item.unsupported),
-            ]
-            for name, item in self.regimes.items()
-        ]
-        return "\n".join(
-            [
-                f"regime support (n = {self.n})",
-                "",
-                format_table(
-                    [
-                        "regime",
-                        "min g",
-                        "max ratio",
-                        "ratio effective n",
-                        "score load",
-                        "unsupported",
-                    ],
-                    rows,
-                ),
-                "",
-                "min g, max ratio and ratio effective n read the treatment mechanism before "
-                "truncation.",
-                "score load reads the truncated mechanism of the targeting step, as "
-                "Kish-equivalent mask rows from abs(w_i * H_ij), not estimator ESS.",
-            ]
-        )
+        from ._support_summary import support_report_summary
+
+        return support_report_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._support_summary import support_report_repr
+
+        return support_report_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 def check_support(

@@ -217,11 +217,15 @@ class TestRender:
 class TestCommittedTable:
     def test_the_draft_has_one_entry_per_positive_red_row_of_the_ledger(self) -> None:
         from cleverly._support import registered_rows
+        from cleverly._support_rows import EXEMPT_STUDIES
         from tests.studies.evidence.red_cells import frames, red_rows
         from tests.studies.evidence.registry import registered
 
         expected = 0
         for record in registered():
+            # A study exempt from the support rows decides no row, unless one is named for it.
+            if record.slug in EXEMPT_STUDIES and record.slug not in sd.ROW_STUDY:
+                continue
             tables = frames(record)
             for red in red_rows(record, tables):
                 kind = red.key.kind

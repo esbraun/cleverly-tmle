@@ -14,15 +14,12 @@ regime's label does.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 import numpy as np
 
 __all__ = [
     "format_draw",
     "format_negligible",
     "format_pvalue",
-    "format_table",
     "format_within",
 ]
 
@@ -94,25 +91,6 @@ def format_draw(reported: int, total: int) -> str:
         The phrase ``"draw R of N"``, ready to embed in a sentence.
     """
     return f"draw {reported} of {total}"
-
-
-def format_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
-    """Render a fixed-width table without pulling in a dataframe dependency."""
-    columns: list[Sequence[str]] = (
-        list(zip(*([list(headers)] + [list(row) for row in rows]), strict=True))
-        if rows
-        else [[header] for header in headers]
-    )
-    widths = [max(len(str(cell)) for cell in column) for column in columns]
-    lines = [
-        "  ".join(str(header).ljust(width) for header, width in zip(headers, widths, strict=True)),
-        "  ".join("-" * width for width in widths),
-    ]
-    for row in rows:
-        lines.append(
-            "  ".join(str(cell).ljust(width) for cell, width in zip(row, widths, strict=True))
-        )
-    return "\n".join(lines)
 
 
 def format_pvalue(pvalue: float) -> str:

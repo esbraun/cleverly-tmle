@@ -32,6 +32,7 @@ import pytest
 
 import cleverly.longitudinal.estimator as estimator_module
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
+from cleverly._summary import vocabulary
 from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
@@ -196,9 +197,8 @@ def test_none_seed_draws_fresh_concrete_seeds(monkeypatch: pytest.MonkeyPatch) -
     # One multiplier seed for the fit, used by every draw's critical value.
     seed = result.config.multiplier_seed
     assert isinstance(seed, int)
-    assert f"multiplier seed: {seed} (drawn, random_state=None)" in result.config.describe(
-        contrast=True
-    )
+    # The seed is recorded for replay; the summary prints no seed.
+    assert str(seed) not in str(result.summary(detail="full"))
     rebuilt = median_bands(
         [draw.estimates for draw in result.repeats],
         {name: result[name] for name in result.simultaneous.bands},
@@ -283,14 +283,29 @@ def test_provenance_covers_every_draw() -> None:
     assert single.provenance.fold_fingerprint == single.split_plan.fingerprint
 
 
+def test_fit_warnings_record_what_a_repeated_fit_raised() -> None:
+    """A repeated fit records each warning it shows once, with the draws' copies merged."""
+    result, shown = support.fit_recording("ltmle", repeats=3, g_bounds=(0.3, 0.7))
+    assert shown
+    recorded = [f"{item.category}: {item.message}" for item in result.fit_warnings]
+    assert sorted(recorded) == sorted(set(shown))
+
+
 def test_config_records_repeats_and_the_multiplier_seed() -> None:
     result = _fit("ltmle", repeats=3)
     assert result.config.repeats == 3
     assert result.config.multiplier_seed == 11
-    assert "cross-fitting: 5 fold(s), median over 3 draws" in result.config.describe(contrast=True)
+    full = result.summary(detail="full")
+    assert full.table(vocabulary.PLANS_SPLIT_TITLE.format(repeats=3)) is not None
+    settings = full.section(vocabulary.SECTION_SETTINGS).lines
+    assert "Folds: 5, in each of 3 splits." in settings
+    assert any(line.startswith("Spread of each row across the 3 splits") for line in settings)
     single = _fit("ltmle")
     assert single.config.repeats == 1
-    assert not any("median over" in line for line in single.config.describe(contrast=True))
+    single_full = single.summary(detail="full")
+    assert vocabulary.PLANS_TITLE in [table.title for table in single_full.tables]
+    lines = single_full.section(vocabulary.SECTION_SETTINGS).lines
+    assert not any(line.startswith("Spread of each row") for line in lines)
 
 
 def test_read_through_fields_are_draw_zero() -> None:
@@ -319,7 +334,7 @@ def test_converged_reads_every_draw() -> None:
     stagewise = result.diagnostics.support()
     assert all(stagewise.to_frame()["converged"])
     assert stagewise.draw_converged == (True, True, False)
-    assert "in at least one draw" in result.summary()
+    assert "in at least one split" in result.summary().note("score_unsolved").text
 
 
 # ================================================================ 4.2 aggregation
@@ -824,7 +839,7 @@ def test_validate_and_assess_run_on_a_repeated_fit() -> None:
     result = _quiet(support.ltmle, _rows("ltmle"), repeats=3)
     assert result.assessment_family == _fit("ltmle").assessment_family
     report = result.validate()
-    assert any("draw 1 of 3" in str(item) for item in report.items)
+    assert any("draw 1 of 3" in item.detail for item in report.items)
     assessed = result.assess()
     assert assessed.validation.items == report.items
     assert result.replayability.refit_nuisances
@@ -915,12 +930,67 @@ def test_repeats_on_a_hazard_or_projected_curve_are_computed_and_experimental(
         # The limits of a median band have no projection rule, so no band is built, and
         # the summary says so.
         assert result.simultaneous is None
-        assert estimator_module.NO_ISOTONIC_REPEAT_BANDS in result.summary()
+        assert (
+            estimator_module.NO_ISOTONIC_REPEAT_BANDS
+            in result.summary(detail="full").section("Settings").lines
+        )
         risks = [e.psi for n, e in result.estimates.items() if n.startswith("risk_regimen[a1")]
         assert risks == sorted(risks)
     else:
         assert result.simultaneous is not None
         assert result.simultaneous.support.label == "experimental"
+
+
+def _option_fit(setting: dict[str, Any], **split: Any) -> Any:
+    """A hazard-panel fit with one X33 option, at ``repeats=3`` unless ``split`` says otherwise."""
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+
+    hazard = setting.get("survival_model") == "hazard"
+    keywords: dict[str, Any] = {"n_folds": 2, "repeats": 3, "random_state": 1, **split}
+    return _quiet(
+        lambda data, **kwargs: LTMLE({"a1": 1, "a0": 0}, **kwargs).fit(data),
+        _held_treatment_data(),
+        horizons=[1, 2, 3],
+        outcome_learner=LogisticRegression(max_iter=500) if hazard else LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=500),
+        censoring_learner=LogisticRegression(max_iter=500),
+        **keywords,
+        **setting,
+    )
+
+
+#: Each X33 option, the default it moves off, and a setting under which it moves the estimate.
+X33_OPTIONS = {
+    "node_bounds": ({"node_bounds": {2: (0.0, 0.2)}}, {}),
+    "hazard_pooling": (
+        {"survival_model": "hazard", "hazard_pooling": "pooled"},
+        {"survival_model": "hazard"},
+    ),
+    "ratio_trim": ({"ratio_trim": 0.9}, {}),
+}
+
+
+@pytest.mark.parametrize("option", sorted(X33_OPTIONS))
+def test_each_draw_carries_the_x33_option(option: str) -> None:
+    """Draw ``r`` with the option is the single-draw fit at ``seed_r`` with the option.
+
+    The default fit at the same seeds is a nonzero witness: a draw that dropped the option
+    would equal it and fail the difference check.
+    """
+    setting, default = X33_OPTIONS[option]
+    result = _option_fit(setting)
+    plain = _option_fit(default)
+    assert result.n_repeats == 3
+    moved = 0.0
+    for draw, other in zip(result.repeats, plain.repeats, strict=True):
+        assert draw.seed == other.seed
+        single = _option_fit(setting, repeats=1, random_state=draw.seed)
+        _assert_draw_equals_fit(draw, single)
+        moved = max(
+            moved,
+            max(abs(draw.estimates[n].psi - other.estimates[n].psi) for n in draw.estimates),
+        )
+    assert moved > 1e-3
 
 
 def test_repeats_enter_the_support_key_so_a_single_draw_row_never_covers_them() -> None:
@@ -1012,15 +1082,49 @@ def test_readers_report_the_combined_estimates() -> None:
     frame = result.to_frame()
     for name, estimate in result.estimates.items():
         assert frame.loc[frame["estimand"] == name, "psi"].item() == estimate.psi
-    text = str(result.summary())
-    assert "median over 3 draws" in text
-    assert "leverage of draw 1 of 3" in text
-    # The split-noise block names every parameter with its spread across the draws.
-    assert "split noise -- spread across the 3 draws on the inference scale" in text
+    summary = result.summary()
+    assert "median over 3 random splits" in summary.note("repeated_splits").text
+    # The plan table reads one fitted recursion, so it says which.
+    assert any(table.title.endswith("(split one of 3)") for table in summary.tables if table.title)
+    # The spread line names every parameter with its spread across the draws.
+    (spread_line,) = [
+        line
+        for line in result.summary(detail="full").section("Settings").lines
+        if line.startswith("Spread of each row across the 3 splits")
+    ]
     spread = result.repeat_spread()
     for name in result.estimates:
-        assert f"  {name} {spread[name]:.4g}  (" in text
-    assert "split noise" not in str(single.summary())
+        assert f"{name} {spread[name]:.4g}" in spread_line
+    assert "repeated_splits" not in single.summary().note_codes
+    assert not any(
+        line.startswith("Spread of each row")
+        for line in single.summary(detail="full").section("Settings").lines
+    )
+
+
+def test_refute_reruns_every_draw_with_its_own_seed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The stored template reproduces a repeated fit, and ``refute`` reuses every draw seed."""
+    from cleverly.validation import refute
+
+    result = _fit("ltmle", repeats=3)
+    seeds = [draw.seed for draw in result.repeats]
+    again = result.estimator.refit(result.data, frozen_seeds=seeds)
+    for name in result:
+        assert again[name].psi == result[name].psi
+    contrast = next(name for name in result if "vs" in name)
+    seen: list[dict[str, Any]] = []
+    template = type(result.estimator).refit
+
+    def spy(self: Any, data: Any, **options: Any) -> Any:
+        seen.append(options)
+        return template(self, data, **options)
+
+    monkeypatch.setattr(type(result.estimator), "refit", spy)
+    report = refute(
+        result, estimand=contrast, tests=("random_common_cause",), n_replicates=2, random_state=0
+    )
+    assert len(report["random_common_cause"].values) == 2
+    assert [list(options["frozen_seeds"]) for options in seen] == [seeds, seeds]
 
 
 def test_unavailable_capabilities_keep_their_reason() -> None:
@@ -1083,9 +1187,12 @@ def test_long_panel_repeats_reproduce_the_wide_fit() -> None:
             _close(left.estimates[name].psi, estimate.psi)
             _close(left.estimates[name].influence_curve, estimate.influence_curve)
     pd.testing.assert_frame_equal(adapted.to_frame(), wide.to_frame(), rtol=RTOL)
-    describe = adapted.config.describe(contrast=True)
-    assert any(line.startswith("long panel: unit column 'customer'") for line in describe)
-    assert "cross-fitting: 2 fold(s), median over 3 draws" in describe
+    full = adapted.summary(detail="full")
+    assert dict(full.header)[vocabulary.UNITS] == f"{adapted.n:,}"
+    settings = full.section(vocabulary.SECTION_SETTINGS).lines
+    assert any(line.startswith("Long panel: unit column 'customer'") for line in settings)
+    assert "Folds: 2, in each of 3 splits." in settings
+    assert full.table(vocabulary.PLANS_SPLIT_TITLE.format(repeats=3)) is not None
     # The study design ``LongPanel`` reaches the same repeated engine.
     from tests.unit.test_long_panel import ROLES
 
@@ -1308,12 +1415,16 @@ KEYWORDS: dict[str, tuple[str, str, str | None]] = {
     "isotonic": _witness(
         "test_repeats_on_a_hazard_or_projected_curve_are_computed_and_experimental"
     ),
+    "node_bounds": _witness("test_each_draw_carries_the_x33_option"),
+    "hazard_pooling": _witness("test_each_draw_carries_the_x33_option"),
+    "ratio_trim": _witness("test_each_draw_carries_the_x33_option"),
 }
 
 _READERS = _witness("test_readers_report_the_combined_estimates")
 _READ_THROUGH = _witness("test_read_through_fields_are_draw_zero")
 _STUDY = _witness("test_causal_study_band_under_repeats_uses_the_median_rule")
 _ASSESS = _witness("test_validate_and_assess_run_on_a_repeated_fit")
+_REFUTE = _witness("test_refute_reruns_every_draw_with_its_own_seed")
 
 #: The dataclass fields and public members of ``LongitudinalResult``.
 RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
@@ -1328,6 +1439,7 @@ RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
     "config": _witness("test_config_records_repeats_and_the_multiplier_seed"),
     "scaler": _witness(EACH_DRAW, "clustered"),
     "provenance": _witness("test_provenance_covers_every_draw"),
+    "fit_warnings": _witness("test_fit_warnings_record_what_a_repeated_fit_raised"),
     "simultaneous": _witness("test_band_uses_split_adjusted_se_and_median_critical_value"),
     "parameter_index": _READERS,
     "msm": _witness("test_msm_coefficients_median_coordinatewise"),
@@ -1335,6 +1447,7 @@ RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
     "method": _STUDY,
     "parameter_keys": _STUDY,
     "fitted_method": _witness(EACH_DRAW, "sdr"),
+    "estimator": _REFUTE,
     "assessment_cache": _ASSESS,
     "bootstrap": _witness("test_repeats_refuse_the_bootstrap"),
     "repeats": _witness(EACH_DRAW, "ltmle"),
@@ -1387,7 +1500,7 @@ CAPABILITIES: dict[str, tuple[str, str, str | None]] = {
     "score_equations": _witness("test_score_rows_cover_every_draw"),
     "truncation_curve": _witness("test_truncation_curve_follows_every_draw"),
     "corrections": _UNAVAILABLE,
-    "refute": _UNAVAILABLE,
+    "refute": _REFUTE,
     **dict.fromkeys(SENSITIVITY_ROUTES, _UNAVAILABLE),
 }
 
@@ -1429,6 +1542,7 @@ STUDY_FIELDS: dict[str, tuple[str, str, str | None]] = {
     "identified_effect": _STUDY,
     "method": _STUDY,
     "parameter_keys": _STUDY,
+    "estimator": _REFUTE,
     "assessment_cache": _ASSESS,
 }
 

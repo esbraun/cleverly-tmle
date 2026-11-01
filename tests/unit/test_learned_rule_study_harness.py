@@ -10,6 +10,7 @@ import importlib
 import platform
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import numpy as np
 import pandas as pd
@@ -17,9 +18,14 @@ import pytest
 
 from tests.canonical import declared_run, learned_rule_run
 from tests.studies import _learned_rule_law as law
+from tests.studies import fold_evaluated_strata as strata
+from tests.studies import learned_rule_compositions as compositions
 from tests.studies import learned_rule_cvtmle as gated
 from tests.studies import learned_rule_cvtmle_boundary as boundary
 from tests.studies import learned_rule_cvtmle_properties as properties
+from tests.studies import learned_rule_learners as learners
+from tests.studies import learned_rule_split_mean as split_mean
+from tests.studies import learned_rule_strata as learned_strata
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
@@ -68,8 +74,28 @@ class TestTheSeedRules:
 
     def test_no_smoke_sample_seed_is_declared(self) -> None:
         declared = learned_rule_run.declared_sample_seeds()
-        assert len(declared) == 46_310 + 6_000 + 12_000
-        for study in (gated, boundary):
+        # RM30's gated and boundary studies, then X11's learned-rule-compositions: 12,000
+        # primary and 36,255 property seeds, of which one coincides between
+        # clustered__declared and clustered_few__declared. Those cells draw the same law at two
+        # sizes and cluster sizes, so the two samples share a prefix of their uniform draws; one
+        # replicate of 8,400 in each cell makes the dependence negligible. X11's
+        # learned-rule-split-mean adds 4,000 primary and 12,800 property seeds, none shared.
+        # X11's learned-rule-learners adds 4,000 primary and 18,400 property seeds (14,400 gated
+        # at n = 4,000 and 4,000 of the n = 1,000 diagnostic cells), of which one
+        # (weighted_classification__declared replicate 732, n = 4,000) equals the sample seed of
+        # learned-rule-compositions' clustered replicate 2,444 (n = 2,000). The two draws share
+        # their first 2,000 values of W1 and nothing else (``test_learned_rule_learners_design``).
+        # X11's fold-evaluated-strata (X28) adds 8,000 primary and 40,000 property seeds, of
+        # which two equal a seed of learned-rule-split-mean or learned-rule-cvtmle and share
+        # only their first 1,000 values of W1 (``test_fold_evaluated_strata_design``).
+        # X11's learned-rule-strata (X11 PR E2) adds 8,000 primary and 70,800 property seeds,
+        # of which one pair coincides within the study (primary weighted replicate 642 and
+        # calibration unweighted replicate 4,245 draw the same rows-only sample) and none with
+        # another study (``test_learned_rule_strata_design``).
+        assert len(declared) == (
+            46_310 + 6_000 + 12_000 + 48_254 + 16_800 + 22_399 + 47_998 + 78_799
+        )
+        for study in (gated, boundary, compositions, split_mean, learners, strata, learned_strata):
             smoke = law.smoke_record(study.STUDY)
             seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}
             assert not seeds & declared
@@ -233,6 +259,31 @@ class TestTheRunForm:
         monkeypatch.setattr(learned_rule_run, "regenerate", pytest.fail)
         with pytest.raises(SystemExit, match="smoke-only"):
             learned_rule_run.run(gated, properties, here=gated.STUDY.artifacts)
+
+    @pytest.mark.parametrize("learned_rule", [True, False])
+    def test_the_harness_check_needs_the_rule_column_of_a_learned_rule_study(
+        self, learned_rule: bool, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A learned-rule study whose rows lost ``rule_rows_checked`` stops the check; a study
+        that declares ``LEARNED_RULE = False`` (``fold-evaluated-strata``) skips the agreement."""
+        module = ModuleType("tests.studies.some_properties")
+        rows = pd.DataFrame({"cell": ["a__declared"], "n": [N], "solver_warnings": [0]})
+        module.PROPERTY_DRAWS = ()  # type: ignore[attr-defined]
+        module.suffixes = lambda record: {}  # type: ignore[attr-defined]
+        module.generate_property_rows = lambda **kwargs: rows  # type: ignore[attr-defined]
+        if not learned_rule:
+            module.LEARNED_RULE = False  # type: ignore[attr-defined]
+        record = law.smoke_record(gated.STUDY)
+        if learned_rule:
+            with pytest.raises(RuntimeError, match="carry no rule_rows_checked"):
+                learned_rule_run._property_harness_check(module, record, 1, tmp_path, 1)
+        else:
+            learned_rule_run._property_harness_check(module, record, 1, tmp_path, 1)
+            assert "rule agreement" not in capsys.readouterr().out
+        from tests.studies import fold_evaluated_strata_properties as strata_properties
+
+        assert strata_properties.LEARNED_RULE is False
+        assert not hasattr(properties, "LEARNED_RULE")
 
     def test_a_smoke_study_draws_from_the_throwaway_record(self) -> None:
         smoke = law.smoke_record(gated.STUDY)

@@ -138,6 +138,7 @@ def fit_cleverly(frame: pd.DataFrame, *, simultaneous: bool = False) -> Any:
             treatment_learner=OracleTreatment(law),
             missingness_learner=OracleMissingness(law),
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(C=1e6, max_iter=2_000),
             estimands=ESTIMANDS,
             simultaneous=simultaneous,

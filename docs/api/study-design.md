@@ -1,7 +1,7 @@
 # Study design and identification
 
 Use these objects to declare the observed data, identify a causal quantity, and start estimation.
-`CausalStudy` is the main entry point. The protocols support advanced identification extensions.
+`CausalStudy` is the main entry point.
 
 ```{eval-rst}
 .. autosummary::
@@ -28,8 +28,11 @@ Use these objects to declare the observed data, identify a causal quantity, and 
 trajectory container as `LongitudinalData.from_long_panel`, and `PanelLayout` records the roles
 that the container was built from.
 
-Call `CausalStudy(data, design=...)`, then call `identify()` or `estimate()`. An identification
-provider extends this sequence. It does not waive the identification and evidence requirements.
+Call `CausalStudy(data, design=...)`, then `identify(estimand)` and `estimate()` on the
+`IdentifiedEffect` it returns. `CausalStudy.estimate(estimand)` does both steps in one call.
+`identify()` uses the declared adjustment set or history by default (`ExplicitAdjustmentProvider`).
+A custom `IdentificationProvider`, passed as `provider=`, must return an `IdentifiedEffect` with
+explicit assumptions and nuisance requirements.
 
 Pass `protocol=StudyProtocol(...)` to preserve the scientific context across identification,
 estimation, summaries, and persistence. Sequence inputs normalize to tuples. The constructor
@@ -39,9 +42,10 @@ rejects blank text and unmatched treatment strategy and version counts.
 its canonical representation, and `fingerprint` supplies its BLAKE2b digest. The digest identifies
 the protocol record. It does not replace the separate data and fold fingerprints in `Provenance`.
 
-Each identification and result summary prints the whole record by default. Pass
-`protocol="fingerprint"` to `summary()` to print only the line with the schema and the
-fingerprint, for example after you print `"\n".join(protocol.summary_lines())` once.
+An identification or result summary prints the analysis by default. Pass `detail="full"` to
+`summary()` to print the record's fields too. No summary prints the fingerprint.
+`protocol.summary()` prints the record as tables, and `"\n".join(protocol.summary_lines())` prints
+each field on one line.
 
 The fingerprint records the protocol. It does not verify it. The package does not check that
 `treatment_strategies` names the regimens or arms a result estimates, because the strategies are
@@ -65,5 +69,5 @@ and concepts from the literature on
 [treatment versions](https://pmc.ncbi.nlm.nih.gov/articles/PMC4219328/). It is not a complete
 target-trial protocol or a claim of ICH estimand compliance.
 
-Trusted point and longitudinal artifacts written before `StudyProtocol` still load. Their
-summaries state `causal study protocol: absent`, and their protocol fingerprint is `None`.
+A fit without `protocol=` says in its full summary that no study protocol was recorded, and its
+`Provenance.protocol_fingerprint` is `None`.

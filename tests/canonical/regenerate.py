@@ -62,7 +62,7 @@ import pandas as pd
 from tests.parallel import available_cores
 from tests.studies.evidence import failures, property_failures, replication
 from tests.studies.evidence.comparison import empty_equivalence, equivalence
-from tests.studies.evidence.manifest import write_csv, write_manifest
+from tests.studies.evidence.manifest import read_rows, write_csv, write_manifest, write_rows
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import REPLICATE_COLUMNS as PROPERTY_COLUMNS
 from tests.studies.evidence.registry import ROOT, StudyRecord
@@ -71,11 +71,11 @@ from tests.studies.evidence.seeds import reference_seed
 
 #: Every published artefact, in the order the manifest hashes them.
 ARTIFACT_NAMES = (
-    "replicates.csv.gz",
+    "replicates.parquet",
     "summary.csv",
     "equivalence.csv",
     "performance-tests.csv",
-    "property-replicates.csv.gz",
+    "property-replicates.parquet",
     "properties.csv",
 )
 
@@ -195,7 +195,7 @@ class Reference:
             raise ValueError("an alternate reference runner requires mount_runner=True")
         # A failure file left by an earlier run in the same scratch would read as this run's.
         failures_path(output).unlink(missing_ok=True)
-        subprocess.run(["docker", "build", "-t", self.image, str(context)], check=True)
+        build_image(self.image, context)
         active = _ACTIVE.get()
         if active is not None and self.interpreter == "Rscript":
             _run_resumable(
@@ -412,7 +412,7 @@ def _repository_name(path: Path) -> str:
 def leaf_key(
     reference: Reference, key: Mapping[str, Any], here: Path, samples: Path, truths: Path
 ) -> dict[str, Any]:
-    """Every resume-key field of one reference run, except the image ID.
+    """Every resume-key field of one reference run, except the image content.
 
     The seeds file is not listed: it is a function of the declaration and the runner name,
     which the key holds.  The group-id list is not listed: it is a function of the runner and
@@ -535,10 +535,39 @@ def _docker_text(*arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["docker", *arguments], capture_output=True, text=True)
 
 
-def image_id(image: str) -> str | None:
-    """The local image's ID, or ``None`` when Docker has no such image."""
-    completed = _docker_text("image", "inspect", "--format", "{{.Id}}", image)
-    return completed.stdout.strip() if completed.returncode == 0 else None
+def build_image(image: str, context: Path) -> None:
+    """Build ``image`` from ``context`` without the default build attestations.
+
+    BuildKit's default provenance attestation records the build itself, so it gives a rebuild
+    from cached layers a new image ID and leaves the earlier image dangling.  The resume key
+    does not depend on it (:func:`image_content`); turning it off keeps the tag on one image.
+    """
+    env = {**os.environ}
+    env.setdefault("BUILDX_NO_DEFAULT_ATTESTATIONS", "1")
+    subprocess.run(["docker", "build", "-t", image, str(context)], check=True, env=env)
+
+
+def image_content(image: str) -> str | None:
+    """A digest of what a container of ``image`` runs, or ``None`` when Docker has no such image.
+
+    It hashes the platform, the layer chain (``RootFS``: the uncompressed digest of each
+    filesystem layer, in order) and the run configuration (``Config``: environment,
+    entrypoint, command, user, working directory).  Two images with equal digests run the same
+    files under the same settings.  The image ID is not used: under the containerd image store
+    it is the digest of a manifest list that also holds build attestations, so it changes on
+    every rebuild of identical content.  The build date and history are left out for the same
+    reason; neither reaches a container.
+    """
+    completed = _docker_text("image", "inspect", "--format", "{{json .}}", image)
+    if completed.returncode != 0:
+        return None
+    held = json.loads(completed.stdout)
+    content = {
+        "platform": [held.get("Os"), held.get("Architecture"), held.get("Variant")],
+        "rootfs": held.get("RootFS"),
+        "config": held.get("Config"),
+    }
+    return "content:" + digest(content)
 
 
 def clear_stopped_container(name: str) -> None:
@@ -638,7 +667,7 @@ def _run_resumable(
     leaf = f"{stem}__{output.stem}"
     fields = leaf_key(reference, context.key, here, samples, truths)
     key12 = digest(fields)[:12]
-    image = image_id(reference.image)
+    image = image_content(reference.image)
     meta = work / f"{leaf}.meta.json"
     meta.write_text(
         json.dumps({**canonical(fields), "image": image, "leaf": leaf}, sort_keys=True, indent=1)
@@ -1000,7 +1029,7 @@ def _committed_subject(study: ModuleType, arguments: argparse.Namespace, here: P
             f"--reuse-subject: the committed rows have scenario sizes "
             f"{configured.get('scenario_n', {})}, not {_declared_sizes(record, arguments.n)}"
         )
-    for name in ("replicates.csv.gz", failures.FAILURES):
+    for name in ("replicates.parquet", failures.FAILURES):
         path = here / name
         recorded = manifest["sha256"].get(name)
         if recorded is None:
@@ -1009,7 +1038,7 @@ def _committed_subject(study: ModuleType, arguments: argparse.Namespace, here: P
             continue
         if hashlib.sha256(path.read_bytes()).hexdigest() != recorded:
             raise RuntimeError(f"--reuse-subject: {name} no longer matches its manifest hash")
-    committed = pd.read_csv(here / "replicates.csv.gz", float_precision="round_trip")
+    committed = read_rows(here / "replicates.parquet")
     rows = committed.loc[committed["implementation"] == record.implementation].reset_index(
         drop=True
     )
@@ -1030,7 +1059,7 @@ def _committed_subject(study: ModuleType, arguments: argparse.Namespace, here: P
 def _reference_key(reference: Reference, here: Path, phase: _Phase) -> str | None:
     """What a cached reference result must have been written under, or ``None``.
 
-    The key is the reference run's resume key and its image ID: equal sources, inputs,
+    The key is the reference run's resume key and its image content: equal sources, inputs,
     declaration, code and versions.  Outside :func:`main` there is no key.
     """
     active = _ACTIVE.get()
@@ -1039,7 +1068,7 @@ def _reference_key(reference: Reference, here: Path, phase: _Phase) -> str | Non
     if active is None or samples is None or truths is None or not samples.exists():
         return None
     fields = leaf_key(reference, active.key, here, samples, truths)
-    return f"{digest(fields)[:12]}\n{image_id(reference.image)}\n"
+    return f"{digest(fields)[:12]}\n{image_content(reference.image)}\n"
 
 
 def _reference_rows(
@@ -1052,7 +1081,7 @@ def _reference_rows(
     # ``--skip-reference`` is only registered when the study declares a reference, so the one
     # ``getattr`` here stands in for a flag an unpaired study never carries.
     if getattr(arguments, "skip_reference", False):
-        committed = pd.read_csv(here / "replicates.csv.gz")
+        committed = read_rows(here / "replicates.parquet")
         sizes = study.STUDY.sizes(arguments.n)
         rows = committed.loc[
             (committed["implementation"] == study.STUDY.reference)
@@ -1191,9 +1220,7 @@ def _property_artifacts(
         property_failures.reconcile(
             kept, kept_records, derived=getattr(properties, "DERIVED_CELLS", None)
         )
-        write_csv(
-            rows, paths["property-replicates.csv.gz"], compression={"method": "gzip", "mtime": 0}
-        )
+        write_rows(rows, paths["property-replicates.parquet"])
         if kept.empty:
             summary = pd.DataFrame(columns=aside.columns)
             accounting = aside_accounting.iloc[0:0]
@@ -1223,15 +1250,16 @@ def _property_artifacts(
             print(f"recorded property failure ({count}x): {message}", flush=True)
         write_csv(records, out / property_failures.PROPERTY_FAILURES)
         write_csv(accounting, out / property_failures.PROPERTY_ACCOUNTING)
-        write_csv(
+        write_rows(
             pd.DataFrame(columns=list(replication.WITNESS_COLUMNS))
             if witnesses is None
             else witnesses,
             out / property_failures.PROPERTY_WITNESSES,
+            dtype=property_failures.WITNESS_DTYPE,
         )
         return summary, PROPERTY_FAILURE_FILES
 
-    names = ("property-replicates.csv.gz", "properties.csv", *record.property_artifacts)
+    names = ("property-replicates.parquet", "properties.csv", *record.property_artifacts)
     if all((here / name).exists() for name in names):
         committed = tuple(name for name in PROPERTY_FAILURE_FILES if (here / name).exists())
         for name in (*names, *committed):
@@ -1244,11 +1272,7 @@ def _property_artifacts(
     # A disposable smoke run has nothing to reuse.  Empty, schema-bearing files keep its
     # manifest complete without pretending the statistical study ran; publication to the
     # committed directory still refuses this state above.
-    write_csv(
-        pd.DataFrame(columns=list(PROPERTY_COLUMNS)),
-        paths["property-replicates.csv.gz"],
-        compression={"method": "gzip", "mtime": 0},
-    )
+    write_rows(pd.DataFrame(columns=list(PROPERTY_COLUMNS)), paths["property-replicates.parquet"])
     write_csv(pd.DataFrame(columns=["property", "cell", "passed"]), paths["properties.csv"])
     for name in record.property_artifacts:
         write_csv(pd.DataFrame(columns=["property", "cell"]), paths[name])
@@ -1465,7 +1489,7 @@ def _regenerate(
         *optional,
     )
     paths = {name: out / name for name in artifact_names}
-    write_csv(rows, paths["replicates.csv.gz"], compression={"method": "gzip", "mtime": 0})
+    write_rows(rows, paths["replicates.parquet"])
     summaries = summarize(rows, truth_varies=record.truth_varies_by_replicate)
     write_csv(summaries, paths["summary.csv"])
     performance = independent_performance_tests(rows, record=record, n_jobs=arguments.jobs)

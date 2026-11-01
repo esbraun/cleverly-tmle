@@ -108,6 +108,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "ATC",
         "ATE",
         "ATT",
+        "AdaptiveIPTWMethod",
         "AssessmentCapability",
         "AssessmentReport",
         "AssessmentStatus",
@@ -139,6 +140,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "LongPanel",
         "LongitudinalTreatment",
         "MSMProjection",
+        "MethodAvailabilities",
         "MethodAvailability",
         "MethodConfigurationError",
         "ModelSpec",
@@ -171,6 +173,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "TMLEMethod",
         "Targeting",
         "TimeToEvent",
+        "TruncationCurve",
         "VariableImportanceEntry",
         "VariableImportanceResult",
         "ValidationReport",
@@ -462,7 +465,9 @@ def _package_classes() -> dict[str, type]:
 #: * ``container`` -- it holds the :class:`~cleverly.data.CausalData` and emits through
 #:   ``data.frame_like``, which reads the same stored name;
 #: * ``argument`` -- the backend is a parameter of ``to_frame`` because the object was not
-#:   built from a fit at all.
+#:   built from a fit at all;
+#: * ``wrapped`` -- it holds a frame that a ``field`` or ``container`` route already emitted
+#:   in the fit's backend, and ``to_frame`` returns that frame unchanged.
 BACKEND_ROUTES: dict[str, str] = {
     "AssessmentReport": "field",
     "CausalResult": "protocol",
@@ -474,6 +479,7 @@ BACKEND_ROUTES: dict[str, str] = {
     "LongitudinalDiagnostics": "field",
     "LongitudinalNuisanceDiagnostics": "field",
     "LongitudinalScoreDiagnostics": "field",
+    "MarginalSensitivityBounds": "field",
     "NuisanceDiagnostics": "field",
     "PositivityReport": "field",
     "RefutationResult": "field",
@@ -488,7 +494,20 @@ BACKEND_ROUTES: dict[str, str] = {
     "CTMLESelection": "argument",
     "StudyResult": "argument",
     "RefutationTest": "argument",
+    "MethodAvailabilities": "argument",
     "ValidationReport": "field",
+    # The sensitivity analyses (X89 T4).
+    "MissingnessTilt": "field",
+    "SensitivityContour": "field",
+    "_Rows": "field",
+    # Point-estimate objects with a summary (X89 T1): built without a fit's data, so the
+    # caller names the backend.
+    "BootstrapResult": "argument",
+    "ParameterEstimate": "argument",
+    "RepeatSpread": "argument",
+    "SimultaneousBands": "argument",
+    # The truncation curve (X89 T3) wraps the frame the diagnostics built.
+    "TruncationCurve": "wrapped",
 }
 
 
@@ -536,6 +555,7 @@ POLARS_EMITTERS: dict[str, list[Any]] = {
         lambda r: r.diagnostics.nuisance_models().to_frame(),
         lambda r: r.diagnostics.refute().to_frame(),
         lambda r: r.diagnostics.run_all().to_frame(),
+        lambda r: r.diagnostics.truncation_curve().to_frame(),
         lambda r: r.validate().to_frame(),
     ],
     "LongitudinalResult": [

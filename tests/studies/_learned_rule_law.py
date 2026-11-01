@@ -11,9 +11,16 @@ Every law draws ``W1 ~ U(-1, 1)`` and ``W2 ~ Bernoulli(0.5)``, a binary treatmen
 
 The target of a fit is data-adaptive.  It is the average over the ten outer folds of the value
 ``Psi_d(P0) = E Qbar0(d(W), W)`` of the rule ``d_v`` learned on the training rows of fold ``v``.
-Each replication therefore carries its own truth.  The harness refits each fold's outcome
-learner on the rows the fit learned the rule from, and it refuses the replication unless the
-refit gives the fit's own rule on every validation row (rule L4).  It then integrates the value
+Each replication therefore carries its own truth.  The harness refits each fold's rule on the
+rows the fit learned it from, and it refuses the replication unless the refit gives the fit's
+own rule on every validation row (rule L4).  The plug-in rule refits the outcome learner.  A
+rule learner (``LearnedRule(loss="blip")`` or ``loss="weighted_classification"``) refits
+through the package's own ``fit_fold_rule``, with the inner seed that the fit's record holds,
+so the inner cross-fit, the pseudo-outcome and the rule learner are all reproduced.  For a
+rule learner, rule L4 is therefore a reproducibility check of the record through the
+package's code, not an independent check of the construction: the target is the value of
+whatever rule was learned, and the construction's correctness rests on the unit witnesses
+W-g2 and W-g4 in ``tests/unit/test_learned_rule_learners.py``.  It then integrates the value
 of the refit rule by the trapezoid rule on 4,001 points of ``W1`` for each ``W2``, with the known
 ``Qbar0``.  The same quadrature gives the oracle standard error.
 """
@@ -41,8 +48,14 @@ from cleverly.estimators import TMLE
 from cleverly.estimators._nuisance import fit_on_rows
 from cleverly.exceptions import ConvergenceWarning as CleverlyConvergenceWarning
 from cleverly.interventions import LearnedRule
+from cleverly.interventions._rule_learners import (
+    FoldRule,
+    fit_fold_rule,
+    inner_seed,
+    pseudo_outcome,
+)
 from cleverly.interventions.base import RegimeSet
-from cleverly.learners._fitting import predict_mean
+from cleverly.learners._fitting import as_target, fit_learner, predict_mean
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS, reported_inference
@@ -165,36 +178,80 @@ class ValidationRowRule(TMLE):
     """The deliberate mutation of ``fold_locality``: learn each fold's rule on its own rows.
 
     Study-only.  The cross-fitted nuisances, the targeting and the variance are the fit's own.
-    Only the rule changes: fold ``v``'s rule is the plug-in of the outcome learner fitted on
-    fold ``v``'s *validation* rows, the rows that then evaluate it.
+    Only the rule changes: fold ``v``'s rule is learned on fold ``v``'s *validation* rows, the
+    rows that then evaluate it.  The plug-in rule fits the outcome learner there.  A rule
+    learner regresses (or classifies) the pseudo-outcome built from the fit's outer
+    cross-fitted nuisances on those rows (:func:`validation_rule`).
     """
 
-    def _regimes(self, data: Any, estimates: Any) -> RegimeSet | None:
+    def _regimes(self, data: Any, estimates: Any, *, seed: int | None = None) -> RegimeSet | None:
         assert self.learned_rule is not None
-        design = np.asarray(data.treatment_design(), dtype=float)
+        covariates = np.asarray(data.covariates, dtype=float)
         treat = np.zeros(data.n, dtype=bool)
         for _, test in estimates.folds:
-            model = fit_on_rows(
-                self.outcome_learner,
-                design,
-                np.asarray(data.outcome, dtype=float),
-                np.asarray(data.weights, dtype=float),
-                np.asarray(test),
-                "classification",
-                None,
-            )
-            treat[test] = _blip(model, np.asarray(data.covariates, dtype=float)[test]) > 0.0
+            rule = validation_rule(self, data, estimates, np.asarray(test))
+            treat[test] = rule(covariates[test])
         values = np.zeros((data.n, 2, 1), dtype=float)
         values[:, 1, 0] = treat
         values[:, 0, 0] = ~treat
         return RegimeSet((self.learned_rule.name,), values, 0.0)
 
 
-def estimator(learner: Any, fold_seed: int, *, mutation: bool = False) -> TMLE:
-    """The declared estimator, with the fold seed of rule L2."""
+def validation_rule(
+    estimator: TMLE, data: Any, nuisance: Any, test: np.ndarray
+) -> Callable[[np.ndarray], np.ndarray]:
+    """The rule of the ``fold_locality`` control, learned on one fold's validation rows.
+
+    The plug-in rule is the blip sign of the outcome learner fitted on ``test``.  A rule
+    learner is fitted on ``test`` to the pseudo-outcome of the fit's outer cross-fitted
+    nuisances, truncated at the fit's ``g_bounds``.  Both read ``test``'s outcomes, which is
+    the mutation.  A weighted classifier whose weighted rows on ``test`` carry one sign gives
+    the constant rule of that sign, the package's convention, rather than a scikit-learn error.
+    """
+    rule = estimator.learned_rule
+    assert rule is not None
+    design = np.asarray(data.treatment_design(), dtype=float)
+    outcome = np.asarray(data.outcome, dtype=float)
+    weights = np.asarray(data.weights, dtype=float)
+    if rule.loss == "plug_in":
+        model = fit_on_rows(
+            estimator.outcome_learner, design, outcome, weights, test, "classification", None
+        )
+        return lambda covariates: _blip(model, covariates) > 0.0
+    target = pseudo_outcome(
+        nuisance,
+        nuisance.scaler.scale(outcome),
+        np.asarray(data.treatment, dtype=float),
+        estimator._rule_g_bounds(data),
+    )[test]
+    covariates = np.asarray(data.covariates, dtype=float)[test]
+    if rule.loss == "blip":
+        model = fit_learner(rule.learner, covariates, as_target(target, "regression"))
+        return lambda rows: FoldRule("blip", model, False, 0, target).treat(rows)
+    signs = (target > 0.0).astype(float)
+    held = np.unique(signs[np.abs(target) > 0.0])
+    if held.size < 2:
+        # The package's one-class convention (``fit_fold_rule``): every row with weight carries
+        # one label, so the rule is that label everywhere, and no classifier is fitted.
+        constant = bool(held.size == 1 and held[0] > 0.5)
+        return lambda rows: FoldRule("weighted_classification", None, constant, 0, target).treat(
+            rows
+        )
+    labels = as_target(signs, "classification")
+    model = fit_learner(rule.learner, covariates, labels, np.abs(target))
+    return lambda rows: FoldRule("weighted_classification", model, False, 0, target).treat(rows)
+
+
+def estimator(
+    learner: Any, fold_seed: int, *, mutation: bool = False, rule: LearnedRule | None = None
+) -> TMLE:
+    """The declared estimator, with the fold seed of rule L2.
+
+    ``rule`` is the declared rule, the plug-in ``LearnedRule()`` by default.
+    """
     kind = ValidationRowRule if mutation else TMLE
     return kind(
-        learned_rule=LearnedRule(),
+        learned_rule=LearnedRule() if rule is None else rule,
         n_folds=N_FOLDS,
         cv_evaluation=True,
         targeting_scheme="pooled",
@@ -225,10 +282,17 @@ def solver_warning_count() -> Iterator[list[int]]:
             )
 
 
-def fit(frame: pd.DataFrame, learner: Any, fold_seed: int, *, mutation: bool = False) -> Any:
+def fit(
+    frame: pd.DataFrame,
+    learner: Any,
+    fold_seed: int,
+    *,
+    mutation: bool = False,
+    rule: LearnedRule | None = None,
+) -> Any:
     """Fit the declared estimator to one sample and return the single result."""
     return (
-        estimator(learner, fold_seed, mutation=mutation)
+        estimator(learner, fold_seed, mutation=mutation, rule=rule)
         .fit(frame, outcome="Y", treatment="A", covariates=list(COVARIATES))
         .single()
     )
@@ -327,6 +391,84 @@ def fixed_rule_grid(rule: Callable[[np.ndarray, float], np.ndarray]) -> dict[flo
     return {w2: np.asarray(rule(GRID, w2), dtype=bool) for w2 in W2_LEVELS}
 
 
+def fold_rule(
+    result: Any,
+    learner: Any,
+    fold: int,
+    *,
+    source: Literal["training", "validation"] = "training",
+) -> Callable[[np.ndarray], np.ndarray]:
+    """Refit fold ``fold``'s rule of ``result`` and return it as a function of the covariates.
+
+    ``source`` names the rows the fit learned the rule on.  The plug-in rule refits
+    ``learner``, the fit's outcome learner, through the package's own ``fit_on_rows`` with the
+    fit's own weights.  A rule learner on the training rows refits through the package's
+    ``fit_fold_rule`` with the fold's recorded inner seed; on the validation rows it refits
+    :func:`validation_rule`.  That refit reproduces the fit from its record through the
+    package's own code, so it checks reproducibility, not the construction, which the unit
+    witnesses W-g2 and W-g4 check.  The comparison of the recorded inner seed with
+    ``inner_seed(split_seed, fold)`` is a record-integrity guard: the fit derives both from
+    the same call, so it fails only on a corrupted or hand-edited record.
+    """
+    data = result.data
+    nuisance = result.nuisance
+    train, test = list(nuisance.folds)[fold]
+    rule = getattr(getattr(result, "estimator", None), "learned_rule", None) or LearnedRule()
+    if source == "validation":
+        if rule.loss == "plug_in":
+            design = np.asarray(data.treatment_design(), dtype=float)
+            model = fit_on_rows(
+                learner,
+                design,
+                np.asarray(data.outcome, dtype=float),
+                np.asarray(data.weights, dtype=float),
+                np.asarray(test),
+                "classification",
+                None,
+            )
+            return lambda covariates: _blip(model, covariates) > 0.0
+        return validation_rule(result.estimator, data, nuisance, np.asarray(test))
+    if rule.loss == "plug_in":
+        model = fit_on_rows(
+            learner,
+            np.asarray(data.treatment_design(), dtype=float),
+            np.asarray(data.outcome, dtype=float),
+            np.asarray(data.weights, dtype=float),
+            np.asarray(train),
+            "classification",
+            None,
+        )
+        return lambda covariates: _blip(model, covariates) > 0.0
+    split_seed, inner_seeds = split_seeds(result)
+    seed = inner_seeds[fold]
+    if seed != inner_seed(split_seed, fold):
+        raise HarnessMismatch(f"fold {fold}: the recorded inner seed is not the split's")
+    fitted = fit_fold_rule(
+        data,
+        np.asarray(train),
+        loss=rule.loss,
+        learner=rule.learner,
+        fit_inner=partial(result.estimator._inner_rule_nuisances, scaler=nuisance.scaler),
+        scaler=nuisance.scaler,
+        g_bounds=result.config.g_bounds,
+        seed=seed,
+    )
+    return fitted.treat
+
+
+def split_seeds(result: Any) -> tuple[int, tuple[int, ...]]:
+    """The split seed and the recorded inner seeds of a fit of one split, or of a split view.
+
+    A fit of one split reads ``result.repeats[0].seed`` and its record.  A view of one split
+    of a fit of several (``tests.studies._learned_rule_split_mean_law.split_view``) carries
+    ``seed`` and ``inner_seeds`` itself.
+    """
+    if hasattr(result, "extra"):
+        (split,) = result.extra["learned_rule"].splits
+        return int(result.repeats[0].seed), split.inner_seeds
+    return int(result.seed), tuple(result.inner_seeds)
+
+
 def harness(
     result: Any,
     learner: Any,
@@ -338,29 +480,23 @@ def harness(
 
     ``source`` names the rows the fit learned each fold's rule on: the training complement for
     the declared estimator, and the validation rows for the ``fold_locality`` control.  The
-    refit goes through the package's own ``fit_on_rows`` with the fit's own weights, so a
-    deterministic learner reproduces the fitted model exactly.
+    refit is :func:`fold_rule`, so a deterministic learner reproduces the fitted rule exactly.
 
     Raises
     ------
     HarnessMismatch
         When the refit rule differs from the fit's rule on any validation row.
     """
-    data = result.data
-    design = np.asarray(data.treatment_design(), dtype=float)
-    covariates = np.asarray(data.covariates, dtype=float)
-    outcome = np.asarray(data.outcome, dtype=float)
-    weights = np.asarray(data.weights, dtype=float)
+    covariates = np.asarray(result.data.covariates, dtype=float)
     fitted = rule_of(result)
     grid = {w2: np.column_stack([GRID, np.full_like(GRID, w2)]) for w2 in W2_LEVELS}
     values: list[float] = []
     variances: list[float] = []
     sizes: list[int] = []
     checked = 0
-    for fold, (train, test) in enumerate(result.nuisance.folds):
-        rows = np.asarray(train if source == "training" else test)
-        model = fit_on_rows(learner, design, outcome, weights, rows, "classification", None)
-        refit = _blip(model, covariates[test]) > 0.0
+    for fold, (_, test) in enumerate(result.nuisance.folds):
+        rule = fold_rule(result, learner, fold, source=source)
+        refit = rule(covariates[test])
         disagree = int(np.sum(refit != fitted[test]))
         if disagree:
             raise HarnessMismatch(
@@ -368,9 +504,7 @@ def harness(
                 f"{len(test)} validation rows"
             )
         checked += len(test)
-        value, variance = rule_value(
-            {w2: _blip(model, points) > 0.0 for w2, points in grid.items()}, law
-        )
+        value, variance = rule_value({w2: rule(points) for w2, points in grid.items()}, law)
         values.append(value)
         variances.append(variance)
         sizes.append(len(test))
@@ -391,6 +525,7 @@ def measured(
     fold_seed: int,
     *,
     mutation: bool = False,
+    rule: LearnedRule | None = None,
 ) -> tuple[Any, Truth, int]:
     """Fit one sample, run its harness, and count the solver warnings of both.
 
@@ -401,7 +536,7 @@ def measured(
     bound counts, and never replaces the replication.
     """
     with solver_warning_count() as count:
-        result = fit(frame, learner, fold_seed, mutation=mutation)
+        result = fit(frame, learner, fold_seed, mutation=mutation, rule=rule)
         truth = harness(result, learner, law, source="validation" if mutation else "training")
     estimate = result.estimates[ESTIMAND]
     if not (np.isfinite(estimate.psi) and np.isfinite(estimate.std_error)):

@@ -68,7 +68,7 @@ cannot affect a fitted result.
 
 ## What CI runs on your pull request
 
-`.github/workflows/ci.yml` runs on every pull request. It has six jobs.
+`.github/workflows/ci.yml` runs on every pull request. It has eight jobs.
 
 | job | Python | command |
 | --- | --- | --- |
@@ -76,15 +76,17 @@ cannot affect a fitted result.
 | `typecheck` | 3.12 | `mypy` |
 | `docs` | 3.12 | `sphinx-build -W --keep-going -b html docs docs/_build/html` |
 | `tests` | 3.11, 3.12, 3.13 | `pytest -q -n auto --dist loadgroup`. On 3.11 and 3.13 it adds `--ignore=tests/unit/test_method_evidence.py` |
+| `slow-tests` | 3.12 | `pytest -q -n auto --dist loadgroup -m slow`: each tutorial notebook with its refit cells |
+| `property-differential` | 3.12 | `pytest -q -n auto --dist loadgroup tests/canonical/property_differential.py`, when the change touches a study, `tests/canonical/`, `src/cleverly`, the dependency pins, or the CI files |
 | `minimal-install` | 3.11 | `python scripts/smoke_backend.py pandas`, and the same for `polars` |
 | `package` | 3.12 | build, strict metadata and archive checks, and two clean artifact installs |
 
 The study evidence checks run on 3.12 only. They recompute the published verdicts from committed
 files with test code, and they take about half of the `tests` job.
 
-`nox` with no argument runs the `lint`, `typecheck`, `docs`, and `tests` sessions, which mirror the
-first four jobs. `minimal-install` has no session, because it installs one dataframe backend and
-nothing else. The package job builds both distribution formats before it creates clean smoke-test
+`nox` with no argument runs the `lint`, `typecheck`, `docs`, `tests`, and `slow` sessions, which
+mirror the first five jobs. `minimal-install` has no session, because it installs one dataframe
+backend and nothing else. The package job builds both distribution formats before it creates clean smoke-test
 environments.
 
 A release-bearing pull request changes `src/cleverly/_version.py` to the next unused `0.1.N`
@@ -115,7 +117,7 @@ A pull request that regenerates a registered study carries three extra obligatio
 2. Check that the manifest hashes match the artifacts you committed. The fast tier recomputes each
    published verdict from those artifacts, so the hashes are what tie the two together.
 3. Write the artifacts with line-feed endings. `.gitattributes` sets `* text=auto eol=lf` and marks
-   `*.gz` as binary, because a hashed artifact written with carriage returns passes on Windows and
+   `*.gz` and `*.parquet` as binary, because a hashed artifact written with carriage returns passes on Windows and
    fails on Linux CI.
 
 Read [method benchmarking strategy](method-benchmarking.md) for the study design rules, and

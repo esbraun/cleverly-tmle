@@ -143,12 +143,12 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .._summary import Detail, Summary, check_detail
 from ..estimators._strata import stratum_probabilities
 from ..estimators.composite import complement_form, composite_clipping_mask, targeting_inputs
 from ..estimators.tmle import correction_parts, reported_mechanism
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
-from ..utils.text import format_negligible, format_table, format_within
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -554,117 +554,32 @@ class CorrectionCheck:
         }
         return emit_frame(payload, data, backend=self.backend)
 
-    def summary(self) -> str:
-        if not self.rows:
-            return "Correction check\n" + "-" * 16 + "\nThis fit reports no corrections."
-        return "\n".join(
-            [
-                "Correction check",
-                "-" * 16,
-                format_table(
-                    ["draw", "arm", "equation", "solved score", "reported", "residual", "B_clip"],
-                    [
-                        [
-                            str(row.draw),
-                            row.label,
-                            row.equation,
-                            format_negligible(
-                                row.stored,
-                                self.threshold if row.solved else 0.0,
-                                digits=3,
-                            ),
-                            format_negligible(
-                                row.reported,
-                                self.threshold if row.solved else 0.0,
-                                digits=3,
-                            ),
-                            format_within(row.residual, self.identity_threshold, digits=3),
-                            format_negligible(row.clip_bias, self.identity_threshold, digits=3),
-                        ]
-                        for row in self.rows
-                    ],
-                ),
-                "",
-                *self._notes(),
-                self._verdict(),
-            ]
-        )
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the check.
 
-    def _notes(self) -> list[str]:
-        notes = [
-            f"  scores on the outcome scale (x{self.scale:.4g} from the fitting scale); "
-            f"tolerance {self.threshold:.2e}, identity {self.identity_threshold:.2e}",
-            f"  the truncation binds on up to {self.clipped} row(s) of {self.n} at the exit "
-            f"of any one draw, and the targeted treatment mechanism comes within "
-            f"{self.margin:.2g} of a bound"
-            + (
-                f", the targeted observation mechanism within {self.observation_margin:.2g}"
-                if self.has_observation_mechanism
-                else ""
-            )
-            + "; the per-draw figures are in to_frame()",
-            # Item 25's scope label, on the face of the fit rather than recomputable from it.
-            # Deliberately not in `_verdict`: which estimator a number is evidence about is a
-            # different question from whether the fit solved what it reports, and reading it
-            # as a verdict would report a sound bound-active fit as broken.
-            f"  contract: {self.contract}"
-            + (
-                f" -- {', '.join(self.truncations_active)} active, so this fit is empirically "
-                "supported and outside Theorem 1 rather than "
-                "wrong; it is not a failure and the verdict below does not read it"
-                if self.truncations_active
-                else f" -- none of the {self._truncation_count} truncations is active, so "
-                + (
-                    "this fit uses Theorem 1's construction, but Theorem 1 does not cover "
-                    "cross-fitting (condition (S) is open for a reduction that selects "
-                    "structure from the data; docs/technical-reference/dr-tmle/targeting.md)"
-                    if self.cross_fitted
-                    else "this fit is Theorem 1's estimator"
-                )
-                + ": clip share 0 at the initial "
-                f"mechanism{'s' if self.has_observation_mechanism else ''}, and margins "
-                + (
-                    f"{self.margin:.2g} (g*), {self.observation_margin:.2g} (pi*) and "
-                    f"{self.gr1_margin:.2g} (gamma_a/gamma_m)"
-                    if self.has_observation_mechanism
-                    else f"{self.margin:.2g} (g*) and {self.gr1_margin:.2g} (g_r1)"
-                )
-            ),
-        ]
-        unsolved = {row.equation for row in self.rows if not row.solved}
-        if unsolved:
-            notes.append(
-                f"  {', '.join(sorted(unsolved))} is not among the equations this fit's guard= "
-                "solves, so the reported curve does not subtract it; the mean above is a "
-                "diagnostic and is held to nothing"
-            )
-        return [*notes, ""]
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints the header, one row per arm and correction, the reading and
+            the notes. ``"full"`` adds how close each split's models come to their caps.
 
-    def _verdict(self) -> str:
-        identity, correction = self.identity_failures(), self.correction_failures()
-        if not identity and not correction:
-            return (
-                "PASS: every correction is a negligible mean of the same expression the "
-                "targeting step solved."
-            )
-        lines = []
-        if identity:
-            lines.append(
-                f"FAIL: {len(identity)} state identit{'y' if len(identity) == 1 else 'ies'} "
-                "not satisfied -- the score the targeting step recorded and the term the "
-                "reported curve carries are not the same functional of the returned state. "
-                "That is a software defect, not a fit that failed "
-                "to converge, and the standard errors do not describe this estimate."
-            )
-        if correction:
-            lines.append(
-                f"FAIL: {len(correction)} correction(s) above {self.threshold:.2e} at the "
-                "state this fit returned, so the reported curve is not centred."
-            )
-        return "\n".join(lines)
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
+        """
+        from ._score_summary import correction_summary
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return self.summary()
+        return correction_summary(self, check_detail(detail))
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from ._score_summary import correction_repr
+
+        return correction_repr(self)
 
 
 def correction_check(

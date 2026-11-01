@@ -124,9 +124,9 @@ fluctuation, so equation (9) solves at `ε_g = 0` whether the fluctuation exists
 the initial `P_n D_A` exceeds `1e-3`, the final score is solved, and `max |g* − g_0|` exceeds
 `1e-4`.
 
-Every reduction and both `reduced_crossfit` settings admit a declared mechanism. The nested
-construction reuses `g_0` in every inner fold, because a declared mechanism does not depend on the
-rows a model saw. An `evaluation=` companion must declare the same columns. The registered
+Every reduction and both `reduced_crossfit` settings admit a declared mechanism. The foldwise
+construction reuses `g_0` in every leave-two-out fit, because a declared mechanism does not depend
+on the rows a model saw. An `evaluation=` companion must declare the same columns. The registered
 [known-mechanism DR-TMLE study](../method-evidence/known-mechanism-dr-tmle.md) pairs each guard
 with R `drtmle` (`gn=`) at a wrong outcome regression.
 
@@ -627,7 +627,7 @@ separate draw, so that no row enters its own mechanism.
 | `Q_r` on `g_n` minus `Q_r` on `g_0`, paired by draw, divided by the SD of the in-sample `DRTMLE` fit | `R_{4,n}`: `Q_r` converges to a regression on `g_n`, not on `g_0` | +0.50, +0.95, +0.91 |
 | `Q_r` replaced by its population version on `g_n` | the fitted error of `Q_r` | none at n = 4,000 and 16,000: +1.82, +1.78, +1.05 against +1.51, +1.66, +1.03 |
 
-This part is in the population limit at the fitted mechanism. Cross-fitting, nested reductions and
+This part is in the population limit at the fitted mechanism. Cross-fitting, foldwise reductions and
 the update order do not remove it.
 
 **Part 2: the own-row term.** An in-sample mechanism and a mechanism fitted on a separate draw have

@@ -326,13 +326,16 @@ def test_continuous_msm_persistence_and_native_assessment() -> None:
     assert battery.sensitivity["simulated_confounding"].status is AssessmentStatus.COMPLETED
 
 
-def test_custom_link_refuses_before_draws(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_replay_link_that_differs_from_the_fit_refuses_before_draws(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A registered link replays, but only the link the fit declared (X82 part F (a))."""
     monkeypatch.setitem(LINKS, "custom", replace(LINKS["identity"], name="custom"))
     result = with_estimator(
         _fit_continuous(), msm=replace(_fit_continuous().estimator.msm, link="custom")
     )
     forbid_draw_and_refit(monkeypatch, result.estimator)
-    with pytest.raises(CapabilityError, match="identity, log, or logit"):
+    with pytest.raises(CapabilityError, match="MSM declarations disagree"):
         simulated_confounding(result, estimand="msm[a]", grid=_GRID)
 
 

@@ -18,6 +18,7 @@ import pytest
 from sklearn.base import BaseEstimator
 from sklearn.dummy import DummyRegressor
 
+from cleverly._summary import vocabulary
 from cleverly.exceptions import CapabilityError, DataError, LongitudinalError
 from cleverly.interventions import Stochastic
 from cleverly.interventions.base import _ESTIMATED_DENSITY, _UNDECLARED_DENSITY
@@ -426,8 +427,8 @@ def test_the_support_report_of_a_deterministic_fit_has_no_node_kind() -> None:
 
 
 def test_the_settings_report_lists_the_policies(mix_fit: Any) -> None:
-    lines = mix_fit.config.describe(contrast=True)
-    assert any(line.startswith("  a 'q' is a known policy") for line in lines)
+    settings = mix_fit.summary(detail="full").section(vocabulary.SECTION_SETTINGS).lines
+    assert vocabulary.POLICY_FOLLOWERS in settings
 
 
 # ------------------------------------------------------------------ T15 truncation replay

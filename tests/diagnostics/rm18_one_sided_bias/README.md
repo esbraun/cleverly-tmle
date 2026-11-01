@@ -7,7 +7,7 @@ estimator and changes no verdict.
 
 | file | what it does |
 | --- | --- |
-| `read.py` | reads `tests/canonical/drtmle/replicates.csv.gz`, `tests/canonical/multi_arm_drtmle/replicates.csv.gz` and `tests/canonical/multi_arm_drtmle/property-replicates.csv.gz`. It reads the contraction ladder at its verdict budget of 600 replications per rung, through the framework's `_at_verdict_budget`, so the extra outer-rung rows of Design SL do not enter. It writes one row per statistic |
+| `read.py` | reads `tests/canonical/drtmle/replicates.parquet`, `tests/canonical/multi_arm_drtmle/replicates.parquet` and `tests/canonical/multi_arm_drtmle/property-replicates.parquet`. It reads the contraction ladder at its verdict budget of 600 replications per rung, through the framework's `_at_verdict_budget`, so the extra outer-rung rows of Design SL do not enter. It writes one row per statistic |
 | `readings.csv` | the committed output. Each declared row carries the reading of its configuration. The binary `both_correct` row enters both binary readings and carries no reading of its own. The `scope` column marks each row `declared` or `supplementary` |
 
 `tests/unit/test_rm18_one_sided_bias_diagnostic.py` rebuilds `readings.csv` from the committed

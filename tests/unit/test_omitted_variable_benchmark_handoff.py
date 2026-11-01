@@ -15,6 +15,7 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
+from cleverly._summary.vocabulary import NOTE_TEXTS
 from cleverly.datasets import make_linear_ate
 from cleverly.sensitivity import benchmark, omitted_variable_bounds
 
@@ -67,7 +68,9 @@ class TestGains:
     def test_a_clipped_gain_is_reported_and_printed(self, strong: object) -> None:
         assert strong.cf_y == 1.0
         assert strong.to_dict()["gain_y"] == strong.gain_y
-        assert f"cf_y is the gain {strong.gain_y:.4g} clipped at 1" in strong.summary()
+        assert strong.summary().note("strength_clipped").text == NOTE_TEXTS[
+            "strength_clipped_y"
+        ].format(covariates=", ".join(strong.covariates), gain=f"{strong.gain_y:.3g}")
 
     def test_an_unclipped_record_prints_no_clip(self, moderate: object) -> None:
         assert "clipped" not in moderate.summary()
@@ -117,7 +120,12 @@ class TestHandOff:
         assert unbounded.gain_d == pytest.approx(1.5)
         with pytest.raises(ValueError, match="calibrates no finite bound"):
             omitted_variable_bounds(result, benchmark=unbounded)
-        assert "the bound is unbounded" in unbounded.summary()
+        summary = unbounded.summary()
+        assert (
+            NOTE_TEXTS["strength_clipped_d"].format(gain="1.5")
+            in summary.note("strength_clipped").text
+        )
+        assert NOTE_TEXTS["benchmark_pointer"] not in summary.note("sensitivity_assumption").text
 
     def test_explicit_strengths_conflict(self, result: object, moderate: object) -> None:
         with pytest.raises(ValueError, match="cf_y cannot also be passed"):

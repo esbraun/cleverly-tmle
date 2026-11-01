@@ -25,6 +25,7 @@ from tests.studies.evidence.inference import (
 from tests.studies.evidence.properties import (
     PropertyCell,
     Rate,
+    cell_groups,
     coverage_gain_interval,
     largest_standardized_value,
     paired_displacement,
@@ -331,8 +332,9 @@ def apply_shared_verdicts(
     ) | (summary.loc[small, "coverage_ci_lower"] >= margins.coverage_floor)
 
     calibration = summary["property"] == "interval_calibration"
+    groups = cell_groups(rows, "interval_calibration")
     for cell in sorted(summary.loc[calibration, "cell"]):
-        group = rows.loc[(rows["property"] == "interval_calibration") & (rows["cell"] == cell)]
+        group = groups[cell]
         bound = None if efficiency_bounds is None else efficiency_bounds[cell.split("__", 1)[0]]
         intervals = ratio_intervals(
             group,
@@ -809,10 +811,14 @@ def simultaneous_coverage_verdicts(summary: pd.DataFrame, *, margins: Margins) -
     The band must hold its exact joint-coverage interval inside the two-sided calibration
     coverage band, the rule every calibrated pointwise cell answers to.  The pointwise
     control must establish joint coverage below the nominal rate, which is what shows the
-    band's wider critical value does work on these laws.
+    band's wider critical value does work on these laws.  A cell with the diagnostic role
+    reports its interval beside the band and declares no verdict.
     """
     joint = summary["property"] == "simultaneous_coverage"
     for index in summary.index[joint]:
+        if summary.loc[index, "role"] == DIAGNOSTIC_ROLE:
+            summary.loc[index, "passed"] = True
+            continue
         coverage = Interval(
             float(summary.loc[index, "coverage_ci_lower"]),
             float(summary.loc[index, "coverage_ci_upper"]),
@@ -1002,6 +1008,25 @@ SE_CONTROL_SIDES: dict[str, Literal["below", "above"]] = {
     # population target.  Both report an SE below the spread they claim to describe.
     "term_dropped_control": "below",
     "population_truth_control": "below",
+    # X11 PR A: a clustered learned-rule fit read with the row-level SE that ignores the clusters.
+    "row_variance_control": "below",
+    # X11 PR B: a learned-rule fit of R splits read with the mean single-split SE over
+    # sqrt(R), which treats the splits as independent samples although they share every row.
+    "independent_splits_control": "below",
+    # X11 PR E1 (X28): a fold-evaluated stratum curve without its fold-share normalisation, and
+    # a marginal curve without its share term. Both report an SE below the spread.
+    "unnormalised_curve_control": "below",
+    "share_dropped_control": "below",
+}
+
+#: The calibration controls whose deliberately invalid interval misses the truth while its
+#: standard error stays honest, so their coverage interval must lie wholly below the band floor,
+#: each with the name of its accounting clause.  X82 SH: a bound at a smaller ``Gamma`` read
+#: against the declared bound's truth.  X11 PR C: a learned rule fitted on the validation rows
+#: that then evaluate it, whose estimate is optimistic for its own value.
+COVERAGE_CONTROLS: dict[str, str] = {
+    "wrong_gamma_control": "wrong-gamma coverage below band",
+    "validation_rule_control": "validation-rule coverage below band",
 }
 
 
@@ -1085,6 +1110,12 @@ def calibration_verdicts(
             passed = se_ratio_leaves_band(
                 ratio, margins.calibration_se_ratio, SE_CONTROL_SIDES[kind]
             )
+        elif kind in COVERAGE_CONTROLS:
+            # An interval that misses the truth with an honest spread: the estimate of a bound
+            # at a smaller sensitivity parameter read against the declared bound's truth, or an
+            # optimistic learned-rule estimate.  The study must see that it misses.
+            coverage = summary_interval(summary, index, "coverage")
+            passed = coverage.high < margins.calibration_coverage[0]
         elif kind == "noise_control":
             passed = (
                 summary_interval(summary, index, "efficiency_empirical").low > efficiency_band[1]
@@ -2228,6 +2259,15 @@ def calibration_rule(*, efficiency_band: tuple[float, float] | None) -> pf.Famil
                 applies=kind(control),
             )
             for control, side in SE_CONTROL_SIDES.items()
+        ),
+        *(
+            pf.proportion_clause(
+                clause,
+                statistic="S2",
+                judge=pf.below_judge(lambda ctx: ctx.margins.calibration_coverage[0]),
+                applies=kind(control),
+            )
+            for control, clause in COVERAGE_CONTROLS.items()
         ),
         pf.se_interval_clause(
             "efficiency above band",

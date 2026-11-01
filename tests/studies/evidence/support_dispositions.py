@@ -73,6 +73,9 @@ LIMIT_OWNERS = frozenset(
         "mtp-pricing-learned-density",
         "X26-plugin-conservative",
         "X26-refusal-limited",
+        "adaptive-iptw-finite-sample",
+        "adaptive-iptw-composite-l3",
+        "X39-below-tail-size",
     }
 )
 #: The owners whose red rows default to experimental, and the owner decides (flagged).
@@ -96,6 +99,7 @@ T_REFERENCE_SLUGS = frozenset({"clustered-few-cluster-tmle", "few-cluster-cross-
 
 _POINT_FAMILIES = frozenset(
     {
+        "bias",
         "double_robustness",
         "double_robust_contraction",
         "sequential_double_robustness",
@@ -1510,6 +1514,163 @@ _X26: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] =
     ),
 )
 
+#: X39 (``long-horizon-sdr``). The one red row is a reporting Wald truth row of the three-level
+#: switch regimen at n = 72,000, below the tail size of its quantity. No interval is gated there:
+#: the gated BCa row of the quantity is in ``sdr_categorical_k5_static``. The owner reads a
+#: finite-sample effect and no defect, so the decision is a stated limit with the measured number.
+_X39: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] = (
+    (
+        "long-horizon-sdr",
+        "truth",
+        "cleverly-long-horizon-sdr/sdr_categorical_k5_switch/ey_regimen[switch]",
+        "G46.sdr.sdr_categorical_k5",
+        ("wald",),
+        LIMIT,
+        "X39-below-tail-size: the Wald interval is not validated below the tail size of a quantity. "
+        "Coverage of ey_regimen[switch] at n = 72,000, below its n_kappa of 134,244, is 0.9133; "
+        "bias -0.0015 to 0.0038, SE ratio 0.9624",
+        "",
+    ),
+)
+
+#: The red cells of ``adaptive-iptw`` (X21). The three flexible-learner cells are experimental. A
+#: gradient-boosting mechanism is outside the configuration of the row: the key reads the learner
+#: family, so a boosted fit matches no row and no shortfall labels the row (``NO_SHORTFALL``). The
+#: other cells read finite-sample or draw-specific effects with no defect found, so each leaves its
+#: row supported with a stated limit.
+_ADAPTIVE_IPTW: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] = (
+    (
+        "adaptive-iptw",
+        "property",
+        "bias/ate__flexible",
+        "AI.points.cross_fit",
+        ("point",),
+        EXPERIMENTAL,
+        "",
+        "",
+    ),
+    (
+        "adaptive-iptw",
+        "property",
+        "bias/ate__rate",
+        "AI.points.cross_fit",
+        ("point",),
+        LIMIT,
+        "adaptive-iptw-finite-sample: bias 0.000882 to 0.0046, margin 0.0044",
+        "",
+    ),
+    (
+        "adaptive-iptw",
+        "property",
+        "bias/ey0__flexible",
+        "AI.points.cross_fit",
+        ("point",),
+        EXPERIMENTAL,
+        "",
+        "",
+    ),
+    (
+        "adaptive-iptw",
+        "property",
+        "bias/ey1__flexible",
+        "AI.points.cross_fit",
+        ("point",),
+        EXPERIMENTAL,
+        "",
+        "",
+    ),
+    (
+        "adaptive-iptw",
+        "property",
+        "bias/ey_low__composite_l3",
+        "AI.points_composite_three_arm.cross_fit",
+        ("point",),
+        LIMIT,
+        "adaptive-iptw-composite-l3: bias -0.0075 to -0.000620, margin 0.0066",
+        "",
+    ),
+    (
+        "adaptive-iptw",
+        "property",
+        "interval_calibration/ey0__known_clustered__correctly_specified",
+        "AI.known_clustered",
+        ("wald",),
+        LIMIT,
+        "adaptive-iptw-finite-sample: coverage 0.9394 to 0.9643, SE ratio 0.9902 to 1.0722",
+        "",
+    ),
+    (
+        "adaptive-iptw",
+        "property",
+        "targeting_necessity/cn_ey_obs__targeted",
+        "AI.points_missing_outcome.cross_fit",
+        ("point",),
+        LIMIT,
+        "adaptive-iptw-finite-sample: bias -0.0031 to 0.0014, margin 0.0043",
+        "",
+    ),
+    (
+        "adaptive-iptw",
+        "property",
+        "targeting_necessity/p_ate__targeted",
+        "AI.points.cross_fit",
+        ("point",),
+        LIMIT,
+        "adaptive-iptw-finite-sample: bias 0.000882 to 0.0046, margin 0.0044",
+        "",
+    ),
+    (
+        "adaptive-iptw",
+        "property",
+        "targeting_necessity/p_ey0__targeted",
+        "AI.points.cross_fit",
+        ("point",),
+        LIMIT,
+        "adaptive-iptw-finite-sample: bias -0.0032 to -0.000466, margin 0.0033",
+        "",
+    ),
+    (
+        "adaptive-iptw",
+        "property",
+        "targeting_necessity/p_ey1__targeted",
+        "AI.points.cross_fit",
+        ("point",),
+        LIMIT,
+        "adaptive-iptw-finite-sample: bias -0.000589 to 0.0024, margin 0.0035",
+        "",
+    ),
+    (
+        "adaptive-iptw",
+        "property",
+        "targeting_necessity/pd_d__targeted",
+        "AI.points_regime",
+        ("point",),
+        LIMIT,
+        "adaptive-iptw-finite-sample: bias -0.000687 to 0.0037, margin 0.0043",
+        "",
+    ),
+    (
+        "adaptive-iptw",
+        "property",
+        "targeting_necessity/pd_s__targeted",
+        "AI.points_regime",
+        ("point",),
+        LIMIT,
+        "adaptive-iptw-finite-sample: bias -0.000669 to 0.0029, margin 0.0034",
+        "",
+    ),
+    (
+        "adaptive-iptw",
+        "property",
+        "targeting_necessity/rm_d__targeted",
+        "AI.points_regime_missing",
+        ("point",),
+        LIMIT,
+        "adaptive-iptw-finite-sample: bias -0.0025 to 0.0010, margin 0.0048",
+        "",
+    ),
+)
+
 #: The committed decisions, one per positive red row.
 DISPOSITIONS: Mapping[RedKey, Disposition] = {
     RedKey(slug, kind, key): Disposition(row, kinds, disposition, limit, flag)
@@ -1518,6 +1679,8 @@ DISPOSITIONS: Mapping[RedKey, Disposition] = {
         *_X40_PRICING,
         *_X40_BOUNDARIES,
         *_X26,
+        *_ADAPTIVE_IPTW,
+        *_X39,
     )
 }
 
@@ -1562,6 +1725,12 @@ NO_SHORTFALL: Mapping[RedKey, str] = {
         "the key of the fit cannot read; the SDR caveat of longitudinal-tmle.md states the measured reading"
         for key, entry in DISPOSITIONS.items()
         if key.slug == "mtp-boundaries" and key.kind == "property"
+    },
+    **{
+        key: "the cell fits a gradient-boosting mechanism, outside the configuration of the row: "
+        "the key reads the mechanism learner family, and a boosted fit matches no row"
+        for key, entry in DISPOSITIONS.items()
+        if key.slug == "adaptive-iptw" and entry.disposition == EXPERIMENTAL
     },
     **{
         key: "the cell measures a hypothesis test, and the label has no test kind; the row's "
@@ -1680,11 +1849,16 @@ def positive_red_rows() -> list[PositiveRow]:
         Property rows with the role ``positive``, truth rows of an implementation that starts
         with ``cleverly``, and paired rows, across the registered studies.
     """
+    from cleverly._support_rows import EXEMPT_STUDIES
     from tests.studies.evidence.red_cells import OWNERS, frames, red_rows
     from tests.studies.evidence.registry import registered
 
     found: list[PositiveRow] = []
     for record in registered():
+        if record.slug in EXEMPT_STUDIES and record.slug not in ROW_STUDY:
+            # An exempt study licenses no support row, so its red rows bear on no row's
+            # disposition. ``ROW_STUDY`` names the exempt studies whose rows still do.
+            continue
         tables = frames(record)
         performance = tables["performance"].set_index(["implementation", "scenario", "estimand"])
         for red in red_rows(record, tables):

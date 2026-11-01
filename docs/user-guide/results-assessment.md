@@ -1,5 +1,68 @@
 # Results, inference, and assessment
 
+## Reading a summary
+
+Every result and every check has a `summary()` method. Print it to see the answer first and the
+setup after it. The estimate of an effect looks like this:
+
+```text
+                            Effect estimate (TMLE)
+==============================================================================
+Question:      average effect of        Rows:                            2,000
+               transition_navigation    Treated share:                   0.506
+               on transition_score (1   Out-of-fold predictions:            no
+               compared with 0)         Outcome model:       linear regression
+Outcome:       transition_score         Treatment model:   logistic regression
+               (continuous)             Probability limits:  [0.01471, 0.9853]
+Adjusted for:  discharge_risk,
+               prior_utilization,
+               medication_burden, age
+Method:        targeted maximum
+               likelihood (TMLE)
+==============================================================================
+      estimate   std. error           95% CI    p-value
+------------------------------------------------------------------------------
+ate      1.513        0.046   [1.422, 1.603]    <0.0001
+==============================================================================
+```
+
+The block above the table says what was asked and what was fitted: the question, the outcome, the
+columns adjusted for, the method, the number of rows, and the models. The table holds the
+numbers. The `estimate` is the effect on the scale of the outcome. The `std. error` measures how
+much the estimate would move from sample to sample. The `95% CI` is the interval built from it,
+and the `p-value` tests whether the effect is zero. A row with no interval says why in a note.
+
+Numbered notes follow the table, and they appear only when something changes how to read a number.
+A note can say that an estimate is experimental because no validation study covers that kind of
+fit, that the models were fitted and evaluated on the same rows, or that the cap on extreme weights
+changed some units. A warning prints before an ordinary note. A summary with no notes has nothing
+to flag.
+
+`summary()` prints the short form. `summary(detail="full")` adds sections after the notes: the
+assumptions, written out one per line, the settings that change how to read the numbers, and the
+description of the study. The short form always has the header and the table.
+
+A summary is also data. It is a string, so `print` and `str` give the text. The same object holds
+the parts, so a program does not need to parse the text.
+
+```python
+summary = result.summary()
+name = list(result.estimates)[0]
+row = summary.table().row(name)
+print(summary.heading)
+print(name, row["estimate"].value, row["95% CI"].text)
+print(summary.note_codes)
+```
+
+`summary.table()` returns the estimates table, and `.row(name)` returns its cells, each with the
+raw `value` and the printed `text`. `summary.facts` maps each header label to its value, and
+`summary.notes` lists the notes. A check's `summary().reading` gives its one-sentence verdict.
+`summary.as_html()` returns an escaped HTML fragment, and a notebook shows it without a call.
+`repr(result)` is one short line that names the method and the estimates.
+
+The rest of this page uses the same layout for the assessment, the sensitivity analyses, and the
+checks of the fit.
+
 ## Run the assessment battery
 
 Call `assess()` to collect validation, diagnostics, and sensitivity in one report.
@@ -10,13 +73,16 @@ print(battery.summary())
 support = battery.report("support")
 ```
 
-The summary prints three sections. `Returned results` expands each completed analysis with its
-returned result. `Checks` and `Not run` inventory every other row. Each group states its status and
-count on its first row. It then gives one surface-qualified operation on each line.
+The summary opens with counts: how many checks ran, how many need attention, and how many did not
+run. `Results` gives one line for each analysis that ran without a pass or fail rule, such as the
+E-value, with its main finding. `Checks` lists the checks that pass or fail, failures and warnings first.
+`Not run` lists what was skipped and why, such as an analysis that needs an argument you have not
+given. The notes list the suggested next steps. Print `battery.summary("full")` to see each row's
+whole finding or reason.
 
 Call `battery.to_frame()` for the complete row ledger. It carries the `surface`, `check`, `status`,
-`detail`, and `next_steps` columns. The summary prints no next step, so call `battery.next_steps()`
-for the follow-up actions.
+`detail`, and `next_steps` columns. Call `battery.next_steps()` for the follow-up actions as a
+list.
 
 ```python
 ledger = battery.to_frame()
@@ -81,7 +147,7 @@ carries the reason.
 | surface | where the label appears |
 | --- | --- |
 | `repr(estimate)` | the marker `[experimental]` after the estimate |
-| `result.summary()` | a `support` column, only when an estimate is experimental, and one `experimental:` note per distinct reason below the table |
+| `result.summary()` | a `support` column, only when an estimate is experimental, and an `experimental` note below the table that says in plain words why. `summary(detail="full")` prints each reason under Settings |
 | `estimate.support` | a `Support` record with `label`, `reason`, `evidence`, `row` and `limits` |
 | `estimate.to_dict()` and `result.to_frame()` | `support` on every row. An experimental row adds `support_reason` and `support_evidence`. A row with limits adds `support_limits` |
 | `estimate.bootstrap.support` and `bootstrap_support` | the label of the percentile interval, which a row can license apart from the Wald interval |
@@ -92,7 +158,8 @@ The `evidence` of a `supported` estimate holds study slugs. The `evidence` of an
 estimate holds roadmap ids, such as `X54`, that name the missing evidence.
 
 A fit with fewer clusters than the interval floor shows its interval under the experimental
-label. Its bootstrap prints as `bootstrap sd` and a percentile range. A fit that withholds its
+label. Its bootstrap is published as `bootstrap sd` and a percentile range, and its summary
+labels both as diagnostics. A fit that withholds its
 interval, such as a collaborative fit, keeps its point estimate and refuses `ci`. The
 [inference status](../technical-reference/inference.md#inference-status) table lists each case.
 
@@ -140,10 +207,11 @@ if len(names) >= 2:
 ```
 
 Use cluster roles in the study design for cluster-robust variance. Below 40 clusters with
-positive weight mass, a TMLE, DR-TMLE, or longitudinal TMLE fit reports Student t intervals, and
-the summary prints a `df` column. Below 10 such clusters, or 20 for longitudinal TMLE, it
-reports no interval. For TMLE and
-DR-TMLE, both rules also apply to one reported stratum.
+positive weight mass, a TMLE, DR-TMLE, or longitudinal TMLE fit reports Student t intervals with
+the cluster count minus 2 degrees of freedom, and the summary prints a `df` column. Below 10 such
+clusters, or 20 for longitudinal TMLE, the interval carries the `experimental` label, and below 3
+the fit reports no interval. For TMLE and DR-TMLE, these rules also apply to one reported
+stratum.
 [Clusters](../technical-reference/inference.md#clusters) gives the rules. Use
 `Inference(simultaneous=True)` when the reported family, rather than each interval separately,
 needs error control.
@@ -194,6 +262,10 @@ corrections = (
 stability = result.diagnostics.truncation_curve()
 all_cached = result.diagnostics.run_all()
 ```
+
+`truncation_curve()` re-estimates at other limits on extreme weights. Print
+`stability.summary()` to see each estimate's change from the fitted one and the share of units the
+limits capped. Call `stability.to_frame()` for the dataframe.
 
 `influence()` reports how few rows carry each estimate's influence curve. It gives the Kish
 count, the skewness, the kurtosis, the relative standard deviation of the variance estimate, and
@@ -265,7 +337,7 @@ spread row. `nuisance.repeat_spread_omission` then names the cause, and every ab
 spread gets its own machine-readable reason. A table cell with no finite value prints `-`.
 
 Nuisance models and C-TMLE selection describe draw 1. Split-spread rows read every retained draw.
-The nuisance summary states the scope on its own line, as `describing draw 1 of 3`.
+The model check states the scope in its header, as `Split shown: split 1 of 3`.
 
 A repeated longitudinal fit uses the same rows. `result.diagnostics.nuisance_models().repeat_spread`
 holds one row per reported parameter, and `result.repeat_spread()` returns the standard deviations
@@ -382,7 +454,7 @@ sentence that the call raises.
 
 | operation | argument | the row defers when |
 | --- | --- | --- |
-| `refute()` | `tests` | the fit refuses one default test and admits another, such as `subset` on a fit given `split_plan=` |
+| `refute()` | `tests` | the fit refuses one default test and admits another, such as `placebo` on a fit of `NaturalCourseMean` |
 | `truncation_curve()` | `mechanism` | the fit refuses the default axis and admits the other, such as the treatment axis of an incremental fit with missing outcomes |
 | `benchmark()` | `covariates` | always, because the call needs the argument. A fit with one covariate reads `unavailable`, because the call cannot drop every covariate |
 | `simulated_confounding()` | `estimand` | the call refuses the default estimand, and another estimand that the fit reports runs |
@@ -425,33 +497,15 @@ The curve records `upper_bound`, the parameter-specific fitted bound pair and es
 keeps the requested grid cardinality and can therefore have no fitted marker. The fitted columns
 still name the configuration the grid omitted.
 
-A longitudinal curve has no default grid. Supply `bounds=` explicitly. A scalar `b` means the
-cumulative lower-only pair `(b, 1)`. An explicit `(lower, upper)` entry keeps both limits. This
-differs from point treatment, where scalar treatment bounds mean `(b, 1 - b)`.
-
-Each longitudinal row is a descriptive ordinary LTMLE point estimate under one fixed cumulative
-mechanism bound. The replay keeps the data, resolved plans, folds, raw mechanism predictions,
-weights, clusters, and estimand structure fixed. It recomputes bounded cumulative probabilities.
-It then refits every bound-dependent outcome or pseudo-outcome regression and targeting update.
-It never reuses an earlier-node outcome fit or prediction.
-
-Before the grid runs, a fitted-bound preflight must exactly reproduce every retained estimate,
-regimen fit, and MSM fit. This check also runs when the requested grid omits the fitted pair.
-A mismatch makes the operation unavailable.
-
-Its frame carries one row per evaluated pair and reported parameter. The row records both
-endpoints, the parameter, the replayed `psi`, the fitted pair, `fitted_psi`, `is_fitted_bound`,
-`delta_from_fitted`, and two score-cell counts. Read the lower endpoint as `lower_bound` here,
-because the point-treatment frame above names the same endpoint `bound`.
-[Truncation stability](../technical-reference/validation-methods.md#truncation-stability) holds the
+A longitudinal curve has no default grid, so supply `bounds=`. A scalar `b` there means the pair
+`(b, 1)`, not `(b, 1 - b)`. Each row reruns the whole backward recursion under one fixed bound on
+the cumulative treatment and censoring probabilities, and reports no standard error or interval.
+Before the grid runs, a check at the fitted bound must reproduce every reported estimate exactly,
+or the operation is unavailable. The frame names the lower endpoint `lower_bound`, where the
+point-treatment frame names it `bound`.
+[Diagnostics](longitudinal.md#diagnostics) on the longitudinal page gives the rest, and
+[truncation stability](../technical-reference/validation-methods.md#truncation-stability) holds the
 column table and the two counting rules.
-
-The operation reports no standard error, interval, preferred bound, selected-bound correction, or
-pass threshold. It does not validate positivity or account for uncertainty from choosing a bound.
-It refuses `mechanism=True`, which is a point-treatment option. It also refuses a result without
-its stored replay recipe, and a learner it cannot replay.
-[Replay-only unavailability](../technical-reference/scope-and-refusals.md#replay-only-unavailability)
-states the `random_state` rule each learner must satisfy.
 
 `estimands=` restricts the rows to the parameters you name. Name a reported parameter, such as
 `ey[high]`, to select its own row. Name a registered target, such as `ey`, to select one row for
@@ -463,7 +517,7 @@ coefficient. It measures that movement from the parameter's own fitted estimate.
 parameters whose fitted pair the grid skipped. Read the fitted estimate and the fitted pair from the
 retained curve.
 
-Explicit odds-ratio and reported risk-ratio E-values summarize existing estimates:
+To run every diagnostic, including the refits and the retargets, pass both flags:
 
 ```python
 everything = result.diagnostics.run_all(include_refits=True, include_retargets=True)
@@ -483,6 +537,12 @@ The E-value row records its source alias, such as `estimand="ate"`, for replay.
 A derived ratio can have a different output alias, such as `rr`.
 For a default odds-ratio source, the row keeps `estimand=None` because an explicit alias chooses the approximation.
 The returned E-value records that source in `source_estimand`.
+
+On a `TimeToEvent` fit, name two reported risks at one horizon, numerator first:
+`result.sensitivity.evalue(("risk_regimen[a1 @ t=2]", "risk_regimen[a0 @ t=2]"))`.
+Some configurations have no coverage study for their confidence limit yet. The
+[E-value reference](../technical-reference/validation-methods.md#e-value)
+lists them. Each prints its confidence-limit E-value as descriptive, and `EValue.limit_descriptive` is true.
 
 The omitted-confounding row says "at the default strengths" when you omit both strength arguments.
 It names the omitted strength when you supply only one. The effective arguments retain both numeric values.
@@ -513,14 +573,15 @@ ate_result = gaussian_study.estimate(
 generated = ate_result.diagnostics.refute(
     tests=("simulated_outcome",),
     simulated_outcome=GaussianAdjustmentOutcome(effect=0.5),
-    n_replicates=40,
     random_state=21,
 )
 draws = generated.draws_frame("simulated_outcome")
 ```
 
-That call reports `includes 0.5 yes` on 40 successful refits. Each row in `draws` records the
-child seed, estimate, standard error, family, or refit failure.
+That call refits 400 times. Its summary lists the bias, the standard-error ratio, and the
+coverage, each with its 95% interval and the band it must fall in, and marks `yes` where the
+interval lies inside the band. Each row in `draws` records the child seed, estimate, standard
+error, family, or refit failure.
 
 Use bootstrap measurement error to assess estimate stability under declared covariate error.
 The operation samples rows first. It then perturbs original adjustment variables and refits the
@@ -545,27 +606,29 @@ The numeric multiplier uses each variable's standard deviation in its bootstrap 
 Categorical changes act on the original variable and rebuild its complete indicator block.
 Set `categorical_change_probability` on the declaration to control those changes.
 
-The operation compares the original estimate with the empirical refit distribution.
-It can pass or fail because it measures stability under the declared error.
+The operation reports how far the estimate moves under the declared error and states no verdict.
 It stays outside `DEFAULT_TESTS` because every draw resamples, perturbs, and refits.
 Plain bootstrap inference does not add measurement error.
 
-The placebo refutation permutes treatment and interprets movement toward zero as evidence for an
-effect claim. `NaturalCourseMean` is an outcome level, not an effect, so that interpretation does
-not apply and the operation refuses it before refitting. The `random_common_cause` and `subset`
-refutations retain their usual stability interpretations for this target.
+The placebo refutation permutes treatment and reads the refit estimates against the exact null.
+`NaturalCourseMean` is an outcome level, not an effect, so that reading does not apply and the
+operation refuses it before refitting. The `random_common_cause` and `subset` refutations keep
+their descriptive readings for this target.
 
-Two defaults govern generated-outcome calls, and they are separate objects. `n_replicates` defaults to
-`DEFAULT_OUTCOME_REPLICATES`, which is 100 draws. `outcome_rule` defaults to
-`EmpiricalInclusionRule()`, which needs 40 successful draws, uses alpha 0.05, and fails when any
-refit fails. The simulated-outcome example asks for 40 draws, which is the smallest budget the
-default rule accepts.
+`print(report.summary())` shows one row per test: the mean and SD of the refits, what to expect
+of them, and the result. A test prints `passed` or `failed` only where a simulation study or
+an exact reference backs it for this kind of fit. Otherwise it prints `no pass or fail`, its
+`passed` is `None`, and so is `report.passed` unless another test failed. The note under each
+test says what it checks and what its numbers can show, and `summary(detail="full")` adds the studied fits each test was compared with.
+`bool(report)` raises `TypeError` for a report without a pass or fail, so test `report.passed`
+against `True` and `False`.
 
-Read alpha as a width and not as a false-alarm rate. The rule passes when the declared effect
-lies inside the central 95% of the refit estimates, which
-[the technical reference](../technical-reference/validation-methods.md#refutation-operations)
-derives. Generated outcomes apply only to identified additive contrasts for binary point
-treatments.
+Checks that need more than 20 refits are opt-in. The default tests run 20
+replications each. A generated-outcome call defaults to `DEFAULT_OUTCOME_REPLICATES`, which is 400
+draws, and a budget below 400 prints its readings without a verdict. A budget below 10 is refused.
+[The technical reference](../technical-reference/validation-methods.md#refutation-operations)
+states the bands and the evidence ladder. Generated outcomes apply only to identified additive
+contrasts for binary point treatments.
 
 `score_equations(tolerance=...)` gates both result families, but on the scale each one’s score
 lives on. A point-treatment fit compares the score in the outcome’s own units against
@@ -606,15 +669,30 @@ measures the rule's false-warning rate and its detection rate for a binary prope
 
 ## Sensitivity analysis
 
+An estimate is causal only if the adjustment set holds every common cause of the treatment and the
+outcome, and no data can check that. A sensitivity analysis asks how strong a confounder that the
+data do not record would have to be to change the conclusion. `result.sensitivity` offers four
+analyses:
+
+- `omitted_confounding()` gives the range of estimates that a missing confounder of declared
+  strength allows. One strength is its link to the outcome (`cf_y`), the other its link to the
+  treatment (`cf_d`), each a share between 0 and 1. `benchmark()` measures the strengths of a
+  recorded covariate, and `robustness_value()` finds the strength that would move the estimate to 0.
+- `evalue()` gives how strongly a missing confounder would need to be linked to both the treatment
+  and the outcome, on the risk-ratio scale, to explain the effect away.
+- `marginal_bounds()` gives the range of effects when a missing confounder can multiply each unit's
+  odds of treatment by at most a factor `gamma`, with no limit on its link to the outcome.
+- `simulated_confounding()` plants a confounder of chosen strengths in the data and refits.
+
 ```python
 all_sensitivity = result.sensitivity.run_all()
 print(all_sensitivity.summary())
 ```
 
-Support and truncation stability live under `result.diagnostics`. Point-treatment sensitivity
-methods are explicit: `omitted_confounding()`, `robustness_value()`, `elements()`, `benchmark()`,
-`contour()`, `evalue()`, `missingness()`, `tipping_gamma()`, and `simulated_confounding()`. A
-simulated surface needs an explicit strength grid, so `run_all()` never starts it.
+`run_all()` runs the cheap analyses. A simulated surface needs an explicit strength grid, so
+`run_all()` never starts it. The other point-treatment methods are `elements()`, `contour()`,
+`missingness()` and `tipping_gamma()`. Support and truncation stability live under
+`result.diagnostics`.
 
 The omitted-variable bound has two estimators of $\nu^2$. The default is doubly robust, and its
 one-sided limits hold for any treatment learner. The plug-in estimator gives the limits for a
@@ -646,7 +724,8 @@ print(plugin_bounds.summary())
 print(plugin_bounds.ci_lower, plugin_bounds.robustness_value_ci)
 ```
 
-The summary names the mechanism whose score the standard error carries. A treatment learner
+`plugin_bounds.summary(detail="full")` names, under Settings, the mechanism whose score the
+standard error carries. A treatment learner
 outside the admitted set, such as a random forest, makes `ci_lower`, `ci_upper`,
 `robustness_value_ci` raise `CapabilityError` with the roadmap item F26, and `robustness_value`
 omits `rva`. The bounds and the rest of `robustness_value` stay available.
@@ -664,15 +743,53 @@ not approach, can clear the refusal. The
 [learner rule](../technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule)
 lists every key.
 
-The `missingness()` tilt and the `tipping_gamma()` search perturb the arm-indexed means and their
-linear contrasts. The table gives each missing-outcome fit where both are unavailable.
+To ask what a missing confounder as strong as a recorded covariate could do, hand the benchmark to
+the bound. `benchmark()` refits without the named covariates, and `benchmark=` reads its two
+strengths:
+
+```python
+calibration = plugin_fit.sensitivity.benchmark(covariates=("W1",), random_state=1)
+as_strong_as_w1 = plugin_fit.sensitivity.omitted_confounding(
+    benchmark=calibration, nu2_estimator="plugin"
+)
+print(as_strong_as_w1.summary())
+```
+
+The range then says how far a confounder as strong as `W1` could move the estimate, under the
+bound's assumptions. A record from another fit or another estimand is refused, and so are explicit
+`cf_y=` or `cf_d=` beside it. A treatment-side strength of 1 or more calibrates no finite bound and
+raises `ValueError`. [The benchmark](../technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
+defines the two strengths.
+
+The marginal sensitivity bounds read a grid of `gamma` values. At `gamma=1`, no missing
+confounder, the range shrinks to one value close to the fit's own estimate.
+
+```python
+odds_bounds = plugin_fit.sensitivity.marginal_bounds(gamma=(1.0, 1.5, 2.0))
+print(odds_bounds.summary())
+```
+
+Read the `lower` and `upper` columns at each `gamma`, and the interval for the range beside them.
+`odds_bounds.breakdown` is the smallest grid `gamma` whose range contains 0, or `None` when no grid
+value reaches it. The bounds cover two-arm and multi-arm `TMLE`, `DRTMLE` and `CTMLE` fits with a
+continuous or binary outcome, and longitudinal fits refuse them. A
+[simulation study](../technical-reference/method-evidence/marginal-bound-limit-coverage.md) backs
+the interval for the ATE of a two-arm, five-fold cross-fitted `TMLE` with the study's `GLM` models
+and at least 8,000 rows. Every other
+fit, such as this in-sample one, prints the interval as descriptive.
+[Marginal sensitivity model bounds](../technical-reference/validation-methods.md#marginal-sensitivity-model-bounds)
+gives the estimator, its conditions and each refusal.
+
+The `missingness()` tilt and the `tipping_gamma()` search perturb the arm means and their
+contrasts and ratios, `ey_obs`, PAR and PAF, the regime parameters, and the MSM coefficients. Away
+from $\gamma = 0$, every parameter but an arm mean or a linear contrast reports its spread under
+the `plugin_` column names, and `tipping_gamma(use_ci=True)` refuses it. The table gives each
+missing-outcome fit where both are unavailable.
 
 | fit | reason |
 | --- | --- |
-| `NaturalCourseMean()` | the natural-course target needs its own sensitivity parameter |
 | a shift fit | whether the tilted parameter is still the shift parameter has not been derived |
 | an incremental fit | its targeting also solves a score in the treatment mechanism, and no derivation covers the tilt of that fixed point |
-| a regime, MSM, or ratio-only fit | the fit reports no arm-indexed mean and no linear contrast |
 
 A per-arm outcome-adaptive `CTMLE` fit regresses its observation factor on the outcome regression
 only. Both methods read the full-covariate model `nuisance.tilt_missingness` on that fit, and no
@@ -1009,22 +1126,37 @@ source conventions for numeric covariates. It does not change the declared grid.
 
 Inspect `result.sensitivity.capability("simulated_confounding")` before a combined run. Its
 `available`, `status`, and `reason` fields read the same fit-wide check as direct execution. The
-check is one ordered list, and it stops at the first boundary your fit meets. Six stops wait on
-published theory: longitudinal, multi-arm, missing-outcome, intermediate, estimated-weight, and
-clustered fits. Twelve provenance and shape stops read the result type, the replay estimator, the
+check is one ordered list, and it stops at the first boundary your fit meets.
+
+Two stops wait on
+a declared law: longitudinal fits outside the time-fixed latent, and learned-rule fits. A third
+stop refuses a risk-ratio tilt fit, which no typed study request reports. Twelve provenance and shape stops read the result type, the replay estimator, the
 repeat provenance, the outcome family, the observation weights, and the identification metadata.
 The result-type stop runs second, because every later stop reads a field that only a
 point-treatment result declares.
 
-The capability row names the same stop that direct execution would raise, for all eighteen. Take a
+The capability row names the same stop that direct execution would raise, for all fifteen. Take a
 fit whose backdoor provenance is not a registered explicit adjustment set. Its row reports
 `available=False` and the reason
 `"simulated_confounding needs registered explicit-adjustment backdoor provenance"`. The
 [technical reference](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
 lists the twelve stops in order. Each refusal occurs before calibration, a latent draw, or a refit.
 
-Estimated-weight replay needs the fitted weight model, target-population semantics, and a
-regeneration rule. The fitted result does not store that contract.
+A multi-arm fit swaps the two arms of one declared pair, and other arms keep their rows. A
+contrast alias such as `ate[high vs low]` declares the pair. Any other parameter needs
+`arm_pair=("high", "low")`. A vector treatment names a pair for each categorical component with
+more than two levels.
+
+A clustered fit needs `latent_level`. Pass `"row"`, `"cluster"`, or `"mixed"` with `latent_rho`.
+A treatment that is constant within every cluster accepts only `"cluster"` when a cell moves the
+treatment.
+
+Estimated observation weights stay fixed on their rows. Each cell then targets the weighted
+population of the original fit. The replay does not regenerate the weights.
+
+A categorical benchmark covariate calibrates as one block of its indicators. Name the logical
+covariate, not one indicator. Every binary calibration uses an unpenalized logistic fit. A fit that
+separates the classes reports a `nan` strength, and `summary()` counts those rows.
 
 A fixed-weight collaborative fit reruns its selector or outcome-adaptive treatment fit at each
 cell. It uses the normalized row weights in every nuisance fit, loss, penalty, targeting step, and
@@ -1033,10 +1165,29 @@ plug-in.
 The R `ctmle` and archived `ctmle3` sources provide no weighted comparator. The fixed-weight
 collaborative surface makes no numerical parity claim with those implementations.
 
-Missing-outcome replay needs a joint law for the response indicator, treatment, and outcome.
-Holding the response indicator fixed can break missing at random after treatment changes.
-Intermediate and longitudinal fits need their own ordered latent laws. Clustered fits need a
-source-backed choice among row-level, cluster-level, and mixed latent causes.
+A fit with a missing outcome or a missing treatment perturbs the recorded values only, and it
+keeps every observation indicator. Outcome-axis cells run as they are. A cell that moves the
+treatment needs `observation_reads=("W1", "W2")`, the covariates that every observation mechanism
+reads. A mechanism that reads the treatment breaks missing at random under the flip, so the
+surface refuses the treatment axis without that declaration. The report states the declaration,
+because the surface cannot verify it.
+
+A controlled direct effect holds its treatment. Each cell flips the intermediate with
+`ConfounderStrengthGrid(intermediate=(0.0, 0.2))` and moves the outcome. A nonzero treatment
+strength is refused.
+
+On a Gaussian fit whose estimator declares `q_bounds`, every outcome that a cell moves lands
+inside the bounds. The default `bounded_outcome_law="logit"` shifts the logit of the scaled outcome.
+A row at or beyond a bound never moves. `"normal_score"` shifts the normal score, maps it back
+through the empirical quantile, and clips the result to the bounds. The outcome strength is then not in outcome SD units, so compare the
+`induced_outcome_association` of each cell across fits.
+
+A longitudinal fit shares one latent value per unit across every treatment node and the outcome.
+The surface covers uncensored end-of-study panels with no time-varying covariate after the first
+node. `LTMLE`, `SDR`, `SequentialGComputation`, `SequentialIPW`, and `ParametricGFormula` fits
+take it. Name the estimand, such as `"ate_regimen[never vs always]"`. A one-axis grid moves every
+node, and `treatment={"A2": (0.0, 0.1)}` moves one node. Each cell reports one association per
+node. A later node's association includes the path through the earlier perturbed nodes.
 
 A combined call excludes refits and retargets by default. A row skipped for cost alone names the
 flag that would run it. A row that also needs a choice names the choice instead. Longitudinal
@@ -1055,9 +1206,12 @@ assert type(restored.method) is type(result.method)
 assert type(restored.method.models.outcome_learner) is type(result.method.models.outcome_learner)
 ```
 
-Read `result.diagnostics.capabilities` before you run an operation on a loaded artifact. Each
-row declares the replay it needs, and `available` is `False` when the artifact cannot supply it.
-The row says which slot is missing, so you learn the answer before the operation runs.
+Print `restored.replayability.summary()` to see what a loaded result can redo: show its stored
+checks, re-estimate from its stored models, refit the models, or rerun on changed data. A note
+names any part the result lacks. Read `result.diagnostics.capabilities` before you run an
+operation on a loaded artifact. Each row declares the replay it needs, and `available` is `False`
+when the artifact cannot supply it. The row says which slot is missing, so you learn the answer
+before the operation runs.
 
 A result can hold a copied or modified estimator whose configuration the package refuses before a
 refit. A stratified fold policy, a cross-fitted continuous outcome with `q_bounds=None`, and a
@@ -1067,7 +1221,7 @@ gives what such a result keeps.
 
 | operation | on such a result |
 | --- | --- |
-| point estimates and cached-nuisance retargets, such as `truncation_curve()` | run. `replayability.retarget_cached_nuisances` is `True`. A guarded DR-TMLE curve also runs. It retargets the cached primary nuisances and refits the reduced regressions inside that step. Its row reports the `refit` cost, but it does not require the `refit_nuisances` slot of the outer estimator. The curve refuses a reduction setting that a fit refuses, such as `targeting="one_step"` with `reduced_crossfit="nested"`. It also refuses a `guard`, `reduction` or `reduced_crossfit` other than the fitted one |
+| point estimates and cached-nuisance retargets, such as `truncation_curve()` | run. `replayability.retarget_cached_nuisances` is `True`. A guarded DR-TMLE curve also runs. It retargets the cached primary nuisances and refits the reduced regressions inside that step. Its row reports the `refit` cost, but it does not require the `refit_nuisances` slot of the outer estimator. The curve refuses a reduction setting that a fit refuses, such as `targeting="one_step"` with `reduced_crossfit="foldwise"`. It also refuses a `guard`, `reduction` or `reduced_crossfit` other than the fitted one |
 | refits, such as `refute()` and `simulated_confounding()` | `unavailable`. `replayability.refit_nuisances` is `False`, with the code `point_replay_refit_configuration` |
 | `estimator.refit()` | raises `CapabilityError` before any learner |
 

@@ -1,0 +1,26 @@
+seeds 3100 to 3499, n = 4000, 138 s
+crude: mean -0.563, truth 11.215
+gf:ey_regimen[never]: covers 373 of 400, mean error 0.0075 (Monte Carlo SE 0.0193)
+gf:ey_regimen[always]: covers 381 of 400, mean error 0.0283 (Monte Carlo SE 0.0229)
+gf:ate_regimen[always vs never]: covers 377 of 400, mean error 0.0208 (Monte Carlo SE 0.0304)
+wrong:ey_regimen[never]: covers 169 of 400, mean error 0.7361 (Monte Carlo SE 0.0175)
+wrong:ey_regimen[always]: covers 0 of 400, mean error 2.2625 (Monte Carlo SE 0.0169)
+wrong:ate_regimen[always vs never]: covers 71 of 400, mean error 1.5264 (Monte Carlo SE 0.0273)
+snmm:blip[offer_discharge:1.0:intercept]: covers 376 of 400, mean error 0.0317 (Monte Carlo SE 0.0348)
+snmm:blip[offer_discharge:1.0:lives_alone]: covers 379 of 400, mean error -0.0723 (Monte Carlo SE 0.0449)
+snmm:blip[offer_day10:1.0:intercept]: covers 377 of 400, mean error 0.0177 (Monte Carlo SE 0.0151)
+snmm:blip[offer_day10:1.0:lives_alone]: covers 375 of 400, mean error 0.0128 (Monte Carlo SE 0.0271)
+snmm:blip[offer_day20:1.0:intercept]: covers 374 of 400, mean error -0.0011 (Monte Carlo SE 0.0079)
+snmm:ey_regimen[never]: covers 378 of 400, mean error -0.0006 (Monte Carlo SE 0.0171)
+snmm:ey_regimen[always]: covers 379 of 400, mean error 0.0238 (Monte Carlo SE 0.0223)
+snmm:ate_regimen[always vs never]: covers 374 of 400, mean error 0.0244 (Monte Carlo SE 0.0298)
+snmm:effect:offer_discharge:alone=0: covers 376 of 400, mean error 0.0317 (Monte Carlo SE 0.0348)
+snmm:effect:offer_discharge:alone=1: covers 384 of 400, mean error -0.0406 (Monte Carlo SE 0.0321)
+snmm:effect:offer_day10:alone=0: covers 377 of 400, mean error 0.0177 (Monte Carlo SE 0.0151)
+snmm:effect:offer_day10:alone=1: covers 373 of 400, mean error 0.0305 (Monte Carlo SE 0.0218)
+snmm:effect:offer_day20:alone=0: covers 374 of 400, mean error -0.0011 (Monte Carlo SE 0.0079)
+snmm:effect:offer_day20:alone=1: covers 374 of 400, mean error -0.0011 (Monte Carlo SE 0.0079)
+gf:ey_regimen[never]:mc_share: median 0.0260, max 0.0301
+gf:ey_regimen[always]:mc_share: median 0.0126, max 0.0150
+gf:ate_regimen[always vs never]:mc_share: median 0.0048, max 0.0068
+model check: p below 0.05 on 23 of 400

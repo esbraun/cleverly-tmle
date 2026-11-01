@@ -10,7 +10,6 @@ estimator code never branches on learner type.
 from __future__ import annotations
 
 import inspect
-import warnings
 from collections.abc import Sequence
 from typing import Any, Literal
 
@@ -19,6 +18,7 @@ from sklearn.base import clone
 from sklearn.pipeline import Pipeline
 
 from .._typing import FloatArray, IntArray, Learner
+from .._warnings import warn as _warn
 from ..exceptions import MethodConfigurationError
 from ._threads import thread_limit
 
@@ -175,7 +175,7 @@ def fit_learner(
             weights = np.asarray(sample_weight, dtype=float)
             params[_qualified("sample_weight", step_name)] = weights
         elif warn_unweighted:
-            warnings.warn(
+            _warn(
                 f"{type(model).__name__} does not accept sample_weight; fitting it unweighted. "
                 "Observation weights will still be applied in the targeting step, but the "
                 "nuisance fit ignores them.",

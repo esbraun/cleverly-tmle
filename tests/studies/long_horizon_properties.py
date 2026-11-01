@@ -484,14 +484,20 @@ class _Declared:
 
 
 def declared_cells(tag: str, replicates: Mapping[str, int]) -> tuple[PropertyCell, ...]:
-    """Every sampled cell of a study, with its role, n and replicate count.
+    """Every cell of a study's property rows, with its role, n, replicate count and truth.
 
-    The calibration controls derived from each positive's rows are not listed.
+    A calibration positive lists its derived controls (shrunken standard error and noise) after
+    it, on the stream of the positive.  Each cell's ``dgp`` carries the exact truth of the cell's
+    estimand under the cell's law, which is what the committed rows publish.  A joint cell
+    publishes the placeholder truth 0, as ``joint_coverage_rows`` writes it.  The ``root_n_rate``
+    rows come from the ladder's rows and have no rows of their own.
     """
     record = _record(tag)
+    derived = derived_cells(tag)
     out = []
     for fit_set in fit_sets(tag):
         for arm in fit_set.arms:
+            truth = 0.0 if arm.joint else arm.config.truth
             if arm.joint:
                 band, control = joint_cells(arm.cell)
                 pairs = [(JOINT, band, "positive"), (JOINT, control, "control")]
@@ -501,12 +507,16 @@ def declared_cells(tag: str, replicates: Mapping[str, int]) -> tuple[PropertyCel
                 pairs = [(fit_set.family, arm.cell, arm.role)]
                 if arm.inflated:
                     pairs.append((fit_set.family, arm.inflated, "control"))
+                pairs += [
+                    (fit_set.family, name.partition("/")[2], "control")
+                    for name in derived.get(f"{fit_set.family}/{arm.cell}", ())
+                ]
             for family, cell, role in pairs:
                 out.append(
                     PropertyCell(
                         property=family,
                         cell=cell,
-                        dgp=_Declared(D.law_name(fit_set.law)),
+                        dgp=_Declared(D.law_name(fit_set.law), {arm.config.ident(): truth}),
                         outcome_learner=lambda: None,
                         treatment_learner=lambda: None,
                         n=fit_set.n,

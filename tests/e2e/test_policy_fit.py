@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 import sklearn.linear_model
 
+from cleverly._summary import vocabulary
 from cleverly.datasets import make_shift_dose
 from cleverly.estimators import TMLE
 from cleverly.exceptions import DataError
@@ -158,7 +159,8 @@ def test_the_support_report_counts_the_rows_a_cap_holds(dose_fit: Any) -> None:
     report = dose_fit.diagnostics.support()
     assert report["x1.1"].capped_fraction == pytest.approx(expected, abs=1e-12)
     assert report["trim high"].capped_fraction == 0.0
-    assert "capped=" in report["x1.1"].summary()
+    held = report["x1.1"].summary().facts[vocabulary.SUPPORT_CAPPED]
+    assert held == f"{expected:.1%}"
     by_classifier = _dose_fit(ratio="classifier").diagnostics.support()
     assert by_classifier["x1.1"].capped_fraction == pytest.approx(expected, abs=1e-12)
 
@@ -180,7 +182,8 @@ def test_the_classifier_route_runs_and_agrees_with_the_density_route(dose_fit: A
     # No density, so no zero can be read: the report says so rather than printing 0.
     row = by_classifier.diagnostics.support()["x1.1"]
     assert row.min_density is None and row.unsupported is None
-    assert "unsupported not measured on the classifier route" in row.summary()
+    facts = row.summary().facts
+    assert facts[vocabulary.SUPPORT_UNSUPPORTED_ROWS] == vocabulary.SUPPORT_NOT_MEASURED
 
 
 def test_a_cross_fitted_clustered_policy_fit_runs() -> None:
@@ -233,7 +236,10 @@ class TestCategoricalPolicies:
         fit = _fit_frame(frame, policies=[Shift(0.0, cap=None), treat_high])
         assert fit.config.parameter_axis == "policy"
         assert fit.estimates["ate_policy[treat high W vs natural course]"].psi > 0.0
-        assert "propensity truncated" in fit.summary()
+        settings = fit.summary(detail="full").section("Settings").lines
+        assert any(
+            line.startswith("Estimated treatment probabilities limited to") for line in settings
+        )
 
     def test_a_three_level_policy_and_the_lmtp_example_form(self) -> None:
         rng = np.random.default_rng(6)

@@ -21,6 +21,7 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 import cleverly
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.estimators import CTMLE, TMLE, _oat_stack
 from cleverly.estimators import ctmle as ctmle_module
 from cleverly.estimators.ctmle import (
@@ -41,6 +42,11 @@ from tests.studies import oat_per_arm_laws as laws
 pytestmark = pytest.mark.xdist_group("oat_per_arm_support")
 
 ESTIMANDS = ("ey0", "ey1", "ate", "rr", "or")
+
+
+def _method_text(result: Any) -> str:
+    """The Method details of a full summary, as one string."""
+    return " ".join(result.summary(detail="full").section("Method details").lines)
 
 
 def _options(**overrides: Any) -> dict[str, Any]:
@@ -422,18 +428,20 @@ def _fit_warning() -> Any:
 
 class TestTheSummary:
     def test_an_admitted_fit_states_what_its_interval_covers(self, admitted_fit: Any) -> None:
-        text = admitted_fit.summary()
-        assert (
-            "stacked parametric curve of ParametricOutcome(features='arm_interactions', "
-            "arm_columns=1)" in text
-        )
+        text = admitted_fit.summary().note("stacked_interval").text
+        assert "the declared parametric outcome and treatment models" in text
+        assert "Each interval is pointwise" in text
         assert "covers the arm mean when the outcome model is correct" in text
-        assert "A simultaneous band is joint over the reported estimates" in text
+        # This fit asks for no band, so the Method details name none.
+        assert admitted_fit.simultaneous is None
+        assert "A simultaneous band covers" not in _method_text(admitted_fit)
 
     def test_a_refused_per_arm_fit_names_the_unmet_requirement(self) -> None:
-        text = _fit(screen_treatment=True).summary()
-        assert "stacked parametric curve" not in text
-        assert "No stacked interval (X58): the stacked interval needs screen_treatment" in text
+        refused = _fit(screen_treatment=True)
+        text = _method_text(refused)
+        assert "stacked_interval" not in refused.summary().note_codes
+        assert "A simultaneous band covers" not in text
+        assert "No stacked interval: the stacked interval needs screen_treatment" in text
 
 
 class TestTheDefaultBand:
@@ -444,6 +452,7 @@ class TestTheDefaultBand:
         assert {estimate.inference for estimate in result.estimates.values()} == {"influence_curve"}
         assert result.simultaneous is not None
         assert set(result.simultaneous.bands) == set(ESTIMANDS)
+        assert "A simultaneous band covers the estimates" in _method_text(result)
 
     def test_a_single_ate_takes_the_default_inference(self) -> None:
         result = _fit(estimands=("ate",), simultaneous=True)
@@ -513,9 +522,11 @@ class TestRecomputation:
         loaded = cleverly.load(result.save(tmp_path / "failed.pkl"))
         assert loaded["ate"].inference == "stack_failure_plugin"
         assert loaded["ey0"].inference == "influence_curve"
-        text = loaded.summary()
-        assert text == result.summary()
-        assert "rows withheld (ate, ey1, rr, or): stack_failure_plugin" in text
+        summary = loaded.summary(detail="full")
+        assert summary == result.summary(detail="full")
+        withheld = summary.note("no_inference").text
+        assert withheld.startswith("No confidence interval or p-value for ate, ey1, rr, or,")
+        assert STATUS_RECORDS["stack_failure_plugin"].plain_reason in withheld
 
     @pytest.mark.parametrize("estimand", ["att", "atc"])
     def test_a_retarget_to_another_group_reads_no_stack(

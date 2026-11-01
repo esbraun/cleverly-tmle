@@ -44,10 +44,9 @@ replay gate.  The paired comparison of the selected estimates is descriptive
 (``paired_role="descriptive"``): quirk 2 of R ``ctmle`` drives R's cross-validation to the
 last candidate, so the two selected estimates are not the same estimator.
 
-**The R runs are pending** (``pending_reference``, Study queue item 9).  The record runs the
-Python phase and the property study, and it gates the package's truth rows, the structural
-invariants and the property cells.  The replay gates, the selection files and the paired
-comparison wait for the change that registers the R runs.
+**The R runs** (Study queue item 9) follow the merge of the Python evidence.  The record names
+``r-ctmle`` as its reference, so the replay gates, the selection files and the paired comparison
+read R's rows.
 
 **Structural invariants** of every package fit fail the run: the path length, the labels,
 ``selected == argmin(cv_risk)`` at the first minimum, and ``final is None`` exactly when the
@@ -204,19 +203,12 @@ SELECTION_FILE = "r-selection.csv"
 SELECTION_SUMMARY_FILE = "r-selection-summary.csv"
 REPLAY_FILE = "replay.csv"
 REPLAY_SUMMARY_FILE = "replay-summary.csv"
-#: Every side artefact reads R's rows, so a run with the comparator pending writes none.  The
-#: change that registers the R runs declares these as the record's ``extra_artifacts`` again.
+#: Every side artefact reads R's rows.
 REFERENCE_SIDE_ARTIFACTS = (
     SELECTION_FILE,
     SELECTION_SUMMARY_FILE,
     REPLAY_FILE,
     REPLAY_SUMMARY_FILE,
-)
-#: Why the R runs are pending, and the queue row that owns them.  The owner's rule: a method
-#: merges once its Python studies pass, and the comparator study follows in a later change.
-PENDING_REASON = (
-    "Study queue item 9: the R ctmle runs need Docker and the pinned reference image, and "
-    "a later change registers them"
 )
 #: The property module's side artefact: the selection of every lasso and learners property fit.
 PROPERTY_SELECTION_FILE = "property-selection.csv"
@@ -301,13 +293,11 @@ STUDY = StudyRecord(
     failure_bound={IMPLEMENTATION: 0.01, REFERENCE: 0.01},
     # The replay gates check the same construction in R ctmle (Roadmap "Comparisons").
     comparison="matching implementation",
-    # The R ctmle runs are pending.  The change that registers them moves REFERENCE to
-    # ``reference``, declares ``paired_role="descriptive"`` (quirk 2 drives R's
-    # cross-validation to the last candidate, so the selected estimates of the two sides are
-    # not one estimator, and the replay gates carry the comparison), and declares
-    # REFERENCE_SIDE_ARTIFACTS as ``extra_artifacts``.
-    pending_reference=REFERENCE,
-    pending_reason=PENDING_REASON,
+    reference=REFERENCE,
+    # Quirk 2 drives R's cross-validation to the last candidate, so the selected estimates of
+    # the two sides are not one estimator, and the replay gates carry the comparison.
+    paired_role="descriptive",
+    extra_artifacts=REFERENCE_SIDE_ARTIFACTS,
     # Reporting, declared before the run.  The selector-necessity cells of both selector
     # studies are red under F18.  The complete result is published, and RED_CELL_OWNERS names
     # who reads each red row.
@@ -423,7 +413,7 @@ CONFIGURATION = {
         "n_train / n (quirk 8); for binary_learners the package refits its terminal under the "
         "split, while R reads SL.glm's cv column"
     ),
-    "paired_role": (
+    "paired_role_reason": (
         "descriptive: quirk 2 drives R's cross-validation to the last candidate, so the "
         "selected estimates are not compared under a verdict"
     ),
@@ -1217,15 +1207,10 @@ def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
     Returns
     -------
     dict
-        Each side artefact by its file name.  It is empty while the comparator is pending.
+        Each side artefact by its file name.
     """
     from tests.studies import ctmle_sequence_replay as replay
 
-    if STUDY.comparator_state == "pending":
-        # No R row exists to read.  The record declares no side artefact while it is pending.
-        if (rows["implementation"] == REFERENCE).any():
-            raise RuntimeError(f"the comparator {REFERENCE} is pending, but its rows are present")
-        return {}
     selection = selection_rows(rows)
     compared = replay.replay_rows(rows)
     return {
@@ -1247,11 +1232,7 @@ def scientific_failures(artifacts: Mapping[str, pd.DataFrame]) -> dict[str, pd.D
     Returns
     -------
     dict
-        ``{"replay gate": rows}``: the ``replay-summary.csv`` rows whose gate failed.  It is
-        empty while the comparator is pending.
+        ``{"replay gate": rows}``: the ``replay-summary.csv`` rows whose gate failed.
     """
-    if STUDY.comparator_state == "pending":
-        # The replay gates read R's arrays, so they wait for the R runs.
-        return {}
     summary = artifacts[REPLAY_SUMMARY_FILE]
     return {"replay gate": summary.loc[~summary["passed"].astype(bool)]}

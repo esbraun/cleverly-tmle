@@ -7,12 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from cleverly.learners.crossfit import check_integrity
 from tests.studies import canonical_clustered_tmle as study
 from tests.studies import clustered_tmle_properties as properties
+from tests.studies.evidence.manifest import read_rows
 
 
 def test_the_registered_design_matches_the_declared_plan() -> None:
@@ -87,7 +87,7 @@ def test_the_iid_property_control_reuses_the_clustered_estimate() -> None:
 
 
 def test_inflated_iid_errors_fail_only_the_control_endpoint() -> None:
-    rows = pd.read_csv(study.STUDY.artifact("property-replicates.csv.gz"))
+    rows = read_rows(study.STUDY.artifact("property-replicates.parquet"))
     published = properties.summarize_properties(rows).set_index("cell")
     mutated = rows.copy()
     iid = mutated["cell"] == properties.CONTROL
@@ -99,7 +99,7 @@ def test_inflated_iid_errors_fail_only_the_control_endpoint() -> None:
 
 
 def test_zero_coverage_gain_fails_only_the_joint_endpoint() -> None:
-    rows = pd.read_csv(study.STUDY.artifact("property-replicates.csv.gz"))
+    rows = read_rows(study.STUDY.artifact("property-replicates.parquet"))
     robust = rows["cell"] == properties.POSITIVE
     iid = rows["cell"] == properties.CONTROL
     assert rows.loc[robust, "replicate"].tolist() == rows.loc[iid, "replicate"].tolist()

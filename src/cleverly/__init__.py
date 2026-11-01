@@ -38,6 +38,7 @@ from .assessment import (
     AssessmentStatus,
     DiagnosticReport,
     Replayability,
+    TruncationCurve,
     ValidationReport,
 )
 from .estimators.serialize import load
@@ -59,6 +60,7 @@ from .inference import ParameterEstimate
 from .learners import SplitPlan, SuperLearner
 from .longitudinal import Repeated
 from .methods import (
+    AdaptiveIPTWMethod,
     CollaborativeTMLEMethod,
     CrossFitting,
     DRTMLEMethod,
@@ -67,6 +69,7 @@ from .methods import (
     Inference,
     IPSIMethod,
     IPWMethod,
+    MethodAvailabilities,
     MethodAvailability,
     ModelSpec,
     ParametricGFormulaMethod,
@@ -119,6 +122,7 @@ __all__ = [
     "ATC",
     "ATE",
     "ATT",
+    "AdaptiveIPTWMethod",
     "AssessmentCapability",
     "AssessmentReport",
     "AssessmentStatus",
@@ -150,6 +154,7 @@ __all__ = [
     "LongPanel",
     "LongitudinalTreatment",
     "MSMProjection",
+    "MethodAvailabilities",
     "MethodAvailability",
     "MethodConfigurationError",
     "ModelSpec",
@@ -182,6 +187,7 @@ __all__ = [
     "TMLEMethod",
     "Targeting",
     "TimeToEvent",
+    "TruncationCurve",
     "ValidationReport",
     "VariableImportanceEntry",
     "VariableImportanceResult",

@@ -35,6 +35,7 @@ from sklearn.dummy import DummyRegressor
 from sklearn.linear_model import LogisticRegression
 
 from cleverly import CollaborativeTMLEMethod
+from cleverly._summary import vocabulary
 from cleverly.estimators import CTMLE
 from cleverly.estimators.ctmle import CTMLESelection, _PatienceCounter, _Selector
 from tests.unit._source_mutation import mutate
@@ -414,11 +415,11 @@ def test_the_stopped_line_says_fitted_only_where_the_later_candidates_were_not(n
     if selection.stopped_at is None:
         # Not every strategy stops on this law; the line reads the strategy alone.
         selection = dataclasses.replace(selection, stopped_at=0)
-    line = selection._patience_line()
+    line = selection.summary().note("search_stopped").text
     if name in ("lasso", "learners"):
-        assert line.endswith("later candidates were fitted but not scored")
+        assert line.endswith("Later candidates were fitted but not scored.")
     else:
-        assert line.endswith("later candidates were not fitted or scored")
+        assert line.endswith("Later candidates were not fitted or scored.")
 
 
 #: The law of the witness: ``c4`` is noise, ``c1`` drives the treatment so strongly that every
@@ -444,20 +445,18 @@ def test_a_law_whose_global_minimum_lies_past_the_stop_changes_the_selection() -
 
 def test_the_stopped_summary_and_description_say_where_the_search_stopped() -> None:
     selection = fit(patience=2, **WITNESS).extra["ctmle"]
-    lines = selection.summary().splitlines()
-    assert (
-        "patience = 2: the counter stopped the search after candidate 3, and later "
-        "candidates were not fitted or scored"
-    ) in lines
+    assert selection.summary().note("search_stopped").text == vocabulary.NOTE_TEXTS[
+        "search_stopped"
+    ].format(stopped=3, patience="2 candidates", later="not fitted or scored")
     assert selection.describe() == (
         "C-TMLE discrete selected candidate 1 of 3 for ate; patience=2 stopped the search "
         "after candidate 3"
     )
     whole = fit(patience=100, **WITNESS).extra["ctmle"]
-    assert (
-        "patience = 100: the counter never triggered, so the search read every candidate"
-    ) in whole.summary().splitlines()
-    assert "patience" not in fit(**WITNESS).extra["ctmle"].summary()
+    assert whole.summary().note("search_stopped").text == vocabulary.NOTE_TEXTS[
+        "search_never_stopped"
+    ].format(patience=100)
+    assert "search_stopped" not in fit(**WITNESS).extra["ctmle"].summary().note_codes
 
 
 def test_the_lasso_final_step_reads_only_the_stopped_path() -> None:

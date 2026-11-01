@@ -1,0 +1,148 @@
+{
+  "schema_version": 2,
+  "study": "point-treatment refutation verdict rules",
+  "slug": "refuter-calibration-point",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-refute-point",
+      "cleverly_version": "0.1.5",
+      "cleverly_commit": "d0583c6bf6ca7bfbc90796f2f2eebe91fcc7e357",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 200,
+    "n": 2000,
+    "seed": 20268251,
+    "resampling_seed": 20268252,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-refute-point": 0.01
+    },
+    "scenarios": {
+      "gaussian": [
+        "ate"
+      ],
+      "binomial": [
+        "ate"
+      ]
+    },
+    "folds": 5,
+    "refits": 20,
+    "size_trials": 200,
+    "power_trials": 50,
+    "size_pass": "rejections <= 17 of 200",
+    "power_pass": "detections >= 38 of 50",
+    "treatment": "logit g = 0.4 W1 - 0.3 W2 + 0.05 (W3 + ... + W20) + 0.5 U",
+    "gaussian_outcome": "Y = A + 0.5 W1 + 0.4 W2 + 0.05 (W3 + ... + W20) + N(0, 1)",
+    "binary_outcome": "logit P(Y = 1) = -2.65 + 0.5 A + 0.5 W1 + 0.4 W2 + 0.05 (W3 + ... + W20)",
+    "stale_share": {
+      "gaussian": 0.05,
+      "binomial": 0.35
+    },
+    "control_delta": {
+      "gaussian": 0.45,
+      "binomial": 1.5
+    },
+    "cells": {
+      "T1": {
+        "family": "gaussian",
+        "readings": [
+          "placebo",
+          "subset",
+          "negative_control"
+        ],
+        "estimator": "tmle"
+      },
+      "T2": {
+        "family": "binomial",
+        "readings": [
+          "placebo",
+          "subset",
+          "negative_control"
+        ],
+        "estimator": "tmle"
+      },
+      "T3": {
+        "family": "binomial",
+        "readings": [
+          "placebo"
+        ],
+        "estimator": "tmle_booster"
+      },
+      "C1": {
+        "family": "binomial",
+        "readings": [
+          "placebo"
+        ],
+        "estimator": "ctmle_greedy"
+      },
+      "D1": {
+        "family": "binomial",
+        "readings": [
+          "placebo",
+          "subset",
+          "negative_control"
+        ],
+        "estimator": "drtmle_known"
+      },
+      "D2": {
+        "family": "binomial",
+        "readings": [
+          "placebo"
+        ],
+        "estimator": "drtmle_estimated"
+      }
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/refuter_calibration_point.py": "2b9d19c15267fbdd96761bcb7e807cece086e799a89b834c2e18a6c551843d0a",
+    "tests/studies/refuter_calibration_point_properties.py": "343a46fe5dccee20d2c1686414b71c7b6e53948eec3ca9e2911b5be8f25412b4",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "0feeeb6b0659522d30ce0e9c90887f427d317c69aa87822ee31380fe7c0c59cb",
+    "summary.csv": "3ca73bf22c9822fb5e39c4609cf4fdfd52475510c39f97cf87f33bee3f470b07",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "235c96ab8e8f3a1dcaebdae9dca73c836a639fcbde13b3b99b608d60975ef775",
+    "property-replicates.parquet": "6b74bd062b9b0ed039e322f26a9f3e566b786fc2a351b760ad2cb06b0e0eecfe",
+    "properties.csv": "173b1b9190a4647189fdbd98ae38abc1962c9e23c54198fa184fc91ab3445714",
+    "cells.csv": "d4fadc466f4e19fbc02c1279dfd13e553a0a866335f7c6e383767cf41e951ea2"
+  }
+}

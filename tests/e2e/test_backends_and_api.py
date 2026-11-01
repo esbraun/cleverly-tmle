@@ -169,8 +169,8 @@ class TestBackendParity:
         pandas_curve = from_pandas.diagnostics.truncation_curve([0.02], estimands=["ate", "att"])
         polars_curve = from_polars.diagnostics.truncation_curve([0.02], estimands=["ate", "att"])
 
-        assert isinstance(pandas_curve, pd.DataFrame)
-        assert isinstance(polars_curve, pl.DataFrame)
+        assert isinstance(pandas_curve.to_frame(), pd.DataFrame)
+        assert isinstance(polars_curve.to_frame(), pl.DataFrame)
         assert pandas_curve.to_dict(orient="list") == polars_curve.to_dict(as_series=False)
         assert not pandas_curve["is_fitted_bound"].any()
         assert set(pandas_curve["upper_bound"]) == {0.98}
@@ -197,19 +197,17 @@ class TestBackendParity:
         assert pandas_spread.to_dict(orient="list") == polars_spread.to_dict(as_series=False)
 
     def test_the_summaries_are_identical_text(self, paired_fits) -> None:
-        """Same text, character for character -- apart from when each fit ran.
+        """Same text, character for character, at either detail.
 
-        The summary ends with a provenance line carrying ``created_utc`` at one-second
-        resolution (:func:`cleverly.provenance.record`).  The two fits in the fixture take
-        about a second each, so they straddle a second boundary often enough for a bare
-        string comparison to be a coin flip rather than a test -- which is what it was.
-        The backend claim is about the numbers and the layout, not about the clock, so the
-        timestamp is normalised out and asserted separately to be present.
+        A summary prints no run time (``created_utc`` stays on ``result.provenance``), so
+        two fits that straddle a second boundary still print the same text.
         """
         from_pandas, from_polars, _ = paired_fits
-        stamp = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+\d{2}:\d{2}")
-        assert stamp.search(from_pandas.summary()), "the provenance line should carry a time"
-        assert stamp.sub("<t>", from_pandas.summary()) == stamp.sub("<t>", from_polars.summary())
+        stamp = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+        for detail in ("short", "full"):
+            text = str(from_pandas.summary(detail=detail))
+            assert not stamp.search(text)
+            assert text == str(from_polars.summary(detail=detail))
 
     @pytest.mark.parametrize("estimand", ESTIMANDS)
     def test_an_arrow_backed_fit_is_bit_identical(self, paired_fits, estimand: str) -> None:
@@ -379,14 +377,17 @@ class TestResultApi:
 
     def test_the_summary_reports_the_configuration_actually_used(self, cross_fitted_fit) -> None:
         result = cross_fitted_fit
-        text = result.summary()
-        assert "Targeted maximum likelihood estimation" in text
-        assert "cross-fitted over 5 folds" in text
-        assert "propensity truncated to" in text
+        summary = result.summary(detail="full")
+        header = dict(summary.header)
+        assert header["Method"] == "targeted maximum likelihood (TMLE)"
+        assert header["Out-of-fold predictions"] == "5 folds"
+        settings = summary.section("Settings").lines
+        assert any(
+            line.startswith("Estimated treatment probabilities limited to") for line in settings
+        )
         # The resolved outcome bounds are reported, not just the request.
-        assert "outcome scaled from" in text
-        for estimand in ESTIMANDS:
-            assert estimand in text
+        assert any(line.startswith("Outcome predictions kept inside") for line in settings)
+        assert [cell.value for cell in summary.table("estimates").column("")] == list(ESTIMANDS)
 
     def test_the_config_records_resolved_values(self, cross_fitted_fit) -> None:
         result = cross_fitted_fit
@@ -667,10 +668,14 @@ class TestTheResultSet:
         with pytest.raises(KeyError, match="no single one to return"):
             two_levels.single()
 
-    def test_a_two_level_summary_is_headed_by_level(self, two_levels) -> None:
-        text = two_levels.summary()
-        assert "--- Z = 0 ---" in text
-        assert "--- Z = 1 ---" in text
+    def test_a_two_level_summary_has_a_row_per_level(self, two_levels) -> None:
+        summary = two_levels.summary()
+        labels = [cell.text for cell in summary.table().column("")]
+        names = list(two_levels[0.0].estimates)
+        assert labels == [f"{name} at Z = {z}" for z in ("0", "1") for name in names]
+        psi = [cell.value for cell in summary.table().column("estimate")]
+        assert psi == [two_levels[z].estimates[n].psi for z in (0.0, 1.0) for n in names]
+        assert "levels_separate" in summary.note_codes
 
     def test_a_two_level_frame_stacks_the_levels(self, two_levels) -> None:
         assert len(two_levels.to_frame()) == sum(

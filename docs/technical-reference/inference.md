@@ -70,7 +70,8 @@ The [point-treatment reference](point-treatment-tmle.md#missing-outcomes-and-con
 defines the curve. The estimator is scalar, so its rule applies to a one-name `covariance()` and
 to a one-input smooth contrast.
 
-Five selections raise `ValueError`. No fit produces any of these five inputs. The only
+Six selections are refused. The five helper selections raise `ValueError`, and
+`simultaneous_bands` raises `CapabilityError`. No fit produces any of these inputs. The only
 `"second_moment"` estimate is scalar, its fit refuses clusters and `repeats` above one, and a fit
 builds bands only
 over two or more estimates. A direct call to `simultaneous_bands` can still receive that estimate.
@@ -91,7 +92,10 @@ therefore differs from the stored variance on that fit.
 `tests/unit/test_cv_targeting.py::TestTheFoldEvaluatedCovarianceRule` checks that difference.
 `tests/unit/test_inference.py::TestTheCovarianceRule` checks both rules, contrast inheritance, and
 the five refusals. A repeated point-treatment fit refuses `covariance()` and `contrast()`
-altogether, as the [CV-TMLE reference](cv-tmle.md) states.
+altogether, as the [CV-TMLE reference](cv-tmle.md) states. A learned-rule fit of several splits is
+the exception: it stores the mean of the split curves, so both read that curve under the
+`"centered"` rule, as on one split
+([the mean over splits](point-treatment-tmle.md#learned-rules)).
 
 A repeated longitudinal fit gives both. `contrast()` runs in every draw and then takes the median
 rule on its inference scale. `covariance(names)` returns the matrix rule of Chernozhukov et al.
@@ -120,15 +124,17 @@ status. A shown status returns the plug-in interval and the estimate carries the
 
 | status | declared by | `std_error`, `ci`, and `pvalue` | `summary()` column | reopened by |
 | --- | --- | --- | --- | --- |
-| `"influence_curve"` | every estimate except the ones below. This is the constructor default. It includes a per-arm `CTMLE` fit that `per_arm_parametric_support` admits | return the values on this page | `std_err` | not applicable |
-| `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, `"discrete"`, `"lasso"`, or `"learners"`. A `discrete` fit with one declared candidate, equal to the set the treatment mechanism reads, takes the TMLE status instead. That set is the full adjustment set, or the `treatment_adjustment=` subset. `patience=` leaves the status unchanged. A `learners` fit with an empty declared list does the same. A `"derivative"` fit (C-TMLE0) selects nothing and takes the TMLE status. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
-| `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"` that `per_arm_parametric_support` refuses, of either `oat_design=`. This includes a fit with `strata=`, `delta=` or `treatment_delta=`, a fit with a scikit-learn learner, and a fit that requests one arm mean outside the admitted set. [Collaborative TMLE](collaborative-tmle.md#the-applied-revert) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
-| `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. A per-arm `CTMLE` fit that `per_arm_parametric_support` admits takes it too with weights declared estimated, because its stacked curve conditions on the weights. That curve equals the fixed-weight curve, and no registered cell measures estimated weights. A `SequentialGComputation` or `SequentialIPW` fit with weights declared estimated takes it too, for the same reason. A `StructuralNestedMean` fit with weights declared estimated takes it too. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | shown: return the plug-in values under the experimental label. The interval conditions on the weights | `std_err` |  [X50](../roadmap.md#x50-further-dr-tmle-compositions) |
-| `"adaptive_baseline_plugin"` | a `SequentialGComputation`, `SequentialIPW` or `ParametricGFormula` fit that reads a model fitted by a learner other than `GLM`. A g-computation fit reads its outcome regressions, an IPW fit reads its treatment and censoring models, and a parametric g-formula fit reads its covariate, outcome, hazard and natural-treatment models. [Sequential baselines](sequential-baselines.md#inference) and [parametric g-formula](parametric-gformula.md#status) give the reason. A `StructuralNestedMean` fit with `n_folds=1` and a learner other than `GLM` takes it too. [Structural dynamic effects](structural-dynamic-effects.md#status) gives the reason | raise `CapabilityError` with the reason of the status | `baseline diagnostic se` | [F35](../roadmap.md#f35-inference-for-sequential-baselines-with-data-adaptive-nuisances) |
-| `"no_cluster_variance_plugin"` | a `TMLE`, `DRTMLE` or `CTMLE(strategy="derivative")` fit with `id=` and fewer than 3 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 3. A Student t reference with $J - 2$ degrees of freedom has none left. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `no-df se` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
-| `"few_cluster_plugin"` | a `TMLE`, `DRTMLE` or `CTMLE(strategy="derivative")` fit with `id=` and 3 to 9 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with 3 to 19. The `LTMLE` range applies in sample and under cross-fitting. [Clusters](#clusters) gives the reason | shown: return the plug-in values on a Student t reference with $J - 2$ degrees of freedom, under the experimental label | `std_err` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
-| `"constant_node_plugin"` | an `LTMLE` parameter whose recursion read a node regression as a constant 0 or 1, such as a horizon at a grid node with no event among the regimen's followers at risk, and every contrast or restricted mean that reads it. The simultaneous band leaves it out. The other parameters of the fit keep their status. [A node with no event](longitudinal-tmle.md#a-node-with-no-event) gives the reason | raise `CapabilityError` with the reason of the status | `constant-node se` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
-| `"stack_failure_plugin"` | an estimate of an admitted per-arm `CTMLE` fit whose arm stack failed on the sample. The arm mean of a sound arm keeps its status. The fit emits a `DataWarning` that names the arm and the failed condition. [Parametric per-arm intervals](collaborative-tmle.md#parametric-per-arm-intervals) gives the three conditions | raise `CapabilityError` with the reason of the status | `stack-failure se` | [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
+| `"influence_curve"` | every estimate except the ones below. This is the constructor default. It includes a per-arm `CTMLE` fit that `per_arm_parametric_support` admits | return the values on this page | `std. error` | not applicable |
+| `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, `"discrete"`, `"lasso"`, or `"learners"`. A `discrete` fit with one declared candidate, equal to the set the treatment mechanism reads, takes the TMLE status instead. That set is the full adjustment set, or the `treatment_adjustment=` subset. `patience=` leaves the status unchanged. A `learners` fit with an empty declared list does the same. A `"derivative"` fit (C-TMLE0) selects nothing and takes the TMLE status. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
+| `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"` that `per_arm_parametric_support` refuses, of either `oat_design=`. This includes a fit with `strata=`, `delta=` or `treatment_delta=`, a fit with a scikit-learn learner, and a fit that requests one arm mean outside the admitted set. [Collaborative TMLE](collaborative-tmle.md#the-applied-revert) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
+| `"estimated_mechanism_plugin"` | an `AdaptiveIPTW` fit with an estimated treatment or missingness mechanism in any reported key. A key has a known mechanism only on complete data that declares the treatment probabilities. A complete-data natural-course mean alone reads no key and keeps `"influence_curve"`. Theorem 1 of van der Laan (2012), WP302, then needs a term that is linear in the mechanism error to vanish, and no fit can check it. [When an interval is reported](adaptive-iptw.md#when-an-interval-is-reported) gives the derivation, and a user fits the known-mechanism keys on their own to get their intervals | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [X36](../roadmap.md#x36-projected-variance-for-adaptiveiptw-with-a-declared-parametric-mechanism) |
+| `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. A per-arm `CTMLE` fit that `per_arm_parametric_support` admits takes it too with weights declared estimated, because its stacked curve conditions on the weights. That curve equals the fixed-weight curve, and no registered cell measures estimated weights. A `SequentialGComputation` or `SequentialIPW` fit with weights declared estimated takes it too, for the same reason. A `StructuralNestedMean` fit with weights declared estimated takes it too. An `AdaptiveIPTW` fit with a known treatment mechanism and weights declared estimated takes it too, because its curve rests on the reduced regression of the weighted law and holds the weights fixed. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | shown: return the plug-in values under the experimental label. The interval conditions on the weights | `std. error` |  [X50](../roadmap.md#x50-further-dr-tmle-compositions) |
+| `"trimmed_ratio_plugin"` | an `LTMLE` or `SDR` fit with `ratio_trim=` whose trim moves a positive per-node density ratio of any regimen. A trim that moves no ratio keeps the fit status. [Ratio trimming](longitudinal-tmle.md#ratio-trimming) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [F30](../roadmap.md#f30-inference-after-quantile-ratio-trimming) |
+| `"adaptive_baseline_plugin"` | a `SequentialGComputation`, `SequentialIPW` or `ParametricGFormula` fit that reads a model fitted by a learner other than `GLM`. A g-computation fit reads its outcome regressions, an IPW fit reads its treatment and censoring models, and a parametric g-formula fit reads its covariate, outcome, hazard and natural-treatment models. [Sequential baselines](sequential-baselines.md#inference) and [parametric g-formula](parametric-gformula.md#status) give the reason. A `StructuralNestedMean` fit with `n_folds=1` and a learner other than `GLM` takes it too. [Structural dynamic effects](structural-dynamic-effects.md#status) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [F35](../roadmap.md#f35-inference-for-sequential-baselines-with-data-adaptive-nuisances) |
+| `"no_cluster_variance_plugin"` | a `TMLE`, `DRTMLE`, `AdaptiveIPTW` or `CTMLE(strategy="derivative")` fit with `id=` and fewer than 3 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 3. A Student t reference with $J - 2$ degrees of freedom has none left. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
+| `"few_cluster_plugin"` | a `TMLE`, `DRTMLE`, `AdaptiveIPTW` or `CTMLE(strategy="derivative")` fit with `id=` and 3 to 9 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with 3 to 19. The `LTMLE` range applies in sample and under cross-fitting. [Clusters](#clusters) gives the reason | shown: return the plug-in values on a Student t reference with $J - 2$ degrees of freedom, under the experimental label | `std. error` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
+| `"constant_node_plugin"` | an `LTMLE` parameter whose recursion read a node regression as a constant 0 or 1, such as a horizon at a grid node with no event among the regimen's followers at risk, and every contrast or restricted mean that reads it. The simultaneous band leaves it out. The other parameters of the fit keep their status. [A node with no event](longitudinal-tmle.md#a-node-with-no-event) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
+| `"stack_failure_plugin"` | an estimate of an admitted per-arm `CTMLE` fit whose arm stack failed on the sample. The arm mean of a sound arm keeps its status. The fit emits a `DataWarning` that names the arm and the failed condition. [Parametric per-arm intervals](collaborative-tmle.md#parametric-per-arm-intervals) gives the three conditions | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 
 A `TMLE` or `DRTMLE` fit with `treatment_adjustment=` keeps `"influence_curve"`. The interval is
 claimed only under the declared restriction, and every fit on the design prints it. A declared
@@ -145,9 +151,13 @@ E-value row each read that table. `tests/unit/test_inference_status_registry.py`
 table, the `InferenceStatus` type, and the rows above list the same statuses.
 
 A fit has one fit status. `TMLEResult.inference_status` and `LongitudinalResult.inference_status`
-return it. The estimator decides the fit status from its configuration and the prepared data. It
-reads no fitted quantity. When more than one non-inferential status applies, the fit takes the
-first one in the table above. The rows are in that order.
+return it. The estimator decides the fit status from its configuration and the prepared data. The
+one fitted quantity it reads is the trimmed share of a `ratio_trim=` fit.
+
+When more than one labelled status applies, `precedent_status` in `cleverly._inference_status`
+picks one in two tiers. The first withheld status in table order wins. When none is withheld, the
+first shown status wins. A fit that loses its interval for one reason therefore never regains it for another.
+`tests/unit/test_inference_status_registry.py` pins the table order and the two tiers.
 
 A parameter status can sit beside the fit status on some estimates. Two statuses are parameter
 statuses. `LTMLE` stamps `"constant_node_plugin"` on a parameter whose recursion read a constant
@@ -156,14 +166,11 @@ estimate that reads a failed arm stack. The other estimates keep the fit status.
 estimate's `supplies_inference` before its `std_error`, `ci` or `pvalue`. The result's
 `inference_status` stays the fit status unless every estimate carries the parameter status.
 
-`summary()` prints a row with a parameter status as withheld. The row shows its estimate and a
-`-` in the `std_err`, interval and `p_value` cells. Below the table, the line
-`rows withheld (<names>): <status>` names the rows and their status.
-
-The next line gives the
-plug-in spread of each withheld row under the label of that status, for example
-`stack-failure se`. The reason of that status follows. A fit with no withheld row prints no such line. When every row carries the same status, the
-table uses the column label of that status, for example `stack-failure se`.
+`summary()` prints a row with a withheld status with a `*` after its name, its estimate, and a
+`-` in the `std. error`, interval and `p-value` cells. A note below the table names those rows,
+gives the plain reason of their status, and lists each row's `plug-in SE (diagnostic)`. When no
+row supplies inference, the table prints the plug-in spread in a `plug-in SE (diagnostic)` column
+and no interval or p-value column.
 
 A report that publishes a spread names its columns through `spread_name` in
 `cleverly.inference.influence`. On a non-inferential status, `to_frame()` emits `inference`,
@@ -181,10 +188,11 @@ rename a number on a non-inferential status.
 | `LongitudinalResult.curve()` | `std_err`, `ci_lower`, `ci_upper` | `plugin_std_err`, `plugin_interval_lower`, `plugin_interval_upper`, and an `inference` column |
 | `LongitudinalResult.incidence_total()` | `std_err` | `plugin_std_err` |
 | `to_frame()` of a fit with `n_bootstrap` | `bootstrap_std_err`, `bootstrap_ci_lower`, `bootstrap_ci_upper` | `bootstrap_sd`, `bootstrap_range_lower`, `bootstrap_range_upper` |
-| the bootstrap rows of `summary()` | `bootstrap se`, `percentile CI` | `bootstrap sd`, `percentile range` |
+| the bootstrap table of `summary()` | `bootstrap SE`, `percentile <level> CI` | `bootstrap SD (diagnostic)`, `percentile range (diagnostic)` |
 
 The bootstrap spread is the sample standard deviation of the replicate estimates. A standard error
-is an inference claim, so a non-inferential status publishes that number as `bootstrap sd`.
+is an inference claim, so a non-inferential status publishes that number as `bootstrap_sd`, which
+`summary()` labels `bootstrap SD (diagnostic)`.
 `BootstrapSummary.diagnostic` is `True` when the bootstrap columns take the diagnostic names. A
 bootstrap is a diagnostic when its estimate supplies no inference, when the fit reads fewer
 clusters than the interval floor (10, or 20 for `LTMLE`), or when the summary says so. The cluster
@@ -195,7 +203,7 @@ bootstrap sets the field, because no reviewed theorem covers a selector path.
 `BootstrapSummary.support` records whether a support row lists the `bootstrap` kind for the fit.
 A bootstrap interval with no such row keeps the inferential names and carries the label
 `experimental`. The `to_dict()` key `bootstrap_support` and the `[experimental]` marker on the
-`percentile CI` line show it. A derived bootstrap takes the combined support of its inputs.
+`percentile <level> CI` column show it. A derived bootstrap takes the combined support of its inputs.
 `BootstrapSummary` keeps the field names `std_error` and `ci` at every status. Its fields describe
 the replicate distribution, and the status decides only the published name.
 `TestTheBootstrapPublishesUnderTheStatusName` in
@@ -239,7 +247,7 @@ A selection that mixes statuses either takes the parameter status or raises `Val
 
 | function | selection | result |
 | --- | --- | --- |
-| `contrast()`, `ratio()`, `rmst()`, `rmtl()`, and `smooth_contrast` in `cleverly.inference.results` | a fit status and the parameter status, such as an inferential risk and a constant-node risk | the derived estimate takes `"constant_node_plugin"`, the earlier status in the table. It reports no interval |
+| `contrast()`, `ratio()`, `rmst()`, `rmtl()`, and `smooth_contrast` in `cleverly.inference.results` | a fit status and the parameter status, such as an inferential risk and a constant-node risk | the derived estimate takes the status `precedent_status` picks. `"constant_node_plugin"` withholds its interval, so it wins over any fit status, and the derived estimate reports no interval |
 | the same functions | two different fit statuses | `ValueError`. An inferential status would give the refused input an interval. No fit produces this input, because the estimator stamps one fit status on every estimate |
 | `median_estimates` in `cleverly.inference.influence` | repeats whose estimates declare different statuses, of any kind | `ValueError`. The median would report one draw's refusal under the other draw's name |
 | a longitudinal fit with `repeats` above 1, and its `contrast()`, `ratio()`, `rmst()`, `rmtl()`, `incidence_total()`, `covariance()` and band | one name with different statuses in different draws | each draw's estimate first takes the precedent status of the name's draws (`with_precedent_status`), so `median_estimates` sees one status. A `constant_node_plugin` in one draw withholds the interval of the report |
@@ -269,9 +277,10 @@ evaluation rows. No derivation here covers its interval. Balkus, Laith and Hejaz
 split correlated units can still remove an empirical-process term under their conditions. Their
 result does not establish the variance of this package's estimators.
 
-Collaborative TMLE refuses `cluster=` at every setting rather than draw that split. The
-[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give the audit and the
-message. Longitudinal TMLE draws whole-cluster folds, and
+Collaborative TMLE refuses `cluster=` at every `strategy` except `"derivative"` (C-TMLE0), whose
+clustered fit takes the cluster statuses above. The refusal (`CTMLE.fit` in
+`src/cleverly/estimators/ctmle.py`) names roadmap items X51 and F22, and the
+[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give the audit. Longitudinal TMLE draws whole-cluster folds, and
 [longitudinal clusters](longitudinal-tmle.md#clusters) states its step.
 
 The estimand is the row-weighted mean $\mu_I$ of Wang, Park, Small and Li (2024), Section 2,
@@ -315,8 +324,8 @@ this package at unequal sizes.
 A clustered fit that reads $J$ clusters with positive weight mass, with $3 \le J < 40$, reports
 its intervals and p-values on a Student $t$ reference with $J-2$ degrees of freedom. A fit with
 $J$ below 10 ($20$ for `LTMLE`) carries the experimental label and the status
-`"few_cluster_plugin"`. Nugent et
-al. (2024), Section 2.2, last paragraph, give the rule. At 40 clusters or more the normal
+`"few_cluster_plugin"`.
+Nugent et al. (2024), Section 2.2, last paragraph, give the rule. At 40 clusters or more the normal
 reference stays. `ParameterEstimate.reference_df` holds the degrees of freedom, or `None` for the
 normal reference.
 
@@ -360,9 +369,8 @@ the variance and not this bias. At 2, 4 and 6 clusters per fold the few-cluster 
 Wang et al. (2024), Remark 3, caution against complex nuisance learners at about 20 clusters. The
 registered few-cluster evidence uses parametric nuisance learners only.
 
-From 3 to 9 clusters with positive weight mass, in the fit or in one reported baseline stratum,
-the fit takes `"few_cluster_plugin"` and shows its interval on $t_{J-2}$ under the experimental
-label. An `LTMLE` fit takes it from 3 to 19. Each upper bound is
+The `"few_cluster_plugin"` range counts clusters with positive weight mass in the fit or in one
+reported baseline stratum. Its upper bound, 9 (19 for `LTMLE`), is
 one below the smallest count that the registered few-cluster study measures for that fit
 (`MINIMUM_INTERVAL_CLUSTERS` and `MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`).
 [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds
@@ -378,7 +386,7 @@ the in-sample and the cross-fitted `LTMLE` fit too, whose data hold no baseline 
 
 The rule counts contributing clusters, and it reads no row count. So 30 rows with `id=` and one
 row in each cluster report $t_{28}$ intervals, and the same rows without `id=` use the normal
-reference. This is a known conservative reference.
+reference. The $t_{28}$ reference is the more conservative of the two.
 
 The threshold is a reporting policy, not a coverage guarantee at 40 clusters. It counts clusters
 with positive weight mass but does not measure weight concentration. A fit with 40 such clusters
@@ -473,7 +481,10 @@ A support row lists the `bootstrap` kind when a registered cell measured the per
 for that configuration. The rows `T01.binary`, `T31`, `G01` and `G11.nodes4` list it. A bootstrap
 on any other fit keeps the interval names and carries the label `experimental`. This covers a
 cross-fitted point fit, whose replicates redraw the split ([F2](../roadmap.md#f2-targeted-bootstrap-inference)),
-a clustered fit, a competing-event fit, and every `DRTMLE` fit. The study measured none of them.
+a clustered fit, a competing-event fit, and every `DRTMLE` fit. Of these, the study measured only
+the in-sample clustered `LTMLE` bootstrap, in cells `boot_ey_clustered` and `boot_ate_clustered`.
+The contrast cell failed calibration, so its support row `G05.in_sample` lists the point kind
+alone.
 
 Every `CTMLE` bootstrap prints as a diagnostic, because no reviewed theorem covers the bootstrap
 of a selector path. A fit with a data-adaptive learner is experimental by learner class. The

@@ -132,6 +132,18 @@ class RedRow:
     measured: str
 
 
+#: Red truth rows that no gated list holds, each with the ``fails by`` text that says so. The
+#: row reads red on its legs, and it blocks nothing.  ``tests/unit/test_long_horizon_design.py``
+#: checks that none of these rows is in ``GATED_ROWS``.
+REPORTING_TRUTH_ROWS: Mapping[RedKey, str] = {
+    RedKey(
+        "long-horizon-sdr",
+        "truth",
+        "cleverly-long-horizon-sdr/sdr_categorical_k5_switch/ey_regimen[switch]",
+    ): "its truth legs; a reporting row, with n below the tail size",
+}
+
+
 def _keys(slug: str, kind: str, *keys: str) -> tuple[RedKey, ...]:
     return tuple(RedKey(slug, kind, key) for key in keys)
 
@@ -475,6 +487,33 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "misspecification_control/ht_x_contrast__main_terms",
         "misspecification_control/ice_x_contrast__main_terms",
     ),
+    # The sanity phase of the longitudinal refutation study: 200 replications cannot put the
+    # 99% coverage limit above the 0.90 floor, so the truth gate is under-resolved by design.
+    # The S1 (SDR) row also reads an SE ratio of 0.927, a possible mild SE shortfall that the
+    # owner reads as a signal, not as resolution alone.
+    # The point study's sanity phase is the same design at n = 2,000 (X82 SP). At 200
+    # replications the Gaussian row cannot resolve its coverage floor or bias margin, and the
+    # binary row cannot resolve its SE-ratio screen. The band-rank study's PJ1 sanity row
+    # (X82 SJ) covers 190 of 200, a 99% lower limit of 0.896 below the floor.
+    "X82-short-study-sanity": (
+        *_keys(
+            "refuter-calibration-longitudinal",
+            "truth",
+            "cleverly-refute-longitudinal/end_of_study/ate",
+            "cleverly-refute-longitudinal/survival/ate",
+        ),
+        *_keys(
+            "refuter-calibration-point",
+            "truth",
+            "cleverly-refute-point/binomial/ate",
+            "cleverly-refute-point/gaussian/ate",
+        ),
+        *_keys(
+            "refuter-calibration-band",
+            "truth",
+            "cleverly-refute-band/point/ate",
+        ),
+    ),
     # The smallest-composite arm of the composite study, red in both implementations alike.
     "composite-high-arm": _keys(
         "composite-missing-drtmle",
@@ -559,6 +598,15 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "sequential_double_robustness/both_correct__n_2000",
         ),
     ),
+    # The Wald row of one quantity in a scenario below its exact-law tail size, so no gated list
+    # holds it (``tests/long_horizon_design.py``).
+    "X39-below-tail-size": (
+        *_keys(
+            "long-horizon-sdr",
+            "truth",
+            "cleverly-long-horizon-sdr/sdr_categorical_k5_switch/ey_regimen[switch]",
+        ),
+    ),
     "X16-plugin-variance": (
         *_keys(
             "canonical-ctmle-sequences",
@@ -566,13 +614,16 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "cleverly-ctmle-sequences/binary_lasso/ate",
         ),
     ),
-    # X40. The five-node ``price_down`` truth rows of the price study, on the exact ratio.
+    # X40. The five-node ``price_down`` truth rows of the price study, on the exact ratio.  The
+    # ``lmtp`` twins fit the same samples and pass the exactness gate, so they read the same
+    # shortfall and share the owner.
     "mtp-pricing-calibration": (
         *_keys(
             "mtp-pricing",
             "truth",
             *(
-                f"cleverly-mtp-pricing/pricing_{engine}_tau5/{estimand}"
+                f"{subject}/pricing_{engine}_tau5/{estimand}"
+                for subject in ("cleverly-mtp-pricing", "lmtp")
                 for engine in ("ltmle", "sdr")
                 for estimand in (
                     "ey_regimen[price_down]",
@@ -618,6 +669,35 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "interval_calibration/multinomial_logistic_crossfit_att_2v0_lower__correctly_specified",
         ),
     ),
+    # X21. The gradient-boosting mechanism of law P, declared ``reporting`` before the run
+    # (``PRE_ROUTED_GROUPS`` of the study).
+    "adaptive-iptw-flexible-learner": (
+        *_keys(
+            "adaptive-iptw",
+            "property",
+            "bias/ate__flexible",
+            "bias/ey0__flexible",
+            "bias/ey1__flexible",
+        ),
+    ),
+    # X21. The ``rate`` mechanism of law P at n = 3,000 reads 0.155 against a predicted 0.086, and
+    # the necessity family takes its other 13 rows red through the family clause.  The clustered
+    # known-mechanism cell has an SE ratio of 1.030 and a 99% interval that ends 0.002 above the band.
+    "adaptive-iptw-finite-sample": (
+        *_keys(
+            "adaptive-iptw",
+            "property",
+            "bias/ate__rate",
+            "interval_calibration/ey0__known_clustered__correctly_specified",
+            *(
+                f"targeting_necessity/{label}__{arm}"
+                for label in ("p_ate", "p_ey0", "p_ey1", "pd_d", "pd_s", "cn_ey_obs", "rm_d")
+                for arm in ("targeted", "untargeted")
+            ),
+        ),
+    ),
+    # X21. The three-arm composite cell reads -0.153 on its 400 draws and -0.011 on 4,000 fresh ones.
+    "adaptive-iptw-composite-l3": _keys("adaptive-iptw", "property", "bias/ey_low__composite_l3"),
 }
 
 
@@ -668,6 +748,9 @@ EXCLUDED_HOOKS: dict[str, str] = {
         "the replay gates, which compare the full-sample construction and the final step "
         "with R on R's own arrays"
     ),
+    "mtp-boundaries": "the lmtp exactness witnesses of the boundaries_ltmle and boundaries_sdr scenarios",
+    "mtp-pricing": "the lmtp exactness witnesses of every scenario",
+    "structural-nested-mean": "the EconML DynamicDML exactness witnesses of the paired cells",
 }
 
 #: The artefacts :func:`red_rows` reads, by the short names ``claims.ARTIFACTS`` uses.
@@ -938,11 +1021,18 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
             bool(getattr(row, leg, True))
             for leg in ("bias_equivalent", "coverage_valid", "se_calibrated")
         )
+        red_key = RedKey(record.slug, "truth", "/".join(key))
+        if red_key in REPORTING_TRUTH_ROWS:
+            fails_by = REPORTING_TRUTH_ROWS[red_key]
+        elif gate[0] or not own:
+            fails_by = "its truth gate"
+        else:
+            fails_by = f"failure accounting: {gate[1]}"
         out.append(
             RedRow(
-                RedKey(record.slug, "truth", "/".join(key)),
+                red_key,
                 str(row.implementation),
-                "its truth gate" if gate[0] or not own else f"failure accounting: {gate[1]}",
+                fails_by,
                 _truth_measured(row) + _failures_measured(accounting, "performance", key),
             )
         )

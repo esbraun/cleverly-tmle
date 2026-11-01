@@ -9,7 +9,8 @@ target one block per stratum, so this module pins these things:
 * each formerly refused stratified request reaches a learner, on the estimator, on
   ``CausalStudy.identify`` and ``estimate``, and through the refit replay slot;
 * each stratified refusal that remains refuses before any learner with its own reason: fold-wise
-  targeting, fold evaluation, and a DR-TMLE stratum with no trainable rows in some training
+  targeting, fold evaluation of a target outside the X28 construction (the default list holds
+  the ATT and the ATC), and a DR-TMLE stratum with no trainable rows in some training
   complement.  The incremental and MSM data refusals are pinned in their exact-law modules;
 * a stratified ``DRTMLE`` request that ``guard=()`` does not repair, with ``att`` or with a
   cross-fitted ``delta=``, meets its own refusal;
@@ -66,7 +67,7 @@ drtmle_module = importlib.import_module("cleverly.estimators.drtmle")
 X57 = "docs/roadmap.md X57"
 COVARIATES = ["W1", "W2", "W3", "W4", "S"]
 DOSES = (-1.0, 0.0, 1.0, 2.0)
-NESTED = "targeting='one_step' and reduced_crossfit='nested' are not combined"
+NESTED = "targeting='one_step' and reduced_crossfit='foldwise' are not combined"
 #: Every non-empty ``guard``, each of which gives the ``mean`` group reduced regressions.
 GUARDS = [("Q", "g"), ("Q",), ("g",)]
 #: What a ``NeverFit`` learner raises when a request reaches it.
@@ -104,7 +105,12 @@ def spies(**extra: Any) -> dict[str, Any]:
 
 def drtmle_spies(**extra: Any) -> dict[str, Any]:
     """:func:`spies` with ``NeverFit`` reduced learners too."""
-    return spies(reduced_outcome_learner=NeverFit(), reduced_treatment_learner=NeverFit(), **extra)
+    return spies(
+        reduced_outcome_learner=NeverFit(),
+        reduced_treatment_learner=NeverFit(),
+        reduced_mechanism_residual_learner=NeverFit(),
+        **extra,
+    )
 
 
 def fit(estimator: TMLE, frame: pd.DataFrame, **columns: Any) -> Any:
@@ -308,7 +314,7 @@ REMAINING: dict[str, tuple[Callable[[], Any], tuple[str, ...], type[Exception]]]
             strata_frame(),
             treatment="A",
         ),
-        ("cv_evaluation=True", "stratum-indexed fold average", "X28 in docs/roadmap.md"),
+        ("cv_evaluation=True with baseline strata", "Fold evaluation of", "X28 in docs/roadmap.md"),
         CapabilityError,
     ),
     "a DR-TMLE stratum with no trainable rows": (
@@ -352,7 +358,7 @@ class TestTheOneStepNestedComposition:
     @staticmethod
     def build(**extra: Any) -> DRTMLE:
         settings = drtmle_spies(cross_fit=True, n_folds=3, q_bounds=(-30.0, 30.0))
-        return DRTMLE(reduced_crossfit="nested", estimands=("ate",), **settings, **extra)
+        return DRTMLE(reduced_crossfit="foldwise", estimands=("ate",), **settings, **extra)
 
     @pytest.mark.parametrize("guard", [("Q", "g"), ("Q",)])
     def test_the_fit_refuses_it_before_any_learner(self, guard: tuple[str, ...]) -> None:
@@ -480,7 +486,7 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
         "ctmle_estimand='par' has no selector criterion",
     ),
     "DRTMLE evaluation= with repeats=": (
-        lambda: DRTMLE(evaluation=strata_frame(), repeats=2, cross_fit=True, n_folds=2),
+        lambda: DRTMLE(evaluation=strata_frame(), repeats=2, cross_fit=True, n_folds=3),
         "evaluation= and repeats= are not combined",
     ),
     "DRTMLE msm=": (
@@ -557,13 +563,13 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
         lambda: DRTMLE(
             randomized=True, estimands=("ate",), evaluation=_trial(40), **drtmle_spies()
         ).fit(_trial(120), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"),
-        "missing-outcome DRTMLE supports the published pooled construction only",
+        "missing-outcome DRTMLE supports the published construction only",
     ),
     "DRTMLE missing outcomes, three arms, evaluation=": (
         lambda: DRTMLE(
             randomized=True, estimands=("ate",), evaluation=_trial(40), **drtmle_spies()
         ).fit(_three_arms(), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"),
-        "missing-outcome DRTMLE supports the published pooled construction only",
+        "missing-outcome DRTMLE supports the published construction only",
     ),
     "DRTMLE missing outcomes, three arms, partial guard": (
         lambda: DRTMLE(randomized=True, guard=("Q",), estimands=("ate",), **drtmle_spies()).fit(
@@ -627,7 +633,7 @@ class TestSupportedNeighboursStillFit:
         estimator = DRTMLE(
             guard=(),
             targeting="one_step",
-            reduced_crossfit="nested",
+            reduced_crossfit="foldwise",
             estimands=("ate",),
             **settings,
         )
@@ -685,6 +691,7 @@ def _never(**settings: Any) -> dict[str, Any]:
 def _never_drtmle(**settings: Any) -> DRTMLE:
     return DRTMLE(
         reduced_outcome_learner=NeverFit(),
+        reduced_mechanism_residual_learner=NeverFit(),
         reduced_treatment_learner=NeverFit(),
         **_never(**settings),
     )

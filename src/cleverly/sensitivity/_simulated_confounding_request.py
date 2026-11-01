@@ -10,17 +10,18 @@ law, so it lives here.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field, replace
+from numbers import Real
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 
-from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
+from .._refusal import Refusal, RefusalReason
 from ..estimators.base import MEAN_GROUP_ESTIMANDS, TMLEResult
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
-from ..interventions.learned import LEARNED_RULE_REPLAY_REFUSAL
+from ..interventions.learned import learned_rule_splits_refusal
 from ..study import (
     ATC,
     ATE,
@@ -37,9 +38,11 @@ from ._simulated_confounding_common import (
     check_only_declared_axis,
     check_registered_target,
     check_replay_declaration,
+    declares_replay,
     fixed_axis,
     fixed_key_axis,
     point_study_or_refuse,
+    replay_classes,
 )
 from ._simulated_confounding_fixed import fixed_replay_refusal, validate_fixed_replay
 from ._simulated_confounding_incremental import (
@@ -48,6 +51,8 @@ from ._simulated_confounding_incremental import (
     natural_incremental_means,
     validate_incremental_replay,
 )
+from ._simulated_confounding_learned import LEARNED_RULE_TARGETS, validate_learned_rule_replay
+from ._simulated_confounding_longitudinal import longitudinal_fit_refusal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .simulated_confounding import ConfounderStrengthGrid
@@ -57,7 +62,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 class _ValidatedRequest:
     estimator: Any
     calibration_names: tuple[str, ...]
-    treatment_family: Literal["binary", "continuous", "vector"]
+    treatment_family: Literal["binary", "categorical", "continuous", "vector"]
     movement_scale: Literal["estimate_difference", "log_ratio"]
     # Excluded from equality for the reason ``AssessmentItem.arguments`` is: the generated
     # ``__eq__`` would return an array here rather than a bool, and ``__hash__`` would
@@ -67,6 +72,28 @@ class _ValidatedRequest:
     baseline_mask: np.ndarray[Any, Any] = field(compare=False)
     stratum: tuple[Any, ...] | None
     conditioning_code: float | None
+    #: The structured key of the requested parameter.
+    key: Any = field(default=None, compare=False)
+    #: The arm codes ``(a, b)`` that the pairwise swap of a multi-arm treatment exchanges,
+    #: ``a`` first.  ``None`` on every other treatment.
+    arm_codes: tuple[float, float] | None = None
+    #: The level codes ``(a, b)`` each categorical component of more than two levels swaps,
+    #: as ``(component, (a, b))`` pairs in component order.  Empty on every other treatment.
+    component_pairs: tuple[tuple[str, tuple[float, float]], ...] = ()
+    #: The declared level of the latent cause: ``"row"``, ``"cluster"`` or ``"mixed"``.
+    latent_level: Literal["row", "cluster", "mixed"] = "row"
+    #: The intra-cluster correlation of a ``"mixed"`` latent, else ``None``.
+    latent_rho: float | None = None
+    #: The covariates the declared observation mechanisms read, on a fit with a missing
+    #: outcome or a missing treatment.  ``None`` when the caller declares none.
+    observation_reads: tuple[str, ...] | None = None
+    #: The outcome law on a Gaussian fit whose estimator declares ``q_bounds``.
+    bounded_outcome_law: Literal["logit", "normal_score"] | None = None
+    #: The declared ``q_bounds`` the bounded law reads.
+    outcome_bounds: tuple[float, float] | None = None
+    #: The realized outer splits every cell refits on, on a learned-rule fit whose replay
+    #: holds the fold rules fixed.  ``None`` on every other fit, whose cells draw new folds.
+    frozen_folds: tuple[Any, ...] | None = field(default=None, compare=False)
 
 
 #: The declared estimand type each supported contrast alias must carry.  One map, built
@@ -118,172 +145,80 @@ _CONDITIONAL_TARGETS: frozenset[str] = _BINARY_PARAMETER_TARGETS - MEAN_GROUP_ES
 _TMLE_ONLY_TARGETS: frozenset[str] = _CONDITIONAL_TARGETS | frozenset(_ATTRIBUTABLE_TYPES)
 
 
-#: The six missing-science stops, each naming the artifact the surface would need and the
+#: The missing-science stops, each naming the artifact the surface would need and the
 #: roadmap rows that track it.  Named constants rather than inline literals, because the
 #: capability row, the execution refusal, and the roadmap must quote one text.  The
 #: hard-stop review (docs/technical-reference/hard-stop-review.md) moved each declarable
-#: law to roadmap X47 or X48.  A stop that keeps a part in the research queue names both
+#: law to roadmap X82 part F.  A stop that keeps a part in the research queue names both
 #: rows and states the condition that keeps that part there.
-_LONGITUDINAL_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding has no time-indexed latent law for longitudinal "
-    "treatments, censoring, histories, outcomes, and contrasts. docs/roadmap.md X48 "
-    "tracks one time-fixed latent on uncensored terminal-outcome fits, and "
-    "docs/roadmap.md F13 tracks censoring, survival outcomes, time-varying covariates "
-    "after the first treatment node, and time-varying latents.",
-    alternative=NO_ALTERNATIVE,
-    roadmap="X48",
-)
-_MULTI_ARM_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding has no category-valued perturbation law for a multi-arm "
-    "treatment. docs/roadmap.md X47 tracks a swap of the two arms of a declared pairwise "
-    "contrast.",
-    alternative=(
-        "Call evalue(result, '<one two-arm contrast>') or omitted_variable_bounds(result) "
-        "on the same multi-arm fit."
-    ),
-    roadmap="X47",
-)
 _MISSING_OUTCOME_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding has no joint observation, treatment, and outcome "
-    "perturbation law with identified missing-outcome refit semantics. docs/roadmap.md "
-    "X47 tracks a declared response mechanism that reads the covariates only, and "
-    "docs/roadmap.md F12 tracks a response mechanism that reads the treatment, where a "
-    "treatment perturbation breaks missing at random.",
+    "simulated_confounding moves the treatment of a missing-outcome fit only under a declared "
+    "response mechanism that reads the covariates alone: pass observation_reads=(...). "
+    "Without it the mechanism may read the treatment, and a treatment perturbation breaks "
+    "missing at random. docs/roadmap.md F12 tracks a response mechanism that reads the "
+    "treatment.",
     alternative=(
-        "Call evalue(result) for unmeasured confounding on the same fit, or "
-        "missingness_tilt(result) for outcome missingness not at random."
+        "Keep every treatment strength at zero for outcome-axis cells, declare "
+        "observation_reads=, call evalue(result) for unmeasured confounding on the same "
+        "fit, or missingness_tilt(result) for outcome missingness not at random."
     ),
-    roadmap="X47",
+    roadmap="F12",
 )
 _MISSING_TREATMENT_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding has no joint treatment-observation, treatment, and outcome "
-    "perturbation law with identified missing-treatment refit semantics. It refuses a "
-    "declared missing treatment for the reason it refuses a missing outcome. "
-    "docs/roadmap.md X47 tracks declared observation mechanisms that read the covariates "
-    "only, and docs/roadmap.md F12 tracks a mechanism that reads the treatment.",
-    alternative="Call evalue(result) on the same fit, which has no missing-treatment rule.",
-    roadmap="X47",
+    "simulated_confounding moves a declared missing treatment only under a declared "
+    "treatment-observation mechanism that reads the covariates alone: pass "
+    "observation_reads=(...). It refuses an undeclared mechanism for the reason it refuses "
+    "one on a missing outcome. docs/roadmap.md F12 tracks a mechanism that reads the "
+    "treatment.",
+    alternative=(
+        "Keep every treatment strength at zero for outcome-axis cells, declare "
+        "observation_reads=, or call evalue(result) on the same fit."
+    ),
+    roadmap="F12",
 )
 _INTERMEDIATE_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding has no ordered treatment, intermediate, observation, "
-    "and outcome law with a controlled-direct-effect contrast contract. docs/roadmap.md "
-    "X47 tracks outcome-axis cells and an intermediate-axis law that holds the treatment, "
-    "and docs/roadmap.md F15 tracks the treatment axis, because a treatment perturbation "
-    "makes the latent confound the intermediate and the outcome.",
-    alternative=NO_ALTERNATIVE,
-    roadmap="X47",
-)
-#: The one stop whose message names the fitted result rather than the surface, because the
-#: result is what stores no weight model.  Accuracy over template uniformity: writing this
-#: like its five neighbours would attribute the missing artifact to the wrong object.
-_ESTIMATED_WEIGHT_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding cannot replay estimated observation weights; the fitted result "
-    "stores no weight model, target-population semantics, or regeneration rule. "
-    "docs/roadmap.md X47 tracks a replay that holds the supplied weights fixed and targets "
-    "the fit's weighted population.",
+    "simulated_confounding holds the treatment of a controlled-direct-effect fit: its cells "
+    "flip the intermediate and move the outcome. A treatment perturbation would make the "
+    "latent confound the intermediate and the outcome by a path the target does not name. "
+    "docs/roadmap.md F15 tracks the treatment axis.",
     alternative=(
-        "Call evalue(result) or omitted_variable_bounds(result) on the same fit; "
-        "neither has a weight rule."
+        "Keep every treatment strength at zero, and declare intermediate strengths with "
+        "ConfounderStrengthGrid(intermediate=(...))."
     ),
-    roadmap="X47",
-)
-_CLUSTERED_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding has no source-backed choice among row-level, "
-    "cluster-level, and mixed latent causes for clustered fits. docs/roadmap.md X47 "
-    "tracks a latent level that the caller declares.",
-    alternative=(
-        "Call evalue(result) or omitted_variable_bounds(result) on the same fit; "
-        "neither has a cluster rule."
-    ),
-    roadmap="X47",
+    roadmap="F15",
 )
 
 
 def _refuse_longitudinal(result: Any) -> Refusal | None:
-    """Refuse every declared assessment family except the point-treatment one.
+    """Hand a longitudinal result to its own rules, and refuse an unknown family.
 
     Runs first, and it is the only rule that runs before the result shape is established,
-    so it reads its attribute defensively.  A longitudinal result is not a ``TMLEResult``
-    either, and it must hear its own missing-law stop rather than a type report.
+    so it reads its attribute defensively.  A longitudinal result is not a ``TMLEResult``,
+    and the point rules after this one do not apply to it: :func:`_fit_wide_refusal` stops
+    after this rule for a longitudinal result, which
+    :func:`~cleverly.sensitivity._simulated_confounding_longitudinal.longitudinal_fit_refusal`
+    answers in full.
 
-    ``_LONGITUDINAL_REFUSAL`` is a claim about *that* family, so only ``"longitudinal"``
-    hears it.  Any other declared family refuses with a message that names what the object
-    actually declared.  ``evalue._select_evalue``, ``_derived._risk_ratio_refusal`` and
+    Any other declared family refuses with a message that names what the object actually
+    declared.  ``evalue._select_evalue``, ``_derived._risk_ratio_refusal`` and
     ``_parameters.arm_parameter_keys`` all refuse the complement of ``"point"`` the same
     way, and none of them asserts a family the object never named.
 
     An object that declares no family at all is not a fitted result, and the ``result_type``
-    rule that runs next owns that message.  Nothing falls through: only an exact
-    ``TMLEResult`` passes that rule, and ``TMLEResult.assessment_family`` is the class
-    variable ``"point"``, so a result reaching rule three declared its family here.
+    rule that runs next owns that message.
     """
     family = getattr(result, "assessment_family", None)
     if family == "longitudinal":
-        return _LONGITUDINAL_REFUSAL
+        return longitudinal_fit_refusal(result)
     if family is not None and family != "point":
         return Refusal(
             RefusalReason.INVALID_DECLARATION,
             f"simulated_confounding has no perturbation law for assessment family {family!r}. "
             "This is a package defect; report it.",
         )
-    return None
-
-
-def _refuse_multi_arm(result: Any) -> Refusal | None:
-    """Refuse a treatment that is neither binary nor a continuous dose."""
-    data = result.data
-    if data.treatment_kind == "vector":
-        # Each component takes its own perturbation law, so every categorical component
-        # must be binary, as a one-column treatment must.
-        if any(len(levels) > 2 for levels in data.component_levels):
-            return _MULTI_ARM_REFUSAL
-        return None
-    if not data.is_continuous_treatment and not data.is_binary_treatment:
-        return _MULTI_ARM_REFUSAL
-    return None
-
-
-def _refuse_missing_outcome(result: Any) -> Refusal | None:
-    """Refuse a fit whose outcome is unobserved on some rows."""
-    if result.data.has_missing_outcome:
-        return _MISSING_OUTCOME_REFUSAL
-    return None
-
-
-def _refuse_missing_treatment(result: Any) -> Refusal | None:
-    """Refuse a fit with a declared missing treatment."""
-    if getattr(result.data, "has_missing_treatment", False):
-        return _MISSING_TREATMENT_REFUSAL
-    return None
-
-
-def _refuse_intermediate(result: Any) -> Refusal | None:
-    """Refuse a fit that declares an intermediate variable.
-
-    The predicate is :func:`~cleverly.estimators.direct_effect.declares_intermediate`,
-    which every sensitivity surface reads for this boundary.
-    """
-    return _INTERMEDIATE_REFUSAL if declares_intermediate(result) else None
-
-
-def _refuse_estimated_weights(result: Any) -> Refusal | None:
-    """Refuse observation weights the fit estimated rather than received."""
-    if result.data.declares_estimated_weights:
-        return _ESTIMATED_WEIGHT_REFUSAL
-    return None
-
-
-def _refuse_clustered(result: Any) -> Refusal | None:
-    """Refuse a clustered fit, whose latent cause has no source-backed level."""
-    if result.data.cluster is not None:
-        return _CLUSTERED_REFUSAL
     return None
 
 
@@ -298,33 +233,24 @@ def _refuse_result_type(result: Any) -> Refusal | None:
     return None
 
 
-def _refuse_learned_rule(result: Any) -> Refusal | None:
-    """Refuse a learned-rule fit, whose replay relearns the rules and so its target."""
-    if result.config.parameter_axis != "learned_rule":
-        return None
-    return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        "simulated_confounding does not cover a learned-rule fit: "
-        + LEARNED_RULE_REPLAY_REFUSAL
-        + ".",
-        alternative=NO_ALTERNATIVE,
-        roadmap="X11",
-    )
-
-
 def _refuse_risk_ratio_tilt(result: Any) -> Refusal | None:
-    """Refuse a risk-ratio tilt fit, whose replay declares no reading of its policy."""
+    """Refuse a risk-ratio tilt fit, which carries no backdoor identification to read.
+
+    The tilt can be fitted only directly with ``TMLE(policies=[RiskRatioTilt(...)])``, and
+    no typed study request reports it, so its result records no identified effect.  X85
+    adds the typed requests and, with them, the policy-reading replay.
+    """
     if result.config.parameter_axis != "rr_tilt":
         return None
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         "simulated_confounding does not cover a risk-ratio tilt fit (ey_rr_tilt, "
-        "ate_rr_tilt): the tilt is a known randomized rule on the natural treatment, and the "
-        "replay declares no reading of that rule on a perturbed draw.",
+        "ate_rr_tilt): a risk-ratio tilt has no typed study request, so no fit carries the "
+        "backdoor identification this check reads.",
         alternative=(
             "Fit the static arms (ate) or an incremental odds tilt (ipsi) for this surface."
         ),
-        roadmap="X66",
+        roadmap="X85",
     )
 
 
@@ -354,20 +280,35 @@ def _refuse_repeat_provenance(result: Any) -> Refusal | None:
     return None
 
 
-def _refuse_binary_estimator(result: Any) -> Refusal | None:
-    """Refuse a binary fit made by an estimator this surface cannot replay."""
-    from ..estimators.ctmle import CTMLE
-    from ..estimators.drtmle import DRTMLE
-    from ..estimators.tmle import TMLE
+def _refuse_learned_rule_splits(result: Any) -> Refusal | None:
+    """Refuse a learned-rule fit of several splits, which has no single rule per row.
 
+    The replay freezes one realized rule per row, and a fit of ``repeats`` above 1 has one
+    rule per row in each split.  A learned-rule fit reports one parameter, so the boundary
+    is fit-wide.
+    """
+    if getattr(result.config, "parameter_axis", None) != "learned_rule":
+        return None
+    return learned_rule_splits_refusal("simulated_confounding", result.n_repeats)
+
+
+def _refuse_binary_estimator(result: Any) -> Refusal | None:
+    """Refuse a binary fit whose estimator class declares no simulated-confounding replay.
+
+    An :class:`~cleverly.estimators.AdaptiveIPTW` fit declares it: each cell refits the
+    stored estimator on the perturbed data (X82 part I). A declared known mechanism travels
+    to the cell as the exact mechanism of the flipped treatment.
+    """
     estimator = result.estimator
-    if result.data.has_arms and type(estimator) not in {TMLE, CTMLE, DRTMLE}:
+    if result.data.has_arms and not declares_replay(estimator):
+        names = ", ".join(replay_classes())
         return Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
-            "simulated_confounding supports ordinary TMLE, collaborative TMLE, and "
-            f"complete-outcome DR-TMLE; got {type(estimator).__name__}.",
-            alternative="Fit the data with TMLE, CTMLE or DRTMLE and replay that fit.",
-            roadmap="X66",
+            "simulated_confounding replays a binary fit of a point estimator whose class "
+            f"declares simulated_confounding_replay = True ({names}); "
+            f"got {type(estimator).__name__}.",
+            alternative=f"Fit the data with one of {names} and replay that fit.",
+            roadmap="X82",
         )
     return None
 
@@ -487,16 +428,10 @@ def _refuse_provider(result: Any) -> Refusal | None:
 _FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("result_type", _refuse_result_type),
-    ("learned_rule", _refuse_learned_rule),
     ("risk_ratio_tilt", _refuse_risk_ratio_tilt),
-    ("multi_arm", _refuse_multi_arm),
-    ("missing_outcome", _refuse_missing_outcome),
-    ("missing_treatment", _refuse_missing_treatment),
-    ("intermediate", _refuse_intermediate),
-    ("estimated_weights", _refuse_estimated_weights),
-    ("clustered", _refuse_clustered),
     ("missing_estimator", _refuse_missing_estimator),
     ("repeat_provenance", _refuse_repeat_provenance),
+    ("learned_rule_splits", _refuse_learned_rule_splits),
     ("binary_estimator", _refuse_binary_estimator),
     ("continuous_estimator", _refuse_continuous_estimator),
     ("outcome_family", _refuse_outcome_family),
@@ -529,11 +464,18 @@ def _fit_wide_refusal(result: Any) -> Refusal | None:
     Refusal or None
         The first fit-wide refusal, or ``None`` when no fit-wide boundary applies.
     """
-    for _name, rule in _FIT_WIDE_RULES:
+    for name, rule in _FIT_WIDE_RULES:
         refusal = rule(result)
         if refusal is not None:
             return refusal
+        if name == "longitudinal" and _is_longitudinal(result):
+            # The longitudinal rules answered in full; the point rules read a TMLEResult.
+            return None
     return None
+
+
+def _is_longitudinal(result: Any) -> bool:
+    return getattr(result, "assessment_family", None) == "longitudinal"
 
 
 def _replay_refusal(estimator: Any, estimand: str) -> Refusal | None:
@@ -604,7 +546,12 @@ def _eligible_binary_parameter_names(result: Any) -> tuple[str, ...]:
     from ..study import ParameterKey
 
     data = getattr(result, "data", None)
-    if data is None or not getattr(data, "has_arms", False) or not data.is_binary_treatment:
+    if (
+        data is None
+        or not getattr(data, "has_arms", False)
+        or data.is_continuous_treatment
+        or data.treatment_kind == "vector"
+    ):
         return ()
     estimates = getattr(result, "estimates", {})
     keys = getattr(result, "parameter_keys", {})
@@ -619,6 +566,7 @@ def _eligible_binary_parameter_names(result: Any) -> tuple[str, ...]:
             (key.estimand in _BINARY_PARAMETER_TARGETS and key.axis == "arm")
             or fixed_key_axis(key) is not None
             or (key.estimand in INCREMENTAL_TARGETS and key.axis == "ipsi")
+            or (key.estimand in LEARNED_RULE_TARGETS and key.axis == "learned_rule")
         )
         and _replay_refusal(result.estimator, key.estimand) is None
     )
@@ -662,23 +610,43 @@ def _validate_binary_parameter_state(
     estimator: Any,
 ) -> None:
     """Require one coherent binary parameter across every stored layer."""
-    from ..study import CounterfactualMean
-    from ..targets.base import parameter_name
+    from ..study import ControlledDirectEffect, CounterfactualMean
+    from ..targets.base import arm_alias, parameter_name
 
     target = key.estimand
     typed_estimand = identified.estimand
+    if type(typed_estimand) is ControlledDirectEffect:
+        # A controlled direct effect wraps one arm contrast at a declared intermediate
+        # level.  The level must agree across the declaration, the functional, and the fit.
+        if not (
+            typed_estimand.intermediate == functional.intermediate == result.intermediate_value
+        ):
+            raise CapabilityError(
+                "simulated_confounding found inconsistent controlled-direct-effect metadata: "
+                f"the estimand fixes the intermediate at {typed_estimand.intermediate!r}, the "
+                f"functional at {functional.intermediate!r}, and the fit at "
+                f"{result.intermediate_value!r}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        typed_estimand = typed_estimand.contrast
     levels = tuple(result.data.treatment_levels)
     expected_alias: str | None = None
     metadata_matches = False
 
     if target in _CONTRAST_TYPES and type(typed_estimand) is _CONTRAST_TYPES[target]:
         typed_contrast: Any = typed_estimand
-        expected_alias = parameter_name(target)
+        expected_alias = arm_alias(
+            target,
+            arm=key.value,
+            versus=key.reference,
+            collapse=result.data.is_binary_treatment,
+        )
         fitted_reference = result.data.arm_label(result.config.reference_arm)
         fitted_values = tuple(level for level in levels if level != fitted_reference)
+        # A multi-arm fit reports one contrast per non-reference arm, each against the
+        # fitted reference; a two-arm fit reports one.
         metadata_matches = (
-            len(fitted_values) == 1
-            and key.value == fitted_values[0]
+            key.value in fitted_values
             and key.reference == fitted_reference
             and typed_contrast.reference in (None, key.reference)
             and functional.reference == typed_contrast.reference
@@ -694,14 +662,16 @@ def _validate_binary_parameter_state(
             and key.reference is None
             and functional.reference is None
             and (
-                typed_estimand.treatment is None
+                # A multi-arm arm mean names its arm on the typed estimand, and an
+                # all-arms mean names none.
+                typed_estimand.treatment in (None, key.value)
                 if target == "ey"
                 else typed_estimand.treatment == key.value == expected_value
             )
         )
     elif target in _ATTRIBUTABLE_TYPES and type(typed_estimand) is _ATTRIBUTABLE_TYPES[target]:
         typed_attributable: Any = typed_estimand
-        expected_alias = parameter_name(target)
+        expected_alias = arm_alias(target, arm=key.value, collapse=result.data.is_binary_treatment)
         fitted_reference = result.data.arm_label(result.config.reference_arm)
         declared_reference = (
             levels[0] if typed_attributable.reference is None else typed_attributable.reference
@@ -993,8 +963,8 @@ def _calibration_names(data: Any, benchmark_covariates: Any) -> tuple[str, ...]:
 
     A duplicate, a name that is not a string, and a name that is neither a covariate nor a
     categorical column are malformed arguments.  Each one raises ``ValueError`` or
-    ``TypeError`` before any refusal.  A categorical column is a well-formed name, and
-    :func:`_calibration_refusal` refuses it.
+    ``TypeError`` before any refusal.  A categorical column and each of its generated
+    indicators are well-formed names; :func:`_calibration_refusal` refuses an indicator.
 
     Parameters
     ----------
@@ -1019,14 +989,30 @@ def _calibration_names(data: Any, benchmark_covariates: Any) -> tuple[str, ...]:
             raise TypeError("benchmark_covariates must contain only column names")
         if name not in categorical and name not in data.covariate_names:
             raise ValueError(
-                f"benchmark covariate {name!r} is unavailable; numeric adjustment columns are "
-                f"{[column for column in data.covariate_names if column not in categorical]}"
+                f"benchmark covariate {name!r} is unavailable; adjustment covariates are "
+                f"{_benchmark_names(data)}"
             )
+    return names
+
+
+def _benchmark_names(data: Any) -> list[str]:
+    """The names a benchmark may take: numeric columns and logical categorical columns."""
+    sources = data.indicator_sources
+    names: list[str] = []
+    for column in data.covariate_names:
+        name = sources.get(column, column)
+        if name not in names:
+            names.append(name)
     return names
 
 
 def _calibration_refusal(data: Any, names: tuple[str, ...]) -> Refusal | None:
     """Return the refusal of the first requested covariate that cannot calibrate.
+
+    A categorical covariate calibrates as one block over every encoded indicator, so the
+    request names its logical column.  A generated indicator is one level of that block,
+    and benchmarking it alone does not define a covariate's strength, so it is refused with
+    the logical name.  A covariate constant on the positive-weight rows calibrates nothing.
 
     Parameters
     ----------
@@ -1038,26 +1024,32 @@ def _calibration_refusal(data: Any, names: tuple[str, ...]) -> Refusal | None:
     Returns
     -------
     Refusal or None
-        The refusal for a categorical or a constant covariate, or ``None`` when
+        The refusal for an indicator column or a constant covariate, or ``None`` when
         every named covariate can calibrate.
     """
     # Deferred because ``simulated_confounding`` imports this module at its own module
     # scope.  The weighted-statistics block stays beside the perturbation law that shares it.
-    from .simulated_confounding import _is_constant_under_weights
+    from .simulated_confounding import _block_columns, _is_constant_under_weights
 
-    categorical = _categorical_names(data)
+    sources = data.indicator_sources
     for name in names:
-        if name in categorical:
+        if name in sources:
             return Refusal(
-                RefusalReason.IMPLEMENTATION_GAP,
-                f"simulated_confounding cannot calibrate categorical covariate {name!r}; "
-                "zeroing one encoded column does not define a logical-covariate benchmark "
-                "(docs/roadmap.md X47 tracks a block calibration of the whole covariate).",
-                alternative="Name numeric benchmark covariates only.",
-                roadmap="X47",
+                RefusalReason.INVALID_DECLARATION,
+                f"simulated_confounding benchmarks a categorical covariate as one block of its "
+                f"indicators; {name!r} is one indicator of {sources[name]!r}.",
+                alternative=f"Name the logical covariate {sources[name]!r}.",
             )
-        column = data.covariates[:, data.covariate_names.index(name)]
-        if _is_constant_under_weights(column, data.weights):
+        block = _block_columns(data, name)
+        if not block:
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
+                f"simulated_confounding cannot calibrate {name!r}: none of its encoded "
+                "indicators remains in the adjustment set",
+            )
+        if all(
+            _is_constant_under_weights(data.covariates[:, column], data.weights) for column in block
+        ):
             return Refusal(
                 RefusalReason.INVALID_DECLARATION,
                 f"simulated_confounding cannot calibrate constant covariate {name!r}",
@@ -1100,6 +1092,10 @@ def simulated_confounding_refusal(
     refusal = _fit_wide_refusal(result)
     if refusal is not None:
         return refusal
+    if _is_longitudinal(result):
+        # Every longitudinal refusal is fit-wide; the estimand and covariate checks raise
+        # ``ValueError`` or ``TypeError`` from the call.
+        return None
     try:
         _validated_parameter(result, estimand, benchmark_covariates)
     except CapabilityError as error:
@@ -1114,6 +1110,12 @@ def _validate_request(
     estimand: str,
     grid: ConfounderStrengthGrid,
     benchmark_covariates: Any,
+    *,
+    arm_pair: Any = None,
+    latent_level: Any = None,
+    latent_rho: Any = None,
+    observation_reads: Any = None,
+    bounded_outcome_law: Any = None,
 ) -> _ValidatedRequest:
     """Validate the complete supported boundary before a refit or random draw.
 
@@ -1144,7 +1146,427 @@ def _validate_request(
         raise ValueError("binary treatment strengths must be between 0 and 0.5")
     if data.family == "binomial" and any(value < 0.0 or value > 0.5 for value in grid.outcome):
         raise ValueError("binomial outcome strengths must be between 0 and 0.5")
-    return _validated_parameter(result, estimand, benchmark_covariates)
+    level, rho = _latent_level(data, grid, latent_level, latent_rho)
+    _check_intermediate_axis(result, grid)
+    reads = _observation_reads(data, grid, observation_reads)
+    law, bounds = _bounded_outcome_law(result, bounded_outcome_law)
+    request = _validated_parameter(result, estimand, benchmark_covariates)
+    if data.treatment_kind == "vector":
+        arm_codes, component_pairs = None, _component_pairs(data, arm_pair)
+    else:
+        arm_codes, component_pairs = _arm_codes(data, request.key, arm_pair), ()
+    return replace(
+        request,
+        arm_codes=arm_codes,
+        component_pairs=component_pairs,
+        latent_level=level,
+        latent_rho=rho,
+        observation_reads=reads,
+        bounded_outcome_law=law,
+        outcome_bounds=bounds,
+    )
+
+
+_BOUNDED_LAWS = ("logit", "normal_score")
+
+
+def _bounded_outcome_law(
+    result: Any, bounded_outcome_law: Any
+) -> tuple[Literal["logit", "normal_score"] | None, tuple[float, float] | None]:
+    """Resolve the outcome law of a Gaussian fit whose estimator declares ``q_bounds``.
+
+    Raises
+    ------
+    ValueError
+        If the law is unknown, or is given on a fit without declared bounds.
+    """
+    bounds = getattr(result.estimator, "q_bounds", None)
+    if result.data.family != "gaussian" or bounds is None:
+        if bounded_outcome_law is not None:
+            raise ValueError(
+                "bounded_outcome_law= reads the q_bounds of a Gaussian fit, and this fit "
+                "declares none"
+            )
+        return None, None
+    law: Literal["logit", "normal_score"]
+    if bounded_outcome_law is None or bounded_outcome_law == "logit":
+        law = "logit"
+    elif bounded_outcome_law == "normal_score":
+        law = "normal_score"
+    else:
+        raise ValueError(
+            f"bounded_outcome_law must be one of {_BOUNDED_LAWS}; got {bounded_outcome_law!r}"
+        )
+    low, high = (float(value) for value in bounds)
+    return law, (low, high)
+
+
+def _check_intermediate_axis(result: Any, grid: ConfounderStrengthGrid) -> None:
+    """Refuse a moved treatment on a controlled direct effect, and an orphan intermediate axis.
+
+    Raises
+    ------
+    ValueError
+        If the grid flips an intermediate that the fit does not carry.
+    CapabilityError
+        If a cell moves the treatment of a controlled-direct-effect fit.
+    """
+    if not declares_intermediate(result):
+        if any(value != 0.0 for value in grid.intermediate):
+            raise ValueError(
+                "ConfounderStrengthGrid(intermediate=...) flips the intermediate of a "
+                "controlled direct effect, and this fit declares no intermediate"
+            )
+        return
+    if _moved_treatment_columns(result.data, grid):
+        raise CapabilityError.from_refusal(_INTERMEDIATE_REFUSAL)
+
+
+def _observation_reads(
+    data: Any, grid: ConfounderStrengthGrid, observation_reads: Any
+) -> tuple[str, ...] | None:
+    """Resolve the covariates the observation mechanisms read, and refuse a moved treatment.
+
+    On a fit with a missing outcome or a missing treatment, the outcome law acts on the
+    recorded outcomes only.  The latent is independent of the data, so outcome-axis cells
+    keep missing at random whenever the fit had it.  A treatment perturbation keeps it only
+    when every observation mechanism reads the covariates alone, ``Delta`` independent of
+    ``(A', Y')`` given ``W``.  The caller declares that by naming the covariates.  The code
+    cannot verify the declaration, so the report states it.
+
+    Parameters
+    ----------
+    data : CausalData
+        The fitted data.
+    grid : ConfounderStrengthGrid
+        The requested strengths.
+    observation_reads : sequence of str or None
+        The declared covariates.
+
+    Returns
+    -------
+    tuple of str or None
+        The declared covariates, or ``None``.
+
+    Raises
+    ------
+    ValueError
+        If the declaration is malformed, names a role other than an adjustment covariate,
+        or is given on a fit with no missing outcome or treatment.
+    CapabilityError
+        If a cell moves the treatment of such a fit and nothing is declared.
+    """
+    missing = data.has_missing_outcome or data.has_missing_treatment
+    if observation_reads is None:
+        if missing and _moved_treatment_columns(data, grid):
+            raise CapabilityError.from_refusal(
+                _MISSING_OUTCOME_REFUSAL if data.has_missing_outcome else _MISSING_TREATMENT_REFUSAL
+            )
+        return None
+    if not missing:
+        raise ValueError(
+            "observation_reads= declares the observation mechanisms of a fit with a missing "
+            "outcome or treatment; this fit observes every outcome and treatment"
+        )
+    if isinstance(observation_reads, str) or not all(
+        isinstance(name, str) for name in observation_reads
+    ):
+        raise TypeError("observation_reads must be a sequence of covariate names")
+    names = tuple(observation_reads)
+    if len(set(names)) != len(names):
+        raise ValueError(f"observation_reads names a covariate twice: {names!r}")
+    roles = {
+        data.treatment_name: "the treatment",
+        data.outcome_name: "the outcome",
+    }
+    for component in data.component_names or ():
+        roles[component] = "a treatment component"
+    if getattr(data, "intermediate_name", None):
+        roles[data.intermediate_name] = "the intermediate"
+    covariates = set(_benchmark_names(data))
+    for name in names:
+        if name in roles:
+            raise ValueError(
+                f"observation_reads names {name!r}, which is {roles[name]}. The declaration "
+                "states that every observation mechanism reads the covariates alone, so it "
+                "names adjustment covariates"
+            )
+        if name not in covariates:
+            raise ValueError(
+                f"observation_reads names {name!r}, which is not an adjustment covariate of "
+                f"this fit; choose from {sorted(covariates)}"
+            )
+    return names
+
+
+def _component_pairs(data: Any, arm_pair: Any) -> tuple[tuple[str, tuple[float, float]], ...]:
+    """Resolve the pair each categorical component of more than two levels swaps.
+
+    A vector treatment declares ``arm_pair={component: (a, b)}`` for exactly the
+    categorical components with more than two levels.  A binary component has one pair
+    and a dose has none, so neither may be named.
+
+    Parameters
+    ----------
+    data : CausalData
+        The analysis data of a vector-treatment fit.
+    arm_pair : mapping or None
+        The declared pairs of component levels.
+
+    Returns
+    -------
+    tuple of (str, tuple of float)
+        The level codes of each swapped pair, in component order.
+
+    Raises
+    ------
+    ValueError
+        If a component that needs a pair has none, or a pair is malformed.
+    """
+    needs = {
+        name: levels
+        for name, levels in zip(data.component_names, data.component_levels, strict=True)
+        if len(levels) > 2
+    }
+    if arm_pair is None:
+        declared: dict[Any, Any] = {}
+    elif isinstance(arm_pair, Mapping):
+        declared = dict(arm_pair)
+    else:
+        raise ValueError(
+            "a vector treatment declares arm_pair= as a mapping from each categorical "
+            "component of more than two levels to the two levels it swaps"
+        )
+    if set(declared) != set(needs):
+        raise ValueError(
+            f"arm_pair= must name exactly the categorical components of more than two levels, "
+            f"{sorted(needs)}; got {sorted(map(str, declared))}"
+        )
+    out = []
+    for name in data.component_names:
+        if name not in needs:
+            continue
+        levels = tuple(needs[name])
+        pair = tuple(declared[name])
+        if len(pair) != 2 or pair[0] == pair[1] or any(level not in levels for level in pair):
+            raise ValueError(
+                f"arm_pair[{name!r}] names two different levels of {list(levels)}; got "
+                f"{declared[name]!r}"
+            )
+        out.append((name, (float(levels.index(pair[0])), float(levels.index(pair[1])))))
+    return tuple(out)
+
+
+def _arm_codes(data: Any, key: Any, arm_pair: Any) -> tuple[float, float] | None:
+    """Resolve the two arms that the pairwise swap of a multi-arm treatment exchanges.
+
+    A two-arm contrast declares its pair: the arm it reports and its reference.  Any other
+    parameter of a multi-arm fit needs ``arm_pair=(a, b)``, with ``a`` the arm the
+    induced association reads.  A two-arm treatment has one pair, so ``arm_pair`` may only
+    restate it there, and a dose or a vector treatment takes no pair.
+
+    Parameters
+    ----------
+    data : CausalData
+        The analysis data of the fit.
+    key : ParameterKey
+        The structured key of the requested parameter.
+    arm_pair : tuple or None
+        The declared pair of arm labels.
+
+    Returns
+    -------
+    tuple of (float, float) or None
+        The arm codes ``(a, b)`` of a multi-arm treatment, else ``None``.
+
+    Raises
+    ------
+    ValueError
+        If the pair is missing on a multi-arm fit, names an unknown or repeated arm,
+        disagrees with the contrast it reports, or is given where no pair applies.
+    """
+    levels = tuple(data.treatment_levels)
+    multi_arm = (
+        data.has_arms
+        and data.treatment_kind != "vector"
+        and not data.is_continuous_treatment
+        and not data.is_binary_treatment
+    )
+    if arm_pair is not None:
+        if not multi_arm and not (data.has_arms and data.is_binary_treatment):
+            raise ValueError(
+                "arm_pair= names two arms of an arm-coded treatment; "
+                "this fit's treatment is not arm-coded"
+            )
+        pair = tuple(arm_pair)
+        if len(pair) != 2 or pair[0] == pair[1] or any(arm not in levels for arm in pair):
+            raise ValueError(
+                f"arm_pair= names two different arms of {list(levels)}; got {arm_pair!r}"
+            )
+    else:
+        pair = None
+    declared = (
+        (key.value, key.reference)
+        if key is not None
+        and key.axis == "arm"
+        and key.estimand in _CONTRAST_TYPES
+        and key.reference is not None
+        else None
+    )
+    if pair is not None and declared is not None and set(pair) != set(declared):
+        raise ValueError(
+            f"arm_pair={pair!r} disagrees with the contrast {key.alias!r}, which swaps {declared!r}"
+        )
+    if not multi_arm:
+        if pair is not None and set(pair) != set(levels):
+            raise ValueError(f"a two-arm treatment swaps {list(levels)}; got arm_pair={pair!r}")
+        return None
+    resolved = pair if pair is not None else declared
+    if resolved is None:
+        raise ValueError(
+            f"treatment {data.treatment_name!r} has {len(levels)} arms, and the pairwise swap "
+            "needs the two it exchanges: pass arm_pair=(a, b), with a the arm whose "
+            "association the cells report"
+        )
+    return (float(levels.index(resolved[0])), float(levels.index(resolved[1])))
+
+
+#: The levels a caller may declare for the latent cause.
+_LATENT_LEVELS: frozenset[str] = frozenset({"row", "cluster", "mixed"})
+
+
+def _latent_level(
+    data: Any, grid: ConfounderStrengthGrid, latent_level: Any, latent_rho: Any
+) -> tuple[Literal["row", "cluster", "mixed"], float | None]:
+    """Check the declared level of the latent cause against the fit's clusters.
+
+    A clustered fit declares the level, because no source fixes it (hard-stop review F9).
+    An unclustered fit has one level, ``"row"``.  A row-level or mixed latent flips or
+    shifts single rows, so on a treatment that is constant within every cluster it breaks
+    the cluster assignment the fit modelled.  That refusal applies only when a cell moves
+    the treatment: an outcome-only grid changes no treatment.
+
+    Parameters
+    ----------
+    data : CausalData
+        The analysis data of the fit.
+    grid : ConfounderStrengthGrid
+        The declared strengths.
+    latent_level : str or None
+        The declared level.
+    latent_rho : float or None
+        The intra-cluster correlation of a ``"mixed"`` latent.
+
+    Returns
+    -------
+    tuple of (str, float or None)
+        The resolved level and correlation.
+
+    Raises
+    ------
+    ValueError
+        If the level is missing on a clustered fit, unknown, or inconsistent with the
+        correlation.
+    CapabilityError
+        If a row-level or mixed latent would move a cluster-constant treatment.
+    """
+    clustered = data.cluster is not None
+    if latent_level is None:
+        if clustered:
+            raise ValueError(
+                f"the fit is clustered on {data.cluster_name!r}, and no source fixes the level "
+                "of a simulated common cause there: declare latent_level='row', 'cluster' "
+                "or 'mixed' (with latent_rho=)"
+            )
+        latent_level = "row"
+    if latent_level not in _LATENT_LEVELS:
+        raise ValueError(
+            f"latent_level must be one of {sorted(_LATENT_LEVELS)}; got {latent_level!r}"
+        )
+    if not clustered and latent_level != "row":
+        raise ValueError(
+            f"latent_level={latent_level!r} needs a clustered fit; this fit declares no cluster"
+        )
+    if latent_level == "mixed":
+        if (
+            isinstance(latent_rho, bool)
+            or not isinstance(latent_rho, Real)
+            or not 0.0 < float(latent_rho) < 1.0
+        ):
+            raise ValueError(
+                "latent_level='mixed' needs latent_rho= strictly between 0 and 1, the "
+                f"intra-cluster correlation of the latent; got {latent_rho!r}"
+            )
+        rho: float | None = float(latent_rho)
+    else:
+        if latent_rho is not None:
+            raise ValueError(
+                "latent_rho= sets the correlation of latent_level='mixed'; "
+                f"got latent_level={latent_level!r}"
+            )
+        rho = None
+    moved_constant = (
+        _moved_cluster_constant_columns(data, grid)
+        if clustered and latent_level != "cluster"
+        else ()
+    )
+    if moved_constant:
+        raise CapabilityError(
+            f"simulated_confounding refuses latent_level={latent_level!r} with a nonzero "
+            f"treatment strength on {', '.join(map(repr, moved_constant))}: that treatment is "
+            f"constant within every cluster of {data.cluster_name!r}, and a latent that varies "
+            "within a cluster would move single rows of a cluster-level assignment.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=(
+                "Declare latent_level='cluster', or keep the strength of every cluster-level "
+                "treatment at zero."
+            ),
+        )
+    return latent_level, rho
+
+
+def _moved_treatment_columns(
+    data: Any, grid: ConfounderStrengthGrid
+) -> tuple[tuple[str, np.ndarray[Any, Any]], ...]:
+    """The treatment columns that some grid point moves, with their values.
+
+    A vector is read per component.  A one-column treatment is one column.
+    """
+    if (data.treatment_components is not None) != bool(grid.components):
+        return ()  # _check_component_grid refuses this grid shape
+    if grid.components:
+        values = np.asarray(data.treatment_components, dtype=float)
+        names = tuple(data.component_names)
+        moved = {
+            name
+            for point in grid.treatment_points
+            for name, value in zip(grid.components, point, strict=True)  # type: ignore[arg-type]
+            if value != 0.0
+        }
+    else:
+        values = np.asarray(data.treatment, dtype=float).reshape(data.n, 1)
+        names = (data.treatment_name,)
+        moved = (
+            {data.treatment_name} if any(value != 0.0 for value in grid.treatment_points) else set()
+        )
+    return tuple(
+        (name, column) for name, column in zip(names, values.T, strict=True) if name in moved
+    )
+
+
+def _moved_cluster_constant_columns(data: Any, grid: ConfounderStrengthGrid) -> tuple[str, ...]:
+    """The treatment columns that hold one value per cluster and that some grid point moves.
+
+    A vector is read per component: a row-varying latent may move a component that varies
+    within clusters, but not a component that is constant within every cluster.
+    """
+    cluster = np.asarray(data.cluster)
+    n_clusters = np.unique(cluster).size
+    return tuple(
+        name
+        for name, column in _moved_treatment_columns(data, grid)
+        if np.unique(np.column_stack((cluster, column)), axis=0).shape[0] == n_clusters
+    )
 
 
 def _check_component_grid(data: Any, grid: ConfounderStrengthGrid) -> None:
@@ -1191,12 +1613,14 @@ def _validated_parameter(
     names = _calibration_names(data, benchmark_covariates)
     # The ``multi_arm`` rule already refused every treatment that is neither continuous nor
     # binary, so exactly one of the two families holds here.
-    treatment_family: Literal["binary", "continuous", "vector"] = (
+    treatment_family: Literal["binary", "categorical", "continuous", "vector"] = (
         "vector"
         if data.treatment_kind == "vector"
         else "continuous"
         if data.is_continuous_treatment
         else "binary"
+        if data.is_binary_treatment
+        else "categorical"
     )
     identified = result.identified_effect
     functional = identified.functional
@@ -1214,7 +1638,7 @@ def _validated_parameter(
                 "reference intervention."
             ),
         )
-    if treatment_family != "binary" and estimand == "ate":
+    if treatment_family not in {"binary", "categorical"} and estimand == "ate":
         vacuous = _zero_delta_policy_means(result)
         admissible = [
             name
@@ -1231,7 +1655,7 @@ def _validated_parameter(
             f"or ate_policy[...] contrast alias, or an msm[...] coefficient alias; {detail}"
         )
     if estimand not in result.estimates:
-        if treatment_family == "binary":
+        if treatment_family in {"binary", "categorical"}:
             admissible = list(_eligible_binary_parameter_names(result))
         else:
             # A continuous fit can report the zero-delta natural-course mean, which the
@@ -1253,11 +1677,14 @@ def _validated_parameter(
     refusal = _replay_refusal(estimator, key.estimand)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)
+    frozen_folds: tuple[Any, ...] | None = None
     if fixed_axis(key.estimand) is not None:
         estimator = validate_fixed_replay(result, estimand, key)
-    elif treatment_family == "binary" and key.estimand in INCREMENTAL_TARGETS:
+    elif key.estimand in LEARNED_RULE_TARGETS:
+        estimator, frozen_folds = validate_learned_rule_replay(result, estimand, key)
+    elif treatment_family in {"binary", "categorical"} and key.estimand in INCREMENTAL_TARGETS:
         estimator = validate_incremental_replay(result, estimand, key)
-    elif treatment_family == "binary":
+    elif treatment_family in {"binary", "categorical"}:
         check_only_declared_axis(
             result,
             key,
@@ -1271,8 +1698,9 @@ def _validated_parameter(
                     "axis, such as TMLE(estimands=('ate',)) with no other counterfactual "
                     "keyword."
                 ),
-                roadmap="X66",
+                roadmap="X82",
             ),
+            intermediate=True,
         )
         if key.estimand not in _BINARY_PARAMETER_TARGETS or key.axis != "arm":
             raise CapabilityError(
@@ -1284,7 +1712,7 @@ def _validated_parameter(
                     "Call simulated_confounding(result, estimand=...) for an ATE, ATT, ATC, "
                     "arm mean, rr, or, par or paf of a fit of the same data."
                 ),
-                roadmap="X66",
+                roadmap="X82",
             )
         _validate_binary_parameter_state(result, estimand, key, identified, functional, estimator)
     else:
@@ -1300,7 +1728,7 @@ def _validated_parameter(
                     "Call simulated_confounding on a continuous fit that declares policies= "
                     "alone, such as TMLE(policies=[Shift(delta, cap=...)])."
                 ),
-                roadmap="X66",
+                roadmap="X82",
             ),
         )
         if key.estimand not in {"ey_policy", "ate_policy"} or key.axis != "policy":
@@ -1312,7 +1740,7 @@ def _validated_parameter(
                     "Call simulated_confounding(result, estimand='ate_policy[...]'), or an "
                     "ey_policy mean other than the natural course."
                 ),
-                roadmap="X66",
+                roadmap="X82",
             )
         _validate_continuous_policy_state(result, estimand, key, identified, functional, estimator)
 
@@ -1336,4 +1764,6 @@ def _validated_parameter(
         baseline_mask,
         key.stratum,
         conditioning_code,
+        key=key,
+        frozen_folds=frozen_folds,
     )

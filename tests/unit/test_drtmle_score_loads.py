@@ -47,6 +47,7 @@ def _estimator(**settings: object) -> DRTMLE:
         "outcome_learner": sklearn.linear_model.LinearRegression(),
         "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "reduced_outcome_learner": sklearn.linear_model.LinearRegression(),
+        "reduced_mechanism_residual_learner": sklearn.linear_model.LinearRegression(),
         "reduced_treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "q_bounds": (0.0, 1.0),
         "simultaneous": False,
@@ -70,7 +71,7 @@ def _assert_one_column_per_equation(result) -> None:
     support = result.diagnostics.support()
     assert support.group_score_load_omissions.get("mean") != SCORE_LOAD_SHAPE_MISMATCH
     assert "mean" in support.group_score_load
-    assert "group diagnostic omitted (mean)" not in support.summary()
+    assert "No equation row for mean:" not in support.summary()
 
 
 @pytest.mark.parametrize("guard", [("Q", "g"), ("g",), ("Q",)])

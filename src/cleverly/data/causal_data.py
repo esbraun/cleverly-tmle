@@ -43,6 +43,7 @@ import narwhals as nw
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
+from .._warnings import FitWarning, records_data
 from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..utils.frames import (
     as_frame,
@@ -265,7 +266,8 @@ class CausalData:
     added_covariates: tuple[str, ...] = ()
     encodings: tuple[CategoricalEncoding, ...] = ()
     #: Optional finite baseline partition used for conditional target parameters.  Codes
-    #: are ``0..S-1`` and :attr:`strata_levels` maps them back to the caller's labels.
+    #: are ``0..S-1`` in order of first appearance in the rows, not sorted by value, and
+    #: :attr:`strata_levels` maps each code to the caller's label.
     #: The raw columns remain in the adjustment set; this is target metadata, not a
     #: replacement for confounding control.
     strata: IntArray | None = None
@@ -322,10 +324,14 @@ class CausalData:
     #: vector treatment holds ``(component, atoms)`` pairs in column order; read them with
     #: :attr:`component_atoms`.
     dose_atoms: tuple[Any, ...] = ()
+    #: The package warnings raised while this data was built and checked (a dropped
+    #: constant covariate, say), which every fit on it adds to its own record.
+    validation_warnings: tuple[FitWarning, ...] = field(default=(), compare=False, repr=False)
 
     # ------------------------------------------------------------------ build
 
     @classmethod
+    @records_data
     def from_frame(
         cls,
         data: Any,
@@ -564,6 +570,7 @@ class CausalData:
         )
 
     @classmethod
+    @records_data
     def from_arrays(
         cls,
         outcome: Any,
@@ -1106,7 +1113,7 @@ class CausalData:
             raise DataError(
                 f"{self.treatment_name} is continuous and has no arms, so {float(code)!r} "
                 "has no label. A continuous treatment's parameters are indexed by "
-                "intervention -- a shift -- rather than by arm."
+                "intervention (a shift) rather than by arm."
             )
         index = round(float(code))
         if index < 0 or index >= self.n_arms or float(index) != float(code):
@@ -2066,7 +2073,10 @@ class CausalData:
                 out[name] = column
         return out
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+    def __repr__(self) -> str:
+        """One line of at most 100 characters: the rows and the facts a fit reads first."""
+        from .._summary import short_repr
+
         parts = [
             f"n={self.n}",
             f"family={self.family!r}",
@@ -2091,7 +2101,7 @@ class CausalData:
             parts.append("treatment mechanism=known")
         if self.is_weighted:
             parts.append(f"weighted=yes (effective n={self.effective_n:.0f})")
-        return f"CausalData({', '.join(parts)})"
+        return short_repr("CausalData", [("", part) for part in parts])
 
 
 def _treatment_recorded(

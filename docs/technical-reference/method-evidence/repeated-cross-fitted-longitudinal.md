@@ -82,7 +82,7 @@ The band and increment sizes come from the pilot rows in
 | `interval_calibration` | the SE ratio and coverage of nine contrasts at 24,000 replications, each with a control that multiplies the reported SE by 0.70 |
 | `simultaneous_coverage` | the joint coverage of the shipped band on each law at 2,400 replications of its own samples, with a pointwise control |
 | `repeat_increment` | the median SE ratio minus the first draw's SE ratio on law S at 2,800 replications of its own samples; horizon 3 is gated at 0.03, with a control that multiplies the median SE by 1.05 |
-| `repeat_stability` | the spread of the three-draw median over the spread of its first draw, on one fixed sample per law |
+| `repeat_stability` | on one fixed sample per law, the spread of the three-draw median over the spread of its first draw (positive), and the spread of the second draw over the first draw's spread (control, which reads no reduction) |
 | `root_n_and_efficiency` and `root_n_rate` | the law-D static contrast at n = 2,000, 8,000 and 32,000; the slope rows carry the check, because the 2,000 rung cannot fail at 800 replications |
 | `ipsi_primary` | law I's means and contrasts at n = 80,000, read by the primary rules |
 | `single_draw_reading` and `split_displacement` | the first draw's calibration and the displacement share, reported only |
@@ -120,15 +120,20 @@ The band and increment sizes come from the pilot rows in
 | `repeat_increment` | `h3__inflated_se_control` | control | the horizon-3 median with its reported SE multiplied by 1.05 | the increment must reach or exceed the ceiling | increment 0.0667, 0.0575 to 0.0764, ceiling 0.0300 | pass |
 | `repeat_increment` | `h3__repeat_median` | positive | survival risk difference at horizon 3, the SE ratio of the median over three draws | the increment over the first draw stays under its ceiling | increment 0.0147, 0.0059 to 0.0247, ceiling 0.0300 | pass |
 | `repeat_increment` | `h3__single_draw` | positive | survival risk difference at horizon 3, the SE ratio of the first draw alone | the first-draw ratio, the base of the increment | increment 0.0147, 0.0059 to 0.0247, ceiling 0.0300 | pass |
-| `repeat_stability` | `d_ltmle_dynamic__one_repeat_control` | control | `LTMLE` difference of treat-if-L2 against never on the two-node law; the first draw alone on the same fixed sample | the spread ratio of the first draw against itself stays under the declared boundary | spread ratio 0.6616, 0.5781 to 0.7460, boundary 1 | pass |
+| `repeat_stability` | `d_ltmle_dynamic__one_repeat` | positive | `LTMLE` difference of treat-if-L2 against never on the two-node law; the first draw alone on the same fixed sample; the base of the pair's spread ratio | the pair's verdict: the spread of the median over this spread stays under the declared boundary, above the spread floor | spread ratio 0.6616, 0.5781 to 0.7460, boundary 1 | pass |
+| `repeat_stability` | `d_ltmle_dynamic__second_draw_control` | control | `LTMLE` difference of treat-if-L2 against never on the two-node law; the second draw of the same three-draw fit, alone | the spread of an independent single draw over the first draw's spread must not fall below the declared boundary (no reduction exists to read), above the spread floor | spread ratio 1.0237, 0.8748 to 1.1883, boundary 1, reached by the upper endpoint | pass |
 | `repeat_stability` | `d_ltmle_dynamic__three_repeats` | positive | `LTMLE` difference of treat-if-L2 against never on the two-node law; the median over three fold draws on one fixed sample, over many fold seeds | the spread of the median over the spread of its first draw stays under the declared boundary, above the spread floor | spread ratio 0.6616, 0.5781 to 0.7460, boundary 1 | pass |
-| `repeat_stability` | `d_ltmle_static__one_repeat_control` | control | `LTMLE` risk difference of always against never on the two-node law; the first draw alone on the same fixed sample | the spread ratio of the first draw against itself stays under the declared boundary | spread ratio 0.6886, 0.6094 to 0.7720, boundary 1 | pass |
+| `repeat_stability` | `d_ltmle_static__one_repeat` | positive | `LTMLE` risk difference of always against never on the two-node law; the first draw alone on the same fixed sample; the base of the pair's spread ratio | the pair's verdict: the spread of the median over this spread stays under the declared boundary, above the spread floor | spread ratio 0.6886, 0.6094 to 0.7720, boundary 1 | pass |
+| `repeat_stability` | `d_ltmle_static__second_draw_control` | control | `LTMLE` risk difference of always against never on the two-node law; the second draw of the same three-draw fit, alone | the spread of an independent single draw over the first draw's spread must not fall below the declared boundary (no reduction exists to read), above the spread floor | spread ratio 1.0184, 0.8847 to 1.1713, boundary 1, reached by the upper endpoint | pass |
 | `repeat_stability` | `d_ltmle_static__three_repeats` | positive | `LTMLE` risk difference of always against never on the two-node law; the median over three fold draws on one fixed sample, over many fold seeds | the spread of the median over the spread of its first draw stays under the declared boundary, above the spread floor | spread ratio 0.6886, 0.6094 to 0.7720, boundary 1 | pass |
-| `repeat_stability` | `d_sdr_dynamic__one_repeat_control` | control | `SDR` difference of treat-if-L2 against never on the two-node law; the first draw alone on the same fixed sample | the spread ratio of the first draw against itself stays under the declared boundary | spread ratio 0.6614, 0.5824 to 0.7486, boundary 1 | pass |
+| `repeat_stability` | `d_sdr_dynamic__one_repeat` | positive | `SDR` difference of treat-if-L2 against never on the two-node law; the first draw alone on the same fixed sample; the base of the pair's spread ratio | the pair's verdict: the spread of the median over this spread stays under the declared boundary, above the spread floor | spread ratio 0.6614, 0.5824 to 0.7486, boundary 1 | pass |
+| `repeat_stability` | `d_sdr_dynamic__second_draw_control` | control | `SDR` difference of treat-if-L2 against never on the two-node law; the second draw of the same three-draw fit, alone | the spread of an independent single draw over the first draw's spread must not fall below the declared boundary (no reduction exists to read), above the spread floor | spread ratio 1.0239, 0.8768 to 1.1934, boundary 1, reached by the upper endpoint | pass |
 | `repeat_stability` | `d_sdr_dynamic__three_repeats` | positive | `SDR` difference of treat-if-L2 against never on the two-node law; the median over three fold draws on one fixed sample, over many fold seeds | the spread of the median over the spread of its first draw stays under the declared boundary, above the spread floor | spread ratio 0.6614, 0.5824 to 0.7486, boundary 1 | pass |
-| `repeat_stability` | `d_sdr_static__one_repeat_control` | control | `SDR` difference of always against never on the two-node law; the first draw alone on the same fixed sample | the spread ratio of the first draw against itself stays under the declared boundary | spread ratio 0.6879, 0.6101 to 0.7689, boundary 1 | pass |
+| `repeat_stability` | `d_sdr_static__one_repeat` | positive | `SDR` difference of always against never on the two-node law; the first draw alone on the same fixed sample; the base of the pair's spread ratio | the pair's verdict: the spread of the median over this spread stays under the declared boundary, above the spread floor | spread ratio 0.6879, 0.6101 to 0.7689, boundary 1 | pass |
+| `repeat_stability` | `d_sdr_static__second_draw_control` | control | `SDR` difference of always against never on the two-node law; the second draw of the same three-draw fit, alone | the spread of an independent single draw over the first draw's spread must not fall below the declared boundary (no reduction exists to read), above the spread floor | spread ratio 1.0186, 0.8836 to 1.1833, boundary 1, reached by the upper endpoint | pass |
 | `repeat_stability` | `d_sdr_static__three_repeats` | positive | `SDR` difference of always against never on the two-node law; the median over three fold draws on one fixed sample, over many fold seeds | the spread of the median over the spread of its first draw stays under the declared boundary, above the spread floor | spread ratio 0.6879, 0.6101 to 0.7689, boundary 1 | pass |
-| `repeat_stability` | `i_contrast_x2__one_repeat_control` | control | `IPSI` contrast of odds multiplier 2 against 1 on the incremental law; the first draw alone on the same fixed sample | the spread ratio of the first draw against itself stays under the declared boundary | spread ratio 0.7026, 0.6420 to 0.7683, boundary 1 | pass |
+| `repeat_stability` | `i_contrast_x2__one_repeat` | positive | `IPSI` contrast of odds multiplier 2 against 1 on the incremental law; the first draw alone on the same fixed sample; the base of the pair's spread ratio | the pair's verdict: the spread of the median over this spread stays under the declared boundary, above the spread floor | spread ratio 0.7026, 0.6420 to 0.7683, boundary 1 | pass |
+| `repeat_stability` | `i_contrast_x2__second_draw_control` | control | `IPSI` contrast of odds multiplier 2 against 1 on the incremental law; the second draw of the same three-draw fit, alone | the spread of an independent single draw over the first draw's spread must not fall below the declared boundary (no reduction exists to read), above the spread floor | spread ratio 1.0362, 0.9179 to 1.1741, boundary 1, reached by the upper endpoint | pass |
 | `repeat_stability` | `i_contrast_x2__three_repeats` | positive | `IPSI` contrast of odds multiplier 2 against 1 on the incremental law; the median over three fold draws on one fixed sample, over many fold seeds | the spread of the median over the spread of its first draw stays under the declared boundary, above the spread floor | spread ratio 0.7026, 0.6420 to 0.7683, boundary 1 | pass |
 | `root_n_and_efficiency` | `ltmle_static__n_2000` | control | `LTMLE` static contrast on the two-node law at n = 2,000; the median over three fold draws | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias 0.0022, coverage 0.9524 to 0.9843, SE ratio 1.1085 | pass |
 | `root_n_and_efficiency` | `ltmle_static__n_32000` | positive | `LTMLE` static contrast on the two-node law at n = 32,000; the median over three fold draws | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias 0.000441, coverage 0.9267 to 0.9677, SE ratio 0.9911 | pass |
@@ -186,6 +191,8 @@ only when its diagnosis finds no defect.
 | `ipsi_primary` | the law-I calibration rows at the same size, and the pilot bias of +0.067 and -0.077 SD | the draw-0 rows share the bias and the pilot agrees |
 | `root_n_rate` | the per-rung rows and the pilot segment slope of -0.587 | the positive rungs and the pilot explain the slope |
 | `repeat_stability` or `repeat_increment` | a defect suspect in the repeat layer | never |
+| `second_draw_control`, upper endpoint below 1 | a defect suspect in the ratio, the bootstrap or the draw seeds. The chance probability is about 0.005 per label | never |
+| `second_draw_control`, lower endpoint above 1 | a seed or exchangeability suspect | reported and not gated |
 | a cell that lost more than 1% of its replicates to recorded fitting failures, or whose clause fails at its worst case | the records in `property-failures.csv` and `property-failure-accounting.csv`; the summary is read again from the checkpoints | the records show no defect |
 | a control that does not fail | a design defect | never |
 
@@ -202,9 +209,15 @@ Each band cell passes with probability 0.99 or more. The five
 band cells pass together with probability 0.98 at 2,400 replications. The horizon-3
 `repeat_increment` gate passes with probability 0.96 at 2,800 replications.
 
+Draws 0 and 1 are independent fold draws of one sample with deterministic learners. The true
+spread ratio of a `second_draw_control` is therefore exactly 1, and its 99% interval reaches 1
+with probability 0.995. The study declares 0.99, because the percentile interval is accurate to
+first order. The five controls pass together with probability at least 0.95 by the union bound.
+The five positives and five controls pass together with probability at least 0.95 by the same bound.
+
 ## Result
 
-All 26 implementation-estimand tests pass, and all 58 gated property cells pass. The 22 reported
+All 26 implementation-estimand tests pass, and all 63 gated property cells pass. The 22 reported
 cells state no verdict. No row is red, so the red-cell reading above did not apply to this run.
 Every control row meets its own rule, which means the instrument detects the declared defect in
 that control.
@@ -215,7 +228,8 @@ The study reads these results as follows.
 | --- | --- |
 | Each calibration contrast reports an SE ratio near 1 and a coverage near 0.95 at 24,000 replications | `interval_calibration`, the `correctly_specified` rows |
 | The shipped band covers the whole truth vector at the joint rate on all six laws | `simultaneous_coverage`, the `simultaneous_band` rows |
-| The three-draw median has a smaller spread than its first draw on every stability label | `repeat_stability`, the `three_repeats` rows |
+| The three-draw median has a smaller spread than its first draw on every stability label, with ratios from 0.6614 to 0.7026 | `repeat_stability`, the `three_repeats` rows |
+| A second independent draw has the spread of the first draw on every stability label, with ratios from 1.0184 to 1.0362 and every upper endpoint at or above 1 | `repeat_stability`, the `second_draw_control` rows |
 | The empirical SD contracts at the root-n rate, and the reported SE contracts a little faster | `root_n_rate` |
 | Law I at n = 80,000 meets the bias, coverage and SE-ratio rules | `ipsi_primary` |
 
@@ -247,8 +261,8 @@ known-mechanism rows, so it names none.
 | `independent_tests_passed` | 26 | of those, passing |
 | `paired_tests_total` | 0 | paired comparisons with R `lmtp` |
 | `paired_tests_passed` | 0 | of those, passing |
-| `property_cells_total` | 58 | repeated-sampling property cells, reported cells excluded |
-| `property_cells_passed` | 58 | cells whose own and family verdicts pass |
+| `property_cells_total` | 63 | repeated-sampling property cells, reported cells excluded |
+| `property_cells_passed` | 63 | cells whose own and family verdicts pass |
 | `property_cells_reported` | 22 | cells reported and not gated |
 | `max_standardized_bias` | 0.0404 | largest absolute primary bias in empirical standard deviations |
 | `min_coverage` | 0.9437 | lowest measured primary-study coverage |
@@ -291,6 +305,7 @@ known-mechanism rows, so it names none.
 | The repeat count is three | The row does not establish behavior at other repeat counts |
 | Each draw uses one unstratified split | The row does not establish a stratified, grouped by design, or supplied split plan |
 | The calibration, `ipsi_primary` and band cells cannot see the split adjustment | The pilot displacement share is 1.2e-4 to 0.0050 on the calibration labels, so the adjustment moves a reported SE by 0.25% or less. Only `repeat_stability` and `repeat_increment` at horizon 3 read the repeat layer. The unit witnesses of the library tests carry the exact check of the displacement term |
+| The second-draw control tests the rule, not the repeat layer | Draws 0 and 1 are exchangeable, so the true ratio is 1. The control checks that the `U < 1` rule and its bootstrap read no reduction where none exists. The positive rows carry the evidence of the reduction |
 | Every calibration and primary fit uses `random_state = 0` | All replications share one set of three fold partitions. The folds do not depend on the data, so each replication stays valid |
 | `SDR` equals `LTMLE` under saturated cell means | The pilot SE ratios of the two estimators correlate at 1.000. The `SDR` cells exercise the code path of `SDR`, not independent statistical evidence |
 

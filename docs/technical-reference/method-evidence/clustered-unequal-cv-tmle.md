@@ -62,11 +62,11 @@ record's size. The realized row count varies by draw.
 | `cluster_aggregation_rule` | `cluster_mean` | diagnostic | the cluster mean of the curve, as R tmle 2.1.1 and tmle3 aggregate it | reported only | coverage 0.9570 to 0.9761, SE ratio 1.1337 | reported |
 | `cluster_aggregation_rule` | `cluster_sum` | diagnostic | the cluster sum of the curve, as this package and R ltmle aggregate it | reported only | coverage 0.9356 to 0.9593, SE ratio 1.0161 | reported |
 | `clustered_inference` | `cluster_robust` | positive | five-fold point-treatment TMLE with cluster-robust ATE inference | SE-ratio and coverage intervals both stay inside their calibration bands | coverage 0.9420 to 0.9645, SE ratio 0.9616 to 1.0360, paired coverage gain 0.1858 to 0.2279 | pass |
-| `clustered_inference` | `cluster_robust_drtmle` | positive | cross-fitted DR-TMLE at unequal cluster sizes with cluster-robust inference | SE-ratio and coverage intervals both stay inside their calibration bands | coverage 0.9351 to 0.9589, SE ratio 0.9584 to 1.0343, paired coverage gain 0.1696 to 0.2100 | pass |
+| `clustered_inference` | `cluster_robust_drtmle` | positive | cross-fitted DR-TMLE at unequal cluster sizes with cluster-robust inference | SE-ratio and coverage intervals both stay inside their calibration bands | coverage 0.9337 to 0.9578, SE ratio 0.9579 to 1.0334, paired coverage gain 0.1667 to 0.2083 | pass |
 | `clustered_inference` | `cluster_robust_fold_evaluated` | positive | fold-evaluated CV-TMLE at unequal cluster sizes, centered cluster variance per fold | SE-ratio and coverage intervals both stay inside their calibration bands | coverage 0.9402 to 0.9630, SE ratio 0.9817 to 1.0573, paired coverage gain 0.1725 to 0.2146 | pass |
 | `clustered_inference` | `cluster_robust_fold_evaluated_cluster_covariate` | positive | fold-evaluated CV-TMLE of the treated mean, 40 clusters in 10 folds, a covariate shared within a cluster | SE-ratio and coverage intervals both stay inside their calibration bands | coverage 0.9182 to 0.9450, SE ratio 0.9453 to 1.0187, paired coverage gain 0.4021 to 0.4542 | **fail** |
 | `clustered_inference` | `iid_control` | control | the identical rows, point estimates, and influence curves treated as independent | the SE-ratio upper endpoint must not exceed the declared IID-control ceiling | coverage 0.7244 to 0.7704, SE ratio 0.5655 to 0.6080, paired coverage gain 0.1858 to 0.2279 | pass |
-| `clustered_inference` | `iid_control_drtmle` | control | the DR-TMLE curve treated as independent rows | the SE-ratio upper endpoint must not exceed the declared IID-control ceiling | coverage 0.7347 to 0.7801, SE ratio 0.5664 to 0.6110, paired coverage gain 0.1696 to 0.2100 | pass |
+| `clustered_inference` | `iid_control_drtmle` | control | the DR-TMLE curve treated as independent rows | the SE-ratio upper endpoint must not exceed the declared IID-control ceiling | coverage 0.7355 to 0.7809, SE ratio 0.5650 to 0.6098, paired coverage gain 0.1667 to 0.2083 | pass |
 | `clustered_inference` | `iid_control_fold_evaluated` | control | the fold-evaluated fit's curve treated as independent rows | the SE-ratio upper endpoint must not exceed the declared IID-control ceiling | coverage 0.7360 to 0.7813, SE ratio 0.5782 to 0.6222, paired coverage gain 0.1725 to 0.2146 | pass |
 | `clustered_inference` | `iid_control_fold_evaluated_cluster_covariate` | control | the same fold-evaluated curve treated as independent rows | the SE-ratio upper endpoint must not exceed the declared IID-control ceiling | coverage 0.4781 to 0.5310, SE ratio 0.3326 to 0.3580, paired coverage gain 0.4021 to 0.4542 | pass |
 | `estimand_weighting` | `cluster_average_truth` | control | the unweighted interval against the cluster-average mean | exact coverage upper bound falls below 0.50 | coverage 0 to 0.0022 | pass |
@@ -123,6 +123,8 @@ beside the cluster sum.
 | `margin:excluded_slope` | -0.2500 | slower rate a root-n interval must exclude. No cell of this study reads it |
 | `margin:type_i_ceiling` | 0.1000 | largest supported type-I rate. No cell of this study reads it |
 | `margin:minimum_power` | 0.8000 | rejection lower bound a power cell must clear. No cell of this study reads it |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 8 | the same bound, in primary replications |
 
 ## Limits
 

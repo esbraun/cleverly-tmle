@@ -48,16 +48,21 @@ from cleverly.sensitivity import (
     simulated_confounding,
 )
 from cleverly.sensitivity import simulated_confounding as public_function
+from cleverly.sensitivity._simulated_confounding_longitudinal import (
+    _CENSORING_REFUSAL,
+    _CLUSTERED_REFUSAL,
+    _IPSI_REFUSAL,
+    _KNOWN_LATER_NODE_REFUSAL,
+    _LATER_COVARIATE_REFUSAL,
+    _NODE_LAW_REFUSAL,
+    _OUTCOME_KIND_REFUSAL,
+)
 from cleverly.sensitivity._simulated_confounding_request import (
     _BINARY_PARAMETER_TARGETS,
-    _CLUSTERED_REFUSAL,
-    _ESTIMATED_WEIGHT_REFUSAL,
     _FIT_WIDE_RULES,
     _INTERMEDIATE_REFUSAL,
-    _LONGITUDINAL_REFUSAL,
     _MISSING_OUTCOME_REFUSAL,
     _MISSING_TREATMENT_REFUSAL,
-    _MULTI_ARM_REFUSAL,
     _TMLE_ONLY_TARGETS,
     _fit_wide_refusal,
 )
@@ -150,7 +155,10 @@ def _fit(
         configured_method = _collaborative_method(overrides=collaborative_kwargs)
     elif method == "drtmle":
         configured_method = DRTMLEMethod(
+            # Two folds, so the pooled construction: foldwise needs three.
+            reduced_crossfit="pooled",
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(max_iter=1000),
         )
     return study.identify(ATE()).estimate(
@@ -206,7 +214,10 @@ def _fit_binary_mean(
         )
     elif method == "drtmle":
         configured_method = DRTMLEMethod(
+            # Two folds, so the pooled construction: foldwise needs three.
+            reduced_crossfit="pooled",
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(max_iter=1000),
         )
     return study.identify(CounterfactualMean(treatment=treatment)).estimate(
@@ -253,7 +264,10 @@ def _fit_ratio(
         )
     elif method == "drtmle":
         configured_method = DRTMLEMethod(
+            # Two folds, so the pooled construction: foldwise needs three.
+            reduced_crossfit="pooled",
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(max_iter=1000),
         )
     estimand = RiskRatio(reference=reference) if target == "rr" else OddsRatio(reference=reference)
@@ -502,7 +516,7 @@ def test_each_supported_estimator_runs_a_real_refit_surface(
     assert len(surface.cells) == 2
     assert surface.n_repeats == result.n_repeats == 3
     assert surface.repeat_aggregation == "coordinatewise_median"
-    assert "cross-fitting: 3 draws, aggregation=coordinatewise_median" in surface.summary()
+    assert ("Repeated splits", "3, median") in surface.summary().header
 
     # The un-monkeypatched path. The anchor is the original fit itself, so it carries the
     # fitted point estimate rather than a refit of unchanged data.
@@ -795,7 +809,10 @@ def test_constant_declared_weights_preserve_unweighted_surface_arithmetic() -> N
     assert plain_surface.target_measure == "unweighted"
     assert fixed_surface.target_measure == "fixed_empirical_tilt"
     assert not fixed_surface.weight_report.is_weighted
-    assert "target measure: fixed_empirical_tilt" in fixed_surface.summary()
+    settings = fixed_surface.summary(detail="full").section("Settings").lines
+    assert any(line.startswith("Each cell uses the fixed observation weights") for line in settings)
+    plain_settings = plain_surface.summary(detail="full").section("Settings").lines
+    assert not any("observation weights" in line for line in plain_settings)
 
 
 def test_fixed_weight_surface_is_invariant_to_a_common_weight_scale() -> None:
@@ -2042,7 +2059,9 @@ def _manual_weighted_binary_calibration(result: Any, role: str, index: int) -> f
     scaler = StandardScaler().fit(result.data.covariates, sample_weight=result.data.weights)
     design = scaler.transform(result.data.covariates)
     target = result.data.treatment if role == "treatment" else result.data.outcome
-    model = LogisticRegression(max_iter=1000).fit(design, target, sample_weight=result.data.weights)
+    model = LogisticRegression(C=np.inf, max_iter=1000).fit(
+        design, target, sample_weight=result.data.weights
+    )
     baseline = model.predict(design)
     removed = design.copy()
     removed[:, index] = 0.0
@@ -2106,10 +2125,6 @@ def test_fixed_weight_continuous_calibration_uses_weighted_correlation_and_scale
 @pytest.mark.parametrize(
     ("case", "message"),
     [
-        ("estimated", "cannot replay estimated observation weights"),
-        ("drtmle-estimated", "cannot replay estimated observation weights"),
-        ("collaborative-estimated", "cannot replay estimated observation weights"),
-        ("cluster", "clustered fits"),
         ("kind", "fixed probability weights only"),
         ("name", "column and WeightSpec names disagree"),
         ("unnamed", "without a declared weight column"),
@@ -2120,26 +2135,8 @@ def test_weight_refusals_and_provenance_tampering_precede_draws_and_refits(
     case: str,
     message: str,
 ) -> None:
-    method = {
-        "collaborative-estimated": "collaborative_tmle",
-        "drtmle-estimated": "drtmle",
-    }.get(case, "tmle")
-    result = _fit(
-        method=method,
-        weight_scale=1.0,
-        weights_estimated=case
-        in {
-            "estimated",
-            "drtmle-estimated",
-            "collaborative-estimated",
-        },
-    )
-    if case == "cluster":
-        result = replace(
-            result,
-            data=replace(result.data, cluster=np.arange(result.data.n), cluster_name="id"),
-        )
-    elif case == "kind":
+    result = _fit(weight_scale=1.0)
+    if case == "kind":
         result = replace(
             result,
             data=replace(
@@ -2167,17 +2164,16 @@ def test_weight_refusals_and_provenance_tampering_precede_draws_and_refits(
         simulated_confounding(result, grid=_grid())
 
 
-def test_real_mar_fit_refuses_before_calibration_draw_or_refit(
+def test_real_mar_fit_refuses_a_moved_treatment_before_calibration_draw_or_refit(
     mar_result: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """X82 part F (e): the fit-wide stop is gone; a moved treatment needs the declaration."""
     reason = _MISSING_OUTCOME_REFUSAL
     forbid_draw_and_refit(monkeypatch, mar_result.estimator)
+    assert _fit_wide_refusal(mar_result) is None
     capability = mar_result.sensitivity.capability("simulated_confounding")
-    assert not capability.available
-    assert capability.status is AssessmentStatus.UNAVAILABLE
-    assert capability.refusal == reason
-    assert _fit_wide_refusal(mar_result) == reason
+    assert capability.available
     with pytest.raises(CapabilityError) as refusal:
         simulated_confounding(
             mar_result,
@@ -2188,49 +2184,27 @@ def test_real_mar_fit_refuses_before_calibration_draw_or_refit(
     assert str(refusal.value) == reason.message()
 
 
-def test_fit_wide_refusals_have_one_order_and_match_assessment(
+def test_a_controlled_direct_effect_refuses_a_moved_treatment_before_work(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    base = _fit(weight_scale=1.0, weights_estimated=True)
-    cluster_data = replace(
-        base.data,
-        weight_spec=replace(base.data.weight_spec, estimated=False),
-        cluster=np.arange(base.data.n),
-        cluster_name="id",
-    )
-    clustered = replace(base, data=cluster_data)
-    estimated = replace(
-        clustered,
-        data=replace(
-            clustered.data,
-            weight_spec=replace(clustered.data.weight_spec, estimated=True),
-        ),
-    )
-    intermediate = level_only(column_only(estimated))
+    """X82 part F (f): no fit-wide stop; a moved treatment meets the intermediate stop."""
+    base = _fit(weight_scale=1.0)
+    intermediate = level_only(column_only(base))
     observed = intermediate.data.observed.copy()
     observed[0] = False
     missing = replace(intermediate, data=replace(intermediate.data, observed=observed))
-    cases = (
-        ("missing_outcome", missing, _MISSING_OUTCOME_REFUSAL),
-        ("intermediate", intermediate, _INTERMEDIATE_REFUSAL),
-        ("estimated_weights", estimated, _ESTIMATED_WEIGHT_REFUSAL),
-        ("clustered", clustered, _CLUSTERED_REFUSAL),
-    )
     forbid_draw_and_refit(monkeypatch, base.estimator)
-    for name, result, reason in cases:
-        capability = result.sensitivity.capability("simulated_confounding")
-        assert not capability.available, name
-        assert capability.status is AssessmentStatus.UNAVAILABLE, name
-        assert capability.refusal == reason, name
-        assert _fit_wide_refusal(result) == reason, name
+    for name, result in (("missing_outcome", missing), ("intermediate", intermediate)):
+        assert _fit_wide_refusal(result) is None, name
         with pytest.raises(CapabilityError) as refusal:
             simulated_confounding(
                 result,
                 grid=_grid(),
                 benchmark_covariates=("W1",),
                 random_state=29,
+                observation_reads=("W1",) if name == "missing_outcome" else None,
             )
-        assert str(refusal.value) == reason.message(), name
+        assert str(refusal.value) == _INTERMEDIATE_REFUSAL.message(), name
 
 
 def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
@@ -2241,7 +2215,7 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
     longitudinal or multi-arm rules, whose fits are a different shape, and it cannot reach
     the twelve rules that assume their predecessors passed. The table is the introspection
     contract those rules share, and ``docs/technical-reference/validation-methods.md``
-    quotes the six missing-science names in this relative order, so a silent reordering
+    quotes the three missing-science names in this relative order, so a silent reordering
     must fail here.
 
     ``result_type`` is second because every later rule reads the result's fields directly.
@@ -2252,16 +2226,10 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
     assert [name for name, _ in _FIT_WIDE_RULES] == [
         "longitudinal",
         "result_type",
-        "learned_rule",
         "risk_ratio_tilt",
-        "multi_arm",
-        "missing_outcome",
-        "missing_treatment",
-        "intermediate",
-        "estimated_weights",
-        "clustered",
         "missing_estimator",
         "repeat_provenance",
+        "learned_rule_splits",
         "binary_estimator",
         "continuous_estimator",
         "outcome_family",
@@ -2281,18 +2249,21 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
 #: emptying one, leaves every such assertion true.  These literals are the surviving witness
 #: the constants would otherwise have nowhere in the suite.
 _REFUSAL_WITNESSES: tuple[tuple[str, str], ...] = (
-    (_LONGITUDINAL_REFUSAL, "no time-indexed latent law for longitudinal treatments"),
-    (_MULTI_ARM_REFUSAL, "no category-valued perturbation law for a multi-arm treatment"),
-    (_MISSING_OUTCOME_REFUSAL, "identified missing-outcome refit semantics"),
-    (_MISSING_TREATMENT_REFUSAL, "identified missing-treatment refit semantics"),
-    (_INTERMEDIATE_REFUSAL, "controlled-direct-effect contrast contract"),
-    (_ESTIMATED_WEIGHT_REFUSAL, "cannot replay estimated observation weights"),
-    (_CLUSTERED_REFUSAL, "row-level, cluster-level, and mixed latent causes"),
+    (_CENSORING_REFUSAL, "breaks coarsening at random at each later censoring node"),
+    (_LATER_COVARIATE_REFUSAL, "no time-varying covariate after the first treatment node"),
+    (_OUTCOME_KIND_REFUSAL, "competing-risk or repeated outcome"),
+    (_KNOWN_LATER_NODE_REFUSAL, "declared mechanism at the first treatment node only"),
+    (_IPSI_REFUSAL, "how the latent enters that tilt"),
+    (_NODE_LAW_REFUSAL, "needs a declared arm pair at each node"),
+    (_CLUSTERED_REFUSAL, "declared latent level of the point law at every node"),
+    (_MISSING_OUTCOME_REFUSAL, "moves the treatment of a missing-outcome fit"),
+    (_MISSING_TREATMENT_REFUSAL, "moves a declared missing treatment"),
+    (_INTERMEDIATE_REFUSAL, "holds the treatment of a controlled-direct-effect fit"),
 )
 
 
 def test_each_missing_science_refusal_says_its_own_thing() -> None:
-    """The deliberate-mutation control for the seven refusal constants.
+    """The deliberate-mutation control for the missing-science refusal constants.
 
     Swapping the bodies of two constants, or blanking one, passes every equality assertion
     in this file, because both sides of those comparisons read the same constant. Each
@@ -2309,15 +2280,18 @@ def test_each_missing_science_refusal_says_its_own_thing() -> None:
 
 
 #: The roadmap rows each missing-science refusal cites (docs/technical-reference/hard-stop-review.md).
-#: A declarable law cites X47 or X48; a part that stays in the research queue cites its F row.
+#: A declarable law cites X82; a part that stays in the research queue cites its F row.
 _REFUSAL_CITATIONS: tuple[tuple[Refusal, tuple[str, ...]], ...] = (
-    (_LONGITUDINAL_REFUSAL, ("X48", "F13")),
-    (_MULTI_ARM_REFUSAL, ("X47",)),
-    (_MISSING_OUTCOME_REFUSAL, ("X47", "F12")),
-    (_MISSING_TREATMENT_REFUSAL, ("X47", "F12")),
-    (_INTERMEDIATE_REFUSAL, ("X47", "F15")),
-    (_ESTIMATED_WEIGHT_REFUSAL, ("X47",)),
-    (_CLUSTERED_REFUSAL, ("X47",)),
+    (_CENSORING_REFUSAL, ("F13",)),
+    (_LATER_COVARIATE_REFUSAL, ("F13",)),
+    (_OUTCOME_KIND_REFUSAL, ("F13",)),
+    (_KNOWN_LATER_NODE_REFUSAL, ("F13",)),
+    (_IPSI_REFUSAL, ("F13",)),
+    (_NODE_LAW_REFUSAL, ("X66",)),
+    (_CLUSTERED_REFUSAL, ("X66",)),
+    (_MISSING_OUTCOME_REFUSAL, ("F12",)),
+    (_MISSING_TREATMENT_REFUSAL, ("F12",)),
+    (_INTERMEDIATE_REFUSAL, ("F15",)),
 )
 
 
@@ -2338,7 +2312,7 @@ def test_a_missing_treatment_fit_refuses_before_calibration_draw_or_refit(
     result = replace(base, data=replace(base.data, treatment_observed=recorded))
     assert result.data.has_missing_treatment
     forbid_draw_and_refit(monkeypatch, base.estimator)
-    assert _fit_wide_refusal(result) == _MISSING_TREATMENT_REFUSAL
+    assert _fit_wide_refusal(result) is None
     with pytest.raises(CapabilityError) as refusal:
         simulated_confounding(result, grid=_grid(), random_state=29)
     assert str(refusal.value) == _MISSING_TREATMENT_REFUSAL.message()
@@ -2543,7 +2517,7 @@ def test_each_ratio_runs_a_real_log_movement_surface(
     assert surface.original_estimate == result[target].psi
     assert surface.movement_scale == "log_ratio"
     assert set(surface.to_frame()["movement_scale"]) == {"log_ratio"}
-    assert "movement (log ratio)" in surface.summary()
+    assert ("Movement", "difference in log ratio") in surface.summary().header
     assert surface.cells[0].estimate == result[target].psi
     assert surface.cells[0].displacement == 0.0
     assert any(abs(cell.displacement or 0.0) > 0.01 for cell in surface.cells[1:])
@@ -2835,7 +2809,7 @@ def test_continuous_surface_runs_a_real_ordinary_tmle_refit(
     assert surface.cells[0].displacement == 0.0
     assert any(abs(cell.displacement or 0.0) > 1e-4 for cell in surface.cells[1:])
     assert "adds signed strength" in surface.treatment_law
-    summary = surface.summary()
+    summary = surface.summary().note("association_reading").text
     assert "what the continuous linear perturbation achieved" in summary
     # The reading guard. A zero outcome strength leaves the latent vector out of the
     # outcome, so that column carries no confounding path whatever its association.
@@ -3276,10 +3250,10 @@ def test_failed_refits_and_arm_loss_remain_visible(
 def _prediction_change_fraction(design: Any, target: Any, index: int) -> float:
     """Restate the class-prediction-change rule without the function under test.
 
-    Fit a logistic model on the scaled design, zero one column, and report the fraction
-    of rows whose predicted class changes.
+    Fit an unpenalized logistic model on the scaled design, zero one column, and report
+    the fraction of rows whose predicted class changes.
     """
-    model = LogisticRegression(max_iter=1000)
+    model = LogisticRegression(C=np.inf, max_iter=1000)
     model.fit(design, target)
     baseline = model.predict(design)
     removed = np.array(design, copy=True)
@@ -3313,12 +3287,12 @@ def test_numeric_calibration_matches_the_declared_formulas(
     assert rows["treatment"].strength == pytest.approx(expected_treatment, rel=1e-12)
     assert rows["treatment"].strength == pytest.approx(
         _binary_calibration(
-            design, gaussian_result.data.treatment, index, gaussian_result.data.weights
-        ),
+            design, gaussian_result.data.treatment, [index], gaussian_result.data.weights
+        )[0],
         rel=1e-12,
     )
     assert rows["treatment"].family == "binomial"
-    assert rows["treatment"].method == "logistic class-prediction change fraction"
+    assert rows["treatment"].method == "unpenalized logistic class-prediction change fraction"
     assert rows["outcome"].strength == pytest.approx(expected_outcome, rel=1e-12)
     assert abs(rows["outcome"].strength) > 0.0
     assert rows["outcome"].family == "gaussian"
@@ -3347,7 +3321,7 @@ def test_binomial_outcome_calibration_uses_the_class_prediction_rule(
 
     assert surface.outcome_family == "binomial"
     assert rows["outcome"].family == "binomial"
-    assert rows["outcome"].method == "logistic class-prediction change fraction"
+    assert rows["outcome"].method == "unpenalized logistic class-prediction change fraction"
     assert rows["outcome"].method != "signed standardized marginal coefficient"
     assert rows["outcome"].strength == pytest.approx(expected_outcome, rel=1e-12)
     assert rows["outcome"].strength == pytest.approx(0.15)
@@ -3533,7 +3507,7 @@ def test_relabeling_an_ate_cannot_substitute_another_estimand(
         else (
             "fixed-policy parameter metadata"
             if estimand == "ate_regime"
-            else "exact MSM with identity, log, or logit link only"
+            else "an MSM declared by the MSM class under a registered link"
         )
     )
     with pytest.raises(CapabilityError, match=message):
@@ -3859,12 +3833,10 @@ def test_a_named_reconstruction_failure_refuses_and_an_unnamed_one_is_raised(
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        ("multi-arm", "category-valued perturbation law"),
         ("missing", "missing-outcome"),
         ("intermediate", "controlled-direct-effect"),
-        ("cluster", "clustered"),
         ("no-estimator", "replayable"),
-        ("estimator", "supports ordinary TMLE"),
+        ("estimator", "declares simulated_confounding_replay = True"),
         ("outcome-family", "outcome family"),
         ("identification", "identification metadata"),
         ("functional-type", "backdoor-identified parameter"),
@@ -3888,16 +3860,12 @@ def test_unsupported_compositions_are_refused_before_refit(
 ) -> None:
     result = gaussian_result
     data = result.data
-    if change == "multi-arm":
-        data = replace(data, treatment_levels=(0, 1, 2))
-    elif change == "missing":
+    if change == "missing":
         observed = data.observed.copy()
         observed[0] = False
         data = replace(data, observed=observed)
     elif change == "intermediate":
         data = with_intermediate_column(data)
-    elif change == "cluster":
-        data = replace(data, cluster=np.arange(data.n), cluster_name="id")
     elif change == "no-estimator":
         result = replace(result, estimator=None)
     elif change == "estimator":
@@ -3961,10 +3929,10 @@ def test_unsupported_compositions_are_refused_before_refit(
     [
         (
             "categorical",
-            ("G",),
+            ("W1",),
             CapabilityError,
-            r"categorical covariate 'G'; .*\(docs/roadmap\.md X47 tracks a block calibration "
-            r"of the whole covariate\)\. Name numeric benchmark covariates only",
+            r"benchmarks a categorical covariate as one block of its indicators; 'W1' is one "
+            r"indicator of 'G'\. Name the logical covariate 'G'",
         ),
         ("constant", ("W1",), CapabilityError, "constant covariate"),
         ("non-string", ("W1", 1), TypeError, "only column names"),
@@ -3986,7 +3954,7 @@ def test_invalid_calibrations_are_refused_before_refit(
     if change == "categorical":
         data = replace(
             data,
-            encodings=(CategoricalEncoding("G", ("a", "b"), "a", ("G_b",)),),
+            encodings=(CategoricalEncoding("G", ("a", "b", "c"), "a", ("W1", "G_c")),),
         )
     elif change == "constant":
         covariates = data.covariates.copy()
@@ -4279,7 +4247,7 @@ def test_continuous_policy_mean_runs_a_real_ordinary_tmle_refit(
 
     # The symmetric reading guard. The level shift does not cancel in a mean, so the
     # summary has to say that the zero treatment-strength column is an artifact.
-    summary = surface.summary()
+    summary = surface.summary().note("association_reading").text
     assert "A cell whose treatment strength is zero also has no confounding path" in summary
     assert "A policy mean keeps that level shift, and a contrast removes most of it" in summary
 
@@ -4312,10 +4280,10 @@ def test_the_reading_guard_follows_the_outcome_family_of_the_fit(
         grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
         random_state=7,
     )
-    summary = surface.summary()
+    summary = surface.summary().note("association_reading").text
 
     assert surface.outcome_family == family
-    assert surface.outcome_law in summary
+    assert surface.outcome_law in surface.summary(detail="full").section("Assumptions").lines
     assert "A cell whose treatment strength is zero also has no confounding path" in summary
     if family == "gaussian":
         assert "subtracts signed strength" in surface.outcome_law
@@ -4740,25 +4708,6 @@ def test_continuous_alias_metadata_and_provenance_are_refused_before_refit(
     assert calls == []
 
 
-def test_multi_arm_refusal_precedes_the_latent_draw(
-    gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    result = replace(
-        gaussian_result,
-        data=replace(gaussian_result.data, treatment_levels=(0, 1, 2)),
-    )
-    calls = _record_refits(result, monkeypatch)
-    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
-
-    def forbidden_seed(_: int) -> int:
-        raise AssertionError("latent seed requested before multi-arm refusal")
-
-    monkeypatch.setattr(module, "_latent_child_seed", forbidden_seed)
-    with pytest.raises(CapabilityError, match="category-valued perturbation law"):
-        simulated_confounding(result, grid=_grid())
-    assert calls == []
-
-
 def test_summary_and_successful_cells_report_a_retained_failure(
     gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4779,17 +4728,26 @@ def test_summary_and_successful_cells_report_a_retained_failure(
     assert all(cell.estimate is not None for cell in surface.successful_cells)
     assert surface.cells[2] not in surface.successful_cells
 
-    assert "failed" in text
-    assert "RuntimeError" in text
-    failure_row = next(line for line in lines if "failed" in line)
-    assert "RuntimeError" in failure_row
-    assert "0.1" in failure_row
+    movement = text.table("Movement")
+    failed_rows = [row for row in movement.rows if row[-2].text == "failed"]
+    (failure_row,) = failed_rows
+    assert failure_row[-1].text == "RuntimeError"
+    assert failure_row[1].value == surface.cells[2].treatment_strength
+    printed = [line for line in lines if "RuntimeError" in line]
+    assert len(printed) == 1 and "failed" in printed[0] and "0.1" in printed[0]
     # The successful rows carry a signed movement and no failure marker.
-    assert sum("failed" in line for line in lines) == 1
-    assert f"original estimate: {gaussian_result['ate'].psi:.5g}" in text
-    assert f"root={surface.root_seed}" in text
-    assert f"latent={surface.latent_seed}" in text
-    assert f"refit={surface.refit_seed}" in text
+    successes = [row for row in movement.rows if row[-2].text != "failed"]
+    assert len(successes) == 3
+    assert all(row[-1].text.startswith(("+", "-")) for row in successes)
+    estimate = gaussian_result["ate"].psi
+    (shown,) = [value for label, value in text.header if label == "Estimate"]
+    shown = shown.removeprefix("ate = ")
+    assert abs(float(shown) - estimate) <= 0.5 * 10 ** -len(shown.split(".")[1])
+    assert text.note("cells_failed").kind == "warning"
+    # Seeds are library internals: no summary prints them, at either detail.
+    full = str(surface.summary(detail="full"))
+    for seed in (surface.root_seed, surface.latent_seed, surface.refit_seed):
+        assert f"seed {seed}" not in full and f"={seed}" not in full
     assert "+" in "".join(line for line in lines if "failed" not in line and "0.2" in line)
 
 
@@ -4852,7 +4810,7 @@ def test_result_contract_has_no_inferential_or_verdict_fields(gaussian_result: A
         "robustness_value",
     ):
         assert not hasattr(surface, prohibited)
-    assert "qualitative" in surface.summary()
+    assert "qualitative" in surface.summary().note("sensitivity_assumption").text
 
 
 def _treated_fraction_fit(fraction: float, *, n: int = 800, seed: int = 5) -> Any:
@@ -5033,13 +4991,16 @@ def test_the_frame_and_the_summary_carry_the_induced_association(
     ]
     assert frame["induced_treatment_association"][2] == pytest.approx(0.4489, abs=5e-4)
 
-    assert "induced association" in text
+    associations = text.table("Associations")
+    assert associations.columns == ("cell", "treatment")
+    assert [row[1].value for row in associations.rows] == [
+        cell.induced_treatment_association for cell in surface.cells
+    ]
+    assert associations.rows[2][1].text == "+0.449"
     assert surface.movement_scale == "estimate_difference"
-    assert "movement (estimate difference)" in text
-    assert "+0.4489" in text
-    assert all(f"{cell.induced_treatment_association:+.4f}" in text for cell in surface.cells)
-    assert "misclassification and not by confounding" in text
-    assert "qualitative" in text
+    assert ("Movement", "difference in estimate") in text.header
+    assert "misclassification and not by confounding" in text.note("association_reading").text
+    assert "qualitative" in text.note("sensitivity_assumption").text
 
 
 def test_a_risk_ratio_tilt_fit_is_refused_before_any_draw() -> None:

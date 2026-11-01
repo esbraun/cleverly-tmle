@@ -19,6 +19,7 @@ import pytest
 
 from tests.canonical import regenerate
 from tests.studies.evidence import failures, replication
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import Margins, StudyRecord
 
 SUBJECT, REFERENCE = "cleverly", "toy ref"
@@ -168,7 +169,7 @@ def test_an_independent_studys_reference_fits_the_replicate_the_subject_lost(
     assert recorded[["implementation", "group_id", "class"]].values.tolist() == [
         [SUBJECT, f"primary/law/r{FAILED:09d}", "fitting_failure"]
     ]
-    rows = pd.read_csv(out / "replicates.csv.gz")
+    rows = read_rows(out / "replicates.parquet")
     assert FAILED in set(rows.loc[rows["implementation"] == REFERENCE, "replicate"])
     assert FAILED not in set(rows.loc[rows["implementation"] == SUBJECT, "replicate"])
     paired = pd.read_csv(out / "equivalence.csv")
@@ -191,7 +192,7 @@ def test_a_dependent_studys_reference_loses_the_replicate_by_an_induced_record(
         [SUBJECT, "fitting_failure", str(FAILED)],
         [REFERENCE, failures.PAIRED_INPUT_MISSING, str(FAILED)],
     ]
-    rows = pd.read_csv(out / "replicates.csv.gz")
+    rows = read_rows(out / "replicates.parquet")
     assert FAILED not in set(rows["replicate"])
     samples = pd.read_csv(tmp_path / "cache" / "samples.csv.gz")
     assert FAILED not in set(samples["replicate"])

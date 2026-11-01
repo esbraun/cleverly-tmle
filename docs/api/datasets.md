@@ -1,10 +1,8 @@
 # Synthetic datasets
 
-Generators return data together with known population quantities and are intended for examples,
-tests, and method studies.
-
-Each generator accepts a sample size, random seed, and dataframe backend. Its return value contains
-the generated frame and a mapping of known population quantities.
+The `make_*` generators draw synthetic data with known population quantities, for examples, tests,
+and method studies. Each takes a size argument, a `seed`, and a dataframe `backend`, and returns the
+frame with a dictionary of the known quantities.
 
 Three functions serve the navigation program that the [examples](../examples/index.md) share.
 
@@ -13,6 +11,18 @@ Three functions serve the navigation program that the [examples](../examples/ind
 | `navigation_data` | the `make_nonlinear_bounded` draw, with the columns under the program's names |
 | `navigation_protocol` | the `StudyProtocol` of the one-decision program |
 | `longitudinal_navigation_protocol` | the `StudyProtocol` of the two-decision program |
+
+`make_randomized_pilot` draws the randomized pilot of the
+[randomized-pilot example](../examples/randomized-pilot.ipynb): a binary success outcome, an offer
+drawn with a recorded chance by discharge-risk group (`PILOT_OFFER_CHANCES`), and the exact truth
+of `randomized_pilot_truth`.
+
+Two generators serve the [schedules and service doses example](../examples/schedules-and-intensity.ipynb).
+`make_contact_schedules` draws a 0-to-1 transition score and a three-level contact schedule
+(`SCHEDULE_LEVELS`), and `contact_schedules_truth` gives the exact mean under each declared odds
+change. `make_navigation_doses` draws a binary success outcome and two doses, navigator hours and
+pharmacist minutes, and `navigation_doses_truth` gives the exact success share under each capped
+raise in `DOSE_PLANS`.
 
 Eight names serve the subscription-retailer program of the [offers tutorial](../examples/sequential-offers.ipynb).
 
@@ -24,10 +34,10 @@ Eight names serve the subscription-retailer program of the [offers tutorial](../
 | `win_back`, `win_back_then_ship` | the two dynamic rules, as functions of the week's engagement |
 | `OFFER_PLANS`, `OFFER_LEVELS`, `OFFER_WEEKS` | the five plans by name, the three offer levels, and the number of weekly sends |
 
-`make_sequential_offers` returns a long panel and takes the keyword `policy`. It is not in `GENERATORS`,
-which holds generators of one wide frame with the columns `Y` and `A`.
+`make_sequential_offers` is not in `GENERATORS`, which holds generators of one wide frame with the
+columns `Y` and `A`.
 
-Seven names serve the pricing tutorial of the same program.
+Seven names serve the [pricing tutorial](../examples/sequential-pricing.ipynb) of the same program.
 
 | name | what it holds |
 | --- | --- |
@@ -39,6 +49,43 @@ Seven names serve the pricing tutorial of the same program.
 
 `make_sequential_pricing` is not in `GENERATORS` either. Its columns are `usage`, `engaged_1`,
 `price_1`, `engaged_2`, `price_2`, `engaged_3`, `price_3`, `renewed`, and `revenue`.
+
+Seven names serve the [weekly-outcomes tutorial](../examples/weekly-outcomes.ipynb) of the same
+program, where the order of every week is the outcome.
+
+| name | what it holds |
+| --- | --- |
+| `make_weekly_orders` | a wide frame of three weekly free-shipping offers with an order recorded each week, with the exact truths |
+| `weekly_orders_truth` | the exact weekly order share under each plan and odds tilt, and each contrast |
+| `weekly_orders_protocol` | the `StudyProtocol` of the weekly-orders question |
+| `offer_after_no_order` | the win-back rule, as a function of last week's order |
+| `ORDER_PLANS`, `ORDER_TILTS`, `ORDER_WEEKS` | the three plans by name, the two odds tilts, and the number of weekly sends |
+
+`make_weekly_orders` is not in `GENERATORS` either. Its columns are `tenure`, `order_0`, and
+`engaged_t`, `offer_t`, `tracked_t`, and `order_t` for each week `t` from 1 to 3.
+
+`make_population_impact` draws the program data of the
+[population-impact example](../examples/population-impact.ipynb): a binary top-box outcome with
+unreturned surveys and a 7-day primary-care visit after the offer. `population_impact_truth` holds
+its exact truths, including the population attributable risk and the controlled direct effect at
+each visit level. `make_population_impact` is not in `GENERATORS`.
+
+Three functions serve the team readmission part of the
+[discharge-to-readmission tutorial](../examples/discharge-to-readmission.ipynb).
+
+| function | what it returns |
+| --- | --- |
+| `make_team_readmission` | a wide frame of patients in navigator teams: a discharge offer, a day-30 call, dropout, and readmission by day 90, with the exact truth |
+| `team_readmission_truth` | the exact share readmitted by day 90 under one plan of offer and call |
+| `team_readmission_protocol` | the `StudyProtocol` of the two-decision readmission question |
+
+Three functions serve the [treatment-rules tutorial](../examples/treatment-rules.ipynb).
+
+| function | what it returns |
+| --- | --- |
+| `make_treatment_rules` | a frame of patients with a need score, living alone, the navigation offer, and staying home for 30 days, with the exact value of offering to everyone, to no one, and by the best rule |
+| `treatment_rule_value` | the exact share who stay home under any rule or random offer, written as the chance of an offer for each patient |
+| `learned_rule_truth` | the true value of the fold rules of a learned-rule fit of these data |
 
 ```{eval-rst}
 .. autosummary::
@@ -67,9 +114,17 @@ Seven names serve the pricing tutorial of the same program.
    cleverly.datasets.make_longitudinal_weighted
    cleverly.datasets.make_point_survival
    cleverly.datasets.point_survival_truth
+   cleverly.datasets.make_population_impact
+   cleverly.datasets.population_impact_truth
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol
+   cleverly.datasets.make_randomized_pilot
+   cleverly.datasets.randomized_pilot_truth
+   cleverly.datasets.make_contact_schedules
+   cleverly.datasets.contact_schedules_truth
+   cleverly.datasets.make_navigation_doses
+   cleverly.datasets.navigation_doses_truth
    cleverly.datasets.make_sequential_offers
    cleverly.datasets.offers_truth
    cleverly.datasets.offers_protocol
@@ -79,4 +134,34 @@ Seven names serve the pricing tutorial of the same program.
    cleverly.datasets.pricing_truth
    cleverly.datasets.pricing_protocol
    cleverly.datasets.price_rise
+   cleverly.datasets.make_weekly_orders
+   cleverly.datasets.weekly_orders_truth
+   cleverly.datasets.weekly_orders_protocol
+   cleverly.datasets.offer_after_no_order
+   cleverly.datasets.make_team_readmission
+   cleverly.datasets.team_readmission_truth
+   cleverly.datasets.team_readmission_protocol
+   cleverly.datasets.make_treatment_rules
+   cleverly.datasets.treatment_rule_value
+   cleverly.datasets.learned_rule_truth
+```
+
+Five names serve the [model-based-over-time tutorial](../examples/model-based-over-time.ipynb),
+where navigation is offered at discharge, on day 10, and on day 20, and a recovery score is read on
+day 30.
+
+| name | what it holds |
+| --- | --- |
+| `make_recovery_score` | a wide frame of three navigation offers with a symptom flag before each later offer and the day-30 score, with the exact plan means and the effect of each offer |
+| `recovery_score_truth` | the exact mean day-30 score under one plan of three offers |
+| `recovery_score_protocol` | the `StudyProtocol` of the three-decision recovery question |
+| `RECOVERY_PLANS`, `RECOVERY_BOUNDS` | the plans `always` and `never`, and the known range of the score, 0 to 100 |
+
+```{eval-rst}
+.. autosummary::
+   :nosignatures:
+
+   cleverly.datasets.make_recovery_score
+   cleverly.datasets.recovery_score_truth
+   cleverly.datasets.recovery_score_protocol
 ```

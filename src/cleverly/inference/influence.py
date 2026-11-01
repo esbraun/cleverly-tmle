@@ -50,13 +50,15 @@ statement of :math:`\Psi(P_w)`.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from types import MappingProxyType
-from typing import Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 import numpy as np
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Detail, Summary
 
 from .._inference_status import (
     PARAMETER_STATUSES,
@@ -68,6 +70,7 @@ from .._inference_status import (
 )
 from .._support import UNCLASSIFIED, Classification, Support, support_for
 from .._typing import BoolArray, FloatArray, IntArray
+from .._warnings import warn as _warn
 from ..exceptions import refuse_inference
 from ..fluctuation.iterative import InitialFit
 from ..fluctuation.submodel import Submodel
@@ -296,9 +299,10 @@ def bootstrap_line(estimate: ParameterEstimate) -> str:
 
     One body for both result summaries. The labels come from
     :func:`~cleverly.inference.influence.bootstrap_column` under
-    :func:`bootstrap_is_diagnostic`, so a fit whose status supplies no inference, an
-    estimate with a t reference, or a bootstrap not licensed as inference prints
-    ``bootstrap sd`` and a range.
+    :func:`bootstrap_is_diagnostic`, so a fit whose status supplies no inference, a fit
+    below the cluster floor, or a fit that declares its bootstrap a diagnostic prints
+    ``bootstrap sd`` and a range. A fit with a t reference at or above the floor prints
+    ``bootstrap se`` and a confidence interval.
 
     Parameters
     ----------
@@ -359,6 +363,9 @@ class WaldTest:
         The degrees of freedom of the t reference, as
         :attr:`ParameterEstimate.reference_df` gives them. ``None`` for the normal
         reference.
+    transform : str or None, default=None
+        The name of the transform the estimate's interval is built on, or ``None`` when
+        the estimate carries none. The test is computed on that scale.
     """
 
     name: str
@@ -368,6 +375,53 @@ class WaldTest:
     pvalue: float
     scale: Scale
     reference_df: int | None = None
+    transform: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """The test as a mapping of its fields.
+
+        Returns
+        -------
+        dict of str to Any
+            ``estimand``, ``null``, ``null_inference_value``, ``statistic``, ``p_value``,
+            ``scale``, ``reference_df`` and ``transform``.
+        """
+        return {
+            "estimand": self.name,
+            "null": self.null,
+            "null_inference_value": self.null_inference_value,
+            "statistic": self.statistic,
+            "p_value": self.pvalue,
+            "scale": self.scale,
+            "reference_df": self.reference_df,
+            "transform": self.transform,
+        }
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the test.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds how the statistic is formed.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._summaries import wald_summary
+
+        return wald_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._summaries import wald_repr
+
+        return wald_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 @dataclass(frozen=True)
@@ -785,6 +839,7 @@ class ParameterEstimate:
             pvalue=pvalue,
             scale=self.scale,
             reference_df=self.reference_df,
+            transform=None if self.transform is None else self.transform.name,
         )
 
     def _plugin_pvalue(self) -> float:
@@ -800,6 +855,10 @@ class ParameterEstimate:
             # Its default null lies outside the transform's domain; wald_test(null=...)
             # still lets the caller declare an interior null.
             return float("nan")
+
+    def _cache_token(self) -> dict[str, Any]:
+        """The content an assessment cache key reads when this estimate is an argument."""
+        return {field_.name: getattr(self, field_.name) for field_ in fields(self)}
 
     @property
     def supplies_inference(self) -> bool:
@@ -1039,22 +1098,52 @@ class ParameterEstimate:
                 row["bootstrap_acceleration"] = self.bootstrap.acceleration
         return row
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        marker = " [experimental]" if self.support.label == "experimental" else ""
-        if not self.supplies_inference:
-            low, high = self.plugin_interval
-            return (
-                f"{self.name}: {self.psi:.5g} ({status_record(self.inference).summary_label} "
-                f"{self.plugin_std_error:.4g}, plug-in interval [{low:.5g}, {high:.5g}]; "
-                "a diagnostic, and no confidence interval or p-value is reported)" + marker
-            )
-        low, high = self.ci
-        reference = "" if self.reference_df is None else f"t({self.reference_df}) "
-        return (
-            f"{self.name}: {self.psi:.5g} (se {self.std_error:.4g}, "
-            f"{reference}{(1 - self.alpha) * 100:g}% CI [{low:.5g}, {high:.5g}], "
-            f"p={self._reported_pvalue():.3g})" + marker
+    def to_frame(self, backend: str | None = None) -> Any:
+        """This estimate as a one-row frame: the row of :meth:`to_dict`.
+
+        Parameters
+        ----------
+        backend : str or None, default=None
+            The dataframe library to return, such as ``"pandas"`` or ``"polars"``; ``None``
+            uses the default one.
+
+        Returns
+        -------
+        dataframe
+            One row, in ``backend``.
+        """
+        from ..utils.frames import frame_from_dict
+
+        return frame_from_dict(
+            {key: [value] for key, value in self.to_dict().items()}, backend=backend
         )
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the estimate, laid out like a statsmodels summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds the level, the bootstrap interval when there is one, and why an
+            experimental estimate is marked.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._summaries import estimate_summary
+
+        return estimate_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._summaries import estimate_repr
+
+        return estimate_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 def support_column(estimates: Mapping[str, ParameterEstimate]) -> list[str] | None:
@@ -1139,6 +1228,9 @@ class BootstrapSummary:
         (10 for a point fit, 20 for a longitudinal one). ``True`` publishes the columns under
         their diagnostic names at every status, because no registered study measures a
         bootstrap interval below the floor.
+    cluster_floor : int or None, default=None
+        The floor a below-floor fit fell short of, which the summary note names. ``None``
+        when ``below_floor`` is ``False``.
     support : Support, default=UNCLASSIFIED
         Whether a registered row measures the interval of the fit that produced it. A row
         that lists the interval's kind (``bootstrap`` or ``bootstrap_bca``) makes it
@@ -1163,6 +1255,7 @@ class BootstrapSummary:
     draws: FloatArray
     diagnostic: bool = False
     below_floor: bool = False
+    cluster_floor: int | None = None
     support: Support = UNCLASSIFIED
     interval: BootstrapInterval = "percentile"
     z0: float | None = None
@@ -1171,6 +1264,32 @@ class BootstrapSummary:
     @property
     def variance(self) -> float:
         return float(self.std_error**2)
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the replicates behind this interval.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds the one-sided limits and the BCa corrections.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._summaries import bootstrap_summary_summary
+
+        return bootstrap_summary_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._summaries import bootstrap_summary_repr
+
+        return bootstrap_summary_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 #: Why the raw second-moment rule refuses clusters. One text for the estimate constructor
@@ -1446,10 +1565,10 @@ def median_estimates(
     if dropped:
         # Silence here would report a median over a subset of the draws under the same
         # name as a median over all of them.
-        warnings.warn(
+        _warn(
             f"{', '.join(dropped)} was estimated in some cross-fitting repeats but not "
-            "in all of them -- a draw whose targeting step failed, or a fold with no "
-            "units in the conditioning arm -- so it is omitted from the median report "
+            "in all of them (a draw whose targeting step failed, or a fold with no "
+            "units in the conditioning arm), so it is omitted from the median report "
             "rather than combined over fewer draws than the rest.",
             UserWarning,
             stacklevel=2,

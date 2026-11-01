@@ -1,0 +1,28 @@
+draws: 400 (seeds 3000 to 3399)
+ltmle_always_1: coverage 0.965, mean bias -0.0001 (MC se 0.0004), SE ratio 1.046, labels ['supported']
+ltmle_always_2: coverage 0.953, mean bias -0.0000 (MC se 0.0007), SE ratio 1.015, labels ['supported']
+ltmle_always_3: coverage 0.963, mean bias +0.0006 (MC se 0.0011), SE ratio 1.024, labels ['supported']
+ltmle_win_back_1: coverage 0.973, mean bias +0.0001 (MC se 0.0003), SE ratio 1.050, labels ['supported']
+ltmle_win_back_2: coverage 0.932, mean bias +0.0002 (MC se 0.0006), SE ratio 0.956, labels ['supported']
+ltmle_win_back_3: coverage 0.965, mean bias +0.0002 (MC se 0.0008), SE ratio 1.036, labels ['supported']
+sdr_always_1: coverage 0.965, mean bias -0.0001 (MC se 0.0004), SE ratio 1.045, labels ['supported']
+sdr_always_2: coverage 0.953, mean bias -0.0001 (MC se 0.0007), SE ratio 1.020, labels ['supported']
+sdr_always_3: coverage 0.965, mean bias +0.0007 (MC se 0.0011), SE ratio 1.033, labels ['supported']
+sdr_win_back_1: coverage 0.970, mean bias +0.0001 (MC se 0.0003), SE ratio 1.050, labels ['supported']
+sdr_win_back_2: coverage 0.935, mean bias +0.0002 (MC se 0.0006), SE ratio 0.961, labels ['supported']
+sdr_win_back_3: coverage 0.968, mean bias +0.0002 (MC se 0.0008), SE ratio 1.044, labels ['supported']
+ipsi_1: coverage 0.973, mean bias -0.00002 (MC se 0.00006), SE ratio 1.057, labels ['supported']
+ipsi_2: coverage 0.963, mean bias -0.00002 (MC se 0.00010), SE ratio 1.026, labels ['supported']
+ipsi_3: coverage 0.960, mean bias -0.00007 (MC se 0.00013), SE ratio 1.028, labels ['supported']
+separate_1: mean bias -0.0001 (MC se 0.0004), coverage 0.965, below truth on 197 of 400
+separate_2: mean bias -0.0713 (MC se 0.0007), coverage 0.003, below truth on 400 of 400
+separate_3: mean bias -0.0977 (MC se 0.0011), coverage 0.007, below truth on 400 of 400
+total_always: paired coverage 0.945, unpaired coverage 0.917, paired SE mean 0.0320, unpaired SE mean 0.0289, empirical SD 0.0320, paired above unpaired on 400 of 400
+total_win_back: paired coverage 0.930, unpaired coverage 0.902, paired SE mean 0.0237, unpaired SE mean 0.0214, empirical SD 0.0245, paired above unpaired on 400 of 400
+crude_always_1: mean bias -0.1195 (MC se 0.0004)
+crude_always_2: mean bias -0.1675 (MC se 0.0007)
+crude_always_3: mean bias -0.1836 (MC se 0.0009)
+crude_win_back_1: mean bias -0.0617 (MC se 0.0003)
+crude_win_back_2: mean bias -0.0844 (MC se 0.0005)
+crude_win_back_3: mean bias -0.0912 (MC se 0.0006)
+wall time 392 s with 3 workers

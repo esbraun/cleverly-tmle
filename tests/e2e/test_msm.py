@@ -22,6 +22,7 @@ import sklearn.linear_model
 from scipy.special import expit
 
 from cleverly import load
+from cleverly._summary import vocabulary
 from cleverly.datasets import make_binary_outcome, make_multi_arm
 from cleverly.datasets.synthetic import MultiArmDGP
 from cleverly.estimators import TMLE
@@ -549,14 +550,22 @@ class TestTheSurroundingMachineryWorks:
         result, _ = fitted
         report = result.diagnostics.support()
         summary = report.summary()
-        header = next(line for line in summary.splitlines() if line.startswith("group "))
-        row = next(line for line in summary.splitlines() if line.startswith("msm "))
+        (table,) = [t for t in summary.tables if t.title == vocabulary.EQUATION_TABLE]
+        (row,) = [row for row in table.rows if row[0].value == "msm"]
 
-        assert header.index("equation") < header.index("Kish-equivalent rows")
-        assert header.index("Kish / target") < header.index("max |w h|")
-        assert f"{report.group_score_load['msm']['max_load']:.4g}" in row
-        assert "Kish values describe residual-multiplier concentration" in summary
-        assert "not residual contributions or estimator information" in summary
+        assert table.columns.index("effective rows") < table.columns.index("largest")
+        assert (
+            row[table.columns.index("largest")].value
+            == (report.group_score_load["msm"]["max_load"])
+        )
+        # The correction step's largest weight is a different number, kept apart in detail.
+        details = report.summary("full").section(vocabulary.SECTION_DETAILS).lines
+        maximum = report.clever_covariate_max["msm"]
+        assert f"Largest weight in the correction step for msm: {maximum:.4g}." in details
+        concentration = summary.note("equation_concentration").text
+        assert "it is not the estimator's sample size, its precision or a test of overlap" in (
+            concentration
+        )
 
     def test_a_truncation_sweep_retargets_without_refitting(self, fitted, sweep) -> None:
         result, _ = fitted
@@ -586,7 +595,7 @@ class TestTheSurroundingMachineryWorks:
         line, so no count-free bound holds here.
 
         Both bounds carry slack over the measurement. An endpoint that changes exponent
-        costs a few characters under ``%.4g``, and ``format_table`` pads every line to the
+        costs a few characters under ``%.4g``, and the report table pads every line to the
         widest cell in the report, which another row can hold.
         """
         _, combined = sweep

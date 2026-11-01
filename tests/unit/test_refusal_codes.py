@@ -350,6 +350,8 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/estimators/ctmle.py", "has no observed training outcomes"): _SPLIT,
     ("src/cleverly/estimators/ctmle.py", "has no trainable rows for a nuisance"): _SPLIT,
     ("src/cleverly/estimators/reduced.py", "has no trainable rows for a reduced"): _SPLIT,
+    ("src/cleverly/estimators/reduced.py", "has no trainable rows for a nuisance"): _SPLIT,
+    ("src/cleverly/estimators/reduced.py", "constant_folds applies to a binary"): _INTERNAL,
     **{
         ("src/cleverly/estimators/ctmle.py", f"{name}= only applies to strategy="): "a "
         "malformed argument: the option belongs to another strategy of the same estimator"
@@ -357,6 +359,8 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     },
     ("src/cleverly/estimators/reduced.py", "must contain only finite values"): _MALFORMED,
     ("src/cleverly/estimators/targeting.py", "intervention that defines it; this"): (_INTERNAL),
+    ("src/cleverly/estimators/targeting.py", "the foldwise slabs carry no reduced"): _INTERNAL,
+    ("src/cleverly/estimators/targeting.py", "does not support foldwise slabs"): _INTERNAL,
     ("src/cleverly/estimators/targeting.py", "model that defines them; this"): (_INTERNAL),
     ("src/cleverly/estimators/targeting.py", "regressions that define them; this"): (_INTERNAL),
     ("src/cleverly/estimators/targeting.py", "has no five-regression refit"): _INTERNAL,

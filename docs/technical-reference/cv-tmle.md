@@ -96,6 +96,78 @@ The fit keeps the interval. At 10 clusters its coverage lower endpoint is 0.894.
 `tests/unit/test_fold_evaluated_ratio_bias.py` rebuilds the measured bias from the law, with no
 fit. At equal sizes the bias vanishes.
 
+**Fold evaluation with baseline strata** averages each stratum's fold plug-ins: with
+`strata=`, stratum $s$ reports $\hat\psi_s = V^{-1}\sum_v \psi_{s,v}$. Here $\psi_{s,v}$ is the plug-in of the targeted
+regression over the rows of fold $v$ in stratum $s$, each weighted by $w_i/W_{v,s}$ with
+$W_{v,s}=\sum_{j\in v,\,S_j=s} w_j$. Fold $v$'s stratum curve is
+$I(S=s)\,D_{s,v}/P_{n,v}(S=s)$, with the fold's own share $P_{n,v}(S=s)=W_{v,s}/W_v$ and with
+$D_{s,v}$ carrying the fold-normalised weight $w_i/\bar w_v$, so that on row $i$ the curve is
+$w_i n_v D_i/W_{v,s}$. Its variance is the display above with that curve.
+
+The pooled update fits one coefficient per stratum block and weights row $i$ of fold $v$ and
+stratum $s$ by $w_i\,n P_n(S=s)/(V W_{v,s})$. Inside a stratum that weight is $w_i/(V W_{v,s})$
+times the constant $nP_n(S=s)$, which moves no root, so the update solves each reported stratum
+score exactly. The constant is $nP_n(S=s)$ and not 1 because the weights then sum to $n$ and, at
+one stratum, equal the unstratified fold weights $w_i n/(VW_v)$. The declared stopping thresholds,
+the one-step walk and a step bound then read the same scale as in the unstratified fit.
+
+The marginal estimate is $\hat\psi = \sum_s P_n(S=s)\hat\psi_s$, with the delta-method curve
+$\phi_i = \sum_s P_n(S=s)\,\phi_{s,i} + (w_i/\bar w)(\hat\psi_{S_i}-\hat\psi)$, where $\phi_s$ is
+the stored stratum curve. The share term sums to zero exactly, and each stratum part to the
+solver's tolerance, because each stratum score is solved. Its variance is $n^{-2}\sum_i\phi_i^2$.
+On each stratum part this equals the cross-validated display above, since $\phi_s$ is stored as
+$n/(Vn_v)$ times the fold curve. The marginal score itself is not solved under the fold-local
+stratum weights, so the report does not use the fold average of the marginal plug-ins, which
+differs from the mixture whenever the folds' stratum shares differ.
+
+With `repeats > 1` each estimate, marginal and stratum, is the median over draws of its own value,
+so the reported marginal is the median of the draws' mixtures and need not equal the mixture of
+the reported stratum medians. Each draw's marginal is that draw's mixture. The learned-rule
+value is the exception: it takes the mean over draws, so its marginal is the mixture of the
+stratum means and its band reads the mean curves.
+
+The construction covers the arm means and their linear contrasts (`ey`, `ate`), the regime
+means and their contrasts (`ey_regime`, `ate_regime`), and the learned-rule value
+(`ey_learned_rule`, with each fold's one-hot rule as the regime,
+[baseline strata of a learned rule](point-treatment-tmle.md#learned-rules)),
+on complete data with rows as the unit. It
+inherits the conditions of the fold-evaluated estimate inside each stratum, positivity inside each
+stratum, and a fixed number of strata. `tests/unit/test_fold_evaluated_strata_exact.py` checks it
+on an exact discrete law. Each stratum estimate is the fold average of its plug-ins, each fold's
+stratum curve is the Gateaux derivative of the stratum functional at the fold's law, and each
+reported stratum score is solved. `tests/unit/test_learned_rule_strata.py` checks the same
+identities for the learned-rule value, at fold rules that differ. The share term of the marginal curve is the Gateaux
+derivative of the share mixture with the stratum estimates held fixed. Its controls normalise by
+the global share, which leaves a nonzero curve mean, drop the share, and use the unstratified
+fold weights.
+
+The registered [stratified fold-evaluated study](method-evidence/fold-evaluated-strata.md) calibrates
+the interval of the arm means and the ATE at n = 1,000 with five folds and three strata, on a
+bounded and a binary outcome, rows only and with a known weight. Such a fit with `repeats=1` and
+pointwise intervals reads supported. A regime mean or contrast, `repeats` above 1 and the
+simultaneous band read experimental, because no cell measures them
+([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)). The key holds neither the
+fold count nor the stratum shares, so the row's limits state the measured size: about 17 treated
+rows per stratum-fold. With more folds or smaller strata a validation fold can lose a stratum-arm,
+and the fit then refuses with a `DataError`. On a binary outcome with few events in one
+stratum-arm the Wald interval of that stratum under-covers, and the stacked stratified fit does
+alike.
+
+The registered [learned-rule strata study](method-evidence/learned-rule-strata.md) calibrates the
+learned-rule value inside each stratum and marginally under the same construction, with the
+plug-in rule, at n = 1,000 with five folds and three strata, rows only and with a known weight.
+Such a fit with `repeats=1` and pointwise intervals reads supported. The study's laws put a
+margin at the rule boundary, where the five fold rules disagreed on about 8% (bounded) and 14%
+(binary) of the boundary stratum's rows. With a weaker margin the interval under-covers in every
+stratum, as the unstratified learned-rule fit does on the same draws
+([F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions)). A rule
+learner, `repeats` above 1 and the band with strata read experimental.
+
+The omitted-variable bound of a marginal target reads the fit's mixture estimate and curve under
+the feature `fold_evaluated_strata`, which no `ovb_limit` row covers, so its limits print as
+descriptive and its plug-in limits refuse. `tests/unit/test_fold_evaluated_strata_refusals.py` runs that bound,
+the robustness value, the truncation curve and the default simultaneous band on such a fit.
+
 Implementation:
 [`estimators/tmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/tmle.py),
 [`learners/crossfit.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/learners/crossfit.py),
@@ -110,7 +182,7 @@ and
 | `n_folds=` | the outer split count. Default 10 | no |
 | `split_plan=` | replaces generated outer assignments with a realized plan. See [reusable outer split plans](#reusable-outer-split-plans) for the counts it must match and the rows it is bound to | no |
 | `learner_folds=` | model-selection folds inside an outer training set. Default 5. It reaches the Super Learner `cleverly` builds when you pass no learner. An explicitly supplied `SuperLearner` keeps its own `n_folds` | no |
-| `repeats=` | repeats the outer split, runs a complete estimator per draw, and reports the median over draws with split-adjusted variance. The value must be at least 1, and a value above 1 requires `cross_fit=True`. The engine raises `ValueError` and `CrossFitting` raises `MethodConfigurationError`, both at construction | no. It is the same estimator over several draws |
+| `repeats=` | repeats the outer split, runs a complete estimator per draw, and reports the median over draws with split-adjusted variance. A learned-rule fit reports the mean over draws instead. The value must be at least 1, and a value above 1 requires `cross_fit=True`. The engine raises `ValueError` and `CrossFitting` raises `MethodConfigurationError`, both at construction | no. It is the same estimator over several draws |
 | `stratify_folds="none"` | draws an unstratified, near-balanced outer partition from the seed alone. This is the default, and it is the only policy a fit that draws a split accepts | no |
 | `stratify_folds="treatment"` or `"treatment+outcome"` | nothing. Every fit that draws a split refuses them, including selector-based C-TMLE at every setting. See [fold and outcome-scale rules](#fold-and-outcome-scale-rules) | no |
 | `targeting_scheme="pooled"` | one targeting regression over the stacked validation rows. The default | this is stacked CV-TMLE |
@@ -137,10 +209,17 @@ Chernozhukov et al. (2018), equation (3.14), and the same calculation used by zE
 cross-fit TMLE aggregator. zEpid corroborates this reporting layer, but it is not a full-estimator
 comparator. It trains each nuisance on one partition and targets separately inside validation
 partitions. `cleverly` retains its validated complement-trained, stacked pooled update. There is no
-mean option.
+mean option, with one exception.
+
+The learned-rule value of
+[learned rules](point-treatment-tmle.md#learned-rules) reports the mean of the split
+estimates, with the variance $n^{-2}\sum_i \bar\phi_i^2$ of the mean of the split curves. Each
+split of that fit learns its own rules and so defines its own target, and the median of the
+split estimates estimates no defined parameter. The mean is linear, so that fit's
+`covariance()`, `contrast()` and `ratio()` read the mean curve as on one split.
 
 Coordinatewise medians do not preserve identities among several estimands. A repeated
-point-treatment fit therefore refuses joint covariance and post-fit contrasts. It also refuses
+point-treatment fit with the median therefore refuses joint covariance and post-fit contrasts. It also refuses
 simultaneous bands, because a multiplier construction would use the retained central-draw curve.
 That curve supports marginal diagnostics. The split-adjusted variance above supplies the pointwise
 interval.
@@ -156,7 +235,7 @@ does not need an identity among medians. The table compares the two engines.
 | in-fit contrast | median rule on the per-draw contrast | median rule on the per-draw contrast |
 | `contrast()`, `ratio()` | refused | computed per draw, then the median rule. A `transform=` sets the scale of the rule |
 | `covariance(names)` | refused | the matrix rule of equation (3.14) for the selected names |
-| simultaneous band | refused | the median of the per-draw critical values around the split-adjusted estimates |
+| simultaneous band | refused, except on a learned-rule fit, whose band reads the mean curves | the median of the per-draw critical values around the split-adjusted estimates |
 | bootstrap | runs as a diagnostic | refused |
 
 Chernozhukov et al. (2018, pp. C29-C30) state equation (3.14) as a variance-form matrix rule. The
@@ -384,19 +463,26 @@ Each row gives the shipped remedy in the message's own words.
 | a cross-fitted shift, incremental, regime, MSM, or controlled-direct-effect fit with `delta=` | `CapabilityError` before the first learner | "To estimate them, fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))". The message names the target family and X53, which holds the missing result. See [X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (d). `TMLE` refuses a continuous-dose MSM with `delta=` before this refusal, at every `cross_fit` setting. That message cites [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism) and names no in-sample fit |
 | a cross-fitted longitudinal continuous outcome with `q_bounds=None` | `LongitudinalError` | "Declare the known outcome support (Targeting(q_bounds=(lower, upper))), or fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine)." |
 | `id=` on a collaborative fit | `CapabilityError` | "Drop id= from fit (PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or TMLEMethod), which has a clustered result." |
-| `cv_evaluation=True` or `targeting_scheme="fold"` with `id=`, and a validation fold that holds 1 cluster | `CapabilityError` before any learner | "Request at most {J // 2} folds (CrossFitting(n_folds=...)), or use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." Under fold targeting the second remedy reads "one pooled fluctuation (targeting_scheme="pooled")". The message names the setting, the cluster count, the fold count and the fold. Each fold's variance compares cluster totals inside the fold |
+| `cv_evaluation=True` or `targeting_scheme="fold"` with `id=`, and a validation fold that holds 1 cluster | `CapabilityError` before any learner | "Request at most {J // 2} folds (CrossFitting(n_folds=...)), or use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." Under fold targeting the second remedy reads "one pooled fluctuation (targeting_scheme="pooled")". A learned-rule fit, which has no stacked report, reads the first remedy alone. The message names the setting, the cluster count, the fold count and the fold. Each fold's variance compares cluster totals inside the fold |
+| `cv_evaluation=True` with `strata=` and a target outside the arm and regime means and their contrasts and the learned-rule value, a missing outcome, an intermediate variable, or `id=` | `CapabilityError` before any learner | for a target, "Request the arm or regime means and their contrasts (estimands=('ate', 'ey') on the arm axis), or use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." For the others, "Use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." The message names [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata). A cross-fitted missing treatment meets the composite refusal of X53 first, and a ratio or an MSM coefficient meets the `cv_evaluation=True` refusal of X61 first |
+| `cv_evaluation=True` with `strata=` and a drawn split whose validation fold holds no row of a stratum, or no row of an arm inside a stratum | `DataError` before the first learner | "Either use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False)), declare fewer baseline strata, or collect more observations at the rare level." A learned-rule fit, which has no stacked report, reads "Either declare fewer baseline strata, fit the learned-rule value without strata=, or collect more observations at the rare level." The message names the fold, the stratum and the arm |
+| `learned_rule=` with `strata=` and `id=` | `CapabilityError` before any learner | "Fit the clustered learned-rule value without strata=, or the stratified learned-rule value without id=." The message names [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
 | a `split_plan=` with no generator record | `MethodConfigurationError` at construction, `DataError` at fit time | "Pass result.split_plan from a fit with unstratified folds (stratify_by='none'), or build the plan with SplitPlan.from_folds over random_partition draws" |
 | a `split_plan=` whose labels the record does not draw | `DataError` before the first learner | "A fit accepts only the labels the recorded fold count and seed draw, because other labels could have been chosen by reading the outcome". The message names the repeat and the number of differing rows |
 | a treatment arm held by fewer than two independent units | `DataError` before the first learner | "A split moves whole rows, so every partition leaves some training complement without that arm and no fold count or seed can fit the treatment mechanism; fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))". Under `id=` the message says "clusters" in place of "rows" |
 | an outcome class held by fewer than two independent units | `DataError` before the first learner | "A split moves whole rows, so every partition leaves some training complement without that class and no fold count or seed can fit the outcome regression; collect more observations with outcome 1". Under `id=` the message says "clusters" in place of "rows" |
 | a drawn split whose training complement lacks an arm, a row with an observed outcome, an observed outcome class, or two rows of a Super Learner class | `DataError` before the first learner | "The split is drawn from the seed alone and reads no treatment or outcome, so trying fold counts or seeds until one fits would choose the partition by the values it must not read. Either fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False)), or collect more observations at the rare level." |
 | a drawn longitudinal split that leaves a node level or a regimen unsupported | `LongitudinalError` before the first learner | "The split reads no treatment, outcome or covariate, so trying fold counts or seeds until one fits would choose the partition by the values it must not read. Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), or collect more observations at the rare level." The tail changes with the shortfall |
-| a generated-outcome refutation on a fit that declares `q_bounds` | `CapabilityError` before any refit | "Leave q_bounds=None on the fit you refute (Targeting(q_bounds=None)). A cross-fitted continuous fit has to declare them, so refute a continuous outcome on a fit with cross_fit=False (CrossFitting(enabled=False))" |
-| `learned_rule=` with `cross_fit=False`, `cv_evaluation=False`, `targeting_scheme="fold"`, `repeats` above 1, or `n_bootstrap` above 0 | `CapabilityError` before any learner | "To estimate the learned-rule value, fit it with cross_fit=True, cv_evaluation=True on the engine, or CrossFitting(enabled=True, fold_evaluation=True) on the method, with n_folds of at least 2, repeats=1, targeting_scheme='pooled' and n_bootstrap=0 (Inference(n_bootstrap=0) on the method)". The message names [X11](../roadmap.md#x11-learned-policy-follow-ups) part (a), (e), (h) or (i), or [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions). A data declaration that no setting repairs refuses first |
+| a generated-outcome refutation with a `GaussianAdjustmentOutcome` on a fit that declares `q_bounds` | `CapabilityError` before any refit | "Declare a BoundedAdjustmentOutcome, which draws inside the fit's q_bounds, or refute a fit with q_bounds=None (Targeting(q_bounds=None)) and cross_fit=False (CrossFitting(enabled=False))" |
+| `learned_rule=` with `cross_fit=False`, `cv_evaluation=False`, or `n_bootstrap` above 0 | `CapabilityError` before any learner | "To estimate the learned-rule value, fit it with cross_fit=True, cv_evaluation=True on the engine, or CrossFitting(enabled=True, fold_evaluation=True) on the method, with n_folds of at least 2 and n_bootstrap=0 (Inference(n_bootstrap=0) on the method)". The message names [X11](../roadmap.md#x11-learned-policy-follow-ups) part (a) or (e), or [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions). A data declaration that no setting repairs refuses first |
+| `learned_rule=` with `repeats` above 1 and `id=` | `CapabilityError` before any learner | "Fit the clustered learned-rule value with repeats=1 (CrossFitting(repeats=1) on the method)." The message names X11 part (i2). Without `id=`, the fit reports the mean over the splits |
 | `TMLE(learned_rule=...)` with fewer than two folds, or with `repeats` above 1 and `cross_fit=False` | `CapabilityError` at construction | the same sentence as the row above, with X11 (a). The engine raises it before the shared sentence, so it names no in-sample fit |
 | `CrossFitting(n_folds=1)`, `CrossFitting(enabled=False, repeats=2)`, or a stratified `CrossFitting`, for any estimand | `MethodConfigurationError` at construction, before the estimand is known | the shared sentence, which offers an in-sample fit to other estimands, and then the learned-rule clause: "LearnedRuleValue has no in-sample fit (X11 (a) in docs/roadmap.md), so for it use CrossFitting(enabled=True, fold_evaluation=True) with n_folds of at least 2." |
 | a learned-rule fit whose treatment arm is held by fewer than two units, or whose drawn split leaves a training complement short | `DataError` before the first learner | "fit the learned-rule value on a larger sample, because it has no in-sample fit (X11 (a) in docs/roadmap.md)". After a drawn split, the message reads "Either fit the learned-rule value on a larger sample, because it has no in-sample fit (X11 (a) in docs/roadmap.md), or collect more observations at the rare level." |
 | a cross-fitted learned-rule fit of a continuous outcome with `q_bounds=None` | `CapabilityError` before any learner | "Declare the known outcome support (Targeting(q_bounds=(lower, upper)))." |
+| `LearnedRule(loss=...)` with a learner that does not suit the loss: a learner beside `loss="plug_in"`, none beside another loss, a classifier for `"blip"`, a regressor for `"weighted_classification"`, a `SuperLearner` that clips the blip, or a classifier (or a `SuperLearner` member) whose `fit` takes no `sample_weight` | `CapabilityError` with code `invalid_declaration` when `LearnedRule` is built | the remedy of each: "Drop learner=, or pass loss='blip' or loss='weighted_classification' to learn the rule with it.", "Pass learner=, such as LinearRegression() for loss='blip' or LogisticRegression() for loss='weighted_classification'.", "Pass a regressor, or loss='weighted_classification' for a classifier.", "Pass a classifier, or loss='blip' for a regressor.", "Pass a SuperLearner with clip=None.", "Pass a classifier whose fit takes sample_weight, such as LogisticRegression(), and for a SuperLearner a library whose every member's fit takes it." |
+| `loss="blip"` with `weights=` and a regressor (or a `SuperLearner` member) whose `fit` takes no `sample_weight`, row 13 of the refusal table of [learned rules](point-treatment-tmle.md#learned-rules) | `CapabilityError` with code `invalid_declaration` before any learner | "Pass a regressor whose fit takes sample_weight, such as LinearRegression(), and for a SuperLearner a library whose every member's fit takes it." |
+| a rule-learner fit whose inner cross-fit of an outer training fold leaves an inner training complement without an arm, or for a binary outcome without an outcome class | `DataError` before that inner fold's first learner | "Fit the learned-rule value on a larger sample, with fewer outer folds, or with loss='plug_in'." The message names the inner fold, the outer fold and the missing arm or class |
 
 `CrossFitting(n_folds=1)` is not the in-sample spelling. That declaration keeps `enabled=True`, so
 it is refused at construction. Write `CrossFitting(enabled=False)`, which the engine receives as
@@ -532,9 +618,7 @@ The [validation grid](method-evidence/validation-grid.md) carries their verdicts
 
 Every point-treatment result exposes its realized outer assignments as `result.split_plan`. Pass
 them to `CrossFitting(split_plan=...)` to reuse them instead of generating new ones. A fit accepts
-a plan only when the plan records the draw that made it. This section states the reuse contract.
-The [user guide](../user-guide/methods-learners.md#reuse-an-outer-split) links here rather than
-restating it.
+a plan only when the plan records the draw that made it.
 
 A `SplitPlan` stores one tuple of row-level fold labels per repeat. Its `n`, `n_folds`, and
 `n_repeats` properties describe those assignments. Its `provenance` holds one `FoldOrigin` per
@@ -607,22 +691,24 @@ A fit records `scheme="supplied"` for the fact that nothing was generated. It re
 `config.crossfit.stratify_by` empty, because this version holds the folds to no balancing vector.
 
 [Scope and refusals](scope-and-refusals.md) indexes what a supplied plan refuses. The refutation
-battery is the entry worth reading here. A refutation refits, and a supplied plan can only label
-the rows it was realized on.
+battery is the entry worth reading here. A refutation refits, and a supplied plan labels rows by
+position. `subset` refits on the original labels of the rows it keeps.
+`bootstrap_measurement_error` would place resampled units at positions the plan labelled for other
+units. `bootstrap_stability` keeps each unit's fold for its copies, but carrying the plan into
+that refit is not implemented, so it refuses too.
 
 | refutation | what its refit does to the rows | under a supplied plan |
 | --- | --- | --- |
-| `subset` | drops rows | refused |
-| `bootstrap_measurement_error` | draws rows with replacement | refused |
+| `subset` | drops rows, and refits on the original fold labels of the rows it keeps | runs |
+| `bootstrap_measurement_error`, `bootstrap_stability` | draw rows with replacement | refused |
 | `placebo` | replaces the treatment column | runs |
 | `random_common_cause` | adds a covariate column | runs |
 
 `refute()` raises `CapabilityError` for the two refused operations before it refits anything.
-The refusal reads the requested operation rather than the row count. A bootstrap draw holds the
-declared number of rows, so a count check cannot see it. The default tests include `subset`, so
-the `refute` capability row reads `deferred` on `tests`, with the refusal's sentence. A battery run
-under `assess_result(..., include_refits=True)` reports that `deferred` row and runs the rest of the
-battery. A request whose `tests=` names neither refused operation runs.
+The refusal reads the requested operation rather than the row count, because a bootstrap draw
+holds the declared number of rows. The default tests (`placebo`, `random_common_cause` and
+`subset`) all run, so the `refute` capability row reads `available` for an estimand that admits
+`placebo` (`_PLAN_REFUSING_TESTS` in `src/cleverly/validation/refute.py`).
 
 A result from `cross_fit=False` still records a one-fold plan. Passing that plan back through
 `split_plan=` is refused. `random_partition` draws two folds at least, so a one-fold plan records

@@ -35,7 +35,7 @@ longitudinal-repeated-crossfit,root_n_and_efficiency,coverage resolves,fixed at 
 weighted-tmle,weight_necessity,bias discriminated,implied by: alternative bias equivalent
 longitudinal-repeated-outcome,repeated_outcome_necessity,bias discriminated,implied by: alternative bias equivalent
 longitudinal-repeated-sdr,repeated_outcome_necessity,bias discriminated,implied by: alternative bias equivalent
-tests.studies.long_horizon_categorical_ltmle_properties,root_n_and_efficiency,coverage resolves,"fixed at size: the rung carries no claim at R = 1,000 because its Clopper-Pearson interval is narrower than the 0.05 gap between the coverage floor and nominal"
-tests.studies.long_horizon_ltmle_properties,root_n_and_efficiency,coverage resolves,"fixed at size: the rung carries no claim at R = 1,000 because its Clopper-Pearson interval is narrower than the 0.05 gap between the coverage floor and nominal"
-tests.studies.long_horizon_sdr_properties,root_n_and_efficiency,coverage resolves,"fixed at size: the rung carries no claim at R = 1,000 because its Clopper-Pearson interval is narrower than the 0.05 gap between the coverage floor and nominal"
+long-horizon-categorical-ltmle,root_n_and_efficiency,coverage resolves,"fixed at size: the rung carries no claim at R = 1,000 because its Clopper-Pearson interval is narrower than the 0.05 gap between the coverage floor and nominal"
+long-horizon-ltmle,root_n_and_efficiency,coverage resolves,"fixed at size: the rung carries no claim at R = 1,000 because its Clopper-Pearson interval is narrower than the 0.05 gap between the coverage floor and nominal"
+long-horizon-sdr,root_n_and_efficiency,coverage resolves,"fixed at size: the rung carries no claim at R = 1,000 because its Clopper-Pearson interval is narrower than the 0.05 gap between the coverage floor and nominal"
 longitudinal-repeated-ipsi,repeated_outcome_necessity,bias discriminated,implied by: alternative bias equivalent

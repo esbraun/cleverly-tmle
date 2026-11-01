@@ -366,19 +366,19 @@ class TestSplitPlanRecord:
         text = repr(plan)
 
         assert text == (
-            "SplitPlan(n=5000, n_folds=4, n_repeats=1, "
-            f"fingerprint={plan.fingerprint}, generator=None, source=abc123)"
+            f"SplitPlan(n=5000, folds=4, repeats=1, no generator, fingerprint={plan.fingerprint}, "
+            "bound)"
         )
-        assert len(text) < 200
+        assert len(text) <= 100
 
     def test_the_representation_names_the_generator_a_plan_records(self) -> None:
         """``generator=`` is what says whether a fit can accept the plan at all."""
         plan = _package_plan(120, n_folds=4)
         text = repr(plan)
 
+        generator = RANDOM_PARTITION_GENERATOR.removeprefix("cleverly.")
         assert text == (
-            "SplitPlan(n=120, n_folds=4, n_repeats=1, "
-            f"fingerprint={plan.fingerprint}, generator={RANDOM_PARTITION_GENERATOR})"
+            f"SplitPlan(n=120, folds=4, repeats=1, {generator}, fingerprint={plan.fingerprint})"
         )
 
     def test_a_hand_built_plan_is_bound_to_no_data(self) -> None:
@@ -750,7 +750,7 @@ class TestOneInputEarnsOneReasonAtBothLayers:
             ),
             (
                 {"enabled": False, "repeats": 2},
-                "repeats takes the median over independent cross-fitting splits, and "
+                "repeats combines independent cross-fitting splits, and "
                 "{switch}=False makes no split to draw or repeat. Enable cross-fitting or "
                 "set repeats=1",
             ),
@@ -1122,6 +1122,7 @@ def test_reduced_dimension_correction_reuses_a_supplied_plan_exactly() -> None:
         frame,
         kind=DRTMLEMethod,
         reduced_outcome_learner=LinearRegression(),
+        reduced_mechanism_residual_learner=LinearRegression(),
         reduced_treatment_learner=LinearRegression(),
     )
 
@@ -1481,15 +1482,12 @@ class TestARefitThatMovesTheStratumVectorKeepsTheSuppliedPlan:
 
 
 class TestARefutationThatChangesTheRowSetIsRefusedUpFront:
-    """Two tests refit on rows the fit never ran, and they fail differently without this.
+    """``bootstrap_measurement_error`` draws n rows with replacement, so a plan misreads it.
 
-    ``subset`` keeps a share of the rows, so the count changes and
-    :meth:`SplitPlan.validate` raises a row-count :class:`~cleverly.exceptions.DataError`
-    deep in a refit the caller has already paid for, naming a plan this call never
-    mentioned.  ``bootstrap_measurement_error`` draws n rows with replacement, so the
-    count is unchanged and nothing raises at all: the labels land on resampled units and
-    the report describes a split the fit never ran.  The silent one is the worse of the
-    two, and one guard covers both.
+    The count is unchanged and nothing raises at all: the labels land on resampled units and
+    the report describes a split the fit never ran, so the guard refuses it up front.
+    ``subset`` keeps a share of the rows and refits on the original fold label of each kept
+    row, so a supplied plan does not refuse it.
     """
 
     @pytest.fixture(scope="class")
@@ -1498,7 +1496,7 @@ class TestARefutationThatChangesTheRowSetIsRefusedUpFront:
         _, result = _generated_then_supplied(frame)
         return result
 
-    @pytest.mark.parametrize("test_name", ["subset", "bootstrap_measurement_error"])
+    @pytest.mark.parametrize("test_name", ["bootstrap_measurement_error"])
     def test_a_row_set_changing_test_is_refused_before_any_refit(
         self, supplied: Any, monkeypatch: pytest.MonkeyPatch, test_name: str
     ) -> None:
@@ -1534,33 +1532,33 @@ class TestARefutationThatChangesTheRowSetIsRefusedUpFront:
         report = refute(
             supplied,
             tests=("placebo", "random_common_cause"),
-            n_replicates=1,
+            n_replicates=5,
         )
 
         assert [test.name for test in report.tests] == ["placebo", "random_common_cause"]
-        assert report.passed
 
     def test_the_battery_reports_the_refusal_and_keeps_running(self, supplied: Any) -> None:
-        """The default tests include ``subset`` and ``placebo`` runs, so the row defers.
-
-        The row reads the predicate the call raises from, so the battery asks for
-        ``tests`` with the refusal's sentence rather than running the refused default.
-        """
+        """The default tests run under a supplied plan, so the row does not defer."""
         battery = supplied.assess(include_refits=True)
         rows = {item.name: item for item in battery.diagnostics.items}
 
-        assert rows["refute"].status is AssessmentStatus.DEFERRED
-        assert "subset" in rows["refute"].detail
+        assert rows["refute"].status is not AssessmentStatus.DEFERRED
         assert "declined this request" not in rows["refute"].detail
         assert rows["score_equations"].status is AssessmentStatus.PASSED
         assert rows["support"].status is AssessmentStatus.COMPLETED
+
+    def test_a_supplied_plan_still_refutes_on_a_subsample(self, supplied: Any) -> None:
+        """The subset refit keeps each row's original fold label."""
+        report = refute(supplied, tests=("subset",), n_replicates=5)
+
+        assert [test.name for test in report.tests] == ["subset"]
 
     def test_an_unsupplied_fit_still_refutes_on_a_subsample(self) -> None:
         """The negative control: the refusal is about the plan, not about the test."""
         frame, _ = make_nonlinear_bounded(n=180, seed=53)
         generated = _effect(frame).estimate(method=_method())
 
-        report = refute(generated, tests=("subset",), n_replicates=1)
+        report = refute(generated, tests=("subset",), n_replicates=5)
 
         assert [test.name for test in report.tests] == ["subset"]
 

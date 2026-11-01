@@ -171,9 +171,8 @@ def forbid_draw_and_refit(monkeypatch: pytest.MonkeyPatch, estimator: Any) -> No
         Fixture that installs the guards and removes them after the test.
     estimator : Any
         Replay estimator stored on the fitted result under test. Pass ``None`` only for a
-        result family that stores no replay estimator, which today is
-        :class:`~cleverly.longitudinal.estimator.LongitudinalResult`. There is no ``refit``
-        to forbid on such a result, and the caller asserts that rather than assuming it.
+        result that stores no replay estimator. There is no ``refit`` to forbid on such a
+        result, and the caller asserts that rather than assuming it.
     """
     module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
     monkeypatch.setattr(

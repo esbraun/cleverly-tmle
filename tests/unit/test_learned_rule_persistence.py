@@ -28,14 +28,15 @@ def result() -> Any:
 def test_the_record_describes_the_fit(result: Any) -> None:
     record = result.extra["learned_rule"]
     assert isinstance(record, LearnedRuleRecord)
+    (split,) = record.splits
     tests = [np.asarray(test) for _, test in result.nuisance.folds]
-    assert record.fold_sizes == tuple(test.size for test in tests)
-    assert record.fold_weights == (0.2,) * 5
-    assert np.mean(record.fold_estimates) == pytest.approx(
+    assert split.fold_sizes == tuple(test.size for test in tests)
+    assert split.fold_weights == (0.2,) * 5
+    assert np.mean(split.fold_estimates) == pytest.approx(
         result.estimates[support.NAME].psi, abs=1e-12
     )
     rule = result.nuisance.regimes.values[:, 1, 0]
-    np.testing.assert_allclose(record.treated_shares, [np.mean(rule[test]) for test in tests])
+    np.testing.assert_allclose(split.treated_shares, [np.mean(rule[test]) for test in tests])
     assert record.target == "fold-average data-adaptive value"
 
 
@@ -45,7 +46,8 @@ def test_the_blip_quantiles_are_those_of_each_complement_fit(result: Any) -> Non
     data = result.data
     design = np.column_stack([data.treatment, data.covariates])
     outcome = np.asarray(data.outcome, dtype=float)
-    for (train, test), recorded in zip(result.nuisance.folds, record.blip_quantiles, strict=True):
+    (split,) = record.splits
+    for (train, test), recorded in zip(result.nuisance.folds, split.blip_quantiles, strict=True):
         model = support.outcome_learner().fit(design[train], outcome[train])
         blip = support.blip(model, data.covariates[test])
         np.testing.assert_allclose(
@@ -56,8 +58,9 @@ def test_the_blip_quantiles_are_those_of_each_complement_fit(result: Any) -> Non
 
 def test_the_summary_states_the_data_adaptive_target(result: Any) -> None:
     line = result.extra["learned_rule"].describe()
-    assert line in result.summary()
-    assert "data-adaptive" in line and "average over 5 training-fold rules" in line
+    assert line in result.summary(detail="full").section("Method details").lines
+    assert "The target depends on the data" in line
+    assert "average value of the 5 rules learned on the training folds" in line
 
 
 @pytest.mark.parametrize("route", ["save", "dumps"])

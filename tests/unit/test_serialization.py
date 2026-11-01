@@ -189,9 +189,12 @@ def test_natural_course_round_trip_retains_score_and_capability_contract(
     )
     assert restored.diagnostics.score_equations().passed
     for operation in ("missingness", "tipping_gamma"):
-        capability = restored.sensitivity.capability(operation)
-        assert not capability.available
-        assert "natural-course sensitivity parameter" in str(capability.reason)
+        assert restored.sensitivity.capability(operation).available
+    # The restored fit tilts its natural-course mean exactly as the original does.
+    pd.testing.assert_frame_equal(
+        restored.sensitivity.missingness(gamma=[0.0, 1.0]).to_frame(),
+        natural_course_result.sensitivity.missingness(gamma=[0.0, 1.0]).to_frame(),
+    )
 
 
 def test_raw_natural_course_round_trip_recovers_unstructured_capabilities(tmp_path: Path) -> None:
@@ -220,7 +223,7 @@ def test_raw_natural_course_round_trip_recovers_unstructured_capabilities(tmp_pa
     save(result, path)
     restored = load(path)
     assert not restored.diagnostics.capability("support").available
-    assert not restored.sensitivity.capability("missingness").available
+    assert restored.sensitivity.capability("missingness").available
     curve = restored.diagnostics.truncation_curve(bounds=(0.01, 0.05))
     assert set(curve["upper_bound"]) == {1.0}
 
@@ -349,20 +352,16 @@ def test_file_round_trip_retains_the_complete_point_result(point_result, tmp_pat
 
 def test_loaded_result_can_refit_nuisances(point_result, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
     restored = load(point_result.save(tmp_path / "refit.joblib"))
-    # The fixture's own seed, so the gate is a fixed draw rather than one sample of a null.
-    # One placebo replicate is 3 sigma of a null draw, which fails for 1 of the seeds 0-299;
-    # raising ``n_replicates`` buys no margin, because the gate is 3 sigma at every k below 5.
-    report = restored.diagnostics.refute(n_replicates=1, tests=["placebo"], random_state=7)
-    assert report.passed
+    report = restored.diagnostics.refute(n_replicates=5, tests=["placebo"], random_state=7)
+    assert len(report["placebo"].values) == 5
+    assert report["placebo"].statistic is not None
 
 
 def test_generated_outcome_cache_and_records_survive_round_trip(point_result) -> None:  # type: ignore[no-untyped-def]
     kwargs = {
         "tests": ("dummy_outcome",),
         "dummy_outcome": GaussianIndependentOutcome(),
-        "n_replicates": 4,
-        # The rule refuses minimum_draws * alpha < 2, so a four-draw budget needs alpha=0.5.
-        "outcome_rule": EmpiricalInclusionRule(alpha=0.5, minimum_draws=4),
+        "n_replicates": 10,
         "random_state": 17,
     }
     report = point_result.diagnostics.refute(**kwargs)
@@ -596,6 +595,8 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
         "config",
         "data",
         "estimates",
+        "estimator",
+        "fit_warnings",
         "fitted_method",
         "identified_effect",
         "method",

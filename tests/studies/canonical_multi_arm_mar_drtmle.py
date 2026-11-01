@@ -189,6 +189,7 @@ def fit_cleverly(
             treatment_learner=laws.LawTreatment(law),
             missingness_learner=laws.LawResponse(law, pi=pi),
             reduced_outcome_learner=LinearRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(C=1e6, max_iter=2_000),
             estimands=request,
             simultaneous=simultaneous,

@@ -13,6 +13,7 @@ import sklearn.linear_model
 from sklearn.dummy import DummyClassifier
 
 from cleverly import SuperLearner
+from cleverly._summary import vocabulary
 from cleverly.exceptions import DataError, DataWarning, RefusalReason, WeightingWarning
 from cleverly.learners.crossfit import Folds
 from cleverly.longitudinal import (
@@ -693,7 +694,8 @@ class TestObservationWeights:
         assert report.effective_n == pytest.approx(expected)
         assert data.effective_n == pytest.approx(expected)
         assert report.design_effect == pytest.approx(data.n / expected)
-        assert "weight-tilted population" in report.summary()
+        estimand = report.summary(detail="full").section(vocabulary.WEIGHT_ESTIMAND).lines
+        assert "weight-tilted population" in estimand[0]
 
     def test_estimated_weights_are_recorded(self) -> None:
         data = build(

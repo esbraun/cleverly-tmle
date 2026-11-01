@@ -177,6 +177,43 @@ def replicates_from_pilot(ratios: Sequence[float], pilot: int, c: float = C_FIT)
     }
 
 
+def per_arm_pass(
+    ratios: Sequence[float], pilot: int, replicates: int, c: float = C_FIT
+) -> tuple[float, ...]:
+    """Each cell's pass probability at ``replicates``, predictive over its own pilot error.
+
+    Each cell's true SE ratio is read as normal about its pilot ratio with SD
+    :func:`pilot_sigma`, and :func:`cell_pass` is averaged over that law.
+    """
+    sigma = pilot_sigma(pilot, c)
+    return tuple(
+        float(np.sum(_GH_W * cell_pass(float(ratio) + sigma * _GH_X, replicates, c)))
+        for ratio in ratios
+    )
+
+
+def per_arm_replicates(ratios: Sequence[float], pilot: int, c: float = C_FIT) -> dict[str, Any]:
+    """``R`` for calibration cells that are distinct settings, each with its own pilot.
+
+    :func:`replicates_from_pilot` pools arms of one estimator, which are exchangeable, and reads
+    their spread as the between-arm ``tau``. Cells that are different settings (fold targeting,
+    weights, clusters) have different true ratios, and that model would size them for a spread
+    no one of them has. This rule predicts each cell from its own pilot ratio and takes the
+    smallest multiple of :data:`R_STEP` whose product over the cells reaches
+    :data:`FAMILY_TARGET` with every cell at :data:`CELL_TARGET`. Returns ``R`` (``None`` when no
+    ``R`` up to :data:`R_MAX` passes), the per-cell probabilities and the family-wise product.
+    The constant ``c`` is the model's; a bootstrap of a pilot's rows gives a smaller one when the
+    errors are close to normal, so the rule errs toward more replicates.
+    """
+    for replicates in range(R_STEP, R_MAX + 1, R_STEP):
+        cells = per_arm_pass(ratios, pilot, replicates, c)
+        family = float(np.prod(cells))
+        if family >= FAMILY_TARGET and min(cells) >= CELL_TARGET:
+            return {"R": replicates, "per_cell": cells, "family_wise": family}
+    cells = per_arm_pass(ratios, pilot, R_MAX, c)
+    return {"R": None, "per_cell": cells, "family_wise": float(np.prod(cells))}
+
+
 def screen_half_width(pilot: int, c: float = C_FIT) -> float:
     """The per-arm screen's half-width, ``2.576 sigma_P + 0.01``."""
     return Z * pilot_sigma(pilot, c) + SCREEN_SLACK
@@ -384,3 +421,73 @@ def run_in_parts(
             os.replace(temporary, path)
         frames.append(part)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+# ---------------------------------------------------------------------------- exactness
+
+#: The columns of ``exactness.csv``: one row per exactness-witness estimand.
+EXACTNESS_COLUMNS = (
+    "scenario",
+    "estimand",
+    "pairs",
+    "max_abs_estimate_gap",
+    "max_abs_se_gap",
+    "gate",
+    "passed",
+)
+
+#: The audit name the regeneration driver and the failure ledger read.
+EXACTNESS_AUDIT = "exactness witness"
+
+
+def exactness_table(
+    rows: pd.DataFrame,
+    *,
+    subject: str,
+    reference: str,
+    scenarios: Sequence[str],
+    gate: float,
+) -> pd.DataFrame:
+    """The largest paired gap of each exactness-witness estimand, judged against ``gate``.
+
+    A witness pairs the subject and the reference on one replication's sample, with the same
+    ratios and shifted values on both sides, so their estimates and standard errors agree to
+    numerical precision.  A row passes only when every paired estimate and every paired
+    standard error differ by less than ``gate``.  A replication that either side lost is not
+    a pair, and the failure accounting counts it.  An estimand with no pairs reads red.
+    """
+    keys = ["scenario", "replicate", "estimand"]
+    chosen = rows.loc[rows["scenario"].isin(scenarios)]
+    sides = {
+        name: chosen.loc[chosen["implementation"] == name, [*keys, "estimate", "std_error"]]
+        for name in (subject, reference)
+    }
+    paired = sides[subject].merge(sides[reference], on=keys, suffixes=("_s", "_r"))
+    paired["estimate_gap"] = (paired["estimate_s"] - paired["estimate_r"]).abs()
+    paired["se_gap"] = (paired["std_error_s"] - paired["std_error_r"]).abs()
+    estimands = chosen[["scenario", "estimand"]].drop_duplicates()
+    summary = (
+        paired.groupby(["scenario", "estimand"])
+        .agg(
+            pairs=("replicate", "size"),
+            max_abs_estimate_gap=("estimate_gap", "max"),
+            max_abs_se_gap=("se_gap", "max"),
+        )
+        .reset_index()
+    )
+    table = estimands.merge(summary, on=["scenario", "estimand"], how="left")
+    table["pairs"] = table["pairs"].fillna(0).astype(int)
+    table["gate"] = gate
+    table["passed"] = (
+        (table["pairs"] > 0)
+        & (table["max_abs_estimate_gap"] < gate)
+        & (table["max_abs_se_gap"] < gate)
+    )
+    return table.loc[:, list(EXACTNESS_COLUMNS)].sort_values(
+        ["scenario", "estimand"], ignore_index=True
+    )
+
+
+def exactness_failures(table: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """The ``scientific_failures`` frame of a study with exactness witnesses."""
+    return {EXACTNESS_AUDIT: table.loc[~table["passed"].astype(bool)]}

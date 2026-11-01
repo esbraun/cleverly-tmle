@@ -49,9 +49,11 @@ categorized API tables.
    cleverly.IncrementalMean
    cleverly.IncrementalEffect
    cleverly.MSMProjection
+   cleverly.msm.MSM
    cleverly.ControlledDirectEffect
    cleverly.EstimationMethod
    cleverly.TMLEMethod
+   cleverly.AdaptiveIPTWMethod
    cleverly.CollaborativeTMLEMethod
    cleverly.DRTMLEMethod
    cleverly.SDRMethod
@@ -66,6 +68,17 @@ categorized API tables.
    cleverly.Inference
    cleverly.Runtime
    cleverly.MethodAvailability
+   cleverly.MethodAvailabilities
+   cleverly.longitudinal.LTMLE
+   cleverly.longitudinal.SDR
+   cleverly.longitudinal.IPSI
+   cleverly.longitudinal.SequentialGComputation
+   cleverly.longitudinal.SequentialIPW
+   cleverly.longitudinal.ParametricGFormula
+   cleverly.longitudinal.StructuralNestedMean
+   cleverly.longitudinal.StructuralNestedMeanResult
+   cleverly.longitudinal.StructuralModelCheck
+   cleverly.longitudinal.snmm
    cleverly.ParameterEstimate
    cleverly.AssessmentCapability
    cleverly.AssessmentReport
@@ -73,6 +86,7 @@ categorized API tables.
    cleverly.DiagnosticReport
    cleverly.ValidationReport
    cleverly.Replayability
+   cleverly.TruncationCurve
    cleverly.VariableImportanceEntry
    cleverly.VariableImportanceResult
    cleverly.variable_importance
@@ -94,6 +108,7 @@ categorized API tables.
    cleverly.exceptions.RefusalReason
    cleverly.learners.SuperLearnerDiagnostics
    cleverly.learners.CorrelationScreener
+   cleverly.learners.GLM
    cleverly.learners.ParametricOutcome
    cleverly.learners.ParametricMechanism
    cleverly.learners.ParametricFitDiagnostics
@@ -117,6 +132,7 @@ categorized API tables.
    cleverly.longitudinal.NodeRule
    cleverly.interventions.LearnedRule
    cleverly.interventions.LearnedRuleRecord
+   cleverly.interventions.LearnedRuleSplit
    cleverly.interventions.RegimeSet
    cleverly.interventions.Incremental
    cleverly.interventions.IPSISet
@@ -143,7 +159,12 @@ categorized API tables.
    cleverly.assessment.SensitivityFacade
    cleverly.sensitivity.PositivityReport
    cleverly.sensitivity.SensitivityBounds
+   cleverly.sensitivity.MarginalSensitivityBounds
+   cleverly.sensitivity.MarginalSensitivityRow
    cleverly.sensitivity.SensitivityElements
+   cleverly.sensitivity.RobustnessValue
+   cleverly.sensitivity.SensitivityContour
+   cleverly.sensitivity.MissingnessTilt
    cleverly.sensitivity.BenchmarkResult
    cleverly.sensitivity.ConfounderStrengthGrid
    cleverly.sensitivity.ObservedConfounderCalibration
@@ -158,6 +179,7 @@ categorized API tables.
    cleverly.sensitivity.evalue.evalue
    cleverly.sensitivity.missingness_tilt
    cleverly.sensitivity.tipping_gamma
+   cleverly.sensitivity.marginal_sensitivity_bounds
    cleverly.sensitivity.simulated_confounding
    cleverly.assessment.DiagnosticsFacade
    cleverly.validation.ScoreCheck
@@ -168,9 +190,15 @@ categorized API tables.
    cleverly.validation.GaussianNoise
    cleverly.validation.GaussianIndependentOutcome
    cleverly.validation.GaussianAdjustmentOutcome
+   cleverly.validation.BernoulliAdjustmentOutcome
+   cleverly.validation.BoundedAdjustmentOutcome
+   cleverly.validation.LogisticHazardOutcome
+   cleverly.validation.MultinomialHazardOutcome
    cleverly.validation.RelativeGaussianNoise
    cleverly.validation.BootstrapMeasurementError
+   cleverly.validation.BandReading
    cleverly.validation.EmpiricalInclusionRule
+   cleverly.validation.EquivalenceBands
    cleverly.validation.EmpiricalRefitRecord
    cleverly.validation.RefutationTest
    cleverly.validation.RefutationResult
@@ -185,6 +213,7 @@ categorized API tables.
    cleverly.validation.refute
    cleverly.inference.BootstrapResult
    cleverly.inference.SimultaneousBands
+   cleverly.inference.Transform
    cleverly.inference.delta_method
    cleverly.inference.influence_covariance
    cleverly.inference.influence_variance
@@ -214,15 +243,36 @@ categorized API tables.
    cleverly.datasets.make_longitudinal_weighted
    cleverly.datasets.make_point_survival
    cleverly.datasets.point_survival_truth
+   cleverly.datasets.make_population_impact
+   cleverly.datasets.population_impact_truth
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol
+   cleverly.datasets.make_recovery_score
+   cleverly.datasets.recovery_score_truth
+   cleverly.datasets.recovery_score_protocol
+   cleverly.datasets.make_randomized_pilot
+   cleverly.datasets.randomized_pilot_truth
+   cleverly.datasets.make_contact_schedules
+   cleverly.datasets.contact_schedules_truth
+   cleverly.datasets.make_navigation_doses
+   cleverly.datasets.navigation_doses_truth
    cleverly.datasets.make_sequential_offers
    cleverly.datasets.offers_truth
    cleverly.datasets.offers_protocol
+   cleverly.datasets.make_team_readmission
+   cleverly.datasets.team_readmission_truth
+   cleverly.datasets.team_readmission_protocol
+   cleverly.datasets.make_treatment_rules
+   cleverly.datasets.treatment_rule_value
+   cleverly.datasets.learned_rule_truth
    cleverly.datasets.win_back
    cleverly.datasets.win_back_then_ship
    cleverly.datasets.make_sequential_pricing
    cleverly.datasets.pricing_truth
    cleverly.datasets.pricing_protocol
    cleverly.datasets.price_rise
+   cleverly.datasets.make_weekly_orders
+   cleverly.datasets.weekly_orders_truth
+   cleverly.datasets.weekly_orders_protocol
+   cleverly.datasets.offer_after_no_order

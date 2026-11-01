@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import functools
 import importlib
+import math
 import warnings
 from dataclasses import replace
 from types import SimpleNamespace
@@ -31,6 +32,7 @@ import pandas as pd
 import pytest
 from scipy.stats import norm
 
+from cleverly._summary import vocabulary
 from cleverly.datasets import make_linear_ate, make_longitudinal
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.fluctuation._score import (
@@ -99,6 +101,31 @@ def hand_coverage(residual: float, alpha: float) -> float:
     """``Phi(z - b) - Phi(-z - b)`` with ``scipy``."""
     z = norm.ppf(1.0 - alpha / 2.0)
     return float(norm.cdf(z - residual) - norm.cdf(-z - residual))
+
+
+def rule_note(result: Any) -> str:
+    """The note a point summary prints under a declared rule, computed by hand.
+
+    The remainder is ``|P_n IC|`` over the standard error each interval uses, the largest over
+    the estimates that report one; the coverage is rounded down to two decimals of a percent.
+    """
+    residuals = {
+        name: abs(float(estimate.score)) / float(estimate.std_error)
+        for name, estimate in result.estimates.items()
+        if estimate.supplies_inference and float(estimate.std_error) > 0.0
+    }
+    if not residuals:
+        return vocabulary.NOTE_TEXTS["stopping_rule_plain"]
+    worst = max(residuals, key=lambda name: residuals[name])
+    alpha = float(result.estimates[worst].alpha)
+    b = residuals[worst]
+    coverage = math.floor(hand_coverage(max(b, 0.001), alpha) * 10000) / 100
+    return vocabulary.NOTE_TEXTS["stopping_rule"].format(
+        b="less than 0.001" if b < 0.001 else f"{b:.3g}",
+        name=worst,
+        level=f"{(1.0 - alpha) * 100:g}%",
+        bound=f"{coverage:.2f}%",
+    )
 
 
 def with_fluctuation(result: Any, group: str, **changes: Any) -> Any:
@@ -237,23 +264,22 @@ class TestTheVerdictReadsTheRule:
             rule_ratio=1.75,
             converged=False,
         )
-        lines = missed.summary().splitlines()
-        residual = residual_line(missed.estimates, "scaled_var", 0.05)
-        failure = (
-            "the targeting did not meet the scaled_var stopping rule; att is 1.75 times its "
-            "threshold. See res.diagnostics.score_equations()"
+        summary = missed.summary()
+        assert summary.note("stopping_rule").text == rule_note(missed)
+        unmet = summary.note("score_unsolved")
+        assert unmet.kind == "warning"
+        assert unmet.text == vocabulary.NOTE_TEXTS["score_rule_unmet"].format(
+            names="att", spread="interval"
         )
-        assert lines[-1] == failure
-        assert lines[-3] == residual
-        assert lines[-2] == ""
-        assert "FAIL" not in missed.summary()
-        assert "PASS" not in missed.summary()
+        assert "FAIL" not in summary
+        assert "PASS" not in summary
 
     def test_the_verdict_text_says_the_rule_and_not_the_machine_precision_root(self) -> None:
-        text = score_check(one_step("sample_size")).summary()
-        assert "met the sample_size stopping rule" in text
-        assert "not to machine precision" in text
-        assert "the theory does not license" not in text
+        summary = score_check(one_step("sample_size")).summary()
+        assert summary.facts[vocabulary.ALLOWED_ERROR] == "sample_size rule"
+        assert summary.reading == vocabulary.EQUATION_READINGS["passed_declared"]
+        assert "not to machine precision" in summary.reading
+        assert "the theory does not license" not in summary
 
     def test_a_default_fit_reads_the_default_bar_and_prints_nothing_new(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=1)
@@ -306,7 +332,9 @@ class TestTheEstimandRows:
             assert row.coverage_bound == pytest.approx(
                 hand_coverage(row.residual_se, 0.1), abs=1e-12
             )
-        assert "a 90% Wald interval" in result.summary()
+        note = result.summary().note("stopping_rule").text
+        assert note == rule_note(result)
+        assert "a 90% interval" in note
 
     def test_an_estimand_row_cannot_fail_under_a_rule(self) -> None:
         result = one_step("scaled_var")
@@ -557,14 +585,29 @@ class TestThePointSummary:
             f"standard errors, on {worst}. At that residual a 95% Wald interval keeps at least "
             f"{hand_coverage(residuals[worst], 0.05):.4f} coverage."
         )
-        assert result.summary().splitlines()[-1] == expected
+        # The check keeps the pinned line; the summary states the same remainder in words.
         assert score_check(result).rule_line() == expected
-        assert result.summary().count("stopping rule") == 1
+        summary = result.summary()
+        assert summary.note("stopping_rule").text == rule_note(result)
+        assert f"(on {worst})" in summary.note("stopping_rule").text
+        assert summary.note_codes.count("stopping_rule") == 1
 
-    def test_the_check_summary_repeats_the_line_after_the_verdict(self) -> None:
-        check = score_check(one_step("scaled_var"))
-        assert check.summary().splitlines()[-1] == check.rule_line()
-        assert "residual" in check.summary()
+    def test_the_check_summary_states_the_rule_remainder(self) -> None:
+        result = one_step("scaled_var")
+        check = score_check(result)
+        # The check states the same remainder as the estimate summary, in the same words.
+        assert check.summary().note("stopping_rule").text == rule_note(result)
+        assert check.summary().facts[vocabulary.ALLOWED_ERROR] == "scaled_var rule"
+        details = check.summary(detail="full").section(vocabulary.SECTION_DETAILS).lines
+        worst = max(
+            (row for row in check.rows if math.isfinite(row.residual_se)),
+            key=lambda row: row.residual_se,
+        )
+        assert any(
+            line.startswith(f"{worst.name}: the remaining error is worth {worst.residual_se:.3g}")
+            and f"{worst.coverage_bound:.4f} coverage" in line
+            for line in details
+        )
 
     def test_the_default_summary_has_no_rule_line(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=1)
@@ -599,7 +642,7 @@ class TestEveryPointGroupReports:
         assert any(r.stopping == rule for r in check.rows if r.kind == "fluctuation")
         line = check.rule_line()
         assert line.startswith(f"stopping rule {rule}: the largest score residual is ")
-        assert line in result.summary()
+        assert result.summary().note("stopping_rule").text == rule_note(result)
 
     @pytest.mark.parametrize("rule", RULES)
     def test_a_doubly_robust_fit_judges_its_outcome_rows_by_the_rule(self, rule: str) -> None:
@@ -616,7 +659,7 @@ class TestEveryPointGroupReports:
         check = score_check(result)
         assert check.declared and check.passed
         assert {r.kind for r in check.rows} >= {"fluctuation", "diagnostic"}
-        assert check.rule_line() in result.summary()
+        assert result.summary().note("stopping_rule").text == rule_note(result)
         rows = {r.name: r for r in check.rows}
         assert rows["mean (reduced)"].stopping == rule
         assert rows["mean (mechanism)"].stopping == "relative"
@@ -787,28 +830,24 @@ class TestTheLongitudinalSummary:
         assert result.converged
         residuals = {name: hand_residual(e) for name, e in result.estimates.items()}
         worst = max(residuals, key=lambda name: residuals[name])
-        expected = (
-            f"stopping rule {rule}: the largest score residual is {residuals[worst]:.3g} "
-            f"standard errors, on {worst}. At that residual a 95% Wald interval keeps at least "
-            f"{hand_coverage(residuals[worst], 0.05):.4f} coverage."
-        )
-        lines = result.summary().splitlines()
-        assert lines[-1] == f"  {expected}"
-        assert lines[-2] == ""
-        assert "did not meet" not in result.summary()
-        assert "did not converge" not in result.summary()
+        summary = result.summary()
+        text = summary.note("stopping_rule").text
+        assert text == rule_note(result)
+        # The remainder of the note is the one the stored influence curve gives by hand.
+        shown = "less than 0.001" if residuals[worst] < 0.001 else f"{residuals[worst]:.3g}"
+        assert f"{shown} standard errors of bias (on {worst})" in text
+        assert "score_unsolved" not in summary.note_codes
 
     def test_a_working_model_prints_the_line_on_its_regimen_parameters(self) -> None:
         result = longitudinal.working_model("scaled_var")
         assert result.converged
         residuals = {name: hand_residual(e) for name, e in result.estimates.items()}
         worst = max(residuals, key=lambda name: residuals[name])
-        expected = (
-            f"stopping rule scaled_var: the largest score residual is {residuals[worst]:.3g} "
-            f"standard errors, on {worst}. At that residual a 95% Wald interval keeps at least "
-            f"{hand_coverage(residuals[worst], 0.05):.4f} coverage."
-        )
-        assert result.summary().splitlines()[-1] == f"  {expected}"
+        assert worst.startswith("msm_regimen[")
+        text = result.summary().note("stopping_rule").text
+        assert text == rule_note(result)
+        shown = "less than 0.001" if residuals[worst] < 0.001 else f"{residuals[worst]:.3g}"
+        assert f"{shown} standard errors of bias (on {worst})" in text
 
     def test_a_fit_that_missed_its_rule_prints_the_failure_line(self) -> None:
         frame, _ = make_longitudinal(n=300, seed=12)
@@ -828,13 +867,14 @@ class TestTheLongitudinalSummary:
         ]
         assert misses
         key, step = misses[0]
-        named = f"{key} at t={step.time} is {step.fluctuation.rule_ratio:.3g} times its threshold"
-        lines = result.summary().splitlines()
-        assert lines[-1].startswith("  the targeting did not meet the scaled_var stopping rule; ")
-        assert named in lines[-1]
-        assert lines[-1].endswith(". See res.fits")
-        assert lines[-2].startswith("  stopping rule scaled_var: the largest score residual is ")
-        assert "at least one node's targeting step did not converge" not in result.summary()
+        ratio = step.fluctuation.rule_ratio
+        named = f"{key} at time {step.time} stopped at {ratio:.3g} times its threshold"
+        summary = result.summary()
+        item = summary.note("score_unsolved")
+        assert item.kind == "warning"
+        assert item.text.startswith("The fit did not meet its declared stopping rule: ")
+        assert named in item.text
+        assert summary.note("stopping_rule").text == rule_note(result)
 
     def test_the_shipped_rule_prints_the_shipped_warning(self) -> None:
         frame, _ = make_longitudinal(n=300, seed=12)
@@ -843,12 +883,12 @@ class TestTheLongitudinalSummary:
             result = LTMLE(longitudinal.PLANS, alpha=0.55, **longitudinal.learners()).fit(
                 frame, outcome="Y", **longitudinal.NODES
             )
-        text = result.summary()
-        assert "stopping rule" not in text
+        summary = result.summary()
+        assert "stopping_rule" not in summary.note_codes
         if not result.converged:
-            assert text.splitlines()[-1] == (
-                "  warning: at least one node's targeting step did not converge"
-            )
+            assert summary.note("score_unsolved").text == vocabulary.NOTE_TEXTS[
+                "score_unsolved_longitudinal"
+            ].format(draw="", what="interval")
 
     def test_the_default_summary_has_no_rule_line(self) -> None:
         frame, _ = make_longitudinal(n=300, seed=12)

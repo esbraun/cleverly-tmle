@@ -64,19 +64,20 @@ def refit_closure(data, counter: list[NuisanceEstimates] | None = None):
 
     def refit(
         current: NuisanceEstimates, families: tuple[ReducedFamily, ...]
-    ) -> tuple[ReducedSet, tuple[ReducedSet, ...]]:
+    ) -> tuple[ReducedSet, tuple[ReducedSet, ...], tuple[ReducedSet, ...]]:
         if counter is not None:
             counter.append(current)
-        reduced, _, at_companion = fit_reduced(
+        reduced, _, at_companion, at_slabs = fit_reduced(
             data,
             current,
             regression_learner=CellMeans(),
             classification_learner=CellMeans(),
+            mechanism_residual_learner=CellMeans(),
             g_bounds=INERT_BOUNDS,
             families=families,
             companion=current.companion,
         )
-        return reduced, at_companion
+        return reduced, at_companion, at_slabs
 
     return refit
 

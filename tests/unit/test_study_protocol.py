@@ -24,6 +24,7 @@ from cleverly import (
     StudyProtocol,
     load,
 )
+from cleverly._summary import vocabulary
 from cleverly.datasets import make_linear_ate, make_longitudinal
 from tests.conftest import FAST_KWARGS, IN_SAMPLE
 
@@ -249,9 +250,13 @@ def test_complete_protocol_and_digest_survive_result_round_trip(
     assert restored.identified_effect.protocol == result.identified_effect.protocol
     assert restored.provenance.protocol_fingerprint == result.provenance.protocol_fingerprint
     assert restored.identified_effect.protocol is restored.identified_effect._study.protocol
+    full = restored.summary(detail="full")
+    # A structured summary wraps long lines; its section holds them whole.
+    printed = full.section(vocabulary.SECTION_STUDY).lines if hasattr(full, "section") else full
+    question = restored.identified_effect.summary(detail="full")
     for line in restored.identified_effect.protocol.summary_lines():
-        assert line in restored.identified_effect.summary()
-        assert line in restored.summary()
+        assert line in question.section(vocabulary.SECTION_STUDY).lines
+        assert line in printed
 
 
 @pytest.mark.parametrize("fixture_name", ["protocol_point_result", "protocol_longitudinal_result"])
@@ -260,4 +265,8 @@ def test_result_without_identification_metadata_reports_protocol_absence(
 ) -> None:
     result = request.getfixturevalue(fixture_name)
 
-    assert "causal study protocol: absent" in replace(result, identified_effect=None).summary()
+    full = replace(result, identified_effect=None).summary(detail="full")
+    if hasattr(full, "section"):
+        assert full.section(vocabulary.SECTION_STUDY).lines == (vocabulary.NO_PROTOCOL,)
+    else:
+        assert "causal study protocol: absent" in full

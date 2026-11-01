@@ -11,6 +11,7 @@ import sklearn.linear_model
 from sklearn.base import BaseEstimator
 
 from cleverly import AssessmentStatus, CapabilityError, DataError, PositivityWarning, load
+from cleverly._summary import vocabulary
 from cleverly.estimators import DRTMLE
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.reduced import MissingOutcomeReducedSet
@@ -113,6 +114,7 @@ def _estimator(**settings: object) -> DRTMLE:
         "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "missingness_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "reduced_outcome_learner": sklearn.linear_model.LinearRegression(),
+        "reduced_mechanism_residual_learner": sklearn.linear_model.LinearRegression(),
         "reduced_treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "simultaneous": False,
         "random_state": 0,
@@ -165,13 +167,17 @@ def test_randomized_missing_outcome_fit_refuses_simulated_confounding_before_wor
     randomized_fit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reason = _MISSING_OUTCOME_REFUSAL
+    # X82 part F (e): a missing outcome is no longer a fit-wide stop.  A moved treatment
+    # still needs the observation declaration, unless an earlier fit-wide stop applies.
     forbid_draw_and_refit(monkeypatch, randomized_fit.estimator)
+    fit_wide = _fit_wide_refusal(randomized_fit)
+    assert fit_wide != _MISSING_OUTCOME_REFUSAL
     capability = randomized_fit.sensitivity.capability("simulated_confounding")
-    assert not capability.available
-    assert capability.status is AssessmentStatus.UNAVAILABLE
-    assert capability.refusal == reason
-    assert _fit_wide_refusal(randomized_fit) == reason
+    if fit_wide is not None:
+        assert not capability.available
+        assert capability.status is AssessmentStatus.UNAVAILABLE
+        assert capability.refusal == fit_wide
+    reason = fit_wide or _MISSING_OUTCOME_REFUSAL
     with pytest.raises(CapabilityError) as refusal:
         simulated_confounding(
             randomized_fit,
@@ -370,6 +376,7 @@ def test_known_probabilities_bypass_the_treatment_learner() -> None:
         treatment_learner=_FailIfFit(),
         missingness_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+        reduced_mechanism_residual_learner=sklearn.linear_model.LinearRegression(),
         reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         estimands=("ate",),
         simultaneous=False,
@@ -821,7 +828,7 @@ def test_an_unnamed_probability_vector_says_which_arm_it_bound_to() -> None:
 
 #: The fit of ``mar-drtmle`` replicate 0, recorded on the unmodified tree before the
 #: K-arm change (6a55f038), as ``float.hex``. The committed artifact
-#: ``tests/canonical/drtmle_mar/replicates.csv.gz`` holds these values exactly on the
+#: ``tests/canonical/drtmle_mar/replicates.parquet`` holds these values exactly on the
 #: Windows machine that recorded them (gap 0). The tolerance allows the last-ulp
 #: differences of another platform's BLAS, libm or solver path.
 _PRE_F4_REPLICATE_0 = {
@@ -886,8 +893,9 @@ class TestTheContractSeesTheObservationTruncations:
         assert randomized_fit.nuisance.folds.n_folds == 1
         summary = randomized_fit.diagnostics.corrections().summary()
 
-        assert "this fit is Theorem 1's estimator" in summary
-        assert "does not cover cross-fitting" not in summary
+        assert summary.note("theorem_in_sample").text == vocabulary.NOTE_TEXTS["theorem_in_sample"]
+        assert "theorem_cross_fitted" not in summary.note_codes
+        assert summary.facts[vocabulary.PREDICTIONS] == "in-sample"
 
     def test_a_pinched_observation_mechanism_is_bound_active(self, pinched_observation_fit) -> None:
         """The nonzero witness. Both observation truncations bite, and the label says so."""
@@ -937,8 +945,9 @@ class TestTheContractSeesTheObservationTruncations:
 
         assert {"observation_clipped", "observation_margin"} <= set(frame.columns)
         assert all(row.observation_clipped > 0 for row in check.rows)
-        assert "pi* at the exit" in summary
-        assert "none of the three truncations" not in summary
+        assert "the recording model at the end" in summary.note("cap_active").text
+        assert "the initial recording model" in summary.note("cap_active").text
+        assert "theorem_in_sample" not in summary.note_codes
 
 
 class TestTheJointRowCountsTheTruncationTheEstimatorApplies:
@@ -1036,11 +1045,12 @@ class TestTheJointRowCountsTheTruncationTheEstimatorApplies:
     def test_it_names_both_bounds_it_was_truncated_at(self, pinched_observation_fit) -> None:
         """Every other row has one bound; quoting it here named one the row never met."""
         report = pinched_observation_fit.diagnostics.support()
-        text = report.summary() + report.verdict()
-
-        assert "P(A=a,Delta=1|W) truncated to" in text
-        assert f"[{report.bounds[0]:.4g}, {report.bounds[1]:.4g}] x " in text
-        assert f"[{report.nuisance_bound:.4g}, 1], factor by factor" in text
+        details = report.summary("full").section(vocabulary.SECTION_DETAILS).lines
+        lower, upper = report.bounds
+        assert (
+            "The joint probability of the treatment and a recorded outcome is capped at "
+            f"[{lower:.3f}, {upper:.3f}] x [{report.nuisance_bound:.3f}, 1.000], factor by factor."
+        ) in details
 
 
 def _missing_treatment_frame(column: str, arms: int = 2) -> pd.DataFrame:
@@ -1069,6 +1079,7 @@ def _missing_treatment_fit(frame: pd.DataFrame, **roles: str) -> None:
         simultaneous=False,
         **never_fit_learners(),
         reduced_outcome_learner=NeverFit(),
+        reduced_mechanism_residual_learner=NeverFit(),
         reduced_treatment_learner=NeverFit(),
     ).fit(frame, outcome="Y", treatment="A", covariates=["W1"], **roles)
 

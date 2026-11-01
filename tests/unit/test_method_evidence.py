@@ -20,10 +20,12 @@ import json
 import math
 import re
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 
 from tests.documents import pipe_table
@@ -48,7 +50,7 @@ from tests.studies.evidence.document import (
     render,
 )
 from tests.studies.evidence.inference import clopper_pearson, student_interval
-from tests.studies.evidence.manifest import comparator_findings
+from tests.studies.evidence.manifest import comparator_findings, csv_text, read_rows, write_rows
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
@@ -241,13 +243,13 @@ def _artifacts(slug: str) -> dict[str, pd.DataFrame]:
 @_one_study_at_a_time
 def _replication_rows(slug: str) -> pd.DataFrame:
     """Load immutable primary rows once per study and worker."""
-    return pd.read_csv(STUDY_BY_SLUG[slug].artifact("replicates.csv.gz"))
+    return read_rows(STUDY_BY_SLUG[slug].artifact("replicates.parquet"))
 
 
 @_one_study_at_a_time
 def _property_rows(slug: str) -> pd.DataFrame:
     """Load immutable property rows once per study and worker."""
-    return pd.read_csv(STUDY_BY_SLUG[slug].artifact("property-replicates.csv.gz"))
+    return read_rows(STUDY_BY_SLUG[slug].artifact("property-replicates.parquet"))
 
 
 def _property_records(study: StudyRecord) -> pd.DataFrame | None:
@@ -335,11 +337,12 @@ class TestArtifacts:
         self, study: StudyRecord
     ) -> None:
         """A partial run may not overwrite a historical producer with its new source."""
-        import gzip
-
         from tests.studies.evidence.seed_repair import (
             PLAN_PATH,
+            ROW_FILES,
+            carried_rows_findings,
             carried_rows_sha256,
+            current_name,
             digest,
             validate_composite_manifest,
         )
@@ -353,14 +356,31 @@ class TestArtifacts:
                     planned is not None
                     and manifest["generated_with"] == planned["baseline_generated_with"]
                 ):
-                    assert manifest["sha256"] == planned["artifact_sha256"], (
+                    # The plan hashes the baseline's gzip files.  A row file is Parquet now, so
+                    # its rows are compared with the baseline rows through their CSV text.
+                    published = {
+                        name: hash_
+                        for name, hash_ in manifest["sha256"].items()
+                        if name not in ROW_FILES.values()
+                    }
+                    assert set(manifest["sha256"]) == {
+                        current_name(name) for name in planned["artifact_sha256"]
+                    } and published == {
+                        name: hash_
+                        for name, hash_ in planned["artifact_sha256"].items()
+                        if name not in ROW_FILES
+                    }, (
                         "changed artifacts still name only their historical producer; composite provenance is required"
                     )
+                    assert (
+                        carried_rows_findings(study.slug, study.artifacts, ROW_FILES.values()) == []
+                    ), "changed rows still name only their historical producer"
             return
         plan_raw = PLAN_PATH.read_bytes()
         validate_composite_manifest(manifest, plan_raw)
-        raw = gzip.decompress(study.artifact("property-replicates.csv.gz").read_bytes())
+        raw = csv_text(read_rows(study.artifact("property-replicates.parquet")))
         assert digest(raw) == manifest["composite"]["composite_property_csv_sha256"]
+        assert carried_rows_findings(study.slug, study.artifacts, ["replicates.parquet"]) == []
         positions = json.loads(plan_raw)["changes"][study.slug]
         assert (
             carried_rows_sha256(raw, positions)
@@ -372,21 +392,52 @@ class TestArtifacts:
     ) -> None:
         """A pending comparator is asserted, never skipped: no reference row and no paired row."""
         manifest = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))
-        rows = pd.read_csv(study.artifact("replicates.csv.gz"), usecols=["implementation"])
+        rows = read_rows(study.artifact("replicates.parquet"), columns=["implementation"])
         paired = pd.read_csv(study.artifact("equivalence.csv"))
         found = comparator_findings(
             study, manifest, rows["implementation"].astype(str).unique(), len(paired)
         )
         assert found == [], f"{study.slug}: {found}"
 
+    def test_the_row_files_are_parquet_and_the_writer_reproduces_them(
+        self, study: StudyRecord, tmp_path: Path
+    ) -> None:
+        """Each row file is Parquet, and its CSV text writes back the same table.
+
+        The footer of a Parquet file names the ``pyarrow`` version that wrote it, so the test
+        compares the decoded table, its schema and its codec and not the bytes.  The manifest
+        hash fixes the bytes of the committed file.
+        """
+        names = ["replicates.parquet", "property-replicates.parquet"]
+        witnesses = study.artifact(property_failures.PROPERTY_WITNESSES)
+        if witnesses.exists():
+            names.append(witnesses.name)
+        for name in names:
+            path = study.artifact(name)
+            assert path.read_bytes()[:4] == b"PAR1", f"{name} is not Parquet"
+            committed = pq.read_table(path)
+            assert committed.schema.metadata is None, f"{name} carries pandas schema metadata"
+            groups = pq.read_metadata(path)
+            codecs = {
+                groups.row_group(group).column(index).compression
+                for group in range(groups.num_row_groups)
+                for index in range(committed.num_columns)
+            }
+            assert codecs <= {"ZSTD"}, f"{name} uses {codecs}"
+            dtype = property_failures.WITNESS_DTYPE if witnesses.name == name else None
+            rewritten = tmp_path / name
+            write_rows(read_rows(path), rewritten, dtype=dtype)
+            assert pq.read_table(rewritten).equals(committed, check_metadata=True), name
+            assert pq.read_table(rewritten).schema.equals(committed.schema, check_metadata=True)
+
     def test_the_manifest_hashes_every_published_result(self, study: StudyRecord) -> None:
         manifest = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))
         assert set(manifest["sha256"]) == {
-            "replicates.csv.gz",
+            "replicates.parquet",
             "summary.csv",
             "equivalence.csv",
             "performance-tests.csv",
-            "property-replicates.csv.gz",
+            "property-replicates.parquet",
             "properties.csv",
         } | set(study.extra_artifacts) | set(study.property_artifacts) | {
             # The failure files exist only when a fit failed, and then each is hashed.
@@ -434,6 +485,12 @@ class TestArtifacts:
             assert configuration["accepted_reference_failure"] == study.accepted_reference_failure
         else:
             assert "accepted_reference_failure" not in configuration
+        if study.reference_scenarios:
+            assert configuration["reference_scenarios"] == {
+                name: list(names) for name, names in study.reference_scenarios.items()
+            }
+        else:
+            assert "reference_scenarios" not in configuration
         recorded = _recorded_failures(study)
         # RM39b2: a stated primary bound equals the record's.  A manifest without it ran under
         # bound 0, which is consistent only when that run recorded no failure.
@@ -531,6 +588,128 @@ class TestArtifacts:
             assert _artifacts(study.slug)[name].empty
             return
         assert not _artifacts(study.slug)[name].empty
+
+
+def _check_repeat_stability(study: StudyRecord, stability: pd.DataFrame) -> None:
+    """The ``repeat_stability`` rows of each label read their own rule (X79).
+
+    A label holds three rows.  ``three_repeats`` and its base arm ``one_repeat`` are positive
+    rows that publish the one ratio ``SD(three_repeats) / SD(one_repeat)`` and pass when its upper
+    endpoint is below the boundary.  ``second_draw_control`` is the control: it publishes its own
+    ratio ``SD(second_draw_control) / SD(one_repeat)`` and passes when its upper endpoint is at or
+    above the boundary.  Where a study declares a spread floor, every row also needs the one-draw
+    share above it.  The three rows share ``property_passed``, the positive and control verdicts
+    together.
+    """
+    module = study.properties()
+    bound = module.MAX_REPEAT_SPREAD_RATIO
+    floor = getattr(module, "STABILITY_SPREAD_FLOOR", None)
+    cells = stability["cell"].astype(str)
+    labels = cells.map(lambda cell: cell.rpartition("__")[0])
+    arms = cells.map(lambda cell: cell.rpartition("__")[2])
+    assert set(arms) == {"three_repeats", "one_repeat", "second_draw_control"}
+    for label in sorted(set(labels)):
+        group = stability.loc[labels == label].set_index(arms[labels == label])
+        assert len(group) == 3, label
+        assert group.loc["three_repeats", "role"] == "positive"
+        assert group.loc["one_repeat", "role"] == "positive"
+        assert group.loc["second_draw_control", "role"] == "control"
+        positive, control = group.loc["three_repeats"], group.loc["second_draw_control"]
+        for column in ("spread_ratio", "spread_ratio_ci_lower", "spread_ratio_ci_upper"):
+            # The base arm shares the pair's interval; the control reads an interval of its own.
+            assert group.loc["one_repeat", column] == positive[column], (label, column)
+        assert control["spread_ratio_ci_upper"] != positive["spread_ratio_ci_upper"], label
+        assert control["spread_ratio_boundary"] == positive["spread_ratio_boundary"] == bound
+        above_floor = True
+        if floor is not None and "one_draw_spread_share" in group:
+            share = group["one_draw_spread_share"]
+            assert share.nunique() == 1, label
+            above_floor = bool(share.iloc[0] > floor)
+        positive_ok = bool(positive["spread_ratio_ci_upper"] < bound) and above_floor
+        control_ok = bool(control["spread_ratio_ci_upper"] >= bound) and above_floor
+        for arm in ("three_repeats", "one_repeat"):
+            assert bool(group.loc[arm, "passed"]) is positive_ok, (label, arm)
+        assert bool(control["passed"]) is control_ok, label
+        assert group["property_passed"].nunique() == 1, label
+        assert bool(group["property_passed"].iloc[0]) is (positive_ok and control_ok), label
+
+
+def _stability_study(floor: float | None = 1e-8) -> Any:
+    module = SimpleNamespace(MAX_REPEAT_SPREAD_RATIO=1.0)
+    if floor is not None:
+        module.STABILITY_SPREAD_FLOOR = floor
+    return SimpleNamespace(properties=lambda: module)
+
+
+def _stability_published(
+    *,
+    positive: float = 0.7,
+    control: float = 1.1,
+    passed: tuple[bool, bool, bool] = (True, True, True),
+    joint: bool = True,
+    share: float | None = 0.3,
+) -> pd.DataFrame:
+    """One label's three published stability rows; each arm's upper endpoint is its own."""
+    records = []
+    for arm, role, upper, ok in zip(
+        ("three_repeats", "one_repeat", "second_draw_control"),
+        ("positive", "positive", "control"),
+        (positive, positive, control),
+        passed,
+        strict=True,
+    ):
+        records.append(
+            {
+                "cell": f"label__{arm}",
+                "role": role,
+                "spread_ratio": upper - 0.1,
+                "spread_ratio_ci_lower": upper - 0.2,
+                "spread_ratio_ci_upper": upper,
+                "spread_ratio_boundary": 1.0,
+                "passed": ok,
+                "property_passed": joint,
+                **({} if share is None else {"one_draw_spread_share": share}),
+            }
+        )
+    return pd.DataFrame(records)
+
+
+class TestRepeatStabilityReading:
+    """X79: the control reads its own ratio and can fail without the positive failing."""
+
+    def test_a_label_that_reads_its_own_rules_is_accepted(self) -> None:
+        _check_repeat_stability(_stability_study(), _stability_published())
+        _check_repeat_stability(_stability_study(None), _stability_published(share=None))
+
+    def test_a_control_below_the_boundary_must_be_red_and_the_label_with_it(self) -> None:
+        red = _stability_published(control=0.5, passed=(True, True, False), joint=False)
+        _check_repeat_stability(_stability_study(), red)
+        green = _stability_published(control=0.5)
+        with pytest.raises(AssertionError):
+            _check_repeat_stability(_stability_study(), green)
+        with pytest.raises(AssertionError):
+            _check_repeat_stability(
+                _stability_study(), _stability_published(control=0.5, passed=(True, True, False))
+            )
+
+    def test_the_control_may_not_publish_the_positive_s_interval(self) -> None:
+        """The defect X79 fixes: the old control wrote the pair's interval and verdict."""
+        old = _stability_published(control=0.7)
+        with pytest.raises(AssertionError):
+            _check_repeat_stability(_stability_study(), old)
+
+    def test_a_positive_at_the_boundary_is_red(self) -> None:
+        """The deliberate mutation of the repeat layer: a median equal to draw 0 reads U = 1."""
+        mutant = _stability_published(positive=1.0, passed=(False, False, True), joint=False)
+        _check_repeat_stability(_stability_study(), mutant)
+        with pytest.raises(AssertionError):
+            _check_repeat_stability(_stability_study(), _stability_published(positive=1.0))
+
+    def test_a_share_below_the_floor_turns_every_row_red(self) -> None:
+        rounding = _stability_published(share=1e-12, passed=(False, False, False), joint=False)
+        _check_repeat_stability(_stability_study(), rounding)
+        with pytest.raises(AssertionError):
+            _check_repeat_stability(_stability_study(), _stability_published(share=1e-12))
 
 
 class TestPublishedVerdicts:
@@ -814,6 +993,20 @@ class TestPublishedVerdicts:
                 f"endpoints: bias {endpoint}, SE ratio {row.se_ratio}"
             )
 
+        refuter = published.loc[published["property"].isin({"refuter_size", "refuter_power"})]
+        if not refuter.empty:
+            declared = study.runner()
+            for row in refuter.itertuples():
+                count = round(row.rejection_rate * row.replicates)
+                expected = (
+                    count <= declared.SIZE_MAX_REJECTIONS
+                    if row.property == "refuter_size"
+                    else count >= declared.POWER_MIN_DETECTIONS
+                )
+                assert bool(row.passed) is expected, (
+                    f"{row.cell} publishes passed={row.passed} against its own count {count}"
+                )
+
         root_n = published.loc[published["property"] == "root_n_and_efficiency"]
         for row in root_n.itertuples():
             expected = (
@@ -979,14 +1172,28 @@ class TestPublishedVerdicts:
                 suffix = row.cell.rsplit("__", 1)[-1]
                 # ``mtp-tuning`` declares two more below-band controls: the curve without the
                 # tuning term, and the fold-average rows scored on the population target.
+                # ``learned-rule-compositions`` declares the row-level SE that ignores the
+                # clusters, and ``learned-rule-split-mean`` the mean single-split SE over
+                # sqrt(R), which treats the splits as independent. ``fold-evaluated-strata``
+                # declares the stratum curve without its fold share and the marginal curve
+                # without its share term.
                 if suffix in (
                     "shrunken_se_control",
                     "term_dropped_control",
                     "population_truth_control",
+                    "row_variance_control",
+                    "independent_splits_control",
+                    "unnormalised_curve_control",
+                    "share_dropped_control",
                 ):
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
                     expected = row.se_ratio_ci_lower > study.margins.calibration_se_ratio[1]
+                elif suffix in ("wrong_gamma_control", "validation_rule_control"):
+                    # X82 SH: a smaller Gamma's end read against the declared truth must miss.
+                    # X11 PR C (``learned-rule-learners``): a rule learned on the validation
+                    # rows that evaluate it is optimistic and must miss its own value.
+                    expected = row.coverage_ci_upper < study.margins.calibration_coverage[0]
                 elif suffix == "noise_control":
                     expected = (
                         row.efficiency_empirical_ci_lower > band[1]
@@ -1049,7 +1256,9 @@ class TestPublishedVerdicts:
         joint = published.loc[published["property"] == "simultaneous_coverage"]
         for row in joint.itertuples():
             expected = (
-                row.coverage_ci_upper < 1.0 - study.margins.alpha
+                True
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE
+                else row.coverage_ci_upper < 1.0 - study.margins.alpha
                 if row.role == "control"
                 else study.margins.calibration_coverage[0]
                 <= row.coverage_ci_lower
@@ -1130,6 +1339,7 @@ class TestPublishedVerdicts:
 
         targeting = published.loc[
             published["property"].isin({"targeting_necessity", "stratum_targeting_necessity"})
+            & ~published["property"].isin(list(study.bias_row_families))
         ]
         if not targeting.empty:
             # The displacement is a statement about the *pair* -- how far the fluctuation moved
@@ -1164,6 +1374,15 @@ class TestPublishedVerdicts:
                 missingness["passed"].all()
                 and missingness["missingness_displacement"].iloc[0]
                 >= study.properties().MISSINGNESS_DISPLACEMENT
+            )
+
+        mask = published.loc[published["property"] == "response_mask_necessity"]
+        if not mask.empty:
+            assert mask["property_passed"].nunique() == 1
+            assert bool(mask["property_passed"].iloc[0]) is bool(
+                mask["passed"].all()
+                and mask["response_mask_displacement"].iloc[0]
+                >= study.properties().RESPONSE_MASK_DISPLACEMENT
             )
 
         projection = published.loc[published["property"] == "projection_necessity"]
@@ -1311,14 +1530,7 @@ class TestPublishedVerdicts:
                 "nominal_size",
             ]
             assert stability[population_sampling_columns].isna().all().all()
-            expected = (
-                stability["spread_ratio_ci_upper"].iloc[0]
-                < study.properties().MAX_REPEAT_SPREAD_RATIO
-            )
-            assert stability["passed"].nunique() == 1
-            assert bool(stability["passed"].iloc[0]) is bool(expected)
-            assert stability["property_passed"].nunique() == 1
-            assert bool(stability["property_passed"].iloc[0]) is bool(expected)
+            _check_repeat_stability(study, stability)
 
         overfitting = published.loc[published["property"] == "crossfit_overfitting"]
         if overfitting.empty:
@@ -1375,6 +1587,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "density_necessity",
         "learner_weight_necessity",
         "missingness_necessity",
+        # X82 SG: the O1 bound with the masked sigma^2 inside the margin, the bound with the
+        # observed-rows sigma^2 outside it.
+        "response_mask_necessity",
         # X16's three-arm pair: the positive cell's bias inside the margin, the control's
         # outside it.
         "multi_arm",
@@ -1410,6 +1625,12 @@ BIAS_GATED_PROPERTIES = frozenset(
         # g-formula truth.  A control passes when its bias interval lies beyond the margin on
         # the side of the computed gap, which is the discrimination endpoint read on one side.
         "blip_feature_control",
+        # X33's bound necessity: valid bounds keep the bias inside the margin, and bounds that
+        # exclude the truth move it beyond the margin.
+        "bound_necessity",
+        # X39: a positive's bias interval inside the margin, a control's outside it, each on
+        # its own stream.
+        "censoring_necessity",
     }
 )
 
@@ -1418,6 +1639,10 @@ BIAS_GATED_PROPERTIES = frozenset(
 #: classified here before its verdicts count.
 ENDPOINT_GATED_PROPERTIES = frozenset(
     {
+        # X82 SL: each size row answers to its own rejection count and each power row to its
+        # own detection count (checked below against the study's declared thresholds).
+        "refuter_size",
+        "refuter_power",
         # X45's positive cells answer to the calibration rule at one simulated history per
         # unit; its removed-share rows carry the diagnostic role.
         "monte_carlo_accounting",
@@ -1502,8 +1727,30 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # The SE of a clustered fit made without its cluster column, which must leave the band
         # from below.
         "unclustered_se",
+        # X33's binding witness: the iterated-mean cell answers to two share floors, and the
+        # hazard cell carries the diagnostic role and states no verdict.
+        "binding_witness",
+        # X21's bias rows of AdaptiveIPTW: a positive row's standardized bias inside the
+        # margin, a control's outside it.  The ladder rows read the same equivalence endpoint.
+        "bias",
+        "root_n_points",
     }
 )
+
+#: Gated families that read one stream on purpose, by study.  A witness of this kind checks a
+#: premise of the other family on the draws that family measured, so independent draws would
+#: not test that premise.  ``survival-node-bounds``: the binding witness shows that the bounds
+#: bind on the draws of the calibration cells, so the calibration cells measure a bounded fit.
+SAME_DRAW_FAMILIES = {
+    "survival-node-bounds": (frozenset({"binding_witness", "interval_calibration"}),),
+    # ``adaptive-iptw``: the known-mechanism scenes host a calibration cell and a bias cell on
+    # one set of fits, and a necessity row compares the targeted arm with the untargeted arm of
+    # the fit that the bias row reads.
+    "adaptive-iptw": (
+        frozenset({"bias", "interval_calibration"}),
+        frozenset({"bias", "targeting_necessity"}),
+    ),
+}
 
 #: Families that publish numbers and no verdict.  A third list rather than a third entry in
 #: one of the two above, because the rule is not "which endpoint decides this row" but
@@ -1524,6 +1771,15 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "in_sample_agreement",
         "sdr_tmle_agreement",
         "variance_direction",
+        # X11 PR C (``learned-rule-learners``): the rule-learner fit at n = 1,000, below its
+        # calibration size, reported with its SE ratio, coverage and bias and no verdict.
+        "small_sample_diagnostic",
+        # X11 PR E1 (``fold-evaluated-strata``): the fold-evaluated and stacked stratified fits
+        # on a binary law with few events in one stratum-arm, reported with no verdict.
+        "sparse_event_diagnostic",
+        # X11 PR E2 (``learned-rule-strata``): the stratified and unstratified learned-rule fits
+        # on binary laws with a weak margin at the rule boundary, reported with no verdict.
+        "weak_margin_diagnostic",
         "censoring_complete_case",
         # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
         "in_sample_fit",
@@ -1532,6 +1788,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "isotonic_projection",
         # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
         "adaptive_learners",
+        # X21's spread cell: the ratio of the plug-in SE to the empirical SD, reported with the
+        # declared reading and no verdict (the interval is withheld for a fitted mechanism).
+        "spread",
         # X44's weak-positivity fit of the structural estimator, reported with no verdict.
         "positivity_reporting",
         # X45's parametric g-formula beside ICE, LTMLE or IPSI on the same draws, and its
@@ -1542,6 +1801,14 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # X46's first-draw reading and its displacement share, reported with no verdict.
         "single_draw_reading",
         "split_displacement",
+        # X33's bounded fits on the parameters the bounds do not gate, and the unbounded fits on
+        # the same draws, each reported with no verdict.
+        "reported_calibration",
+        "unbounded_fit",
+        # X39's reporting rows: a support-loss pair and a learned mechanism, each published
+        # with its summary statistics and no verdict.
+        "support_loss",
+        "learned_mechanism",
     }
 )
 
@@ -1557,13 +1824,15 @@ class TestNegativeControls:
         ]
         valid = set(zip(subject["scenario"], subject["estimand"], strict=True))
         # The first subject-valid cell of any scenario, so a study whose first scenario is red
-        # throughout still hosts the mutations.
+        # throughout still hosts the mutations.  A reference that reports a subset has rows only
+        # on the paired cells, so the mutated implementation is the reference there.
+        paired = study.paired_cells()
         scenario, estimand = next(
             (
                 (scenario, name)
                 for scenario, names in study.scenarios.items()
                 for name in names
-                if (scenario, name) in valid
+                if (scenario, name) in valid and (scenario, name) in paired
             ),
             (None, None),
         )
@@ -1976,7 +2245,8 @@ class TestTheStudyStillMeasuresTheCode:
 
         A family in ``DIAGNOSTIC_PROPERTIES`` publishes a reading and no verdict, so it may read
         the fits of another family and does not count as a claim on the stream.  Every other
-        family still needs a stream of its own.
+        family still needs a stream of its own, except the one pair of a study that
+        ``SAME_DRAW_FAMILIES`` names.
         """
         declared_cells = getattr(study.properties(), "declared_cells", None)
         if declared_cells is None:
@@ -1990,6 +2260,7 @@ class TestTheStudyStillMeasuresTheCode:
             stream: sorted(properties)
             for stream, properties in by_stream.items()
             if len(properties) > 1
+            and frozenset(properties) not in SAME_DRAW_FAMILIES.get(study.slug, ())
         }
         assert not collisions, f"property families reuse sample streams: {collisions}"
 
@@ -2485,12 +2756,19 @@ _FAMILY = {
     "max_calibration_excess": "equivalence",
     "max_margin_utilization": "equivalence",
     "property_cells": "properties",
+    # ``properties.csv`` columns of a study that records its targeting loop.
+    "property_rows_nonconverged": "properties",
+    "property_nonconverged_fits": "properties",
+    "property_max_rounds": "properties",
     "max_targeting_displacement": "replicates",
     "median_targeting_displacement": "replicates",
     "score_audited_fits": "fit_diagnostics",
     "subject_score_failures": "fit_diagnostics",
     "reference_score_failures": "fit_diagnostics",
     "mean_oracle_se": "harness",
+    "value_gain_": "harness",
+    "boundary_disagreement_mean": "harness",
+    "boundary_treated_share_mean": "harness",
     # ``failures.csv``: zero for a study whose comparator never failed.
     "reference_failures": "failures",
     "subject_failures": "failures",
@@ -2724,19 +3002,26 @@ class TestThePublishedTestTables:
     def test_every_key_a_result_file_uses_has_a_description(self, study: StudyRecord) -> None:
         """The one hand-written column, required to cover every key that can reach a table."""
         data = _artifacts(study.slug)
+
+        def scenario(key: str) -> str:
+            return descriptions.scenario(key, slug=study.slug)
+
+        def estimand(key: str) -> str:
+            return descriptions.estimand(key, slug=study.slug)
+
         undescribed: list[str] = []
         for frame, resolvers in (
             (
                 data["performance"],
                 (
                     ("implementation", descriptions.implementation),
-                    ("scenario", descriptions.scenario),
-                    ("estimand", descriptions.estimand),
+                    ("scenario", scenario),
+                    ("estimand", estimand),
                 ),
             ),
             (
                 data["equivalence"],
-                (("scenario", descriptions.scenario), ("estimand", descriptions.estimand)),
+                (("scenario", scenario), ("estimand", estimand)),
             ),
         ):
             for column, resolve in resolvers:
@@ -2832,10 +3117,13 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:targeting_displacement": lambda s: s.properties().TARGETING_DISPLACEMENT,
     "margin:fold_locality_displacement": lambda s: s.properties().FOLD_LOCALITY_DISPLACEMENT,
     "margin:missingness_displacement": lambda s: s.properties().MISSINGNESS_DISPLACEMENT,
+    "margin:response_mask_displacement": lambda s: s.properties().RESPONSE_MASK_DISPLACEMENT,
     "margin:correction_score_ratio": lambda s: s.properties().CORRECTION_SCORE_RATIO,
     "margin:uncorrected_score_floor": lambda s: s.properties().UNCORRECTED_SCORE_FLOOR,
     "margin:correction_displacement": lambda s: s.properties().CORRECTION_DISPLACEMENT,
     "margin:necessity_displacement": lambda s: s.properties().NECESSITY_DISPLACEMENT,
+    "margin:witness_share": lambda s: s.properties().WITNESS_SHARE,
+    "margin:unconverged_share": lambda s: s.properties().UNCONVERGED_SHARE,
     "margin:weight_displacement": lambda s: s.properties().WEIGHT_DISPLACEMENT,
     "margin:learner_weight_displacement": lambda s: s.properties().LEARNER_WEIGHT_DISPLACEMENT,
     "margin:categorical_probability_displacement": (
@@ -2850,6 +3138,8 @@ MARGIN_SOURCES: dict[str, Any] = {
     # ``failure_bound`` without naming it in its runner module.
     "margin:subject_failure_bound": lambda s: float(s.failure_bound[s.implementation]),
     "margin:subject_failures_allowed": lambda s: float(failures.allowed(s, s.implementation)),
+    "margin:reference_failure_bound": lambda s: float(s.failure_bound[s.reference]),
+    "margin:reference_failures_allowed": lambda s: float(failures.allowed(s, s.reference)),
 }
 
 
@@ -3086,7 +3376,9 @@ class TestTheQuantityVocabulary:
         if "selector_necessity" in study.property_cells:
             selector = study.properties()
             assert declared["margin:selector_rmse_ratio"] == selector.SELECTOR_RMSE_RATIO
-        if {"targeting_necessity", "stratum_targeting_necessity"} & set(study.property_cells):
+        if {"targeting_necessity", "stratum_targeting_necessity"} & (
+            set(study.property_cells) - study.bias_row_families
+        ):
             assert (
                 declared["margin:targeting_displacement"]
                 == study.properties().TARGETING_DISPLACEMENT
@@ -3318,11 +3610,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES = (
-    "tests.studies.long_horizon_ltmle_properties",
-    "tests.studies.long_horizon_categorical_ltmle_properties",
-    "tests.studies.long_horizon_sdr_properties",
-)
+UNCOMMITTED_MODULES: tuple[str, ...] = ()
 
 
 def _property_modules() -> list[Any]:
@@ -3438,12 +3726,14 @@ class TestPropertyDifferential:
     def test_the_differential_lists_every_committed_study(self) -> None:
         job = self._job()
         committed = {
-            study.slug for study in STUDIES if study.artifact("property-replicates.csv.gz").exists()
+            study.slug
+            for study in STUDIES
+            if study.artifact("property-replicates.parquet").exists()
         }
         parametrized = {
             value.values[0]
             for mark in job.test_the_rules_agree_with_the_study_on_each_perturbation.pytestmark
-            if mark.args[0] == "subject"
+            if mark.args[0] == ("subject", "kind")
             for value in mark.args[1]
         }
         assert parametrized == committed | set(job.SYNTHETIC_MODULES)
@@ -3451,12 +3741,15 @@ class TestPropertyDifferential:
 
     def test_the_differential_runs_every_perturbation(self) -> None:
         job = self._job()
-        kinds = {
-            value
+        cases = [
+            value.values
             for mark in job.test_the_rules_agree_with_the_study_on_each_perturbation.pytestmark
-            if mark.args[0] == "kind"
+            if mark.args[0] == ("subject", "kind")
             for value in mark.args[1]
-        }
+        ]
+        kinds = {kind for _, kind in cases}
+        # Every subject runs every kind, each on the worker group that judges it.
+        assert len(cases) == len(set(cases)) == len(job.SUBJECTS) * len(kinds)
         expected = {
             *property_failures.PERTURBATIONS,
             *property_failures.binding_perturbations(),
@@ -3649,3 +3942,13 @@ def test_a_record_requires_a_comparison_exactly_when_it_names_a_reference() -> N
     assert one.comparison_kind("a", "b") == "related target"
     assert one.comparison_kind("c", "anything") == "different estimator"
     assert one.comparison_kind("d", "e") == backed.comparison
+
+
+def test_a_record_names_only_declared_families_as_row_gated() -> None:
+    """``bias_row_families`` is a subset of the declared property families."""
+    record = next(study for study in STUDIES if study.slug == "long-horizon-ltmle")
+    assert record.bias_row_families <= set(record.property_cells)
+    with pytest.raises(ValueError, match="bias_row_families"):
+        dataclasses.replace(
+            record, bias_row_families=record.bias_row_families | {"selector_necessity"}
+        )

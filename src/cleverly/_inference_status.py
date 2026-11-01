@@ -38,6 +38,7 @@ __all__ = [
     "PARAMETER_STATUSES",
     "STACK_FAILURE_STATUS",
     "STATUS_RECORDS",
+    "TRIMMED_RATIO_STATUS",
     "T_REFERENCE_NOTE",
     "InferenceStatus",
     "Interval",
@@ -56,7 +57,9 @@ InferenceStatus = Literal[
     "influence_curve",
     "working_mechanism_plugin",
     "generated_design_plugin",
+    "estimated_mechanism_plugin",
     "estimated_weight_plugin",
+    "trimmed_ratio_plugin",
     "adaptive_baseline_plugin",
     "no_cluster_variance_plugin",
     "few_cluster_plugin",
@@ -95,18 +98,23 @@ MINIMUM_T_REFERENCE_CLUSTERS: Final[int] = 3
 MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS: Final[int] = 20
 
 #: The paragraph a result summary prints under a table whose estimates use a t reference.
-#: ``{clusters}`` is the positive-mass cluster count of the fit.
+#: ``{clusters}`` is the positive-mass cluster count of the fit, and ``{stratum}`` is
+#: :data:`T_REFERENCE_STRATUM` on a fit with strata and empty otherwise.
 T_REFERENCE_NOTE: Final[str] = (
-    "An estimate that reads fewer than "
+    "An estimate based on fewer than "
     f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass reports its interval and "
-    "p-value on a Student t reference with J - 2 degrees of freedom, where J is the count it "
-    "reads (Nugent et al. (2024), Section 2.2); a fold-evaluated estimate over V folds takes "
-    "min(J - 2, J - V). The fit reads {clusters} such clusters, and the fewest in one "
-    "reported stratum is {fewest}. The df column gives each estimate's degrees of freedom, "
-    "and 'normal' marks the normal reference. The registered few-cluster evidence uses "
-    "parametric nuisance learners; Wang et al. (2024), Remark 3, caution against complex "
+    "p-value on a Student t reference with J - 2 degrees of freedom, where J is that cluster "
+    "count (Nugent et al. (2024), Section 2.2); an estimate averaged over V cross-fitting "
+    "folds takes min(J - 2, J - V). The fit has {clusters} clusters with positive weight "
+    "mass{stratum}. The df "
+    "column gives each estimate's degrees of freedom, and 'normal' marks the normal "
+    "reference. The validation evidence for few clusters uses parametric models for the "
+    "outcome and the treatment; Wang et al. (2024), Remark 3, caution against complex "
     "learners at about 20 clusters."
 )
+
+#: The clause :data:`T_REFERENCE_NOTE` adds on a fit with strata.
+T_REFERENCE_STRATUM: Final[str] = ", and the fewest in one reported stratum is {fewest}"
 
 #: Where ``q_bounds=None`` takes the scale of a continuous outcome from. Both outcome-scale
 #: refusals of :class:`~cleverly.TMLE` say it, so the two name one fact in one wording.
@@ -116,15 +124,17 @@ HELD_OUT_SCALE: Final[str] = "from every observed outcome, held-out rows include
 #: simultaneous band. ``TMLEResult.summary`` and ``LongitudinalResult.summary`` both
 #: print it, and both estimators skip the default band on such a fit.
 NO_SIMULTANEOUS_BANDS: Final[str] = (
-    "no simultaneous bands: a band is a joint confidence statement, and this fit reports none."
+    "No simultaneous bands: a band is a joint confidence statement, and this fit reports no "
+    "confidence interval."
 )
 
 #: The line a result summary prints when a fit skips its default band because an estimate
 #: carries a Student t reference.
 NO_T_REFERENCE_BANDS: Final[str] = (
-    "no simultaneous bands: an estimate of this fit reads fewer than "
-    f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass and carries a t reference, "
-    "and no source gives a t-calibrated band, so the fit reports pointwise intervals only."
+    "No simultaneous bands: an estimate of this fit is based on fewer than "
+    f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass and uses a t reference, and "
+    "no source gives a band calibrated to a t reference, so the fit reports one-at-a-time "
+    "intervals only."
 )
 
 
@@ -141,13 +151,9 @@ class StatusRecord:
     reason : str
         The sentences that say what the fit reports, what result is missing, and which
         roadmap item reopens it. They open with a capital letter. Every refusal of a withheld
-        status ends with them, and ``summary()`` prints them under the table.
+        status ends with them. ``summary()`` prints :attr:`plain_reason` instead.
     assessment_note : str
         The clause the nuisance report and the assessment's nuisance-model item add.
-    summary_label : str
-        The header of the spread column in ``TMLEResult.summary()`` and
-        ``LongitudinalResult.summary()``, and the label in ``ParameterEstimate.__repr__``,
-        for a withheld status.
     bootstrap_note : str
         The parenthesis ``summary()`` prints beside a bootstrap percentile range under a
         withheld status. A shown status prints the note of ``"few_cluster_plugin"`` when the fit
@@ -171,16 +177,20 @@ class StatusRecord:
     shown_reason : str or None, default None
         For a shown status, the sentences the experimental label adds to say what the interval
         does not cover. Required when ``interval`` is ``"shown"``.
+    plain_reason : str
+        One or two plain sentences, with no roadmap id, that a result summary prints in its
+        note for this status: why the interval is withheld or labelled, and the alternative
+        when one exists. Required.
 
     Raises
     ------
     ValueError
-        When a shown record has no ``shown_reason``, or a withheld record has one.
+        When a shown record has no ``shown_reason``, or a withheld record has one, or a
+        record has no ``plain_reason``.
     """
 
     reason: str
     assessment_note: str
-    summary_label: str
     bootstrap_note: str
     diagnostic_noun: str
     reopened_by: str
@@ -188,33 +198,13 @@ class StatusRecord:
     code: RefusalReason = RefusalReason.INFERENCE_GAP
     interval: Interval = "withheld"
     shown_reason: str | None = None
+    plain_reason: str = ""
 
     def __post_init__(self) -> None:
         if (self.interval == "shown") != (self.shown_reason is not None):
             raise ValueError("a shown status states a shown_reason, and a withheld one states none")
-
-    def summary_note(self) -> str:
-        """The paragraph a result summary prints under its table of diagnostics.
-
-        The refusal's own reason rather than a paraphrase of it, so the summary and every
-        raise say one thing. Only the pointer to the table's spread column is the
-        summary's own. ``TMLEResult.summary`` and ``LongitudinalResult.summary`` both
-        print it for a withheld status. A shown status prints :attr:`shown_reason` as its
-        label note instead.
-
-        Returns
-        -------
-        str
-            :attr:`reason`, then :attr:`alternative` when one exists, then a sentence that
-            names :attr:`summary_label` as that diagnostic.
-        """
-        alternative = "" if self.alternative == NO_ALTERNATIVE else f" {self.alternative}"
-        return (
-            self.reason
-            + alternative
-            + f' The "{self.summary_label}" column above is that diagnostic, and it '
-            "is not a standard error for this estimate."
-        )
+        if not self.plain_reason:
+            raise ValueError("a status states its plain_reason, the sentences a summary prints")
 
 
 #: One record per labelled status. The insertion order is the precedence inside a tier: when a
@@ -224,6 +214,11 @@ class StatusRecord:
 STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
     {
         "working_mechanism_plugin": StatusRecord(
+            plain_reason=(
+                "The collaborative search chose the treatment model from the data, and no result "
+                "shows that the reported spread is a valid standard error after that choice. For "
+                "an interval, fit TMLE or DR-TMLE on the same design."
+            ),
             reason=(
                 "The greedy, ordered, discrete, lasso and learners collaborative paths report "
                 "no confidence interval, no p-value and no standard error. The reported curve "
@@ -243,7 +238,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "interval or p-value is available for this path, and F18 in the roadmap is "
                 "the condition that reopens it"
             ),
-            summary_label="working-mechanism se",
             bootstrap_note=(
                 "a diagnostic; the full-refit bootstrap reruns the selection, and no result "
                 "validates its coverage for this path"
@@ -253,6 +247,13 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             alternative="For an interval, fit TMLE or DRTMLE on the same design.",
         ),
         "generated_design_plugin": StatusRecord(
+            plain_reason=(
+                "The outcome-adaptive collaborative fit builds its treatment model on fitted "
+                "outcome predictions, and the reported spread leaves out the uncertainty of that "
+                "step (a validation study of the per-arm design found it 8 to 24 percent too "
+                "small). For an interval, fit TMLE, or the per-arm design with ParametricOutcome "
+                "and ParametricMechanism learners."
+            ),
             reason=(
                 "This outcome-adaptive collaborative fit, strategy='oat', reports no confidence "
                 "interval, no p-value and no standard error. The shared design, "
@@ -275,7 +276,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "or p-value is available for this path, and F19 in the roadmap is the "
                 "condition that reopens it"
             ),
-            summary_label="generated-design se",
             bootstrap_note=(
                 "a diagnostic; the full-refit bootstrap reruns the generated design, and no "
                 "result validates its coverage for this path"
@@ -290,7 +290,51 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "of arms and observation weights."
             ),
         ),
+        "estimated_mechanism_plugin": StatusRecord(
+            plain_reason=(
+                "Adaptive IPTW with an estimated treatment or missingness model carries a bias of "
+                "the same order as that model's error unless conditions hold that no fit can "
+                "check, so no valid standard error is available. For an interval, pass the known "
+                "treatment probabilities on complete data and fit those estimates on their own, "
+                "or fit TMLE or DR-TMLE."
+            ),
+            reason=(
+                "An AdaptiveIPTW fit with an estimated treatment or missingness mechanism "
+                "reports no confidence interval, no p-value and no standard error. Van der "
+                "Laan (2012, WP302) Theorem 1 then needs "
+                "P_0[(Q_0 - Qr_0)(g_0 - g_n)/g_0] = o_P(n^(-1/2)), where g is that mechanism "
+                "and Qr_0 is the regression of the outcome on the true g. That term is linear "
+                "in g_n - g_0. It vanishes when the outcome regression is a function of the "
+                "true g, or when the fitted g is a function of the true one, and no fit can "
+                "check either. The point estimate stands. The plug-in standard error of the "
+                "Theorem 1 curve remains as a diagnostic under plugin_std_error and "
+                "plugin_interval, but it is not valid inference here: when the outcome "
+                "regression is not a function of the true g, it can be too wide under a "
+                "parametric mechanism, and under a learner whose error is not a function of "
+                "the true g the estimate it is centred on can be biased at first order. X36 in "
+                "docs/roadmap.md reopens this for a declared parametric mechanism."
+            ),
+            assessment_note=(
+                "the plug-in interval is not valid inference here: the mechanism is estimated, "
+                "and the condition of WP302 Theorem 1 cannot be checked; X36 in the roadmap is "
+                "the condition that reopens it"
+            ),
+            bootstrap_note=(
+                "a diagnostic; AdaptiveIPTW refuses n_bootstrap=, so no bootstrap range is printed"
+            ),
+            diagnostic_noun="estimated-mechanism plug-in diagnostic",
+            reopened_by="X36",
+            alternative=(
+                "On complete data, pass the known treatment probabilities "
+                "(treatment_probabilities=) and fit those estimates on their own to get an "
+                "interval, or fit tmle or drtmle for an interval."
+            ),
+        ),
         "estimated_weight_plugin": StatusRecord(
+            plain_reason=(
+                "The interval treats the estimated observation weights as fixed, so it leaves out "
+                "the uncertainty of estimating them, and cleverly marks it experimental."
+            ),
             reason=(
                 "A DR-TMLE fit with a guard and weights declared estimated "
                 "(weights_estimated=True) reports its interval, p-value and standard error "
@@ -304,14 +348,15 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "per_arm_parametric_support admits, take this status too with estimated "
                 "weights, because each one's stacked estimating-equation curve conditions on "
                 "the weights. A StructuralNestedMean fit with estimated weights takes it for the "
-                "same reason: its curve treats the weights as known."
+                "same reason: its curve treats the weights as known. An AdaptiveIPTW fit with "
+                "a known treatment mechanism takes it too, because its curve rests on the "
+                "reduced regression of the weighted law and holds the weights fixed."
             ),
             assessment_note=(
                 "the reported interval conditions on the weights and is experimental: no "
                 "result gives the weight-estimation term, and X50 in the roadmap is the "
                 "condition that reopens it for DRTMLE"
             ),
-            summary_label="fixed-weight se",
             bootstrap_note=("the bootstrap resamples rows and does not estimate the weights again"),
             diagnostic_noun="fixed-weight plug-in interval",
             reopened_by="X50",
@@ -326,7 +371,47 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "that reopens it."
             ),
         ),
+        "trimmed_ratio_plugin": StatusRecord(
+            plain_reason=(
+                "Trimming the density ratios (ratio_trim=) leaves a bias of the size of the "
+                "outcome-model error at every sample size, and no result gives an interval for the "
+                "trimmed fit. ratio_trim=None fits the untrimmed estimator, which has one."
+            ),
+            reason=(
+                "A longitudinal fit that trims its per-node density ratios at a declared "
+                "quantile (ratio_trim=) reports no confidence interval, no p-value and no "
+                "standard error. The trim binds on a fixed share of the ratios at every "
+                "sample size, so the remainder keeps a term of the size of the "
+                "outcome-regression error, and no result read here gives an interval for the "
+                "trimmed fit. The point estimate stands. The plug-in standard error of the "
+                "efficient influence curve at the trimmed ratios remains as a diagnostic "
+                "under plugin_std_error and plugin_interval; it is the standard error lmtp "
+                "reports. F30 in docs/roadmap.md reopens this when a paper supplies that "
+                "result."
+            ),
+            assessment_note=(
+                "the reported curve is a trimmed-ratio diagnostic: no confidence interval or "
+                "p-value is available for a fit that trims its ratios, and F30 in the roadmap "
+                "is the condition that reopens it"
+            ),
+            bootstrap_note=(
+                "a diagnostic; the bootstrap repeats the trim on each resample, and no result "
+                "validates its coverage for a trimmed fit"
+            ),
+            diagnostic_noun="trimmed-ratio plug-in diagnostic",
+            reopened_by="F30",
+            alternative=(
+                "ratio_trim=None fits the untrimmed estimator, whose interval the shipped "
+                "evidence covers."
+            ),
+        ),
         "adaptive_baseline_plugin": StatusRecord(
+            plain_reason=(
+                "This fit reads a regression from a learner other than cleverly.learners.GLM, and "
+                "no result makes that learner's error negligible for this estimator, so no valid "
+                "standard error is available. For an interval, use GLM models, or fit LTMLE or "
+                "SDR; a StructuralNestedMean fit gets one from cross-fitting (n_folds above 1)."
+            ),
             reason=(
                 "A sequential g-computation or IPW fit reports no confidence interval, no "
                 "p-value and no standard error when a regression it reads is fitted by a "
@@ -350,7 +435,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "p-value is available for a g-computation or IPW fit with a data-adaptive "
                 "learner, and F35 in the roadmap is the condition that reopens it"
             ),
-            summary_label="baseline diagnostic se",
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap of a g-computation or IPW "
                 "fit with a data-adaptive learner"
@@ -360,6 +444,11 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             alternative="For an interval, pass GLM models, or fit LTMLE or SDR.",
         ),
         "no_cluster_variance_plugin": StatusRecord(
+            plain_reason=(
+                f"The fit reads fewer than {MINIMUM_T_REFERENCE_CLUSTERS} clusters with positive "
+                "weight mass, in the whole fit or in one reported stratum, which is too few for "
+                "any cluster-based standard error."
+            ),
             reason=(
                 "A clustered fit reports no confidence interval, no p-value and no standard "
                 f"error when it reads fewer than {MINIMUM_T_REFERENCE_CLUSTERS} clusters with "
@@ -376,7 +465,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 f"{MINIMUM_T_REFERENCE_CLUSTERS} clusters, and F28 in the roadmap is the "
                 "condition that reopens it"
             ),
-            summary_label="no-df se",
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap of a clustered fit with fewer "
                 f"than {MINIMUM_T_REFERENCE_CLUSTERS} clusters"
@@ -386,6 +474,13 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             alternative=NO_ALTERNATIVE,
         ),
         "few_cluster_plugin": StatusRecord(
+            plain_reason=(
+                f"With {MINIMUM_T_REFERENCE_CLUSTERS} to {MINIMUM_INTERVAL_CLUSTERS - 1} clusters "
+                f"({MINIMUM_T_REFERENCE_CLUSTERS} to {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1} "
+                "on a longitudinal fit) the interval uses a t distribution with the degrees of "
+                "freedom in the df column, and no validation study measures intervals at so few "
+                "clusters, so cleverly marks it experimental."
+            ),
             reason=(
                 "A clustered fit that reads from "
                 f"{MINIMUM_T_REFERENCE_CLUSTERS} clusters with positive weight mass up to one "
@@ -407,7 +502,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 f"({MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit), and X54 in "
                 "the roadmap is the condition that supports it"
             ),
-            summary_label="normal-reference se",
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap coverage of a clustered fit "
                 "with few clusters"
@@ -424,6 +518,11 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             ),
         ),
         "constant_node_plugin": StatusRecord(
+            plain_reason=(
+                "A regression in this estimate's recursion saw a single outcome value at some time "
+                "point (for example, no events there), so the reported spread leaves out that "
+                "point's variance and can be too small."
+            ),
             reason=(
                 "A longitudinal parameter reports no confidence interval, no p-value and no "
                 "standard error when a node regression of its recursion read a constant "
@@ -449,7 +548,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "p-value is available for a parameter whose recursion read a constant node "
                 "regression, and X54 in the roadmap is the condition that reopens it"
             ),
-            summary_label="constant-node se",
             bootstrap_note=(
                 "a diagnostic; a resample can hold an event at the node that the sample "
                 "lacks, and no result validates the bootstrap coverage at a boundary node"
@@ -459,6 +557,10 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             alternative=NO_ALTERNATIVE,
         ),
         "stack_failure_plugin": StatusRecord(
+            plain_reason=(
+                "The stacked estimating equation of an arm this estimate reads failed on this "
+                "sample, and the fit's warning says why, so no standard error is available."
+            ),
             reason=(
                 "A per-arm outcome-adaptive C-TMLE fit with parametric learners "
                 "(ParametricOutcome and ParametricMechanism) reports no confidence interval, "
@@ -477,7 +579,6 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "interval or p-value is available for an estimate whose arm stack failed on "
                 "this sample, and X58 in the roadmap describes the stack"
             ),
-            summary_label="stack-failure se",
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap coverage of the per-arm "
                 "outcome-adaptive fit"
@@ -491,6 +592,9 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
 )
 
 
+#: The status of a longitudinal fit whose ``ratio_trim=`` moved a positive per-node ratio.
+#: The estimator stamps it by name, so the name lives here once.
+TRIMMED_RATIO_STATUS: Final = "trimmed_ratio_plugin"
 #: The status of a sequential g-computation or IPW fit that reads a regression fitted by a
 #: learner other than :class:`~cleverly.learners.GLM`.
 ADAPTIVE_BASELINE_STATUS: Final = "adaptive_baseline_plugin"

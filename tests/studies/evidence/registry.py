@@ -193,6 +193,15 @@ class StudyRecord:
     #: Why the comparator runs are pending, and the roadmap item or queue row that owns them.
     #: Required with ``pending_reference``, in the spirit of ``accepted_reference_failure``.
     pending_reason: str = ""
+    #: Scenario -> the estimands the reference reports, for a comparator that reaches part of
+    #: the study.  Empty means that the reference reports every declared cell.
+    #:
+    #: A comparator can lack an estimand or a composition that the subject ships: EconML's
+    #: ``DynamicDML`` reports blips and contrasts, and no regimen level, weight or cluster.
+    #: The subject still reports every cell, and the paired comparison, the reference's truth
+    #: tests and its failure accounting read only these cells.  A declared subset is checked
+    #: against the rows, so a reference that silently loses a cell is refused, not unpaired.
+    reference_scenarios: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     #: Estimands whose reference reports its standard error on a different scale, so a raw
     #: SE comparison would compare two different reported quantities.
     incomparable_se: frozenset[str] = frozenset()
@@ -224,6 +233,13 @@ class StudyRecord:
     #: A study may use an exact bound only to size a negative control without claiming that
     #: its deliberately misspecified estimator attains the bound.
     calibration_efficiency_ratio: bool = True
+    #: Bias families whose rows each answer to their own standardized-bias interval.
+    #:
+    #: A positive passes when its interval lies inside the margin and a control when it lies
+    #: wholly outside, each on an independent stream at its own n.  No displacement is computed
+    #: between the two arms, so :func:`tests.studies.evidence.claims.thresholds` publishes no
+    #: displacement threshold for these families and the pair test reads no displacement column.
+    bias_row_families: frozenset[str] = frozenset()
     #: Measured-table quantity -> the decimal places that quantity's claim needs.
     #:
     #: :func:`tests.studies.evidence.document.render` chooses a precision from the value
@@ -283,6 +299,11 @@ class StudyRecord:
     failure_bound: Mapping[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        undeclared = self.bias_row_families - set(self.property_cells)
+        if undeclared:
+            raise ValueError(
+                f"bias_row_families names families the record does not declare: {sorted(undeclared)}"
+            )
         if self.publication_policy not in ("gated", "reporting"):
             raise ValueError(
                 "publication_policy must be 'gated' or 'reporting'; "
@@ -345,6 +366,21 @@ class StudyRecord:
                 )
         elif self.pending_reason:
             raise ValueError("pending_reason is set without a pending_reference")
+        if self.reference_scenarios:
+            if named is None:
+                raise ValueError("reference_scenarios needs a reference or a pending reference")
+            unknown_cells = {
+                scenario: sorted(set(estimands) - set(self.scenarios.get(scenario, ())))
+                for scenario, estimands in self.reference_scenarios.items()
+                if scenario not in self.scenarios or set(estimands) - set(self.scenarios[scenario])
+            }
+            if unknown_cells:
+                raise ValueError(
+                    f"reference_scenarios names cells the study does not declare: {unknown_cells}"
+                )
+            empty = sorted(name for name, names in self.reference_scenarios.items() if not names)
+            if empty:
+                raise ValueError(f"reference_scenarios gives no estimand for {empty}")
         if self.resampling_seed is not None and self.resampling_seed < 0:
             raise ValueError("resampling_seed must be non-negative")
         # A bound may be declared for a pending comparator before its first run.
@@ -418,6 +454,25 @@ class StudyRecord:
             self.comparison_overrides.get(f"{scenario}:*", self.comparison),
         )
 
+    def reported(self, implementation: str) -> Mapping[str, tuple[str, ...]]:
+        """Scenario -> the estimands ``implementation`` reports.
+
+        The subject reports every declared cell.  The reference reports
+        :attr:`reference_scenarios` when the record declares a subset, else every cell.
+        """
+        if self.reference_scenarios and implementation in (
+            self.reference,
+            self.pending_reference,
+        ):
+            return self.reference_scenarios
+        return self.scenarios
+
+    def paired_cells(self) -> frozenset[tuple[str, str]]:
+        """The ``(scenario, estimand)`` cells the paired comparison reads."""
+        named = self.reference or self.pending_reference
+        cells = self.scenarios if named is None else self.reported(named)
+        return frozenset((scenario, name) for scenario, names in cells.items() for name in names)
+
     @property
     def implementations(self) -> tuple[str, ...]:
         return (
@@ -465,6 +520,7 @@ def registered() -> tuple[StudyRecord, ...]:
     estimator configuration, and so a study module can import the framework.
     """
     from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
+    from tests.studies.canonical_adaptive_iptw import STUDY as ADAPTIVE_IPTW
     from tests.studies.canonical_categorical_incremental import STUDY as CATEGORICAL_INCREMENTAL
     from tests.studies.canonical_categorical_ltmle import STUDY as CANONICAL_CATEGORICAL_LTMLE
     from tests.studies.canonical_categorical_ltmle_crossfit import (
@@ -509,6 +565,11 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_learned_weighted_tmle import (
         STUDY as CANONICAL_LEARNED_WEIGHTED_TMLE,
     )
+    from tests.studies.canonical_long_horizon_categorical_ltmle import (
+        STUDY as LONG_HORIZON_CATEGORICAL_LTMLE,
+    )
+    from tests.studies.canonical_long_horizon_ltmle import STUDY as LONG_HORIZON_LTMLE
+    from tests.studies.canonical_long_horizon_sdr import STUDY as LONG_HORIZON_SDR
     from tests.studies.canonical_longitudinal_incremental import STUDY as LONGITUDINAL_IPSI
     from tests.studies.canonical_longitudinal_incremental_dropout import (
         STUDY as LONGITUDINAL_IPSI_DROPOUT,
@@ -584,6 +645,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_stratified_tmle import STUDY as CANONICAL_STRATIFIED_TMLE
     from tests.studies.canonical_structural_nested_mean import STUDY as STRUCTURAL_NESTED_MEAN
+    from tests.studies.canonical_survival_node_bounds import STUDY as SURVIVAL_NODE_BOUNDS
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
     from tests.studies.canonical_vector_mtp import STUDY as VECTOR_MTP
     from tests.studies.canonical_weighted_ltmle import STUDY as CANONICAL_WEIGHTED_LTMLE
@@ -595,17 +657,31 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.clustered_few_cluster_tmle import STUDY as CLUSTERED_FEW_CLUSTER_TMLE
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
+    from tests.studies.drtmle_foldwise import STUDY as DRTMLE_FOLDWISE
     from tests.studies.drtmle_one_wrong import STUDY as DRTMLE_ONE_WRONG
+    from tests.studies.evalue_limit_coverage import STUDY as EVALUE_LIMIT_COVERAGE
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
+    from tests.studies.fold_evaluated_strata import STUDY as FOLD_EVALUATED_STRATA
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
+    from tests.studies.learned_rule_compositions import STUDY as LEARNED_RULE_COMPOSITIONS
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
     from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
+    from tests.studies.learned_rule_learners import STUDY as LEARNED_RULE_LEARNERS
+    from tests.studies.learned_rule_split_mean import STUDY as LEARNED_RULE_SPLIT_MEAN
+    from tests.studies.learned_rule_strata import STUDY as LEARNED_RULE_STRATA
     from tests.studies.longitudinal_repeated_crossfit import STUDY as LONGITUDINAL_REPEATED_CROSSFIT
+    from tests.studies.marginal_bound_coverage import STUDY as MARGINAL_BOUND_LIMIT_COVERAGE
     from tests.studies.omitted_variable_bound import STUDY as OMITTED_VARIABLE_BOUND_SE
     from tests.studies.omitted_variable_bound_plugin import (
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
     )
+    from tests.studies.ovb_limit_coverage import STUDY as OVB_LIMIT_COVERAGE
+    from tests.studies.refuter_calibration_band import STUDY as REFUTER_CALIBRATION_BAND
+    from tests.studies.refuter_calibration_longitudinal import (
+        STUDY as REFUTER_CALIBRATION_LONGITUDINAL,
+    )
+    from tests.studies.refuter_calibration_point import STUDY as REFUTER_CALIBRATION_POINT
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
 
     return (
@@ -624,6 +700,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CLUSTERED_CROSSFIT_LTMLE,
         FEW_CLUSTER_CROSSFIT_LTMLE,
         FOLD_EVALUATED_CVTMLE,
+        FOLD_EVALUATED_STRATA,
         FOLD_TARGETED_CVTMLE,
         REPEATED_CROSSFIT_TMLE,
         LONGITUDINAL_REPEATED_CROSSFIT,
@@ -648,6 +725,10 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_DETERMINISTIC_REGIMES,
         LEARNED_RULE_CVTMLE,
         LEARNED_RULE_CVTMLE_BOUNDARY,
+        LEARNED_RULE_COMPOSITIONS,
+        LEARNED_RULE_SPLIT_MEAN,
+        LEARNED_RULE_LEARNERS,
+        LEARNED_RULE_STRATA,
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,
@@ -677,15 +758,21 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE_REPEATED,
         CANONICAL_IPSI_REPEATED,
         CANONICAL_SDR_REPEATED,
+        LONG_HORIZON_LTMLE,
+        LONG_HORIZON_CATEGORICAL_LTMLE,
+        LONG_HORIZON_SDR,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,
         POINT_SURVIVAL_CURVE,
         POINT_SURVIVAL_CURVE_CROSSFIT,
         POINT_SURVIVAL_POLICIES,
+        SURVIVAL_NODE_BOUNDS,
+        ADAPTIVE_IPTW,
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
         DRTMLE_ONE_WRONG,
+        DRTMLE_FOLDWISE,
         KNOWN_NODE_MECHANISMS,
         SEQUENTIAL_BASELINES,
         STRUCTURAL_NESTED_MEAN,
@@ -697,7 +784,13 @@ def registered() -> tuple[StudyRecord, ...]:
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,
         OMITTED_VARIABLE_BOUND_PLUGIN_SE,
+        OVB_LIMIT_COVERAGE,
+        EVALUE_LIMIT_COVERAGE,
+        MARGINAL_BOUND_LIMIT_COVERAGE,
         CALIBRATION_SLOPE_WARNING,
+        REFUTER_CALIBRATION_LONGITUDINAL,
+        REFUTER_CALIBRATION_POINT,
+        REFUTER_CALIBRATION_BAND,
         DEFAULT_SIMULTANEOUS_BANDS,
         FULL_REFIT_BOOTSTRAP,
     )

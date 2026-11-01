@@ -31,7 +31,10 @@ repeated fits on seeds outside every declared stream.
   80,000 (1,200 samples) passes every law-I cell, and the family with 0.98.
 * **Controls.**  Every band label's pointwise control and the shrunken-SE controls fail with
   power at least 0.90.  The ``repeat_increment`` gate passes with probability at least 0.95,
-  at the reading and predictively, and its inflated-SE control has power at least 0.90.
+  at the reading and predictively, and its inflated-SE control has power at least 0.90.  Each
+  ``repeat_stability`` ``second_draw_control`` reads a true ratio of exactly 1 (draws 0 and 1 are
+  exchangeable), so its pass probability is the analytic 0.995, declared as 0.99, and the five
+  pass jointly with probability at least 0.95 by the union bound.
 * **Predictive probabilities** (rule 7).  Each pass probability is also averaged over a normal
   draw of the reading about its value with its Monte Carlo SE.  :func:`declaration` prints both,
   and :data:`~tests.studies.longitudinal_repeated_crossfit_properties.PASS_PROBABILITIES`
@@ -793,6 +796,56 @@ def test_every_stability_label_has_split_spread_and_power(label: str) -> None:
     assert stability_pass(row.value, se) >= PRIMARY_PASS
 
 
+#: The pass probability of a ``second_draw_control`` at a true ratio of exactly 1.  Draws 0 and 1
+#: are independent fold draws of one sample with deterministic learners, so their spreads are
+#: equal in law and the 99% two-sided interval's upper endpoint reaches 1 with probability
+#: ``Phi(z_0.995)``.  The percentile interval is accurate to first order, and the declared value
+#: is 0.99 (the review of X79 read simulated miss rates of 0.003 to 0.012).
+CONTROL_PASS = float(norm.cdf(Z99))
+DECLARED_CONTROL_PASS = 0.99
+
+
+def test_the_second_draw_control_passes_at_the_exact_null() -> None:
+    """The exact-null probability of the control, and the declared one it rounds down to."""
+    assert abs(CONTROL_PASS - 0.995) < 1e-12
+    assert 0.0 <= CONTROL_PASS - DECLARED_CONTROL_PASS <= DECLARED_TOLERANCE
+    for label in p.STABILITY:
+        key = f"repeat_stability/{label}__second_draw_control"
+        assert p.PASS_PROBABILITIES[key] == DECLARED_CONTROL_PASS
+
+
+def test_the_stability_controls_pass_jointly_by_the_union_bound() -> None:
+    """Five controls at 0.99 each pass together with probability at least 0.95, whatever their
+    correlation through the shared fits, and so does the whole stability family."""
+    controls = [
+        value
+        for key, value in p.PASS_PROBABILITIES.items()
+        if key.endswith("__second_draw_control")
+    ]
+    assert len(controls) == len(p.STABILITY)
+    joint = 1.0 - sum(1.0 - value for value in controls)
+    assert joint >= FAMILY_PASS - 1e-12
+    positives = [
+        value
+        for key, value in p.PASS_PROBABILITIES.items()
+        if key.startswith("repeat_stability/") and not key.endswith("__second_draw_control")
+    ]
+    assert len(positives) == len(p.STABILITY)
+    assert 1.0 - sum(1.0 - value for value in [*controls, *positives]) >= FAMILY_PASS - 1e-12
+    policy = " ".join(p.RED_CELL_POLICY)
+    assert "second_draw_control passes with probability 0.99" in policy
+    assert "jointly with probability at least 0.95" in policy
+
+
+def test_the_policy_reads_a_red_control_as_a_defect_suspect() -> None:
+    rule = p.RED_CELL_POLICY[6]
+    assert rule.startswith("7. ")
+    assert "second_draw_control row (its upper endpoint below 1) is a defect suspect" in rule
+    assert "never an owner row" in rule
+    assert "about 0.005 per label" in rule
+    assert "lower endpoint is above 1" in rule
+
+
 def one_draw_share(law: str, scenario: str, name: str) -> float:
     """The pilot's one-draw split variance over the mean reported variance on a fixed sample.
 
@@ -1022,6 +1075,17 @@ def declaration() -> pd.DataFrame:
                 ),
             }
         )
+    for label in p.STABILITY:
+        # The exact null: no pilot reading enters, so the pass probability and its predictive
+        # value are one analytic number.
+        records.append(
+            {
+                "rule": "repeat_stability control",
+                "cell": f"{label}__second_draw_control",
+                "pass": CONTROL_PASS,
+                "predictive": CONTROL_PASS,
+            }
+        )
     for cell, (scenario, column) in LADDER.items():
         reading, ahead = ladder_probabilities(scenario, column)
         records.append({"rule": "root_n_rate", "cell": cell, "pass": reading, "predictive": ahead})
@@ -1042,6 +1106,7 @@ def declared_key(rule: str, cell: str) -> str | None:
         "band family": "simultaneous_coverage",
         "repeat_increment": "repeat_increment",
         "repeat_stability": "repeat_stability",
+        "repeat_stability control": "repeat_stability",
         "root_n_rate": "root_n_rate",
     }
     if rule == "calibration family":

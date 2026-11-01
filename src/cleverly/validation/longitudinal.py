@@ -28,6 +28,7 @@ from typing import Any
 
 import numpy as np
 
+from .._summary import Detail, Summary, check_detail
 from .._typing import BoolArray, FloatArray
 from ..data.weighting import REPORTED_DRAW, effective_sample_size
 from ..longitudinal.sequential import constant_target
@@ -132,6 +133,7 @@ class LongitudinalStageRow:
     epsilon: tuple[float, ...]
     #: Whether the fluctuation solved its score; ``None`` on a node with no fluctuation.
     converged: bool | None
+    share_trimmed: float | None = None
     #: On an SDR fit, the node's transform diagnostics; ``None`` on a TMLE fit.
     sdr: SDRNodeRow | None = None
     #: On an IPSI fit, the node's tilt diagnostics; ``None`` on every other fit.
@@ -219,8 +221,8 @@ class LongitudinalDiagnostics:
 
     **When any treatment node is categorical the column is** ``assigned_shares``
     **instead**, holding ``"active=0.62, none=0.38"`` in that node's label order -- the
-    presentation :func:`~cleverly.estimators.base._arm_shares` uses for the same question
-    about a point treatment.  A single share cannot answer it at three arms: "the fraction
+    presentation a point-treatment summary's "Arm shares" fact uses for the same
+    question.  A single share cannot answer it at three arms: "the fraction
     assigned arm 1" is the fraction assigned whichever label happens to sort second, which
     is not a quantity anybody asked for, and a static plan on a third arm would report ``0``
     exactly as a plan on the first arm does.  A wholly two-level panel keeps
@@ -245,6 +247,12 @@ class LongitudinalDiagnostics:
     cumulative mechanism and not the ratio.  A truncated row therefore need not carry a large
     ratio.
 
+    ``share_trimmed`` is present on a fit with ``ratio_trim=``, as ``cause`` is present on a
+    competing-risk fit only.  It is the share of the node's ``trained_on`` rows whose node
+    ratio the trim moved (:mod:`cleverly.longitudinal.ratio_trim`).
+
+    **On an SDR fit** the targeting columns ``epsilon`` and ``converged`` are absent,
+    because the estimator fits no fluctuation.  Five columns take their place.
     **On a fit with no fluctuation** the targeting columns ``epsilon`` and ``converged`` are
     absent, because no node holds a fluctuation parameter or a solver verdict.  This holds
     for ``SequentialGComputation`` and ``SequentialIPW``, whose nodes are untargeted, and for
@@ -290,6 +298,34 @@ class LongitudinalDiagnostics:
     #: Whether every targeting step of each draw converged, in draw order.
     draw_converged: tuple[bool, ...] = ()
 
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the check.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints one row per regimen and time point, the reading and the
+            notes. ``"full"`` adds the columns and explanations that the short form leaves
+            out.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
+        """
+        from ._longitudinal_summary import stage_summary
+
+        return stage_summary(self, check_detail(detail))
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from ._longitudinal_summary import stage_repr
+
+        return stage_repr(self)
+
     def to_frame(self, data: Any = None) -> Any:
         assignment = "assigned_shares" if self.categorical else "share_assigned_1"
         payload: dict[str, Any] = {
@@ -307,6 +343,11 @@ class LongitudinalDiagnostics:
             "max_weight": [row.max_weight for row in self.rows],
             "effective_n": [row.effective_n for row in self.rows],
             "share_truncated": [row.share_truncated for row in self.rows],
+            **(
+                {"share_trimmed": [row.share_trimmed for row in self.rows]}
+                if any(row.share_trimmed is not None for row in self.rows)
+                else {}
+            ),
         }
         if self.rows and all(row.sdr is not None for row in self.rows):
             for name in (
@@ -388,6 +429,33 @@ class LongitudinalScoreDiagnostics:
     rows: tuple[LongitudinalScoreRow, ...]
     tolerance: float
     backend: str | None = None
+
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the check.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints one row per equation, the reading and the notes. ``"full"``
+            adds the columns and explanations that the short form leaves out.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
+        """
+        from ._longitudinal_summary import score_summary
+
+        return score_summary(self, check_detail(detail))
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from ._longitudinal_summary import score_repr
+
+        return score_repr(self)
 
     @property
     def passed(self) -> bool:
@@ -533,6 +601,33 @@ class LongitudinalNuisanceDiagnostics:
     repeat_spread: tuple[RepeatSpreadRow, ...] = ()
     repeat_spread_omission: str | None = None
 
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the check.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints one row per model, the reading and the notes. ``"full"``
+            adds the columns and explanations that the short form leaves out.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
+        """
+        from ._longitudinal_summary import models_summary
+
+        return models_summary(self, check_detail(detail))
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from ._longitudinal_summary import models_repr
+
+        return models_repr(self)
+
     def to_frame(self, data: Any = None) -> Any:
         """Return one row per retained nuisance fit, in the input dataframe backend.
 
@@ -634,6 +729,15 @@ def _policy_shares(density: FloatArray, levels: Sequence[object], categorical: b
     )
 
 
+def _share_trimmed(fit: Any, step: Any) -> float | None:
+    """The share of the node's scored rows whose node ratio the trim moved, or ``None``."""
+    trim = fit.ratio_trim
+    if trim is None:
+        return None
+    moved = trim.trimmed[step.trained_on, step.time - 1]
+    return float(np.mean(moved)) if moved.size else float("nan")
+
+
 def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
     """One row per node: how heavy the weights got and how much the bounds moved.
 
@@ -723,6 +827,7 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
                     ),
                     sdr=None if step is None else _sdr_node_row(step),
                     ipsi=None if step is None else _ipsi_node_row(result, fit, step),
+                    share_trimmed=None if step is None else _share_trimmed(fit, step),
                 )
             )
     draws = [repeat.fits for repeat in getattr(result, "repeats", ())] or [result.fits]

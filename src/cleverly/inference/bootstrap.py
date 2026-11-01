@@ -39,15 +39,19 @@ the model that produced them, which the package never sees.
 from __future__ import annotations
 
 import math
-import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 
 import numpy as np
 
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._summary import Detail, Summary
+
 from .._support import UNCLASSIFIED, Support
 from .._typing import FloatArray, IntArray
+from .._warnings import suppressed as _suppressed
+from .._warnings import warn as _warn
 from ..utils.parallel import map_parallel
 from .delta import normal_cdf, normal_quantile
 from .influence import BootstrapInterval, BootstrapSummary
@@ -119,14 +123,18 @@ class _BootstrapDesign:
     cluster: IntArray | None
     members: tuple[IntArray, ...] | None
 
-    def sample(self, data: _DataT, draw: _BootstrapDraw) -> _DataT:
-        """Materialize one sample with distinct codes for cluster occurrences."""
-        index, occurrence_codes = _bootstrap_draw(
+    def indices(self, data: _DataT, draw: _BootstrapDraw) -> tuple[IntArray, IntArray | None]:
+        """Return the row positions of one draw, and the distinct cluster occurrence codes."""
+        return _bootstrap_draw(
             data.n,
             self.cluster,
             np.random.default_rng(draw.sequence),
             None if self.members is None else list(self.members),
         )
+
+    def sample(self, data: _DataT, draw: _BootstrapDraw) -> _DataT:
+        """Materialize one sample with distinct codes for cluster occurrences."""
+        index, occurrence_codes = self.indices(data, draw)
         sample = data.subset(index)
         if occurrence_codes is None:
             return sample
@@ -164,7 +172,66 @@ class BootstrapResult:
     resampling: str
     std_errors: dict[str, FloatArray] = field(default_factory=dict)
 
-    def summary(
+    def to_frame(self, backend: str | None = None) -> Any:
+        """One row per estimand: the usable replicates and their mean, SD and range.
+
+        A description of the replicate estimates, not an interval: the fitted result says
+        whether they give one.
+
+        Parameters
+        ----------
+        backend : str or None, default=None
+            The dataframe library to return, such as ``"pandas"`` or ``"polars"``; ``None``
+            uses the default one.
+
+        Returns
+        -------
+        dataframe
+            The columns ``estimand``, ``n_replicates``, ``mean``, ``sd``, ``min`` and
+            ``max``, in ``backend``.
+        """
+        from ..utils.frames import frame_from_dict
+        from ._summaries import replicate_rows
+
+        return frame_from_dict(replicate_rows(self), backend=backend)
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the replicates, laid out like a statsmodels summary.
+
+        For the interval of one estimand, call :meth:`interval`.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds how a replicate is drawn.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._summaries import bootstrap_result_summary
+
+        return bootstrap_result_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from .._summary import short_repr
+
+        return short_repr(
+            "BootstrapResult",
+            [
+                ("estimands", len(self.draws)),
+                ("replicates", self.n_requested),
+                ("failed", self.n_failed),
+                ("resampling", self.resampling),
+            ],
+        )
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def interval(
         self,
         name: str,
         alpha: float = 0.05,
@@ -751,10 +818,10 @@ def _run_draws(
         except Exception:
             return None
 
-    with warnings.catch_warnings():
+    with _suppressed():
         # Replicates routinely trip positivity and convergence warnings; surfacing
-        # them once per replicate would bury the real output.
-        warnings.simplefilter("ignore")
+        # them once per replicate would bury the real output, and recording them would
+        # put a resample's warning on the main fit.
         outcomes = map_parallel(replicate, design.draws, n_jobs=n_jobs)
 
     # Outside the guard above: a refit that breaks the contract is a programming error, and
@@ -769,7 +836,7 @@ def _run_draws(
             "bootstrap. Check res.diagnostics.support() and consider tighter g_bounds."
         )
     if n_failed:
-        warnings.warn(
+        _warn(
             f"{n_failed} of {n_replicates} bootstrap replicates failed and were dropped",
             UserWarning,
             stacklevel=3,

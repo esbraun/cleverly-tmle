@@ -180,7 +180,7 @@ class OracleReductionDRTMLE(DRTMLE):
         bounds = nuisance.reduced.g_bounds
         return replace(
             spec,
-            refit=lambda current, families: (_oracle_set(current, bounds, self.reduction), ()),
+            refit=lambda current, families: (_oracle_set(current, bounds, self.reduction), (), ()),
         )
 
 
@@ -198,6 +198,7 @@ def _fit(estimator: type[DRTMLE], **overrides: Any) -> Any:
         "outcome_learner": OracleOutcome(dgp),
         "treatment_learner": OracleTreatment(dgp),
         "reduced_outcome_learner": CellMeans(),
+        "reduced_mechanism_residual_learner": CellMeans(),
         "reduced_treatment_learner": CellMeans(),
         "estimands": ESTIMANDS,
         "g_bounds": INERT,
@@ -218,6 +219,7 @@ def fits() -> dict[str, Any]:
         "glm": _fit(
             DRTMLE,
             reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+            reduced_mechanism_residual_learner=sklearn.linear_model.LinearRegression(),
             reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         ),
     }

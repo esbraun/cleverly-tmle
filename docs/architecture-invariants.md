@@ -237,8 +237,9 @@ A derived estimate takes the smallest `reference_df` of its inputs at its own `m
 call. Every interval, p-value and sensitivity limit reads the reference
 through `wald_ci`, `wald_statistic`, `reference_quantile` or `one_sided_quantile` in
 `cleverly.inference.delta`, and `tests/unit/test_few_cluster_reference.py` scans the package for
-a second normal quantile. A future fold-evaluated report with baseline strata must carry each
-stratum's row set into `_average_over_folds`, or its stratum estimates read the fit's cluster count.
+a second normal quantile. The fold-evaluated report with baseline strata refuses `id=` (X28). A
+future clustered form must carry each stratum's row set into `_average_over_folds`, or its stratum
+estimates read the fit's cluster count.
 *Reconsider when* a source gives a reference that is not a function of the cluster count.
 
 One fit has one fit status. When more than one non-inferential fit status applies, the fit takes
@@ -251,8 +252,15 @@ one.
 A reader of `std_error`, `ci`, or `pvalue` must branch on each estimate's `supplies_inference`.
 The `inference_status` of a result is the fit status, so it alone does not say that every
 estimate supplies inference. A reader that decides columns from it must also handle the estimates
-that do not: `summary()` stars them, `curve()` and `incidence_total()` add an `inference` column
-and the plug-in columns, and `to_frame()` holds the union of the columns.
+that do not. `curve()` and `incidence_total()` add an `inference` column and the plug-in
+columns, and `to_frame()` holds the union of the columns.
+
+In a summary's estimates table, `cleverly._summary._estimates.estimates_table` applies this rule.
+When no estimate supplies inference, it prints each spread under the diagnostic label from
+`spread_name`. Otherwise it stars each row that supplies none and prints `-` in that row's
+spread, interval and p-value cells. Either way it adds a `no_inference` note that reads the status's `plain_reason` from
+`STATUS_RECORDS`, and in a mixed table the note gives each starred row's spread under the
+diagnostic label.
 
 A frame or label that
 publishes a spread must take its names from `spread_columns()` or `spread_name`, which raises
@@ -367,7 +375,7 @@ axis-keyed consumer decides explicitly. The table gives the rules the fit keeps.
 | rule | how the fit keeps it |
 | --- | --- |
 | the rule of a row comes from a fit that never saw the row | the rule reads the out-of-fold outcome regression of the row's fold |
-| one pooled fluctuation | `cv_evaluation=True` with `targeting_scheme="pooled"`; every other scheme refuses before any learner |
+| fold evaluation | `cv_evaluation=True`, with one pooled fluctuation or one per validation fold; every other report refuses before any learner |
 | the estimate is the `1/V` average of the fold plug-ins | the fold-evaluated report, with each fold's curve centred at its own estimate |
 | no row is refitted | `refute`, the full-refit bootstrap and `repeats` above 1 refuse, because a refit relearns the rules. Every sensitivity analysis refuses too, because no derivation for this target was reviewed |
 
@@ -454,7 +462,7 @@ refuses by name.
 A `summarize` row reads stored state and always runs. A `refit` row refits nuisances and runs only
 under `include_refits`. A `retarget` row retargets cached nuisances and runs under
 `include_retargets`, unless its own row declares `cost` as `cheap`. A cheap retarget runs by
-default, which is how an eligible ordinary TMLE fit reports its derived E-value without refitting a
+default, which is how an eligible TMLE, C-TMLE or DR-TMLE fit reports its derived E-value without refitting a
 nuisance model.
 
 The two flags stay separate because the two costs are disjoint. Refutation and benchmarking refit
@@ -645,6 +653,22 @@ node's treatment factor in the cumulative product is the density ratio. `g_bound
 bounds only the censoring and categorical factors. The fit attaches the ratio to the plan after
 the mechanism fit. A frozen plan carries it, so a replay reads the same ratio.
 
+A ratio trim (`ratio_trim=`) enters before `g_bounds`, through the cumulative mechanism it
+implies. The fit trims each regimen's per-node ratio matrix once, over the pooled out-of-fold
+matrix, and attaches the trim to the mechanism. Every reader of the cumulative product then reads
+`num / bound(num / R~)`, a truncation replay included. On a row whose ratios the trim never
+moved, that value is the untrimmed one, so a trim never changes a row it does not move.
+`tests/unit/test_longitudinal_ratio_trim.py` pins the composition at an upper bound below one.
+
+A Markov order (`markov_order=k`) restricts the nuisance designs only. Each mechanism and
+outcome design at node $t$ reads `W` and a window of the last nodes. The `history_frame` and
+`policy_frame` that a rule or a policy reads keep the full history. So a window never changes a
+resolved plan. A rule node in the window adds its assigned arm to the outcome design, because the
+window does not determine that arm. The outcome and mechanism designs read the arms of the same
+nodes, from $t-k-1$. `tests/unit/test_longitudinal_markov_order.py` pins both
+frames in `test_the_frames_keep_the_full_history`, and a dropped rule block fails an exact-law
+check there.
+
 A cross-fitted per-regimen fit targets after its folds, not inside them. Each fold runs an
 untargeted backward regression sequence on its training rows. One pooled fluctuation per node then
 targets the out-of-fold predictions over every follower, with the out-of-fold cumulative mechanism
@@ -803,13 +827,14 @@ verdict, whatever a runtime gate reads off that example. Evidence manifests such
 `docs/technical-reference/evidence.md` remain test-enforced source registries.
 
 A reader-facing example must nonetheless *run*. `tests/unit/test_documentation_runtime.py`
-executes the registered documents' fences and the tutorial notebooks' code cells. It runs three
+executes the registered documents' fences and the tutorial notebooks' code cells. It runs four
 gates, and the table states what each one covers.
 
 | gate | documents | sample size | what it asserts |
 | --- | --- | --- | --- |
 | `test_every_nonsemantic_example_runs` | entries in `PRELUDES`, none of them tutorials | shrunk to `SMALL_N` | nothing raises |
-| `test_tutorial_semantics_at_documented_size` | every tutorial under `docs/examples/`, as Markdown or as a notebook, offline | the size the page prints | nothing raises, then one reviewed callback checks that page |
+| `test_tutorial_semantics_at_documented_size` | every tutorial under `docs/examples/`, as Markdown or as a notebook, offline, without the refit cells | the size the page prints | nothing raises, then the `check` callback checks that page |
+| `test_tutorial_refits_at_documented_size` (slow tier) | every tutorial notebook with a refit cell, offline, all cells | the size the page prints | nothing raises, then `check` and `check_refits` check that page |
 | `test_every_narrated_decimal_matches_a_stored_output` | every tutorial notebook | none, it reads stored outputs | each decimal in the prose rounds from a stored output |
 
 The smoke gate asserts no number. It exists because compiling a fence cannot see a name the
@@ -831,10 +856,13 @@ The gate is bounded by review rather than by a heuristic. Each callback lives in
 under `tests/unit/tutorial_semantics/` and not in the document, so a rewritten page cannot grant
 itself a numeric gate. One module per tutorial lets several tutorials change at once without an
 edit to a shared registry. `test_every_tutorial_has_one_semantic_assertion` discovers the
-tutorials and pins the modules to them. The documented-size gate is their only runtime pass, which avoids repeating each
-fit at the smoke size. *Reconsider when* a callback needs a looser tolerance to keep passing. A
-relation that moves under a supported change is a sampling claim, and it belongs in a registered
-study.
+tutorials and pins the modules to them. *Reconsider when* a callback needs a looser tolerance to
+keep passing. A relation that moves under a supported change is a sampling claim, and it belongs in
+a registered study.
+
+The documented-size gates are the only runtime pass of a tutorial, which avoids repeating each fit
+at the smoke size. The fast gate skips the refit cells that `refit_cells()` derives from the code,
+and the slow gate runs them.
 
 A reader-facing notebook stores outputs, so its fast check is necessarily narrower. The stamp
 detects a code, output, or stamp-field edit after stamping. It does not prove that the code produced

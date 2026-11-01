@@ -10,10 +10,10 @@ Read the pages in this order.
 
 | page | what it gives you |
 | --- | --- |
-| [Implementation validation grid](validation-grid.md) | the eighty-five validation studies in one table, with the counts and the declared limits |
+| [Implementation validation grid](validation-grid.md) | every validation study in one table, with the counts and the declared limits |
 | [How to read these studies](how-to-read.md) | the three questions, the verdict rules, and the terms every study below applies |
 | [The red-cell ledger](red-cells.md) | every red verdict the studies publish, and the roadmap ask that owns each one |
-| the eighty-seven study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
+| the study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
 
 A validation study declares property cells or names a reference. A study that names a reference
 is comparator-backed, and its agreement block names the comparison kind of each row. The
@@ -44,6 +44,7 @@ clustered-few-cluster-tmle
 clustered-cross-fitted-longitudinal-tmle
 few-cluster-cross-fitted-longitudinal-tmle
 fold-evaluated-point-treatment-cv-tmle
+fold-evaluated-strata
 fold-targeted-point-treatment-cv-tmle
 repeated-cross-fitting
 repeated-cross-fitted-longitudinal
@@ -73,6 +74,10 @@ point-treatment-msm-projection
 deterministic-point-treatment-regimes
 learned-rule-cvtmle
 learned-rule-cvtmle-boundary
+learned-rule-compositions
+learned-rule-split-mean
+learned-rule-learners
+learned-rule-strata
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 point-modified-treatment-policies
@@ -105,9 +110,12 @@ point-survival-hazard
 point-survival-curve
 point-survival-curve-crossfit
 point-treatment-survival-policies
+survival-node-bounds
 known-treatment-mechanism
 known-mechanism-dr-tmle
+dr-tmle-foldwise
 dr-tmle-one-inconsistent-nuisance
+adaptive-iptw
 known-node-mechanisms-ltmle
 sequential-baselines
 structural-nested-mean
@@ -115,9 +123,18 @@ parametric-gformula
 repeated-outcome-longitudinal-tmle
 repeated-outcome-ipsi
 repeated-outcome-sdr
+long-horizon-longitudinal-tmle
+long-horizon-categorical-longitudinal-tmle
+long-horizon-sequentially-doubly-robust-estimation
 omitted-variable-bound-standard-error
 omitted-variable-bound-plugin-standard-error
+ovb-limit-coverage
+evalue-limit-coverage
+marginal-bound-limit-coverage
 calibration-slope-warning
+refuter-calibration-longitudinal
+refuter-calibration-point
+refuter-calibration-band
 default-simultaneous-bands
 full-refit-bootstrap-and-derived-contrasts
 ```

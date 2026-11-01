@@ -54,15 +54,14 @@ from scipy.special import expit
 from scipy.stats import norm
 
 from .._inference_status import InferenceStatus, is_labelled, status_record, supplies_inference
+from .._summary import Detail, Summary, check_detail
 from .._typing import BoolArray, FloatArray, IntArray
 from ..data.weighting import REPORTED_DRAW
-from ..exceptions import capitalize_first
 from ..inference.cluster import influence_variance
 from ..inference.influence import spread_name
 from ..utils.bounds import logit
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
-from ..utils.text import format_draw, format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..data.causal_data import CausalData
@@ -71,6 +70,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.ctmle import CTMLEDerivativeFit, CTMLEOutcomeAdaptiveFit, CTMLESelection
 
 __all__ = [
+    "NO_OUTCOME_REGRESSION",
     "NUISANCE_SELECTION_MISSING",
     "SPREAD_NOT_FINITE",
     "SPREAD_NO_PARAMETERS",
@@ -95,6 +95,9 @@ _CALIBRATION_BINS = 10
 
 #: The fit declares itself collaborative and retains no ``ctmle`` artifact to describe.
 NUISANCE_SELECTION_MISSING = "the fitted result retains no ctmle method artifact"
+
+#: The fit is an AdaptiveIPTW fit, which weights the observed outcomes and fits none.
+NO_OUTCOME_REGRESSION = "AdaptiveIPTW fits no outcome regression"
 
 #: The fit drew the cross-fitting split once, so there is no between-draw spread. Not a
 #: fault: it is the ordinary state of an ordinary fit.
@@ -200,6 +203,11 @@ class NuisanceModelReport:
             for key in _TABLE_METRICS
         ]
 
+    def __repr__(self) -> str:
+        from ._nuisance_summary import report_repr
+
+        return report_repr(self)
+
 
 #: The metric of each column of :meth:`NuisanceDiagnostics.summary`, after the model name.
 _TABLE_METRICS = (
@@ -235,8 +243,8 @@ def _level_label(eligible: int) -> str:
     return f"{100.0 * (1.0 - CALIBRATION_FAMILY_ALPHA / eligible):.1f}%"
 
 
-def _calibration_finding(model: NuisanceModelReport, eligible: int) -> str | None:
-    """The calibration-slope finding for one model tested among ``eligible``, or ``None``.
+def _calibration_parts(model: NuisanceModelReport, eligible: int) -> dict[str, Any] | None:
+    """The numbers of the calibration-slope finding for one model tested among ``eligible``.
 
     The interval is the slope plus or minus the Bonferroni critical value times its standard
     error.  A finding needs the interval to lie above 0 and to exclude 1.  An interval that
@@ -244,7 +252,8 @@ def _calibration_finding(model: NuisanceModelReport, eligible: int) -> str | Non
     measures the spread of the predictions (Cox, 1958, as Stevens and Poppe, 2020, Section 3,
     report), and a spread says nothing where the predictions carry no signal.  The gate at 0 is
     this package's design decision, not a published rule.  An interval wholly below 0 gets no
-    finding either.  The verdict's low-AUC note covers that fit.
+    finding either.  The verdict's low-AUC note covers that fit.  ``None`` when no finding
+    fires.
     """
     slope = model.metrics.get("calibration_slope", float("nan"))
     std_error = model.metrics.get("calibration_slope_se", float("nan"))
@@ -254,22 +263,36 @@ def _calibration_finding(model: NuisanceModelReport, eligible: int) -> str | Non
     low, high = slope - half, slope + half
     if low <= 0.0 or low <= 1.0 <= high:
         return None
-    direction = "more extreme" if high < 1.0 else "more moderate"
+    return {
+        "slope": slope,
+        "low": low,
+        "high": high,
+        "level": _level_label(eligible),
+        "extreme": high < 1.0,
+        "auc": model.metrics.get("auc", float("nan")),
+        "weight": model.metrics.get("largest_inverse_weight", float("nan")),
+    }
+
+
+def _calibration_finding(model: NuisanceModelReport, eligible: int) -> str | None:
+    """The calibration-slope finding for one model tested among ``eligible``, or ``None``."""
+    parts = _calibration_parts(model, eligible)
+    if parts is None:
+        return None
+    direction = "more extreme" if parts["extreme"] else "more moderate"
     facts = [
-        f"calibration slope {slope:.2f}",
-        f"{_level_label(eligible)} interval {low:.2f} to {high:.2f}",
+        f"calibration slope {parts['slope']:.2f}",
+        f"{parts['level']} interval {parts['low']:.2f} to {parts['high']:.2f}",
     ]
-    auc = model.metrics.get("auc", float("nan"))
-    if np.isfinite(auc):
-        facts.append(f"AUC {auc:.3f}")
-    weight = model.metrics.get("largest_inverse_weight", float("nan"))
-    if np.isfinite(weight):
-        facts.append(f"largest untruncated inverse weight {weight:.3g}")
+    if np.isfinite(parts["auc"]):
+        facts.append(f"AUC {parts['auc']:.3f}")
+    if np.isfinite(parts["weight"]):
+        facts.append(f"largest untruncated inverse weight {parts['weight']:.3g}")
     note = (
         f"{model.name}: the out-of-fold predictions are {direction} than the observed rates "
         f"({', '.join(facts)})."
     )
-    if direction == "more extreme":
+    if parts["extreme"]:
         note += (
             " Estimation noise can cause this even in a correctly specified model when the "
             "signal is weak or the model has many covariates."
@@ -376,6 +399,28 @@ class RepeatSpreadRow:
 
 
 @dataclass(frozen=True)
+class ModelFinding:
+    """One finding of the model check, with the numbers its warning reads.
+
+    Parameters
+    ----------
+    code : str
+        The summary's warning code for the finding.
+    model : NuisanceModelReport
+        The model the finding is about.
+    text : str
+        The sentence :attr:`NuisanceDiagnostics.findings` lists.
+    numbers : dict of str to Any
+        The numbers the finding read.
+    """
+
+    code: str
+    model: NuisanceModelReport
+    text: str
+    numbers: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class NuisanceDiagnostics:
     """Fit quality for every nuisance model in a TMLE fit.
 
@@ -415,6 +460,9 @@ class NuisanceDiagnostics:
         Machine-readable reason no split-spread row is available.
     reported_repeat : int
         One-based draw described by the nuisance models and selection artifact.
+    outcome_omission : str or None
+        The reason the fit has no outcome-regression report, or ``None`` where it has one.
+        An AdaptiveIPTW fit fits the treatment and missingness models only.
     inference : str
         The inference status the fit's estimates declare. One of
         :data:`~cleverly.inference.influence.InferenceStatus`, which the
@@ -450,6 +498,7 @@ class NuisanceDiagnostics:
     #: Nuisance models and the selection artifact describe this draw. One is the only
     #: draw the fitted result retains method-specific extras for.
     reported_repeat: int = REPORTED_DRAW
+    outcome_omission: str | None = None
     #: Keyed on what the estimates declare rather than on :attr:`treatment_role`, which
     #: cannot tell a selector path from the outcome-adaptive one.
     inference: InferenceStatus = "influence_curve"
@@ -533,117 +582,6 @@ class NuisanceDiagnostics:
             ],
         }
         return emit_frame(payload, data, backend=self.backend)
-
-    def summary(self) -> str:
-        """Return a printable summary.
-
-        Returns
-        -------
-        str
-            A printable table, one line per nuisance model.
-        """
-        # The header states the subject only. The line under the table states whether the
-        # calibration slopes are out of fold, which :attr:`evaluation` records.
-        lines = [
-            "Nuisance model diagnostics",
-            "-" * 40,
-        ]
-        if self.n_repeats > 1:
-            lines.append(
-                f"describing {format_draw(self.reported_repeat, self.n_repeats)}; "
-                "each draw fits its own models"
-            )
-        lines.append(format_table(list(_TABLE_HEADER), [model.row() for model in self.models]))
-        lines.extend(self._calibration_lines())
-        for model in self.models:
-            if not model.learner_weights:
-                continue
-            used = {name: weight for name, weight in model.learner_weights.items() if weight > 1e-3}
-            lines.append("")
-            lines.append(
-                f"{model.name}: super learner weights "
-                + ", ".join(f"{name}={weight:.3f}" for name, weight in used.items())
-            )
-        if self._working_model:
-            lines.extend(
-                [
-                    "",
-                    "The propensity metrics describe the selected C-TMLE working mechanism.",
-                    "They do not describe treatment given the complete adjustment set.",
-                ]
-            )
-        note = self.inference_note
-        if note is not None:
-            # Keyed on the declared status and not on ``_working_model``, which is true for
-            # the outcome-adaptive path too, and that path has a status of its own.
-            lines.extend(["", capitalize_first(note) + "."])
-        if self.selection is not None:
-            # No draw suffix here. The header above already states which draw every
-            # method-specific artifact in this report describes, and a repeated
-            # collaborative fit printed that fact twice.
-            lines.append(self.selection.describe())
-        elif self.selection_omission is not None:
-            lines.append(f"C-TMLE selection unavailable: {self.selection_omission}")
-        if self.repeat_spread:
-            reported = spread_name("reported se", self.inference)
-            lines.extend(
-                [
-                    "",
-                    f"Repeated-split sensitivity. The sd and {reported} columns are on "
-                    "the estimand's inference scale, which is the log scale for a ratio.",
-                    format_table(
-                        ["estimand", "draws", "sd", reported, spread_name("sd/se", self.inference)],
-                        [row.row() for row in self.repeat_spread],
-                    ),
-                    "The split ratio is descriptive and has no pass threshold.",
-                ]
-            )
-        if self.n_repeats > 1 and self.repeat_spread_omission is not None:
-            # Guarded on the draw count rather than on the reason, because the one-draw
-            # reason is the ordinary state of an ordinary fit and would otherwise print
-            # under every summary this package produces.
-            lines.append(f"split spread unavailable: {self.repeat_spread_omission}")
-        lines.append("")
-        lines.append(self.verdict())
-        return "\n".join(lines)
-
-    def verdict(self) -> str:
-        """A reading of the diagnostics that says what to do about them.
-
-        Returns
-        -------
-        str
-            A reading of the diagnostics that says what to do about them.
-        """
-        notes = list(self.findings)
-        for model in self.models:
-            if not _is_binary_propensity(model) or self._working_mechanism(model):
-                continue
-            auc = model.metrics.get("auc")
-            if auc is not None and auc < 0.55:
-                notes.append(
-                    f"treatment is nearly unpredictable from W (AUC {auc:.3f}); overlap is "
-                    "excellent and confounding by these covariates is limited"
-                )
-        if not notes:
-            if self._non_inferential and self._working_model:
-                return (
-                    "VERDICT: C-TMLE working-model metrics are descriptive, and this fit "
-                    "reports no confidence interval and no p-value; inspect the selection "
-                    "and support reports."
-                )
-            if self._non_inferential:
-                return (
-                    "VERDICT: nuisance fits look reasonable; this fit reports no "
-                    "confidence interval and no p-value."
-                )
-            if self._working_model:
-                return (
-                    "VERDICT: C-TMLE working-model metrics are descriptive; inspect the "
-                    "selection and support reports."
-                )
-            return "VERDICT: nuisance fits look reasonable."
-        return "VERDICT:\n" + "\n".join(f"  - {note}" for note in notes)
 
     @property
     def _working_model(self) -> bool:
@@ -741,41 +679,124 @@ class NuisanceDiagnostics:
     @property
     def findings(self) -> tuple[str, ...]:
         """Return findings that meet an existing diagnostic warning rule."""
-        notes: list[str] = []
+        return tuple(finding.text for finding in self._findings())
+
+    def _findings(self) -> list[ModelFinding]:
+        """Each finding with the numbers the summary's warning for it reads."""
+        found: list[ModelFinding] = []
         tested = self._calibration_tested
         for model in self.models:
             auc = model.metrics.get("auc")
             if _is_binary_propensity(model) and auc is not None and auc > 0.9:
-                notes.append(
-                    f"the propensity model separates the arms almost perfectly "
-                    f"(AUC {auc:.3f}); this signals a positivity problem, not a good fit"
+                found.append(
+                    ModelFinding(
+                        "separation",
+                        model,
+                        f"the propensity model separates the arms almost perfectly "
+                        f"(AUC {auc:.3f}); this signals a positivity problem, not a good fit",
+                        {"auc": auc},
+                    )
                 )
             if model.name == "missingness" and auc is not None and auc > 0.9:
-                notes.append(
-                    f"the missingness model predicts almost perfectly (AUC {auc:.3f}); some "
-                    "units had virtually no chance of a recorded outcome, so 1/P(Delta=1|A,W) "
-                    "gives them extreme leverage -- check res.diagnostics.support()"
+                found.append(
+                    ModelFinding(
+                        "recording_separation",
+                        model,
+                        f"the missingness model predicts almost perfectly (AUC {auc:.3f}); "
+                        "some units had virtually no chance of a recorded outcome, so "
+                        "1/P(Delta=1|A,W) gives them extreme leverage; check "
+                        "res.diagnostics.support()",
+                        {"auc": auc},
+                    )
                 )
             if model in tested:
-                calibration = _calibration_finding(model, len(tested))
-                if calibration is not None:
-                    notes.append(calibration)
+                parts = _calibration_parts(model, len(tested))
+                if parts is not None:
+                    text = _calibration_finding(model, len(tested))
+                    assert text is not None
+                    found.append(ModelFinding("calibration_finding", model, text, parts))
             mean_weight = model.learner_weights.get("mean", 0.0)
             if mean_weight > 0.8:
-                notes.append(
-                    f"{model.name} put {mean_weight:.0%} of its weight on the marginal mean -- "
-                    "no candidate beat predicting the average, so this model contributes little"
+                found.append(
+                    ModelFinding(
+                        "mean_only",
+                        model,
+                        f"{model.name} put {mean_weight:.0%} of its weight on the marginal "
+                        "mean; no candidate beat predicting the average, so this model "
+                        "contributes little",
+                        {"share": mean_weight},
+                    )
                 )
             r2 = model.metrics.get("r2")
             if model.name == "outcome" and r2 is not None and r2 < 0.05:
-                notes.append(
-                    f"the outcome model explains little variance (R^2 {r2:.3f}); the estimate is "
-                    "close to inverse-probability weighting and will be correspondingly noisy"
+                found.append(
+                    ModelFinding(
+                        "weak_outcome_model",
+                        model,
+                        f"the outcome model explains little variance (R^2 {r2:.3f}); the "
+                        "estimate is close to inverse-probability weighting and will be "
+                        "correspondingly noisy",
+                        {"r2": r2},
+                    )
                 )
-        return tuple(notes)
+        return found
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return self.summary()
+    @property
+    def weak_treatment_models(self) -> tuple[NuisanceModelReport, ...]:
+        """The binary treatment models that predict treatment barely better than chance.
+
+        An AUC below 0.55 on the propensity of a fit whose treatment model is fitted for the
+        treatment law. A collaborative working mechanism is left out: its AUC describes the
+        model the search chose, not the treatment law.
+        """
+        return tuple(
+            model
+            for model in self.models
+            if _is_binary_propensity(model)
+            and not self._working_mechanism(model)
+            and model.metrics.get("auc") is not None
+            and model.metrics["auc"] < 0.55
+        )
+
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the check.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints one row per model, the reading and the notes. ``"full"`` adds
+            what the fit could not report and why.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
+        """
+        from ._nuisance_summary import nuisance_summary
+
+        return nuisance_summary(self, check_detail(detail))
+
+    def verdict(self) -> str:
+        """The reading of the check: one sentence on what the metrics show.
+
+        Returns
+        -------
+        str
+            The summary's reading. Each finding is a warning of the summary, and
+            :attr:`findings` lists them.
+        """
+        reading = self.summary().reading
+        assert reading is not None
+        return reading
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from ._nuisance_summary import nuisance_repr
+
+        return nuisance_repr(self)
 
 
 def _at_realised_treatment(data: CausalData, mechanism: FloatArray) -> FloatArray:
@@ -937,7 +958,14 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
 
     scaled = nuisance.scaler.scale(data.outcome)
     outcome_rows = data.observed if recorded is None else data.observed & recorded
-    if data.family == "binomial":
+    from ..estimators._nuisance import UnfittedOutcome
+
+    outcome_omission = (
+        NO_OUTCOME_REGRESSION if isinstance(nuisance.outcome, UnfittedOutcome) else None
+    )
+    if outcome_omission is not None:
+        pass
+    elif data.family == "binomial":
         models.append(
             _binary_report(
                 "outcome",
@@ -983,6 +1011,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
         repeat_spread=spread_rows,
         selection_omission=selection_omission,
         repeat_spread_omission=spread_omission,
+        outcome_omission=outcome_omission,
         inference=result.inference_status,
     )
 

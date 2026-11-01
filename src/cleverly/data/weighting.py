@@ -123,11 +123,13 @@ An **estimated** weight is where that stops.  The argument above for the ordinar
 estimator is that the interval conditions on the weights, which ``weights_estimated=``
 declares.  That argument is about :math:`D^*`, and nothing read here derives the reduced
 regressions of a random tilt.  So a ``DRTMLE`` fit with a non-empty ``guard`` and
-``weights_estimated=True`` reports its point estimate under the ``"estimated_weight_plugin"``
-status: ``ci``, ``pvalue`` and ``std_error`` raise, and ``plugin_std_error`` and
-``plugin_interval`` keep the diagnostic.  ``guard=()`` fits the ordinary TMLE and keeps its
-interval.  X50 in ``docs/roadmap.md`` holds the fixed-weight DR-TMLE curve that would
-reopen it.
+``weights_estimated=True`` takes the ``"estimated_weight_plugin"`` status.  The status is
+shown: ``ci``, ``pvalue`` and ``std_error`` return the plug-in values with the weights held
+fixed, and the estimate carries the ``experimental`` label.  ``guard=()`` fits the ordinary
+TMLE and keeps its interval.  An ``AdaptiveIPTW`` fit with a known treatment mechanism and
+weights declared estimated takes the same status, because its curve rests on the reduced
+regression of the weighted law.  X50 in ``docs/roadmap.md`` holds the fixed-weight DR-TMLE
+curve that would reopen it.
 
 Normalisation
 -------------
@@ -278,15 +280,15 @@ the supported answer is to expand the rows -- ``frame.loc[frame.index.repeat(cou
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Final, Literal, TypedDict, cast
 
 import numpy as np
 
-from .._inference_status import status_record
+from .._summary import Detail, Summary, check_detail
 from .._typing import FloatArray
+from .._warnings import warn as _warn
 from ..exceptions import DataError, WeightingWarning
 from .validate import check_weights
 
@@ -306,7 +308,6 @@ __all__ = [
     "WeightReport",
     "WeightSpec",
     "describe_weights",
-    "estimand_lines",
     "format_score_load",
     "resolve_weight_kind",
     "score_load_row",
@@ -346,8 +347,8 @@ _FREQUENCY_MESSAGE = (
     "divide by that total and every fold, cluster sum and bootstrap draw would have to "
     "count units rather than rows. Passing counts as probability weights gives the same "
     "point estimate with a standard error inflated by roughly sqrt(mean(counts)). "
-    "Expand the rows instead -- pandas: frame.loc[frame.index.repeat(counts)]; polars: "
-    "frame.select(pl.all().repeat_by(counts).explode()) -- or aggregate to a rate "
+    "Expand the rows instead (pandas: frame.loc[frame.index.repeat(counts)]; polars: "
+    "frame.select(pl.all().repeat_by(counts).explode())) or aggregate to a rate "
     "outcome. See cleverly.data.weighting for the full statement."
 )
 
@@ -462,7 +463,7 @@ def warn_if_counts(weights: FloatArray, name: str, *, stacklevel: int = 3) -> No
         return
     if float(w.min()) < 1.0 or float(w.mean()) < 1.5:
         return
-    warnings.warn(
+    _warn(
         f"{name} are whole numbers averaging {w.mean():.3g}, which looks like counts of "
         "identical units. They are being read as probability weights, which estimates the "
         "right parameter but with a standard error too large by roughly "
@@ -530,7 +531,7 @@ def warn_if_concentrated(weights: FloatArray, name: str, *, stacklevel: int = 3)
     design_effect = w.size / ess
     if design_effect <= CONCENTRATED_DESIGN_EFFECT:
         return
-    warnings.warn(
+    _warn(
         f"{name} are concentrated: the effective sample size is {ess:.0f} of {w.size} rows "
         f"(design effect {design_effect:.1f}). The estimate rests on that much of the "
         "sample, sample-size-dependent settings such as g_bounds='auto' are resolved from "
@@ -594,87 +595,33 @@ class WeightReport:
             "n_zero": self.n_zero,
         }
 
-    def summary(self) -> str:
-        """A printable statement of the estimand and the cost of the weighting."""
-        if not self.is_weighted:
-            return "Observation weights: constant, so the fit is the unweighted one."
-        label = self.name or "weights"
-        lines = [
-            "Observation weights",
-            "=" * 19,
-            f"column: {label}; kind: {self.kind} weights, treated as "
-            + ("estimated" if self.estimated else "fixed"),
-            f"n = {self.n}, effective n = {self.effective_n:.1f} "
-            f"(Kish), design effect = {self.design_effect:.2f}",
-            f"weight range (relative to the mean) [{self.ratio[0]:.3g}, {self.ratio[1]:.3g}], "
-            f"CV = {self.coefficient_of_variation:.2f}",
-            f"largest 1% of weights hold {self.top_1pct:.1%} of the mass; "
-            f"largest 5% hold {self.top_5pct:.1%}",
-        ]
-        if self.n_zero:
-            lines.append(
-                f"{self.n_zero} rows carry zero weight: they do not enter the estimate but "
-                "do count towards n, which is correct under the i.i.d.-weights model"
-            )
-        lines.append("")
-        lines.extend(estimand_lines(self))
-        if self.design_effect > CONCENTRATED_DESIGN_EFFECT:
-            lines.append("")
-            lines.append(
-                "VERDICT: the weights dominate. Effective sample size is under a quarter of "
-                "the rows, so the estimate rests on a small part of the sample and the "
-                "asymptotics behind the interval are working from that smaller number."
-            )
-        return "\n".join(lines)
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the report.
 
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints the weights' size and spread, the reading and the notes.
+            ``"full"`` adds the estimand the weights define and what the standard error
+            reads.
 
-#: The roadmap item the estimated-weight line names, read from the status record.
-_ESTIMATED_WEIGHT_REOPEN = status_record("estimated_weight_plugin").reopened_by
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
+        """
+        from ._weight_summary import weight_summary
 
+        return weight_summary(self, check_detail(detail))
 
-def estimand_lines(report: WeightReport) -> list[str]:
-    """The estimand statement, as lines for a report.
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
-    Short by design -- the derivation lives in this module's docstring.  What has to
-    appear next to any weighted number is *which* population it refers to and *what* the
-    standard error conditions on.  The report belongs to the data and not to a fit, so
-    every sentence has to be true of every estimator that can fit the data: the
-    estimated-weight line names the fit that the weight declaration alone stops from
-    reporting an interval.
-    """
-    if not report.is_weighted:
-        return []
-    lines = [
-        "Estimand: the requested causal parameter in the weight-tilted population "
-        "dP_w = w dP / E[w], estimated by TMLE on the weighted empirical measure "
-        "(weighted nuisance fits, weighted targeting, weighted plug-in).",
-        "Standard errors: influence curve (w / E[w]) * D*(P_w), i.e. the efficient "
-        "influence function of that parameter when the weights are observed data. An "
-        "outcome-adaptive C-TMLE fit reports no standard error (the generated_design_plugin "
-        "status). Under the default per-arm design, its retained diagnostic reads the curve "
-        "of Benkeser, Cai and van der Laan (2020), Theorem 1, which is not the efficient one.",
-    ]
-    if report.estimated:
-        lines.append(
-            "Weights were declared estimated: an interval that a fit reports conditions on "
-            "the fitted weights. For weights fitted by maximum likelihood in a correct "
-            "selection model this is conservative for the full-population parameter; for "
-            "calibrated, raked or trimmed weights there is no general guarantee. Note that "
-            "this package's bootstrap (n_bootstrap=) does not close the gap: it resamples "
-            "rows and renormalises the weights it was handed, never re-deriving them, so "
-            "its intervals condition on the fitted weights too. Closing it needs the weight "
-            "model in the resampling loop, outside this package. A DRTMLE fit with a "
-            "non-empty guard reports no interval on estimated weights: the conditioning "
-            "argument concerns D* and not the reduced regressions, so the fit takes the "
-            f"estimated_weight_plugin status, and {_ESTIMATED_WEIGHT_REOPEN} in "
-            "docs/roadmap.md reopens it."
-        )
-    lines.append(
-        "Complex designs: stratification and finite-population corrections are ignored "
-        "(conservative); clustering is not, so a multi-stage design must declare its PSU "
-        "with id=."
-    )
-    return lines
+    def __repr__(self) -> str:
+        from ._weight_summary import weight_repr
+
+        return weight_repr(self)
 
 
 def describe_weights(
@@ -783,9 +730,9 @@ SCORE_LOAD_EMPTY_MASK = "the fitted score mask contains no rows"
 #: produces.  Refusing it is what keeps ``total_ratio`` from being published above one.
 SCORE_LOAD_MASK_TOO_LARGE = "the fitted score mask size is outside the fitted data"
 
-#: How :meth:`~cleverly.sensitivity.PositivityReport.summary` states a score-load Kish ratio
-#: in its overlap verdict.  A whole percent, because that sentence names which target group
-#: is the most concentrated one rather than sizing the ratio it quotes.
+#: How the overlap check (:meth:`~cleverly.sensitivity.PositivityReport.summary`) states a
+#: score-load Kish ratio in its equation note.  A whole percent, because that note names which
+#: target group is the most concentrated one rather than sizing the ratio it quotes.
 SCORE_LOAD_VERDICT_RATIO_FORMAT = ".0%"
 
 #: Which rendering of a score-load row a reader wants.  ``"cell"`` is a fixed-width table

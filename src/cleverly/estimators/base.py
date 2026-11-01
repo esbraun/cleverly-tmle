@@ -11,27 +11,20 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
 
 from .._inference_status import (
-    NO_SIMULTANEOUS_BANDS,
-    NO_T_REFERENCE_BANDS,
-    T_REFERENCE_NOTE,
     InferenceStatus,
     is_labelled,
-    status_record,
-    supplies_inference,
 )
-from .._refusal import NO_ALTERNATIVE, Refusal
+from .._refusal import Refusal
+from .._summary import Detail, Summary, check_detail
 from .._support import Classification, SupportKey
 from .._typing import FloatArray, ParameterAxis
+from .._warnings import FitWarning
 from ..data.causal_data import CausalData
-from ..data.treatment_covariates import (
-    drtmle_restriction_line,
-    treatment_mechanism_restriction,
-)
 from ..exceptions import (
     CapabilityError,
     RefusalReason,
@@ -41,28 +34,20 @@ from ..exceptions import (
 from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
 from ..inference.cluster import (
-    cluster_sizes,
-    cluster_weight_mass,
     fewest_clusters,
-    positive_mass_clause,
-    unequal_cluster_sizes,
 )
 from ..inference.delta import Transform
 from ..inference.influence import (
     ClusterReference,
     ParameterEstimate,
     Scale,
-    bootstrap_line,
-    has_t_reference,
-    reference_label,
     spread_name,
     stamp_inference,
-    support_column,
-    support_notes,
 )
 from ..inference.multiplier import SimultaneousBands
 from ..inference.results import (
     RatioKind,
+    RepeatSpread,
     estimate_covariance,
     estimate_curves,
     ratio_contrast,
@@ -72,20 +57,16 @@ from ..inference.results import (
     select_estimates,
     smooth_contrast,
     sole_estimate,
-    split_noise_lines,
     with_derived_bootstrap,
 )
 from ..inference.results import repeat_spread as shared_repeat_spread
 from ..learners.crossfit import CrossFitPlan, SplitPlan
-from ..protocol import ProtocolDetail, protocol_summary_lines
 from ..provenance import Provenance
 from ..targets import TARGETS, all_names, resolve_estimands
 from ..targets.base import arm_alias, parameter_name
 from ..utils.frames import emit_frame
 from ..utils.memos import without_memos
-from ..utils.text import format_pvalue, format_table
 from ._nuisance import NuisanceEstimates, RepeatFit
-from .direct_effect import describe as describe_direct_effect
 from .targeting import TargetingSpec
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -244,71 +225,6 @@ class TMLEConfig:
             else "fold-specific targeted TMLE"
         )
 
-    def describe(self) -> list[str]:
-        """Human-readable lines for :meth:`TMLEResult.summary`."""
-        lines = [
-            f"outcome family: {self.family}; fluctuation: {self.fluctuation} ({self.targeting})",
-        ]
-        if self.cross_fit:
-            lines.append(
-                f"{self.estimator_name}: nuisances cross-fitted over {self.n_folds} folds; "
-                f"targeting: {self.targeting_scheme}"
-            )
-            if self.crossfit.repeated:
-                # Always shown when it applies, unlike the capped-folds line below: a
-                # repeated fit reports a different estimator from an ordinary one, and a
-                # reader who cannot tell them apart cannot compare two summaries.
-                lines.append(
-                    f"  (median over {self.crossfit.repeats} independent draws of the "
-                    "split; variance includes within-draw uncertainty and split dispersion)"
-                )
-        else:
-            lines.append(f"{self.estimator_name}: nuisances fitted in-sample (cross_fit=False)")
-        if self.cross_fit and self.crossfit.n_folds != self.n_folds:
-            # Only when they disagree, because agreeing is the ordinary case and a line
-            # that always appears is a line nobody reads. When they do disagree the
-            # warning that explained it was emitted at fit time and is long gone, so this
-            # is the only place a reader can find out that the split was capped.
-            lines.append(
-                f"  ({self.crossfit.n_folds} folds were declared; the split was capped "
-                f"at {self.n_folds} by the rarest stratum or the cluster count)"
-            )
-        # A policy fit on a dose reads a conditional density, not a propensity: nothing is
-        # truncated into g_bounds and reporting the bound would name a step that did not
-        # happen. What bounds a density ratio there is the cap the analyst declared,
-        # which is part of the estimand and so appears in the parameter names instead.
-        if not (self.parameter_axis == "policy" and self.continuous_treatment) and (
-            self.fits_treatment
-        ):
-            bounds = f"propensity truncated to [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}]"
-            if self.auto_bounds_n is not None:
-                # Named because it is a deliberate divergence from R's rule, and because a
-                # reader comparing two fits needs to know the bound moved with the weights.
-                bounds += f" (auto, resolved at the effective n of {self.auto_bounds_n:.0f})"
-            if self.g_bounds_conditional != self.g_bounds:
-                bounds += (
-                    f"; ATT/ATC to [{self.g_bounds_conditional[0]:.4g}, "
-                    f"{self.g_bounds_conditional[1]:.4g}]"
-                )
-            lines.append(bounds)
-        if self.treatment_mechanism == "known":
-            lines.append(
-                "treatment mechanism: known (declared); no truncation bound moved a known value"
-            )
-        if self.bounded_mechanisms:
-            # The propensity is not the only denominator in the clever covariate, and a
-            # reader comparing two fits needs to see every bound that shaped the estimate
-            # -- not just the one with a familiar name.
-            named = " and ".join(self.bounded_mechanisms)
-            lines.append(f"{named} truncated to [{self.missingness_bound:.4g}, 1]")
-        if self.q_bounds is not None:
-            lines.append(
-                f"outcome scaled from [{self.q_bounds[0]:.4g}, {self.q_bounds[1]:.4g}] to [0, 1]"
-            )
-        if self.target_weights:
-            lines.append("fluctuation in weighted form (target_weights=True)")
-        return lines
-
 
 @dataclass(frozen=True)
 class CVTargeting:
@@ -362,7 +278,8 @@ class CVTargeting:
         carries the ordinary influence-curve one.  The two agree when the folds are
         balanced and the score equation is solved, so a gap between them is itself
         informative. Over ``R`` draws, the median aggregation adds each point's squared
-        displacement before taking the median across draws. :attr:`std_error` returns
+        displacement before taking the median across draws, and the mean aggregation of
+        a learned-rule fit is the second moment of the mean curve. :attr:`std_error` returns
         the square root at ``"influence_curve"`` and refuses at every other status;
         :attr:`plugin_std_error` returns it at every status.
     std_error : dict of str to float
@@ -378,10 +295,15 @@ class CVTargeting:
         Per-targeting-group tuple of fold-specific fluctuation coefficients, from the
         first draw. Empty for common pooled-validation targeting.
     pooled, fold_evaluated:
-        The two reports, per estimand, combined by their median over every draw.
+        The two reports, per estimand, combined over every draw by :attr:`aggregate`.
     repeats:
         How many cross-fitting draws :attr:`pooled`, :attr:`fold_evaluated` and
         :attr:`variance` cover.
+    aggregate : {"median", "mean"}
+        How the draws combine. ``"median"`` is the rule above. A learned-rule fit takes
+        ``"mean"``: the mean point, and each report's own variance rule applied to the
+        mean of the draws' curves, because each draw defines its own target and the median
+        of the draw estimates estimates no defined parameter.
     inference : str
     plugin_std_error : dict of str to float
     """
@@ -395,6 +317,7 @@ class CVTargeting:
     pooled: dict[str, ParameterEstimate] = field(default_factory=dict)
     fold_evaluated: dict[str, ParameterEstimate] = field(default_factory=dict)
     repeats: int = 1
+    aggregate: Literal["median", "mean"] = "median"
     #: Name of the dataframe backend the fit's data arrived in, as on every other
     #: report here.
     backend: str | None = None
@@ -512,66 +435,31 @@ class CVTargeting:
         }
         return emit_frame(payload, data, backend=self.backend)
 
-    def summary(self) -> str:
-        """A printable report of the fold-level targeting."""
-        errors = self.plugin_std_error
-        status = self.inference
-        cv_label = spread_name("cv std_err", status)
-        rows = []
-        for name, values in self.fold_estimates.items():
-            spread = f"{np.std(values, ddof=1):.4g}" if len(values) > 1 else "n/a"
-            rows.append(
-                [
-                    name,
-                    f"{self.fold_evaluated[name].psi:.5g}",
-                    f"{errors[name]:.4g}",
-                    f"{self.pooled[name].psi:.5g}",
-                    f"{self.pooled[name].plugin_std_error:.4g}",
-                    spread,
-                    f"[{min(values):.5g}, {max(values):.5g}]",
-                ]
-            )
-        table = format_table(
-            [
-                "estimand",
-                "fold-evaluated",
-                cv_label,
-                "pooled",
-                spread_name("std_err", status),
-                "fold sd",
-                "fold range",
-            ],
-            rows,
-        )
-        header = [
-            f"Cross-validated targeting over {self.n_folds} folds "
-            f"(sizes {min(self.fold_sizes)}-{max(self.fold_sizes)})",
-            "fold-evaluated: evaluated inside each fold and averaged (original CV-TMLE).",
-            "pooled: this fit's updated validation predictions stitched and evaluated once.",
-        ]
-        if self.repeats > 1:
-            header.append(
-                f"both reports and the {cv_label} combine {self.repeats} draws by their "
-                "median and split dispersion; the fold columns describe the first."
-            )
-        if not supplies_inference(status):
-            # The fit's own sentence, as ``TMLEResult.summary`` prints it under its table.
-            header.append(status_record(status).reason)
-        elif is_labelled(status):
-            header.append(f"experimental: {status_record(status).shown_reason}")
-        header.append("")
-        epsilon_lines = ["", "common fluctuation coefficients:"]
-        for group, eps in self.epsilon.items():
-            formatted = "(" + ", ".join(f"{e:.4g}" for e in eps) + ")"
-            epsilon_lines.append(f"  {group}: {formatted}")
-        if self.fold_epsilon:
-            epsilon_lines.append("fold-specific fluctuation coefficients:")
-        for group, per_fold in self.fold_epsilon.items():
-            formatted = ", ".join(
-                "(" + ", ".join(f"{e:.4g}" for e in eps) + ")" for eps in per_fold
-            )
-            epsilon_lines.append(f"  {group}: {formatted}")
-        return "\n".join([*header, table, *epsilon_lines])
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of both cross-validated reports, like a statsmodels summary.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds a Settings section.
+
+        Returns
+        -------
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
+        """
+        from .._summary import check_detail
+        from ._method_summary import cv_summary
+
+        return cv_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._method_summary import cv_repr
+
+        return cv_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 @dataclass(frozen=True)
@@ -624,6 +512,9 @@ class TMLEResult:
         Method identity stamped by the estimator; unknown for unstamped artifacts.
     solved_corrections : bool
         Whether the fit participated in the guarded correction system.
+    fit_warnings : tuple of FitWarning
+        The package warnings the fit raised, in first-seen order, which :meth:`summary`
+        prints as notes. Set by the fit entry point.
 
     Attributes
     ----------
@@ -696,6 +587,9 @@ class TMLEResult:
     parameter_keys: dict[str, Any] = field(default_factory=dict)
     fitted_method: str = "unknown"
     solved_corrections: bool = False
+    #: The warnings the fit raised (:mod:`cleverly._warnings`), so a summary printed later
+    #: still names them.
+    fit_warnings: tuple[FitWarning, ...] = ()
     #: Persistent assessment results, keyed by operation plus normalized arguments.
     #: Filling this mapping never changes the fitted parameter or its summary.
     #:
@@ -750,6 +644,18 @@ class TMLEResult:
         return len(self.repeats)
 
     @property
+    def _median_draws(self) -> int:
+        """How many draws the reported estimates combine by their median.
+
+        :attr:`n_repeats` on every fit but a learned-rule one, which reports the mean over
+        its splits and stores the mean of the split curves, the curve that gives its
+        variance (:func:`~cleverly.interventions.learned.mean_over_splits`).  The mean is
+        linear, so the joint operations read that curve as they read the one curve of a
+        single draw, and the operations that refuse a median-combined fit take ``1`` here.
+        """
+        return 1 if self.config.parameter_axis == "learned_rule" else self.n_repeats
+
+    @property
     def split_plan(self) -> SplitPlan:
         """Return immutable assignments for every fitted repeat.
 
@@ -774,7 +680,7 @@ class TMLEResult:
             ),
         )
 
-    def repeat_spread(self) -> dict[str, float]:
+    def repeat_spread(self) -> RepeatSpread:
         r"""Split spread of the estimate across the cross-fitting draws, per estimand.
 
         A *diagnostic*, and emphatically not a standard error.  It measures how much the
@@ -801,18 +707,25 @@ class TMLEResult:
 
         What it must not be used for is inference.  It says nothing about the *sampling*
         variability of the estimand, so it is not an alternative to the reported standard
-        error. The median variance rule already includes between-draw displacement.
+        error. The median variance rule already includes between-draw displacement. The
+        mean of a learned-rule fit does not add it: each split has its own target, and the
+        fit estimates their mean.
 
         Raises when there is only one draw, since the standard deviation of one number is
         not a diagnostic but an artefact.
 
         Returns
         -------
-        dict of str to float
+        RepeatSpread
             Standard deviation across the cross-fitting draws, per estimand, on the
-            inference scale of that estimand.
+            inference scale of that estimand: a ``dict`` whose ``summary()`` sets each
+            spread beside the standard error it is read against.
         """
-        return shared_repeat_spread(self.estimates, [repeat.psi for repeat in self.repeats])
+        return shared_repeat_spread(
+            self.estimates,
+            [repeat.psi for repeat in self.repeats],
+            aggregate="mean" if self.config.parameter_axis == "learned_rule" else "median",
+        )
 
     # ------------------------------------------------------------- accessors
 
@@ -931,6 +844,11 @@ class TMLEResult:
         plug-in covariance of the reported curves. It is a diagnostic and it licenses no
         interval, for the reason that status records.
 
+        A fit of several cross-fitting draws refuses, because its median report is no
+        draw's report. A learned-rule fit of several splits is the exception: it reports the
+        mean over its splits and stores the mean of their curves, so the matrix reads that
+        curve as it reads the curve of one split.
+
         Parameters
         ----------
         names : sequence of str or None
@@ -942,7 +860,7 @@ class TMLEResult:
             Covariance matrix in the requested order.
         """
         refuse_after_repeats(
-            self.n_repeats,
+            self._median_draws,
             operation="covariance()",
             text=(
                 "The marginal variance includes between-draw displacement, but no "
@@ -981,6 +899,10 @@ class TMLEResult:
         It inherits the inference status of the estimates it reads, so a contrast of
         non-inferential estimates refuses an interval exactly as they do.
 
+        A fit of several cross-fitting draws refuses, because a coordinatewise median does
+        not preserve algebraic identities. A learned-rule fit of several splits runs: its
+        estimate and curve are the mean over the splits, and the mean is linear.
+
         ``scale="ratio"`` reports a positive contrast with its interval on the log scale.
         ``transform=`` computes the interval and the test on the scale of a declared
         monotone map and maps the interval back with the inverse, as
@@ -1009,7 +931,7 @@ class TMLEResult:
             Derived estimate with influence-curve inference.
         """
         refuse_after_repeats(
-            self.n_repeats,
+            self._median_draws,
             operation="contrast()",
             text=(
                 "A coordinatewise median does not preserve algebraic identities across estimands."
@@ -1051,7 +973,8 @@ class TMLEResult:
         The interval is computed on the log scale and exponentiated, as
         ``lmtp_contrast(type = "rr")`` and ``type = "or"`` in R ``lmtp`` 1.5.4 compute
         it. The p-value tests a ratio of one. :meth:`ParameterEstimate.wald_test` tests
-        any positive null. The ratio inherits the inference status of its inputs.
+        any positive null. The ratio inherits the inference status of its inputs. A fit of
+        several cross-fitting draws refuses or runs as :meth:`contrast` does.
 
         Parameters
         ----------
@@ -1105,7 +1028,7 @@ class TMLEResult:
         ('rr', 'ratio', True)
         """
         refuse_after_repeats(
-            self.n_repeats,
+            self._median_draws,
             operation="ratio()",
             text=(
                 "A coordinatewise median does not preserve algebraic identities across estimands."
@@ -1191,6 +1114,11 @@ class TMLEResult:
         ValidationReport
             One item per check the fitted method declares, read off stored artifacts.
 
+        Raises
+        ------
+        CapabilityError
+            When the fit is an AdaptiveIPTW fit, which has no outcome regression to check.
+
         See Also
         --------
         cleverly.ValidationReport : The returned validation statuses.
@@ -1219,7 +1147,10 @@ class TMLEResult:
         True
         """
         from ..assessment import validate_result
+        from .iptw import OPERATION_REFUSALS
 
+        if self.fitted_method == "adaptive_iptw":
+            raise CapabilityError.from_refusal(OPERATION_REFUSALS["validate"])
         return validate_result(self)
 
     def assess(
@@ -1504,275 +1435,55 @@ class TMLEResult:
             {name: estimate.influence_curve for name, estimate in self.estimates.items()}
         )
 
-    def summary(self, *, protocol: ProtocolDetail = "full") -> str:
-        """A printable report of the fit.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """A printable report of the fit, like a statsmodels summary.
+
+        The header names the question, the data and the models; the table gives each
+        estimate with its standard error, interval and p-value; numbered notes say what
+        changes how to read a number on this fit only.
 
         Parameters
         ----------
-        protocol : {"full", "fingerprint"}
-            ``"full"`` prints every field of the study protocol record. ``"fingerprint"``
-            prints only its schema and fingerprint, for a reader who has the record already.
+        detail : {"short", "full"}, default "short"
+            ``"short"`` prints the analysis. ``"full"`` adds the assumptions behind a
+            causal reading, the settings that bounded the fit, the method's own details and
+            the study description.
 
         Returns
         -------
-        str
-            A printable report: the estimates, the settings, then the diagnostics.
+        Summary
+            A ``str`` whose value is the printed text. Its ``header``, ``tables``,
+            ``notes`` and ``sections`` hold the same content as data, and ``as_html()``
+            renders it for a notebook.
         """
-        data = self.data
-        header = ["Targeted maximum likelihood estimation", "=" * 38]
-        facts = [
-            f"n = {data.n}"
-            + (
-                f" ({int(data.observed.sum())} with an observed outcome)"
-                if data.has_missing_outcome
-                else ""
-            )
-            + (
-                f" ({int(data.treatment_recorded.sum())} with a recorded treatment)"
-                if data.has_missing_treatment
-                else ""
-            )
-            + f"; covariates = {data.n_covariates}; {_arm_shares(data)}",
-        ]
-        if self.identified_effect is not None:
-            facts.extend(self.identified_effect.summary_lines(protocol=protocol))
-        else:
-            if data.treatment_adjustment_sources is not None:
-                # A fit with no study carries no identification record, so the data's own
-                # declaration prints the same restriction a design records.
-                facts.append(
-                    "model restrictions: "
-                    + treatment_mechanism_restriction(data.treatment_adjustment_sources)
-                )
-            facts.extend(protocol_summary_lines(None, protocol))
-        if data.cluster is not None:
-            facts.append(f"clusters = {_cluster_fact(data)} (cluster-robust variance)")
-        if data.is_weighted:
-            report = data.weight_report()
-            facts.append(
-                f"observation weights ({report.name or 'weights'}, "
-                + ("estimated" if report.estimated else "fixed")
-                + f"): effective n = {report.effective_n:.1f}, "
-                f"design effect = {report.design_effect:.2f}"
-            )
-            facts.append(
-                "estimand: the parameter in the weight-tilted population dP_w = w dP / E[w]; "
-                "see result.data.weight_report()"
-            )
-        if self.intermediate_value is not None:
-            facts.append(describe_direct_effect(self.intermediate_value, data.intermediate_name))
-        facts.extend(self.config.describe())
-        # The selector a collaborative fit stopped at, named in the facts block rather than
-        # left to the nuisance report.  ``describe()`` exists on both artifact classes so a
-        # caller renders either without discriminating between them.
-        selection = self.ctmle_selection
-        if selection is not None:
-            facts.append(selection.describe())
-        # Read the same way: ``base`` cannot import ``drtmle``, so the record describes itself.
-        reduced = self.extra.get("drtmle")
-        if reduced is not None:
-            facts.append(reduced.describe())
-            if data.treatment_adjustment_sources is not None:
-                facts.append(drtmle_restriction_line(data.treatment_adjustment_sources))
-        # The same for the learned-rule record, which states the data-adaptive target.
-        learned = self.extra.get("learned_rule")
-        if learned is not None:
-            facts.append(learned.describe())
-        if self.provenance is not None:
-            facts.extend(self.provenance.describe())
+        from ._point_summary import base_summary_facts, point_summary
 
-        level = f"{(1 - self.config.alpha_sig) * 100:g}%"
-        # One fit's estimates carry one status: ``median_estimates`` and
-        # ``inference_status`` both refuse a mix, so the table is never half refused.
-        status = self.inference_status
-        diagnostic = not supplies_inference(status)
-        t_reference = has_t_reference(self.estimates)
-        rows = []
-        record = status_record(status) if diagnostic else None
-        support_cells = support_column(self.estimates)
-        if record is not None:
-            for name, estimate in self.estimates.items():
-                rows.append([name, f"{estimate.psi:.5g}", f"{estimate.plugin_std_error:.4g}"])
-            headers = ["estimand", "psi", record.summary_label]
-            if support_cells is not None:
-                headers.append("support")
-                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
-            table = format_table(headers, rows)
-        else:
-            for name, estimate in self.estimates.items():
-                if not estimate.supplies_inference:
-                    # A parameter status beside an inferential fit status: the row prints
-                    # its point and withholds the rest, and a note below names the status.
-                    rows.append(
-                        [
-                            name,
-                            f"{estimate.psi:.5g}",
-                            "-",
-                            "-",
-                            "-",
-                            *(["-"] if t_reference else []),
-                        ]
-                    )
-                    continue
-                low, high = estimate.ci
-                rows.append(
-                    [
-                        name,
-                        f"{estimate.psi:.5g}",
-                        f"{estimate.std_error:.4g}",
-                        f"[{low:.5g}, {high:.5g}]",
-                        format_pvalue(estimate.pvalue),
-                        *([reference_label(estimate)] if t_reference else []),
-                    ]
-                )
-            headers = [
-                "estimand",
-                "psi",
-                "std_err",
-                f"{level} CI",
-                "p_value",
-                *(["df"] if t_reference else []),
-            ]
-            if support_cells is not None:
-                headers.append("support")
-                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
-            table = format_table(headers, rows)
+        check_detail(detail)
+        hook = getattr(self.estimator, "_summary_facts", None)
+        facts = hook(self) if callable(hook) else base_summary_facts(self)
+        return point_summary(self, facts, detail)
 
-        parts = [*header, *facts, "", table]
-        notes = support_notes(self.estimates)
-        if notes:
-            parts.append("")
-            parts.extend(notes)
-        if t_reference:
-            parts.append("")
-            assert data.cluster is not None
-            parts.append(
-                T_REFERENCE_NOTE.format(
-                    clusters=positive_mass_clusters(data),
-                    fewest=fewest_clusters(
-                        data.cluster,
-                        data.strata,
-                        data.weights if data.is_weighted else None,
-                    ),
-                )
-            )
-        if record is not None:
-            # The whole column is refused, so no ``95% CI`` heading is printed with a "-"
-            # under it.  A dash under that heading still tells a reader an interval is the
-            # thing that belongs there.
-            parts.append("")
-            parts.append(record.summary_note())
-        else:
-            withheld: dict[str, list[str]] = {}
-            for name, estimate in self.estimates.items():
-                if not estimate.supplies_inference:
-                    withheld.setdefault(estimate.inference, []).append(name)
-            for flagged, names in withheld.items():
-                withheld_record = status_record(flagged)
-                spreads = ", ".join(
-                    f"{name} {self.estimates[name].plugin_std_error:.4g}" for name in names
-                )
-                alternative = (
-                    ""
-                    if withheld_record.alternative == NO_ALTERNATIVE
-                    else f" {withheld_record.alternative}"
-                )
-                parts.append("")
-                parts.append(f"rows withheld ({', '.join(names)}): {flagged}")
-                parts.append(
-                    f"{withheld_record.summary_label} (a diagnostic, not a standard error): "
-                    + spreads
-                )
-                parts.append(withheld_record.reason + alternative)
-        if self.n_repeats > 1:
-            # contrast() refuses for the reason the coordinatewise note gives; the table
-            # cannot refuse, so the note is printed under it.
-            parts.extend(
-                split_noise_lines(self.estimates, self.repeat_spread(), self.n_repeats, status)
-            )
-        if self.simultaneous is None and diagnostic and len(self.estimates) > 1:
-            # Stated rather than left blank: a reader who asked for bands, or who knows
-            # they are the default, would otherwise have to guess why none are here.
-            parts.append("")
-            parts.append(NO_SIMULTANEOUS_BANDS)
-        elif self.simultaneous is None and t_reference and len(self.estimates) > 1:
-            parts.append("")
-            parts.append(NO_T_REFERENCE_BANDS)
-        if self.simultaneous is not None:
-            parts.append("")
-            parts.append(
-                f"simultaneous {level} bands (multiplier bootstrap, "
-                f"critical value {self.simultaneous.critical_value:.3f} vs "
-                f"{self.simultaneous.pointwise_critical_value:.3f} pointwise)"
-                f"{' [experimental]' if self.simultaneous.support.label == 'experimental' else ''}:"
-            )
-            for name, (low, high) in self.simultaneous.bands.items():
-                parts.append(f"  {name:<5s} [{low:.5g}, {high:.5g}]")
-            outside = {
-                name: estimate.inference
-                for name, estimate in self.estimates.items()
-                if name not in self.simultaneous.bands
-            }
-            if outside:
-                parts.append(
-                    "  the band is joint over the rows above only; it leaves out "
-                    + ", ".join(f"{name} ({status})" for name, status in outside.items())
-                    + ", which supply no interval"
-                )
-        elif (
-            not diagnostic
-            and not t_reference
-            and len(self.estimates) > 1
-            and bool(getattr(self.estimator, "simultaneous", False))
-            and any(not estimate.supplies_inference for estimate in self.estimates.values())
-        ):
-            # The fit asked for a band, and fewer than two of its estimates supply an
-            # interval, so it built none. Named rather than left blank.
-            left_out = ", ".join(
-                f"{name} ({estimate.inference})"
-                for name, estimate in self.estimates.items()
-                if not estimate.supplies_inference
-            )
-            parts.append("")
-            parts.append(
-                "no simultaneous band: fewer than two estimates supply an interval. "
-                f"Left out: {left_out}"
-            )
-        if self.bootstrap is not None:
-            parts.append("")
-            # Named by what each replicate does: it refits the whole estimator on the
-            # resample. docs/roadmap.md X55 and F2 keep "targeted bootstrap" for a
-            # distinct procedure.
-            parts.append(
-                f"full-refit bootstrap ({self.bootstrap.resampling} resampling, "
-                f"{self.bootstrap.n_requested - self.bootstrap.n_failed} usable replicates):"
-            )
-            for name, estimate in self.estimates.items():
-                if estimate.bootstrap is None:
-                    continue
-                low, high = estimate.bootstrap.ci
-                parts.append(f"  {name:<5s} {bootstrap_line(estimate)}")
-        # Last, and only when it failed. An interval whose score equation is unsolved is
-        # not a wider interval, it is one the theory does not license, and until now the
-        # only way to find that out was to know that `validation.score_check()` existed --
-        # documentation standing in for reporting. Silent on a passing fit deliberately:
-        # every transcript in the README and the guide is a passing fit, and a line there
-        # would be noise on the common path and easier to stop reading.
-        verdict = self.score_verdict
-        # Under a declared stopping rule the largest score residual, in standard errors, with the
-        # coverage a Wald interval keeps at it.  Empty under the shipped rule, so an ordinary fit
-        # prints what it always printed.
-        residual = verdict.rule_line()
-        if residual:
-            parts.append("")
-            parts.append(residual)
-        if not verdict.passed:
-            parts.append("")
-            parts.append(verdict.one_line())
-        return "\n".join(parts)
+    def __repr__(self) -> str:
+        from ._point_summary import point_repr
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return self.summary()
+        return point_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def _cache_token(self) -> dict[str, Any]:
+        """The content an assessment cache key reads when this result is an argument.
+
+        The repr is a rounded one-line summary that two different fits can share.
+        """
+        return {
+            "method": self.fitted_method,
+            "config": repr(self.config),
+            "n": self.data.n,
+            "estimates": {
+                name: estimate._cache_token() for name, estimate in self.estimates.items()
+            },
+        }
 
 
 @dataclass(frozen=True)
@@ -1825,7 +1536,7 @@ class TMLEResultSet(Mapping["float | None", TMLEResult]):
                 f"this fit produced {len(self.results)} results, one per level of "
                 f"{self.intermediate_name or 'the intermediate'} ({list(self.levels)}), so "
                 "there is no single one to return. A controlled direct effect is a "
-                "different parameter at each level -- index the level you mean, e.g. "
+                "different parameter at each level; index the level you mean, e.g. "
                 f"result[{self.levels[0]!r}]."
             )
         return next(iter(self.results.values()))
@@ -1867,36 +1578,34 @@ class TMLEResultSet(Mapping["float | None", TMLEResult]):
         stacked = nw.concat([nw.from_native(frame, eager_only=True) for frame in frames])
         return stacked.to_native()
 
-    def summary(self, *, protocol: ProtocolDetail = "full") -> str:
-        """The results, headed by level -- or bare, when there is only one.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """The results as one summary: a single result's own, or one table over the levels.
 
-        A single-entry set prints exactly what its result prints.  Heading it
-        ``--- None = ... ---`` would put the internal sentinel in front of every ordinary
-        fit's output.
+        A single-entry set prints exactly what its result prints. Several levels of the
+        intermediate variable print one estimates table with a row per estimand and level,
+        the facts the levels share, and each level's notes.
 
         Parameters
         ----------
-        protocol : {"full", "fingerprint"}
-            Passed to :meth:`TMLEResult.summary` of each result.
+        detail : {"short", "full"}, default "short"
+            ``"full"`` adds each result's sections.
 
         Returns
         -------
-        str
-            Each result's summary, headed by its level of the intermediate variable.
+        Summary
+            A ``str`` whose value is the printed text, with the parts as data.
         """
-        if len(self.results) == 1 and self.levels[0] is None:
-            return self.single().summary(protocol=protocol)
-        blocks = []
-        for value in self.levels:
-            label = (
-                "no intermediate" if value is None else f"{self.intermediate_name} = {value:.0f}"
-            )
-            blocks.append(f"--- {label} ---")
-            blocks.append(self.results[value].summary(protocol=protocol))
-        return "\n\n".join(blocks)
+        from ._method_summary import result_set_summary
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return self.summary()
+        return result_set_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._method_summary import result_set_repr
+
+        return result_set_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 def _level_order(value: float | None) -> tuple[int, float]:
@@ -1929,90 +1638,3 @@ def positive_mass_clusters(data: CausalData) -> int:
     """
     assert data.cluster is not None
     return fewest_clusters(data.cluster, weights=data.weights if data.is_weighted else None)
-
-
-def _cluster_fact(data: CausalData) -> str:
-    """The cluster count, with the size and positive-mass facts a reader needs.
-
-    A weighted fit whose clusters hold equal rows and unequal weight mass prints the mass
-    range in place of the size range. The stratum count applies to a fit with baseline
-    strata. The facts also name unequal sizes within a stratum and clusters that have
-    zero weight mass. Equal sizes without strata print the count alone.
-    """
-    cluster = data.cluster
-    assert cluster is not None
-    counts = cluster_sizes(cluster)
-    smallest, largest = int(counts.min()), int(counts.max())
-    fact = f"{counts.size}"
-    if smallest != largest:
-        fact += f", sizes {smallest} to {largest}"
-    elif data.is_weighted and unequal_cluster_sizes(cluster, data.weights):
-        mass = cluster_weight_mass(cluster, data.weights)
-        fact += f", weight mass {mass.min():.4g} to {mass.max():.4g}"
-    fact += positive_mass_clause(cluster, data.weights if data.is_weighted else None)
-    if data.has_strata:
-        assert data.strata is not None
-        masks = (data.strata == level for level in np.unique(data.strata))
-        parts = [(cluster[inside], data.weights[inside]) for inside in masks]
-        uneven = [cluster_sizes(part) for part, _ in parts]
-        uneven = [part for part in uneven if int(part.min()) != int(part.max())]
-        if uneven:
-            fact += (
-                f", within-stratum sizes {min(int(part.min()) for part in uneven)}"
-                f" to {max(int(part.max()) for part in uneven)}"
-            )
-        elif data.is_weighted:
-            uneven_mass = [
-                cluster_weight_mass(part, weight)
-                for part, weight in parts
-                if unequal_cluster_sizes(part, weight)
-            ]
-            if uneven_mass:
-                low_mass = min(float(part.min()) for part in uneven_mass)
-                high_mass = max(float(part.max()) for part in uneven_mass)
-                fact += f", within-stratum weight mass {low_mass:.4g} to {high_mass:.4g}"
-        stratum_count = fewest_clusters(
-            cluster, data.strata, data.weights if data.is_weighted else None
-        )
-        fact += f", fewest in one stratum {stratum_count}"
-    return fact
-
-
-def _arm_shares(data: CausalData) -> str:
-    """How the treatment is distributed, for the summary header.
-
-    ``P(A=1)`` for a binary treatment, unchanged.  For more arms that number is not
-    just uninformative but wrong-looking -- it is the mean of the arm *codes*, so a
-    three-armed fit reported ``P(A=1) = 0.98`` -- so every arm's share is listed under
-    its own label instead.  A continuous treatment has no arms to take the share of, so
-    it reports the dose's range: an empty ``arm shares:`` reads as a broken table rather
-    than as an inapplicable question.
-    """
-    if data.treatment_kind == "vector":
-        columns = data._component_columns()
-        parts: list[str] = []
-        for name, levels in zip(data.component_names, data.component_levels, strict=True):
-            values = columns[name]
-            if levels:
-                listed = ", ".join(
-                    f"{level}={float(np.average(values == level, weights=data.weights)):.3g}"
-                    for level in levels
-                )
-                parts.append(f"{name}: {listed}")
-            else:
-                dose = np.asarray(values, dtype=float)
-                parts.append(f"{name}: range [{dose.min():.3g}, {dose.max():.3g}]")
-        return "vector treatment -- " + "; ".join(parts)
-    if data.is_continuous_treatment:
-        dose = np.asarray(data.treatment, dtype=float)
-        mean = float(np.average(dose, weights=data.weights))
-        return f"dose: mean {mean:.4g}, range [{dose.min():.3g}, {dose.max():.3g}]"
-    if data.is_binary_treatment:
-        return f"P(A=1) = {data.treated_fraction:.4g}"
-
-    # ``arm_fractions`` takes the share among the rows whose treatment is recorded.
-    shares = [
-        f"{data.arm_label(arm)}={share:.3g}"
-        for arm, share in zip(data.arm_codes, data.arm_fractions, strict=True)
-    ]
-    return f"arm shares: {', '.join(shares)}"

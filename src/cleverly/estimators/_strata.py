@@ -4,7 +4,8 @@ A stratum parameter is the marginal parameter of the law of ``O`` given ``S = s`
 finite partition ``S`` of the adjustment columns with ``P(S = s) > 0``.  Every target group
 solves one score block ``I(S = s) H_s / P_n(S = s)`` per stratum.  The helpers here read the
 stratum masses and refuse, before any learner, a stratum whose score equations have no finite
-root.
+root.  The fold-evaluated report with strata (``cv_evaluation=True``, X28) reads its target list,
+its data refusals, its fluctuation weights and its marginal mixture from here too.
 """
 
 from __future__ import annotations
@@ -15,18 +16,25 @@ from typing import Any
 
 import numpy as np
 
+from .._refusal import RefusalReason
 from .._typing import BoolArray, FloatArray, IntArray
 from ..data.causal_data import CausalData, arm_share
-from ..exceptions import DataError
+from ..exceptions import CapabilityError, DataError
+from ..inference.influence import ParameterEstimate
 
 __all__ = [
+    "FOLD_EVALUATED_STRATA_TARGETS",
     "absent_arm_error",
     "check_stratified_msm_design",
     "check_stratified_targets",
     "companion_stratum_codes",
     "embed_stratum_curve",
+    "fold_evaluated_strata_refusal",
+    "fold_evaluated_stratum_weights",
     "refuse_absent_tilt_arms",
+    "refuse_empty_stratum_folds",
     "refuse_untrainable_stratum_folds",
+    "stratum_mixture",
     "stratum_probabilities",
     "stratum_source",
     "unscale_block",
@@ -296,6 +304,57 @@ def refuse_untrainable_stratum_folds(
                 )
 
 
+def refuse_untrainable_leave_two_out(data: CausalData, folds: Any) -> None:
+    """Refuse a foldwise fit whose leave-two-out complements cannot train every arm.
+
+    The foldwise DR-TMLE slabs fit the primary regressions once for each unordered pair of
+    folds ``{k, m}``, on the rows outside both.  Each of those fits trains on the whole
+    sample outside the pair, so it needs a row of every arm with an observed outcome there.
+    Baseline strata do not enter: the primary regressions are not fitted inside a stratum,
+    and a stratum's reduced regressions for fold ``k`` train on the rows of the fold-``k``
+    complement, which :func:`refuse_untrainable_stratum_folds` checks.  A cluster split
+    removes whole clusters, so a few-cluster split can empty an arm here while every
+    one-fold complement still holds it.  The check reads the data and the drawn folds only,
+    so it runs after the fold draw and before any learner.
+
+    Parameters
+    ----------
+    data : CausalData
+        The data of the fit.
+    folds : Folds
+        The drawn split, with at least three folds.
+
+    Raises
+    ------
+    ValueError
+        If some arm and pair of folds leave no trainable row outside the pair.
+    """
+    from ..learners.crossfit import _POST_DRAW_REMEDY
+
+    if data.is_continuous_treatment or folds.is_single:
+        return
+    treatment = np.asarray(data.treatment, dtype=float)
+    observed = np.asarray(data.observed, dtype=bool)
+    assignment = np.asarray(folds.assignment)
+    pairs = [
+        (first, second)
+        for first in range(folds.n_folds)
+        for second in range(first + 1, folds.n_folds)
+    ]
+    for arm in data.arm_codes:
+        trainable = (treatment == float(arm)) & observed
+        for first, second in pairs:
+            outside = (assignment != first) & (assignment != second)
+            if np.any(trainable & outside):
+                continue
+            raise ValueError(
+                f"folds {first} and {second} together hold every trainable row of arm "
+                f"{data.arm_label(arm)!r} in the sample, so the leave-two-out primary "
+                "regressions of reduced_crossfit='foldwise' cannot be fitted. "
+                + _POST_DRAW_REMEDY.format(remedy="fit with reduced_crossfit='pooled'")
+            )
+
+
 def check_stratified_msm_design(msm: object, data: CausalData) -> None:
     """Refuse a working model whose projection is singular inside a baseline stratum.
 
@@ -372,3 +431,325 @@ def check_stratified_targets(data: CausalData, *, incremental: bool, msm: object
         refuse_absent_tilt_arms(data)
     if msm is not None:
         check_stratified_msm_design(msm, data)
+
+
+# ------------------------------------------------------------------ fold evaluation (X28)
+
+#: The targets a fold-evaluated fit with baseline strata reports: the arm means and their
+#: linear contrasts, the regime means and their contrasts, and the learned-rule value
+#: (``learned_rule=``). Each is a mean of the targeted regression over the stratum's rows, so its
+#: fold plug-in, its fold curve and its solving weights follow one construction. The
+#: learned-rule value reads each fold's own rule as the one-hot regime density of the fold's
+#: rows, so stratum :math:`s` of fold :math:`v` evaluates the fixed rule :math:`d_v`. Every
+#: other target keeps the refusal of :func:`fold_evaluated_strata_refusal`.
+FOLD_EVALUATED_STRATA_TARGETS: frozenset[str] = frozenset(
+    {"ate", "ey", "ey1", "ey0", "ey_regime", "ate_regime", "ey_learned_rule"}
+)
+
+_STACKED_REPORT = "the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))"
+
+
+def _x28_gap(what: str, why: str, alternative: str) -> CapabilityError:
+    return CapabilityError(
+        "cv_evaluation=True with baseline strata reports the arm means and their linear "
+        "contrasts (ey, ate), the regime means and their contrasts (ey_regime, ate_regime), "
+        "and the learned-rule value (ey_learned_rule), "
+        f"on complete data with rows as the independent unit. {what} is not implemented: "
+        f"{why}.",
+        reason=RefusalReason.IMPLEMENTATION_GAP,
+        alternative=alternative,
+        roadmap="X28",
+    )
+
+
+def fold_evaluated_strata_refusal(
+    data: CausalData, estimands: Sequence[str]
+) -> CapabilityError | None:
+    """The refusal of a fold-evaluated stratified request outside the X28 construction.
+
+    ``cv_evaluation=True`` with baseline strata averages each stratum's fold plug-ins and
+    builds each stratum curve with the fold's own stratum share. The construction is derived
+    and checked for :data:`FOLD_EVALUATED_STRATA_TARGETS` on complete data with rows as the
+    unit. A missing outcome or treatment, an intermediate variable, clusters, and every other
+    target return a refusal citing X28. Ratios and MSM coefficients never reach it: the fit
+    refuses them under ``cv_evaluation=True`` first, citing X61, with or without strata. The
+    check reads the declaration and the data only,
+    so :meth:`~cleverly.TMLE.fit` raises it before any learner and
+    :meth:`~cleverly.TMLE.retarget` raises it before any targeting step.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data. Without baseline strata the check returns ``None`` at once.
+    estimands : sequence of str
+        The resolved target names.
+
+    Returns
+    -------
+    CapabilityError or None
+        The refusal to raise, or ``None`` when the request is inside the construction.
+    """
+    if not data.has_strata:
+        return None
+    stacked = f"Use {_STACKED_REPORT}."
+    if data.has_missing_outcome:
+        return _x28_gap(
+            "A missing outcome (delta=) beside them",
+            "each stratum's fold estimate would also read the observation mechanism inside "
+            "every validation fold and stratum, and no witness covers that construction",
+            stacked,
+        )
+    if data.has_missing_treatment:
+        return _x28_gap(
+            "A missing treatment beside them",
+            "each stratum's fold estimate would read the composite mechanism inside every "
+            "validation fold and stratum, and no witness covers that construction",
+            stacked,
+        )
+    if data.has_intermediate:
+        return _x28_gap(
+            "An intermediate variable (intermediate=) beside them",
+            "the controlled direct effect inside every validation fold and stratum has no witness",
+            stacked,
+        )
+    if data.cluster is not None:
+        return _x28_gap(
+            "Clusters (id=) beside them",
+            "each stratum's fold variance would compare the cluster totals of its stratum "
+            "inside every validation fold, and neither that variance nor its Student t "
+            "reference has been checked",
+            stacked,
+        )
+    other = sorted({name for name in estimands if name not in FOLD_EVALUATED_STRATA_TARGETS})
+    if other:
+        return _x28_gap(
+            f"Fold evaluation of {other}",
+            "each needs its own fold-evaluated stratum construction (a fold-local arm share "
+            "or a second mechanism equation), and none has been derived and checked",
+            "Request the arm or regime means and their contrasts (estimands=('ate', 'ey') on "
+            f"the arm axis), or use {_STACKED_REPORT}.",
+        )
+    return None
+
+
+def refuse_empty_stratum_folds(
+    data: CausalData, folds: Sequence[Any], *, learned_rule: bool = False
+) -> None:
+    """Refuse a fold-evaluated stratified split with an empty stratum or arm in some fold.
+
+    The fold-evaluated stratum estimate is the ``1/V`` average of plug-ins over the rows of
+    each validation fold in the stratum, and its curve divides by the fold's own stratum
+    share. A fold that holds no positive-weight row of a stratum has no plug-in and no share.
+    A fold whose stratum holds no positive-weight row of some arm leaves that arm's stratum
+    score without a contribution from the fold, as the whole-sample check of
+    :func:`absent_arm_error` refuses for a stratum. The stratum targets read every arm, so
+    every arm is required. The check reads the data and every drawn split only, so it runs
+    after the fold draw and before any learner.
+
+    Parameters
+    ----------
+    data : CausalData
+        The data of the fit. Without baseline strata the check returns at once.
+    folds : sequence of Folds
+        The drawn or supplied split of every repeat.
+    learned_rule : bool
+        Whether the fit estimates a learned-rule value, whose stacked report is refused
+        (X11 (e)), so the remedy names fewer strata and a fit without ``strata=`` instead.
+
+    Raises
+    ------
+    DataError
+        If some validation fold holds no positive-weight row of a stratum, or none of an arm
+        inside a stratum.
+    """
+    from ..learners.crossfit import _POST_DRAW_REMEDY
+
+    if not data.has_strata:
+        return
+    assert data.strata is not None
+    strata = np.asarray(data.strata)
+    weights = np.asarray(data.weights, dtype=float)
+    treatment = np.asarray(data.treatment, dtype=float)
+    arms = tuple(data.arm_codes) if data.has_arms else ()
+    positive = " positive-weight" if data.is_weighted else ""
+    remedy = _POST_DRAW_REMEDY.format(
+        remedy=(
+            "declare fewer baseline strata, fit the learned-rule value without strata="
+            if learned_rule
+            else f"use {_STACKED_REPORT}, declare fewer baseline strata"
+        )
+    )
+    draws = [draw for draw in folds if not draw.is_single]
+    # An empty stratum is the more basic shortfall, so every fold is read for it first.
+    for draw in draws:
+        for fold, (_, test) in enumerate(draw):
+            for code in range(data.n_strata):
+                if float(np.sum(weights[test[strata[test] == code]])) <= 0.0:
+                    raise DataError(
+                        "cv_evaluation=True with baseline strata evaluates every stratum "
+                        f"inside every validation fold, and validation fold {fold} holds no"
+                        f"{positive} row of baseline stratum {data.stratum_label(code)}, so "
+                        f"the stratum has no plug-in and no share in that fold. {remedy}"
+                    )
+    for draw in draws:
+        for fold, (_, test) in enumerate(draw):
+            for code in range(data.n_strata):
+                rows = test[strata[test] == code]
+                label = data.stratum_label(code)
+                absent = [
+                    data.arm_label(arm)
+                    for arm in arms
+                    if float(np.sum(weights[rows][treatment[rows] == float(arm)])) <= 0.0
+                ]
+                if absent:
+                    raise DataError(
+                        "cv_evaluation=True with baseline strata evaluates every stratum "
+                        f"inside every validation fold, and validation fold {fold} holds no"
+                        f"{positive} row of treatment arm(s) {absent} inside baseline stratum "
+                        f"{label}, so the fold adds nothing to that arm's stratum score. "
+                        f"{remedy}"
+                    )
+
+
+def fold_evaluated_stratum_weights(data: CausalData, validation: Sequence[IntArray]) -> FloatArray:
+    r"""The fluctuation weights that solve every fold-evaluated stratum score exactly.
+
+    The reported stratum estimate is :math:`V^{-1}\sum_v \psi_{s,v}`, with
+    :math:`\psi_{s,v}` the weighted plug-in over the rows of fold :math:`v` in stratum
+    :math:`s`. Its score is :math:`\sum_v \sum_{i \in v, S_i = s} w_i H_i (Y_i - \bar Q^*_i)
+    / (V W_{v,s})`, with :math:`W_{v,s} = \sum_{j \in v, S_j = s} w_j`. Row :math:`i` of fold
+    :math:`v` and stratum :math:`s` therefore takes
+
+    .. math::
+
+        \omega_i = w_i \, \frac{n \, P_n(S = s)}{V \, W_{v,s}} .
+
+    The factor :math:`n P_n(S = s)` is constant inside the stratum, and each stratum block
+    of the stratified submodel is zero off its stratum, so it moves no root. It keeps the
+    weights summing to :math:`n`, as the fold weights of the unstratified fold-evaluated
+    update do. The one-step walk, a step bound and the declared stopping thresholds read the
+    scale, and this one matches the unstratified fold weights (it equals them at one
+    stratum). The block's own :math:`1 / P_n(S = s)` cancels the share, so each block's
+    equation is :math:`\sum_i w_i I(S_i = s) H_i (Y_i - \bar Q^*_i) \, n / (V W_{v,s}) = 0`.
+
+    Parameters
+    ----------
+    data : CausalData
+        The data of the fit, with baseline strata.
+    validation : sequence of IntArray
+        The validation rows of each fold. They partition the sample.
+
+    Returns
+    -------
+    FloatArray
+        ``(n,)`` fluctuation weights.
+
+    Raises
+    ------
+    ValueError
+        If a fold holds no weight mass of some stratum, which
+        :func:`refuse_empty_stratum_folds` refuses before any learner.
+    """
+    assert data.strata is not None
+    strata = np.asarray(data.strata)
+    weights = np.array(data.weights, dtype=float, copy=True)
+    probabilities = stratum_probabilities(data)
+    n_folds = len(validation)
+    for test in validation:
+        for code, probability in enumerate(probabilities):
+            rows = test[strata[test] == code]
+            mass = float(np.sum(weights[rows]))
+            if mass <= 0.0:
+                raise ValueError(
+                    "each validation fold must have positive observation-weight mass in "
+                    "every baseline stratum"
+                )
+            weights[rows] *= data.n * probability / (n_folds * mass)
+    return weights
+
+
+def stratum_mixture(
+    data: CausalData,
+    marginal: str,
+    parts: Sequence[ParameterEstimate],
+    fold_values: Sequence[Sequence[float]],
+    *,
+    alpha: float,
+) -> tuple[ParameterEstimate, tuple[float, ...]]:
+    r"""The marginal estimate of a fold-evaluated stratified fit, and its fold values.
+
+    The marginal estimate is :math:`\sum_s P_n(S = s) \hat\psi_s`, the weighted stratum
+    shares times the fold-evaluated stratum estimates. Its curve is the delta-method curve of
+    that sum,
+
+    .. math::
+
+        \phi_i = \sum_s P_n(S = s)\,\phi_{s,i}
+            + \frac{w_i}{\bar w}\bigl(\hat\psi_{S_i} - \hat\psi\bigr),
+
+    with :math:`\phi_s` the stored fold-evaluated stratum curve and the second term the
+    curve of the shares. Each :math:`\phi_s` has mean zero because each stratum score is
+    solved, so :math:`\phi` has mean zero too, and its variance is
+    :math:`n^{-2}\sum_i \phi_i^2`. That is the cross-validated variance on each stratum part,
+    since :math:`\phi_s` is stored as :math:`n / (V n_v)` times the fold curve. The marginal
+    score itself is not solved: the update solves each stratum block under its fold-local
+    weights, so the marginal plug-in average of the folds would carry a residual, and the
+    report does not use it.
+
+    Parameters
+    ----------
+    data : CausalData
+        The data of the fit, with baseline strata.
+    marginal : str
+        The marginal parameter name.
+    parts : sequence of ParameterEstimate
+        The fold-evaluated estimate of each stratum, in stratum-code order.
+    fold_values : sequence of sequence of float
+        The fold plug-ins of each stratum, in stratum-code order.
+    alpha : float
+        The significance level of the estimate's interval.
+
+    Returns
+    -------
+    tuple of ParameterEstimate and tuple of float
+        The marginal estimate, and its value in each fold, :math:`\sum_s P_n(S = s)
+        \psi_{s,v}`, whose ``1/V`` average is the estimate.
+
+    Raises
+    ------
+    RuntimeError
+        If a part is on the ratio scale, which the target list of
+        :data:`FOLD_EVALUATED_STRATA_TARGETS` never produces.
+    """
+    assert data.strata is not None
+    if any(part.scale == "ratio" for part in parts):
+        raise RuntimeError("a fold-evaluated stratum mixture is linear and takes no ratio")
+    probabilities = np.asarray(stratum_probabilities(data), dtype=float)
+    stratum_psi = np.array([part.psi for part in parts], dtype=float)
+    psi = float(probabilities @ stratum_psi)
+    weights = np.asarray(data.weights, dtype=float)
+    shares = weights / weights.mean() * (stratum_psi[np.asarray(data.strata)] - psi)
+    curve = sum(
+        (
+            probability * part.influence_curve
+            for probability, part in zip(probabilities, parts, strict=True)
+        ),
+        start=shares,
+    )
+    curve = np.asarray(curve, dtype=float)
+    folds = tuple(
+        float(probabilities @ np.asarray(values, dtype=float))
+        for values in zip(*fold_values, strict=True)
+    )
+    estimate = ParameterEstimate(
+        name=marginal,
+        psi=psi,
+        influence_curve=curve,
+        variance=float(np.sum(np.square(curve)) / curve.size**2),
+        n=data.n,
+        n_clusters=data.n,
+        scale=parts[0].scale,
+        alpha=alpha,
+        covariance_rule="centered",
+    )
+    return estimate, folds

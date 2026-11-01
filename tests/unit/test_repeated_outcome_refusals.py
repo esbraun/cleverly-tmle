@@ -17,6 +17,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly._summary import vocabulary
 from cleverly.exceptions import DataError
 from cleverly.longitudinal import IPSI, LTMLE, SDR, LongitudinalData, Repeated
 
@@ -183,8 +184,11 @@ def test_a_rule_description_names_the_earlier_outcome() -> None:
             n_folds=1,
             simultaneous=False,
         ).fit(panel(), outcome=OUTCOME, **ROLES)
-    lines = fit.config.describe(contrast=False)
-    assert any("Y_{t-1}" in line for line in lines)
+    # The history a later time point adjusts for holds the earlier outcomes the rule reads.
+    adjusted = dict(fit.summary().header)[vocabulary.ADJUSTED_FOR]
+    later = adjusted.partition("later: ")[2].split(", ")
+    assert {"Y1", "Y2"} <= set(later)
+    assert "Y3" not in later
 
 
 def test_the_curve_is_a_curve_of_means(result: Any) -> None:
@@ -231,4 +235,5 @@ def test_a_ratio_of_means_is_reported(result: Any) -> None:
 
 def test_the_settings_report_names_the_outcome_kind(result: Any) -> None:
     assert result.config.outcome_kind == "repeated"
-    assert "outcome: repeated" in result.summary()
+    outcome = dict(result.summary().header)["Outcome"]
+    assert outcome == f"{', '.join(result.config.outcome_names)}, measured at each time point"

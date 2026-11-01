@@ -1,0 +1,541 @@
+"""Repeated-sampling properties of fold-evaluated CV-TMLE with baseline strata (X28).
+
+Three families, in the order the declaration reads them. Every cell's truth is the fixed
+quadrature value of its parameter (:func:`~tests.studies._fold_evaluated_strata_law.truths`).
+
+``interval_calibration``
+    Each draw of a setting fits the declared estimator at n = 1,000 and writes one positive row
+    for each of the 12 parameters, ``<setting>_<target>_<stratum>__declared``, in four settings:
+    the bounded (beta) outcome rows only and weighted, and the binary outcome rows only and
+    weighted (each with its own blip). The SE-ratio interval must lie inside 0.93 to 1.07 and the coverage interval inside
+    0.92 to 0.98. Each positive carries the two derived controls of
+    :func:`~tests.studies.evidence.property_verdicts.calibration_controls`, the SE shrunken by
+    0.70 and noise of one efficiency-bound unit, which check the instrument. Two controls check
+    the construction, each on the same fit and each read as a standard-error control that must
+    fall below the band. They show different things and are reported apart:
+
+    ``<stratum label>__unnormalised_curve_control``
+        The plan's control: the stratum curve without its ``1 / P_{n,v}(S = s)``
+        normalisation. Its SE is about the stratum share (0.2 to 0.45) times the reported one,
+        so it fails by construction. It shows that the instrument resolves a gross
+        normalisation error, not that the fold-local share is the right one; the fold-local
+        against the global share (about ``1/n`` in the curve mean) rests on the unit witnesses.
+    ``<bounded setting>_{ate,ey1}_all__share_dropped_control``
+        The marginal curve without its share term ``(w_i / w_bar)(psi_S_i - psi)``. Its
+        asymptotic SE ratio is 0.854 for ``ate`` and 0.656 to 0.660 for ``ey[1]``, so it tests
+        the marginal derivation, and the beta outcome is what gives it that power. The ``ey[0]``
+        share term moves the ratio to about 0.95 only, which the declared count cannot resolve,
+        so that label carries no such control. Neither does any binary label: under the
+        Bernoulli outcome the ratios are 0.999, 0.995 and 0.999, above the band floor. The
+        formula of the share term does not read the outcome type.
+
+``targeting_necessity``
+    Each draw fits the bounded rows-only setting with RM30's ``drop_w1_learner()`` on the
+    quasibinomial solver, which keeps ``A`` and ``W2`` of the design ``(A, W1, W2, S)`` and so
+    drops ``S`` too. The control learner is stratum-blind: its plug-in is nearly the same in
+    every stratum, so the untargeted stratum biases mostly measure that blindness. For each
+    stratum parameter the positive arm is the fit, and the control is the same fit without its
+    fluctuation: the fold average of the initial stratum plug-ins. The control must be biased
+    outside the margin, the positive inside, and the least displaced pair must move by at least
+    :data:`TARGETING_DISPLACEMENT` positive-arm SDs. The cell shows that targeting repairs a
+    stratum-blind initial fit, a strong test of the fluctuation's stratum blocks; it does not
+    show repair of a subtle misspecification within a stratum.
+
+``sparse_event_diagnostic``
+    The binary rows-only law with the steeper blip ``0.1 + 3.0 W1``, where ``ey[1]`` in stratum
+    0 has mean 0.071 and about six events at n = 1,000. Each of :data:`SPARSE_REPLICATES` draws
+    fits the declared estimator and the stacked stratified fit (``cv_evaluation=False``) on the
+    same sample with the same fold seed, so the same folds. One cell per parameter,
+    ``binary_sparse_<target>_<stratum>__diagnostic``, carries the role ``diagnostic``: no margin
+    is read and no verdict forms. Each row carries the stacked fit's estimate and SE
+    (``stacked_estimate``, ``stacked_std_error``) and ``stratum_arm_events``, the fewest rows
+    with the rarer outcome value in any stratum-arm the parameter reads. The summary publishes,
+    for both fits, the coverage and the SE ratio with their intervals, and the mean and 5th
+    percentile of the event count. It exists so that the page can state the sparse-event
+    condition from an artifact.
+
+A property draw's sample seed is ``stream_seed(record, "property_sample", family, setting,
+replicate, *suffix)`` and its fold seed the same tuple with ``"fold_partition"`` first; rule L3
+of the RM30 studies (:func:`~tests.studies._learned_rule_law.seed_labels`) sets each suffix.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from tests.parallel import STUDY_JOBS
+from tests.studies import _fold_evaluated_strata_law as law
+from tests.studies import _learned_rule_law as base
+from tests.studies.evidence import property_verdicts
+from tests.studies.evidence.inference import clopper_pearson
+from tests.studies.evidence.properties import (
+    REPLICATE_COLUMNS,
+    cell_groups,
+    control_row,
+    ratio_intervals,
+    replicate_row,
+)
+from tests.studies.evidence.property_verdicts import (
+    DIAGNOSTIC_ROLE,
+    apply_shared_verdicts,
+    calibration_controls,
+    calibration_derived,
+    calibration_verdicts,
+    finish,
+    necessity_verdicts,
+)
+from tests.studies.evidence.registry import StudyRecord
+from tests.studies.evidence.replication import fit_properties
+from tests.studies.evidence.seeds import stream_seed
+from tests.studies.fold_evaluated_strata import (
+    CALIBRATION_LABELS,
+    EFFICIENCY_BOUNDS,
+    NECESSITY_LABELS,
+    POSITIVE,
+    PRIMARY_N,
+    PRIMARY_REPLICATES,
+    PROPERTY_CELLS,
+    SETTING_LABELS,
+    SHARE_DROPPED,
+    SHARE_DROPPED_LABELS,
+    SPARSE_FAMILY,
+    SPARSE_KIND,
+    SPARSE_LABELS,
+    STRATUM_LABELS,
+    STUDY,
+    UNNORMALISED,
+)
+
+CALIBRATION_N = PRIMARY_N
+#: The per-arm rule of :func:`~tests.studies.mtp_study_tools.per_arm_replicates` over the 48
+#: positives, on the pooled pilots read at the smallest pilot size, 8,000 draws
+#: (``test_fold_evaluated_strata_design``).
+CALIBRATION_REPLICATES = 8_800
+NECESSITY_REPLICATES = 2_800
+SHRUNKEN_SE_FACTOR = 0.70
+TARGETING_DISPLACEMENT = 0.5
+SPARSE_N = PRIMARY_N
+SPARSE_REPLICATES = 2_000
+
+#: The study's fits learn no rule, so its rows carry no ``rule_rows_checked`` and the run form's
+#: harness check prints no rule agreement (:mod:`tests.canonical.learned_rule_run`).
+LEARNED_RULE = False
+
+#: The two construction controls, each a below-band SE control of ``SE_CONTROL_SIDES``.
+OWN_CONTROLS = (UNNORMALISED, SHARE_DROPPED)
+
+#: The sample law of each setting: a weighted setting draws the same sample as its rows-only twin
+#: (the weight is a column the fit reads), so rule L3 judges its seeds against that twin's.
+SAMPLE_LAW = {
+    "unweighted": "unweighted",
+    "weighted": "unweighted",
+    "binary_unweighted": "binary_unweighted",
+    "binary_weighted": "binary_unweighted",
+}
+
+#: One draw label per setting and family; each draw writes the rows of all 12 parameters.
+PROPERTY_DRAWS: tuple[base.PropertyDraw, ...] = (
+    *(
+        base.PropertyDraw(
+            "interval_calibration", setting, CALIBRATION_REPLICATES, SAMPLE_LAW[setting]
+        )
+        for setting in law.SETTINGS
+    ),
+    base.PropertyDraw("targeting_necessity", "unweighted", NECESSITY_REPLICATES, "unweighted"),
+    base.PropertyDraw(SPARSE_FAMILY, law.SPARSE, SPARSE_REPLICATES, law.SPARSE),
+)
+
+
+def suffixes(record: StudyRecord) -> dict[tuple[str, str], tuple[Any, ...]]:
+    """The rule-L3 suffix of every property draw of ``record``."""
+    return base.seed_labels(record, PRIMARY_REPLICATES, PROPERTY_DRAWS)
+
+
+#: The calibration positive arms to the controls derived from their rows.
+DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS, positive_suffix=POSITIVE)
+
+#: The columns a ``sparse_event_diagnostic`` row carries beside the shared schema; every other
+#: row leaves them empty.
+SPARSE_COLUMNS = ("stacked_estimate", "stacked_std_error", "stratum_arm_events")
+
+#: The columns every property row carries beside the shared schema.
+ROW_COLUMNS = ("solver_warnings", *SPARSE_COLUMNS)
+
+#: The descriptive summary columns of a ``sparse_event_diagnostic`` cell. No verdict reads them.
+SPARSE_SUMMARY = (
+    "stacked_coverage",
+    "stacked_coverage_ci_lower",
+    "stacked_coverage_ci_upper",
+    "stacked_se_ratio",
+    "stacked_se_ratio_ci_lower",
+    "stacked_se_ratio_ci_upper",
+    "events_mean",
+    "events_p05",
+)
+
+_Key = tuple[tuple[str, str, int, int, int, int, int, str]]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    _, _, _, n, _, sample_seed, _, setting = key[0]
+    return law.draw(setting, n, sample_seed)
+
+
+def _cell_of(key: _Key) -> str:
+    """The cell whose leading replicates the systematic prefix reads: the marginal ``ate``."""
+    family, setting = key[0][:2]
+    if family == "targeting_necessity":
+        return f"{family}/{setting}_ate_s0__targeted"
+    if family == SPARSE_FAMILY:
+        return f"{family}/{setting}_ate_all__{SPARSE_KIND}"
+    return f"{family}/{setting}_ate_all__{POSITIVE}"
+
+
+def _replicate_of(key: _Key) -> int:
+    return int(key[0][2])
+
+
+def _cells_of(key: _Key) -> list[str]:
+    family, setting = key[0][:2]
+    if family == "targeting_necessity":
+        return [
+            f"{family}/{label}__{arm}"
+            for label in NECESSITY_LABELS
+            for arm in ("targeted", "untargeted")
+        ]
+    if family == SPARSE_FAMILY:
+        return [f"{family}/{label}__{SPARSE_KIND}" for label in SPARSE_LABELS]
+    cells: list[str] = []
+    for label in SETTING_LABELS[setting]:
+        name = f"{family}/{label}__{POSITIVE}"
+        cells.append(name)
+        if label in STRATUM_LABELS:
+            cells.append(f"{family}/{label}__{UNNORMALISED}")
+        if label in SHARE_DROPPED_LABELS:
+            cells.append(f"{family}/{label}__{SHARE_DROPPED}")
+        cells.extend(DERIVED_CELLS[name])
+    return cells
+
+
+def _positive(
+    family: str,
+    cell: str,
+    where: tuple[int, int, int],
+    truth: float,
+    estimate: Any,
+    warnings: int,
+) -> dict[str, Any]:
+    replicate, n, requested = where
+    row = replicate_row(
+        property_name=family,
+        cell=cell,
+        role="positive",
+        replicate=replicate,
+        n=n,
+        requested=requested,
+        truth=truth,
+        estimate=estimate,
+        alpha=STUDY.margins.alpha,
+    )
+    row["solver_warnings"] = warnings
+    return row
+
+
+def _control(
+    family: str,
+    cell: str,
+    where: tuple[int, int, int],
+    truth: float,
+    estimate: float,
+    standard_error: float,
+    warnings: int,
+) -> dict[str, Any]:
+    replicate, n, requested = where
+    row = control_row(
+        property_name=family,
+        cell=cell,
+        replicate=replicate,
+        n=n,
+        requested=requested,
+        truth=truth,
+        estimate=estimate,
+        standard_error=standard_error,
+        critical=law.CRITICAL,
+    )
+    row["solver_warnings"] = warnings
+    return row
+
+
+def calibration_rows(
+    fitted: law.Measured, setting: str, where: tuple[int, int, int]
+) -> list[dict[str, Any]]:
+    """The positive rows and the two construction controls of one calibration fit."""
+    family = "interval_calibration"
+    truth = law.truths(setting)
+    rows: list[dict[str, Any]] = []
+    for label in SETTING_LABELS[setting]:
+        parameter_label = label.removeprefix(f"{setting}_")
+        name = law.parameter(parameter_label)
+        estimate = fitted.result.estimates[name]
+        rows.append(
+            _positive(family, f"{label}__{POSITIVE}", where, truth[name], estimate, fitted.warnings)
+        )
+        if label in STRATUM_LABELS:
+            rows.append(
+                _control(
+                    family,
+                    f"{label}__{UNNORMALISED}",
+                    where,
+                    truth[name],
+                    float(estimate.psi),
+                    law.unnormalised_se(fitted.result, parameter_label),
+                    fitted.warnings,
+                )
+            )
+        if label in SHARE_DROPPED_LABELS:
+            rows.append(
+                _control(
+                    family,
+                    f"{label}__{SHARE_DROPPED}",
+                    where,
+                    truth[name],
+                    float(estimate.psi),
+                    law.share_dropped_se(fitted.result, parameter_label),
+                    fitted.warnings,
+                )
+            )
+    return rows
+
+
+def necessity_rows(fitted: law.Measured, where: tuple[int, int, int]) -> list[dict[str, Any]]:
+    """The targeted and untargeted rows of one targeting-necessity fit."""
+    family = "targeting_necessity"
+    truth = law.truths("unweighted")
+    rows: list[dict[str, Any]] = []
+    for label in NECESSITY_LABELS:
+        parameter_label = label.removeprefix("unweighted_")
+        name = law.parameter(parameter_label)
+        estimate = fitted.result.estimates[name]
+        rows.append(
+            _positive(family, f"{label}__targeted", where, truth[name], estimate, fitted.warnings)
+        )
+        rows.append(
+            _control(
+                family,
+                f"{label}__untargeted",
+                where,
+                truth[name],
+                law.untargeted(fitted.result, parameter_label),
+                float(estimate.std_error),
+                fitted.warnings,
+            )
+        )
+    return rows
+
+
+def sparse_rows(
+    fitted: law.Paired, frame: pd.DataFrame, where: tuple[int, int, int]
+) -> list[dict[str, Any]]:
+    """The diagnostic rows of one ``binary_sparse`` draw: the declared fit with the paired
+    stacked fit and the stratum-arm event count of each parameter."""
+    replicate, n, requested = where
+    truth = law.truths(law.SPARSE)
+    warnings = fitted.declared.warnings + fitted.stacked.warnings
+    rows: list[dict[str, Any]] = []
+    for parameter_label in law.PARAMETER_LABELS:
+        name = law.parameter(parameter_label)
+        stacked = fitted.stacked.result.estimates[name]
+        row = replicate_row(
+            property_name=SPARSE_FAMILY,
+            cell=f"{law.SPARSE}_{parameter_label}__{SPARSE_KIND}",
+            role=DIAGNOSTIC_ROLE,
+            replicate=replicate,
+            n=n,
+            requested=requested,
+            truth=truth[name],
+            estimate=fitted.declared.result.estimates[name],
+            alpha=STUDY.margins.alpha,
+        )
+        row.update(
+            {
+                "solver_warnings": warnings,
+                "stacked_estimate": float(stacked.psi),
+                "stacked_std_error": float(stacked.std_error),
+                "stratum_arm_events": law.stratum_arm_events(frame, parameter_label),
+            }
+        )
+        rows.append(row)
+    return rows
+
+
+def _replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    family, setting, replicate, n, requested, _, fold_seed, _ = key[0]
+    where = (replicate, n, requested)
+    if family == SPARSE_FAMILY:
+        return sparse_rows(law.paired(frame, setting, fold_seed), frame, where)
+    if family == "interval_calibration":
+        return calibration_rows(law.measured(frame, setting, fold_seed), setting, where)
+    if family == "targeting_necessity":
+        fitted = law.measured(frame, setting, fold_seed, learner=law.drop_w1_learner())
+        return necessity_rows(fitted, where)
+    raise ValueError(f"unknown property family {family!r}")
+
+
+def _payloads(record: StudyRecord, cap: int | None) -> list[_Key]:
+    resolved = suffixes(record)
+    out = []
+    for draw in PROPERTY_DRAWS:
+        suffix = resolved[draw.family, draw.label]
+        replicates = draw.replicates if cap is None else min(cap, draw.replicates)
+        for replicate in range(replicates):
+            sample_seed = stream_seed(
+                record, "property_sample", draw.family, draw.label, replicate, *suffix
+            )
+            fold_seed = stream_seed(
+                record, "fold_partition", draw.family, draw.label, replicate, *suffix
+            )
+            out.append(
+                (
+                    (
+                        draw.family,
+                        draw.label,
+                        replicate,
+                        CALIBRATION_N,
+                        replicates,
+                        sample_seed,
+                        fold_seed,
+                        draw.law,
+                    ),
+                )
+            )
+    return out
+
+
+FAILURE_BOUND = 0.01
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
+def generate_property_rows(
+    *, n_jobs: int = STUDY_JOBS, record: StudyRecord = STUDY, cap: int | None = None
+) -> pd.DataFrame:
+    """Fit every property replication and return one row per cell and replication."""
+    outcomes = fit_properties(
+        _payloads(record, cap),
+        _replication,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
+    rows = pd.DataFrame([row for records in outcomes for row in records])
+    controls = calibration_controls(
+        rows,
+        record,
+        labels=CALIBRATION_LABELS,
+        efficiency_bounds=EFFICIENCY_BOUNDS,
+        calibration_n=CALIBRATION_N,
+        shrunken_se_factor=SHRUNKEN_SE_FACTOR,
+        critical=law.CRITICAL,
+        positive_suffix=POSITIVE,
+    )
+    controls["solver_warnings"] = controls["solver_warnings"].astype(int)
+    rows = pd.concat([rows, controls], ignore_index=True)
+    for family, declared in PROPERTY_CELLS.items():
+        cells = set(rows.loc[rows["property"] == family, "cell"])
+        if cells != set(declared):
+            raise RuntimeError(f"{family} cells {sorted(cells ^ set(declared))} differ")
+    return rows.loc[:, [*REPLICATE_COLUMNS, *ROW_COLUMNS]]
+
+
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=NECESSITY_LABELS,
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+    truth_varies=STUDY.truth_varies_by_replicate,
+)
+
+
+def report_sparse_events(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
+    """Report both fits of each ``sparse_event_diagnostic`` cell; state no verdict.
+
+    The summary already holds the declared fit's coverage with its exact interval. This adds
+    the bootstrap interval of its SE ratio, the stacked fit's coverage and SE ratio with the
+    same intervals on the same draws, and the mean and 5th percentile of the stratum-arm event
+    count. It writes ``passed`` and ``property_passed`` ``True`` on every diagnostic row,
+    meaning the numbers were computed and are published; the published role says that no margin
+    was read.
+    """
+    family = summary["property"] == SPARSE_FAMILY
+    roles = set(summary.loc[family, "role"].astype(str))
+    if family.any() and roles != {DIAGNOSTIC_ROLE}:
+        raise ValueError(f"{SPARSE_FAMILY} publishes roles {sorted(roles)}, not diagnostic")
+    margins = STUDY.margins
+    groups = cell_groups(rows, SPARSE_FAMILY)
+    for cell in sorted(summary.loc[family, "cell"]):
+        group = groups[cell]
+        stacked = group.assign(
+            estimate=group["stacked_estimate"], std_error=group["stacked_std_error"]
+        )
+        mask = family & (summary["cell"] == cell)
+        for prefix, frame, labels in (
+            ("", group, (cell,)),
+            ("stacked_", stacked, (cell, "stacked")),
+        ):
+            ratio = ratio_intervals(
+                frame,
+                replicates=margins.bootstrap_replicates,
+                confidence_level=margins.confidence_level,
+                seed=stream_seed(STUDY, SPARSE_FAMILY, *labels),
+                truth_varies=STUDY.truth_varies_by_replicate,
+            )["se_ratio"]
+            summary.loc[mask, f"{prefix}se_ratio_ci_lower"] = ratio.low
+            summary.loc[mask, f"{prefix}se_ratio_ci_upper"] = ratio.high
+        estimate = stacked["estimate"].to_numpy(float)
+        std_error = stacked["std_error"].to_numpy(float)
+        truth = stacked["truth"].to_numpy(float)
+        covered = np.abs(estimate - truth) <= law.CRITICAL * std_error
+        coverage = clopper_pearson(
+            int(covered.sum()), int(covered.size), confidence_level=margins.confidence_level
+        )
+        events = group["stratum_arm_events"].to_numpy(float)
+        summary.loc[mask, "stacked_coverage"] = float(np.mean(covered))
+        summary.loc[mask, "stacked_coverage_ci_lower"] = coverage.low
+        summary.loc[mask, "stacked_coverage_ci_upper"] = coverage.high
+        summary.loc[mask, "stacked_se_ratio"] = float(np.mean(std_error) / np.std(estimate, ddof=1))
+        summary.loc[mask, "events_mean"] = float(np.mean(events))
+        summary.loc[mask, "events_p05"] = float(np.percentile(events, 5))
+        summary.loc[mask, "passed"] = True
+        summary.loc[mask, "property_passed"] = True
+
+
+def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
+    """The verdict of each cell, and the report of each diagnostic cell.
+
+    The study has one size, so it publishes no rate rows (``rate_labels=()``).
+    """
+    summary, rates = apply_shared_verdicts(
+        rows,
+        STUDY,
+        extra_columns=("targeting_displacement", *SPARSE_SUMMARY),
+        rate_labels=(),
+    )
+    calibration_verdicts(summary, margins=STUDY.margins, positive_suffix=POSITIVE)
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
+    report_sparse_events(summary, rows)
+    return finish(summary, rates)
+
+
+#: The declared rules of the failure accounting. The calibration rule is the shared one, named
+#: here because the module declares its own rules; the sparse-event diagnostic writes its verdict
+#: columns without reading a margin, so it has none.
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=None),
+    *property_verdicts.necessity_rules(TARGETING_NECESSITY),
+)

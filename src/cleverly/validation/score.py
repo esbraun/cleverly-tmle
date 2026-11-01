@@ -96,7 +96,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from .._inference_status import InferenceStatus, is_labelled, status_record
+from .._inference_status import InferenceStatus
+from .._summary import Detail, Summary, check_detail
 from ..fluctuation._score import (
     RESIDUAL_LINE,
     residual_se,
@@ -106,7 +107,7 @@ from ..fluctuation._score import (
 from ..inference.influence import ParameterEstimate, spread_name
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
-from ..utils.text import format_negligible, format_table
+from ..utils.text import format_negligible
 from .drtmle import CorrectionCheck, correction_check
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -307,7 +308,7 @@ class ScoreCheck:
     n: int
     #: Whether this fit reports the **corrected** curve
     #: :math:`D = D^* - D^*_Q - D^*_g` -- or the one term of it a single guard solves for,
-    #: which :meth:`_curve` derives from the rows -- rather than :math:`D^*`.  True for a
+    #: which the correction rows name -- rather than :math:`D^*`.  True for a
     #: :class:`~cleverly.DRTMLE` fit with a non-empty guard, and what the verdict branches
     #: on: the equations such a fit solves are its own three, and the curve they leave is
     #: the *estimator's* influence function at the nuisance limits, which is generally not
@@ -460,7 +461,7 @@ class ScoreCheck:
         failures = self.failures
         if not failures:
             return (
-                f"score check: PASS -- all {len(self.rows)} within tolerance "
+                f"score check: PASS; all {len(self.rows)} within tolerance "
                 f"(worst |score| {format_negligible(self._worst_ratio(), 1.0, digits=2)} "
                 "of its threshold)."
             )
@@ -470,7 +471,7 @@ class ScoreCheck:
         )
         return "\n".join(
             [
-                f"score check: FAIL -- {len(failures)} of {len(self.rows)} not solved.",
+                f"score check: FAIL; {len(failures)} of {len(self.rows)} not solved.",
                 f"  {named}",
                 *self._identity_lines(),
                 f"  The {spread_name('standard errors', self.inference)} above are read off "
@@ -497,7 +498,7 @@ class ScoreCheck:
             ]
             worst = format_negligible(max(ratios), 1.0, digits=2) if ratios else "0"
             return (
-                f"score check: PASS -- the {self.stopping} stopping rule was met "
+                f"score check: PASS; the {self.stopping} stopping rule was met "
                 f"(worst score {worst} of its threshold)."
             )
         lines = []
@@ -510,7 +511,7 @@ class ScoreCheck:
                 for row in others
             )
             lines.append(
-                f"score check: FAIL -- {len(others)} equation(s) held to the default bar "
+                f"score check: FAIL; {len(others)} equation(s) held to the default bar "
                 f"not solved: {named}"
             )
             lines.extend(self._identity_lines())
@@ -541,163 +542,28 @@ class ScoreCheck:
         ratios = [row.ratio for row in self.rows if np.isfinite(row.ratio)]
         return max(ratios) if ratios else float("nan")
 
-    def _curve(self) -> str:
-        """The corrected curve this fit reports, as its terms rather than as a constant.
+    def summary(self, detail: Detail = "short") -> Summary:
+        """Return the printed summary of the check.
 
-        ``D = D* - D*_Q - D*_g`` under both guards and one term shorter under either alone,
-        derived from which corrections are in the curve rather than written out here --
-        so it cannot drift from what
-        :meth:`~cleverly.inference.influence.CorrectionParts.total` did.  A hand-built
-        check carries no corrections and gets the both-guards wording, which is what every
-        such object meant before a partial guard was expressible.
-        """
-        if self.corrections is None or not self.corrections.rows:
-            return "D = D* - D*_Q - D*_g"
-        subtracted = {row.equation for row in self.corrections.rows if row.solved}
-        return "D = D*" + "".join(f" - {term}" for term in ("D*_Q", "D*_g") if term in subtracted)
-
-    def summary(self) -> str:
-        """Return a printable summary.
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"short"`` prints the header, one row per equation, the reading and the notes.
+            ``"full"`` adds each equation's error before the correction step and, under a
+            declared stopping rule, the remainder of each estimate in standard errors.
 
         Returns
         -------
-        str
-            A printable table, one line per checked score equation.
+        Summary
+            A ``str`` whose value is the printed text. Its ``facts``, ``tables``,
+            ``notes`` and ``reading`` hold the parts as data.
         """
-        if not self.passed:
-            verdict = (
-                "FAIL: the score equation was not solved -- the "
-                f"{spread_name('influence-curve standard errors', self.inference)} this fit "
-                "reports do not describe this estimate. See the module docstring for the "
-                "usual causes."
-            )
-            if self.identity_failures:
-                # Named as its own thing and *first*, because the other failing rows on
-                # such a fit are usually this one's consequence: a curve built from an
-                # expression the loop did not solve is not centred, so the correction rows
-                # and the per-estimand rows go with it. Which rows failed is in the table
-                # above; what a reader cannot get from the table is that iterating longer
-                # is not the remedy.
-                verdict = "\n".join(
-                    [
-                        "FAIL: a state identity does not hold -- the score the targeting "
-                        "step recorded and the",
-                        "term the reported curve carries are not the same functional of "
-                        "the state this fit",
-                        "returned. That is a defect in the implementation rather than",
-                        "a fit that failed to converge, and the "
-                        f"{spread_name('standard errors', self.inference)} do not "
-                        "describe this estimate.",
-                        "Inspect the score rows. For guarded DR-TMLE, inspect "
-                        "res.diagnostics.corrections() for the correction identities.",
-                    ]
-                )
-        elif self.declared:
-            # The rule's own verdict: the score is inside the threshold the rule set, which is
-            # a residual by design and not a root to machine precision.  What the residual
-            # costs is the line below the table.
-            verdict = (
-                f"PASS: the targeting step met the {self.stopping} stopping rule on every "
-                "equation it judges by that rule. The score equation is solved to the rule's "
-                "threshold and not to machine precision."
-            )
-            if self.corrected:
-                verdict += f"\nValidity is not efficiency: the curve reported is {self._curve()}."
-        elif self.corrected:
-            # Not "the efficient score equation": this fit solved *its own* equations, and
-            # the curve they leave is the estimator's influence function at the nuisance
-            # limits. The two coincide when both nuisances are consistent, because the
-            # corrections then vanish row by row -- the corrections add cost and no
-            # asymptotic gain there. With one nuisance wrong the interval holds only in the
-            # cases the contract lists (dr-tmle/theorem.md, the conditioning terms).
-            solved = sum(1 for row in self.rows if row.kind == "fluctuation")
-            verdict = "\n".join(
-                [
-                    f"PASS: the targeting step solved all {solved} estimated score equations "
-                    "of the doubly-robust estimator.",
-                    *(
-                        [
-                            f"Validity is not efficiency: the curve reported is {self._curve()}. "
-                            "Theorem 1 makes its interval valid under its conditions.",
-                            "With one wrong nuisance the interval holds only in the cases "
-                            "cleverly.estimators.drtmle lists.",
-                        ]
-                        if not is_labelled(self.inference)
-                        else [
-                            f"The reported curve is {self._curve()}. This check verifies its "
-                            "score equations, not an interval for this fit."
-                        ]
-                    ),
-                ]
-            )
-        else:
-            verdict = "PASS: the targeting step solved the estimated efficient score equation."
-        if self.passed and is_labelled(self.inference):
-            verdict += "\n" + status_record(self.inference).reason
-        residual = self.rule_line()
-        if residual:
-            verdict += "\n" + residual
-        return "\n".join(
-            [
-                "Score-equation check",
-                "-" * 20,
-                format_table(
-                    ["target", "kind", "|score|", "before", "threshold", "ratio", "ok"],
-                    [
-                        [
-                            row.name,
-                            row.kind,
-                            format_negligible(abs(row.score), row.threshold, digits=3),
-                            format_negligible(abs(row.score_initial), row.threshold, digits=3),
-                            # A `diagnostic` row is held to no threshold, so it has none to
-                            # print. A `nan` beside a `yes` in the `ok` column reads as a
-                            # bug rather than as a row that is not being judged.
-                            f"{row.threshold:.3e}" if np.isfinite(row.threshold) else "-",
-                            format_negligible(row.ratio, 1.0, digits=2),
-                            "yes" if row.passed else "NO",
-                        ]
-                        for row in self.rows
-                    ],
-                ),
-                *self._notes(),
-                "",
-                verdict,
-            ]
-        )
+        from ._score_summary import score_summary
 
-    def _notes(self) -> list[str]:
-        """Anything the table has no column for: named failures, fold convergence."""
-        notes: list[str] = []
-        for row in self.rows:
-            if np.isfinite(row.residual_se):
-                bound = (
-                    f"; the rule bounds it at {row.rule_bound_se:.3g}"
-                    if np.isfinite(row.rule_bound_se)
-                    else ""
-                )
-                notes.append(
-                    f"  {row.name}: residual {row.residual_se:.3g} standard errors, a Wald "
-                    f"interval keeps at least {row.coverage_bound:.4f} coverage{bound}"
-                )
-            if row.failure:
-                # A recomputed row's `failure` is a statement about the fit's arithmetic
-                # rather than about a solver that gave up, so it is not introduced as one.
-                stopped = (
-                    ""
-                    if row.kind in ("correction", "identity", "diagnostic")
-                    else "targeting stopped -- "
-                )
-                notes.append(f"  {row.name}: {stopped}{row.failure}")
-            if row.folds_converged is not None:
-                good, total = row.folds_converged
-                if good < total:
-                    notes.append(f"  {row.name}: {total - good} of {total} folds did not converge")
-            if np.isfinite(row.hessian_condition) and row.hessian_condition > 1e8:
-                notes.append(
-                    f"  {row.name}: Hessian condition {row.hessian_condition:.2e} -- epsilon is "
-                    "barely identified, so a solved score may still be fragile"
-                )
-        return ["", *notes] if notes else []
+        return score_summary(self, check_detail(detail))
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
     def raise_if_failed(self) -> None:
         """Raise when the check failed -- for use in pipelines that must not ship a bad fit."""
@@ -708,8 +574,10 @@ class ScoreCheck:
             f"the TMLE score equation was not solved for: {names}. {self.summary()}"
         )
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return self.summary()
+    def __repr__(self) -> str:
+        from ._score_summary import score_repr
+
+        return score_repr(self)
 
 
 def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> ScoreCheck:
@@ -1230,7 +1098,7 @@ def _correction_rows(
                     "(reduced) row, so this restatement is held to nothing"
                     if by_rule
                     else "not among the equations this fit's guard= solves, so the reported "
-                    "curve does not subtract it -- held to nothing"
+                    "curve does not subtract it; held to nothing"
                 ),
             )
         )

@@ -92,7 +92,9 @@ def test_a_poor_held_out_density_reads_a_fold_mean_far_from_one() -> None:
     # The IV-N3 probe read 1.46, 1.20 and 1.87 on these folds.
     assert max(row.fold_mean_ratio) > 1.5
     assert row.mean_ratio > 1.3
-    assert "per fold" in row.summary()
+    (table,) = row.summary().tables
+    folds = {line[0].value: line[1].value for line in table.rows if "fold" in str(line[0].value)}
+    assert list(folds.values()) == list(row.fold_mean_ratio)
 
 
 def test_the_exact_density_reads_fold_means_near_one() -> None:
@@ -134,9 +136,11 @@ def test_the_summary_states_the_reference_mean_for_each_shift_kind() -> None:
         mean_ratio=0.9,
         fold_mean_ratio=(0.9,),
     )
-    line = row.summary().splitlines()[-1]
-    assert "P(d(A, W) in the conditional support)" in line
-    assert "1 when the policy preserves support" in line
-    assert "sampling and density estimation" in line
-    assert "do not establish true support or identification" in line
-    assert "1 under the true density;" not in line
+    assert row.summary().sections == ()
+    (reading, *_) = row.summary(detail="full").section("How to read").lines
+    assert "probability that the policy's dose stays inside the support" in reading
+    assert "which is one when the policy keeps that support" in reading
+    assert "moves with sampling and with error in the density model" in reading
+    assert "does not prove that the support holds or that the effect is identified" in reading
+    # The expected value under the true density is a probability, not always one.
+    assert "equals one under the true density" not in reading

@@ -70,9 +70,11 @@ def test_the_study_path_reports_the_contrast_and_the_omissions() -> None:
     assert ("censoring", 1, LONGITUDINAL_NO_CENSORING) in reasons
     for node in (2, 3, 4):
         assert ("treatment", node, LONGITUDINAL_HELD_DECISION) in reasons
-    text = result.summary()
-    assert "one baseline decision 'A', held over 4 node(s)" in text
-    assert "time grid: 1, 2, 3, 4" in text
+    summary = result.summary(detail="full")
+    assert summary.facts["Treatment"] == "A, given at baseline"
+    assert summary.facts["Time points"] == "4 (at 1, 2, 3, 4)"
+    settings = summary.section("Settings").lines
+    assert "One baseline treatment, A, held over 4 time points." in settings
 
 
 def test_three_arms_and_two_causes() -> None:
@@ -215,7 +217,11 @@ def test_the_study_path_reports_constant_node_parameters(target: str) -> None:
     assert flagged == expected
     assert result.simultaneous is not None
     assert set(result.simultaneous.bands) == set(result.estimates) - expected
-    assert "not reported" in result.summary()
+    summary = result.summary()
+    shown = ", ".join(sorted(expected))
+    assert summary.note("simultaneous_bands").text.endswith(
+        f"The bands leave out {shown}, which have no interval."
+    )
 
 
 def test_the_narrowed_band_without_the_filter_raises(monkeypatch: pytest.MonkeyPatch) -> None:

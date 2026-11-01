@@ -5,10 +5,10 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-drtmle-one-wrong",
-      "cleverly_version": "0.1.2",
-      "cleverly_commit": "455f71d3617ce3e0213dedf78d06a90d2b6a20df",
+      "cleverly_version": "0.1.5",
+      "cleverly_commit": "caf9d08cb7ff5569662602e752669ce985e8029a",
       "cleverly_worktree_clean": true,
-      "python": "3.13.7",
+      "python": "3.13.16",
       "numpy": "2.5.4",
       "scipy": "1.18.1",
       "pandas": "3.0.6",
@@ -22,6 +22,9 @@
     "seed": 20264001,
     "resampling_seed": 2026400101,
     "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-drtmle-one-wrong": 0.01
+    },
     "scenarios": {
       "q_wrong_g_known": [
         "ey0",
@@ -55,6 +58,7 @@
     },
     "reduced_learners": "cubic polynomials in the raw scalar design: least squares for the reduced outcome regression, Newton logistic with ridge 1e-8 for the reduced mechanism",
     "cross_fit": "False, except the q_wrong_g_glm_cf cells (the shipped default folds)",
+    "reduced_crossfit": "foldwise (read only by the q_wrong_g_glm_cf cells)",
     "settings": {
       "q_wrong_g_glm": {
         "law": "L",
@@ -99,6 +103,7 @@
         "branch": "response"
       }
     },
+    "property_failure_bound": 0.01,
     "margins": {
       "confidence_level": 0.99,
       "alpha": 0.05,
@@ -126,23 +131,23 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/drtmle_one_wrong.py": "ce10a166ace5daac6312b5cef7b9cf0f8a5037dc77ff308226e02c8074dc0a03",
-    "tests/studies/drtmle_one_wrong_properties.py": "4f1c0936fc483444d2c506c9115792d8f65768d9c986006f98a5d88ad71050c1",
+    "tests/studies/drtmle_one_wrong.py": "93cd229da47908771958015fb2db2edef2c3126305a940cb99250e9e1e239b14",
+    "tests/studies/drtmle_one_wrong_properties.py": "76ff50d2ac2a61f1be340e6a91f63efaeb0e0b06b293964b85c9e5aecfada761",
     "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
     "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
-    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
-    "tests/studies/evidence/property_verdicts.py": "5e65c9ecce2c7d4e34d5d9bdd825ef7d41cf550c2138fa3d9621c4dd0028a4ef",
-    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
+    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.csv.gz": "9981a9fe06b7cdb188fc76a9770a79f56de9b668763da3aa642b2a7e57d64792",
-    "summary.csv": "cb21219c14c11deff04a066356ad54374788edf811db8be96f1d4c933519d80a",
+    "replicates.parquet": "bae35e842537d4998cb3026ecb1cb5c933a5d09562f31c7fb6ad8d1b9b72346f",
+    "summary.csv": "d195ce4ca77f002a5baf0976900f27935f864f2f818c7344b9c196bc53db3e3e",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "9ae4d52e9ef3ea0561a283a08df6f4806fbfcd07b5ae6a44c1a9c6ec601fe431",
-    "property-replicates.csv.gz": "29d7582eb3e9d12bbbcfc17d33f5dd01bb39931cb89dbf6f5a7f2fd6bce7817c",
-    "properties.csv": "9658b335c0c492239a07a30cd28696b1bd0f103b3eee65f0791b942d6a6b6e84"
+    "performance-tests.csv": "bd10e7b1470cc3691aa0300b9f13eae206189add1c175dcb71b11bf008f6a317",
+    "property-replicates.parquet": "577bcea6b3455be83a3da2040791055fabebf8592d2b44f32ec9eb5c2154c470",
+    "properties.csv": "39b262173b9d51ff1c8e44c84f59f81d2f029f7da093a41a5c6d9b1faf01b0b4"
   }
 }

@@ -184,8 +184,8 @@ def assert_replay_rows_refused(result: Any, code: str) -> None:
     For a modified result whose replay slots read false, and ``code`` is the omission code
     that ``replayability`` reports for it. A row that a rule of its own refuses keeps that
     sentence, so the code need not name every row. The ``refute`` row reads unavailable
-    too. A longitudinal ``refute`` row declares no replay slot, because it is unavailable
-    for every longitudinal result.
+    too. A longitudinal ``refute`` row reads the ``rerun_configuration`` slot, which a lost
+    regimen or MSM declaration turns false.
     """
     assert code in replayability(result).unreconstructible
     rows = replay_rows(result)

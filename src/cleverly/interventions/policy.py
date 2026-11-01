@@ -107,7 +107,6 @@ from __future__ import annotations
 
 import contextlib
 import itertools
-import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from itertools import pairwise
@@ -116,9 +115,11 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypeAlias, cast
 import numpy as np
 
 from .._declarations import FunctionDeclaration, FunctionKind
+from .._summary import Detail, Summary, check_detail
 from .._typing import BoolArray, FloatArray, IntArray
+from .._warnings import warn as _warn
 from ..data.causal_data import CausalData
-from ..data.weighting import effective_sample_size, format_score_load
+from ..data.weighting import effective_sample_size
 from ..exceptions import (
     CapabilityError,
     DataError,
@@ -5439,7 +5440,7 @@ def _warn_outside_cell_support(
         for count, side in ((below, "below the smallest"), (above, "above the largest")):
             if not count:
                 continue
-            warnings.warn(
+            _warn(
                 f"policy {name!r} assigns {count / natural.shape[0]:.1%} of rows a "
                 f"{component.name!r} dose {side} one observed in the categorical cell the "
                 "policy sends them to. The outcome regression is extrapolating there. "
@@ -5478,7 +5479,7 @@ def _warn_outside_support(
                 f"has cap=None, and {fraction:.1%} of rows are assigned a dose above "
                 f"the largest one observed ({boundary:.3g}). "
             )
-        warnings.warn(
+        _warn(
             f"policy {name!r} {description}"
             "The outcome regression is extrapolating there. Identification requires the policy "
             "to preserve conditional treatment support; a cap alone does not establish this.",
@@ -5580,52 +5581,30 @@ class PolicySupport:
     outside_declared_support: int | None = None
     atom_mass: dict[float, float] | None = None
 
-    def summary(self) -> str:
-        """Return a printable summary.
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """This policy's overlap: the rows it moves, its density ratios and their size.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default="short"
+            ``"full"`` adds how to read the mean ratio, the atom masses and the zero check.
 
         Returns
         -------
-        str
-            A printable table, one line per row of the report.
+        Summary
+            The summary. It prints as text and renders as HTML in a notebook.
         """
-        quantiles = ", ".join(f"{q:.0%}: {v:.3g}" for q, v in sorted(self.ratio_quantiles.items()))
-        mechanism = (
-            "" if self.min_mechanism is None else f", min mechanism={self.min_mechanism:.3g}"
-        )
-        label = "ratio" if self.min_mechanism is None else "weight"
-        score = format_score_load(self.score_load, style="inline")
-        folds = ", ".join(f"{value:.3g}" for value in self.fold_mean_ratio)
-        capped = "" if self.capped_fraction is None else f"capped={self.capped_fraction:.1%}, "
-        density = (
-            "min g(A|W) not measured on the classifier route"
-            if self.min_density is None
-            else f"min g(A|W)={self.min_density:.3g}"
-        )
-        unsupported = (
-            "unsupported not measured on the classifier route"
-            if self.unsupported is None
-            else f"unsupported={self.unsupported}"
-        )
-        if self.outside_declared_support is not None:
-            unsupported += f", outside declared support={self.outside_declared_support}"
-        if self.atom_mass:
-            masses = ", ".join(f"{atom:g}: {mass:.3g}" for atom, mass in self.atom_mass.items())
-            unsupported += f", atom mass {masses}"
+        from ._support_summary import policy_support_summary
 
-        return (
-            f"{self.name}: {density}, max {label}={self.max_ratio:.3g}"
-            f"{mechanism}, "
-            f"ESS={self.effective_sample_size:.0f} ({self.ess_ratio:.1%} of n), "
-            f"moved={self.moved_fraction:.1%}, {capped}{unsupported}, "
-            f"{score}\n"
-            f"    {label} quantiles -- {quantiles}\n"
-            f"    mean ratio -- {self.mean_ratio:.3g} overall, per fold {folds} "
-            "(under the true density: P(d(A, W) in the conditional support), "
-            "equal to 1 when the policy preserves support, for capped and uncapped policies; "
-            "finite-sample means also vary with sampling and density estimation). "
-            "Unsupported counts refer to estimated zero density at assigned doses; "
-            "these diagnostics do not establish true support or identification."
-        )
+        return policy_support_summary(self, check_detail(detail))
+
+    def __repr__(self) -> str:
+        from ._support_summary import policy_support_repr
+
+        return policy_support_repr(self)
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
 
 def check_policy_support(

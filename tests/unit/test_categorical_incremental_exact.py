@@ -434,7 +434,8 @@ class TestC10TheOverlapDiagnostics:
         smallest = float(np.min(point.nuisance.incremental.propensity))
         for report in point.diagnostics.support().values():
             assert report.min_propensity == smallest
-            assert "min g=" in report.summary()
+            (table,) = report.summary().tables
+            assert table.rows[0][table.columns.index("min probability")].value == smallest
 
     def test_two_levels_report_the_binary_pair(self) -> None:
         frame = base.frame().assign(B=lambda f: (f["A"] != "low").astype(float))

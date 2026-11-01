@@ -217,6 +217,7 @@ def _settings(cell: PropertyCell) -> dict[str, Any]:
         "outcome_learner": cell.outcome_learner(),
         "treatment_learner": cell.treatment_learner(),
         "reduced_outcome_learner": LinearRegression(),
+        "reduced_mechanism_residual_learner": LinearRegression(),
         "reduced_treatment_learner": LogisticRegression(C=1e6, max_iter=2000),
         "cross_fit": True,
         "n_folds": 5,

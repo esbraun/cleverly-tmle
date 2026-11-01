@@ -828,10 +828,11 @@ def test_the_weight_report_of_a_weighted_fit_names_the_withheld_curve() -> None:
     frame = binary_frame(300, 21)
     result = glm_fit(frame.assign(wt=0.5 + (frame["W1"] > 0).astype(float)), weights="wt")
     assert result.inference_status == "generated_design_plugin"
-    assert "weight_report()" in result.summary()
+    assert "result.data.weight_report()" in result.summary().note("weighted_population").text
     report = result.data.weight_report().summary()
-    assert "outcome-adaptive C-TMLE fit reports no standard error" in report
-    assert "Theorem 1, which is not the efficient one" in report
+    text = report.note("outcome_adaptive_weighted").text
+    assert "outcome-adaptive C-TMLE fit reports no standard error" in text
+    assert "Theorem 1, which is not the efficient one" in text
     for text in (result.summary(), result.extra["ctmle"].summary()):
         assert "efficien" not in text.lower(), text
 

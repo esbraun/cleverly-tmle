@@ -110,7 +110,7 @@ n = 2,000.
 | primary coverage, `misspecified_limit` | 0.9413 | `performance-tests.csv` |
 | rule rows that the truth harness checked | 2,000 in each of 12,000 primary replications | `harness.csv.gz`, `rule_rows_checked` |
 | solver warnings, primary | 0 | `harness.csv.gz`, `solver_warnings` |
-| solver warnings, property | 18, on 9 rows of `interval_calibration` and `targeting_necessity` | `property-replicates.csv.gz`, `solver_warnings` |
+| solver warnings, property | 18, on 9 rows of `interval_calibration` and `targeting_necessity` | `property-replicates.parquet`, `solver_warnings` |
 
 The 9 property rows come from four draws. Calibration replicate 12314 warned, and its two controls
 reuse its rows. `targeting_necessity` replicates 100, 509 and 2018 warned, and each pair of arms
@@ -229,7 +229,7 @@ gives the run command and the run form. The
 records the seeds, the margins, the estimator configuration, the source hashes and the result
 hashes. The [run log](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/learned_rule_cvtmle/run.log)
 records the commit, the clean tree, the runtime and the wall time. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/learned_rule_cvtmle/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/learned_rule_cvtmle/replicates.parquet),
 the [harness columns](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/learned_rule_cvtmle/harness.csv.gz)
 and the [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/learned_rule_cvtmle/properties.csv)
 carry every published row.

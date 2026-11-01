@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from tests import discrete_law_longitudinal as law
 from tests.studies import canonical_ltmle as study
 from tests.studies import ltmle_properties as properties
+from tests.studies.evidence.manifest import read_rows
 
 
 def test_quasibinomial_irls_solves_the_fractional_response_score() -> None:
@@ -101,7 +101,7 @@ def test_the_untargeted_plug_in_is_the_fit_without_its_fluctuation() -> None:
 
 
 def test_the_frozen_r_study_matches_beyond_its_acceptance_margin() -> None:
-    rows = pd.read_csv(study.STUDY.artifact("replicates.csv.gz"))
+    rows = read_rows(study.STUDY.artifact("replicates.parquet"))
     paired = rows.pivot(
         index=["scenario", "replicate", "estimand"],
         columns="implementation",

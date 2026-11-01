@@ -38,7 +38,7 @@ command prints one line for each breach and exits with code 1 when there is a br
 
 ```powershell
 uv run python -m tests.unit.test_ltmle_repeated_method_study `
-  .tmp/ltmle-repeated-smoke/replicates.csv.gz
+  .tmp/ltmle-repeated-smoke/replicates.parquet
 ```
 
 Run the declared study and refresh its documentation:

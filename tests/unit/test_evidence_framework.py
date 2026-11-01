@@ -7,15 +7,18 @@ and they do it by exhibiting the rule that fails it beside the rule that does no
 
 from __future__ import annotations
 
+import dataclasses
 import itertools
 import math
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 import pytest
 from scipy.stats import binom, norm
 
+from cleverly.validation import ReplicationRecord, summarize_replications
 from tests.studies.evidence import claims
 from tests.studies.evidence.claims import matches
 from tests.studies.evidence.document import render
@@ -32,14 +35,23 @@ from tests.studies.evidence.inference import (
     upper_bound,
 )
 from tests.studies.evidence.pairing import paired_wide
-from tests.studies.evidence.properties import Rate, rate, require_accounted, summarize_cells
+from tests.studies.evidence.properties import (
+    Rate,
+    cell_groups,
+    cell_summary,
+    rate,
+    require_accounted,
+    summarize_cells,
+)
 from tests.studies.evidence.property_verdicts import (
+    COVERAGE_CONTROLS,
     DIAGNOSTIC_ROLE,
     ROOT_N_SLOPE_MARGIN,
     SE_CONTROL_SIDES,
     Necessity,
     alternative_target_necessity_verdicts,
     alternative_target_verdicts,
+    calibration_rule,
     calibration_verdicts,
     se_ratio_leaves_band,
 )
@@ -182,9 +194,82 @@ def test_an_inflated_standard_error_control_must_rise_above_the_band() -> None:
         "inflated_se_control": "above",
         "term_dropped_control": "below",
         "population_truth_control": "below",
+        "row_variance_control": "below",
+        "independent_splits_control": "below",
+        "unnormalised_curve_control": "below",
+        "share_dropped_control": "below",
     }
     with pytest.raises(ValueError, match="unknown side"):
         se_ratio_leaves_band(Interval(1.0, 1.1), (0.93, 1.07), "beside")  # type: ignore[arg-type]
+
+
+def test_a_wrong_gamma_control_must_cover_below_the_band() -> None:
+    """The X82 SH control: a bound at a smaller gamma read against the declared bound's truth.
+
+    A coverage interval wholly below the band floor 0.92 passes as the control and fails as a
+    positive arm. One that reaches the floor resolves nothing and fails. The accounting rule
+    has exactly one clause for the kind, and it reads coverage against the same floor.
+    """
+    summary = pd.DataFrame(
+        {
+            "property": ["interval_calibration"] * 3,
+            "cell": [
+                "SH1_ate_lower__wrong_gamma_control",
+                "SH1_ate_lower__correctly_specified",
+                "SH1_ate_upper__wrong_gamma_control",
+            ],
+            "se_ratio_ci_lower": [0.98, 0.98, 0.98],
+            "se_ratio_ci_upper": [1.02, 1.02, 1.02],
+            "coverage_ci_lower": [0.30, 0.30, 0.90],
+            "coverage_ci_upper": [0.40, 0.40, 0.93],
+            "passed": [False, True, True],
+        }
+    )
+    calibration_verdicts(summary, margins=Margins(), efficiency_band=None)
+    assert list(summary["passed"]) == [True, False, False]
+
+    rule = calibration_rule(efficiency_band=None)
+    control = pd.Series({"role": "control", "cell": "SH1_ate_lower__wrong_gamma_control"})
+    clauses = [clause for clause in rule.clauses if clause.applies(None, control)]  # type: ignore[arg-type]
+    assert [clause.name for clause in clauses] == ["wrong-gamma coverage below band"]
+    (clause,) = clauses
+    context = SimpleNamespace(margins=Margins())
+    for index, expected in ((0, True), (2, False)):
+        row = summary.loc[index]
+        assert clause.read(context, row).passed is expected  # type: ignore[arg-type]
+
+
+def test_a_validation_rule_control_must_cover_below_the_band() -> None:
+    """The X11 PR C control: a learned rule fitted on the rows that evaluate it.
+
+    It reads coverage against the band floor exactly as the wrong-gamma control does, through
+    its own accounting clause, and a coverage interval that reaches the floor fails it.
+    """
+    assert COVERAGE_CONTROLS == {
+        "wrong_gamma_control": "wrong-gamma coverage below band",
+        "validation_rule_control": "validation-rule coverage below band",
+    }
+    summary = pd.DataFrame(
+        {
+            "property": ["interval_calibration"] * 2,
+            "cell": ["blip__validation_rule_control", "weighted__validation_rule_control"],
+            "se_ratio_ci_lower": [0.98, 0.98],
+            "se_ratio_ci_upper": [1.02, 1.02],
+            "coverage_ci_lower": [0.30, 0.90],
+            "coverage_ci_upper": [0.40, 0.93],
+            "passed": [False, True],
+        }
+    )
+    calibration_verdicts(summary, margins=Margins(), efficiency_band=None)
+    assert list(summary["passed"]) == [True, False]
+    rule = calibration_rule(efficiency_band=None)
+    control = pd.Series({"role": "control", "cell": "blip__validation_rule_control"})
+    clauses = [clause for clause in rule.clauses if clause.applies(None, control)]  # type: ignore[arg-type]
+    assert [clause.name for clause in clauses] == ["validation-rule coverage below band"]
+    (clause,) = clauses
+    context = SimpleNamespace(margins=Margins())
+    for index, expected in ((0, True), (1, False)):
+        assert clause.read(context, summary.loc[index]).passed is expected  # type: ignore[arg-type]
 
 
 def test_an_alternative_target_control_must_recover_the_target_it_claims() -> None:
@@ -1089,3 +1174,57 @@ class TestAReferenceWithABracketedKey:
         assert claims._REFERENCE.match(name) is None
         with pytest.raises(KeyError, match="not a known quantity"):
             claims.value(_seed_record(), name, self._data())
+
+
+def test_a_cell_summary_is_the_summary_of_the_cells_records() -> None:
+    """``cell_summary`` builds from columns what one record per row gives, field for field."""
+    rng = np.random.default_rng(20_261_031)
+    size = 40
+    estimates = rng.normal(size=size)
+    estimates[3] = np.nan
+    truths = rng.normal(size=size)
+    std_errors = rng.uniform(0.5, 1.5, size)
+    covered = rng.integers(0, 2, size)
+    rejected = rng.integers(0, 2, size).astype(float)
+    rejected[5] = np.nan
+    records = tuple(
+        ReplicationRecord(
+            replicate=index,
+            seed=-1,
+            estimand="cell",
+            truth=float(truth),
+            estimate=float(estimate),
+            std_error=float(std_error),
+            covered=bool(hit),
+            rejected=bool(reject),
+            inference_estimate=float(estimate),
+            alpha=0.05,
+        )
+        for index, (estimate, truth, std_error, hit, reject) in enumerate(
+            zip(estimates, truths, std_errors, covered, rejected, strict=True)
+        )
+    )
+    expected = summarize_replications(records, estimand="cell", n=400)
+    built = cell_summary(estimates, truths, std_errors, covered, rejected, n=400, alpha=0.05)
+    for field in dataclasses.fields(expected):
+        want, got = getattr(expected, field.name), getattr(built, field.name)
+        if isinstance(want, np.ndarray) or isinstance(got, np.ndarray):
+            np.testing.assert_array_equal(got, want, err_msg=field.name, strict=True)
+        else:
+            assert got == want, field.name
+
+
+def test_cell_groups_select_what_a_mask_selects() -> None:
+    rows = pd.DataFrame(
+        {
+            "property": ["a", "b", "a", "a", "b"],
+            "cell": ["x", "x", "y", "x", "y"],
+            "estimate": [1.0, 2.0, 3.0, 4.0, 5.0],
+        },
+        index=[10, 11, 12, 13, 14],
+    )
+    groups = cell_groups(rows, "a")
+    assert sorted(groups) == ["x", "y"]
+    for cell, group in groups.items():
+        masked = rows.loc[(rows["property"] == "a") & (rows["cell"] == cell)]
+        pd.testing.assert_frame_equal(group, masked)

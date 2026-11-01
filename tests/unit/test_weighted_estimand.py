@@ -41,6 +41,7 @@ import numpy as np
 import pytest
 import sklearn.linear_model
 
+from cleverly._summary import vocabulary
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.exceptions import DataError, WeightingWarning
@@ -286,8 +287,15 @@ class TestTheReport:
         assert report.effective_n == pytest.approx(expected)
         assert report.design_effect == pytest.approx(law.N / expected)
         assert report.scale == pytest.approx(float(w.mean()))
-        assert "weight-tilted population" in report.summary()
-        assert "weight-tilted population" in result.summary()
+        summary = report.summary()
+        assert summary.note_codes[:2] == ("weights_population", "weights_fixed")
+        estimand = report.summary(detail="full").section(vocabulary.WEIGHT_ESTIMAND).lines
+        assert "weight-tilted population" in estimand[0]
+        assert "weight-tilted population" not in summary
+        assert (
+            result.summary().note("weighted_population").text
+            == (vocabulary.NOTE_TEXTS["weighted_population"])
+        )
 
     def test_estimated_weights_are_declared_in_the_report(self) -> None:
         frame = law.frame().assign(w=1.0 + 0.5 * law.frame()["W"])
@@ -420,7 +428,13 @@ class TestSampleSizeDependentSettings:
             .fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
             .single()
         )
-        assert "resolved at the effective n" in result.summary()
+        settings = result.summary(detail="full").section("Settings").lines
+        assert any(
+            line.endswith(
+                f"the effective sample size of the weights, {result.data.effective_n:,.0f}."
+            )
+            for line in settings
+        ), settings
         assert result.config.auto_bounds_n == pytest.approx(result.data.effective_n)
 
     def test_an_explicit_bound_is_never_second_guessed(self) -> None:

@@ -574,9 +574,10 @@ def test_the_summary_names_the_propensity_bound_only_when_a_propensity_was_fitte
     """
     missing = _fit(_frame()).single()
     assert not missing.config.fits_treatment
-    assert "propensity truncated" not in missing.summary()
+    settings = missing.summary(detail="full").section("Settings").lines
+    assert not any(line.startswith("Estimated treatment probabilities") for line in settings)
     # It still names the mechanism it did bound, so the suppression is narrow.
-    assert "P(Delta=1|A,W)" in missing.summary()
+    assert any("that the outcome is recorded raised to" in line for line in settings)
 
     complete = _frame()
     complete = complete.assign(Y=complete["Y"].fillna(0.0))
@@ -586,4 +587,5 @@ def test_the_summary_names_the_propensity_bound_only_when_a_propensity_was_fitte
         .single()
     )
     assert ordinary.config.fits_treatment
-    assert "propensity truncated" in ordinary.summary()
+    settings = ordinary.summary(detail="full").section("Settings").lines
+    assert any(line.startswith("Estimated treatment probabilities") for line in settings)
