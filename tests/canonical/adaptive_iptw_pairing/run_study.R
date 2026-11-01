@@ -38,19 +38,26 @@ DEGREE <- c(
   pd_known_regimes_one_step = 3L, st_known = 1L, p_insample = 1L, m_insample = 3L,
   c_l1_insample = 3L, c_l3_insample = 3L, pd_regimes_insample = 3L, cn_insample = 5L,
   rm = 2L, ma_arms = 2L, ma_regime = 2L, p_rate_insample = 1L, m_rate_insample = 3L,
-  c_l1_crossfit = 3L, c_l1_crossfit_one_step = 3L, c_l3_crossfit = 3L, cn_crossfit = 5L, ma_crossfit = 2L
+  c_l1_crossfit = 3L, c_l1_crossfit_one_step = 3L, c_l3_crossfit = 3L,
+  c_l3_crossfit_one_step = 3L, cn_crossfit = 5L, cn_crossfit_one_step = 5L, ma_crossfit = 2L,
+  ma_crossfit_one_step = 2L
 )
-ONE_STEP <- c("pd_known_arms_one_step", "pd_known_regimes_one_step", "c_l1_crossfit_one_step")
+ONE_STEP <- c(
+  "pd_known_arms_one_step", "pd_known_regimes_one_step", "c_l1_crossfit_one_step",
+  "c_l3_crossfit_one_step", "cn_crossfit_one_step", "ma_crossfit_one_step"
+)
 CROSS_FITTED <- c(
   "pd_known_arms", "pd_known_arms_one_step", "pd_known_regimes", "pd_known_regimes_one_step",
-  "st_known", "c_l1_crossfit", "c_l1_crossfit_one_step", "c_l3_crossfit", "cn_crossfit", "ma_crossfit"
+  "st_known", "c_l1_crossfit", "c_l1_crossfit_one_step", "c_l3_crossfit",
+  "c_l3_crossfit_one_step", "cn_crossfit_one_step", "ma_crossfit_one_step", "cn_crossfit", "ma_crossfit"
 )
 # The arm labels of a string-coded treatment, by code (ARM_LABELS in the Python module).
 ARM_LABELS <- list(
   m_insample = c("high", "low", "medium"),
   m_rate_insample = c("high", "low", "medium"),
   c_l3_insample = c("high", "low", "mid"),
-  c_l3_crossfit = c("high", "low", "mid")
+  c_l3_crossfit = c("high", "low", "mid"),
+  c_l3_crossfit_one_step = c("high", "low", "mid")
 )
 LOG_SCALE <- c("rr", "or")
 
@@ -445,7 +452,7 @@ keys_of <- function(frame) {
   }
   if (scenario %in% c(
     "p_insample", "p_rate_insample", "c_l1_insample", "ma_arms", "c_l1_crossfit",
-    "c_l1_crossfit_one_step", "ma_crossfit"
+    "c_l1_crossfit_one_step", "ma_crossfit", "ma_crossfit_one_step"
   )) {
     m <- arm_means(frame, 0:1, form, permutation)
     return(list(ey0 = m[["0"]], ey1 = m[["1"]], ate = contrast(m[["1"]], m[["0"]])))
@@ -461,7 +468,7 @@ keys_of <- function(frame) {
     }
     return(out)
   }
-  if (scenario %in% c("cn_insample", "cn_crossfit")) {
+  if (scenario %in% c("cn_insample", "cn_crossfit", "cn_crossfit_one_step")) {
     natural <- one_call(frame, "obs", frame$Delta, frame$Y, 1, binomial(), permutation)
     obs <- mean_of(list(natural), form)
     zero <- mean_of(

@@ -299,3 +299,11 @@ def test_a_missing_reference_replicate_fails_the_agreement() -> None:
     rows = _pair(0.0)
     rows = rows.drop(rows.index[(rows["implementation"] == study.REFERENCE)][:1])
     assert not bool(study.agreement(rows)["passed"].item())
+
+
+def test_a_descriptive_scenario_reports_its_gap_and_its_one_step_form_carries_the_verdict() -> None:
+    reported = study.agreement(_pair(10 * study.AGREEMENT_CROSSFIT, scenario="c_l3_crossfit"))
+    assert bool(reported["passed"].item()) and not bool(reported["verdict"].item())
+    for name in study.DESCRIPTIVE:
+        assert f"{name}_one_step" in study.ONE_STEP
+        assert study.SCENARIOS[f"{name}_one_step"].draw == study.SCENARIOS[name].draw
