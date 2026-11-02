@@ -447,6 +447,7 @@ class TestTheRecordAndTheSurfaces:
                 gap_quantiles=((0.0,),),
                 score_quantiles=(),
                 inner_seeds=(),
+                rule_disagreement=0.0,
             )
 
     def test_the_fit_reads_its_registered_row(self) -> None:

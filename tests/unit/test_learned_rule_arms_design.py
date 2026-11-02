@@ -367,6 +367,8 @@ def _x11_modules() -> list[tuple[Any, Any]]:
     from tests.studies import learned_rule_in_sample_properties as f2_properties
     from tests.studies import learned_rule_learners as learners
     from tests.studies import learned_rule_learners_properties as learner_properties
+    from tests.studies import learned_rule_optimal_value as optimal
+    from tests.studies import learned_rule_optimal_value_properties as optimal_properties
     from tests.studies import learned_rule_split_mean as split_mean
     from tests.studies import learned_rule_split_mean_properties as split_mean_properties
     from tests.studies import learned_rule_stacked as f1
@@ -384,6 +386,7 @@ def _x11_modules() -> list[tuple[Any, Any]]:
         (f1, f1_properties),
         (f2, f2_properties),
         (g, g_properties),
+        (optimal, optimal_properties),
     ]
 
 

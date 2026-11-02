@@ -1684,6 +1684,9 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # contrast to a coverage ceiling.
         "conservative_coverage",
         "contrast_covariance",
+        # X11 PR I (``learned-rule-optimal-value``): a control whose learner's limit rule is not
+        # the optimal rule answers to a coverage ceiling on the optimal value.
+        "optimal_target_control",
         # Calibration families with no efficiency claim: the positive arm answers to the
         # SE-ratio and coverage bands, each control to an SE-ratio interval below the band.
         # Checked row by row below.
@@ -1802,6 +1805,10 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # X11 PR H (``learned-rule-arms``): how far the fitted rules over three arms sit from the
         # outcome learner's limit rule, reported with no verdict.
         "rule_margin_diagnostic",
+        # X11 PR I (``learned-rule-optimal-value``): the optimal value with an estimated g, and
+        # on a law whose blip is zero on 60% of the population, each reported with no verdict.
+        "estimated_g_report",
+        "exceptional_law_report",
         "censoring_complete_case",
         # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
         "in_sample_fit",

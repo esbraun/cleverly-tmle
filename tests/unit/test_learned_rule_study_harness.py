@@ -27,6 +27,7 @@ from tests.studies import learned_rule_cvtmle_boundary as boundary
 from tests.studies import learned_rule_cvtmle_properties as properties
 from tests.studies import learned_rule_in_sample as in_sample
 from tests.studies import learned_rule_learners as learners
+from tests.studies import learned_rule_optimal_value as optimal
 from tests.studies import learned_rule_split_mean as split_mean
 from tests.studies import learned_rule_stacked as stacked
 from tests.studies import learned_rule_strata as learned_strata
@@ -105,7 +106,9 @@ class TestTheSeedRules:
         # fold-evaluated-strata and shares only its first 1,000 values of W1
         # (``test_learned_rule_contrast_design``). X11's learned-rule-arms (X11 PR H) adds 1,200
         # primary and 5,600 property seeds, none of which equals another X11 study's seed
-        # (``test_learned_rule_arms_design``).
+        # (``test_learned_rule_arms_design``). X11's learned-rule-optimal-value (X11 PR I) adds
+        # 1,600 primary and 16,800 property seeds, none of which equals another X11 study's seed
+        # (``test_learned_rule_optimal_value_design``).
         assert len(declared) == (
             46_310
             + 6_000
@@ -119,6 +122,7 @@ class TestTheSeedRules:
             + 45_597
             + 11_199
             + 6_800
+            + 18_400
         )
         for study in (
             gated,
@@ -132,6 +136,7 @@ class TestTheSeedRules:
             in_sample,
             contrast,
             arms,
+            optimal,
         ):
             smoke = law.smoke_record(study.STUDY)
             seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}

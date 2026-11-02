@@ -358,6 +358,8 @@ SEVERAL_ROWS_QUESTION: Final = "effect of {A} on {Y}; each row is defined below"
 DIRECT_EFFECT_QUESTION: Final = "effect of {A} on {Y} with {Z} held at {z} for every unit"
 #: The Question fact of a learned-rule fit, whose target the data chose.
 LEARNED_RULE_QUESTION: Final = "value of a treatment rule learned from the data"
+#: The Question fact of a fit of the value of the optimal rule (X11 (f)), a fixed parameter.
+OPTIMAL_RULE_QUESTION: Final = "value of the best treatment rule, from rules learned on the data"
 #: The title of the key table.
 KEY_TITLE: Final = "What each row estimates"
 #: A per-stratum row: the row's meaning restricted to the units of one baseline stratum.

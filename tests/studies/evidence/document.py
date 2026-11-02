@@ -701,6 +701,29 @@ def measured(row: Any) -> str:
             f"min arm share {render(float(row.mean_min_arm_share))}, "
             f"lost-arm share {render(float(row.lost_arm_share))}"
         )
+    if family == "optimal_target_control":
+        # X11 PR I: the control answers to a coverage ceiling on the optimal value. Its coverage
+        # of the realized rule value and its mean regret are published beside it, read by no
+        # verdict.
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}, mean regret "
+            f"{render(float(row.mean_regret))}, coverage of the realized rule value "
+            f"{render(float(row.rule_value_coverage))}"
+        )
+    if family in {"estimated_g_report", "exceptional_law_report"}:
+        # X11 PR I: the two reports of the optimal value, with no verdict. Their rows carry no
+        # bootstrap SE-ratio interval, so the point ratio is printed.
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}, mean regret "
+            f"{render(float(row.mean_regret))}, against the realized rule value coverage "
+            f"{render(float(row.rule_value_coverage))} and SE ratio "
+            f"{render(float(row.rule_value_se_ratio))}, rule disagreement "
+            f"{render(float(row.min_rule_disagreement))} to "
+            f"{render(float(row.max_rule_disagreement))}"
+        )
     if family in {"contrast_covariance", "independent_se_diagnostic"}:
         # X11 PR G: a contrast read at another SE. Its rows carry no bootstrap SE-ratio
         # interval, so the point ratio is printed beside the coverage interval.

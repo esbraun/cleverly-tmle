@@ -21,7 +21,11 @@ from .._refusal import Refusal, RefusalReason
 from ..estimators.base import MEAN_GROUP_ESTIMANDS, TMLEResult
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
-from ..interventions.learned import learned_rule_splits_refusal
+from ..interventions.learned import (
+    OPTIMAL_RULE_SENSITIVITY_REFUSAL,
+    learned_rule_splits_refusal,
+    reports_optimal_rule,
+)
 from ..study import (
     ATC,
     ATE,
@@ -292,6 +296,16 @@ def _refuse_learned_rule_splits(result: Any) -> Refusal | None:
     return learned_rule_splits_refusal("simulated_confounding", result.n_repeats)
 
 
+def _refuse_optimal_rule(result: Any) -> Refusal | None:
+    """Refuse a fit of the value of the optimal rule (X11 (f3)).
+
+    The replay holds the fit's realized rules fixed, so it reads the value of those fixed
+    rules, and confounding also moves which rule is optimal.  The fit reports one
+    parameter, so the boundary is fit-wide.
+    """
+    return OPTIMAL_RULE_SENSITIVITY_REFUSAL if reports_optimal_rule(result) else None
+
+
 def _refuse_binary_estimator(result: Any) -> Refusal | None:
     """Refuse a binary fit whose estimator class declares no simulated-confounding replay.
 
@@ -431,6 +445,7 @@ _FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("risk_ratio_tilt", _refuse_risk_ratio_tilt),
     ("missing_estimator", _refuse_missing_estimator),
     ("repeat_provenance", _refuse_repeat_provenance),
+    ("optimal_rule", _refuse_optimal_rule),
     ("learned_rule_splits", _refuse_learned_rule_splits),
     ("binary_estimator", _refuse_binary_estimator),
     ("continuous_estimator", _refuse_continuous_estimator),

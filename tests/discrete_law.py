@@ -343,6 +343,14 @@ def functional(probs: Any, estimand: str) -> Any:
         return functional(p, f"ey_learned_rule[{learned}]") - functional(
             p, f"ey_known_regime[{known}]"
         )
+    # Psi_d0(P) = sum_w P(W = w) max_a E[Y | A = a, W = w], the value of the optimal rule of
+    # the law itself (X11 (f)). The best arm is read off the real part, so a complex step
+    # differentiates the value at that arm: away from a tie between the two arms of a cell
+    # the max is the fixed rule's value near P, and its derivative is that rule's. At a tie
+    # the functional is not differentiable, which this branch does not see.
+    if estimand == f"ey_optimal_rule[{LEARNED_RULE_LABEL}]":
+        best = np.argmax(np.real(q), axis=1)
+        return (p_w * q[np.arange(q.shape[0]), best]).sum()
 
     # beta = M^-1 b, the h-weighted least-squares projection of the counterfactual means
     # onto m(a, W; beta), written straight off the normal equations:
@@ -429,6 +437,7 @@ PER_ARM_NAMES: dict[str, tuple[str, ...]] = {
     "ate_learned_rule": tuple(
         f"ate_learned_rule[{LEARNED_RULE_LABEL} vs {label}]" for label in KNOWN_REGIME_ARMS
     ),
+    "ey_optimal_rule": (f"ey_optimal_rule[{LEARNED_RULE_LABEL}]",),
     "ey_ipsi": tuple(f"ey_ipsi[{label}]" for label in IPSI_DELTAS),
     "ate_ipsi": tuple(
         f"ate_ipsi[{label} vs {IPSI_REFERENCE}]" for label in IPSI_DELTAS if label != IPSI_REFERENCE
@@ -504,6 +513,7 @@ TRUTH = {
         *PER_ARM_NAMES["ey_learned_rule"],
         *PER_ARM_NAMES["ey_known_regime"],
         *PER_ARM_NAMES["ate_learned_rule"],
+        *PER_ARM_NAMES["ey_optimal_rule"],
         *PER_ARM_NAMES["ey_ipsi"],
         *PER_ARM_NAMES["ate_ipsi"],
         *PER_ARM_NAMES["ey_rr_tilt"],
