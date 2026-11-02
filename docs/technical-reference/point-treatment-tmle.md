@@ -1723,14 +1723,15 @@ then jointly normal with covariance $P_0[\phi\phi^\top]$, and the contrast's cur
 on the same folds. Nordland and Holst (2026), Sections 5.1 and 6, merge influence curves the same
 way in software. Under the first branch of C4 the contrast variance is consistent.
 
-On the Corollary 3 route, $g$ a maximum-likelihood fit in a correct model and $\bar Q$
-misspecified, each true curve is $D_j - \Pi(D_j \mid T_g)$ if Corollary 3's $D_g$ term is the
-projection on the mechanism's tangent space $T_g$. The projection is linear, so the contrast's
-true curve would be $(D_L - D_K) - \Pi(D_L - D_K \mid T_g)$, with variance at most
-$\mathrm{Var}(D_L - D_K)$, and the reported contrast variance would be conservative. This change
-did not read Corollary 3's printed $D_g$, so the conservative claim on that route is not made
-here. The [roadmap](../roadmap.md#x11-learned-policy-follow-ups) records the check that the
-contrast study needs before it can gate a misspecified-limit cell.
+With $\bar Q$ misspecified, Corollary 3's $D_g$ is whatever term makes the $g$-remainder
+asymptotically linear (eq. 14), not a projection. The projection is Corollary 2 (eq. 11): for a
+maximum-likelihood $g$ in a correct model each true curve is $D_j - \Pi(D_j \mid T_g)$, so the
+reported variance is conservative, and the paper extends this to the cross-validated TMLE only
+by analogy. The projection is linear, so when both columns share the one fitted $g$ the
+contrast's true curve is $(D_L - D_K) - \Pi(D_L - D_K \mid T_g)$, with variance at most
+$\mathrm{Var}(D_L - D_K)$. That step for the contrast is the package's own derivation, not a
+statement in the paper. With a known $g$ the variance is exact, and with a misspecified or
+flexible $g$ neither result applies.
 
 A static arm is the known regime `Static(a)`, and an arm estimand such as `ate` refuses with that
 spelling as its remedy. `ey_regime` and `ate_regime` refuse with the names of this fit. Every
@@ -1742,7 +1743,8 @@ the record describes it.
 
 | composition | result |
 | --- | --- |
-| either report, the in-sample fit, fold targeting, known weights, `id=`, `strata=`, a rule learner, `repeats` above 1 on rows | admitted, experimental. The key carries the qualifier `known_regimes`, which no row declares, so no learned-rule row covers a contrast fit |
+| either report on rows, with pooled targeting, the plug-in rule and `repeats=1` | supported (rows `T44.fold_evaluated` and `T44.stacked`), measured by the [contrast study](method-evidence/learned-rule-contrast.md) beside `Static(1)` and `Static(0)` at n = 2,000 with ten folds. Each row labels the learned value, every known value and every contrast |
+| the in-sample fit, fold targeting, known weights, `id=`, `strata=`, a rule learner, `repeats` above 1, supplied treatment probabilities | admitted, experimental. The key carries the qualifier `known_regimes` beside an axis or qualifier that neither `T44` row declares |
 | `simultaneous=True`, the default | no band over a known value or a contrast, [X11](../roadmap.md#x11-learned-policy-follow-ups) (c2). The fit skips the band and `summary()` says why, as for a Student $t$ reference, and `simultaneous_bands()` called on those estimates raises `CapabilityError` (`inference_gap`). The stratified band of the learned-rule value alone still runs when only `ey_learned_rule` is requested |
 | `policies=`, `incremental=` or `msm=` | refused, X11 (c2), row 2 of the table below |
 | `repeats` above 1 with `id=`, and `strata=` with `id=` | refused, rows 11 and 8 |
@@ -1763,6 +1765,18 @@ Inside each baseline stratum, and under known weights, the contrast's point and 
 differences, and its variance is the report's rule applied to that curve. With the constructor's
 defaults the fit skips the band and says so in `summary()`, and `simultaneous_bands()` called on
 a known value or a contrast refuses.
+
+The [contrast study](method-evidence/learned-rule-contrast.md) calibrates all five parameters
+of a fit beside `Static(1)` and `Static(0)` under both reports on RM30's correctly specified law:
+SE ratios of 0.975 to 1.004 and coverage of 0.946 to 0.956 over 5,600 draws. On the law whose
+outcome model cannot represent the treated arm, with the correct logistic $g$ fitted by maximum
+likelihood, every parameter covers at or above 0.92 (0.942 to 0.951) at SE ratios of 0.991 to
+1.004. There the omitted projection term is negligible (a predicted SE ratio of at most 1.0005),
+so the study measures coverage under a misspecified treated arm and does not test the
+conservative-variance route. The contrast's SE keeps the covariance: at correlation one the
+contrasts cover 0.04 to 0.09, and as if independent their SE ratios are 1.34 to 1.48. Other fold
+counts, `reference=` naming the rule, dynamic known rules and more than two known regimes share
+the rows' key and rest on the witnesses above.
 
 #### More than two arms
 
@@ -1786,7 +1800,8 @@ assigns that arm.
 
 | composition | result |
 | --- | --- |
-| the plug-in rule under either report or in sample, fold targeting, known weights, `id=`, `strata=`, `repeats` above 1 on rows, and known regimes beside the rule | admitted, experimental. The key's treatment reads `arms3` (for three arms) in place of `binary`, and no row declares it until a study registers one |
+| the plug-in rule under the fold-evaluated report on rows, at three arms | admitted, supported. The key's treatment reads `arms3` in place of `binary`, and the [three-arm study](method-evidence/learned-rule-arms.md) registers row `T45` for it |
+| the plug-in rule under the stacked report or in sample, fold targeting, known weights, `id=`, `strata=`, `repeats` above 1 on rows, and known regimes beside the rule; and every fit over four or more arms | admitted, experimental. The key's treatment reads `arms3` or `arms4` and above, and no row declares these compositions |
 | `LearnedRule(loss="blip")` or `loss="weighted_classification"` | refused, row 4 of the table below, [X11](../roadmap.md#x11-learned-policy-follow-ups) (d2). Both pseudo-outcomes compare two arms. The remedy is the plug-in rule `LearnedRule()`, or a fixed rule `TMLE(interventions=[Rule(..., rule_kind="known")])` |
 | the omitted-variable bound | refused, X11 (n2): no witness checks the bias of a learned argmax rule against the combined representer over every arm. A fixed rule's regime bound covers every arm |
 | `simulated_confounding` and the `refute` tests that hold the rules | run, with each row's realized arm held fixed. Over more than two arms `simulated_confounding` swaps one declared `arm_pair`, as for any multi-arm fit |
@@ -1802,6 +1817,15 @@ at a nonzero $\varepsilon$. Exact ties between two and between three arms assign
 under the pooled and the per-arm regression, and the last-code mutation moves the tied rows or
 breaks the stored diagonal. The record's arm shares are those of the rule on each fold, and they
 match the population shares of the stub's argmax regions, which an arm-index shift fails.
+
+The [three-arm study](method-evidence/learned-rule-arms.md) calibrates the fold-evaluated value
+over three arms at n = 2,000 with ten folds, on one law whose learners' limits give every arm a
+share of at least 0.175 and put the top two arms within 0.01 of each other on at most 1.8% of
+the population. With a correct outcome model the SE ratio is 0.986 and the coverage 0.9425 over
+3,200 draws. When arm 2's outcome regression omits its quadratic term, with the correct
+multinomial $g$ fitted by maximum likelihood, the interval covers 0.940 at an SE ratio of 0.996.
+There the omitted projection term is negligible (a predicted SE ratio of 1.0004), so the study
+measures coverage under a misspecified arm and does not test the conservative-variance route.
 
 #### The value of the optimal rule
 
@@ -1844,8 +1868,8 @@ The first term is the learned-rule claim, which covers an estimated $g$ under C4
 The second is the regret, which C8 makes $o_P(n^{-1/2})$. For the plug-in rule it reads only the
 outcome regression. For a pseudo-outcome rule learner the blip estimate is built with $g_n$, so
 the regret's rate also depends on $g_n$, and C8 then needs that learner's rate under the estimated
-$g$. That step is the package's, so an estimated $g$ reads experimental like every other
-composition here.
+$g$. That step is the package's, so an estimated $g$ reads experimental, as does every composition
+here but the one the study below registers.
 
 With `repeats` above 1 the fit reports the mean of $R$ estimators of this one fixed parameter.
 Luedtke and van der Laan (2016), *Annals of Statistics*, Section 5.1, warn that averaging
@@ -1856,7 +1880,8 @@ estimator, which is valid there, is a different estimator, and
 
 | composition | result |
 | --- | --- |
-| either report, fold targeting, `id=`, `repeats` above 1 on rows, a rule learner, known or estimated $g$, more than two arms | admitted, experimental. The key's family reads `P12` in place of `P11`, and no row declares it until a study registers one |
+| the fold-evaluated report on rows with known $g$ (`treatment_probabilities=`), the plug-in rule, two arms, `repeats=1` and pooled targeting | supported, row `T46` of the [optimal-value study](method-evidence/learned-rule-optimal-value.md). The key's family reads `P12` in place of `P11`, with the qualifier `known_mechanism`. The study measures one law with a correct parametric outcome model at n = 2,000 |
+| the stacked report, fold targeting, `id=`, `repeats` above 1 on rows, a rule learner, an estimated $g$, more than two arms | admitted, experimental. No row declares these keys |
 | known regimes beside it (`interventions=`, `reference=`, `ey_known_regime`, `ate_learned_rule`) | refused, row 2 of the table below, X11 (f3) |
 | `ey_learned_rule` beside it | refused as a declaration, row 2: the two names read one estimate as two targets |
 | `weights=` | refused, row 9, X11 (f3). No witness covers the regret under weights. The weighted fit would target the optimum over the weighted population, as a weighted fit does for every other estimand |
@@ -1887,6 +1912,17 @@ main-terms learner treats nobody, and $\Psi_{d_0} - \Psi_{d_1}$ by quadrature is
 3 influence-curve standard errors at n = 2,500. The same quadrature gives no gap at the
 `non_exceptional` law, and the amplitude 1 would need about 16,400 rows. Under known $g$ the score
 is solved at the supplied probabilities, and an estimated $g$ moves the point by more than 0.01.
+
+The gated [optimal-value study](method-evidence/learned-rule-optimal-value.md) measures the
+fold-evaluated fit with known $g$ at the `non_exceptional` law, where the correct logistic outcome
+model meets C3f, C7 and C8, at n = 2,000. Against $\Psi_{d_0}$ the calibration cell reads an SE
+ratio of 0.997 and coverage of 0.949 over 13,200 draws. The interval covers $\Psi_{d_0}$ only up
+to the regret, which is $O_P(1/n)$ here: its mean is 0.00138, about 0.09 estimate SDs, so the
+primary bias interval excludes zero, and against $\tilde\psi_{0n}$ the same cell reads a
+standardized bias of +0.004 and coverage of 0.952. At n = 2,500 the wrong-limit law's interval
+covers $\Psi_{d_0}$ at 0.09 and its own $\tilde\psi_{0n}$ at 0.958. With an estimated $g$, and at
+a law whose blip is zero on 60% of the population (coverage 0.912), the study reports readings
+and makes no claim.
 
 #### An intermediate held at each level
 

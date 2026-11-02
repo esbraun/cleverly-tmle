@@ -780,8 +780,9 @@ class TMLE:
         The result records the fold summaries under ``result.extra["learned_rule"]``.
         ``estimands=["ey_optimal_rule"]`` reports the same estimate as the value of the
         optimal rule, a fixed parameter, under the further conditions of the learned-rule
-        contract (X11 (f); experimental).  It is then the fit's one estimand, and it refuses
-        known regimes beside it, ``weights=``, ``strata=`` and ``cross_fit=False``.
+        contract (X11 (f)).  Only the fold-evaluated report on rows with known
+        ``treatment_probabilities=`` reads supported.  It is then the fit's one estimand, and it
+        refuses known regimes beside it, ``weights=``, ``strata=`` and ``cross_fit=False``.
     n_folds, learner_folds:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
         its candidates.
