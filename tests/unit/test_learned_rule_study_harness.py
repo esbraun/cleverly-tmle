@@ -27,6 +27,7 @@ from tests.studies import learned_rule_cvtmle as gated
 from tests.studies import learned_rule_cvtmle_boundary as boundary
 from tests.studies import learned_rule_cvtmle_properties as properties
 from tests.studies import learned_rule_in_sample as in_sample
+from tests.studies import learned_rule_intermediate as intermediate
 from tests.studies import learned_rule_learners as learners
 from tests.studies import learned_rule_optimal_value as optimal
 from tests.studies import learned_rule_split_mean as split_mean
@@ -109,9 +110,11 @@ class TestTheSeedRules:
         # primary and 5,600 property seeds, none of which equals another X11 study's seed
         # (``test_learned_rule_arms_design``). X11's learned-rule-optimal-value (X11 PR I) adds
         # 1,600 primary and 16,800 property seeds, none of which equals another X11 study's seed
-        # (``test_learned_rule_optimal_value_design``). X11's learned-regimen-ltmle (X11 PR K)
-        # adds 1,200 primary and 15,200 property seeds, none of which equals another X11 study's
-        # seed (``test_learned_regimen_ltmle_design``).
+        # (``test_learned_rule_optimal_value_design``). X11's learned-rule-intermediate (X11 PR J)
+        # adds 1,200 primary and 31,200 property seeds, none of which equals another X11 study's
+        # seed (``test_learned_rule_intermediate_design``).
+        # X11's learned-regimen-ltmle (X11 PR K) adds 1,200 primary and 15,200 property seeds,
+        # none of which equals another X11 study's seed (``test_learned_regimen_ltmle_design``).
         assert len(declared) == (
             46_310
             + 6_000
@@ -126,6 +129,7 @@ class TestTheSeedRules:
             + 11_199
             + 6_800
             + 18_400
+            + 32_400
             + 16_400
         )
         for study in (
@@ -141,6 +145,7 @@ class TestTheSeedRules:
             contrast,
             arms,
             optimal,
+            intermediate,
             regimen,
         ):
             smoke = law.smoke_record(study.STUDY)

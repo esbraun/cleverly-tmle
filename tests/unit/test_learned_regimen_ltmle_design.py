@@ -283,6 +283,8 @@ def _x11_modules() -> list[tuple[Any, Any]]:
     from tests.studies import learned_rule_cvtmle_properties as gated_properties
     from tests.studies import learned_rule_in_sample as f2
     from tests.studies import learned_rule_in_sample_properties as f2_properties
+    from tests.studies import learned_rule_intermediate as j
+    from tests.studies import learned_rule_intermediate_properties as j_properties
     from tests.studies import learned_rule_learners as learners
     from tests.studies import learned_rule_learners_properties as learner_properties
     from tests.studies import learned_rule_optimal_value as i
@@ -306,6 +308,7 @@ def _x11_modules() -> list[tuple[Any, Any]]:
         (g, g_properties),
         (h, h_properties),
         (i, i_properties),
+        (j, j_properties),
     ]
 
 
@@ -710,5 +713,6 @@ def test_the_stress_test() -> None:
 #: The sample seeds a declared run draws.
 TOTAL_SEEDS = 16_400
 
-#: The sample seeds of another X11 study that the refused first candidate 20271421 draws.
-FIRST_CANDIDATE_CLASHES = 2
+#: The sample seeds of another X11 study (``learned-rule-intermediate`` included) that the refused
+#: first candidate 20271421 draws.
+FIRST_CANDIDATE_CLASHES = 4

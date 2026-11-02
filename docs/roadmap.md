@@ -127,7 +127,7 @@ not change the package version.
 | after beta | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; parts (a) to (d) implemented | the shipped support rows and per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 | after beta | Refutation and sensitivity checks for every estimator | exact references for the generated-outcome readings; a registered short study for each other verdict rule | the shipped `refute` and sensitivity catalogs | [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) |
 | BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; the reviewed worked examples | [X69](#x69-documentation-review-for-new-and-changed-methods) |
-| B5 | Learned-policy follow-ups | natural extension for parts (f3), (i2), (k2) and (n2); published support for part (f2b); source audit for parts (b2), (c2), (d2) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
+| B5 | Learned-policy follow-ups | natural extension for parts (f3), (i2), (j2), (j4), (k2) and (n2); no new theory for part (j3); published support for part (f2b); source audit for parts (b2), (c2) and (d2) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
 | after beta | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | after beta | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
 | after beta | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
@@ -923,7 +923,7 @@ stays in [F21](#f21-other-missing-outcome-cv-tmle-variants).
 
 The [learned-rule contract](technical-reference/point-treatment-tmle.md#learned-rules) estimates one target by one
 construction. Each part below is a published follow-up outside that contract. For parts (b2),
-(c2), (d2) and (f3), the refusal of the request cites the part. No request reaches part (f2b). Each part needs its
+(c2), (d2), (f3), (j2), (j3) and (j4), the refusal of the request cites the part. No request reaches part (f2b). Each part needs its
 own contract, witnesses and registered study before it ships, as the learned-rule value did.
 
 | part | the request that the contract refuses | published source | readiness |
@@ -932,7 +932,10 @@ own contract, witnesses and registered study before it ships, as the learned-rul
 | (c2) a learned rule beside another parameter axis, and the simultaneous band of a learned rule with known regimes | `learned_rule=` beside `policies=`, `incremental=` or `msm=`; `simultaneous_bands()` over a known-regime value or contrast, whose default band a fit skips | another axis needs a fit whose one fluctuation solves the score equations of two axes, which no source gives. The band over a data-adaptive value, known regimes and their contrasts follows from the joint normality that part (c) uses, and it needs its own witness | source audit |
 | (d2) rule learners over more than two arms | `LearnedRule(loss="blip")` or `LearnedRule(loss="weighted_classification")` on a treatment with more than two arms | Luedtke and van der Laan (2016), Sections 4.1 to 4.3, state both losses for a binary treatment. A multi-arm pseudo-outcome loss needs a source that this project has not read | source audit |
 | (f2b) the online estimator of the value of the optimal rule | no request reaches it | Luedtke and van der Laan (2016), *Annals of Statistics*, Section 5.1 and Theorem 2: an online one-step estimator whose Wald interval holds at an exceptional law. It is another estimator of the target of part (f) | published support |
-| (f3) the value of the optimal rule with weights, with strata, beside known regimes, in sample, and its sensitivity analyses | `estimands=["ey_optimal_rule"]` with `weights=`, `strata=`, `interventions=`, `reference=` or `cross_fit=False`, and the omitted-variable bound and `simulated_confounding` of such a fit | under `weights=` no witness covers the regret, and the fit would target the optimum over the weighted population. A stratum value and a contrast add the regret to a claim that no witness checks. The in-sample fit adds the regret of the full-sample rule to condition C5a. Both analyses hold the fold rules fixed, and confounding also moves which rule is optimal | natural extension |
+| (f3) the value of the optimal rule with weights, with strata, beside known regimes, in sample, with an intermediate, and its sensitivity analyses | `estimands=["ey_optimal_rule"]` with `weights=`, `strata=`, `interventions=`, `reference=`, `cross_fit=False` or `intermediate=`, and the omitted-variable bound and `simulated_confounding` of such a fit | under `weights=` no witness covers the regret, and the fit would target the optimum over the weighted population. A stratum value, a contrast and a level of the intermediate add the regret to a claim that no witness checks. The in-sample fit adds the regret of the full-sample rule to condition C5a. Both analyses hold the fold rules fixed, and confounding also moves which rule is optimal | natural extension |
+| (j2) rule learners with an intermediate | `LearnedRule(loss="blip")` or `LearnedRule(loss="weighted_classification")` with `intermediate=` | the shipped pseudo-outcome does not read $Z$. The rule at $Z = z$ needs $1\{Z = z\}(2A - 1)/(g\,q)\,(Y - \bar Q(A, z, W)) + \bar Q(1, z, W) - \bar Q(0, z, W)$, the first-node loss of Luedtke and van der Laan (2016), *International Journal of Biostatistics*, Section 4, under the static later rule, and its own exact witness | natural extension |
+| (j3) a study estimand for a learned rule at a level of the intermediate | `LearnedRuleValue` beside `PointTreatment(intermediate=...)` | `ControlledDirectEffect` wraps an arm contrast, so the method layer has no spelling for the engine fit of part (j). The spelling reuses that fit and adds no statistical claim | no new theory |
+| (j4) the placebo of a level of a learned-rule fit with an intermediate | `refute(..., tests=("placebo",))` on the learned-rule value, a known-regime value beside it or a stratum alias, with `intermediate=` | the placebo permutes $A$ alone, so every rule's value at level $z$ is $E_W E(Y \mid Z = z, W)$, not $E[Y]$. That reference needs its own outcome regression of $Y$ on $(Z, W)$, which no refit reads, and a witness on a law where $Z$ moves $Y$ given $W$ | natural extension |
 
 A rule learned on separate training data and frozen before evaluation is a known rule.
 `Rule(..., rule_kind="known")` and `DynamicRegimen(..., rule_kind="known")` evaluate it, and the
@@ -940,14 +943,11 @@ interval targets that rule conditional on the training data. A report that selec
 several estimated rules changes the meaning of the reported value
 ([F27](#f27-learned-policy-value-outside-the-published-conditions)).
 
-The [hard-stop review](technical-reference/hard-stop-review.md) adds the parts below. Each one
-holds under condition C3 in its fixed-limit form (van der Laan and Luedtke 2015, Theorem 6), and
-its refusal cites the part. Part (c2) also covers a learned rule beside another parameter axis.
-Under C3 the fixed-dimension stack carries that case, and it shares the source audit of part (c2).
-
-| part | the request that the contract refuses | step | readiness |
-| --- | --- | --- | --- |
-| (j) a learned rule with a controlled intermediate | `intermediate=` | a two-time-point rule pair: the learned rule at $A$ and the static $Z = z$ | source audit. The two-node rule-pair recursion of `LearnedRegimen` is the construction it would reuse |
+The [hard-stop review](technical-reference/hard-stop-review.md) moved two of its rows here.
+Part (c2) covers a learned rule beside another parameter axis. Under condition C3 in its
+fixed-limit form (van der Laan and Luedtke 2015, Theorem 6) the fixed-dimension stack carries that
+case, and it shares the source audit of part (c2). Its row on `intermediate=` was part (j), which
+ships for the plug-in rule.
 
 Part (b) now ships for two nodes: `LTMLE(regimens=LearnedRegimen())` estimates the stacked value
 of the rule pairs learned inside each training fold
@@ -1025,6 +1025,26 @@ arms with weights, clusters, strata, fold targeting, several splits, the stacked
 in-sample fit or known regimes, read experimental. The rule learners over more than two arms are
 part (d2), and the omitted-variable bound over more than two arms joins part (n2).
 
+The learned rule with an intermediate held at each level, part (j), now ships for the plug-in
+rule ([an intermediate held at each level](technical-reference/point-treatment-tmle.md#learned-rules)).
+`intermediate=` reports one result per level $z$, and each level learns its fold rules from the
+outcome regression at $(a, z)$: the best treatment given $Z = z$, not the best pair. The clever
+covariate is the shipped controlled-direct-effect covariate at that rule, and van der Laan and
+Luedtke (2015), Section 2 and Theorems 5 and 6, license a rule class with a constant component.
+The key's missing-data axis reads `intermediate`.
+
+The gated
+[intermediate study](technical-reference/method-evidence/learned-rule-intermediate.md) calibrates
+the fold-evaluated report on rows at each level at n = 2,000 on one law with correct logistic
+models, so such a fit reads supported (row `T47`), and the known rule through the same
+fold-evaluated controlled-direct-effect path reads supported too (row `T48`). The stacked report,
+the in-sample fit, fold targeting, several splits, weights, clusters, more than two arms, known
+regimes beside the rule and a known $g$ read experimental. Rule learners with an intermediate are
+part (j2).
+A study estimand for the fit is part (j3), which needs no new theory, and the placebo of a level
+is part (j4). The value of the optimal rule with an intermediate joins
+part (f3), and the bound joins part (n2).
+
 The value of the optimal rule, part (f), now ships
 ([the value of the optimal rule](technical-reference/point-treatment-tmle.md#learned-rules)).
 `OptimalRuleValue`, or `estimands=["ey_optimal_rule"]` on a learned-rule fit, reads the
@@ -1086,15 +1106,15 @@ of a learned-rule value ships as a point bound. It holds the fold rules fixed, s
 regime functional of the stochastic regime that averages them, and it reads every fold's rule at
 every row, which the fit stores. Part (n2) is what remains of that part: the limits, the
 benchmark, the bound of the mean over splits, the bound with baseline strata, the bound of
-the stacked report, the bound of a contrast with a known regime and the bound over more than two
-arms. The in-sample fit of part (a) has one rule, so its bound publishes limits.
+the stacked report, the bound of a contrast with a known regime, the bound over more than two
+arms and the bound with an intermediate. The in-sample fit of part (a) has one rule, so its bound publishes limits.
 Its benchmark is well posed and not built, and part (n2) holds it too.
 
 | part | the request that the contract refuses | step | readiness |
 | --- | --- | --- | --- |
 | (k2) estimated observation weights | `weights_estimated=True` | the variance of a fit that also estimates its weights | natural extension |
 | (i2) the mean over splits with clusters | `repeats` above 1 with `id=` | a variance for the mean of cluster curves centred on different partitions, which lose about $2V - V/R - 1$ cluster degrees of freedom. No finite-sample correction is derived | natural extension |
-| (n2) the limits, the benchmark, the mean over splits, the strata, the stacked report, the contrasts and more than two arms of the learned-rule bound | the one-sided limits and the confidence-limit robustness value of the omitted-variable bound on a learned-rule fit, `benchmark()` there, the bound with `repeats` above 1, with `strata=`, under `cv_evaluation=False` or over more than two arms, and the bound of `ate_learned_rule` | the estimate of $\nu^2$ applies $V - 1$ of the $V$ fold rules to rows they were learned on, so its curve needs a Donsker-type condition that C5 excludes, and a limit at the common limiting rule needs a margin rate that C3 does not give. A conservative option is recorded and not built: $\nu^2_{\rm diag} = V^{-1}\sum_v E[1\{A = d_v(W)\} / g(A \mid W)^2]$, estimated for each rule on its own validation rows only, is at least $\nu^2$, because $g^{\star 2} \le g^\star$. The benchmark needs a short-model refit that holds all $V$ rules fixed at every row, which `FrozenLearnedRule` does not hold. On the in-sample fit of part (a) the one rule is the rule of every row, so `FrozenLearnedRule` holds it and a short model that keeps it fixed is well posed. That benchmark is not built either. The bound of the mean over $R$ splits (`repeats` above 1) is well posed, since that mean is linear in $\bar Q$ with representer $\bar g^\star / g$, $\bar g^\star = (RV)^{-1}\sum_{r,v} 1\{a = d_{rv}\}$. It needs a choice of $g$ and $\sigma^2$ across splits, and refuses until then. The bound with `strata=` needs the combined representer restricted to each fold's stratum rows for a stratum value, and a witness that the marginal share mixture's bias is the combined representer's, and refuses until then. The bound of the stacked report averages the fold rules with the weights $W_v/W$ in place of $1/V$, and refuses until a witness checks its bias against that representer. The bound of a contrast with a known regime has the combined representer minus the known regime's, and refuses until a witness checks its bias against that difference. Over more than two arms the combined representer averages the fold rules' one-hot densities over every arm, $g^\star(a \mid w) = V^{-1}\sum_v 1\{a = d_v(w)\}$, and the bound refuses until a witness checks the bias of a learned argmax rule against it | natural extension |
+| (n2) the limits, the benchmark, the mean over splits, the strata, the stacked report, the contrasts, more than two arms and the intermediate of the learned-rule bound | the one-sided limits and the confidence-limit robustness value of the omitted-variable bound on a learned-rule fit, `benchmark()` there, the bound with `repeats` above 1, with `strata=`, under `cv_evaluation=False`, over more than two arms or with `intermediate=`, and the bound of `ate_learned_rule` | the estimate of $\nu^2$ applies $V - 1$ of the $V$ fold rules to rows they were learned on, so its curve needs a Donsker-type condition that C5 excludes, and a limit at the common limiting rule needs a margin rate that C3 does not give. A conservative option is recorded and not built: $\nu^2_{\rm diag} = V^{-1}\sum_v E[1\{A = d_v(W)\} / g(A \mid W)^2]$, estimated for each rule on its own validation rows only, is at least $\nu^2$, because $g^{\star 2} \le g^\star$. The benchmark needs a short-model refit that holds all $V$ rules fixed at every row, which `FrozenLearnedRule` does not hold. On the in-sample fit of part (a) the one rule is the rule of every row, so `FrozenLearnedRule` holds it and a short model that keeps it fixed is well posed. That benchmark is not built either. The bound of the mean over $R$ splits (`repeats` above 1) is well posed, since that mean is linear in $\bar Q$ with representer $\bar g^\star / g$, $\bar g^\star = (RV)^{-1}\sum_{r,v} 1\{a = d_{rv}\}$. It needs a choice of $g$ and $\sigma^2$ across splits, and refuses until then. The bound with `strata=` needs the combined representer restricted to each fold's stratum rows for a stratum value, and a witness that the marginal share mixture's bias is the combined representer's, and refuses until then. The bound of the stacked report averages the fold rules with the weights $W_v/W$ in place of $1/V$, and refuses until a witness checks its bias against that representer. The bound of a contrast with a known regime has the combined representer minus the known regime's, and refuses until a witness checks its bias against that difference. Over more than two arms the combined representer averages the fold rules' one-hot densities over every arm, $g^\star(a \mid w) = V^{-1}\sum_v 1\{a = d_v(w)\}$, and the bound refuses until a witness checks the bias of a learned argmax rule against it. With an intermediate the combined representer at level $z$ averages $1\{a = d^z_v(w)\}1\{Z = z\}/(g\,q)$ over the level's fold rules, and the bound refuses until a witness checks its bias | natural extension |
 
 ### X28. Fold-evaluated CV-TMLE with baseline strata
 

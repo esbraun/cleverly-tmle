@@ -74,7 +74,7 @@ PRIMARY_REPLICATES = 1_200
 PRIMARY_N = 2_000
 #: The record seeds: the first candidate from 20271421 in steps of 10 whose declared sample seeds
 #: meet no other X11 or RM30 study's and no pilot seed, checked on the seeds alone. 20271421
-#: drew one sample seed of another X11 study.
+#: drew sample seeds of other X11 studies (``test_the_first_seed_candidate_was_refused``).
 SEED = 20271431
 RESAMPLING_SEED = 20271432
 

@@ -236,6 +236,8 @@ def _x11_modules() -> list[tuple[Any, Any]]:
     from tests.studies import learned_rule_cvtmle_properties as gated_properties
     from tests.studies import learned_rule_in_sample as f2
     from tests.studies import learned_rule_in_sample_properties as f2_properties
+    from tests.studies import learned_rule_intermediate as j
+    from tests.studies import learned_rule_intermediate_properties as j_properties
     from tests.studies import learned_rule_learners as learners
     from tests.studies import learned_rule_learners_properties as learner_properties
     from tests.studies import learned_rule_split_mean as split_mean
@@ -256,6 +258,7 @@ def _x11_modules() -> list[tuple[Any, Any]]:
         (f2, f2_properties),
         (g, g_properties),
         (h, h_properties),
+        (j, j_properties),
         (k, k_properties),
     ]
 

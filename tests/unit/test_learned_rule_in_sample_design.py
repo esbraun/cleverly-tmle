@@ -368,6 +368,8 @@ def _other_x11_sample_seeds() -> set[int]:
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_boundary as boundary
     from tests.studies import learned_rule_cvtmle_properties as gated_properties
+    from tests.studies import learned_rule_intermediate as j
+    from tests.studies import learned_rule_intermediate_properties as j_properties
     from tests.studies import learned_rule_learners as learners
     from tests.studies import learned_rule_learners_properties as learner_properties
     from tests.studies import learned_rule_optimal_value as i
@@ -390,6 +392,7 @@ def _other_x11_sample_seeds() -> set[int]:
         (g, g_properties),
         (h, h_properties),
         (i, i_properties),
+        (j, j_properties),
         (k, k_properties),
     ):
         seeds |= base.declared_sample_seeds(

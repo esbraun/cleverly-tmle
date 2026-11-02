@@ -752,6 +752,11 @@ def _t_rows() -> tuple[SupportRow, ...]:
     # of ``P11``. The row T46 of the ``learned-rule-optimal-value`` study covers the
     # fold-evaluated report on rows with a known treatment mechanism (``known_mechanism``), and
     # every other composition of the optimal value, an estimated g among them, matches no row.
+    # X11 (j): the plug-in rule with the intermediate held at each level (``intermediate=``) keys
+    # ``missing=("intermediate",)``. The row T47 of the ``learned-rule-intermediate`` study covers
+    # the fold-evaluated report on rows at each level, and the row T48 covers a known regime
+    # through the same fold-evaluated controlled-direct-effect path. Every other composition with
+    # an intermediate matches no row.
     # X11 (i): the learned-rule value as the mean over R splits. The key reads ``repeated``
     # beside ``fold_evaluated``, so fold targeting, weights and clusters, which key other
     # splitting, weighting and dependence axes, match no row.
@@ -1337,6 +1342,93 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 "in-sample fit and contrasts with known regimes refuse. No comparator: no "
                 "maintained package fits a cross-validated TMLE of the value of the optimal "
                 "rule. No draw raised a solver warning.",
+            ],
+        )
+    )
+    # X11 (j) (X11 PR J): the plug-in rule at A with a binary intermediate held at each level
+    # (``intermediate=``), keyed ``missing=("intermediate",)``, and a known regime through the
+    # same fold-evaluated controlled-direct-effect path. Two rows, for the fold-evaluated report
+    # on rows, because the study's declared support conditions held: for T47 the primary bias
+    # leg, coverage floor and SE sanity at both levels, every learned ``interval_calibration``
+    # verdict and the ``targeting_necessity`` verdicts; for T48 every known-rule
+    # ``interval_calibration`` verdict. Weights, clusters, strata, fold targeting, repeats above
+    # 1, the stacked and in-sample reports, more than two arms, a known g and a rule learner key
+    # other axes or qualifiers or refuse, so each of those compositions matches no row. The
+    # numbers are the committed results (``tests/canonical/learned_rule_intermediate``).
+    intermediate_limits = [
+        "The study measures one law at n = 2,000: a binary treatment, outcome and intermediate, "
+        "ten equal folds, pooled targeting, repeats=1, iid rows, and no weights, clusters, "
+        "strata, fold targeting, stacked report or contrasts. The outcome, treatment and "
+        "intermediate models are correctly specified parametric logistic models, fitted in "
+        "every cell. The key holds neither the learner, the law nor n, so a flexible learner, "
+        "another law or another n reads supported and rests on the theory alone.",
+        "Positivity: the smallest g0 q0 on the support is 0.045, and along the learned rules it "
+        "is 0.11 (z = 0) and 0.19 (z = 1). A law with q0(z | a, W) nearer 0 is not measured.",
+        "A rule learner with intermediate= refuses (X11 (j2)), and so do a non-binary "
+        "intermediate (X63), strata under cv_evaluation=True (X28), the omitted-variable bound "
+        "(X11 (n2)) and the placebo of a level in refute. Weights, clusters, fold targeting, "
+        "repeats, the stacked and in-sample reports, three or more arms and a known g stay "
+        "experimental. No comparator: no maintained package fits a learned rule with an "
+        "intermediate held fixed. No draw failed or raised a solver warning.",
+    ]
+    rows.append(
+        point_row(
+            "T47",
+            ["learned-rule-intermediate"],
+            families=("P11",),
+            missing=("intermediate",),
+            splitting=("fold_evaluated",),
+            cells=["cde_z0", "cde_z1", "learned_z0", "learned_z1", "drop_w1_z0", "drop_w1_z1"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures the pointwise interval of the plug-in rule (LearnedRule()) "
+                "fitted with intermediate=, one result per level of the intermediate. Each "
+                "level's interval targets the value of that level's own fold rules, V^-1 sum_v "
+                "E0 Qbar0(d^z_nv(W), z, W). That is neither the value of the optimal rule at "
+                "that level nor the jointly optimal pair of treatment and intermediate. The "
+                "optimal rules at the two levels differ on 30% of the population.",
+                intermediate_limits[0],
+                "The calibration positive reads SE ratio 0.998 (99% interval 0.985 to 1.010) "
+                "and coverage 0.949 at z = 0, and 0.983 (0.971 to 0.996) and 0.946 at z = 1 "
+                "(20,000 draws). The primary cells read coverage 0.946 and 0.931 and SE ratio "
+                "1.002 and 0.977 (1,200 draws). Plug-in learned rules read slightly below 1 at "
+                "n = 2,000, the between-fold covariance that T39 describes.",
+                "The control without the factor 1{Z = z} / q of the clever covariate reads SE "
+                "ratio 0.591 and 0.731, so the instrument resolves a variance missing that "
+                "factor. With an outcome model that omits W1, a confounder of A, Z and Y, the "
+                "untargeted plug-in is biased by +0.099 and -0.024 and targeting removes it; its "
+                "limit rules treat everyone at z = 0 and nobody at z = 1, so the pair tests a "
+                "gross misspecification, not a subtle one.",
+                intermediate_limits[1],
+                intermediate_limits[2],
+            ],
+        )
+    )
+    rows.append(
+        point_row(
+            "T48",
+            ["learned-rule-intermediate"],
+            families=("P5",),
+            missing=("intermediate",),
+            splitting=("fold_evaluated",),
+            cells=["known_z0", "known_z1"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures one known rule, 1{W1 > 0}, and only its value, through the "
+                "fold-evaluated controlled-direct-effect path at each level of the "
+                "intermediate. The key also covers static regimes, contrasts between known "
+                "regimes and any deterministic rule with a binary intermediate on that path, "
+                "and none of those is measured. This is the measured path the learned fit "
+                "reduces to bit for bit at a constant rule (W-j1). T30 (in sample, missing "
+                "outcome) is a different configuration.",
+                intermediate_limits[0],
+                "The calibration positive reads SE ratio 1.007 (99% interval 0.990 to 1.025) "
+                "and coverage 0.952 at z = 0, and 0.997 (0.980 to 1.015) and 0.949 at z = 1 "
+                "(10,000 draws). The control without the factor 1{Z = z} / q reads SE ratio "
+                "0.607 and 0.770.",
+                "Positivity along the known rule: the smallest g0 q0 is 0.11 (z = 0) and 0.21 "
+                "(z = 1).",
+                intermediate_limits[2],
             ],
         )
     )
