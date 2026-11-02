@@ -533,6 +533,7 @@ def registered() -> tuple[StudyRecord, ...]:
     """
     from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
     from tests.studies.canonical_adaptive_iptw import STUDY as ADAPTIVE_IPTW
+    from tests.studies.canonical_adaptive_iptw_pairing import STUDY as ADAPTIVE_IPTW_PAIRING
     from tests.studies.canonical_categorical_incremental import STUDY as CATEGORICAL_INCREMENTAL
     from tests.studies.canonical_categorical_ltmle import STUDY as CANONICAL_CATEGORICAL_LTMLE
     from tests.studies.canonical_categorical_ltmle_crossfit import (
@@ -781,6 +782,7 @@ def registered() -> tuple[StudyRecord, ...]:
         POINT_SURVIVAL_POLICIES,
         SURVIVAL_NODE_BOUNDS,
         ADAPTIVE_IPTW,
+        ADAPTIVE_IPTW_PAIRING,
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
         DRTMLE_ONE_WRONG,

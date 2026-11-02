@@ -2779,6 +2779,12 @@ _FAMILY = {
     "subject_failures": "failures",
     "failure_rate": "failures",
     "mechanism_": "fit_diagnostics",
+    # ``agreement.csv`` of a study that pairs replicate by replicate (``adaptive-iptw-pairing``).
+    "agreement_keys": "agreement",
+    "agreement_tight_bound": "agreement",
+    "agreement_loose_bound": "agreement",
+    "max_agreement_": "agreement",
+    "max_initial_gap": "agreement",
 }
 
 
