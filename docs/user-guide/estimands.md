@@ -360,9 +360,22 @@ or strata. Otherwise they
 are marked experimental. A plain arm estimand such as `ate` refuses beside a learned rule, and
 its message names this spelling.
 
+To learn a rule while holding a yes-or-no variable that the treatment affects (an intermediate,
+such as whether a patient took a follow-up dose) at each of its values, use the `TMLE` estimator
+itself: `TMLE(learned_rule=LearnedRule()).fit(..., intermediate="Z")`. It returns one result per
+value $z$, and each result estimates the average outcome if everyone followed the rule learned for
+$Z = z$ with $Z$ set to $z$. That rule is the best treatment for a unit given $Z = z$, not the best
+choice of treatment and intermediate together. An
+[intermediate study](../technical-reference/method-evidence/learned-rule-intermediate.md) measured
+this with 2,000 rows, ten folds and correct logistic models for the outcome, the treatment and the
+intermediate: each 95% interval covered its target 0.946 to 0.949 of the time over 20,000 samples
+at each value. Such a fit is marked supported under the default cross-fitting with one split, no
+weights or clusters, two options and the rule from the outcome model, and experimental otherwise.
+
 Every one of these fits needs, among other things, a treatment with distinct options rather than
-a continuous dose, complete outcomes and no intermediate variable, and a cross-fitted fit needs at least two folds. A fit that lacks one of
-them refuses before any model is fitted. The refusal table under
+a continuous dose and complete outcomes, and a cross-fitted fit needs at least two folds. A fit
+that lacks one of them refuses before any model is fitted, and so does a `CausalStudy` learned rule
+with an intermediate variable. The refusal table under
 [Learned rules](../technical-reference/point-treatment-tmle.md#learned-rules) lists the rest.
 
 A refit that relearned the rules would estimate the value of other rules. So the `subset`,

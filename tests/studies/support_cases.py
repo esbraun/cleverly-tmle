@@ -2519,6 +2519,29 @@ def _learned_rule_optimal_value_cases() -> tuple[RowCase, ...]:
     return (case("non_exceptional", 2_000), case("wrong_limit", 2_500))
 
 
+def _learned_rule_intermediate_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-intermediate`` (X11 PR J, X11 (j)).
+
+    Each runs the study's own fold-evaluated fit with the intermediate held at each level on a
+    draw of its law at the declared size, up to the classifier: the learned rule (T47) and the
+    known rule ``1{W1 > 0}`` through the same controlled-direct-effect path (T48).
+    """
+    module, slug = "_learned_rule_intermediate_law", "learned-rule-intermediate"
+
+    def case(row: str, cell: str, known: bool) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            cell,
+            f"{module}.py:221",
+            module,
+            lambda study: study.draw(2_000, 0),
+            lambda study, frame: study.fit(frame, study.declared_learner(), 0, known=known),
+        )
+
+    return (case("T47", "learned_z0", False), case("T48", "known_z0", True))
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -2845,6 +2868,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_contrast_cases(),
     *_learned_rule_arms_cases(),
     *_learned_rule_optimal_value_cases(),
+    *_learned_rule_intermediate_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),

@@ -1961,7 +1961,8 @@ the table below.
 
 | composition | result |
 | --- | --- |
-| the plug-in rule under either report, in sample, with fold targeting, `repeats` above 1 on rows, known weights, `id=`, known treatment probabilities, the per-arm regression, more than two arms, `strata=` under the stacked report, and known regimes beside the rule | admitted, experimental. The key's missing-data axis reads `intermediate`, which no learned-rule row declares, so every fit reads experimental until the `learned-rule-intermediate` study registers |
+| the plug-in rule under the fold-evaluated report on rows | admitted, supported at each level (row `T47`) |
+| the plug-in rule under the stacked report, in sample, with fold targeting, `repeats` above 1 on rows, known weights, `id=`, known treatment probabilities, the per-arm regression, more than two arms, `strata=` under the stacked report, and known regimes beside the rule | admitted, experimental. Each of these keys another splitting, weighting, dependence or treatment axis, or a qualifier, that no learned-rule row with an intermediate declares |
 | `LearnedRule(loss="blip")` or `loss="weighted_classification"` | refused, row 6 of the table below, [X11](../roadmap.md#x11-learned-policy-follow-ups) (j2). The shipped pseudo-outcome does not read $Z$, so it would learn the rule of another blip. The rule at $Z = z$ needs $\mathbb 1\{Z = z\}(2A - 1)/(g\,q)\,(Y - \bar Q(A, z, W)) + \bar Q(1, z, W) - \bar Q(0, z, W)$ and its own exact witness. The remedy is the plug-in rule `LearnedRule()` |
 | `ey_optimal_rule` (`OptimalRuleValue`) | refused, row 6, X11 (f3). No witness checks the regret of the fold rules at a level of $Z$. The remedy is the learned-rule value at each level |
 | missing outcomes, `delta=` | refused, row 5, [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
@@ -1988,6 +1989,17 @@ longhand refit of each fold's outcome regression gives the stored fold rules at 
 per arm and over three arms (rule L4). At oracle nuisances on the complete-outcome rows of
 `tests/discrete_law_cde.py`, each level's in-sample curve is the Gateaux derivative of the value
 of its rule, and the functional that lets $Z$ follow $A$ fails.
+
+The gated [intermediate study](method-evidence/learned-rule-intermediate.md) measures the
+fold-evaluated fit on rows at n = 2,000 on one law whose optimal rules at the two levels differ on
+30% of the population, with correct logistic outcome, treatment and intermediate models. At each
+level the calibration cell reads an SE ratio of 0.998 (99% interval 0.985 to 1.010) and 0.983
+(0.971 to 0.996) over 20,000 draws, with coverage of 0.949 and 0.946. The curve without the factor
+$\mathbb 1\{Z = z\}/q$ reads 0.591 and 0.731, and an outcome model that omits $W_1$ shows the bias
+that targeting removes. The known rule $\mathbb 1\{W_1 > 0\}$ through the same fold-evaluated
+controlled-direct-effect path, the path W-j1 reduces the learned fit to, reads 1.007 and 0.997 over
+10,000 draws (row `T48`). That row's key also covers static regimes, contrasts between known regimes
+and every deterministic rule on the path, and the study measures one rule's value only.
 
 #### Refusals and the result record
 

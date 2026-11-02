@@ -869,15 +869,31 @@ class TestThePlaceboWithAnIntermediate:
 
 
 class TestTheLabel:
-    def test_every_level_reads_experimental_with_no_row(self) -> None:
+    def test_every_level_reads_supported_from_t47(self) -> None:
+        """The fold-evaluated fit on rows matches the row the ``learned-rule-intermediate``
+        study registered, at each level."""
         for z in LEVELS:
             result = _planted()[z]
             key = result.config.support_key
             assert key.missing == ("intermediate",)
             assert key.family == frozenset({"P11"})
+            assert key.splitting == ("fold_evaluated",)
             support = result.estimates[NAME].support
-            assert support.label == "experimental"
-            assert support.row is None
+            assert support.label == "supported"
+            assert support.row == "T47"
+
+    def test_the_known_rule_reads_supported_from_t48(self) -> None:
+        """The known rule through the same fold-evaluated controlled-direct-effect path matches
+        the study's second row, at each level; its in-sample fit matches no row."""
+        known = _known_fit(0.0)
+        in_sample = _known_fit(0.0, cross_fit=False, cv_evaluation=False)
+        for z in LEVELS:
+            key = known[z].config.support_key
+            assert key.family == frozenset({"P5"})
+            assert key.missing == ("intermediate",)
+            support = known[z].estimates["ey_regime[w1>0]"].support
+            assert (support.label, support.row) == ("supported", "T48")
+            assert in_sample[z].estimates["ey_regime[w1>0]"].support.row is None
 
     @pytest.mark.parametrize(
         ("fit", "settings"),

@@ -1026,8 +1026,16 @@ rule ([an intermediate held at each level](technical-reference/point-treatment-t
 outcome regression at $(a, z)$: the best treatment given $Z = z$, not the best pair. The clever
 covariate is the shipped controlled-direct-effect covariate at that rule, and van der Laan and
 Luedtke (2015), Section 2 and Theorems 5 and 6, license a rule class with a constant component.
-The key's missing-data axis reads `intermediate`, so every such fit reads experimental until the
-`learned-rule-intermediate` study registers. Rule learners with an intermediate are part (j2).
+The key's missing-data axis reads `intermediate`.
+
+The gated
+[intermediate study](technical-reference/method-evidence/learned-rule-intermediate.md) calibrates
+the fold-evaluated report on rows at each level at n = 2,000 on one law with correct logistic
+models, so such a fit reads supported (row `T47`), and the known rule through the same
+fold-evaluated controlled-direct-effect path reads supported too (row `T48`). The stacked report,
+the in-sample fit, fold targeting, several splits, weights, clusters, more than two arms, known
+regimes beside the rule and a known $g$ read experimental. Rule learners with an intermediate are
+part (j2).
 A study estimand for the fit is part (j3), which needs no new theory, and the placebo of a level
 is part (j4). The value of the optimal rule with an intermediate joins
 part (f3), and the bound joins part (n2).
