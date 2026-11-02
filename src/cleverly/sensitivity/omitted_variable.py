@@ -457,10 +457,31 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
     and no witness checks the bias or :math:`\nu^2` of a learned argmax rule against it.
     A fit of the value of the optimal rule (X11 (f)) refuses first: the bound holds the
     fold rules fixed, and that target moves with the rule
-    (:data:`~cleverly.interventions.learned.OPTIMAL_RULE_SENSITIVITY_REFUSAL`).
+    (:data:`~cleverly.interventions.learned.OPTIMAL_RULE_SENSITIVITY_REFUSAL`).  A fit with
+    an intermediate (X11 (j)) refuses next as an implementation gap (X11 (n2)): each level's
+    rules are learned from the outcome regression at that level, and no witness checks the
+    bias of the combined representer :math:`V^{-1}\sum_v 1\{a = d^z_v(w)\}1\{Z = z\}/(g q)`.
     """
     if reports_optimal_rule(result):
         return OPTIMAL_RULE_SENSITIVITY_REFUSAL
+    if declares_intermediate(result):
+        level = result.intermediate_value
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "the omitted-variable bound of a learned-rule value with an intermediate "
+            f"(intermediate=, here at Z = {level:g}) is not built. The rules at each level "
+            "are learned from the outcome regression at that level, so the combined "
+            "representer would average 1{A = d_v(W)} 1{Z = z} / (g(A | W) q(z | A, W)) over "
+            "the fold rules of the level, and no witness checks the bias of a learned rule "
+            "at a level of the intermediate against it (X11 (n2) in docs/roadmap.md).",
+            alternative=(
+                "Bound a fixed rule at each level with "
+                "TMLE(interventions=[Rule(..., rule_kind='known')]).fit(..., intermediate=...), "
+                "whose regime bound covers the controlled direct effect, or bound the "
+                "learned-rule value without intermediate=."
+            ),
+            roadmap="X11",
+        )
     n_arms = int(getattr(result.data, "n_arms", 2))
     if n_arms > 2:
         return Refusal(

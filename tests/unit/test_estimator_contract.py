@@ -151,6 +151,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "NaturalCourseMean",
         "NotFittedError",
         "OddsRatio",
+        "OptimalRuleValue",
         "ParameterEstimate",
         "ParameterKey",
         "ParameterSpaceWarning",
