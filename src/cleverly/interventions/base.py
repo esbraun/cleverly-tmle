@@ -565,8 +565,8 @@ def refuse_mixed_interventions(
                 alternative=(
                     "LearnedRuleValue holds it in a CausalStudy, and "
                     "TMLE(learned_rule=...) takes it on the estimator, with "
-                    f"{LEARNED_RULE_CONFIGURATION} (the learned-rule refusal table in "
-                    "docs/technical-reference/point-treatment-tmle.md)."
+                    f"{LEARNED_RULE_CONFIGURATION}. The learned-rule refusal table in "
+                    "docs/technical-reference/point-treatment-tmle.md lists the rest."
                 ),
             )
         found = _intervention_kind(item)
@@ -685,7 +685,8 @@ _ESTIMATED_RULE = Refusal(
     alternative=(
         "Fix the rule before the fit, or learn it on data independent of the analysis "
         "sample, and declare rule_kind='known'. For a point treatment, LearnedRuleValue "
-        "estimates the average value of rules learned inside each training fold "
+        "estimates the average value of rules learned inside each training fold, or with "
+        "cross_fit=False the value of one rule learned on every row "
         "(docs/technical-reference/point-treatment-tmle.md, Learned rules)."
     ),
     roadmap="X11",

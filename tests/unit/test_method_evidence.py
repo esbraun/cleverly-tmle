@@ -1181,7 +1181,8 @@ class TestPublishedVerdicts:
                 # clusters, and ``learned-rule-split-mean`` the mean single-split SE over
                 # sqrt(R), which treats the splits as independent. ``fold-evaluated-strata``
                 # declares the stratum curve without its fold share and the marginal curve
-                # without its share term.
+                # without its share term. ``learned-rule-in-sample`` declares an interpolating
+                # learner fitted in sample, read with its own curve's SE.
                 if suffix in (
                     "shrunken_se_control",
                     "term_dropped_control",
@@ -1190,6 +1191,7 @@ class TestPublishedVerdicts:
                     "independent_splits_control",
                     "unnormalised_curve_control",
                     "share_dropped_control",
+                    "interpolating_control",
                 ):
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
@@ -1682,6 +1684,14 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "robustness_contract",
         "generated_design",
         "interval_calibration",
+        # X11 PR G (``learned-rule-contrast``): a positive answers to its bias leg and a
+        # coverage floor with no SE gate, a control to a coverage ceiling; each correlation-one
+        # contrast to a coverage ceiling.
+        "conservative_coverage",
+        "contrast_covariance",
+        # X11 PR I (``learned-rule-optimal-value``): a control whose learner's limit rule is not
+        # the optimal rule answers to a coverage ceiling on the optimal value.
+        "optimal_target_control",
         # Calibration families with no efficiency claim: the positive arm answers to the
         # SE-ratio and coverage bands, each control to an SE-ratio interval below the band.
         # Checked row by row below.
@@ -1785,6 +1795,25 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # X11 PR E2 (``learned-rule-strata``): the stratified and unstratified learned-rule fits
         # on binary laws with a weak margin at the rule boundary, reported with no verdict.
         "weak_margin_diagnostic",
+        # X11 PR F1 (``learned-rule-stacked``): the fold-evaluated report beside the stacked one
+        # on the same clustered draws and folds, its bias and the paired error difference
+        # reported with no verdict.
+        "fold_evaluated_reporting",
+        # X11 PR F2 (``learned-rule-in-sample``): the in-sample fit read against the
+        # fold-average target of the same draw, and the targeted and untargeted fits of a
+        # learner whose rule flips between samples, each reported with no verdict.
+        "target_distinction",
+        "weak_limit_necessity",
+        # X11 PR G (``learned-rule-contrast``): each contrast at the SE it would have if the
+        # learned and the known value were independent, reported with no verdict.
+        "independent_se_diagnostic",
+        # X11 PR H (``learned-rule-arms``): how far the fitted rules over three arms sit from the
+        # outcome learner's limit rule, reported with no verdict.
+        "rule_margin_diagnostic",
+        # X11 PR I (``learned-rule-optimal-value``): the optimal value with an estimated g, and
+        # on a law whose blip is zero on 60% of the population, each reported with no verdict.
+        "estimated_g_report",
+        "exceptional_law_report",
         "censoring_complete_case",
         # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
         "in_sample_fit",
@@ -2309,10 +2338,16 @@ class TestTheStudyStillMeasuresTheCode:
                 f"targeting_necessity family, so nothing separates targeting from a plug-in"
             )
             pytest.skip(f"{study.reference} publishes no untargeted plug-in")
-        assert reference["initial_estimate"].notna().all(), (
-            "the reference publishes a plug-in for some replications and not others"
+        # A comparator can lack a plug-in for one model only: survtmle 1.1.1's bounded mean
+        # method crashes under Gcomp = TRUE, so survival-node-bounds publishes the plug-in of
+        # its hazard model alone.  Within each model the plug-in is all or nothing.
+        present = reference["initial_estimate"].notna().groupby(reference["scenario"])
+        mixed = sorted(name for name, flags in present if flags.any() and not flags.all())
+        assert not mixed, (
+            f"the reference publishes a plug-in for some replications and not others in {mixed}"
         )
-        moved = (reference["estimate"] - reference["initial_estimate"]).abs()
+        published = reference.loc[reference["initial_estimate"].notna()]
+        moved = (published["estimate"] - published["initial_estimate"]).abs()
         assert moved.max() > 1e-3, moved.describe()
 
     def test_native_interval_scales_are_recorded_instead_of_forced_to_match(
@@ -2774,6 +2809,8 @@ _FAMILY = {
     "value_gain_": "harness",
     "boundary_disagreement_mean": "harness",
     "boundary_treated_share_mean": "harness",
+    "cross_term_mean": "harness",
+    "between_term_mean": "harness",
     # ``failures.csv``: zero for a study whose comparator never failed.
     "reference_failures": "failures",
     "subject_failures": "failures",

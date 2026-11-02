@@ -2,28 +2,31 @@
 
 The refusal table of the learned-rule contract in
 ``docs/technical-reference/point-treatment-tmle.md`` lists the rows in order.  Each row raises
-:class:`~cleverly.exceptions.CapabilityError` with its item before any learner is fitted, at the engine and at ``CausalStudy``, with one
-exception: ``CrossFitting(n_folds=1)`` refuses at construction, before it sees the
-estimand, with a :class:`~cleverly.exceptions.MethodConfigurationError` that ends with the
-learned-rule clause.  A refusal that no setting repairs comes before a refusal whose remedy
-is a setting, which the RM24 order rule requires, so the pair witnesses below meet the
-earlier row.
+:class:`~cleverly.exceptions.CapabilityError` with its item before any learner is fitted, at the
+engine and at ``CausalStudy``.  ``cross_fit=False`` is no row: it fits the value of the one rule
+learned on every row (X11 (a), ``tests/unit/test_learned_rule_in_sample.py``).  ``n_folds=1``
+under cross-fitting meets the shared fold-policy refusal, a
+:class:`~cleverly.exceptions.MethodConfigurationError`.  A refusal that no setting repairs comes
+before a refusal whose remedy is a setting, which the RM24 order rule requires, so the pair
+witnesses below meet the earlier row.
 
-No remedy may send the caller to a call that is refused.  Each remedy that a learned-rule
-caller reads is therefore run as written: the witness finds the remedy's text in the
-message and evaluates that text.  On the engine, each shared refusal that a learned-rule
-fit can meet is also checked for the in-sample remedy it must not name.  On the method,
-that remedy stays for other estimands, and the witnesses check the clause that follows it.
+No remedy may send the caller to a call that is refused, or to another target without saying
+so.  Each remedy that a learned-rule caller reads is therefore run as written: the witness finds
+the remedy's text in the message and evaluates that text.  On the engine, each shared refusal
+that a learned-rule fit can meet offers the in-sample fit only as "the value of the full-sample
+rule ..., a different target".  On the method, the bare offer stays for other estimands, and the
+witnesses check the clause that follows it.
 """
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
 
@@ -38,16 +41,29 @@ from cleverly import (
     TMLEMethod,
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
-from cleverly.exceptions import CapabilityError, DataError, MethodConfigurationError
+from cleverly.exceptions import (
+    CapabilityError,
+    ConvergenceWarning,
+    DataError,
+    MethodConfigurationError,
+    PositivityWarning,
+    RefusalReason,
+)
 from cleverly.interventions import Incremental, LearnedRule, Rule, Shift, Static
 from cleverly.interventions.learned import (
+    LEARNED_RULE_ARM_REMEDY,
     LEARNED_RULE_BENCHMARK_REFUSAL,
     LEARNED_RULE_CONFIGURATION,
     LEARNED_RULE_EVALUE_REFUSAL,
+    LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL,
     LEARNED_RULE_REMEDY,
     LEARNED_RULE_TILT_REFUSAL,
 )
-from cleverly.learners.crossfit import _LEARNED_RULE_METHOD_CLAUSE, _POST_DRAW_REMEDY
+from cleverly.learners.crossfit import (
+    _LEARNED_RULE_METHOD_CLAUSE,
+    _POST_DRAW_REMEDY,
+    LEARNED_RULE_IN_SAMPLE,
+)
 from cleverly.methods import ModelSpec
 from cleverly.msm import MSM
 from cleverly.sensitivity import evalue
@@ -62,19 +78,40 @@ from cleverly.validation.refute import refute_refusal
 from tests.unit import _learned_rule_support as support
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
+#: The in-sample remedies these witnesses run use the support module's Pipeline learners, so
+#: each fit warns that its interval needs condition C5a (``test_learned_rule_in_sample.py``).
+pytestmark = pytest.mark.filterwarnings("ignore::cleverly.exceptions.InSampleLearnerWarning")
+
 #: The engine settings of :data:`LEARNED_RULE_CONFIGURATION`, each as the message prints it.
 ENGINE_REMEDY = (
     "cross_fit=True",
-    "cv_evaluation=True",
     "n_bootstrap=0",
 )
 
-#: The method remedy that ends each method-layer fold-policy sentence.
-METHOD_REMEDY = "CrossFitting(enabled=True, fold_evaluation=True)"
+#: The method remedy that ends each method-layer fold-policy sentence.  Either report fits,
+#: so the requirement names no ``fold_evaluation``.
+METHOD_REMEDY = "CrossFitting(enabled=True)"
 
-#: The two routes a learned-rule message must not offer: an in-sample fit, which X11 (a)
-#: refuses, and a shift, which X11 (c) holds beside ``learned_rule=``.
-FORBIDDEN = ("cross_fit=False", "CrossFitting(enabled=False)", "policies=[")
+#: The clause both remedies end with: the default is the stacked report, which no
+#: registered study covers, so each remedy names the fold-evaluated report.
+REGISTERED_PATH = "gives the fold-evaluated report that the registered studies cover"
+
+#: The route a learned-rule message must not offer: a shift, which X11 (c) holds beside
+#: ``learned_rule=``.
+FORBIDDEN = ("policies=[",)
+
+#: The spellings of an in-sample fit.  On a learned-rule fit it estimates the value of the
+#: full-sample rule (X11 (a)), so a learned-rule message that offers it names that target.
+IN_SAMPLE_ROUTES = ("cross_fit=False", "CrossFitting(enabled=False)")
+TARGET_CHANGE = "a different target"
+
+
+def _offers_no_silent_target_change(message: str) -> None:
+    """Assert that ``message`` offers no shift, and no in-sample fit without its target."""
+    assert not any(route in message for route in FORBIDDEN), message
+    if any(route in message for route in IN_SAMPLE_ROUTES):
+        assert TARGET_CHANGE in message, message
+    assert "fit in sample with cross_fit=False" not in message, message
 
 
 def _engine(**overrides: Any) -> TMLE:
@@ -87,7 +124,7 @@ def _frame(kind: str = "binary") -> Any:
     frame = support.law_frame(120, 3)
     if kind == "continuous":
         frame["A"] = frame["A"] + frame["W1"]
-    if kind == "multi_arm":
+    if kind.startswith("multi_arm"):
         frame["A"] = np.arange(len(frame)) % 3
     if kind == "delta":
         frame["Delta"] = (np.arange(len(frame)) % 5 != 0).astype(float)
@@ -104,7 +141,8 @@ def _frame(kind: str = "binary") -> Any:
 _FIT_ARGUMENTS: dict[str, dict[str, Any]] = {
     "binary": {},
     "continuous": {"treatment_kind": "continuous"},
-    "multi_arm": {},
+    "multi_arm_blip": {},
+    "multi_arm_classification": {},
     "delta": {"delta": "Delta"},
     "intermediate": {"intermediate": "Z"},
     "estimated_weights": {"weights": "w", "weights_estimated": True},
@@ -134,17 +172,34 @@ def _refused(call: Any, item: str) -> str:
 #: The data rows: the declarations that no setting repairs.
 DATA_ROWS: dict[str, str] = {
     "continuous": "F27",
-    "multi_arm": "X11 (d)",
+    "multi_arm_blip": "X11 (d2)",
+    "multi_arm_classification": "X11 (d2)",
     "delta": "F27",
     "intermediate": "X11 (j)",
     "estimated_weights": "X11 (k2)",
     "strata_clusters": "X28",
 }
 
+#: The declared rule of each data row whose refusal reads the rule: a rule learner on more
+#: than two arms (X11 (d2)).  Every other row uses the plug-in rule, which more than two arms
+#: admit (X11 (d)).
+DATA_RULES: dict[str, LearnedRule] = {
+    "multi_arm_blip": LearnedRule(loss="blip", learner=LinearRegression()),
+    "multi_arm_classification": LearnedRule(
+        loss="weighted_classification", learner=LogisticRegression()
+    ),
+}
+
+
+def _data_engine(kind: str, **overrides: Any) -> TMLE:
+    """The engine of a data row, with the rule that row reads."""
+    if kind in DATA_RULES:
+        overrides = {"learned_rule": DATA_RULES[kind], **overrides}
+    return _engine(**overrides)
+
+
 #: The fold-policy setting rows, each with its item.  Each names the configuration that fits.
 SCHEME_ROWS: dict[str, tuple[dict[str, Any], str]] = {
-    "in_sample": ({"cross_fit": False, "cv_evaluation": False}, "X11 (a)"),
-    "stacked": ({"cv_evaluation": False}, "X11 (e)"),
     "bootstrap": ({"n_bootstrap": 10}, "F27"),
 }
 
@@ -166,37 +221,82 @@ class TestEachRowRefusesBeforeAnyLearner:
     @pytest.mark.parametrize(
         ("overrides", "item"),
         [
-            ({"interventions": [Static(1)]}, "X11 (c)"),
-            ({"reference": "learned rule"}, "X11 (c)"),
-            ({"estimands": ("ate",)}, "X11 (c)"),
-            ({"policies": [Shift(0.5, cap=None)]}, "X11 (c)"),
-            ({"incremental": [Incremental(2.0)]}, "X11 (c)"),
-            ({"msm": MSM.linear()}, "X11 (c)"),
+            ({"reference": "learned rule"}, "interventions=[Static(1)]"),
+            ({"estimands": ("ate",)}, "interventions=[Static(1)]"),
+            ({"estimands": ("ate_learned_rule",)}, "interventions=[Static(1)]"),
+            ({"interventions": [Static(1)], "estimands": ("ey_regime",)}, "ey_known_regime"),
+            ({"interventions": [Static(1)], "estimands": ("ate_regime",)}, "ate_learned_rule"),
+            ({"interventions": [Static(1)], "reference": "always 1"}, "a regime contrast"),
+            ({"interventions": [Static(1)], "reference": "nope"}, "reference='learned rule'"),
+            ({"interventions": [Static(1, name="learned rule")]}, "LearnedRule(name=...)"),
+            ({"policies": [Shift(0.5, cap=None)]}, "X11 (c2)"),
+            ({"incremental": [Incremental(2.0)]}, "X11 (c2)"),
+            ({"msm": MSM.linear()}, "X11 (c2)"),
+            ({"interventions": [Static(1)], "msm": MSM.linear()}, "X11 (c2)"),
         ],
     )
     def test_row_2_another_axis_or_a_contrast(self, overrides: dict[str, Any], item: str) -> None:
+        """Known regimes beside the rule run (X11 (c)); another axis and arm estimands refuse."""
         _refused(lambda: _engine(**overrides), item)
+
+    def test_row_2_admits_known_regimes(self) -> None:
+        """``interventions=`` and ``reference=`` naming the rule pass the configuration rows."""
+        _engine(interventions=[Static(1)])
+        _engine(interventions=[Static(1), Static(0)], reference="learned rule")
 
     @pytest.mark.parametrize("kind", list(DATA_ROWS))
     def test_the_data_rows(self, kind: str) -> None:
-        _refused(lambda: _fit(_engine(), kind), DATA_ROWS[kind])
+        _refused(lambda: _fit(_data_engine(kind), kind), DATA_ROWS[kind])
 
     @pytest.mark.parametrize("row", list(SCHEME_ROWS))
     def test_the_setting_rows(self, row: str) -> None:
         overrides, item = SCHEME_ROWS[row]
         message = _refused(lambda: _fit(_engine(**overrides)), item)
-        assert "cv_evaluation=True" in message and "fold_evaluation=True" in message
+        assert LEARNED_RULE_CONFIGURATION in message and METHOD_REMEDY in message
 
-    def test_one_fold_refuses_at_construction(self) -> None:
-        """The shared fold-policy sentence offers an in-sample fit, and this one does not."""
-        message = _refused(lambda: _engine(n_folds=1), "X11 (a)")
-        assert not any(route in message for route in FORBIDDEN)
+    def test_the_stacked_report_reads_its_row(self) -> None:
+        """``cv_evaluation=False`` fits the stacked report (X11 (e)), keyed and registered."""
+        result = support.fit(cv_evaluation=False)
+        estimate = result.estimates[support.NAME]
+        assert result.extra["learned_rule"].scheme == "stacked"
+        assert result.config.support_key.splitting == ("stacked",)
+        assert estimate.support.label == "supported"
+        assert estimate.support.row == "T42.rows"
+
+    def test_the_in_sample_fit_is_no_row(self) -> None:
+        """``cross_fit=False`` fits the full-sample rule's value (X11 (a)), keyed and experimental.
+
+        The helper's outcome learner is a ``Pipeline``, which keys ``adaptive``, so T43, the
+        row of parametric in-sample learners, does not cover it.
+        """
+        result = support.fit(cross_fit=False, cv_evaluation=False)
+        assert result.extra["learned_rule"].scheme == "in_sample"
+        assert result.config.support_key.splitting == ("in_sample",)
+        assert dict(result.config.support_key.options)["outcome_learner_family"] == "adaptive"
+        assert result.estimates[support.NAME].support.label == "experimental"
+
+    def test_the_in_sample_bootstrap_keeps_the_in_sample_target(self) -> None:
+        """The bootstrap row stays in sample, and its remedy keeps the caller's target."""
+        message = _refused(
+            lambda: _fit(_engine(cross_fit=False, cv_evaluation=False, n_bootstrap=10)), "F27"
+        )
+        assert "Fit the value of the full-sample rule with n_bootstrap=0" in message
+        assert LEARNED_RULE_CONFIGURATION not in message
+        settings = _as_written(message, "n_bootstrap=0")
+        result = support.fit(cross_fit=False, cv_evaluation=False, **settings)
+        assert result.extra["learned_rule"].scheme == "in_sample"
+
+    def test_strata_with_clusters_refuse_in_sample(self) -> None:
+        """Row 8 holds for the in-sample fit too."""
+        _refused(
+            lambda: _fit(_engine(cross_fit=False, cv_evaluation=False), "strata_clusters"), "X28"
+        )
 
     def test_a_copied_estimator_meets_the_same_rows(self) -> None:
         """The preflight asks the first two rows again, for a configuration no constructor saw."""
         estimator = _engine()
-        estimator.interventions = (Static(1),)
-        _refused(lambda: _fit(estimator), "X11 (c)")
+        estimator.incremental = (Incremental(2.0),)
+        _refused(lambda: _fit(estimator), "X11 (c2)")
 
     def test_a_learned_rule_that_is_not_a_learned_rule(self) -> None:
         with pytest.raises(DataError, match="LearnedRule"):
@@ -210,20 +310,20 @@ class TestTheOrder:
     @pytest.mark.parametrize("row", list(SCHEME_ROWS))
     def test_a_data_row_comes_before_every_setting_row(self, kind: str, row: str) -> None:
         overrides, _ = SCHEME_ROWS[row]
-        message = _refused(lambda: _fit(_engine(**overrides), kind), DATA_ROWS[kind])
-        assert "fold_evaluation=True" not in message
+        message = _refused(lambda: _fit(_data_engine(kind, **overrides), kind), DATA_ROWS[kind])
+        assert LEARNED_RULE_CONFIGURATION not in message
 
     def test_a_continuous_treatment_is_not_told_to_declare_a_shift(self) -> None:
         """``_check_shifts`` would suggest ``policies=``, which the contrast row then refuses."""
         message = _refused(lambda: _fit(_engine(), "continuous"), "F27")
         # ``policies=[`` appears once, as the route of a separate fit without ``learned_rule=``.
-        assert not any(route in message for route in FORBIDDEN if route != "policies=[")
+        assert not any(route in message for route in IN_SAMPLE_ROUTES)
         assert "A fit without learned_rule= can use TMLE(policies=[" in message
 
     def test_the_contrast_row_comes_before_the_data_rows(self) -> None:
         estimator = _engine()
         estimator.estimands = ("ate",)
-        _refused(lambda: _fit(estimator, "delta"), "X11 (c)")
+        _refused(lambda: _fit(estimator, "delta"), "interventions=[Static(1)]")
 
 
 class TestEachRemedyRunsAsWritten:
@@ -258,27 +358,81 @@ class TestEachRemedyRunsAsWritten:
         result = support.fit(estimands=None)
         assert set(result.estimates) == {support.NAME}
 
+    def test_the_static_arm_remedy_fits_the_contrast(self) -> None:
+        """An arm estimand is told to declare the arm as ``Static``, and that call fits.
+
+        The call runs with the constructor's defaults, ``simultaneous=True`` among them,
+        because the remedy prints no other setting.
+        """
+        message = _refused(lambda: _engine(estimands=("ate",)), "interventions=[Static(1)]")
+        assert "with estimands=None" in message
+        settings = eval("dict(interventions=[Static(1)])", {"Static": Static})
+        result = _default_fit(estimands=None, **settings)
+        assert "ate_learned_rule[learned rule vs always 1]" in result.estimates
+        assert result.simultaneous is None
+
+    @pytest.mark.parametrize("asked", ["ey_regime", "ate_regime"])
+    def test_the_regime_redirection_fits_as_written(self, asked: str) -> None:
+        """``ey_regime`` and ``ate_regime`` name this fit's targets, and both spellings fit."""
+        with pytest.raises(CapabilityError) as caught:
+            _engine(interventions=[Static(1)], estimands=(asked,))
+        assert caught.value.refusal.reason is RefusalReason.API_REDIRECTION
+        message = _refused(
+            lambda: _engine(interventions=[Static(1)], estimands=(asked,)), "ey_known_regime"
+        )
+        assert "or estimands=None for all three." in message
+        names = ["ey_learned_rule", "ey_known_regime", "ate_learned_rule"]
+        assert f"estimands={names}" in message
+        for estimands in (names, None):
+            result = _default_fit(interventions=[Static(1)], estimands=estimands)
+            assert list(result.estimates) == [
+                support.NAME,
+                "ey_known_regime[always 1]",
+                "ate_learned_rule[learned rule vs always 1]",
+            ]
+
     @pytest.mark.parametrize(
         ("overrides", "ending"),
         [
-            ({"reference": "learned rule"}, "alone, without reference="),
             (
-                {"estimands": ("ate",)},
-                "alone, with estimands=None, and fit the other target in a fit of its own",
+                {"reference": "learned rule"},
+                "or drop reference= to fit the learned-rule value alone.",
             ),
             (
-                {"interventions": [Static(1)], "reference": "learned rule"},
-                "alone, without interventions= or reference=, and fit the other target in a fit of its own",
+                {"policies": [Shift(0.5, cap=None)]},
+                "Fit the learned-rule value without policies=, and fit the other target in a "
+                "fit of its own.",
+            ),
+            (
+                {"interventions": [Static(1)], "reference": "always 1"},
+                "TMLE(interventions=[...], reference=...), a fit of its own.",
             ),
         ],
-        ids=["lone_reference", "arm_estimand", "regime_and_reference"],
+        ids=["lone_reference", "another_axis", "known_reference"],
     )
     def test_the_contrast_remedy_names_what_was_declared(
         self, overrides: dict[str, Any], ending: str
     ) -> None:
-        """A lone ``reference=`` names no other target, so its remedy drops the keyword."""
-        message = _refused(lambda: _engine(**overrides), "X11 (c)")
-        assert message.endswith(f"Fit the learned-rule value {ending}."), message
+        """Each remedy names the keyword to drop or to change, and what it then fits."""
+        message = _refused(lambda: _engine(**overrides), "")
+        assert message.endswith(ending), message
+
+
+def _default_fit(**overrides: Any) -> Any:
+    """Fit with the constructor's defaults, except the explicit learners and the folds."""
+    estimator = TMLE(
+        learned_rule=LearnedRule(),
+        outcome_learner=support.outcome_learner(),
+        treatment_learner=support.treatment_learner(),
+        n_folds=5,
+        random_state=0,
+        **support.FOLD_EVALUATED,
+        **overrides,
+    )
+    assert estimator.simultaneous
+    return estimator.fit(
+        support.law_frame(), outcome="Y", treatment="A", covariates=support.COVARIATES
+    ).single()
 
 
 def _as_written(message: str, *keywords: str) -> dict[str, Any]:
@@ -294,6 +448,7 @@ def _method_as_written(message: str) -> CrossFitting:
     """Return :data:`METHOD_REMEDY`, found verbatim at the end of ``message``, evaluated."""
     assert message.endswith(f"{_LEARNED_RULE_METHOD_CLAUSE}."), message
     assert METHOD_REMEDY in _LEARNED_RULE_METHOD_CLAUSE
+    assert _LEARNED_RULE_METHOD_CLAUSE.endswith(REGISTERED_PATH)
     return eval(METHOD_REMEDY, {"CrossFitting": CrossFitting})
 
 
@@ -313,39 +468,78 @@ def _study_fit(cross_fitting: CrossFitting) -> Any:
     return study.identify(LearnedRuleValue()).estimate(method, simultaneous=False)
 
 
+def test_each_remedy_names_the_registered_path_and_it_fits_the_fold_evaluated_report() -> None:
+    """The default of both layers is the stacked report, so each remedy ends by naming the
+    fold-evaluated report.  The keyword each one prints, run as written, fits that report."""
+    assert LEARNED_RULE_CONFIGURATION.endswith(REGISTERED_PATH)
+    assert _LEARNED_RULE_METHOD_CLAUSE.endswith(REGISTERED_PATH)
+    engine = _as_written(LEARNED_RULE_CONFIGURATION, "cross_fit=True", "cv_evaluation=True")
+    fit = support.fit(**engine)
+    assert fit.extra["learned_rule"].scheme == "fold_evaluated"
+    clause = "CrossFitting(fold_evaluation=True)"
+    for text in (LEARNED_RULE_CONFIGURATION, _LEARNED_RULE_METHOD_CLAUSE):
+        assert clause in text
+    method = eval(clause, {"CrossFitting": CrossFitting})
+    assert _study_fit(method).extra["learned_rule"].scheme == "fold_evaluated"
+    assert (
+        _study_fit(eval(METHOD_REMEDY, {"CrossFitting": CrossFitting})).extra["learned_rule"].scheme
+        == "stacked"
+    )
+
+
 class TestEachSharedRefusalRemedyRunsAsWritten:
     """Every shared refusal that a learned-rule caller can meet names a remedy that fits.
 
     One witness per case.  The engine knows the estimand, so it answers with a row of
-    the RM30 table or with a shared sentence that offers no in-sample fit.
-    ``CrossFitting`` refuses before it sees the estimand, so its sentence ends with the
-    learned-rule clause, and the witness fits the clause's remedy.
+    the RM30 table or with a shared sentence whose in-sample offer names the change of
+    target.  ``CrossFitting`` refuses before it sees the estimand, so its sentence ends with
+    the learned-rule clause, and the witness fits the clause's remedy.
     """
 
     @pytest.mark.parametrize(
-        "overrides",
-        [{"cross_fit": False, "cv_evaluation": False, "repeats": 2}, {"n_folds": 1}],
+        ("overrides", "cross_fitted", "in_sample"),
+        [
+            (
+                {"cross_fit": False, "cv_evaluation": False, "repeats": 2},
+                ("Enable cross-fitting", {"cross_fit": True}),
+                ("repeats=1", "cross_fit=False"),
+            ),
+            ({"n_folds": 1}, ("Set n_folds to at least 2", {"n_folds": 2}), ("cross_fit=False",)),
+        ],
         ids=["in_sample_with_repeats", "one_fold"],
     )
-    def test_the_engine_meets_the_one_fold_row_before_the_shared_sentence(
-        self, overrides: dict[str, Any]
+    def test_the_engine_shared_sentence_names_the_target_change(
+        self,
+        overrides: dict[str, Any],
+        cross_fitted: tuple[str, dict[str, Any]],
+        in_sample: tuple[str, ...],
     ) -> None:
-        """The shared sentences offer "set repeats=1" and an in-sample fit, which the one-fold
-        row refuses, and "enable cross-fitting", which the stacked row refuses."""
-        message = _refused(lambda: _engine(**overrides), "X11 (a)")
-        assert LEARNED_RULE_CONFIGURATION in message
-        assert not any(route in message for route in FORBIDDEN)
-        settings = _as_written(message, *ENGINE_REMEDY)
-        assert np.isfinite(support.fit(**settings).estimates[support.NAME].psi)
+        """The shared sentences offer a cross-fitted fit and an in-sample fit, and the in-sample
+        offer names its target, the value of the full-sample rule.  Both run as written."""
+        with pytest.raises(MethodConfigurationError) as caught:
+            _engine(**overrides)
+        message = str(caught.value)
+        assert LEARNED_RULE_IN_SAMPLE in message
+        _offers_no_silent_target_change(message)
+        phrase, settings = cross_fitted
+        assert phrase in message
+        result = support.fit(**{**overrides, **settings})
+        assert result.extra["learned_rule"].scheme != "in_sample"
+        settings = _as_written(message, *in_sample)
+        result = support.fit(**{**overrides, **settings, "cv_evaluation": False})
+        assert result.extra["learned_rule"].scheme == "in_sample"
 
-    def test_the_engine_stratified_folds_offer_no_in_sample_fit(self) -> None:
+    def test_the_engine_stratified_folds_name_the_target_change(self) -> None:
         with pytest.raises(ValueError, match="stratify_folds='treatment'") as caught:
             _engine(stratify_folds="treatment")
         message = str(caught.value)
-        assert not any(route in message for route in FORBIDDEN)
-        assert "in sample" not in message
+        _offers_no_silent_target_change(message)
+        assert f"Otherwise {LEARNED_RULE_IN_SAMPLE}" in message
         settings = _as_written(message, "stratify_folds='none'")
         assert np.isfinite(support.fit(**settings).estimates[support.NAME].psi)
+        settings = _as_written(message, "cross_fit=False")
+        result = support.fit(stratify_folds="treatment", cv_evaluation=False, **settings)
+        assert result.extra["learned_rule"].scheme == "in_sample"
 
     @pytest.mark.parametrize(
         "declared",
@@ -412,6 +606,19 @@ class TestRetargetKeepsTheLearnedRuleAxis:
         with pytest.raises(CapabilityError, match="rule learned inside each training fold"):
             result.estimator.retarget(result.data, result.nuisance, estimands=estimands)
 
+    @pytest.mark.parametrize("asked", ["ey_known_regime", "ate_learned_rule"])
+    def test_a_known_regime_target_without_known_regimes_refuses(
+        self, result: Any, asked: str
+    ) -> None:
+        """As the constructor refuses it, rather than returning no estimate."""
+        with pytest.raises(CapabilityError) as caught:
+            result.estimator.retarget(result.data, result.nuisance, estimands=(asked,))
+        assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        assert "interventions=[Static(1)]" in str(caught.value)
+        with pytest.raises(CapabilityError) as constructed:
+            support.learned_tmle(estimands=(asked,))
+        assert constructed.value.refusal == caught.value.refusal
+
 
 def test_a_longitudinal_design_cites_x11_b() -> None:
     rng = np.random.default_rng(8080)
@@ -431,7 +638,8 @@ def test_a_longitudinal_design_cites_x11_b() -> None:
 
 
 class TestTheSharedRefusalsNameTheLearnedRuleRemedy:
-    """No shared refusal sends a learned-rule caller to an in-sample fit or a shift."""
+    """No shared refusal sends a learned-rule caller to a shift, or to an in-sample fit without
+    naming its target, the value of the full-sample rule."""
 
     def test_the_arm_minimum(self) -> None:
         frame = support.law_frame(120, 3)
@@ -442,10 +650,19 @@ class TestTheSharedRefusalsNameTheLearnedRuleRemedy:
             support.fit(frame, **never_fit_learners())
         assert NeverFit.calls == 0
         message = str(caught.value)
-        assert LEARNED_RULE_REMEDY in message
-        assert not any(route in message for route in FORBIDDEN)
-        # The remedy, as written: the same fit on a larger sample.
-        assert np.isfinite(support.fit(support.law_frame(400, 3)).estimates[support.NAME].psi)
+        assert message.endswith(LEARNED_RULE_ARM_REMEDY)
+        # The way out that keeps the cross-fitted target comes first.
+        assert "collect more observations at the rare arm, or " in message
+        _offers_no_silent_target_change(message)
+        # The in-sample remedy, as written. This is a reachability check, not an estimate:
+        # a one-unit arm gives no sound fit under either scheme, so the fit clips every
+        # unit's propensity and its fluctuation has no finite solution.
+        settings = _as_written(message, "cross_fit=False")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            warnings.simplefilter("ignore", ConvergenceWarning)
+            result = support.fit(frame, cv_evaluation=False, **settings)
+        assert result.extra["learned_rule"].scheme == "in_sample"
 
     def test_the_drawn_complement(self) -> None:
         """A draw whose training complement lacks an arm, found by seed, refuses after the draw."""
@@ -467,7 +684,15 @@ class TestTheSharedRefusalsNameTheLearnedRuleRemedy:
             pytest.fail("no seed drew a complement without an arm")
         assert NeverFit.calls == 0
         assert _POST_DRAW_REMEDY.format(remedy=LEARNED_RULE_REMEDY) in message
-        assert not any(route in message for route in FORBIDDEN)
+        _offers_no_silent_target_change(message)
+        # The in-sample remedy, as written. This is a reachability check, not an estimate:
+        # two treated units in 40 rows clip every unit's propensity in sample too.
+        settings = _as_written(message, "cross_fit=False")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            warnings.simplefilter("ignore", ConvergenceWarning)
+            result = support.fit(frame, cv_evaluation=False, **settings)
+        assert result.extra["learned_rule"].scheme == "in_sample"
 
     def test_the_outcome_scale(self) -> None:
         frame = support.law_frame(120, 3)
@@ -478,9 +703,17 @@ class TestTheSharedRefusalsNameTheLearnedRuleRemedy:
         assert NeverFit.calls == 0
         message = str(caught.value)
         assert message.endswith(
-            "Declare the known outcome support (Targeting(q_bounds=(lower, upper)))."
+            "Declare the known outcome support (Targeting(q_bounds=(lower, upper))). Without a "
+            f"known finite support, {LEARNED_RULE_IN_SAMPLE}."
         )
-        assert not any(route in message for route in FORBIDDEN)
+        _offers_no_silent_target_change(message)
+        # The in-sample remedy, as written: no support is needed in sample.
+        regression = make_pipeline(
+            PolynomialFeatures(2, interaction_only=True, include_bias=False), LinearRegression()
+        )
+        settings = _as_written(message, "cross_fit=False")
+        result = support.fit(frame, cv_evaluation=False, outcome_learner=regression, **settings)
+        assert result.extra["learned_rule"].scheme == "in_sample"
         # The remedy, as written: a declared support.
         bounds = (float(frame["Y"].min()) - 1.0, float(frame["Y"].max()) + 1.0)
         regression = make_pipeline(
@@ -488,12 +721,14 @@ class TestTheSharedRefusalsNameTheLearnedRuleRemedy:
         )
         result = support.fit(frame, q_bounds=bounds, outcome_learner=regression)
         assert np.isfinite(result.estimates[support.NAME].psi)
+        assert result.extra["learned_rule"].scheme == "fold_evaluated"
 
 
 class TestTheStudyRefusesTheSameRows:
     """``CausalStudy.identify`` refuses the data rows, and ``estimate`` the setting rows.
 
-    One fold refuses earlier, in ``CrossFitting`` itself.
+    One fold refuses earlier, in ``CrossFitting`` itself.  ``CrossFitting(enabled=False)``
+    fits the full-sample rule's value (X11 (a)).
     """
 
     @staticmethod
@@ -517,27 +752,36 @@ class TestTheStudyRefusesTheSameRows:
 
     @pytest.mark.parametrize("kind", list(DATA_ROWS))
     def test_identify_refuses_the_data_rows(self, kind: str) -> None:
-        _refused(lambda: self._study(kind).identify(LearnedRuleValue()), DATA_ROWS[kind])
+        rule = DATA_RULES.get(kind, LearnedRule())
+        _refused(lambda: self._study(kind).identify(LearnedRuleValue(rule=rule)), DATA_ROWS[kind])
 
-    def test_the_default_method_refuses_with_the_fold_evaluated_remedy(self) -> None:
+    def test_the_default_method_fits_the_stacked_report(self) -> None:
+        """The default ``CrossFitting()`` is the stacked report, which X11 (e) admits."""
         effect = self._study("binary").identify(LearnedRuleValue())
-        message = _refused(
-            lambda: effect.estimate(**never_fit_learners(), simultaneous=False), "X11 (e)"
+        result = effect.estimate(
+            outcome_learner=support.outcome_learner(),
+            treatment_learner=support.treatment_learner(),
+            simultaneous=False,
         )
-        assert "CrossFitting(enabled=True, fold_evaluation=True)" in message
+        assert result.extra["learned_rule"].scheme == "stacked"
+        assert np.isfinite(result.estimates[support.NAME].psi)
+
+    def test_the_in_sample_method_fits_the_full_sample_rule(self) -> None:
+        """``CrossFitting(enabled=False)`` is no row: it fits the full-sample rule's value."""
+        result = _study_fit(CrossFitting(enabled=False))
+        assert result.extra["learned_rule"].scheme == "in_sample"
+        assert result.estimates[support.NAME].support.label == "experimental"
 
     #: The setting rows on the method, each with its exception and item.  One fold refuses in
     #: ``CrossFitting`` itself, before the estimand is known, so it raises the configuration
-    #: error and ends with the learned-rule clause.
+    #: error and ends with the learned-rule clause, which names the in-sample target.
     METHOD_ROWS: ClassVar[dict[str, tuple[dict[str, Any], dict[str, Any], type, str]]] = {
-        "in_sample": ({"enabled": False}, {}, CapabilityError, "X11 (a)"),
         "one_fold": (
             {"n_folds": 1, "fold_evaluation": True},
             {},
             MethodConfigurationError,
-            "X11 (a)",
+            TARGET_CHANGE,
         ),
-        "stacked": ({}, {}, CapabilityError, "X11 (e)"),
         "bootstrap": ({"fold_evaluation": True}, {"n_bootstrap": 10}, CapabilityError, "F27"),
     }
 
@@ -633,6 +877,23 @@ class TestTheAssessmentRows:
             evalue(result, support.NAME)
         assert LEARNED_RULE_EVALUE_REFUSAL in str(caught.value)
 
+    def test_the_in_sample_benchmark_names_its_one_rule(self) -> None:
+        """An in-sample fit has one rule, so the stated reason is the missing build."""
+        result = support.fit(cross_fit=False, cv_evaluation=False)
+        assert benchmark_refusal(result, ["W2"]) is LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL
+        with pytest.raises(CapabilityError) as caught:
+            benchmark(result, ["W2"], estimand=support.NAME)
+        message = str(caught.value)
+        assert LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL.condition in message
+        assert "training fold" not in message
+        assert "X11 (n2)" in message
+        row = result.sensitivity.capability("benchmark")
+        assert not row.available
+        assert "training fold" not in (row.reason or "")
+        # The shared target sentence of the E-value and the tilt holds for either scheme.
+        for text in (LEARNED_RULE_EVALUE_REFUSAL, LEARNED_RULE_TILT_REFUSAL):
+            assert "training fold" not in text
+
 
 class TestALearnedRuleIsNotARegime:
     """A ``LearnedRule`` in a set of regimes, shifts or tilts refuses by name.
@@ -677,16 +938,16 @@ class TestTheCompositionRemediesRunAsWritten:
         ).fit(frame, weights="w", weights_estimated=True, **fit)
         assert np.isfinite(fixed.single().estimates["ey_regime[w1]"].psi)
 
-    def test_one_cluster_in_a_fold_offers_the_fold_count_alone(self) -> None:
-        """The stacked report that arm fits are offered is refused for a learned rule."""
+    def test_one_cluster_in_a_fold_offers_the_fold_count_or_the_stacked_report(self) -> None:
+        """A learned rule is offered the stacked report, as arm fits are (X11 (e)), and both fit."""
         frame = support.law_frame(120, 3).assign(c=np.arange(120) % 6)
         fit = {"outcome": "Y", "treatment": "A", "covariates": support.COVARIATES}
         with pytest.raises(CapabilityError) as caught:
             support.learned_tmle().fit(frame, id="c", **fit)
         message = str(caught.value)
         assert "Request at most 3 folds" in message
-        assert "cv_evaluation=False" not in message
-        assert "stacked" not in message
-        assert not any(route in message for route in FORBIDDEN)
-        result = support.learned_tmle(n_folds=3).fit(frame, id="c", **fit).single()
-        assert np.isfinite(result.estimates[support.NAME].psi)
+        assert "or use the stacked report (cv_evaluation=False" in message
+        _offers_no_silent_target_change(message)
+        for settings in ({"n_folds": 3}, {"cv_evaluation": False}):
+            result = support.learned_tmle(**settings).fit(frame, id="c", **fit).single()
+            assert np.isfinite(result.estimates[support.NAME].psi)

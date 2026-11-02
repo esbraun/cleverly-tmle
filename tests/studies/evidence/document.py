@@ -652,6 +652,85 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
+    if family == "fold_evaluated_reporting":
+        # X11 PR F1: the fold-evaluated report's bias beside the stacked report on the same
+        # draws. Its rows carry no bootstrap SE-ratio interval, and no margin reads them.
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"paired error difference {render(float(row.paired_error_difference))}"
+        )
+    if family == "target_distinction":
+        # X11 PR F2: the in-sample fit read against the fold-average target of the same draw.
+        # Its rows carry no bootstrap SE-ratio interval, and no margin reads them.
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"truth-gap SD / error SD {render(float(row.truth_gap_sd_ratio))}, "
+            f"grid disagreement {render(float(row.mean_grid_disagreement))}"
+        )
+    if family == "weak_limit_necessity":
+        # X11 PR F2: the weak-limit pair, with the flip share and the targeted arm's bias on
+        # settled and flipped draws, which the summary writes on both rows of the pair.
+        measured = (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        )
+        if str(row.cell).endswith("__targeted"):
+            measured += (
+                f", flip share {render(float(row.weak_limit_flip_share))}, "
+                f"bias on settled draws {render(float(row.weak_limit_settled_bias))} SD, "
+                f"on flipped draws {render(float(row.weak_limit_flipped_bias))} SD"
+            )
+        return measured
+    if family == "conservative_coverage":
+        # X11 PR G: a positive answers to its bias leg and its coverage floor, a control to a
+        # coverage ceiling. The SE ratio is published beside them, and no verdict reads it.
+        measured = f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        if str(row.role) == "positive":
+            measured = (
+                f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+                f"margin {render(float(row.bias_margin))}, {measured}"
+            )
+        return f"{measured}, SE ratio {render(float(row.se_ratio))}"
+    if family == "rule_margin_diagnostic":
+        # X11 PR H: the four summary columns of the margin diagnostic, with no verdict.
+        return (
+            f"limit disagreement {render(float(row.mean_limit_disagreement))}, "
+            f"near-tie share {render(float(row.mean_near_tie_share))}, "
+            f"min arm share {render(float(row.mean_min_arm_share))}, "
+            f"lost-arm share {render(float(row.lost_arm_share))}"
+        )
+    if family == "optimal_target_control":
+        # X11 PR I: the control answers to a coverage ceiling on the optimal value. Its coverage
+        # of the realized rule value and its mean regret are published beside it, read by no
+        # verdict.
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}, mean regret "
+            f"{render(float(row.mean_regret))}, coverage of the realized rule value "
+            f"{render(float(row.rule_value_coverage))}"
+        )
+    if family in {"estimated_g_report", "exceptional_law_report"}:
+        # X11 PR I: the two reports of the optimal value, with no verdict. Their rows carry no
+        # bootstrap SE-ratio interval, so the point ratio is printed.
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}, mean regret "
+            f"{render(float(row.mean_regret))}, against the realized rule value coverage "
+            f"{render(float(row.rule_value_coverage))} and SE ratio "
+            f"{render(float(row.rule_value_se_ratio))}, rule disagreement "
+            f"{render(float(row.min_rule_disagreement))} to "
+            f"{render(float(row.max_rule_disagreement))}"
+        )
+    if family in {"contrast_covariance", "independent_se_diagnostic"}:
+        # X11 PR G: a contrast read at another SE. Its rows carry no bootstrap SE-ratio
+        # interval, so the point ratio is printed beside the coverage interval.
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
     if family == "unbounded_fit":
         # The unbounded fit's accuracy, and the RMSE of both fits on the same draws.
         return (

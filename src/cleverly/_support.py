@@ -56,6 +56,7 @@ __all__ = [
     "classify_point_fit",
     "classify_structural_fit",
     "combine_support",
+    "in_sample_learned_rule_learners",
     "learner_family",
     "longitudinal_key",
     "point_key",
@@ -261,10 +262,10 @@ class SupportKey:
         The estimation procedure: the assessment method and, for C-TMLE, its strategy and design.
         A longitudinal key holds the recursion name.
     family : frozenset of str
-        The target families the fit reports, as the ids ``P1`` to ``P11`` of the support
-        inventory. A row covers a fit when its family set holds every family of the fit. A
-        longitudinal key holds the outcome kind, the working-model flag and the regimen-kind
-        flags.
+        The target families the fit reports, as the ids ``P1`` to ``P12`` of the support
+        inventory, ``P12`` being the value of the optimal rule. A row covers a fit when its
+        family set holds every family of the fit. A longitudinal key holds the outcome kind,
+        the working-model flag and the regimen-kind flags.
     outcome : tuple of str
         The outcome family and whether a continuous outcome declares its bounds.
     missing : tuple of str
@@ -287,7 +288,8 @@ class SupportKey:
     qualifiers : frozenset of str
         ``strata``, ``known_mechanism`` and, on a learned-rule fit with clusters of unequal
         sizes, ``unequal_clusters``. A learned-rule fit with a rule learner adds
-        ``rule_learner_blip`` or ``rule_learner_weighted_classification``. A longitudinal key
+        ``rule_learner_blip`` or ``rule_learner_weighted_classification``, and one with known
+        regimes beside the rule (``interventions=``) adds ``known_regimes``. A longitudinal key
         holds the known factors.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
@@ -513,6 +515,45 @@ def _adaptive_iptw_learners(estimator: Any, data: Any) -> dict[str, str]:
     return {"mechanism_learner": mechanism, "reduced_learner": basis}
 
 
+def in_sample_learned_rule_learners(estimator: Any, data: Any) -> dict[str, str]:
+    """The learner families of an in-sample learned-rule fit, as options of its key.
+
+    The interval of an in-sample learned-rule fit (``cross_fit=False``, X11 (a)) needs the
+    curve at the fitted rule, outcome regression and treatment model to lie in a Donsker
+    class (condition C5a; van der Laan and Luedtke 2015, Theorem 5), which a parametric
+    learner gives and an adaptive one need not. So, as for an AdaptiveIPTW fit, the key reads
+    the family of each learner the fit uses: ``outcome_learner_family``,
+    ``treatment_learner_family`` (``"known"`` when the data declare the treatment
+    probabilities, which the fit then does not learn), and ``rule_learner_family`` for a
+    pseudo-outcome loss. A cross-fitted learned-rule key holds none of them, so the rows of
+    the cross-fitted studies keep matching their fits.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator, with ``learned_rule`` set and ``cross_fit=False``.
+    data : CausalData
+        The prepared data.
+
+    Returns
+    -------
+    dict of str to str
+        Each option and its family, ``"parametric"``, ``"adaptive"`` or ``"known"``.
+    """
+    families = {
+        "outcome_learner_family": learner_family(estimator.outcome_learner),
+        "treatment_learner_family": (
+            "known"
+            if data.known_treatment is not None
+            else learner_family(estimator.treatment_learner)
+        ),
+    }
+    rule = estimator.learned_rule
+    if rule.loss != "plug_in":
+        families["rule_learner_family"] = learner_family(rule.learner)
+    return families
+
+
 def _learner_type(learner: Any) -> type | None:
     """The class of a learner, or ``None`` when the estimator uses its default."""
     return None if learner is None else type(learner)
@@ -545,11 +586,21 @@ _AXIS_FAMILIES: Final[Mapping[str, str]] = {
 }
 
 
+#: The target family of the value of the optimal rule (X11 (f)).  It shares the learned-rule
+#: axis and arithmetic, and it is another target, so no ``P11`` row covers it.
+OPTIMAL_RULE_FAMILY: Final = "P12"
+
+
 def _point_families(estimator: Any, estimands: Sequence[str]) -> frozenset[str]:
-    """The target families of a point fit: its parameter axis and, on the arm axis, its names."""
+    """The target families of a point fit: its parameter axis and, on the arm axis, its names.
+
+    On the learned-rule axis, a fit of the value of the optimal rule is :data:`OPTIMAL_RULE_FAMILY`.
+    """
     axis = str(estimator._axis)
     if axis == "arm":
         return frozenset(_ARM_FAMILIES.get(str(name), f"?{name}") for name in estimands)
+    if axis == "learned_rule" and "ey_optimal_rule" in estimands:
+        return frozenset({OPTIMAL_RULE_FAMILY})
     if axis == "regime" and any(
         type(item).__name__ == "Stochastic" for item in estimator.interventions
     ):
@@ -641,10 +692,16 @@ def point_key(
     if data.known_treatment is not None:
         qualifiers.add("known_mechanism")
     if getattr(estimator, "learned_rule", None) is not None and _unequal_clusters(data):
-        # The learned-rule study draws equal cluster sizes only, and unequal sizes that depend
-        # on the outcome put a ratio bias in the fold-evaluated point, so a learned-rule row
-        # never covers unequal sizes unless it declares them.
+        # Unequal sizes that depend on the outcome put a ratio bias in the fold-evaluated point,
+        # so a learned-rule row never covers unequal sizes unless it declares them. Only the
+        # stacked row T42.clustered does: its study's declared cluster cell, whose sizes rise
+        # with the outcome effect, passed the pre-declared rule (X11 (e)).
         qualifiers.add("unequal_clusters")
+    known_regimes = tuple(getattr(estimator, "interventions", None) or ())
+    if getattr(estimator, "learned_rule", None) is not None and known_regimes:
+        # Known regimes beside a learned rule (X11 (c)) add regime values and contrasts that
+        # no learned-rule row measured, so a row covers such a fit only if it declares them.
+        qualifiers.add("known_regimes")
     loss = getattr(getattr(estimator, "learned_rule", None), "loss", "plug_in")
     if loss != "plug_in":
         # No study has measured a rule learner yet (X11 (g)), so a learned-rule row of the
@@ -670,6 +727,11 @@ def point_key(
         # meet, so a row of parametric learners never covers a boosted or default fit.
         options["form"] = estimator.form
         options |= _adaptive_iptw_learners(estimator, data)
+    if getattr(estimator, "learned_rule", None) is not None and scheme == "in_sample":
+        # X11 (a): the in-sample interval needs condition C5a, a Donsker class, which the
+        # learner families decide. Only this scheme keys them, so the rows of the cross-fitted
+        # learned-rule studies, whose outcome learner is a Pipeline, keep matching their fits.
+        options |= in_sample_learned_rule_learners(estimator, data)
     if str(estimator._axis) == "policy":
         # The policy density ratio changes the clever covariate, so a classifier fit never
         # matches a row whose study fitted the density route.
@@ -1151,6 +1213,14 @@ def support_for(
             nearest_id, axes = classification.nearest
             nearest = next((r for r in registered_rows() if r.id == nearest_id), None)
             study = "" if nearest is None or not nearest.evidence else f" ({nearest.evidence[0]})"
+            if nearest is not None and "qualifiers" in axes:
+                # Name the qualifiers that differ, so a reader learns which declaration
+                # keeps the row from covering the fit.
+                differing = sorted(classification.key.qualifiers ^ nearest.key.qualifiers)
+                axes = tuple(
+                    f"qualifiers ({' and '.join(differing)})" if axis == "qualifiers" else axis
+                    for axis in axes
+                )
             text += f" Nearest row: {nearest_id}{study}, differing on {', '.join(axes)}."
         reasons.append(text)
     elif not row.licenses(kind, classification.key.family):

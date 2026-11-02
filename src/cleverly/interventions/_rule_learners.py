@@ -387,7 +387,7 @@ def rule_learner_treat(
     data : CausalData
         The prepared data of the fit.
     folds : Folds
-        The outer split.
+        The outer split.  A single fold (``cross_fit=False``) learns one rule on every row.
     loss : str
         ``"blip"`` or ``"weighted_classification"``.
     learner : object
@@ -404,24 +404,29 @@ def rule_learner_treat(
     Returns
     -------
     treat : numpy.ndarray
-        One boolean per row: ``True`` where the rule of the row's fold assigns the higher
-        arm code.
+        One ``int8`` arm index per row, in the sorted arm codes: ``1`` where the rule of
+        the row's fold assigns the higher arm code, ``0`` otherwise.  The two losses read
+        a binary treatment only; the learned-rule refusal table refuses them on more arms
+        (X11 (d2)).
     margin : numpy.ndarray
         The score of the row's fold rule minus its threshold at the row
         (:meth:`FoldRule.margin`).
     fold_rules : numpy.ndarray
-        ``(n, V)`` booleans: column ``v`` is the rule of fold ``v`` at every row, evaluated
-        while the fold's fitted learner is in memory.  Its diagonal, the entry of each
-        row's own fold, is ``treat``.
+        ``(n, V)`` ``int8`` arm indices: column ``v`` is the rule of fold ``v`` at every
+        row, evaluated while the fold's fitted learner is in memory.  Its diagonal, the
+        entry of each row's own fold, is ``treat``.
     """
     covariates = np.asarray(data.covariates, dtype=float)
     treat = np.zeros(data.n, dtype=bool)
     margin = np.zeros(data.n, dtype=float)
     fold_rules = np.zeros((data.n, folds.n_folds), dtype=bool)
     for fold, (train, test) in enumerate(folds):
+        # One fold is the in-sample fit (cross_fit=False): its one rule is learned on every
+        # row, and its inner cross-fit runs over all of them.
+        rows_of_rule = np.arange(data.n) if folds.is_single else np.asarray(train)
         rule = fit_fold_rule(
             data,
-            np.asarray(train),
+            rows_of_rule,
             loss=loss,
             learner=learner,
             fit_inner=fit_inner,
@@ -434,4 +439,6 @@ def rule_learner_treat(
         treat[rows] = rule.treat(covariates[rows])
         margin[rows] = rule.margin(covariates[rows])
         fold_rules[:, fold] = rule.treat(covariates)
-    return treat, margin, fold_rules
+    # The arm index of the plug-in rule's convention (:func:`~cleverly.estimators.
+    # _nuisance.plug_in_arm`): at two arms, index 1 is the higher arm code.
+    return treat.astype(np.int8), margin, fold_rules.astype(np.int8)

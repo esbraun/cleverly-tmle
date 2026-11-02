@@ -19,12 +19,17 @@ import pytest
 from tests.canonical import declared_run, learned_rule_run
 from tests.studies import _learned_rule_law as law
 from tests.studies import fold_evaluated_strata as strata
+from tests.studies import learned_rule_arms as arms
 from tests.studies import learned_rule_compositions as compositions
+from tests.studies import learned_rule_contrast as contrast
 from tests.studies import learned_rule_cvtmle as gated
 from tests.studies import learned_rule_cvtmle_boundary as boundary
 from tests.studies import learned_rule_cvtmle_properties as properties
+from tests.studies import learned_rule_in_sample as in_sample
 from tests.studies import learned_rule_learners as learners
+from tests.studies import learned_rule_optimal_value as optimal
 from tests.studies import learned_rule_split_mean as split_mean
+from tests.studies import learned_rule_stacked as stacked
 from tests.studies import learned_rule_strata as learned_strata
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
@@ -91,11 +96,48 @@ class TestTheSeedRules:
         # X11's learned-rule-strata (X11 PR E2) adds 8,000 primary and 70,800 property seeds,
         # of which one pair coincides within the study (primary weighted replicate 642 and
         # calibration unweighted replicate 4,245 draw the same rows-only sample) and none with
-        # another study (``test_learned_rule_strata_design``).
+        # another study (``test_learned_rule_strata_design``). X11's learned-rule-stacked (X11 PR
+        # F1) adds 6,000 primary and 26,400 property seeds, of which four equal a seed of
+        # another X11 study (``test_learned_rule_stacked_design``). X11's learned-rule-in-sample
+        # (X11 PR F2) adds 28,800 primary and 16,800 property seeds, of which one pair coincides
+        # inside the study and two equal a seed of another X11 study
+        # (``test_learned_rule_in_sample_design``). X11's learned-rule-contrast (X11 PR G) adds
+        # 1,200 primary and 10,000 property seeds, of which one equals a seed of
+        # fold-evaluated-strata and shares only its first 1,000 values of W1
+        # (``test_learned_rule_contrast_design``). X11's learned-rule-arms (X11 PR H) adds 1,200
+        # primary and 5,600 property seeds, none of which equals another X11 study's seed
+        # (``test_learned_rule_arms_design``). X11's learned-rule-optimal-value (X11 PR I) adds
+        # 1,600 primary and 16,800 property seeds, none of which equals another X11 study's seed
+        # (``test_learned_rule_optimal_value_design``).
         assert len(declared) == (
-            46_310 + 6_000 + 12_000 + 48_254 + 16_800 + 22_399 + 47_998 + 78_799
+            46_310
+            + 6_000
+            + 12_000
+            + 48_254
+            + 16_800
+            + 22_399
+            + 47_998
+            + 78_799
+            + 32_396
+            + 45_597
+            + 11_199
+            + 6_800
+            + 18_400
         )
-        for study in (gated, boundary, compositions, split_mean, learners, strata, learned_strata):
+        for study in (
+            gated,
+            boundary,
+            compositions,
+            split_mean,
+            learners,
+            strata,
+            learned_strata,
+            stacked,
+            in_sample,
+            contrast,
+            arms,
+            optimal,
+        ):
             smoke = law.smoke_record(study.STUDY)
             seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}
             assert not seeds & declared

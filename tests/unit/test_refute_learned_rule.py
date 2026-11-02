@@ -48,7 +48,8 @@ def _fit() -> Any:
 
 
 def _treat(result: Any) -> np.ndarray:
-    return np.asarray(result.nuisance.regimes.values[:, 1, 0]) > 0.5
+    """The ``int8`` arm code of each row's realized rule, by hand from the one-hot density."""
+    return np.argmax(np.asarray(result.nuisance.regimes.values[:, :, 0]), axis=1).astype(np.int8)
 
 
 def _frozen(result: Any, rows: np.ndarray | None = None) -> Any:

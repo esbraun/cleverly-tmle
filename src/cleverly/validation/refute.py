@@ -1457,16 +1457,19 @@ def _learned_rule_reference(result: Any, estimand: str) -> float:
 
 
 def _learned_rule_stratum(result: Any, estimand: str) -> int | None:
-    """The stratum code of a learned-rule stratum alias, or ``None`` for the marginal value."""
-    from ..targets.base import parameter_name, stratum_alias
+    """The stratum code of a learned-rule stratum alias, or ``None`` for a marginal value.
+
+    A stratum alias suffixes a marginal name the fit reports, the learned-rule value or a
+    known-regime value beside it (X11 (c)), with the stratum's label.
+    """
+    from ..targets.base import stratum_alias
 
     data = result.data
-    regimes = result.nuisance.regimes
-    if not data.has_strata or regimes is None:
+    if not data.has_strata or result.nuisance.regimes is None:
         return None
-    marginal = parameter_name("ey_learned_rule", arm=regimes.names[0])
     for code in range(data.n_strata):
-        if estimand == stratum_alias(marginal, data.stratum_label(code)):
+        suffix = stratum_alias("", data.stratum_label(code))
+        if estimand.endswith(suffix) and estimand[: -len(suffix)] in result.estimates:
             return code
     return None
 
@@ -1596,13 +1599,16 @@ def _working_model_reference(result: Any, estimand: str) -> _MSMReference | None
 def _placebo_null(result: TMLEResult, estimand: str) -> float | None:
     """Return the value the placebo reads the refit against, or ``None`` when it has none.
 
-    A contrast has its fixed no-effect value. A learned-rule level reads against the outcome
-    mean, because the placebo law gives every rule that value, and a learned-rule stratum
-    value against its stratum's outcome mean. An MSM coefficient reads
-    against its placebo projection (:func:`_msm_reference`).
+    A contrast has its fixed no-effect value. A learned-rule level, the learned-rule value or
+    a known-regime value beside it, reads against the outcome mean, because the placebo law
+    gives every rule that value, and a stratum value against its stratum's outcome mean. A
+    contrast of the learned rule with a known regime (X11 (c)) is a contrast, so it reads 0.
+    An MSM coefficient reads against its placebo projection (:func:`_msm_reference`).
     """
     if _is_learned_rule_fit(result) and estimand in result.estimates:
-        return _learned_rule_reference(result, estimand)
+        declaration = _target_declaration(result, estimand)
+        if declaration is None or declaration.scale == "level":
+            return _learned_rule_reference(result, estimand)
     reference = _working_model_reference(result, estimand)
     if reference is not None:
         return reference.value

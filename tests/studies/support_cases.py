@@ -2386,6 +2386,139 @@ def _learned_rule_strata_cases() -> tuple[RowCase, ...]:
     return tuple(case(scenario) for scenario in rows)
 
 
+def _learned_rule_stacked_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-stacked`` (X11 PR F1, X11 (e)).
+
+    Each runs the study's own stacked fit on a draw of its setting at the primary size, up to
+    the classifier. ``T42.clustered_equal_sizes`` runs the same clustered fit on the
+    ``learned-rule-compositions`` cluster draw, 200 clusters of 10 rows, because the study's own
+    cluster law draws unequal sizes.
+    """
+    module, slug = "_learned_rule_stacked_law", "learned-rule-stacked"
+
+    def case(row: str, scenario: str, draw: Callable[[Any], Any]) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            scenario,
+            f"{module}.py:233",
+            module,
+            draw,
+            lambda study, frame: study.fit(frame, scenario, study.base.outcome_learner(), 0),
+        )
+
+    def own(scenario: str) -> Callable[[Any], Any]:
+        return lambda study: study.draw(scenario, 2_000, 0)
+
+    return (
+        case("T42.rows", "rows", own("rows")),
+        case("T42.weighted", "weighted", own("weighted")),
+        case("T42.clustered", "clustered", own("clustered")),
+        case(
+            "T42.clustered_equal_sizes",
+            "clustered",
+            lambda study: study.compositions.draw("clustered", 2_000, 0),
+        ),
+    )
+
+
+def _learned_rule_in_sample_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-in-sample`` (X11 PR F2, X11 (a)).
+
+    Each runs the study's own in-sample fit with its declared parametric outcome learner on a
+    draw of its law at the primary size, up to the classifier.
+    """
+    module, slug = "learned_rule_in_sample", "learned-rule-in-sample"
+
+    def case(scenario: str) -> RowCase:
+        return _observed(
+            "T43",
+            slug,
+            scenario,
+            "_learned_rule_in_sample_law.py:258",
+            module,
+            lambda study: study.draw_from_seed(scenario, 2_000, 0)[0],
+            lambda study, frame: study.law.fit(frame, study.law.InteractionLogistic(), 0),
+        )
+
+    return (case("non_exceptional"), case("misspecified_limit"))
+
+
+def _learned_rule_contrast_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-contrast`` (X11 PR G, X11 (c)).
+
+    Each runs the study's own fit beside ``Static(1)`` and ``Static(0)`` under one report on a
+    draw of its law at the primary size, up to the classifier.
+    """
+    module, slug = "_learned_rule_contrast_law", "learned-rule-contrast"
+
+    def case(report: str, scenario: str) -> RowCase:
+        return _observed(
+            f"T44.{report}",
+            slug,
+            scenario,
+            f"{module}.py:98",
+            module,
+            lambda study: study.base.draw(scenario, 2_000, 0),
+            lambda study, frame: study.fit(
+                frame,
+                study.base.outcome_learner(),
+                0,
+                study.ARMS,
+                cv_evaluation=study.REPORTS[report],
+            ),
+        )
+
+    return (
+        case("fold_evaluated", "non_exceptional"),
+        case("stacked", "misspecified_limit"),
+    )
+
+
+def _learned_rule_arms_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-arms`` (X11 PR H, X11 (d)).
+
+    Each runs the study's own fold-evaluated fit over three arms with one of its law cells'
+    outcome learners on a draw of its law at the primary size, up to the classifier.
+    """
+    module, slug = "_learned_rule_arms_law", "learned-rule-arms"
+
+    def case(cell: str, terms: str) -> RowCase:
+        return _observed(
+            "T45",
+            slug,
+            cell,
+            f"{module}.py:263",
+            module,
+            lambda study: study.draw(2_000, 0),
+            lambda study, frame: study.fit(frame, study.outcome_learner(terms), 0),
+        )
+
+    return (case("three_arms", "declared"), case("missing_quadratic", "missing_quadratic"))
+
+
+def _learned_rule_optimal_value_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-optimal-value`` (X11 PR I, X11 (f)).
+
+    Each runs the study's own fit of the value of the optimal rule with the known treatment
+    mechanism on a draw of one gated law at its declared size, up to the classifier.
+    """
+    module, slug = "_learned_rule_optimal_law", "learned-rule-optimal-value"
+
+    def case(scenario: str, n: int) -> RowCase:
+        return _observed(
+            "T46",
+            slug,
+            scenario,
+            f"{module}.py:349",
+            module,
+            lambda study: study.draw(scenario, n, 0),
+            lambda study, frame: study.fit(frame, study.LEARNERS[scenario](), 0, known_g=True),
+        )
+
+    return (case("non_exceptional", 2_000), case("wrong_limit", 2_500))
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -2707,6 +2840,11 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_learners_cases(),
     *_fold_evaluated_strata_cases(),
     *_learned_rule_strata_cases(),
+    *_learned_rule_stacked_cases(),
+    *_learned_rule_in_sample_cases(),
+    *_learned_rule_contrast_cases(),
+    *_learned_rule_arms_cases(),
+    *_learned_rule_optimal_value_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),

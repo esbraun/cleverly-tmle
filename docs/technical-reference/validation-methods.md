@@ -982,7 +982,8 @@ A mutation control that reads the selected mechanism instead of the refit gives 
 
 #### The point bound of a learned-rule value
 
-A [learned-rule fit](point-treatment-tmle.md#learned-rules) of one split gets a point bound. With
+A fold-evaluated [learned-rule fit](point-treatment-tmle.md#learned-rules) of one split gets a
+point bound. With
 the fold rules $d_1, \dots, d_V$ held fixed, the reported value is the linear functional
 
 $$
@@ -1022,6 +1023,7 @@ $1\{A = d_{v(i)}(W_i)\} / g$, which belongs to no functional of $\bar Q$ alone.
 | `benchmark()` | refused with `implementation_gap`. Its refit would relearn the rules |
 | `weights=`, `id=`, `targeting_scheme="fold"` | admitted. The regime bound admits each of them, and none changes the functional or its representer. $\sigma^2$ and $\nu^2$ take the observation-weighted mean over every row, so the bound is of the fixed rules' value in the weighted population |
 | `repeats` above 1 | refused with `implementation_gap`. The mean over $R$ splits is linear in $\bar Q$, with representer $\bar g^\star / g$ and $\bar g^\star = (RV)^{-1}\sum_{r,v} 1\{a = d_{rv}\}$, so the bound is well posed. It needs a choice of $g$ and $\sigma^2$ across splits and is not built ([X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2)). The remedy is `repeats=1` |
+| the stacked report, `cv_evaluation=False` | refused with `implementation_gap`. Its value weights fold $v$'s rule by $W_v/W$, so the combined representer would be $\sum_v (W_v/W) 1\{a = d_v\} / g$, and no witness checks the bias against it ([X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2)). The remedy is the fold-evaluated fit, `cv_evaluation=True` |
 
 Two conditions are this bound's own. For each row, $V - 1$ of the $V$ rules were learned on rows
 that include it. $\hat\nu^2$ is consistent for the fixed rules' $\nu^2$ when the rule class is
@@ -1035,9 +1037,18 @@ need a margin rate, which condition C3 does not give.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2) holds the limits, the benchmark, and a
 conservative option, a cross-fitted $\nu^2_{\rm diag} \ge \nu^2$, that is recorded and not built.
 
-The summaries print a note that the bound keeps each fold's learned rule fixed. No study measures
-the bound, and the registry has no row for it: the `ovb_limit` rows license limits, and this bound
-has none.
+The summaries print a note that the bound keeps the rules the fit learned fixed. No study
+measures the bound, and the registry has no row for it: the `ovb_limit` rows license limits, and
+a cross-fitted bound has none.
+
+An in-sample fit ([one rule fitted on all rows](point-treatment-tmle.md#learned-rules))
+has one rule $d_n$, so $g^\star(a \mid w) = 1\{a = d_n(w)\}$ and the combined representer is the
+known-regime representer at $d_n$. The limits above are withheld because rules applied to rows
+they were learned on need a Donsker-type condition that C5 excludes. The in-sample fit assumes
+that condition for its interval's curve (C5a). The limits need it for the bound's curves too,
+which the learner families that meet C5a also give, so the limits run under it. No `ovb_limit`
+row covers them, so they read as descriptive. `tests/unit/test_learned_rule_in_sample.py` checks that the bound and its
+limits equal those of the known rule fitted in sample.
 
 `tests/unit/test_learned_rule_bound.py` checks these claims:
 

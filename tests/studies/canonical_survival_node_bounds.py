@@ -36,10 +36,25 @@ the design test's expected exceedance rate of the unbounded fit is below one hal
 test computed the rate, and :data:`BOUND_FACTOR` is its outcome.  Both factors hold the truth.
 
 **The comparator** is ``survtmle`` 1.1.1 (``method="mean"`` for P1 and ``method="hazard"`` for
-P2) on the same samples.  Its runs are pending (#302): the record declares
-``pending_reference="survtmle"``, the paired cells read 0/0, and the evidence page carries the
-comparator-pending label.  The R runner is written with the runs, on the local queue.  The
-Python cells K, N, W and C3 gate under the Python-studies rule.
+P2) on the same samples, in the image ``cleverly-survtmle:1.1.1`` (``tests/canonical/survtmle``,
+base image pinned by digest, the CRAN tarball by checksum), through
+``tests/canonical/survival_node_bounds/run_study.R``.  Both calls use the declared formulas.  The
+censoring formula ``trt + W1 + W2 + t`` is fitted once per sample by the runner on the
+subject's row set (visits 1 to 4, at risk after the event check) and passed to survtmle as a
+fitted glm, because survtmle's own row rule keeps the study's end at visit 5 as a censoring
+when ``t0 = 3``.  survtmle 1.1.1's mean method weights every arm of a both-arm call by the
+first arm's censoring survival (``makeWideDataList.R`` builds the observed frame from the copy
+with ``trt`` at the first arm), so the runner calls it once per arm with ``trtOfInterest``.  P1
+is a matching implementation.  P2 is a different estimator: survtmle fluctuates both arms'
+hazards jointly and stops once each ``|meanIC| <= 1/n`` under ``optim(reltol = 1e-7)``, and the
+subject targets each arm on its own walk to ``1e-10``.
+
+**Reference convergence (D11).**  survtmle's hazard fluctuation can stop before ``|meanIC|``
+reaches ``1/n`` (about 2 per cent of fits at ``t0 = 5`` in the design review's 160 draws).  The
+1 per cent rule below gates the subject's fits only.  The reference's unconverged fits are
+reported, not gated: each R row carries ``converged`` and ``max_abs_meanIC``, and
+:func:`reference_artifacts` publishes their counts in ``reference-convergence.csv``.  The
+tolerance is not loosened to lower the rate.
 
 **Failure bound.**  ``failure_bound`` is 0.01 for each implementation (``FAILURE_BOUND``).  A
 cell may lose ``floor(0.01 R)`` replicates, and the accounting fills each lost value at its
@@ -54,13 +69,14 @@ red; N's control converges by design.  A red cell goes to the red-cell ledger, a
 enters the roadmap only for a red cell.  No re-run uses a new budget, margin or law.
 
 **Registered.**  The Python run finished with 7,200 replicates and its artifacts are committed,
-so the record is in ``registered()`` with its comparator pending.  The R runner is written and
-has not run, and the ``survtmle`` image digest is not pinned (see ``pending_reason``).
+so the record is in ``registered()``.  The survtmle phase runs from the declared commit with
+``--skip-properties`` on the local Study queue (TRACKER row 45).
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -76,6 +92,7 @@ from tests.studies.canonical_point_survival import initial_estimates as mean_ini
 from tests.studies.canonical_point_survival_hazard import (
     initial_estimates as hazard_initial_estimates,
 )
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
@@ -318,19 +335,11 @@ STUDY = StudyRecord(
     nuisance_count=3,
     margins=Margins(),
     implementation="cleverly",
-    pending_reference="survtmle",
-    pending_reason=(
-        "the survtmle P1 and P2 runs are queued on the local study queue (#302). TODO: run "
-        "tests/canonical/survival_node_bounds/run_study.R, which is written by inspection and "
-        "has not run, and pin the survtmle image digest. D10 (node-1 pooled censoring) is "
-        "declared known in the container, so no convention gap is routed; the P-cells stay "
-        "comparator pending"
-    ),
-    # The change that runs the comparator also declares
-    # ``comparison_overrides={f"{HAZARD_MODEL}:*": "different estimator"}``: the two hazard
-    # fluctuations differ, as the unmatched settings of ``canonical_point_survival_hazard``
-    # state.  A pending record carries no override, because no paired row exists for it to name.
+    reference="survtmle",
+    # The two hazard fluctuations differ: survtmle fluctuates both arms jointly and stops at
+    # |meanIC| <= 1/n, and the subject targets each arm on its own walk to 1e-10.
     comparison="matching implementation",
+    comparison_overrides={f"{HAZARD_MODEL}:*": "different estimator"},
     failure_bound={"cleverly": FAILURE_BOUND, "survtmle": FAILURE_BOUND},
     efficiency_bounds={name: law.EFFICIENCY_SD[name] for name in ESTIMANDS[MEAN_MODEL]},
     modules=(
@@ -357,20 +366,25 @@ STUDY = StudyRecord(
     runner_module="tests.studies.canonical_survival_node_bounds",
     properties_module="tests.studies.survival_node_bounds_properties",
     property_cells=PROPERTY_CELLS,
+    extra_artifacts=("reference-convergence.csv",),
     publication_policy="reporting",
 )
 
 REFERENCE_METADATA = {
     "survtmle_version": "1.1.1",
     "reference_construction": (
-        "P1: survtmle(method='mean', bounds=valid, glm.trt='W1 + W2', glm.ftime='trt*(W1 + W2)', "
-        "glm.ctime='trt + W1 + W2 + t'); P2: survtmle(method='hazard', bounds=hazard-valid, "
-        "glm.ftime='trt*(W1 + W2) + t'), one t0 per call; runs pending"
+        "P1: survtmle(method='mean', bounds=valid, glm.trt='W1 + W2', glm.ftime='trt*(W1 + W2)'), "
+        "once per arm with trtOfInterest, because survtmle 1.1.1's both-arm mean call weights "
+        "arm 1 by arm 0's censoring survival; P2: survtmle(method='hazard', bounds=hazard-valid, "
+        "glm.ftime='trt*(W1 + W2) + t'), both arms; one t0 per call, bounds at every visit. "
+        "The censoring glm 'trt + W1 + W2 + t' is fitted on the subject's visit 1-4 rows and "
+        "passed as a fit, because survtmle's own row rule would add the visit-5 study end as a "
+        "censoring at t0=3 and the visit-5 event rows at t0=5"
     ),
     "pairing": (
         "the shipped default margins (paired difference 0.15 SD, RMSE ratio 1.10, coverage "
         "-0.025, calibration 0.05), declared a priori; D10 (node-1 pooled censoring) is handled "
-        "by declaring node 1 known, and none is routed (comparator pending)"
+        "by declaring node 1 known, and none is routed"
     ),
 }
 
@@ -499,6 +513,58 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
 def truth_table() -> Mapping[str, Mapping[str, float]]:
     """The declared truth of every primary estimand, by model."""
     return TRUTH
+
+
+#: The diagnostic columns the R rows carry beside the published schema (D11).
+REFERENCE_COLUMNS = ("converged", "max_abs_meanIC", "convergence_warnings", "arm0_gap")
+
+
+def reference_artifacts(
+    *,
+    reference: Any,
+    here: Path,
+    samples: Path,
+    truths_path: Path,
+    reference_results: Path,
+    output: Path,
+    cores: int,
+) -> dict[str, pd.DataFrame]:
+    """Count survtmle's unconverged fits per model and horizon (D11); the counts gate nothing.
+
+    One survtmle fit serves the three rows of a horizon, so the rows are read once per model,
+    replicate and horizon.  ``arm0_gap`` is the mean model's witness of the per-arm workaround:
+    arm 0 of the both-arm call against the per-arm call, which should agree to the optimiser's
+    tolerance.
+    """
+    del reference, here, samples, truths_path, output, cores
+    rows = pd.read_csv(reference_results)
+    missing = [column for column in REFERENCE_COLUMNS if column not in rows.columns]
+    if missing:
+        raise RuntimeError(f"survtmle rows lack the diagnostic columns {missing}")
+    rows["horizon"] = rows["estimand"].str.extract(r"@ t=(\d+)\]", expand=False).astype(int)
+    fits = rows.drop_duplicates(["scenario", "replicate", "horizon"])
+    summary = (
+        fits.groupby(["scenario", "horizon"], sort=True)
+        .agg(
+            fits=("replicate", "size"),
+            unconverged=("converged", lambda column: int((column == 0).sum())),
+            convergence_warnings=("convergence_warnings", "sum"),
+            median_max_abs_meanIC=("max_abs_meanIC", "median"),
+            max_max_abs_meanIC=("max_abs_meanIC", "max"),
+            max_arm0_gap=("arm0_gap", "max"),
+        )
+        .reset_index()
+    )
+    summary["unconverged_share"] = summary["unconverged"] / summary["fits"]
+    return {"reference-convergence.csv": summary}
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """The convergence counts read the surviving reference rows, and they gate nothing (D11)."""
+    del failures, artifacts
+    return evidence_failures.audits(
+        {"reference convergence (surviving rows)": pd.DataFrame()}, missing={}
+    )
 
 
 __all__ = [

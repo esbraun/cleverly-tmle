@@ -2541,7 +2541,9 @@ def _window_outcome_design(
 
     It holds ``W`` and the covariates of the window nodes ``[t-k, t]``.  The arms start one
     node earlier, at :func:`_outcome_arm_start`, as the mechanism's arms
-    ``A_{t-k-1}, ..., A_{t-1}`` do and as ``lmtp``'s ``LmtpVars$history`` does.  A policy
+    ``A_{t-k-1}, ..., A_{t-1}`` do.  ``lmtp``'s ``LmtpVars$history`` starts its mechanism's
+    arms there too, but its outcome history starts them at ``t-k``, so this window holds one
+    more arm than ``lmtp``'s outcome regression at the same ``k``.  A policy
     node in ``[t-k-1, t]`` adds the block :func:`outcome_design` gives it.  A rule node there
     adds a drop-first block of its assigned arm, because its arm is a function of the full
     history, and the window's covariates do not determine it.  A static node adds no block,

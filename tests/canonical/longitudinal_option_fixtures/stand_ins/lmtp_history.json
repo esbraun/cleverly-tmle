@@ -1,0 +1,291 @@
+{
+ "fixture": "lmtp_history",
+ "schema": 1,
+ "provenance": {
+  "script": "lmtp_history.R",
+  "script_sha256": "95c9369c0e18958f6a6f9253be12c03b58ea5e0011517955c74718edb1c91862",
+  "image_id": null,
+  "r_version": "R version 4.5.2 (2025-10-31)",
+  "packages": {
+   "lmtp": "1.5.4"
+  },
+  "stand_in": "printed by lmtp_history.R in a cloud image from the same rocker base and CRAN snapshot (2026-03-10), not the pinned image"
+ },
+ "tau": 4,
+ "orders": [
+  {
+   "order": "0",
+   "nodes": [
+    {
+     "node": 1,
+     "mechanism": [
+      "W",
+      "L1"
+     ],
+     "outcome": [
+      "W",
+      "L1",
+      "A1"
+     ]
+    },
+    {
+     "node": 2,
+     "mechanism": [
+      "W",
+      "A1",
+      "L2"
+     ],
+     "outcome": [
+      "W",
+      "L2",
+      "A2"
+     ]
+    },
+    {
+     "node": 3,
+     "mechanism": [
+      "W",
+      "A2",
+      "L3"
+     ],
+     "outcome": [
+      "W",
+      "L3",
+      "A3"
+     ]
+    },
+    {
+     "node": 4,
+     "mechanism": [
+      "W",
+      "A3",
+      "L4"
+     ],
+     "outcome": [
+      "W",
+      "L4",
+      "A4"
+     ]
+    }
+   ]
+  },
+  {
+   "order": "1",
+   "nodes": [
+    {
+     "node": 1,
+     "mechanism": [
+      "W",
+      "L1"
+     ],
+     "outcome": [
+      "W",
+      "L1",
+      "A1"
+     ]
+    },
+    {
+     "node": 2,
+     "mechanism": [
+      "W",
+      "L1",
+      "A1",
+      "L2"
+     ],
+     "outcome": [
+      "W",
+      "L1",
+      "A1",
+      "L2",
+      "A2"
+     ]
+    },
+    {
+     "node": 3,
+     "mechanism": [
+      "W",
+      "A1",
+      "L2",
+      "A2",
+      "L3"
+     ],
+     "outcome": [
+      "W",
+      "L2",
+      "A2",
+      "L3",
+      "A3"
+     ]
+    },
+    {
+     "node": 4,
+     "mechanism": [
+      "W",
+      "A2",
+      "L3",
+      "A3",
+      "L4"
+     ],
+     "outcome": [
+      "W",
+      "L3",
+      "A3",
+      "L4",
+      "A4"
+     ]
+    }
+   ]
+  },
+  {
+   "order": "2",
+   "nodes": [
+    {
+     "node": 1,
+     "mechanism": [
+      "W",
+      "L1"
+     ],
+     "outcome": [
+      "W",
+      "L1",
+      "A1"
+     ]
+    },
+    {
+     "node": 2,
+     "mechanism": [
+      "W",
+      "L1",
+      "A1",
+      "L2"
+     ],
+     "outcome": [
+      "W",
+      "L1",
+      "A1",
+      "L2",
+      "A2"
+     ]
+    },
+    {
+     "node": 3,
+     "mechanism": [
+      "W",
+      "L1",
+      "A1",
+      "L2",
+      "A2",
+      "L3"
+     ],
+     "outcome": [
+      "W",
+      "L1",
+      "A1",
+      "L2",
+      "A2",
+      "L3",
+      "A3"
+     ]
+    },
+    {
+     "node": 4,
+     "mechanism": [
+      "W",
+      "A1",
+      "L2",
+      "A2",
+      "L3",
+      "A3",
+      "L4"
+     ],
+     "outcome": [
+      "W",
+      "L2",
+      "A2",
+      "L3",
+      "A3",
+      "L4",
+      "A4"
+     ]
+    }
+   ]
+  },
+  {
+   "order": "Inf",
+   "nodes": [
+    {
+     "node": 1,
+     "mechanism": [
+      "W",
+      "L1"
+     ],
+     "outcome": [
+      "W",
+      "L1",
+      "A1"
+     ]
+    },
+    {
+     "node": 2,
+     "mechanism": [
+      "W",
+      "L1",
+      "A1",
+      "L2"
+     ],
+     "outcome": [
+      "W",
+      "L1",
+      "A1",
+      "L2",
+      "A2"
+     ]
+    },
+    {
+     "node": 3,
+     "mechanism": [
+      "W",
+      "L1",
+      "A1",
+      "L2",
+      "A2",
+      "L3"
+     ],
+     "outcome": [
+      "W",
+      "L1",
+      "A1",
+      "L2",
+      "A2",
+      "L3",
+      "A3"
+     ]
+    },
+    {
+     "node": 4,
+     "mechanism": [
+      "W",
+      "L1",
+      "A1",
+      "L2",
+      "A2",
+      "L3",
+      "A3",
+      "L4"
+     ],
+     "outcome": [
+      "W",
+      "L1",
+      "A1",
+      "L2",
+      "A2",
+      "L3",
+      "A3",
+      "L4",
+      "A4"
+     ]
+    }
+   ]
+  }
+ ]
+}

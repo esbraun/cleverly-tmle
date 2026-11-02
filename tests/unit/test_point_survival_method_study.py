@@ -18,6 +18,8 @@ Every number here was fixed before any registered run.
 * The power cell is sized on the exact law (:data:`DESIGN_POWER`).
 * The comparator's reported visits, cause labels and arms, transcribed by hand into
   ``tests/canonical/point_survival_runner.R``, are the Python ones.
+* The comparator calls ``survtmle`` once per arm, and its both-arm witness shows why
+  (:data:`WITNESS_AGREEMENT`, :data:`WITNESS_ARM1_SE_RATIO`).
 
 Failure rule: a replication that raises is never redrawn.  ``failure_probe`` found no failure
 on streams 0 to 19 of every fit set (:data:`FAILURE_PROBE`).  The shared harness refuses a cell
@@ -197,6 +199,58 @@ def test_the_runner_transcribes_the_python_design() -> None:
     match = re.search(r'glm\.trt = "([^"]+)", glm\.ftime = "([^"]+)"', text)
     assert match is not None
     assert match.groups() == ("W1 + W2", "trt*(W1 + W2)")
+    assert "list(trtOfInterest = arm, returnIC = TRUE)" in text
+
+
+#: Where the both-arm survtmle call's weights are right (arm 0 at every visit, and every arm at
+#: visit 1, before any dropout), it must reproduce the per-arm call to IRLS tolerance: the
+#: largest absolute estimate gap and the largest absolute log ratio of standard errors.
+WITNESS_AGREEMENT = (1e-6, 1e-4)
+#: Where its weights are wrong (an arm-1 level after visit 1), the mean ratio of its standard
+#: error to the per-arm one must sit at or below this.  The first registered run, which made the
+#: both-arm call, read 0.949 to 0.989 against this package's standard errors.
+WITNESS_ARM1_SE_RATIO = 0.995
+
+
+def test_the_per_arm_witness_shows_the_both_arm_defect_and_nothing_else() -> None:
+    """A nonzero witness for the per-arm workaround (``reference-witness.csv``).
+
+    Agreement where the weights coincide shows the per-arm call is the both-arm call with only
+    the censoring weights changed; disagreement on arm 1 after visit 1 shows that change bites
+    on this law, so a runner that silently fell back to one both-arm call would fail here.
+    """
+    import pandas as pd
+
+    witness = pd.read_csv(study.STUDY.artifacts / study.WITNESS_FILE, float_precision="round_trip")
+    expected = {(s, name) for s, names in study.ESTIMANDS.items() for name in names}
+    assert set(zip(witness["scenario"], witness["estimand"], strict=True)) == expected
+    assert (witness["replicates"] > 0.99 * study.PRIMARY_REPLICATES).all()
+    agree = (witness["arm"] == "arm0") | (witness["horizon"] == 1)
+    gap, log_ratio = WITNESS_AGREEMENT
+    assert (witness.loc[agree, "max_abs_estimate_gap"] <= gap).all()
+    assert (witness.loc[agree, "max_abs_se_log_ratio"] <= log_ratio).all()
+    differ = (witness["arm"] == "arm1") & (witness["horizon"] > 1)
+    assert differ.sum() == 6
+    assert (witness.loc[differ, "mean_se_ratio"] <= WITNESS_ARM1_SE_RATIO).all()
+
+
+#: The largest mean standard-error ratio gap, survtmle against this package, that any paired
+#: row may show.  In the first registered run arm 0, whose weights were right, read at most
+#: 0.00035, and the arm-1 rows the both-arm defect reached read 0.011 to 0.050.
+SE_RATIO_AGREEMENT = 0.002
+
+
+def test_the_per_arm_comparator_matches_this_packages_standard_errors() -> None:
+    """The correctness witness: with right weights, both sides' standard errors agree on every row.
+
+    The witness above shows the per-arm call differs from the both-arm one; this shows it
+    differs in the right direction, onto this package's influence-curve standard errors.
+    """
+    import pandas as pd
+
+    paired = pd.read_csv(study.STUDY.artifacts / "equivalence.csv", float_precision="round_trip")
+    assert len(paired) == sum(len(names) for names in study.ESTIMANDS.values())
+    assert (paired["se_ratio_difference"].abs() <= SE_RATIO_AGREEMENT).all()
 
 
 def test_the_primary_fit_is_the_paired_construction() -> None:

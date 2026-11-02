@@ -47,9 +47,11 @@ FIT_DIAGNOSTICS = "fit_diagnostics"
 HARNESS_FILE = "harness.csv.gz"
 STRATA_HARNESS_FILE = "strata-harness.csv.gz"
 HARNESS = "harness"
-#: The descriptive margin columns of a harness (``learned-rule-strata``): each gains a
-#: ``<column>_mean_<scenario>`` aggregate, the mean over the scenario's replications.
-MARGIN_COLUMNS = ("boundary_disagreement", "boundary_treated_share")
+#: The descriptive columns of a harness that a page quotes as a mean: the margin columns of
+#: ``learned-rule-strata`` and the two extra terms of the stacked variance identity of
+#: ``learned-rule-stacked``. Each gains a ``<column>_mean_<scenario>`` aggregate, the mean over
+#: the scenario's replications.
+MARGIN_COLUMNS = ("boundary_disagreement", "boundary_treated_share", "cross_term", "between_term")
 
 #: The failure files (RM39a2), which a study publishes only when a fit failed.  ``accounting``
 #: rows are quotable as ``accounting[performance/<implementation>/<scenario>/<estimand>/<leg>]``

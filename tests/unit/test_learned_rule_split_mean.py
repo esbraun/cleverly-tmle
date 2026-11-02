@@ -298,7 +298,7 @@ class TestTheRecord:
         estimates = [split.estimate for split in record.splits]
         assert f"mean over {R} random splits" in line
         assert f"{min(estimates):.4g} to {max(estimates):.4g}" in line
-        shares = [share for split in record.splits for share in split.treated_shares]
+        shares = [fold[1] for split in record.splits for fold in split.arm_shares]
         assert f"{min(shares):.3g} to {max(shares):.3g}" in line
 
     def test_the_summary_notes_say_mean(self) -> None:
@@ -344,10 +344,10 @@ class TestTheClustersRow:
         estimator = support.learned_tmle(repeats=2, **never_fit_learners())
         self._refused(lambda: estimator.fit(_clustered(), id="c", strata=("W2",), **_FIT), "X28")
 
-    def test_a_fold_policy_row_comes_first(self) -> None:
-        """The stacked row's remedy keeps ``repeats=2``, which then meets this later row."""
+    def test_the_stacked_report_meets_the_same_row(self) -> None:
+        """The stacked report (X11 (e)) keeps the row: its curves also average partitions."""
         estimator = support.learned_tmle(repeats=2, cv_evaluation=False, **never_fit_learners())
-        self._refused(lambda: estimator.fit(_clustered(), id="c", **_FIT), "X11 (e)")
+        self._refused(lambda: estimator.fit(_clustered(), id="c", **_FIT), "X11 (i2)")
 
     def test_the_method_refuses_with_the_same_row(self) -> None:
         frame = _clustered()

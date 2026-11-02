@@ -1,0 +1,22 @@
+=== learned-rule-stacked declared run
+command: /tmp/claude-0/-home-user/be38893b-2696-5b7c-89ea-0364f5be43cd/scratchpad/venv/bin/python /home/user/cleverly-tmle/tests/canonical/learned_rule_stacked/regenerate.py --jobs 4 --output /tmp/claude-0/-home-user/be38893b-2696-5b7c-89ea-0364f5be43cd/scratchpad/out
+commit: ae3088abd7711136a45ba7486d5b5c7413346278; upstream ae3088abd7711136a45ba7486d5b5c7413346278
+clean tree: True
+cleverly 0.1.7 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.7; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
+installed distributions: 28, sha256 b950f32cb12b49fe17d7be5994809f06b458633fe1cda2a1a0e63783adeaf98a
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-01T03:38:06+00:00
+finished: 2026-11-01T04:43:53+00:00
+wall seconds: 3947.3
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 harness.csv.gz: 124657c985633d815cc6df125f3b335ea0f12ad12216e465b244a83aabc61cbe
+sha256 manifest.json: 74ed4f527ec0980be5afc5934c10f9d265faa7eed701d23e44087fc229e6755f
+sha256 performance-tests.csv: 21b0a59a6f68269a302b231fa935278e1ad546524c4659d1a503bd26cc9e7941
+sha256 properties.csv: 7006f11bcde627907550211165651c5ebd006b6693e934c2bc966f6e50908c3b
+sha256 property-replicates.parquet: 5b50429e384df19f6abcaeec75f2ddd2e221425440f6404eee78c596a63c815c
+sha256 replicates.parquet: e9d80861b2a35dccff2fd979903f11652e98b9cff8cd6cca9f7bc14fb250552a
+sha256 summary.csv: 9a643708e7399cecbd5343542436eb68c9a35c08de78f199d1c9012afc9ff16a
+

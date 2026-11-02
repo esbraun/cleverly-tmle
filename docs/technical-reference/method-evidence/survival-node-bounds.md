@@ -9,25 +9,23 @@ per-horizon targeting and every node's hazard bounded. The sections
 [pooled censoring](../longitudinal-tmle.md#pooled-censoring) state the estimators and their exact-law
 evidence.
 
-The declared comparator is R [`survtmle`](https://cran.r-project.org/package=survtmle) 1.1.1 with
+The comparator is R [`survtmle`](https://cran.r-project.org/package=survtmle) 1.1.1 with
 `method = "mean"` for the `mean_model` and `method = "hazard"` for the `hazard_model`
-(Benkeser, Carone and Gilbert 2018). Its runs are pending as issue #302. This page holds Python
-property evidence, with comparator runs pending.
+(Benkeser, Carone and Gilbert 2018), on the same samples. The study is comparator-backed: all 12
+paired cells are equivalent.
 
 ## What was compared
-
-The R column states the declared design of the pending comparator runs.
 
 | setting | `cleverly` | R `survtmle` |
 | --- | --- | --- |
 | datasets | 7,200 samples of 2,000 rows for each model, from the law of `tests/studies/survival_node_bounds_law.py` | the identical rows |
 | law | binary `W1` and `W2` with $P(W_1 = 1) = 0.3$ and $P(W_2 = 1) = 0.5$, a binary arm with $g(1 \mid W) = \operatorname{expit}(-0.5 + 0.5 W_1 - 0.4 W_2)$, an event hazard $\operatorname{expit}(-4.5 + 0.5 A + 0.6 W_1 - 0.4 W_2 + 0.1 t)$ and a censoring hazard $\operatorname{expit}(-4.0 + 0.2 A + 0.3 W_1 + 0.15 t)$, for $t = 1, \ldots, 5$ | the same |
-| reported parameters | the risk of each arm at visits 3 and 5, and the difference of the arms at visits 3 and 5 | the same, one `t0` per call |
+| reported parameters | the risk of each arm at visits 3 and 5, and the difference of the arms at visits 3 and 5 | the same, one `t0` per call. The `mean_model` calls once per arm with `trtOfInterest`, because a two-arm call of `survtmle` 1.1.1's mean method weights arm 1 by arm 0's censoring survival |
 | bounds | $l_t = 0$ and $u_t$ equal to 1.1 times the largest at-risk iterated mean at node $t$ (`mean_model`), or 1.1 times the largest true hazard at node $t$ (`hazard_model`). Both hold the truth | `bounds=` with the same values |
 | outcome model | a quasibinomial regression on `W1` and `W2` for each arm and node (`mean_model`). One unpenalized logistic hazard on `trt*(W1 + W2) + t`, pooled over the nodes (`hazard_model`) | `glm.ftime = "trt*(W1 + W2)"` and `"trt*(W1 + W2) + t"` |
 | treatment model | an unpenalized logistic regression on `W1 + W2` | `glm.trt = "W1 + W2"` |
-| censoring model | one unpenalized logistic regression on `trt + W1 + W2 + t`, pooled over nodes 2 to 5 (`hazard_pooling="pooled"`). Node 1 retains every unit, and the fit declares that retention known | `glm.ctime = "trt + W1 + W2 + t"`, with $g_{dC} = 1$ at the first visit |
-| targeting | `targeting="iterative"`, stopped at a relative score of 1e-10 or after 100 iterations, in sample | one cause at a time, `maxIter = 100` |
+| censoring model | one unpenalized logistic regression on `trt + W1 + W2 + t`, pooled over nodes 2 to 5 (`hazard_pooling="pooled"`). Node 1 retains every unit, and the fit declares that retention known | the same regression, fitted by the runner on the same rows and passed as `glm.ctime`, with $g_{dC} = 1$ at the first visit. `survtmle`'s own row rule would also read the visit-5 study end as a censoring |
+| targeting | `targeting="iterative"`, stopped at a relative score of 1e-10 or after 100 iterations, in sample | one fluctuation per visit (`mean_model`). For the `hazard_model`, a joint fluctuation of both arms until each mean influence value is at most $1/n$, with `maxIter = 100` |
 | intervals | pointwise 95% Wald from the influence curve | the same |
 
 Each truth and each efficiency bound is a finite sum over the four covariate cells, the two arms
@@ -42,27 +40,65 @@ is below 1e-3 standard deviations at $n$ = 2,000.
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `ate_regimen[arm1 vs arm0 @ t=3]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 3 | `cleverly` | -0.000198 to 0.000463 | 0.9492 | 0.9976 | pass |
+| the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `ate_regimen[arm1 vs arm0 @ t=3]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 3 | R `survtmle` | -0.000200 to 0.000461 | 0.9500 | 0.9974 | pass |
 | the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `ate_regimen[arm1 vs arm0 @ t=5]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 5 | `cleverly` | -0.000346 to 0.000549 | 0.9432 | 0.9832 | pass |
+| the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `ate_regimen[arm1 vs arm0 @ t=5]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 5 | R `survtmle` | -0.000341 to 0.000555 | 0.9431 | 0.9827 | pass |
 | the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `risk_regimen[arm0 @ t=3]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 3 | `cleverly` | -0.000319 to 0.000037 | 0.9425 | 0.9884 | pass |
+| the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `risk_regimen[arm0 @ t=3]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 3 | R `survtmle` | -0.000320 to 0.000036 | 0.9421 | 0.9880 | pass |
 | the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `risk_regimen[arm0 @ t=5]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 5 | `cleverly` | -0.000369 to 0.000105 | 0.9483 | 1.0016 | pass |
+| the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `risk_regimen[arm0 @ t=5]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 5 | R `survtmle` | -0.000376 to 0.000097 | 0.9483 | 1.0015 | pass |
 | the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `risk_regimen[arm1 @ t=3]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 3 | `cleverly` | -0.000285 to 0.000270 | 0.9486 | 1.0049 | pass |
+| the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `risk_regimen[arm1 @ t=3]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 3 | R `survtmle` | -0.000289 to 0.000266 | 0.9485 | 1.0052 | pass |
 | the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `risk_regimen[arm1 @ t=5]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 5 | `cleverly` | -0.000406 to 0.000345 | 0.9475 | 0.9898 | pass |
+| the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `risk_regimen[arm1 @ t=5]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 5 | R `survtmle` | -0.000408 to 0.000344 | 0.9467 | 0.9895 | pass |
 | point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `ate_regimen[arm1 vs arm0 @ t=3]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 3 | `cleverly` | -0.000194 to 0.000457 | 0.9506 | 1.0137 | pass |
+| point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `ate_regimen[arm1 vs arm0 @ t=3]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 3 | R `survtmle` | -0.000194 to 0.000457 | 0.9504 | 1.0134 | pass |
 | point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `ate_regimen[arm1 vs arm0 @ t=5]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 5 | `cleverly` | -0.000427 to 0.000449 | 0.9510 | 1.0049 | pass |
+| point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `ate_regimen[arm1 vs arm0 @ t=5]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 5 | R `survtmle` | -0.000515 to 0.000359 | 0.9519 | 1.0076 | pass |
 | point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `risk_regimen[arm0 @ t=3]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 3 | `cleverly` | -0.000234 to 0.000119 | 0.9435 | 0.9958 | pass |
+| point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `risk_regimen[arm0 @ t=3]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 3 | R `survtmle` | -0.000235 to 0.000119 | 0.9432 | 0.9955 | pass |
 | point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `risk_regimen[arm0 @ t=5]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 5 | `cleverly` | -0.000208 to 0.000263 | 0.9501 | 1.0094 | pass |
+| point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `risk_regimen[arm0 @ t=5]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 5 | R `survtmle` | -0.000212 to 0.000258 | 0.9499 | 1.0094 | pass |
 | point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `risk_regimen[arm1 @ t=3]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 3 | `cleverly` | -0.000204 to 0.000351 | 0.9493 | 1.0069 | pass |
+| point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `risk_regimen[arm1 @ t=3]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 3 | R `survtmle` | -0.000204 to 0.000351 | 0.9492 | 1.0066 | pass |
 | point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `risk_regimen[arm1 @ t=5]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 5 | `cleverly` | -0.000331 to 0.000408 | 0.9474 | 1.0064 | pass |
+| point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `risk_regimen[arm1 @ t=5]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 5 | R `survtmle` | -0.000423 to 0.000313 | 0.9485 | 1.0094 | pass |
 <!-- /generated -->
 
 No replication raised an error, so no cell lost a replicate.
 
 ## Agreement with the canonical implementation
 
-Python property evidence, with comparator runs pending. The R `survtmle` runner
-`tests/canonical/survival_node_bounds/run_study.R` is written, and it has not run. No paired verdict
-is published, and `equivalence.csv` has no rows. The change that runs it pins the `survtmle` image
-digest and adds the paired verdicts.
+<!-- generated: agreement -->
+Comparator-backed: a paired comparison with `survtmle` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `ate_regimen[arm1 vs arm0 @ t=3]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 3 | 0.000003 | 0.0016 | 1.0004 | -0.000833 | different estimator | 0.000879 vs 0.0500 | equivalent |
+| the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `ate_regimen[arm1 vs arm0 @ t=5]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 5 | -0.000006 | 0.0027 | 0.9998 | 0.000139 | different estimator | 0.0011 vs 0.0500 | equivalent |
+| the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `risk_regimen[arm0 @ t=3]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 3 | 0.000001 | 0.0016 | 1.0002 | 0.000417 | different estimator | 0.000992 vs 0.0500 | equivalent |
+| the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `risk_regimen[arm0 @ t=5]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 5 | 0.000008 | 0.0065 | 1.0007 | 0 | different estimator | 0.000405 vs 0.0500 | equivalent |
+| the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `risk_regimen[arm1 @ t=3]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 3 | 0.000004 | 0.0029 | 1.0008 | 0.000139 | different estimator | 0.0012 vs 0.0500 | equivalent |
+| the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard bounded | `risk_regimen[arm1 @ t=5]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 5 | 0.000002 | 0.000891 | 0.9996 | 0.000833 | different estimator | 0.0012 vs 0.0500 | equivalent |
+| point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `ate_regimen[arm1 vs arm0 @ t=3]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 3 | -3.633e-07 | 0.000226 | 1.0000 | 0.000139 | matching implementation | 0.000112 vs 0.0500 | equivalent |
+| point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `ate_regimen[arm1 vs arm0 @ t=5]` | difference in cumulative risk between the plans "assign arm 1 at baseline and hold it" against "assign arm 0 at baseline and hold it" at horizon t = 5 | 0.000089 | 0.0412 | 1.0040 | -0.000972 | matching implementation | 0.0062 vs 0.0500 | equivalent |
+| point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `risk_regimen[arm0 @ t=3]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 3 | 1.514e-07 | 0.000173 | 1.0000 | 0.000278 | matching implementation | 0.000621 vs 0.0500 | equivalent |
+| point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `risk_regimen[arm0 @ t=5]` | cumulative risk under the plan assign arm 0 at baseline and hold it at horizon t = 5 | 0.000005 | 0.0040 | 1.0007 | 0.000278 | matching implementation | 0.000307 vs 0.0500 | equivalent |
+| point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `risk_regimen[arm1 @ t=3]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 3 | -2.120e-07 | 0.000155 | 1.0001 | 0.000139 | matching implementation | 0.000136 vs 0.0500 | equivalent |
+| point-treatment survival law with five visits, binary arm and two binary baseline covariates; the iterated-mean fit, every node bounded | `risk_regimen[arm1 @ t=5]` | cumulative risk under the plan assign arm 1 at baseline and hold it at horizon t = 5 | 0.000094 | 0.0514 | 1.0046 | -0.0011 | matching implementation | 0.0068 vs 0.0500 | equivalent |
+<!-- /generated -->
+
+The `mean_model` cells compare a matching implementation, and the `hazard_model` cells compare a
+different estimator, because the two hazard fluctuations stop at different scores. On a single
+draw the two `mean_model` fits agree closely. The median of
+$|\hat\psi_{\text{cleverly}} - \hat\psi_{\text{survtmle}}| / \widehat{\mathrm{SE}}$ is below 0.004
+for every estimand. At visit 5 its 99th percentile reaches 0.20 for arm 1. That tail comes from
+`survtmle`'s bounded fluctuation, whose largest mean influence value reaches 0.0086 at visit 5.
+
+`survtmle`'s hazard fluctuation stopped above $1/n$ on 28 of 7,200 fits at visit 3 and on 50 at
+visit 5. The study reports these fits and does not gate them (deviation D11), and the tolerance
+stays at $1/n$. `reference-convergence.csv` lists the counts. The paired cells include those fits,
+and they still pass.
 
 ## Theory properties
 
@@ -129,16 +165,16 @@ from the committed results and checked at the precision printed.
 | --- | --- | --- |
 | `replicates` | 7200 | primary replications per model |
 | `n` | 2000 | observations per primary replication |
-| `independent_tests_total` | 12 | implementation-estimand tests against the truth |
-| `independent_tests_passed` | 12 | of those, passing |
-| `paired_tests_total` | 0 | paired comparisons with R `survtmle` |
-| `paired_tests_passed` | 0 | of those, passing |
+| `independent_tests_total` | 24 | implementation-estimand tests against the truth |
+| `independent_tests_passed` | 24 | of those, passing |
+| `paired_tests_total` | 12 | paired comparisons with R `survtmle` |
+| `paired_tests_passed` | 12 | of those, passing |
 | `property_cells_total` | 15 | repeated-sampling property cells, reported cells excluded |
 | `property_cells_passed` | 15 | cells whose own and family verdicts pass |
 | `property_cells_reported` | 11 | cells reported and not gated |
-| `max_standardized_bias` | 0.0240 | largest absolute primary bias in empirical standard deviations |
-| `min_coverage` | 0.9425 | lowest measured primary-study coverage |
-| `min_se_ratio_ci_lower` | 0.9624 | lowest bootstrap primary SE-ratio endpoint |
+| `max_standardized_bias` | 0.0242 | largest absolute primary bias in empirical standard deviations |
+| `min_coverage` | 0.9421 | lowest measured primary-study coverage |
+| `min_se_ratio_ci_lower` | 0.9623 | lowest bootstrap primary SE-ratio endpoint |
 | `max_se_ratio_ci_upper` | 1.0353 | highest bootstrap primary SE-ratio endpoint |
 | `margin:alpha` | 0.0500 | nominal size of the reported intervals, and the family level of the rule |
 | `margin:bootstrap_replicates` | 10000 | resamples behind every bootstrap interval |
@@ -171,6 +207,8 @@ from the committed results and checked at the precision printed.
 | `margin:unconverged_share` | 0.0100 | largest share of unconverged fits a gated cell may carry |
 | `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
 | `margin:subject_failures_allowed` | 72 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `survtmle` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 72 | the same bound, in primary replications |
 | `bound:ate_regimen[arm1 vs arm0 @ t=3]_standard_error` | 0.0109 | exact influence-curve standard error of this estimand at the primary n = 2,000 |
 | `bound:ate_regimen[arm1 vs arm0 @ t=5]_standard_error` | 0.0145 | exact influence-curve standard error of this estimand at the primary n = 2,000 |
 | `bound:risk_regimen[arm0 @ t=3]_standard_error` | 0.0058 | exact influence-curve standard error of this estimand at the primary n = 2,000 |
@@ -182,7 +220,7 @@ from the committed results and checked at the precision printed.
 
 | limit | what it means for use |
 | --- | --- |
-| the comparator runs are pending | the claim rests on exact truths, the calibration cells and the controls. The pending R `survtmle` runs add a paired check on the same draws |
+| the comparator is `survtmle` 1.1.1 with a workaround | its mean method is called once per arm, and the runner fits the censoring regression. A two-arm call of the unmodified package would misweight arm 1 |
 | one law with five visits, binary covariates and in-sample fits | the evidence covers correctly specified GLM learners. A flexible learner, cross-fitting, weights and clusters are outside it |
 | node 1 retention is declared known | the support rows `G45.mean_model` and `G45.hazard_model` cover a fit that declares it. A fit that estimates node 1 retention is outside them |
 | the bounds hold the truth at 1.1 times the largest true value | the study does not measure bounds closer to the truth, or bounds that a user sets from the data |
@@ -197,7 +235,7 @@ positivity, and censoring that is independent of the event given the arm and `W1
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/survival_node_bounds/README.md)
 gives the regeneration command. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/survival_node_bounds/manifest.json)
-records the pending comparator, the declared R runner, the seeds and the artifact hashes. The
+records the comparator image, the R runner, the seeds and the artifact hashes. The
 [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/survival_node_bounds/replicates.parquet)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/survival_node_bounds/properties.csv)
 carry every published row.

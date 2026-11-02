@@ -3,7 +3,7 @@
 The order ``k`` restricts the observed-data model.  At node ``t`` the mechanisms read
 ``W, L_{t-k}..L_t, A_{t-k-1}..A_{t-1}`` (plus ``A_t`` for censoring), and the outcome
 regression reads ``W, L_{t-k}..L_t`` plus the rule and policy blocks of the nodes in
-``[t-k, t]``.  The frames a rule or a policy reads keep the full history.
+``[t-k-1, t]``.  The frames a rule or a policy reads keep the full history.
 
 The exact tests check each design's columns against the source columns.  The witnesses run
 on laws that a sample realises exactly (:mod:`tests.unit._markov_law_support`).  At

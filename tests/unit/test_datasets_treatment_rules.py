@@ -5,7 +5,8 @@ best rule in closed form, and :func:`cleverly.datasets.treatment_rule_value` int
 on a grid.  A Monte Carlo draw of the intervened law checks both.  Exact-law checks are blind to a
 term that vanishes at the truth, so each comparison also has a wrong value that must fail it: the
 value of the best rule with the sign of the offer's effect reversed, and a random-offer value that
-ignores the offer's chance.
+ignores the offer's chance.  The fold truth of a stacked fit weights each fold by its share of
+the rows, and on an unequal split plan the ``1/V`` weighting must fail it.
 """
 
 from __future__ import annotations
@@ -26,10 +27,12 @@ from cleverly import (
     ModelSpec,
     PointTreatment,
     Runtime,
+    SplitPlan,
     TMLEMethod,
 )
 from cleverly.datasets import learned_rule_truth, make_treatment_rules, treatment_rule_value
 from cleverly.datasets import treatment_rules as law
+from cleverly.learners import random_partition
 
 #: Draws in each Monte Carlo comparison.
 MONTE_CARLO_N = 2_000_000
@@ -143,11 +146,8 @@ def _learned_fit(seed: int):
     return result, outcome
 
 
-def test_the_fold_truth_refits_the_rules_the_fit_used() -> None:
-    result, outcome = _learned_fit(seed=5)
-    value = learned_rule_truth(result, outcome)
-    # An independent computation: refit each fold's model with scikit-learn on the frame.
-    frame, _ = make_treatment_rules(n=1_000, seed=5)
+def _independent_fold_values(result, outcome, frame: pd.DataFrame) -> list[float]:
+    """Refit each fold's model with scikit-learn on the frame, and integrate its rule."""
     columns = ["offer", "need", "lives_alone"]
     fold_values = []
     for train, _test in result.nuisance.folds:
@@ -160,6 +160,14 @@ def test_the_fold_truth_refits_the_rules_the_fit_used() -> None:
             return (treated > control).astype(float)
 
         fold_values.append(treatment_rule_value(rule))
+    return fold_values
+
+
+def test_the_fold_truth_refits_the_rules_the_fit_used() -> None:
+    result, outcome = _learned_fit(seed=5)
+    value = learned_rule_truth(result, outcome)
+    frame, _ = make_treatment_rules(n=1_000, seed=5)
+    fold_values = _independent_fold_values(result, outcome, frame)
     # The folds learn different rules, so a bug that gave every fold one model would show.
     assert len(set(np.round(fold_values, 10))) > 1
     assert value == pytest.approx(float(np.mean(fold_values)), abs=1e-9)
@@ -167,6 +175,58 @@ def test_the_fold_truth_refits_the_rules_the_fit_used() -> None:
     # Each fold rule is a threshold near the best one, so its value sits just below the best.
     assert truth["ey_none"] < value <= truth["ey_best_rule"]
     assert truth["ey_best_rule"] - value < 0.01
+
+
+def test_the_stacked_truth_weights_each_fold_by_its_share_of_the_rows() -> None:
+    """X11 (e): on an unequal split plan the stacked target weights fold v by n_v / n."""
+    frame, _ = make_treatment_rules(n=1_000, seed=5)
+    sizes = np.random.default_rng(0).integers(2, 40, 200)
+    labels = np.repeat(np.arange(sizes.size), sizes)[: len(frame)]
+    frame = frame.assign(clinic=labels)
+    draw = random_partition(len(frame), 5, cluster=labels, seed=2)
+    outcome = make_pipeline(
+        PolynomialFeatures(2, interaction_only=True, include_bias=False),
+        LogisticRegression(C=1e6, max_iter=5000),
+    )
+    method = TMLEMethod(
+        models=ModelSpec(outcome_learner=outcome, treatment_learner=LogisticRegression()),
+        cross_fitting=CrossFitting(n_folds=5, split_plan=SplitPlan.from_folds([draw])),
+        runtime=Runtime(random_state=1, n_jobs=1),
+    )
+    design = PointTreatment(
+        outcome="home_30", treatment="offer", adjustment=("need", "lives_alone"), cluster="clinic"
+    )
+    result = CausalStudy(frame, design=design).estimate(LearnedRuleValue(), method=method)
+    (split,) = result.extra["learned_rule"].splits
+    assert split.scheme == "stacked"
+    shares = np.asarray(split.fold_sizes, dtype=float) / len(frame)
+    # Nonzero: the plan's folds are unequal, so n_v / n is not 1/V.
+    assert np.max(np.abs(shares - 0.2)) > 0.02, shares
+    np.testing.assert_allclose(split.fold_weights, shares, rtol=0, atol=1e-15)
+    fold_values = _independent_fold_values(result, outcome, frame)
+    value = learned_rule_truth(result, outcome)
+    assert value == pytest.approx(float(np.dot(shares, fold_values)), abs=1e-9)
+    # The 1/V mutation, the fold-evaluated weighting, is a different number on this plan: the
+    # draw gives a gap of about 5.8e-4, and the declared floor is 2e-4.
+    assert abs(float(np.mean(fold_values)) - value) > 2e-4
+
+
+def test_the_fold_truth_refuses_a_fit_of_several_splits() -> None:
+    frame, _ = make_treatment_rules(n=400, seed=2)
+    method = TMLEMethod(
+        models=ModelSpec(
+            outcome_learner=LogisticRegression(C=1e6, max_iter=5000),
+            treatment_learner=LogisticRegression(),
+        ),
+        cross_fitting=CrossFitting(n_folds=5, repeats=2),
+        runtime=Runtime(random_state=1, n_jobs=1),
+    )
+    design = PointTreatment(
+        outcome="home_30", treatment="offer", adjustment=("need", "lives_alone")
+    )
+    result = CausalStudy(frame, design=design).estimate(LearnedRuleValue(), method=method)
+    with pytest.raises(ValueError, match="one split"):
+        learned_rule_truth(result, LogisticRegression(C=1e6, max_iter=5000))
 
 
 def test_the_fold_truth_refuses_a_fit_of_another_target() -> None:

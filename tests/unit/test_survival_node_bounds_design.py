@@ -36,7 +36,9 @@ no declared stream reads (``X33-study-design.md`` beside the plan names the scri
   errors above one half.  The moved share reads ``F(5 | 1)`` and ``RD(5)`` (D5).
 * **D10.**  Node 1 retains every unit.  The container declares that factor known, as
   ``survtmle`` sets ``g_dC = 1`` at the first time, so the pooled censoring model is correctly
-  specified.  No P-cell routes a convention gap; the comparator is pending.
+  specified.  No P-cell routes a convention gap.
+* **D11.**  survtmle's hazard fluctuation can stop above ``|meanIC| = 1/n``.  Those reference
+  fits are reported in ``reference-convergence.csv``, not gated, and tol stays ``1/n``.
 
 ======  ==========================================================================
 id      deviation from the declaration
@@ -52,6 +54,7 @@ D7      N at n = 16,000
 D8      one R for primary, K, W, C3 and N
 D9      the treatment intercept is -0.5
 D10     node 1 retention declared known; no convention gap is routed
+D11     survtmle's unconverged fits are counted in ``reference-convergence.csv``, not gated
 ======  ==========================================================================
 
 Seeds: ``SEED`` and ``RESAMPLING_SEED`` are new, and no other registered study uses either.
@@ -140,9 +143,11 @@ def test_the_declared_numbers() -> None:
     assert (study.PRIMARY_N, study.SEED, study.RESAMPLING_SEED) == (2_000, 20263391, 2026339101)
     assert study.FAILURE_BOUND == properties.FAILURE_BOUND == 0.01
     assert record.failure_bound == {"cleverly": 0.01, "survtmle": 0.01}
-    assert record.pending_reference == "survtmle"
-    assert "#302" in str(record.pending_reason)
-    assert "TODO" in str(record.pending_reason)
+    assert record.reference == "survtmle"
+    assert record.pending_reference is None and not record.pending_reason
+    assert record.comparison == "matching implementation"
+    assert dict(record.comparison_overrides) == {f"{study.HAZARD_MODEL}:*": "different estimator"}
+    assert record.extra_artifacts == ("reference-convergence.csv",)
     assert properties.EFFICIENCY_RATIO_BAND == (0.90, 1.10)
     assert properties.SHRUNKEN_SE_FACTOR == 0.70
     assert (properties.WITNESS_SHARE, properties.WITNESS_MOVEMENT) == (0.5, 1e-4)
@@ -519,3 +524,53 @@ def test_the_hazard_witness_reads_leaving_the_bounds_not_the_clip() -> None:
     doc = " ".join((study.hazard_exceedance.__doc__ or "").split())
     assert "clips exactly these" not in doc
     assert "a hazard can stay inside the bounds and still be clipped" in doc
+
+
+def test_the_reference_convergence_counts_one_fit_per_horizon(tmp_path: Any) -> None:
+    """Three rows share one fit, so a horizon with one unconverged fit counts one, not three."""
+    import pandas as pd
+
+    rows = []
+    for replicate, converged in ((0, 1), (1, 0)):
+        for estimand in (
+            "risk_regimen[arm0 @ t=5]",
+            "risk_regimen[arm1 @ t=5]",
+            "ate_regimen[arm1 vs arm0 @ t=5]",
+        ):
+            rows.append(
+                {
+                    "scenario": study.HAZARD_MODEL,
+                    "replicate": replicate,
+                    "estimand": estimand,
+                    "converged": converged,
+                    "max_abs_meanIC": 1e-3 * (1 + replicate),
+                    "convergence_warnings": 1 - converged,
+                    "arm0_gap": np.nan,
+                }
+            )
+    path = tmp_path / "reference.csv"
+    pd.DataFrame(rows).to_csv(path, index=False)
+    frames = study.reference_artifacts(
+        reference=None,
+        here=tmp_path,
+        samples=tmp_path,
+        truths_path=tmp_path,
+        reference_results=path,
+        output=tmp_path,
+        cores=1,
+    )
+    (summary,) = frames["reference-convergence.csv"].to_dict("records")
+    assert (summary["horizon"], summary["fits"], summary["unconverged"]) == (5, 2, 1)
+    assert summary["unconverged_share"] == 0.5
+    assert summary["max_max_abs_meanIC"] == 2e-3
+    pd.DataFrame(rows).drop(columns="converged").to_csv(path, index=False)
+    with pytest.raises(RuntimeError, match="converged"):
+        study.reference_artifacts(
+            reference=None,
+            here=tmp_path,
+            samples=tmp_path,
+            truths_path=tmp_path,
+            reference_results=path,
+            output=tmp_path,
+            cores=1,
+        )

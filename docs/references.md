@@ -588,8 +588,10 @@ previous reader had is not a citation; a page number is.
   learned policy, and it gives the influence function when the learned policy has a limiting policy.
   Algorithm 4 learns each policy on the rows outside a fold. It pools the doubly robust scores with
   weight $1/N$, and it centres the variance estimate at the pooled estimate. This is a method
-  distinct from the one that [RM30](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm30-learned-policy-value-evaluation) implements, and
-  [X11](roadmap.md#x11-learned-policy-follow-ups) part (e) holds it.
+  distinct from the fold-evaluated one that [RM30](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm30-learned-policy-value-evaluation) implements. The stacked report of
+  [learned rules](technical-reference/point-treatment-tmle.md#learned-rules)
+  (`cv_evaluation=False`, [X11](roadmap.md#x11-learned-policy-follow-ups) part (e)) takes its
+  weighting and its centring.
   [RM28](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm28-declared-densities-of-user-written-interventions) requires `Rule`, and a
   `DynamicRegimen` with a callable node, to declare `rule_kind="known"`. It refuses a rule
   declared `"estimated"`.

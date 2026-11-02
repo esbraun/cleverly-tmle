@@ -569,7 +569,9 @@ takes three values and every later node is binary. The fit can therefore check i
 [Repeated outcomes](../technical-reference/longitudinal-tmle.md#repeated-outcomes) gives the
 estimator, its conditions, and its evidence. The
 [repeated-outcome study](../technical-reference/method-evidence/repeated-outcome-longitudinal-tmle.md)
-checks its intervals against exact truths. Its comparison with R `ltmle` 1.3-0 is pending.
+checks its intervals against exact truths. On the same 2,400 simulated datasets, given the same
+treatment and censoring probabilities, the R package `ltmle` 1.3-0 gives the same estimates to
+within six millionths.
 
 The [repeated-outcome `IPSI` study](../technical-reference/method-evidence/repeated-outcome-ipsi.md)
 does the same for `IPSI`. It has no comparator.
@@ -701,8 +703,9 @@ on a design with one baseline treatment:
 [per-horizon targeting](../technical-reference/method-evidence/point-survival-hazard.md),
 [one-step targeting](../technical-reference/method-evidence/point-survival-curve.md) and
 [five-fold cross-fitting](../technical-reference/method-evidence/point-survival-curve-crossfit.md).
-The first two await their R comparator runs (`survtmle` and `tmle3`), and the cross-fitted one has
-no comparator, because no package fits that construction. The one-step study also holds one cell
+The first two agree with R packages fitted to the same samples (`survtmle` and `tmle3`), and the
+cross-fitted one has no comparison, because no package fits that construction. The one-step study
+also holds one cell
 that fits the default iterated-mean model with `isotonic=True` on a law with treatment at two nodes. Its curve rises steeply
 enough that the projection never moved a level, so no study yet measures an interval at a level
 that the projection moved.
