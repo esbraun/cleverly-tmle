@@ -321,10 +321,22 @@ almost no unit, and the learned rules settle on the best rule fast enough as the
 the outcome model misses the pattern, the fit estimates the value of a worse rule, which sits below
 the best value, and its interval need not contain the best value.
 
-No study has measured `OptimalRuleValue` yet, so cleverly marks it experimental. It refuses
-`weights=`, `strata=`, the in-sample fit and a comparison with a fixed policy, and the
-omitted-variable bound and `simulated_confounding` refuse on its fit. Each refusal names the fit
-that runs instead. [The value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)
+An [optimal-value study](../technical-reference/method-evidence/learned-rule-optimal-value.md)
+measures this fit when the treatment probabilities are known, as in a randomized trial, and
+declared with `treatment_probabilities=` ([declare the design](data-design.md)). On one setting
+with 2,000 rows and an outcome model that matched the truth, its 95% interval covered the best
+rule's value 0.949 of the time over 13,200 samples. The estimate sits slightly below the best
+value, by about a tenth of a standard error there, because the learned rules are a little worse
+than the best rule, and that gap shrinks as the data grow. When cleverly fits the treatment
+probabilities instead, or the fit uses clusters, several splits or a rule learner, it marks the
+result experimental.
+
+No setting tells cleverly whether the outcome model learned the true pattern of benefit, or whether
+the benefit is zero for many people. In the study, an outcome model that missed the pattern gave
+an interval that contained the best value in 9% of samples, and a setting where the benefit was
+zero for 60% of people gave 91%. The fit refuses `weights=`, `strata=`, the in-sample fit and a
+comparison with a fixed policy, and the omitted-variable bound and `simulated_confounding` refuse
+on its fit. Each refusal names the fit that runs instead. [The value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)
 states the conditions.
 
 To compare the learned rule with a fixed policy, such as treating everyone, use the `TMLE`

@@ -2112,7 +2112,9 @@ class OptimalRuleValue:
 
     The fit needs cross-fitting with at least two folds, under either report.  It refuses
     ``weights=``, ``strata=``, known regimes beside it and the in-sample fit (X11 (f3) in
-    ``docs/roadmap.md``).  Every fit reads experimental until a study registers.
+    ``docs/roadmap.md``).  The fold-evaluated fit on rows with known treatment probabilities
+    (``treatment_probabilities=``) reads supported, from the ``learned-rule-optimal-value``
+    study; every other fit, an estimated treatment mechanism among them, reads experimental.
 
     Parameters
     ----------

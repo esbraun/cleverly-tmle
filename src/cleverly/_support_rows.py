@@ -748,6 +748,10 @@ def _t_rows() -> tuple[SupportRow, ...]:
     # X11 (d): the plug-in rule over K > 2 arms keys ``treatment=("arms{K}",)``. The row T45 of
     # the ``learned-rule-arms`` study covers the fold-evaluated report on rows at three arms, and
     # every other composition over more than two arms matches no row.
+    # X11 (f): the value of the optimal rule (``ey_optimal_rule``) keys family ``P12`` in place
+    # of ``P11``. The row T46 of the ``learned-rule-optimal-value`` study covers the
+    # fold-evaluated report on rows with a known treatment mechanism (``known_mechanism``), and
+    # every other composition of the optimal value, an estimated g among them, matches no row.
     # X11 (i): the learned-rule value as the mean over R splits. The key reads ``repeated``
     # beside ``fold_evaluated``, so fold targeting, weights and clusters, which key other
     # splitting, weighting and dependence axes, match no row.
@@ -1274,6 +1278,65 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 "was kept, and no primary, calibration or coverage draw warned. No rule reads "
                 "the counts. No comparator: no maintained package fits a cross-validated TMLE "
                 "of a learned rule over more than two arms.",
+            ],
+        )
+    )
+    # X11 (f) (X11 PR I): the value of the optimal rule, the fixed parameter Psi_d0, read from the
+    # fold-evaluated CV-TMLE of the learned-rule value, keyed family ``P12``. One row, for the
+    # fold-evaluated report on rows with the known treatment mechanism, because the study's
+    # declared support condition held: the primary bias leg, coverage floor and SE sanity, every
+    # ``interval_calibration`` verdict and the ``optimal_target_control`` verdict passed. An
+    # estimated g drops ``known_mechanism``, and repeats above 1, clusters, fold targeting, a
+    # rule learner, the stacked report and more than two arms key other axes or qualifiers, so
+    # each of those compositions matches no row. The numbers are the committed results
+    # (``tests/canonical/learned_rule_optimal_value``).
+    rows.append(
+        point_row(
+            "T46",
+            ["learned-rule-optimal-value"],
+            families=("P12",),
+            splitting=("fold_evaluated",),
+            qualifiers=("known_mechanism",),
+            cells=["non_exceptional", "wrong_limit"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures the pointwise interval of the value of the optimal rule "
+                "(OptimalRuleValue(), estimands=['ey_optimal_rule']) at n = 2,000 on one law: a "
+                "binary treatment and outcome, ten equal folds, pooled targeting, the plug-in "
+                "rule, repeats=1, iid rows, no weights, strata or known regimes. The treatment "
+                "mechanism is known (treatment_probabilities=). The outcome model is a "
+                "correctly specified parametric logistic model, so its limit rule is the "
+                "optimal rule, and the blip 0.1 + W1 has no tie set and a bounded density at 0 "
+                "(margin exponent 1, verified analytically). The key sees neither the learner, "
+                "the law nor n, so a misspecified or flexible learner, a law with ties, a "
+                "steeper margin or another n reads supported and was not measured.",
+                "The interval covers the optimal value only up to the regret, the gap between "
+                "the optimal value and the value of the fold rules, which is O_P(1/n) under "
+                "these conditions. The calibration cell's mean regret is 0.00138, 0.09 "
+                "estimate SDs: against the optimal value it reads standardized bias -0.088, SE "
+                "ratio 0.997 and coverage 0.949 (13,200 draws), and against the realized rule "
+                "value +0.004, 1.006 and 0.952. The primary bias interval, -0.0026 to -0.0007 "
+                "(1,600 draws), excludes zero because of the regret, and the regret's spread "
+                "lowers the SE ratio against the optimal value by about 0.9%. One n is "
+                "measured, so the rate is not shown.",
+                "The target control runs at n = 2,500, not 2,000. With a learner whose limit "
+                "rule treats nobody while the optimal rule treats 29.3%, the interval covers the "
+                "value of the learner's limit rule and misses the optimal value: coverage 0.09 "
+                "of the optimal value, 0.958 of the realized rule value, mean regret 0.0450.",
+                "An estimated g is a reading, not a claim, and has no row: at 1,200 draws its "
+                "bias interval is -0.0026 to -0.0004, its SE ratio 0.975 and its coverage 0.948 "
+                "(99% interval 0.930 to 0.963). Such a fit drops known_mechanism and reads "
+                "experimental.",
+                "On a law whose blip is zero on 60% of the population no claim is made. The "
+                "interval under-covers there, coverage 0.912 with SE ratio 0.888 against the "
+                "optimal value and 0.919 with 0.893 against the realized rule value, because "
+                "the fold rules do not settle on the tie set (disagreement 0 to 0.735, mean "
+                "0.280), not because of the regret (mean 0.00086).",
+                "A rule learner, clusters, repeats above 1, fold targeting, the stacked report, "
+                "more than two arms and an estimated g stay experimental. Weights, strata, the "
+                "in-sample fit and contrasts with known regimes refuse. No comparator: no "
+                "maintained package fits a cross-validated TMLE of the value of the optimal "
+                "rule. No draw raised a solver warning.",
             ],
         )
     )

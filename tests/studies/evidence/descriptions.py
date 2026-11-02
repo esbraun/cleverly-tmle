@@ -1054,6 +1054,31 @@ ARMS.update(
     }
 )
 
+#: The labels of ``learned-rule-optimal-value`` (X11 PR I, X11 (f)): each law cell with the
+#: known or the estimated treatment mechanism. Mirrored from
+#: ``tests.studies.learned_rule_optimal_value``, which this module cannot import.
+ARMS.update(
+    {
+        "non_exceptional_known_g": (
+            "the learned-rule law with the blip 0.1 + W1, a correct interaction logistic "
+            "outcome learner and the known treatment mechanism, n = 2,000"
+        ),
+        "non_exceptional_estimated_g": (
+            "the learned-rule law with the blip 0.1 + W1, a correct interaction logistic "
+            "outcome learner and a fitted logistic treatment model, n = 2,000"
+        ),
+        "wrong_limit_known_g": (
+            "the law with the even blip 3 (W1^2 - 0.5), whose interaction logistic outcome "
+            "learner's limit rule treats nobody while the optimal rule treats 29.3%, with the "
+            "known treatment mechanism, n = 2,500"
+        ),
+        "partially_exceptional_known_g": (
+            "the law with the blip (W1 - 0.2)_+, zero on 60% of the population, a correct "
+            "outcome learner with the hinge term and the known treatment mechanism, n = 2,000"
+        ),
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -1863,6 +1888,18 @@ PROPERTIES: dict[str, str] = {
     "independent_se_diagnostic": (
         "the SE ratio and coverage of each contrast with the SE it would have if the learned "
         "and the known value were independent, reported rather than gated"
+    ),
+    "optimal_target_control": (
+        "whether the interval misses the value of the optimal rule when the outcome learner's "
+        "limit rule is not the optimal rule, at n = 2,500"
+    ),
+    "estimated_g_report": (
+        "the bias, SE ratio and coverage of the value of the optimal rule with the treatment "
+        "model fitted rather than known, reported rather than gated"
+    ),
+    "exceptional_law_report": (
+        "the bias, SE ratio and coverage of the value of the optimal rule on a law whose blip is "
+        "zero on 60% of the population, reported rather than gated"
     ),
     "rule_margin_diagnostic": (
         "how far the fitted rules over three arms sit from the outcome learner's limit rule: "
@@ -6494,5 +6531,60 @@ STUDY_ARM_CELLS.update(
             "smallest arm share and the share of draws that leave an arm with no rows",
         )
         for label in ("three_arms", "missing_quadratic")
+    }
+)
+
+
+#: ``learned-rule-optimal-value`` (X11 PR I, X11 (f)): the value of the optimal rule, read from
+#: the fold-evaluated CV-TMLE of the learned-rule value against the fixed truth Psi_d0. The laws
+#: and learners are those of ``tests/studies/_learned_rule_optimal_law.py``; the cell names are
+#: those of ``tests/studies/learned_rule_optimal_value.py``. Every cell also publishes the mean
+#: regret and the readings against the realized rule value, which no verdict reads.
+_OPTIMAL_SLUG = "learned-rule-optimal-value"
+IMPLEMENTATIONS["cleverly-learned-rule-optimal-value"] = (
+    "`cleverly` cross-validated TMLE of the value of the optimal rule: the fold-evaluated "
+    "learned-rule fit with the plug-in rule, one pooled fluctuation and the known treatment "
+    "mechanism, read against the fixed optimal value"
+)
+STUDY_ESTIMANDS[_OPTIMAL_SLUG, "ey_optimal_rule[learned rule]"] = (
+    "value of the optimal rule, E Qbar0(d0(W), W) with d0(w) = 1{Qbar0(1, w) > Qbar0(0, w)}, a "
+    "fixed parameter"
+)
+STUDY_SCENARIOS[(_OPTIMAL_SLUG, "non_exceptional")] = (
+    "learned-rule law with the blip 0.1 + W1, a correct interaction logistic outcome learner and "
+    "the known treatment mechanism, fold-evaluated report"
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_OPTIMAL_SLUG, "interval_calibration", "non_exceptional_known_g", "declared"): (
+            "the declared fit with the known treatment mechanism",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        (
+            _OPTIMAL_SLUG,
+            "optimal_target_control",
+            "wrong_limit_known_g",
+            "target_gap_control",
+        ): (
+            "the declared fit's own estimate and SE, read against the value of the optimal rule, "
+            "0.0452 above the value of the learner's limit rule",
+            "the coverage interval must lie wholly below 0.92",
+        ),
+        (_OPTIMAL_SLUG, "estimated_g_report", "non_exceptional_estimated_g", "estimated_g"): (
+            "the declared fit with the logistic treatment model fitted in place of the known g",
+            "none. The cell reports its bias, SE ratio and coverage against the value of the "
+            "optimal rule, with the mean regret and the readings against the realized rule value",
+        ),
+        (
+            _OPTIMAL_SLUG,
+            "exceptional_law_report",
+            "partially_exceptional_known_g",
+            "exceptional",
+        ): (
+            "the declared fit with the known treatment mechanism",
+            "none. The cell reports its bias, SE ratio and coverage against the value of the "
+            "optimal rule, with the mean regret, the readings against the realized rule value "
+            "and the range of the fold-rule disagreement",
+        ),
     }
 )

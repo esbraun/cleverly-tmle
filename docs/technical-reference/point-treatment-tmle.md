@@ -1868,8 +1868,8 @@ The first term is the learned-rule claim, which covers an estimated $g$ under C4
 The second is the regret, which C8 makes $o_P(n^{-1/2})$. For the plug-in rule it reads only the
 outcome regression. For a pseudo-outcome rule learner the blip estimate is built with $g_n$, so
 the regret's rate also depends on $g_n$, and C8 then needs that learner's rate under the estimated
-$g$. That step is the package's, so an estimated $g$ reads experimental like every other
-composition here.
+$g$. That step is the package's, so an estimated $g$ reads experimental, as does every composition
+here but the one the study below registers.
 
 With `repeats` above 1 the fit reports the mean of $R$ estimators of this one fixed parameter.
 Luedtke and van der Laan (2016), *Annals of Statistics*, Section 5.1, warn that averaging
@@ -1880,7 +1880,8 @@ estimator, which is valid there, is a different estimator, and
 
 | composition | result |
 | --- | --- |
-| either report, fold targeting, `id=`, `repeats` above 1 on rows, a rule learner, known or estimated $g$, more than two arms | admitted, experimental. The key's family reads `P12` in place of `P11`, and no row declares it until a study registers one |
+| the fold-evaluated report on rows with known $g$ (`treatment_probabilities=`), the plug-in rule, two arms, `repeats=1` and pooled targeting | supported, row `T46` of the [optimal-value study](method-evidence/learned-rule-optimal-value.md). The key's family reads `P12` in place of `P11`, with the qualifier `known_mechanism`. The study measures one law with a correct parametric outcome model at n = 2,000 |
+| the stacked report, fold targeting, `id=`, `repeats` above 1 on rows, a rule learner, an estimated $g$, more than two arms | admitted, experimental. No row declares these keys |
 | known regimes beside it (`interventions=`, `reference=`, `ey_known_regime`, `ate_learned_rule`) | refused, row 2 of the table below, X11 (f3) |
 | `ey_learned_rule` beside it | refused as a declaration, row 2: the two names read one estimate as two targets |
 | `weights=` | refused, row 9, X11 (f3). No witness covers the regret under weights. The weighted fit would target the optimum over the weighted population, as a weighted fit does for every other estimand |
@@ -1911,6 +1912,17 @@ main-terms learner treats nobody, and $\Psi_{d_0} - \Psi_{d_1}$ by quadrature is
 3 influence-curve standard errors at n = 2,500. The same quadrature gives no gap at the
 `non_exceptional` law, and the amplitude 1 would need about 16,400 rows. Under known $g$ the score
 is solved at the supplied probabilities, and an estimated $g$ moves the point by more than 0.01.
+
+The gated [optimal-value study](method-evidence/learned-rule-optimal-value.md) measures the
+fold-evaluated fit with known $g$ at the `non_exceptional` law, where the correct logistic outcome
+model meets C3f, C7 and C8, at n = 2,000. Against $\Psi_{d_0}$ the calibration cell reads an SE
+ratio of 0.997 and coverage of 0.949 over 13,200 draws. The interval covers $\Psi_{d_0}$ only up
+to the regret, which is $O_P(1/n)$ here: its mean is 0.00138, about 0.09 estimate SDs, so the
+primary bias interval excludes zero, and against $\tilde\psi_{0n}$ the same cell reads a
+standardized bias of +0.004 and coverage of 0.952. At n = 2,500 the wrong-limit law's interval
+covers $\Psi_{d_0}$ at 0.09 and its own $\tilde\psi_{0n}$ at 0.958. With an estimated $g$, and at
+a law whose blip is zero on 60% of the population (coverage 0.912), the study reports readings
+and makes no claim.
 
 #### Refusals and the result record
 

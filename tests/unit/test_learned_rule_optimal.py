@@ -17,9 +17,11 @@ rev 2.1, section 6).  The witnesses below are the plan's:
 - W-f3 (known g): with ``treatment_probabilities=`` the fit solves its score at the supplied
   probabilities, and the mutation that substitutes an estimated g moves the point.
 
-The rest pins the refusals of X11 (f3) with remedies that run, the support family ``P12``, which
-no row declares, while every learned-rule key and row is unchanged, the record and summary
-line, the fold-rule disagreement diagnostic, and the sensitivity analyses that refuse.
+The rest pins the refusals of X11 (f3) with remedies that run, the support family ``P12``, whose
+one row ``T46`` (the ``learned-rule-optimal-value`` study) covers the fold-evaluated report on
+rows with a known treatment mechanism, while every learned-rule key and row is unchanged, the
+record and summary line, the fold-rule disagreement diagnostic, and the sensitivity analyses that
+refuse.
 """
 
 from __future__ import annotations
@@ -448,7 +450,8 @@ class TestWf3KnownProbabilitiesEnterTheCleverCovariate:
     def test_a_known_mechanism_keys_known(self) -> None:
         known, _, _ = self._fits()
         assert "known_mechanism" in known.config.support_key.qualifiers
-        assert known.estimates[OPTIMAL].support.label == "experimental"
+        assert known.estimates[OPTIMAL].support.label == "supported"
+        assert known.estimates[OPTIMAL].support.row == "T46"
 
 
 # ---------------------------------------------------------------------------- the target
@@ -662,7 +665,7 @@ class TestTheRefusals:
 
 
 class TestTheSupportKey:
-    """The optimal value keys family ``P12``, which no row declares; learned-rule keys stay."""
+    """The optimal value keys family ``P12``, which only ``T46`` declares; learned-rule keys stay."""
 
     #: Learned-rule configurations with a registered row, and that row.
     ROWS: ClassVar[dict[str, tuple[dict[str, Any], str]]] = {
@@ -685,10 +688,24 @@ class TestTheSupportKey:
         assert support_b.reason.startswith("No registered study covers this configuration.")
         assert support_b.reason.endswith("differing on family.")
 
-    def test_every_admitted_composition_reads_experimental(self) -> None:
+    def test_a_known_g_fold_evaluated_fit_on_rows_reads_t46(self) -> None:
+        """The learned-rule-optimal-value study registers this composition (X11 PR I)."""
+        _, optimal = _pairs("known_g")
+        key = optimal.config.support_key
+        assert key.family == frozenset({"P12"})
+        assert key.splitting == ("fold_evaluated",)
+        assert key.qualifiers == frozenset({"known_mechanism"})
+        assert optimal.estimates[OPTIMAL].support.label == "supported"
+        assert optimal.estimates[OPTIMAL].support.row == "T46"
+
+    def test_every_other_admitted_composition_reads_experimental(self) -> None:
+        """Without a known g, or with any other admitted composition, no row covers the fit."""
         for name in PAIRS:
+            if name == "known_g":
+                continue
             _, optimal = _pairs(name)
             assert optimal.estimates[OPTIMAL].support.label == "experimental", name
+            assert optimal.estimates[OPTIMAL].support.row is None, name
             assert optimal.config.support_key.family == frozenset({"P12"}), name
 
 

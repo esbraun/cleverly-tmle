@@ -747,6 +747,11 @@ learned-rule-learners,interval_calibration,noise se ratio below band,se_high
 learned-rule-learners,interval_calibration,se ratio below band,se_high
 learned-rule-learners,interval_calibration,se ratio in calibration band,se/0.05
 learned-rule-learners,interval_calibration,validation-rule coverage below band,coverage/0.925
+learned-rule-optimal-value,interval_calibration,coverage in calibration band,shift/0.7
+learned-rule-optimal-value,interval_calibration,noise se ratio below band,se_high
+learned-rule-optimal-value,interval_calibration,se ratio below band,se_high
+learned-rule-optimal-value,interval_calibration,se ratio in calibration band,affine
+learned-rule-optimal-value,optimal_target_control,wrong-limit coverage below the calibration floor,shift/3
 learned-rule-split-mean,interval_calibration,coverage in calibration band,bias
 learned-rule-split-mean,interval_calibration,independent splits se ratio below band,pair_collapse
 learned-rule-split-mean,interval_calibration,noise se ratio below band,se_high

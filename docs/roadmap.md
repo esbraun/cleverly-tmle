@@ -1028,10 +1028,20 @@ and Luedtke (2015), Section 7.2, last paragraph, licenses under a limit rule equ
 rule, a non-exceptional law and a fold-average regret of order $o_P(n^{-1/2})$. An estimated
 $g$ is admitted on the decomposition into the learned-rule claim and the regret. For the plug-in
 rule the regret reads only the outcome regression; for a pseudo-outcome rule learner its rate also
-depends on $g_n$. Its key's family is `P12`, so every such fit reads experimental until the
-`learned-rule-optimal-value` study registers. Weights, strata, known regimes, the in-sample fit and
-the two sensitivity analyses that hold the rules fixed are part (f3). The online estimator that
-holds at an exceptional law is part (f2b).
+depends on $g_n$. Its key's family is `P12`.
+
+The
+[optimal-value study](technical-reference/method-evidence/learned-rule-optimal-value.md)
+calibrates the fold-evaluated report on rows with known $g$ at n = 2,000 with ten folds, on one
+law where a correct parametric outcome model meets the three conditions, so such a fit reads
+supported (row `T46`). The interval covers $\Psi_{d_0}$ only up to the regret, which is
+$O_P(1/n)$ there (mean 0.00138, about 0.09 estimate SDs), and a learner whose limit rule is not
+the optimal rule misses $\Psi_{d_0}$ (coverage 0.09 at n = 2,500). An estimated $g$, a rule
+learner, clusters, several splits, fold targeting, the stacked report and more than two arms
+read experimental, and the study reports the estimated-$g$ cell and a partially exceptional law
+with no claim. Weights, strata, known regimes, the in-sample fit and the two sensitivity analyses
+that hold the rules fixed are part (f3). The online estimator that holds at an exceptional law is
+part (f2b).
 
 With `repeats` above 1 on rows the fit reports
 the mean over the splits ([the mean over splits](technical-reference/point-treatment-tmle.md#learned-rules)).
@@ -2526,7 +2536,7 @@ compositions that moved.
 
 | kept claim | kind | missing argument |
 | --- | --- | --- |
-| an interval at an exceptional law, where the limiting-rule condition C3 of that contract fails | adaptive-optimum inference | a CV-TMLE interval for the fold-average target without a limiting rule. van der Laan and Luedtke (2015), Theorem 6, and Hubbard et al. (2016), Theorem 1, both need a limit curve. Luedtke and van der Laan (2016), *Annals of Statistics*, Section 4.2, name inverse weighting by the standard deviation and a central limit theorem for triangular arrays. Section 5 applies them to the optimal value, and [X11](#x11-learned-policy-follow-ups) part (f2b) holds that online estimator. Fava (2026), arXiv:2610.02944v1, covers a known-propensity IPW score only |
+| an interval at an exceptional law, where the limiting-rule condition C3 of that contract fails | adaptive-optimum inference | a CV-TMLE interval for the fold-average target without a limiting rule. van der Laan and Luedtke (2015), Theorem 6, and Hubbard et al. (2016), Theorem 1, both need a limit curve. Luedtke and van der Laan (2016), *Annals of Statistics*, Section 4.2, name inverse weighting by the standard deviation and a central limit theorem for triangular arrays. Section 5 applies them to the optimal value, and [X11](#x11-learned-policy-follow-ups) part (f2b) holds that online estimator. Fava (2026), arXiv:2610.02944v1, covers a known-propensity IPW score only. The [optimal-value study](technical-reference/method-evidence/learned-rule-optimal-value.md) reports the same interval at a law whose blip is zero on 60% of the population: against the fold-average target it covers 0.919 at an SE ratio of 0.893, with fold rules that disagree on 0 to 0.735 of rows, and no claim is made |
 | the full-refit bootstrap | asymptotic | each resample relearns the rules, so each draw has a different target. No read source gives the bootstrap law of a data-adaptive target |
 | a continuous treatment | regularity | a deterministic dose rule gives the value of fixed doses, which is not pathwise differentiable |
 | a fold-evaluated `DRTMLE` learned rule | asymptotic | no read source gives a fold-evaluated DR-TMLE. `DRTMLE` refuses `cv_evaluation=True` for that reason |

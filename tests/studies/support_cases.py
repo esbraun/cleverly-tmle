@@ -2497,6 +2497,28 @@ def _learned_rule_arms_cases() -> tuple[RowCase, ...]:
     return (case("three_arms", "declared"), case("missing_quadratic", "missing_quadratic"))
 
 
+def _learned_rule_optimal_value_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-optimal-value`` (X11 PR I, X11 (f)).
+
+    Each runs the study's own fit of the value of the optimal rule with the known treatment
+    mechanism on a draw of one gated law at its declared size, up to the classifier.
+    """
+    module, slug = "_learned_rule_optimal_law", "learned-rule-optimal-value"
+
+    def case(scenario: str, n: int) -> RowCase:
+        return _observed(
+            "T46",
+            slug,
+            scenario,
+            f"{module}.py:349",
+            module,
+            lambda study: study.draw(scenario, n, 0),
+            lambda study, frame: study.fit(frame, study.LEARNERS[scenario](), 0, known_g=True),
+        )
+
+    return (case("non_exceptional", 2_000), case("wrong_limit", 2_500))
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -2822,6 +2844,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_in_sample_cases(),
     *_learned_rule_contrast_cases(),
     *_learned_rule_arms_cases(),
+    *_learned_rule_optimal_value_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),
