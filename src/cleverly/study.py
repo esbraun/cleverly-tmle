@@ -3884,11 +3884,14 @@ class ExplicitAdjustmentProvider:
         assert isinstance(design, (LongitudinalTreatment, TimeToEvent, LongPanel))
         if isinstance(estimand, LEARNED_RULE_ESTIMANDS):
             raise CapabilityError(
-                f"{type(estimand).__name__} is a point-treatment target, and a learned "
-                "longitudinal regimen has no supported path. Van der Laan and Luedtke (2015) "
-                "give one at two time points, and X11 (b) in docs/roadmap.md holds it.",
+                f"{type(estimand).__name__} is a point-treatment target. A learned two-node "
+                "regimen (X11 (b)) has no study estimand: CausalStudy.identify does not "
+                "declare one (X11 (b2) in docs/roadmap.md).",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
-                alternative="DynamicRegimen(..., rule_kind='known') fits a fixed regimen.",
+                alternative=(
+                    "LTMLE(regimens=LearnedRegimen()) from cleverly.longitudinal fits a learned "
+                    "two-node regimen, and DynamicRegimen(..., rule_kind='known') a fixed one."
+                ),
                 roadmap="X11",
             )
         if isinstance(estimand, (IncrementalMean, IncrementalEffect)):

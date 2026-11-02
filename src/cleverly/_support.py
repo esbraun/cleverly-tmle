@@ -767,8 +767,9 @@ def point_key(
 
 
 #: The regimen kinds of a longitudinal key: a static or dynamic regimen, a known stochastic
-#: policy, a modified treatment policy and an odds tilt.
-REGIMEN_KINDS: Final[tuple[str, ...]] = ("static", "stochastic", "mtp", "tilt")
+#: policy, a modified treatment policy, an odds tilt and a regimen learned in each training
+#: fold (X11 (b)).
+REGIMEN_KINDS: Final[tuple[str, ...]] = ("static", "stochastic", "mtp", "tilt", "learned")
 
 
 def regimen_kinds(plans: Iterable[Any]) -> frozenset[str]:
@@ -783,10 +784,14 @@ def regimen_kinds(plans: Iterable[Any]) -> frozenset[str]:
     -------
     frozenset of str
         Members of :data:`REGIMEN_KINDS`. A plan with no policy node is ``static``. A plan
-        with a policy node and no modified treatment policy or tilt is ``stochastic``.
+        with a policy node and no modified treatment policy or tilt is ``stochastic``. A plan of
+        a :class:`~cleverly.longitudinal.LearnedRegimen` is ``learned``.
     """
     kinds: set[str] = set()
     for plan in plans:
+        if getattr(getattr(plan, "regimen", None), "learned", False) is True:
+            kinds.add("learned")
+            continue
         mtp, tilt = bool(plan.has_mtp), bool(plan.has_tilt)
         if mtp:
             kinds.add("mtp")

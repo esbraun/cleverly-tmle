@@ -247,6 +247,20 @@ from .hazard import (
     target_regimens,
 )
 from .ipsi import IPSICell, fit_cells_ipsi
+from .learned import (
+    LearnedRegimen,
+    LearnedRegimenRecord,
+    LearnedRules,
+    branch_plans,
+    fit_learned_regimen,
+    learn_fold_rules,
+    learned_plan,
+    learned_regimen_in,
+    learned_regimen_record,
+    refuse_learned_regimen_data,
+    refuse_learned_regimen_result,
+    refuse_learned_regimen_settings,
+)
 from .msm import (
     MSMRegimenFit,
     RegimenMSM,
@@ -1496,6 +1510,9 @@ class LongitudinalRepeat:
         ``(regimen, cause, horizon, before, after)``.
     initial_hazards : InitialHazards or None
         The initial cause-specific hazards of a ``survival_model="hazard"`` fit.
+    learned_regimen : LearnedRegimenRecord or None
+        The fold rules of a :class:`~cleverly.longitudinal.LearnedRegimen` fit, and ``None``
+        on every other fit.
     """
 
     folds: Folds
@@ -1508,6 +1525,7 @@ class LongitudinalRepeat:
     fold_mechanisms: tuple[FoldMechanism, ...] = ()
     isotonic_moves: tuple[tuple[str, str | None, int, float, float], ...] = ()
     initial_hazards: InitialHazards | None = None
+    learned_regimen: LearnedRegimenRecord | None = None
 
 
 class _DrawOutcome(NamedTuple):
@@ -1743,6 +1761,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     def initial_hazards(self) -> InitialHazards | None:
         """The initial hazards of a ``survival_model="hazard"`` fit, else ``None``."""
         return self.repeats[0].initial_hazards
+
+    @property
+    def learned_regimen(self) -> LearnedRegimenRecord | None:
+        """The fold rules of a :class:`~cleverly.longitudinal.LearnedRegimen` fit, or ``None``."""
+        return self.repeats[0].learned_regimen
 
     @property
     def n_repeats(self) -> int:
@@ -4694,6 +4717,11 @@ class _SequentialEstimator:
             the fits behind them.
         """
         refuse_unsupported(refused, where=f"{type(self).__name__}.fit")
+        # A learned regimen (X11 (b)) refuses every setting it does not support before the
+        # data are read, so that its refusals come before those of the data or the design.
+        learned = learned_regimen_in(self.regimens)
+        if learned is not None:
+            refuse_learned_regimen_settings(self)
         if self.msm is not None:
             # Checked again here, before any learner, because ``MSM`` checks its design and
             # weight declarations only when it is declared, and a modified model can carry
@@ -4702,7 +4730,8 @@ class _SequentialEstimator:
         # The raw ``regimens=``, before ``_prepare`` and any learner: an inline callable
         # carries no declaration, and a modified regimen can carry one this version
         # refuses.  Its refusal comes before any refusal of the data or the design.
-        refuse_regimen_rules(self.regimens)
+        if learned is None:
+            refuse_regimen_rules(self.regimens)
         prepared = self._prepare(
             data,
             outcome=outcome,
@@ -4720,12 +4749,18 @@ class _SequentialEstimator:
             censoring_probabilities=censoring_probabilities,
             dose_atoms=dose_atoms,
         )
+        if learned is not None:
+            refuse_learned_regimen_data(prepared)
         if prepared.is_repeated:
             refuse_repeated_outcome(getattr(self, "_estimator", "tmle"), type(self).__name__)
-        regimens = resolve_regimens(
-            self.regimens,
-            prepared.n_decisions,
-            held_nodes=prepared.n_times if prepared.treatment_held else None,
+        regimens: tuple[Any, ...] = (
+            (learned,)
+            if learned is not None
+            else resolve_regimens(
+                self.regimens,
+                prepared.n_decisions,
+                held_nodes=prepared.n_times if prepared.treatment_held else None,
+            )
         )
         if prepared.reports_curve:
             infixes = (HORIZON_INFIX,) + ((CAUSE_INFIX,) if prepared.is_competing else ())
@@ -4763,7 +4798,11 @@ class _SequentialEstimator:
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
         tuned_folds: Folds | None = None
         draws: list[tuple[Folds, int | None]] | None = None
-        if declares_tuned(regimens):
+        if learned is not None:
+            # The plan holds no rule until each training fold learns one, so the preflights
+            # below read the four static plans whose followers the fold regressions need.
+            plans: tuple[Plan, ...] = (learned_plan(learned, prepared),)
+        elif declares_tuned(regimens):
             if self.repeats > 1:
                 raise CapabilityError(
                     "repeats above 1 is not combined with a data-tuned policy cap: the cap "
@@ -4794,8 +4833,9 @@ class _SequentialEstimator:
         # learner, whether it fits one.
         plans = self._resolve_tilts(prepared, plans)
         self._refuse_design(prepared, plans)
+        checked = branch_plans(plans[0]) if learned is not None else plans
         # Every declared factor is checked against the bounds before any learner.
-        preflight_known_mechanisms(prepared, plans, resolve_cumulative_g_bounds(self.g_bounds))
+        preflight_known_mechanisms(prepared, checked, resolve_cumulative_g_bounds(self.g_bounds))
 
         self._refuse_undeclared_policy_scale(prepared, plans)
         self._refuse_unbounded_cross_fitted_scale(prepared)
@@ -4823,7 +4863,7 @@ class _SequentialEstimator:
         for index, (folds, _) in enumerate(draws, start=1):
             try:
                 preflight_mechanism_support(prepared, masks, folds, ratio=self.ratio)
-                self._preflight_followers(prepared, plans, horizons, folds)
+                self._preflight_followers(prepared, checked, horizons, folds)
             except Exception as error:
                 if len(draws) == 1:
                     raise
@@ -5062,6 +5102,22 @@ class _SequentialEstimator:
             random_state=learner_seed,
         )
         pseudo_learner = self._pseudo_learner(learner_seed)
+        # A learned regimen learns each fold's rule pair before the mechanism is fitted, because
+        # the mechanism is evaluated at each row's own learned rule (X11 (b)).
+        rules: LearnedRules | None = None
+        if any(isinstance(plan.regimen, LearnedRegimen) for plan in plans):
+            (plan,) = plans
+            rules = learn_fold_rules(
+                prepared,
+                plan,
+                folds=folds,
+                scaler=scaler,
+                outcome_learner=outcome_learner,
+                pseudo_learner=pseudo_learner,
+                n_jobs=self.n_jobs,
+                bounds=None if node_bounds is None else node_bounds.get(None),
+            )
+            plans = (plan.with_assignment(rules.stitched()),)
         # Build this record before the first backward pass. It holds only cloneable
         # unfitted templates and the already-resolved plan matrices, never a fitted Q.
         targeting = self._targeting()
@@ -5134,7 +5190,35 @@ class _SequentialEstimator:
             )
         initial: InitialHazards | None = None
         msm_fits: tuple[MSMRegimenFit, ...]
-        if hazard:
+        if rules is not None:
+            (plan,) = plans
+            fits = {
+                _fit_key(plan.label, None, plan.values.shape[1], False): _with_node_ratio(
+                    fit_learned_regimen(
+                        prepared,
+                        plan,
+                        mechanism,
+                        rules,
+                        outcome_learner=outcome_learner,
+                        pseudo_learner=pseudo_learner,
+                        scaler=scaler,
+                        g_bounds=bounds,
+                        alpha=targeting["alpha"],
+                        max_iter=targeting["max_iter"],
+                        tol=targeting["tol"],
+                        n_jobs=self.n_jobs,
+                        stopping=targeting["stopping"],
+                        step_bound=targeting["step_bound"],
+                        step_search=targeting["step_search"],
+                        iterate=targeting["iterate"],
+                        node_bounds=None if node_bounds is None else node_bounds.get(None),
+                    ),
+                    None,
+                    mechanism,
+                )
+            }
+            msm_fits = ()
+        elif hazard:
             algorithm: HazardAlgorithm = (
                 "one_step" if self.targeting == "one_step" else "per_horizon"
             )
@@ -5255,6 +5339,11 @@ class _SequentialEstimator:
             fold_mechanisms=fold_mechanisms,
             isotonic_moves=moves,
             initial_hazards=initial,
+            learned_regimen=(
+                None
+                if rules is None
+                else learned_regimen_record(prepared, plans[0], rules, seed=seed)
+            ),
         )
         return _DrawOutcome(
             draw,
@@ -5503,6 +5592,7 @@ class _SequentialEstimator:
         LongitudinalResult
             The result of the whole fit on ``data``.
         """
+        refuse_learned_regimen_result(self, "a refit")
         estimator = self._refit_template()
         if random_state is not None:
             estimator.random_state = random_state
@@ -8329,6 +8419,7 @@ def _refit_bound(
         When the replay did not report a parameter the fit reports.
     """
 
+    refuse_learned_regimen_result(result, "a truncation replay")
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
     recipe = draw.replay_recipe
@@ -8612,8 +8703,10 @@ def longitudinal_truncation_curve(
     It runs :func:`~cleverly.longitudinal.regimen.refuse_regimen_rules` on
     ``result.config.regimens`` first.  A regimen changed with ``object.__setattr__`` can
     carry a declaration this version refuses, and the replay would report a
-    recomputation for it.
+    recomputation for it.  A :class:`~cleverly.longitudinal.LearnedRegimen` fit refuses, because a
+    replay refits the recursion of rules that a refit would relearn (F27).
     """
+    refuse_learned_regimen_result(result, "the truncation curve")
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
     if result.config.estimator == "gcomp":

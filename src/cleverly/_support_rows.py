@@ -4607,6 +4607,10 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``), the
 #: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
 #: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``).
+#:
+#: A learned two-node regimen (``LearnedRegimen``, X11 (b)) keys the regimen kind ``learned``.
+#: No row lists that kind among its regimens, so every such fit matches no row and reads
+#: experimental until the ``learned-regimen-ltmle`` study registers one.
 LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
     (*_long_rows(), *_categorical_long_rows(), *_long_horizon_rows())
 )

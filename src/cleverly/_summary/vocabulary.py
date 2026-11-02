@@ -3223,6 +3223,7 @@ BOOTSTRAP_BANDS_TITLE: Final = "Bootstrap sup-t {level} bands"
 
 #: Plain words for one node of a plan.
 PLAN_RULE: Final = "a declared rule"
+PLAN_LEARNED: Final = "a rule learned in each training fold"
 PLAN_NAMED_RULE: Final = "rule {name}"
 PLAN_POLICY: Final = "a known random draw"
 PLAN_NAMED_POLICY: Final = "random draw {name}"
