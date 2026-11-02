@@ -282,7 +282,10 @@ def _bounds(payload: tuple[StudyRecord, pd.DataFrame, str, float, int]) -> dict[
         replicates=margins.bootstrap_replicates,
         seed=seed,
     )
-    comparable = record.se_comparable(str(group["scenario"].iloc[0]), estimand)
+    # A caller outside the paired table (a diagnostic) may hand a group with no scenario
+    # column; only a declared point-only scenario turns the calibration leg off.
+    scenario = str(group["scenario"].iloc[0]) if "scenario" in group.columns else ""
+    comparable = record.se_comparable(scenario, estimand)
     calibration_upper = (
         upper_bound(samples["calibration_excess"], confidence_level=margins.confidence_level)
         if comparable

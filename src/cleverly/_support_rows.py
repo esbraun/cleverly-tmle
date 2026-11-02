@@ -4655,6 +4655,11 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         # Roadmap: F27.
         "and licenses no configuration."
     ),
+    "adaptive-iptw-pairing": (
+        "It pairs the gate study's fits with R drtmle replicate by replicate, has no property "
+        "cell, and licenses no configuration. The gate study adaptive-iptw is the evidence of "
+        "the AI rows."
+    ),
 }
 
 #: The constructor options that stay out of a key, each with a file that states the option. An
