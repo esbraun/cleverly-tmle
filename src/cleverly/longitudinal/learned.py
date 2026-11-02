@@ -324,18 +324,38 @@ def learned_regimen_in(regimens: Any) -> LearnedRegimen | None:
 
 
 def _is_selector(learner: Any) -> bool:
-    """Whether ``learner`` selects among candidates by an internal cross-validated risk."""
+    """Whether ``learner`` selects by an internal cross-validated risk, at any depth.
+
+    A learner selects if it, or any estimator among its ``get_params(deep=True)`` values, is a
+    ``SuperLearner``, has a class name ending in ``CV``, or holds a ``cv`` parameter that is
+    not ``None``.  The parameter walk reaches ``Pipeline`` steps, ``TransformedTargetRegressor``
+    and every other scikit-learn wrapper.
+    """
     from ..learners.super_learner import SuperLearner
 
-    if isinstance(learner, SuperLearner):
-        return True
-    if type(learner).__name__.endswith("CV"):
-        return True
-    steps = getattr(learner, "steps", None)
-    if isinstance(steps, list):
-        return any(_is_selector(step) for _, step in steps)
-    inner = getattr(learner, "estimator", None)
-    return inner is not None and inner is not learner and _is_selector(inner)
+    seen: set[int] = set()
+
+    def selects(candidate: Any) -> bool:
+        if isinstance(candidate, type) or id(candidate) in seen:
+            return False
+        seen.add(id(candidate))
+        if isinstance(candidate, SuperLearner) or type(candidate).__name__.endswith("CV"):
+            return True
+        get_params = getattr(candidate, "get_params", None)
+        if not callable(get_params):
+            return False
+        try:
+            params = get_params(deep=True)
+        except TypeError:
+            params = get_params()
+        if params.get("cv") is not None:
+            return True
+        steps = params.get("steps")
+        children = [step for _, step in steps] if isinstance(steps, list) else []
+        children.extend(value for value in params.values() if hasattr(value, "fit"))
+        return any(selects(child) for child in children)
+
+    return selects(learner)
 
 
 def refuse_learned_regimen_settings(estimator: Any) -> None:
@@ -419,7 +439,8 @@ def refuse_learned_regimen_settings(estimator: Any) -> None:
             "selects by an internal cross-validated risk. That risk would read the second-node "
             "rule learned on the fold's whole training set, its own validation rows included, "
             "and the nested rule of Luedtke and van der Laan (2016), Sections 2.2 and 3.2, is "
-            f"not built ({_B2}). A pseudo_learner of None takes the default Super Learner.",
+            f"not built ({_B2}). A pseudo_learner of None takes outcome_learner, or the default "
+            "Super Learner when that is None too.",
             alternative=(
                 "Pass a fixed learner as pseudo_learner=, such as LinearRegression() or a "
                 "gradient-boosting regressor with fixed settings."
@@ -699,6 +720,9 @@ def _learn_in_fold(
                 fit_rows=train & took,
                 outer_fold=fold,
                 n_jobs=1,
+                # The Q-learning clips to [0, 1], the scale every recursion runs on: a binary
+                # outcome, or a continuous one rescaled by q_bounds, so it agrees with the
+                # estimator's own clip there.
                 clip=(0.0, 1.0),
                 bound=bounds.get(2),
             )
@@ -945,7 +969,9 @@ class LearnedRegimenNode:
     rule_disagreement : float
         The share of rows at which the fold rules do not all assign the same arm, read from
         every fold's rule on every row (at the second node, on the rows uncensored after the
-        first node).  Rules that settle to one limit agree almost everywhere.
+        first node).  At the second node a fold's code is the second rule of the first-node
+        arm that fold chose, so the share also counts rows whose folds chose different
+        first-node arms.  Rules that settle to one limit agree almost everywhere.
     """
 
     node: int

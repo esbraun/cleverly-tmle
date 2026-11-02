@@ -38,7 +38,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.special import expit
+from scipy.special import expit, logit
+from sklearn.compose import TransformedTargetRegressor
+from sklearn.dummy import DummyRegressor
+from sklearn.feature_selection import SequentialFeatureSelector
 from sklearn.linear_model import LassoCV, LinearRegression, LogisticRegression, RidgeCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -51,6 +54,7 @@ from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.interventions import Stochastic
 from cleverly.learners import SuperLearner
 from cleverly.longitudinal import (
+    IPSI,
     LTMLE,
     SDR,
     DynamicRegimen,
@@ -313,6 +317,157 @@ def test_wb1_each_fold_is_evaluated_under_its_own_rule_pair(result: Longitudinal
     assert np.mean(record.fold_rules[0] != record.fold_rules[1]) > 0.05
 
 
+#: W-b1c: the first-node threshold of each fold's known pair, different in every fold.
+_THRESHOLDS = (0.0, 0.2, 0.4)
+_ALPHA = 0.9995
+
+
+def _newton_intercept(
+    target: np.ndarray, offset: np.ndarray, weights: np.ndarray, rows: np.ndarray
+) -> float:
+    """The pooled logistic intercept that solves ``sum w (target - Q*(e)) = 0``.
+
+    ``Q*`` is held inside the submodel's probability bound, as the shipped update is, so the
+    root is that of the score the fit reports.
+    """
+    epsilon = 0.0
+    for _ in range(200):
+        raw = expit(offset[rows] + epsilon)
+        fitted = np.clip(raw, 1 - _ALPHA, _ALPHA)
+        step = float(np.sum(weights[rows] * (target[rows] - fitted))) / float(
+            np.sum(weights[rows] * raw * (1.0 - raw))
+        )
+        epsilon += step
+        if abs(step) < 1e-15:
+            break
+    return epsilon
+
+
+def _longhand_targeting(
+    data: Any,
+    folds: Any,
+    pairs: tuple[np.ndarray, ...],
+    initial: dict[int, np.ndarray],
+    clever: dict[int, np.ndarray],
+    following: dict[int, np.ndarray],
+    at_risk: dict[int, np.ndarray],
+    *,
+    per_fold: bool = False,
+) -> tuple[dict[int, np.ndarray], np.ndarray]:
+    """Node 2 then node 1: one logistic intercept per node over every follower.
+
+    ``per_fold=True`` is the mutation that fits each fold its own intercept.
+    """
+    owner = np.asarray(folds.assignment)
+    observed = np.asarray(data.uncensored, dtype=bool).all(axis=1)
+    carried = np.where(observed, np.nan_to_num(np.asarray(data.outcome, dtype=float)), 0.0)
+    targeted: dict[int, np.ndarray] = {}
+    for time in (2, 1):
+        # The submodel's probability bound, alpha = 0.9995, as the shipped solve applies it.
+        offset = logit(np.clip(initial[time], 1 - _ALPHA, _ALPHA))
+        value = np.full(data.n, np.nan)
+        groups = [owner == k for k in range(len(pairs))] if per_fold else [np.ones(data.n, bool)]
+        for group in groups:
+            epsilon = _newton_intercept(carried, offset, clever[time], following[time] & group)
+            value[group] = np.clip(expit(offset[group] + epsilon), 1 - _ALPHA, _ALPHA)
+        targeted[time] = np.where(at_risk[time], value, np.nan)
+        carried = np.where(at_risk[time], value, 0.0)
+    z = targeted[1].copy()
+    for time in (1, 2):
+        nxt = (
+            targeted[2]
+            if time == 1
+            else np.where(observed, np.nan_to_num(np.asarray(data.outcome, dtype=float)), 0.0)
+        )
+        z = z + np.where(following[time], clever[time] * (nxt - targeted[time]), 0.0)
+    return targeted, z
+
+
+def test_wb1c_fold_specific_rules_target_through_one_pooled_fluctuation(
+    frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each fold holds its own known pair; the targeting is rebuilt longhand (review K-5)."""
+    first = frame["W1"].to_numpy()
+    second = np.nan_to_num(frame["L2"].to_numpy(), nan=-np.inf) > -0.1
+    pairs = tuple(
+        np.column_stack([(first > c).astype(float), second.astype(float)]) for c in _THRESHOLDS
+    )
+
+    def stub(data: Any, plan: Any, *, folds: Any, **_: Any) -> LearnedRules:
+        zeros = tuple(np.zeros((data.n, 2)) for _ in range(folds.n_folds))
+        return LearnedRules(tuple(pair.copy() for pair in pairs), zeros, zeros, folds)
+
+    monkeypatch.setattr(estimator, "learn_fold_rules", stub)
+    result = fit(frame)
+    (fit_,) = result.fits.values()
+    data, folds = result.data, result.folds
+    owner = np.asarray(folds.assignment)
+    stitched = np.zeros((data.n, 2))
+    for k, pair in enumerate(pairs):
+        stitched[owner == k] = pair[owner == k]
+    np.testing.assert_array_equal(fit_.assignment, stitched)
+    # Premise: the pairs disagree on more than a tenth of the rows.
+    assert float(np.mean(pairs[0][:, 0] != pairs[2][:, 0])) > 0.1
+
+    plan = learned_plan(LearnedRegimen(), data)
+    initial = {time: np.full(data.n, np.nan) for time in (1, 2)}
+    fold_zero: dict[int, np.ndarray] = {}
+    for k, pair in enumerate(pairs):
+        own = plan.with_assignment(pair)
+        nodes = untargeted_recursion(
+            data,
+            own,
+            masks=own.masks(data),
+            horizon=2,
+            scaler=result.scaler,
+            cause=None,
+            outcome_learner=logistic(),
+            pseudo_learner=LinearRegression(),
+            fit_rows=_training(folds, k, data.n),
+            outer_fold=k,
+        )
+        for node in nodes:
+            initial[node.time][owner == k] = node.initial[owner == k]
+            if k == 0:
+                fold_zero[node.time] = np.asarray(node.initial, dtype=float)
+    stitched_plan = plan.with_assignment(stitched)
+    masks = stitched_plan.masks(data)
+    mechanism = fit_mechanism(
+        data,
+        (stitched_plan,),
+        treatment_learner=logistic(),
+        censoring_learner=logistic(),
+        folds=folds,
+    )
+    cumulative = mechanism.cumulative(data, stitched_plan, result.config.g_bounds)
+    following = {time: np.asarray(masks.following(time), dtype=bool) for time in (1, 2)}
+    at_risk = {time: np.asarray(masks.at_risk(time), dtype=bool) for time in (1, 2)}
+    clever = {
+        time: np.where(following[time], 1.0 / cumulative[:, time - 1], 0.0) for time in (1, 2)
+    }
+    for time in (1, 2):
+        rows = at_risk[time]
+        np.testing.assert_array_equal(initial[time][rows], fit_.steps[time - 1].initial[rows])
+    targeted, z = _longhand_targeting(data, folds, pairs, initial, clever, following, at_risk)
+    for step in fit_.steps:
+        rows = at_risk[step.time]
+        np.testing.assert_allclose(step.targeted[rows], targeted[step.time][rows], atol=1e-8)
+    psi = float(np.mean(targeted[1]))
+    assert fit_.psi_scaled == pytest.approx(psi, abs=1e-8)
+    np.testing.assert_allclose(fit_.influence_curve_scaled, z - psi, atol=1e-8)
+
+    # Mutation 1: each fold fitted its own intercept.
+    per_fold, _ = _longhand_targeting(
+        data, folds, pairs, initial, clever, following, at_risk, per_fold=True
+    )
+    moved = float(np.nanmax(np.abs(per_fold[1] - targeted[1])))
+    assert moved > 1e-4, moved
+    # Mutation 2: every row read fold 0's untargeted initial values.
+    zero, _ = _longhand_targeting(data, folds, pairs, fold_zero, clever, following, at_risk)
+    moved = float(np.nanmax(np.abs(zero[1] - targeted[1])))
+    assert moved > 1e-3, moved
+
+
 # --------------------------------------------------------------------------- W-b2
 
 
@@ -477,6 +632,34 @@ def test_wb5_the_variance_is_the_stacked_curve_centred_at_the_pooled_estimate(
     assert abs(centred / n**2 - variance) / variance > 1e-4
 
 
+def test_declared_node_bounds_reach_both_q_learning_regressions(
+    result: LongitudinalResult,
+) -> None:
+    """A binding bound narrows each node's blips to its width (review K-6)."""
+    data = result.data
+    declared = {1: (0.45, 0.55), 2: (0.35, 0.65)}
+    estimator_ = LTMLE(LearnedRegimen(), **settings(node_bounds=declared))
+    resolved, _ = estimator_._resolve_node_bounds(data, result.scaler)
+    assert resolved is not None
+    plan = learned_plan(LearnedRegimen(), data)
+    common = {
+        "scaler": result.scaler,
+        "outcome_learner": logistic(),
+        "pseudo_learner": LinearRegression(),
+        "train": _training(result.folds, 0, data.n),
+        "fold": 0,
+    }
+    _, free_blips, free_second = learned._learn_in_fold(data, plan, bounds=None, **common)
+    _, blips, second = learned._learn_in_fold(data, plan, bounds=resolved[None], **common)
+    for width, bounded, free in (
+        (0.1, blips[:, 0], free_blips[:, 0]),
+        (0.3, second, free_second),
+    ):
+        assert np.nanmax(np.abs(bounded)) <= width + 1e-12
+        # Premise: the bound binds, so dropping it would fail the line above.
+        assert np.nanmax(np.abs(free)) > width + 0.05
+
+
 # --------------------------------------------------------------------------- record
 
 
@@ -506,6 +689,34 @@ def test_the_record_reports_weights_shares_and_gaps(result: LongitudinalResult) 
         np.testing.assert_allclose(record.nodes[0].gap_quantiles[fold], gaps)
     disagree = np.mean(np.any(record.fold_rules[:, :, 0] != record.fold_rules[:1, :, 0], axis=0))
     assert record.nodes[0].rule_disagreement == pytest.approx(float(disagree))
+    # Node 2 (review K-6): the stored blip is the chosen branch's, its gap quantiles read the
+    # node-2 rows at risk, and its disagreement reads the rows uncensored after node 1.
+    again = _learned_rules(result)
+    rows = np.arange(data.n)
+    for fold in range(FOLDS):
+        chosen = record.fold_rules[fold, :, 0].astype(np.int64)
+        np.testing.assert_array_equal(
+            record.fold_blips[fold, :, 1], again.second_node_blips[fold][rows, chosen]
+        )
+        other = again.second_node_blips[fold][rows, 1 - chosen]
+        assert np.nanmax(np.abs(record.fold_blips[fold, :, 1] - other)) > 0.05
+        held = owner == fold
+        at_risk = held & uncensored & (first_arm == record.fold_rules[fold, :, 0])
+        blips = record.fold_blips[fold, at_risk, 1]
+        assert np.all(np.isfinite(blips))
+        gaps = np.quantile(np.abs(blips), record.quantile_levels)
+        np.testing.assert_allclose(record.nodes[1].gap_quantiles[fold], gaps)
+        everyone = record.fold_blips[fold, held & uncensored, 1]
+        assert not np.allclose(
+            np.quantile(np.abs(everyone), record.quantile_levels), gaps, rtol=1e-3
+        )
+    second = record.fold_rules[:, uncensored, 1]
+    disagree_two = float(np.mean(np.any(second != second[:1], axis=0)))
+    assert record.nodes[1].rule_disagreement == pytest.approx(disagree_two)
+    over_all = float(
+        np.mean(np.any(record.fold_rules[:, :, 1] != record.fold_rules[:1, :, 1], axis=0))
+    )
+    assert abs(over_all - disagree_two) > 1e-3
     assert record.nodes[0].arms == ("0.0", "1.0") or record.nodes[0].arms == ("0", "1")
     text = record.describe()
     assert "3 rule pairs" in text and "Node 1 (A1)" in text and "Node 2 (A2)" in text
@@ -559,7 +770,7 @@ def test_repeats_are_refused_for_a_learned_regimen(frame: pd.DataFrame) -> None:
 @pytest.mark.usefixtures("no_learner")
 class TestSettingRefusals:
     def test_another_estimator(self, frame: pd.DataFrame) -> None:
-        for kind, folds in ((SDR, FOLDS), (SequentialGComputation, 1)):
+        for kind, folds in ((SDR, FOLDS), (IPSI, FOLDS), (SequentialGComputation, 1)):
             base = settings(n_folds=folds)
             base.pop("pseudo_learner")
             _refused(
@@ -597,8 +808,21 @@ class TestSettingRefusals:
             SuperLearner([LinearRegression()], task="regression"),
             LassoCV(),
             Pipeline([("scale", StandardScaler()), ("ridge", RidgeCV())]),
+            TransformedTargetRegressor(regressor=LassoCV()),
+            Pipeline(
+                [
+                    ("select", SequentialFeatureSelector(LinearRegression(), cv=3)),
+                    ("fit", LinearRegression()),
+                ]
+            ),
         ],
-        ids=["super_learner", "lasso_cv", "pipeline_ridge_cv"],
+        ids=[
+            "super_learner",
+            "lasso_cv",
+            "pipeline_ridge_cv",
+            "transformed_target_lasso_cv",
+            "sequential_feature_selector",
+        ],
     )
     def test_a_selector_as_the_first_nodes_regression(
         self, frame: pd.DataFrame, learner: Any
@@ -610,8 +834,25 @@ class TestSettingRefusals:
             "pseudo_learner=",
         )
 
-    def test_the_default_first_node_learner_is_a_selector(self, frame: pd.DataFrame) -> None:
-        _refused(lambda: fit(frame, pseudo_learner=None, outcome_learner=None), "Super Learner")
+    @pytest.mark.parametrize("outcome", [None, LassoCV()], ids=["library", "lasso_cv"])
+    def test_the_default_first_node_learner_is_a_selector(
+        self, frame: pd.DataFrame, outcome: Any
+    ) -> None:
+        """``pseudo_learner=None`` falls back to ``outcome_learner``, then to the library."""
+        error = _refused(
+            lambda: fit(frame, pseudo_learner=None, outcome_learner=outcome),
+            "A pseudo_learner of None takes outcome_learner, or the default Super Learner when "
+            "that is None too.",
+        )
+        named = "SuperLearner" if outcome is None else "LassoCV"
+        assert f"regression of a LearnedRegimen is {named}," in str(error)
+
+    def test_a_fixed_wrapped_learner_is_not_a_selector(self) -> None:
+        assert not learned._is_selector(TransformedTargetRegressor(regressor=LinearRegression()))
+        assert not learned._is_selector(
+            Pipeline([("scale", StandardScaler()), ("fit", LinearRegression())])
+        )
+        assert not learned._is_selector(LinearRegression())
 
     @pytest.mark.parametrize("beside", ["static", "stochastic", "rule"])
     def test_a_regimen_beside_it(self, frame: pd.DataFrame, beside: str) -> None:
@@ -788,6 +1029,57 @@ def test_admitted_compositions_run_and_read_experimental(
     assert np.isfinite(estimate.psi)
     assert estimate.support.label == "experimental"
     assert result.learned_regimen is not None
+
+
+def _continuous(frame: pd.DataFrame) -> pd.DataFrame:
+    changed = frame.copy()
+    noise = np.random.default_rng(3).normal(size=len(frame))
+    changed["Y"] = np.where(changed["Y"].notna(), 2.0 + 3.0 * changed["Y"] + noise, np.nan)
+    return changed
+
+
+def test_a_continuous_outcome_with_q_bounds_runs_and_reads_experimental(
+    frame: pd.DataFrame,
+) -> None:
+    """The rule is a sign of a blip, so a wider declared support leaves every rule unchanged."""
+    continuous = _continuous(frame)
+    fits = [
+        LTMLE(
+            LearnedRegimen(), **settings(outcome_learner=LinearRegression(), q_bounds=bounds)
+        ).fit(continuous, **COLUMNS)
+        for bounds in ((-4.0, 10.0), (-8.0, 14.0))
+    ]
+    for result in fits:
+        estimate = result[LABEL]
+        assert np.isfinite(estimate.psi) and np.isfinite(estimate.std_error)
+        assert estimate.support.label == "experimental"
+        assert result.learned_regimen is not None
+    first, second = (result.learned_regimen for result in fits)
+    assert first is not None and second is not None
+    np.testing.assert_array_equal(first.fold_rules, second.fold_rules)
+    # Premise: the rules are not constant, so the equality has something to compare.
+    assert 0.1 < float(np.mean(first.fold_rules[:, :, 0])) < 0.9
+
+
+def test_a_tie_assigns_the_lower_arm_at_both_nodes(result: LongitudinalResult) -> None:
+    """Equal predictions under both arms give a zero blip and arm 0 at each node."""
+    data = result.data
+    constant = DummyRegressor(strategy="constant", constant=0.5)
+    assignment, blips, second = learned._learn_in_fold(
+        data,
+        learned_plan(LearnedRegimen(), data),
+        scaler=result.scaler,
+        outcome_learner=constant,
+        pseudo_learner=constant,
+        train=_training(result.folds, 0, data.n),
+        fold=0,
+        bounds=None,
+    )
+    assert np.nanmax(np.abs(blips)) == 0.0 and np.nanmax(np.abs(second)) == 0.0
+    np.testing.assert_array_equal(assignment, np.zeros((data.n, 2)))
+    np.testing.assert_array_equal(
+        learned._rule(np.array([0.0, np.nan, 1e-12, -1e-12])), [0, 0, 1, 0]
+    )
 
 
 def test_a_known_mechanism_runs(frame: pd.DataFrame) -> None:
