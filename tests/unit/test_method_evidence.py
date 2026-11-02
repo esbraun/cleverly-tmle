@@ -772,10 +772,15 @@ class TestPublishedVerdicts:
             ],
             index=published.index,
         )
+        point_only = (
+            published["point_only"].astype(bool)
+            if "point_only" in published
+            else pd.Series(False, index=published.index)
+        )
+        assert set(published.loc[point_only, "scenario"]) <= set(study.point_only_scenarios)
         assert published["passed"].equals(
             published["bias_equivalent"]
-            & published["coverage_valid"]
-            & published["se_calibrated"]
+            & (point_only | (published["coverage_valid"] & published["se_calibrated"]))
             & accounted
         )
 
@@ -2811,6 +2816,12 @@ _FAMILY = {
     "subject_failures": "failures",
     "failure_rate": "failures",
     "mechanism_": "fit_diagnostics",
+    # ``agreement.csv`` of a study that pairs replicate by replicate (``adaptive-iptw-pairing``).
+    "agreement_keys": "agreement",
+    "agreement_tight_bound": "agreement",
+    "agreement_loose_bound": "agreement",
+    "max_agreement_": "agreement",
+    "max_initial_gap": "agreement",
 }
 
 

@@ -122,6 +122,7 @@ known-mechanism-dr-tmle
 dr-tmle-foldwise
 dr-tmle-one-inconsistent-nuisance
 adaptive-iptw
+adaptive-iptw-pairing
 known-node-mechanisms-ltmle
 sequential-baselines
 structural-nested-mean

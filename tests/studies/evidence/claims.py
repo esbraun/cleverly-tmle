@@ -70,9 +70,16 @@ DESIGN_GAP = "design_gap"
 #: ``r_selection_summary[binary_lasso]:compared_replicates``.
 SELECTION_SUMMARY_FILE = "r-selection-summary.csv"
 SELECTION_SUMMARY = "r_selection_summary"
+
+#: The per-key agreement table of a study that pairs replicate by replicate with its comparator
+#: (``adaptive-iptw-pairing``): the 99th-percentile gap in the subject's standard errors, the
+#: key's bound, and whether the key carries a verdict.
+AGREEMENT_FILE = "agreement.csv"
+AGREEMENT = "agreement"
 OPTIONAL_ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
     DESIGN_GAP: (DESIGN_GAP_FILE, ("scenario", "estimand")),
     SELECTION_SUMMARY: (SELECTION_SUMMARY_FILE, ("scenario",)),
+    AGREEMENT: (AGREEMENT_FILE, ("scenario", "estimand")),
 }
 
 #: The columns of :data:`SELECTION_SUMMARY_FILE` that summarize the compared replicates.  With
@@ -519,6 +526,51 @@ def _harness_aggregates(
     return out
 
 
+def _agreement_aggregates(
+    record: StudyRecord,
+) -> dict[str, Callable[[Mapping[str, pd.DataFrame]], float]]:
+    """Counts and worst gaps of a per-key agreement table, split by the key's bound.
+
+    A key with no verdict is descriptive: it is counted and its gap reported, never passed.
+    """
+    if AGREEMENT_FILE not in record.extra_artifacts:
+        return {}
+
+    def table(data: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+        return data[AGREEMENT]
+
+    def judged(data: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+        return table(data).loc[table(data)["verdict"].astype(bool)]
+
+    def descriptive(data: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+        return table(data).loc[~table(data)["verdict"].astype(bool)]
+
+    def tight(data: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+        bound = table(data)["bound"]
+        return judged(data).loc[bound.loc[judged(data).index] == bound.min()]
+
+    def loose(data: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+        bound = table(data)["bound"]
+        return judged(data).loc[bound.loc[judged(data).index] > bound.min()]
+
+    return {
+        "agreement_keys_total": lambda data: float(len(table(data))),
+        "agreement_keys_judged": lambda data: float(len(judged(data))),
+        "agreement_keys_passed": lambda data: float(judged(data)["passed"].astype(bool).sum()),
+        "agreement_keys_descriptive": lambda data: float(len(descriptive(data))),
+        "agreement_keys_unwitnessed": lambda data: float(
+            (~table(data)["witnessed"].astype(bool)).sum()
+        ),
+        "agreement_tight_bound": lambda data: float(table(data)["bound"].min()),
+        "agreement_loose_bound": lambda data: float(table(data)["bound"].max()),
+        "max_agreement_gap_tight": lambda data: float(tight(data)["gap_q99"].max()),
+        "max_agreement_gap_loose": lambda data: float(loose(data)["gap_q99"].max()),
+        "max_agreement_gap_descriptive": lambda data: float(descriptive(data)["gap_q99"].max()),
+        "max_agreement_se_gap": lambda data: float(judged(data)["se_gap_q99"].max()),
+        "max_initial_gap": lambda data: float(table(data)["initial_gap_max"].max()),
+    }
+
+
 def _scenario(frame: pd.DataFrame, scenario: str) -> pd.DataFrame:
     return frame.loc[frame["scenario"] == scenario]
 
@@ -760,6 +812,7 @@ def quantities(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.DataF
         **_score_audit_aggregates(record),
         **_mechanism_aggregates(record),
         **_harness_aggregates(record),
+        **_agreement_aggregates(record),
         **{name: (lambda data, value=value: value) for name, value in declared.items()},
     }
 

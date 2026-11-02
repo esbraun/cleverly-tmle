@@ -1,0 +1,25 @@
+=== adaptive-iptw-pairing declared run
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x21p\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x21p\tests\canonical\adaptive_iptw_pairing\regenerate.py' --jobs 16 --output C:/Users/erics/Documents/Projects/cleverly-beta-plans/_x21p_run3
+commit: 8e98a806b2895a487e618e3aba34180141345a3f; upstream 8e98a806b2895a487e618e3aba34180141345a3f
+clean tree: True
+cleverly 0.1.7 from C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x21p\src\cleverly\__init__.py
+python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.1.0; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 130, sha256 a12a9a8e2a4133595f184470d7a27f892f4f998df5f25c1ab43b1a09d15b7bb2
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-11-01T22:30:03+00:00
+note: resumed from /cache/adaptive-iptw-pairing/fc4b5eaa6c90/run_study__reference-results, reused 0 groups
+finished: 2026-11-02T08:06:16+00:00
+wall seconds: 34573.3
+exit code: 0
+sha256 agreement.csv: 6aae232f37b1abada894ea2686603180a43a43206df55b185a0e5fcd64f1f0e3
+sha256 equivalence.csv: 9c723dde3ed407e309b0da6b2fbbaece0e866ebcb1276745ffc504f44d9b41b9
+sha256 failure-accounting.csv: e838e2552b1a68e24799f0f8f8daa0afc49aad07e784eaf1a4de6ac14eecd3e4
+sha256 failures.csv: 0b69a69ba499161561d886780297bd478250ac8faf5d09f3269e91b4999000ce
+sha256 manifest.json: dcbfb90744d13318340f37d6d5fcb2f7512e2fb860f5e215bf62baaaad9e8fb5
+sha256 performance-tests.csv: 484bddf728f0b44e62ce7afa13b05a7db2bb30e615bef80cc210eea6e901573e
+sha256 properties.csv: f9941c012c9d4382c92fe56bb4f353058b90d77dd321c10ee9db895b180b293a
+sha256 property-replicates.parquet: fe49529a9c5ec7471753784931995f374450e205a24c8ab596190a8f6d95f940
+sha256 replicates.parquet: 5e9c97407d2eba653ae1c2f20c6bef4ceb0741d4d776db0e03455b3e034d4b17
+sha256 summary.csv: 5657636d4bd6cde1b6b960caca6042602aacbf10f7a32697555f2f6ecd353a3b
+
