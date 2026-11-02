@@ -26,6 +26,7 @@ from tests.studies import learned_rule_cvtmle as gated
 from tests.studies import learned_rule_cvtmle_boundary as boundary
 from tests.studies import learned_rule_cvtmle_properties as properties
 from tests.studies import learned_rule_in_sample as in_sample
+from tests.studies import learned_rule_intermediate as intermediate
 from tests.studies import learned_rule_learners as learners
 from tests.studies import learned_rule_optimal_value as optimal
 from tests.studies import learned_rule_split_mean as split_mean
@@ -108,7 +109,9 @@ class TestTheSeedRules:
         # primary and 5,600 property seeds, none of which equals another X11 study's seed
         # (``test_learned_rule_arms_design``). X11's learned-rule-optimal-value (X11 PR I) adds
         # 1,600 primary and 16,800 property seeds, none of which equals another X11 study's seed
-        # (``test_learned_rule_optimal_value_design``).
+        # (``test_learned_rule_optimal_value_design``). X11's learned-rule-intermediate (X11 PR J)
+        # adds 1,200 primary and 41,200 property seeds, none of which equals another X11 study's
+        # seed (``test_learned_rule_intermediate_design``).
         assert len(declared) == (
             46_310
             + 6_000
@@ -123,6 +126,7 @@ class TestTheSeedRules:
             + 11_199
             + 6_800
             + 18_400
+            + 42_400
         )
         for study in (
             gated,
@@ -137,6 +141,7 @@ class TestTheSeedRules:
             contrast,
             arms,
             optimal,
+            intermediate,
         ):
             smoke = law.smoke_record(study.STUDY)
             seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}
