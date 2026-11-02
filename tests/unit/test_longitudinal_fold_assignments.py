@@ -6,8 +6,9 @@ pins the groundwork it builds on, which changes no shipped fit:
 
 * ``Plan.with_assignment`` and ``stitch_fold_assignments`` build a plan whose arms differ row
   by row, and ``FoldRecursionCell.fold_assignments`` runs each fold under its own assignment;
-* ``FoldRecursionCell.arm_nodes`` predicts a deterministic node at every arm, one stratified
-  regression per arm, on every row of every fold.
+* ``FoldRecursionCell.arm_nodes`` predicts the horizon of a deterministic node at every arm,
+  one stratified regression per arm, on every row of every fold.  Below the horizon it is
+  refused: the later node's regression does not condition on the earlier arm.
 
 =====  ======================================================================================
 claim  what fails it
@@ -16,17 +17,25 @@ R1     each row's assignment equal to the regimen's own reproduces every shipped
        influence curve and node array bit for bit: static, rule and stochastic plans,
        cross-fitted and in sample, end of study and survival
 R2     per-arm predictions at the horizon are the single-arm recursions, fold by fold and
-       stitched; below the horizon, under the observed arm, they are a longhand per-arm
-       mean; an assignment that does not keep both arms' rows is refused
+       stitched; every node below the horizon is refused, under the observed arm and under a
+       static one
 R3     each fold's recursion reads its own assignment, each row's masks read its fold's
        rule, and each row's per-arm prediction at its own arm is the matching single-arm
-       recursion; ``with_assignment`` that ignores the assignment (mutation) fails it, and
-       so does a selection at the plan's arm instead of the row's
+       recursion; ``with_assignment`` that ignores the assignment (mutation) fails it.  A
+       selection at the plan's arm instead of the row's is a premise check: the two differ
+R3b    under fold rules at node 1, each fold's horizon arm block on its training rows is the
+       single-arm recursion under that fold's plan; a single-arm call that resets the
+       earlier nodes fails it
+R3c    the mechanism evaluated at the stitched plan is, on each fold's held-out rows, the one
+       evaluated at that fold's rule; the regimen's own mechanism (mutation) is not
+R4     malformed cells are refused before any fold runs: the assignment count, shape and
+       codes, a Markov order, and an arm node outside the horizon or at a drawn node
 =====  ======================================================================================
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from typing import Any
 
@@ -35,8 +44,9 @@ import pytest
 from sklearn.dummy import DummyRegressor
 from sklearn.linear_model import LogisticRegression
 
+from cleverly.interventions.incremental import Incremental
 from cleverly.longitudinal import LongitudinalResult, estimator, sequential
-from cleverly.longitudinal.regimen import Plan
+from cleverly.longitudinal.regimen import Plan, resolve_plans, resolve_regimens
 from cleverly.longitudinal.sequential import (
     FoldRecursionCell,
     StitchedInitial,
@@ -48,7 +58,6 @@ from cleverly.longitudinal.sequential import (
 from .test_pooled_longitudinal_policy_targeting import _fit as fit_policy
 from .test_pooled_longitudinal_targeting import fit_categorical, fit_end_of_study, fit_survival
 
-FILLER = 0.5
 LOGISTIC = LogisticRegression(max_iter=1000)
 
 #: Each configuration of R1, fitted twice: as shipped and with per-row assignments.
@@ -193,8 +202,10 @@ def test_r2_horizon_arm_predictions_are_the_single_arm_recursions(
 ) -> None:
     data, horizon = static.data, static.data.n_times
     plan = _plan(static, "always")
-    (both,) = _recursions(static, [_cell(static, plan, arm_nodes=frozenset({horizon}))])
-    singles = _recursions(static, [_cell(static, _set_node(plan, horizon, a)) for a in (0, 1)])
+    (both,) = _recursions(static, [_cell(static, plan, arm_nodes=frozenset({horizon}))], LOGISTIC)
+    singles = _recursions(
+        static, [_cell(static, _set_node(plan, horizon, a)) for a in (0, 1)], LOGISTIC
+    )
     block = both.arm_predictions[horizon]
     assert block.shape == (data.n, 2)
     for arm, single in enumerate(singles):
@@ -219,13 +230,13 @@ def test_r2_horizon_arm_predictions_are_the_single_arm_recursions(
                 horizon=horizon,
                 scaler=static.scaler,
                 cause=None,
-                outcome_learner=DummyRegressor(),
+                outcome_learner=LOGISTIC,
                 pseudo_learner=DummyRegressor(),
                 fit_rows=rows,
             )
             assert np.array_equal(own[:, arm], node.initial)
     # Asking for both arms moves nothing else.
-    (alone,) = _recursions(static, [_cell(static, plan)])
+    (alone,) = _recursions(static, [_cell(static, plan)], LOGISTIC)
     for time in alone.initial:
         assert np.array_equal(alone.initial[time], both.initial[time])
         assert np.array_equal(alone.regression_target[time], both.regression_target[time])
@@ -233,53 +244,28 @@ def test_r2_horizon_arm_predictions_are_the_single_arm_recursions(
     assert alone.fold_arm_predictions == {}
 
 
-def test_r2_below_the_horizon_the_observed_arm_gives_a_per_arm_longhand(
-    static: LongitudinalResult,
+@pytest.mark.parametrize("assignment", ("observed", "static"))
+def test_r2_every_node_below_the_horizon_is_refused(
+    static: LongitudinalResult, assignment: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Node 1 under its observed arm: arm ``a`` is the mean of carried over the ``a`` rows.
+    """Below the horizon the later regression pools this node's arms, so no arm is asked for.
 
-    The pseudo-learner is a constant, so each arm's regression is a weighted mean over the
-    rows that took that arm, which the longhand computes without the package's fitting code.
-    The node-2 learner is logistic, so the carried value varies with the history and the two
-    arms' means differ.
+    Under the observed node-1 arm the node-2 regression is fitted on both node-1 arms with no
+    block for ``A1``, and under the static arm the other arm's rows hold the filler.  Both are
+    refused before any fold runs.
     """
-    data = static.data
-    observed = np.nan_to_num(data.treatment[:, 0], nan=0.0)
-    plan = _set_node(_plan(static, "always"), 1, observed)
-    masks = plan.masks(data)
-    (both,) = _recursions(static, [_cell(static, plan, arm_nodes=frozenset({1, 2}))], LOGISTIC)
-    block = both.arm_predictions[1]
-    at_risk = masks.at_risk(1)
-    for train, test in static.folds:
-        rows = np.zeros(data.n, dtype=bool)
-        rows[train] = True
-        nodes = untargeted_recursion(
-            data,
-            plan,
-            masks=masks,
-            horizon=2,
-            scaler=static.scaler,
-            cause=None,
-            outcome_learner=LOGISTIC,
-            pseudo_learner=DummyRegressor(),
-            fit_rows=rows,
-        )
-        later = nodes[0]
-        carried = np.where(later.at_risk, later.initial, FILLER)
-        for arm in (0, 1):
-            fitted = at_risk & (data.treatment[:, 0] == arm) & data.uncensored_through(1) & rows
-            mean = np.clip(np.average(carried[fitted], weights=data.weights[fitted]), 0.0, 1.0)
-            expected = np.where(at_risk, mean, FILLER)[test]
-            np.testing.assert_allclose(block[test, arm], expected, rtol=0, atol=1e-12)
-    assert abs(float(block[at_risk, 0].mean() - block[at_risk, 1].mean())) > 1e-3
-
-
-def test_r2_an_assignment_that_drops_an_arm_below_the_horizon_is_refused(
-    static: LongitudinalResult,
-) -> None:
     plan = _plan(static, "always")
-    with pytest.raises(ValueError, match="would read the later node's prediction"):
+    if assignment == "observed":
+        plan = _set_node(plan, 1, np.nan_to_num(static.data.treatment[:, 0], nan=0.0))
+    monkeypatch.setattr(sequential, "map_parallel", _no_fold_runs)
+    with pytest.raises(
+        ValueError, match=re.escape("below the horizon 2. The later node's regression")
+    ):
         _recursions(static, [_cell(static, plan, arm_nodes=frozenset({1}))])
+
+
+def _no_fold_runs(*args: Any, **kwargs: Any) -> Any:
+    raise AssertionError("a fold ran before the cell was refused")
 
 
 def test_r2_a_policy_node_refuses_arm_predictions() -> None:
@@ -362,7 +348,11 @@ def test_r3_an_ignored_assignment_fails(
 
 
 def test_r3_selecting_at_the_plans_arm_fails(static: LongitudinalResult) -> None:
-    """Mutation: the arm prediction read at the plan's arm rather than the row's."""
+    """Premise check: the arm prediction read at the plan's arm is not the row's arm's.
+
+    The selection here is the test's own, not production code.  It shows that the per-row
+    selection of R3 could be told apart from the plan's arm.
+    """
     data = static.data
     plan = _plan(static, "always")
     rules = _fold_rules(static)
@@ -374,6 +364,146 @@ def test_r3_selecting_at_the_plans_arm_fails(static: LongitudinalResult) -> None
     wrong = per_row.arm_predictions[2][np.arange(data.n), plan.values[:, 1].astype(np.int64)]
     matching = np.where(arms == 0, singles[0].initial[2], singles[1].initial[2])
     assert float(np.max(np.abs(wrong - matching))) > 1e-3
+
+
+def _node_one_rules(result: LongitudinalResult) -> tuple[np.ndarray, ...]:
+    """One node-1 rule per fold: treat when ``W1`` is above a cut that differs by fold."""
+    plan = _plan(result, "always")
+    w1 = result.data.covariate_history(1)[:, 0]
+    cuts = np.quantile(w1, [0.3, 0.5, 0.7])
+    return tuple(
+        _set_node(plan, 1, (w1 > cut).astype(float)).values for cut in cuts[: result.folds.n_folds]
+    )
+
+
+def _earlier_rule_gaps(result: LongitudinalResult) -> tuple[float, float]:
+    """R3b: the distance to each fold's own single-arm recursion, and to the plan's.
+
+    The first is the claim and must be zero.  The second is the premise: the fold's node-1
+    rule moves the horizon's arm block, so a call that ignores it would be seen.
+    """
+    data = result.data
+    plan = _plan(result, "always")
+    rules = _node_one_rules(result)
+    (per_row,) = _recursions(
+        result,
+        [_cell(result, plan, fold_assignments=rules, arm_nodes=frozenset({2}))],
+        LOGISTIC,
+    )
+    claim = premise = 0.0
+    for fold, (train, _) in enumerate(result.folds):
+        rows = np.zeros(data.n, dtype=bool)
+        rows[train] = True
+        block = per_row.fold_arm_predictions[2][fold]
+        for arm in (0, 1):
+            for source, name in ((rules[fold], "claim"), (plan.values, "premise")):
+                arm_plan = _set_node(replace(plan, values=source), 2, arm)
+                (node, *_) = untargeted_recursion(
+                    data,
+                    arm_plan,
+                    masks=arm_plan.masks(data),
+                    horizon=2,
+                    scaler=result.scaler,
+                    cause=None,
+                    outcome_learner=LOGISTIC,
+                    pseudo_learner=DummyRegressor(),
+                    fit_rows=rows,
+                )
+                gap = float(np.max(np.abs(block[rows, arm] - node.initial[rows])))
+                if name == "claim":
+                    claim = max(claim, gap)
+                else:
+                    premise = max(premise, gap)
+    return claim, premise
+
+
+def test_r3b_an_earlier_fold_rule_reaches_the_horizon_arm_block(
+    static: LongitudinalResult,
+) -> None:
+    rules = _node_one_rules(static)
+    assert float(np.mean(rules[0][:, 0] != rules[-1][:, 0])) > 0.2
+    claim, premise = _earlier_rule_gaps(static)
+    assert claim == 0.0
+    assert premise > 1e-3
+
+
+def _mechanism(result: LongitudinalResult, plan: Plan) -> Any:
+    return sequential.fit_mechanism(
+        result.data,
+        [plan],
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        folds=result.folds,
+    )
+
+
+def test_r3c_the_mechanism_is_evaluated_at_each_rows_fold_rule(static: LongitudinalResult) -> None:
+    data, bounds = static.data, (1e-8, 1.0)
+    plan = _plan(static, "always")
+    rules = _fold_rules(static)
+    stitched = plan.with_assignment(stitch_fold_assignments(rules, static.folds))
+    cumulative = _mechanism(static, stitched).cumulative(data, stitched, bounds)
+    for fold, (_, test) in enumerate(static.folds):
+        own = replace(plan, values=rules[fold])
+        expected = _mechanism(static, own).cumulative(data, own, bounds)
+        np.testing.assert_allclose(cumulative[test], expected[test], rtol=0, atol=1e-12)
+    # Mutation: the regimen's own mechanism, read at the stitched plan, keeps its own arms.
+    wrong = _mechanism(static, plan).cumulative(data, stitched, bounds)
+    assert float(np.max(np.abs(wrong - cumulative))) > 1e-3
+
+
+def test_r4_a_fold_assignment_count_shape_or_code_is_refused(
+    static: LongitudinalResult, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sequential, "map_parallel", _no_fold_runs)
+    plan = _plan(static, "always")
+    rules = _fold_rules(static)
+    with pytest.raises(ValueError, match="2 fold assignments for 3 folds"):
+        _recursions(static, [_cell(static, plan, fold_assignments=rules[:2])])
+    with pytest.raises(ValueError, match="assigns shape"):
+        _recursions(static, [_cell(static, plan, fold_assignments=tuple(r[:, :1] for r in rules))])
+    for code in (2.0, 0.5, -1.0):
+        bad = _own_copy(rules[1])
+        bad[0, 1] = code
+        with pytest.raises(ValueError, match="outside the 2 level codes"):
+            _recursions(static, [_cell(static, plan, fold_assignments=(rules[0], bad, rules[2]))])
+
+
+def test_r4_fold_assignments_under_a_markov_order_are_refused(
+    static: LongitudinalResult, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sequential, "map_parallel", _no_fold_runs)
+    plan = _plan(static, "always")
+    windowed = replace(static, data=replace(static.data, markov_order=1))
+    with pytest.raises(ValueError, match="under a Markov order"):
+        _recursions(windowed, [_cell(windowed, plan, fold_assignments=_fold_rules(static))])
+
+
+@pytest.mark.parametrize("node", (0, 3))
+def test_r4_an_arm_node_outside_the_recursion_is_refused(
+    static: LongitudinalResult, node: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sequential, "map_parallel", _no_fold_runs)
+    plan = _plan(static, "always")
+    with pytest.raises(ValueError, match=re.escape("outside the recursion's nodes 1..2")):
+        _recursions(static, [_cell(static, plan, arm_nodes=frozenset({node}))])
+
+
+def test_r4_an_arm_node_at_a_tilt_is_refused(
+    static: LongitudinalResult, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tilt node, before its density is attached, is not a deterministic node."""
+    monkeypatch.setattr(sequential, "map_parallel", _no_fold_runs)
+    plan = _tilt_plan(static)
+    with pytest.raises(ValueError, match="not a deterministic categorical node"):
+        _recursions(static, [_cell(static, plan, arm_nodes=frozenset({2}))])
+
+
+def _tilt_plan(result: LongitudinalResult) -> Plan:
+    """A static node 1 and an odds tilt at node 2, as resolved, before ``with_tilts``."""
+    (plan,) = resolve_plans(resolve_regimens({"tilt": (1, Incremental(2.0))}, 2), result.data)
+    assert plan.is_tilt_node(2) and not plan.is_policy_node(2)
+    return plan
 
 
 # --------------------------------------------------------------------------------------
@@ -403,3 +533,17 @@ def test_with_assignment_refuses_a_wrong_shape_and_a_drawn_node() -> None:
     same = plan.with_assignment(plan.values)
     assert np.array_equal(same.values, plan.values, equal_nan=True)
     assert same.values is not plan.values
+
+
+def test_with_assignment_refuses_a_tilt_node_before_its_density(
+    static: LongitudinalResult,
+) -> None:
+    """Only ``is_tilt_node`` guards a tilt column before ``with_tilts`` makes it a policy."""
+    plan = _tilt_plan(static)
+    moved = _own_copy(plan.values)
+    moved[:, 1] = 1.0 - np.nan_to_num(moved[:, 1])
+    with pytest.raises(ValueError, match="node 2 of regimen 'tilt' draws its arm"):
+        plan.with_assignment(moved)
+    moved = _own_copy(plan.values)
+    moved[:, 0] = 0.0
+    assert np.array_equal(plan.with_assignment(moved).values[:, 0], np.zeros(static.data.n))

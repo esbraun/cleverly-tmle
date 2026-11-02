@@ -59,7 +59,7 @@ the plan.  Only :class:`~cleverly.longitudinal.IPSI` fits such a plan.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
@@ -896,11 +896,25 @@ class Plan:
 
         ``assignment`` holds one row of dense codes per unit, which may differ from row to
         row and need not come from any one rule.  A learned regimen's rows take the arms of
-        the fold rule that held them out, so its masks, ratio numerator and mechanism
-        evaluation read ``plan.with_assignment(stitched).masks(data)`` and the readers of
-        :attr:`values`, not a second code path.  Every other field is kept.  At a policy,
-        modified treatment policy or tilt node :attr:`values` holds the observed arm rather
-        than an assigned one, so ``assignment`` must leave those columns as they are.
+        the fold rule that held them out, so its masks are
+        ``plan.with_assignment(stitched).masks(data)``, and every reader of :attr:`values`
+        (the masks, the support, the ratio numerator, the reported assignment) reads the new
+        arms with no second code path.  Every other field is kept.  At a policy, modified
+        treatment policy or tilt node :attr:`values` holds the observed arm rather than an
+        assigned one, so ``assignment`` must leave those columns as they are.
+
+        A fitted :class:`~cleverly.longitudinal.sequential.Mechanism` does not follow the
+        assignment: it holds the treatment and censoring factors that
+        :func:`~cleverly.longitudinal.sequential.fit_mechanism` evaluated at the plan it was
+        given, filed by label, and this plan keeps the label.  Evaluate the mechanism with
+        ``fit_mechanism`` at the assigned plan.  One fitted for another plan with the same
+        label reads that plan's arms.
+
+        The plan's own regressions assume that each deterministic node's arm is a rule of the
+        covariate history, because the outcome design holds no block for it.  An assignment
+        that is not, such as the observed arm or a rule that differs by fold, still gives the
+        right masks, mechanism evaluation and clever covariate, but not the right
+        regressions under the assigned plan.
 
         Parameters
         ----------
@@ -918,8 +932,6 @@ class Plan:
             If the shape differs from :attr:`values`, or a policy, modified treatment
             policy or tilt node's column changes.
         """
-        from dataclasses import replace
-
         values = np.array(assignment, dtype=float, copy=True)
         if values.shape != self.values.shape:
             raise ValueError(

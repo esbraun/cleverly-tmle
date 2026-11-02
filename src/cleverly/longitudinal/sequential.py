@@ -538,8 +538,8 @@ class _NodeRegression:
     #: the fold's own training tuner, which the fold's earlier regression reads.  ``None``
     #: when the fold carries ``initial_marginal``.
     carry_marginal: FloatArray | None = None
-    #: ``(n, K_t)`` predictions at every arm of a deterministic node, from the regression a
-    #: plan assigning that arm there fits, when the caller asked for them.  ``None``
+    #: ``(n, K_t)`` predictions at every arm of a deterministic horizon, from the regression
+    #: a plan assigning that arm there fits, when the caller asked for them.  ``None``
     #: elsewhere.
     arm_predictions: FloatArray | None = None
     #: The in-sample fitted model, when the caller asked to keep it: the learner, a
@@ -2690,10 +2690,11 @@ def _fit_node_regression(
     ``[0, 1]`` and maps it back to ``lower + (upper - lower) * p``.  ``None`` is the shipped
     regression.
 
-    ``both_arms=True`` also predicts a deterministic node at every arm
-    (:attr:`_NodeRegression.arm_predictions`, by :func:`_single_arm_predictions`).  The
-    node's own regression, ``initial`` and every other field are unchanged by it.  A policy
-    node refuses it: its per-arm predictions are ``initial_by_arm``.
+    ``both_arms=True`` also predicts the horizon of a deterministic categorical node at every
+    arm (:attr:`_NodeRegression.arm_predictions`, by :func:`_single_arm_predictions`).  The
+    node's own regression, ``initial`` and every other field are unchanged by it.  Every
+    other node refuses it (:func:`_check_arm_node`), a policy node because its per-arm
+    predictions are ``initial_by_arm``.
     """
     if masks is None:
         with phase("mask_construction"):
@@ -2707,11 +2708,9 @@ def _fit_node_regression(
         next_outcome = _pseudo_outcome(data, carried, time, cause)
     design = outcome_design(data, plan, time)
     policy_node = plan.is_policy_node(time)
-    if both_arms and policy_node:
-        raise ValueError(
-            f"node {time} of regimen {plan.label!r} draws its arm, so its per-arm "
-            "predictions are initial_by_arm"
-        )
+    if both_arms:
+        # Before the node's own fit, so a refused request costs no regression.
+        _check_arm_node(data, plan, time, horizon)
     levels = range(plan.policy_at(time).shape[1] if policy_node else 0)
     continuous_node = policy_node and data.node_kind(time) != "categorical"
     predict_designs = (
@@ -2778,7 +2777,6 @@ def _fit_node_regression(
                 carried,
                 time,
                 horizon,
-                trained_on=trained_on,
                 outcome_learner=outcome_learner,
                 pseudo_learner=pseudo_learner,
                 folds=folds,
@@ -2846,6 +2844,41 @@ def _fit_node_regression(
     )
 
 
+def _check_arm_node(data: LongitudinalData, plan: Plan, time: int, horizon: int) -> None:
+    """Refuse a request for every arm's prediction at a node that has no such regression.
+
+    Only the horizon of a deterministic categorical node qualifies.  Below the horizon the
+    later node's regression is fitted under this node's assignment, and its outcome design
+    holds no block for this node's arm (:func:`outcome_design`).  A regression of that
+    prediction among the rows that took arm ``a`` is then not the node's regression at
+    ``a``: under the observed arm it pools both arms of this node, and under a static or
+    rule arm it reads a filled value on the other arm's rows.  Each arm needs its own
+    later-node branch, which this recursion does not build.
+
+    Raises
+    ------
+    ValueError
+        At a node outside ``1..horizon``, below the horizon, at a policy, modified treatment
+        policy or tilt node, or at a node that is not categorical.
+    """
+    where = f"node {time} of regimen {plan.label!r}"
+    if not 1 <= time <= horizon:
+        raise ValueError(f"{where} is outside the recursion's nodes 1..{horizon}")
+    if plan.is_policy_node(time) or plan.is_mtp_node(time):
+        raise ValueError(f"{where} draws its arm, so its per-arm predictions are initial_by_arm")
+    if plan.is_tilt_node(time) or data.node_kind(time) != "categorical":
+        raise ValueError(
+            f"{where} is not a deterministic categorical node, so it has no per-arm "
+            "regression to predict"
+        )
+    if time < horizon:
+        raise ValueError(
+            f"{where} is below the horizon {horizon}. The later node's regression would not "
+            "condition on this node's arm, so a per-arm prediction here needs each arm's own "
+            "later-node branch, which this recursion does not build"
+        )
+
+
 def _single_arm_predictions(
     data: LongitudinalData,
     plan: Plan,
@@ -2853,7 +2886,6 @@ def _single_arm_predictions(
     time: int,
     horizon: int,
     *,
-    trained_on: BoolArray,
     outcome_learner: Learner,
     pseudo_learner: Learner,
     folds: Folds,
@@ -2864,7 +2896,7 @@ def _single_arm_predictions(
     clip: tuple[float, float] | None,
     bound: NodeBound | None,
 ) -> FloatArray:
-    """``(n, K_t)`` a deterministic node's prediction at every arm, one regression per arm.
+    """``(n, K_t)`` the horizon's prediction at every arm, one regression per arm.
 
     Column ``a`` is the ``initial`` of the single-arm call: :func:`_fit_node_regression` on
     ``plan`` with node ``time`` assigned arm ``a`` on every row, the same ``carried`` and
@@ -2872,43 +2904,20 @@ def _single_arm_predictions(
     arm enters only through the rows each regression is fitted on: those that follow
     ``plan`` before ``time`` and took ``a`` at ``time``.  Arm ``a`` is then a stratified
     fit, as a static arm is, and a row whose plan assigns ``a`` reads the regression a
-    plan assigning ``a`` everywhere fits.
-
-    Below the horizon the regression of arm ``a`` reads ``carried`` on the rows that took
-    ``a``, and ``carried`` holds the later node's prediction only on the rows ``plan``
-    keeps there.  So every row a column is fitted on must follow ``plan`` through
-    ``time``: an assignment equal to the observed arm at ``time`` keeps both arms' rows,
-    and a static or rule arm does not.  A column that would read a filled ``carried`` is
-    refused.
+    plan assigning ``a`` everywhere fits.  Only the horizon is admitted
+    (:func:`_check_arm_node`), where ``carried`` is the seed on every row.
 
     Raises
     ------
     ValueError
-        At a policy, modified treatment policy, tilt or non-categorical node, or when a
-        column below the horizon would be fitted on a row ``plan`` does not keep.
+        Where :func:`_check_arm_node` refuses.
     """
-    drawn = plan.is_policy_node(time) or plan.is_mtp_node(time) or plan.is_tilt_node(time)
-    if drawn or data.node_kind(time) != "categorical":
-        raise ValueError(
-            f"node {time} of regimen {plan.label!r} is not a deterministic categorical node, "
-            "so it has no per-arm regression to predict"
-        )
-    kept = trained_on if fit_rows is None else trained_on & fit_rows
+    _check_arm_node(data, plan, time, horizon)
     columns = []
     for code in range(len(data.treatment_levels[time - 1])):
         values = np.array(plan.values, dtype=float, copy=True)
         values[:, time - 1] = float(code)
         single = plan.with_assignment(values)
-        single_masks = single.masks(data)
-        rows = single_masks.following(time)
-        if fit_rows is not None:
-            rows = rows & fit_rows
-        if time < horizon and np.any(rows & ~kept):
-            raise ValueError(
-                f"the arm-{code} regression at node {time} of regimen {plan.label!r} would "
-                "read the later node's prediction on rows the plan does not keep there. "
-                "Assign the observed arm at this node so that both arms' rows are kept"
-            )
         node = _fit_node_regression(
             data,
             single,
@@ -2919,7 +2928,7 @@ def _single_arm_predictions(
             pseudo_learner=pseudo_learner,
             folds=folds,
             cause=cause,
-            masks=single_masks,
+            masks=single.masks(data),
             fit_rows=fit_rows,
             outer_fold=outer_fold,
             n_jobs=n_jobs,
@@ -4086,15 +4095,22 @@ class FoldRecursionCell:
         Per outer fold, the ``(n, T)`` dense codes that fold's recursion assigns every row:
         a fold's own rule, read on its training rows and on the rows it holds out.  Fold
         ``k`` then runs under ``plan.with_assignment(fold_assignments[k])`` and that plan's
-        masks, and ``masks`` is used by no fold.  The caller builds the targeting plan from
-        :func:`stitch_fold_assignments`, so each row's masks read the rule of the fold that
-        held it out.  Empty runs every fold under ``plan`` and ``masks``.
+        masks, and ``masks`` is used by no fold.  Each fold's assignment must be a rule of
+        the covariate history at every deterministic node whose arm a later regression
+        needs, because the outcome design holds no block for such a node's arm.  A Markov
+        order is refused, because its windowed design decides a rule node from the
+        declaration rather than from the assignment.  The caller builds the targeting plan
+        from :func:`stitch_fold_assignments`, so each row's masks read the rule of the fold
+        that held it out.  That stitched plan serves the masks, the mechanism and the clever
+        covariate, and is never a plan to regress under.  Empty runs every fold under
+        ``plan`` and ``masks``.
     arm_nodes : frozenset of int
-        The deterministic nodes at which each fold also predicts every arm
+        The nodes at which each fold also predicts every arm
         (:attr:`StitchedInitial.arm_predictions` and
-        :attr:`StitchedInitial.fold_arm_predictions`).  Below the horizon a node's
-        assignment must keep both arms' rows, such as the observed arm.  It changes no other
-        output.  Empty predicts none.
+        :attr:`StitchedInitial.fold_arm_predictions`).  Only ``horizon`` is admitted, at a
+        deterministic categorical node: below it the later node's regression does not
+        condition on this node's arm (:func:`_check_arm_node`).  It changes no other output.
+        Empty predicts none.
     """
 
     plan: Plan
@@ -4126,6 +4142,16 @@ class StitchedInitial:
     constant_folds : dict of int to tuple of int
         By node, the one-based outer folds whose training rows held one target value, 0 or
         1, so that the fold's regression is that value.  A node with no such fold is absent.
+    probes : dict of int to FloatArray
+        At each tuned node with the population target, row ``i``'s ``(2,)`` predictions at
+        the boundary and at the last moved dose, from the fold that held row ``i`` out.
+    arm_predictions : dict of int to FloatArray
+        At each of a cell's ``arm_nodes``, row ``i``'s ``(K_t,)`` predictions at every arm
+        from the fold that held row ``i`` out.  Empty otherwise.
+    fold_arm_predictions : dict of int to tuple of FloatArray
+        At each of a cell's ``arm_nodes``, every fold's ``(n, K_t)`` predictions at every
+        arm on every row, in fold order: what a fold's rule reads on its own training rows
+        as well as on the rows it holds out.  Empty otherwise.
     """
 
     initial: dict[int, FloatArray]
@@ -4133,15 +4159,8 @@ class StitchedInitial:
     diagnostics: dict[int, tuple[SuperLearnerDiagnostics, ...]]
     initial_by_arm: dict[int, FloatArray] = field(default_factory=dict)
     constant_folds: dict[int, tuple[int, ...]] = field(default_factory=dict)
-    #: At each tuned node with the population target, row ``i``'s ``(2,)`` predictions at
-    #: the boundary and at the last moved dose, from the fold that held row ``i`` out.
     probes: dict[int, FloatArray] = field(default_factory=dict)
-    #: At each of a cell's ``arm_nodes``, row ``i``'s ``(K_t,)``
-    #: predictions at every arm from the fold that held row ``i`` out.  Empty otherwise.
     arm_predictions: dict[int, FloatArray] = field(default_factory=dict)
-    #: At each of a cell's ``arm_nodes``, every fold's ``(n, K_t)``
-    #: predictions at every arm on every row, in fold order: what a fold's rule reads on
-    #: its own training rows as well as on the rows it holds out.  Empty otherwise.
     fold_arm_predictions: dict[int, tuple[FloatArray, ...]] = field(default_factory=dict)
 
 
@@ -4255,8 +4274,9 @@ def untargeted_recursion(
     bounds : mapping of int to NodeBound or None
         The declared outcome bound of each bounded node.  ``None`` fits the shipped regressions.
     arm_nodes : frozenset of int
-        The deterministic nodes also predicted at every arm.  The recursion still carries
-        each node's own prediction, so no other output moves.
+        The nodes also predicted at every arm: the horizon of a deterministic categorical
+        node, and no other (:func:`_check_arm_node`).  The recursion still carries each
+        node's own prediction, so no other output moves.
 
     Returns
     -------
@@ -4358,6 +4378,53 @@ def _untargeted_recursion_in_fold(
     }
 
 
+def _check_cell(data: LongitudinalData, cell: FoldRecursionCell, folds: Folds) -> None:
+    """Refuse a cell's assignments and arm nodes before any fold starts.
+
+    Raises
+    ------
+    ValueError
+        If ``fold_assignments`` is neither empty nor one per fold, an assignment's shape is
+        not ``(n, T)``, an assignment code at a deterministic categorical node is not a level
+        code, a Markov order is declared with ``fold_assignments``, or an arm node is one
+        :func:`_check_arm_node` refuses.
+    """
+    plan, where = cell.plan, f"regimen {cell.plan.label!r}"
+    assignments = cell.fold_assignments
+    if assignments:
+        if len(assignments) != folds.n_folds:
+            raise ValueError(
+                f"{where} has {len(assignments)} fold assignments for {folds.n_folds} folds; "
+                "pass one per outer fold or none"
+            )
+        if data.markov_order is not None:
+            raise ValueError(
+                f"{where} has fold assignments under a Markov order, whose windowed outcome "
+                "design reads rule nodes from the declaration rather than from the assignment"
+            )
+        for fold, values in enumerate(assignments):
+            values = np.asarray(values, dtype=float)
+            if values.shape != plan.values.shape:
+                raise ValueError(
+                    f"fold {fold} of {where} assigns shape {values.shape}; the plan's values "
+                    f"have shape {plan.values.shape}"
+                )
+            for time in range(1, values.shape[1] + 1):
+                drawn = plan.is_policy_node(time) or plan.is_mtp_node(time)
+                if drawn or plan.is_tilt_node(time) or data.node_kind(time) != "categorical":
+                    continue
+                codes = values[:, time - 1]
+                codes = codes[~np.isnan(codes)]
+                width = len(data.treatment_levels[time - 1])
+                if np.any((codes != np.round(codes)) | (codes < 0) | (codes >= width)):
+                    raise ValueError(
+                        f"fold {fold} of {where} assigns a code outside the {width} level "
+                        f"codes 0..{width - 1} at node {time}"
+                    )
+    for time in sorted(cell.arm_nodes):
+        _check_arm_node(data, plan, time, cell.horizon)
+
+
 def untargeted_fold_recursions(
     data: LongitudinalData,
     cells: Sequence[FoldRecursionCell],
@@ -4407,6 +4474,8 @@ def untargeted_fold_recursions(
     list of StitchedInitial
         One per cell, in the order of ``cells``.
     """
+    for cell in cells:
+        _check_cell(data, cell, folds)
     # Read once, in the parent: a worker process has no collector of its own and so
     # cannot tell whether anybody asked for a profile.
     wanted = profiling()
@@ -4467,10 +4536,9 @@ def untargeted_fold_recursions(
                 every_arm = rest[1] if len(rest) > 1 else None
                 if every_arm is not None:
                     fold_arm_predictions.setdefault(time, []).append(every_arm)
-                    width = np.shape(every_arm)[1]
-                    arm_predictions.setdefault(time, np.full((data.n, width), _FILLER))[test] = (
-                        every_arm[test]
-                    )
+                    if time not in arm_predictions:
+                        arm_predictions[time] = np.full(np.shape(every_arm), _FILLER)
+                    arm_predictions[time][test] = every_arm[test]
                 initial[time][test] = held_out
                 regression_target[time][test] = target
                 diagnostics[time].extend(fold_diagnostics)

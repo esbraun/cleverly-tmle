@@ -592,7 +592,6 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/regimen.py", "_resolve_plan"): "a tilt at a mixed node is refused first",
     ("longitudinal/sequential.py", "_categorical_node"): "categorical node",
     ("longitudinal/sequential.py", "_check_policy_arm_support"): "categorical node guard",
-    ("longitudinal/sequential.py", "_single_arm_predictions"): "categorical node guard",
     ("longitudinal/sequential.py", "_rule_hint"): "a rule at a mixed node is refused",
     ("longitudinal/sequential.py", "_policy_block"): "mixed branch first",
     (
