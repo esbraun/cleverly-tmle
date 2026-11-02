@@ -132,6 +132,9 @@ categorized API tables.
    cleverly.longitudinal.DynamicRegimen
    cleverly.longitudinal.each_node
    cleverly.longitudinal.NodeRule
+   cleverly.longitudinal.LearnedRegimen
+   cleverly.longitudinal.LearnedRegimenRecord
+   cleverly.longitudinal.LearnedRegimenNode
    cleverly.interventions.LearnedRule
    cleverly.interventions.LearnedRuleRecord
    cleverly.interventions.LearnedRuleSplit

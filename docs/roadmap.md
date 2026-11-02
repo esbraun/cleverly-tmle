@@ -127,7 +127,7 @@ not change the package version.
 | after beta | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; parts (a) to (d) implemented | the shipped support rows and per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 | after beta | Refutation and sensitivity checks for every estimator | exact references for the generated-outcome readings; a registered short study for each other verdict rule | the shipped `refute` and sensitivity catalogs | [X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) |
 | BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; the reviewed worked examples | [X69](#x69-documentation-review-for-new-and-changed-methods) |
-| B5 | Learned-policy follow-ups | natural extension for parts (f3), (i2), (k2) and (n2); published support for part (f2b); pending source read for part (b); source audit for parts (c2), (d2) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
+| B5 | Learned-policy follow-ups | natural extension for parts (f3), (i2), (k2) and (n2); published support for part (f2b); source audit for parts (b2), (c2), (d2) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
 | after beta | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | after beta | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
 | after beta | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
@@ -922,13 +922,13 @@ stays in [F21](#f21-other-missing-outcome-cv-tmle-variants).
 ### X11. Learned-policy follow-ups
 
 The [learned-rule contract](technical-reference/point-treatment-tmle.md#learned-rules) estimates one target by one
-construction. Each part below is a published follow-up outside that contract. For parts (b),
+construction. Each part below is a published follow-up outside that contract. For parts (b2),
 (c2), (d2) and (f3), the refusal of the request cites the part. No request reaches part (f2b). Each part needs its
 own contract, witnesses and registered study before it ships, as the learned-rule value did.
 
 | part | the request that the contract refuses | published source | readiness |
 | --- | --- | --- | --- |
-| (b) learned longitudinal regimens | `DynamicRegimen(..., rule_kind="estimated")` | van der Laan and Luedtke (2015), Sections 2 and 7, at two time points | published support; pending source read |
+| (b2) learned longitudinal regimens beyond the two-node fit | `LearnedRegimen` at more than two nodes; with a survival, competing or repeated outcome, a node that is not one binary treatment, `msm=`, `SDR`, `IPSI`, another regimen beside it, `repeats` above 1, `n_folds=1`, `weights=`, `id=`, a Markov order or the one-step targeting option; a cross-validated selector as the first-node regression; a registered study estimand | van der Laan and Luedtke (2015), Sections 2 and 7, and Theorem 5 for `n_folds=1`, cover two time points. More than two nodes needs the supplement of Luedtke and van der Laan (2016), *Annals of Statistics*, which this project has not obtained. Luedtke and van der Laan (2016), *International Journal of Biostatistics*, Sections 2.2 and 3.2, nest the second-node rule inside each inner fold of a selector, which is not built. The compositions need their own constructions and witnesses | source audit |
 | (c2) a learned rule beside another parameter axis, and the simultaneous band of a learned rule with known regimes | `learned_rule=` beside `policies=`, `incremental=` or `msm=`; `simultaneous_bands()` over a known-regime value or contrast, whose default band a fit skips | another axis needs a fit whose one fluctuation solves the score equations of two axes, which no source gives. The band over a data-adaptive value, known regimes and their contrasts follows from the joint normality that part (c) uses, and it needs its own witness | source audit |
 | (d2) rule learners over more than two arms | `LearnedRule(loss="blip")` or `LearnedRule(loss="weighted_classification")` on a treatment with more than two arms | Luedtke and van der Laan (2016), Sections 4.1 to 4.3, state both losses for a binary treatment. A multi-arm pseudo-outcome loss needs a source that this project has not read | source audit |
 | (f2b) the online estimator of the value of the optimal rule | no request reaches it | Luedtke and van der Laan (2016), *Annals of Statistics*, Section 5.1 and Theorem 2: an online one-step estimator whose Wald interval holds at an exceptional law. It is another estimator of the target of part (f) | published support |
@@ -947,7 +947,12 @@ Under C3 the fixed-dimension stack carries that case, and it shares the source a
 
 | part | the request that the contract refuses | step | readiness |
 | --- | --- | --- | --- |
-| (j) a learned rule with a controlled intermediate | `intermediate=` | a two-time-point rule pair: the learned rule at $A$ and the static $Z = z$ | source audit, with part (b) |
+| (j) a learned rule with a controlled intermediate | `intermediate=` | a two-time-point rule pair: the learned rule at $A$ and the static $Z = z$ | source audit. The two-node rule-pair recursion of `LearnedRegimen` is the construction it would reuse |
+
+Part (b) now ships for two nodes: `LTMLE(regimens=LearnedRegimen())` estimates the stacked value
+of the rule pairs learned inside each training fold
+([learned regimens](technical-reference/longitudinal-tmle.md#learned-regimens)). Every such fit
+reads experimental until the `learned-regimen-ltmle` study registers.
 
 The learned-rule value now also runs with fold-specific targeting, known observation weights and
 clusters ([learned rules](technical-reference/point-treatment-tmle.md#learned-rules)).
