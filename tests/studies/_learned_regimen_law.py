@@ -26,14 +26,19 @@ boundary: a margin at that boundary. The optimal node-1 rule is a threshold in `
 ``W2``, where the value of the two node-1 arms crosses with a nonzero slope: a margin at that
 boundary too. :func:`margins` reads the mass near each boundary, the weak-margin diagnostic.
 
-**The learners.** Node 2: ``LogisticRegression(C=1e6)`` per stratum on ``(W1, W2, L2)``, a
-correct model. Node 1 (``declared``): a cubic polynomial in ``(W1, W2)`` fitted by least squares
-to the carried node-2 value, which approximates the node-1 regression, an integral of a logistic
-curve over ``L2``, closely. Two misspecified node-1 learners: ``drop_w1``, least squares on
-``W2`` alone, which drops the confounder ``W1`` of ``A1`` (``targeting_necessity``), and
-``squared_w1``, least squares on ``(W1^2, W2)``, which keeps ``W1`` only through its square
-(``conservative_coverage``). The treatment and censoring learners are main-terms logistic models,
-correct at both nodes.
+**The learners.** Node 2: ``LogisticRegression(C=1e6)`` on ``(W1, W2, L2)``. Fitted per stratum
+``(A1, A2)`` in the Q-learning that learns the rules, it is a correct model. Node 1
+(``declared``): a cubic polynomial in ``(W1, W2)`` fitted by least squares to the carried node-2
+value, which approximates the Q-learning's node-1 regression, an integral of a logistic curve
+over ``L2``, closely. The estimator's own outcome regressions pool the followers of the stitched
+rule pair over the strata, with no treatment column, so there the true regression is the stratum
+logits glued at the learned thresholds, and both learners are approximations. The treatment and
+censoring learners are main-terms logistic models, correct at both nodes; coverage rests on them
+(JCI Cor 3: the curve omits ``D_g`` and is conservative). The misspecified node-1 learner is
+``squared_w1``, least squares on ``(W1^2, W2)``, which keeps the confounder ``W1`` of ``A1`` only
+through its square (``conservative_coverage`` and one ``targeting_necessity`` label).
+``drop_w1``, least squares on ``W2`` alone, is no cell's learner: its limit arm contrast is 0.015
+to 0.027 everywhere, no margin, and the design record keeps its first-pilot reading.
 
 **The harness** (:func:`harness`) refits each fold's backward Q-learning on the fit's training
 rows with scikit-learn alone, requires both rules to equal the fit's stored fold rules on every
@@ -568,9 +573,12 @@ def node1_limit(name: str) -> dict[str, Any]:
 
     Least squares in each node-1 branch ``a1`` converges to the projection of the carried node-2
     value ``V(a1, W)`` on the learner's features, weighted by the density of the uncensored rows
-    that took the arm, ``g1(a1 | W) c1(W)``. ``plug_in`` is the plug-in it converges to,
-    ``rule_value`` the value of its limit rule pair, ``bias`` their difference (the untargeted
-    bias that ``targeting_necessity`` reads), ``gap`` the limit's arm contrast at each grid point
+    that took the arm, ``g1(a1 | W) c1(W)``. ``plug_in`` is the Q-learning plug-in it converges to
+    (each arm's projection, evaluated at the chosen arm), ``rule_value`` the value of its limit
+    rule pair, and ``bias`` their difference, the Q-learning plug-in's limit bias. The study's
+    untargeted control is another quantity: the mean of the estimator's node-1 initial values,
+    one regression over the followers of the stitched pair, whose bias is measured, not pinned
+    here. ``gap`` the limit's arm contrast at each grid point
     by ``W2`` level, and ``near`` the share of ``W`` where that contrast is below 0.01.
     """
     optimal = optimal_pair()
@@ -582,9 +590,9 @@ def node1_limit(name: str) -> dict[str, Any]:
             x = features(GRID, w2)
             g = g1(GRID, w2) if a1 else 1.0 - g1(GRID, w2)
             weight = MASS * g * c1(GRID)
-            value = _arm_values(optimal.slope[w2], optimal.offset[w2], w2)[a1]
+            carried = _arm_values(optimal.slope[w2], optimal.offset[w2], w2)[a1]
             gram = gram + x.T @ (x * weight[:, None])
-            moment = moment + x.T @ (weight * value)
+            moment = moment + x.T @ (weight * carried)
         coefficients[a1] = np.linalg.solve(gram, moment)
     first: dict[float, np.ndarray] = {}
     gap: dict[float, np.ndarray] = {}

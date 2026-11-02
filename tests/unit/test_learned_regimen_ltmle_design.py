@@ -147,7 +147,12 @@ def test_the_cells() -> None:
             "squared_w1__declared",
             "squared_w1__shrunken_coverage_control",
         ),
-        "targeting_necessity": ("drop_w1__targeted", "drop_w1__untargeted"),
+        "targeting_necessity": (
+            "squared_w1__targeted",
+            "squared_w1__untargeted",
+            "two_node__targeted",
+            "two_node__untargeted",
+        ),
         "fold_locality": ("two_node__fold_local", "two_node__validation_rows"),
     }
     assert properties.SHRUNKEN_SE_FACTOR == study.COVERAGE_SHRINK == 0.80
@@ -156,12 +161,18 @@ def test_the_cells() -> None:
     assert not study.STUDY.calibration_efficiency_ratio
     assert study.STUDY.publication_policy == "gated"
     assert study.PRIMARY_N == properties.CALIBRATION_N == study.STUDY.n == 2_000
-    assert properties.FAMILY_LEARNERS == {
-        "interval_calibration": "declared",
-        "conservative_coverage": "squared_w1",
-        "targeting_necessity": "drop_w1",
-        "fold_locality": "declared",
+    assert properties.DRAW_LEARNERS == {
+        ("interval_calibration", "two_node"): "declared",
+        ("conservative_coverage", "squared_w1"): "squared_w1",
+        ("targeting_necessity", "squared_w1"): "squared_w1",
+        ("targeting_necessity", "two_node"): "declared",
+        ("fold_locality", "two_node"): "declared",
     }
+    assert {(draw.family, draw.label) for draw in properties.PROPERTY_DRAWS} == set(
+        properties.DRAW_LEARNERS
+    )
+    # No cell reads the weak-margin learner (design review, finding 4).
+    assert "drop_w1" not in properties.DRAW_LEARNERS.values()
     for draw in properties.PROPERTY_DRAWS:
         assert draw.law == study.PRIMARY_SCENARIO
 
@@ -222,7 +233,14 @@ def test_the_declared_gates_are_read() -> None:
     assert families == set(study.PROPERTY_CELLS)
     assert property_verdicts.SE_CONTROL_SIDES["shrunken_se_control"] == "below"
     assert law.EXACTNESS_TOLERANCE == 1e-8
-    assert properties.TARGETING_NECESSITY.labels == (study.NECESSITY_LABEL,)
+    assert (
+        properties.TARGETING_NECESSITY.labels
+        == study.NECESSITY_LABELS
+        == (
+            "squared_w1",
+            "two_node",
+        )
+    )
     assert properties.FOLD_LOCALITY.arms == study.LOCALITY_ARMS
     assert properties.FOLD_LOCALITY.truth_varies and properties.TARGETING_NECESSITY.truth_varies
 
@@ -321,7 +339,8 @@ def test_the_named_streams_are_distinct_from_every_registered_study() -> None:
 DECLARED_SUFFIXES: dict[tuple[str, str], tuple[Any, ...]] = {
     ("interval_calibration", "two_node"): (),
     ("conservative_coverage", "squared_w1"): (),
-    ("targeting_necessity", "drop_w1"): (),
+    ("targeting_necessity", "squared_w1"): (),
+    ("targeting_necessity", "two_node"): (),
     ("fold_locality", "two_node"): (),
 }
 
@@ -394,14 +413,14 @@ def test_no_pilot_seed_is_a_declared_seed() -> None:
 
 
 def test_the_first_seed_candidate_was_refused() -> None:
-    """20271421, the first candidate, would draw one sample seed of another X11 study."""
+    """20271421, the first candidate, would draw sample seeds of another X11 study."""
     import dataclasses
 
     record = dataclasses.replace(study.STUDY, seed=20271421, resampling_seed=20271422)
     seeds = base.declared_sample_seeds(
         record, study.PRIMARY_REPLICATES, properties.PROPERTY_DRAWS, properties.suffixes(record)
     )
-    assert len(seeds & _other_x11_sample_seeds()) == 1
+    assert len(seeds & _other_x11_sample_seeds()) == FIRST_CANDIDATE_CLASHES
 
 
 # ---------------------------------------------------------------------------- the sizing
@@ -429,7 +448,7 @@ POOLED_DRAWS = 8_000
 #: positive-arm SDs.
 PILOT: dict[str, dict[str, float]] = {
     "declared": {"ratio": 0.974528, "bias": 0.014822, "coverage": 0.94075},
-    "misspecified": {"bias": -0.023974, "coverage": 0.9455, "control_coverage": 0.88325},
+    "squared_w1": {"bias": -0.023974, "coverage": 0.9455, "control_coverage": 0.88325},
 }
 #: The probe of ``declared`` (label 20271413) and the 8,000 draws pooled with the first pilot.
 PROBE = {"ratio": 0.964592, "bias": -0.005381, "coverage": 0.94325}
@@ -437,27 +456,34 @@ POOLED = {"ratio": 0.969535, "bias": 0.004671, "coverage": 0.942}
 #: The ``declared`` controls on the first pilot: SE ratio of the shrunken SE (x0.80) and of the
 #: noise control (one bound unit), and their coverage.
 PILOT_CONTROLS = {"shrunken": (0.779622, 0.8740), "noise": (0.701905, 0.8235)}
-#: ``targeting_necessity`` on ``drop_w1`` and ``fold_locality`` on ``declared``.
-PILOT_NECESSITY = {"positive": -0.023220, "control": 1.945835, "displacement": 2.063745}
+#: ``targeting_necessity``: ``squared_w1`` on the redesign pilot and the declared learners on the
+#: 8,000 pooled ``declared`` draws; ``fold_locality`` on the paired first-pilot draws. The
+#: ``drop_w1`` reading of the first pilot is kept as the record of the cell it no longer is.
+PILOT_NECESSITY = {
+    "squared_w1": ({"positive": -0.023974, "control": 2.571193, "displacement": 2.646166}, 4_000),
+    "two_node": ({"positive": 0.004671, "control": 0.839936, "displacement": 0.76496}, 8_000),
+}
+DROP_W1_NECESSITY = {"positive": -0.023220, "control": 1.945835, "displacement": 2.063745}
 PILOT_LOCALITY = {"positive": 0.014822, "control": 4.288171, "displacement": 4.243259}
 #: The first pilot's ``misspecified`` (``drop_w1``) coverage reading, which moved
 #: ``conservative_coverage`` to ``squared_w1``.
 DROP_W1_COVERAGE = {"coverage": 0.8980, "upper": 0.9100, "ratio": 0.8400}
 
-#: The mean seconds per draw over the five pilot cells (fit and harness, 4 jobs on a shared
-#: machine), and the budget of the probe rule: 75 minutes of fitting at 4 jobs.
+#: The mean seconds per draw over the five pilot cells (fit and harness, 4 jobs on a machine at
+#: load about 8), and the budget of the probe rule: 75 minutes of fitting at 4 jobs.
 PILOT_SECONDS = 1.589
-BUDGET_FITS = int(75 * 60 * 4 / PILOT_SECONDS)
+BUDGET_MINUTES = 75
+BUDGET_FITS = int(BUDGET_MINUTES * 60 * 4 / PILOT_SECONDS)
 
 
 def bias_pass(
-    bias: float, replicates: int, pilot: int = PILOT_DRAWS, margin: float = 0.25
+    bias: float, replicates: int, pilot: int | None = PILOT_DRAWS, margin: float = 0.25
 ) -> float:
     """The predictive probability that the 99% interval of the mean standardized error falls
     inside ``±margin`` at ``replicates`` draws, given a pilot bias read from ``pilot`` draws
-    (the F2 rule)."""
+    (the F2 rule). ``pilot=None`` reads the bias as known."""
     half = norm.ppf(0.995) / np.sqrt(replicates)
-    spread = np.sqrt(1.0 / replicates + 1.0 / pilot)
+    spread = np.sqrt(1.0 / replicates + (0.0 if pilot is None else 1.0 / pilot))
     return float(
         norm.cdf((margin - half - bias) / spread) - norm.cdf((-margin + half - bias) / spread)
     )
@@ -511,8 +537,11 @@ def _smallest(passes: Callable[[int], float], target: float = tools.FAMILY_TARGE
     raise AssertionError("no count reaches the target")
 
 
-def primary_pass(replicates: int, pilot: int = PILOT_DRAWS) -> float:
-    """The bias leg times the coverage floor (0.90) of the ``declared`` reading."""
+def primary_pass(replicates: int, pilot: int | None = PILOT_DRAWS) -> float:
+    """The bias leg times the coverage floor (0.90) of the ``declared`` reading.
+
+    The primary gate's SE sanity leg is left out: it reads the band (0.80, 1.20), which cannot
+    fail at a ratio of 0.97. ``pilot=None`` reads both legs as known."""
     reading = PILOT["declared"]
     floor = study.STUDY.margins.coverage_floor
     return bias_pass(reading["bias"], replicates, pilot) * floor_pass(
@@ -549,9 +578,9 @@ def control_pass(ratio: float, replicates: int, pilot: int = PILOT_DRAWS) -> flo
 def coverage_pass(replicates: int, pilot: int | None = PILOT_DRAWS) -> float:
     """The ``squared_w1`` positive's bias leg and coverage floor (0.92), times its control's
     coverage ceiling (below 0.92)."""
-    reading = PILOT["misspecified"]
+    reading = PILOT["squared_w1"]
     floor = study.STUDY.margins.calibration_coverage[0]
-    bias = bias_pass(reading["bias"], replicates, pilot or 10**12)
+    bias = bias_pass(reading["bias"], replicates, pilot)
     return (
         bias
         * floor_pass(reading["coverage"], replicates, floor, pilot)
@@ -559,13 +588,13 @@ def coverage_pass(replicates: int, pilot: int | None = PILOT_DRAWS) -> float:
     )
 
 
-def paired_pass(reading: dict[str, float], replicates: int) -> float:
-    """A necessity family: the positive's bias leg, the control's discrimination leg, and the
+def paired_pass(reading: dict[str, float], replicates: int, pilot: int = PILOT_DRAWS) -> float:
+    """One paired label: the positive's bias leg, the control's discrimination leg, and the
     displacement at or above 0.5 positive-arm SDs, read as normal with the pilot's SE."""
-    spread = np.sqrt(1.0 / replicates + 1.0 / PILOT_DRAWS)
+    spread = np.sqrt(1.0 / replicates + 1.0 / pilot)
     return (
-        bias_pass(reading["positive"], replicates)
-        * discrimination_pass(reading["control"], replicates)
+        bias_pass(reading["positive"], replicates, pilot)
+        * discrimination_pass(reading["control"], replicates, pilot)
         * float(norm.cdf((abs(reading["displacement"]) - 0.5) / spread))
     )
 
@@ -576,7 +605,7 @@ def _fits() -> dict[str, int]:
         "primary": study.PRIMARY_REPLICATES,
         "interval_calibration": properties.CALIBRATION_REPLICATES,
         "conservative_coverage": properties.COVERAGE_REPLICATES,
-        "targeting_necessity": properties.NECESSITY_REPLICATES,
+        "targeting_necessity": len(study.NECESSITY_LABELS) * properties.NECESSITY_REPLICATES,
         "fold_locality": 2 * properties.LOCALITY_REPLICATES,
     }
 
@@ -594,21 +623,37 @@ def test_the_calibration_rule_needs_9200_draws_on_the_first_pilot_and_the_pooled
     assert _smallest(lambda r: calibration_pass(r, PROBE)) == 22_000
 
 
-def test_the_calibration_count_is_the_remaining_budget() -> None:
-    """The probe rule's fallback: the largest multiple of 400 that the other counts leave inside
-    the budget on the pilot timings. At that count the pooled predictive pass is 0.72, and 0.77
-    with the readings known: the known risk the record discloses."""
-    fits = _fits()
-    others = sum(count for name, count in fits.items() if name != "interval_calibration")
+def test_the_calibration_count_is_the_per_cell_rules() -> None:
+    """The design review's exception to the budget fallback (finding 1): the count is the per-cell
+    rule's on the pooled 8,000 draws."""
+    assert (
+        properties.CALIBRATION_REPLICATES
+        == _smallest(lambda r: calibration_pass(r, POOLED, POOLED_DRAWS))
+        == 9_200
+    )
+    assert calibration_pass(9_200, POOLED, POOLED_DRAWS) == pytest.approx(0.952, abs=1e-3)
+    assert calibration_pass(9_200, POOLED, None) == pytest.approx(0.993, abs=1e-3)
+
+
+def test_what_the_budget_fallback_would_have_given() -> None:
+    """Pinned, not declared: on the pilot timings (a host at load 8) the fallback would have left
+    4,000 draws, a pooled predictive pass of 0.720."""
+    others = sum(count for name, count in _fits().items() if name != "interval_calibration")
     assert BUDGET_FITS == 11_327
-    assert others == 7_200
-    remaining = (BUDGET_FITS - others) // 400 * 400
-    assert properties.CALIBRATION_REPLICATES == remaining == 4_000
+    assert others == 8_400
     assert calibration_pass(4_000, POOLED, POOLED_DRAWS) == pytest.approx(0.720, abs=1e-3)
-    assert calibration_pass(4_000, POOLED, None) == pytest.approx(0.767, abs=1e-3)
-    # The fitted total and its time on the pilot timings: about 74 minutes at 4 jobs.
-    assert sum(fits.values()) == 11_200
-    assert sum(fits.values()) * PILOT_SECONDS / 4 / 60 == pytest.approx(74.2, abs=0.1)
+
+
+def test_the_run_host_timing_condition() -> None:
+    """The run keeps 9,200 if the run host's mean seconds per fit, times the declared fits, over
+    4 jobs is at most 75 minutes: at most about 1.02 s per fit (the design record states the
+    condition before the timing is taken)."""
+    fits = sum(_fits().values())
+    assert fits == 17_600
+    ceiling = BUDGET_MINUTES * 60 * 4 / fits
+    assert ceiling == pytest.approx(1.023, abs=1e-3)
+    # The pilot host's timing would not meet it; the review's idle-host timings do.
+    assert PILOT_SECONDS > ceiling > 0.84
 
 
 def test_the_controls_fail_at_the_declared_count() -> None:
@@ -637,25 +682,33 @@ def test_the_drop_w1_learner_had_no_coverage_count() -> None:
 
 
 def test_the_paired_counts() -> None:
-    assert (
-        properties.NECESSITY_REPLICATES
-        == _smallest(lambda r: paired_pass(PILOT_NECESSITY, r))
-        == 1_200
-    )
+    for label, (reading, pilot) in PILOT_NECESSITY.items():
+        assert (
+            properties.NECESSITY_REPLICATES
+            == _smallest(lambda r, reading=reading, pilot=pilot: paired_pass(reading, r, pilot))
+            == 1_200
+        ), label
+        assert paired_pass(reading, 1_200, pilot) > 0.9999, label
+    assert set(PILOT_NECESSITY) == set(study.NECESSITY_LABELS)
     assert (
         properties.LOCALITY_REPLICATES
         == _smallest(lambda r: paired_pass(PILOT_LOCALITY, r))
         == 1_200
     )
-    assert paired_pass(PILOT_NECESSITY, 1_200) > 0.999
-    assert paired_pass(PILOT_LOCALITY, 1_200) > 0.999
+    assert paired_pass(PILOT_LOCALITY, 1_200) > 0.9999
+    # The withdrawn drop_w1 label would also have passed: the move cannot help a verdict.
+    assert paired_pass(DROP_W1_NECESSITY, 1_200) > 0.999
 
 
 def test_the_stress_test() -> None:
     """Conditional on the readings as known, without a second pilot error."""
     assert coverage_pass(properties.COVERAGE_REPLICATES, None) > 0.99
-    assert primary_pass(study.PRIMARY_REPLICATES) > 0.99
+    assert primary_pass(study.PRIMARY_REPLICATES, None) > 0.99
+    assert calibration_pass(properties.CALIBRATION_REPLICATES, POOLED, None) > 0.99
 
 
 #: The sample seeds a declared run draws.
-TOTAL_SEEDS = 10_000
+TOTAL_SEEDS = 16_400
+
+#: The sample seeds of another X11 study that the refused first candidate 20271421 draws.
+FIRST_CANDIDATE_CLASHES = 2

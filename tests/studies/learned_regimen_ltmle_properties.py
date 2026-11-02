@@ -14,7 +14,9 @@ cross-fitted with ten folds.
     :data:`~tests.studies.learned_regimen_ltmle.COVERAGE_SHRINK`, whose coverage interval must
     lie wholly below the floor.
 ``targeting_necessity``
-    The ``drop_w1`` node-1 learner: the targeted value against the untargeted plug-in.
+    Two labels, each with its own draws: the ``squared_w1`` node-1 learner and the declared
+    learners (``two_node``), each the targeted value against the untargeted plug-in, the mean of
+    the estimator's stitched node-1 initial values.
 ``fold_locality``
     The declared learners twice on one sample and fold seed: the fit against the same fit with
     each fold's rules learned on its validation rows.
@@ -65,7 +67,7 @@ from tests.studies.learned_regimen_ltmle import (
     LOCALITY_LABEL,
     NECESSITY_ARMS,
     NECESSITY_FAMILY,
-    NECESSITY_LABEL,
+    NECESSITY_LABELS,
     POSITIVE,
     PRIMARY_N,
     PRIMARY_REPLICATES,
@@ -77,18 +79,19 @@ from tests.studies.learned_regimen_ltmle import (
 base = law.base
 
 CALIBRATION_N = PRIMARY_N
-#: The ``interval_calibration`` draws: the probe rule's fallback, the largest multiple of 400
-#: that the other counts leave inside the run-time budget on the pilot timings. The per-cell rule
-#: (the positive's SE-ratio leg times its coverage leg, at least 0.95) gives 9,200 on the
-#: 4,000-draw pilot and on the 8,000 draws pooled with the probe; at 4,000 the pooled predictive
-#: pass is 0.72, a known risk (``test_learned_regimen_ltmle_design``).
-CALIBRATION_REPLICATES = 4_000
+#: The ``interval_calibration`` draws: the per-cell rule (the positive's SE-ratio leg times its
+#: coverage leg, at least 0.95) on the pooled 8,000 pilot draws (0.952). The probe rule's budget
+#: fallback, measured on a host at load 8, gave 4,000; the run host's timing admits 9,200 within
+#: the same 75-minute budget (design review, finding 1), on the timing condition the design
+#: record states (``test_learned_regimen_ltmle_design``).
+CALIBRATION_REPLICATES = 9_200
 #: The ``conservative_coverage`` draws: the smallest multiple of 400, at least 1,200, whose
 #: predictive probability that the positive's bias leg and coverage floor and the control's
 #: coverage ceiling pass is at least 0.95 on the 4,000-draw redesign pilot of ``squared_w1``.
 COVERAGE_REPLICATES = 2_400
-#: The ``targeting_necessity`` draws: the same rule over the positive's bias leg, the control's
-#: discrimination leg and the displacement, on the 4,000 ``drop_w1`` draws of the first pilot.
+#: The ``targeting_necessity`` draws of each label: the same rule over the positive's bias leg,
+#: the control's discrimination leg and the displacement, on the 4,000 ``squared_w1`` draws of the
+#: redesign pilot and the 8,000 pooled ``declared`` draws. Each label has its own draws.
 NECESSITY_REPLICATES = 1_200
 #: The ``fold_locality`` draws, two fits each: the same rule on the 4,000 paired draws.
 LOCALITY_REPLICATES = 1_200
@@ -103,16 +106,20 @@ PROPERTY_DRAWS: tuple[base.PropertyDraw, ...] = (
         "interval_calibration", CALIBRATION_LABELS[0], CALIBRATION_REPLICATES, PRIMARY_SCENARIO
     ),
     base.PropertyDraw(COVERAGE_FAMILY, COVERAGE_LABEL, COVERAGE_REPLICATES, PRIMARY_SCENARIO),
-    base.PropertyDraw(NECESSITY_FAMILY, NECESSITY_LABEL, NECESSITY_REPLICATES, PRIMARY_SCENARIO),
+    *(
+        base.PropertyDraw(NECESSITY_FAMILY, label, NECESSITY_REPLICATES, PRIMARY_SCENARIO)
+        for label in NECESSITY_LABELS
+    ),
     base.PropertyDraw(LOCALITY_FAMILY, LOCALITY_LABEL, LOCALITY_REPLICATES, PRIMARY_SCENARIO),
 )
 
-#: Each family's node-1 learner.
-FAMILY_LEARNERS: dict[str, str] = {
-    "interval_calibration": "declared",
-    COVERAGE_FAMILY: COVERAGE_LABEL,
-    NECESSITY_FAMILY: NECESSITY_LABEL,
-    LOCALITY_FAMILY: "declared",
+#: Each property draw's node-1 learner, by ``(family, label)``.
+DRAW_LEARNERS: dict[tuple[str, str], str] = {
+    ("interval_calibration", CALIBRATION_LABELS[0]): "declared",
+    (COVERAGE_FAMILY, COVERAGE_LABEL): COVERAGE_LABEL,
+    (NECESSITY_FAMILY, "squared_w1"): "squared_w1",
+    (NECESSITY_FAMILY, law.LAW): "declared",
+    (LOCALITY_FAMILY, LOCALITY_LABEL): "declared",
 }
 
 
@@ -138,9 +145,15 @@ def _draw(key: _Key) -> pd.DataFrame:
     return law.draw(n, sample_seed)
 
 
-def draw_cells(family: str) -> list[str]:
-    """Every ``property/cell`` one draw of ``family`` writes, its derived controls included."""
-    written = [f"{family}/{cell}" for cell in PROPERTY_CELLS[family]]
+def _label_cells(family: str, label: str) -> list[str]:
+    """The declared cells of ``family`` that belong to ``label``, in declaration order."""
+    return [cell for cell in PROPERTY_CELLS[family] if cell.startswith(f"{label}__")]
+
+
+def draw_cells(family: str, label: str) -> list[str]:
+    """Every ``property/cell`` one draw of ``(family, label)`` writes, its derived controls
+    included."""
+    written = [f"{family}/{cell}" for cell in _label_cells(family, label)]
     if family == "interval_calibration":
         positive = f"{family}/{CALIBRATION_LABELS[0]}__{POSITIVE}"
         written = [positive, *DERIVED_CELLS[positive]]
@@ -148,7 +161,7 @@ def draw_cells(family: str) -> list[str]:
 
 
 def _cells_of(key: _Key) -> list[str]:
-    return draw_cells(key[0][0])
+    return draw_cells(key[0][0], key[0][1])
 
 
 def _positive(
@@ -202,15 +215,15 @@ def _control(
 
 
 def draw_rows(
-    family: str, frame: pd.DataFrame, fold_seed: int, where: tuple[int, int, int]
+    family: str, label: str, frame: pd.DataFrame, fold_seed: int, where: tuple[int, int, int]
 ) -> list[dict[str, Any]]:
-    """The rows one draw of ``family`` writes."""
-    learner = FAMILY_LEARNERS[family]
+    """The rows one draw of ``(family, label)`` writes."""
+    learner = DRAW_LEARNERS[family, label]
     if family == LOCALITY_FAMILY:
         local, mutated = (
             law.measured(frame, learner, fold_seed, mutation=mutation) for mutation in (False, True)
         )
-        positive_cell, control_cell = PROPERTY_CELLS[family]
+        positive_cell, control_cell = _label_cells(family, label)
         return [
             _positive(family, positive_cell, where, local),
             _positive(family, control_cell, where, mutated, role="control"),
@@ -219,7 +232,7 @@ def draw_rows(
     point, std_error = float(fitted.estimate.psi), float(fitted.estimate.std_error)
     if family == "interval_calibration":
         return [_positive(family, f"{CALIBRATION_LABELS[0]}__{POSITIVE}", where, fitted)]
-    positive_cell, control_cell = PROPERTY_CELLS[family]
+    positive_cell, control_cell = _label_cells(family, label)
     if family == COVERAGE_FAMILY:
         control_point, control_se = point, COVERAGE_SHRINK * std_error
     elif family == NECESSITY_FAMILY:
@@ -233,8 +246,8 @@ def draw_rows(
 
 
 def _replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
-    family, _, replicate, n, requested, _, fold_seed, _ = key[0]
-    return draw_rows(family, frame, fold_seed, (replicate, n, requested))
+    family, label, replicate, n, requested, _, fold_seed, _ = key[0]
+    return draw_rows(family, label, frame, fold_seed, (replicate, n, requested))
 
 
 def _payloads(record: StudyRecord, cap: int | None) -> list[_Key]:
@@ -314,7 +327,7 @@ def generate_property_rows(
 #: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
 TARGETING_NECESSITY = property_verdicts.Necessity(
     family=NECESSITY_FAMILY,
-    labels=(NECESSITY_LABEL,),
+    labels=NECESSITY_LABELS,
     arms=NECESSITY_ARMS,
     column="targeting_displacement",
     threshold=TARGETING_DISPLACEMENT,

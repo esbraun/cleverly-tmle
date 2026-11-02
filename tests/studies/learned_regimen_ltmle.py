@@ -1,8 +1,8 @@
 r"""Registered evidence for the learned two-node regimen of ``LTMLE`` (X11 (b)).
 
 The subject is ``LTMLE(LearnedRegimen(), n_folds=10, random_state=<fold seed>)`` with the
-study's learners and every other setting at the constructor's default, on a censored two-node panel with a binary
-treatment at each node and an end-of-study binary outcome. Each training fold ``v`` learns the
+study's learners and every other setting at the constructor's default, on a censored two-node
+panel with a binary treatment at each node and an end-of-study binary outcome. Each training fold ``v`` learns the
 rule pair :math:`d_{nv}` by backward plug-in Q-learning inside its own untargeted recursion, each
 validation row is evaluated under its own fold's pair, and the fit reports the stacked value
 ``ey_regimen[learned regimen]``, whose target is the data-adaptive
@@ -15,6 +15,12 @@ has a margin (the blip's slope is 1.2 at node 2; the node-1 value gap has a nonz
 ``W1``). The optimal value is 0.557923 and the best static regimen's 0.4600. Every cell is at
 n = 2,000. The truth of a row is the value of the fit's own fold rule pairs, by refit (rule L4)
 and quadrature over ``L2``, so the record declares ``truth_varies_by_replicate``.
+
+The node-2 learner is a correct model of each stratum ``(A1, A2)`` in the Q-learning that learns
+the rules. The estimator's own outcome regressions pool the followers' strata with no treatment
+column, so there the main-terms logistic and the cubic node-1 learner are approximations. The
+treatment and censoring models are correct in every cell, and coverage rests on them (JCI Cor 3:
+the curve omits ``D_g`` and is conservative).
 
 ``two_node``
     The primary scenario: the ``declared`` learners, one fit per replication. The primary gate
@@ -30,12 +36,12 @@ and quadrature over ``L2``, so the record declares ``truth_varies_by_replicate``
     control is the same estimate with its SE x 0.8, whose coverage must lie wholly below the
     floor.
 ``targeting_necessity``
-    ``drop_w1``: the node-1 learner on ``W2`` alone. The targeted value against the untargeted
-    plug-in, the sample mean of the stitched node-1 initial values. The plug-in's limit misses its
-    own rule pair's value by 0.0596, 2.65 SEs at n = 2,000, by quadrature. The learner's limit
-    arm contrast is only 0.015 to 0.027, so its rules flip between folds and its interval
-    under-covers; no verdict of this family reads coverage (the design record says why the
-    learner moved out of ``conservative_coverage``).
+    Two labels, each with its own draws: the targeted value against the untargeted plug-in, the
+    mean of the estimator's stitched node-1 initial values. ``squared_w1``: the Q-learning
+    plug-in's limit bias is 2.17 SEs at n = 2,000, by quadrature; the untargeted control reads
+    the estimator's own node-1 regression, a different regression, whose bias is measured, not
+    pinned. ``two_node``: the declared learners, whose plug-in bias at n = 2,000 is a
+    finite-sample bias with a limit of about 0, not a confounding bias.
 ``fold_locality``
     The declared learners on one sample and fold seed twice: the fit (``fold_local``) against the
     same fit with each fold's rules learned on its validation rows (``validation_rows``, RM30's
@@ -87,9 +93,9 @@ CALIBRATION_LABELS = (law.LAW,)
 #: recomputes it.
 EFFICIENCY_BOUNDS = {law.LAW: 0.894934}
 
-#: The misspecified node-1 learners (plan section 8: "a misspecified node-1 learner with g
-#: correct"). ``conservative_coverage`` reads ``squared_w1``, least squares on ``(W1^2, W2)``;
-#: ``targeting_necessity`` reads ``drop_w1``, least squares on ``W2`` alone.
+#: The misspecified node-1 learner (plan section 8: "a misspecified node-1 learner with g
+#: correct"): ``squared_w1``, least squares on ``(W1^2, W2)``. ``conservative_coverage`` and one
+#: ``targeting_necessity`` label read it.
 COVERAGE_FAMILY = "conservative_coverage"
 COVERAGE_LABEL = "squared_w1"
 #: The ``conservative_coverage`` control: the same estimate with its SE times this factor.
@@ -97,7 +103,10 @@ COVERAGE_CONTROL = "shrunken_coverage_control"
 COVERAGE_SHRINK = 0.80
 
 NECESSITY_FAMILY = "targeting_necessity"
-NECESSITY_LABEL = "drop_w1"
+#: ``squared_w1``, whose plug-in is biased in the limit, and the declared learners, whose plug-in
+#: bias at n = 2,000 is a finite-sample bias with a limit of about 0 (design review, findings 4
+#: and 5).
+NECESSITY_LABELS = ("squared_w1", law.LAW)
 NECESSITY_ARMS = ("targeted", "untargeted")
 
 LOCALITY_FAMILY = "fold_locality"
@@ -109,7 +118,9 @@ PROPERTY_CELLS = {
         f"{law.LAW}__{kind}" for kind in (POSITIVE, "shrunken_se_control", "noise_control")
     ),
     COVERAGE_FAMILY: tuple(f"{COVERAGE_LABEL}__{kind}" for kind in (POSITIVE, COVERAGE_CONTROL)),
-    NECESSITY_FAMILY: tuple(f"{NECESSITY_LABEL}__{arm}" for arm in NECESSITY_ARMS),
+    NECESSITY_FAMILY: tuple(
+        f"{label}__{arm}" for label in NECESSITY_LABELS for arm in NECESSITY_ARMS
+    ),
     LOCALITY_FAMILY: tuple(f"{LOCALITY_LABEL}__{arm}" for arm in LOCALITY_ARMS),
 }
 
@@ -123,11 +134,14 @@ PROPERTY_CELLS = {
 #: these verdicts pass as declared: the primary performance tests (bias leg, coverage floor, SE
 #: sanity); the ``interval_calibration`` verdicts, the positive and both controls; the
 #: ``conservative_coverage`` verdicts, the positive and its control; the ``targeting_necessity``
-#: verdicts; and the ``fold_locality`` verdicts.
+#: verdicts of both labels (``squared_w1`` and ``two_node``); and the ``fold_locality`` verdicts.
+#: Neither ``n`` nor the fold count is in the key, so the limits must name ten folds and
+#: n = 2,000.
 #:
 #: The row would not cover a continuous outcome with ``q_bounds=``, declared node bounds,
-#: ``ratio_trim=``, a stopping rule or a known mechanism (admitted experimental at fit and keyed
-#: apart), nor a misspecified treatment or censoring model: no cell measures them. Every refused
+#: ``ratio_trim=``, an uncensored panel or a known mechanism (admitted experimental and keyed
+#: apart), a stopping rule (admitted experimental through its fit condition, with G47's key), nor
+#: a misspecified treatment or censoring model: no cell measures them. Every refused
 #: composition of the implementation (more than two nodes, ``repeats > 1``, ``n_folds=1``,
 #: ``weights=``, ``id=``, a selector as the node-1 regression, ...) stays refused. A red cell is
 #: diagnosed before any route is chosen; with no defect found it is published red under
@@ -200,7 +214,11 @@ CONFIGURATION = {
         "node-1 regression of Qbar2 at the branch rule; a tie to arm 0"
     ),
     "learners": {
-        "node_2": "LogisticRegression(C=1e6, max_iter=1000) per stratum (A1, A2) on (W1, W2, L2)",
+        "node_2": (
+            "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2, L2): per stratum (A1, A2) "
+            "in the Q-learning, a correct model there; on the followers pooled over the strata, "
+            "with no treatment column, in the estimator's own regression, an approximation"
+        ),
         "declared_node_1": (
             "Pipeline(PolynomialFeatures(3), LinearRegression()) on (W1, W2) per first-node arm"
         ),
@@ -208,25 +226,31 @@ CONFIGURATION = {
             "ColumnTransformer(FunctionTransformer(np.square) on W1, passthrough W2) then "
             "LinearRegression() per first-node arm"
         ),
-        "drop_w1_node_1": (
-            "ColumnTransformer(passthrough W2) then LinearRegression() per first-node arm"
+        "treatment_and_censoring": (
+            "LogisticRegression(C=1e6, max_iter=1000), main terms, correct at both nodes; "
+            "coverage rests on them (JCI Cor 3)"
         ),
-        "treatment_and_censoring": "LogisticRegression(C=1e6, max_iter=1000), main terms",
     },
     "law": (
         "W1 ~ U(-1, 1), W2 ~ Bernoulli(0.5); logit g1 = 0.8 W1 - 0.3 W2; logit P(C1 = 1) = 2.5 "
         "+ 0.3 W1; L2 ~ N(0.5 W1 + 0.2 W2 - 0.8 A1, 1); logit g2 = -0.2 + 0.3 L2 + 0.4 A1; "
         "logit P(C2 = 1) = 2.5 - 0.2 L2; logit Qbar0 = -0.2 + 0.6 W1 - 0.2 W2 + 0.3 L2 + a2 "
-        "(-0.1 + 1.2 L2 - 0.6 a1) + a1 (0.3 + 1.2 W1)"
+        "(-0.1 + 1.2 L2 - 0.6 a1) + a1 (0.3 + 1.2 W1). Each stratum (a1, a2) is logistic in "
+        "(W1, W2, L2), so the Q-learning's node-2 model is correct; among the followers of a "
+        "learned pair the estimator's regressions glue the strata at the learned thresholds, "
+        "which neither the logistic nor the cubic represents"
     ),
     "cells": {
         "declared": (
             "the primary (two_node), interval_calibration two_node (SE x 0.80 and noise "
-            "controls) and fold_locality (the fold-local fit against rules learned on each "
+            "controls), targeting_necessity two_node (targeted value against the untargeted "
+            "plug-in) and fold_locality (the fold-local fit against rules learned on each "
             "fold's validation rows)"
         ),
-        "squared_w1": "conservative_coverage (SE x 0.80 coverage control)",
-        "drop_w1": "targeting_necessity (targeted value against the untargeted plug-in)",
+        "squared_w1": (
+            "conservative_coverage (SE x 0.80 coverage control) and targeting_necessity "
+            "squared_w1 (targeted value against the untargeted plug-in)"
+        ),
     },
     "variance": "sum_i (Z_i - psi)^2 / (n (n - 1)) of the stacked curve centred at the estimate",
     "truth": (
