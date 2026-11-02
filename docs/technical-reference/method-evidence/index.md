@@ -83,6 +83,7 @@ learned-rule-in-sample
 learned-rule-contrast
 learned-rule-arms
 learned-rule-optimal-value
+learned-rule-intermediate
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 point-modified-treatment-policies

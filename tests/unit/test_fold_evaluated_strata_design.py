@@ -453,6 +453,8 @@ def _other_x11_sample_seeds() -> set[int]:
     from tests.studies import learned_rule_cvtmle_properties as gated_properties
     from tests.studies import learned_rule_in_sample as f2
     from tests.studies import learned_rule_in_sample_properties as f2_properties
+    from tests.studies import learned_rule_intermediate as j
+    from tests.studies import learned_rule_intermediate_properties as j_properties
     from tests.studies import learned_rule_learners as learners
     from tests.studies import learned_rule_learners_properties as learner_properties
     from tests.studies import learned_rule_optimal_value as i
@@ -476,6 +478,7 @@ def _other_x11_sample_seeds() -> set[int]:
         (g, g.PRIMARY_REPLICATES, g_properties),
         (h, h.PRIMARY_REPLICATES, h_properties),
         (i, i.PRIMARY_REPLICATES, i_properties),
+        (j, j.PRIMARY_REPLICATES, j_properties),
     ):
         seeds |= base.declared_sample_seeds(
             record.STUDY, primary, module.PROPERTY_DRAWS, module.suffixes(record.STUDY)
