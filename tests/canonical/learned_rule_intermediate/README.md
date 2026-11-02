@@ -17,8 +17,8 @@ intermediate `Z`, each `ey_learned_rule[learned rule]`. Each level learns its ow
 | learners | outcome: RM30's logistic regression on every pairwise product of `(A, W1, W2, Z)`, a correct model of the law. treatment: RM30's logistic regression on `(W1, W2)`; intermediate: a main-terms logistic regression on `(A, W1, W2)`, correct for the law. Both are fitted in every cell |
 | primary | `cde_z0` and `cde_z1`, 1,200 replications at n = 2,000. One fit writes both levels' rows from one sample. Each level reads the bias leg, the coverage floor and the SE sanity band |
 | `interval_calibration`, learned | `learned_z0` and `learned_z1`, 20,000 draws: the positive, the shrunken-SE control (x0.80), the noise control (one bound unit) and `term_dropped_control`, the same estimate with the SE of the curve rebuilt without `1{Z = z} / q`. Each control must fall below the SE-ratio band |
-| `interval_calibration`, known rule | `known_z0` and `known_z1`, 20,000 draws of the known rule `1{W1 > 0}` through the same fold-evaluated path: the positive, the shrunken-SE and the noise controls. Witness W-j1 reduces the learned fit to this path bit for bit. The known-rule values are 0.576491 and 0.581904, the bounds 1.105274 and 0.855360 |
-| `targeting_necessity` | the `drop_w1` learner (no `W1` in the outcome model) at each level, 1,200 draws: the targeted value against the untargeted fold average of the initial plug-ins. The plug-in's limit bias is 0.098 at `z = 0` (3.27 SEs) and -0.025 at `z = 1` (-1.17 SEs) by quadrature. The displacement must be at least 0.5 positive-arm SDs at both levels |
+| `interval_calibration`, known rule | `known_z0` and `known_z1`, 10,000 draws of the known rule `1{W1 > 0}` through the same fold-evaluated path: the positive, the shrunken-SE, the noise and the term-dropped controls. Witness W-j1 reduces the learned fit to this path bit for bit. The known-rule values are 0.576491 and 0.581904, the bounds 1.105274 and 0.855360 |
+| `targeting_necessity` | the `drop_w1` learner (no `W1` in the outcome model) at each level, 1,200 draws: the targeted value against the untargeted fold average of the initial plug-ins. The plug-in's limit bias is 0.098 at `z = 0` (3.27 SEs) and -0.025 at `z = 1` (-1.17 SEs) by the trapezoid rule. The displacement must be at least 0.5 positive-arm SDs at both levels |
 | verdicts | the framework defaults on the error `estimate - psi~^z_0n`, `calibration_rule` without an efficiency band, and the necessity rules |
 | comparator | none: no external package fits a learned rule with an intermediate held fixed |
 
@@ -34,46 +34,57 @@ keys read experimental now, with splitting `fold_evaluated` and missing `interme
   `interval_calibration` verdict (positive, shrunken, noise and term-dropped controls) pass,
   and the `targeting_necessity` verdict passes.
 - Known rule, family P5. The registering change adds this row if and only if every `known_z0`
-  and `known_z1` `interval_calibration` verdict passes. It is the measured path that W-j1
-  reduces the learned fit to.
+  and `known_z1` `interval_calibration` verdict (positive and the same three controls) passes.
+  It is the measured path that W-j1 reduces the learned fit to. The study measures one dynamic
+  rule's value, `1{W1 > 0}`, but the P5 key does not tell a value from a contrast or a static
+  regime from a dynamic one. Once added, the key also covers static regimes, contrasts between
+  known regimes and any deterministic rule with a binary intermediate on the fold-evaluated
+  path, and none of those is measured. T19, where one dynamic-rule cell backs P5, is the
+  precedent.
 
 A red cell is diagnosed before a route is chosen. With no defect found, it is published red
-under `reporting` with an owner row, and its row is not added. One law, ten folds, no weights,
-two arms, a binary intermediate, the plug-in rule and `repeats=1` are what either row covers.
+under `reporting` with an owner row, and its row is not added. Neither row covers weights,
+clusters, strata, fold targeting, repeats, the stacked or in-sample report, more than two arms
+or a rule learner. A non-binary intermediate is refused at fit (X63).
 
 ## Sizing
 
-Each gated count is the smallest multiple of 400, at least 1,200, whose predictive pass
-probability under the declared rule reaches 0.95. The rules were fixed before the pilot, and the
-probe rule before the probe (`test_learned_rule_intermediate_design` recomputes every count).
+The plan's rule is the per-cell predictive rule: each count is the smallest multiple of 400, at
+least 1,200, whose predictive pass probability reaches 0.95, with each calibration draw's two
+levels at a product of at least 0.975. `test_learned_rule_intermediate_design` recomputes every
+count from the pinned pilot readings.
 
-- Primary: both levels' bias legs times their coverage floors. The 4,000-draw pilot gives 1,200
-  (0.957), and so do the 8,000 draws pooled with the probe.
-- Calibration: each draw's two levels at a product of at least 0.975, read by the per-cell rule
-  (SE-ratio leg times coverage band) and by the arm-pooled rule over the two levels, taking the
-  larger. The per-cell rule gives no learned count on the pilot (SE ratio 0.959 at `z = 1`),
-  7,200 on the pooled draws, and 10,000 for the known rule. The arm-pooled rule gives no count
-  up to 40,000 for either draw, so the declared fallback holds both at the run-time budget:
-  20,000 each.
+- Primary: 1,200, both levels' bias legs times their coverage floors.
+- Learned calibration: 20,000. The per-cell rule gives no count on the first 4,000-draw pilot.
+  The probe rule, fixed before the probe, then reads the 8,000 draws pooled with a second pilot
+  and sets the count at the run-time budget. The per-cell rule alone gives 7,200 on the pooled
+  draws.
+- Known calibration: 10,000, the per-cell rule on the pilot.
+- The arm-pooled rule (`replicates_from_pilot`) was declared beside the per-cell rule. With two
+  arms it returns no count on a 4,000-draw pilot even at a mean SE ratio of exactly 1, so it is
+  withdrawn as a sizing rule on that condition. The two levels are different settings, which is
+  the case `per_arm_replicates` is for.
 - Controls: each lies wholly below the SE-ratio band at its count with probability above 0.999.
-- Necessity: 1,200, the floor. The pilot's displacements are 3.04 and 1.16 SDs.
+- Necessity: 1,200, the floor.
 
 ## What registration must state
 
 - Each level's interval targets the value of that level's own learned rule, not the value of
   the optimal rule at that level.
-- The claim holds on one law with a correct outcome model and the intermediate binary.
-- The term-dropped control's failure shows that the factor `1{Z = z} / q` is needed for valid
-  intervals, and the necessity cell that targeting is needed when the outcome model leaves out a
-  confounder.
-- Quote the first pilot's low SE ratio at `z = 1` (0.959) beside the probe's (1.003).
+- The claim holds on one law with correct outcome, treatment and intermediate models and a
+  binary intermediate.
+- The term-dropped controls show that the factor `1{Z = z} / q` is needed for valid intervals,
+  on the learned and the known cells. The necessity cell shows that targeting is needed when the
+  outcome model leaves out a confounder.
+- Quote the published SE ratio of each learned level with its 99% interval. The pilot readings
+  are in the design record, not on the page.
 
 ## Run
 
 A declared run takes `--output`, `--jobs` and `--fresh` only, on the Python and package versions
 that rule L7 of `tests/canonical/learned_rule_run.py` declares, with one thread per numerical
-library. The run fits 42,400 draws: about 13,600 core-seconds on the pilot timings, or roughly
-57 minutes at four jobs.
+library. The run fits 32,400 draws: about 11,600 core-seconds on the pilot timings, or roughly
+48 minutes of fitting at four jobs. With the summary bootstraps, allow 60 to 70 minutes.
 
 ```bash
 python -u -m tests.canonical.learned_rule_intermediate.regenerate --jobs 4 --output <empty scratch directory>

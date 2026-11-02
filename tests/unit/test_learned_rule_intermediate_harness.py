@@ -358,14 +358,14 @@ class TestThePropertyPath:
         ("lost", "cost"),
         [
             (("interval_calibration", "learned", 1), 8),
-            (("interval_calibration", "known", 1), 6),
+            (("interval_calibration", "known", 1), 8),
             (("targeting_necessity", "drop_w1", 1), 4),
         ],
     )
     def test_a_lost_fit_costs_every_cell_it_writes(
         self, lost: tuple[str, str, int], cost: int, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A lost learned draw costs both levels' positives, derived and direct controls."""
+        """A lost calibration draw costs both levels' positives, derived and direct controls."""
         cached = _property_rows()
         derived = {c.split("/", 1)[1] for cs in properties.DERIVED_CELLS.values() for c in cs}
 

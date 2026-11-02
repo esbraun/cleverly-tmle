@@ -99,9 +99,11 @@ def test_the_cells() -> None:
             "known_z0__declared",
             "known_z0__shrunken_se_control",
             "known_z0__noise_control",
+            "known_z0__term_dropped_control",
             "known_z1__declared",
             "known_z1__shrunken_se_control",
             "known_z1__noise_control",
+            "known_z1__term_dropped_control",
         ),
         "targeting_necessity": (
             "drop_w1_z0__targeted",
@@ -360,6 +362,12 @@ PILOT: dict[str, dict[str, float]] = {
     "known_z1": {"ratio": 1.007526, "bias": -0.007243, "coverage": 0.94775},
 }
 
+#: The probe of the learned cell alone (label 20270823, 4,000 draws).
+PROBE: dict[str, dict[str, float]] = {
+    "learned_z0": {"ratio": 0.985138, "bias": -0.021645, "coverage": 0.949},
+    "learned_z1": {"ratio": 1.003485, "bias": -0.008765, "coverage": 0.9525},
+}
+
 #: The learned cell on the 8,000 draws of the pilot and the probe pooled.
 POOLED: dict[str, dict[str, float]] = {
     "learned_z0": {"ratio": 0.981517, "bias": -0.018756, "coverage": 0.947625},
@@ -369,7 +377,7 @@ POOLED: dict[str, dict[str, float]] = {
 POOLED_DRAWS = 8_000
 
 #: The controls on the pilot, (SE ratio, coverage): the shrunken SE (x0.80), the noise (one bound
-#: unit) and, for the learned labels, the curve without ``1{Z = z} / q``.
+#: unit) and the curve without ``1{Z = z} / q``.
 PILOT_CONTROLS: dict[str, dict[str, tuple[float, float]]] = {
     "learned_z0": {
         "shrunken": (0.782255, 0.87125),
@@ -381,8 +389,16 @@ PILOT_CONTROLS: dict[str, dict[str, tuple[float, float]]] = {
         "noise": (0.694146, 0.82625),
         "term_dropped": (0.712463, 0.837),
     },
-    "known_z0": {"shrunken": (0.817889, 0.892), "noise": (0.720621, 0.84425)},
-    "known_z1": {"shrunken": (0.806021, 0.88275), "noise": (0.712760, 0.83675)},
+    "known_z0": {
+        "shrunken": (0.817889, 0.892),
+        "noise": (0.720621, 0.84425),
+        "term_dropped": (0.6157, 0.7790),
+    },
+    "known_z1": {
+        "shrunken": (0.806021, 0.88275),
+        "noise": (0.712760, 0.83675),
+        "term_dropped": (0.7779, 0.8688),
+    },
 }
 
 #: The necessity pilot at each level: the targeted positive's standardized bias, the untargeted
@@ -534,12 +550,6 @@ def control_pass(ratio: float, replicates: int, pilot: int = PILOT_DRAWS) -> flo
 LEARNED = ("learned_z0", "learned_z1")
 KNOWN = ("known_z0", "known_z1")
 
-#: Core-seconds per fit on the pilot (truth and harness included, four jobs on shared cores).
-SECONDS = {"learned": 0.42, "known": 0.207, "drop_w1": 0.485}
-
-#: The run-time budget: about an hour at four jobs.
-BUDGET = 4 * 3_600
-
 
 def test_the_primary_count() -> None:
     assert study.PRIMARY_REPLICATES == _smallest(primary_pass) == 1_200
@@ -547,42 +557,55 @@ def test_the_primary_count() -> None:
     assert primary_pass(1_200) == pytest.approx(0.957, abs=1e-3)
 
 
-def test_the_learned_count_falls_back_to_the_budget() -> None:
-    """The per-cell rule has no count on the pilot and 7,200 on the pooled draws; the arm-pooled
-    rule has none on either, so the declared fallback sets the run-time budget."""
+def test_the_arm_pooled_rule_cannot_size_two_arms() -> None:
+    """With two arms the 80% bound on ``tau`` is about 2.5 ``sigma_P``, so on a 4,000-draw pilot
+    the arm-pooled rule returns no count even at a mean ratio of exactly 1. It is withdrawn as a
+    sizing rule on that condition, which holds before any draw."""
+    assert tools.tau_upper(4_000, 2) == pytest.approx(2.467 * tools.pilot_sigma(4_000), rel=1e-3)
+    assert tools.smallest_replicates(1.0, 4_000, 2)[0] is None
+    for readings, labels, pilot in (
+        (PILOT, LEARNED, PILOT_DRAWS),
+        (POOLED, LEARNED, POOLED_DRAWS),
+        (PILOT, KNOWN, PILOT_DRAWS),
+    ):
+        assert arm_pooled(readings, labels, pilot)["R"] is None
+
+
+def test_the_learned_count_is_the_probe_rules_fallback() -> None:
+    """The per-cell rule has no count on the first pilot, which triggers the probe rule's fallback
+    (the run-time budget); 20,000 is at least the per-cell count on every reading that gives
+    one."""
     with pytest.raises(AssertionError, match="no count"):
         _smallest(lambda r: draw_pass(LEARNED, r), 0.975)
-    assert _smallest(lambda r: draw_pass(LEARNED, r, POOLED, POOLED_DRAWS), 0.975) == 7_200
-    first = arm_pooled(PILOT, LEARNED, PILOT_DRAWS)
-    assert first["screened"] == [True, False] and first["R"] is None
-    pooled = arm_pooled(POOLED, LEARNED, POOLED_DRAWS)
-    assert pooled["R"] is None and pooled["family_wise"] == pytest.approx(0.940, abs=1e-3)
-    assert properties.LEARNED_REPLICATES == 20_000
-    assert draw_pass(LEARNED, 20_000, POOLED, POOLED_DRAWS) > 0.999
+    counts = {
+        "pooled": _smallest(lambda r: draw_pass(LEARNED, r, POOLED, POOLED_DRAWS), 0.975),
+        "probe": _smallest(lambda r: draw_pass(LEARNED, r, PROBE, PILOT_DRAWS), 0.975),
+    }
+    assert counts["pooled"] == 7_200
+    assert properties.LEARNED_REPLICATES == 20_000 >= max(counts.values())
 
 
-def test_the_known_count_falls_back_to_the_budget() -> None:
-    assert _smallest(lambda r: draw_pass(KNOWN, r), 0.975) == 10_000
-    assert tools.per_arm_replicates([PILOT[label]["ratio"] for label in KNOWN], 4_000)["R"] == 7_600
-    pooled = arm_pooled(PILOT, KNOWN, PILOT_DRAWS)
-    assert pooled["R"] is None and pooled["family_wise"] == pytest.approx(0.698, abs=1e-3)
-    assert properties.KNOWN_REPLICATES == properties.LEARNED_REPLICATES
-    assert draw_pass(KNOWN, properties.KNOWN_REPLICATES) > 0.99
+def test_the_honest_predicted_pass_of_the_learned_draw() -> None:
+    """The product over the two levels at 7,200 and 20,000 under each predictive reading."""
+    for replicates, pooled, probe, first, known in (
+        (7_200, 0.978, 0.982, 0.592, 0.744),
+        (20_000, 0.9998, 0.9992, 0.868, 0.998),
+    ):
+        tolerance = 1e-3 if replicates == 7_200 else 5e-4
+        assert draw_pass(LEARNED, replicates, POOLED, POOLED_DRAWS) == pytest.approx(
+            pooled, abs=tolerance
+        )
+        assert draw_pass(LEARNED, replicates, PROBE, PILOT_DRAWS) == pytest.approx(
+            probe, abs=tolerance
+        )
+        assert draw_pass(LEARNED, replicates, PILOT) == pytest.approx(first, abs=1e-3)
+        assert draw_pass(LEARNED, replicates, PILOT, None) == pytest.approx(known, abs=1e-3)
 
 
-def test_the_budget_holds_the_run() -> None:
-    """The two calibration draws at one count, the largest multiple of 2,000 inside the budget."""
-    fixed = (study.PRIMARY_REPLICATES * SECONDS["learned"]) + (
-        properties.NECESSITY_REPLICATES * SECONDS["drop_w1"]
-    )
-    per_draw = SECONDS["learned"] + SECONDS["known"]
-
-    def cost(replicates: int) -> float:
-        return fixed + replicates * per_draw
-
-    assert (
-        cost(properties.LEARNED_REPLICATES) <= BUDGET < cost(properties.LEARNED_REPLICATES + 2_000)
-    )
+def test_the_known_count() -> None:
+    """The per-cell rule on the pilot; the fallback names the learned levels only."""
+    assert properties.KNOWN_REPLICATES == _smallest(lambda r: draw_pass(KNOWN, r), 0.975) == 10_000
+    assert draw_pass(KNOWN, 10_000) == pytest.approx(0.9756, abs=1e-4)
 
 
 def test_the_stress_test() -> None:
@@ -598,7 +621,8 @@ def test_the_controls_fail_at_the_declared_counts() -> None:
             assert control_pass(ratio, counts[label.split("_")[0]]) >= 0.999, label
             assert ratio < study.STUDY.margins.calibration_se_ratio[0]
             assert coverage < study.STUDY.margins.calibration_coverage[0]
-    assert set(PILOT_CONTROLS["learned_z0"]) == {"shrunken", "noise", "term_dropped"}
+    for controls in PILOT_CONTROLS.values():
+        assert set(controls) == {"shrunken", "noise", "term_dropped"}
 
 
 def test_the_necessity_count() -> None:
@@ -609,4 +633,4 @@ def test_the_necessity_count() -> None:
 
 
 #: The sample seeds a declared run draws.
-TOTAL_SEEDS = 42_400
+TOTAL_SEEDS = 32_400

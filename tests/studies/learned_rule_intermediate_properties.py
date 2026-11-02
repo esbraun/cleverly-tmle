@@ -9,8 +9,8 @@ fold-evaluated, with ten folds and pooled targeting, and reports both levels of 
     (``known_z0__declared``, ``known_z1__declared``), each with the two derived controls of
     :func:`~tests.studies.evidence.property_verdicts.calibration_controls`: the SE shrunken by
     :data:`SHRUNKEN_SE_FACTOR`, and noise of one efficiency-bound unit added to each estimate. Each
-    learned level also has the ``term_dropped_control``: the same estimate with the SE of its
-    curve rebuilt without :math:`1\\{Z = z\\}/q`, which must fall below the SE-ratio band.
+    level of both draws also has the ``term_dropped_control``: the same estimate with the SE of
+    its curve rebuilt without :math:`1\\{Z = z\\}/q`, which must fall below the SE-ratio band.
 ``targeting_necessity``
     The ``drop_w1`` learner at each level: the targeted value against the untargeted fold average
     of the initial plug-ins.
@@ -67,16 +67,16 @@ from tests.studies.learned_rule_intermediate import (
 base = law.base
 
 CALIBRATION_N = PRIMARY_N
-#: The learned draws of ``interval_calibration`` (both levels). The per-cell product rule (a
-#: product of at least 0.975 over the two levels) gives no count up to 40,000 on the 4,000-draw
-#: pilot and 7,200 on the 8,000 draws pooled with the probe. The arm-pooled rule over the two
-#: levels gives no count up to 40,000 on either, so the declared fallback sets the count at the
-#: run-time budget: the two calibration draws at one count, the run within about an hour at four
-#: jobs (``test_learned_rule_intermediate_design``).
+#: The learned draws of ``interval_calibration`` (both levels): the probe rule's fallback, fixed
+#: before the pooled reading it applies to, sets the count at the run-time budget. The per-cell
+#: rule (a product of at least 0.975 over the two levels) alone gives no count up to 40,000 on
+#: the 4,000-draw pilot and 7,200 on the 8,000 draws pooled with the probe
+#: (``test_learned_rule_intermediate_design``).
 LEARNED_REPLICATES = 20_000
-#: The known-rule draws of ``interval_calibration`` (both levels): the per-cell product rule
-#: gives 10,000 on the pilot, the arm-pooled rule no count up to 40,000, so the same fallback.
-KNOWN_REPLICATES = 20_000
+#: The known-rule draws of ``interval_calibration`` (both levels): the per-cell rule on the
+#: 4,000-draw pilot (0.976). The arm-pooled rule returns no count for two arms on a pilot of this
+#: size at any mean, and the fallback names the learned levels only.
+KNOWN_REPLICATES = 10_000
 #: The ``targeting_necessity`` draws: the smallest multiple of 400, at least 1,200, whose
 #: predictive probability that both positives' bias legs, both controls' discrimination legs and
 #: the displacement pass is at least 0.95 on the 4,000-draw pilot.
@@ -136,8 +136,7 @@ def draw_cells(label: str) -> list[str]:
         name = f"{label}_z{int(z)}"
         positive = f"interval_calibration/{name}__{POSITIVE}"
         written += [positive, *DERIVED_CELLS[positive]]
-        if label == LEARNED_DRAW:
-            written.append(f"interval_calibration/{name}__{TERM_DROPPED}")
+        written.append(f"interval_calibration/{name}__{TERM_DROPPED}")
     return written
 
 
@@ -212,17 +211,16 @@ def draw_rows(fitted: law.Measured, label: str, where: tuple[int, int, int]) -> 
             written.append(
                 _positive("interval_calibration", f"{name}__{POSITIVE}", where, truth, estimate)
             )
-            if label == LEARNED_DRAW:
-                written.append(
-                    _control(
-                        "interval_calibration",
-                        f"{name}__{TERM_DROPPED}",
-                        where,
-                        truth,
-                        float(estimate.psi),
-                        fitted.truths[z].dropped_std_error,
-                    )
+            written.append(
+                _control(
+                    "interval_calibration",
+                    f"{name}__{TERM_DROPPED}",
+                    where,
+                    truth,
+                    float(estimate.psi),
+                    fitted.truths[z].dropped_std_error,
                 )
+            )
         for row in written:
             row.update(columns)
         rows += written

@@ -26,7 +26,7 @@ refit (rule L4) and quadrature, so the record declares ``truth_varies_by_replica
     rebuilt without the factor :math:`1\{Z = z\}/q`, which must fall below the SE-ratio band
     (witness W-j3's mutation, an invalid-inference control). ``known_z0`` and ``known_z1``, the
     known rule ``1{W1 > 0}`` through the same fold-evaluated controlled-direct-effect path, with
-    the SE x 0.8 and noise controls: the first registered evidence for that path, which witness
+    the same three controls: the first registered evidence for that path, which witness
     W-j1 reduces the learned fit to bit for bit, so W-j1 becomes a reduction to a measured path.
 ``targeting_necessity``
     The ``drop_w1`` learner at each level: the targeted value against the untargeted fold
@@ -92,8 +92,8 @@ EFFICIENCY_BOUNDS = {
     "known_z1": 0.855360,
 }
 
-#: The invalid-inference control of each learned label: the same estimate, with the SE of the
-#: curve without ``1{Z = z} / q``. It must lie wholly below the SE-ratio band.
+#: The invalid-inference control of each calibration label, learned and known: the same estimate,
+#: with the SE of the curve without ``1{Z = z} / q``. It must lie wholly below the SE-ratio band.
 TERM_DROPPED = "term_dropped_control"
 
 #: The bias control (plan section 7): the ``drop_w1`` learner at each level. The positive arm is
@@ -107,13 +107,8 @@ PROPERTY_CELLS = {
     "interval_calibration": (
         *(
             f"{label}__{kind}"
-            for label in LEARNED_LABELS
+            for label in CALIBRATION_LABELS
             for kind in (POSITIVE, "shrunken_se_control", "noise_control", TERM_DROPPED)
-        ),
-        *(
-            f"{label}__{kind}"
-            for label in KNOWN_LABELS
-            for kind in (POSITIVE, "shrunken_se_control", "noise_control")
         ),
     ),
     NECESSITY_FAMILY: tuple(
@@ -131,11 +126,17 @@ PROPERTY_CELLS = {
 #:
 #: ``known``: the P5 row of a known regime through the fold-evaluated controlled-direct-effect
 #: path, ``missing=("intermediate",)``. Added if, and only if, the ``known_z0`` and ``known_z1``
-#: calibration verdicts pass, positive and both controls.
+#: calibration verdicts pass, positive and all three controls. The study measures one dynamic
+#: rule's value, ``1{W1 > 0}``, but the P5 key does not tell a value from a contrast or a static
+#: regime from a dynamic one: once added, the row's key also covers static regimes, contrasts
+#: between known regimes, and any deterministic rule with a binary intermediate on the
+#: fold-evaluated path, none of them measured (the precedent is T19, where one dynamic-rule cell
+#: backs P5).
 #:
 #: Neither row covers weights, clusters, strata, fold targeting, repeats, the stacked report,
 #: the in-sample fit, more than two arms, known regimes beside the learned rule, missing
-#: outcomes or a rule learner. A red cell is diagnosed before any route is chosen; with no
+#: outcomes or a rule learner. A non-binary intermediate is refused at fit (``DataError``, X63).
+#: A red cell is diagnosed before any route is chosen; with no
 #: defect found it is published red under ``reporting`` with an owner row, and its row is not
 #: added.
 SUPPORT_ROWS = {
@@ -234,10 +235,15 @@ CONFIGURATION = {
             "the primary (cde_z0, cde_z1) and interval_calibration learned_z0, learned_z1 (SE x "
             "0.80, noise and term_dropped controls)"
         ),
-        "known": "interval_calibration known_z0, known_z1 (SE x 0.80 and noise controls)",
+        "known": (
+            "interval_calibration known_z0, known_z1 (SE x 0.80, noise and term_dropped controls)"
+        ),
         "drop_w1": "targeting_necessity: targeted value against the untargeted plug-in",
     },
-    "variance": "V^-2 sum_v n_v^-2 sum_{i in v} D_i^2 of the stored curve",
+    "variance": (
+        "V^-2 sum_v n_v^-2 sum_{i in v} D_i^2 of the raw fold curves, uncentred within each "
+        "fold (JCI App B)"
+    ),
     "term_dropped": (
         "the same variance of the curve with H = 1{A = d} / g, without 1{Z = z} / q; the "
         "harness also requires the curve with the factor to give the reported variance within "
