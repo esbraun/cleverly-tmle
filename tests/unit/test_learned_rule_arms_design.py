@@ -357,6 +357,8 @@ def _other_studies() -> list[StudyRecord]:
 def _x11_modules() -> list[tuple[Any, Any]]:
     from tests.studies import fold_evaluated_strata as e1
     from tests.studies import fold_evaluated_strata_properties as e1_properties
+    from tests.studies import learned_regimen_ltmle as k
+    from tests.studies import learned_regimen_ltmle_properties as k_properties
     from tests.studies import learned_rule_compositions as compositions
     from tests.studies import learned_rule_compositions_properties as composition_properties
     from tests.studies import learned_rule_contrast as g
@@ -387,6 +389,7 @@ def _x11_modules() -> list[tuple[Any, Any]]:
         (f2, f2_properties),
         (g, g_properties),
         (optimal, optimal_properties),
+        (k, k_properties),
     ]
 
 

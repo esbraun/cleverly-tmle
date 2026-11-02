@@ -60,13 +60,15 @@ def declared_sample_seeds() -> set[int]:
 
     That is every learned-rule study, ``learned-rule-strata`` (X11 PR E2),
     ``learned-rule-stacked`` (X11 PR F1), ``learned-rule-in-sample`` (X11 PR F2),
-    ``learned-rule-contrast`` (X11 PR G), ``learned-rule-arms`` (X11 PR H) and
-    ``learned-rule-optimal-value`` (X11 PR I) among them, and
-    ``fold-evaluated-strata``, whose target is not a learned rule: a smoke run of any of them
-    must avoid the declared seeds of all of them.
+    ``learned-rule-contrast`` (X11 PR G), ``learned-rule-arms`` (X11 PR H),
+    ``learned-rule-optimal-value`` (X11 PR I) and ``learned-regimen-ltmle`` (X11 PR K) among
+    them, and ``fold-evaluated-strata``, whose target is not a learned rule: a smoke run of any
+    of them must avoid the declared seeds of all of them.
     """
     from tests.studies import fold_evaluated_strata as strata
     from tests.studies import fold_evaluated_strata_properties as strata_properties
+    from tests.studies import learned_regimen_ltmle as regimen
+    from tests.studies import learned_regimen_ltmle_properties as regimen_properties
     from tests.studies import learned_rule_arms as arms
     from tests.studies import learned_rule_arms_properties as arms_properties
     from tests.studies import learned_rule_compositions as compositions
@@ -154,6 +156,12 @@ def declared_sample_seeds() -> set[int]:
         optimal.PRIMARY_REPLICATES,
         optimal_properties.PROPERTY_DRAWS,
         optimal_properties.suffixes(optimal.STUDY),
+    )
+    seeds |= law.declared_sample_seeds(
+        regimen.STUDY,
+        regimen.PRIMARY_REPLICATES,
+        regimen_properties.PROPERTY_DRAWS,
+        regimen_properties.suffixes(regimen.STUDY),
     )
     return seeds
 
