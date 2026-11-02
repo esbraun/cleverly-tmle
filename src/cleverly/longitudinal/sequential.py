@@ -228,6 +228,7 @@ __all__ = [
     "preflight_terminal_outcomes",
     "prepare_node",
     "seed_carried",
+    "stitch_fold_assignments",
     "untargeted_fold_recursions",
     "untargeted_recursion",
 ]
@@ -537,6 +538,10 @@ class _NodeRegression:
     #: the fold's own training tuner, which the fold's earlier regression reads.  ``None``
     #: when the fold carries ``initial_marginal``.
     carry_marginal: FloatArray | None = None
+    #: ``(n, K_t)`` predictions at every arm of a deterministic node, from the regression a
+    #: plan assigning that arm there fits, when the caller asked for them.  ``None``
+    #: elsewhere.
+    arm_predictions: FloatArray | None = None
     #: The in-sample fitted model, when the caller asked to keep it: the learner, a
     #: :class:`~cleverly.estimators._nuisance.ConstantFit`, or ``None`` at a node whose
     #: target held one value 0 or 1 on every fit row.
@@ -2657,6 +2662,7 @@ def _fit_node_regression(
     carry_plan: Plan | None = None,
     keep_model: bool = False,
     bound: NodeBound | None = None,
+    both_arms: bool = False,
 ) -> _NodeRegression:
     """Fit one node's regression without constructing targeting-only arrays.
 
@@ -2683,6 +2689,11 @@ def _fit_node_regression(
     ``(target - lower) / (upper - lower)`` with ``pseudo_learner``, clips the prediction to
     ``[0, 1]`` and maps it back to ``lower + (upper - lower) * p``.  ``None`` is the shipped
     regression.
+
+    ``both_arms=True`` also predicts a deterministic node at every arm
+    (:attr:`_NodeRegression.arm_predictions`, by :func:`_single_arm_predictions`).  The
+    node's own regression, ``initial`` and every other field are unchanged by it.  A policy
+    node refuses it: its per-arm predictions are ``initial_by_arm``.
     """
     if masks is None:
         with phase("mask_construction"):
@@ -2696,6 +2707,11 @@ def _fit_node_regression(
         next_outcome = _pseudo_outcome(data, carried, time, cause)
     design = outcome_design(data, plan, time)
     policy_node = plan.is_policy_node(time)
+    if both_arms and policy_node:
+        raise ValueError(
+            f"node {time} of regimen {plan.label!r} draws its arm, so its per-arm "
+            "predictions are initial_by_arm"
+        )
     levels = range(plan.policy_at(time).shape[1] if policy_node else 0)
     continuous_node = policy_node and data.node_kind(time) != "categorical"
     predict_designs = (
@@ -2755,6 +2771,27 @@ def _fit_node_regression(
         predictions = {name: bound.unscale(values) for name, values in predictions.items()}
     model = models[0] if models else None
     if not policy_node:
+        arm_predictions = (
+            _single_arm_predictions(
+                data,
+                plan,
+                carried,
+                time,
+                horizon,
+                trained_on=trained_on,
+                outcome_learner=outcome_learner,
+                pseudo_learner=pseudo_learner,
+                folds=folds,
+                cause=cause,
+                fit_rows=fit_rows,
+                outer_fold=outer_fold,
+                n_jobs=n_jobs,
+                clip=clip,
+                bound=bound,
+            )
+            if both_arms
+            else None
+        )
         return _NodeRegression(
             time=time,
             at_risk=at_risk,
@@ -2764,6 +2801,7 @@ def _fit_node_regression(
             initial=np.where(at_risk, predictions["history"], _FILLER),
             learner_diagnostics=tuple(diagnostics),
             model=model,
+            arm_predictions=arm_predictions,
         )
     # One pooled fit, predicted at every level.  The observed-arm prediction is *selected*
     # from the per-arm predictions rather than predicted again, so the offset of the
@@ -2806,6 +2844,90 @@ def _fit_node_regression(
         carry_marginal=carry_marginal,
         model=model,
     )
+
+
+def _single_arm_predictions(
+    data: LongitudinalData,
+    plan: Plan,
+    carried: FloatArray,
+    time: int,
+    horizon: int,
+    *,
+    trained_on: BoolArray,
+    outcome_learner: Learner,
+    pseudo_learner: Learner,
+    folds: Folds,
+    cause: str | None,
+    fit_rows: BoolArray | None,
+    outer_fold: int | None,
+    n_jobs: int,
+    clip: tuple[float, float] | None,
+    bound: NodeBound | None,
+) -> FloatArray:
+    """``(n, K_t)`` a deterministic node's prediction at every arm, one regression per arm.
+
+    Column ``a`` is the ``initial`` of the single-arm call: :func:`_fit_node_regression` on
+    ``plan`` with node ``time`` assigned arm ``a`` on every row, the same ``carried`` and
+    the same fit rows.  The outcome design carries no arm at a deterministic node, so the
+    arm enters only through the rows each regression is fitted on: those that follow
+    ``plan`` before ``time`` and took ``a`` at ``time``.  Arm ``a`` is then a stratified
+    fit, as a static arm is, and a row whose plan assigns ``a`` reads the regression a
+    plan assigning ``a`` everywhere fits.
+
+    Below the horizon the regression of arm ``a`` reads ``carried`` on the rows that took
+    ``a``, and ``carried`` holds the later node's prediction only on the rows ``plan``
+    keeps there.  So every row a column is fitted on must follow ``plan`` through
+    ``time``: an assignment equal to the observed arm at ``time`` keeps both arms' rows,
+    and a static or rule arm does not.  A column that would read a filled ``carried`` is
+    refused.
+
+    Raises
+    ------
+    ValueError
+        At a policy, modified treatment policy, tilt or non-categorical node, or when a
+        column below the horizon would be fitted on a row ``plan`` does not keep.
+    """
+    drawn = plan.is_policy_node(time) or plan.is_mtp_node(time) or plan.is_tilt_node(time)
+    if drawn or data.node_kind(time) != "categorical":
+        raise ValueError(
+            f"node {time} of regimen {plan.label!r} is not a deterministic categorical node, "
+            "so it has no per-arm regression to predict"
+        )
+    kept = trained_on if fit_rows is None else trained_on & fit_rows
+    columns = []
+    for code in range(len(data.treatment_levels[time - 1])):
+        values = np.array(plan.values, dtype=float, copy=True)
+        values[:, time - 1] = float(code)
+        single = plan.with_assignment(values)
+        single_masks = single.masks(data)
+        rows = single_masks.following(time)
+        if fit_rows is not None:
+            rows = rows & fit_rows
+        if time < horizon and np.any(rows & ~kept):
+            raise ValueError(
+                f"the arm-{code} regression at node {time} of regimen {plan.label!r} would "
+                "read the later node's prediction on rows the plan does not keep there. "
+                "Assign the observed arm at this node so that both arms' rows are kept"
+            )
+        node = _fit_node_regression(
+            data,
+            single,
+            carried,
+            time,
+            horizon,
+            outcome_learner=outcome_learner,
+            pseudo_learner=pseudo_learner,
+            folds=folds,
+            cause=cause,
+            masks=single_masks,
+            fit_rows=fit_rows,
+            outer_fold=outer_fold,
+            n_jobs=n_jobs,
+            clip=clip,
+            bound=bound,
+        )
+        columns.append(node.initial)
+    return np.column_stack(columns)
 
 
 def tuned_column(data: LongitudinalData, tuning: Any) -> int | None:
@@ -3960,12 +4082,27 @@ class FoldRecursionCell:
         The node the recursion starts from.
     bounds : mapping of int to NodeBound or None
         The declared outcome bound of each bounded node, or ``None`` for the shipped regressions.
+    fold_assignments : tuple of FloatArray
+        Per outer fold, the ``(n, T)`` dense codes that fold's recursion assigns every row:
+        a fold's own rule, read on its training rows and on the rows it holds out.  Fold
+        ``k`` then runs under ``plan.with_assignment(fold_assignments[k])`` and that plan's
+        masks, and ``masks`` is used by no fold.  The caller builds the targeting plan from
+        :func:`stitch_fold_assignments`, so each row's masks read the rule of the fold that
+        held it out.  Empty runs every fold under ``plan`` and ``masks``.
+    arm_nodes : frozenset of int
+        The deterministic nodes at which each fold also predicts every arm
+        (:attr:`StitchedInitial.arm_predictions` and
+        :attr:`StitchedInitial.fold_arm_predictions`).  Below the horizon a node's
+        assignment must keep both arms' rows, such as the observed arm.  It changes no other
+        output.  Empty predicts none.
     """
 
     plan: Plan
     masks: RegimenMasks
     horizon: int
     bounds: Mapping[int, NodeBound] | None = None
+    fold_assignments: tuple[FloatArray, ...] = ()
+    arm_nodes: frozenset[int] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -3999,6 +4136,52 @@ class StitchedInitial:
     #: At each tuned node with the population target, row ``i``'s ``(2,)`` predictions at
     #: the boundary and at the last moved dose, from the fold that held row ``i`` out.
     probes: dict[int, FloatArray] = field(default_factory=dict)
+    #: At each of a cell's ``arm_nodes``, row ``i``'s ``(K_t,)``
+    #: predictions at every arm from the fold that held row ``i`` out.  Empty otherwise.
+    arm_predictions: dict[int, FloatArray] = field(default_factory=dict)
+    #: At each of a cell's ``arm_nodes``, every fold's ``(n, K_t)``
+    #: predictions at every arm on every row, in fold order: what a fold's rule reads on
+    #: its own training rows as well as on the rows it holds out.  Empty otherwise.
+    fold_arm_predictions: dict[int, tuple[FloatArray, ...]] = field(default_factory=dict)
+
+
+def stitch_fold_assignments(assignments: Sequence[FloatArray], folds: Folds) -> FloatArray:
+    """``(n, T)`` each row's arms from the fold that holds it out.
+
+    Row ``i`` takes ``assignments[k][i]`` for the fold ``k`` whose test rows hold ``i``.
+    With :meth:`~cleverly.longitudinal.regimen.Plan.with_assignment` it builds the masks
+    of a regimen whose rule differs by fold, such as a rule each fold learns on its own
+    training rows: each row follows the rule of the fold that held it out.
+
+    Parameters
+    ----------
+    assignments : sequence of FloatArray
+        One ``(n, T)`` assignment per outer fold, in fold order.
+    folds : Folds
+        The outer split.
+
+    Returns
+    -------
+    FloatArray
+        The stitched assignment.
+
+    Raises
+    ------
+    ValueError
+        If the count of assignments differs from the count of folds, or their shapes differ.
+    """
+    if len(assignments) != folds.n_folds:
+        raise ValueError(
+            f"one assignment per outer fold is needed: {folds.n_folds} folds, "
+            f"{len(assignments)} assignments"
+        )
+    shapes = {np.shape(values) for values in assignments}
+    if len(shapes) != 1:
+        raise ValueError(f"the fold assignments differ in shape: {sorted(shapes)}")
+    stitched = np.array(assignments[0], dtype=float, copy=True)
+    for fold, (_, test) in enumerate(folds):
+        stitched[test] = np.asarray(assignments[fold], dtype=float)[test]
+    return stitched
 
 
 _FoldOutputs = dict[
@@ -4009,6 +4192,7 @@ _FoldOutputs = dict[
         tuple[SuperLearnerDiagnostics, ...],
         FloatArray | None,
         bool,
+        FloatArray | None,
         FloatArray | None,
     ],
 ]
@@ -4029,6 +4213,7 @@ def untargeted_recursion(
     keep_models: bool = False,
     carry_plan: Plan | None = None,
     bounds: Mapping[int, NodeBound] | None = None,
+    arm_nodes: frozenset[int] = frozenset(),
 ) -> list[_NodeRegression]:
     """Run one regimen's untargeted backward recursion, on one set of fit rows.
 
@@ -4069,6 +4254,9 @@ def untargeted_recursion(
         ``plan``: a cross-fitted tuned plan's map at the fold's own training tuner.
     bounds : mapping of int to NodeBound or None
         The declared outcome bound of each bounded node.  ``None`` fits the shipped regressions.
+    arm_nodes : frozenset of int
+        The deterministic nodes also predicted at every arm.  The recursion still carries
+        each node's own prediction, so no other output moves.
 
     Returns
     -------
@@ -4095,6 +4283,7 @@ def untargeted_recursion(
             keep_model=keep_models,
             carry_plan=carry_plan,
             bound=None if bounds is None else bounds.get(time),
+            both_arms=time in arm_nodes,
         )
         nodes.append(node)
         # The fold's *untargeted* prediction is what the earlier node regresses.  Steps 1-4
@@ -4132,10 +4321,16 @@ def _untargeted_recursion_in_fold(
     # training tuner, so its regressions are fixed given its training rows.  The held-out
     # predictions read the plan's own doses.
     carry_plan = cell.plan.fold_plans[fold] if cell.plan.fold_plans else None
+    # A fold with its own assignment, such as a fold's learned rule, runs under that
+    # assignment's masks on its training and held-out rows alike.
+    plan, masks = cell.plan, cell.masks
+    if cell.fold_assignments:
+        plan = cell.plan.with_assignment(cell.fold_assignments[fold])
+        masks = plan.masks(data)
     nodes = untargeted_recursion(
         data,
-        cell.plan,
-        masks=cell.masks,
+        plan,
+        masks=masks,
         horizon=cell.horizon,
         scaler=scaler,
         cause=cause,
@@ -4145,6 +4340,7 @@ def _untargeted_recursion_in_fold(
         outer_fold=fold,
         carry_plan=carry_plan,
         bounds=cell.bounds,
+        arm_nodes=cell.arm_nodes,
     )
     return {
         node.time: (
@@ -4154,6 +4350,9 @@ def _untargeted_recursion_in_fold(
             None if node.initial_by_arm is None else node.initial_by_arm[test],
             constant_target(node.pseudo_outcome, node.fitted_on) is not None,
             None if node.probes is None else node.probes[test],
+            # Every row, not only the held-out ones: a fold's rule is read on its own
+            # training rows too.
+            node.arm_predictions,
         )
         for node in nodes
     }
@@ -4178,6 +4377,11 @@ def untargeted_fold_recursions(
     still fans out ``K`` jobs and not ``K * C``.  The cells do not interact inside a fold:
     no fold solves a fluctuation, and no fold reads another cell's predictions.  So cell
     ``c``'s stitched arrays are the ones a call with ``c`` alone returns.
+
+    A cell with ``fold_assignments`` runs fold ``k`` under its own assignment, and a cell with
+    ``arm_nodes`` also returns each fold's prediction at every arm there.  Neither moves any
+    other array, and a cell with neither runs the recursion as before
+    (``tests/unit/test_longitudinal_fold_assignments.py``).
 
     Parameters
     ----------
@@ -4251,12 +4455,22 @@ def untargeted_fold_recursions(
         }
         constant_folds: dict[int, list[int]] = {}
         probes: dict[int, FloatArray] = {}
+        arm_predictions: dict[int, FloatArray] = {}
+        fold_arm_predictions: dict[int, list[FloatArray]] = {}
         for fold, (test, outputs, _) in enumerate(outcomes):
             for time, entry in outputs[position].items():
-                # The probes are the sixth entry of a population-target node, and an entry
-                # without one reads as a node with no probes.
+                # The probes are the sixth entry of a population-target node and the
+                # per-arm predictions the seventh, and an entry without one reads as a node
+                # with none.
                 held_out, target, fold_diagnostics, arms, constant, *rest = entry
                 probe = rest[0] if rest else None
+                every_arm = rest[1] if len(rest) > 1 else None
+                if every_arm is not None:
+                    fold_arm_predictions.setdefault(time, []).append(every_arm)
+                    width = np.shape(every_arm)[1]
+                    arm_predictions.setdefault(time, np.full((data.n, width), _FILLER))[test] = (
+                        every_arm[test]
+                    )
                 initial[time][test] = held_out
                 regression_target[time][test] = target
                 diagnostics[time].extend(fold_diagnostics)
@@ -4275,6 +4489,10 @@ def untargeted_fold_recursions(
                 initial_by_arm=by_arm,
                 constant_folds={time: tuple(folds) for time, folds in constant_folds.items()},
                 probes=probes,
+                arm_predictions=arm_predictions,
+                fold_arm_predictions={
+                    time: tuple(values) for time, values in fold_arm_predictions.items()
+                },
             )
         )
     return stitched

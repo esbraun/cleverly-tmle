@@ -891,6 +891,51 @@ class Plan:
         """The arm this plan assigns each unit at ``time``, counted from one."""
         return self.values[:, time - 1]
 
+    def with_assignment(self, assignment: FloatArray) -> Plan:
+        """This plan with each row's arms replaced by ``assignment``.
+
+        ``assignment`` holds one row of dense codes per unit, which may differ from row to
+        row and need not come from any one rule.  A learned regimen's rows take the arms of
+        the fold rule that held them out, so its masks, ratio numerator and mechanism
+        evaluation read ``plan.with_assignment(stitched).masks(data)`` and the readers of
+        :attr:`values`, not a second code path.  Every other field is kept.  At a policy,
+        modified treatment policy or tilt node :attr:`values` holds the observed arm rather
+        than an assigned one, so ``assignment`` must leave those columns as they are.
+
+        Parameters
+        ----------
+        assignment : FloatArray
+            ``(n, T)`` dense codes, in the shape of :attr:`values`.
+
+        Returns
+        -------
+        Plan
+            The plan with ``values`` set to a copy of ``assignment``.
+
+        Raises
+        ------
+        ValueError
+            If the shape differs from :attr:`values`, or a policy, modified treatment
+            policy or tilt node's column changes.
+        """
+        from dataclasses import replace
+
+        values = np.array(assignment, dtype=float, copy=True)
+        if values.shape != self.values.shape:
+            raise ValueError(
+                f"an assignment for regimen {self.label!r} must have the shape "
+                f"{self.values.shape} of its values; got {values.shape}"
+            )
+        for time in range(1, values.shape[1] + 1):
+            drawn = self.is_policy_node(time) or self.is_mtp_node(time) or self.is_tilt_node(time)
+            column, own = values[:, time - 1], self.values[:, time - 1]
+            if drawn and not np.array_equal(column, own, equal_nan=True):
+                raise ValueError(
+                    f"node {time} of regimen {self.label!r} draws its arm, so its values "
+                    "hold the observed arm and an assignment cannot set them"
+                )
+        return replace(self, values=values)
+
     def intervention_density(self, data: LongitudinalData) -> FloatArray:
         r"""``(n, T)`` :math:`\pi_t(A_t \mid H_t)`, the plan's density at the observed arm.
 
