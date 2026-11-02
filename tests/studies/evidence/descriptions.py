@@ -1079,6 +1079,36 @@ ARMS.update(
     }
 )
 
+#: The labels of ``learned-rule-intermediate`` (X11 PR J, X11 (j)): the learned rule and the
+#: known rule ``1{W1 > 0}`` at each level of the binary intermediate, and the necessity learner
+#: at each level. Mirrored from ``tests.studies.learned_rule_intermediate``, which this module
+#: cannot import.
+ARMS.update(
+    {
+        **{
+            f"learned_z{z}": (
+                "the intermediate law with a correct interaction logistic outcome learner on "
+                f"(A, W1, W2, Z), the learned rule at Z = {z}, n = 2,000"
+            )
+            for z in (0, 1)
+        },
+        **{
+            f"known_z{z}": (
+                "the intermediate law with a correct interaction logistic outcome learner on "
+                f"(A, W1, W2, Z), the known rule 1{{W1 > 0}} at Z = {z}, n = 2,000"
+            )
+            for z in (0, 1)
+        },
+        **{
+            f"drop_w1_z{z}": (
+                "the intermediate law with an outcome learner that has no W1 term, the learned "
+                f"rule at Z = {z}, n = 2,000"
+            )
+            for z in (0, 1)
+        },
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -6693,5 +6723,70 @@ STUDY_ARM_CELLS.update(
             "optimal rule, with the mean regret, the readings against the realized rule value "
             "and the range of the fold-rule disagreement",
         ),
+    }
+)
+
+
+#: ``learned-rule-intermediate`` (X11 PR J, X11 (j)): the plug-in rule at A with a binary
+#: intermediate held at each level, and the known rule 1{W1 > 0} through the same
+#: fold-evaluated controlled-direct-effect path. The law and learners are those of
+#: ``tests/studies/_learned_rule_intermediate_law.py``; the cell names are those of
+#: ``tests/studies/learned_rule_intermediate.py``.
+_INTERMEDIATE_SLUG = "learned-rule-intermediate"
+IMPLEMENTATIONS["cleverly-learned-rule-intermediate"] = (
+    "`cleverly` cross-validated TMLE of the learned-rule value with the intermediate held at each "
+    "level: each fold's rule at level z the plug-in rule of its outcome model at (a, z), one "
+    "pooled fluctuation and the fold-evaluated report"
+)
+STUDY_ESTIMANDS[_INTERMEDIATE_SLUG, "ey_learned_rule[learned rule]"] = (
+    "at each level z, the fold average of the values E Qbar0(d_v(W), z, W) of the rules learned "
+    "at that level on each training fold"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_INTERMEDIATE_SLUG, f"cde_z{z}"): (
+            "learned-rule law with a binary intermediate Z after A, correct logistic outcome, "
+            f"treatment and intermediate learners, the level Z = {z}, fold-evaluated report"
+        )
+        for z in (0, 1)
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_INTERMEDIATE_SLUG, "interval_calibration", f"{kind}_z{z}", "declared"): (
+                f"the declared fit {rule} with the study's logistic learners",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for z in (0, 1)
+            for kind, rule in (
+                ("learned", "of the learned rule"),
+                ("known", "of the known rule 1{W1 > 0}"),
+            )
+        },
+        **{
+            (_INTERMEDIATE_SLUG, "interval_calibration", f"{kind}_z{z}", "term_dropped_control"): (
+                "the declared fit's estimate with the standard error of its curve rebuilt "
+                "without the factor 1{Z = z} / q of the clever covariate",
+                "the SE-ratio interval must fall below the calibration band",
+            )
+            for z in (0, 1)
+            for kind in ("learned", "known")
+        },
+        **{
+            (_INTERMEDIATE_SLUG, "targeting_necessity", f"drop_w1_z{z}", "targeted"): (
+                "the declared fit with that learner, so targeting does the adjusting",
+                "bias interval inside the equivalence margin",
+            )
+            for z in (0, 1)
+        },
+        **{
+            (_INTERMEDIATE_SLUG, "targeting_necessity", f"drop_w1_z{z}", "untargeted"): (
+                "the same fit's untargeted fold average of the initial plug-ins at its fold "
+                "rules, with no fluctuation",
+                "bias interval must fall entirely outside the margin",
+            )
+            for z in (0, 1)
+        },
     }
 )

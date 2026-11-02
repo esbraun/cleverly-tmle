@@ -8,8 +8,9 @@ variance are the shipped ones: only the rule and its record change.
 
 The witnesses are the plan's (``X11-wave2-plan.md`` rev 2.1, section 5):
 
-- W-d1 (reduction): at two arms every fit is the pre-change binary fit bit for bit (estimates,
-  stored fold rules and the omitted-variable bound pinned from commit 854dac1), two levels
+- W-d1 (reduction): at two arms every fit is the pre-change binary fit (stored fold rules bit
+  for bit, and estimates and the omitted-variable bound to within four ulps, pinned from
+  commit 854dac1), two levels
   coded as strings give the numeric fit, and the argmax of two arms is the blip sign.
 - W-d2 (nonzero): the record's per-arm shares are those of the rule on each fold's validation
   rows, and they match the population quadrature of a stub's argmax regions, which a shift of
@@ -31,6 +32,7 @@ experimental.
 from __future__ import annotations
 
 import hashlib
+import math
 import warnings
 from functools import cache
 from typing import Any, ClassVar
@@ -276,7 +278,10 @@ def _designs(result: Any, rows: np.ndarray | None = None) -> list[np.ndarray]:
 #: misspecified outcome learner (a correct logistic model for the per-arm regression): every
 #: estimate's ``psi`` and ``variance`` as float hex, and the SHA-256 of the stored fold rules
 #: as ``int8`` bytes in C order (the pre-change booleans cast to ``int8``).  ``bound`` is the
-#: robustness value at ``cf_y=0.05, cf_d=0.04``.
+#: robustness value at ``cf_y=0.05, cf_d=0.04``.  The floats differ in the last digit
+#: between CI runners on the same code (main's 3.11 job and a later 3.13 job each
+#: flipped one), so they compare to within :data:`_ULPS` units in the last place.  Any
+#: change of method moves them by many orders of magnitude more.
 PRE_CHANGE: dict[str, dict[str, Any]] = {
     "pooled": {
         "estimates": {
@@ -345,6 +350,15 @@ def _binary(configuration: str) -> Any:
         return support.fit(support.law_frame(203, 1), **overrides)
 
 
+_ULPS = 4
+
+
+def _pinned(value: float, pinned: str) -> bool:
+    """Whether ``value`` is within :data:`_ULPS` units in the last place of ``pinned``."""
+    expected = float.fromhex(pinned)
+    return abs(value - expected) <= _ULPS * math.ulp(expected)
+
+
 class TestWd1Reduction:
     @pytest.mark.parametrize("configuration", list(PRE_CHANGE))
     def test_a_two_arm_fit_is_the_pre_change_fit_bit_for_bit(self, configuration: str) -> None:
@@ -352,13 +366,13 @@ class TestWd1Reduction:
         pinned = PRE_CHANGE[configuration]["estimates"]
         assert list(result.estimates) == list(pinned)
         for name, (psi, variance) in pinned.items():
-            assert result.estimates[name].psi == float.fromhex(psi), name
-            assert result.estimates[name].variance == float.fromhex(variance), name
+            assert _pinned(result.estimates[name].psi, psi), name
+            assert _pinned(result.estimates[name].variance, variance), name
         assert _sha(_stored(result)) == PRE_CHANGE[configuration]["rules"]
 
     def test_the_two_arm_bound_is_the_pre_change_bound(self) -> None:
         bound = omitted_variable_bounds(_binary("pooled"), NAME, cf_y=0.05, cf_d=0.04)
-        assert bound.robustness_value == float.fromhex(PRE_CHANGE["pooled"]["bound"])
+        assert _pinned(bound.robustness_value, PRE_CHANGE["pooled"]["bound"])
 
     @pytest.mark.parametrize("configuration", ["pooled", "by_arm", "blip"])
     def test_the_two_arm_fold_rules_are_the_blip_sign_as_codes(self, configuration: str) -> None:
@@ -568,7 +582,8 @@ class TestWd3Ties:
         original = nuisance_module._by_arm_rule_step
 
         def last(fold: int, values: Any, *, best: Any, **kwargs: Any) -> Any:
-            return original(fold, values, best=best - 1e-12, **kwargs)
+            lowered = {key: slab - 1e-12 for key, slab in best.items()}
+            return original(fold, values, best=lowered, **kwargs)
 
         monkeypatch.setattr(nuisance_module, "_by_arm_rule_step", last)
         with pytest.raises(RuntimeError, match="defect in cleverly"):

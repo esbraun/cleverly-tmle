@@ -128,7 +128,7 @@ def _frame(kind: str = "binary") -> Any:
         frame["A"] = np.arange(len(frame)) % 3
     if kind == "delta":
         frame["Delta"] = (np.arange(len(frame)) % 5 != 0).astype(float)
-    if kind == "intermediate":
+    if kind.startswith("intermediate"):
         frame["Z"] = (np.arange(len(frame)) % 2).astype(float)
     if kind == "estimated_weights":
         frame["w"] = 1.0 + 0.5 * frame["W2"]
@@ -144,7 +144,7 @@ _FIT_ARGUMENTS: dict[str, dict[str, Any]] = {
     "multi_arm_blip": {},
     "multi_arm_classification": {},
     "delta": {"delta": "Delta"},
-    "intermediate": {"intermediate": "Z"},
+    "intermediate_blip": {"intermediate": "Z"},
     "estimated_weights": {"weights": "w", "weights_estimated": True},
     "strata_clusters": {"strata": ("W2",), "id": "c"},
     "clusters": {"id": "c"},
@@ -175,15 +175,16 @@ DATA_ROWS: dict[str, str] = {
     "multi_arm_blip": "X11 (d2)",
     "multi_arm_classification": "X11 (d2)",
     "delta": "F27",
-    "intermediate": "X11 (j)",
+    "intermediate_blip": "X11 (j2)",
     "estimated_weights": "X11 (k2)",
     "strata_clusters": "X28",
 }
 
 #: The declared rule of each data row whose refusal reads the rule: a rule learner on more
-#: than two arms (X11 (d2)).  Every other row uses the plug-in rule, which more than two arms
-#: admit (X11 (d)).
+#: than two arms (X11 (d2)) or with an intermediate (X11 (j2)).  Every other row uses the
+#: plug-in rule, which more than two arms (X11 (d)) and an intermediate (X11 (j)) admit.
 DATA_RULES: dict[str, LearnedRule] = {
+    "intermediate_blip": LearnedRule(loss="blip", learner=LinearRegression()),
     "multi_arm_blip": LearnedRule(loss="blip", learner=LinearRegression()),
     "multi_arm_classification": LearnedRule(
         loss="weighted_classification", learner=LogisticRegression()
@@ -743,7 +744,7 @@ class TestTheStudyRefusesTheSameRows:
             {
                 "continuous": {"treatment_kind": "continuous"},
                 "delta": {"missingness": "Delta"},
-                "intermediate": {"intermediate": "Z"},
+                "intermediate_blip": {"intermediate": "Z"},
                 "estimated_weights": {"weights": "w", "weights_estimated": True},
                 "strata_clusters": {"strata": ("W2",), "cluster": "c"},
             }.get(kind, {})
