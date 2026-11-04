@@ -99,7 +99,7 @@ LOCALITY_REPLICATES = 1_200
 SHRUNKEN_SE_FACTOR = 0.80
 #: The displacement floors, in positive-arm SDs (the RM30 values).
 TARGETING_DISPLACEMENT = 0.5
-LOCALITY_DISPLACEMENT = 0.5
+FOLD_LOCALITY_DISPLACEMENT = 0.5
 
 PROPERTY_DRAWS: tuple[base.PropertyDraw, ...] = (
     base.PropertyDraw(
@@ -340,7 +340,7 @@ FOLD_LOCALITY = property_verdicts.Necessity(
     labels=(LOCALITY_LABEL,),
     arms=LOCALITY_ARMS,
     column="fold_locality_displacement",
-    threshold=LOCALITY_DISPLACEMENT,
+    threshold=FOLD_LOCALITY_DISPLACEMENT,
     truth_varies=STUDY.truth_varies_by_replicate,
 )
 

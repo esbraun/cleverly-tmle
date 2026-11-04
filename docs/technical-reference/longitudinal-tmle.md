@@ -1312,7 +1312,8 @@ arm. The summary prints the target and these shares.
 
 | request | result |
 | --- | --- |
-| the pair above, with censoring after each node | experimental, under the support kind `learned`. Censoring is part of the intervention node, as in the source. No study is registered |
+| the pair above, with censoring after each node and every option at its default | supported, row `G47` of the [learned-regimen study](method-evidence/learned-regimen-ltmle.md), under the support kind `learned`. Censoring is part of the intervention node, as in the source. The study measures one law at n = 2,000 with ten folds and correct treatment and censoring models, on which coverage rests |
+| the pair above on an uncensored panel | experimental. The key reads no censoring, and no cell measures it |
 | `node_bounds=`, `ratio_trim=`, a stopping rule, `treatment_probabilities=`, a continuous outcome with `q_bounds=` | experimental. Bounds and trimming change the estimator and leave the target unchanged. A node bound also bounds the Q-learning regression of its node, so it can change the rules. A trimmed ratio reads the node-2 code on every uncensored row, so the rule is evaluated there. On a continuous outcome the regressions run on the outcome rescaled to $[0, 1]$ by the declared support. The rule is the sign of a blip, so a wider support leaves it unchanged under a learner whose predictions follow an affine change of the outcome, such as least squares |
 | more than two nodes; a survival, competing or repeated outcome; a node that is not one binary treatment; `msm=`; `SDR`, `IPSI` or another estimator; another regimen beside it | refused (X11 (b2)). No source beyond two nodes was read, and no construction of these compositions is checked |
 | `repeats` above 1 | refused (X11 (b2)). The median over draws estimates no defined parameter. Use `repeats=1` |

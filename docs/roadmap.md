@@ -951,8 +951,14 @@ ships for the plug-in rule.
 
 Part (b) now ships for two nodes: `LTMLE(regimens=LearnedRegimen())` estimates the stacked value
 of the rule pairs learned inside each training fold
-([learned regimens](technical-reference/longitudinal-tmle.md#learned-regimens)). Every such fit
-reads experimental until the `learned-regimen-ltmle` study registers.
+([learned regimens](technical-reference/longitudinal-tmle.md#learned-regimens)). The gated
+[learned-regimen study](technical-reference/method-evidence/learned-regimen-ltmle.md) calibrates
+it on one censored law at n = 2,000 with ten folds and correct treatment and censoring models, so
+the cross-fitted censored fit with every option at its default reads supported (row `G47`). Its
+interval covers the value of the learned rule pairs, not of the optimal pair, and no cell measures
+a limit rule without a margin. Node bounds, `ratio_trim=`, a stopping rule, a known mechanism, an
+uncensored panel and a continuous outcome read experimental, and part (b2) holds the refused
+compositions.
 
 The learned-rule value now also runs with fold-specific targeting, known observation weights and
 clusters ([learned rules](technical-reference/point-treatment-tmle.md#learned-rules)).

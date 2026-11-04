@@ -691,6 +691,18 @@ known-treatment-mechanism,root_n_rate,slope in root-n band,contract
 known-treatment-mechanism-drtmle,known_mechanism_accuracy,bias equivalent,bias
 known-treatment-mechanism-drtmle,known_mechanism_accuracy,coverage floor,coverage/0.5
 known-treatment-mechanism-drtmle,known_mechanism_accuracy,se ratio in band,se_high
+learned-regimen-ltmle,conservative_coverage,coverage at or above the calibration floor,se_low
+learned-regimen-ltmle,conservative_coverage,shrunken coverage below the calibration floor,se_high
+learned-regimen-ltmle,fold_locality,bias discriminated,control_diffuse
+learned-regimen-ltmle,fold_locality,bias equivalent,bias
+learned-regimen-ltmle,fold_locality,least displacement over labels,control_concentrated
+learned-regimen-ltmle,interval_calibration,coverage in calibration band,bias
+learned-regimen-ltmle,interval_calibration,noise se ratio below band,se_high
+learned-regimen-ltmle,interval_calibration,se ratio below band,se_high
+learned-regimen-ltmle,interval_calibration,se ratio in calibration band,se/0.05
+learned-regimen-ltmle,targeting_necessity,bias discriminated,pair_collapse
+learned-regimen-ltmle,targeting_necessity,bias equivalent,bias
+learned-regimen-ltmle,targeting_necessity,least displacement over labels,control_concentrated
 learned-rule-arms,conservative_coverage,bias equivalent,mixed/7
 learned-rule-arms,conservative_coverage,coverage at or above the calibration floor,se_low
 learned-rule-arms,conservative_coverage,shrunken coverage below the calibration floor,se_high

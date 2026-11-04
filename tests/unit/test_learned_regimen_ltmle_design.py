@@ -156,7 +156,7 @@ def test_the_cells() -> None:
         "fold_locality": ("two_node__fold_local", "two_node__validation_rows"),
     }
     assert properties.SHRUNKEN_SE_FACTOR == study.COVERAGE_SHRINK == 0.80
-    assert properties.TARGETING_DISPLACEMENT == properties.LOCALITY_DISPLACEMENT == 0.5
+    assert properties.TARGETING_DISPLACEMENT == properties.FOLD_LOCALITY_DISPLACEMENT == 0.5
     assert study.STUDY.truth_varies_by_replicate
     assert not study.STUDY.calibration_efficiency_ratio
     assert study.STUDY.publication_policy == "gated"
@@ -198,8 +198,8 @@ def test_the_module_list_holds_every_study_specific_import() -> None:
 
 
 def test_the_support_row_is_declared_before_the_run() -> None:
-    """One row, ``G47``: its key is the key of the study's fits, and no registered row covers
-    that key yet, so every fit reads experimental until the study registers."""
+    """One row, ``G47``: its key is the key of the study's fits, and the registered row is the
+    declared one, the only row with that key."""
     from cleverly._support_rows import LONGITUDINAL_ROWS, long_row
 
     declared = study.SUPPORT_ROWS["learned"]
@@ -220,8 +220,10 @@ def test_the_support_row_is_declared_before_the_run() -> None:
     assert set(row.kinds) == set(declared["kinds"])
     fitted = law.fit(law.draw(400, 3), "declared", 4)
     assert row.key == fitted.config.support_key
-    assert declared["row"] not in {existing.id for existing in LONGITUDINAL_ROWS}
-    assert not any(existing.key == row.key for existing in LONGITUDINAL_ROWS)
+    (registered,) = [existing for existing in LONGITUDINAL_ROWS if existing.key == row.key]
+    assert registered.id == declared["row"]
+    assert set(registered.kinds) == set(declared["kinds"])
+    assert registered.evidence == (study.STUDY.slug,)
 
 
 def test_the_declared_gates_are_read() -> None:

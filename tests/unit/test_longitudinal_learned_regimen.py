@@ -25,7 +25,9 @@ W-b5   the variance is ``n^-2 sum_i (Z_i - psi)^2`` with ``Z_i`` rebuilt from th
        and centred at the pooled estimate; the fold-centred form differs (premise)
 record the fold weights, treated shares, gap quantiles, disagreement and summary line
 refuse  every row of the plan's refusal table, before any learner, with its remedy
-admit   censoring, node bounds, ``ratio_trim`` and a known mechanism run and read experimental
+label  the default censored fit reads supported from ``G47``
+admit   node bounds, ``ratio_trim``, a stopping rule, a continuous outcome and a known
+       mechanism run and read experimental
 store   ``save``/``load`` and ``dumps``/``loads`` keep the record and the estimate
 =====  =======================================================================================
 """
@@ -724,12 +726,14 @@ def test_the_record_reports_weights_shares_and_gaps(result: LongitudinalResult) 
     assert " ".join(text.split()) in " ".join(str(result.summary(detail="full")).split())
 
 
-def test_the_fit_reads_experimental_under_the_learned_kind(result: LongitudinalResult) -> None:
+def test_the_fit_reads_supported_from_g47(result: LongitudinalResult) -> None:
+    """The cross-fitted censored two-node fit matches the row the ``learned-regimen-ltmle``
+    study registered, and no other row lists the ``learned`` kind."""
     estimate = result[LABEL]
-    assert estimate.support.label == "experimental"
+    assert (estimate.support.label, estimate.support.row) == ("supported", "G47")
     key = result.config.support_key
     assert key is not None and "learned" in key.family
-    assert not any("learned" in row.key.family for row in LONGITUDINAL_ROWS)
+    assert [row.id for row in LONGITUDINAL_ROWS if "learned" in row.key.family] == ["G47"]
     # One parameter, so no simultaneous band is built, and no contrast is reported.
     assert list(result.estimates) == [LABEL]
     assert result.simultaneous is None
