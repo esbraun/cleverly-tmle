@@ -59,7 +59,7 @@ the plan.  Only :class:`~cleverly.longitudinal.IPSI` fits such a plan.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
@@ -890,6 +890,63 @@ class Plan:
     def arm(self, time: int) -> FloatArray:
         """The arm this plan assigns each unit at ``time``, counted from one."""
         return self.values[:, time - 1]
+
+    def with_assignment(self, assignment: FloatArray) -> Plan:
+        """This plan with each row's arms replaced by ``assignment``.
+
+        ``assignment`` holds one row of dense codes per unit, which may differ from row to
+        row and need not come from any one rule.  A learned regimen's rows take the arms of
+        the fold rule that held them out, so its masks are
+        ``plan.with_assignment(stitched).masks(data)``, and every reader of :attr:`values`
+        (the masks, the support, the ratio numerator, the reported assignment) reads the new
+        arms with no second code path.  Every other field is kept.  At a policy, modified
+        treatment policy or tilt node :attr:`values` holds the observed arm rather than an
+        assigned one, so ``assignment`` must leave those columns as they are.
+
+        A fitted :class:`~cleverly.longitudinal.sequential.Mechanism` does not follow the
+        assignment: it holds the treatment and censoring factors that
+        :func:`~cleverly.longitudinal.sequential.fit_mechanism` evaluated at the plan it was
+        given, filed by label, and this plan keeps the label.  Evaluate the mechanism with
+        ``fit_mechanism`` at the assigned plan.  One fitted for another plan with the same
+        label reads that plan's arms.
+
+        The plan's own regressions assume that each deterministic node's arm is a rule of the
+        covariate history, because the outcome design holds no block for it.  An assignment
+        that is not, such as the observed arm or a rule that differs by fold, still gives the
+        right masks, mechanism evaluation and clever covariate, but not the right
+        regressions under the assigned plan.
+
+        Parameters
+        ----------
+        assignment : FloatArray
+            ``(n, T)`` dense codes, in the shape of :attr:`values`.
+
+        Returns
+        -------
+        Plan
+            The plan with ``values`` set to a copy of ``assignment``.
+
+        Raises
+        ------
+        ValueError
+            If the shape differs from :attr:`values`, or a policy, modified treatment
+            policy or tilt node's column changes.
+        """
+        values = np.array(assignment, dtype=float, copy=True)
+        if values.shape != self.values.shape:
+            raise ValueError(
+                f"an assignment for regimen {self.label!r} must have the shape "
+                f"{self.values.shape} of its values; got {values.shape}"
+            )
+        for time in range(1, values.shape[1] + 1):
+            drawn = self.is_policy_node(time) or self.is_mtp_node(time) or self.is_tilt_node(time)
+            column, own = values[:, time - 1], self.values[:, time - 1]
+            if drawn and not np.array_equal(column, own, equal_nan=True):
+                raise ValueError(
+                    f"node {time} of regimen {self.label!r} draws its arm, so its values "
+                    "hold the observed arm and an assignment cannot set them"
+                )
+        return replace(self, values=values)
 
     def intervention_density(self, data: LongitudinalData) -> FloatArray:
         r"""``(n, T)`` :math:`\pi_t(A_t \mid H_t)`, the plan's density at the observed arm.
