@@ -1,7 +1,8 @@
 # cleverly 0.2.0
 
 This release extends the learned-rule value, `LearnedRuleValue`, to the fit settings that other
-point-treatment targets accept, and adds the value of the optimal rule, `OptimalRuleValue`.
+point-treatment targets accept, adds the value of the optimal rule, `OptimalRuleValue`, and learns
+two-node longitudinal regimens with `LearnedRegimen`.
 
 ## Upgrade notes
 
@@ -83,6 +84,18 @@ zero for a share of units.
   supported at each value, and the stacked report reads experimental. `CausalStudy` refuses this
   request.
   ([#549](https://github.com/esbraun/cleverly-tmle/pull/549))
+
+### Learned longitudinal regimens
+
+- `LTMLE(regimens=LearnedRegimen())` learns a treatment rule at each of two nodes inside each
+  training fold, by Q-learning, and reports `ey_regimen[learned regimen]`: the stacked value of
+  the fit's own learned rule pairs, not the value of the optimal pair. `LearnedRegimenRecord`
+  holds one `LearnedRegimenNode` per node. A fit with two binary treatment nodes, censoring and a
+  binary end-of-study outcome, every option at its default, reads supported, and other fits read
+  experimental. Coverage rests on correct treatment and censoring models: at n = 2,000 with ten
+  folds and correct logistic models, the 95% interval covered 0.954 of the time over 1,200
+  samples. A rule with no margin at its limit gives a non-regular target, and no study measures
+  that case. ([#553](https://github.com/esbraun/cleverly-tmle/pull/553))
 
 ### Value of the optimal rule
 
