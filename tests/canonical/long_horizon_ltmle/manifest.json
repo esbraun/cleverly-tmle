@@ -224,7 +224,7 @@
       "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
       "tests/canonical/long_horizon_ltmle/run_study.R": "13bd0abe4efb0d08c6bcbf26238c34fadeb14953dfedcfc15563c10ba2e10e51",
       "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
-      "tests/canonical/ltmle_horizon_adapter.R": "4c53bb43527ea736147ba2250bdcedeed44b528f0f81d4308f188f1d38a00350"
+      "tests/canonical/ltmle_horizon_adapter.R": "8c909efd5b51bfda0f5653d4768093b7246e82aa4b7978e63b2de55d026d7639"
     }
   }
 }

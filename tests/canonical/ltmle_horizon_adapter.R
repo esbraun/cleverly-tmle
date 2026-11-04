@@ -129,15 +129,16 @@ horizon_ltmle_arguments <- function(frame, plan, K, mutation, gcomp = FALSE) {
 horizon_ltmle_call <- function(arguments, label) {
   # The warning policy and the cumulative-g-bound stop of ltmle_regimen_adapter.R's
   # regimen_ltmle_fit, stated again because that function reads the two-node law's W1 + W2
-  # design back.  Only the binary-censoring notice is muffled.  Any other warning is an error
-  # raised inside the fit, so study_stage records it as this replicate's failure.
+  # design back.  Only the binary-censoring notice is muffled.  Any other warning stops the
+  # run through study_fatal_error, as regimen_ltmle_fit's does: a promoted warning is never
+  # recorded as a fitting failure (tests/unit/test_harness_failures.py).
   fit <- withCallingHandlers(
     study_stage("ltmle", do.call(ltmle, arguments)),
     warning = function(condition) {
       if (grepl("Cnodes|censoring", conditionMessage(condition), ignore.case = TRUE)) {
         invokeRestart("muffleWarning")
       }
-      stop(sprintf("unexpected ltmle warning: %s", conditionMessage(condition)), call. = FALSE)
+      study_fatal_error(sprintf("unexpected ltmle warning: %s", conditionMessage(condition)))
     }
   )
   # The exact mechanism is supplied, so a binding cumulative bound is a defect of the pairing.

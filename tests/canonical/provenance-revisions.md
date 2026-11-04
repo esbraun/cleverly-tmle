@@ -502,3 +502,13 @@ gained the 24-hour cap (`--reference-deadline`), which pairs the prefix each sce
 committed timing predicts will finish and grades no exact cell under 50 paired replicates.
 No R file or Dockerfile moved, so no declaration digest changed, and no reference process has
 run.
+
+`ltmle_horizon_adapter.R` now raises `study_fatal_error` for an unexpected `ltmle` warning,
+the way `ltmle_regimen_adapter.R` already did, instead of a plain `stop` that `study_stage`
+would have recorded as that replicate's failure. Only the failure path changed: a fit that
+raises no such warning writes the same row, and the muffled censoring notice is unchanged.
+Before, an unexpected warning would have cost one replicate. Now it stops the run. The
+attempt-5 smoke logs contain no such warning, so the smoke's identity and run results at
+11967f8f stand. The declaration digest of `long-horizon-ltmle` was refreshed with
+`python -m tests.canonical.x59_smoke declared-sources`. `long-horizon-ltmle-parity` has no
+manifest yet and declares its sources at its run. No reference process has run.
