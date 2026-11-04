@@ -362,8 +362,30 @@ def _capped_run(
         return original(inputs, replicates, scratch, name)
 
     monkeypatch.setattr(regenerate, "capped_inputs", recorded)
-    _main(monkeypatch, here, "--reference-only", "--reference-deadline", DEADLINE)
+    _deadline_run(monkeypatch, here, tmp_path)
     return here, order
+
+
+def _deadline_run(
+    monkeypatch: pytest.MonkeyPatch, here: Path, tmp_path: Path, deadline: str = DEADLINE
+) -> None:
+    _main(
+        monkeypatch, here, "--reference-only", "--reference-deadline", deadline,
+        "--cache", str(tmp_path / "cache"),
+    )  # fmt: skip
+
+
+ARTIFACTS = ("replicates.parquet", "parity.csv", "parity-replicates.csv", "equivalence.csv")
+
+
+def _stamped_run(
+    self: Any, here: Path, samples: Path, truths: Path, output: Path, **kwargs: Any
+) -> None:
+    """The fake run, then the completion stamp an R run writes for itself."""
+    synthetic.fake_reference_run(self, here, samples, truths, output, **kwargs)
+    expected = regenerate._reference_key(self, here, samples, truths)
+    assert expected is not None
+    output.with_name(f"{output.name}.key").write_text(expected, encoding="utf-8")
 
 
 def test_a_scenario_that_fits_before_the_deadline_pairs_its_whole_prefix(
@@ -485,3 +507,79 @@ def test_the_deadline_is_refused_on_a_smoke_and_without_an_offset(
         )  # fmt: skip
     with pytest.raises(SystemExit):
         _main(monkeypatch, here, "--reference-only", "--reference-deadline", "2030-01-01T00:00")
+
+
+def test_a_resume_past_the_deadline_reads_the_cap_decisions_back(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(regenerate.Reference, "run", _stamped_run)
+    here, cut = _capped_run(monkeypatch, tmp_path, [20.0, 7.0])
+    assert cut == ["b"]
+    runs = len(synthetic.RUNS)
+    before = {name: (here / name).read_bytes() for name in ARTIFACTS}
+    cap = json.loads((here / "manifest.json").read_text())["generated_with"]["reference"]["cap"]
+    # Every scenario would now be charged to nothing, and none is charged.
+    late = regenerate._deadline(DEADLINE) + 100.0
+    monkeypatch.setattr(regenerate, "_now", lambda: late)
+    _deadline_run(monkeypatch, here, tmp_path)
+    assert len(synthetic.RUNS) == runs, "a resume ran the reference again"
+    assert {name: (here / name).read_bytes() for name in ARTIFACTS} == before
+    again = json.loads((here / "manifest.json").read_text())["generated_with"]["reference"]
+    assert again["cap"] == cap
+
+
+def test_an_interrupted_whole_scenario_resumes_whole_past_the_deadline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    here = tmp_path / "study"
+    _committed(monkeypatch, here)
+    cost = parity.ScenarioCost(seconds=1.0, workers=1, chunk=1, tier=2)
+    monkeypatch.setattr(regenerate, "reference_costs", lambda study: ({"a": cost, "b": cost}, 1.0))
+    deadline = regenerate._deadline(DEADLINE)
+    monkeypatch.setattr(regenerate, "_now", lambda: deadline - 100.0)
+
+    def interrupted(self: Any, here: Path, samples: Path, *args: Any, **kwargs: Any) -> None:
+        if "samples__b" in samples.name:
+            raise KeyboardInterrupt("the laptop slept")
+        _stamped_run(self, here, samples, *args, **kwargs)
+
+    monkeypatch.setattr(regenerate.Reference, "run", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        _deadline_run(monkeypatch, here, tmp_path)
+    decisions = json.loads((tmp_path / "cache" / regenerate.CAP_DECISIONS).read_text())
+    assert decisions["decisions"] == {"a": "whole", "b": "whole"}
+    monkeypatch.setattr(regenerate.Reference, "run", _stamped_run)
+    monkeypatch.setattr(regenerate, "_now", lambda: deadline + 100.0)
+    _deadline_run(monkeypatch, here, tmp_path)
+    assert len(synthetic.RUNS) == 2, "only the interrupted scenario runs again"
+    reference = _reference_rows(read_rows(here / "replicates.parquet"))
+    assert sorted(reference.loc[reference["scenario"] == "b", "replicate"]) == list(range(8))
+    manifest = json.loads((here / "manifest.json").read_text())
+    assert "cap" not in manifest["generated_with"]["reference"]
+
+
+def test_a_resume_under_another_deadline_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    here, _ = _capped_run(monkeypatch, tmp_path, [20.0, 7.0])
+    with pytest.raises(RuntimeError, match="resume with that deadline"):
+        _deadline_run(monkeypatch, here, tmp_path, deadline="2030-01-01T01:00:00+00:00")
+
+
+def test_a_deadline_needs_a_kept_scratch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    here = tmp_path / "study"
+    _committed(monkeypatch, here)
+    with pytest.raises(SystemExit):
+        _main(monkeypatch, here, "--reference-only", "--reference-deadline", DEADLINE)
+
+
+def test_moved_sizing_inputs_are_refused_before_any_draw(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.studies import canonical_long_horizon_sdr as sdr
+
+    costs, contention = regenerate.reference_costs(sdr)
+    assert set(costs) == set(sdr.REFERENCE_SCENARIOS) and contention == 1.3
+    monkeypatch.setattr(regenerate, "sizing_digests", lambda: {"timing/timing-sdr.csv": "0"})
+    with pytest.raises(RuntimeError, match=r"differ from sizing\.json"):
+        regenerate.reference_costs(sdr)

@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.canonical import x59_smoke
+from tests.canonical import regenerate, x59_smoke
 from tests.studies.evidence import parity
 from tests.studies.evidence.manifest import read_rows
 from tests.unit import _x59_reference_only_support as synthetic
@@ -298,10 +298,13 @@ def _sizing() -> dict[str, Any]:
 def test_the_committed_sizing_inputs_are_the_declared_bytes() -> None:
     declared = _sizing()["sha256"]
     held = {
-        str(path.relative_to(SIZING)): hashlib.sha256(path.read_bytes()).hexdigest()
+        str(path.relative_to(SIZING).as_posix()): hashlib.sha256(
+            path.read_bytes().replace(b"\r\n", b"\n")
+        ).hexdigest()
         for path in sorted(SIZING.glob("*/*.csv"))
     }
     assert held == declared
+    assert regenerate.sizing_digests() == declared, "the cap reads the same digests"
 
 
 def test_the_declared_prefixes_are_the_sizing_rule_s_output_on_the_measured_tiers() -> None:

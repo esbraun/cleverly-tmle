@@ -268,3 +268,18 @@ def test_the_guard_step_stops_above_one_failure_per_hundred(tmp_path: Path) -> N
     assert x59_smoke.guard("categorical", tmp_path) == 1
     fixed = x59_smoke.guard_failures("lmtp-parity", tmp_path).set_index("scenario")
     assert (fixed["allowed"] == 5).all()
+
+
+def test_the_guard_allowance_reads_a_cut_scenario_s_kept_count(tmp_path: Path) -> None:
+    message = f"{x59_smoke.GUARD_MESSAGE} 3.4e+15, past 1000"
+    pd.DataFrame(
+        [("lmtp", "categorical_k3", "4", message)],
+        columns=["implementation", "scenarios", "replicates", "message"],
+    ).to_csv(tmp_path / "failures.csv", index=False)
+    cap = {"paired": {"categorical_k3": {"declared": 100, "kept": 60}}}
+    manifest = {"generated_with": {"reference": {"implementation": "lmtp", "cap": cap}}}
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    held = x59_smoke.guard_failures("categorical", tmp_path).set_index("scenario")
+    assert held.loc["categorical_k3", "replicates"] == 60
+    assert held.loc["categorical_k3", "allowed"] == 0
+    assert x59_smoke.guard("categorical", tmp_path) == 1

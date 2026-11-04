@@ -956,33 +956,46 @@ def guard_failures(study: str, out: Path) -> pd.DataFrame:
     """Per paired scenario of a declared run in ``out``: the fluctuation guard's failures.
 
     Reads the run's ``failures.csv``; each record is one replicate of one scenario, and the
-    guard fails every plan of it.  ``allowed`` is ``FAILURE_BOUND`` (0.01) of the scenario's
-    declared prefix: 1 at 100 replicates and 5 at 500.
+    guard fails every plan of it.  ``replicates`` is what the scenario paired: its declared
+    prefix, or the kept count of a scenario the 24-hour cap cut (``manifest.json``,
+    ``generated_with.reference.cap.paired``).  ``allowed`` is ``FAILURE_BOUND`` (0.01) of it,
+    rounded down: 1 at 100 and 5 at 500, none on a prefix under 100.
     """
     module = _module(study)
     declared = qbound_replicates(study, None)
+    manifest_path = out / "manifest.json"
+    cut: dict[str, int] = {}
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        reference = manifest.get("generated_with", {}).get("reference") or {}
+        cut = {
+            name: int(held["kept"])
+            for name, held in reference.get("cap", {}).get("paired", {}).items()
+        }
     path = out / "failures.csv"
     held = (
         pd.read_csv(path, dtype={"scenarios": str, "replicates": str}, keep_default_na=False)
         if path.exists()
-        else pd.DataFrame(columns=["implementation", "scenarios", "message"])
+        else pd.DataFrame(columns=["implementation", "scenarios", "replicates", "message"])
     )
     guarded = held.loc[
         (held["implementation"] == module.STUDY.pending_reference)
         & held["message"].astype(str).str.contains(GUARD_MESSAGE, regex=False)
     ]
     bound = float(module.STUDY.failure_bound.get(str(module.STUDY.pending_reference), 0.01))
-    rows = [
-        {
-            "scenario": name,
-            "replicates": count,
-            "guard_failures": int(
-                guarded.loc[guarded["scenarios"] == name, "replicates"].nunique()
-            ),
-            "allowed": math.floor(bound * count + 1e-9),
-        }
-        for name, count in declared.items()
-    ]
+    rows = []
+    for name, count in declared.items():
+        paired = cut.get(name, count)
+        rows.append(
+            {
+                "scenario": name,
+                "replicates": paired,
+                "guard_failures": int(
+                    guarded.loc[guarded["scenarios"] == name, "replicates"].nunique()
+                ),
+                "allowed": math.floor(bound * paired + 1e-9),
+            }
+        )
     frame = pd.DataFrame(rows, columns=["scenario", "replicates", "guard_failures", "allowed"])
     frame["passed"] = frame["guard_failures"] <= frame["allowed"]
     return frame

@@ -1107,6 +1107,10 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
     ):
         # A smoke run measures its prefix whole; only a declared run is cut by the cap.
         parser.error("--reference-deadline needs --reference-only and no --reference-prefix")
+    if getattr(arguments, "reference_deadline", None) is not None and arguments.cache is None:
+        # The cap decisions live in the scratch, and a default scratch is deleted when the run
+        # completes, so a later rerun would charge every scenario again.
+        parser.error("--reference-deadline needs --cache, which keeps its cap decisions")
     if getattr(arguments, "subject", None) is not None and (
         getattr(arguments, "reference_prefix", None) is None
     ):
@@ -1364,6 +1368,9 @@ def check_comparator_declaration(
     declaration = getattr(study, "PARITY", None)
     if declaration is not None:
         declaration.check_declared()
+    if getattr(arguments, "reference_deadline", None) is not None:
+        # The cap charges the committed timings; refuse moved ones before any input is drawn.
+        reference_costs(study)
 
 
 def _paired_keys(record: StudyRecord, n: int) -> list[tuple[str, int, int]]:
@@ -1836,10 +1843,66 @@ def reference_costs(study: ModuleType) -> tuple[dict[str, parity.ScenarioCost], 
     if not labels:
         raise RuntimeError(f"{study.__name__} has no committed sizing inputs for the cap")
     declared = json.loads((SIZING / "sizing.json").read_text(encoding="utf-8"))
+    held = sizing_digests()
+    if held != declared["sha256"]:
+        moved = sorted(
+            name
+            for name in set(held) | set(declared["sha256"])
+            if held.get(name) != declared["sha256"].get(name)
+        )
+        raise RuntimeError(
+            f"the committed sizing inputs differ from sizing.json's digests: {moved}; the cap "
+            "charges only the declared timings"
+        )
     costs = x59_smoke.sizing_costs(SIZING / "timing", SIZING / "memory")
     prefix = f"{labels[0]}:"
     own = {key[len(prefix) :]: cost for key, cost in costs.items() if key.startswith(prefix)}
     return own, float(declared["contention"])
+
+
+def sizing_digests() -> dict[str, str]:
+    """The sha256 of each committed sizing CSV, on LF line endings whatever the checkout."""
+    return {
+        str(path.relative_to(SIZING).as_posix()): hashlib.sha256(
+            path.read_bytes().replace(b"\r\n", b"\n")
+        ).hexdigest()
+        for path in sorted(SIZING.glob("*/*.csv"))
+    }
+
+
+#: The file in a run's scratch that holds each scenario's cap decision, made once.
+CAP_DECISIONS = "cap.json"
+
+
+def _cap_decisions(path: Path, deadline: float | None) -> dict[str, int | str]:
+    """The cap decisions a resumed run already made, under the same deadline.
+
+    A decision is made once, before its scenario starts, and a resume reads it back instead
+    of charging the scenario again: a re-charge would re-cut a cut scenario, cut an
+    interrupted whole one, and publish a finished one as unpaired past the deadline.
+    """
+    if not path.exists():
+        return {}
+    held = json.loads(path.read_text(encoding="utf-8"))
+    if deadline is None or float(held["deadline"]) != deadline:
+        raise RuntimeError(
+            f"{path} holds the cap decisions of --reference-deadline {held['deadline_iso']}; "
+            "resume with that deadline"
+        )
+    return dict(held["decisions"])
+
+
+def _write_cap_decisions(path: Path, deadline: float, decisions: Mapping[str, int | str]) -> None:
+    import datetime
+
+    payload = {
+        "deadline": deadline,
+        "deadline_iso": datetime.datetime.fromtimestamp(deadline, datetime.UTC).isoformat(),
+        "decisions": dict(decisions),
+    }
+    partial = path.with_name(path.name + ".partial")
+    partial.write_text(json.dumps(payload, indent=1) + "\n", encoding="utf-8", newline="\n")
+    partial.replace(path)
 
 
 def _now() -> float:
@@ -1874,21 +1937,46 @@ def _reference_rows_by_scenario(
     the calibration says keep the most workers busy (:func:`stream_plan`), so the scenario's
     replicates fit in parallel.  Each scenario's run is resumable and cached on its own key.
 
-    With ``--reference-deadline``, each scenario not already cached is charged before it
-    starts (:func:`tests.studies.evidence.parity.capped_prefix`) and pairs the longest prefix
-    predicted to end by the deadline; a scenario with no such prefix of 2 is not run.  Each
-    cut is recorded in ``phase.capped``.  A running scenario is never stopped: the 3-hour
-    reserve of the 24-hour cap absorbs a scenario that runs past its prediction.
+    With ``--reference-deadline``, each scenario is charged once, before it first starts
+    (:func:`tests.studies.evidence.parity.capped_prefix`), and pairs the longest prefix
+    predicted to end by the deadline; a scenario with no such prefix of 2 is not run.  The
+    decision is written to the scratch's :data:`CAP_DECISIONS` with the deadline before the
+    scenario starts, and a resume reads it back (:func:`_cap_decisions`), so an interruption
+    moves no decision.  Each cut is recorded in ``phase.capped``.  A running scenario is never
+    stopped: the 3-hour reserve of the 24-hour cap absorbs a scenario that runs past its
+    prediction.
     """
     cores = getattr(arguments, "reference_jobs", None) or arguments.jobs
     environment = reference_environment(study)
     combined = phase.paths["reference-results.csv"]
     deadline = getattr(arguments, "reference_deadline", None)
     costs, contention = reference_costs(study) if deadline is not None else ({}, 1.0)
+    decisions_path = combined.parent / CAP_DECISIONS
+    decisions = _cap_decisions(decisions_path, deadline)
     outputs: list[Path] = []
     for name in reference_order(study, list(phase.scenario_inputs)):
         inputs = phase.scenario_inputs[name]
         output = combined.with_name(f"reference-results__{name}.csv")
+        if deadline is not None:
+            declared = record.replicates_of(str(record.reference), name)
+            if name not in decisions:
+                if name not in costs:
+                    raise RuntimeError(f"{name} has no committed timing for the cap to charge")
+                charged = parity.capped_prefix(
+                    costs[name], declared, deadline - _now(), contention=contention
+                )
+                decisions[name] = "whole" if charged >= declared else charged
+                _write_cap_decisions(decisions_path, deadline, decisions)
+            decision = decisions[name]
+            if decision != "whole":
+                kept = int(decision)
+                phase.capped[name] = kept
+                print(f"the cap pairs {kept} of {declared} replicates of {name}", flush=True)
+                RUN_NOTES.append(f"the 24-hour cap paired {kept} of {declared} of {name}")
+                if kept == 0:
+                    continue
+                inputs = capped_inputs(inputs, kept, combined.parent, name)
+                output = combined.with_name(f"reference-results__{name}__cap{kept}.csv")
         stamp = output.with_name(f"{output.name}.key")
         expected = _reference_key(reference, here, inputs.samples, inputs.truth)
         cached = (
@@ -1897,32 +1985,6 @@ def _reference_rows_by_scenario(
             and stamp.exists()
             and stamp.read_text(encoding="utf-8") == expected
         )
-        if not cached and deadline is not None:
-            declared = record.replicates_of(str(record.reference), name)
-            if name not in costs:
-                raise RuntimeError(f"{name} has no committed timing for the cap to charge")
-            kept = parity.capped_prefix(
-                costs[name], declared, deadline - _now(), contention=contention
-            )
-            if kept < declared:
-                phase.capped[name] = kept
-                print(
-                    f"the cap pairs {kept} of {declared} replicates of {name}",
-                    flush=True,
-                )
-                RUN_NOTES.append(f"the 24-hour cap paired {kept} of {declared} of {name}")
-                if kept == 0:
-                    continue
-                inputs = capped_inputs(inputs, kept, combined.parent, name)
-                output = combined.with_name(f"reference-results__{name}__cap{kept}.csv")
-                stamp = output.with_name(f"{output.name}.key")
-                expected = _reference_key(reference, here, inputs.samples, inputs.truth)
-                cached = (
-                    expected is not None
-                    and output.exists()
-                    and stamp.exists()
-                    and stamp.read_text(encoding="utf-8") == expected
-                )
         outputs.append(output)
         if cached:
             print(f"reusing the cached reference rows of {name}", flush=True)
