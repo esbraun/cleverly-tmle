@@ -502,7 +502,8 @@ class TestTheRecord:
         assert split.fold_weights == (1.0,)
         assert split.fold_estimates == pytest.approx((psi,), abs=1e-12)
         assert split.estimate == psi
-        assert split.treated_shares == (float(np.mean(law.rule_of(result))),)
+        treated = float(np.mean(law.rule_of(result)))
+        assert split.arm_shares == (pytest.approx((1.0 - treated, treated), abs=1e-15),)
 
     def test_the_summary_names_the_full_sample_target(self, result: Any) -> None:
         line = result.extra["learned_rule"].describe()

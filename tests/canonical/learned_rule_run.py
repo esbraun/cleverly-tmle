@@ -59,21 +59,31 @@ def declared_sample_seeds() -> set[int]:
     """Every sample seed a declared run of any X11 study under this run form draws.
 
     That is every learned-rule study, ``learned-rule-strata`` (X11 PR E2),
-    ``learned-rule-stacked`` (X11 PR F1) and ``learned-rule-in-sample`` (X11 PR F2) among them,
-    and ``fold-evaluated-strata``, whose target is not a learned rule: a smoke run of any of
-    them must avoid the declared seeds of all of them.
+    ``learned-rule-stacked`` (X11 PR F1), ``learned-rule-in-sample`` (X11 PR F2),
+    ``learned-rule-contrast`` (X11 PR G), ``learned-rule-arms`` (X11 PR H),
+    ``learned-rule-optimal-value`` (X11 PR I) and ``learned-rule-intermediate`` (X11 PR J)
+    among them, and ``fold-evaluated-strata``, whose target is not a learned rule: a smoke run of
+    any of them must avoid the declared seeds of all of them.
     """
     from tests.studies import fold_evaluated_strata as strata
     from tests.studies import fold_evaluated_strata_properties as strata_properties
+    from tests.studies import learned_rule_arms as arms
+    from tests.studies import learned_rule_arms_properties as arms_properties
     from tests.studies import learned_rule_compositions as compositions
     from tests.studies import learned_rule_compositions_properties as composition_properties
+    from tests.studies import learned_rule_contrast as contrast
+    from tests.studies import learned_rule_contrast_properties as contrast_properties
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_boundary as boundary
     from tests.studies import learned_rule_cvtmle_properties as properties
     from tests.studies import learned_rule_in_sample as in_sample
     from tests.studies import learned_rule_in_sample_properties as in_sample_properties
+    from tests.studies import learned_rule_intermediate as intermediate
+    from tests.studies import learned_rule_intermediate_properties as intermediate_properties
     from tests.studies import learned_rule_learners as learners
     from tests.studies import learned_rule_learners_properties as learner_properties
+    from tests.studies import learned_rule_optimal_value as optimal
+    from tests.studies import learned_rule_optimal_value_properties as optimal_properties
     from tests.studies import learned_rule_split_mean as split_mean
     from tests.studies import learned_rule_split_mean_properties as split_mean_properties
     from tests.studies import learned_rule_stacked as stacked
@@ -128,6 +138,30 @@ def declared_sample_seeds() -> set[int]:
         in_sample.PRIMARY_REPLICATES,
         in_sample_properties.PROPERTY_DRAWS,
         in_sample_properties.suffixes(in_sample.STUDY),
+    )
+    seeds |= law.declared_sample_seeds(
+        contrast.STUDY,
+        contrast.PRIMARY_REPLICATES,
+        contrast_properties.PROPERTY_DRAWS,
+        contrast_properties.suffixes(contrast.STUDY),
+    )
+    seeds |= law.declared_sample_seeds(
+        arms.STUDY,
+        arms.PRIMARY_REPLICATES,
+        arms_properties.PROPERTY_DRAWS,
+        arms_properties.suffixes(arms.STUDY),
+    )
+    seeds |= law.declared_sample_seeds(
+        optimal.STUDY,
+        optimal.PRIMARY_REPLICATES,
+        optimal_properties.PROPERTY_DRAWS,
+        optimal_properties.suffixes(optimal.STUDY),
+    )
+    seeds |= law.declared_sample_seeds(
+        intermediate.STUDY,
+        intermediate.PRIMARY_REPLICATES,
+        intermediate_properties.PROPERTY_DRAWS,
+        intermediate_properties.suffixes(intermediate.STUDY),
     )
     return seeds
 

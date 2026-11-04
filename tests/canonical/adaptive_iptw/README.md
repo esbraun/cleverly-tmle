@@ -3,7 +3,7 @@
 This study fits `AdaptiveIPTW` on exact laws. It tests the targeted and one-step forms, the
 mechanism learners that the theory allows, and the cases where the theory predicts a bias. It is
 Python only. The R `drtmle` comparator is declared and pending (`STUDY.pending_reference`). The
-pairing study `adaptive-iptw-pairing` runs it later.
+pairing study `adaptive-iptw-pairing` runs it (`tests/canonical/adaptive_iptw_pairing`).
 
 | file | role |
 | --- | --- |

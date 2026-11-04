@@ -80,6 +80,10 @@ learned-rule-learners
 learned-rule-strata
 learned-rule-stacked
 learned-rule-in-sample
+learned-rule-contrast
+learned-rule-arms
+learned-rule-optimal-value
+learned-rule-intermediate
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 point-modified-treatment-policies
@@ -118,6 +122,7 @@ known-mechanism-dr-tmle
 dr-tmle-foldwise
 dr-tmle-one-inconsistent-nuisance
 adaptive-iptw
+adaptive-iptw-pairing
 known-node-mechanisms-ltmle
 sequential-baselines
 structural-nested-mean

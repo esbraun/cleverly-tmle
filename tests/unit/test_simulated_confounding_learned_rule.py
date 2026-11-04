@@ -63,7 +63,8 @@ def _frozen_refit(result: Any, data: Any) -> Any:
 
 
 def _treat(result: Any) -> np.ndarray:
-    return np.asarray(result.nuisance.regimes.values[:, 1, 0]) > 0.5
+    """The ``int8`` arm code of each row's realized rule, by hand from the one-hot density."""
+    return np.argmax(np.asarray(result.nuisance.regimes.values[:, :, 0]), axis=1).astype(np.int8)
 
 
 def _check_cells_equal_frozen_refits(result: Any, surface: Any) -> None:
@@ -162,8 +163,10 @@ def test_the_frozen_rule_checks_its_rows() -> None:
     assert rule.name == result.estimator.learned_rule.name
     subset = rule.rows(np.array([2, 0, 0]))
     assert subset.treat.tolist() == [rule.treat[2], rule.treat[0], rule.treat[0]]
-    with pytest.raises(DataError, match="one boolean per row"):
+    with pytest.raises(DataError, match="one int8 arm code per row"):
         FrozenLearnedRule("learned rule", np.zeros(3))
+    with pytest.raises(DataError, match="one int8 arm code per row"):
+        FrozenLearnedRule("learned rule", np.zeros(3, dtype=bool))
     replay = copy.copy(result.estimator)
     replay.learned_rule = subset
     with pytest.raises(DataError, match="holds 3 rows"):

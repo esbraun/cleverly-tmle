@@ -404,15 +404,17 @@ def rule_learner_treat(
     Returns
     -------
     treat : numpy.ndarray
-        One boolean per row: ``True`` where the rule of the row's fold assigns the higher
-        arm code.
+        One ``int8`` arm index per row, in the sorted arm codes: ``1`` where the rule of
+        the row's fold assigns the higher arm code, ``0`` otherwise.  The two losses read
+        a binary treatment only; the learned-rule refusal table refuses them on more arms
+        (X11 (d2)).
     margin : numpy.ndarray
         The score of the row's fold rule minus its threshold at the row
         (:meth:`FoldRule.margin`).
     fold_rules : numpy.ndarray
-        ``(n, V)`` booleans: column ``v`` is the rule of fold ``v`` at every row, evaluated
-        while the fold's fitted learner is in memory.  Its diagonal, the entry of each
-        row's own fold, is ``treat``.
+        ``(n, V)`` ``int8`` arm indices: column ``v`` is the rule of fold ``v`` at every
+        row, evaluated while the fold's fitted learner is in memory.  Its diagonal, the
+        entry of each row's own fold, is ``treat``.
     """
     covariates = np.asarray(data.covariates, dtype=float)
     treat = np.zeros(data.n, dtype=bool)
@@ -437,4 +439,6 @@ def rule_learner_treat(
         treat[rows] = rule.treat(covariates[rows])
         margin[rows] = rule.margin(covariates[rows])
         fold_rules[:, fold] = rule.treat(covariates)
-    return treat, margin, fold_rules
+    # The arm index of the plug-in rule's convention (:func:`~cleverly.estimators.
+    # _nuisance.plug_in_arm`): at two arms, index 1 is the higher arm code.
+    return treat.astype(np.int8), margin, fold_rules.astype(np.int8)

@@ -262,10 +262,10 @@ class SupportKey:
         The estimation procedure: the assessment method and, for C-TMLE, its strategy and design.
         A longitudinal key holds the recursion name.
     family : frozenset of str
-        The target families the fit reports, as the ids ``P1`` to ``P11`` of the support
-        inventory. A row covers a fit when its family set holds every family of the fit. A
-        longitudinal key holds the outcome kind, the working-model flag and the regimen-kind
-        flags.
+        The target families the fit reports, as the ids ``P1`` to ``P12`` of the support
+        inventory, ``P12`` being the value of the optimal rule. A row covers a fit when its
+        family set holds every family of the fit. A longitudinal key holds the outcome kind,
+        the working-model flag and the regimen-kind flags.
     outcome : tuple of str
         The outcome family and whether a continuous outcome declares its bounds.
     missing : tuple of str
@@ -288,7 +288,8 @@ class SupportKey:
     qualifiers : frozenset of str
         ``strata``, ``known_mechanism`` and, on a learned-rule fit with clusters of unequal
         sizes, ``unequal_clusters``. A learned-rule fit with a rule learner adds
-        ``rule_learner_blip`` or ``rule_learner_weighted_classification``. A longitudinal key
+        ``rule_learner_blip`` or ``rule_learner_weighted_classification``, and one with known
+        regimes beside the rule (``interventions=``) adds ``known_regimes``. A longitudinal key
         holds the known factors.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
@@ -585,11 +586,21 @@ _AXIS_FAMILIES: Final[Mapping[str, str]] = {
 }
 
 
+#: The target family of the value of the optimal rule (X11 (f)).  It shares the learned-rule
+#: axis and arithmetic, and it is another target, so no ``P11`` row covers it.
+OPTIMAL_RULE_FAMILY: Final = "P12"
+
+
 def _point_families(estimator: Any, estimands: Sequence[str]) -> frozenset[str]:
-    """The target families of a point fit: its parameter axis and, on the arm axis, its names."""
+    """The target families of a point fit: its parameter axis and, on the arm axis, its names.
+
+    On the learned-rule axis, a fit of the value of the optimal rule is :data:`OPTIMAL_RULE_FAMILY`.
+    """
     axis = str(estimator._axis)
     if axis == "arm":
         return frozenset(_ARM_FAMILIES.get(str(name), f"?{name}") for name in estimands)
+    if axis == "learned_rule" and "ey_optimal_rule" in estimands:
+        return frozenset({OPTIMAL_RULE_FAMILY})
     if axis == "regime" and any(
         type(item).__name__ == "Stochastic" for item in estimator.interventions
     ):
@@ -686,6 +697,11 @@ def point_key(
         # stacked row T42.clustered does: its study's declared cluster cell, whose sizes rise
         # with the outcome effect, passed the pre-declared rule (X11 (e)).
         qualifiers.add("unequal_clusters")
+    known_regimes = tuple(getattr(estimator, "interventions", None) or ())
+    if getattr(estimator, "learned_rule", None) is not None and known_regimes:
+        # Known regimes beside a learned rule (X11 (c)) add regime values and contrasts that
+        # no learned-rule row measured, so a row covers such a fit only if it declares them.
+        qualifiers.add("known_regimes")
     loss = getattr(getattr(estimator, "learned_rule", None), "loss", "plug_in")
     if loss != "plug_in":
         # No study has measured a rule learner yet (X11 (g)), so a learned-rule row of the
@@ -1197,6 +1213,14 @@ def support_for(
             nearest_id, axes = classification.nearest
             nearest = next((r for r in registered_rows() if r.id == nearest_id), None)
             study = "" if nearest is None or not nearest.evidence else f" ({nearest.evidence[0]})"
+            if nearest is not None and "qualifiers" in axes:
+                # Name the qualifiers that differ, so a reader learns which declaration
+                # keeps the row from covering the fit.
+                differing = sorted(classification.key.qualifiers ^ nearest.key.qualifiers)
+                axes = tuple(
+                    f"qualifiers ({' and '.join(differing)})" if axis == "qualifiers" else axis
+                    for axis in axes
+                )
             text += f" Nearest row: {nearest_id}{study}, differing on {', '.join(axes)}."
         reasons.append(text)
     elif not row.licenses(kind, classification.key.family):

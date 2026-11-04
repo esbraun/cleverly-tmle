@@ -420,15 +420,23 @@ def test_the_sample_seeds_are_distinct_but_one_declared_pair() -> None:
 def _other_x11_sample_seeds() -> set[int]:
     """Every sample seed a declared run of the RM30 and the other X11 studies draws."""
     from tests.studies import fold_evaluated_strata_properties as e1_properties
+    from tests.studies import learned_rule_arms as h
+    from tests.studies import learned_rule_arms_properties as h_properties
     from tests.studies import learned_rule_compositions as compositions
     from tests.studies import learned_rule_compositions_properties as composition_properties
+    from tests.studies import learned_rule_contrast as g
+    from tests.studies import learned_rule_contrast_properties as g_properties
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_boundary as boundary
     from tests.studies import learned_rule_cvtmle_properties as gated_properties
     from tests.studies import learned_rule_in_sample as f2
     from tests.studies import learned_rule_in_sample_properties as f2_properties
+    from tests.studies import learned_rule_intermediate as j
+    from tests.studies import learned_rule_intermediate_properties as j_properties
     from tests.studies import learned_rule_learners as learners
     from tests.studies import learned_rule_learners_properties as learner_properties
+    from tests.studies import learned_rule_optimal_value as i
+    from tests.studies import learned_rule_optimal_value_properties as i_properties
     from tests.studies import learned_rule_split_mean as split_mean
     from tests.studies import learned_rule_split_mean_properties as split_mean_properties
     from tests.studies import learned_rule_stacked as f1
@@ -443,6 +451,10 @@ def _other_x11_sample_seeds() -> set[int]:
         (e1, e1_properties),
         (f1, f1_properties),
         (f2, f2_properties),
+        (g, g_properties),
+        (h, h_properties),
+        (i, i_properties),
+        (j, j_properties),
     ):
         seeds |= base.declared_sample_seeds(
             record.STUDY,
