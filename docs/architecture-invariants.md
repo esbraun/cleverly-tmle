@@ -415,7 +415,7 @@ renames it, so a failed save keeps an earlier artifact at that path.
 
 Development snapshots between two releases share one version string, so the check does not see a
 change between them. `cleverly._saved_version` holds the rule, and
-`tests/unit/test_serialization.py` checks it. *Reconsider when* the project leaves alpha.
+`tests/unit/test_serialization.py` checks it. *Reconsider when* the project starts to promise compatibility between releases.
 
 A saved object round-trips the records it holds, and never a value it derived from them. Both
 `TMLEResult` and each assessment facade drop every memoized value before joblib writes the artifact.

@@ -1,6 +1,6 @@
 # cleverly 0.1.3
 
-This alpha release adds sequentially doubly robust estimation, longitudinal incremental interventions,
+This release adds sequentially doubly robust estimation, longitudinal incremental interventions,
 and long-panel input. It extends outcome-adaptive C-TMLE point estimates and narrows several
 inference claims. These are the changes since 0.1.2.
 
@@ -147,7 +147,7 @@ cleverly supports Python 3.11, 3.12, and 3.13 with pandas or Polars dataframes.
 `cloudpickle>=3.0` is now a core dependency.
 ([#297](https://github.com/esbraun/cleverly-tmle/pull/297))
 
-This remains an alpha release. The package does not promise compatibility for public APIs,
+The package does not promise compatibility for public APIs,
 `CausalStudy` objects, pickled objects, or saved results. Follow the upgrade notes when moving
 an analysis to 0.1.3.
 

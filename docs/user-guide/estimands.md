@@ -369,8 +369,9 @@ choice of treatment and intermediate together. An
 [intermediate study](../technical-reference/method-evidence/learned-rule-intermediate.md) measured
 this with 2,000 rows, ten folds and correct logistic models for the outcome, the treatment and the
 intermediate: each 95% interval covered its target 0.946 to 0.949 of the time over 20,000 samples
-at each value. Such a fit is marked supported under the default cross-fitting with one split, no
-weights or clusters, two options and the rule from the outcome model, and experimental otherwise.
+at each value. Such a fit is marked supported when each fold is scored on its own held-out rows
+(`CrossFitting(fold_evaluation=True)`) with one split, no weights or clusters, two options and the
+rule from the outcome model, and experimental otherwise.
 
 Every one of these fits needs, among other things, a treatment with distinct options rather than
 a continuous dose and complete outcomes, and a cross-fitted fit needs at least two folds. A fit

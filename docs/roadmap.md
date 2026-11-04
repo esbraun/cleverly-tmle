@@ -11,7 +11,7 @@ rows. An item enters the grid through one of the acceptance routes in [Eligibili
 An item that needs a new identification, regularity, or asymptotic argument stays in the future
 investigations grid.
 
-`cleverly` is alpha, and it keeps no backward compatibility. `cleverly.load` warns with
+`cleverly` keeps no backward compatibility. `cleverly.load` warns with
 `VersionMismatchWarning` when a different version saved the artifact, and it does not migrate the
 artifact. This roadmap therefore carries no compatibility or migration items. The "Compatibility"
 section of `CLAUDE.md` states the rule.

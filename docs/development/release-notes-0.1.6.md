@@ -1,6 +1,6 @@
 # cleverly 0.1.6
 
-This alpha release gates refutation verdicts behind registered studies and extends the sensitivity
+This release gates refutation verdicts behind registered studies and extends the sensitivity
 analyses. It adds adaptive-propensity IPTW, four `LTMLE` options, and refutation steps in the
 tutorial notebooks. These are the changes since 0.1.5.
 
@@ -312,7 +312,7 @@ A fit with `ratio_trim=` or `markov_order=` carries the `experimental` support l
 
 ## Packaging and compatibility
 
-This remains an alpha release. The package does not promise compatibility for public APIs,
+The package does not promise compatibility for public APIs,
 `CausalStudy` objects, pickled objects, or saved results. Follow the upgrade notes when you move
 an analysis to 0.1.6.
 
