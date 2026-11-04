@@ -101,6 +101,43 @@ a ``support_loss`` or                  Reporting; no verdict.  The page states t
 a recorded fitting failure             Accounted by RM39b2's ``require_accounted`` under
                                        ``FAILURE_BOUND`` = 0.01 and the module's declared clause
                                        tree.  A cell over the bound is red and diagnosed.
+a red G-P or G-C cell                  Blocks registration (plan section 4.3): no tolerance,
+(``parity.csv``)                       prefix or seed moves.  Diagnose the subject, the R
+                                       adapter, the shared input and ``ltmle`` itself; fix a
+                                       defect and re-run under a fresh declaration.  Both
+                                       tolerances are 1e-6, the floor: ten times the smoke
+                                       maxima (G-P 1.71e-9, G-C 1.63e-9) is below it.
+a G-P witness row under 100 tau        The cell still gates, but its scenario carries no
+                                       targeting claim, because the update moved too little to
+                                       tell a skipped fluctuation from a matched one.  The page
+                                       says so for that scenario.  The smoke's smallest witness
+                                       move was 1.0e-2, against 1e-4.
+a scenario the 24-hour cap cut         Each scenario is charged before it starts at the sizing
+(``--reference-deadline``)             rule's cost model and pairs the longest prefix predicted
+                                       to end by the deadline; the run's manifest gives each cut
+                                       a limit line.  At 50 or more kept replicates
+                                       (``EXACT_FLOOR``) its exact cells are graded at the kept
+                                       prefix.  Under 50 they report their differences without a
+                                       verdict.  With no prefix of 2 the scenario is unpaired
+                                       and the page states the gap.  The registration declares
+                                       the kept counts; no cut scenario is re-run to its
+                                       declared prefix after a verdict.
+a recorded comparator failure          Accounted under ``FAILURE_BOUND`` = 0.01 per cell: at the
+(the run's ``failures.csv``)           declared prefix of 100 one failed replicate is allowed,
+                                       and a second makes every cell of its scenario red; a cut
+                                       prefix under 100 allows none.  A refusal on either side
+                                       counts, never a skip.
+a margins pair                         Published with its four legs and no verdict.  No pass
+(``paired_role="descriptive"``)        probability is computed for these legs at the declared
+                                       prefix, so the page does not say in advance which legs
+                                       were resolvable; it reports each leg's interval as
+                                       measured.
+an unpaired cell                       ``binary_k5`` ``coin`` and ``coinlast``: ``ltmle`` takes
+                                       no stochastic intervention, so they have no counterpart,
+                                       and the page states the gap.  ``binary_k5_msm`` pairs its
+                                       margins rows only: the logit-MSM ``ltmleMSM`` cell of
+                                       plan rev 2.1 item 2 was not audited within the 24-hour
+                                       scope, so no exact gate is declared on it.
 =====================================  =========================================================
 
 No budget, margin, law, learner, fold count or seed moves after a verdict is seen, except under
@@ -359,11 +396,13 @@ REFERENCE_SCENARIOS = reference_.reported_cells(
     SCENARIOS, unpaired_plans={"binary_k5": ("coin", "coinlast")}
 )
 #: The fields the comparator run declares.  The registration commit moves them into ``STUDY``
-#: with ``reference="ltmle"``; ``reference_replicates`` is fixed by the declaration commit from
-#: the section 6 sizing rule.  Every margins pair is descriptive (section 4.4): the exact claims
+#: with ``reference="ltmle"``.  ``reference_replicates`` is the section 6 sizing rule's output
+#: on the smoke's measured timings and memory plans (``tests/canonical/x59_sizing``): 100 for
+#: every paired scenario.  Every margins pair is descriptive (section 4.4): the exact claims
 #: are the parity gates below.
 COMPARATOR_DECLARATION = {
     "reference_scenarios": REFERENCE_SCENARIOS,
+    "reference_replicates": dict.fromkeys(REFERENCE_SCENARIOS, 100),
     "paired_role": "descriptive",
 }
 #: The comparator's declared environment: no mutation (M2); ``ltmle`` reads no learner.
@@ -374,14 +413,17 @@ REFERENCE_TIERS = {"binary_k3": 2, "binary_k4": 2, "binary_k5": 2, "binary_k5_ms
 #: The scenarios whose G-C and witness rows need ``cleverly``'s untargeted plug-in.
 PARITY_SCENARIOS = frozenset({"binary_k3", "binary_k4", "binary_k5"})
 #: G-P and G-C on every paired Wald estimand of ``binary_k3`` to ``binary_k5`` (section 4.2).
-#: Both tolerances are declared from the smoke maxima by the declaration commit.
+#: Both tolerances are ``declared_tolerance`` of the smoke maxima, which the attempt-5 smoke
+#: read at G-P 1.710e-9 and G-C 1.632e-9 over eight replicates: ten times either is under the
+#: 1e-6 floor.
 PARITY = ParityDeclaration(
     cells=tuple(
         ParityCell(gate, name, estimand)
         for gate in ("G-P", "G-C")
         for name in sorted(PARITY_SCENARIOS)
         for estimand in REFERENCE_SCENARIOS[name]
-    )
+    ),
+    tolerance={"G-P": 1e-6, "G-C": 1e-6},
 )
 
 

@@ -68,6 +68,11 @@ SMOKE_SCALE = 10.0
 WITNESS_FACTOR = 100.0
 #: A declared mutation must move some gate by at least this many tolerances.
 MUTATION_FACTOR = 10.0
+#: The fewest paired replicates an exact gate is graded on when the 24-hour cap cut its
+#: scenario's prefix.  A cut scenario under it reports its exact cells without a verdict, and
+#: the run's manifest carries its limit line (``regenerate.py --reference-deadline``).  A
+#: smoke run (``--reference-prefix``) is not cut, so it never reads this.
+EXACT_FLOOR = 50
 
 #: The columns of ``parity.csv``.
 PARITY_COLUMNS = (
@@ -81,6 +86,7 @@ PARITY_COLUMNS = (
     "rms",
     "tolerance",
     "passed",
+    "graded",
 )
 #: The columns of ``parity-replicates.csv``: per replicate, what the gates need beyond the rows.
 INPUT_COLUMNS = ("scenario", "replicate", "estimand", "subject_plugin", "reference_gcomp")
@@ -252,6 +258,26 @@ def _row(
         "rms": float(np.sqrt(np.mean(np.square(difference.to_numpy(dtype=float))))),
         "tolerance": tolerance,
         "passed": bool(largest <= tolerance),
+        "graded": True,
+    }
+
+
+def _unreached(
+    gate: str, scenario: str, estimand: str, quantity: str, tolerance: float
+) -> dict[str, Any]:
+    """The row of a cell whose scenario the cap left with no paired replicate."""
+    return {
+        "gate": gate,
+        "scenario": scenario,
+        "estimand": estimand,
+        "quantity": quantity,
+        "paired_replicates": 0,
+        "max_abs_difference": math.nan,
+        "max_replicate": -1,
+        "rms": math.nan,
+        "tolerance": tolerance,
+        "passed": False,
+        "graded": False,
     }
 
 
@@ -261,6 +287,7 @@ def parity_table(
     *,
     record: StudyRecord,
     declaration: ParityDeclaration,
+    capped: Mapping[str, int] | None = None,
 ) -> pd.DataFrame:
     """``parity.csv``: one row per declared cell and quantity, then the witness rows.
 
@@ -268,7 +295,13 @@ def parity_table(
     the witness rows read.  A G-P or G1 cell reads the estimate and the standard error.  A
     witness row's ``max_abs_difference`` is the largest targeting move and its ``rms`` the RMS
     move, against :data:`WITNESS_FACTOR` times the G-P tolerance.
+
+    ``capped`` maps each scenario the 24-hour cap cut to the replicates it paired.  A cell of
+    such a scenario with fewer than :data:`EXACT_FLOOR` paired replicates is written with
+    ``graded`` false: it reports its differences and gates nothing.  A cell the cap left with
+    no replicate is written with ``paired_replicates`` 0 and no difference.
     """
+    cut = dict(capped or {})
     if record.reference is None:
         raise ValueError(f"{record.slug} has no reference to read parity against")
     subject, reference = record.implementation, str(record.reference)
@@ -278,21 +311,31 @@ def parity_table(
         keyed = inputs.set_index(["scenario", "estimand", "replicate"]).sort_index()
     for cell in declaration.cells:
         tau = declaration.tau(cell.gate)
+        quantities = ("estimate", "std_error") if cell.gate in ("G-P", "G1") else ("gcomp",)
+        if cut.get(cell.scenario, EXACT_FLOOR) == 0:
+            out += [
+                _unreached(cell.gate, cell.scenario, cell.estimand, quantity, tau)
+                for quantity in quantities
+            ]
+            continue
+        graded = cut.get(cell.scenario, EXACT_FLOOR) >= EXACT_FLOOR
         if cell.gate in ("G-P", "G1"):
             wide = _paired(rows, record, cell.scenario, cell.estimand)
-            for quantity in ("estimate", "std_error"):
+            for quantity in quantities:
                 difference = wide[(quantity, subject)] - wide[(quantity, reference)]
-                out.append(_row(cell.gate, cell.scenario, cell.estimand, quantity, difference, tau))
+                row = _row(cell.gate, cell.scenario, cell.estimand, quantity, difference, tau)
+                out.append({**row, "graded": graded})
             continue
         if keyed is None:
             raise ValueError(f"{record.slug}: G-C needs parity-replicates.csv")
         here = keyed.loc[(cell.scenario, cell.estimand)]
         difference = (here["reference_gcomp"] - here["subject_plugin"]).dropna()
-        out.append(_row("G-C", cell.scenario, cell.estimand, "gcomp", difference, tau))
+        row = _row("G-C", cell.scenario, cell.estimand, "gcomp", difference, tau)
+        out.append({**row, "graded": graded})
     if keyed is not None and "G-P" in declaration.gates():
         tau = declaration.tau("G-P")
         for cell in declaration.cells:
-            if cell.gate != "G-P":
+            if cell.gate != "G-P" or cut.get(cell.scenario, EXACT_FLOOR) == 0:
                 continue
             committed = rows.loc[
                 (rows["implementation"] == subject)
@@ -304,6 +347,8 @@ def parity_table(
             row = _row("witness", cell.scenario, cell.estimand, "targeting_move", move, tau)
             row["tolerance"] = WITNESS_FACTOR * tau
             row["passed"] = bool(row["rms"] >= row["tolerance"])
+            # A witness states a claim's reach; it grades nothing.
+            row["graded"] = False
             out.append(row)
     return pd.DataFrame.from_records(out, columns=list(PARITY_COLUMNS))
 
@@ -315,8 +360,21 @@ def witness_scenarios(table: pd.DataFrame) -> dict[str, bool]:
 
 
 def failed_gates(table: pd.DataFrame) -> pd.DataFrame:
-    """The gate rows over their tolerance (witness rows state a claim's reach, not a gate)."""
-    return table.loc[(table["gate"] != "witness") & ~table["passed"].astype(bool)]
+    """The graded gate rows over their tolerance.
+
+    A witness row states a claim's reach, and a cell the cap left under :data:`EXACT_FLOOR`
+    reports without a verdict; neither is graded.
+    """
+    graded = table["graded"].astype(bool) & (table["gate"] != "witness")
+    return table.loc[graded & ~table["passed"].astype(bool)]
+
+
+def ungraded_cells(table: pd.DataFrame) -> pd.DataFrame:
+    """The exact cells the cap left under :data:`EXACT_FLOOR`: the run's limit lines."""
+    held = table.loc[(table["gate"] != "witness") & ~table["graded"].astype(bool)]
+    return held.loc[:, ["gate", "scenario", "estimand", "paired_replicates"]].drop_duplicates(
+        ["gate", "scenario", "estimand"], ignore_index=True
+    )
 
 
 def smoke_maxima(table: pd.DataFrame) -> dict[str, float]:
@@ -408,6 +466,24 @@ def scenario_wall_seconds(cost: ScenarioCost, replicates: int, *, contention: fl
         return 0.0
     rounds = 1 + stream_rounds(replicates, cost.workers, cost.chunk)
     return contention * cost.seconds * rounds
+
+
+def capped_prefix(
+    cost: ScenarioCost, declared: int, seconds_left: float, *, contention: float
+) -> int:
+    """The largest prefix of ``declared`` whose predicted wall time fits ``seconds_left``.
+
+    The 24-hour cap's per-scenario rule: before a scenario starts, the driver charges it at
+    the sizing rule's own cost model (:func:`scenario_wall_seconds`, the committed timings and
+    memory plans, the declared contention) and pairs the longest prefix that ends before the
+    deadline.  ``declared`` when it all fits, 0 when no prefix of at least 2 does.
+    """
+    if declared < 2:
+        raise ValueError("a paired scenario declares at least 2 replicates")
+    for count in range(int(declared), 1, -1):
+        if scenario_wall_seconds(cost, count, contention=contention) <= seconds_left:
+            return count
+    return 0
 
 
 @dataclass(frozen=True)

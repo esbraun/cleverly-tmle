@@ -488,3 +488,17 @@ lmtp's `fluc` with an observe-only guard that records a replicate as failed when
 non-finite or above 1e3, and returns lmtp's own fit otherwise. A fit that passes the guard is
 unchanged, so the edit moves no paired value. The declaration digests were refreshed again, and
 no reference process has run.
+
+The declaration commit fixes the comparator runs before any of them starts. Every paired
+scenario of S1, S2 and S3 pairs its first 100 replicates, the section 6 rule's output on the
+attempt-5 smoke's timings and memory plans at contention 1.3 (tier 2 and tier 4 at 100, 14.8
+of 21 wall hours). Those inputs, their digests and the rule's output are committed under
+`tests/canonical/x59_sizing`, and `tests/unit/test_x59_parity.py` recomputes the counts from
+them. Every paired S3 cell is promoted to G1 (plan rev 2.1) on the smoke's agreement of at
+most 1.44e-15. The S3 tiers stay as measured: on the promoted tiers the rule would give tier 2
+at 50, and `sizing.json` records that output beside the applied one. The S1 and
+`long-horizon-ltmle-parity` G-P and G-C tolerances are declared at the 1e-6 floor. The driver
+gained the 24-hour cap (`--reference-deadline`), which pairs the prefix each scenario's
+committed timing predicts will finish and grades no exact cell under 50 paired replicates.
+No R file or Dockerfile moved, so no declaration digest changed, and no reference process has
+run.

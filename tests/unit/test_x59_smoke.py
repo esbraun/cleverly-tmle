@@ -246,3 +246,25 @@ def test_package_drift_names_every_shared_package_but_lmtp(tmp_path: Path) -> No
             }
         ).to_csv(tmp_path / f"packages-{version}.csv", index=False)
     assert x59_smoke.package_drift(tmp_path) == ["collapse 2.1.2 / 2.0.19"]
+
+
+def test_the_guard_step_stops_above_one_failure_per_hundred(tmp_path: Path) -> None:
+    message = f"{x59_smoke.GUARD_MESSAGE} 3.4e+15, past 1000: glm diverged from its default start"
+    records = [
+        ("lmtp", "categorical_k3", "4", message),
+        ("lmtp", "categorical_k3", "4", message),  # a retry of one replicate counts once
+        ("lmtp", "categorical_k5", "7", message),
+        ("lmtp", "categorical_k5", "9", "another failure"),
+    ]
+    frame = pd.DataFrame(records, columns=["implementation", "scenarios", "replicates", "message"])
+    frame.to_csv(tmp_path / "failures.csv", index=False)
+    held = x59_smoke.guard_failures("categorical", tmp_path).set_index("scenario")
+    assert held.loc["categorical_k3", "guard_failures"] == 1
+    assert held.loc["categorical_k5", "guard_failures"] == 1
+    assert (held["allowed"] == 1).all() and held["passed"].all()
+    assert x59_smoke.guard("categorical", tmp_path) == 0
+    records.append(("lmtp", "categorical_k5", "8", message))
+    pd.DataFrame(records, columns=frame.columns).to_csv(tmp_path / "failures.csv", index=False)
+    assert x59_smoke.guard("categorical", tmp_path) == 1
+    fixed = x59_smoke.guard_failures("lmtp-parity", tmp_path).set_index("scenario")
+    assert (fixed["allowed"] == 5).all()

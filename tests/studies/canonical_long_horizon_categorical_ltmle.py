@@ -109,6 +109,50 @@ a ``support_loss`` or                  Reporting; no verdict.  The page states t
 a recorded fitting failure             Accounted by RM39b2's ``require_accounted`` under
                                        ``FAILURE_BOUND`` = 0.01 and the module's declared clause
                                        tree.  A cell over the bound is red and diagnosed.
+a red G1 cell                          Blocks registration (plan section 4.3): the 1e-6
+(``parity.csv``)                       tolerance, the prefix and the seeds do not move.
+                                       Diagnose the subject, the adapter, the shared input and
+                                       ``lmtp`` 9996b04; fix a defect and re-run under a fresh
+                                       declaration.  G1 covers ``mix`` in the four one-fold
+                                       scenarios that fit it (smoke maximum 8.1e-11).
+a scenario the 24-hour cap cut         Each scenario is charged before it starts at the sizing
+(``--reference-deadline``)             rule's cost model and pairs the longest prefix predicted
+                                       to end by the deadline; the run's manifest gives each cut
+                                       a limit line.  At 50 or more kept replicates
+                                       (``EXACT_FLOOR``) its exact cells are graded at the kept
+                                       prefix.  Under 50 they report their differences without a
+                                       verdict.  With no prefix of 2 the scenario is unpaired
+                                       and the page states the gap.  The registration declares
+                                       the kept counts; no cut scenario is re-run to its
+                                       declared prefix after a verdict.
+a recorded comparator failure          Accounted under ``FAILURE_BOUND`` = 0.01 per cell: at the
+(the run's ``failures.csv``)           declared prefix of 100 one failed replicate is allowed,
+                                       and a second makes every cell of its scenario red; a cut
+                                       prefix under 100 allows none.  A refusal on either side
+                                       counts, never a skip.
+a fluctuation guard record             The adapter stops a replicate whose lmtp fluctuation
+(``lmtp_9996b04_crossfit_adapter.R``)  reports a non-finite epsilon or one above 1e3, so a
+                                       diverged fit is a recorded failure, never a published
+                                       row.  It counts under ``FAILURE_BOUND``.  The main run
+                                       counts guard records per scenario after this study
+                                       (``x59_smoke guard``) and stops above 1 per 100 for
+                                       diagnosis.
+a margins pair                         Published with its four legs and no verdict.  No pass
+(``paired_role="descriptive"``)        probability is computed for these legs at the declared
+                                       prefix, so the page does not say in advance which legs
+                                       were resolvable; it reports each leg's interval as
+                                       measured.
+an unpaired cell                       Six plans ``lmtp`` 9996b04's node-K fluctuation cannot
+                                       fit (``UNPAIRED_PLANS``): ``categorical_k4`` ``switch``,
+                                       ``categorical_k4_high`` ``high``,
+                                       ``categorical_k5_static`` ``high`` and ``switch``,
+                                       ``categorical_k5_switch`` ``switch`` and
+                                       ``categorical_k5_high`` ``high``, with their contrasts.
+                                       ``categorical_k5_crossfit`` has no counterpart estimator.
+                                       The page states each gap as a comparator limitation.
+a cell not promoted to G1              Every paired cell but ``mix`` stays descriptive: the
+                                       smoke paired 19 of 38 cells above 1e-10 (largest 2.0e-9),
+                                       so the rev 2.1 promotion rule does not reach them.
 =====================================  =========================================================
 
 No budget, margin, law, learner, fold count or seed moves after a verdict is seen, except under
@@ -413,9 +457,16 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
 #: ``switch`` 100/100, ``categorical_k5_high`` ``high`` 100/100, ``categorical_k4`` ``switch``
 #: 70/100 and ``categorical_k4_high`` ``high`` 10/100.  Every other one-fold plan, every G1
 #: ``mix`` cell among them, diverged on 0/100.  All six are descriptive plans, and the decision
-#: was taken on the smoke inputs before any parity output.  The paired adapters also record a
-#: replicate as failed when any node's epsilon is non-finite or above 1e3 (lmtp's ``fluc``
-#: guard, ``lmtp_9996b04_crossfit_adapter.R``), which covers the nodes the scan does not read.
+#: was taken on the smoke inputs before any parity output.  That scan is an intercept-only
+#: proxy at node K.  The exact check ran for the declaration (pre-queue review item 7):
+#: ``fluctuation_emulation_scan.py`` runs lmtp 9996b04's whole one-fold TMLE loop
+#: (``fluctuation_emulation.R``, host R 4.3.3) on the full input of replicates 0 to 99 of every
+#: paired plan here and 0 to 499 of ``long-horizon-lmtp-parity`` ``parity_tmle_mix``.  No node
+#: of any of the 2,700 plan-replicates diverged (largest ``|epsilon|`` 0.45) and no targeted
+#: follower cell left ``Q_BOUNDS`` (``lmtp_9996b04/emulation-summary.csv``).  The paired
+#: adapters also record a replicate as failed when any node's epsilon is non-finite or above
+#: 1e3 (lmtp's ``fluc`` guard, ``lmtp_9996b04_crossfit_adapter.R``), for whatever the main run
+#: meets beyond these replicates.
 UNPAIRED_PLANS = {
     "categorical_k4": ("switch",),
     "categorical_k4_high": ("high",),
@@ -430,9 +481,12 @@ UNPAIRED_PLANS = {
 REFERENCE_SCENARIOS = reference_.reported_cells(
     SCENARIOS, unpaired_plans=UNPAIRED_PLANS, unpaired_scenarios=("categorical_k5_crossfit",)
 )
-#: The fields the comparator run declares; see ``canonical_long_horizon_ltmle``.
+#: The fields the comparator run declares; see ``canonical_long_horizon_ltmle``.  Every paired
+#: scenario pairs its first 100 replicates: the section 6 rule's output on the measured tiers
+#: (``tests/canonical/x59_sizing``).
 COMPARATOR_DECLARATION = {
     "reference_scenarios": REFERENCE_SCENARIOS,
+    "reference_replicates": dict.fromkeys(REFERENCE_SCENARIOS, 100),
     "paired_role": "descriptive",
 }
 #: The comparator's declared environment: no mutation, and the declared learner (M2).
@@ -442,7 +496,12 @@ REFERENCE_ENVIRONMENT = reference_.LMTP_ENVIRONMENT
 REFERENCE_TIERS = {
     name: 2 if "ey_regimen[mix]" in cells else 4 for name, cells in REFERENCE_SCENARIOS.items()
 }
-#: G1 on ``ey_regimen[mix]``, the all-policy plan, in every one-fold scenario that fits it.
+#: G1 on ``ey_regimen[mix]``, the all-policy plan, in every one-fold scenario that fits it.  The
+#: rev 2.1 promotion does not reach this study's other plans: a cell is promoted only when its
+#: identity holds at 1e-10 on the G0 frame and on the smoke set, and the smoke paired 19 of
+#: this study's 38 cells above 1e-10 (largest ``|d estimate|`` 2.02e-9).  Two ``glm`` fits
+#: of the stratified node regressions stop at different iterates there, so those cells keep
+#: their descriptive margins rows.
 PARITY = ParityDeclaration(
     cells=tuple(
         ParityCell("G1", name, "ey_regimen[mix]")

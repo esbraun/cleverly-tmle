@@ -38,6 +38,7 @@ import argparse
 import dataclasses
 import importlib
 import json
+import math
 import os
 import subprocess
 import sys
@@ -946,6 +947,61 @@ def sizing(timings: Path, memory: Path, tier1_hours: float, contention: float) -
     return 0
 
 
+#: The message the paired ``lmtp`` adapters stop a replicate with when the fluctuation diverges
+#: (``lmtp_9996b04_crossfit_adapter.R``, ``horizon_fluctuation_bound``).
+GUARD_MESSAGE = "lmtp's fluctuation reported epsilon"
+
+
+def guard_failures(study: str, out: Path) -> pd.DataFrame:
+    """Per paired scenario of a declared run in ``out``: the fluctuation guard's failures.
+
+    Reads the run's ``failures.csv``; each record is one replicate of one scenario, and the
+    guard fails every plan of it.  ``allowed`` is ``FAILURE_BOUND`` (0.01) of the scenario's
+    declared prefix: 1 at 100 replicates and 5 at 500.
+    """
+    module = _module(study)
+    declared = qbound_replicates(study, None)
+    path = out / "failures.csv"
+    held = (
+        pd.read_csv(path, dtype={"scenarios": str, "replicates": str}, keep_default_na=False)
+        if path.exists()
+        else pd.DataFrame(columns=["implementation", "scenarios", "message"])
+    )
+    guarded = held.loc[
+        (held["implementation"] == module.STUDY.pending_reference)
+        & held["message"].astype(str).str.contains(GUARD_MESSAGE, regex=False)
+    ]
+    bound = float(module.STUDY.failure_bound.get(str(module.STUDY.pending_reference), 0.01))
+    rows = [
+        {
+            "scenario": name,
+            "replicates": count,
+            "guard_failures": int(
+                guarded.loc[guarded["scenarios"] == name, "replicates"].nunique()
+            ),
+            "allowed": math.floor(bound * count + 1e-9),
+        }
+        for name, count in declared.items()
+    ]
+    frame = pd.DataFrame(rows, columns=["scenario", "replicates", "guard_failures", "allowed"])
+    frame["passed"] = frame["guard_failures"] <= frame["allowed"]
+    return frame
+
+
+def guard(study: str, out: Path) -> int:
+    """The main run's stop after ``lmtp-parity`` and ``categorical``: guard failures per cell.
+
+    Exits 1 when any scenario's guard failures exceed its allowance, so the run stops for
+    diagnosis before the next study starts.
+    """
+    frame = guard_failures(study, out)
+    print(frame.to_string(index=False), flush=True)
+    if not frame["passed"].all():
+        print("STOP: the fluctuation guard failed more replicates than FAILURE_BOUND allows")
+        return 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """The command line of every smoke step."""
     parser = argparse.ArgumentParser(prog="python -m tests.canonical.x59_smoke")
@@ -982,6 +1038,9 @@ def build_parser() -> argparse.ArgumentParser:
     step.add_argument("study", choices=STUDIES)
     step.add_argument("--out", type=Path, required=True)
     step.add_argument("--replicates", type=int, default=2)
+    step = steps.add_parser("guard")
+    step.add_argument("study", choices=STUDIES)
+    step.add_argument("--out", type=Path, required=True, help="the declared run's output")
     step = steps.add_parser("declared-sources")
     step.add_argument("studies", nargs="+", choices=STUDIES)
     step = steps.add_parser("sizing")
@@ -1022,6 +1081,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if arguments.step == "timing":
         return timing(arguments.study, arguments.out, arguments.replicates)
+    if arguments.step == "guard":
+        return guard(arguments.study, arguments.out)
     if arguments.step == "declared-sources":
         return declared_sources(arguments.studies)
     return sizing(arguments.timings, arguments.memory, arguments.tier1_hours, arguments.contention)

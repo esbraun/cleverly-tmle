@@ -961,6 +961,8 @@ class _Phase:
     reference_input_from_fit: bool = False
     #: A reference-only run's per-scenario comparator inputs; the comparator runs once each.
     scenario_inputs: dict[str, ScenarioInput] = field(default_factory=dict)
+    #: Scenario -> the replicates it paired, for each scenario the 24-hour cap cut.
+    capped: dict[str, int] = field(default_factory=dict)
 
     def recorded(self, record: StudyRecord) -> pd.DataFrame | None:
         """Both sides' records, the induced reference records included, or ``None``.
@@ -1047,6 +1049,14 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
                 "of the committed ones, for a record that has committed none yet"
             ),
         )
+        parser.add_argument(
+            "--reference-deadline",
+            type=_deadline,
+            help=(
+                "with --reference-only: an ISO 8601 time with its offset; each scenario pairs "
+                "the longest prefix its committed timing predicts ends by then (the 24-hour cap)"
+            ),
+        )
     if reference is None and study.STUDY.comparator_state == "pending":
         parser.add_argument(
             "--reference-jobs",
@@ -1092,6 +1102,11 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
             parser.error("--reference-prefix needs --reference-only")
         if arguments.reference_prefix < 2:
             parser.error("--reference-prefix must be >= 2")
+    if getattr(arguments, "reference_deadline", None) is not None and (
+        not arguments.reference_only or arguments.reference_prefix is not None
+    ):
+        # A smoke run measures its prefix whole; only a declared run is cut by the cap.
+        parser.error("--reference-deadline needs --reference-only and no --reference-prefix")
     if getattr(arguments, "subject", None) is not None and (
         getattr(arguments, "reference_prefix", None) is None
     ):
@@ -1105,6 +1120,19 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
         # The committed property files keep their bytes: the subject's evidence is not rerun.
         arguments.skip_properties = True
     return arguments
+
+
+def _deadline(text: str) -> float:
+    """``--reference-deadline``: an ISO 8601 time with its UTC offset, as epoch seconds."""
+    import datetime
+
+    try:
+        moment = datetime.datetime.fromisoformat(text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"not an ISO 8601 time: {text!r}") from error
+    if moment.tzinfo is None:
+        raise argparse.ArgumentTypeError(f"{text!r} has no UTC offset")
+    return moment.timestamp()
 
 
 def _claim_scratch(scratch: Path, key: Mapping[str, Any], *, fresh: bool) -> None:
@@ -1442,11 +1470,15 @@ class ScenarioInput:
         The scenario's truth rows.
     lines : int
         The most archive lines one replicate holds, which sizes the runner's read chunk.
+    offsets : tuple of int
+        The archive's byte length after its header and after each replicate's member, so the
+        first ``m`` replicates are its first ``offsets[m]`` bytes (:func:`capped_inputs`).
     """
 
     samples: Path
     truth: Path
     lines: int
+    offsets: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1496,6 +1528,7 @@ def write_reference_inputs(
     truths: dict[str, list[dict[str, Any]]] = {name: [] for name in names}
     plugins: list[dict[str, Any]] = []
     lines = dict.fromkeys(names, 0)
+    offsets: dict[str, list[int]] = {name: [] for name in names}
     archives = {name: scenario_input_paths(scratch, name) for name in names}
     partials = {
         name: archives[name][0].with_name(archives[name][0].name + ".partial") for name in names
@@ -1503,12 +1536,14 @@ def write_reference_inputs(
     streams = {name: partials[name].open("wb") for name in names}
     try:
         for name in names:
-            header = (",".join(columns[name]) + "\n").encode("utf-8")
-            streams[name].write(gzip.compress(header, mtime=0))
+            header = gzip.compress((",".join(columns[name]) + "\n").encode("utf-8"), mtime=0)
+            streams[name].write(header)
+            offsets[name].append(len(header))
         for done, (name, member, count, truth_rows, plugin_rows) in enumerate(
             _ordered_map(worker, keys, jobs), start=1
         ):
             streams[name].write(member)
+            offsets[name].append(offsets[name][-1] + len(member))
             lines[name] = max(lines[name], count)
             truths[name] += truth_rows
             plugins += plugin_rows
@@ -1531,10 +1566,42 @@ def write_reference_inputs(
         paths[_SUBJECT_PLUGINS],
     )
     scenarios = {
-        name: ScenarioInput(samples=archives[name][0], truth=archives[name][1], lines=lines[name])
+        name: ScenarioInput(
+            samples=archives[name][0],
+            truth=archives[name][1],
+            lines=lines[name],
+            offsets=tuple(offsets[name]),
+        )
         for name in names
     }
     return ReferenceInputs(paths=paths, scenarios=scenarios)
+
+
+def capped_inputs(
+    inputs: ScenarioInput, replicates: int, scratch: Path, name: str
+) -> ScenarioInput:
+    """The first ``replicates`` replicates of one scenario's inputs, for the 24-hour cap.
+
+    The archive holds one gzip member per replicate in replicate order, so the prefix is a
+    byte prefix of it (:attr:`ScenarioInput.offsets`); the truth rows are filtered to match.
+    """
+    if not 1 <= replicates < len(inputs.offsets) - 1:
+        raise ValueError(
+            f"{name}: a cut keeps 1 to {len(inputs.offsets) - 2} of its "
+            f"{len(inputs.offsets) - 1} replicates, not {replicates}"
+        )
+    samples = scratch / f"samples__{name}__cap{replicates}.csv.gz"
+    truth = scratch / f"truth__{name}__cap{replicates}.csv"
+    with inputs.samples.open("rb") as source, samples.open("wb") as target:
+        target.write(source.read(inputs.offsets[replicates]))
+    rows = pd.read_csv(inputs.truth, float_precision="round_trip")
+    write_csv(rows.loc[rows["replicate"] < replicates], truth)
+    return ScenarioInput(
+        samples=samples,
+        truth=truth,
+        lines=inputs.lines,
+        offsets=inputs.offsets[: replicates + 1],
+    )
 
 
 def _reference_only_phase(
@@ -1560,8 +1627,13 @@ def _reference_only_phase(
     if stamp.exists():
         written = json.loads(stamp.read_text(encoding="utf-8"))
         lines = written.get("lines", {})
+        held_offsets = written.get("offsets", {})
         scenarios = {
-            name: ScenarioInput(*scenario_input_paths(scratch, name), lines=int(count))
+            name: ScenarioInput(
+                *scenario_input_paths(scratch, name),
+                lines=int(count),
+                offsets=tuple(int(value) for value in held_offsets.get(name, ())),
+            )
             for name, count in lines.items()
         }
         held = [phase.paths["truth.csv"], phase.paths[_SUBJECT_PLUGINS]] + [
@@ -1571,6 +1643,7 @@ def _reference_only_phase(
             written.get("keys") == keys
             and written.get("environment") == environment
             and scenarios
+            and all(inputs.offsets for inputs in scenarios.values())
             and all(path.exists() for path in held)
         ):
             print(f"reusing the reference inputs in {scratch}", flush=True)
@@ -1585,6 +1658,7 @@ def _reference_only_phase(
                 "environment": environment,
                 "keys": keys,
                 "lines": {name: value.lines for name, value in inputs.scenarios.items()},
+                "offsets": {name: list(value.offsets) for name, value in inputs.scenarios.items()},
             },
             indent=1,
         )
@@ -1746,6 +1820,46 @@ def _concatenate_csv(sources: Sequence[Path], target: Path) -> None:
             out.write(body if not body or body.endswith("\n") else body + "\n")
 
 
+#: The committed sizing inputs: the smoke's timings and memory plans, and the declaration.
+SIZING = ROOT / "tests" / "canonical" / "x59_sizing"
+
+
+def reference_costs(study: ModuleType) -> tuple[dict[str, parity.ScenarioCost], float]:
+    """``study``'s paired scenarios at the sizing rule's cost model, and its contention.
+
+    The cap charges a scenario as the sizing rule did: the committed smoke timings and memory
+    plans (``tests/canonical/x59_sizing``) at the declared contention.
+    """
+    from tests.canonical import x59_smoke
+
+    labels = [label for label, held in x59_smoke.STUDIES.items() if held[0] == study.__name__]
+    if not labels:
+        raise RuntimeError(f"{study.__name__} has no committed sizing inputs for the cap")
+    declared = json.loads((SIZING / "sizing.json").read_text(encoding="utf-8"))
+    costs = x59_smoke.sizing_costs(SIZING / "timing", SIZING / "memory")
+    prefix = f"{labels[0]}:"
+    own = {key[len(prefix) :]: cost for key, cost in costs.items() if key.startswith(prefix)}
+    return own, float(declared["contention"])
+
+
+def _now() -> float:
+    """The wall clock the cap reads, in seconds since the epoch."""
+    return time.time()
+
+
+def reference_order(study: ModuleType, names: Sequence[str]) -> list[str]:
+    """The order the comparator runs ``names`` in: the study's ``REFERENCE_LAST`` at the end.
+
+    Under the 24-hour cap the cut falls on what runs last, so the costliest scenario is
+    placed there and the cheap ones pair their whole prefix first.
+    """
+    last = tuple(getattr(study, "REFERENCE_LAST", ()))
+    unknown = sorted(set(last) - set(names))
+    if unknown:
+        raise RuntimeError(f"REFERENCE_LAST names {unknown}, which the reference does not pair")
+    return [name for name in names if name not in last] + list(last)
+
+
 def _reference_rows_by_scenario(
     study: ModuleType,
     reference: Reference,
@@ -1758,24 +1872,59 @@ def _reference_rows_by_scenario(
 
     One replicate of one scenario is one ``study_stream`` group, and a read holds as many as
     the calibration says keep the most workers busy (:func:`stream_plan`), so the scenario's
-    replicates fit in parallel.  Each scenario's run
-    is resumable and cached on its own key.
+    replicates fit in parallel.  Each scenario's run is resumable and cached on its own key.
+
+    With ``--reference-deadline``, each scenario not already cached is charged before it
+    starts (:func:`tests.studies.evidence.parity.capped_prefix`) and pairs the longest prefix
+    predicted to end by the deadline; a scenario with no such prefix of 2 is not run.  Each
+    cut is recorded in ``phase.capped``.  A running scenario is never stopped: the 3-hour
+    reserve of the 24-hour cap absorbs a scenario that runs past its prediction.
     """
     cores = getattr(arguments, "reference_jobs", None) or arguments.jobs
     environment = reference_environment(study)
     combined = phase.paths["reference-results.csv"]
+    deadline = getattr(arguments, "reference_deadline", None)
+    costs, contention = reference_costs(study) if deadline is not None else ({}, 1.0)
     outputs: list[Path] = []
-    for name, inputs in phase.scenario_inputs.items():
+    for name in reference_order(study, list(phase.scenario_inputs)):
+        inputs = phase.scenario_inputs[name]
         output = combined.with_name(f"reference-results__{name}.csv")
-        outputs.append(output)
         stamp = output.with_name(f"{output.name}.key")
         expected = _reference_key(reference, here, inputs.samples, inputs.truth)
-        if (
+        cached = (
             expected is not None
             and output.exists()
             and stamp.exists()
             and stamp.read_text(encoding="utf-8") == expected
-        ):
+        )
+        if not cached and deadline is not None:
+            declared = record.replicates_of(str(record.reference), name)
+            if name not in costs:
+                raise RuntimeError(f"{name} has no committed timing for the cap to charge")
+            kept = parity.capped_prefix(
+                costs[name], declared, deadline - _now(), contention=contention
+            )
+            if kept < declared:
+                phase.capped[name] = kept
+                print(
+                    f"the cap pairs {kept} of {declared} replicates of {name}",
+                    flush=True,
+                )
+                RUN_NOTES.append(f"the 24-hour cap paired {kept} of {declared} of {name}")
+                if kept == 0:
+                    continue
+                inputs = capped_inputs(inputs, kept, combined.parent, name)
+                output = combined.with_name(f"reference-results__{name}__cap{kept}.csv")
+                stamp = output.with_name(f"{output.name}.key")
+                expected = _reference_key(reference, here, inputs.samples, inputs.truth)
+                cached = (
+                    expected is not None
+                    and output.exists()
+                    and stamp.exists()
+                    and stamp.read_text(encoding="utf-8") == expected
+                )
+        outputs.append(output)
+        if cached:
             print(f"reusing the cached reference rows of {name}", flush=True)
             RUN_NOTES.append(f"resumed from {output.parent}, reused the reference rows of {name}")
             continue
@@ -1795,6 +1944,8 @@ def _reference_rows_by_scenario(
         )
         if expected is not None and reference.interpreter != "Rscript":
             stamp.write_text(expected, encoding="utf-8", newline="\n")
+    if not outputs:
+        raise RuntimeError(f"{record.slug}: the cap left no paired scenario to run")
     _concatenate_csv(outputs, combined)
     failed = [failures_path(output) for output in outputs if failures_path(output).exists()]
     failures_path(combined).unlink(missing_ok=True)
@@ -1803,6 +1954,59 @@ def _reference_rows_by_scenario(
     phase.reference_results = combined
     phase.reference_failures = _reference_failures(str(record.reference), combined)
     return pd.read_csv(combined)
+
+
+def cap_record(
+    declared: Mapping[str, int],
+    capped: Mapping[str, int],
+    table: pd.DataFrame | None,
+    deadline: float,
+) -> dict[str, Any]:
+    """The manifest's account of the cap: each cut, and one limit line per cut scenario.
+
+    A limit line names what the cut scenario still claims: its exact cells graded at the kept
+    prefix, or reported without a verdict under :data:`~tests.studies.evidence.parity.EXACT_FLOOR`.
+    """
+    import datetime
+
+    ungraded = set() if table is None else set(parity.ungraded_cells(table)["scenario"])
+    limits = []
+    for name, kept in capped.items():
+        if kept == 0:
+            reading = "not paired: no prefix of 2 fit before the deadline"
+        elif name in ungraded:
+            reading = (
+                f"its exact cells report without a verdict, under the floor of "
+                f"{parity.EXACT_FLOOR} paired replicates"
+            )
+        else:
+            reading = "its exact cells are graded at the kept prefix"
+        limits.append(f"{name}: the 24-hour cap paired {kept} of {declared[name]}; {reading}")
+    return {
+        "deadline": datetime.datetime.fromtimestamp(deadline, datetime.UTC).isoformat(),
+        "paired": {name: {"declared": declared[name], "kept": capped[name]} for name in capped},
+        "limits": limits,
+    }
+
+
+def capped_record(record: StudyRecord, capped: Mapping[str, int]) -> StudyRecord:
+    """``record`` pairing only what the cap left: each cut scenario at its kept prefix.
+
+    A scenario the cap left with no replicate leaves the paired cells, so no reader looks for
+    its reference rows.
+    """
+    if not capped:
+        return record
+    reference = str(record.reference)
+    reported = {
+        name: cells
+        for name, cells in record.reported(reference).items()
+        if capped.get(name, 2) >= 2
+    }
+    counts = {
+        name: int(capped.get(name, record.replicates_of(reference, name))) for name in reported
+    }
+    return dataclasses.replace(record, reference_scenarios=reported, reference_replicates=counts)
 
 
 def _failures_below(frame: pd.DataFrame, replicates: int) -> pd.DataFrame | None:
@@ -2144,11 +2348,17 @@ def _regenerate(
     else:
         phase = _python_phase(study, arguments, scratch)
     rows = phase.rows
+    declared_counts: dict[str, int] = {}
     if reference is not None:
         rows = pd.concat(
             [phase.rows, _reference_rows(study, reference, arguments, here, phase, record)],
             ignore_index=True,
         )
+        # The cap's cuts, before any reader counts the paired replicates.
+        declared_counts = {
+            name: record.replicates_of(str(record.reference), name) for name in phase.capped
+        }
+        record = capped_record(record, phase.capped)
     reference_extra_frames: dict[str, pd.DataFrame] = {}
     if reference is not None and hasattr(study, "reference_artifacts"):
         reference_extra_frames = study.reference_artifacts(
@@ -2236,9 +2446,19 @@ def _regenerate(
     if reference is not None and declaration is not None:
         # X59: the exact gates read every paired replicate; the margins rows above describe.
         inputs = parity_inputs(phase)
+        if phase.capped:
+            # A cut scenario's plug-ins beyond its kept prefix pair nothing.
+            kept = (
+                inputs["scenario"]
+                .map(lambda name: phase.capped.get(str(name), math.inf))
+                .astype(float)
+            )
+            inputs = inputs.loc[inputs["replicate"] < kept].reset_index(drop=True)
         if getattr(arguments, "reference_prefix", None) is not None:
             declaration = parity.smoke_declaration(declaration)
-        parity_table = parity.parity_table(rows, inputs, record=record, declaration=declaration)
+        parity_table = parity.parity_table(
+            rows, inputs, record=record, declaration=declaration, capped=phase.capped
+        )
         write_csv(inputs, out / "parity-replicates.csv")
         write_csv(parity_table, out / "parity.csv")
         artifact_names = (*artifact_names, *PARITY_ARTIFACTS)
@@ -2263,6 +2483,12 @@ def _regenerate(
     artifact_names = (*artifact_names, *property_failure_names)
 
     reference_metadata = dict(getattr(study, "REFERENCE_METADATA", None) or {})
+    if phase.capped:
+        reference_metadata["cap"] = cap_record(
+            declared_counts, phase.capped, parity_table, arguments.reference_deadline
+        )
+        for line in reference_metadata["cap"]["limits"]:
+            print(f"limit: {line}", flush=True)
     environment = reference_environment(study)
     if reference is not None and environment:
         reference_metadata["environment"] = environment

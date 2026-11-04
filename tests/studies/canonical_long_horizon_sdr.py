@@ -98,6 +98,42 @@ a ``support_loss`` or                  Reporting; no verdict.  The page states t
 a recorded fitting failure             Accounted by RM39b2's ``require_accounted`` under
                                        ``FAILURE_BOUND`` = 0.01 and the module's declared clause
                                        tree.  A cell over the bound is red and diagnosed.
+a red G1 cell                          Blocks registration (plan section 4.3): the 1e-6
+(``parity.csv``)                       tolerance, the prefix and the seeds do not move.
+                                       Diagnose the subject, the adapter, the shared input and
+                                       ``lmtp`` ``cf_sdr``; fix a defect and re-run under a
+                                       fresh declaration.  After the rev 2.1 promotion G1 covers
+                                       every paired cell, the cross-fitted scenario's among them
+                                       (smoke maximum 1.4e-15).
+a scenario the 24-hour cap cut         Each scenario is charged before it starts at the sizing
+(``--reference-deadline``)             rule's cost model and pairs the longest prefix predicted
+                                       to end by the deadline; the run's manifest gives each cut
+                                       a limit line.  At 50 or more kept replicates
+                                       (``EXACT_FLOOR``) its exact cells are graded at the kept
+                                       prefix.  Under 50 they report their differences without a
+                                       verdict.  With no prefix of 2 the scenario is unpaired
+                                       and the page states the gap.  The registration declares
+                                       the kept counts; no cut scenario is re-run to its
+                                       declared prefix after a verdict.
+a recorded comparator failure          Accounted under ``FAILURE_BOUND`` = 0.01 per cell: at the
+(the run's ``failures.csv``)           declared prefix of 100 one failed replicate is allowed,
+                                       and a second makes every cell of its scenario red; a cut
+                                       prefix under 100 allows none.  A refusal on either side
+                                       counts, never a skip.
+a fluctuation guard record             The runner sources the guarded adapter, which stops a
+(``lmtp_9996b04_crossfit_adapter.R``)  replicate on a non-finite lmtp fluctuation or one above
+                                       1e3.  A record counts under ``FAILURE_BOUND`` like any
+                                       failure and is diagnosed.
+a margins pair                         Published with its four legs and no verdict.  No pass
+(``paired_role="descriptive"``)        probability is computed for these legs at the declared
+                                       prefix, so the page does not say in advance which legs
+                                       were resolvable; it reports each leg's interval as
+                                       measured.
+an unpaired cell                       None: every Wald row of every scenario is paired.  Under
+                                       the cap the cross-fitted scenario runs last
+                                       (``REFERENCE_LAST``), because it costs 9.5 of the study's
+                                       11.2 predicted wall hours, and this study runs after the
+                                       others.
 =====================================  =========================================================
 
 No budget, margin, law, learner, fold count or seed moves after a verdict is seen, except under
@@ -426,32 +462,48 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
 #: fold-free supplied ratios the five-fold recursion is ``lmtp::cf_sdr``'s, so the five-fold
 #: scenario is paired too.
 REFERENCE_SCENARIOS = reference_.reported_cells(SCENARIOS)
-#: The fields the comparator run declares; see ``canonical_long_horizon_ltmle``.
+#: The section 6 priority tier of each paired scenario, as the attempt-5 smoke measured it
+#: (``tests/canonical/x59_sizing``): 2 for a scenario that held a G1 cell before the promotion
+#: below, 4 for one with margins pairs only.  The tiers fix the sizing and are not re-derived
+#: from the promoted cells: on the promoted tiers the rule gives tier 2 at 50, because tier 2 at
+#: 100 costs 13.64 wall hours against 13.55 of room (``sizing.json``, ``promoted``).
+REFERENCE_TIERS = {
+    "sdr_binary_k3": 2,
+    "sdr_binary_k4": 2,
+    "sdr_binary_k5": 2,
+    "sdr_categorical_k5": 2,
+    "sdr_categorical_k5_crossfit": 2,
+    "sdr_categorical_k5_static": 4,
+    "sdr_categorical_k5_switch": 4,
+    "sdr_categorical_k5_high": 4,
+    "sdr_categorical_k5_mix": 2,
+    "sdr_policy_k5": 2,
+    "sdr_policy_k5_mix": 2,
+    "sdr_policy_k5_taper": 4,
+}
+#: The fields the comparator run declares; see ``canonical_long_horizon_ltmle``.  Every paired
+#: scenario pairs its first 100 replicates: the section 6 rule's output on the measured tiers
+#: (tier 2 and tier 4 at 100, 14.8 of 21 wall hours; ``tests/unit/test_x59_parity.py``).
 COMPARATOR_DECLARATION = {
     "reference_scenarios": REFERENCE_SCENARIOS,
+    "reference_replicates": dict.fromkeys(REFERENCE_SCENARIOS, 100),
     "paired_role": "descriptive",
 }
 #: The comparator's declared environment: no mutation, and the declared learner (M2).
 REFERENCE_ENVIRONMENT = reference_.LMTP_ENVIRONMENT
-#: The G1 cells (section 4.2, B1 and B2): ``coin`` at two arms, ``mix`` at three.
-G1_CELLS = (
-    ("sdr_binary_k3", "ey_regimen[coin]"),
-    ("sdr_binary_k4", "ey_regimen[coin]"),
-    ("sdr_binary_k5", "ey_regimen[coin]"),
-    ("sdr_categorical_k5", "ey_regimen[mix]"),
-    ("sdr_categorical_k5_crossfit", "ey_regimen[mix]"),
-    ("sdr_categorical_k5_mix", "ey_regimen[mix]"),
-    ("sdr_policy_k5", "ey_regimen[mix]"),
-    ("sdr_policy_k5_mix", "ey_regimen[mix]"),
+#: The G1 cells: every paired cell (plan rev 2.1, the promotion).  The smoke paired all 72 at
+#: ``|d estimate| <= 1.44e-15`` and ``|d SE| <= 1.04e-16`` over its eight replicates, and G0
+#: agreed at 1e-10, so the label, rule, ``mixlast`` and ``taper`` plans and every contrast
+#: carry the identity claim beside ``coin`` and ``mix``.  Their margins rows stay descriptive.
+G1_CELLS = tuple(
+    (name, estimand) for name, estimands in REFERENCE_SCENARIOS.items() for estimand in estimands
 )
-#: The section 6 priority tier of each paired scenario: 2 holds exact cells, 4 margins only.
-#: A tier-2 scenario's descriptive plans are fitted, and charged, at the tier-2 prefix.
-REFERENCE_TIERS = {
-    name: 2 if name in {scenario for scenario, _ in G1_CELLS} else 4 for name in REFERENCE_SCENARIOS
-}
 PARITY = ParityDeclaration(
     cells=tuple(ParityCell("G1", name, estimand) for name, estimand in G1_CELLS)
 )
+#: The scenarios the comparator runs after every other one.  The cross-fitted scenario costs
+#: 9.5 of the study's 11.2 wall hours, so under the 24-hour cap it alone is cut.
+REFERENCE_LAST = ("sdr_categorical_k5_crossfit",)
 
 
 def reference_sample(scenario: str, n: int, replicate: int) -> ReferenceSample:

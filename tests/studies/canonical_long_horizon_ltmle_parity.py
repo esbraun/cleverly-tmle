@@ -91,13 +91,17 @@ COMPARATOR_DECLARATION = {
 #: The comparator's declared environment: no mutation (M2); ``ltmle`` reads no learner.
 REFERENCE_ENVIRONMENT = reference_.LTMLE_ENVIRONMENT
 PARITY_SCENARIOS = frozenset(ESTIMATORS)
+#: Both tolerances are ``declared_tolerance`` of the smoke maxima, which the attempt-5 smoke
+#: read at G-P 2.258e-9 and G-C 1.666e-9 over eight replicates: ten times either is under the
+#: 1e-6 floor.
 PARITY = ParityDeclaration(
     cells=tuple(
         ParityCell(gate, name, estimand)
         for gate in ("G-P", "G-C")
         for name in sorted(PARITY_SCENARIOS)
         for estimand in STUDY.scenarios[name]
-    )
+    ),
+    tolerance={"G-P": 1e-6, "G-C": 1e-6},
 )
 
 

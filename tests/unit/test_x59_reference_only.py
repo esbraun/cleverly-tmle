@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -332,3 +333,155 @@ def test_a_smoke_pairs_a_subject_that_is_not_committed_yet(
     rows = read_rows(smoke / "replicates.parquet")
     assert _subject(rows).equals(_subject(read_rows(subject / "replicates.parquet")))
     assert set(_reference_rows(rows)["replicate"]) == set(range(7))
+
+
+# ---- the 24-hour cap (pre-queue review item 4) -----------------------------------------------
+DEADLINE = "2030-01-01T00:00:00+00:00"
+
+
+def _capped_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, seconds_left: Sequence[float]
+) -> tuple[Path, list[str]]:
+    """A declared run whose scenarios start with ``seconds_left`` before the deadline.
+
+    Each replicate is charged one second on one worker, so a prefix of ``m`` costs ``m + 1``
+    seconds (its calibration fit, then one round per replicate after the first read).
+    """
+    here = tmp_path / "study"
+    _committed(monkeypatch, here)
+    cost = parity.ScenarioCost(seconds=1.0, workers=1, chunk=1, tier=2)
+    monkeypatch.setattr(regenerate, "reference_costs", lambda study: ({"a": cost, "b": cost}, 1.0))
+    deadline = regenerate._deadline(DEADLINE)
+    clock = iter(deadline - left for left in seconds_left)
+    monkeypatch.setattr(regenerate, "_now", lambda: next(clock))
+    order: list[str] = []
+    original = regenerate.capped_inputs
+
+    def recorded(inputs: Any, replicates: int, scratch: Path, name: str) -> Any:
+        order.append(name)
+        return original(inputs, replicates, scratch, name)
+
+    monkeypatch.setattr(regenerate, "capped_inputs", recorded)
+    _main(monkeypatch, here, "--reference-only", "--reference-deadline", DEADLINE)
+    return here, order
+
+
+def test_a_scenario_that_fits_before_the_deadline_pairs_its_whole_prefix(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    here, cut = _capped_run(monkeypatch, tmp_path, [100.0, 100.0])
+    assert cut == []
+    manifest = json.loads((here / "manifest.json").read_text())
+    assert "cap" not in manifest["generated_with"]["reference"]
+    paired = pd.read_csv(here / "equivalence.csv")
+    assert dict(zip(paired["scenario"], paired["paired_replicates"], strict=True)) == {
+        "a": 10,
+        "b": 8,
+    }
+
+
+def test_the_cap_publishes_the_prefix_that_fits_and_grades_it_above_the_floor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(parity, "EXACT_FLOOR", 3)
+    # ``a`` fits whole (11 s); ``b`` starts 7 s before the deadline and keeps 6 of its 8.
+    here, cut = _capped_run(monkeypatch, tmp_path, [20.0, 7.0])
+    assert cut == ["b"]
+    reference = _reference_rows(read_rows(here / "replicates.parquet"))
+    assert sorted(reference.loc[reference["scenario"] == "b", "replicate"]) == list(range(6))
+    assert sorted(reference.loc[reference["scenario"] == "a", "replicate"]) == list(range(10))
+    table = pd.read_csv(here / "parity.csv")
+    b = table.loc[table["scenario"] == "b"]
+    assert b["graded"].all() and (b["paired_replicates"] == 6).all()
+    cap = json.loads((here / "manifest.json").read_text())["generated_with"]["reference"]["cap"]
+    assert cap["paired"] == {"b": {"declared": 8, "kept": 6}}
+    assert cap["limits"] == [
+        "b: the 24-hour cap paired 6 of 8; its exact cells are graded at the kept prefix"
+    ]
+
+
+def test_a_cut_under_the_floor_reports_its_exact_cells_without_a_verdict(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    here, cut = _capped_run(monkeypatch, tmp_path, [20.0, 7.0])
+    assert cut == ["b"]
+    table = pd.read_csv(here / "parity.csv")
+    gates = table.loc[table["gate"] != "witness"]
+    assert not gates.loc[gates["scenario"] == "b", "graded"].any()
+    assert gates.loc[gates["scenario"] == "a", "graded"].all()
+    # A failed difference in an ungraded cell is not a failed gate.
+    red = parity.failed_gates(table.assign(passed=False))
+    assert set(red["scenario"]) == {"a"}
+    assert parity.ungraded_cells(table)[
+        ["scenario", "paired_replicates"]
+    ].drop_duplicates().to_dict("records") == [{"scenario": "b", "paired_replicates": 6}]
+    reference = json.loads((here / "manifest.json").read_text())["generated_with"]["reference"]
+    assert reference["cap"]["limits"] == [
+        "b: the 24-hour cap paired 6 of 8; its exact cells report without a verdict, under "
+        f"the floor of {parity.EXACT_FLOOR} paired replicates"
+    ]
+
+
+def test_a_scenario_with_no_prefix_before_the_deadline_is_not_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    here, cut = _capped_run(monkeypatch, tmp_path, [20.0, 2.0])
+    assert cut == [], "a scenario with nothing to pair writes no cut archive"
+    assert len(synthetic.RUNS) == 1
+    reference = _reference_rows(read_rows(here / "replicates.parquet"))
+    assert set(reference["scenario"]) == {"a"}
+    table = pd.read_csv(here / "parity.csv")
+    b = table.loc[table["scenario"] == "b"]
+    assert (b["paired_replicates"] == 0).all() and not b["graded"].any()
+    paired = pd.read_csv(here / "equivalence.csv")
+    assert set(paired["scenario"]) == {"a"}
+    limits = json.loads((here / "manifest.json").read_text())["generated_with"]["reference"]["cap"][
+        "limits"
+    ]
+    assert limits == [
+        "b: the 24-hour cap paired 0 of 8; not paired: no prefix of 2 fit before the deadline"
+    ]
+
+
+def test_a_cut_archive_is_the_first_replicates_of_the_whole_one(tmp_path: Path) -> None:
+    record = dataclasses.replace(synthetic.compared(), reference_replicates={"a": 5, "b": 2})
+    inputs = regenerate.write_reference_inputs(synthetic, record, 60, tmp_path, jobs=1)
+    whole = inputs.scenarios["a"]
+    assert len(whole.offsets) == 6 and whole.offsets[-1] == whole.samples.stat().st_size
+    cut = regenerate.capped_inputs(whole, 3, tmp_path, "a")
+    full = pd.read_csv(whole.samples, float_precision="round_trip")
+    kept = pd.read_csv(cut.samples, float_precision="round_trip")
+    pd.testing.assert_frame_equal(kept, full.loc[full["replicate"] < 3])
+    assert pd.read_csv(cut.truth)["replicate"].tolist() == [0, 1, 2]
+    with pytest.raises(ValueError, match="a cut keeps"):
+        regenerate.capped_inputs(whole, 5, tmp_path, "a")
+
+
+def test_the_last_declared_scenario_runs_last(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert regenerate.reference_order(synthetic, ["a", "b"]) == ["a", "b"]
+    monkeypatch.setattr(synthetic, "REFERENCE_LAST", ("a",), raising=False)
+    assert regenerate.reference_order(synthetic, ["a", "b"]) == ["b", "a"]
+    monkeypatch.setattr(synthetic, "REFERENCE_LAST", ("c",), raising=False)
+    with pytest.raises(RuntimeError, match="REFERENCE_LAST names"):
+        regenerate.reference_order(synthetic, ["a", "b"])
+
+
+def test_the_sdr_crossfit_scenario_runs_last_and_its_study_last() -> None:
+    from tests.studies import canonical_long_horizon_sdr as sdr
+
+    order = regenerate.reference_order(sdr, list(sdr.REFERENCE_SCENARIOS))
+    assert order[-1] == "sdr_categorical_k5_crossfit"
+
+
+def test_the_deadline_is_refused_on_a_smoke_and_without_an_offset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    here = tmp_path / "study"
+    _committed(monkeypatch, here)
+    with pytest.raises(SystemExit):
+        _main(
+            monkeypatch, here, "--reference-only", "--reference-prefix", "4",
+            "--output", str(tmp_path / "smoke"), "--reference-deadline", DEADLINE,
+        )  # fmt: skip
+    with pytest.raises(SystemExit):
+        _main(monkeypatch, here, "--reference-only", "--reference-deadline", "2030-01-01T00:00")

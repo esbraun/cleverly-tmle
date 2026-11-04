@@ -8,28 +8,63 @@ check on two equal columns cannot tell a working gate from one that reads nothin
 
 from __future__ import annotations
 
+import hashlib
+import importlib
+import json
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from tests.canonical import x59_smoke
 from tests.studies.evidence import parity
 from tests.studies.evidence.manifest import read_rows
-from tests.studies.evidence.registry import registered
 from tests.unit import _x59_reference_only_support as synthetic
 
-STUDIES = [study for study in registered() if study.artifact("parity.csv").exists()]
+#: Every X59 study module that declares parity cells: S1 to S3 and both parity records.
+MODULES = [importlib.import_module(held[0]) for held in x59_smoke.STUDIES.values()]
 
 
-@pytest.mark.parametrize("study", STUDIES, ids=[study.slug for study in STUDIES])
-def test_the_committed_parity_table_is_recomputed_from_the_rows(study) -> None:  # type: ignore[no-untyped-def]
-    declaration = study.runner().PARITY
+def _cut(manifest: dict[str, Any]) -> dict[str, int]:
+    """The scenarios the 24-hour cap cut in a committed run, with the replicates each kept."""
+    reference = manifest["generated_with"].get("reference") or {}
+    paired = reference.get("cap", {}).get("paired", {})
+    return {name: int(held["kept"]) for name, held in paired.items()}
+
+
+@pytest.mark.parametrize("module", MODULES, ids=[m.STUDY.slug for m in MODULES])
+def test_the_committed_parity_table_is_recomputed_and_every_graded_gate_is_green(module) -> None:  # type: ignore[no-untyped-def]
+    """``parity.csv`` recomputes from the rows, and a committed one holds no red exact gate.
+
+    A red G-P, G-C or G1 cell blocks registration (plan section 4.3), so no committed table
+    carries one under either publication policy.  A record whose comparator has not run yet
+    has no table, and must still be pending.
+    """
+    study = module.STUDY
+    path = study.artifact("parity.csv")
+    if not path.exists():
+        assert study.comparator_state == "pending", (
+            f"{study.slug} is compared but has no parity.csv"
+        )
+        pytest.skip(f"{study.slug}: the comparator has not run")
+    assert study.reference is not None, f"{study.slug} commits parity.csv without its reference"
+    manifest = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))
     rows = read_rows(study.artifact("replicates.parquet"))
     inputs = pd.read_csv(study.artifact("parity-replicates.csv"), float_precision="round_trip")
-    recomputed = parity.parity_table(rows, inputs, record=study, declaration=declaration)
-    committed = pd.read_csv(study.artifact("parity.csv"), float_precision="round_trip")
+    recomputed = parity.parity_table(
+        rows, inputs, record=study, declaration=module.PARITY, capped=_cut(manifest)
+    )
+    committed = pd.read_csv(path, float_precision="round_trip")
     pd.testing.assert_frame_equal(recomputed, committed, check_dtype=False, rtol=1e-12)
+    red = parity.failed_gates(committed)
+    assert red.empty, f"{study.slug} commits red exact gates:\n{red.to_string(index=False)}"
+    graded = committed.loc[committed["graded"].astype(bool)]
+    assert (graded["paired_replicates"] >= 2).all()
+    for name, count in study.reference_replicates.items():
+        held = committed.loc[committed["scenario"] == name, "paired_replicates"]
+        assert (held <= count).all(), name
 
 
 def _rows(shift: float = 0.0, se_shift: float = 0.0) -> pd.DataFrame:
@@ -200,3 +235,103 @@ def test_only_the_parity_tier_fixes_its_replicates() -> None:
         parity.reference_sizes({"exact": _cost(1.0, 1, 2, replicates=50)}, tier1_hours=0.0)
     with pytest.raises(ValueError, match="fixes its replicates"):
         parity.reference_sizes({"parity": _cost(1.0, 1, parity.PARITY_TIER)}, tier1_hours=0.0)
+
+
+def test_a_cut_cell_under_the_floor_reports_and_gates_nothing() -> None:
+    rows = _rows(shift=1e-3)
+    table = parity.parity_table(
+        rows,
+        _inputs(rows, move=0.01),
+        record=synthetic.compared(),
+        declaration=synthetic.PARITY,
+        capped={"a": 10},
+    )
+    assert not table.loc[table["scenario"] == "a"]["graded"].any()
+    assert parity.failed_gates(table).empty, "a cell under the floor gates nothing"
+    assert not table.loc[table["scenario"] == "a", "passed"].loc[table["gate"] == "G-P"].all()
+    assert set(parity.ungraded_cells(table)["gate"]) == {"G-P", "G-C"}
+    # The same cut at the floor grades its cells, and the mutation fails its gate.
+    floored = parity.parity_table(
+        rows,
+        _inputs(rows, move=0.01),
+        record=synthetic.compared(),
+        declaration=synthetic.PARITY,
+        capped={"a": parity.EXACT_FLOOR},
+    )
+    assert set(parity.failed_gates(floored)["gate"]) == {"G-P"}
+
+
+def test_a_cell_the_cap_left_without_a_replicate_has_a_row_and_no_verdict() -> None:
+    rows = _rows()
+    rows = rows.loc[~((rows["scenario"] == "b") & (rows["implementation"] == synthetic.REFERENCE))]
+    table = parity.parity_table(
+        rows,
+        _inputs(rows, move=0.01),
+        record=synthetic.compared(),
+        declaration=synthetic.PARITY,
+        capped={"b": 0},
+    )
+    b = table.loc[table["scenario"] == "b"]
+    assert len(b) == 2 and (b["paired_replicates"] == 0).all() and not b["graded"].any()
+    assert parity.failed_gates(table).empty
+
+
+def test_the_cap_keeps_the_longest_prefix_its_prediction_fits() -> None:
+    cost = parity.ScenarioCost(seconds=10.0, workers=4, chunk=4, tier=2)
+    full = parity.scenario_wall_seconds(cost, 100, contention=1.3)
+    assert parity.capped_prefix(cost, 100, full, contention=1.3) == 100
+    kept = parity.capped_prefix(cost, 100, full / 2, contention=1.3)
+    assert 2 <= kept < 100
+    assert parity.scenario_wall_seconds(cost, kept, contention=1.3) <= full / 2
+    assert parity.scenario_wall_seconds(cost, kept + 1, contention=1.3) > full / 2
+    assert parity.capped_prefix(cost, 100, 1.0, contention=1.3) == 0
+
+
+# ---- the declaration's sizing (pre-queue review item 1) --------------------------------------
+SIZING = Path(x59_smoke.ROOT) / "tests" / "canonical" / "x59_sizing"
+
+
+def _sizing() -> dict[str, Any]:
+    return json.loads((SIZING / "sizing.json").read_text(encoding="utf-8"))
+
+
+def test_the_committed_sizing_inputs_are_the_declared_bytes() -> None:
+    declared = _sizing()["sha256"]
+    held = {
+        str(path.relative_to(SIZING)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(SIZING.glob("*/*.csv"))
+    }
+    assert held == declared
+
+
+def test_the_declared_prefixes_are_the_sizing_rule_s_output_on_the_measured_tiers() -> None:
+    import dataclasses
+
+    declared = _sizing()
+    costs = x59_smoke.sizing_costs(SIZING / "timing", SIZING / "memory")
+    sized = parity.reference_sizes(
+        costs, tier1_hours=declared["tier1_hours"], contention=declared["contention"]
+    )
+    assert (sized.tier2, sized.tier4) == (declared["as_run"]["tier2"], declared["as_run"]["tier4"])
+    assert {int(k): v for k, v in declared["as_run"]["hours"].items()} == pytest.approx(
+        dict(sized.hours)
+    )
+    for label, held in x59_smoke.STUDIES.items():
+        module = importlib.import_module(held[0])
+        prefix = module.COMPARATOR_DECLARATION["reference_replicates"]
+        for name, count in prefix.items():
+            assert sized.counts[f"{label}:{name}"] == count, (label, name)
+            assert costs[f"{label}:{name}"].tier == x59_smoke.reference_tier(label, name)
+    # Recorded, not applied: the rule on the tiers after the S3 promotion.
+    promoted = {
+        key: dataclasses.replace(cost, tier=2) if key.startswith("sdr:") else cost
+        for key, cost in costs.items()
+    }
+    again = parity.reference_sizes(
+        promoted, tier1_hours=declared["tier1_hours"], contention=declared["contention"]
+    )
+    held = declared["promoted"]
+    assert (again.tier2, again.tier4) == (held["tier2"], held["tier4"])
+    assert parity.tier_hours(promoted, 2, 100, contention=declared["contention"]) == pytest.approx(
+        held["tier2_hours_at_100"]
+    )

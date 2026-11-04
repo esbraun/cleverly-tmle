@@ -1,0 +1,10 @@
+study,scenario,tier,replicates,seconds
+categorical,categorical_k3,2,,19.424999999999997
+categorical,categorical_k4,2,,73.1115
+categorical,categorical_k4_high,4,,20.740000000000002
+categorical,categorical_k4_static,4,,46.368
+categorical,categorical_k5,2,,76.84100000000001
+categorical,categorical_k5_static,4,,27.0995
+categorical,categorical_k5_switch,4,,15.486500000000001
+categorical,categorical_k5_high,4,,13.844999999999999
+categorical,categorical_k5_mix,2,,34.468999999999994
