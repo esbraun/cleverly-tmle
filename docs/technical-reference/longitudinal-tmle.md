@@ -1259,6 +1259,89 @@ the fit with R `ltmle` at a numeric `gform`. The
 [sequential offers tutorial](../examples/sequential-offers.ipynb) declares a three-level offer at
 three nodes beside an estimated consent model.
 
+### Learned regimens
+
+`LTMLE(regimens=LearnedRegimen())` estimates the value of a two-node treatment rule learned from
+the data. It needs two decision nodes, a binary treatment at each, an end-of-study outcome and at
+least two folds. The target is the stacked value of
+[part (e) of the learned-rule contract](point-treatment-tmle.md#learned-rules),
+
+$$
+\psi_n^{\mathrm{target}} = \sum_{v=1}^{V} \frac{n_v}{n}\, \Psi_{d_{nv}}(P_0),
+$$
+
+where $d_{nv} = (d_{nv,1}, d_{nv,2})$ is the rule pair learned on the training rows of fold $v$ and
+$\Psi_d$ is the mean outcome had every unit followed $d$ and stayed uncensored. Nodes are counted
+from 1 here, so node $t$ is the intervention node $A(t-1)$ of van der Laan and Luedtke (2015). The
+target depends on the sample through the rules (Section 7 of that paper).
+
+The interval covers the target under the conditions of that paper's Theorem 6: a fixed limit rule
+pair, a bounded efficient influence function and the usual second-order remainder. An optimal
+rule can be nonregular at a tie, which this limit condition excludes. With an estimated
+mechanism, the reported curve omits the $D_g$ term of Corollary 3. It is then the influence curve
+when the outcome regressions are consistent, and conservative when each fold's mechanism is a
+maximum-likelihood fit in a correct model.
+
+Each fold learns its pair by backward plug-in Q-learning inside its own untargeted recursion on
+its training rows (van der Laan and Luedtke 2015, Theorem 1). Node 2 is fitted once per node-1 arm
+$a_1$, on the training rows that took $a_1$ and are at risk, and
+$d_{nv,2}(a_1, \bar L(2)) = 1\{\bar Q_{2}(a_1, \bar L(2), 1) - \bar Q_{2}(a_1, \bar L(2), 0) > 0\}$,
+with a tie to arm 0. The node-1 regression is then fitted under the static branch $a_1$ on every
+training row, with the node-2 value carried at $d_{nv,2}(a_1, \cdot)$, and $d_{nv,1}$ takes the
+arm whose regression is larger, with a tie to arm 0. Each validation row is evaluated under its
+own fold's pair. The mechanism is fitted after the rules, at the stitched plan of each row's own
+pair, so the clever covariate $H_t$ reads each row's own rule.
+
+Targeting fits one pooled logistic fluctuation per node, node 2 and then node 1, over every
+validation row (van der Laan and Luedtke 2015, Appendix B). The curve of row $i$ is
+$Z_i - \hat\psi$, with $Z_i = \bar Q^*_{1}(d_{n v(i)}) + \sum_t H_{t,i}(\bar Q^*_{t+1,i} - \bar Q^*_{t,i})$
+and $\bar Q^*_{3} = Y$. The variance is $\frac{1}{n(n-1)}\sum_i (Z_i - \hat\psi)^2$. It is the
+fold-centred form of Appendix B plus the spread of the fold means around $\hat\psi$, so it is
+never smaller. Under Theorem 6's fixed limit the spread is $O_P(1/n)$, and both forms estimate the
+same variance. The fit uses the pooled-centred form for its stacked target, as the point-treatment
+report does.
+
+`result.learned_regimen` is a `LearnedRegimenRecord`. It holds each fold's stored rule pairs,
+`fold_rules` with shape (folds, rows, 2), each fold's blips, the fold weights $n_v/n$ and a
+`LearnedRegimenNode` per node. A node record gives each fold's treated share among the rows at
+risk, quantiles of the absolute blip and the share of rows on which two folds' rules disagree.
+At node 2 the rows at risk are the uncensored rows whose node-1 arm is the one their fold's rule
+assigns. Node 2's disagreement reads every row uncensored after node 1, and it also counts a row
+whose folds chose different node-1 arms, because each fold's node-2 rule is the one of its chosen
+arm. The summary prints the target and these shares.
+
+| request | result |
+| --- | --- |
+| the pair above, with censoring after each node and every option at its default | supported, row `G47` of the [learned-regimen study](method-evidence/learned-regimen-ltmle.md), under the support kind `learned`. Censoring is part of the intervention node, as in the source. The study measures one law at n = 2,000 with ten folds and correct treatment and censoring models, on which coverage rests |
+| the pair above on an uncensored panel | experimental. The key reads no censoring, and no cell measures it |
+| `node_bounds=`, `ratio_trim=`, a stopping rule, `treatment_probabilities=`, a continuous outcome with `q_bounds=` | experimental. Bounds and trimming change the estimator and leave the target unchanged. A node bound also bounds the Q-learning regression of its node, so it can change the rules. A trimmed ratio reads the node-2 code on every uncensored row, so the rule is evaluated there. On a continuous outcome the regressions run on the outcome rescaled to $[0, 1]$ by the declared support. The rule is the sign of a blip, so a wider support leaves it unchanged under a learner whose predictions follow an affine change of the outcome, such as least squares |
+| more than two nodes; a survival, competing or repeated outcome; a node that is not one binary treatment; `msm=`; `SDR`, `IPSI` or another estimator; another regimen beside it | refused (X11 (b2)). No source beyond two nodes was read, and no construction of these compositions is checked |
+| `repeats` above 1 | refused (X11 (b2)). The median over draws estimates no defined parameter. Use `repeats=1` |
+| `n_folds=1` | refused (X11 (b2)). Theorem 5 of the source covers the in-sample rule pair, which is not built |
+| `weights=`, `id=`, a Markov order | refused (X11 (b2)). No construction is checked on the longitudinal path |
+| the one-step targeting option | refused (X11 (b2)). Appendix B states the logistic fluctuation |
+| a `pseudo_learner` (the node-1 regression) that selects by an internal cross-validated risk: a `SuperLearner`, a class whose name ends in `CV`, or a learner with a `cv` setting, alone or inside any wrapper; with `pseudo_learner=None`, an `outcome_learner` of that kind, or the default library | refused (X11 (b2)). Its internal risk would read a node-2 rule trained on its own validation rows. Luedtke and van der Laan (2016) nest the rule inside each inner fold, which is not built. Pass one learner |
+| `n_bootstrap=`, `refit()`, the truncation curve and the refit surfaces, a subset refutation | refused (F27). Each refit relearns the rules, so it targets other rule pairs |
+| `DynamicRegimen(..., rule_kind="estimated")` | refused. The message names `LearnedRegimen` |
+
+A learned regimen is fitted alone, so no simultaneous band is formed.
+
+`tests/unit/test_longitudinal_learned_regimen.py` checks the construction. With stubs that
+return the rule pair $(1\{W_1 > 0.2\}, 1\{L_2 > -0.1\})$, the fit equals the known
+`DynamicRegimen` fit bit for bit. With a different known pair in each fold, a longhand of the two
+pooled fluctuations gives the targeted values, the estimate and the curve to $10^{-8}$. Each
+fold's stored pair equals a longhand scikit-learn Q-learning refit on its training rows. A
+perturbed validation outcome moves no rule of its fold and more than 2% of the other folds'
+rules, and a node-2 rule fitted on every row of its stratum moves more than 2% of that fold's
+rules. A binding node bound narrows both nodes' blips to its width, and equal predictions under
+both arms assign arm 0 at both nodes.
+
+Each pooled score is below $10^{-8}$ at each row's own rule and above $10^{-3}$ at fold 0's rule.
+The node-1 rule under treat-all at node 2 differs from the learned one on more than 15% of the
+rows in each fold. The variance matches the pooled-centred identity. At the test's seed the
+observed values are 0.21 and 0.15 for the moved folds, 0.10 for the mutation, 0.28 to 0.49 for
+the treat-all share, and a 0.4% gap to the fold-centred variance.
+
 ## Functionals of a fitted result
 
 Each method below reads the influence curves of the reported estimates. Each one is an exact

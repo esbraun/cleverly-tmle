@@ -4698,9 +4698,75 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: the sequential baselines (``G28``), the parametric g-formula (``G29``), repeated-outcome
 #: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``), the
 #: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
-#: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``).
+#: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``) and the learned two-node
+#: regimen (``G47``).
+#:
+def _learned_regimen_rows() -> tuple[SupportRow, ...]:
+    """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
+
+    The row keys the regimen kind ``learned`` on the cross-fitted censored two-node fit with
+    every option at its default. It was added because every declared verdict passed: the
+    primary tests (bias leg, coverage floor, SE sanity), ``interval_calibration`` (the positive
+    and both controls), ``conservative_coverage`` (the positive and its control),
+    ``targeting_necessity`` (both labels) and ``fold_locality``. The numbers are the committed
+    results (``tests/canonical/learned_regimen_ltmle``).
+    """
+    return (
+        long_row(
+            "G47",
+            ["learned-regimen-ltmle"],
+            regimens=("learned",),
+            splitting=("cross_fitted",),
+            cells=["two_node", "squared_w1"],
+            # Roadmap: X11.
+            limits=[
+                "The interval targets the stacked value of the fit's own learned rule pairs, "
+                "sum_v (n_v / n) Psi_{d_nv}(P_0), not the value of the optimal pair.",
+                "The study measures one law at n = 2,000 with ten folds, two binary treatment "
+                "nodes, censoring at each node and an end-of-study binary outcome. Neither n nor "
+                "the fold count is in the key, so another n, another fold count or another law "
+                "reads supported and rests on the theory alone.",
+                "The treatment and censoring models are correct main-terms logistic models in "
+                "every cell, and coverage rests on them: the curve omits the treatment "
+                "mechanism's term and is conservative when they are correct. The node-2 learner "
+                "is a correct model of each stratum in the Q-learning that learns the rules. "
+                "The estimator's own outcome regressions pool the followers' strata with no "
+                "treatment column, so the logistic and the cubic node-1 learner are "
+                "approximations there. A misspecified treatment or censoring model is not "
+                "measured.",
+                "The primary cell reads coverage 0.954 and SE ratio 1.017 (1,200 draws). The "
+                "calibration positive reads SE ratio 0.979 (99% interval 0.960 to 0.998) and "
+                "coverage 0.939 (9,200 draws), and its controls read SE ratios 0.783 and 0.702.",
+                "A misspecified node-1 learner on (W1^2, W2), with g correct, claims coverage "
+                "only: coverage 0.940 over 2,400 draws, against a control at 0.865.",
+                "Targeting removes the plug-in's bias for that misspecified node-1 learner (a "
+                "limit bias, untargeted bias 0.060) and for the declared learners (a "
+                "finite-sample bias at n = 2,000 whose limit is about 0, untargeted bias 0.016).",
+                "A learner whose limit rule has no margin gives a non-regular target, and its "
+                "interval under-covers; no cell measures that regime. The fold-locality control "
+                "(rules learned on the rows that evaluate them) reads bias 0.090, so the "
+                "instrument resolves in-sample rule learning.",
+                "A continuous outcome with q_bounds=, declared node bounds, ratio_trim=, an "
+                "uncensored panel and a known mechanism are keyed apart and read experimental; a "
+                "stopping rule reads experimental through its fit condition. More than two "
+                "nodes, repeats above 1, n_folds=1, weights and clusters refuse. No comparator: "
+                "no maintained package fits a learned two-node regimen by cross-validated TMLE.",
+            ],
+        ),
+    )
+
+
+#: A learned two-node regimen (``LearnedRegimen``, X11 (b)) keys the regimen kind ``learned``.
+#: The row ``G47`` of the ``learned-regimen-ltmle`` study covers the cross-fitted censored
+#: two-node fit with every option at its default; every other composition of that kind matches
+#: no row and reads experimental.
 LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
-    (*_long_rows(), *_categorical_long_rows(), *_long_horizon_rows())
+    (
+        *_long_rows(),
+        *_categorical_long_rows(),
+        *_long_horizon_rows(),
+        *_learned_regimen_rows(),
+    )
 )
 
 
@@ -4875,5 +4941,14 @@ FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
         "",
         "tests/discrete_law_longitudinal_ipsi.py",
         "tests/unit/test_influence_gateaux_ipsi.py",
+    ),
+    # X11 (b): with each fold's rule pair held fixed the learned fit is the known
+    # ``DynamicRegimen`` fit bit for bit, so the dynamic-rule oracle covers it fold by fold.
+    "learned": _anchor(
+        "a learned two-node regimen (`LearnedRegimen`), the stacked value "
+        "$\\sum_v (n_v/n)\\Psi_{d_{nv}}$",
+        "tests/discrete_law_longitudinal.py",
+        "tests/unit/test_influence_gateaux_longitudinal.py",
+        "tests/unit/test_longitudinal_learned_regimen.py",
     ),
 }

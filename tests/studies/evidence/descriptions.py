@@ -1109,6 +1109,23 @@ ARMS.update(
     }
 )
 
+#: The labels of ``learned-regimen-ltmle`` (X11 PR K, X11 (b)): the declared learners and the
+#: misspecified node-1 learner of the learned two-node regimen. Mirrored from
+#: ``tests.studies.learned_regimen_ltmle``, which this module cannot import.
+ARMS.update(
+    {
+        "two_node": (
+            "the censored two-node learned-regimen law with the declared learners: a logistic "
+            "node-2 regression on (W1, W2, L2) and a cubic node-1 regression on (W1, W2), "
+            "correct logistic treatment and censoring models, n = 2,000"
+        ),
+        "squared_w1": (
+            "the censored two-node learned-regimen law with a misspecified node-1 regression on "
+            "(W1^2, W2), correct logistic treatment and censoring models, n = 2,000"
+        ),
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -6788,5 +6805,67 @@ STUDY_ARM_CELLS.update(
             )
             for z in (0, 1)
         },
+    }
+)
+
+
+#: ``learned-regimen-ltmle`` (X11 PR K, X11 (b)): the learned two-node regimen of ``LTMLE``,
+#: each fold's rule pair learned by backward plug-in Q-learning on its training rows. The law
+#: and learners are those of ``tests/studies/_learned_regimen_law.py``; the cell names are those
+#: of ``tests/studies/learned_regimen_ltmle.py``.
+_REGIMEN_SLUG = "learned-regimen-ltmle"
+IMPLEMENTATIONS["cleverly-learned-regimen-ltmle"] = (
+    "`cleverly` cross-validated longitudinal TMLE of a learned two-node regimen: each fold's "
+    "rule pair learned by backward plug-in Q-learning on its training rows, each validation row "
+    "evaluated under its own fold's pair, one pooled fluctuation per node"
+)
+STUDY_ESTIMANDS[_REGIMEN_SLUG, "ey_regimen[learned regimen]"] = (
+    "the fold-size-weighted average of the values of the rule pairs learned on each training "
+    "fold, sum_v (n_v / n) Psi_{d_nv}(P_0)"
+)
+STUDY_SCENARIOS[(_REGIMEN_SLUG, "two_node")] = (
+    "censored two-node panel with binary treatments and an end-of-study binary outcome, the "
+    "declared learners, correct treatment and censoring models, ten folds"
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_REGIMEN_SLUG, "interval_calibration", "two_node", "declared"): (
+            "the declared fit with the study's learners",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        (_REGIMEN_SLUG, "conservative_coverage", "squared_w1", "declared"): (
+            "the declared fit with that node-1 learner and the correct treatment and censoring "
+            "models",
+            "bias interval inside the margin, and the coverage interval's lower end at or above "
+            "0.92; the SE ratio is read by no verdict",
+        ),
+        (_REGIMEN_SLUG, "conservative_coverage", "squared_w1", "shrunken_coverage_control"): (
+            "the declared fit's standard errors multiplied by 0.80",
+            "the coverage interval must lie wholly below 0.92",
+        ),
+        **{
+            (_REGIMEN_SLUG, "targeting_necessity", label, "targeted"): (
+                "the declared fit with those learners, so targeting does the adjusting",
+                "bias interval inside the equivalence margin",
+            )
+            for label in ("squared_w1", "two_node")
+        },
+        **{
+            (_REGIMEN_SLUG, "targeting_necessity", label, "untargeted"): (
+                "the same fit's untargeted plug-in, the mean of its stitched node-1 initial "
+                "values, with no fluctuation",
+                "bias interval must fall entirely outside the margin",
+            )
+            for label in ("squared_w1", "two_node")
+        },
+        (_REGIMEN_SLUG, "fold_locality", "two_node", "fold_local"): (
+            "the declared fit, each fold's rule pair learned on the fold's training rows",
+            "bias interval inside the equivalence margin",
+        ),
+        (_REGIMEN_SLUG, "fold_locality", "two_node", "validation_rows"): (
+            "the same sample and folds, with each fold's rule pair learned on the fold's own "
+            "validation rows, read against the value of those pairs",
+            "bias interval must fall entirely outside the margin",
+        ),
     }
 )

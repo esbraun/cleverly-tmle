@@ -19,6 +19,7 @@ import pytest
 from tests.canonical import declared_run, learned_rule_run
 from tests.studies import _learned_rule_law as law
 from tests.studies import fold_evaluated_strata as strata
+from tests.studies import learned_regimen_ltmle as regimen
 from tests.studies import learned_rule_arms as arms
 from tests.studies import learned_rule_compositions as compositions
 from tests.studies import learned_rule_contrast as contrast
@@ -112,6 +113,8 @@ class TestTheSeedRules:
         # (``test_learned_rule_optimal_value_design``). X11's learned-rule-intermediate (X11 PR J)
         # adds 1,200 primary and 31,200 property seeds, none of which equals another X11 study's
         # seed (``test_learned_rule_intermediate_design``).
+        # X11's learned-regimen-ltmle (X11 PR K) adds 1,200 primary and 15,200 property seeds,
+        # none of which equals another X11 study's seed (``test_learned_regimen_ltmle_design``).
         assert len(declared) == (
             46_310
             + 6_000
@@ -127,6 +130,7 @@ class TestTheSeedRules:
             + 6_800
             + 18_400
             + 32_400
+            + 16_400
         )
         for study in (
             gated,
@@ -142,6 +146,7 @@ class TestTheSeedRules:
             arms,
             optimal,
             intermediate,
+            regimen,
         ):
             smoke = law.smoke_record(study.STUDY)
             seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}

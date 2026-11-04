@@ -2542,6 +2542,26 @@ def _learned_rule_intermediate_cases() -> tuple[RowCase, ...]:
     return (case("T47", "learned_z0", False), case("T48", "known_z0", True))
 
 
+def _learned_regimen_cases() -> tuple[RowCase, ...]:
+    """The case of ``learned-regimen-ltmle`` (X11 PR K, X11 (b)).
+
+    It runs the study's own declared fit, ``LTMLE(LearnedRegimen(), n_folds=10)`` with the
+    declared learners, on a draw of its law at the declared size, up to the classifier (G47).
+    """
+    module = "_learned_regimen_law"
+    return (
+        _observed(
+            "G47",
+            "learned-regimen-ltmle",
+            "two_node",
+            f"{module}.py:345",
+            module,
+            lambda study: study.draw(2_000, 0),
+            lambda study, frame: study.fit(frame, "declared", 0),
+        ),
+    )
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -2869,6 +2889,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_arms_cases(),
     *_learned_rule_optimal_value_cases(),
     *_learned_rule_intermediate_cases(),
+    *_learned_regimen_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),
