@@ -1,0 +1,106 @@
+{
+  "schema_version": 2,
+  "study": "Learned two-node regimens",
+  "slug": "learned-regimen-ltmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-learned-regimen-ltmle",
+      "cleverly_version": "0.1.7",
+      "cleverly_commit": "9057840aa76e32609e87f02e200ba1bf31d7c884",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1200,
+    "n": 2000,
+    "seed": 20271431,
+    "resampling_seed": 20271432,
+    "publication_policy": "gated",
+    "truth_varies_by_replicate": true,
+    "failure_bound": {
+      "cleverly-learned-regimen-ltmle": 0.01
+    },
+    "scenarios": {
+      "two_node": [
+        "ey_regimen[learned regimen]"
+      ]
+    },
+    "fit": "LTMLE(LearnedRegimen(), n_folds=10, random_state=<fold seed>, outcome_learner=<node 2>, pseudo_learner=<node 1>, treatment_learner=<logistic>, censoring_learner=<logistic>).fit(panel) at n = 2000; every other setting the constructor's default; repeats=1",
+    "rule": "per training fold, backward plug-in Q-learning: d2(a1, h) = 1{Qbar2(a1, 1, h) > Qbar2(a1, 0, h)} per first-node arm, then d1(w) = 1{Q1(1, w) > Q1(0, w)} of the node-1 regression of Qbar2 at the branch rule; a tie to arm 0",
+    "learners": {
+      "node_2": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2, L2): per stratum (A1, A2) in the Q-learning, a correct model there; on the followers pooled over the strata, with no treatment column, in the estimator's own regression, an approximation",
+      "declared_node_1": "Pipeline(PolynomialFeatures(3), LinearRegression()) on (W1, W2) per first-node arm",
+      "squared_w1_node_1": "ColumnTransformer(FunctionTransformer(np.square) on W1, passthrough W2) then LinearRegression() per first-node arm",
+      "treatment_and_censoring": "LogisticRegression(C=1e6, max_iter=1000), main terms, correct at both nodes; coverage rests on them (JCI Cor 3)"
+    },
+    "law": "W1 ~ U(-1, 1), W2 ~ Bernoulli(0.5); logit g1 = 0.8 W1 - 0.3 W2; logit P(C1 = 1) = 2.5 + 0.3 W1; L2 ~ N(0.5 W1 + 0.2 W2 - 0.8 A1, 1); logit g2 = -0.2 + 0.3 L2 + 0.4 A1; logit P(C2 = 1) = 2.5 - 0.2 L2; logit Qbar0 = -0.2 + 0.6 W1 - 0.2 W2 + 0.3 L2 + a2 (-0.1 + 1.2 L2 - 0.6 a1) + a1 (0.3 + 1.2 W1). Each stratum (a1, a2) is logistic in (W1, W2, L2), so the Q-learning's node-2 model is correct; among the followers of a learned pair the estimator's regressions glue the strata at the learned thresholds, which neither the logistic nor the cubic represents",
+    "cells": {
+      "declared": "the primary (two_node), interval_calibration two_node (SE x 0.80 and noise controls), targeting_necessity two_node (targeted value against the untargeted plug-in) and fold_locality (the fold-local fit against rules learned on each fold's validation rows)",
+      "squared_w1": "conservative_coverage (SE x 0.80 coverage control) and targeting_necessity squared_w1 (targeted value against the untargeted plug-in)"
+    },
+    "variance": "sum_i (Z_i - psi)^2 / (n (n - 1)) of the stacked curve centred at the estimate",
+    "truth": "per replication: refit each fold's backward Q-learning on the fit's training rows with scikit-learn alone, require both rules to equal the stored fold rules on every row (rule L4), and integrate each fold's pair by the trapezoid rule on 1001 points of W1 for each W2 and Gauss-Legendre (24 nodes each side of the node-2 threshold) over L2; weight n_v / n. The validation_rows arm's truth is the value of its own rule pairs",
+    "exactness": "the harness rebuilds the stacked curve from the stored node steps and requires its variance to equal the reported one within a relative 1e-8",
+    "oracle_se": "sqrt(sum_v n_v Var D*(d_v)) / n at the fold rule pairs; descriptive",
+    "fold_seed": "stream_seed(record, 'fold_partition', 'primary', 'two_node', replicate)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/learned_regimen_ltmle.py": "eafc019f6e47869f9cd31c606385f60243bcf886ce6cb39302d6d9bf6e50d403",
+    "tests/studies/learned_regimen_ltmle_properties.py": "8232ac6788b09cfd94f8f2fc89c5552930ec5c698ab44ed551690fb12fde8465",
+    "tests/studies/_learned_regimen_law.py": "4e9c385d35875c7cf97c5544e339f0a8a8d9757e2aeaaa675bdbabe87c73da88",
+    "tests/studies/_learned_rule_law.py": "c1d481a71a7eb36730712ddb1e7016ddc2e95e48b5e88aff5e119518f3151ef0",
+    "src/cleverly/longitudinal/estimator.py": "ec126755339050eeee8e5a01be00ab0323ddf99ede3330256e86f53e76cc1ea0",
+    "src/cleverly/longitudinal/learned.py": "2ee2d6e126774cba8d2d605ba752e27286a5aea85dc1ce0b1f46a89f39af82cd",
+    "src/cleverly/longitudinal/sequential.py": "dbb98a43ec90de6c37976daa67aa629761dd1ef8d9720321efb4c76be4e93c40",
+    "src/cleverly/longitudinal/regimen.py": "a79db191d3294e41cdaa3dc5938b71e179d89ff43c9aeddd5d0e5cb902c48840",
+    "src/cleverly/interventions/base.py": "9655e2bf2519f313fc13ae1085d080888e480d32e4a799344c95f7af987c7d9d",
+    "src/cleverly/_support.py": "a4cb8582a5283a48f0b80cfede48d450a18b754ed4bf41283857a8321c2becb4",
+    "tests/studies/evidence/performance.py": "a7391841a88144dded6ef333be22c5a8520227ed93b17dc378356d865039d674",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "c23ec6ca777d6bd662b759bdf3e09bd98afef526ba9ef7f2b3527e8a83146fea",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "b2a087970401f758e7c9aea164469fbc1cc590869231b062cf5ff3bd7911bc2c",
+    "summary.csv": "0eb8cadafbba70a285740158ddbbb3e1cd9f7971e3b4a2e5fb2b69dad015dc32",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "6dddc8a022780e67bab39ccd42fc1225e939a8f60c76b757fff0a98d456f05bf",
+    "property-replicates.parquet": "59787cd75fbe016c5a8fcc4904ca4243ef39728f1a80af21c1caf54c61908be2",
+    "properties.csv": "2e998d50716bd993d5b778782293d627dd93a75f9318fcb858923497f832bba3",
+    "harness.csv.gz": "431a924e8fe236c469870d9026f94203467606af2da71a4bed9ef9c19fdb3b08"
+  }
+}
