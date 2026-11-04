@@ -680,14 +680,17 @@ _ESTIMATED_RULE = Refusal(
     "regime influence curve can omit a pathwise derivative through the learned statistic; "
     "an exact-law threshold witness measures that gap. An optimal rule can also be nonregular "
     "at ties. docs/technical-reference/scope-and-refusals.md (Wrong by construction) "
-    "records the refusal and its reason. A learned longitudinal regimen has "
-    "no supported path (X11 in docs/roadmap.md).",
+    "records the refusal and its reason. A DynamicRegimen with rule_kind='estimated' "
+    "is refused for the same reason (X11 in docs/roadmap.md).",
     alternative=(
         "Fix the rule before the fit, or learn it on data independent of the analysis "
         "sample, and declare rule_kind='known'. For a point treatment, LearnedRuleValue "
         "estimates the average value of rules learned inside each training fold, or with "
         "cross_fit=False the value of one rule learned on every row "
-        "(docs/technical-reference/point-treatment-tmle.md, Learned rules)."
+        "(docs/technical-reference/point-treatment-tmle.md, Learned rules). For two "
+        "longitudinal nodes, LTMLE(regimens=LearnedRegimen()) estimates the value of the rule "
+        "pairs learned inside each training fold "
+        "(docs/technical-reference/longitudinal-tmle.md, Learned regimens)."
     ),
     roadmap="X11",
 )

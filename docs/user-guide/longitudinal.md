@@ -269,6 +269,22 @@ refuses a callable written inline in `regimens=`, such as `{"adaptive": (1, rule
 callable carries no declaration. A plan of labels alone, such as `{"never": 0}`, needs no
 declaration. Code cannot inspect a closure, so the fit accepts a false `"known"` declaration.
 
+To learn a two-node rule from the data instead, fit `LTMLE(regimens=LearnedRegimen())`. The fit
+splits the rows into folds. Each fold learns a rule for each node from the other folds' rows, and
+each row is scored under the rules its own fold learned. The result
+`ey_regimen[learned regimen]` estimates the average outcome had every unit followed those learned
+rules, which is not the value of the best possible rules.
+
+A [learned-regimen study](../technical-reference/method-evidence/learned-regimen-ltmle.md) measured
+it with 2,000 rows, ten folds, dropout at each node and correct logistic models for the treatment
+and the dropout. Its 95% interval covered the target 0.954 of the time over 1,200 samples, and
+that coverage rests on those two models being right. A fit with two yes-or-no treatments, dropout
+and one yes-or-no outcome at the end, every option at its default, is marked supported, and other
+fits are marked experimental. Where the best rule is close to indifferent for many units, the
+interval can cover less often, and no study measures that case.
+[Learned regimens](../technical-reference/longitudinal-tmle.md#learned-regimens) lists what the
+fit refuses.
+
 ## Declare a stochastic policy
 
 A node can draw its arm from a known distribution. Write the node as a `Stochastic` node with

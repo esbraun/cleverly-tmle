@@ -23,6 +23,10 @@ against the levels of one treatment or one node.
 plan can be a rule. It can also be a `Stochastic` node that draws its arm from a known policy.
 `each_node` writes one rule for every node of a long panel, and it returns one `NodeRule` per node.
 
+`LearnedRegimen` asks a two-node longitudinal fit to learn its treatment rule at each node inside
+each training fold, and to estimate the value of the learned rules. `LearnedRegimenRecord`
+records the rules of that fit, with one `LearnedRegimenNode` for each node.
+
 `LearnedRule` declares a rule that the fit learns inside each training fold. By default the rule
 comes from the fit's outcome model, and `loss="blip"` or `loss="weighted_classification"` learns
 it with a learner that you pass. `LearnedRuleRecord` records that fit, with one `LearnedRuleSplit`
@@ -39,6 +43,9 @@ for each split of the folds.
    cleverly.longitudinal.DynamicRegimen
    cleverly.longitudinal.each_node
    cleverly.longitudinal.NodeRule
+   cleverly.longitudinal.LearnedRegimen
+   cleverly.longitudinal.LearnedRegimenRecord
+   cleverly.longitudinal.LearnedRegimenNode
    cleverly.interventions.LearnedRule
    cleverly.interventions.LearnedRuleRecord
    cleverly.interventions.LearnedRuleSplit
