@@ -13,9 +13,9 @@ standardized-bias margin. A bias row records the plug-in standard error and inte
 `std_error` and `covered` columns. No verdict outside the `spread` cell reads those columns.
 
 The declared comparator is R [`drtmle`](https://github.com/benkeser/drtmle) 1.1.2, function
-`adaptive_iptw`. Its runs are pending. The separate study `adaptive-iptw-pairing` will run them on
-its own scenarios and seeds, so this page holds Python property evidence, with comparator runs
-pending.
+`adaptive_iptw`. This study runs no R process, so this page holds Python property evidence, with
+comparator runs pending. The separate [pairing study](adaptive-iptw-pairing.md) runs the
+comparison on its own scenarios and seeds.
 
 ## What was compared
 
@@ -58,10 +58,9 @@ No replication raised an error, so no cell lost a replicate.
 
 ## Agreement with the canonical implementation
 
-Python property evidence, with comparator runs pending. The R runners of the pairing study are
-written with that study and have not run. No paired verdict is published, and `equivalence.csv` has
-no rows. The study that runs them pins the `drtmle` image and adds the paired verdicts and the
-nuisance gate.
+Python property evidence, with comparator runs pending. This study publishes no paired verdict, and
+its `equivalence.csv` has no rows. The [pairing study](adaptive-iptw-pairing.md) pins the `drtmle`
+image and publishes the paired verdicts, the per-replicate agreement and the nuisance gate.
 
 ## Theory properties
 
@@ -361,7 +360,7 @@ The three flexible-learner cells are outside the configuration of every row.
 
 | limit | what it means for use |
 | --- | --- |
-| the comparator runs are pending | the claim rests on exact truths, the calibration cells and the controls. The pairing study adds a paired check against R `drtmle` |
+| the comparator runs are pending in this study | the claim here rests on exact truths, the calibration cells and the controls. The [pairing study](adaptive-iptw-pairing.md) adds the paired check against R `drtmle` |
 | an estimated mechanism has no interval | the bias cells measure the point estimate only. The plug-in standard error and interval in the rows are a diagnostic, and the package does not publish them as inference |
 | the validity term vanishes by design in the calibration cells only | the intervals are valid where the whole mechanism is declared known (H2). Laws PD, WT, CL and ST are the cells. Law P with a fitted mechanism is H1, so the bias cells there do not measure the validity term. VL1 and the level-set-breaking control measure it |
 | a flexible mechanism learner is red | the `bias/flexible` cells show a bias of 0.7 to 1.2 SD with a gradient-boosting mechanism. The key reads the mechanism learner family, so a boosted or default fit is `experimental` |

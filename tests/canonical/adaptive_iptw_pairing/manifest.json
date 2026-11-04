@@ -1,0 +1,489 @@
+{
+  "schema_version": 2,
+  "study": "Adaptive-propensity IPTW against drtmle",
+  "slug": "adaptive-iptw-pairing",
+  "generated_with": {
+    "subject": {
+      "implementation": "adaptive_iptw",
+      "cleverly_version": "0.1.7",
+      "cleverly_commit": "8e98a806b2895a487e618e3aba34180141345a3f",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "drtmle",
+      "drtmle_commit": "538a3a264c1ca984b6d88978ca7f96165f43152c",
+      "drtmle_version": "1.1.2",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "drtmle::adaptive_iptw(W, A, Y, a_0, family, gn = this package's initial mechanism at each key, glm_Qr = the key's polynomial in qlogis(gn), tolIC = 1e-8, maxIter = 100, tolg = the key's lower mechanism bound, cvFolds = 10 on the supplied permutation or 1 in sample); regime, composite and natural-course recodes built in R from the raw columns; contrasts, ratios, par and paf and their standard errors computed by the runner from drtmle's estimates and the curves it rebuilds from drtmle's nuisances",
+      "folds": "one uniform permutation per cross-fitted draw (per stratum on law ST), dealt round-robin; drtmle receives it in place of sample(seq_len(n))",
+      "nuisance_gate": 1e-08,
+      "agreement": {
+        "exact": 0.0001,
+        "cross_fitted_targeted": 0.05,
+        "quantile": 0.99,
+        "initial": 1e-10,
+        "witness_multiple": 10.0
+      },
+      "not_paired": "cross-fitted mechanisms whose learner reads the training data (declared difference D9: drtmle's fold-k reduced regression trains on a supplied out-of-fold mechanism that saw fold k), so the leave-two-out refit itself: PD rate_scaled, CN with an estimated response model, MA with CellFrequency, P and M cross-fitted; weights and clusters (WT, CL: adaptive_iptw takes neither); the validity laws VL0 and VL1; bias/flexible (the booster is cross-fitted)"
+    }
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 2000,
+    "scenario_n": {
+      "pd_known_arms": 2000,
+      "pd_known_arms_one_step": 2000,
+      "pd_known_regimes": 2000,
+      "pd_known_regimes_one_step": 2000,
+      "st_known": 3000,
+      "p_insample": 3000,
+      "p_rate_insample": 3000,
+      "m_insample": 2000,
+      "m_rate_insample": 2000,
+      "c_l1_insample": 2000,
+      "c_l3_insample": 2000,
+      "pd_regimes_insample": 2000,
+      "cn_insample": 2000,
+      "rm": 3000,
+      "ma_arms": 2000,
+      "ma_regime": 2000,
+      "c_l1_crossfit": 2000,
+      "c_l1_crossfit_one_step": 2000,
+      "c_l3_crossfit": 2000,
+      "c_l3_crossfit_one_step": 2000,
+      "cn_crossfit": 2000,
+      "cn_crossfit_one_step": 2000,
+      "ma_crossfit": 2000,
+      "ma_crossfit_one_step": 2000
+    },
+    "seed": 20262103,
+    "resampling_seed": 2026210301,
+    "scenario_seed_owners": {
+      "pd_known_arms_one_step": "pd_known_arms",
+      "pd_known_regimes": "pd_known_arms",
+      "pd_known_regimes_one_step": "pd_known_arms",
+      "p_rate_insample": "p_insample",
+      "m_rate_insample": "m_insample",
+      "ma_regime": "ma_arms",
+      "c_l1_crossfit_one_step": "c_l1_crossfit",
+      "c_l3_crossfit_one_step": "c_l3_crossfit",
+      "cn_crossfit_one_step": "cn_crossfit",
+      "ma_crossfit_one_step": "ma_crossfit"
+    },
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "adaptive_iptw": 0.01,
+      "drtmle": 0.01
+    },
+    "scenarios": {
+      "pd_known_arms": [
+        "ey0",
+        "ey1",
+        "ate",
+        "rr",
+        "or"
+      ],
+      "pd_known_arms_one_step": [
+        "ey0",
+        "ey1",
+        "ate",
+        "rr",
+        "or"
+      ],
+      "pd_known_regimes": [
+        "ey_regime[never]",
+        "ey_regime[d]",
+        "ey_regime[s]",
+        "ate_regime[d vs never]",
+        "ate_regime[s vs never]"
+      ],
+      "pd_known_regimes_one_step": [
+        "ey_regime[never]",
+        "ey_regime[d]",
+        "ey_regime[s]",
+        "ate_regime[d vs never]",
+        "ate_regime[s vs never]"
+      ],
+      "st_known": [
+        "ate",
+        "ate[V=0]",
+        "ate[V=1]",
+        "ate[V=2]"
+      ],
+      "p_insample": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "p_rate_insample": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "m_insample": [
+        "ey[high]",
+        "ey[low]",
+        "ey[medium]",
+        "ate[low vs high]",
+        "ate[medium vs high]"
+      ],
+      "m_rate_insample": [
+        "ey[high]",
+        "ey[low]",
+        "ey[medium]",
+        "ate[low vs high]",
+        "ate[medium vs high]"
+      ],
+      "c_l1_insample": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "c_l3_insample": [
+        "ey[high]",
+        "ey[low]",
+        "ey[mid]",
+        "ate[low vs high]",
+        "ate[mid vs high]"
+      ],
+      "pd_regimes_insample": [
+        "ey_regime[never]",
+        "ey_regime[d]",
+        "ey_regime[s]",
+        "ate_regime[d vs never]",
+        "ate_regime[s vs never]"
+      ],
+      "cn_insample": [
+        "ey_obs",
+        "ey0",
+        "par",
+        "paf"
+      ],
+      "rm": [
+        "ey_regime[d]",
+        "ey_regime[s]",
+        "ate_regime[s vs d]"
+      ],
+      "ma_arms": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "ma_regime": [
+        "ey_regime[d]"
+      ],
+      "c_l1_crossfit": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "c_l1_crossfit_one_step": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "c_l3_crossfit": [
+        "ey[high]",
+        "ey[low]",
+        "ey[mid]",
+        "ate[low vs high]",
+        "ate[mid vs high]"
+      ],
+      "c_l3_crossfit_one_step": [
+        "ey[high]",
+        "ey[low]",
+        "ey[mid]",
+        "ate[low vs high]",
+        "ate[mid vs high]"
+      ],
+      "cn_crossfit": [
+        "ey_obs",
+        "ey0",
+        "par",
+        "paf"
+      ],
+      "cn_crossfit_one_step": [
+        "ey_obs",
+        "ey0",
+        "par",
+        "paf"
+      ],
+      "ma_crossfit": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "ma_crossfit_one_step": [
+        "ey0",
+        "ey1",
+        "ate"
+      ]
+    },
+    "construction": "the gate study's (tests.studies.canonical_adaptive_iptw._estimator)",
+    "n_folds": 10,
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "tol": 1e-08,
+    "max_iter": 100,
+    "degree": {
+      "p": 1,
+      "st": 1,
+      "m": 3,
+      "c": 3,
+      "wt": 3,
+      "cl": 3,
+      "pd": 3,
+      "cn": 5,
+      "rm": 2,
+      "ma": 2,
+      "vl": 3
+    },
+    "draws": {
+      "pd_known": [
+        "pd",
+        2000,
+        "whole"
+      ],
+      "st_known": [
+        "st",
+        3000,
+        "strata"
+      ],
+      "p_insample": [
+        "p",
+        3000,
+        "none"
+      ],
+      "m_insample": [
+        "m",
+        2000,
+        "none"
+      ],
+      "c_l1_insample": [
+        "c_l1",
+        2000,
+        "none"
+      ],
+      "c_l3_insample": [
+        "c_l3",
+        2000,
+        "none"
+      ],
+      "pd_insample": [
+        "pd",
+        2000,
+        "none"
+      ],
+      "cn_insample": [
+        "cn",
+        2000,
+        "none"
+      ],
+      "rm": [
+        "rm",
+        3000,
+        "none"
+      ],
+      "ma_insample": [
+        "ma",
+        2000,
+        "none"
+      ],
+      "c_l1_crossfit": [
+        "c_l1",
+        2000,
+        "whole"
+      ],
+      "c_l3_crossfit": [
+        "c_l3",
+        2000,
+        "whole"
+      ],
+      "cn_crossfit": [
+        "cn",
+        2000,
+        "whole"
+      ],
+      "ma_crossfit": [
+        "ma",
+        2000,
+        "whole"
+      ]
+    },
+    "scenario_fits": {
+      "pd_known_arms": [
+        "pd_known",
+        "pd_known_arms"
+      ],
+      "pd_known_arms_one_step": [
+        "pd_known",
+        "pd_known_arms_one_step"
+      ],
+      "pd_known_regimes": [
+        "pd_known",
+        "pd_known_regimes"
+      ],
+      "pd_known_regimes_one_step": [
+        "pd_known",
+        "pd_known_regimes_one_step"
+      ],
+      "st_known": [
+        "st_known",
+        "st_known"
+      ],
+      "p_insample": [
+        "p_insample",
+        "p_insample"
+      ],
+      "p_rate_insample": [
+        "p_insample",
+        "p_rate_insample"
+      ],
+      "m_insample": [
+        "m_insample",
+        "m_insample"
+      ],
+      "m_rate_insample": [
+        "m_insample",
+        "m_rate_insample"
+      ],
+      "c_l1_insample": [
+        "c_l1_insample",
+        "c_l1_insample"
+      ],
+      "c_l3_insample": [
+        "c_l3_insample",
+        "c_l3_insample"
+      ],
+      "pd_regimes_insample": [
+        "pd_insample",
+        "pd_regimes_insample"
+      ],
+      "cn_insample": [
+        "cn_insample",
+        "cn_insample"
+      ],
+      "rm": [
+        "rm",
+        "rm"
+      ],
+      "ma_arms": [
+        "ma_insample",
+        "ma_arms"
+      ],
+      "ma_regime": [
+        "ma_insample",
+        "ma_regime"
+      ],
+      "c_l1_crossfit": [
+        "c_l1_crossfit",
+        "c_l1_crossfit"
+      ],
+      "c_l1_crossfit_one_step": [
+        "c_l1_crossfit",
+        "c_l1_crossfit_one_step"
+      ],
+      "c_l3_crossfit": [
+        "c_l3_crossfit",
+        "c_l3_crossfit"
+      ],
+      "c_l3_crossfit_one_step": [
+        "c_l3_crossfit",
+        "c_l3_crossfit_one_step"
+      ],
+      "cn_crossfit": [
+        "cn_crossfit",
+        "cn_crossfit"
+      ],
+      "cn_crossfit_one_step": [
+        "cn_crossfit",
+        "cn_crossfit_one_step"
+      ],
+      "ma_crossfit": [
+        "ma_crossfit",
+        "ma_crossfit"
+      ],
+      "ma_crossfit_one_step": [
+        "ma_crossfit",
+        "ma_crossfit_one_step"
+      ]
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_adaptive_iptw_pairing.py": "3ec8490096b4af02b7711a0f4d0a370ef20a045ea6dd970b588ff28f81854c67",
+    "tests/studies/adaptive_iptw_pairing_properties.py": "7e0847a5444057cc15815e7839b6c5f46138f497f9b707a8100960384616ba4b",
+    "tests/studies/canonical_adaptive_iptw.py": "4c9d19426217a64113cc358a82529d411031e50e6f81e7d33e05080f8dccaa3e",
+    "tests/studies/adaptive_iptw_laws.py": "0fb82dfa40a517a49beb37be4c6a34843448363178d77833b8b5f966930861e2",
+    "tests/studies/clustered_unequal_laws.py": "d9546f88f3c58b8ba1ae38b46c9afab473e9a6f227e54cab4bef5edd1df50fc1",
+    "tests/studies/mar_arm_indexed_laws.py": "e0dcefb065e63ab025531cff9a62ae0dc1ab8a1e55bbd5579f7eefe6ebda1ee6",
+    "tests/studies/multi_arm_common.py": "60f76754d0079b0a00994812f3d6208c7e6ba0f8ae060811e9db8c0ba1841697",
+    "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
+    "tests/studies/weighted_point_common.py": "90d9ff9f2a876520e246c89bbaa9a5fc637800f422b4d92213698c9809ca476d",
+    "tests/discrete_law_composite.py": "54a8bfbe377526937e71e3f4a7899247e0dc872b41be72c7c4dd20c1d2368f73",
+    "tests/discrete_law_mar.py": "1f09bb866e1c4c4c6975e9e58632d7acb05fff5d4abf7dc95e1081dab413b2d3",
+    "tests/discrete_law_multi.py": "af84143ddb6547e43f3dedfc5bbddae579ef20572f6d22ef5d13119c53cd463f",
+    "src/cleverly/estimators/iptw.py": "154d3d9ed2e68f5e49d86e2ec6a08a8fc3cdec31233c50622d481f9fe25de4fc",
+    "src/cleverly/estimators/reduced.py": "8c97816f6866b5fcd14c01de438c5e9c2711060c2a7f0bf492421838b9f28901",
+    "src/cleverly/fluctuation/mechanism.py": "72829cce87c33cb651b2aa21c0a2a364531e51470fd0271a67f6178afc9f4d42",
+    "src/cleverly/fluctuation/_score.py": "b738670e64c17e45ae41d5a02a369990321d16770c2adc1bd61bdc7026118bfb",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/failures.py": "70bc22cdf9a6f148bb9f2e934e4651758e012ba7bb93aadd904532cad7a38750",
+    "tests/studies/evidence/comparison.py": "587750ad40c94fee0802f3fe53c55f4bd3d644c77181b1d0fc8406161247d265",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "a7391841a88144dded6ef333be22c5a8520227ed93b17dc378356d865039d674",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/canonical/drtmle/Dockerfile": "470471189bf2b407411d6a89a533e073fd4f2dffb971a9480702658d5da88fe2",
+    "tests/canonical/adaptive_iptw_pairing/run_study.R": "67747b002f4753cb6b00510077de0d08ea1615ddec7a84168ddf797ab3b6af5f",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+  },
+  "reference_sha256": {
+    "tests/canonical/drtmle/Dockerfile": "470471189bf2b407411d6a89a533e073fd4f2dffb971a9480702658d5da88fe2",
+    "tests/canonical/adaptive_iptw_pairing/run_study.R": "67747b002f4753cb6b00510077de0d08ea1615ddec7a84168ddf797ab3b6af5f",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+  },
+  "sha256": {
+    "replicates.parquet": "5e9c97407d2eba653ae1c2f20c6bef4ceb0741d4d776db0e03455b3e034d4b17",
+    "summary.csv": "5657636d4bd6cde1b6b960caca6042602aacbf10f7a32697555f2f6ecd353a3b",
+    "equivalence.csv": "9c723dde3ed407e309b0da6b2fbbaece0e866ebcb1276745ffc504f44d9b41b9",
+    "performance-tests.csv": "484bddf728f0b44e62ce7afa13b05a7db2bb30e615bef80cc210eea6e901573e",
+    "property-replicates.parquet": "fe49529a9c5ec7471753784931995f374450e205a24c8ab596190a8f6d95f940",
+    "properties.csv": "f9941c012c9d4382c92fe56bb4f353058b90d77dd321c10ee9db895b180b293a",
+    "agreement.csv": "6aae232f37b1abada894ea2686603180a43a43206df55b185a0e5fcd64f1f0e3",
+    "failures.csv": "0b69a69ba499161561d886780297bd478250ac8faf5d09f3269e91b4999000ce",
+    "failure-accounting.csv": "e838e2552b1a68e24799f0f8f8daa0afc49aad07e784eaf1a4de6ac14eecd3e4"
+  }
+}

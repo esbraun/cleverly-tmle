@@ -5219,6 +5219,113 @@ def _adaptive_cells() -> None:
 _adaptive_cells()
 
 
+# ------------------------------------------------------------ adaptive-iptw-pairing (X21)
+IMPLEMENTATIONS["drtmle"] = (
+    "R `drtmle` `adaptive_iptw`, given this package's initial mechanism as `gn`"
+)
+
+
+def _adaptive_pairing_text() -> None:
+    """The scenarios and regime keys of ``adaptive-iptw-pairing``.
+
+    The regime labels ``d`` and ``s`` name a different rule on law PD and on the composite
+    laws, so the study scopes its own wording.
+    """
+    slug = "adaptive-iptw-pairing"
+    pd = "law PD (law P's covariates and mechanism, effect-modified outcome)"
+    forms = {"": "targeted", "_one_step": "one-step"}
+    for form, words in forms.items():
+        STUDY_SCENARIOS[(slug, f"pd_known_arms{form}")] = (
+            f"{pd}; the cross-fitted {words} fit of the arm means, ATE, RR and OR with the "
+            f"declared known mechanism"
+        )
+        STUDY_SCENARIOS[(slug, f"pd_known_regimes{form}")] = (
+            f"{pd}; the cross-fitted {words} fit of never treat, the rule and the stochastic "
+            f"regime with the declared known mechanism"
+        )
+    composite = {
+        "c_l1": "the binary composite law with a missing outcome",
+        "c_l3": "the three-arm composite law with a missing outcome",
+        "cn": "the binary composite law, natural course",
+        "ma": "the binary law with a missing treatment and a missing outcome",
+    }
+    for law, words in composite.items():
+        STUDY_SCENARIOS[(slug, f"{law}_crossfit")] = (
+            f"{words}; the cross-fitted targeted fit with the oracle mechanism factors"
+        )
+        STUDY_SCENARIOS[(slug, f"{law}_crossfit_one_step")] = (
+            f"{words}; the cross-fitted one-step fit with the oracle mechanism factors"
+        )
+    STUDY_SCENARIOS.update(
+        {
+            (slug, "st_known"): (
+                "the stratified law with three baseline strata; the cross-fitted targeted fit of "
+                "the ATE within each stratum and pooled, with the declared known mechanism"
+            ),
+            (slug, "p_insample"): (
+                "law P of Benkeser et al. (2017); the in-sample targeted fit with the correct "
+                "logistic mechanism"
+            ),
+            (slug, "p_rate_insample"): (
+                "law P; the in-sample targeted fit with a mechanism whose logit is off by "
+                "2 n^(-1/3) (1 + W2)"
+            ),
+            (slug, "m_insample"): (
+                "the three-arm law; the in-sample targeted fit with the correct multinomial "
+                "mechanism"
+            ),
+            (slug, "m_rate_insample"): (
+                "the three-arm law; the in-sample targeted fit with the multinomial mechanism "
+                "shrunk toward uniform by 2 n^(-1/3)"
+            ),
+            (slug, "c_l1_insample"): (
+                "the binary composite law with a missing outcome; the in-sample targeted fit "
+                "with the oracle mechanism factors"
+            ),
+            (slug, "c_l3_insample"): (
+                "the three-arm composite law with a missing outcome; the in-sample targeted "
+                "fit with the oracle mechanism factors"
+            ),
+            (slug, "pd_regimes_insample"): (
+                f"{pd}; the in-sample targeted fit of the three regimes with the mechanism "
+                f"logit scaled by 1 + 2 n^(-1/3)"
+            ),
+            (slug, "cn_insample"): (
+                "the binary composite law, natural course; the in-sample targeted fit with the "
+                "oracle mechanism factors"
+            ),
+            (slug, "rm"): (
+                "the binary composite law with a missing outcome; the in-sample targeted fit "
+                "of the rule 1{W != 0} and the tilt (0.2, 0.8, 0.8)"
+            ),
+            (slug, "ma_arms"): (
+                "the binary law with a missing treatment and a missing outcome; the in-sample "
+                "targeted fit of the arm means and the ATE"
+            ),
+            (slug, "ma_regime"): (
+                "the binary law with a missing treatment and a missing outcome; the in-sample "
+                "targeted fit of the rule 1{W != 0}"
+            ),
+        }
+    )
+    rule = "the rule (1{W1 > 0} on law PD, 1{W != 0} on the composite laws)"
+    tilt = "the stochastic regime (expit(W1) on law PD, the tilt (0.2, 0.8, 0.8) on law RM)"
+    STUDY_ESTIMANDS.update(
+        {
+            (slug, "ey_regime[d]"): f"mean under {rule}",
+            (slug, "ey_regime[s]"): f"mean under {tilt}",
+            (slug, "ate_regime[d vs never]"): f"difference in means, {rule} versus never treat",
+            (slug, "ate_regime[s vs never]"): f"difference in means, {tilt} versus never treat",
+            (slug, "ate_regime[s vs d]"): (
+                "difference in means, the tilt (0.2, 0.8, 0.8) versus the rule 1{W != 0}"
+            ),
+        }
+    )
+
+
+_adaptive_pairing_text()
+
+
 def _refuter_calibration_cells() -> None:
     """The longitudinal refutation study (X82 SL): its laws, families and 40 cells."""
     slug = "refuter-calibration-longitudinal"

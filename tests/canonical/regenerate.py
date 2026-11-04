@@ -1222,7 +1222,13 @@ def _property_artifacts(
         )
         write_rows(rows, paths["property-replicates.parquet"])
         if kept.empty:
-            summary = pd.DataFrame(columns=aside.columns)
+            # A study with no property cell takes its module's empty summary, which carries
+            # the verdict columns the gate reads; the set-aside frame has none.
+            summary = (
+                properties.summarize_properties(kept)
+                if aside.empty
+                else pd.DataFrame(columns=aside.columns)
+            )
             accounting = aside_accounting.iloc[0:0]
         else:
             summary = properties.summarize_properties(kept)

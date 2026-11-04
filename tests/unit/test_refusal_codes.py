@@ -343,6 +343,10 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/estimators/_nuisance.py", "constant_folds applies to a binary"): _INTERNAL,
     ("src/cleverly/estimators/_nuisance.py", "fit_treatment=False only supports"): _INTERNAL,
     ("src/cleverly/estimators/_nuisance.py", "has no trainable rows for a nuisance"): _SPLIT,
+    (
+        "src/cleverly/longitudinal/sequential.py",
+        "is not a deterministic categorical node",
+    ): _INTERNAL,
     ("src/cleverly/estimators/_strata.py", "has no trainable rows for the outcome-adaptive"): (
         _SPLIT
     ),
