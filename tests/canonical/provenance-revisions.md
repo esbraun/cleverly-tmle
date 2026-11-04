@@ -479,3 +479,12 @@ plan's fit and fit a one-scenario replicate without a split copy (`long_horizon_
 and the S1 `run_study.R`), and the chunk comments of both horizon adapters name the driver's new
 rule. A collection draws no random number and moves no fitted value, so the edit is
 result-neutral. The declaration digests were refreshed again, and no reference process has run.
+
+The repaired smoke stopped at the calibration of `categorical_k5_static`: lmtp 9996b04's node-K
+fluctuation diverges at R's default `glm` start under large cumulative ratios. Six descriptive
+plans of `long-horizon-categorical-ltmle` are now unpaired (`UNPAIRED_PLANS`, with the scan
+behind it under `tests/canonical/lmtp_9996b04/`). `lmtp_9996b04_crossfit_adapter.R` now wraps
+lmtp's `fluc` with an observe-only guard that records a replicate as failed when its epsilon is
+non-finite or above 1e3, and returns lmtp's own fit otherwise. A fit that passes the guard is
+unchanged, so the edit moves no paired value. The declaration digests were refreshed again, and
+no reference process has run.

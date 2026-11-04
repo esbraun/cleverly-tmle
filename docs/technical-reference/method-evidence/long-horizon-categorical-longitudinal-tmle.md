@@ -43,6 +43,7 @@ follower path. `tests/longitudinal_horizon_plans.py` states each plan as the reg
 | outcome fit | the declared quasibinomial GLM for each outcome and pseudo-outcome regression | pending under X59 |
 | cross-fitting | five folds in `categorical_k5_crossfit`, with the pooled update | pending under X59. The pinned `lmtp` fits the fluctuation on training rows and runs no pooled update, so the comparison is of a different estimator of a shared target |
 | intervals | Wald for every row. A single-fold scenario also writes a BCa row from 199 bootstrap refits | pending under X59 |
+| unpaired plans | fits every plan | not paired: `switch` in `categorical_k4`, `high` in `categorical_k4_high`, `high` and `switch` in `categorical_k5_static`, `switch` in `categorical_k5_switch` and `high` in `categorical_k5_high`, with every contrast that reads one. The pinned `lmtp` fits its node-$K$ fluctuation by `glm` at R's default start, which diverges under cumulative weights near $10^3$ and reports $\varepsilon \approx 3 \times 10^{15}$. On replicates 0 to 99 the default-start fit differs from the rescaled-weight fit by more than $10^{-6}$ in 100, 100, 100, 100, 70 and 10 replicates of the cells listed in the order above (`high` before `switch` in `categorical_k5_static`), and in none for the other plans. Node $K$ only; a replicate whose fit reports a larger $\varepsilon$ at any node is recorded as a failure. Source: `tests/canonical/lmtp_9996b04/fluctuation_scan.py` |
 
 ## Accuracy against known truth
 

@@ -74,6 +74,33 @@ check_horizon_density_ratios <- function(density_ratios, estimated, unscreened =
 
 source("/fixture/lmtp_crossfit_adapter.R")
 
+#: The largest node fluctuation a fit may report before its replicate is recorded as failed.
+horizon_fluctuation_bound <- 1e3
+
+local({
+  # lmtp's node fluctuation (R/tmle.R, `fluc`) is glm at R's default start, which can overshoot
+  # under large cumulative ratios and still report convergence, at an epsilon near 3e15
+  # (tests/canonical/lmtp_9996b04/fluctuation_scan.R).  This wrapper observes only: it returns
+  # lmtp's own fit unchanged, and stops on a non-finite or implausible epsilon so that the
+  # surrounding study_stage records the replicate as failed instead of publishing it.
+  namespace <- asNamespace("lmtp")
+  original <- get("fluc", envir = namespace)
+  guarded <- function(y, offset, weights) {
+    fit <- original(y, offset, weights)
+    epsilon <- stats::coef(fit)
+    if (any(!is.finite(epsilon)) || any(abs(epsilon) > horizon_fluctuation_bound)) {
+      stop(sprintf(
+        "lmtp's fluctuation reported epsilon %s, past %g: glm diverged from its default start",
+        paste(format(epsilon, digits = 4), collapse = ", "), horizon_fluctuation_bound
+      ))
+    }
+    fit
+  }
+  unlockBinding("fluc", namespace)
+  assign("fluc", guarded, envir = namespace)
+  lockBinding("fluc", namespace)
+})
+
 lmtp_9996b04_fits_guard <- function(fits) {
   # The 9996b04 shape of regressions$fits: one data.table of per-node, per-fold summaries.
   if (!data.table::is.data.table(fits) || !nrow(fits)) {
