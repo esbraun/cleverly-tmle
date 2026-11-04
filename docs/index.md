@@ -2,7 +2,7 @@
 
 ```{raw} html
 <div class="cleverly-hero">
-  <span class="cleverly-eyebrow">Causal studies with TMLE · Beta</span>
+  <span class="cleverly-eyebrow">Causal studies with TMLE</span>
   <p class="cleverly-hero-title">Estimate. Validate. Stress-test.</p>
   <p class="cleverly-hero-copy">Build a causal study on TMLE. Name the question, inspect the
   identification argument, fit, and then probe the result with validation, diagnostics, and
@@ -38,8 +38,8 @@ Browse the Python API
 ::::
 
 :::{note}
-`cleverly` is beta software and ready for use. Unsupported combinations fail before fitting. The public API may
-still change, so pin a version for reproducible work. Read the identification statement your
+Unsupported combinations fail before fitting. The public API may still change, so pin a version
+for reproducible work. Read the identification statement your
 analysis returns.
 :::
 

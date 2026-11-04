@@ -9,7 +9,7 @@ gives the commit style, the pull request body, and what each CI job checks.
 One person maintains `cleverly`, so a review can take several days. Open an issue before you start
 a large change. An early conversation is cheaper than a rejected branch.
 
-`cleverly` is beta software. The public API can still change between releases. A result that one
+The public API of `cleverly` can still change between releases. A result that one
 release saves loads in another release with a `VersionMismatchWarning`, and the load does not
 migrate it. Do not add compatibility code for an earlier release. The "Compatibility" section of
 `CLAUDE.md` states the rule.

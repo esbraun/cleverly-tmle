@@ -1,6 +1,6 @@
 # cleverly 0.1.2
 
-This alpha release extends missing-data, treatment-policy, and longitudinal analyses, with APIs
+This release extends missing-data, treatment-policy, and longitudinal analyses, with APIs
 for known treatment and censoring mechanisms. It also changes cross-fitting defaults and makes
 inference restrictions explicit. These are the changes since 0.1.1.
 
@@ -244,7 +244,7 @@ the status, and simultaneous bands exclude those parameters.
 
 cleverly supports Python 3.11, 3.12, and 3.13 with pandas or Polars dataframes.
 
-This remains an alpha release. The package does not promise compatibility for public APIs,
+The package does not promise compatibility for public APIs,
 `CausalStudy` objects, pickled objects, or saved results. Follow the upgrade notes when moving
 an analysis to 0.1.2.
 

@@ -4,7 +4,6 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-1565c0.svg)](https://www.python.org/)
 [![CI](https://github.com/esbraun/cleverly-tmle/actions/workflows/ci.yml/badge.svg)](https://github.com/esbraun/cleverly-tmle/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-087f8c.svg)](https://github.com/esbraun/cleverly-tmle/blob/main/LICENSE)
-![Status: beta](https://img.shields.io/badge/status-beta-2e7d32.svg)
 
 **[Read the documentation](https://esbraun.github.io/cleverly-tmle/)** for the getting-started
 guide, the user guide, worked examples, and the API reference. To see a complete analysis first,
@@ -33,8 +32,8 @@ models.
 *The name comes from TMLE's "clever covariate", the variable that drives that correction step.
 Even the jokes in this library are targeted.*
 
-> **Status:** `cleverly` is beta software and ready for use. Releases use `0.2.N` versions, and the
-> public API can still change between them, so pin a version for reproducible work.
+> **Versions:** releases use `0.2.N` versions, and the public API can still change between them,
+> so pin a version for reproducible work.
 
 ## Key features
 

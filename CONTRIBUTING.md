@@ -1,6 +1,6 @@
 # Contributing to cleverly
 
-`cleverly` is beta software for causal studies built on targeted maximum likelihood estimation.
+`cleverly` is a Python library for causal studies built on targeted maximum likelihood estimation.
 One person maintains it, so a review can take several days. Open an issue before you start a large
 change.
 

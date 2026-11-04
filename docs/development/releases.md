@@ -29,12 +29,12 @@ release-notes-0.1.2
 `src/cleverly/_version.py` is the sole version source. Hatch reads that file when it creates
 distribution metadata. The installed package exposes the same value as `cleverly.__version__`.
 
-The alpha series ran from `0.1.0` to `0.1.7`. The beta series starts at `0.2.0`, and each later
-beta release increments only the patch component to produce `0.2.N`. A release-bearing pull
-request changes the version before review.
+The `0.1.N` series ran from `0.1.0` to `0.1.7`. The `0.2.N` series starts at `0.2.0`, and each
+later release increments only the patch component. A release-bearing pull request changes the
+version before review.
 
 A release-bearing pull request is a change that the maintainer plans to tag after merge. Ordinary
-pull requests do not change the version. The maintainer chooses the next policy after the beta
+pull requests do not change the version. The maintainer chooses the next policy after the `0.2.N`
 series ends.
 
 ## Review a release
