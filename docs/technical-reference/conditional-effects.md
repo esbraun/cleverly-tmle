@@ -352,7 +352,11 @@ over replicates, one-sided at 99%:
 
 The replicate count of each law comes from a pilot on its own stream
 (`tests/studies/ep_cate_pilot.csv`) by the plan's sizing rule, and
-`tests/unit/test_ep_cate_design.py` pins it. The comparator, hte3 `Lrnr_cate_EP` with
+`tests/unit/test_ep_cate_design.py` pins it: 300 for the simple d = 3 laws, 200 for the
+d = 20 laws, and 600 for the complex d = 3 laws, where the rule cannot power the rescue gate.
+Under hte3's noise SD of 1 the pilot reads the misspecified-learner EP at a mean log ratio of
+1.46 at $n = 4{,}000$, above $\log 3 = 1.10$, so that gate fails at any R and the schedule row
+stays experimental. The comparator, hte3 `Lrnr_cate_EP` with
 `targeting_style="dr"`, is declared pending: its debiasing is the linear Method 2, so the two
 agree only to $o_p(n^{-1/2})$ and the comparison is of different estimators.
 

@@ -63,6 +63,7 @@ EXAMPLE_TARGETS = (
     # Methods and configuration.
     "cleverly.EstimationMethod",
     "cleverly.TMLEMethod",
+    "cleverly.EPMethod",
     "cleverly.CollaborativeTMLEMethod",
     "cleverly.DRTMLEMethod",
     "cleverly.SDRMethod",
