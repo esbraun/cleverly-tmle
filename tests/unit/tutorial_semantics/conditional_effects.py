@@ -16,6 +16,12 @@ import numpy as np
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
 REFIT_CELLS = ("stability",)
 
+#: Decimals the prose writes that no output prints, each with how it follows from one.
+UNPRINTED_DECIMALS = {
+    "0.05": "the calibration line at a prediction of 0.03: intercept 0.028 + slope 0.76 x 0.03",
+    "0.22": "the calibration line at a prediction of 0.25: intercept 0.028 + slope 0.76 x 0.25",
+}
+
 
 def _check_confounding(namespace: dict[str, Any]) -> None:
     """The simple difference overstates the effect in every age band, most in the oldest."""
@@ -38,6 +44,9 @@ def _check_curve(namespace: dict[str, Any]) -> None:
     assert curve.inference_status == "no_interval"
     assert curve.sieve.mode == "cv"
     assert curve.sieve.chosen == 1
+    assert 1.8 < estimate[4] / truth[4] < 2.3, "the reading says about double at 60"
+    chances = curve.diagnostics.support().propensity_quantiles["overall"]
+    assert chances[0.0] > 0.1 and chances[1.0] < 0.9, "the overlap reading"
 
 
 def _check_assessment(namespace: dict[str, Any]) -> None:
@@ -46,6 +55,12 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     assert 0.5 < calibration.slope < 1.0
     risks = namespace["risks"]
     assert risks["curve"] < risks["t_learner"] < risks["constant"] < 0
+    assert abs(risks["curve"] - risks["dr_learner"]) < 0.001, "about the same as the DR-learner"
+    bins = calibration.to_frame()
+    middle = bins.iloc[2]
+    assert middle["pseudo_outcome_contrast"] < 0.5 * middle["mean_prediction"], "a noisy bin"
+    line = calibration.intercept + calibration.slope * np.array([0.03, 0.25])
+    assert np.allclose(line, [0.05, 0.22], atol=0.005), "the narrated line values"
 
 
 def _check_targeting(namespace: dict[str, Any]) -> None:
@@ -61,6 +76,12 @@ def _check_targeting(namespace: dict[str, Any]) -> None:
     assert rule > 1.5 * everyone
     frame = namespace["frame"]
     assert frame.loc[target, "age"].max() < 60
+    # The true gain beats the cost only up to about age 51.
+    true_uplift, cost = namespace["true_uplift"], namespace["COST"]
+    assert true_uplift(50.5) > cost > true_uplift(51.5)
+    assert frame.loc[target, "age"].max() > 55, "the rule stops too late"
+    near_cutoff = namespace["curve"].predict({"age": np.array([58.0])})[0] / true_uplift(58.0)
+    assert 1.7 < near_cutoff < 2.3, "up to about twice the true effect at the cutoff"
 
 
 def _check_trial(namespace: dict[str, Any]) -> None:
