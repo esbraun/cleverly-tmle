@@ -202,8 +202,47 @@ def test_each_calibration_row_passes_at_its_size(numbers: dict) -> None:
 
 
 def test_the_family_wise_rate_at_calibration(numbers: dict) -> None:
-    assert len(numbers["calibration"]) == 42
+    """Re-review RB2: the ladder carries no calibration rows, so 11 groups give 33."""
+    assert len(numbers["calibration"]) == 33
+    assert not any(cell.startswith("slow_") for cell in numbers["calibration"])
     assert numbers["calibration_family"] > 0.99
+
+
+def test_the_family_wise_rate_at_the_piloted_ratios(numbers: dict) -> None:
+    """Re-review RB3: the pass probabilities at the pilot's SE ratios, read two ways.
+
+    Plugged in row by row, the pilot's noise (SD about 0.015 per GLM row at 2,400, about 0.05
+    per ensemble row at 240) counts as miscalibration.  The rows of each learner spread no
+    more than that noise (Cochran's Q), so the pooled reading shrinks each row to its
+    learner's common ratio.  Both numbers are recorded here; the declaration is unchanged.
+    """
+    for cell, row in numbers["calibration"].items():
+        assert 0.0 <= row["pass_at_pilot"] <= 1.0, cell
+        assert row["pass_at_pooled"] > 0.98, cell
+    for learner, test in numbers["pilot_homogeneity"].items():
+        assert test["p_value"] > 0.5 and test["tau2"] == 0.0, learner
+    assert numbers["pilot_homogeneity"]["spline"]["common_ratio"] == pytest.approx(1.0017, abs=1e-4)
+    assert numbers["pilot_homogeneity"]["ensemble"]["common_ratio"] == pytest.approx(
+        1.0133, abs=1e-4
+    )
+    assert numbers["calibration_family_pilot"] == pytest.approx(0.242, abs=1e-3)
+    assert numbers["calibration_family_pooled"] == pytest.approx(0.949, abs=1e-3)
+
+
+def test_the_pilot_covers_every_calibration_row_on_its_own_stream() -> None:
+    """Re-review RB3: the pilot is complete, and its stream is not the run's."""
+    from tests.studies import conditional_projection_pilot as pilot
+
+    rows = study.pilot_rows()
+    for group, _, name in study.calibration_parameters():
+        row = rows[(group.label, name)]
+        size = pilot.ENSEMBLE_REPLICATES if group.learner == "ensemble" else pilot.REPLICATES
+        assert row["replicates"] + row["failed"] == size, (group.label, name)
+        assert row["failed"] <= 0.01 * size, (group.label, name)
+    assert pilot.STREAM != "property_sample"
+    assert stream_seed(study.STUDY, pilot.STREAM, "obs_1k", 0) != stream_seed(
+        study.STUDY, "property_sample", "obs_1k", 0
+    )
 
 
 def test_the_ladder_bias_rows(numbers: dict) -> None:
@@ -232,6 +271,18 @@ def test_each_control_detects(numbers: dict) -> None:
         assert row["detection"] > 0.99, (cell, row)
 
 
+def test_the_iid_se_control_publishes_only_the_terms_it_can_see() -> None:
+    """Re-review RB1: ``W3`` varies within clusters, so its row-level SE would not detect."""
+    group = study.GROUP_BY_LABEL["clustered_4k"]
+    assert group.controls["iid_se"] == ("(intercept)", "W1")
+    rows = study.pilot_rows()
+    w3 = rows[("clustered_4k", "cate_projection[W3]")]["iid_se_ratio"]
+    assert study.row_variance_detection(w3, group.replicates) < 0.01
+    for term in group.controls["iid_se"]:
+        ratio = rows[("clustered_4k", f"cate_projection[{term}]")]["iid_se_ratio"]
+        assert study.row_variance_detection(ratio, group.replicates) > 0.99
+
+
 def test_the_t_learner_and_ipw_numbers_of_the_plan(numbers: dict) -> None:
     """The plan's 2.29 for the T-learner, and the IPW reading on its own SD (review S3)."""
     controls = numbers["controls"]
@@ -242,6 +293,7 @@ def test_the_t_learner_and_ipw_numbers_of_the_plan(numbers: dict) -> None:
 def test_one_run_fits_in_a_day_on_sixteen_cores(numbers: dict) -> None:
     assert numbers["cost"]["cpu_hours"] < 60.0
     assert numbers["cost"]["wall_hours_16"] < 24.0
+    assert numbers["cost"]["wall_hours_4"] < 16.0
 
 
 # -------------------------------------------------------------------- one replication

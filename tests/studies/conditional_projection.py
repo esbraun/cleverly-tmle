@@ -29,10 +29,21 @@ What the cells can and cannot see (design review B4, B5):
 - ``weighted_sl_2k`` uses a weight that moves the estimand by about half a standard deviation,
   and its ``weights_ignored`` control fits the same draws without the weights, read against
   the weighted truth.
-- the missing-outcome calibration cells use a consistent outcome learner, so they test
-  calibration under MAR only; the ``1 / Pi`` term multiplies the outcome error, so the
-  ``missing_dr_4k`` group gives the outcome a declared error that is correlated with ``Pi``,
-  where the TMLE must stay unbiased and the one-step without ``1 / Pi`` must not.
+- the missing-outcome calibration cells use a consistent outcome learner.  The ``1 / Pi``
+  term multiplies the outcome error, so with a consistent outcome its loss barely moves the
+  point (the re-review's mutation of the clever covariate moved the ``missing_dr_4k`` rows by
+  at most 0.15 SD), but it moves the variance: the SE ratios of ``obs_missing_4k`` fell to
+  0.76 to 0.84, so these calibration rows see that defect.  The ``missing_dr_4k`` group gives
+  the outcome a declared error that is correlated with ``Pi``, where the TMLE must stay
+  unbiased and the one-step without ``1 / Pi`` must not.
+- the slow ladder claims bias, with the slope over its rungs reported, and no interval
+  calibration (re-review RB2): its nuisances are wrong on purpose, and the plug-in variance of
+  a fit with a deliberately wrong estimated treatment model overstates the spread (pilot SE
+  ratios up to 1.06 at 1k), which the band would read as a defect.  Coverage is still
+  computed and published on its bias rows, ungated.
+- the ``iid_se`` control publishes the intercept and ``W1`` only (re-review RB1): ``W3`` varies
+  within clusters, so the row-level SE of its slope is close to the clustered one (pilot
+  ratio in :data:`PILOT_CSV`) and could not fall below the band.
 - ``ep_fixed_obs_4k`` (plan 5.1, finding m7) is not here: the EP estimator refuses until part
   (b), so the cell moves to the ``ep-cate`` study of that part.
 """
@@ -448,10 +459,11 @@ ALL_TERMS = TERMS
 #: rows only for the terms its computed displacement moves (:func:`design_numbers`): the
 #: T-learner's offset loads on ``W1``, the IPW projection's on the two slopes, the unit-weight
 #: one-step's on the intercept and ``W1``, the one-step without ``1 / Pi`` on the intercept and
-#: ``W3``, and the dropped weights on the intercept.  ``seconds`` are
-#: the review's single-thread measurements at ``e87244d0`` where the group is unchanged, and
-#: this declaration's own (``tests/unit/test_conditional_projection_design.py`` reads them for
-#: the cost) where it is new.
+#: ``W3``, and the dropped weights on the intercept.  ``seconds`` are single-thread
+#: measurements: the design review's at ``e87244d0`` where the group is unchanged, the
+#: re-review's at ``dd697cdb`` for the two missing-outcome calibration groups, and this
+#: declaration's own where the group is new (``tests/unit/test_conditional_projection_design.py``
+#: reads them for the cost).
 GROUPS: tuple[Group, ...] = (
     Group("trial_2k", "trial", 2_000, R_GLM, "spline", seconds=0.22),
     Group("obs_1k", "observational", 1_000, R_GLM, "spline", seconds=0.21),
@@ -475,11 +487,11 @@ GROUPS: tuple[Group, ...] = (
         4_000,
         R_GLM,
         "spline",
-        controls={"iid_se": ALL_TERMS},
+        controls={"iid_se": ("(intercept)", "W1")},
         seconds=0.22,
     ),
-    Group("obs_missing_4k", "missing", 4_000, R_GLM, "spline", seconds=0.30),
-    Group("obs_missing_crr_4k", "missing", 4_000, R_GLM, "spline", "log_ratio", seconds=0.30),
+    Group("obs_missing_4k", "missing", 4_000, R_GLM, "spline", seconds=0.54),
+    Group("obs_missing_crr_4k", "missing", 4_000, R_GLM, "spline", "log_ratio", seconds=0.69),
     Group("assess_score_2k", "assess", 2_000, R_GLM, "spline", seconds=0.30),
     Group(
         "slow_1k",
@@ -487,6 +499,7 @@ GROUPS: tuple[Group, ...] = (
         1_000,
         R_GLM,
         "slow",
+        calibration=False,
         bias_rows=ALL_TERMS,
         controls={"ipw": ("W1", "W3")},
         seconds=0.15,
@@ -497,6 +510,7 @@ GROUPS: tuple[Group, ...] = (
         4_000,
         R_GLM,
         "slow",
+        calibration=False,
         bias_rows=ALL_TERMS,
         controls={"t_learner": ("W1",), "ipw": ("W1", "W3")},
         seconds=0.25,
@@ -507,6 +521,7 @@ GROUPS: tuple[Group, ...] = (
         16_000,
         R_GLM,
         "slow",
+        calibration=False,
         bias_rows=ALL_TERMS,
         controls={"ipw": ("W1", "W3")},
         seconds=0.90,
@@ -557,8 +572,8 @@ CONTROL_CLAIMS: Mapping[str, str] = {
     "wholly outside +-0.25 of its own SD at every rung",
     "no_weight": "the one-step with unit debiasing weights, on the declared wrong mu: its bias "
     "must lie wholly outside the margin",
-    "weights_ignored": "the same draws fitted without the sampling weights, read against the "
-    "weighted truth: its bias must lie wholly outside the margin",
+    "weights_ignored": "the same draws fitted with the spline GLM and without the sampling "
+    "weights, read against the weighted truth: its bias must lie wholly outside the margin",
     "missing_ignored": "the one-step without 1 / Pi, on the declared wrong mu: its bias must lie "
     "wholly outside the margin",
 }
@@ -907,8 +922,8 @@ def fit_group(group: Group, frame: pd.DataFrame, *, random_state: int) -> dict[s
             out["controls"][control] = dict(zip(TERMS, se, strict=True))
         elif control == "weights_ignored":
             unweighted = _fit(group, frame, random_state, weights=False)
-            values = [unweighted.estimates[k].psi for k in names]
-            out["controls"][control] = dict(zip(TERMS, values, strict=True))
+            psis = [unweighted.estimates[k].psi for k in names]
+            out["controls"][control] = dict(zip(TERMS, psis, strict=True))
         else:
             values = control_estimates(fit, control)
             out["controls"][control] = dict(zip(TERMS, values, strict=True))
@@ -1236,33 +1251,48 @@ def design_numbers() -> dict[str, Any]:
     Returns
     -------
     dict
-        ``calibration``: each calibration cell's pass probability at ratio 1 and at 0.97, and
-        the family-wise rate; ``slow_1k_bias``: the ladder's marginal row at the pilot's bias
+        ``calibration``: each calibration cell's pass probability at ratio 1, at 0.97 and at
+        its piloted ratio (with the pilot's SE spread and kurtosis where they exceed the
+        declared 0.1 and 3), and the family-wise rate at 1 and at the piloted ratios; ``slow_1k_bias``: the ladder's marginal row at the pilot's bias
         and at 0.19; ``power`` and ``power_pass``; ``type_i_pass``; ``controls``: each control
         cell's standardized displacement and detection probability; ``cost``: CPU-hours and
-        the wall hours on 16 cores.
+        the ideal wall hours on 16 and on 4 cores.
     """
     from tests.studies.evidence.property_verdicts import power_cell_pass_probability
 
+    pilot = pilot_rows()
     calibration = {}
-    for group in GROUPS:
-        names = group_cells(group).get(CALIBRATION, ())
-        for cell in names:
-            if cell.endswith(POSITIVE):
-                calibration[cell] = {
-                    "replicates": group.replicates,
-                    "pass_at_1": calibration_row_pass(group.replicates, 1.0),
-                    "pass_at_0.97": calibration_row_pass(group.replicates, 0.97),
-                }
+    for group, cell, name in calibration_parameters():
+        row = pilot[(group.label, name)]
+        calibration[cell] = {
+            "replicates": group.replicates,
+            "pass_at_1": calibration_row_pass(group.replicates, 1.0),
+            "pass_at_0.97": calibration_row_pass(group.replicates, 0.97),
+            "pilot_ratio": row["se_ratio"],
+            "pilot_replicates": int(row["replicates"]),
+            "pass_at_pilot": calibration_row_pass(
+                group.replicates,
+                row["se_ratio"],
+                se_cv=max(row["se_cv"], 0.1),
+                kurtosis=max(row["kurtosis"], 3.0),
+            ),
+        }
     family = float(np.prod([row["pass_at_1"] for row in calibration.values()]))
+    family_pilot = float(np.prod([row["pass_at_pilot"] for row in calibration.values()]))
+    pooled = pooled_pilot_ratios(pilot)
+    for cell, row in calibration.items():
+        row["pooled_ratio"] = pooled["ratios"][cell]
+        row["pass_at_pooled"] = calibration_row_pass(int(row["replicates"]), row["pooled_ratio"])
+    family_pooled = float(np.prod([row["pass_at_pooled"] for row in calibration.values()]))
     controls: dict[str, dict[str, float]] = {}
     for group in GROUPS:
         for control, terms in group.controls.items():
             if control == "iid_se":
                 for term in terms:
+                    ratio = pilot[(group.label, f"{stem(group)}[{term}]")]["iid_se_ratio"]
                     controls[f"{group.label}_{TERM_LABELS[term]}__{ROW_VARIANCE}"] = {
-                        "ratio": IID_SE_RATIO,
-                        "detection": row_variance_detection(IID_SE_RATIO, group.replicates),
+                        "ratio": ratio,
+                        "detection": row_variance_detection(ratio, group.replicates),
                     }
                 continue
             shift, sd = control_moments(group, control)
@@ -1281,6 +1311,9 @@ def design_numbers() -> dict[str, Any]:
     return {
         "calibration": calibration,
         "calibration_family": family,
+        "calibration_family_pilot": family_pilot,
+        "calibration_family_pooled": family_pooled,
+        "pilot_homogeneity": pooled["homogeneity"],
         "slow_1k_bias": {
             "pilot": bias_pass_probability(SLOW_1K_PILOT_BIAS, R_GLM, control=False),
             "at_0.19": bias_pass_probability(0.19, R_GLM, control=False),
@@ -1290,9 +1323,84 @@ def design_numbers() -> dict[str, Any]:
         "power_pass": power_cell_pass_probability(power, GROUP_BY_LABEL["power_4k"].replicates),
         "type_i_pass": type_i_pass_probability(0.05, GROUP_BY_LABEL["null_2k"].replicates),
         "controls": controls,
-        "cost": {"cpu_hours": cpu, "wall_hours_16": cpu / 16.0},
+        "cost": {
+            "cpu_hours": cpu,
+            "wall_hours_16": cpu / 16.0,
+            "wall_hours_4": cpu / 4.0,
+        },
     }
 
 
-#: The ``iid_se`` SE ratio the plan computed for the cluster law (finding m5), 0.78.
-IID_SE_RATIO = 0.78
+#: The SE-ratio pilot's committed summary (:mod:`tests.studies.conditional_projection_pilot`):
+#: a pilot on its own seed stream, read by :func:`design_numbers`, not a result of the run.
+PILOT_CSV = ROOT / "tests" / "studies" / "conditional_projection_pilot.csv"
+
+
+def pilot_rows() -> dict[tuple[str, str], dict[str, float]]:
+    """The pilot's summary row of each ``(group, parameter)``."""
+    frame = pd.read_csv(PILOT_CSV)
+    return {(str(row["group"]), str(row["name"])): row for row in frame.to_dict("records")}
+
+
+def pooled_pilot_ratios(pilot: Mapping[tuple[str, str], Mapping[str, float]]) -> dict[str, Any]:
+    """Each calibration row's SE ratio, shrunk toward its learner's common ratio.
+
+    A row's piloted ratio is its true ratio plus pilot noise of SD ``se_ratio_se``; read
+    alone, that noise moves the plug-in pass probability as much as a real miscalibration
+    would.  Within each learner (the spline GLM, the ensemble) the rows are pooled by the
+    DerSimonian--Laird random-effects estimate: a precision-weighted common ratio, a
+    method-of-moments between-row variance ``tau^2`` (zero when the rows spread no more than
+    their noise), and each row shrunk toward the common ratio by ``tau^2 / (tau^2 + se^2)``.
+
+    Returns
+    -------
+    dict
+        ``ratios``: the shrunk ratio of each positive calibration cell; ``homogeneity``: per
+        learner, the common ratio, ``tau^2``, Cochran's ``Q``, its degrees of freedom and its
+        chi-square p-value.
+    """
+    by_learner: dict[str, list[tuple[str, float, float]]] = {}
+    for group, cell, name in calibration_parameters():
+        row = pilot[(group.label, name)]
+        by_learner.setdefault(group.learner, []).append(
+            (cell, float(row["se_ratio"]), float(row["se_ratio_se"]))
+        )
+    ratios: dict[str, float] = {}
+    homogeneity: dict[str, dict[str, float]] = {}
+    for learner, rows in by_learner.items():
+        hat = np.array([row[1] for row in rows])
+        var = np.array([row[2] for row in rows]) ** 2
+        weight = 1.0 / var
+        common = float(weight @ hat / weight.sum())
+        q = float(weight @ (hat - common) ** 2)
+        df = len(rows) - 1
+        scale = weight.sum() - (weight**2).sum() / weight.sum()
+        tau2 = max(0.0, (q - df) / scale) if df > 0 else 0.0
+        shrink = tau2 / (tau2 + var)
+        for (cell, _, _), value in zip(rows, common + shrink * (hat - common), strict=True):
+            ratios[cell] = float(value)
+        homogeneity[learner] = {
+            "common_ratio": common,
+            "tau2": tau2,
+            "q": q,
+            "df": float(df),
+            "p_value": float(stats.chi2.sf(q, df)) if df > 0 else 1.0,
+        }
+    return {"ratios": ratios, "homogeneity": homogeneity}
+
+
+def calibration_parameters() -> list[tuple[Group, str, str]]:
+    """Each positive calibration cell with its group and the parameter it reads."""
+    out = []
+    for group in GROUPS:
+        if group.law == "assess":
+            out += [
+                (group, f"{group.label}_{ASSESS_LABELS[name]}__{POSITIVE}", name)
+                for name in assess_names()
+            ]
+        elif group.calibration:
+            out += [
+                (group, calibration_cell(group.label, term), f"{stem(group)}[{term}]")
+                for term in TERMS
+            ]
+    return out

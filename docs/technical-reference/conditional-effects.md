@@ -226,18 +226,35 @@ red-cell reading. The declaration fixes, before the run:
 
 | family | groups | rule |
 | --- | --- | --- |
-| `interval_calibration` | `trial_2k`, `obs_1k`, `obs_4k`, `crr_1k`, `crr_4k`, `multi_4k`, `clustered_4k`, `obs_missing_4k`, `obs_missing_crr_4k`, `assess_score_2k`, the three ladder rungs (R = 4,800), and `weighted_sl_2k` with the ensemble learner and 5 outer folds (R = 3,600) | 99% bootstrap SE-ratio interval in [0.93, 1.07] and 99% Clopper-Pearson coverage interval in [0.92, 0.98] |
-| `bias` | `slow_1k`, `slow_4k`, `slow_16k` (both nuisances off by $5 n^{-1/3}$ on the logit scale); `noweight_dr_4k` and `missing_dr_4k` (a declared wrong outcome regression) | 99% interval of the standardized bias inside $\pm 0.25$ |
+| `interval_calibration` | `trial_2k`, `obs_1k`, `obs_4k`, `crr_1k`, `crr_4k`, `multi_4k`, `clustered_4k`, `obs_missing_4k`, `obs_missing_crr_4k`, `assess_score_2k` (R = 4,800), and `weighted_sl_2k` with the ensemble learner and 5 outer folds (R = 3,600) | 99% bootstrap SE-ratio interval in [0.93, 1.07] and 99% Clopper-Pearson coverage interval in [0.92, 0.98] |
+| `bias` | `slow_1k`, `slow_4k`, `slow_16k` (both nuisances off by $5 n^{-1/3}$ on the logit scale; R = 4,800, slope over the rungs reported); `noweight_dr_4k` and `missing_dr_4k` (a declared wrong outcome regression) | 99% interval of the standardized bias inside $\pm 0.25$ |
 | `type_i_error`, `power` | the df-2 heterogeneity test at slope 0 ($n = 2{,}000$, R = 2,400) and 0.10 ($n = 4{,}000$, R = 1,000; power 0.933, noncentrality 14.27) | rejection upper end at most 0.10; lower end at least 0.80 |
 
-Each control shares its group's draws and must fail: the row-level SE on `clustered_4k` falls
-below the SE-ratio band; the T-learner (the projection of $\bar Q_1 - \bar Q_0$), the IPW
-projection, the one-step with unit weights in place of $1/g$, the one-step without $1/\Pi$,
-and the fit that drops the sampling weights each have a bias interval wholly outside
-$\pm 0.25$ of their own spread. `tests/unit/test_conditional_projection_design.py` computes
-each calibration row's pass probability (above 0.999 at a calibrated SE, 0.99 for the family),
-the power and type-I pass probabilities, and each control's detection probability (above 0.99),
+The ladder claims bias and not interval calibration. With both nuisances wrong on purpose, the
+plug-in variance overstates the spread at 1k (the re-review's pilot read SE ratios up to about
+1.06), so the band
+would read a conservative interval as a defect; its coverage is published on the bias rows
+without a gate.
+
+Each control shares its group's draws and must fail: the row-level SE of the intercept and the
+`W1` slope on `clustered_4k`, where `W1` and the treatment are cluster level, falls below the
+SE-ratio band. The `W3` slope varies within clusters, so its row-level SE is close to the
+clustered one and carries no control row. The T-learner (the projection of
+$\bar Q_1 - \bar Q_0$), the IPW projection, the one-step with unit weights in place of $1/g$,
+the one-step without $1/\Pi$, and the spline-GLM fit that drops the sampling weights each have
+a bias interval wholly outside $\pm 0.25$ of their own spread. `tests/unit/test_conditional_projection_design.py` computes
+the power and type-I pass probabilities and each control's detection probability (above 0.99)
 from the laws by quadrature. The EP cell of the plan moves to the part (b) study.
+
+The calibration rows' pass probabilities are read at SE ratios from a pilot on its own seed
+stream, committed as `tests/studies/conditional_projection_pilot.csv`: 2,400 fits of each GLM
+group and 240 of `weighted_sl_2k`. At a calibrated SE the family of 33 rows passes with
+probability 0.996. The piloted ratios of each learner spread no more than their noise
+(Cochran's $Q$, $p = 0.79$ for the GLM rows and 0.71 for the ensemble rows), around common
+ratios of 1.002 and 1.013. At those common ratios the family passes with probability 0.949.
+Read row by row, the pilot's own noise counts as miscalibration and the family rate falls to
+0.24, mostly from the three ensemble rows. The pilot also gives the row-level SE ratios on
+`clustered_4k`: 0.78 and 0.77 for the intercept and `W1`, and 0.97 for `W3`.
 
 The fast-tier instruments are:
 
