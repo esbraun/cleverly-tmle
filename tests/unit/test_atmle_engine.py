@@ -2,13 +2,14 @@
 
 The exact-law checks of the projection parameter are in ``test_atmle_exact.py``. These tests
 check the pieces that must hold on every sample: the R-loss lasso against its optimality
-conditions and an independent solver, the refit and fluctuation score equations, the full
-rank of the default dictionary, which rows each fit of the cross-validated form reads, and
-the bookkeeping of a fit.
+conditions and an independent solver, the refit and fluctuation score equations, the support
+screen and full rank of the default dictionary, which rows each fit and each pooled step of
+the cross-validated form reads, and the bookkeeping of a fit.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -21,6 +22,7 @@ from cleverly.estimators._working_basis import (
     WorkingBasis,
     WorkingDictionary,
     independent_columns,
+    minimum_support,
 )
 from cleverly.estimators.atmle import (
     Nuisances,
@@ -33,11 +35,7 @@ from cleverly.estimators.atmle import (
     select_working_model,
     target_source,
 )
-from cleverly.exceptions import (
-    CapabilityError,
-    MethodConfigurationError,
-    PositivityWarning,
-)
+from cleverly.exceptions import MethodConfigurationError, PositivityWarning
 from cleverly.learners.crossfit import random_partition
 
 BOUNDS = (0.01, 0.99)
@@ -115,7 +113,8 @@ def _dictionary_problems() -> list[tuple[np.ndarray, np.ndarray, np.ndarray, int
         w = rng.normal(size=(n, 3))
         w[:, 2] = rng.integers(0, 3, n)
         a = rng.binomial(1, 0.4, n).astype(float)
-        dictionary = WorkingDictionary.fit(None, w, a, np.arange(n), controls_only=False)
+        source = rng.binomial(1, 0.5, n).astype(float)
+        dictionary = WorkingDictionary.fit(None, w, a, source, np.arange(n), controls_only=False)
         for basis, k in ((dictionary.phi(w), 1), (dictionary.psi(w, a), 2)):
             m = rng.uniform(-0.9, 0.9, n)
             beta = rng.normal(size=basis.shape[1]) * (rng.uniform(size=basis.shape[1]) < 0.3)
@@ -272,6 +271,7 @@ def test_the_default_dictionary_has_full_rank_and_indicator_columns_for_few_leve
     n = 500
     w = np.column_stack([rng.normal(size=n), rng.binomial(1, 0.4, n), rng.integers(0, 3, n)])
     a = rng.binomial(1, 0.5, n).astype(float)
+    s = rng.binomial(1, 0.5, n).astype(float)
     basis = WorkingBasis().fit(w)
     names = list(basis.get_feature_names_out())
     assert sum(name.startswith("x0_spline") for name in names) == 6
@@ -283,14 +283,18 @@ def test_the_default_dictionary_has_full_rank_and_indicator_columns_for_few_leve
     assert basis.transform(w).shape[1] == len(names) == 6 + 3 + 3
     for controls_only in (False, True):
         rows = np.flatnonzero(a == 0) if controls_only else np.arange(n)
-        dictionary = WorkingDictionary.fit(None, w, a, rows, controls_only=controls_only)
+        dictionary = WorkingDictionary.fit(None, w, a, s, rows, controls_only=controls_only)
         phi = dictionary.phi(w)
         psi = dictionary.psi(w[rows], a[rows])
-        assert np.linalg.matrix_rank(phi) == phi.shape[1] == 1 + len(names)
-        assert np.linalg.matrix_rank(psi) == psi.shape[1]
-        assert len(dictionary.psi_names) == psi.shape[1]
-        expected = 1 + len(names) if controls_only else 2 + 2 * len(names)
-        assert psi.shape[1] == expected
+        assert np.linalg.matrix_rank(phi) == phi.shape[1]
+        assert np.linalg.matrix_rank(psi) == psi.shape[1] == len(dictionary.psi_names)
+        # The pivoted QR drops nothing here: every column is kept or screened out.
+        assert phi.shape[1] + len(dictionary.unsupported_phi_names) == 1 + len(names)
+        width = phi.shape[1] - 1
+        expected = 1 + width if controls_only else 2 + 2 * width
+        assert psi.shape[1] + len(dictionary.unsupported_psi_names) == expected
+        # The indicator columns are well supported and stay.
+        assert {"x1==1", "x2==1", "x2==2"} <= set(dictionary.phi_names)
 
 
 def test_the_pivoted_qr_drops_exactly_collinear_columns() -> None:
@@ -310,9 +314,39 @@ def test_the_pivoted_qr_drops_exactly_collinear_columns() -> None:
 
 def test_a_tied_covariate_keeps_only_the_columns_its_splines_span() -> None:
     w = np.r_[np.zeros(50), np.linspace(0, 1, 9)][:, None]
-    dictionary = WorkingDictionary.fit(None, w, np.zeros(59), np.arange(59), controls_only=True)
+    dictionary = WorkingDictionary.fit(
+        None, w, np.zeros(59), np.r_[np.zeros(30), np.ones(29)], np.arange(59), controls_only=True
+    )
     phi = dictionary.phi(w)
     assert np.linalg.matrix_rank(phi) == phi.shape[1] < 7
+
+
+def _screen_draw(k: int) -> tuple[np.ndarray, ...]:
+    """400 rows, with ``x1 = 1`` on ``k`` external treated rows and on many other rows."""
+    rng = np.random.default_rng(3)
+    n = 400
+    s = np.r_[np.ones(200), np.zeros(200)]
+    a = np.r_[np.tile([0.0, 1.0], 100), np.zeros(120), np.ones(80)]
+    x1 = np.zeros(n)
+    x1[:100] = 1.0  # trial rows in both arms
+    x1[200:260] = 1.0  # external controls
+    x1[320 : 320 + k] = 1.0  # external treated
+    return np.column_stack([rng.normal(size=n), x1]), a, s
+
+
+@pytest.mark.parametrize("k", [9, 11])
+def test_the_support_screen_drops_a_bias_column_few_external_treated_rows_carry(k: int) -> None:
+    w, a, s = _screen_draw(k)
+    assert minimum_support(400) == 10
+    dictionary = WorkingDictionary.fit(None, w, a, s, np.arange(400), controls_only=False)
+    assert "x1==1" in dictionary.phi_names
+    assert "x1==1" in dictionary.psi_names
+    if k < 10:
+        assert "A*x1==1" in dictionary.unsupported_psi_names
+        assert "A*x1==1" not in dictionary.psi_names
+    else:
+        assert "A*x1==1" not in dictionary.unsupported_psi_names
+        assert "A*x1==1" in dictionary.psi_names
 
 
 # --------------------------------------------------------------------------- fold roles
@@ -320,6 +354,8 @@ def test_a_tied_covariate_keeps_only_the_columns_its_splines_span() -> None:
 SPY: list[dict[str, Any]] = []
 BASIS_FITS: list[set[int]] = []
 SELECTIONS: list[dict[str, np.ndarray]] = []
+REFITS: list[dict[str, np.ndarray]] = []
+STEPS: list[list[dict[str, np.ndarray]]] = []
 
 
 def _record(key: int, x: np.ndarray, values: np.ndarray) -> None:
@@ -402,15 +438,41 @@ def test_no_validation_row_reaches_its_folds_nuisance_or_selection_fits(
     SPY.clear()
     BASIS_FITS.clear()
     SELECTIONS.clear()
+    REFITS.clear()
+    STEPS.clear()
     original = atmle.select_working_model
+    original_refit = atmle.relaxed_refit
+    original_step = atmle.pooled_epsilon
 
     def recorded(basis, multiplier, response, n_unpenalized, inner):  # type: ignore[no-untyped-def]
         SELECTIONS.append(
             {"basis": basis, "multiplier": multiplier, "response": response, "k": n_unpenalized}
         )
-        return original(basis, multiplier, response, n_unpenalized, inner)
+        chosen = original(basis, multiplier, response, n_unpenalized, inner)
+        # Keep every column, so the row-id column reaches the refit and the steps.
+        return replace(chosen, selected=np.arange(basis.shape[1], dtype=np.int64))
+
+    def refit(basis, multiplier, response, weights, *, where="The refit"):  # type: ignore[no-untyped-def]
+        REFITS.append({"basis": basis, "multiplier": multiplier, "response": response})
+        return original_refit(basis, multiplier, response, weights, where=where)
+
+    def step(units, beta_a, beta_s, directions, model):  # type: ignore[no-untyped-def]
+        STEPS.append(
+            [
+                {
+                    "ids": u.phi[:, 1].astype(int),
+                    "g": u.nuisances.g,
+                    "source": u.nuisances.source_at(u.treatment),
+                    "qt": u.nuisances.qt,
+                }
+                for u in units
+            ]
+        )
+        return original_step(units, beta_a, beta_s, directions, model)
 
     monkeypatch.setattr(atmle, "select_working_model", recorded)
+    monkeypatch.setattr(atmle, "relaxed_refit", refit)
+    monkeypatch.setattr(atmle, "pooled_epsilon", step)
     n, folds = 240, 4
     data = trial_draw(4, n)
     fit = fit_adaptive_tmle(
@@ -459,6 +521,33 @@ def test_no_validation_row_reaches_its_folds_nuisance_or_selection_fits(
             for role, value in checks:
                 found, clean = _producer_ok(role, int(row), float(value), forbidden)
                 assert found and clean, (role, v, row)
+    # Each fold's refit reads its training rows alone, with the selection's nuisances.
+    assert len(REFITS) == 2 * folds
+    for call in REFITS:
+        effect = call["basis"].shape[1] == 3
+        ids = call["basis"][:, 1 if effect else 2].astype(int)
+        (v,) = [v for v in range(folds) if set(ids.tolist()) == set(range(n)) - fold_rows[v]]
+        for position, row in enumerate(ids):
+            forbidden = fold_rows[v] | fold_rows[int(assignment[row])]
+            producer, observed = ("treatment", a) if effect else ("source", s)
+            for role, value in (
+                (producer, observed[row] - call["multiplier"][position]),
+                ("outcome", y[row] - call["response"][position]),
+            ):
+                found, clean = _producer_ok(role, int(row), float(value), forbidden)
+                assert found and clean, ("refit", role, v, row)
+    # Each pooled step reads the validation folds alone, with nuisances fitted without them.
+    assert len(STEPS) == 2 + fit.passes
+    for units in STEPS:
+        assert len(units) == folds
+        for v, unit in enumerate(units):
+            assert set(unit["ids"].tolist()) == fold_rows[v]
+            for position, row in enumerate(unit["ids"]):
+                for role, value in (("treatment", unit["g"]), ("outcome", unit["qt"])):
+                    found, clean = _producer_ok(
+                        role, int(row), float(value[position]), fold_rows[v]
+                    )
+                    assert found and clean, ("step", role, v, row)
 
 
 def test_the_fold_role_check_sees_a_leak(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -560,9 +649,49 @@ def test_the_cross_validated_form_needs_three_folds() -> None:
     assert _fit(trial_draw(1, 200), n_folds=2, form="pooled").folds.n_folds == 2
 
 
-def test_a_fold_too_small_for_its_working_model_is_refused() -> None:
-    with pytest.raises(CapabilityError, match=r"Fold \d+: the selected .* model has"):
-        _fit(trial_draw(1, 150), n_folds=10)
+@pytest.mark.parametrize("population", ["pooled", "trial"])
+@pytest.mark.parametrize("controls_only", [False, True])
+def test_the_pooled_steps_solve_the_target_direction_scores(
+    monkeypatch: pytest.MonkeyPatch, population: str, controls_only: bool
+) -> None:
+    calls: list[tuple[Any, ...]] = []
+    original = atmle.pooled_epsilon
+
+    def step(units, beta_a, beta_s, directions, model):  # type: ignore[no-untyped-def]
+        e = original(units, beta_a, beta_s, directions, model)
+        calls.append((units, beta_a, beta_s, directions, model, e))
+        return e
+
+    monkeypatch.setattr(atmle, "pooled_epsilon", step)
+    fit = _fit(
+        trial_draw(6, 1000, controls_only=controls_only),
+        n_folds=5,
+        population=population,
+    )
+    assert [call[4] for call in calls] == ["effect"] + ["bias"] * (fit.passes + 1)
+    assert fit.epsilon_effect == calls[0][5]
+    assert fit.epsilon_bias == tuple(call[5] for call in calls[1:])
+    for units, beta_a, beta_s, directions, model, e in calls:
+        start = end = scale = 0.0
+        for unit, ba, bs, d in zip(units, beta_a, beta_s, directions, strict=True):
+            nu = unit.nuisances
+            y = unit.outcome
+            if model == "effect":
+                h = (unit.treatment - nu.g) * (unit.phi @ d)
+                r = y - nu.theta - (unit.treatment - nu.g) * (unit.phi @ ba)
+            else:
+                multiplier = unit.source - np.where(unit.treatment == 1, nu.source1, nu.source0)
+                h = multiplier * (unit.psi @ d)
+                r = y - nu.qt - multiplier * (unit.psi @ bs)
+            start += float(np.mean(h * r)) / len(units)
+            end += float(np.mean(h * (r - e * h))) / len(units)
+            scale += float(np.mean(np.abs(h * r))) / len(units)
+        assert abs(end) <= 1e-10 * scale
+        # Witness: the refit alone leaves the pooled score unsolved.
+        assert abs(start) > 1e-6 * scale
+    # The targeted fit leaves the pooled target-direction scores solved.
+    assert fit.scores.effect_model < 1e-10
+    assert fit.scores.bias_model < 1e-10
 
 
 def test_few_external_treated_rows_and_low_enrollment_probabilities_warn() -> None:

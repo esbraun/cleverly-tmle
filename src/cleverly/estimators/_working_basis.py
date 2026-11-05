@@ -28,7 +28,7 @@ import scipy.linalg
 from sklearn.base import BaseEstimator, TransformerMixin, clone
 from sklearn.preprocessing import SplineTransformer
 
-from .._typing import FloatArray, IntArray
+from .._typing import BoolArray, FloatArray, IntArray
 
 __all__ = [
     "COLLINEARITY_TOLERANCE",
@@ -264,24 +264,119 @@ def bias_columns(phi: FloatArray, treatment: FloatArray | float, controls_only: 
     return np.column_stack([np.ones(phi.shape[0]), a[:, 0], rest, a * rest])
 
 
+def minimum_support(rows: int) -> int:
+    """``k_min = max(10, ceil(sqrt(n) / 2))``, the support a column needs on ``n`` rows.
+
+    Parameters
+    ----------
+    rows : int
+        The rows the working model is selected on.
+
+    Returns
+    -------
+    int
+        The fewest effective rows a dictionary column needs in each group of
+        :func:`supported_columns`.
+    """
+    return max(10, int(np.ceil(np.sqrt(rows) / 2.0)))
+
+
+def effective_support(column: FloatArray) -> float:
+    """The number of rows that carry a column's variation, ``(sum x^2)^2 / sum x^4``.
+
+    For a 0/1 column it is the number of nonzero rows. A smooth column that is small on
+    most rows, such as a B-spline at the edge of the data, counts only the rows where it
+    is large.
+
+    Parameters
+    ----------
+    column : ndarray of float
+        The column on the rows of one group.
+
+    Returns
+    -------
+    float
+        The effective number of rows; 0 for a zero column.
+    """
+    x2 = np.asarray(column, dtype=float) ** 2
+    fourth = float(np.sum(x2**2))
+    return float(np.sum(x2)) ** 2 / fourth if fourth > 0.0 else 0.0
+
+
+def supported_columns(
+    matrix: FloatArray,
+    groups: tuple[BoolArray, BoolArray],
+    arm_columns: BoolArray,
+    arm_rows: BoolArray,
+    n_fixed: int,
+    k_min: int,
+) -> IntArray:
+    """The columns whose support reaches ``k_min`` effective rows in each of two groups.
+
+    A column is kept when :func:`effective_support` reaches ``k_min`` on the rows of each
+    group. For a column marked in ``arm_columns`` only the rows marked in ``arm_rows`` count.
+    The first ``n_fixed`` columns are always kept.
+
+    Parameters
+    ----------
+    matrix : ndarray of float
+        The ``(n, p)`` columns on the selection rows.
+    groups : tuple of ndarray of bool
+        The two row groups, such as the external and the trial rows.
+    arm_columns : ndarray of bool
+        The columns that live in one arm (the ``A`` columns of the bias dictionary).
+    arm_rows : ndarray of bool
+        The rows of that arm.
+    n_fixed : int
+        The number of leading columns that are always kept.
+    k_min : int
+        The fewest effective rows a column needs in each group.
+
+    Returns
+    -------
+    ndarray of int
+        The kept column positions, ascending.
+    """
+    kept = []
+    for j in range(matrix.shape[1]):
+        if j < n_fixed:
+            kept.append(j)
+            continue
+        rows = arm_rows if arm_columns[j] else np.ones(matrix.shape[0], dtype=bool)
+        if all(effective_support(matrix[rows & group, j]) >= k_min for group in groups):
+            kept.append(j)
+    return np.asarray(kept, dtype=np.int64)
+
+
 @dataclass(frozen=True)
 class WorkingDictionary:
     """The two working-model dictionaries of one selection, fitted on its selection rows.
+
+    Each dictionary is screened for support (:func:`supported_columns`) and then reduced to
+    linearly independent columns (:func:`independent_columns`). An effect column needs
+    ``k_min`` effective rows among the treated and among the controls. A bias column needs
+    ``k_min`` effective rows among the external and among the trial rows, counting only the
+    treated rows for a column that carries ``A``. ``k_min`` is :func:`minimum_support` of
+    the rows the model is selected on. A column whose variation rests on a handful of rows
+    of one group cannot identify its coefficient there.
 
     Parameters
     ----------
     basis : Any
         The fitted transformer of ``W`` into the non-constant columns of ``phi``.
     phi_keep : ndarray of int
-        The positions of ``[1, basis(W)]`` that the pivoted QR kept. Position 0 is the
-        constant.
+        The positions of ``[1, basis(W)]`` that were kept. Position 0 is the constant.
     psi_keep : ndarray of int
-        The positions of :func:`bias_columns` that the pivoted QR kept. Position 0 is the
-        constant and, with external rows in both arms, position 1 is ``A``.
+        The positions of :func:`bias_columns` that were kept. Position 0 is the constant
+        and, with external rows in both arms, position 1 is ``A``.
     controls_only : bool
         Whether the external data hold controls only.
     names : tuple of str
         The names of the columns of ``[1, basis(W)]``.
+    phi_unsupported : ndarray of int
+        The positions of ``[1, basis(W)]`` that the support screen dropped.
+    psi_unsupported : ndarray of int
+        The positions of :func:`bias_columns` that the support screen dropped.
     """
 
     basis: Any
@@ -289,6 +384,8 @@ class WorkingDictionary:
     psi_keep: IntArray
     controls_only: bool
     names: tuple[str, ...]
+    phi_unsupported: IntArray
+    psi_unsupported: IntArray
 
     @classmethod
     def fit(
@@ -296,11 +393,12 @@ class WorkingDictionary:
         basis: Any,
         covariates: FloatArray,
         treatment: FloatArray,
+        source: FloatArray,
         bias_rows: IntArray,
         *,
         controls_only: bool,
     ) -> WorkingDictionary:
-        """Fit a clone of ``basis`` on the selection rows and keep the independent columns.
+        """Fit a clone of ``basis`` on the selection rows and keep the supported columns.
 
         Parameters
         ----------
@@ -310,6 +408,8 @@ class WorkingDictionary:
             ``W`` on the selection rows.
         treatment : ndarray of float
             ``A`` on the selection rows.
+        source : ndarray of float
+            ``S`` on the selection rows.
         bias_rows : ndarray of int
             The positions, within the selection rows, that the bias model is selected on.
         controls_only : bool
@@ -322,11 +422,43 @@ class WorkingDictionary:
         """
         fitted = clone(WorkingBasis() if basis is None else basis).fit(covariates)
         raw = _with_constant(fitted, covariates)
-        phi_keep = independent_columns(raw, 1)
+        treated = np.asarray(treatment, dtype=float) == 1.0
+        phi_supported = supported_columns(
+            raw,
+            (treated, ~treated),
+            np.zeros(raw.shape[1], dtype=bool),
+            treated,
+            1,
+            minimum_support(raw.shape[0]),
+        )
+        phi_keep = phi_supported[independent_columns(raw[:, phi_supported], 1)]
         phi = raw[:, phi_keep]
         bias = bias_columns(phi[bias_rows], treatment[bias_rows], controls_only)
-        psi_keep = independent_columns(bias, 1 if controls_only else 2)
-        return cls(fitted, phi_keep, psi_keep, controls_only, _names(fitted, raw.shape[1]))
+        fixed = 1 if controls_only else 2
+        width = phi.shape[1] - 1
+        arm_columns = np.zeros(bias.shape[1], dtype=bool)
+        if not controls_only:
+            arm_columns[1] = True
+            arm_columns[2 + width :] = True
+        external = np.asarray(source, dtype=float)[bias_rows] == 0.0
+        psi_supported = supported_columns(
+            bias,
+            (external, ~external),
+            arm_columns,
+            treated[bias_rows],
+            fixed,
+            minimum_support(bias.shape[0]),
+        )
+        psi_keep = psi_supported[independent_columns(bias[:, psi_supported], fixed)]
+        return cls(
+            fitted,
+            phi_keep,
+            psi_keep,
+            controls_only,
+            _names(fitted, raw.shape[1]),
+            np.setdiff1d(np.arange(raw.shape[1]), phi_supported),
+            np.setdiff1d(np.arange(bias.shape[1]), psi_supported),
+        )
 
     def phi(self, covariates: FloatArray) -> FloatArray:
         """The kept effect columns at ``W``.
@@ -368,13 +500,25 @@ class WorkingDictionary:
     @property
     def psi_names(self) -> tuple[str, ...]:
         """The names of the kept bias columns."""
-        rest = [self.names[j] for j in self.phi_keep[1:]]
-        raw = (
-            ["1", *rest]
-            if self.controls_only
-            else ["1", "A", *rest, *(f"A*{name}" for name in rest)]
-        )
+        raw = self._bias_names()
         return tuple(raw[j] for j in self.psi_keep)
+
+    @property
+    def unsupported_phi_names(self) -> tuple[str, ...]:
+        """The names of the effect columns that the support screen dropped."""
+        return tuple(self.names[j] for j in self.phi_unsupported)
+
+    @property
+    def unsupported_psi_names(self) -> tuple[str, ...]:
+        """The names of the bias columns that the support screen dropped."""
+        raw = self._bias_names()
+        return tuple(raw[j] for j in self.psi_unsupported)
+
+    def _bias_names(self) -> list[str]:
+        rest = [self.names[j] for j in self.phi_keep[1:]]
+        if self.controls_only:
+            return ["1", *rest]
+        return ["1", "A", *rest, *(f"A*{name}" for name in rest)]
 
 
 def _with_constant(basis: Any, covariates: FloatArray) -> FloatArray:

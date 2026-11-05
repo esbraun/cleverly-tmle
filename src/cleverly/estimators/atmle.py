@@ -24,10 +24,12 @@ one measure's rows and :func:`evaluate` returns the estimate and its influence f
 there, so the two uses run the same arithmetic.
 
 ``form="pooled"`` is Algorithm 1 of the paper (Section 7) with cross-fitted nuisances.
-``form="cv"`` is the adaptive CV-TMLE of Appendix C: fold ``v``'s nuisances and working
-model read only the training rows, the coefficients are refitted on the validation rows, one
-fluctuation of ``Pi`` is pooled over the validation folds, and the estimate is the average of
-the fold estimates.
+``form="cv"`` is the adaptive CV-TMLE of Appendix C, SR(1) step 4(b). Fold ``v``'s
+nuisances, dictionary, selection and least-squares refit read only its training rows ``T_v``.
+Each refitted coefficient vector then moves along its target direction ``I^{-1} m``, taken on
+``T_v``, by one step pooled over the validation folds, and one fluctuation of ``Pi`` is pooled
+over the validation folds the same way. The estimate is the average of the validation-fold
+plug-ins.
 """
 
 from __future__ import annotations
@@ -57,7 +59,6 @@ from ._working_basis import WorkingDictionary
 __all__ = [
     "KKT_TOLERANCE",
     "MAX_PASSES",
-    "ROWS_PER_COLUMN",
     "SOURCE_FLOOR",
     "AdaptiveTMLEDiagnostics",
     "AdaptiveTMLEFit",
@@ -75,12 +76,14 @@ __all__ = [
     "kkt_residual",
     "lasso_solutions",
     "penalty_grid",
+    "pooled_epsilon",
     "pseudo_responses",
     "refit_unit",
     "relaxed_refit",
     "residuals",
     "select_working_model",
     "source_covariates",
+    "target_directions",
     "target_source",
 ]
 
@@ -93,9 +96,6 @@ KKT_TOLERANCE = 1e-8
 
 #: The most passes of the alternation of the ``Pi`` fluctuation and the bias-model refit.
 MAX_PASSES = 50
-
-#: The fewest validation rows per working-model column that a ``form="cv"`` refit accepts.
-ROWS_PER_COLUMN = 10
 
 #: An external row's ``pi(W)`` below this value is reported as a trial-enrollment
 #: positivity concern (condition A3).
@@ -856,8 +856,60 @@ def residuals(
     )
 
 
+def _population_weights(unit: WorkingUnit, population: Population) -> tuple[FloatArray, FloatArray]:
+    """The weight of the covariate mean and the factor of the source term, ``(1, 1)`` or
+    ``(S / p, pi / p)``."""
+    w, s = unit.weights, unit.source
+    if population == "pooled":
+        return np.ones_like(w), np.ones_like(w)
+    if population == "trial":
+        share = float(np.sum(w * s))
+        return s / share, unit.nuisances.pibar / share
+    raise ValueError(f"population must be 'pooled' or 'trial'; got {population!r}")
+
+
+def target_directions(unit: WorkingUnit, population: Population) -> tuple[FloatArray, FloatArray]:
+    """The target directions ``I_A^{-1} m_A`` and ``I_S^{-1} m_S`` under a unit's measure.
+
+    ``I`` and ``m`` are as in :func:`evaluate`: the Hessians ``E[(A - g)^2 phi phi']`` and
+    ``E[(S - Pi)^2 psi psi']``, ``m_A = E[phi]`` and
+    ``m_S = E[psi(W, 0) Pi(0 | W, 0) - psi(W, 1) Pi(0 | W, 1)]``, with the means taken as
+    ``E[S .] / p`` for the trial population. ``m_A' U_A`` is then
+    ``(A - g) r_A phi' I_A^{-1} m_A``.
+
+    Parameters
+    ----------
+    unit : WorkingUnit
+        The rows and their measure.
+    population : {"pooled", "trial"}
+        The covariate population the effect is averaged over.
+
+    Returns
+    -------
+    tuple of ndarray
+        The effect-model and bias-model directions.
+    """
+    nu = unit.nuisances
+    w = unit.weights
+    weight, _ = _population_weights(unit, population)
+    multiplier_a = unit.treatment - nu.g
+    multiplier_s = unit.source - nu.source_at(unit.treatment)
+    hessian_a = (unit.phi * (w * multiplier_a**2)[:, None]).T @ unit.phi
+    hessian_s = (unit.psi * (w * multiplier_s**2)[:, None]).T @ unit.psi
+    gap = unit.psi0 * (1.0 - nu.source0)[:, None] - unit.psi1 * (1.0 - nu.source1)[:, None]
+    return (
+        np.linalg.solve(hessian_a, (w * weight) @ unit.phi),
+        np.linalg.solve(hessian_s, (w * weight) @ gap),
+    )
+
+
 def evaluate(
-    unit: WorkingUnit, beta_a: FloatArray, beta_s: FloatArray, population: Population
+    unit: WorkingUnit,
+    beta_a: FloatArray,
+    beta_s: FloatArray,
+    population: Population,
+    *,
+    directions: tuple[FloatArray, FloatArray] | None = None,
 ) -> tuple[float, InfluenceParts]:
     r"""The projection parameter and its influence function under a unit's measure.
 
@@ -887,6 +939,10 @@ def evaluate(
         The bias-model coefficients.
     population : {"pooled", "trial"}
         The covariate population the effect is averaged over.
+    directions : tuple of ndarray or None, default=None
+        The directions ``I_A^{-1} m_A`` and ``I_S^{-1} m_S``. ``None`` takes them from
+        :func:`target_directions` under this unit's measure; ``form="cv"`` passes the
+        training rows' directions.
 
     Returns
     -------
@@ -900,29 +956,17 @@ def evaluate(
     bias0, bias1 = unit.psi0 @ beta_s, unit.psi1 @ beta_s
     effect = unit.phi @ beta_a - bias_term(nu.source0, nu.source1, bias0, bias1)
     residual_a, residual_s = residuals(unit, beta_a, beta_s)
-    multiplier_a = a - nu.g
-    multiplier_s = s - observed_source
-    hessian_a = (unit.phi * (w * multiplier_a**2)[:, None]).T @ unit.phi
-    hessian_s = (unit.psi * (w * multiplier_s**2)[:, None]).T @ unit.psi
+    weight, factor = _population_weights(unit, population)
+    direction_a, direction_s = (
+        target_directions(unit, population) if directions is None else directions
+    )
     k0, k1 = source_covariates(nu.g, bias0, bias1, unit.controls_only)
     clever = np.where(a == 1.0, k1, k0)
-    if population == "pooled":
-        weight = np.ones_like(w)
-        factor = np.ones_like(w)
-    elif population == "trial":
-        share = float(np.sum(w * s))
-        weight = s / share
-        factor = nu.pibar / share
-    else:
-        raise ValueError(f"population must be 'pooled' or 'trial'; got {population!r}")
-    mean_a = (w * weight) @ unit.phi
-    gap = unit.psi0 * (1.0 - nu.source0)[:, None] - unit.psi1 * (1.0 - nu.source1)[:, None]
-    mean_s = (w * weight) @ gap
     estimate = float(np.sum(w * weight * effect))
     parts = InfluenceParts(
         weight * (effect - estimate),
-        multiplier_a * residual_a * (unit.phi @ np.linalg.solve(hessian_a, mean_a)),
-        -multiplier_s * residual_s * (unit.psi @ np.linalg.solve(hessian_s, mean_s)),
+        (a - nu.g) * residual_a * (unit.phi @ direction_a),
+        -(s - observed_source) * residual_s * (unit.psi @ direction_s),
         -factor * (s - observed_source) * clever,
     )
     return estimate, parts
@@ -967,6 +1011,57 @@ def refit_unit(
         unit.psi[rows], multiplier_s[rows], response_s[rows], unit.weights[rows], where=where
     )
     return effect_fit, bias_fit
+
+
+def pooled_epsilon(
+    units: Sequence[WorkingUnit],
+    beta_a: Sequence[FloatArray],
+    beta_s: Sequence[FloatArray],
+    directions: Sequence[FloatArray],
+    model: Literal["effect", "bias"],
+) -> float:
+    """The one step along the target directions that solves the pooled working-model score.
+
+    For the effect model, ``beta_A,v(e) = beta_A,v + e d_v`` with ``d_v`` fold ``v``'s
+    direction, ``H = (A - g) phi' d_v`` and ``r = r_A`` at ``beta_A,v``; for the bias model,
+    ``S - Pi``, ``psi`` and ``r_S`` in their place, on the bias model's rows. The score
+    ``sum_v P_v H (r - e H) / V`` is linear in ``e``, so
+    ``e = sum_v P_v H r / sum_v P_v H^2``.
+
+    Parameters
+    ----------
+    units : sequence of WorkingUnit
+        The validation folds, each under its own measure.
+    beta_a : sequence of ndarray of float
+        Each fold's effect-model coefficients.
+    beta_s : sequence of ndarray of float
+        Each fold's bias-model coefficients.
+    directions : sequence of ndarray of float
+        Each fold's direction for ``model``.
+    model : {"effect", "bias"}
+        The working model to step.
+
+    Returns
+    -------
+    float
+        The step ``e``.
+    """
+    numerator = denominator = 0.0
+    for unit, ba, bs, direction in zip(units, beta_a, beta_s, directions, strict=True):
+        nu = unit.nuisances
+        residual_a, residual_s = residuals(unit, ba, bs)
+        if model == "effect":
+            h = (unit.treatment - nu.g) * (unit.phi @ direction)
+            residual, rows = residual_a, np.ones(h.size, dtype=bool)
+        else:
+            h = (unit.source - nu.source_at(unit.treatment)) * (unit.psi @ direction)
+            residual, rows = residual_s, _bias_rows(unit)
+        w = unit.weights[rows]
+        numerator += float(np.sum(w * h[rows] * residual[rows]))
+        denominator += float(np.sum(w * h[rows] ** 2))
+    if not denominator > 0.0:
+        return 0.0
+    return numerator / denominator
 
 
 def target_source(
@@ -1074,9 +1169,14 @@ class WorkingModel:
     bias : Selection
         The lasso selection of the bias model, over ``dictionary.psi``.
     beta_a : ndarray of float
-        The refitted effect-model coefficients of the selected columns.
+        The effect-model coefficients of the selected columns: the refit for
+        ``form="pooled"``, the targeted refit for ``form="cv"``.
     beta_s : ndarray of float
-        The bias-model coefficients of the selected columns after the last refit.
+        The bias-model coefficients of the selected columns: the last refit for
+        ``form="pooled"``, the targeted refit for ``form="cv"``.
+    directions : tuple of ndarray or None
+        For ``form="cv"``, the target directions ``I_A^{-1} m_A`` and ``I_S^{-1} m_S`` of
+        the last pass, taken on the training rows; ``None`` for ``form="pooled"``.
     inner : ndarray of int
         The inner fold of each selection row.
     selection_rows : int
@@ -1093,6 +1193,7 @@ class WorkingModel:
     bias: Selection
     beta_a: FloatArray
     beta_s: FloatArray
+    directions: tuple[FloatArray, FloatArray] | None
     inner: IntArray
     selection_rows: int
     estimate: float
@@ -1110,21 +1211,29 @@ class WorkingModel:
         names = self.dictionary.psi_names
         return tuple(names[j] for j in self.bias.selected)
 
+    @property
+    def unsupported_columns(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """The effect and bias columns that the support screen dropped."""
+        return self.dictionary.unsupported_phi_names, self.dictionary.unsupported_psi_names
+
 
 @dataclass(frozen=True)
 class ScoreResiduals:
     """The score equations the fit solves, as left at its end.
 
+    Each is the mean of one component of :class:`InfluenceParts`, pooled over the
+    selections as ``mean_v P_v``.
+
     Parameters
     ----------
     effect_model : float
-        The largest ``|P_n U_A|`` component over the selections.
+        ``|P_n m_A' U_A|``.
     bias_model : float
-        The largest ``|P_n U_S|`` component over the selections.
+        ``|P_n m_S' U_S|``.
     source : float
-        ``|P_n f (S - Pi*) C|`` pooled over the selections.
+        ``|P_n f (S - Pi*) C|``.
     influence : float
-        ``|P_n D|`` pooled over the selections.
+        ``|P_n D|``.
     """
 
     effect_model: float
@@ -1191,6 +1300,13 @@ class AdaptiveTMLEFit:
         One per outer fold for ``form="cv"``, one for ``form="pooled"``.
     epsilon : tuple of float
         The fluctuation of ``Pi`` at each pass.
+    epsilon_effect : float or None
+        For ``form="cv"``, the step of the effect-model coefficients along their target
+        directions; ``None`` for ``form="pooled"``.
+    epsilon_bias : tuple of float
+        For ``form="cv"``, the step of the bias-model coefficients from their refit along
+        their target directions, before the first pass and after each; empty for
+        ``form="pooled"``.
     passes : int
         The passes of the alternation of the fluctuation and the bias-model refit.
     converged : bool
@@ -1210,6 +1326,8 @@ class AdaptiveTMLEFit:
     form: Form
     working_models: tuple[WorkingModel, ...]
     epsilon: tuple[float, ...]
+    epsilon_effect: float | None
+    epsilon_bias: tuple[float, ...]
     passes: int
     converged: bool
     scores: ScoreResiduals
@@ -1454,8 +1572,7 @@ def fit_adaptive_tmle(
     MethodConfigurationError
         When ``form="cv"`` has fewer than three outer folds.
     CapabilityError
-        When a ``form="cv"`` refit has more columns than one per
-        :data:`ROWS_PER_COLUMN` validation rows, or collinear columns.
+        When a refit's selected columns are collinear on the rows it reads.
     """
     y, a, s, w, seen = _check_inputs(outcome, treatment, source, covariates, observed)
     if form not in ("cv", "pooled"):
@@ -1520,7 +1637,7 @@ def fit_adaptive_tmle(
                     both,
                     controls_only=controls_only,
                     bounds=g_bounds,
-                    with_pibar=False,
+                    with_pibar=True,
                 )
                 pairs[(u, v)] = (both, values)
         for v in range(split.n_folds):
@@ -1538,25 +1655,39 @@ def fit_adaptive_tmle(
     else:
         selections.append((None, every, cross_fitted, every))
     units: list[WorkingUnit] = []
+    trains: list[WorkingUnit] = []
     models: list[tuple[int | None, WorkingDictionary, Selection, Selection, IntArray, int]] = []
     for index, (fold, rows, values, evaluation) in enumerate(selections):
         inner = random_partition(rows.size, inner_folds, seed=int(seeds[index])).assignment
         dictionary, effect, bias = _select(data, rows, values, inner, controls_only, basis)
-        unit = _unit(
-            data,
-            evaluation,
-            _take(cross_fitted, evaluation),
-            dictionary,
-            effect,
-            bias,
-            controls_only,
+        units.append(
+            _unit(
+                data,
+                evaluation,
+                _take(cross_fitted, evaluation),
+                dictionary,
+                effect,
+                bias,
+                controls_only,
+            )
         )
         if fold is not None:
-            _check_size(unit, fold)
-        units.append(unit)
+            trains.append(_unit(data, rows, values, dictionary, effect, bias, controls_only))
         models.append((fold, dictionary, effect, bias, inner, int(rows.size)))
-    return _target(
-        data, units, models, population, form, split, raw_pibar, controls_only, n_external_treated
+    if form == "cv":
+        targeted = _target_cv(units, trains, models, population, data.y.size)
+    else:
+        targeted = _target_pooled(units, population, data.y.size)
+    return _assemble(
+        data,
+        targeted,
+        models,
+        population,
+        form,
+        split,
+        raw_pibar,
+        controls_only,
+        n_external_treated,
     )
 
 
@@ -1572,7 +1703,7 @@ def _select(
     a, s = data.a[rows], data.s[rows]
     bias_rows = np.flatnonzero(a == 0.0) if controls_only else np.arange(rows.size)
     dictionary = WorkingDictionary.fit(
-        basis, data.w[rows], a, bias_rows, controls_only=controls_only
+        basis, data.w[rows], a, s, bias_rows, controls_only=controls_only
     )
     observed = None if data.observed is None else data.observed[rows]
     response_a, response_s = pseudo_responses(data.y[rows], observed, values)
@@ -1615,26 +1746,161 @@ def _unit(
     )
 
 
-def _check_size(unit: WorkingUnit, fold: int) -> None:
-    rows = unit.treatment.size
-    bias_rows = int(np.sum(_bias_rows(unit)))
-    for columns, available, model in (
-        (unit.phi.shape[1], rows, "effect"),
-        (unit.psi.shape[1], bias_rows, "bias"),
-    ):
-        if columns * ROWS_PER_COLUMN > available:
-            raise CapabilityError(
-                f"Fold {fold}: the selected {model} model has {columns} columns, more than "
-                f"one per {ROWS_PER_COLUMN} of the {available} validation rows it is refitted "
-                "on, so the fold is too small to refit it.",
-                reason=RefusalReason.INVALID_DECLARATION,
-                alternative="Use fewer folds, or form='pooled'.",
-            )
+@dataclass(frozen=True)
+class _Targeted:
+    units: list[WorkingUnit]
+    beta_a: list[FloatArray]
+    beta_s: list[FloatArray]
+    directions: list[tuple[FloatArray, FloatArray] | None]
+    evaluated: list[tuple[float, InfluenceParts]]
+    epsilon: list[float]
+    epsilon_effect: float | None
+    epsilon_bias: list[float]
+    converged: bool
 
 
-def _target(
-    data: _Data,
+def _pooled_mean(units: Sequence[WorkingUnit], values: Sequence[FloatArray]) -> float:
+    """``mean_v P_v x`` over the selections."""
+    return sum(float(np.sum(u.weights * x)) for u, x in zip(units, values, strict=True)) / len(
+        units
+    )
+
+
+def _source_epsilon(
+    units: Sequence[WorkingUnit], beta_s: Sequence[FloatArray], population: Population
+) -> tuple[float, list[tuple[FloatArray, FloatArray, FloatArray, BoolArray]]]:
+    """The fluctuation of ``Pi`` pooled over the units, and each unit's step."""
+    steps = [_source_step(unit, beta, population) for unit, beta in zip(units, beta_s, strict=True)]
+    rows = [step[3] for step in steps]
+    count = len(units)
+    epsilon = target_source(
+        np.concatenate(
+            [u.nuisances.source_at(u.treatment)[r] for u, r in zip(units, rows, strict=True)]
+        ),
+        np.concatenate([step[2][r] for step, r in zip(steps, rows, strict=True)]),
+        np.concatenate([u.source[r] for u, r in zip(units, rows, strict=True)]),
+        np.concatenate([u.weights[r] / count for u, r in zip(units, rows, strict=True)]),
+    )
+    return epsilon, steps
+
+
+def _stopped(
+    units: Sequence[WorkingUnit], evaluated: Sequence[tuple[float, InfluenceParts]], n: int
+) -> tuple[bool, float, float]:
+    """The stopping rule ``|P_n D| <= sd(D) / (sqrt(n) log n)``."""
+    mean = _pooled_mean(units, [parts.total for _, parts in evaluated])
+    spread = float(np.std(np.concatenate([parts.total for _, parts in evaluated])))
+    threshold = spread / (np.sqrt(n) * np.log(n))
+    return abs(mean) <= threshold, mean, threshold
+
+
+def _not_converged(mean: float, threshold: float) -> None:
+    _warn(
+        f"the fluctuation of P(S = 1 | W, A) and the bias-model update did not meet the "
+        f"stopping rule in {MAX_PASSES} passes; |P_n D| is {abs(mean):.3g}, above "
+        f"{threshold:.3g}",
+        ConvergenceWarning,
+        stacklevel=4,
+    )
+
+
+def _target_pooled(units: list[WorkingUnit], population: Population, n: int) -> _Targeted:
+    """Algorithm 1: refit, then alternate the ``Pi`` fluctuation with the bias-model refit."""
+    (unit,) = units
+    effect_fit, bias_fit = refit_unit(unit)
+    assert effect_fit is not None
+    beta_a, beta_s = effect_fit.beta, bias_fit.beta
+    epsilons: list[float] = []
+    converged = False
+    for _ in range(MAX_PASSES):
+        epsilon, ((k0, k1, *_),) = _source_epsilon([unit], [beta_s], population)
+        epsilons.append(epsilon)
+        unit = _fluctuated(unit, epsilon, k0, k1)
+        beta_s = refit_unit(unit, effect=False)[1].beta
+        evaluated = [evaluate(unit, beta_a, beta_s, population)]
+        converged, mean, threshold = _stopped([unit], evaluated, n)
+        if converged:
+            break
+    if not converged:
+        _not_converged(mean, threshold)
+    return _Targeted([unit], [beta_a], [beta_s], [None], evaluated, epsilons, None, [], converged)
+
+
+def _target_cv(
     units: list[WorkingUnit],
+    trains: list[WorkingUnit],
+    models: list[tuple[int | None, WorkingDictionary, Selection, Selection, IntArray, int]],
+    population: Population,
+    n: int,
+) -> _Targeted:
+    """Appendix C, SR(1) step 4(b): refit on ``T_v``, then step along the target directions.
+
+    The directions ``I^{-1} m`` are taken on each fold's training rows. The effect model's
+    step is solved once. The bias model's direction depends on ``Pi``, so each pass
+    fluctuates ``Pi`` on the validation and the training rows by the one ``epsilon`` solved
+    on the validation rows, recomputes the training direction, and solves the bias step from
+    the refit again.
+    """
+    fits = [
+        refit_unit(train, where=f"Fold {model[0]}")
+        for train, model in zip(trains, models, strict=True)
+    ]
+    refit_a = [fit[0].beta for fit in fits if fit[0] is not None]
+    refit_s = [fit[1].beta for fit in fits]
+    effect_directions = [target_directions(train, population)[0] for train in trains]
+    epsilon_effect = pooled_epsilon(units, refit_a, refit_s, effect_directions, "effect")
+    beta_a = [b + epsilon_effect * d for b, d in zip(refit_a, effect_directions, strict=True)]
+
+    def bias_step(
+        trains: list[WorkingUnit], units: list[WorkingUnit]
+    ) -> tuple[float, list[FloatArray], list[FloatArray]]:
+        directions = [target_directions(train, population)[1] for train in trains]
+        step = pooled_epsilon(units, beta_a, refit_s, directions, "bias")
+        return step, [b + step * d for b, d in zip(refit_s, directions, strict=True)], directions
+
+    epsilon_bias, beta_s, bias_directions = bias_step(trains, units)
+    epsilons: list[float] = []
+    steps_bias = [epsilon_bias]
+    converged = False
+    for _ in range(MAX_PASSES):
+        epsilon, steps = _source_epsilon(units, beta_s, population)
+        epsilons.append(epsilon)
+        units = [
+            _fluctuated(unit, epsilon, step[0], step[1])
+            for unit, step in zip(units, steps, strict=True)
+        ]
+        trains = [
+            _fluctuated(train, epsilon, *_source_step(train, beta, population)[:2])
+            for train, beta in zip(trains, beta_s, strict=True)
+        ]
+        epsilon_bias, beta_s, bias_directions = bias_step(trains, units)
+        steps_bias.append(epsilon_bias)
+        directions = list(zip(effect_directions, bias_directions, strict=True))
+        evaluated = [
+            evaluate(unit, ba, bs, population, directions=d)
+            for unit, ba, bs, d in zip(units, beta_a, beta_s, directions, strict=True)
+        ]
+        converged, mean, threshold = _stopped(units, evaluated, n)
+        if converged:
+            break
+    if not converged:
+        _not_converged(mean, threshold)
+    return _Targeted(
+        units,
+        beta_a,
+        beta_s,
+        list(directions),
+        evaluated,
+        epsilons,
+        epsilon_effect,
+        steps_bias,
+        converged,
+    )
+
+
+def _assemble(
+    data: _Data,
+    targeted: _Targeted,
     models: list[tuple[int | None, WorkingDictionary, Selection, Selection, IntArray, int]],
     population: Population,
     form: Form,
@@ -1643,99 +1909,50 @@ def _target(
     controls_only: bool,
     n_external_treated: int,
 ) -> AdaptiveTMLEFit:
-    """Refit, then alternate the pooled ``Pi`` fluctuation with the bias-model refits."""
+    """The estimate, its standard error and the record of the targeting."""
     n = data.y.size
-    count = len(units)
-    names = [f"Fold {fold}" if fold is not None else "The refit" for fold, *_ in models]
-    fits = [refit_unit(unit, where=name) for unit, name in zip(units, names, strict=True)]
-    beta_a = [fit[0].beta for fit in fits if fit[0] is not None]
-    beta_s = [fit[1].beta for fit in fits]
-    epsilons: list[float] = []
-    converged = False
-    threshold_scale = 1.0 / (np.sqrt(n) * np.log(n))
-    for _ in range(MAX_PASSES):
-        steps = [
-            _source_step(unit, beta, population) for unit, beta in zip(units, beta_s, strict=True)
-        ]
-        rows = [step[3] for step in steps]
-        epsilon = target_source(
-            np.concatenate(
-                [u.nuisances.source_at(u.treatment)[r] for u, r in zip(units, rows, strict=True)]
-            ),
-            np.concatenate([step[2][r] for step, r in zip(steps, rows, strict=True)]),
-            np.concatenate([u.source[r] for u, r in zip(units, rows, strict=True)]),
-            np.concatenate([u.weights[r] / count for u, r in zip(units, rows, strict=True)]),
-        )
-        epsilons.append(epsilon)
-        units = [
-            _fluctuated(unit, epsilon, step[0], step[1])
-            for unit, step in zip(units, steps, strict=True)
-        ]
-        beta_s = [
-            refit_unit(unit, where=name, effect=False)[1].beta
-            for unit, name in zip(units, names, strict=True)
-        ]
-        evaluated = [
-            evaluate(unit, ba, bs, population)
-            for unit, ba, bs in zip(units, beta_a, beta_s, strict=True)
-        ]
-        mean = (
-            sum(
-                float(np.sum(u.weights * parts.total))
-                for u, (_, parts) in zip(units, evaluated, strict=True)
-            )
-            / count
-        )
-        spread = float(np.std(np.concatenate([parts.total for _, parts in evaluated])))
-        if abs(mean) <= spread * threshold_scale:
-            converged = True
-            break
-    if not converged:
-        _warn(
-            f"the fluctuation of P(S = 1 | W, A) and the bias-model refit did not meet the "
-            f"stopping rule in {MAX_PASSES} passes; |P_n D| is {abs(mean):.3g}, above "
-            f"{spread * threshold_scale:.3g}",
-            ConvergenceWarning,
-            stacklevel=3,
-        )
+    units, evaluated = targeted.units, targeted.evaluated
     influence = np.full(n, np.nan)
     working: list[WorkingModel] = []
-    effect_scores: list[float] = []
-    bias_scores: list[float] = []
-    source_score = 0.0
     variances: list[float] = []
-    estimates: list[float] = []
-    for unit, (estimate, parts), ba, bs, model, fold_rows in zip(
-        units, evaluated, beta_a, beta_s, models, _evaluation_rows(split, form), strict=True
+    for (estimate, parts), ba, bs, d, model, fold_rows in zip(
+        evaluated,
+        targeted.beta_a,
+        targeted.beta_s,
+        targeted.directions,
+        models,
+        _evaluation_rows(split, form),
+        strict=True,
     ):
         fold, dictionary, effect, bias, inner, selection_rows = model
         total = parts.total
         influence[fold_rows] = total
         variance = float(np.var(total)) if form == "cv" else float(np.mean(total**2))
         variances.append(variance)
-        estimates.append(estimate)
-        effect_score, bias_score = _score_sizes(unit, ba, bs)
-        effect_scores.append(effect_score)
-        bias_scores.append(bias_score)
-        source_score += float(np.sum(unit.weights * parts.source)) / count
         working.append(
             WorkingModel(
-                fold, dictionary, effect, bias, ba, bs, inner, selection_rows, estimate, variance
+                fold, dictionary, effect, bias, ba, bs, d, inner, selection_rows, estimate, variance
             )
         )
-    point = float(np.mean(estimates))
-    std_error = float(np.sqrt(np.mean(variances) / n))
+    scores = ScoreResiduals(
+        effect_model=abs(_pooled_mean(units, [parts.effect_model for _, parts in evaluated])),
+        bias_model=abs(_pooled_mean(units, [parts.bias_model for _, parts in evaluated])),
+        source=abs(_pooled_mean(units, [parts.source for _, parts in evaluated])),
+        influence=abs(_pooled_mean(units, [parts.total for _, parts in evaluated])),
+    )
     return AdaptiveTMLEFit(
-        estimate=point,
-        std_error=std_error,
+        estimate=float(np.mean([estimate for estimate, _ in evaluated])),
+        std_error=float(np.sqrt(np.mean(variances) / n)),
         influence_curve=influence,
         population=population,
         form=form,
         working_models=tuple(working),
-        epsilon=tuple(epsilons),
-        passes=len(epsilons),
-        converged=converged,
-        scores=ScoreResiduals(max(effect_scores), max(bias_scores), abs(source_score), abs(mean)),
+        epsilon=tuple(targeted.epsilon),
+        epsilon_effect=targeted.epsilon_effect,
+        epsilon_bias=tuple(targeted.epsilon_bias),
+        passes=len(targeted.epsilon),
+        converged=targeted.converged,
+        scores=scores,
         diagnostics=_diagnostics(
             data, units, split, form, raw_pibar, controls_only, n_external_treated
         ),
@@ -1747,21 +1964,6 @@ def _evaluation_rows(split: Folds, form: Form) -> list[IntArray]:
     if form == "pooled":
         return [np.arange(split.n, dtype=np.int64)]
     return [np.flatnonzero(split.assignment == v) for v in range(split.n_folds)]
-
-
-def _score_sizes(unit: WorkingUnit, beta_a: FloatArray, beta_s: FloatArray) -> tuple[float, float]:
-    """The largest component of ``P U_A`` and of ``P U_S`` under a unit's measure."""
-    nu = unit.nuisances
-    w = unit.weights
-    residual_a, residual_s = residuals(unit, beta_a, beta_s)
-    sizes = []
-    for x, residual in (
-        ((unit.treatment - nu.g)[:, None] * unit.phi, residual_a),
-        ((unit.source - nu.source_at(unit.treatment))[:, None] * unit.psi, residual_s),
-    ):
-        hessian = (x * w[:, None]).T @ x
-        sizes.append(float(np.max(np.abs(np.linalg.solve(hessian, x.T @ (w * residual))))))
-    return sizes[0], sizes[1]
 
 
 def _diagnostics(
