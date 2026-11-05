@@ -42,7 +42,8 @@ at n = 2,000.
     reading (:func:`exceptional_reading`) is the boundary study's: an upper end of the 99%
     Clopper-Pearson coverage interval below 0.95 reads "under-covers at the exceptional law", a
     lower end at or above 0.90 reads "no under-coverage resolved at the declared budget", and
-    anything else reads "unresolved".  The plug-in rule's boundary study measured coverage
+    anything else reads "unresolved".  At 2,400 draws the first two meet at 2,252 covered, so
+    the cell always resolves one way or the other.  The plug-in rule's boundary study measured coverage
     0.894 there; this cell reports the EP rule's.
 
 Each row of the gated laws and of the diagnostic cells also carries the descriptive
@@ -102,8 +103,30 @@ from tests.studies.learned_rule_ep import (
 )
 
 CALIBRATION_N = 4_000
-#: Set from the sizing pilot by the plan's rule (``tests/unit/test_learned_rule_ep_design.py``).
-CALIBRATION_REPLICATES = 4_800
+
+
+def sizing_reading(ratio: float, sigma: float) -> tuple[int, bool]:
+    """The plan 5.5 rule: ``R`` per calibration cell from the pilot ratio minus one pilot SE.
+
+    At least 0.975 gives 4,800; 0.96 to 0.975 gives 7,200; below 0.96 gives 7,200 still, and
+    the ``T49`` rows stay experimental whatever the run shows ("the calibration cells are not
+    powered at the measured SE deficit").  Returns ``R`` and whether the rows may be added.
+    """
+    low = ratio - sigma
+    if low >= 0.975:
+        return 4_800, True
+    if low >= 0.96:
+        return 7_200, True
+    return 7_200, False
+
+
+#: Set from the ``non_exceptional`` sizing pilot by :func:`sizing_reading`
+#: (``tests/unit/test_learned_rule_ep_design.py`` recomputes both from the committed pilot).
+#: The pilot ratio is 0.970 over 2,000 draws, one pilot SE is 0.017, and 0.953 lies below 0.96:
+#: R = 7,200, and the ``T49`` rows stay experimental whatever the run shows, because the
+#: calibration cells are not powered at the measured SE deficit (plan 5.5).
+CALIBRATION_REPLICATES = 7_200
+T49_ADMITTED = False
 CONTROL_N = PRIMARY_N
 CONTROL_REPLICATES = 500
 DIAGNOSTIC_N = 1_000

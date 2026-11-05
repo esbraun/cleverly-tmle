@@ -1,4 +1,4 @@
-"""Registered evidence for the learned-rule value with the EP rule learner (P1 part (c)).
+"""Declared evidence for the learned-rule value with the EP rule learner (P1 part (c)).
 
 The subject is ``TMLE(learned_rule=LearnedRule(loss="ep", modifiers=Modifiers(["W1", "W2"],
 domains={"W1": (-1, 1)}, levels={"W2": (0, 1)})), n_folds=10, cv_evaluation=True,
@@ -46,8 +46,8 @@ PRIMARY_N = 2_000
 #: study declares, whose sample seeds meet no other learned-rule study's and no pilot seed, whose
 #: fold seeds meet no pilot seed, and whose property labels need no rule-L3 retry; checked on
 #: the seeds alone (``tests/unit/test_learned_rule_ep_design.py``).
-SEED = 20261231
-RESAMPLING_SEED = 20261232
+SEED = 20261481
+RESAMPLING_SEED = 20261482
 
 SCENARIOS = dict.fromkeys(law.LAWS, (law.ESTIMAND,))
 
@@ -92,7 +92,7 @@ STUDY = StudyRecord(
     slug="learned-rule-ep",
     artifacts=ROOT / "tests" / "canonical" / "learned_rule_ep",
     document="docs/technical-reference/point-treatment-tmle.md",
-    anchor="the-ep-rule-learner",
+    anchor="learned-rules",
     scenarios=SCENARIOS,
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

@@ -85,18 +85,18 @@ def captured_rules() -> Iterator[list[Any]]:
         rules.append(fitted)
         return fitted
 
-    def replay(result: Any, learner: Any, fold: int, *, source: str = "training") -> Any:
+    def replay(result: Any, learner: Any, fold: int, *, source: Any = "training") -> Any:
         if source == "training":
             return rules[fold].treat
         return fold_rule(result, learner, fold, source=source)
 
-    _rule_learners.fit_fold_rule = recording  # type: ignore[assignment]
-    base.fold_rule = replay  # type: ignore[assignment]
+    _rule_learners.fit_fold_rule = recording
+    base.fold_rule = replay
     try:
         yield rules
     finally:
-        _rule_learners.fit_fold_rule = fit_fold_rule  # type: ignore[assignment]
-        base.fold_rule = fold_rule  # type: ignore[assignment]
+        _rule_learners.fit_fold_rule = fit_fold_rule
+        base.fold_rule = fold_rule
 
 
 def one(task: tuple[str, int]) -> dict[str, Any]:
@@ -148,7 +148,9 @@ def summarize(raw: Path) -> pd.DataFrame:
         error = frame["estimate"] - frame["truth"]
         low = frame["estimate"] - 1.959963984540054 * frame["std_error"]
         high = frame["estimate"] + 1.959963984540054 * frame["std_error"]
-        sizes = np.concatenate([np.asarray(s, dtype=int) for s in frame["sizes"]] or [[]])
+        sizes = np.concatenate(
+            [np.asarray(s, dtype=int) for s in frame["sizes"]] or [np.empty(0, dtype=int)]
+        )
         row = {
             "cell": cell,
             "n": CELLS[cell][2],
