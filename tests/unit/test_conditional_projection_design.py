@@ -211,8 +211,8 @@ def test_the_family_wise_rate_at_calibration(numbers: dict) -> None:
 def test_the_family_wise_rate_at_the_piloted_ratios(numbers: dict) -> None:
     """Re-review RB3: the pass probabilities at the pilot's SE ratios, read two ways.
 
-    Plugged in row by row, the pilot's noise (SD about 0.015 per GLM row at 2,400, about 0.05
-    per ensemble row at 240) counts as miscalibration.  The rows of each learner spread no
+    Plugged in row by row, the pilot's noise (SD about 0.015 per GLM row at 2,400, about 0.023
+    per ensemble row at 960) counts as miscalibration.  The rows of each learner spread no
     more than that noise (Cochran's Q), so the pooled reading shrinks each row to its
     learner's common ratio.  Both numbers are recorded here; the declaration is unchanged.
     """
@@ -223,10 +223,11 @@ def test_the_family_wise_rate_at_the_piloted_ratios(numbers: dict) -> None:
         assert test["p_value"] > 0.5 and test["tau2"] == 0.0, learner
     assert numbers["pilot_homogeneity"]["spline"]["common_ratio"] == pytest.approx(1.0017, abs=1e-4)
     assert numbers["pilot_homogeneity"]["ensemble"]["common_ratio"] == pytest.approx(
-        1.0133, abs=1e-4
+        1.0120, abs=1e-4
     )
-    assert numbers["calibration_family_pilot"] == pytest.approx(0.242, abs=1e-3)
-    assert numbers["calibration_family_pooled"] == pytest.approx(0.949, abs=1e-3)
+    assert numbers["calibration_family_pilot"] == pytest.approx(0.779, abs=1e-3)
+    assert numbers["calibration_family_pooled"] == pytest.approx(0.962, abs=1e-3)
+    assert numbers["calibration_family_pooled"] >= 0.95
 
 
 def test_the_pilot_covers_every_calibration_row_on_its_own_stream() -> None:

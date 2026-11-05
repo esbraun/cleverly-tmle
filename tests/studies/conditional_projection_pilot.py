@@ -14,7 +14,7 @@ written by::
 
     OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \\
     NUMEXPR_NUM_THREADS=1 python -m tests.studies.conditional_projection_pilot \\
-        --raw <scratch dir> --jobs 4 [--groups ...] [--replicates R] [--summarize]
+        --raw <scratch dir> --jobs 4 [--groups ...] [--replicates R] [--start S] [--summarize]
 
 Each group's replicate records go to ``<scratch dir>/<label>.json``; ``--summarize`` reads
 every record there and writes the CSV.
@@ -43,7 +43,7 @@ STREAM = "se_ratio_pilot"
 
 #: Replications of each GLM calibration group, and of the ensemble group.
 REPLICATES = 2_400
-ENSEMBLE_REPLICATES = 240
+ENSEMBLE_REPLICATES = 960
 
 #: Bootstrap resamples of each ratio's standard error.
 BOOTSTRAP = 400
@@ -99,8 +99,15 @@ def _one(key: tuple[str, int]) -> dict[str, Any]:
     return record
 
 
-def run(labels: tuple[str, ...], raw: Path, *, jobs: int, replicates: int | None) -> None:
-    """Fit each group's pilot and write its records to ``raw/<label>.json``."""
+def run(
+    labels: tuple[str, ...], raw: Path, *, jobs: int, replicates: int | None, start: int = 0
+) -> None:
+    """Fit replicates ``start`` to ``start + R - 1`` of each group's pilot.
+
+    The records go to ``raw/<label>.json``.  With ``start > 0`` they are appended to the
+    records already there, which must be exactly replicates ``0`` to ``start - 1``, so an
+    extension continues the stream without overlapping it.
+    """
     raw.mkdir(parents=True, exist_ok=True)
     with Pool(jobs) as pool:
         for label in labels:
@@ -109,10 +116,14 @@ def run(labels: tuple[str, ...], raw: Path, *, jobs: int, replicates: int | None
                 if study.GROUP_BY_LABEL[label].learner == "ensemble"
                 else REPLICATES
             )
-            records = pool.map(_one, [(label, r) for r in range(size)], chunksize=4)
-            (raw / f"{label}.json").write_text(json.dumps(records))
+            path = raw / f"{label}.json"
+            earlier = json.loads(path.read_text()) if start else []
+            if [record["replicate"] for record in earlier] != list(range(start)):
+                raise RuntimeError(f"{path} does not hold exactly replicates 0 to {start - 1}")
+            records = pool.map(_one, [(label, r) for r in range(start, start + size)], chunksize=4)
+            path.write_text(json.dumps(earlier + records))
             failed = sum("error" in record for record in records)
-            print(f"{label}: {size} replicates, {failed} failed", flush=True)
+            print(f"{label}: replicates {start} to {start + size - 1}, {failed} failed", flush=True)
 
 
 def summarize(raw: Path) -> pd.DataFrame:
@@ -161,11 +172,18 @@ def main() -> None:
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
     parser.add_argument("--groups", nargs="*", default=None)
     parser.add_argument("--replicates", type=int, default=None)
+    parser.add_argument("--start", type=int, default=0)
     parser.add_argument("--summarize", action="store_true")
     arguments = parser.parse_args()
     if not arguments.summarize:
         labels = tuple(arguments.groups) if arguments.groups else pilot_groups()
-        run(labels, arguments.raw, jobs=arguments.jobs, replicates=arguments.replicates)
+        run(
+            labels,
+            arguments.raw,
+            jobs=arguments.jobs,
+            replicates=arguments.replicates,
+            start=arguments.start,
+        )
     else:
         summarize(arguments.raw).to_csv(PILOT_CSV, index=False, float_format="%.6g")
         print(f"wrote {PILOT_CSV}", flush=True)

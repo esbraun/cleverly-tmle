@@ -248,12 +248,12 @@ from the laws by quadrature. The EP cell of the plan moves to the part (b) study
 
 The calibration rows' pass probabilities are read at SE ratios from a pilot on its own seed
 stream, committed as `tests/studies/conditional_projection_pilot.csv`: 2,400 fits of each GLM
-group and 240 of `weighted_sl_2k`. At a calibrated SE the family of 33 rows passes with
+group and 960 of `weighted_sl_2k`. At a calibrated SE the family of 33 rows passes with
 probability 0.996. The piloted ratios of each learner spread no more than their noise
-(Cochran's $Q$, $p = 0.79$ for the GLM rows and 0.71 for the ensemble rows), around common
-ratios of 1.002 and 1.013. At those common ratios the family passes with probability 0.949.
+(Cochran's $Q$, $p = 0.79$ for the GLM rows and 0.86 for the ensemble rows), around common
+ratios of 1.002 and 1.012. At those common ratios the family passes with probability 0.962.
 Read row by row, the pilot's own noise counts as miscalibration and the family rate falls to
-0.24, mostly from the three ensemble rows. The pilot also gives the row-level SE ratios on
+0.78, mostly from the three ensemble rows. The pilot also gives the row-level SE ratios on
 `clustered_4k`: 0.78 and 0.77 for the intercept and `W1`, and 0.97 for `W3`.
 
 The fast-tier instruments are:
