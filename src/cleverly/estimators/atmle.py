@@ -1740,11 +1740,15 @@ def _select(
     effect = select_working_model(phi, a - values.g, response_a, 1, inner)
     psi = dictionary.psi(data.w[rows], a)
     multiplier_s = s - values.source_at(a)
+    # Only the constant of the bias model is unpenalized, as the intercept of the paper's
+    # lasso (Algorithm 1). The arm column A is penalized like every other column: forced in,
+    # it gives the external arms free mean shifts, so they carry no information on the
+    # effect's level and the fit's efficiency bound is the trial-only one.
     bias = select_working_model(
         psi[bias_rows],
         multiplier_s[bias_rows],
         response_s[bias_rows],
-        1 if controls_only else 2,
+        1,
         inner[bias_rows],
     )
     return dictionary, effect, bias

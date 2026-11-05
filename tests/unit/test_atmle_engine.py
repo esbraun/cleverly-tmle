@@ -519,8 +519,10 @@ def test_no_validation_row_reaches_its_folds_nuisance_or_selection_fits(
     # the fold and without the row's own fold.
     y, a, s = data["outcome"], data["treatment"], data["source"]
     assert len(SELECTIONS) == 2 * folds
-    for call in SELECTIONS:
-        effect = call["k"] == 1
+    for index, call in enumerate(SELECTIONS):
+        # Each fold selects its effect model, then its bias model.
+        effect = index % 2 == 0
+        assert call["k"] == 1
         ids = call["basis"][:, 1 if effect else 2].astype(int)
         (v,) = [v for v in range(folds) if set(ids.tolist()) == set(range(n)) - fold_rows[v]]
         for position, row in enumerate(ids):
@@ -615,6 +617,37 @@ def _fit(data: dict[str, np.ndarray], **options: Any) -> atmle.AdaptiveTMLEFit:
         g_bounds=BOUNDS,
         **options,
     )
+
+
+def _shifted_draw(seed: int, n: int, shift: tuple[float, float]) -> dict[str, np.ndarray]:
+    """A trial with external rows in both arms whose outcomes are shifted by ``shift[a]``."""
+    rng = np.random.default_rng(seed)
+    w = rng.normal(size=(n, 2))
+    s = rng.binomial(1, 0.3, n).astype(float)
+    external = rng.binomial(1, 1.0 / (1.0 + np.exp(-0.5 * w[:, 0])), n)
+    a = np.where(s == 1, rng.binomial(1, 0.5, n), external).astype(float)
+    bias = np.where(a == 1.0, shift[1], shift[0])
+    y = 1 + w[:, 0] + 0.5 * w[:, 1] + 1.5 * a + (1 - s) * bias + rng.normal(size=n)
+    return {"outcome": y, "treatment": a, "source": s, "covariates": w}
+
+
+def test_the_bias_model_penalizes_the_arm_column_so_compatible_arms_add_information() -> None:
+    """Only the bias model's constant is unpenalized (Algorithm 1's lasso intercept).
+
+    A shift common to both external arms leaves their contrast informative: the lasso drops
+    ``A`` and the standard error falls well below the trial-only bound
+    ``sqrt(4 / n_trial)`` (unit noise, randomization 1/2). Forcing ``A`` in gives the arms
+    free shifts and returns that bound (0.081 on this draw against 0.045). An arm-specific
+    shift is still found: ``A`` is selected on every fold.
+    """
+    common = _shifted_draw(0, 2_000, (0.5, 0.5))
+    fit = _fit(common)
+    bound = float(np.sqrt(4.0 / common["source"].sum()))
+    assert all("A" not in model.bias_columns for model in fit.working_models)
+    assert fit.std_error < 0.7 * bound
+    arm = _fit(_shifted_draw(0, 2_000, (0.0, 3.0)))
+    assert all("A" in model.bias_columns for model in arm.working_models)
+    assert arm.std_error > 0.9 * bound
 
 
 FITS = [
