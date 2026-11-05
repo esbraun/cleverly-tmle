@@ -24,24 +24,27 @@ from cleverly.bases import Linear, Modifiers
 from . import Case
 from ._check_fidelity import close, header_values, text_tables
 
-__all__ = ["FIXTURES", "read_effect_curve", "read_score_assessment"]
+__all__ = ["FIXTURES", "curve_checks", "read_effect_curve", "read_score_assessment"]
 
 _GRID = {"age": [30.0, 50.0, 70.0]}
 
 
-@functools.cache
-def _effect(scale: str) -> Any:
+def _frame() -> pd.DataFrame:
     rng = np.random.default_rng(11)
     n = 300
     age = rng.uniform(18, 90, n)
     w2 = rng.normal(size=n)
     a = rng.binomial(1, expit(0.3 * w2))
     y = rng.binomial(1, expit(-0.5 + 0.4 * w2 + a * (age - 50) / 40))
-    frame = pd.DataFrame(
+    return pd.DataFrame(
         {"Y": y, "A": a, "age": age, "W2": w2, "score": 0.01 * (age - 50) + 0.05 * w2}
     )
+
+
+@functools.cache
+def _effect(scale: str) -> Any:
     study = CausalStudy(
-        frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("age", "W2"))
+        _frame(), design=PointTreatment(outcome="Y", treatment="A", adjustment=("age", "W2"))
     )
     return study.identify(
         ConditionalContrast(
@@ -106,6 +109,32 @@ def score_log_ratio() -> Any:
         return _effect("log_ratio").assess_score(
             "score", computed_from=["age", "W2"], score_kind="external", **_learners()
         )
+
+
+@functools.cache
+def curve_checks() -> dict[str, Any]:
+    """The held-out checks of a curve over two modifiers, by class name.
+
+    They print a one-line repr and convert with ``to_frame``; they have no summary, so the
+    coverage test builds them here from the curve that holds them.
+    """
+    study = CausalStudy(
+        _frame(),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("age", "W2")),
+    )
+    two = study.identify(
+        ConditionalContrast(
+            Modifiers(["age", "W2"], domains={"age": (18, 90)}), model=Linear(["age", "W2"])
+        )
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        checks = two.estimate(**_learners()).effect_curve().diagnostics
+        return {
+            "CurveCalibration": checks.calibration(n_folds=2, random_state=0),
+            "CurveRiskComparison": checks.risk_comparison(n_folds=2, random_state=0),
+            "ModifierStability": checks.modifier_stability(n_folds=2, random_state=0),
+        }
 
 
 def _table(text: str, title: str) -> tuple[list[str], list[list[str]]]:

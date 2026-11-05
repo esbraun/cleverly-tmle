@@ -88,6 +88,7 @@ from .validation.score import DEFAULT_TOLERANCE
 
 __all__ = [
     "ASSESSMENT_CAPABILITIES",
+    "CURVE_OPERATIONS",
     "LONGITUDINAL_CENSORING_NOT_FITTED",
     "LONGITUDINAL_CONSTANT_TARGET",
     "LONGITUDINAL_CONSTANT_TARGET_IN_FOLD",
@@ -318,6 +319,7 @@ _FAMILY_METHODS: dict[str, tuple[str, ...]] = {
     "point": ("tmle", "collaborative_tmle", "drtmle"),
     "longitudinal": ("tmle", "sdr", "ipsi", "gcomp", "ipw", "parametric_gformula"),
     "structural": ("snmm",),
+    "effect_modification": ("tmle", "ep"),
 }
 
 
@@ -353,6 +355,28 @@ def _capability(
         requires_arguments=tuple(requires_arguments),
         accepts_random_state=accepts_random_state,
         requires_replay=requires_replay,
+    )
+
+
+def projection_sensitivity_refusal(operation: str) -> Refusal:
+    """R9 of the P1 plan: a sensitivity analysis or refutation of a projection coefficient.
+
+    Parameters
+    ----------
+    operation : str
+        The refused operation.
+
+    Returns
+    -------
+    Refusal
+        An ``IMPLEMENTATION_GAP`` record with roadmap ``P1``.
+    """
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"{operation} is defined for a mean or a contrast of means, and a working-model "
+        "coefficient of a conditional contrast has no derivation of it.",
+        alternative="Run it on ATE() or RiskRatio() on the same study.",
+        roadmap="P1",
     )
 
 
@@ -579,7 +603,93 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
             "bootstrap resampling of the panel"
         ),
     ),
+    # An effect curve (P1 plan 3.5).  It shares the six operations of every family, read off
+    # the producing fit, and declares four of its own, which only a curve has.
+    _capability(
+        "support",
+        "effect_modification",
+        artifacts=("the producing fit's mechanism",),
+        interpretation="overlap of the producing fit's mechanism, as the point support report",
+    ),
+    _capability(
+        "nuisance_models",
+        "effect_modification",
+        artifacts=("the producing fit's out-of-fold nuisance predictions",),
+        interpretation="the producing fit's held-out nuisance fit",
+    ),
+    _capability(
+        "score_equations",
+        "effect_modification",
+        artifacts=("the producing fit's targeting state", "influence curves"),
+        interpretation="the projection's score equations, as the producing fit solved them",
+    ),
+    _capability(
+        "corrections",
+        "effect_modification",
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.NOT_APPLICABLE,
+        refusal=Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "a projection curve is fitted by TMLE, which solves no doubly-robust correction "
+            "equations.",
+        ),
+        interpretation="the correction identities solved by guarded doubly-robust targeting",
+    ),
+    _capability(
+        "truncation_curve",
+        "effect_modification",
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.UNAVAILABLE,
+        refusal=Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "truncation_curve retargets one arm-indexed parameter at each bound, and no "
+            "retargeting of a projection's coefficients across bounds is built.",
+            alternative="Refit the projection at the bounds you want to compare, with g_bounds=.",
+            roadmap="P1",
+        ),
+        interpretation="estimate stability across declared mechanism bounds",
+    ),
+    _capability(
+        "refute",
+        "effect_modification",
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.UNAVAILABLE,
+        refusal=projection_sensitivity_refusal("refute"),
+        interpretation="behavior under placebo, noise, and subsampling perturbations",
+    ),
+    *(
+        _capability(
+            operation,
+            "effect_modification",
+            artifacts=("the producing estimator", "analysis data", "out-of-fold refits"),
+            execution="refit",
+            deterministic=True,
+            cost="expensive",
+            accepts_random_state=True,
+            interpretation=interpretation,
+        )
+        for operation, interpretation in (
+            (
+                "calibration",
+                "out-of-fold calibration slope and binned table against the doubly robust "
+                "pseudo-outcome; point readings",
+            ),
+            (
+                "risk_comparison",
+                "out-of-fold doubly robust risk against the constant, the T-learner and the "
+                "DR-learner; point readings",
+            ),
+            ("stability", "spread of the curve across split seeds and the alternative basis"),
+            ("modifier_stability", "change in out-of-fold risk without each modifier"),
+        )
+    ),
 )
+
+#: The operations only an effect curve declares.
+CURVE_OPERATIONS = ("calibration", "risk_comparison", "stability", "modifier_stability")
 
 
 @dataclass(frozen=True)
@@ -669,28 +779,6 @@ def _method(result: Any) -> str:
     if isinstance(declared, str) and declared:
         return declared
     raise TypeError("assessment requires the fitted artifact to declare its fitted method")
-
-
-def projection_sensitivity_refusal(operation: str) -> Refusal:
-    """R9 of the P1 plan: a sensitivity analysis or refutation of a projection coefficient.
-
-    Parameters
-    ----------
-    operation : str
-        The refused operation.
-
-    Returns
-    -------
-    Refusal
-        An ``IMPLEMENTATION_GAP`` record with roadmap ``P1``.
-    """
-    return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        f"{operation} is defined for a mean or a contrast of means, and a working-model "
-        "coefficient of a conditional contrast has no derivation of it.",
-        alternative="Run it on ATE() or RiskRatio() on the same study.",
-        roadmap="P1",
-    )
 
 
 def _is_projection(result: Any) -> bool:

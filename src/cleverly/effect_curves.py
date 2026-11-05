@@ -17,7 +17,7 @@ estimated by one-step estimators from the cross-fitted nuisances of an ATE fit.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
 from scipy.special import expit
@@ -30,6 +30,9 @@ from .inference.influence import ParameterEstimate, make_estimate
 from .inference.multiplier import MultiplierKind, multiplier_critical_value
 from .inference.results import estimate_covariance
 from .utils.frames import as_frame, backend_of, frame_from_dict, is_dataframe
+
+if TYPE_CHECKING:
+    from ._curve_assessment import CurveDiagnostics
 
 __all__ = [
     "CurveBand",
@@ -390,6 +393,17 @@ class EffectCurveResult:
     fitted_method: ClassVar[str] = "tmle"
     #: The assessment family whose capability rows a curve reads.
     assessment_family: ClassVar[str] = "effect_modification"
+
+    @property
+    def diagnostics(self) -> CurveDiagnostics:
+        """The curve's assessment: support, out-of-fold calibration, risk and stability.
+
+        Each refit reruns the producing estimator, so these need the fit this curve came
+        from; a loaded curve keeps none.  ``diagnostics.capabilities`` lists the rows.
+        """
+        from ._curve_assessment import CurveDiagnostics
+
+        return CurveDiagnostics(self)
 
     @property
     def prediction_column(self) -> str:

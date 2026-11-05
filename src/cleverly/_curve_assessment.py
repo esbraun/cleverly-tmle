@@ -1,0 +1,624 @@
+"""The assessment of a fitted effect curve: out-of-fold calibration, risk and stability.
+
+:attr:`cleverly.effect_curves.EffectCurveResult.diagnostics` routes here.  Every reading is a
+point reading with no interval (P1 plan 1.3 and 3.5): the out-of-fold refits of the producing
+procedure are compared with the doubly robust pseudo-outcome :math:`\\tilde D` that the
+producing fit's own cross-fitted nuisances give on the held-out rows, which never saw them.
+
+- :meth:`CurveDiagnostics.calibration`: the least-squares fit of :math:`\\tilde D` on
+  ``(1, prediction)`` over the held-out predictions, and the mean prediction against the mean
+  :math:`\\tilde D` within quantile bins of the predictions.  On the log-ratio scale the fit
+  minimises the one-step log-ratio loss instead.
+- :meth:`CurveDiagnostics.risk_comparison`: the out-of-fold doubly robust risk of the curve
+  against the constant (the average effect), the T-learner (the projection of the outcome
+  regressions' contrast) and, for a difference, the DR-learner (the regression of
+  :math:`\\tilde D` on the same basis).
+- :meth:`CurveDiagnostics.stability`: refits under other split seeds and, for a cosine or
+  B-spline basis, under the other family at a matched size.
+- :meth:`CurveDiagnostics.modifier_stability`: refits without each modifier, and the change
+  in the out-of-fold risk.
+"""
+
+from __future__ import annotations
+
+import copy
+from dataclasses import dataclass, field, replace
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from ._typing import FloatArray, IntArray
+from .exceptions import CapabilityError, RefusalReason
+
+__all__ = [
+    "STABILITY_WARNING",
+    "CurveCalibration",
+    "CurveDiagnostics",
+    "CurveRiskComparison",
+    "CurveStability",
+    "ModifierStability",
+]
+
+#: The across-refit SD of the predictions, relative to the curve's own spread, above which
+#: :meth:`CurveDiagnostics.stability` warns (P1 plan 3.5 and 5.4).
+STABILITY_WARNING = 0.5
+
+
+def _readable(text: str) -> str:
+    return text if len(text) <= 100 else text[:97] + "..."
+
+
+@dataclass(frozen=True)
+class CurveCalibration:
+    """The out-of-fold calibration of a curve against the doubly robust pseudo-outcome.
+
+    Parameters
+    ----------
+    scale : str
+        The contrast's scale.
+    intercept : float
+        The calibration intercept; 0 for a calibrated curve.
+    slope : float
+        The calibration slope; 1 for a calibrated curve.
+    bins : pandas.DataFrame
+        Per quantile bin of the predictions: ``mean_prediction``, the bin's contrast of the
+        mean pseudo-outcomes (``pseudo_outcome_contrast``, a difference or a log ratio) and
+        ``rows``.  Descriptive.
+    n_folds : int
+        Outer folds of the refits.
+    random_state : int
+        The seed of the fold assignment and of each refit.
+    """
+
+    scale: str
+    intercept: float
+    slope: float
+    bins: pd.DataFrame = field(compare=False)
+    n_folds: int
+    random_state: int
+
+    def to_frame(self) -> pd.DataFrame:
+        """The binned table.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One row per bin.
+        """
+        return self.bins.copy()
+
+    def __repr__(self) -> str:
+        return _readable(
+            f"CurveCalibration(slope={self.slope:.3g}, intercept={self.intercept:.3g}, "
+            f"folds={self.n_folds}, point readings)"
+        )
+
+
+@dataclass(frozen=True)
+class CurveRiskComparison:
+    """The out-of-fold doubly robust risk of the curve and of its comparators.
+
+    Parameters
+    ----------
+    scale : str
+        The contrast's scale.
+    risks : Mapping of str to float
+        The risk of ``curve``, ``constant``, ``t_learner`` and, for a difference,
+        ``dr_learner``.  Lower is better; only differences between them are meaningful.
+    omitted : str
+        Why a comparator is absent, or the empty string.
+    n_folds : int
+        Outer folds of the refits.
+    random_state : int
+        The seed of the fold assignment and of each refit.
+    """
+
+    scale: str
+    risks: dict[str, float] = field(compare=False)
+    omitted: str
+    n_folds: int
+    random_state: int
+
+    def to_frame(self) -> pd.DataFrame:
+        """The risks, and each one's difference from the curve's.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One row per learner.
+        """
+        curve = self.risks["curve"]
+        return pd.DataFrame(
+            {
+                "learner": list(self.risks),
+                "risk": list(self.risks.values()),
+                "minus_curve": [value - curve for value in self.risks.values()],
+            }
+        )
+
+    def __repr__(self) -> str:
+        parts = ", ".join(f"{name}={value:.3g}" for name, value in self.risks.items())
+        return _readable(f"CurveRiskComparison({parts})")
+
+
+@dataclass(frozen=True)
+class CurveStability:
+    """The spread of the curve's predictions across refits.
+
+    Parameters
+    ----------
+    relative_sd : float
+        The mean across rows of the across-refit SD of the predictions, over the SD of the
+        curve's own in-sample predictions.
+    warning : bool
+        Whether ``relative_sd`` exceeds :data:`STABILITY_WARNING`.
+    seeds : tuple of int
+        The split seeds of the refits.
+    alternative : str
+        The alternative basis refitted at a matched size, or why there is none.
+    alternative_relative_sd : float or None
+        The same ratio for the alternative basis against the declared curve.
+    """
+
+    relative_sd: float
+    warning: bool
+    seeds: tuple[int, ...]
+    alternative: str
+    alternative_relative_sd: float | None
+
+    def __repr__(self) -> str:
+        return _readable(
+            f"CurveStability(relative_sd={self.relative_sd:.3g}, warning={self.warning}, "
+            f"refits={len(self.seeds)})"
+        )
+
+
+@dataclass(frozen=True)
+class ModifierStability:
+    """The change in out-of-fold risk when each modifier is dropped from the basis.
+
+    Parameters
+    ----------
+    risks : Mapping of str to float
+        The out-of-fold risk of the curve refitted without each modifier, keyed by it, and
+        of the declared curve under ``"(none)"``.
+    random_state : int
+        The seed of the fold assignment and of each refit.
+    """
+
+    risks: dict[str, float] = field(compare=False)
+    random_state: int
+
+    def to_frame(self) -> pd.DataFrame:
+        """The risk without each modifier, and its change from the declared curve's.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One row per dropped modifier.
+        """
+        full = self.risks["(none)"]
+        names = [name for name in self.risks if name != "(none)"]
+        return pd.DataFrame(
+            {
+                "dropped": names,
+                "risk": [self.risks[name] for name in names],
+                "change": [self.risks[name] - full for name in names],
+            }
+        )
+
+    def __repr__(self) -> str:
+        return _readable(
+            f"ModifierStability(modifiers={len(self.risks) - 1}, "
+            f"declared_risk={self.risks['(none)']:.3g})"
+        )
+
+
+def _refuse(text: str, alternative: str) -> CapabilityError:
+    return CapabilityError(text, reason=RefusalReason.INVALID_DECLARATION, alternative=alternative)
+
+
+class CurveDiagnostics:
+    """The assessment surface of an :class:`~cleverly.effect_curves.EffectCurveResult`.
+
+    Parameters
+    ----------
+    curve : EffectCurveResult
+        A curve fitted by :meth:`cleverly.estimators.TMLEResult.effect_curve`.
+    """
+
+    def __init__(self, curve: Any) -> None:
+        self.curve = curve
+
+    @property
+    def capabilities(self) -> tuple[Any, ...]:
+        """The declared assessment rows of the curve's family."""
+        from .assessment import assessment_capabilities
+
+        return assessment_capabilities(self.curve)
+
+    def capability(self, operation: str) -> Any:
+        """The declared row of one operation.
+
+        Parameters
+        ----------
+        operation : str
+            The operation's name.
+
+        Returns
+        -------
+        AssessmentCapability
+            Its row.
+        """
+        for row in self.capabilities:
+            if row.operation == operation:
+                return row
+        raise KeyError(operation)
+
+    # ------------------------------------------------------------ the producing fit
+
+    def _fit(self) -> Any:
+        fit = self.curve.fit
+        if fit is None or getattr(fit, "estimator", None) is None:
+            raise _refuse(
+                "this curve keeps no producing fit and estimator, so nothing can be refitted "
+                "or read",
+                "Assess the curve in the session that fitted it, before it is saved.",
+            )
+        return fit
+
+    def support(self) -> Any:
+        """The overlap of the producing fit's mechanism, as the point support report reads it.
+
+        Returns
+        -------
+        PositivityReport
+            The producing fit's support report.
+        """
+        return self._fit().diagnostics.support()
+
+    def nuisance_models(self) -> Any:
+        """The producing fit's held-out nuisance diagnostics.
+
+        Returns
+        -------
+        NuisanceDiagnostics
+            The producing fit's report.
+        """
+        return self._fit().diagnostics.nuisance_models()
+
+    def score_equations(self) -> Any:
+        """The score equations the projection's targeting solved.
+
+        Returns
+        -------
+        ScoreVerdict
+            The producing fit's report.
+        """
+        return self._fit().diagnostics.score_equations()
+
+    # ---------------------------------------------------------------- refits
+
+    def _pieces(self) -> tuple[Any, Any, Any, tuple[FloatArray, ...]]:
+        from .effect_curves import _pseudo_outcomes
+
+        fit = self._fit()
+        data = fit.data
+        spec = fit.nuisance.effect_modification
+        pseudo = _pseudo_outcomes(
+            fit.nuisance,
+            data,
+            spec.pair,
+            g_bounds=tuple(fit.config.g_bounds),
+            missingness_bound=float(fit.config.missingness_bound),
+        )
+        return fit, data, spec, pseudo
+
+    def _frame(self, data: Any) -> pd.DataFrame:
+        return pd.DataFrame(np.asarray(data.covariates, dtype=float), columns=data.covariate_names)
+
+    def _folds(self, data: Any, n_folds: int, seed: int) -> IntArray:
+        units = np.arange(data.n) if data.cluster is None else np.asarray(data.cluster)
+        labels, inverse = np.unique(units, return_inverse=True)
+        if len(labels) < n_folds:
+            raise _refuse(
+                f"{len(labels)} independent units cannot fill {n_folds} folds",
+                "Pass a smaller n_folds.",
+            )
+        order = np.random.default_rng(seed).permutation(len(labels))
+        assignment = np.empty(len(labels), dtype=np.int64)
+        assignment[order] = np.arange(len(labels)) % n_folds
+        return assignment[inverse]
+
+    def _estimator(self, fit: Any, basis: Any = None) -> Any:
+        estimator = fit.estimator
+        if basis is None:
+            return estimator
+        rebuilt = copy.copy(estimator)
+        rebuilt.effect_modification = replace(estimator.effect_modification, basis=basis)
+        return rebuilt
+
+    def _out_of_fold(
+        self, n_folds: int, seed: int, basis: Any = None
+    ) -> tuple[FloatArray, IntArray]:
+        fit, data, _, _ = self._pieces()
+        folds = self._folds(data, n_folds, seed)
+        frame = self._frame(data)
+        estimator = self._estimator(fit, basis)
+        predictions = np.empty(data.n)
+        for k in range(n_folds):
+            test = folds == k
+            refit = estimator.refit(data.subset(np.flatnonzero(~test)), random_state=seed + k)
+            predictions[test] = refit.effect_curve().predict(frame.loc[test])
+        return predictions, folds
+
+    @staticmethod
+    def _seed(random_state: int | None) -> int:
+        return 0 if random_state is None else int(random_state)
+
+    def _risk(self, values: FloatArray, scale: str, pseudo: tuple[FloatArray, ...]) -> float:
+        _, _, d_t, d_r = pseudo
+        if scale == "difference":
+            return float(np.mean(values**2 - 2.0 * values * (d_t - d_r)))
+        return float(np.mean((d_t + d_r) * np.logaddexp(0.0, values) - d_t * values))
+
+    def calibration(
+        self, *, n_folds: int = 5, bins: int = 5, random_state: int | None = None
+    ) -> CurveCalibration:
+        """The out-of-fold calibration of the curve against the pseudo-outcome.
+
+        Parameters
+        ----------
+        n_folds : int
+            Outer folds of the refits.
+        bins : int
+            Quantile bins of the out-of-fold predictions in the table.
+        random_state : int or None
+            Seed of the folds and the refits; ``None`` uses 0.
+
+        Returns
+        -------
+        CurveCalibration
+            The slope, the intercept and the binned table, all point readings.
+        """
+        seed = self._seed(random_state)
+        _, _, _, pseudo = self._pieces()
+        predictions, _ = self._out_of_fold(n_folds, seed)
+        _, _, d_t, d_r = pseudo
+        design = np.column_stack([np.ones(len(predictions)), predictions])
+        difference = self.curve.scale == "difference"
+        if difference:
+            coefficients = np.linalg.lstsq(design, d_t - d_r)[0]
+        else:
+            coefficients = _log_ratio_calibration(design, d_t, d_r)
+        edges = np.unique(np.quantile(predictions, np.linspace(0.0, 1.0, bins + 1)))
+        index = np.clip(np.searchsorted(edges, predictions, side="right") - 1, 0, len(edges) - 2)
+        table = pd.DataFrame({"bin": index, "prediction": predictions, "t": d_t, "r": d_r})
+        grouped = table.groupby("bin")
+        means = grouped[["prediction", "t", "r"]].mean()
+        # The bin's contrast of the mean pseudo-outcomes: their difference, or the log of
+        # their ratio, which is the one-step estimate of the bin's log ratio.
+        observed = means["t"] - means["r"] if difference else np.log(means["t"] / means["r"])
+        frame = pd.DataFrame(
+            {
+                "mean_prediction": means["prediction"],
+                "pseudo_outcome_contrast": observed,
+                "rows": grouped.size(),
+            }
+        ).reset_index(drop=True)
+        return CurveCalibration(
+            scale=self.curve.scale,
+            intercept=float(coefficients[0]),
+            slope=float(coefficients[1]),
+            bins=frame,
+            n_folds=n_folds,
+            random_state=seed,
+        )
+
+    def risk_comparison(
+        self, *, n_folds: int = 5, random_state: int | None = None
+    ) -> CurveRiskComparison:
+        """The out-of-fold doubly robust risk of the curve and of three comparators.
+
+        Parameters
+        ----------
+        n_folds : int
+            Outer folds of the refits.
+        random_state : int or None
+            Seed of the folds and the refits; ``None`` uses 0.
+
+        Returns
+        -------
+        CurveRiskComparison
+            The risks, as point readings.
+        """
+        seed = self._seed(random_state)
+        _, data, _, pseudo = self._pieces()
+        q_t, q_r, d_t, d_r = pseudo
+        predictions, folds = self._out_of_fold(n_folds, seed)
+        phi = np.asarray(self.curve.model.design(self._frame(data)), dtype=float)
+        scale = self.curve.scale
+        constant = np.empty(data.n)
+        t_learner = np.empty(data.n)
+        dr_learner = np.empty(data.n)
+        for k in range(n_folds):
+            test, train = folds == k, folds != k
+            if scale == "difference":
+                constant[test] = np.mean(d_t[train] - d_r[train])
+                t_coef = np.linalg.lstsq(phi[train], (q_t - q_r)[train])[0]
+                dr_coef = np.linalg.lstsq(phi[train], (d_t - d_r)[train])[0]
+                dr_learner[test] = phi[test] @ dr_coef
+            else:
+                constant[test] = np.log(np.mean(d_t[train]) / np.mean(d_r[train]))
+                t_coef = _log_ratio_calibration(phi[train], q_t[train], q_r[train])
+            t_learner[test] = phi[test] @ t_coef
+        risks = {
+            "curve": self._risk(predictions, scale, pseudo),
+            "constant": self._risk(constant, scale, pseudo),
+            "t_learner": self._risk(t_learner, scale, pseudo),
+        }
+        omitted = ""
+        if scale == "difference":
+            risks["dr_learner"] = self._risk(dr_learner, scale, pseudo)
+        else:
+            omitted = (
+                "No DR-learner is compared on the log-ratio scale: the ratio has no "
+                "pseudo-outcome whose regression estimates it (van der Laan, Carone and "
+                "Luedtke 2024, section 3.2)."
+            )
+        return CurveRiskComparison(
+            scale=scale, risks=risks, omitted=omitted, n_folds=n_folds, random_state=seed
+        )
+
+    def stability(self, *, n_seeds: int = 5, random_state: int | None = None) -> CurveStability:
+        """The spread of the in-sample curve across refits under other split seeds.
+
+        Parameters
+        ----------
+        n_seeds : int
+            Refits, each under its own split seed.
+        random_state : int or None
+            The first seed; ``None`` uses 0.
+
+        Returns
+        -------
+        CurveStability
+            The relative SD, and the alternative basis's reading where one exists.
+        """
+        seed = self._seed(random_state)
+        fit, data, _, _ = self._pieces()
+        frame = self._frame(data)
+        seeds = tuple(seed + 1 + j for j in range(n_seeds))
+        curves = np.column_stack(
+            [fit.estimator.refit(data, random_state=s).effect_curve().predict(frame) for s in seeds]
+        )
+        spread = float(np.std(self.curve.in_sample, ddof=1))
+        if spread == 0.0:
+            raise _refuse(
+                "the curve is constant on the fit rows, so its spread is zero and a relative "
+                "SD is undefined",
+                "Read the coefficients' standard errors instead.",
+            )
+        relative = float(np.mean(np.std(curves, axis=1, ddof=1)) / spread)
+        alternative, alternative_sd = self._alternative(fit, data, frame, spread, seed)
+        return CurveStability(
+            relative_sd=relative,
+            warning=relative > STABILITY_WARNING,
+            seeds=seeds,
+            alternative=alternative,
+            alternative_relative_sd=alternative_sd,
+        )
+
+    def _alternative(
+        self, fit: Any, data: Any, frame: pd.DataFrame, spread: float, seed: int
+    ) -> tuple[str, float | None]:
+        from .bases import BSpline, Cosine
+
+        basis = fit.estimator.effect_modification.basis
+        if isinstance(basis, Cosine):
+            degree = min(3, basis.size)
+            other: Any = BSpline(
+                basis.columns,
+                n_interior_knots=basis.size - degree,
+                degree=degree,
+                domains=basis.domains,
+                intercept=basis.intercept,
+            )
+        elif isinstance(basis, BSpline):
+            other = Cosine(
+                basis.columns,
+                size=basis.n_interior_knots + basis.degree,
+                domains=basis.domains,
+                intercept=basis.intercept,
+            )
+        else:
+            return (
+                f"none: a {type(basis).__name__} basis has no alternative family at a matched "
+                "size; only Cosine and BSpline do",
+                None,
+            )
+        refit = self._estimator(fit, other).refit(data, random_state=seed)
+        moved = refit.effect_curve().predict(frame) - self.curve.in_sample
+        return repr(other), float(np.sqrt(np.mean(moved**2)) / spread)
+
+    def modifier_stability(
+        self, *, n_folds: int = 5, random_state: int | None = None
+    ) -> ModifierStability:
+        """The out-of-fold risk of the curve refitted without each modifier.
+
+        Parameters
+        ----------
+        n_folds : int
+            Outer folds of the refits.
+        random_state : int or None
+            Seed of the folds and the refits; ``None`` uses 0.
+
+        Returns
+        -------
+        ModifierStability
+            The risks, as point readings.
+        """
+        seed = self._seed(random_state)
+        fit, _, _, pseudo = self._pieces()
+        basis = fit.estimator.effect_modification.basis
+        columns = tuple(getattr(basis, "columns", ()))
+        if len(columns) < 2 or not hasattr(basis, "columns"):
+            raise _refuse(
+                "the basis reads fewer than two modifiers, or does not declare them as "
+                "columns, so no modifier can be dropped from it",
+                "Declare a shipped basis of at least two modifiers, such as Linear(['V1', 'V2']).",
+            )
+        scale = self.curve.scale
+        full, _ = self._out_of_fold(n_folds, seed)
+        risks = {"(none)": self._risk(full, scale, pseudo)}
+        for name in columns:
+            kept = [column for column in columns if column != name]
+            fields: dict[str, Any] = {"columns": kept}
+            domains = getattr(basis, "domains", None)
+            if isinstance(domains, dict):
+                fields["domains"] = {key: value for key, value in domains.items() if key in kept}
+            elif isinstance(domains, tuple) and domains:
+                fields["domains"] = tuple(item for item in domains if item[0] in kept)
+            predictions, _ = self._out_of_fold(n_folds, seed, basis=replace(basis, **fields))
+            risks[name] = self._risk(predictions, scale, pseudo)
+        return ModifierStability(risks=risks, random_state=seed)
+
+
+def _log_ratio_calibration(design: FloatArray, d_t: FloatArray, d_r: FloatArray) -> FloatArray:
+    """Minimise the one-step log-ratio loss ``sum (D_t + D_r) log(1 + e^eta) - D_t eta``.
+
+    Newton steps with a step-halving line search; the pseudo-outcomes may be negative, so the
+    loss need not be convex, and the iteration stops at a stationary point.
+    """
+    total = d_t + d_r
+    beta = np.zeros(design.shape[1])
+
+    def loss(value: FloatArray) -> float:
+        eta = design @ value
+        return float(np.mean(total * np.logaddexp(0.0, eta) - d_t * eta))
+
+    current = loss(beta)
+    for _ in range(100):
+        eta = design @ beta
+        e = 1.0 / (1.0 + np.exp(-eta))
+        gradient = design.T @ (total * e - d_t) / len(eta)
+        hessian = design.T @ ((total * e * (1.0 - e))[:, None] * design) / len(eta)
+        try:
+            step = np.linalg.solve(hessian, gradient)
+        except np.linalg.LinAlgError:
+            step = gradient
+        size = 1.0
+        while size > 1e-8:
+            candidate = beta - size * step
+            value = loss(candidate)
+            if value <= current:
+                break
+            size /= 2.0
+        else:
+            break
+        beta, change = candidate, current - value
+        current = value
+        if np.max(np.abs(size * step)) < 1e-12 or change < 1e-15:
+            break
+    return beta
