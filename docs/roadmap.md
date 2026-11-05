@@ -1952,11 +1952,15 @@ Acceptance requires exact score and risk checks, bounded predictions, out-of-fol
 modifier and split/basis stability diagnostics, mutation controls for targeting sign, basis
 contribution, and contrast construction, plus registered oracle-efficiency and stability studies.
 
-The item ships in three parts.
+The item ships in three parts. Part (a) has shipped its contract: `ConditionalContrast`, the
+modifier schema in `cleverly.bases`, the projection TMLE on the difference and log-ratio scales,
+and a curve result that predicts on new rows and persists
+([conditional effects](technical-reference/conditional-effects.md)). Its fits read experimental
+until its study runs.
 
 | part | what ships |
 | --- | --- |
-| (a) | the conditional-effect contract: `ConditionalContrast` estimands, the modifier schema, a result that predicts on new rows and persists, and out-of-fold calibration in the assessment |
+| (a) | the registered run of the `conditional-projection` study and the support rows it decides, and out-of-fold calibration of a fitted curve in the assessment |
 | (b) | the EP learner for the CATE and the conditional relative risk, with its studies |
 | (c) | the EP curve as the declared rule learner of the shipped [learned-rule value](technical-reference/point-treatment-tmle.md#learned-rules), whose condition C3 then reads on the EP curve |
 

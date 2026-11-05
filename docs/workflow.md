@@ -7,8 +7,9 @@ question or an implausible identification argument, so those decisions precede l
 
 State the population, treatment strategy, outcome, time horizon, and contrast. Choose the target
 family. It can be an arm contrast, a regime mean, a treatment policy, an incremental intervention,
-an MSM projection, or a longitudinal quantity. A label such as “ATE” is insufficient when the
-reference arm or target population is ambiguous.
+an MSM projection, an [effect that changes with baseline columns](user-guide/conditional-effects.md),
+or a longitudinal quantity. A label such as “ATE” is insufficient when the reference arm or target
+population is ambiguous.
 
 Store the study context in a `StudyProtocol` when the analysis needs a durable record:
 

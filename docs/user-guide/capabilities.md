@@ -4,8 +4,8 @@
 
 The [technical implementation matrix](../technical-reference/index.md) is the authoritative
 reader-facing inventory. In brief, the package supports point and longitudinal TMLE, the sequentially doubly
-robust longitudinal estimator, arm and regimen contrasts, modified treatment policies, incremental interventions, MSM projections, controlled
-direct effects, C-TMLE, DR-TMLE, cross-fitting, influence-curve inference, sensitivity analysis,
+robust longitudinal estimator, arm and regimen contrasts, modified treatment policies, incremental interventions, MSM projections,
+[conditional effects on a declared basis](conditional-effects.md), controlled direct effects, C-TMLE, DR-TMLE, cross-fitting, influence-curve inference, sensitivity analysis,
 and post-fit diagnostics in the combinations documented there. The longitudinal
 family also includes Kennedy's incremental estimator `IPSI`. An incremental intervention takes
 one odds factor for each level of a treatment with three or more levels, at a point treatment and
