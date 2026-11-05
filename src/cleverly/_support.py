@@ -526,7 +526,9 @@ def in_sample_learned_rule_learners(estimator: Any, data: Any) -> dict[str, str]
     the family of each learner the fit uses: ``outcome_learner_family``,
     ``treatment_learner_family`` (``"known"`` when the data declare the treatment
     probabilities, which the fit then does not learn), and ``rule_learner_family`` for a
-    pseudo-outcome loss. A cross-fitted learned-rule key holds none of them, so the rows of
+    pseudo-outcome loss. An EP rule without a final learner reads ``"parametric"`` at a
+    fixed or scheduled sieve size and ``"adaptive"`` when the size is chosen by
+    cross-validation. A cross-fitted learned-rule key holds none of them, so the rows of
     the cross-fitted studies keep matching their fits.
 
     Parameters
@@ -550,7 +552,12 @@ def in_sample_learned_rule_learners(estimator: Any, data: Any) -> dict[str, str]
         ),
     }
     rule = estimator.learned_rule
-    if rule.loss != "plug_in":
+    if rule.loss == "ep" and rule.learner is None:
+        # Least squares on a sieve of fixed or scheduled size is a fixed-dimension class
+        # that selects nothing; a size chosen by cross-validation selects.
+        cv = rule.sieve is None or rule.sieve.chosen_by_cv
+        families["rule_learner_family"] = "adaptive" if cv else "parametric"
+    elif rule.loss != "plug_in":
         families["rule_learner_family"] = learner_family(rule.learner)
     return families
 

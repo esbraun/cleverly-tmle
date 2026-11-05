@@ -172,7 +172,11 @@ _LEARNED_RULE_ID = Identification(
         "arms the plug-in rule is the argmax of the outcome learner over the arms, and C3 "
         "asks that the limit's top two arms tie only on a set of probability zero (its "
         "best arm is unique almost surely), the package's own step: the sources are "
-        "silent on multi-arm exceptional laws",
+        "silent on multi-arm exceptional laws. For loss='ep' the limit score is the EP "
+        "limit theta_1, the projection of the blip onto the closure of the final learner's "
+        "class over the declared modifiers; C3 asks that theta_1(V) = 0 only on a set of "
+        "probability zero. Because the EP risk is doubly robust, theta_1 is that projection "
+        "when either the inner outcome fit or the inner treatment fit is consistent",
         "C4, the remainder: the mean over the folds of the double-robust remainder along "
         "each fold's rule is o_P(n^-1/2); alternatively, Corollary 3 requires Theorem 6 "
         "with g = g0, a negligible remainder-replacement error, and the remainder "

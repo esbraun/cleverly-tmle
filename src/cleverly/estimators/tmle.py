@@ -4366,6 +4366,7 @@ class TMLE:
                 fit_inner=partial(self._inner_rule_nuisances, scaler=estimates.scaler),
                 g_bounds=self._rule_g_bounds(data),
                 seed=0 if seed is None else int(seed),
+                alpha=self.alpha,
             )
             if fold_rules is not None:
                 # The diagonal at fit time, so a defect surfaces here and not at the bound.
