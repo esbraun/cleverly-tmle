@@ -7,11 +7,13 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, runtime_checkable
 
 import narwhals as nw
+import numpy as np
 
 from ._summary import Detail, Summary
 from ._support import Support, combine_support
-from ._typing import Family
+from ._typing import Family, FloatArray
 from ._warnings import records_fit
+from .bases import Constant, Modifiers, Sieve
 from .data import CausalData
 from .data.causal_data import _vector_components
 from .data.known_mechanism import (
@@ -25,6 +27,12 @@ from .data.treatment_covariates import (
     treatment_mechanism_restriction,
 )
 from .data.validate import RANDOMIZED_INTERCEPT
+from .effect_modification import (
+    TARGET_OF_SCALE,
+    EffectModification,
+    EffectModificationSet,
+    effect_modification_data_refusal,
+)
 from .estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW, TMLEResult
 from .estimators import iptw as iptw_estimator
 from .estimators._strata import check_stratified_targets
@@ -2153,6 +2161,99 @@ class OptimalRuleValue:
             )
 
 
+@dataclass(frozen=True)
+class ConditionalContrast:
+    """Ask how the effect of the treatment changes with the modifiers ``V``.
+
+    On the difference scale the question is the conditional average treatment effect
+    (CATE), :math:`E[Y^t - Y^r \\mid V]`.  On the log-ratio scale it is the log
+    conditional risk ratio, :math:`\\log(E[Y^t \\mid V] / E[Y^r \\mid V])`.  Every modifier
+    must be an adjustment column.
+
+    With ``model=`` the target is the projection of that contrast onto the declared basis
+    :math:`\\varphi(V)`: on the difference scale the best linear approximation
+    :math:`\\varphi(V)^\\top\\beta` in mean square, and on the log-ratio scale the
+    minimiser of the log-ratio risk over the same span.  ``method="tmle"`` estimates
+    :math:`\\beta` with Wald intervals, a joint covariance and a test of the non-constant
+    terms.  When the contrast is not in the span of the basis the coefficients describe
+    the best approximation, not the contrast itself.  With ``model=None`` the target is the
+    conditional contrast as a function, which has no interval and no TMLE fit yet.
+
+    Parameters
+    ----------
+    modifiers : cleverly.bases.Modifiers
+        The modifier columns, with each continuous modifier's domain and each categorical
+        one's levels.
+    scale : {"difference", "log_ratio"}
+        The scale of the contrast.  The log ratio needs a binary outcome or a
+        nonnegative one declared on ``q_bounds=(0, upper)``.
+    model : basis, cleverly.bases.Sieve or None
+        The working model: a basis from :mod:`cleverly.bases`, or a sieve with a declared
+        size.  ``None`` asks for the conditional contrast itself.
+    treatment : Any
+        The treated arm ``t`` of a treatment with more than two levels.  A binary
+        treatment contrasts its second level with its first.
+    reference : Any
+        The reference arm ``r`` of a treatment with more than two levels.
+
+    See Also
+    --------
+    cleverly.bases.Modifiers : The modifier schema.
+    cleverly.bases.Linear : The basis that needs no domain.
+    ATE : The marginal effect, which a constant basis reproduces.
+    cleverly.estimators.TMLEResult.heterogeneity_test : The test of the non-constant terms.
+
+    Examples
+    --------
+    >>> from cleverly import ConditionalContrast
+    >>> from cleverly.bases import Linear, Modifiers
+    >>> estimand = ConditionalContrast(Modifiers(["W1"]), model=Linear(["W1"]))
+    >>> estimand.name, estimand.model.terms
+    ('cate', ('(intercept)', 'W1'))
+    """
+
+    modifiers: Modifiers
+    scale: Literal["difference", "log_ratio"] = "difference"
+    model: Any = None
+    treatment: Any = None
+    reference: Any = None
+    name: str = field(default="cate", init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.modifiers, Modifiers):
+            raise DataError(
+                "ConditionalContrast(modifiers=...) takes a cleverly.bases.Modifiers, not "
+                f"{self.modifiers!r}"
+            )
+        if self.scale not in ("difference", "log_ratio"):
+            raise DataError(f"scale must be 'difference' or 'log_ratio'; got {self.scale!r}")
+        if (self.treatment is None) != (self.reference is None):
+            raise DataError(
+                "ConditionalContrast declares its pair with both treatment= and reference=, "
+                "or with neither for a binary treatment"
+            )
+        if self.model is not None and not isinstance(self.model, Sieve):
+            # Resolves the basis against the schema, so a basis read off the sample is
+            # refused here (R3), before any study is built.
+            object.__setattr__(
+                self, "model", EffectModification(self.model, self.modifiers, self.scale).basis
+            )
+        object.__setattr__(self, "name", "cate" if self.scale == "difference" else "log_crr")
+
+    @property
+    def definition(self) -> str:
+        """Return the contrast in words."""
+        contrast = (
+            "conditional average treatment effect"
+            if self.scale == "difference"
+            else "log conditional risk ratio"
+        )
+        given = ", ".join(self.modifiers.columns)
+        if self.model is None:
+            return f"{contrast} given {given}"
+        return f"projection of the {contrast} given {given} onto a declared basis"
+
+
 #: The typed estimands whose fit learns a rule inside each training fold.
 LEARNED_RULE_ESTIMANDS: tuple[type[LearnedRuleValue], type[OptimalRuleValue]] = (
     LearnedRuleValue,
@@ -2395,6 +2496,7 @@ PointEstimand = (
     | IncrementalEffect
     | MSMProjection
     | ControlledDirectEffect
+    | ConditionalContrast
 )
 
 #: The typed object to reach for when a caller passes a string spelling.  Only the
@@ -2421,7 +2523,49 @@ _STRING_ESTIMANDS: dict[str, str] = {
     "ey_ipsi": "IncrementalMean(interventions=...)",
     "ate_ipsi": "IncrementalEffect(interventions=...)",
     "msm": "MSMProjection(model=...)",
+    "cate_projection": "ConditionalContrast(modifiers=..., model=...)",
+    "log_crr_projection": "ConditionalContrast(modifiers=..., scale='log_ratio', model=...)",
 }
+
+
+#: Why the EP method does not fit an estimand other than a conditional contrast (R11).
+EP_OTHER_ESTIMAND_REFUSAL = Refusal(
+    RefusalReason.DIFFERENT_ESTIMAND,
+    "EP estimates a ConditionalContrast.",
+    alternative="Request ConditionalContrast(modifiers=...).",
+)
+
+#: Why the EP method is not available yet for a conditional contrast.
+EP_NOT_YET_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "the EP learner of the conditional contrast curve is not implemented yet (P1 part (b) "
+    "in docs/roadmap.md).",
+    alternative=(
+        "Declare model=, a basis from cleverly.bases, and fit method='tmle' for the "
+        "projection with intervals."
+    ),
+    roadmap="P1",
+)
+
+#: Why ``tmle`` does not fit a conditional contrast with no working model (R2).
+TMLE_WITHOUT_MODEL_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "TMLE estimates a finite-dimensional parameter, and with model=None this estimand is the "
+    "conditional effect given the modifiers, a function that is not pathwise differentiable.",
+    alternative=(
+        "Declare model=, a basis from cleverly.bases, for the projection with intervals, or "
+        "fit method='ep' for the curve without intervals."
+    ),
+)
+
+#: Why ``tmle`` does not fit a sieve whose size cross-validation chooses (R4).
+TMLE_CV_SIEVE_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "The projection's interval holds for a basis fixed before the fit. A basis size chosen by "
+    "cross-validation makes the target data-adaptive, and no reviewed result covers inference "
+    "after that selection.",
+    alternative="Fix the size, or fit method='ep'.",
+)
 
 
 #: Why :class:`~cleverly.longitudinal.IPSI` is unavailable for a plan with a policy node.
@@ -2542,6 +2686,8 @@ class BackdoorMeanContrast:
         Requested longitudinal follow-up times.
     msm : MSM or None
         Marginal structural model for a projection target.
+    effect_modification : EffectModification or None
+        The declared projection of a conditional contrast, resolved to one basis.
     intermediate : float or None
         Fixed intermediate level for a controlled direct effect.
     longitudinal : bool
@@ -2571,6 +2717,7 @@ class BackdoorMeanContrast:
     interventions: Any = ()
     horizons: tuple[int, ...] | None = None
     msm: MSM | None = None
+    effect_modification: EffectModification | None = None
     intermediate: float | None = None
     longitudinal: bool = False
     missingness: str | None = None
@@ -2769,6 +2916,8 @@ def _point_target(estimand: PointEstimand, data: CausalData) -> tuple[Any, str]:
     """Return the engine estimand and target selected by one typed point question."""
     actual = estimand.contrast if isinstance(estimand, ControlledDirectEffect) else estimand
     target = actual.name
+    if isinstance(actual, ConditionalContrast):
+        return actual, TARGET_OF_SCALE[actual.scale]
     if (
         isinstance(actual, CounterfactualMean)
         and actual.treatment is not None
@@ -3513,6 +3662,9 @@ def _point_functional(
         # functional as it reads every other axis's declaration.
         interventions = (actual.rule,)
     msm = actual.model if isinstance(actual, MSMProjection) else None
+    projection = (
+        _effect_modification_spec(actual, data) if isinstance(actual, ConditionalContrast) else None
+    )
     return BackdoorMeanContrast(
         outcome=design.outcome,
         treatment=design.treatment_name,
@@ -3522,6 +3674,7 @@ def _point_functional(
         reference=getattr(actual, "reference", None),
         interventions=interventions,
         msm=msm,
+        effect_modification=projection,
         intermediate=(
             estimand.intermediate if isinstance(estimand, ControlledDirectEffect) else None
         ),
@@ -3531,6 +3684,103 @@ def _point_functional(
         treatment_levels=(tuple(data.treatment_levels) if _design_has_arms(design) else ()),
         treatment_value=(actual.treatment if isinstance(actual, CounterfactualMean) else None),
     )
+
+
+def _effect_modification_spec(
+    estimand: ConditionalContrast, data: CausalData
+) -> EffectModification | None:
+    """The one basis a TMLE fit of ``estimand`` projects onto, or ``None``.
+
+    ``None`` when the estimand declares no model, or a sieve whose size cross-validation
+    chooses: neither is a fixed basis, and :meth:`IdentifiedEffect.available_methods`
+    refuses ``tmle`` for each (R2, R4).  A sieve with a declared size or schedule resolves
+    at the sample size of ``data``.
+    """
+    model = estimand.model
+    if model is None:
+        return None
+    if isinstance(model, Sieve):
+        if model.chosen_by_cv:
+            return None
+        model = model.at(data.n)
+    return EffectModification(
+        model,
+        estimand.modifiers,
+        estimand.scale,
+        treatment=estimand.treatment,
+        reference=estimand.reference,
+    )
+
+
+#: R13 (iii): the declaration an interval for a fixed score rests on.
+SCORE_KIND_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "assess_score gives an interval only for a score that was not fitted on this study's "
+    "outcomes or treatments, and the score's source cannot be read from the column.",
+    alternative=(
+        "Pass score_kind='external' when the score was fitted on other rows; for a score "
+        "fitted on these rows, use effect.assess('calibration')."
+    ),
+)
+
+#: R13 (ii): the score must be a known function of adjustment columns.
+SCORE_INPUTS_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "The score must be a known function of adjustment columns for its calibration to be "
+    "identified from the outcome regression given W.",
+    alternative=(
+        "Pass computed_from=[...] naming the adjustment columns the score was computed from."
+    ),
+)
+
+#: R13 (i): a score fitted on the rows it would be assessed on.
+SCORE_IN_SAMPLE_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "This score was fitted on the rows it would be assessed on, so its calibration "
+    "projection is a regression on an estimated index and its interval does not hold.",
+    alternative=(
+        "Read effect.assess('calibration') for out-of-fold point readings, or assess the "
+        "score on a held-out study."
+    ),
+)
+
+#: Why a modifier must be an adjustment column (R6 of the P1 plan).
+MODIFIER_ADJUSTMENT_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "Each modifier must be an adjustment column: the conditional effect given V is "
+    "identified from the outcome regression given W only when V is part of W, and adding a "
+    "column to W can break no unmeasured confounding.",
+    alternative=(
+        "Add the column to PointTreatment(adjustment=...) after checking that it is a "
+        "baseline covariate."
+    ),
+)
+
+
+def _refuse_conditional_contrast(
+    estimand: ConditionalContrast, design: PointTreatment, data: CausalData
+) -> None:
+    """Refuse what a conditional contrast cannot be identified or fitted on, before learners.
+
+    The compositions outside P1 (R7) and a modifier outside the adjustment set (R6).  A
+    declared basis is then evaluated on the rows, which checks the domains, the levels,
+    the pair of arms and the rank of the Gram matrix without fitting anything.
+    """
+    refusal = effect_modification_data_refusal(data)
+    if refusal is not None:
+        raise CapabilityError.from_refusal(refusal)
+    outside = [c for c in estimand.modifiers.columns if c not in tuple(design.adjustment)]
+    if outside:
+        raise CapabilityError.from_refusal(
+            replace(
+                MODIFIER_ADJUSTMENT_REFUSAL,
+                condition=f"{outside} are not adjustment columns. "
+                f"{MODIFIER_ADJUSTMENT_REFUSAL.condition}",
+            )
+        )
+    spec = _effect_modification_spec(estimand, data)
+    if spec is not None:
+        EffectModificationSet.evaluate(spec, data)
 
 
 def _matches_registered_point_identification(
@@ -3743,6 +3993,9 @@ class ExplicitAdjustmentProvider:
                 f"{type(estimand).__name__} is not an evidenced point estimand",
                 reason=RefusalReason.INVALID_DECLARATION,
             )
+        if isinstance(actual, ConditionalContrast):
+            # Before the generic design checks below, whose sentences name other remedies.
+            _refuse_conditional_contrast(actual, design, data)
         if isinstance(actual, LEARNED_RULE_ESTIMANDS):
             # The rows of the learned-rule refusal table that the data decide, before the generic
             # axis and design checks below: their sentences name other remedies.
@@ -4051,6 +4304,9 @@ class CausalStudy:
         self._design = design
         self._data = design.prepare(data)
         self._protocol = protocol
+        # The caller's frame, kept so a fixed external score that is not an adjustment
+        # column can be read by IdentifiedEffect.assess_score.
+        self._source = data
 
     @property
     def design(self) -> PointTreatment | LongitudinalTreatment | TimeToEvent | LongPanel:
@@ -4246,6 +4502,121 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     provider: IdentificationProvider
     protocol: StudyProtocol | None = None
     _study: CausalStudy | None = field(repr=False, compare=False, default=None)
+    _curves: list[FloatArray] = field(default_factory=list, init=False, repr=False, compare=False)
+
+    def _register_curve(self, in_sample: FloatArray) -> None:
+        """Record the in-sample predictions of a curve fitted from this effect.
+
+        :meth:`assess_score` refuses a score that matches one (R13 (i)): a curve fitted on
+        these rows is not an external score.
+        """
+        self._curves.append(np.asarray(in_sample, dtype=float).copy())
+
+    def assess_score(
+        self,
+        column: str,
+        *,
+        computed_from: Sequence[str] | None = None,
+        score_kind: str | None = None,
+        scale: str | None = None,
+        alpha: float = 0.05,
+        **overrides: Any,
+    ) -> Any:
+        """Assess a fixed external score of the modifiers, with intervals.
+
+        The score ``s`` is a column of the study's data that was computed from adjustment
+        columns by a rule fitted on other rows.  Two parameters are estimated, each with a
+        Wald interval.  The risk difference compares the score's risk with that of the
+        best constant, the ATE: on the difference scale
+        :math:`E[s^2] - 2E[s\\tau] + ATE^2`, which is negative when the score predicts
+        the conditional effect better than the constant does.  The calibration is the
+        projection of the conditional contrast onto ``(1, s)``: a slope of 1 and an
+        intercept of 0 say the score is calibrated.  Both are one-step estimates from the
+        cross-fitted nuisances of an ATE fit, with the influence curves of
+        ``docs/technical-reference/conditional-effects.md``.
+
+        The interval rests on ``score_kind="external"``, a declaration no code can check:
+        a score fitted on these rows is a regression on an estimated index.  A column whose
+        values match a curve fitted from this effect, or whose name carries the
+        ``effect_curve:`` prefix, is refused as a best-effort check.
+
+        Parameters
+        ----------
+        column : str
+            The score column in the study's data.
+        computed_from : sequence of str
+            The adjustment columns the score was computed from.
+        score_kind : {"external"}
+            The declaration that the score was fitted on other rows.
+        scale : {"difference", "log_ratio"} or None
+            The scale the score predicts.  ``None`` takes the estimand's.
+        alpha : float
+            The intervals hold at ``1 - alpha``.
+        **overrides : Any
+            Settings of the ATE fit, as :meth:`estimate` takes them.
+
+        Returns
+        -------
+        ScoreAssessment
+            ``risk_difference``, ``calibration[(intercept)]`` and ``calibration[<column>]``.
+
+        Raises
+        ------
+        CapabilityError
+            If the estimand is not a :class:`ConditionalContrast`, or the score is not
+            declared external (R13).
+        """
+        from .effect_curves import PREDICTION_PREFIX, score_assessment
+        from .effect_modification import _resolve_pair
+
+        estimand = self.estimand
+        if not isinstance(estimand, ConditionalContrast) or self._study is None:
+            raise CapabilityError(
+                "assess_score assesses a score of the modifiers of a ConditionalContrast "
+                "bound to a study.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Identify ConditionalContrast(modifiers=...) on a CausalStudy.",
+            )
+        if score_kind != "external":
+            raise CapabilityError.from_refusal(SCORE_KIND_REFUSAL)
+        adjustment = tuple(getattr(self._study.design, "adjustment", ()))
+        if (
+            computed_from is None
+            or isinstance(computed_from, str)
+            or not set(computed_from) <= set(adjustment)
+        ):
+            raise CapabilityError.from_refusal(SCORE_INPUTS_REFUSAL)
+        source = as_frame(self._study._source)
+        if column not in source.columns:
+            raise DataError(f"the score column {column!r} is not in the study's data")
+        score = source[column].to_numpy().astype(float)
+        data = self._study.data
+        assert isinstance(data, CausalData)
+        if score.shape[0] != data.n or not np.all(np.isfinite(score)):
+            raise DataError(f"the score column {column!r} must hold one finite value per study row")
+        if column.startswith(PREDICTION_PREFIX) or any(
+            np.allclose(score, curve) for curve in self._curves if curve.shape == score.shape
+        ):
+            raise CapabilityError.from_refusal(SCORE_IN_SAMPLE_REFUSAL)
+        chosen = estimand.scale if scale is None else scale
+        if chosen not in ("difference", "log_ratio"):
+            raise DataError(f"scale must be 'difference' or 'log_ratio'; got {chosen!r}")
+        pair = _resolve_pair(
+            EffectModification(
+                Constant(),
+                estimand.modifiers,
+                chosen,  # type: ignore[arg-type]
+                treatment=estimand.treatment,
+                reference=estimand.reference,
+            ),
+            data,
+        )
+        kwargs = TMLEMethod().with_overrides(**overrides).estimator_kwargs()
+        kwargs.update({"estimands": ("ate",), "reference": pair[1]})
+        fit = TMLE(**kwargs).fit(data).single()
+        return score_assessment(
+            fit.nuisance, data, score, column, scale=chosen, pair=pair, alpha=alpha
+        )
 
     def available_methods(self) -> MethodAvailabilities:
         """Report estimation methods available for this functional.
@@ -4337,7 +4708,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_methods()
         gformula, gformula_reason = self._gformula_method()
         iptw_reason = self._adaptive_iptw_refusal(design)
-        records = (
+        records: tuple[MethodAvailability, ...] = (
             MethodAvailability("tmle", tmle, tmle_reason),
             MethodAvailability("adaptive_iptw", iptw_reason is None, iptw_reason),
             MethodAvailability(
@@ -4362,23 +4733,52 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                     roadmap="R1",
                 ),
             ),
-            MethodAvailability(
-                "ep",
-                False,
-                Refusal(
-                    RefusalReason.DIFFERENT_ESTIMAND,
-                    "EP requires a conditional-contrast estimand and its distinct result family. "
-                    "P1 in docs/roadmap.md proposes the EP learner and that estimand.",
-                    alternative=(
-                        "To estimate the ATE inside each level of a discrete baseline "
-                        "modifier, declare PointTreatment(..., strata=['V']) and request ATE()."
-                    ),
-                ),
-            ),
+            MethodAvailability("ep", False, EP_OTHER_ESTIMAND_REFUSAL),
         )
+        if self.functional.axis == "effect_modification":
+            records = self._effect_modification_methods(records)
         from ._summary._setup import question_text
 
         return MethodAvailabilities(records, question=question_text(self))
+
+    def _effect_modification_methods(
+        self, records: tuple[MethodAvailability, ...]
+    ) -> tuple[MethodAvailability, ...]:
+        """The methods of a conditional contrast: ``tmle`` with a fixed basis, and no other.
+
+        ``tmle`` needs a fixed basis: with ``model=None`` the target is not pathwise
+        differentiable (R2), and a sieve sized by cross-validation makes it data-adaptive
+        (R4).  The EP learner is P1 part (b).  Every other method has no projection target.
+        """
+        estimand = self.estimand
+        assert isinstance(estimand, ConditionalContrast)
+        tmle_refusal = (
+            None
+            if self.functional.effect_modification is not None
+            else TMLE_WITHOUT_MODEL_REFUSAL
+            if estimand.model is None
+            else TMLE_CV_SIEVE_REFUSAL
+        )
+        out = []
+        for record in records:
+            if record.name == "tmle":
+                out.append(MethodAvailability("tmle", tmle_refusal is None, tmle_refusal))
+            elif record.name == "ep":
+                out.append(MethodAvailability("ep", False, EP_NOT_YET_REFUSAL))
+            else:
+                out.append(
+                    MethodAvailability(
+                        record.name,
+                        False,
+                        Refusal(
+                            RefusalReason.IMPLEMENTATION_GAP,
+                            f"{record.name} has no projection target for a conditional contrast.",
+                            alternative="Fit method='tmle' with model= declared.",
+                            roadmap="P1",
+                        ),
+                    )
+                )
+        return tuple(out)
 
     def _adaptive_iptw_refusal(self, design: Any) -> Refusal | None:
         """Why ``adaptive_iptw`` does not fit this functional, or ``None`` where it does.
@@ -4791,6 +5191,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             kwargs["incremental"] = functional.interventions
         elif functional.axis == "msm":
             kwargs["msm"] = functional.msm
+        elif functional.axis == "effect_modification":
+            # The pair rides on the declaration, so the engine's reference= stays unset.
+            kwargs["effect_modification"] = functional.effect_modification
+            kwargs["reference"] = None
 
         if isinstance(method, CollaborativeTMLEMethod):
             estimator: Any = CTMLE(**kwargs)
@@ -4903,11 +5307,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 "rr_tilt": result.nuisance.policies,
                 "ipsi": result.nuisance.incremental,
                 "msm": result.nuisance.msm,
+                "effect_modification": result.nuisance.effect_modification,
             }[self.functional.axis]
             if state is None:
                 raise CleverlyError(f"the {self.functional.axis} fit lost its structured state")
-            if self.functional.axis == "msm":
-                assert isinstance(state, MSMSet)
+            if self.functional.axis in ("msm", "effect_modification"):
+                assert isinstance(state, (MSMSet, EffectModificationSet))
                 names = state.terms
             else:
                 assert isinstance(state, (RegimeSet, PolicySet, IPSISet))
@@ -4926,9 +5331,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                         alias, target, self.functional.axis, value=name, reference=reference_name
                     )
             else:
+                stem = "msm" if self.functional.axis == "msm" else target
                 for term in names:
-                    alias = parameter_name("msm", arm=term)
-                    base[alias] = ParameterKey(alias, target, "msm", term=term)
+                    alias = parameter_name(stem, arm=term)
+                    base[alias] = ParameterKey(alias, target, self.functional.axis, term=term)
 
         keys = dict(base)
         if data.has_strata:

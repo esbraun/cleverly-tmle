@@ -671,11 +671,59 @@ def _method(result: Any) -> str:
     raise TypeError("assessment requires the fitted artifact to declare its fitted method")
 
 
+def projection_sensitivity_refusal(operation: str) -> Refusal:
+    """R9 of the P1 plan: a sensitivity analysis or refutation of a projection coefficient.
+
+    Parameters
+    ----------
+    operation : str
+        The refused operation.
+
+    Returns
+    -------
+    Refusal
+        An ``IMPLEMENTATION_GAP`` record with roadmap ``P1``.
+    """
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"{operation} is defined for a mean or a contrast of means, and a working-model "
+        "coefficient of a conditional contrast has no derivation of it.",
+        alternative="Run it on ATE() or RiskRatio() on the same study.",
+        roadmap="P1",
+    )
+
+
+def _is_projection(result: Any) -> bool:
+    """Whether ``result`` is a point fit of a conditional contrast's projection."""
+    return getattr(getattr(result, "config", None), "parameter_axis", None) == (
+        "effect_modification"
+    )
+
+
+def _refuse_on_projection(
+    rows: tuple[AssessmentCapability, ...], operations: Container[str] | None = None
+) -> tuple[AssessmentCapability, ...]:
+    """Mark ``operations`` (every row when ``None``) unavailable with the R9 record."""
+    return tuple(
+        replace(
+            row,
+            available=False,
+            status=AssessmentStatus.UNAVAILABLE,
+            refusal=projection_sensitivity_refusal(row.operation),
+        )
+        if operations is None or row.operation in operations
+        else row
+        for row in rows
+    )
+
+
 def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
     """All operation declarations for the result's family."""
 
     family = _family(result)
     rows = tuple(item for item in ASSESSMENT_CAPABILITIES if item.result_family == family)
+    if family == "point" and _is_projection(result):
+        rows = _refuse_on_projection(rows, {"refute"})
     if family == "point" and is_natural_course_fit(result):
         rows = tuple(
             replace(
@@ -4414,6 +4462,21 @@ class SensitivityFacade(_CapabilityFacade):
         family = _family(self._result)
         if family == "structural":
             return _STRUCTURAL_SENSITIVITY
+        if family == "point" and _is_projection(self._result):
+            # Every row refuses with R9 of the P1 plan, before any fit-wide rule reads an
+            # axis it has no entry for.
+            return tuple(
+                _capability(
+                    operation,
+                    family,
+                    artifacts=(),
+                    interpretation="not defined for a projection coefficient",
+                    available=False,
+                    status=AssessmentStatus.UNAVAILABLE,
+                    refusal=projection_sensitivity_refusal(operation),
+                )
+                for operation in SENSITIVITY_ROUTES
+            )
         longitudinal = family == "longitudinal"
         # The two tilt rows read the table both tilt entry points raise from.  Its
         # ``missing_outcome`` rule reads the data flag the bound's response rule reads, so
@@ -4521,7 +4584,7 @@ class SensitivityFacade(_CapabilityFacade):
                 refusal=None if tilt_rule is None else tilt_rule[1],
             )
 
-        return (
+        rows = (
             standard(
                 "omitted_confounding",
                 artifacts=("fitted representer", "outcome residuals"),
@@ -4595,6 +4658,7 @@ class SensitivityFacade(_CapabilityFacade):
             ),
             _marginal_row(self._result, family),
         )
+        return rows
 
     @cached_property
     def _evalue_selections(self) -> dict[str | None, Any]:

@@ -1370,6 +1370,8 @@ class TMLEResult:
         """
         if scale not in ("link", "ratio"):
             raise ValueError(f"scale must be 'link' or 'ratio'; got {scale!r}")
+        if self.config.parameter_axis == "effect_modification":
+            return self._projection_coefficients(scale)
         msm = self.nuisance.msm
         if msm is None:
             raise CapabilityError(
@@ -1418,6 +1420,202 @@ class TMLEResult:
             row["scale"] = "baseline" if _is_intercept(msm.design[:, :, column]) else ratio
             rows.append(row)
         return self.data.frame_like({key: [row[key] for row in rows] for key in rows[0]})
+
+    def _projection_names(self) -> tuple[Any, tuple[str, ...]]:
+        """The evaluated projection of a conditional contrast and its reported names.
+
+        Raises
+        ------
+        CapabilityError
+            If this fit projects no conditional contrast.
+        """
+        from ..targets import parameter_name
+
+        contrast = self.nuisance.effect_modification
+        if self.config.parameter_axis != "effect_modification" or contrast is None:
+            raise CapabilityError(
+                "this fit projects no conditional contrast, so it has no effect curve and no "
+                "heterogeneity test.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative=(
+                    "Request ConditionalContrast(modifiers=..., model=...) and fit method='tmle'."
+                ),
+            )
+        stem = "cate_projection" if contrast.scale == "difference" else "log_crr_projection"
+        return contrast, tuple(parameter_name(stem, arm=term) for term in contrast.terms)
+
+    def _projection_coefficients(self, scale: str) -> Any:
+        """:meth:`coefficients` of a conditional contrast's projection."""
+        contrast, names = self._projection_names()
+        if scale == "ratio" and contrast.scale == "difference":
+            raise CapabilityError(
+                "a CATE projection's coefficients are differences of means, and exp() of a "
+                "difference is not a quantity anybody reports.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "Request ConditionalContrast(..., scale='log_ratio') for coefficients that "
+                    "exponentiate to ratios of conditional risks."
+                ),
+            )
+        rows: list[dict[str, Any]] = []
+        intercepts = contrast.intercept_columns
+        for column, name in enumerate(names):
+            estimate = self.estimates[name]
+            if scale == "link":
+                rows.append(estimate.to_dict())
+                continue
+            exponentiated = replace(
+                estimate, psi=float(np.exp(estimate.psi)), log_psi=estimate.psi, scale="ratio"
+            )
+            row = exponentiated.to_dict()
+            row["scale"] = "baseline ratio" if column in intercepts else "ratio per unit"
+            rows.append(row)
+        return self.data.frame_like({key: [row[key] for row in rows] for key in rows[0]})
+
+    def heterogeneity_test(self) -> Any:
+        """The joint Wald test that every non-constant coefficient of the projection is zero.
+
+        The degrees of freedom are the number of non-constant basis terms; the intercept
+        is left out.  The test reads the joint covariance of the coefficients, so a
+        clustered fit gets the cluster-level test.  A small p-value says the conditional
+        contrast varies along the declared basis.  A large one does not say the contrast is
+        constant: it can vary in a direction the basis cannot express.
+
+        Returns
+        -------
+        HeterogeneityTest
+            The statistic, its degrees of freedom and its p-value.
+
+        Raises
+        ------
+        CapabilityError
+            If this fit projects no conditional contrast, or its basis has no
+            non-constant term.
+        """
+        from ..effect_curves import heterogeneity_test
+
+        contrast, names = self._projection_names()
+        refuse_after_repeats(
+            self._median_draws,
+            operation="heterogeneity_test()",
+            text="The test reads a joint covariance, and the median report is no draw's report.",
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative="Fit one split.",
+        )
+        for name in names:
+            refuse_inference(self.estimates[name].inference, operation="heterogeneity_test()")
+        return heterogeneity_test(
+            self.estimates,
+            names,
+            tuple(contrast.terms),
+            contrast.intercept_columns,
+            scale=contrast.scale,
+            cluster=self.data.cluster,
+        )
+
+    def effect_curve(
+        self,
+        grid: Any = None,
+        *,
+        alpha: float = 0.05,
+        n_replicates: int = 1000,
+        kind: str = "rademacher",
+        random_state: int | None = None,
+    ) -> Any:
+        """The projection curve of a conditional contrast, with a band over ``grid``.
+
+        The curve is :math:`\\varphi(v)^\\top\\hat\\beta`, the projection of the
+        conditional contrast onto the declared basis.  Its pointwise intervals come from
+        :meth:`EffectCurveResult.predict <cleverly.effect_curves.EffectCurveResult.predict>`
+        with ``interval=True``.  With ``grid`` the result also carries a simultaneous band
+        over those points, the shipped multiplier band of the curves at each point.
+
+        Parameters
+        ----------
+        grid : dataframe or mapping or None
+            Declared points, one row each, holding the modifier columns.
+        alpha : float
+            The band holds jointly at ``1 - alpha``.
+        n_replicates : int
+            Multiplier draws for the band.
+        kind : {"rademacher", "mammen", "normal"}
+            The multiplier distribution.
+        random_state : int or None
+            Seed for the draws.
+
+        Returns
+        -------
+        EffectCurveResult
+            The fitted curve.
+
+        Raises
+        ------
+        CapabilityError
+            If this fit projects no conditional contrast.
+        """
+        from ..effect_curves import EffectCurveResult, ProjectionCurve
+
+        contrast, names = self._projection_names()
+        refuse_after_repeats(
+            self._median_draws,
+            operation="effect_curve()",
+            text="The curve reads a joint covariance, and the median report is no draw's report.",
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative="Fit one split.",
+        )
+        spec = contrast.spec
+        beta = np.array([self.estimates[name].psi for name in names])
+        curve = ProjectionCurve(
+            basis=spec.basis,
+            modifiers=spec.modifiers,
+            scale=contrast.scale,
+            terms=tuple(contrast.terms),
+            beta=beta,
+            covariance=np.asarray(self.covariance(list(names))),
+            influence=np.column_stack(
+                [np.asarray(self.estimates[name].influence_curve) for name in names]
+            ),
+            cluster=self.data.cluster,
+        )
+        band = (
+            None
+            if grid is None
+            else curve.band(
+                grid,
+                alpha=alpha,
+                n_replicates=n_replicates,
+                kind=kind,  # type: ignore[arg-type]
+                random_state=random_state,
+            )
+        )
+        lower, upper = self.nuisance.scaler.unscale_levels(np.array([0.0, 1.0]))
+        stem = (
+            "conditional average treatment effect"
+            if contrast.scale == "difference"
+            else ("log conditional risk ratio")
+        )
+        given = ", ".join(spec.modifiers.columns)
+        result = EffectCurveResult(
+            estimand_name="cate" if contrast.scale == "difference" else "log_crr",
+            modifiers=spec.modifiers,
+            model=curve,
+            scale=contrast.scale,
+            in_sample=contrast.design @ beta,
+            target_sentence=(
+                f"the projection of the {stem} given {given} onto the declared basis "
+                f"({', '.join(contrast.terms)})"
+            ),
+            status=str(self.inference_status),
+            lower_bound=float(lower),
+            upper_bound=float(upper),
+            band=band,
+            backend=str(self.data.backend),
+            identified_effect=self.identified_effect,
+        )
+        register = getattr(self.identified_effect, "_register_curve", None)
+        if register is not None:
+            register(result.in_sample)
+        return result
 
     def influence_frame(self) -> Any:
         """One column per estimand of per-observation influence-curve values.

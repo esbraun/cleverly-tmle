@@ -314,6 +314,9 @@ class EffectModificationSet:
         The codes ``(t, r)`` of the contrasted arms.
     scale : {"difference", "log_ratio"}
         The contrast's scale.
+    spec : EffectModification or None
+        The declaration the design was evaluated from, which a curve reads to evaluate
+        the basis at new rows.
     """
 
     terms: tuple[str, ...]
@@ -321,6 +324,7 @@ class EffectModificationSet:
     arms: tuple[float, ...]
     pair: tuple[float, float]
     scale: ContrastScale = "difference"
+    spec: EffectModification | None = None
 
     def __post_init__(self) -> None:
         design = np.asarray(self.design, dtype=float)
@@ -368,7 +372,7 @@ class EffectModificationSet:
         terms = tuple(basis.terms)
         gram = design.T @ (design * np.asarray(data.weights, dtype=float)[:, None]) / data.n
         check_projection_rank(gram, terms, axis="rows of the modifiers")
-        return cls(terms, design, tuple(float(c) for c in data.arm_codes), pair, spec.scale)
+        return cls(terms, design, tuple(float(c) for c in data.arm_codes), pair, spec.scale, spec)
 
     # --------------------------------------------------------------- access
 

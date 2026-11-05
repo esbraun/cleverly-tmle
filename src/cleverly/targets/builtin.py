@@ -458,8 +458,9 @@ _MSM_ID = Identification(
 )
 
 #: The projection of a conditional contrast onto a declared basis of the modifiers
-#: (P1 plan, 2.2).  The positivity sentence names the two compared arms and does not open
-#: with the two-arm prefix, which a study would rebind to every arm.
+#: (``docs/technical-reference/conditional-effects.md``, Identification).  The positivity
+#: sentence names the two compared arms and does not open with the two-arm prefix, which a
+#: study would rebind to every arm.
 _CONDITIONAL_CONTRAST_ID = Identification(
     assumptions=(
         "consistency: Y = Y^a when A = a",
@@ -487,7 +488,7 @@ _CONDITIONAL_CONTRAST_ID = Identification(
         + DR_DESIGN_CONDITIONAL_CLAUSE
     ),
     references=(
-        "van der Laan, Carone & Luedtke (2026), arXiv:2402.01972v2",
+        "van der Laan, Carone & Luedtke (2024), arXiv:2402.01972v2",
         "Zheng & van der Laan (2011)",
     ),
 )

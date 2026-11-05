@@ -58,6 +58,8 @@ EXAMPLE_TARGETS = (
     "cleverly.ModifiedTreatmentPolicy",
     "cleverly.IncrementalEffect",
     "cleverly.ControlledDirectEffect",
+    "cleverly.ConditionalContrast",
+    "cleverly.bases.Modifiers",
     # Methods and configuration.
     "cleverly.EstimationMethod",
     "cleverly.TMLEMethod",
@@ -82,6 +84,7 @@ EXAMPLE_TARGETS = (
     "cleverly.ValidationReport",
     "cleverly.assessment.DiagnosticsFacade",
     "cleverly.assessment.SensitivityFacade",
+    "cleverly.effect_curves.EffectCurveResult.predict",
     # Learners and data.
     "cleverly.SuperLearner",
     "cleverly.datasets.make_linear_ate",

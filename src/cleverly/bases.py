@@ -397,7 +397,7 @@ def _check_domain(
 # ----------------------------------------------------------------------- the bases
 
 
-class Basis(Protocol):
+class Basis(Protocol):  # numpydoc ignore=PR01
     """What a working model of the modifiers provides.
 
     The protocol is not runtime-checkable: :func:`check_basis` decides what a working
@@ -406,15 +406,10 @@ class Basis(Protocol):
     Attributes
     ----------
     terms : tuple of str
-        One name per column of the design, in column order.
     n_terms : int
-        The number of columns.
     max_size : int
-        The largest size :meth:`truncate` accepts.
     basis_kind : {"known", "estimated"}
-        Whether the functions are fixed before the fit.
     columns : tuple of str
-        The modifier columns the basis reads.
     """
 
     @property
@@ -445,11 +440,35 @@ class Basis(Protocol):
     def evaluate(
         self, frame: Any, modifiers: Modifiers | None = None
     ) -> np.ndarray:  # pragma: no cover - protocol
-        """The ``(n, p)`` design at the rows of ``frame``."""
+        """The ``(n, p)`` design at the rows of ``frame``.
+
+        Parameters
+        ----------
+        frame : dataframe or mapping
+            Rows holding the modifier columns.
+        modifiers : Modifiers or None
+            The declared domains and levels, when the basis reads them.
+
+        Returns
+        -------
+        ndarray
+            One column per term.
+        """
         ...
 
     def truncate(self, k: int) -> Basis:  # pragma: no cover - protocol
-        """The same basis with each component cut to its first ``k`` functions."""
+        """The same basis with each component cut to its first ``k`` functions.
+
+        Parameters
+        ----------
+        k : int
+            The number of functions to keep in each component.
+
+        Returns
+        -------
+        Basis
+            The truncated basis.
+        """
         ...
 
 

@@ -2630,9 +2630,9 @@ def effect_modification_coefficients(
                        + H(A, W)\,\Delta\,\{Y - \bar Q^*(A, W)\}\big],
 
       the delta method of :math:`(M, m) \mapsto M^{-1} m` with the chain rule for the
-      known weight :math:`\varphi` (P1 plan, 2.3).  :math:`M` contributes no term of its
-      own beyond the first bracket, because :math:`M` is a mean of a known function of
-      :math:`V`.
+      known weight :math:`\varphi` (``docs/technical-reference/conditional-effects.md``).
+      :math:`M` contributes no term of its own beyond the first bracket, because
+      :math:`M` is a mean of a known function of :math:`V`.
     - **log-ratio scale.** :math:`\hat\beta` solves
       :math:`U_n(\beta) = P_n[\varphi\{(\bar Q^*_t + \bar Q^*_r) e - \bar Q^*_t\}] = 0`,
       :math:`e = \operatorname{expit}(\varphi^\top\beta)`, and by the implicit-function

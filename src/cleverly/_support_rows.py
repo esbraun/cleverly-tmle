@@ -117,7 +117,7 @@ def point_row(
     evidence : sequence of str
         The registered study slugs.
     families : iterable of str
-        The target families the row covers, as ``P1`` to ``P12``.
+        The target families the row covers, as ``P1`` to ``P14``.
     outcome : tuple of str, default BINARY
         The outcome axis of :class:`~cleverly._support.SupportKey`.
     missing : tuple of str, default ("complete",)

@@ -4229,3 +4229,48 @@ NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T4_NOTE_TEXTS})
 
 #: Symbols a short sensitivity summary leaves to ``detail="full"`` (X89 plan 8.1 row T4).
 SHORT_DETAIL_SYMBOLS: Final[tuple[str, ...]] = ("sigma^2", "nu^2", "Riesz")
+
+# ------------------------------------------------------------ effect curves (P1 part (a))
+
+EFFECT_CURVE_TITLE: Final = "Conditional effect curve"
+MODIFIERS: Final = "Modifiers"
+CURVE_SCALE: Final = "Scale"
+BASIS: Final = "Basis"
+SCORE_ASSESSMENT_TITLE: Final = "Check of an external score"
+
+#: The notes an effect-curve summary can print.
+EFFECT_CURVE_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "projection_target": "note",
+        "curve_outside_range": "note",
+        "curve_band": "note",
+        "score_external": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **EFFECT_CURVE_NOTE_CODES})
+
+EFFECT_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "projection_target": (
+            "The curve is {target}. It equals the conditional effect only where that effect "
+            "lies in the span of the basis; elsewhere it is the closest curve the basis can "
+            "draw."
+        ),
+        "curve_outside_range": (
+            "{share} of the in-sample predictions lie outside [-{width}, {width}], the range "
+            "a difference of two means of this outcome can take. A projection is not "
+            "clipped."
+        ),
+        "curve_band": (
+            "The band holds jointly at {level} over the {points} declared grid points, with "
+            "critical value {critical}."
+        ),
+        "score_external": (
+            "The intervals hold only if {column} was fitted on other data. A negative risk "
+            "difference says the score predicts the conditional effect better than the "
+            "average effect does; a calibration line with no intercept and unit slope says "
+            "it is calibrated."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **EFFECT_CURVE_NOTE_TEXTS})
