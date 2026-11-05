@@ -23,6 +23,7 @@ registered validation studies, not in an example.
 data-design
 estimands
 methods-learners
+trial-with-external-data
 results-assessment
 longitudinal
 capabilities

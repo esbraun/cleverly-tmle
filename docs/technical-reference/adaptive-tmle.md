@@ -1,0 +1,402 @@
+# Adaptive TMLE for a trial with external data
+
+## What this solves
+
+A randomized trial identifies its own treatment effect without bias but with a wide interval when
+it is small. External rows on the same outcome, such as registry patients or the controls of an
+earlier study, add information about the covariate-outcome relation. They also carry bias, because
+nothing randomized their treatment or selected them like the trial. Adaptive TMLE (A-TMLE) of van
+der Laan, Qiu, Tarp and van der Laan (J. Causal Inference 14(1):20240025,
+doi:10.1515/jci-2024-0025; arXiv:2405.07186v2) learns that bias as a function of the covariates
+and removes it, so the external rows contribute only the part of their information that the bias
+model leaves unexplained.
+
+`TrialWithExternalData` declares the pooled frame, `TrialATE` names the effect, and
+`AdaptiveTMLEMethod` (`method="atmle"`) estimates it. The journal text has not been read against this
+page, so every locator below reads arXiv:2405.07186v2 and the journal numbering may differ.
+
+| piece | object | what it fixes |
+| --- | --- | --- |
+| data | `TrialWithExternalData` | $O = (S, W, A, Y)$, plus $\Delta$ when outcomes can be missing |
+| estimand | `TrialATE(population=)` | $\Psi$ over the pooled covariates, or $\Psi_2$ over the trial's |
+| method | `AdaptiveTMLEMethod(form=)` | the adaptive CV-TMLE (default) or Algorithm 1 |
+| result | `AdaptiveTMLEResult` | the estimate, the working models of every fold, and the diagnostics |
+
+## Data and estimands
+
+$S = 1$ marks a trial row and $S = 0$ an external row. $W$ is the declared adjustment set, $A$ a
+binary treatment, $Y$ the outcome, and $\Delta = 1$ when $Y$ is recorded. The trial's conditional
+effect is $\tau_1(W) = Q(1, W, 1) - Q(1, W, 0)$ with $Q(s, w, a) = E(Y \mid S = s, W = w, A = a)$.
+
+| `population` | estimand | source |
+| --- | --- | --- |
+| `"pooled"` | $\Psi = E_W[\tau_1(W)]$, averaged over the covariates of every row | arXiv:2405.07186v2, Sec 2.4 |
+| `"trial"` | $\Psi_2 = E[S\,\tau_1(W)] / P(S = 1)$, averaged over the trial's covariates | a natural extension, derived here |
+
+The paper derives $\Psi$ only. $\Psi_2$ ships by the pointwise form of Lemma 2, the chain rule and
+the delta method for the ratio. Its influence function is in the [influence functions
+section](#influence-functions), and the exact-law tests check it by a Gateaux derivative. The two
+estimands differ whenever the conditional effect varies with covariates that also predict trial
+membership.
+
+The difference scale is the only one derived. The contrast is the second sorted treatment level
+against the first.
+
+## Identification
+
+| id | assumption | population |
+| --- | --- | --- |
+| A1 | in the trial, $Y^a$ is independent of $A$ given $W$ (randomization) | both |
+| A2 | in the trial, $0 < P(A = 1 \mid S = 1, W) < 1$ | both |
+| A3 | $P(S = 1 \mid W) > 0$ wherever the pooled covariates fall, so $Q(1, W, a)$ is defined at every pooled row | `"pooled"` only |
+| MAR | with `missingness=`, $Y$ is independent of $\Delta$ given $(W, A)$ among trial rows | when declared |
+
+Under A1 and A2, $E(Y^a \mid S = 1, W) = Q(1, W, a)$, so $\Psi_2$ is identified from the trial's
+regressions alone. $\Psi$ also needs A3 for $Q(1, W, a)$ to exist on the pooled support of $W$. The
+design assumes nothing about the external outcomes. The fit reports A3 as the estimated
+$P(S = 1 \mid W)$ on the external rows and warns when mass lies below $0.01$; it does not report
+A3 for `"trial"`, whose average the trial covers by construction.
+
+The missing-outcome assumption is stated on $(W, A)$. Section B of the paper states independence of
+$(Y^1, Y^0)$ and $\Delta$ given $(W, S = 1)$. Once $\Delta$ depends on $A$, neither statement implies
+the other, and the fitted $P(\Delta = 1 \mid S, W, A)$ uses the $(W, A)$ form.
+
+## Decomposition
+
+Write $\tilde Q(W, a) = E(Y \mid W, A = a)$ on the pooled rows, $\Pi(1 \mid W, a) = P(S = 1 \mid W, A = a)$, and
+$\tau_S(W, a) = Q(0, W, a) - Q(1, W, a)$ for the external-minus-trial difference. Lemma 2 gives
+
+$$
+\tau_1(W) = \tau_A(W) - \tau^{\#}(W),
+\qquad
+\tau^{\#}(W) = \Pi(0 \mid W, 0)\,\tau_S(W, 0) - \Pi(0 \mid W, 1)\,\tau_S(W, 1),
+$$
+
+with $\tau_A(W) = \tilde Q(W, 1) - \tilde Q(W, 0)$, the contrast of the pooled regression. The
+pointwise form follows from $\tilde Q = \Pi\,Q(1, \cdot) + (1 - \Pi)\,Q(0, \cdot)$. Hence
+$\Psi = \tilde\Psi - \Psi^{\#}$, the pooled effect minus the bias of the external rows, and
+$\Psi_2 = E[S\,\tau_1(W)] / P(S = 1)$. With external controls only, $\Pi(0 \mid W, 1) = 0$, so
+$\tau_S(W, 1)$ is neither identified nor needed, and the fit learns the bias on the control rows.
+
+## Working models and the R-loss
+
+Two working models describe the two unknown functions. Let $\phi(W)$ be a dictionary with
+$\phi_0 = 1$ for the effect, and $\psi(W, A)$ a dictionary for the bias with $\psi_0 = 1$ and
+$\psi_1 = A$. For selected columns, the projections are
+
+$$
+\beta_A = \arg\min_b E\big[(Y - \theta(W) - (A - g(W))\,b^\top\phi(W))^2\big],
+\qquad
+\beta_S = \arg\min_b E\big[(Y - \tilde Q(W, A) - (S - \Pi(W, A))\,b^\top\psi(W, A))^2\big],
+$$
+
+with $\theta(W) = E(Y \mid W)$ and $g(W) = P(A = 1 \mid W)$ on the pooled rows. These are
+Robinson-type R-losses, so each solves a score that is Neyman orthogonal in its nuisances. The
+working-model parameter is
+
+$$
+\Psi_w = E[\beta_A^\top\phi(W)] - E\big[\Pi(0 \mid W, 0)\,\beta_S^\top\psi(W, 0) - \Pi(0 \mid W, 1)\,\beta_S^\top\psi(W, 1)\big],
+$$
+
+and $\Psi_{2,w}$ is the same with the $S$-weighted average. When $\tau_A \in \mathrm{span}(\phi)$
+and $\tau_S \in \mathrm{span}(\psi)$, $\Psi_w = \Psi$. That condition is sufficient and not
+necessary. With $w = g(1 - g)$, the error $\tilde\Psi_w - \tilde\Psi$ is a product of the error of
+$\tau_A$ and the error of the representer $1/w$ in the weighted projection, in the shape of
+the bias results of the paper's working-model reference. The projection equals $\Psi$ whenever either factor
+lies in the span, and the two truths coincide for any dictionary when $g(1 - g)$ and $\Pi(1 - \Pi)$
+are nearly constant.
+
+## The dictionary
+
+The default dictionary is `WorkingBasis` followed by `WorkingDictionary`.
+
+- A covariate with at least nine distinct values on the selection rows gets its standardized linear
+  term, hinge terms $(z - k_j)_+$ at five interior quantile knots of the standardized value, and
+  every pairwise product of standardized values. A covariate with fewer values gets one indicator
+  for each level above the smallest. A constant covariate contributes nothing.
+- The bias dictionary is $\psi = [1, A, \phi_{-0}, A\,\phi_{-0}]$. For external controls only it is
+  $\phi$.
+- A support screen drops a column unless it is nonzero on at least
+  $k_{\min} = \max(10, \lceil \sqrt{n}/2 \rceil)$ rows in each of two groups. An effect column
+  needs $k_{\min}$ treated and $k_{\min}$ control rows. A bias column needs $k_{\min}$ external
+  and $k_{\min}$ trial rows, counting only treated rows for a column that carries $A$. The
+  constant, $A$ and the linear terms stay.
+- A pivoted QR drops exactly collinear columns, so every refit has full column rank.
+
+The screen exists because a hinge that is nonzero on a handful of external treated rows has a
+coefficient the data cannot identify, and the refit then returns an extreme value for it. A transformer passed as `working_basis=`
+goes through the same screen and rank steps. `working_basis=` must be a scikit-learn transformer
+with `fit` and `transform`.
+
+The lasso is the R-loss lasso, solved exactly by feature-sign search on `cv.glmnet`'s standardized
+scale, with only the constant unpenalized. The penalty is the largest one attaining the smallest
+cross-validated R-loss risk over a 100-point grid (`learner_folds` inner folds). The solver checks
+the Karush-Kuhn-Tucker conditions and raises `CapabilityError` with a smaller-basis alternative if
+they fail.
+
+The arm column $A$ of the bias dictionary is penalized. Forcing it in gives the external treated
+and control arms separate free mean shifts, so the external rows then carry no information on the
+level of the trial effect. At a bias that is a single shift common to both arms the exact-law
+standard deviation of $D_w$ is $0.48$ times the trial-only TMLE's with the constant alone
+selected, and $1.00$ times with $A$ forced
+(`test_the_a0_efficiency_gain_is_the_theory_and_a_forced_arm_column_removes_it`). The gain
+therefore depends on the lasso dropping every column that shifts an external arm's mean, which
+nothing guarantees at a given $n$.
+
+## The estimator
+
+Nuisances are $g(W) = P(A = 1 \mid W)$, $\theta(W)$, $\tilde Q(W, A)$, $\Pi(W, A)$ and
+$\pi(W) = P(S = 1 \mid W)$, all fitted by the declared learners on the pooled rows and clipped by
+`Targeting.g_bounds`. The R-loss is fitted as least squares of the pseudo-response on
+$(A - g)\phi$ or $(S - \Pi)\psi$ and never divides by $A - g$, so no denominator bound is needed.
+Each lasso selection is followed by a relaxed (unpenalized least-squares) refit of the selected
+columns.
+
+### Adaptive CV-TMLE (default)
+
+`form="cv"` follows Appendix C and Theorem 2. For outer fold $v$ with training rows $T_v$:
+
+1. The nuisances are fitted on $T_v$. The pseudo-responses on $T_v$ need nuisance values on $T_v$'s
+   own rows, so a row of fold $u \ne v$ takes nuisances fitted on the folds other than $u$ and $v$.
+   This is why the form needs at least three folds.
+2. The working models are selected on $T_v$ and refitted there.
+3. On the validation rows, each coefficient vector moves along its target direction
+   $I_v^{-1} m_v$, taken on $T_v$, by one step $\epsilon$ pooled over all validation folds. The
+   step has a closed form because the score is linear in it.
+4. $\Pi$ is fluctuated by one $\epsilon$ pooled over the validation folds, and the bias-model step
+   alternates with it.
+5. The estimate is the mean of the validation-fold plug-ins, with standard error
+   $\sqrt{\bar\sigma^2 / n}$, where $\bar\sigma^2$ is the mean of the validation-fold variances of
+   the influence function.
+
+The direction is fixed before the validation rows are read. A full refit of the coefficients on the
+validation folds was dropped because it was unstable at $n = 2{,}000$ with five folds. A refit on
+$T_v$ whose selected columns are rank deficient raises `CapabilityError` naming the fold.
+
+### Algorithm 1 (pooled)
+
+`form="pooled"` follows Algorithm 1 and Theorem 1, with cross-fitted nuisances. The lasso selection
+runs on all rows, the relaxed refit solves $P_n U_A = P_n U_S = 0$, the $\Pi$ fluctuation
+alternates with the bias refit, and the interval is the Wald interval with variance
+$P_n D_w^2 / n$.
+
+### Targeting $\Pi$ and the stopping rule
+
+The paper states neither the submodel nor whether the step iterates, and Algorithm 1 leaves the
+bias-model score unsolved after $\Pi$ moves. This implementation takes the logistic submodel
+$\mathrm{logit}\,\Pi_\epsilon = \mathrm{logit}\,\Pi + \epsilon\,C$ with the log-likelihood loss of
+$S$, whose score at $\epsilon = 0$ is the $\Pi$-component $C\,(S - \Pi)$ of the influence function.
+Here $C(W, A) = \frac{A}{g(1 \mid W)}\,\tau_{S,\beta}(W, 1) - \frac{1 - A}{g(0 \mid W)}\,\tau_{S,\beta}(W, 0)$
+is built from the current bias coefficients, and $g$ is the pooled treatment mechanism. For
+$\Psi_2$ the covariate is multiplied by $\pi(W) / P(S = 1)$.
+
+The fit alternates the $\Pi$ step with the bias-model step until
+$|P_n D| \le \mathrm{sd}(D) / (\sqrt{n}\log n)$ or 50 passes. A fit that reaches 50 passes warns
+with `ConvergenceWarning` and records the residual. With external controls only, $\Pi(W, 1) = 1$
+is not fluctuated.
+
+## Missing outcomes
+
+With `missingness=`, $\Delta = 1$ when $Y$ is recorded, and $g^\Delta(S, W, A) = P(\Delta = 1 \mid S, W, A)$
+is fitted on the pooled rows. Appendix B multiplies both R-losses and the $Y$-components of the
+influence functions by $\Delta / g^\Delta$. That literal inverse weighting leaves a term
+
+$$
+E\Big[\Big(\tfrac{\Delta}{g^\Delta} - \tfrac{\Delta}{g^\Delta_0}\Big)
+\big(Q(S, W, A) - \theta - (A - g)\,\beta_A^\top\phi\big)\Big]
+$$
+
+that is linear in the error of $g^\Delta$, because the bracketed residual is not a nuisance error.
+This implementation therefore uses the augmented form: each residual $Y - \theta - \cdots$ becomes
+$\frac{\Delta}{g^\Delta}(Y - Q(S, W, A)) + (Q(S, W, A) - \theta - (A - g)\beta_A^\top\phi)$, and
+likewise for the bias residual and the R-loss responses. The remainder then gains only products
+$(g^\Delta - g^\Delta_0)(Q - Q_0)$. The departure from the paper's literal form is deliberate, and
+the exact-law tests run once with $\Delta$, including a deliberate IPCW mutation that fails.
+
+The external rows need no missing-at-random assumption. The reweighted law keeps the trial's
+regressions $Q(1, W, a)$, Lemma 2 holds pointwise for it, and any external missingness changes only
+the bias the method estimates. $\theta$ and $\tilde Q$ are built from $Q$ fitted on recorded rows
+as $\tilde Q = \sum_s \Pi(s \mid W, A)\,Q(s, W, A)$.
+
+## Influence functions
+
+These are the nonparametric-model gradients of the projection parameters. The model that knows the
+trial randomization has a smaller tangent space and $D_w$ is not orthogonal to its scores, so $D_w$
+is a gradient there and not that model's efficient influence function. Write
+$r_A = Y - \theta - (A - g)\beta_A^\top\phi$, $r_S = Y - \tilde Q - (S - \Pi)\beta_S^\top\psi$,
+$U_A = I_A^{-1}(A - g)\phi\,r_A$, $U_S = I_S^{-1}(S - \Pi)\psi\,r_S$, with
+$I_A = E[g(1 - g)\phi\phi^\top]$ and $I_S = E[\Pi(1 - \Pi)\psi\psi^\top]$, and
+
+$$
+D_A = \beta_A^\top\phi - \tilde\Psi_w + m_A^\top U_A, \qquad
+D_{\#} = \tau^{\#}_\beta - \Psi^{\#}_w + (S - \Pi)\,C + m_S^\top U_S, \qquad
+D_w = D_A - D_{\#},
+$$
+
+with $m_A = E[\phi]$ and $m_S = E[\psi(W, 0)\Pi(0 \mid W, 0) - \psi(W, 1)\Pi(0 \mid W, 1)]$.
+No $g$, $\theta$, $\tilde Q$ or $\Pi$ term appears from the coefficient equations because each
+R-loss is Neyman orthogonal in its nuisances. The $(S - \Pi)\,C$ term is the only $\Pi$ term. For
+$\Psi_2$ the $W$-average is over $S = 1$, which adds the factor $\pi(W) / P(S = 1)$ to the $\Pi$ term
+and $S$-weighted means to the coefficient terms; the mean of the observed $S\,h(W)$ contributes
+$S\,h(W) - E[S\,h(W)]$ and no $\Pi$ derivative.
+
+The remainder is a sum of products of nuisance errors: $(g - g_0)(\theta - \theta_0)$,
+$(g - g_0)^2\beta_A^\top\phi$, $(\Pi - \Pi_0)(\tilde Q - \tilde Q_0)$, $(\Pi - \Pi_0)^2\beta_S^\top\psi$,
+$(\Pi - \Pi_0)(g - g_0)\tau_S / g$, and squared coefficient errors. No regression is fitted on an
+estimated index, so the fit is not in the linear-remainder family and needs no restriction on the
+index's regularity.
+
+## Inference status
+
+Every `atmle` estimate carries the status `working_model_projection`, under the experimental
+label. The interval covers $\Psi_w$ at the working models the fit selected. It covers $\Psi$ only
+when the oracle-approximation condition of Theorem 1 holds (Theorem 2 for the CV form): the
+selected models approximate $\tau_A$ and $\tau_S$ well enough that the working-model bias is
+$o_P(n^{-1/2})$. No data check confirms that condition.
+
+The source supplies no theorem for the lasso selection itself. With the default dictionary, the
+interval is for the projection onto the limiting selected span, which equals $\Psi$ when $\tau_A$
+and $\tau_S$ lie in that span or when the representers of the previous section do.
+
+[Inference](inference.md) lists the status in precedence order, and roadmap item
+[F39](../roadmap.md#f39-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope)
+owns a testable oracle condition. The fit reports `result.working_models` for every fold so that a
+reader can see which columns carried the bias.
+
+## Exact reductions
+
+Two exact reductions serve as comparators on the same rows.
+
+- The trial-only TMLE of $\Psi_2$ is `PointTreatment` on the $S = 1$ rows.
+- The regular TMLE of $\Psi$ (Lemma 1) is `PointTreatment(missingness=)` on the pooled rows with $Y$
+  set missing outside the trial. Its shipped missing-outcome target is $E_W[E(Y \mid A = 1, \Delta = 1, W) - E(Y \mid A = 0, \Delta = 1, W)] = \Psi$ and its clever covariate
+  $(2A - 1) / (g(A \mid W)\,P(\Delta = 1 \mid A, W))$ equals Lemma 1's weight. A test checks that
+  the two influence functions agree on a finite law
+  (`test_lemma1_regular_tmle_equals_the_shipped_missing_outcome_influence_curve`).
+
+## Refusals
+
+Each refusal is raised before any learner fits. [Scope and refusals](scope-and-refusals.md#adaptive-tmle-refusals)
+lists the codes.
+
+| request | refusal | why |
+| --- | --- | --- |
+| a treatment with more than two levels, a dose, a vector treatment | `implementation_gap`, [F39](../roadmap.md#f39-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope) | Lemma 2 and the working models are stated for a binary treatment |
+| a ratio scale | `implementation_gap`, F39 | the source gives no working model for a ratio |
+| `method="atmle"` on `PointTreatment` | `invalid_declaration` | the method needs trial membership |
+| `TrialATE` on any other design, or another estimand on `TrialWithExternalData` | `invalid_declaration` or `different_estimand` | only the trial effect is identified |
+| any method other than `atmle` on the pooled design | `different_estimand` | the other methods read the pooled rows as one population |
+| `CrossFitting(repeats > 1)` | `inference_gap` | no source combines adaptive working-model fits across splits |
+| `form="cv"` with fewer than three folds, or with cross-fitting off | `invalid_declaration` | the form selects and targets on other folds |
+| a setting the method does not read (bootstrap, simultaneous band, outcome fluctuation, `n_jobs`) | `invalid_declaration` | each is refused by name with its reason |
+| `weights=`, `cluster=`, `strata=`, `intermediate=`, `treatment_missingness=` | not accepted by the design | no source derives them |
+| the sensitivity analyses, refutation and truncation curves | `inference_gap` or `api_redirection` | their bounds assume a point-treatment fit; each fit refuses with its reason |
+
+An arm with all outcomes missing, a trial membership column with a null, and a pooled frame with
+no trial row, no external row or a trial of one arm are `DataError`s. A fit with external treated
+rows below $\max(20, 1\%)$ of the external rows warns that the bias of those rows is learned from
+few observations.
+
+## Result surface
+
+`AdaptiveTMLEResult` supports `estimate`, `estimates`, `to_frame`, `summary`, `covariance`,
+`influence_curves`, `contrast`, `save` and `load`. `support_report()`, `score_report()`,
+`nuisance_report()` and `corrections_report()` return the plain reports in
+`cleverly.estimators.atmle_result`. `score_equations` gates $|P_n D|$ against the engine's own
+stopping rule and refuses an explicit `tolerance=`. Replay is `summarize` and
+`rerun_configuration` only.
+
+## Differences from `atmle`
+
+The comparator is the R package `atmle` at commit `845280889d2fb7d929adb494759b1588ab776f43`
+(`form="pooled"`, pins `target_method = "relaxed"`, `n_lambda = 1`, `force_A = FALSE`). Declared
+differences that move numbers at second order:
+
+| id | `atmle` | here |
+| --- | --- | --- |
+| D1 | two epsilons (one per arm) in a weighted $\Pi$ step | one epsilon, which spans the same combined score |
+| D2 | clips $\Pi$ at $[10^{-3}, 1 - 10^{-3}]$ and bounds $|A - g|$ and $|S - \Pi|$ because it divides | `g_bounds`; no division |
+| D3 | drops basis columns with support below $1/\sqrt{n}$ | the $k_{\min}$ screen above |
+| D4 | stops at $10^{-4}\,\mathrm{sd}/(\sqrt{n}\log n)$ | stops at $\mathrm{sd}/(\sqrt{n}\log n)$ |
+| D5 | predicts nuisances in sample with one learner | cross-fitted predictions |
+| D6 | no Appendix C form | `form="cv"` has no comparator |
+
+The comparison is declared and not run. It never blocks the method.
+
+## Evidence
+
+The method is validated by two declared studies and by exact-law unit tests. No study result is
+committed yet, and this section records what is declared, not what was found.
+
+### Declared studies
+
+`adaptive-tmle-trial` (`tests/studies/adaptive_tmle_trial.py`) draws $n = 4{,}000$ pooled rows (a
+trial of 1,000 and 3,000 external rows, the paper's "3x") and fits `AdaptiveTMLEMethod` with
+explicit spline learners, five outer and five inner folds. Each scenario gates one estimand with the
+primary performance tests: a bias leg, a coverage floor and an SE sanity band.
+
+| scenario | law | gated estimand |
+| --- | --- | --- |
+| `a0`, `a1a`, `a1b` | the paper's laws (a) with no bias and (b) with bias linear in $W$ | $\Psi$ |
+| `a2c`, `a2d` | the paper's laws (c), (d), with bias outside the span | the working-model projection |
+| `e1` | a separating law where the selected projection differs from $\Psi$ by at least three standard errors | the projection |
+| `a3`, `a3_pi` | positivity stress; `a3_pi` misspecifies the $\Pi$ learner | $\Psi$ |
+| `a4` | controls-only external data | $\Psi$ |
+| `a5` | missing outcomes, with an external mechanism that depends on $Y$ | $\Psi$ |
+| `b1y` | binary outcome | $\Psi$ |
+| `h2_pooled`, `h2_trial` | a heterogeneous effect, so $\Psi \ne \Psi_2$ | $\Psi$, and $\Psi_2$ |
+| `f1a`, `f1b` | `form="pooled"` on (a) and (b) | $\Psi$ |
+
+The projection truth $\Psi_w(P_0)$ is computed per replicate by quadrature on each fold's stored
+transformer and selected columns, so the record declares a truth that varies by replicate.
+
+Controls ride on the same draws and must fail where they should:
+
+| control | what it checks | expected |
+| --- | --- | --- |
+| efficiency contrast on `a0` | RMSE(A-TMLE) / RMSE(trial-only TMLE), upper bootstrap bound below one | gates. `a1a` and `a1b` report the ratio, because the gain needs the lasso to drop every arm-shift column |
+| K1, naive pooled TMLE on `a1b` | treating external rows as exchangeable | $\Psi$ coverage below the floor |
+| K2, unpenalized main-terms working model on `e1` | the status label | projection coverage passes, $\Psi$ coverage fails |
+| K3, no $\Pi$ fluctuation on `a3_pi` | the targeting step | the SE-ratio rule rejects |
+| K4, a ladder on `e1` at three sample sizes | the bias-to-SE ratio of $\Psi$ grows like $\sqrt{n}$ while the projection's stays bounded | reporting row |
+| K5, $S/p$ replaced by one on `h2_pooled` | the $\Psi_2$ weights | $\Psi_2$ coverage fails |
+
+`adaptive-tmle-selective` (`tests/studies/adaptive_tmle_selective.py`) is cell S6: selective
+enrollment with a large wiggly bias, Super Learner nuisances (spline GLM, shallow boosting, lasso),
+both forms, $n = 3{,}200$. Control K6, main-terms GLM nuisances on the same draws, is a reporting
+row, because no cheap law is known on which main-terms nuisances fail at that size.
+
+The replication count of each study is set by the repeated-sampling sizing rule from a pilot, and
+it is not pinned until the pilot runs. The declared red-cell reading is the one in the
+[benchmarking strategy](../development/method-benchmarking.md#red-cells).
+
+| item | result |
+| --- | --- |
+| study A coverage, bias and SE ratio per scenario | pending the declared run |
+| controls K1 to K5 | pending the declared run |
+| study S6 | pending the declared run |
+| R `atmle` pairing | pending; declared, not blocking |
+
+Neither study appears in the [implementation validation grid](method-evidence/validation-grid.md)
+yet, because the grid lists registered studies with committed results. The registration adds a
+grid row and a study page under [method evidence](method-evidence/index.md).
+
+### Unit tests
+
+| test | what it checks | what it cannot see |
+| --- | --- | --- |
+| `tests/unit/test_atmle_exact.py` | on finite laws with the dictionary outside the truth's span: Lemma 2, the saturated dictionary projecting to the trial effect, the influence function as a Gateaux derivative, each influence component being needed, the remainder as a second-order product, first-order remainders for a trial treatment mechanism in the covariate and for an inverse-weighted residual, Lemma 1, and the $\Pi$ fluctuation solving the source score | the truth at a fitted learner |
+| `tests/unit/test_atmle_engine.py` | the lasso against its optimality conditions and an independent solver, the refit and fluctuation score equations, full rank and the support screen, the rows each fold reads, and the penalized $A$ column with a nonzero witness | coverage |
+| `tests/unit/test_atmle_refusals.py` | every refusal text and code, with a spy that proves no engine call | none |
+| `tests/unit/test_atmle_workflow.py` | the fit through `CausalStudy` equals the engine on the same arrays, the status, the controls-only and few-treated cases, and `save` and `load` | none |
+| `tests/unit/test_adaptive_tmle_trial_design.py` | every declared constant of the studies: truths, separations, control powers and sizing, recomputed without a run | estimator behaviour |
+
+Each exact-law test pins a nonzero witness against a value that the test computes from the law, so
+a deleted sign, mask or counterfactual block fails at least one of them.
+
+## Reading list
+
+- van der Laan, Qiu, Tarp and van der Laan, J. Causal Inference 14(1):20240025,
+  doi:10.1515/jci-2024-0025 (arXiv:2405.07186v2): Sec 2.4 for $\Psi$, Lemma 2, Algorithm 1,
+  Theorems 1 and 2, Appendix B (missing outcomes) and Appendix C (CV form).
+- [References](../references.md) lists the entry with the other sources.

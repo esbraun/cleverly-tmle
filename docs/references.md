@@ -1138,11 +1138,19 @@ sizes only the cluster sum is the delta-method variance of the row mean
   data*](https://doi.org/10.1515/jci-2024-0025), *Journal of Causal Inference* 14:20240025,
   DOI 10.1515/jci-2024-0025, preprint [arXiv:2405.07186](https://arxiv.org/abs/2405.07186).
   The paper proves asymptotic normality for its adaptive working-model estimator. It is adjacent to
-  F18, and not a result for the shipped collaborative selector.
+  F18, and not a result for the shipped collaborative selector. It is the source of
+  [adaptive TMLE](technical-reference/adaptive-tmle.md): Sec 2.4 and Lemma 2 for the estimand and
+  its decomposition, Algorithm 1 and Theorem 1 for the pooled form, and Appendix B and Appendix C
+  for missing outcomes and the cross-validated form. Read first-hand in arXiv:2405.07186v2. The
+  journal text has not been read, so the locators are arXiv's and the journal numbering may differ.
+  The paper does not derive the trial-population effect, the $\Pi$ fluctuation, or a lasso-specific
+  theorem. Those are stated on the technical page as extensions or as open (F39).
 - Karim (2026), [*When Does Real-World Data Make a Randomized Trial More Efficient? Selection-Aware
   Inference for Adaptive-TMLE*](https://arxiv.org/abs/2607.02787), arXiv:2607.02787. This entry
   records a simulation caution. It reports undercoverage for selection-unaware standard errors and
-  studies a block jackknife in its RCT augmentation setting. It supplies no F18 theorem.
+  studies a block jackknife in its RCT augmentation setting. It supplies no F18 theorem. It is the
+  source of the selective-enrollment cell of the declared `adaptive-tmle-selective` study,
+  which does not reproduce its numbers.
 
   Three 2019 *SMMR* papers have Cheng Ju as first author. The Ju, Gruber et al. entry above is
   volume 28(2), DOI 10.1177/0962280217729845. The Ju, Schwab and van der Laan entry is also volume

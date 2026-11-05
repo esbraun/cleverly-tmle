@@ -125,6 +125,14 @@ lists every refusal. Without a known finite support, fit in sample with
 `CrossFitting(enabled=False)`. The in-sample fit keeps whichever fold policy you declare, because
 one fold balances nothing.
 
+## The trial's effect with external data
+
+`TrialATE(population=)` asks for the treatment effect in a randomized trial that is pooled with
+external rows. `"trial"` averages it over the trial's patients, and `"pooled"` over the patients of
+every row. It applies only to a `TrialWithExternalData` design and to a two-valued treatment on the
+difference scale. [A small trial with external data](trial-with-external-data.md) explains the
+choice.
+
 ## Known regimes
 
 Use `Static`, `Rule`, or `Stochastic` interventions with `RegimeMean` or `RegimeContrast`.

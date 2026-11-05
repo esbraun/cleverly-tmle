@@ -260,6 +260,27 @@ An operation on the result refuses by name as well.
 | `sensitivity.missingness`, `tipping_gamma` | `api_redirection` | use `TMLE`. Each tilts an outcome regression |
 | `sensitivity.simulated_confounding` on a regime or MSM | `implementation_gap` | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, the fixed-policy replay under another method |
 
+### Adaptive TMLE refusals
+
+`TrialWithExternalData`, `TrialATE` and `AdaptiveTMLEMethod` raise every refusal below before any
+learner fits. A spy in place of the engine shows zero calls in `tests/unit/test_atmle_refusals.py`.
+The [contract page](adaptive-tmle.md) states the estimator.
+
+| refused | class and code | where |
+| --- | --- | --- |
+| a treatment with more than two levels, a continuous dose, or a vector treatment | `CapabilityError`, `implementation_gap` | [F39](../roadmap.md#f39-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope). Fit the trial rows alone with `PointTreatment` |
+| a ratio-scale estimand on the pooled design | `CapabilityError`, `implementation_gap` | F39. Request `TrialATE` |
+| an estimand other than `TrialATE` on the pooled design | `CapabilityError`, `different_estimand` | the design identifies the trial's effect, not an effect of the external rows |
+| `TrialATE` on a design without trial membership | `CapabilityError`, `invalid_declaration` | declare `TrialWithExternalData(source=...)` |
+| a method other than `atmle` on the pooled design | `CapabilityError`, `different_estimand` | the other methods read the pooled rows as one population. Fit `method="atmle"` |
+| `method="atmle"` on a design without trial membership | `CapabilityError`, `invalid_declaration` | declare `TrialWithExternalData` |
+| `CrossFitting(repeats)` above 1 | `MethodConfigurationError`, `inference_gap` | no source combines adaptive working-model fits across splits |
+| `form="cv"` with fewer than three folds, or with cross-fitting off | `MethodConfigurationError`, `invalid_declaration` | the form selects and targets each fold on the other folds. Use three or more folds or `form="pooled"` |
+| a setting of `ModelSpec`, `CrossFitting`, `Targeting`, `Inference` or `Runtime` that the method does not read | `MethodConfigurationError`, `invalid_declaration` | each is refused by name, with its reason |
+| `weights=`, `cluster=`, `strata=`, `intermediate=` or `treatment_missingness=` | not a field of the design | no source derives them |
+| a null in the trial-membership column; a frame with no trial row, no external row, or one trial arm; an arm whose outcomes are all missing | `DataError` | the effect would be extrapolated |
+| every sensitivity analysis, the refutation operations and the truncation curve | `CapabilityError`, `inference_gap` or `api_redirection` | the bounds assume a point-treatment fit. Each call names its reason |
+
 ### Experimental compositions
 
 A composition that no study covers, and whose code computes the requested quantity, runs. The

@@ -1,6 +1,6 @@
 # Natural-extension verdicts
 
-This page records the source audit of forty-one compositions that the package refused or did not
+This page records the source audit of forty-two compositions that the package refused or did not
 implement. The audit applies the [Eligibility](../roadmap.md#eligibility) rule of the roadmap. A
 part qualifies when each step is a standard step and no source records an objection. An objection
 is a source that records a step as open or as a defect. A step that needs a new kind of limit
@@ -70,6 +70,7 @@ A row that delivers a part updates the last column of the table below.
 | (am) a deterministic regime under `AdaptiveIPTW`, also with missing data in sample and cross-fitted on complete data | none; `interventions=` declares the regime | WP302, Theorem 1, on $(W, B, Y)$ with $B = 1\{A = d(W)\}$ | an indicator reduction to the binary treatment $B$ with mechanism $g_d(W) = \sum_a g(a \mid W) 1\{d(W) = a\}$. With missing data, the composite reduction of part (ai), in sample only | none found. A cross-fitted regime with missing data is refused, because no registered cell measures it | shipped. Point estimate everywhere, interval under H2 on complete data | [AdaptiveIPTW](adaptive-iptw.md#contract) |
 | (an) the missing-outcome natural-course mean, `par` and `paf` under `AdaptiveIPTW` | none; `delta=` declares the missing outcome | WP302, Theorem 1, with $\Delta$ as the treatment and $(A, W)$ as the covariate | an indicator reduction to $\Delta$ under missing at random with $\pi(A, W) > 0$. Stacking with the arm keys gives `par` and `paf` by linearity and the delta method. Cross-fitting applies the fold-wise reduced regression of part (ak) | none found | shipped. Point estimate everywhere, no interval: $\pi$ is estimated | [AdaptiveIPTW](adaptive-iptw.md#contract) |
 | (ao) a known stochastic regime under `AdaptiveIPTW`, also with missing data in sample and cross-fitted on complete data | none; `Stochastic(..., density_kind="known")` declares the regime | WP302, Theorem 1, for each arm with the outcome $g^*(a \mid W) Y$ | the chain rule with a known weight, then linearity over the arms. With missing data, the composite reduction of part (ai), in sample only | none found | shipped. Point estimate everywhere, interval under H2 on complete data | [AdaptiveIPTW](adaptive-iptw.md#contract) |
+| (ap) the trial's effect averaged over the trial covariates, $\Psi_2$, and the adaptive CV-TMLE for a binary treatment, `AdaptiveTMLEMethod` | none; `TrialATE(population="trial")` declares it | van der Laan, Qiu, Tarp and van der Laan (2026), read as arXiv:2405.07186v2: Sec 2.4 and Lemma 2 for $\Psi$, Appendix C and Theorem 2 for the CV form | Lemma 2 pointwise in $W$, the weight $S / P(S = 1)$ on the $W$-average, the chain rule for the influence function, and the delta method for the ratio. The paper derives nothing for $\Psi_2$ | none found in the arXiv text. The journal numbering was not read | shipped, under the `working_model_projection` status. The interval covers the working-model projection, and coverage of the effect needs the oracle-approximation condition ([F39](../roadmap.md#f39-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope)) | [adaptive TMLE](adaptive-tmle.md) |
 
 ## The conditions each part inherits
 
@@ -112,3 +113,4 @@ A row that delivers a part updates the last column of the table below.
 | (al) | known fixed weights; independent clusters of bounded size and the rules of part (g); a fixed number of strata, each with positive mass |
 | (am), (ao) | the regime density is known and fixed before the fit; $g_d > 0$ on the rows the regime selects; the conditions of part (ag) |
 | (an) | missing at random for $\Delta$ given $(A, W)$; $\pi(A, W) > 0$; the conditions of part (ag); no interval |
+| (ap) | A1 and A2 in the trial; A3 for the pooled average; a binary treatment on the difference scale; the oracle-approximation condition for the interval to cover the effect itself |

@@ -225,6 +225,38 @@ data = frame.rename(
 """
 )
 
+#: ``docs/user-guide/trial-with-external-data.md`` reads a file the reader owns, so ``read_csv``
+#: returns a small pooled frame of the columns the guide names: a trial of about 150 rows and
+#: external rows whose outcomes carry a shift that depends on ``prior_visits``.
+_TRIAL = """
+import numpy as np
+import pandas as pd
+
+_rng = np.random.default_rng(5)
+_n = 500
+_risk, _age, _prior = _rng.normal(size=(3, _n))
+_in_trial = _rng.binomial(1, 1 / (1 + np.exp(1.0 - 0.5 * _risk)))
+_program = np.where(
+    _in_trial == 1, _rng.binomial(1, 0.5, _n), _rng.binomial(1, 1 / (1 + np.exp(-_risk)))
+)
+_pooled = pd.DataFrame(
+    {
+        "in_trial": _in_trial,
+        "program": _program,
+        "score": 50
+        + 5 * _program
+        + 3 * _risk
+        + 2 * _age
+        + (1 - _in_trial) * (3 + 2 * _prior)
+        + _rng.normal(0, 8, _n),
+        "risk": _risk,
+        "age": _age,
+        "prior_visits": _prior,
+    }
+)
+pd.read_csv = lambda *args, **kwargs: _pooled
+"""
+
 #: Document -> the code its fences assume was already run.  An empty string means the document
 #: builds everything it uses.  Tutorials under ``docs/examples`` hold that standard without an
 #: entry here: :data:`TUTORIALS` discovers them, so converting one to a notebook edits no
@@ -245,6 +277,7 @@ PRELUDES: dict[str, str] = {
     "docs/user-guide/estimands.md": _STUDY,
     "docs/user-guide/methods-learners.md": _EFFECT,
     "docs/user-guide/results-assessment.md": _RESULT,
+    "docs/user-guide/trial-with-external-data.md": _TRIAL,
     "docs/workflow.md": _WORKFLOW,
 }
 

@@ -338,6 +338,7 @@ change.
 | Collaborative TMLE | collaborative-tmle |
 | DR-TMLE | randomized-pilot |
 | Adaptive-propensity IPTW | randomized-pilot |
+| Adaptive TMLE for a trial with external data | trial-with-external-data |
 | Cross-fitting and CV-TMLE | cross-fitting, and every cross-fitted tutorial |
 | Targeting and fitting options | randomized-pilot (`Targeting(step_bound=..., iterate="best")`). `stopping=`, `outcome_by_arm=`, `patience=` and `treatment_adjustment=` carry the experimental label and stay on their reference sections |
 | Inference, diagnostics, and sensitivity | every tutorial |
