@@ -5,9 +5,8 @@ One row per replicate and reading (:data:`tests.studies.ep_assessment.CELLS`):
 - ``calibration``: the out-of-fold slope (positive: the 99% interval of the mean inside
   ``[0.85, 1.15]``) and the stretched curve's slope (control: the 99% upper bound below
   0.85); the weak law's slope is diagnostic;
-- ``stability``: the indicator that ``relative_sd`` is below 0.5 at the strong law and above
-  it at the weak law (positive: the 99% Clopper-Pearson lower bound of the share at least
-  0.80), and ``relative_sd`` itself (diagnostic);
+- ``stability``: ``relative_sd`` and the indicator that it exceeds the 0.5 split-sensitivity
+  warning, at both laws (diagnostic: reported, not gated; plan amendment rev 2.4);
 - ``risk_comparison``: the indicator that the reported EP-minus-constant DR risk difference
   has the exact value's sign (positive at the strong law, diagnostic at the weak), and both
   differences (diagnostic).
@@ -186,7 +185,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
 def _rule() -> pf.FamilyRule:
     # Not accountable: a lost replicate of a refit-based reading has no candidate value.
     return pf.FamilyRule(
-        families=frozenset({study.CALIBRATION, study.STABILITY, study.RISK}),
+        families=frozenset({study.CALIBRATION, study.RISK}),
         shared="reading_verdicts",
         clauses=(
             pf.unaccountable_clause(

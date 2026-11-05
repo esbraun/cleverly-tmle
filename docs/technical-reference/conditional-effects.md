@@ -241,8 +241,11 @@ $\tilde D = D_t - D_r$ of the producing fit's cross-fitted nuisances, which neve
   the one-step loss) of the curve, the training-fold constant, the T-learner and, for a
   difference, the DR-learner on the same basis. No log-ratio DR-learner exists to compare.
 - `stability()`: the mean across rows of the SD of the refitted curves over 5 split seeds,
-  over the SD of the curve; above 0.5 it warns. A cosine basis is also refitted as a B-spline
-  of the same size, and the reverse.
+  over the SD of the curve; above 0.5 it warns. Every refit uses the same sample, so the
+  reading measures sensitivity to the cross-fitting split, not sampling noise, and a low value
+  does not mean the curve is well determined (the `ep-assessment` pilot reads 0.09 on a curve
+  of noise at a constant effect). For that, read the heterogeneity test and the projection's
+  intervals. A cosine basis is also refitted as a B-spline of the same size, and the reverse.
 - `modifier_stability()`: the out-of-fold risk with each modifier dropped from the basis.
 
 `corrections`, `truncation_curve` and `refute` are declared unavailable, the last with R9.
@@ -399,16 +402,16 @@ the constant CATE 0.1, at $n = 2{,}000$ with the ensemble:
 | reading | claim | control |
 | --- | --- | --- |
 | out-of-fold calibration slope, 300 replicates | the 99% interval of its mean inside $[0.85, 1.15]$ | the curve stretched by 1.5 about its mean on the same folds, whose slope is exactly $1/1.5$ of the curve's: its 99% upper bound below 0.85 |
-| stability, `relative_sd` over 5 split seeds, 100 replicates per law | the share below 0.5 at the complex law has a 99% Clopper-Pearson lower bound of at least 0.80 | the share above 0.5 at the weak law, with the same bound |
+| stability, `relative_sd` over 5 split seeds, 100 replicates per law | none: reported only, with the share of each law's replicates above 0.5 | none |
 | risk comparison, EP against the constant | the share of complex-law replicates whose reported DR risk difference has the sign of its exact value at the true CATE, with the same bound | none; at the weak law the share is reported only |
 
 The pilot (`tests/studies/ep_assessment_pilot.csv`) reads the slope at 0.987 (SD 0.005) and
 the stretched slope at 0.658, so the calibration claim and its control pass with probability
-1.0, as does the sign share. The weak-law stability claim cannot pass: refits under other
-split seeds reuse the same draw, and the curve's wiggle at a constant effect comes from the
-draw, so `relative_sd` reads 0.088 there (0.009 at the complex law), far below 0.5. Until the
-claim is redecided, the stability warning has no control that can fail, and the declared run
-refuses to start.
+1.0, as does the sign share. Stability is reported, not gated (plan amendment rev 2.4).
+Refits under other split seeds reuse the same draw, and a curve's wiggle at a constant effect
+comes from the draw, so `relative_sd` reads 0.088 at the weak law (0.009 at the complex law).
+A claim that the weak law reads above 0.5 would fail at any R, and no control could make the
+reading's warning fail.
 
 The EP learner's fast-tier instruments are:
 

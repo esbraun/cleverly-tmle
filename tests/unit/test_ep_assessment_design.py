@@ -99,28 +99,28 @@ class TestTheDesignNumbers:
     def numbers(self) -> dict:
         return study.design_numbers()
 
-    @pytest.mark.parametrize("claim", ["calibration", "control", "stable", "sign"])
-    def test_the_claim_reaches_the_target(self, numbers: dict, claim: str) -> None:
+    @pytest.mark.parametrize("claim", ["calibration", "control", "sign"])
+    def test_every_claim_reaches_the_target(self, numbers: dict, claim: str) -> None:
         assert numbers[claim] >= study.TARGET_PASS, (claim, numbers)
 
-    def test_the_weak_law_stability_claim_cannot_pass_and_blocks_the_run(
+    def test_stability_is_reported_only_because_it_reads_the_split_not_the_draw(
         self, numbers: dict
     ) -> None:
-        """The pilot's finding: split-seed refits barely move a curve of noise.
+        """The pilot's finding (plan amendment rev 2.4).
 
-        The weak law's ``relative_sd`` sits near 0.09, so the share above 0.5 is about 0 and
-        the plan's claim fails at any R.  The claim is not moved; the run is refused until the
-        owner decides (``ep_assessment.BLOCKED``).
+        The weak law's ``relative_sd`` sits near 0.09: the refits share the draw, so a curve of
+        noise barely moves.  A claim on it would fail at any R and its warning could not fail,
+        so every stability cell is diagnostic.
         """
         pilot = study.pilot_rows()[("weak_2k", "relative_sd")]
         assert pilot["mean"] + 5 * pilot["sd"] < study.STABILITY_THRESHOLD
-        assert numbers["unstable"] < 1e-6
-        assert study.BLOCKED
+        assert numbers["warning_share"]["weak_2k"] < 1e-6
+        roles = {role for family, _, role, _, _ in study.CELLS if family == study.STABILITY}
+        assert roles == {study.DIAGNOSTIC}
+        assert study.STABILITY not in properties.PROPERTY_RULES[0].families
 
 
-def synthetic_rows(
-    *, slope: float = 1.0, stable: float = 1.0, unstable: float = 1.0, sign: float = 1.0
-) -> pd.DataFrame:
+def synthetic_rows(*, slope: float = 1.0, warns: float = 0.0, sign: float = 1.0) -> pd.DataFrame:
     """Rows of every declared cell; the indicator cells are 1 with the given probabilities."""
     rng = np.random.default_rng(12)
     rows = []
@@ -131,8 +131,8 @@ def synthetic_rows(
                 value = slope + 0.1 * rng.standard_normal()
             elif suffix == "stretched_slope":
                 value = slope / study.STRETCH + 0.07 * rng.standard_normal()
-            elif suffix in ("stable", "unstable", "sign_agrees"):
-                share = {"stable": stable, "unstable": unstable, "sign_agrees": sign}[suffix]
+            elif suffix in ("warns", "sign_agrees"):
+                share = {"warns": warns, "sign_agrees": sign}[suffix]
                 value = float(rng.uniform() < share)
             else:
                 value = rng.standard_normal()
@@ -171,13 +171,8 @@ class TestTheVerdicts:
     def test_a_flat_curve_fails_the_claim_while_the_control_detects(self) -> None:
         assert self.failed(slope=0.7) == {"strong_2k__slope"}
 
-    @pytest.mark.parametrize(
-        ("setting", "cell"),
-        [
-            ({"stable": 0.7}, "strong_2k__stable"),
-            ({"unstable": 0.7}, "weak_2k__unstable"),
-            ({"sign": 0.7}, "strong_2k__sign_agrees"),
-        ],
-    )
-    def test_a_low_share_fails(self, setting: dict, cell: str) -> None:
-        assert self.failed(**setting) == {cell}
+    def test_a_low_sign_share_fails(self) -> None:
+        assert self.failed(sign=0.7) == {"strong_2k__sign_agrees"}
+
+    def test_the_stability_warning_states_no_verdict(self) -> None:
+        assert self.failed(warns=1.0) == set()

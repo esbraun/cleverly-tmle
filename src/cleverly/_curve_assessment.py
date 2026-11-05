@@ -13,8 +13,9 @@ producing fit's own cross-fitted nuisances give on the held-out rows, which neve
   against the constant (the average effect), the T-learner (the projection of the outcome
   regressions' contrast) and, for a difference, the DR-learner (the regression of
   :math:`\\tilde D` on the same basis).
-- :meth:`CurveDiagnostics.stability`: refits under other split seeds and, for a cosine or
-  B-spline basis, under the other family at a matched size.
+- :meth:`CurveDiagnostics.stability`: refits on the same data under other cross-fitting split
+  seeds and, for a cosine or B-spline basis, under the other family at a matched size.  It
+  measures sensitivity to the split, not sampling noise.
 - :meth:`CurveDiagnostics.modifier_stability`: refits without each modifier, and the change
   in the out-of-fold risk.
 """
@@ -41,7 +42,8 @@ __all__ = [
 ]
 
 #: The across-refit SD of the predictions, relative to the curve's own spread, above which
-#: :meth:`CurveDiagnostics.stability` warns (P1 plan 3.5 and 5.4).
+#: :meth:`CurveDiagnostics.stability` warns that the curve is sensitive to the cross-fitting
+#: split (P1 plan 3.5 and 5.4).  It is not a threshold on sampling noise.
 STABILITY_WARNING = 0.5
 
 
@@ -144,7 +146,14 @@ class CurveRiskComparison:
 
 @dataclass(frozen=True)
 class CurveStability:
-    """The spread of the curve's predictions across refits.
+    """The spread of the curve's predictions across refits on the same data.
+
+    The refits differ only in the cross-fitting split, so the reading measures sensitivity to
+    the split, not sampling noise: a low value does not mean the curve is well determined.  A
+    curve of pure noise at a constant effect reads low, because its wiggle comes from the
+    draw, which every refit shares (the ``ep-assessment`` pilot reads 0.09).  Whether the
+    effect varies at all is the question of ``heterogeneity_test`` and the projection's
+    intervals.
 
     Parameters
     ----------
@@ -152,7 +161,8 @@ class CurveStability:
         The mean across rows of the across-refit SD of the predictions, over the SD of the
         curve's own in-sample predictions.
     warning : bool
-        Whether ``relative_sd`` exceeds :data:`STABILITY_WARNING`.
+        Whether ``relative_sd`` exceeds :data:`STABILITY_WARNING`: a split-sensitivity
+        warning.
     seeds : tuple of int
         The split seeds of the refits.
     alternative : str
@@ -485,6 +495,11 @@ class CurveDiagnostics:
 
     def stability(self, *, n_seeds: int = 5, random_state: int | None = None) -> CurveStability:
         """The spread of the in-sample curve across refits under other split seeds.
+
+        Every refit uses the same rows; only the cross-fitting split changes.  The reading
+        measures sensitivity to the split, not sampling noise, so a low value does not mean
+        the curve is well determined.  For whether the effect varies at all, fit the
+        projection and read ``heterogeneity_test()`` and its intervals.
 
         Parameters
         ----------

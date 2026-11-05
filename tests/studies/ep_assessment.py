@@ -1,7 +1,8 @@
 r"""Declaration and driver of the ``ep-assessment`` study (P1 plan, section 5.4).
 
 The study measures the assessment readings of an EP curve
-(:class:`cleverly.effect_curves.CurveDiagnostics`), each with a control that can fail.  Both
+(:class:`cleverly.effect_curves.CurveDiagnostics`); each gated reading has a control that can
+fail, and the stability reading is reported only.  Both
 laws are ``ep-cate``'s hte3 code law at d = 3, moderate overlap, n = 2,000, with the ensemble
 nuisances and the schedule size ``k(2000) = 4`` cosines per modifier:
 
@@ -19,12 +20,15 @@ must lie below 0.85.  It is a deterministic resolution check of the reading, a m
 than an independent failure (plan nit n2); it fails whenever the EP claim's upper bound is
 below 1.275.
 
-**Stability** (strong and weak, :data:`STABILITY_REPLICATES` each, 5 split seeds).  The
-reading is :meth:`~cleverly.effect_curves.CurveDiagnostics.stability`'s ``relative_sd``, with
-the shipped warning threshold 0.5.  Claims: the share of strong-law replicates below 0.5, and
-the share of weak-law replicates above 0.5, each have a 99% Clopper-Pearson lower bound of at
-least 0.80.  The strong-law replicates are the first :data:`STABILITY_REPLICATES` calibration
-replicates, which share their EP fit.
+**Stability** (strong and weak, :data:`STABILITY_REPLICATES` each, 5 split seeds; reported,
+not gated: plan amendment rev 2.4).  The reading is
+:meth:`~cleverly.effect_curves.CurveDiagnostics.stability`'s ``relative_sd`` and whether it
+exceeds the shipped split-sensitivity warning 0.5.  Plan 5.4 claimed that the weak law reads
+above 0.5; the pilot reads 0.088 (SD 0.027) there and 0.009 at the strong law.  The refits
+share the draw and differ only in the cross-fitting split, and a curve of noise at a constant
+effect varies with the draw, so the reading measures split sensitivity, not sampling noise, and
+no control could make its warning fail.  The strong-law replicates are the first
+:data:`STABILITY_REPLICATES` calibration replicates, which share their EP fit.
 
 **Risk comparison** (finding 26).  On the same out-of-fold predictions, the reported
 EP-minus-constant DR risk difference against its exact value at the true CATE,
@@ -74,17 +78,6 @@ SHARE_FLOOR = 0.80
 
 CALIBRATION_REPLICATES = 300
 STABILITY_REPLICATES = 100
-
-#: Why the declared run may not start yet, or ``""`` once the owner has decided.  The pilot
-#: reads the weak law's ``relative_sd`` at 0.088 (SD 0.027), far below 0.5: refits under other
-#: split seeds on the same draw move a curve of noise very little, because the curve's wiggle
-#: comes from the draw, not the split.  The weak-law share claim then fails with probability 1,
-#: and the strong-law claim (0.009) cannot fail either, so the stability reading has no control
-#: that can fail.  The declaration keeps the plan's claim and threshold unchanged.
-BLOCKED = (
-    "the weak-law stability claim of plan 5.4 cannot pass (pilot relative_sd 0.088 against "
-    "the 0.5 threshold); the owner decides the stability reading's claim before this run"
-)
 
 CALIBRATION = "calibration"
 STABILITY = "stability"
@@ -182,9 +175,9 @@ def cell_table() -> tuple[tuple[str, str, str, str, int], ...]:
     return (
         (CALIBRATION, "slope", "positive", "strong_2k", c),
         (CALIBRATION, "stretched_slope", "control", "strong_2k", c),
-        (STABILITY, "stable", "positive", "strong_2k", s),
+        (STABILITY, "warns", DIAGNOSTIC, "strong_2k", s),
         (STABILITY, "relative_sd", DIAGNOSTIC, "strong_2k", s),
-        (STABILITY, "unstable", "positive", "weak_2k", s),
+        (STABILITY, "warns", DIAGNOSTIC, "weak_2k", s),
         (STABILITY, "relative_sd", DIAGNOSTIC, "weak_2k", s),
         (RISK, "sign_agrees", "positive", "strong_2k", c),
         (RISK, "risk_difference", DIAGNOSTIC, "strong_2k", c),
@@ -217,8 +210,7 @@ def row_values(group: Group, fitted: Mapping[str, float]) -> dict[tuple[str, str
     """``(family, cell) -> value`` of one replicate."""
     derived = dict(fitted)
     if "relative_sd" in fitted:
-        derived["stable"] = float(fitted["relative_sd"] < STABILITY_THRESHOLD)
-        derived["unstable"] = float(fitted["relative_sd"] > STABILITY_THRESHOLD)
+        derived["warns"] = float(fitted["relative_sd"] > STABILITY_THRESHOLD)
     out = {}
     for family, suffix, _, label, _ in CELLS:
         if label == group.label and suffix in derived:
@@ -355,11 +347,11 @@ def share_pass(probability: float, replicates: int) -> float:
 def design_numbers() -> dict[str, Any]:
     """Every claim's pass probability and the control's power at the declared ``R``.
 
-    The share claims read a normal model of the per-replicate statistic: the probability that
-    one replicate's ``relative_sd`` falls on the claimed side of 0.5 is
-    ``Phi((0.5 - mean) / sd)`` (or its complement), and that the reported risk difference has
-    the exact sign is ``Phi(mean / sd)`` of the pilot's signed z, the reported difference
-    times the exact sign over its across-replicate SD.
+    The sign claim reads a normal model of the per-replicate statistic: the probability that
+    the reported risk difference has the exact sign is ``Phi(mean / sd)`` of the pilot's signed
+    z, the reported difference times the exact sign over its across-replicate SD.  The
+    stability reading is reported only; ``warning_share`` is the same model's expected share
+    of replicates above 0.5 at each law.
     """
     pilot = pilot_rows()
 
@@ -372,8 +364,8 @@ def design_numbers() -> dict[str, Any]:
     strong_sd = at("strong_2k", "relative_sd")
     weak_sd = at("weak_2k", "relative_sd")
     signed = at("strong_2k", "signed_risk_difference")
-    p_stable = float(stats.norm.cdf((STABILITY_THRESHOLD - strong_sd[0]) / strong_sd[1]))
-    p_unstable = float(stats.norm.sf((STABILITY_THRESHOLD - weak_sd[0]) / weak_sd[1]))
+    warns_strong = float(stats.norm.sf((STABILITY_THRESHOLD - strong_sd[0]) / strong_sd[1]))
+    warns_weak = float(stats.norm.sf((STABILITY_THRESHOLD - weak_sd[0]) / weak_sd[1]))
     p_sign = float(stats.norm.cdf(signed[0] / signed[1]))
     seconds = {group.label: pilot[(group.label, "seconds")]["mean"] for group in GROUPS}
     calibration_seconds = pilot.get(("strong_2k", "calibration_seconds"), {"mean": 0.0})["mean"]
@@ -386,9 +378,8 @@ def design_numbers() -> dict[str, Any]:
     return {
         "calibration": calibration_pass(*slope, CALIBRATION_REPLICATES),
         "control": control_detects(*stretched, CALIBRATION_REPLICATES),
-        "stable": share_pass(p_stable, STABILITY_REPLICATES),
-        "unstable": share_pass(p_unstable, STABILITY_REPLICATES),
         "sign": share_pass(p_sign, CALIBRATION_REPLICATES),
-        "probabilities": {"stable": p_stable, "unstable": p_unstable, "sign": p_sign},
+        "probabilities": {"sign": p_sign},
+        "warning_share": {"strong_2k": warns_strong, "weak_2k": warns_weak},
         "cost": {"cpu_hours": cpu, "wall_hours_4": cpu / 4.0, "wall_hours_16": cpu / 16.0},
     }

@@ -107,8 +107,12 @@ per-row estimate of each unit's effect built from the outcome and treatment mode
 - `curve.diagnostics.risk_comparison()`: how well the curve predicts the effect on held-out
   rows, beside the average effect, the difference of the two outcome models, and, for a
   difference, a regression of the pseudo-outcome on the same basis. Lower is better.
-- `curve.diagnostics.stability()`: how much the curve moves when the fit is repeated on other
-  random splits. It warns when that movement is more than half the curve's own spread.
+- `curve.diagnostics.stability()`: how much the curve moves when the fit is repeated on the
+  same rows with other random splits for the held-out fits. It warns when that movement is more
+  than half the curve's own spread. It measures sensitivity to the split, not to the sample, so
+  a low value does not mean the curve is well determined: a curve fitted to pure noise can read
+  low. Whether the effect changes at all is what `fit.heterogeneity_test()` and the intervals
+  of the default fit answer.
 - `curve.diagnostics.modifier_stability()`: how much worse the held-out prediction gets when
   each modifier is left out of the basis.
 
