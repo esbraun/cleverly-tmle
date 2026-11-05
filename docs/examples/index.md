@@ -4,8 +4,8 @@
 
 Each example is a complete analysis that you can run and adapt. It loads a dataset, estimates what
 a treatment, offer, or policy did, tests whether the result holds up, and says what you can tell a
-manager. Sixteen examples use simulated data, so each page can compare its estimate with the true
-answer. The seventeenth uses real birth records. If you are new to causal inference, read
+manager. Seventeen examples use simulated data, so each page can compare its estimate with the
+true answer. The eighteenth uses real birth records. If you are new to causal inference, read
 [one treatment, one outcome](point-treatment-tmle.ipynb) first. It explains each step that the
 other pages reuse.
 
@@ -26,6 +26,7 @@ treatment was unlikely.
 | the treatment was assigned at random with a recorded chance, as in a pilot | [a randomized pilot](randomized-pilot.ipynb) | because the chance of the offer differed by risk group, a simple comparison of offered and other patients is confounded even though the offer was random (here -0.006 against a true 0.142). Replacing the recorded chances with a fitted model of who got the treatment gives up the one model known to be right; when that fitted model and the outcome model are both wrong, the estimate is biased |
 | the gain from offering everyone over current practice, or whether the offer still helps when a later step, such as a doctor's visit within 7 days, is guaranteed for everyone | [gain over current practice](population-impact.ipynb) | the usual average effect compares offering everyone with offering no one, so it also counts the gain current practice has already collected and overstates what offering everyone would add |
 | policies to compare, such as offering a program only to high-risk patients, raising each patient's chance of an offer, or raising how much of the program each patient gets | [three offer policies](interventions.ipynb) | each policy has its own starting point: offering only to high-risk patients is compared with offering no one, and the other two with current practice, so the answers do not rank the policies or compare one with another directly. A staffing limit on how much each patient can get is part of the question: the same raise with and without the limit gives two different answers |
+| an effect that changes with a customer's or patient's characteristics, such as age, and you want to see how before deciding whom to target | [who gains most from a coupon](conditional-effects.ipynb) | within each age group, a simple comparison of customers with and without a coupon mixes the coupon's effect with who received it, and here it overstates the gain for older customers who gain almost nothing. The curve has no confidence interval, so the page checks it on held-out rows before acting on it |
 | a treatment that helps some patients and harms others, so you must decide who gets it, or share a limited number of places at random | [who should get the offer](treatment-rules.ipynb) | a rule scored on the same patients it was learned from looks better than it will do on new patients |
 | a team chooses among several contact schedules, or sets two service times, and you want the effect of nudging those choices or raising both amounts | [more contacts and more service time](schedules-and-intensity.ipynb) | when two services help each other, the effects of raising each one alone do not add up to the effect of raising both |
 | several treatment levels, summarized by one trend | [a trend across three contact schedules](msm-projections.ipynb) | a straight line through the levels still reports a slope when it does not fit them, so the slope alone can mislead |
@@ -208,6 +209,7 @@ population-impact
 
 interventions
 treatment-rules
+conditional-effects
 schedules-and-intensity
 msm-projections
 ```

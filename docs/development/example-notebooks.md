@@ -34,8 +34,8 @@ The TWINS notebook downloads its data, so the offline fast tier does not execute
 
 ### Refit cells and the slow tier
 
-A refit cell calls `refute`, `simulated_confounding`, or `benchmark`. A cell that reads a name
-that a refit cell binds is also a refit cell. The function `refit_cells()` in
+A refit cell calls `refute`, `simulated_confounding`, `benchmark`, or a curve's `stability`. A
+cell that reads a name that a refit cell binds is also a refit cell. The function `refit_cells()` in
 `tests/unit/tutorial_semantics/__init__.py` derives the set from the code. You do not tag a cell.
 
 | tier | what it does with a refit cell | which callback it calls |

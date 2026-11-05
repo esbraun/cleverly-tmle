@@ -210,8 +210,9 @@ def notebook_code(path: Path) -> list[tuple[str, str]]:
 
 
 #: A call to any of these names, as a function or as a method, makes a cell a refit cell.  Each
-#: one refits the estimator once per replicate, grid point, or dropped covariate.
-REFIT_CALLS = frozenset({"benchmark", "refute", "simulated_confounding"})
+#: one refits the estimator once per replicate, grid point, dropped covariate, or split seed
+#: (``stability``, the conditional effect curve's refits under other cross-fitting splits).
+REFIT_CALLS = frozenset({"benchmark", "refute", "simulated_confounding", "stability"})
 
 
 def _called(tree: ast.AST) -> set[str]:
