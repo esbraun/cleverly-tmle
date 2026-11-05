@@ -56,6 +56,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 import numpy as np
+from scipy.special import expit
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._summary import Detail, Summary
@@ -105,6 +106,7 @@ __all__ = [
     "bootstrap_line",
     "counterfactual_mean_parts",
     "counterfactual_means",
+    "effect_modification_coefficients",
     "has_t_reference",
     "ipsi_means",
     "is_labelled",
@@ -2601,6 +2603,102 @@ def msm_coefficients(
     return {
         float(j): ArmMean(float(beta[j]), np.ascontiguousarray(influence[:, j]))
         for j in range(phi.shape[2])
+    }
+
+
+def effect_modification_coefficients(
+    outcome: FloatArray,
+    targeted: InitialFit,
+    submodel: Submodel,
+    model: Any,
+    weights: FloatArray,
+    scaler: OutcomeScaler,
+    observed: BoolArray | None = None,
+) -> dict[float, ArmMean]:
+    r"""A conditional contrast's projection coefficients and their influence curves.
+
+    ``model`` is a :class:`~cleverly.effect_modification.EffectModificationSet`.  With
+    :math:`\bar Q^*` the targeted arm regressions on the outcome's own scale and
+    :math:`H` the clever covariate the fluctuation solved:
+
+    - **difference scale.** :math:`\hat\beta = M_n^{-1} P_n[\varphi\,\tau^*]`,
+      :math:`\tau^* = \bar Q^*_t - \bar Q^*_r`, and
+
+      .. math::
+
+          D_\beta(O) = M^{-1}\big[\varphi(V)\{\tau^*(W) - \varphi(V)^\top\hat\beta\}
+                       + H(A, W)\,\Delta\,\{Y - \bar Q^*(A, W)\}\big],
+
+      the delta method of :math:`(M, m) \mapsto M^{-1} m` with the chain rule for the
+      known weight :math:`\varphi` (P1 plan, 2.3).  :math:`M` contributes no term of its
+      own beyond the first bracket, because :math:`M` is a mean of a known function of
+      :math:`V`.
+    - **log-ratio scale.** :math:`\hat\beta` solves
+      :math:`U_n(\beta) = P_n[\varphi\{(\bar Q^*_t + \bar Q^*_r) e - \bar Q^*_t\}] = 0`,
+      :math:`e = \operatorname{expit}(\varphi^\top\beta)`, and by the implicit-function
+      step
+
+      .. math::
+
+          D_\beta(O) = -J^{-1}\big[\varphi\{(\bar Q^*_t + \bar Q^*_r) e - \bar Q^*_t\}
+                        + H(A, W)\,\Delta\,\{Y - \bar Q^*(A, W)\}\big],
+
+      with :math:`J = P_n[\varphi\varphi^\top(\bar Q^*_t + \bar Q^*_r) e(1 - e)]` and
+      :math:`H = \varphi\{e - \mathbb 1\{A = t\}\}/(g\,\Pi)` on the pair's rows.
+
+    Both are on the outcome's own scale, so a target finishes them with
+    :meth:`~cleverly.targets.TargetContext.finish_unscaled`.  The difference scale reports
+    :math:`(b - a)` times the scaled contrast; the log ratio is free of the scale, which
+    needs the outcome's lower bound at 0 (refused otherwise before any learner).
+
+    Parameters
+    ----------
+    outcome : ndarray
+        The scaled outcome.
+    targeted : InitialFit
+        The targeted arm regressions, on the scaled outcome.
+    submodel : Submodel
+        The ``effect_modification`` or ``effect_modification_ratio`` submodel solved.
+    model : EffectModificationSet
+        The evaluated projection.
+    weights : ndarray
+        ``(n,)`` observation weights.
+    scaler : OutcomeScaler
+        Maps the targeted predictions back off ``[0, 1]``.
+    observed : ndarray or None
+        The outcome-observation mask.
+
+    Returns
+    -------
+    dict of float to ArmMean
+        One coefficient and its influence curve per term, keyed by coefficient code.
+    """
+    group = "effect_modification_ratio" if model.scale == "log_ratio" else "effect_modification"
+    _expect(submodel, group)
+    if submodel.dim != model.n_terms:
+        raise ValueError(
+            f"the basis has {model.n_terms} term(s) but the submodel has {submodel.dim} column(s)"
+        )
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    residual = scaler.unscale_influence(_residual(outcome, targeted, observed))
+    predictions = _raw_predictions(targeted, model.arms, scaler)
+    fit = model.project(predictions, w)
+    beta = fit.beta
+    phi = model.design
+    t, r = model.arms.index(model.pair[0]), model.arms.index(model.pair[1])
+    if model.scale == "difference":
+        plugin = phi * (predictions[:, t] - predictions[:, r] - phi @ beta)[:, None]
+        contribution = w[:, None] * (submodel.observed * residual[:, None] + plugin)
+        influence = np.linalg.solve(fit.jacobian, contribution.T).T
+    else:
+        e = expit(phi @ beta)
+        total = predictions[:, t] + predictions[:, r]
+        plugin = phi * (total * e - predictions[:, t])[:, None]
+        contribution = w[:, None] * (submodel.observed * residual[:, None] + plugin)
+        influence = -np.linalg.solve(fit.jacobian, contribution.T).T
+    return {
+        float(j): ArmMean(float(beta[j]), np.ascontiguousarray(influence[:, j]))
+        for j in range(model.n_terms)
     }
 
 

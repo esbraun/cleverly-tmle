@@ -457,6 +457,41 @@ _MSM_ID = Identification(
     ),
 )
 
+#: The projection of a conditional contrast onto a declared basis of the modifiers
+#: (P1 plan, 2.2).  The positivity sentence names the two compared arms and does not open
+#: with the two-arm prefix, which a study would rebind to every arm.
+_CONDITIONAL_CONTRAST_ID = Identification(
+    assumptions=(
+        "consistency: Y = Y^a when A = a",
+        *_NO_INTERFERENCE,
+        "no unmeasured confounding: Y^a is independent of A given W",
+        "the modifiers V are adjustment columns: E[Y^t - Y^r | V] = E[tau(W) | V] with "
+        "tau(W) = E[Y | A = t, W] - E[Y | A = r, W] only when V is part of W",
+        "the working model is a known function of the modifiers: the basis phi(V), its "
+        "domains, knots and levels are fixed before the fit, so the influence curve "
+        "carries no term for estimating them",
+        "the Gram matrix E[phi(V) phi(V)'] is invertible, so the projection is one "
+        "coefficient vector",
+        "C1, a bounded outcome: Y lies in a declared [a, b], a binary outcome or a continuous "
+        "one with q_bounds; the log ratio also needs a = 0 and E[Y | A = a, W] > 0 for both "
+        "compared arms",
+        "C2, strong positivity for the compared arms: g(t | W) and g(r | W) are bounded "
+        "away from 0 almost surely; g_bounds regularizes the fitted denominator only",
+    ),
+    required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
+    dr_condition=(
+        DR_MECHANISM_HEAD + ", and the interval holds only when both converge at the "
+        "product rate: the remainder is M^-1 P0[phi(V) sum_a s_a (g0 - gn)(a, W) / gn(a, W) "
+        "(Qbar0 - Qbar*)(a, W)], a product of the two errors with no term first order in "
+        "either; beta is a projection, so the working model need not be correct"
+        + DR_DESIGN_CONDITIONAL_CLAUSE
+    ),
+    references=(
+        "van der Laan, Carone & Luedtke (2026), arXiv:2402.01972v2",
+        "Zheng & van der Laan (2011)",
+    ),
+)
+
 _POPULATION_INTERVENTION_ID = Identification(
     assumptions=(
         *_POINT_TREATMENT,
@@ -753,6 +788,29 @@ def _msm(ctx: TargetContext) -> list[ParameterEstimate]:
         )
         for code, coefficient in sorted(ctx.means.items())
     ]
+
+
+def _projection(stem: str) -> Callable[[TargetContext], list[ParameterEstimate]]:
+    """One coefficient of a conditional contrast's projection per basis term.
+
+    The coefficients are on the outcome's own scale already
+    (:func:`~cleverly.inference.influence.effect_modification_coefficients`), so they are
+    finished with :meth:`~cleverly.targets.TargetContext.finish_unscaled` and a Wald
+    interval on the coefficient itself.
+    """
+
+    def build(ctx: TargetContext) -> list[ParameterEstimate]:
+        return [
+            ctx.finish_unscaled(
+                parameter_name(stem, arm=ctx.label(code)),
+                coefficient.psi,
+                coefficient.influence_curve,
+                "level",
+            )
+            for code, coefficient in sorted(ctx.means.items())
+        ]
+
+    return build
 
 
 def _ratio_contrasts(
@@ -1088,6 +1146,34 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         requires_binary_treatment=True,
         in_default_set=True,
         description="contrast of each risk-ratio tilt against the reference tilt",
+    ),
+    Target(
+        name="cate_projection",
+        group="effect_modification",
+        scale="level",
+        build=_projection("cate_projection"),
+        identification=_CONDITIONAL_CONTRAST_ID,
+        parameter_axis="effect_modification",
+        # The declared scale chooses the one target a fit reports (TMLE._resolve_targets).
+        in_default_set=False,
+        description=(
+            "coefficients of the best linear projection of the conditional effect "
+            "E[Y^t - Y^r | V] onto a declared basis phi(V)"
+        ),
+    ),
+    Target(
+        name="log_crr_projection",
+        group="effect_modification_ratio",
+        scale="level",
+        build=_projection("log_crr_projection"),
+        identification=_CONDITIONAL_CONTRAST_ID,
+        parameter_axis="effect_modification",
+        in_default_set=False,
+        description=(
+            "coefficients of the projection of the conditional log risk ratio "
+            "log E[Y^t | V] - log E[Y^r | V] onto a declared basis phi(V), under the "
+            "log-CRR risk"
+        ),
     ),
     Target(
         name="msm",
