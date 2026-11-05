@@ -11,11 +11,18 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 python -m tests.canonical.adaptive_tmle_selective.regenerate --output /tmp/atmle-selective-run --jobs 4
 ```
 
-## Cost (1 core, one timed replicate, four workers busy elsewhere)
+## Sizing and cost
 
-| cell | n | reps | s/rep | core-hours |
-| --- | --- | --- | --- | --- |
-| s6_cv (SuperLearner, 5 outer folds) | 3200 | 800 | 264 | 58.7 |
-| s6_pooled | 3200 | 800 | 87 | 19.4 |
+`PRIMARY_REPLICATES` is `repeated_sizing.primary_replicates` at the pilot that
+`tests/unit/test_adaptive_tmle_trial_design.py` pins as `SELECTIVE_PILOT_COVERED`. With no pilot
+pinned it is the rule's floor, 2,400 (the bias clause and the per-cell coverage clause). Before
+the declared run:
 
-78 core-hours: about 20 wall-hours on 4 workers, so this study goes to the local queue.
+```bash
+python -m tests.canonical.adaptive_tmle_trial.pilot --study selective --replicates 400 --jobs 16 > pilot-selective.json
+```
+
+Copy its covered counts into `SELECTIVE_PILOT_COVERED` and set `PRIMARY_REPLICATES` to its
+`primary_replicates`. One timed replicate (four workers busy elsewhere) took 264 s for `s6_cv`
+and 87 s for `s6_pooled`, so 2,400 replicates cost about 235 core-hours, about 15 wall-hours on
+the local queue's 16 cores.

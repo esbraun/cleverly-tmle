@@ -22,41 +22,66 @@ inside the repository.
 * The primary performance tests (`performance-tests.csv`): bias leg, coverage floor, SE sanity
   band for each scenario and its gated estimand.
 * `controls.csv` through `scientific_failures`: the efficiency contrast (upper bound of
-  RMSE(A-TMLE) / RMSE(trial-only TMLE) below 1 on `a0`, `a1a`, `a1b`), K1, K2, K3, K5. The K4
-  ladder is a reporting row.
+  RMSE(A-TMLE) / RMSE(trial-only TMLE) below 1 on `a0`; reported on `a1a`, `a1b`), K1, K2, K3,
+  K5. The K4 ladder is a reporting row.
 * `reported.csv`: the coverage of all three targets per scenario, and the projection bias in
   SDs, as reported rows.
 
 The R `atmle` comparator is declared in `COMPARATOR` and runs as a separate pairing record.
 
-## Cost (1 core, pilot means)
+## Sizing and cost
 
-3,200 replicates per scenario (the design test records the sizing). 98.8 core-seconds per
-replicate set, 87.8 core-hours in all, about 22 wall-hours on 4 workers.
+`PRIMARY_REPLICATES` is `repeated_sizing.primary_replicates` at the pilot that
+`tests/unit/test_adaptive_tmle_trial_design.py` pins (each cell at the one-sided 80% lower bound
+of its pilot coverage). The pinned pilot is the T3 pilot (400 replicates, 15 scenarios), which
+predates the T3 design review's engine and learner changes, so the declared count (19,200) is a
+placeholder. Before the declared run, the review's pilot replaces it:
 
-| cell | n | reps | s/rep | core-hours |
-| --- | --- | --- | --- | --- |
-| a0 | 4000 | 3200 | 6.8 | 6.1 |
-| a1a | 4000 | 3200 | 8.7 | 7.8 |
-| a1b | 4000 | 3200 | 9.0 | 8.0 |
-| a2c | 4000 | 3200 | 6.1 | 5.4 |
-| a2d | 4000 | 3200 | 6.8 | 6.0 |
-| a3 | 4000 | 3200 | 5.2 | 4.6 |
-| a3_pi | 4000 | 3200 | 9.4 | 8.4 |
-| a4 | 4000 | 3200 | 5.4 | 4.8 |
-| a5 | 4000 | 3200 | 9.7 | 8.6 |
-| b1y | 4000 | 3200 | 3.7 | 3.3 |
-| e1 | 4000 | 3200 | 6.4 | 5.6 |
-| e1_k2_n1000 | 1000 | 3200 | 0.5 | 0.4 |
-| e1_k2_n2000 | 2000 | 3200 | 0.6 | 0.6 |
-| f1a | 4000 | 3200 | 2.1 | 1.9 |
-| f1b | 4000 | 3200 | 2.4 | 2.1 |
-| h2_pooled | 4000 | 3200 | 8.1 | 7.2 |
-| h2_trial | 4000 | 3200 | 7.9 | 7.1 |
+```bash
+python -m tests.canonical.adaptive_tmle_trial.pilot --replicates 800 --jobs 16 > pilot.json
+```
 
-## Pilot reading (400 replicates per gated cell, outside the repository)
+Copy its `cells[*].covered` into `PILOT_COVERED`, set `PILOT_REPLICATES = 800`, and set
+`PRIMARY_REPLICATES` to its `primary_replicates`. At pilot coverages of 0.93 to 0.94 the rule
+gives 2,400 to 5,200. The T3 pilot's means are about 99 core-seconds per replicate set (all 17
+scenarios), so the run costs about 66 to 143 core-hours and goes to the local queue (16 cores)
+whenever it exceeds 24 wall-hours on 4 workers (above 3,600 replicates).
 
-Coverage 0.92 to 0.96 and SE ratio 0.91 to 1.03 on every gated cell except `a5`, whose SE ratio
-is 0.22 (a few replicates select an unstable working model, estimates from -2.3 to 4.2 with
-large SEs). The efficiency contrast reads RMSE ratios 1.00, 0.99 and 1.07 on `a0`, `a1a`, `a1b`,
-so its gate is expected to fail.
+T3 pilot seconds per replicate (1 core):
+
+| cell | n | s/rep |
+| --- | --- | --- |
+| a0 | 4000 | 6.8 |
+| a1a | 4000 | 8.7 |
+| a1b | 4000 | 9.0 |
+| a2c | 4000 | 6.1 |
+| a2d | 4000 | 6.8 |
+| a3 | 4000 | 5.2 |
+| a3_pi | 4000 | 9.4 |
+| a4 | 4000 | 5.4 |
+| a5 | 4000 | 9.7 |
+| b1y | 4000 | 3.7 |
+| e1 | 4000 | 6.4 |
+| e1_k2_n1000 | 1000 | 0.5 |
+| e1_k2_n2000 | 2000 | 0.6 |
+| f1a | 4000 | 2.1 |
+| f1b | 4000 | 2.4 |
+| h2_pooled | 4000 | 8.1 |
+| h2_trial | 4000 | 7.9 |
+
+## Design review readings (scratch draws, outside the repository)
+
+* Efficiency. With `A` forced into the bias model (the T3 engine, atmle's `force_A`), the
+  external arms get free mean shifts and the exact-law SD ratio on `a0` is 1.00, which the T3
+  pilot's RMSE ratios (1.00, 0.99, 1.07) matched. With `A` penalized, the ratio is 0.48 at the
+  oracle selection, and 200 replicates read RMSE ratio 0.56 on `a0`, 1.05 on `a1a` and 1.14 on
+  `a1b` (forced: 1.03 and 1.11 on the same draws). So `a0` gates and `a1a`, `a1b` report.
+* `a5`. The T3 SE ratio of 0.22 came from the nuisance learners, not the refit: in fold fits the
+  spline observation model predicted 0.010 to 0.011 for trial controls whose true observation
+  probability is above 0.3, and the four-cell spline regression of `Q(S, W, A)` mispredicted
+  the trial control at the smallest `W1` by 14 outcome SDs. The inverse observation weight
+  carried both into the bias pseudo-outcome, the inner CV then chose the smallest penalty
+  (all 44 bias columns), and fold estimates reached 32. The selected sets were well conditioned
+  (condition number at most 2e2). With the correct, linear-within-cell learners, 200
+  replicates read SE ratio 0.95, coverage 0.965, estimates 1.28 to 1.76.
+* `h2_trial`: 240 replicates read standardized bias +0.075 and coverage 0.933.

@@ -674,8 +674,61 @@ def spline_learners(law: Law) -> dict[str, Any]:
         "source": SplineClassifier(n_w=law.d, products=False, use=law.mechanism),
     }
     if law.missing is not None:
-        learners["missingness"] = SplineClassifier(n_w=law.d, products=False, use=(0,))
+        # With missing outcomes the engine fits Q(S, W, A) on four trial-by-arm cells.
+        learners["outcome"] = InteractedLinear(n_w=law.d)
+        learners["missingness"] = InteractedLogistic(n_w=law.d, use=(0,))
     return learners
+
+
+class _Interacted(BaseEstimator):
+    """Main terms ``W[use]``, the 0/1 modifier columns after ``W`` and every product of
+    modifiers with ``[1, W[use]]``: a model linear in ``W`` within each modifier cell."""
+
+    def __init__(self, n_w: int = 3, use: tuple[int, ...] | None = None):
+        self.n_w = n_w
+        self.use = use
+
+    def _design(self, x: FloatArray) -> FloatArray:
+        x = np.asarray(x, float)
+        w = x[:, : self.n_w] if self.use is None else x[:, list(self.use)]
+        mods = x[:, self.n_w :]
+        pieces = [w]
+        for mask in range(1, 2 ** mods.shape[1]):
+            m = np.ones(x.shape[0])
+            for k in range(mods.shape[1]):
+                if mask >> k & 1:
+                    m = m * mods[:, k]
+            pieces.extend([m[:, None], w * m[:, None]])
+        return np.hstack(pieces)
+
+
+class InteractedLogistic(ClassifierMixin, _Interacted):
+    """The observation model of A5: :class:`Missing` (logit linear in ``W1`` and ``A`` within
+    the trial, constant outside it) lies in its span. The spline basis fully interacted with
+    the trial and arm cells separates on the sparse trial-control boundary and predicts
+    observation probabilities near the 0.01 bound there."""
+
+    def fit(self, x: FloatArray, y: FloatArray) -> InteractedLogistic:
+        self.model_ = LogisticRegression(C=1e4, max_iter=5000).fit(self._design(x), y)
+        self.classes_ = self.model_.classes_
+        return self
+
+    def predict_proba(self, x: FloatArray) -> FloatArray:
+        return self.model_.predict_proba(self._design(x))
+
+
+class InteractedLinear(RegressorMixin, _Interacted):
+    """The outcome regression ``Q(S, W, A)`` of A5: law (b) is linear in ``W`` within each
+    trial-by-arm cell, so this least-squares fit is correct there. The spline regression on
+    four cells mispredicted a trial control at the sample's smallest ``W1`` by 14 outcome SDs
+    in a fold fit, which the inverse observation weight then carried into the bias model."""
+
+    def fit(self, x: FloatArray, y: FloatArray) -> InteractedLinear:
+        self.model_ = LinearRegression().fit(self._design(x), y)
+        return self
+
+    def predict(self, x: FloatArray) -> FloatArray:
+        return self.model_.predict(self._design(x))
 
 
 def main_terms_learners(law: Law) -> dict[str, Any]:

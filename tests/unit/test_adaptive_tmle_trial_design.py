@@ -344,6 +344,36 @@ def test_the_efficiency_gate_reads_the_upper_bound_of_the_ratio() -> None:
     assert better["passed"] and better["upper"] < 1.0
     worse = base.assign(estimate=1.5 + rng.normal(0, 0.09, 600))
     assert not study.efficiency_row(worse, study.STUDY, seed=1)["passed"]
+    reported = study.efficiency_row(worse, study.STUDY, seed=1, role="reporting")
+    assert reported["passed"] and reported["upper"] > 1.0
+    assert study.EFFICIENCY_CELLS == ("a0",) and study.EFFICIENCY_REPORTED == ("a1a", "a1b")
+
+
+def test_the_a0_efficiency_gain_is_the_theory_and_a_forced_arm_column_removes_it() -> None:
+    """At ``P_0`` on ``a0`` the bias model's oracle selection is its constant. There the SD of
+    ``D_w`` is 0.48 of the trial-only TMLE's efficient SD, ``sqrt((1/0.67 + 1/0.33) / 1,000)``
+    (unit noise), so the gated ratio has a wide margin. With ``A`` forced into the bias model
+    the external arms get free mean shifts and the ratio is 1.00: no first-order gain on any
+    law with a constant trial randomization and constant noise variance, which is why the
+    engine penalizes ``A``."""
+    from cleverly.estimators._working_basis import WorkingBasis
+
+    law = laws.LAWS["a0"]
+    model = _model(law, WorkingBasis())
+    assert model.dictionary.psi_names[:2] == ("1", "A")
+    trial_only = np.sqrt((1 / 0.67 + 1 / 0.33) / 1_000)
+    ratios = {}
+    for bias in ([0], [0, 1]):
+        selection = SimpleNamespace(
+            dictionary=model.dictionary,
+            effect=SimpleNamespace(selected=np.array([0])),
+            bias=SimpleNamespace(selected=np.array(bias)),
+        )
+        truth, _, table = laws.oracle_parts(law, selection, "pooled", n=300_000, seed=24)
+        assert truth.value == pytest.approx(1.5, abs=1e-6)
+        ratios[len(bias)] = float(table["total"].std()) / np.sqrt(N) / trial_only
+    assert ratios[1] == pytest.approx(0.484, abs=0.01)
+    assert ratios[2] == pytest.approx(1.0, abs=0.01)
 
 
 def test_a_cheap_cell_fits_and_every_extra_column_is_present() -> None:
@@ -393,7 +423,14 @@ def test_the_declared_seeds_meet_no_other_study_and_no_pilot() -> None:
         theirs = {replicate_seed(other, s, r) for s in other.scenarios for r in range(50)}
         assert not mine & theirs, other.slug
         assert other.seed != study.SEED and other.resampling_seed != study.RESAMPLING_SEED
-    assert 20290399 not in {study.SEED, study.RESAMPLING_SEED}
+    from tests.canonical.adaptive_tmle_trial.pilot import PILOT_SEEDS
+
+    pilots = {20290399, 20290397, 20290393, *(s for pair in PILOT_SEEDS.values() for s in pair)}
+    declared = {study.SEED, study.RESAMPLING_SEED, selective.SEED, selective.RESAMPLING_SEED}
+    assert not pilots & declared
+    assert not pilots & {
+        seed for other in registered() for seed in (other.seed, other.resampling_seed)
+    }
     assert len(
         {stream_seed(study.STUDY, "fold_partition", s, 0) for s in study.STUDY.scenarios}
     ) == len(study.STUDY.scenarios)
@@ -486,8 +523,11 @@ def test_the_k6_row_reports_and_never_gates() -> None:
 
 # ------------------------------------------------------------------------------------ the sizing
 
-#: The 400-replicate pilot of every gated cell at n = 4,000 (seeds 20290399, 20290397, 20290393),
-#: read before the declaration: the covered count of each cell's gated interval.
+#: The sizing pilot (``python -m tests.canonical.adaptive_tmle_trial.pilot``): its replications
+#: per scenario and the covered count of each scenario's gated interval. These are the T3
+#: pilot's counts (400 replicates, seeds 20290399, 20290397, 20290393). They predate the T3
+#: design review's changes (the bias model's ``A`` penalized, the A5 nuisance learners), cover
+#: 15 of the 17 scenarios, and are replaced by the review's pilot before the declared run.
 PILOT_REPLICATES = 400
 PILOT_COVERED = {
     "a0": 376,
@@ -508,30 +548,30 @@ PILOT_COVERED = {
 }
 
 
-def test_the_replicate_count_is_the_smallest_budget_that_passes_at_the_pilot_coverage() -> None:
-    """R = 3,200: the first multiple of 400 at which the coverage-floor passes of all fifteen
-    gated cells, at their pilot coverages, have family-wise probability at least 0.95, and the
-    bias and per-cell clauses of the primary rule hold.
+def test_the_replicate_count_is_the_primary_rule_at_the_pilot() -> None:
+    """``R`` is ``repeated_sizing.primary_replicates`` at the pilot's covered counts.
 
-    The primary rule of ``repeated_sizing.primary_replicates`` prices each cell at its pilot
-    80% lower bound (clause c) and asks 19,200 replicates here, about 530 core-hours, which no
-    budget allows; the design sizes at the pilot point coverage and records that choice."""
-
-    def family(replicates: int) -> float:
-        return float(
-            np.prod(
-                [
-                    sizing.coverage_floor_pass_probability(
-                        MARGINS, replicates, count / PILOT_REPLICATES
-                    )
-                    for count in PILOT_COVERED.values()
-                ]
-            )
-        )
-
-    assert family(R - sizing.BUDGET_STEP) < 0.95 <= family(R) and R == 3_200
-    assert sizing.bias_equivalent_probability(MARGINS, sizing.PRIMARY_DESIGN_BIAS, R) >= 0.90
+    The rule prices each cell at the one-sided 80% lower bound of its pilot coverage (clause
+    c), so a pilot that happens to read high cannot under-size the run (method-benchmarking:
+    "Size the budget against the binding confidence bound, not the most favorable point
+    estimate"). It also needs the bias clause and the per-cell clause at coverage 0.93, which
+    set its floor of 2,400."""
+    assert set(PILOT_COVERED) <= set(study.SCENARIOS)
     assert (
-        sizing.coverage_floor_pass_probability(MARGINS, R, sizing.PRIMARY_DESIGN_COVERAGE)
-        >= sizing.PRIMARY_CELL_PASS
+        sizing.primary_replicates(MARGINS, PILOT_COVERED, PILOT_REPLICATES, implementations=1) == R
+    )
+
+
+#: The selective study's pilot, in the same form. It has none yet, so the rule gives its floor.
+SELECTIVE_PILOT_REPLICATES = 400
+SELECTIVE_PILOT_COVERED: dict[str, int] = {}
+
+
+def test_the_selective_replicate_count_is_the_primary_rule_at_its_pilot() -> None:
+    assert set(SELECTIVE_PILOT_COVERED) <= set(selective.SCENARIOS)
+    assert (
+        sizing.primary_replicates(
+            MARGINS, SELECTIVE_PILOT_COVERED, SELECTIVE_PILOT_REPLICATES, implementations=1
+        )
+        == selective.PRIMARY_REPLICATES
     )

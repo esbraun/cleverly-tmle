@@ -38,8 +38,9 @@ from tests.studies.evidence.seeds import draw_replicate
 SEED = 20290321
 RESAMPLING_SEED = 20290322
 PRIMARY_N = 3_200
-#: Replications of each scenario: the design test records the sizing rule and the pilot.
-PRIMARY_REPLICATES = 800
+#: Replications of each scenario: ``repeated_sizing.primary_replicates`` at the pilot that
+#: ``test_adaptive_tmle_trial_design`` pins. With no pilot yet it is the rule's floor.
+PRIMARY_REPLICATES = 2_400
 
 IMPLEMENTATION = "cleverly-adaptive-tmle-selective"
 
