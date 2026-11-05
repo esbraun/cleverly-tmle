@@ -162,8 +162,8 @@ not change the package version.
 | after beta | Ratio trimming on the hazard path | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` | [X80](#x80-ratio-trimming-on-the-hazard-path) |
 | after beta | Typed study requests for the risk-ratio tilt | natural extension | the shipped `RiskRatioTilt` fit and the shipped typed policy requests | [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) |
 | after beta | Marginal sensitivity model bounds that need a second sensitivity parameter | new theory | X82 part H | [X87](#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter) |
-| after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
-| after beta | Adaptive TMLE for a trial augmented with external data | published support; pending source read | the shipped point-treatment TMLE and its known treatment mechanism | [X90](#x90-adaptive-tmle-for-a-trial-augmented-with-external-data) |
+| after beta | EP learner | preprint support, read first-hand | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
+| after beta | Adaptive TMLE for a trial augmented with external data | preprint support, read first-hand | the shipped point-treatment TMLE, its known treatment mechanism and the shipped lasso | [X90](#x90-adaptive-tmle-for-a-trial-augmented-with-external-data) |
 | after beta | Survival targets across the estimators | published support for parts (a) and (b); source audit for the other parts | the shipped survival and competing-risk paths of `LTMLE`; X56 | [X91](#x91-survival-targets-across-the-estimators) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -1937,7 +1937,7 @@ law; a registered coverage study for each interval.
 
 ### P1. EP learner
 
-Van der Laan, Carone and Luedtke (2024), [arXiv:2402.01972v2](https://arxiv.org/html/2402.01972v2), govern this item. After first-hand
+Van der Laan, Carone and Luedtke, [arXiv:2402.01972v2](https://arxiv.org/html/2402.01972v2), a preprint, govern this item. After first-hand
 review of their EP derivation, add `ConditionalContrast` estimands, modifier schema, sieve/basis
 strategy, efficient plug-in risk and targeting, bounded outcome predictions, a second-stage
 contrast learner, out-of-fold risk/calibration, and a conditional prediction result. Reuse
@@ -1965,21 +1965,27 @@ planned.
 
 ### X90. Adaptive TMLE for a trial augmented with external data
 
-Van der Laan, Qiu, Tarp and van der Laan (2024), arXiv:2405.07186, govern this item. The source
-read is pending, so the summary here is provisional. The target is the average treatment effect
-in the trial population. The estimator writes it as an effect on the pooled trial and external
-data minus a bias term. It learns a working model for that bias term from the data, and it
-targets the projection on that model. When the external data are nearly unbiased, the estimate can
-be more precise than one from the trial alone.
+Van der Laan, Qiu, Tarp and van der Laan, arXiv:2405.07186v2, a preprint, govern this item. The
+data pool a randomized trial ($S = 1$) with external data ($S = 0$). The target is
+$\Psi = E\{E(Y \mid S = 1, W, A = 1) - E(Y \mid S = 1, W, A = 0)\}$, the trial's conditional
+effect averaged over the pooled covariates (Section 2.4). It rests on randomization in the trial,
+treatment positivity in the trial, and $P(S = 1 \mid W) > 0$. It does not assume that the external
+outcomes are exchangeable with the trial's.
 
-The item needs a two-source study declaration, with a source indicator beside the trial's known
-assignment, and a refusal for targets outside the trial population. The working model can be any
-declared basis with the shipped lasso. The interval treats the selected working model as fixed, and
-the contract page must state that condition.
+Lemma 2 writes $\Psi$ as the pooled ATE minus a bias term. Each part is learned in a working model
+chosen from the data under the R-loss, and a TMLE step targets the enrollment mechanism
+(Algorithm 1, Section 7). The working model can be any declared basis with the shipped lasso and a
+refit; the authors' `atmle` code does the same with a lasso. Their adaptive CV-TMLE (Appendix C,
+Theorem 2) learns the working model on training folds, and it is the default here.
+
+Theorem 1 gives a valid interval for $\Psi$ only when the selected working model approximates an
+oracle model, a condition no data check can verify. Otherwise the interval covers the
+working-model projection. The contract page must say so, and the studies report coverage of both.
 
 Acceptance requires exact-law checks of the decomposition with a nonzero bias term, and a
-mutation control that flips the sign of that term. Registered studies with the bias absent and
-present compare the efficiency with a trial-only TMLE.
+mutation control that flips the sign of that term. Registered studies cover laws with no bias, a
+bias inside the working model, and a bias outside it. They compare the efficiency with a
+trial-only TMLE.
 
 ### X91. Survival targets across the estimators
 
