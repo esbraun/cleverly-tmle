@@ -22,6 +22,7 @@ goes through the same steps.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -392,6 +393,7 @@ class WorkingDictionary:
         bias_rows: IntArray,
         *,
         controls_only: bool,
+        covariate_names: Sequence[str] | None = None,
     ) -> WorkingDictionary:
         """Fit a clone of ``basis`` on the selection rows and keep the supported columns.
 
@@ -409,6 +411,9 @@ class WorkingDictionary:
             The positions, within the selection rows, that the bias model is selected on.
         controls_only : bool
             Whether the external data hold controls only.
+        covariate_names : sequence of str or None
+            The names of the columns of ``covariates``, which name the dictionary's columns.
+            ``None`` names them ``x0``, ``x1``, and so on.
 
         Returns
         -------
@@ -458,7 +463,7 @@ class WorkingDictionary:
             phi_keep,
             psi_keep,
             controls_only,
-            _names(fitted, raw.shape[1]),
+            _names(fitted, raw.shape[1], covariate_names),
             np.setdiff1d(np.arange(raw.shape[1]), phi_supported),
             np.setdiff1d(np.arange(bias.shape[1]), psi_supported),
         )
@@ -531,11 +536,17 @@ def _with_constant(basis: Any, covariates: FloatArray) -> FloatArray:
     return np.column_stack([np.ones(columns.shape[0]), columns])
 
 
-def _names(basis: Any, width: int) -> tuple[str, ...]:
-    try:
-        names = [str(name) for name in basis.get_feature_names_out()]
-    except (AttributeError, TypeError, ValueError):
-        names = []
+def _names(basis: Any, width: int, covariate_names: Sequence[str] | None) -> tuple[str, ...]:
+    names: list[str] = []
+    tries: list[list[str] | None] = [None]
+    if covariate_names is not None:
+        tries.insert(0, [str(name) for name in covariate_names])
+    for given in tries:
+        try:
+            names = [str(name) for name in basis.get_feature_names_out(given)]
+            break
+        except (AttributeError, TypeError, ValueError):
+            names = []
     if len(names) != width - 1:
         names = [f"phi{j}" for j in range(1, width)]
     return ("1", *names)

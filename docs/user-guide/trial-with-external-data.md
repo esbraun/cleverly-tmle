@@ -7,10 +7,10 @@ biased. `cleverly` can learn how their outcomes differ from the trial's, remove 
 and give an interval for the trial's own effect that is often narrower than the trial alone gives.
 
 The interval answers a narrower question than the usual one. It is valid for the effect inside a
-simple model of how the external patients differ, which the fit chooses from your data. It is valid
-for the trial's effect itself only if that model is rich enough to describe the difference, and
-the data cannot confirm that. The fit labels every result experimental for this reason, which means
-no simulation study checks this exact setup.
+simple model of how the external patients differ, which the fit chooses from your data. It is also valid
+for the trial's effect itself when that model is rich enough to describe the difference and how the
+effect varies, and the data cannot confirm that. The fit labels every result experimental: no
+simulation study covers the method yet, and the interval carries this condition.
 
 ## What the data must look like
 
@@ -48,16 +48,17 @@ study = CausalStudy(frame, design=design)
 ```
 
 The study description states what you claim. The treatment was randomized in the trial, and every kind of
-patient in the trial could get either arm. You claim nothing about the external rows. The
-adjustment columns must include every covariate that explains why the external outcomes differ
-from the trial's, because the fit learns that difference as a function of them.
+patient in the trial could get either arm. You claim nothing about the external rows. The fit
+learns that difference as a function of the adjustment columns, so include the covariates that
+explain it: the simpler the difference looks in them, the more the external rows help. Also include
+any covariate the trial's randomization depended on.
 
 ## Fit and read it
 
 Pick the effect first. `TrialATE(population="trial")` is the effect among the trial's patients.
 `TrialATE(population="pooled")` is the trial's effect averaged over the covariates of every row,
-trial and external. Choose `"trial"` unless you want the effect for the external patients' kind of
-patient, and then read the note on the external rows below. The two answers differ when the effect varies with
+trial and external. Choose `"trial"` unless you want the trial's effect carried over to the mix of patients in the
+whole table, and then read the note on the external rows below. The two answers differ when the effect varies with
 a covariate that also predicts who is in the trial.
 
 ```python
@@ -76,15 +77,21 @@ print(result.summary())
 `effect.estimate()` with no method already picks this method for a trial design, with the default
 library of learners. That library takes minutes at a few thousand rows, so pass learners as above
 while you explore, and widen them once the workflow runs. Any scikit-learn regressor and classifier
-works. The method fits three prediction models, for the outcome, for who gets the treatment, and
-for who is in the trial, and each prediction for a row comes from models trained without that row.
+works.
+
+Simple learners are for trying the workflow. When trial enrollment depends on the
+covariates, an interval from misfit learners can miss the effect badly, so report a fit with
+flexible learners. The method fits three prediction models, for the outcome, for who gets the
+treatment, and for who is in the trial, and each prediction for a row comes from models trained
+without that row. The trial-membership model uses the treatment learner unless you pass
+`AdaptiveTMLEMethod(source_learner=...)`.
 
 In the printed summary, read the estimate and its interval first. Then read the note on the
 external rows, which gives the lowest estimated chance that an external row could have been a
 trial row. For the pooled effect, a low value means the trial has no patients like some external
 ones, so the effect is extrapolated there and the fit warns. For the trial effect the note is
 information only. The last note says how many terms the fit used to describe the effect and the
-bias, and `result.working_models` lists them for each of the five groups of rows that the fit holds out in turn.
+bias, and `result.working_models` lists them for each of the five groups of rows that the fit holds out in turn. The terms are named by your adjustment columns, such as `age` and `A*age`.
 
 ## Compare with the trial alone
 
@@ -106,8 +113,9 @@ print(alone.estimate, result.estimate)
 
 If the two estimates sit far apart relative to their intervals, the external rows pulled the answer
 away from the trial, and the bias model did not fully explain why. A gain is not guaranteed. The
-interval narrows when the external rows differ from the trial in a way simple enough for the model
-to learn, such as a constant offset or a trend in one covariate.
+interval narrows when the external rows differ from the trial by the same amount in both arms, in a
+way simple enough for the model to learn, such as a constant offset or a trend in one covariate. If
+the difference itself depends on the arm, the external rows add little.
 
 ## Options
 
@@ -115,8 +123,8 @@ to learn, such as a constant offset or a trend in one covariate.
 | --- | --- |
 | outcomes are missing for some rows | name the indicator column in `TrialWithExternalData(missingness=...)` and the fit weights recorded outcomes. The design assumes the trial's missing outcomes depend only on the covariates and the arm, and assumes nothing about the external ones |
 | the external rows are controls only | nothing. The fit notices and learns the difference on the control rows |
-| a binary outcome | `outcome_family="binomial"`, or leave `"auto"` |
-| fewer rows, or a quick check | `AdaptiveTMLEMethod(form="pooled")` selects the working models on all rows at once and runs faster than the default cross-validated form |
+| a binary outcome | `TrialWithExternalData(outcome_family="binomial")`, or leave `"auto"` |
+| a quick check | `AdaptiveTMLEMethod(form="pooled")` selects the working models on all rows at once and runs faster than the default cross-validated form |
 | your own list of candidate terms | `working_basis=` takes a scikit-learn transformer that maps covariates to the candidate terms |
 
 The default candidate terms are each covariate, five bent-line pieces of it (each is zero below
@@ -135,8 +143,9 @@ population. [Scope and refusals](../technical-reference/scope-and-refusals.md) l
 The fit estimates a projection of the trial effect on a model that it selects with a lasso, a
 regression that sets unneeded coefficients to zero. The standard error is for that projection. The
 projection equals the trial effect when the selected model contains the true conditional effect and
-the true difference between external and trial outcomes, or in some cases when it contains only
-one of the two. The authors' theorem requires the selected model to approximate both well enough
+the true difference between external and trial outcomes.
+It also equals the trial effect when the chances of treatment and of trial membership change little
+across patients. The authors' theorem requires the selected model to approximate both well enough
 that the leftover bias shrinks faster than the standard error, and no check on the data confirms
 that. The [technical page](../technical-reference/adaptive-tmle.md) states the estimator, the
 conditions, and the evidence, and the method is from van der Laan, Qiu, Tarp and van der Laan,

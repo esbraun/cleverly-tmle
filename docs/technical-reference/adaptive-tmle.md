@@ -8,8 +8,7 @@ earlier study, add information about the covariate-outcome relation. They also c
 nothing randomized their treatment or selected them like the trial. Adaptive TMLE (A-TMLE) of van
 der Laan, Qiu, Tarp and van der Laan (J. Causal Inference 14(1):20240025,
 doi:10.1515/jci-2024-0025; arXiv:2405.07186v2) learns that bias as a function of the covariates
-and removes it, so the external rows contribute only the part of their information that the bias
-model leaves unexplained.
+and removes it, so that the external rows add information about the effect.
 
 `TrialWithExternalData` declares the pooled frame, `TrialATE` names the effect, and
 `AdaptiveTMLEMethod` (`method="atmle"`) estimates it. The journal text has not been read against this
@@ -64,7 +63,7 @@ the other, and the fitted $P(\Delta = 1 \mid S, W, A)$ uses the $(W, A)$ form.
 ## Decomposition
 
 Write $\tilde Q(W, a) = E(Y \mid W, A = a)$ on the pooled rows, $\Pi(1 \mid W, a) = P(S = 1 \mid W, A = a)$, and
-$\tau_S(W, a) = Q(0, W, a) - Q(1, W, a)$ for the external-minus-trial difference. Lemma 2 gives
+$\tau_S(W, a) = Q(1, W, a) - Q(0, W, a)$ for the trial-minus-external difference. Lemma 2 gives
 
 $$
 \tau_1(W) = \tau_A(W) - \tau^{\#}(W),
@@ -101,8 +100,8 @@ $$
 and $\Psi_{2,w}$ is the same with the $S$-weighted average. When $\tau_A \in \mathrm{span}(\phi)$
 and $\tau_S \in \mathrm{span}(\psi)$, $\Psi_w = \Psi$. That condition is sufficient and not
 necessary. With $w = g(1 - g)$, the error $\tilde\Psi_w - \tilde\Psi$ is a product of the error of
-$\tau_A$ and the error of the representer $1/w$ in the weighted projection, in the shape of
-the bias results of the paper's working-model reference. The projection equals $\Psi$ whenever either factor
+$\tau_A$ and the error of the representer $1/w$ in the weighted projection, as in Theorem 4 of
+van der Laan et al. (arXiv:2307.12544v2, Sec 4.3). The projection equals $\Psi$ whenever either factor
 lies in the span, and the two truths coincide for any dictionary when $g(1 - g)$ and $\Pi(1 - \Pi)$
 are nearly constant.
 
@@ -120,7 +119,7 @@ The default dictionary is `WorkingBasis` followed by `WorkingDictionary`.
   $k_{\min} = \max(10, \lceil \sqrt{n}/2 \rceil)$ rows in each of two groups. An effect column
   needs $k_{\min}$ treated and $k_{\min}$ control rows. A bias column needs $k_{\min}$ external
   and $k_{\min}$ trial rows, counting only treated rows for a column that carries $A$. The
-  constant, $A$ and the linear terms stay.
+  constant, $A$, the linear terms and their products with $A$ always pass the screen.
 - A pivoted QR drops exactly collinear columns, so every refit has full column rank.
 
 The screen exists because a hinge that is nonzero on a handful of external treated rows has a
@@ -136,9 +135,9 @@ they fail.
 
 The arm column $A$ of the bias dictionary is penalized. Forcing it in gives the external treated
 and control arms separate free mean shifts, so the external rows then carry no information on the
-level of the trial effect. At a bias that is a single shift common to both arms the exact-law
-standard deviation of $D_w$ is $0.48$ times the trial-only TMLE's with the constant alone
-selected, and $1.00$ times with $A$ forced
+level of the trial effect. On law `a0` (no bias, so the oracle bias selection is the constant), the exact-law
+standard deviation of $D_w$ is $0.48$ times the trial-only efficient standard deviation, and
+$1.00$ times with $A$ forced
 (`test_the_a0_efficiency_gain_is_the_theory_and_a_forced_arm_column_removes_it`). The gain
 therefore depends on the lasso dropping every column that shifts an external arm's mean, which
 nothing guarantees at a given $n$.
@@ -249,13 +248,13 @@ index's regularity.
 ## Inference status
 
 Every `atmle` estimate carries the status `working_model_projection`, under the experimental
-label. The interval covers $\Psi_w$ at the working models the fit selected. It covers $\Psi$ only
+label. The interval covers $\Psi_w$ at the working models the fit selected. It covers $\Psi$
 when the oracle-approximation condition of Theorem 1 holds (Theorem 2 for the CV form): the
 selected models approximate $\tau_A$ and $\tau_S$ well enough that the working-model bias is
 $o_P(n^{-1/2})$. No data check confirms that condition.
 
-The source supplies no theorem for the lasso selection itself. With the default dictionary, the
-interval is for the projection onto the limiting selected span, which equals $\Psi$ when $\tau_A$
+The source supplies no theorem for the lasso selection itself. If the selected span converges, the
+interval is for the projection onto its limit, which equals $\Psi$ when $\tau_A$
 and $\tau_S$ lie in that span or when the representers of the previous section do.
 
 [Inference](inference.md) lists the status in precedence order, and roadmap item
@@ -294,7 +293,7 @@ lists the codes.
 
 An arm with all outcomes missing, a trial membership column with a null, and a pooled frame with
 no trial row, no external row or a trial of one arm are `DataError`s. A fit with external treated
-rows below $\max(20, 1\%)$ of the external rows warns that the bias of those rows is learned from
+rows at or below $\max(20, 1\%)$ of the external rows warns that the bias of those rows is learned from
 few observations.
 
 ## Result surface
@@ -364,7 +363,11 @@ Controls ride on the same draws and must fail where they should:
 `adaptive-tmle-selective` (`tests/studies/adaptive_tmle_selective.py`) is cell S6: selective
 enrollment with a large wiggly bias, Super Learner nuisances (spline GLM, shallow boosting, lasso),
 both forms, $n = 3{,}200$. Control K6, main-terms GLM nuisances on the same draws, is a reporting
-row, because no cheap law is known on which main-terms nuisances fail at that size.
+row, because no cheap law is known on which main-terms nuisances fail at that size. Karim
+(2026) reports the failure that S6 and K6 target: A-TMLE with main-terms GLM nuisances under
+selective enrollment and a large wiggly bias undercovers, with coverage falling from 0.81 to 0.47
+as the pooled sample grows from 500 to 3,200 rows, and flexible nuisances restore it. That is a
+simulation caution from another paper, not a result of this library.
 
 The replication count of each study is set by the repeated-sampling sizing rule from a pilot, and
 it is not pinned until the pilot runs. The declared red-cell reading is the one in the

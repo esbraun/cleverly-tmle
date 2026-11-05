@@ -26,8 +26,8 @@ covers its configuration, and `experimental` otherwise.
 A randomized trial pooled with external rows has its own design, `TrialWithExternalData`, its own
 estimand, `TrialATE`, and one method, `AdaptiveTMLEMethod`. The method estimates the trial's
 effect for a two-valued treatment on the difference scale. It reports an interval for the effect
-within the working models it selected, under the status `working_model_projection` and the
-experimental label. A treatment with three or more levels, a ratio and a dose are refused, and so
+within the simple descriptions of the effect and of the external rows' difference that the fit
+selected, and labels every result experimental. A treatment with three or more levels, a ratio and a dose are refused, and so
 is every other estimator on that design. [A small trial with external data](trial-with-external-data.md)
 shows the workflow, and the [technical page](../technical-reference/adaptive-tmle.md) states the contract.
 

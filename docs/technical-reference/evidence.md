@@ -157,7 +157,7 @@ and not yet run. The table gives the exact-law instruments and what each one can
 | instrument | what it checks | what it cannot see |
 | --- | --- | --- |
 | `tests/unit/test_atmle_exact.py` | on finite laws with the true effect and bias outside the dictionary's span, Lemma 2, the influence function as a Gateaux derivative, and that each of its components is needed. Remainder slopes confirm the product form, and two mutations (a trial treatment mechanism in the clever covariate, an inverse-weighted residual with missing outcomes) leave a first-order remainder | the truth at a fitted learner, and the oracle-approximation condition |
-| `tests/unit/test_atmle_engine.py` | the lasso against its optimality conditions and an independent solver, the score equations of the refit and the fluctuation, the support screen, and a nonzero witness that a penalized arm column removes the efficiency loss | coverage |
+| `tests/unit/test_atmle_engine.py` | the lasso against its optimality conditions and an independent solver, the score equations of the refit and the fluctuation, the support screen, and, on one sampled draw, a nonzero witness that a penalized arm column keeps the standard error below the trial-only bound. The exact-law values (0.48 of the trial-only standard deviation, 1.00 with the arm column forced) come from `tests/unit/test_adaptive_tmle_trial_design.py`, not from this test | coverage |
 
 A `discrete` C-TMLE fit with one declared candidate, equal to the full adjustment set, is the
 ordinary TMLE. The `TMLE` studies are its evidence, and

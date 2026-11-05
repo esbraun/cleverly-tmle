@@ -460,3 +460,29 @@ def test_a_point_treatment_fit_is_unchanged_by_an_unused_membership_column() -> 
     with_column, without = fit(frame), fit(frame.drop(columns="S"))
     assert with_column.provenance.data_fingerprint == without.provenance.data_fingerprint
     assert with_column.psi() == without.psi()
+
+
+def test_the_working_model_columns_carry_the_adjustment_column_names() -> None:
+    """The result names the dictionary columns by the declared adjustment columns, not x0, x1."""
+    frame = _frame(n=600, seed=3).rename(columns={"W": "prior_utilization"})
+    frame["age"] = np.random.default_rng(5).normal(size=len(frame))
+    design = TrialWithExternalData(
+        outcome="Y",
+        treatment="A",
+        adjustment=("prior_utilization", "age"),
+        source="S",
+    )
+    fitted = (
+        CausalStudy(frame, design=design)
+        .identify(TrialATE(population="trial"))
+        .estimate(method=_method())
+    )
+    assert isinstance(fitted, AdaptiveTMLEResult)
+    dictionary = fitted.working_models[0]
+    names = set(dictionary.dictionary.phi_names) | set(dictionary.dictionary.psi_names)
+    assert {"prior_utilization", "age", "A*prior_utilization", "prior_utilization*age"} <= names
+    assert not any(name.startswith(("x0", "x1", "A*x")) for name in names)
+    columns = {
+        c for model in fitted.working_models for c in model.effect_columns + model.bias_columns
+    }
+    assert not any(c.startswith("x0") or c.startswith("x1") for c in columns)

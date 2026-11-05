@@ -25,7 +25,7 @@ doubly_robust = effect.estimate(
 ```
 
 `AdaptiveTMLEMethod` is the one method for a `TrialWithExternalData` design. It learns how the
-external outcomes differ from the trial's with a lasso over covariate terms, and it removes that
+external outcomes differ from the trial's with a lasso (a regression that drops unneeded terms) over covariate terms, and it removes that
 difference. `form="cv"` (the default) selects those terms on the other folds. `form="pooled"`
 selects them on every row and runs faster. Its interval is for the effect within the selected
 model, so every result is labelled experimental. [A small trial with external data](trial-with-external-data.md)

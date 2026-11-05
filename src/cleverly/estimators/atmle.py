@@ -1363,6 +1363,7 @@ class _Data:
     w: FloatArray
     observed: BoolArray | None
     family: Literal["gaussian", "binomial"]
+    names: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -1547,6 +1548,7 @@ def fit_adaptive_tmle(
     inner_folds: int = 5,
     random_state: int = 0,
     outcome_family: Literal["gaussian", "binomial"] = "gaussian",
+    covariate_names: Sequence[str] | None = None,
 ) -> AdaptiveTMLEFit:
     """Fit adaptive TMLE of a trial's effect with external data pooled in.
 
@@ -1591,6 +1593,9 @@ def fit_adaptive_tmle(
         The seed of the outer split, when drawn, and of the inner splits.
     outcome_family : {"gaussian", "binomial"}, default="gaussian"
         Whether the outcome regressions are regressions or classifiers.
+    covariate_names : sequence of str or None, default=None
+        The names of the columns of ``covariates``, which name the working-model columns
+        (``age``, ``A*age``). ``None`` names them ``x0``, ``x1``, and so on.
 
     Returns
     -------
@@ -1621,7 +1626,10 @@ def fit_adaptive_tmle(
             "neither that fold nor the row's own fold, which needs at least three folds. Use "
             "n_folds=3 or more, or form='pooled'."
         )
-    data = _Data(y, a, s, w, seen, outcome_family)
+    names = None if covariate_names is None else tuple(str(name) for name in covariate_names)
+    if names is not None and len(names) != w.shape[1]:
+        raise ValueError(f"covariate_names has {len(names)} names for {w.shape[1]} columns")
+    data = _Data(y, a, s, w, seen, outcome_family, names)
     learners = _Learners(outcome_learner, treatment_learner, source_learner, missingness_learner)
     external = s == 0.0
     n_external_treated = int(np.sum(external & (a == 1.0)))
@@ -1732,7 +1740,13 @@ def _select(
     a, s = data.a[rows], data.s[rows]
     bias_rows = np.flatnonzero(a == 0.0) if controls_only else np.arange(rows.size)
     dictionary = WorkingDictionary.fit(
-        basis, data.w[rows], a, s, bias_rows, controls_only=controls_only
+        basis,
+        data.w[rows],
+        a,
+        s,
+        bias_rows,
+        controls_only=controls_only,
+        covariate_names=data.names,
     )
     observed = None if data.observed is None else data.observed[rows]
     response_a, response_s = pseudo_responses(data.y[rows], observed, values)

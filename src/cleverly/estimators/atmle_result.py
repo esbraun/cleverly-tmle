@@ -863,6 +863,7 @@ def fit_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> Ad
         inner_folds=inner,
         random_state=seed,
         outcome_family=family,
+        covariate_names=data.covariate_names,
     )
     alpha = method.inference.alpha
     n = data.n
