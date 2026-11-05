@@ -48,6 +48,7 @@ from ._trial_family import (
     AUGMENTED_TRIAL_FAMILY,
     augmented_trial_refusal,
     is_augmented_trial,
+    score_tolerance_refusal,
 )
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
@@ -3016,13 +3017,15 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         return _cached(self._result, "diagnostics.influence", (), {}, compute)
 
-    def score_equations(self, *, tolerance: float = DEFAULT_TOLERANCE) -> Any:
+    def score_equations(self, *, tolerance: float | None = None) -> Any:
         """Whether targeting solved the score equations this fit relies on.
 
         Parameters
         ----------
-        tolerance : float
-            Relative tolerance used to evaluate the fitted score equations.
+        tolerance : float or None, default=None
+            Relative tolerance used to evaluate the fitted score equations. ``None`` takes
+            :data:`~cleverly.validation.score.DEFAULT_TOLERANCE`. An adaptive TMLE fit
+            gates on its own stopping rule and refuses an explicit value.
 
         Returns
         -------
@@ -3046,6 +3049,9 @@ class DiagnosticsFacade(_CapabilityFacade):
         that score with ``tolerance``.
         """
         self._require("score_equations")
+        if tolerance is not None and _family(self._result) == AUGMENTED_TRIAL_FAMILY:
+            raise CapabilityError.from_refusal(score_tolerance_refusal())
+        resolved = DEFAULT_TOLERANCE if tolerance is None else tolerance
 
         def compute() -> Any:
             if _family(self._result) == AUGMENTED_TRIAL_FAMILY:
@@ -3053,16 +3059,16 @@ class DiagnosticsFacade(_CapabilityFacade):
                 # point-treatment relative bound and has no meaning here.
                 return self._result.score_report()
             if _family(self._result) == "longitudinal":
-                return _longitudinal_scores(self._result, tolerance=tolerance)
+                return _longitudinal_scores(self._result, tolerance=resolved)
             from .validation.score import score_check
 
-            return score_check(self._result, tolerance=tolerance)
+            return score_check(self._result, tolerance=resolved)
 
         return _cached(
             self._result,
             "diagnostics.score_equations",
             (),
-            {"tolerance": tolerance},
+            {"tolerance": resolved},
             compute,
         )
 
@@ -3339,12 +3345,16 @@ def _augmented_trial_item(operation: str, report: Any) -> AssessmentItem:
     """The combined-report row of one adaptive TMLE diagnostic, read off its report."""
     if operation == "support":
         _, _, median = report.external_source_quantiles
+        low, high = report.trial_row_treatment_range
         detail = (
             f"smallest P(S = 1 | W) on an external row {report.external_source_min:.3g}, "
             f"median {median:.3g}; share below {report.floor:g}: "
-            f"{report.external_source_below_floor:.3g}; trial P(A = 1 | W) in "
-            f"[{report.trial_treatment_range[0]:.3g}, {report.trial_treatment_range[1]:.3g}]"
+            f"{report.external_source_below_floor:.3g}; treatment probability on trial rows in "
+            f"[{low:.3g}, {high:.3g}]"
         )
+        if report.population == "trial":
+            # The trial-population effect never evaluates Q at an uncovered row (no A3).
+            detail += "; not limiting for the effect averaged over the trial rows"
         if report.adequate:
             return AssessmentItem(operation, AssessmentStatus.PASSED, detail)
         return AssessmentItem(

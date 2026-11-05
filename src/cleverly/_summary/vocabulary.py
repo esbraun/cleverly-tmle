@@ -4287,24 +4287,36 @@ EXTERNAL_CONTROLS_ONLY: Final = "controls only"
 EXTERNAL_BOTH_ARMS: Final = "both, {k} treated"
 SOURCE_MODEL: Final = "Trial-membership model"
 ATMLE_FOLDS_WORD: Final = "{k} folds"
-ATMLE_SETTINGS_BOUNDS: Final = "Treatment probabilities clipped to [{low}, {high}]."
+ATMLE_SETTINGS_BOUNDS: Final = (
+    "The treatment and trial-membership probabilities are clipped to [{low}, {high}], and "
+    "the probability that an outcome is recorded is bounded below by {low}."
+)
 ATMLE_SETTINGS_PASSES: Final = (
     "The trial-membership update took {passes} pass(es) and {met} the stopping rule."
 )
-ATMLE_ASSUMPTIONS: Final[tuple[str, ...]] = (
+#: The assumptions of an adaptive TMLE fit that every fit states.
+ATMLE_ASSUMPTIONS_TRIAL: Final[tuple[str, ...]] = (
     "randomized trial: in the trial, the arm a unit got is unrelated to its outcomes given "
     "the adjusted-for values",
     "both arms in the trial: every group of trial units with the same adjusted-for values "
     "could get either arm",
+)
+#: Stated only for the effect averaged over every row.
+ATMLE_ASSUMPTION_COVERAGE: Final = (
     "trial covers the external rows: every external row's adjusted-for values also occur in "
-    "the trial (needed when averaging over every row)",
-    "outcomes missing at random given trial membership, the adjusted-for values and the arm "
-    "(with missing outcomes only)",
+    "the trial (needed when averaging over every row)"
+)
+#: Stated only when the design declares missing outcomes.
+ATMLE_ASSUMPTION_MISSING: Final = (
+    "outcomes missing at random in the trial: among trial rows, whether the outcome is "
+    "recorded is unrelated to it given the adjusted-for values and the arm; nothing is "
+    "assumed about why external outcomes are missing"
 )
 
 T2_ATMLE_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
     {
         "atmle_overlap": "note",
+        "atmle_overlap_trial": "note",
         "atmle_working_model": "note",
     }
 )
@@ -4316,6 +4328,13 @@ T2_ATMLE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "On the external rows, the estimated chance of being a trial row is at least "
             "{low}, with median {median}; {share} of external rows fall below {floor}. "
             "Rows the trial does not cover add variance and rest on the bias model."
+        ),
+        "atmle_overlap_trial": (
+            "On the external rows, the estimated chance of being a trial row is at least "
+            "{low}, with median {median}; {share} of external rows fall below {floor}. The "
+            "effect is averaged over the trial rows, which the trial covers by "
+            "construction, so this does not limit the estimate; it shows how much the bias "
+            "model leans on external rows unlike the trial's."
         ),
         "atmle_working_model": (
             "The fit learned how the external outcomes differ from the trial's with a model "

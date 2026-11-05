@@ -9,6 +9,7 @@ the cross-validated form reads, and the bookkeeping of a fit.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import replace
 from typing import Any
 
@@ -35,7 +36,7 @@ from cleverly.estimators.atmle import (
     select_working_model,
     target_source,
 )
-from cleverly.exceptions import MethodConfigurationError, PositivityWarning
+from cleverly.exceptions import DataError, MethodConfigurationError, PositivityWarning
 from cleverly.learners.crossfit import random_partition
 
 BOUNDS = (0.01, 0.99)
@@ -452,6 +453,12 @@ def test_no_validation_row_reaches_its_folds_nuisance_or_selection_fits(
     original = atmle.select_working_model
     original_refit = atmle.relaxed_refit
     original_step = atmle.pooled_epsilon
+    original_directions = atmle.target_directions
+    directions_ids: list[set[int]] = []
+
+    def directions(unit, population):  # type: ignore[no-untyped-def]
+        directions_ids.append(set(unit.phi[:, 1].astype(int).tolist()))
+        return original_directions(unit, population)
 
     def recorded(basis, multiplier, response, n_unpenalized, inner):  # type: ignore[no-untyped-def]
         SELECTIONS.append(
@@ -482,6 +489,7 @@ def test_no_validation_row_reaches_its_folds_nuisance_or_selection_fits(
     monkeypatch.setattr(atmle, "select_working_model", recorded)
     monkeypatch.setattr(atmle, "relaxed_refit", refit)
     monkeypatch.setattr(atmle, "pooled_epsilon", step)
+    monkeypatch.setattr(atmle, "target_directions", directions)
     n, folds = 240, 4
     data = trial_draw(4, n)
     fit = fit_adaptive_tmle(
@@ -545,14 +553,24 @@ def test_no_validation_row_reaches_its_folds_nuisance_or_selection_fits(
             ):
                 found, clean = _producer_ok(role, int(row), float(value), forbidden)
                 assert found and clean, ("refit", role, v, row)
+    # The CV directions I^{-1} m are computed on each fold's training rows T_v, never on the
+    # validation rows V_v (a mutation that passes V_v leaves every id set equal to a fold).
+    training = [set(range(n)) - fold_rows[v] for v in range(folds)]
+    assert directions_ids
+    assert all(ids in training for ids in directions_ids)
+    assert all(training[v] in directions_ids for v in range(folds))
     # Each pooled step reads the validation folds alone, with nuisances fitted without them.
     assert len(STEPS) == 2 + fit.passes
-    for units in STEPS:
+    for index, units in enumerate(STEPS):
         assert len(units) == folds
         for v, unit in enumerate(units):
             assert set(unit["ids"].tolist()) == fold_rows[v]
             for position, row in enumerate(unit["ids"]):
-                for role, value in (("treatment", unit["g"]), ("outcome", unit["qt"])):
+                checks = [("treatment", unit["g"]), ("outcome", unit["qt"])]
+                if index < 2:
+                    # Pi is still the cross-fitted nuisance before the first fluctuation.
+                    checks.append(("source", unit["source"]))
+                for role, value in checks:
                     found, clean = _producer_ok(
                         role, int(row), float(value[position]), fold_rows[v]
                     )
@@ -652,6 +670,25 @@ def test_a_fit_with_missing_outcomes_runs_both_forms() -> None:
         assert fit.scores.effect_model < 1e-10
 
 
+@pytest.mark.parametrize("group", ["external", "trial"])
+@pytest.mark.parametrize("arm", [0.0, 1.0])
+def test_an_arm_with_no_observed_outcome_is_a_data_error(group: str, arm: float) -> None:
+    """Q(arm, W) on those rows would be pure extrapolation, so the fit refuses."""
+    data = trial_draw(2, 600)
+    rows = (data["source"] == (1.0 if group == "trial" else 0.0)) & (data["treatment"] == arm)
+    assert rows.sum() > 5
+    observed = ~rows
+    data["outcome"] = np.where(observed, data["outcome"], np.nan)
+    with pytest.raises(DataError, match=f"every {group} row in arm {arm:g} has a missing outcome"):
+        _fit(data, observed=observed, missingness_learner=LogisticRegression(), form="pooled")
+    # One observed row in that arm is enough to pass the check.
+    one = observed.copy()
+    one[np.flatnonzero(rows)[0]] = True
+    data["outcome"][one & rows] = 0.0
+    fit = _fit(data, observed=one, missingness_learner=LogisticRegression(), form="pooled")
+    assert np.isfinite(fit.estimate)
+
+
 def test_the_cross_validated_form_needs_three_folds() -> None:
     with pytest.raises(MethodConfigurationError, match="at least three folds"):
         _fit(trial_draw(1, 200), n_folds=2)
@@ -701,6 +738,23 @@ def test_the_pooled_steps_solve_the_target_direction_scores(
     # The targeted fit leaves the pooled target-direction scores solved.
     assert fit.scores.effect_model < 1e-10
     assert fit.scores.bias_model < 1e-10
+
+
+def test_the_trial_population_does_not_warn_about_a_pooled_covariate_gap() -> None:
+    """A3 (the trial covers the external rows) is needed only for the combined-rows effect."""
+    data = trial_draw(3, 600, controls_only=True)
+    data["covariates"][:, 1] = np.where(data["source"] == 0, 4.0, 0.0) + data["covariates"][:, 1]
+    with pytest.warns(PositivityWarning, match="below 0.01"):
+        pooled = _fit(data, form="pooled", population="pooled")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", PositivityWarning)
+        trial = _fit(data, form="pooled", population="trial")
+    # The reading itself stays on the record, as information.
+    assert trial.diagnostics.external_source_below_floor > 0
+    assert (
+        trial.diagnostics.external_source_below_floor
+        == pooled.diagnostics.external_source_below_floor
+    )
 
 
 def test_few_external_treated_rows_and_low_enrollment_probabilities_warn() -> None:

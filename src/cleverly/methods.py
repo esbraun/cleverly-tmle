@@ -32,6 +32,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 __all__ = [
     "ADAPTIVE_IPTW_LONGITUDINAL_REFUSAL",
     "ATMLE_CV_FOLDS_REFUSAL",
+    "ATMLE_CV_OFF_REFUSAL",
     "ATMLE_FIELDS",
     "ATMLE_REPEATS_REFUSAL",
     "BASELINE_HAZARD_POOLING_REFUSAL",
@@ -1769,6 +1770,7 @@ ATMLE_FIELDS: frozenset[tuple[str, str]] = frozenset(
         ("cross_fitting", "enabled"),
         ("cross_fitting", "n_folds"),
         ("cross_fitting", "learner_folds"),
+        ("cross_fitting", "split_plan"),
         ("targeting", "g_bounds"),
         ("inference", "alpha"),
         ("runtime", "random_state"),
@@ -1793,6 +1795,33 @@ ATMLE_CV_FOLDS_REFUSAL = Refusal(
 )
 
 
+#: Why the adaptive CV-TMLE cannot run with cross-fitting off.
+ATMLE_CV_OFF_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "The adaptive CV-TMLE selects and targets each fold's working models on the other folds, "
+    "so it needs folds; cross-fitting is off.",
+    alternative="Use CrossFitting(enabled=True) with three or more folds, or form='pooled'.",
+)
+
+#: Why each unread setting group does not apply to adaptive TMLE.
+_ATMLE_UNREAD_REASONS: dict[str, str] = {
+    "models": (
+        "adaptive TMLE reads the outcome, treatment and missingness learners and nothing "
+        "else of ModelSpec"
+    ),
+    "cross_fitting": (
+        "adaptive TMLE has one outer split and its own targeting scheme, so this setting "
+        "has no effect"
+    ),
+    "targeting": "adaptive TMLE fits no outcome fluctuation",
+    "inference": (
+        "adaptive TMLE reports one influence-curve interval and draws no bootstrap or "
+        "simultaneous band"
+    ),
+    "runtime": "the adaptive TMLE engine fits the folds serially",
+}
+
+
 @dataclass(frozen=True)
 class AdaptiveTMLEMethod(TMLEMethod):
     """Configure adaptive TMLE for a randomized trial pooled with external data.
@@ -1805,11 +1834,11 @@ class AdaptiveTMLEMethod(TMLEMethod):
     the status ``working_model_projection``. Only :class:`~cleverly.TrialWithExternalData`
     takes this method.
 
-    The method reads the learners of :class:`ModelSpec`, ``enabled``, ``n_folds`` and
-    ``learner_folds`` of :class:`CrossFitting`, ``g_bounds`` of :class:`Targeting`,
-    ``alpha`` of :class:`Inference` and ``random_state`` and ``run_id`` of :class:`Runtime`.
-    It fits no outcome fluctuation, so every other field of those groups must keep its
-    default, and a changed one is refused by name.
+    The method reads the learners of :class:`ModelSpec`, ``enabled``, ``n_folds``,
+    ``learner_folds`` and ``split_plan`` of :class:`CrossFitting`, ``g_bounds`` of
+    :class:`Targeting`, ``alpha`` of :class:`Inference` and ``random_state`` and ``run_id``
+    of :class:`Runtime`. Every other field of those groups must keep its default, and a
+    changed one is refused by name with the reason it has no effect.
 
     Parameters
     ----------
@@ -1820,7 +1849,9 @@ class AdaptiveTMLEMethod(TMLEMethod):
     cross_fitting : CrossFitting, default=CrossFitting(n_folds=5)
         The outer split. ``learner_folds`` also sets the folds of the cross-validation that
         chooses each lasso penalty. ``form="cv"`` needs ``enabled=True`` and at least three
-        folds. ``repeats`` above one is refused.
+        folds. ``form="pooled"`` with ``enabled=False`` fits every nuisance on every row. A
+        ``split_plan`` supplies the outer folds in place of a drawn split. ``repeats`` above
+        one is refused.
     targeting : Targeting
         ``g_bounds`` bounds the treatment, trial-membership and observation probabilities.
     inference : Inference
@@ -1892,7 +1923,9 @@ class AdaptiveTMLEMethod(TMLEMethod):
         cross = self.cross_fitting
         if cross.repeats > 1:
             raise MethodConfigurationError.from_refusal(ATMLE_REPEATS_REFUSAL)
-        if self.form == "cv" and (not cross.enabled or cross.n_folds < 3):
+        if self.form == "cv" and not cross.enabled:
+            raise MethodConfigurationError.from_refusal(ATMLE_CV_OFF_REFUSAL)
+        if self.form == "cv" and cross.split_plan is None and cross.n_folds < 3:
             raise MethodConfigurationError.from_refusal(ATMLE_CV_FOLDS_REFUSAL)
         defaults = AdaptiveTMLEMethod.__dataclass_fields__
         for group in ("models", "cross_fitting", "targeting", "inference", "runtime"):
@@ -1903,8 +1936,8 @@ class AdaptiveTMLEMethod(TMLEMethod):
                     continue
                 if _differs_from_default(getattr(value, item.name), getattr(default, item.name)):
                     raise MethodConfigurationError(
-                        f"adaptive TMLE fits no outcome fluctuation; {group}.{item.name} does "
-                        "not apply. Remove it.",
+                        f"{_ATMLE_UNREAD_REASONS[group]}; {group}.{item.name} does not "
+                        "apply. Remove it.",
                         reason=RefusalReason.INVALID_DECLARATION,
                     )
         if self.working_basis is not None and not (
@@ -1958,7 +1991,9 @@ class AdaptiveTMLEMethod(TMLEMethod):
             "g_bounds": self.targeting.g_bounds,
             "basis": self.working_basis,
             "form": self.form,
-            "n_folds": cross.n_folds if cross.enabled else 1,
+            "n_folds": cross.n_folds,
+            "cross_fit": cross.enabled,
+            "split_plan": cross.split_plan,
             "inner_folds": cross.learner_folds,
             "random_state": self.runtime.random_state,
         }

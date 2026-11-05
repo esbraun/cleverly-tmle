@@ -34,8 +34,11 @@ plug-ins.
 
 from __future__ import annotations
 
+import os
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
@@ -43,7 +46,7 @@ import scipy.linalg
 from scipy.special import expit, logit
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
-from .._warnings import warn as _warn
+from .._warnings import warn as _warn_at
 from ..exceptions import (
     CapabilityError,
     ConvergenceWarning,
@@ -100,6 +103,18 @@ MAX_PASSES = 50
 #: An external row's ``pi(W)`` below this value is reported as a trial-enrollment
 #: positivity concern (condition A3).
 SOURCE_FLOOR = 0.01
+
+
+def _warn(message: str, category: type[Warning]) -> None:
+    """Warn at the first frame outside the ``cleverly`` package, which is the user's call."""
+    package = str(Path(__file__).resolve().parent.parent) + os.sep
+    frame: Any = sys._getframe(0)
+    level = 1
+    while frame is not None and os.path.abspath(frame.f_code.co_filename).startswith(package):
+        frame = frame.f_back
+        level += 1
+    _warn_at(message, category, stacklevel=level)
+
 
 #: The number of log-spaced penalties of the grid, as ``glmnet``'s ``nlambda``.
 _N_LAMBDA = 100
@@ -396,10 +411,10 @@ def lasso_solutions(
 
     with ``s_j`` the standard deviation of column ``j`` under the weights ``m^2``. A penalized
     column that is constant on the rows takes no coefficient. The leading ``k`` columns are
-    partialled out exactly, the rest are solved by coordinate descent
-    (``sklearn.linear_model.lasso_path``) and then solved exactly on the active set and its
-    signs when that solution satisfies the optimality conditions. A penalty of 0 gives least
-    squares.
+    partialled out exactly, the rest are solved by feature-sign search, an
+    active-set method that solves exactly on the active columns and their signs, along the
+    penalty grid, and the solution is checked against the optimality conditions. A penalty
+    of 0 gives least squares.
 
     Parameters
     ----------
@@ -513,8 +528,13 @@ def select_working_model(
         raise CapabilityError(
             f"The working-model lasso did not reach its optimality tolerance at penalty "
             f"{solution.penalty:.3g}: the Karush-Kuhn-Tucker residual is {solution.kkt:.3g}, "
-            f"above {problem.tolerance():.3g}.",
+            f"above {problem.tolerance():.3g}. The declared dictionary is too collinear or too "
+            "large for these rows.",
             reason=RefusalReason.INVALID_DECLARATION,
+            alternative=(
+                "Pass a smaller or less collinear basis=, for example a transformer with fewer "
+                "knots and no pairwise products."
+            ),
         )
     selected = np.union1d(
         np.arange(problem.k, dtype=np.int64),
@@ -1125,7 +1145,6 @@ def target_source(
             f"the fluctuation of P(S = 1 | W, A) stopped with score {score:.3g}, above its "
             f"tolerance {tolerance:.3g}",
             ConvergenceWarning,
-            stacklevel=2,
         )
     return e
 
@@ -1264,8 +1283,9 @@ class AdaptiveTMLEDiagnostics:
         Its 5%, 25% and 50% quantiles on the external rows.
     external_source_below_floor : float
         The share of external rows with ``pi(W)`` below :data:`SOURCE_FLOOR`.
-    trial_treatment_range : tuple of float
-        The smallest and largest bounded ``g(1 | W)`` on a trial row.
+    trial_row_treatment_range : tuple of float
+        The smallest and largest bounded combined-data ``g(1 | W)``, the treatment
+        probability the fit estimates on every row, read on the trial rows.
     """
 
     n: int
@@ -1276,7 +1296,7 @@ class AdaptiveTMLEDiagnostics:
     external_source_min: float
     external_source_quantiles: tuple[float, float, float]
     external_source_below_floor: float
-    trial_treatment_range: tuple[float, float]
+    trial_row_treatment_range: tuple[float, float]
 
 
 @dataclass(frozen=True)
@@ -1492,6 +1512,16 @@ def _check_inputs(
             raise DataError("the observation indicator must have one value per row")
         if not np.all(np.isfinite(y[seen])):
             raise DataError("every observed outcome must be finite")
+        for label, rows in (("trial", trial), ("external", ~trial)):
+            for arm in (0.0, 1.0):
+                group = rows & (a == arm)
+                if np.any(group) and not np.any(seen & group):
+                    raise DataError(
+                        f"every {label} row in arm {arm:g} has a missing outcome, so the "
+                        f"outcome regression Q({arm:g}, W) for those rows would be pure "
+                        "extrapolation from the other rows. Drop that arm's rows, or "
+                        "recover some of their outcomes."
+                    )
     elif not np.all(np.isfinite(y)):
         raise DataError("every outcome must be finite when no observation indicator is given")
     return y, a, s, w, seen
@@ -1601,7 +1631,6 @@ def fit_adaptive_tmle(
         _warn(
             f"the bias of the external treated rows is learned from only {n_external_treated} rows",
             PositivityWarning,
-            stacklevel=2,
         )
     assignment = split.assignment
     every = np.arange(n, dtype=np.int64)
@@ -1800,7 +1829,6 @@ def _not_converged(mean: float, threshold: float) -> None:
         f"stopping rule in {MAX_PASSES} passes; |P_n D| is {abs(mean):.3g}, above "
         f"{threshold:.3g}",
         ConvergenceWarning,
-        stacklevel=4,
     )
 
 
@@ -1954,7 +1982,7 @@ def _assemble(
         converged=targeted.converged,
         scores=scores,
         diagnostics=_diagnostics(
-            data, units, split, form, raw_pibar, controls_only, n_external_treated
+            data, units, split, form, raw_pibar, controls_only, n_external_treated, population
         ),
         folds=split,
     )
@@ -1974,6 +2002,7 @@ def _diagnostics(
     raw_pibar: FloatArray,
     controls_only: bool,
     n_external_treated: int,
+    population: Population,
 ) -> AdaptiveTMLEDiagnostics:
     external = data.s == 0.0
     trial = ~external
@@ -1982,13 +2011,14 @@ def _diagnostics(
     for unit, rows in zip(units, _evaluation_rows(split, form), strict=True):
         g[rows] = unit.nuisances.g
     below = float(np.mean(values < SOURCE_FLOOR))
-    if below > 0.0:
+    # Assumption A3 (the trial covers the external rows) is needed only when the effect is
+    # averaged over every row; the trial population never evaluates Q at an uncovered row.
+    if below > 0.0 and population == "pooled":
         _warn(
             f"{below:.1%} of the external rows have an estimated trial-enrollment probability "
             f"P(S = 1 | W) below {SOURCE_FLOOR} (smallest {values.min():.3g}); the effect "
             "averaged over the pooled covariates relies on trial rows like them",
             PositivityWarning,
-            stacklevel=4,
         )
     q05, q25, q50 = (float(v) for v in np.quantile(values, [0.05, 0.25, 0.5]))
     return AdaptiveTMLEDiagnostics(
@@ -2000,5 +2030,5 @@ def _diagnostics(
         external_source_min=float(values.min()),
         external_source_quantiles=(q05, q25, q50),
         external_source_below_floor=below,
-        trial_treatment_range=(float(np.min(g[trial])), float(np.max(g[trial]))),
+        trial_row_treatment_range=(float(np.min(g[trial])), float(np.max(g[trial]))),
     )

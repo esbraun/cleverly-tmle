@@ -62,10 +62,11 @@ def _header(result: AdaptiveTMLEResult) -> tuple[list[tuple[str, str]], int]:
 def _notes(result: AdaptiveTMLEResult) -> list[Note]:
     support = result.support_report()
     _, _, median = support.external_source_quantiles
+    code = "atmle_overlap" if support.population == "pooled" else "atmle_overlap_trial"
     notes = [
         note(
-            "atmle_overlap",
-            vocabulary.NOTE_TEXTS["atmle_overlap"].format(
+            code,
+            vocabulary.NOTE_TEXTS[code].format(
                 low=f"{support.external_source_min:.3g}",
                 median=f"{median:.3g}",
                 share=share_text(support.external_source_below_floor),
@@ -108,9 +109,14 @@ def _settings(result: AdaptiveTMLEResult) -> SummarySection:
     return SummarySection(vocabulary.SECTION_SETTINGS, tuple(lines))
 
 
-def _assumptions() -> SummarySection:
+def _assumptions(result: AdaptiveTMLEResult) -> SummarySection:
+    items = list(vocabulary.ATMLE_ASSUMPTIONS_TRIAL)
+    if result.fit.population == "pooled":
+        items.append(vocabulary.ATMLE_ASSUMPTION_COVERAGE)
+    if result.identified_effect.functional.missingness is not None:
+        items.append(vocabulary.ATMLE_ASSUMPTION_MISSING)
     lines = [vocabulary.ASSUMPTIONS_LEAD_GENERIC]
-    lines.extend(f"- {item}" for item in vocabulary.ATMLE_ASSUMPTIONS)
+    lines.extend(f"- {item}" for item in items)
     return SummarySection(vocabulary.SECTION_ASSUMPTIONS, tuple(lines))
 
 
@@ -134,7 +140,7 @@ def atmle_summary(result: AdaptiveTMLEResult, detail: Detail) -> Summary:
     notes.extend(_notes(result))
     sections: list[SummarySection] = []
     if detail == "full":
-        sections.append(_assumptions())
+        sections.append(_assumptions(result))
         sections.append(_settings(result))
     return Summary.build(
         title=vocabulary.ATMLE_TITLE,

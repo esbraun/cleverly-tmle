@@ -21,6 +21,7 @@ __all__ = [
     "augmented_trial_refusal",
     "is_augmented_trial",
     "refuse_augmented_trial",
+    "score_tolerance_refusal",
 ]
 
 #: The assessment family of an adaptive TMLE fit of a trial with external data.
@@ -78,6 +79,23 @@ def augmented_trial_refusal(operation: str, kind: str = "bound") -> Refusal:
         RefusalReason.INFERENCE_GAP,
         f"{operation}: {_MISSING[kind]}.",
         alternative=NO_ALTERNATIVE,
+    )
+
+
+def score_tolerance_refusal() -> Refusal:
+    """The refusal of a ``tolerance`` passed to ``score_equations`` of an adaptive TMLE fit.
+
+    Returns
+    -------
+    Refusal
+        An ``invalid_declaration`` record that names the engine's own stopping rule.
+    """
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        "score_equations(tolerance=...) does not apply to an adaptive TMLE fit: the engine "
+        "stops when |P_n D| <= sd(D) / (sqrt(n) log n), and the report gates on that rule. "
+        "A caller-chosen tolerance would not change what the fit solved.",
+        alternative="Call score_equations() with no tolerance and read the report's tolerance.",
     )
 
 

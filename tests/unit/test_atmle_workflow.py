@@ -31,11 +31,14 @@ from cleverly import (
     CrossFitting,
     ModelSpec,
     PositivityWarning,
+    SplitPlan,
     TrialATE,
     TrialWithExternalData,
 )
+from cleverly._refusal import RefusalReason
 from cleverly._trial_family import AUGMENTED_TRIAL_FAMILY
 from cleverly.estimators.atmle import fit_adaptive_tmle
+from cleverly.learners.crossfit import Folds, random_partition
 
 #: The text every adaptive TMLE refusal of a point-treatment analysis carries.
 REFUSED = ("adaptive working-model fit", "adaptive fit's own state")
@@ -121,6 +124,55 @@ def test_the_study_fit_reproduces_the_engine(form: str, population: str) -> None
     assert fitted.fit.population == population and fitted.fit.form == form
     low, high = estimate.ci
     assert low < estimate.psi < high
+
+
+def test_the_pooled_form_fits_with_cross_fitting_off() -> None:
+    """One fold trains on every row (the engine's one-fold case), not a raw ValueError."""
+    frame = _frame(seed=2)
+    method = dataclasses.replace(
+        _method("pooled"), cross_fitting=CrossFitting(enabled=False, learner_folds=3)
+    )
+    effect = CausalStudy(
+        frame,
+        design=TrialWithExternalData(outcome="Y", treatment="A", adjustment=("W",), source="S"),
+    ).identify(TrialATE(population="trial"))
+    fitted = effect.estimate(method=method)
+    assert isinstance(fitted, AdaptiveTMLEResult)
+    assert fitted.folds.n_folds == 1 and fitted.folds.is_single
+    direct = fit_adaptive_tmle(
+        frame["Y"].to_numpy(),
+        frame["A"].to_numpy(dtype=float),
+        frame["S"].to_numpy(dtype=float),
+        frame[["W"]].to_numpy(),
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(),
+        source_learner=LogisticRegression(),
+        g_bounds=fitted.g_bounds,
+        form="pooled",
+        population="trial",
+        folds=Folds.single(len(frame)),
+        inner_folds=3,
+        random_state=7,
+    )
+    assert fitted.estimate.psi == pytest.approx(direct.estimate, abs=1e-12)
+
+
+def test_a_supplied_split_plan_is_the_outer_split() -> None:
+    frame = _frame(seed=3)
+    plan = SplitPlan.from_folds([random_partition(len(frame), 4, seed=11)])
+    method = dataclasses.replace(
+        _method("cv"), cross_fitting=CrossFitting(n_folds=4, learner_folds=3, split_plan=plan)
+    )
+    effect = CausalStudy(
+        frame,
+        design=TrialWithExternalData(outcome="Y", treatment="A", adjustment=("W",), source="S"),
+    ).identify(TrialATE(population="trial"))
+    fitted = effect.estimate(method=method)
+    assert isinstance(fitted, AdaptiveTMLEResult)
+    assert fitted.folds.assignment.tolist() == list(plan.assignments[0])
+    # A plan that records no generator is refused by the group itself.
+    with pytest.raises(cleverly.MethodConfigurationError, match="no generator record"):
+        CrossFitting(n_folds=4, split_plan=SplitPlan([list(plan.assignments[0])]))
 
 
 def test_the_contrast_is_treated_against_control(result: AdaptiveTMLEResult) -> None:
@@ -257,3 +309,154 @@ def test_the_refusal_is_keyed_on_the_declared_family(
     mutated = dataclasses.replace(result)
     refused = _refusals(mutated)
     assert not any(refused.values()), [name for name, text in refused.items() if text]
+
+
+def _uncovered_frame() -> pd.DataFrame:
+    """External rows sit far from every trial row in W, so P(S = 1 | W) is near zero there."""
+    frame = _frame(n=600, seed=4)
+    frame.loc[frame["S"] == 0, "W"] += 4.0
+    return frame
+
+
+def test_pooled_positivity_is_reported_only_where_the_effect_needs_it() -> None:
+    with pytest.warns(PositivityWarning, match="below 0.01"):
+        pooled = _fit(_uncovered_frame(), "pooled", form="pooled")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", PositivityWarning)
+        trial = _fit(_uncovered_frame(), "trial", form="pooled")
+    pooled_support = pooled.diagnostics.support()
+    trial_support = trial.diagnostics.support()
+    assert not pooled_support.adequate
+    assert trial_support.external_source_below_floor > 0
+    assert trial_support.adequate
+    assert pooled.fit_warnings and any("below 0.01" in w.message for w in pooled.fit_warnings)
+    assert not any("below 0.01" in w.message for w in trial.fit_warnings)
+    # The summary note and the combined report follow the population.
+    assert "limit the estimate" not in str(pooled.summary())
+    trial_text = str(trial.summary())
+    assert "does not limit the estimate" in trial_text
+    ran = {item.name: item for item in trial.assess().diagnostics.items}
+    assert ran["support"].status is AssessmentStatus.PASSED
+    ran = {item.name: item for item in pooled.assess().diagnostics.items}
+    assert ran["support"].status is AssessmentStatus.WARNING
+
+
+def test_the_positivity_warning_points_at_the_user_call() -> None:
+    frame = _uncovered_frame()
+    with pytest.warns(PositivityWarning) as caught:
+        _fit(frame, "pooled", form="pooled")
+    assert all(Path(item.filename) == Path(__file__) for item in caught)
+
+
+def test_score_equations_refuses_a_tolerance_it_would_ignore(
+    result: AdaptiveTMLEResult,
+) -> None:
+    with pytest.raises(CapabilityError, match=r"sqrt\(n\) log n") as error:
+        result.diagnostics.score_equations(tolerance=1e-3)
+    assert error.value.refusal is not None
+    assert error.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+    report = result.diagnostics.score_equations()
+    assert report.passed and report.tolerance > 0
+
+
+def test_a_shipped_family_keeps_the_default_score_tolerance() -> None:
+    from cleverly import ATE, PointTreatment
+    from cleverly.validation.score import DEFAULT_TOLERANCE
+
+    frame = _frame(n=150, seed=5)
+    point = CausalStudy(
+        frame.drop(columns="S"),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",)),
+    )
+    fitted = point.identify(ATE()).estimate(
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(),
+        cross_fit=False,
+        random_state=0,
+    )
+    default = fitted.diagnostics.score_equations()
+    explicit = fitted.diagnostics.score_equations(tolerance=DEFAULT_TOLERANCE)
+    assert default.tolerance == explicit.tolerance == DEFAULT_TOLERANCE
+
+
+@pytest.mark.parametrize("population", ["trial", "pooled"])
+@pytest.mark.parametrize("missing", [False, True])
+def test_the_assumptions_follow_the_population_and_the_missing_outcomes(
+    population: str, missing: bool
+) -> None:
+    """A3 belongs to the combined-rows effect and the missing-outcome item to its design."""
+    fitted = _fit(
+        _frame(missing=missing),
+        population,
+        form="pooled",
+        missingness="R" if missing else None,
+        **({"missingness_learner": LogisticRegression()} if missing else {}),
+    )
+    recorded = " | ".join(fitted.identified_effect.identification.assumptions)
+    shown = str(fitted.summary(detail="full"))
+    for text in (recorded, shown):
+        assert ("trial support" in text or "trial covers the external rows" in text) == (
+            population == "pooled"
+        )
+        assert "delta=" not in text
+        assert ("missing at random in the trial" in text) == missing
+    if missing:
+        assert "nothing is assumed about why external outcomes are missing" in recorded
+        assert "given trial membership" not in shown and "given trial membership" not in recorded
+        assert "missingness= declared" in recorded
+
+
+@pytest.mark.parametrize("form", ["cv", "pooled"])
+def test_the_covariance_is_the_variance_the_interval_uses(form: str) -> None:
+    """Per-fold means are not zero under the pooled epsilon, so a centered covariance of the
+    stacked curve differs from the fold-variance rule the standard error follows."""
+    fitted = _fit(_frame(seed=6), form=form)
+    cov = fitted.covariance()
+    assert cov.shape == (1, 1)
+    assert cov[0, 0] == pytest.approx(fitted.estimate.std_error**2, rel=1e-12)
+    assert fitted.covariance(["ate"])[0, 0] == cov[0, 0]
+
+
+def test_the_data_fingerprint_reads_trial_membership_only_when_it_is_declared() -> None:
+    from cleverly.data.causal_data import CausalData
+    from cleverly.provenance import data_fingerprint, fingerprint_array
+
+    frame = _frame(n=80, seed=7)
+
+    def build(table: pd.DataFrame, **roles: Any) -> CausalData:
+        return CausalData.from_frame(table, outcome="Y", treatment="A", covariates=("W",), **roles)
+
+    declared = build(frame, source="S")
+    flipped_frame = frame.copy()
+    flipped_frame.loc[0, "S"] = 1 - flipped_frame.loc[0, "S"]
+    # Moving one row between the trial and the external data changes the digest.
+    assert data_fingerprint(build(flipped_frame, source="S")) != data_fingerprint(declared)
+    # Without a declared source, the digest is the one it was before the field existed.
+    plain = build(frame)
+    assert plain.source is None
+    assert data_fingerprint(plain) == fingerprint_array(
+        plain.outcome, plain.treatment, plain.covariates
+    )
+    assert data_fingerprint(plain) != data_fingerprint(declared)
+
+
+def test_a_point_treatment_fit_is_unchanged_by_an_unused_membership_column() -> None:
+    """Shipped paths replay as they did: the extra column is no role, so nothing moves."""
+    from cleverly import ATE, PointTreatment
+
+    frame = _frame(n=150, seed=8)
+
+    def fit(table: pd.DataFrame) -> Any:
+        study = CausalStudy(
+            table, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+        )
+        return study.identify(ATE()).estimate(
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(),
+            cross_fit=False,
+            random_state=0,
+        )
+
+    with_column, without = fit(frame), fit(frame.drop(columns="S"))
+    assert with_column.provenance.data_fingerprint == without.provenance.data_fingerprint
+    assert with_column.psi() == without.psi()

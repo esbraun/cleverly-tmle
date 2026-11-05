@@ -4027,11 +4027,12 @@ def _trial_identification(
             "trial's conditional effect is defined at every pooled row (A3); the fit reports "
             "the external rows' estimated P(S = 1 | W)"
         )
-    assumptions.append(
-        "with delta=: missingness at random in the trial: whether Y is recorded is "
-        "independent of Y given (W, A) among trial rows; nothing is assumed about why "
-        "external outcomes are missing"
-    )
+    if design.missingness is not None:
+        assumptions.append(
+            "outcomes missing at random in the trial (missingness= declared): whether Y is "
+            "recorded is independent of Y given (W, A) among trial rows; nothing is assumed "
+            "about why external outcomes are missing"
+        )
     return Identification(
         assumptions=tuple(assumptions),
         required_nuisances=(
@@ -5144,7 +5145,15 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
 
     def _estimate_trial(self, method: EstimationMethod) -> AdaptiveTMLEResult:
         assert self._study is not None and isinstance(self._study.data, CausalData)
-        assert isinstance(method, AdaptiveTMLEMethod) and isinstance(self.estimand, TrialATE)
+        assert isinstance(self.estimand, TrialATE)
+        if not isinstance(method, AdaptiveTMLEMethod):
+            raise CapabilityError(
+                f"a method named {method.name!r} that is not AdaptiveTMLEMethod cannot fit "
+                "TrialATE: only adaptive TMLE is derived for a trial pooled with external "
+                f"data, and a {type(method).__name__} carries none of its settings.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Pass method='atmle' or an AdaptiveTMLEMethod.",
+            )
         from .estimators.atmle_result import fit_trial_effect
 
         return fit_trial_effect(self, method)

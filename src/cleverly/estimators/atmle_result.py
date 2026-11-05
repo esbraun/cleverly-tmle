@@ -26,17 +26,18 @@ from .._support import Support
 from .._trial_family import AUGMENTED_TRIAL_FAMILY
 from .._typing import FloatArray
 from .._warnings import FitWarning
+from ..exceptions import DataError, MethodConfigurationError
 from ..inference.influence import ParameterEstimate
 from ..inference.results import (
-    estimate_covariance,
     estimate_curves,
     reported_status,
+    select_estimates,
     smooth_contrast,
     sole_estimate,
 )
 from ..learners.crossfit import Folds, _fresh_seed, random_partition
 from ..learners.super_learner import resolve_learner
-from ..provenance import Provenance, record
+from ..provenance import Provenance, data_fingerprint, record
 from ..utils.bounds import resolve_g_bounds
 from .atmle import SOURCE_FLOOR, AdaptiveTMLEFit, WorkingModel, fit_adaptive_tmle
 
@@ -64,9 +65,11 @@ __all__ = [
 class AdaptiveTMLESupport:
     """How well the trial covers the external rows, and the treatment range in the trial.
 
-    The estimand is defined only where ``P(S = 1 | W) > 0`` (assumption A3). The source gives
-    no floor, so the report reads the cross-fitted ``pi(W)`` on the external rows against
-    :data:`~cleverly.estimators.atmle.SOURCE_FLOOR` and does not refuse.
+    The effect averaged over every row is defined only where ``P(S = 1 | W) > 0`` (assumption
+    A3). The source gives no floor, so the report reads the cross-fitted ``pi(W)`` on the
+    external rows against :data:`~cleverly.estimators.atmle.SOURCE_FLOOR` and does not refuse.
+    The effect averaged over the trial rows does not need A3, so ``adequate`` is then true
+    and the shares are information only.
 
     Parameters
     ----------
@@ -86,10 +89,13 @@ class AdaptiveTMLESupport:
         Its 5%, 25% and 50% quantiles on the external rows.
     external_source_below_floor : float
         The share of external rows with ``P(S = 1 | W)`` below ``floor``.
-    trial_treatment_range : tuple of float
-        The smallest and largest bounded ``P(A = 1 | W)`` on a trial row.
+    trial_row_treatment_range : tuple of float
+        The smallest and largest bounded combined-data ``P(A = 1 | W)`` read on the trial
+        rows.
     floor : float
         The reading floor of ``P(S = 1 | W)``.
+    population : {"trial", "pooled"}
+        The rows the effect is averaged over.
     """
 
     n: int
@@ -100,13 +106,14 @@ class AdaptiveTMLESupport:
     external_source_min: float
     external_source_quantiles: tuple[float, float, float]
     external_source_below_floor: float
-    trial_treatment_range: tuple[float, float]
+    trial_row_treatment_range: tuple[float, float]
     floor: float = SOURCE_FLOOR
+    population: Literal["trial", "pooled"] = "pooled"
 
     @property
     def adequate(self) -> bool:
-        """Whether no external row reads ``P(S = 1 | W)`` below the floor."""
-        return self.external_source_below_floor == 0.0
+        """Whether A3 holds on the reading, which only the combined-rows effect needs."""
+        return self.population == "trial" or self.external_source_below_floor == 0.0
 
 
 @dataclass(frozen=True)
@@ -430,9 +437,12 @@ class AdaptiveTMLEResult:
         Returns
         -------
         ndarray
-            The covariance of the estimators.
+            The covariance of the estimators. The result holds one estimate, so this is its
+            variance under the fit's own rule, the mean of the validation folds' variances
+            for ``form="cv"``, which equals ``std_error ** 2``.
         """
-        return estimate_covariance(self.estimates, names, cluster=None)
+        chosen = select_estimates(self.estimates, names)
+        return np.array([[self.estimates[name].variance for name in chosen]], dtype=float)
 
     def contrast(
         self,
@@ -533,7 +543,8 @@ class AdaptiveTMLEResult:
             external_source_min=d.external_source_min,
             external_source_quantiles=d.external_source_quantiles,
             external_source_below_floor=d.external_source_below_floor,
-            trial_treatment_range=d.trial_treatment_range,
+            trial_row_treatment_range=d.trial_row_treatment_range,
+            population=self.fit.population,
         )
 
     def score_report(self) -> AdaptiveTMLEScoreReport:
@@ -758,6 +769,33 @@ def _support() -> Support:
     )
 
 
+def _outer_folds(data: Any, kwargs: dict[str, Any], seed: int) -> Folds:
+    """Return the outer split: a supplied plan, one fold holding every row, or a draw."""
+    from ..methods import ATMLE_CV_FOLDS_REFUSAL
+
+    plan = kwargs["split_plan"]
+    if plan is not None:
+        plan.verify(n=data.n, cluster=None)
+        realized = plan.validate(
+            n=data.n,
+            treatment=data.treatment,
+            source_fingerprint=data_fingerprint(data),
+        )
+        if len(realized) != 1:
+            raise DataError(
+                f"adaptive TMLE takes one outer split; the split plan holds {len(realized)}"
+            )
+        folds = realized[0]
+        if kwargs["form"] == "cv" and folds.n_folds < 3:
+            raise MethodConfigurationError.from_refusal(ATMLE_CV_FOLDS_REFUSAL)
+        return folds
+    if not kwargs["cross_fit"]:
+        # Pooled form only (the method refuses cv without folds): every nuisance trains on
+        # every row, as the engine does at one fold.
+        return Folds.single(data.n)
+    return random_partition(data.n, kwargs["n_folds"], seed=seed)
+
+
 def fit_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> AdaptiveTMLEResult:
     """Fit adaptive TMLE for an identified :class:`~cleverly.study.TrialATE`.
 
@@ -806,7 +844,7 @@ def fit_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> Ad
     if missing:
         learners["missingness"] = resolved(kwargs["missingness_learner"], "classification")
     g_bounds = resolve_g_bounds(kwargs["g_bounds"], data.n)
-    split = random_partition(data.n, kwargs["n_folds"], seed=seed)
+    split = _outer_folds(data, kwargs, seed)
     fit = fit_adaptive_tmle(
         data.outcome,
         data.treatment,

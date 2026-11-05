@@ -119,15 +119,23 @@ def test_repeated_splits_are_refused() -> None:
     assert _code(error) is RefusalReason.INFERENCE_GAP
 
 
-@pytest.mark.parametrize(
-    "cross", [CrossFitting(enabled=False), CrossFitting(n_folds=2)], ids=["off", "two"]
-)
-def test_the_cv_form_needs_three_folds(cross: CrossFitting) -> None:
+def test_the_cv_form_needs_three_folds() -> None:
     with pytest.raises(MethodConfigurationError, match="at least three folds") as error:
-        AdaptiveTMLEMethod(cross_fitting=cross)
+        AdaptiveTMLEMethod(cross_fitting=CrossFitting(n_folds=2))
     assert _code(error) is RefusalReason.INVALID_DECLARATION
     # The single-sample form selects on every row and takes any split.
+    cross = CrossFitting(n_folds=2)
     assert AdaptiveTMLEMethod(form="pooled", cross_fitting=cross).form == "pooled"
+
+
+def test_the_cv_form_needs_cross_fitting_on() -> None:
+    with pytest.raises(MethodConfigurationError, match="needs folds") as error:
+        AdaptiveTMLEMethod(cross_fitting=CrossFitting(enabled=False))
+    assert _code(error) is RefusalReason.INVALID_DECLARATION
+    assert error.value.refusal is not None and "form='pooled'" in str(
+        error.value.refusal.alternative
+    )
+    assert AdaptiveTMLEMethod(form="pooled", cross_fitting=CrossFitting(enabled=False)).form
 
 
 def test_stratified_folds_take_the_package_refusal() -> None:
@@ -147,6 +155,23 @@ def test_a_frame_without_external_rows_is_a_data_error() -> None:
     frame = _frame()
     frame["S"] = 1
     with pytest.raises(DataError, match="external"):
+        CausalStudy(frame, design=_design())
+
+
+@pytest.mark.parametrize("dtype", ["float", "object", "boolean"])
+def test_a_null_trial_membership_label_is_a_data_error(dtype: str) -> None:
+    """A row with no label is not an external row."""
+    frame = _frame()
+    column: Any = frame["S"].astype(float)
+    column.iloc[3] = np.nan
+    if dtype == "object":
+        column = column.astype(object)
+    elif dtype == "boolean":
+        column = column.astype("boolean")
+    frame["S"] = column
+    with pytest.raises(DataError, match="column 'S' contains missing"):
+        CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=("W",), source="S")
+    with pytest.raises(DataError, match="missing"):
         CausalStudy(frame, design=_design())
 
 
@@ -203,7 +228,6 @@ _OTHER: dict[tuple[str, str], Any] = {
     ("models", "density_bins"): 8,
     ("models", "min_retain"): 2,
     ("models", "hazard_pooling"): "pooled",
-    ("cross_fitting", "split_plan"): "plan",
     ("targeting", "q_bounds"): (0.01, 0.99),
     ("targeting", "step_bound"): 0.5,
     ("targeting", "ratio_trim"): 0.99,
@@ -244,15 +268,9 @@ def test_every_field_off_the_allowlist_is_refused(group: str, name: str) -> None
     method = AdaptiveTMLEMethod()
     value = getattr(method, group)
     item = next(item for item in dataclasses.fields(value) if item.name == name)
-    if (group, name) == ("cross_fitting", "split_plan"):
-        from cleverly import SplitPlan
-        from cleverly.learners import random_partition
-
-        other: Any = SplitPlan.from_folds([random_partition(30, 5, seed=1)])
-    else:
-        other = _OTHER.get((group, name))
-        if other is None:
-            other = _other_value(value, item)
+    other = _OTHER.get((group, name))
+    if other is None:
+        other = _other_value(value, item)
     changes = {name: other}
     if (group, name) == ("targeting", "step_search"):
         # The group itself ties step_search to a declared step_bound.
@@ -268,6 +286,9 @@ def test_every_field_off_the_allowlist_is_refused(group: str, name: str) -> None
         assert "targeting.step_bound does not apply" in str(error.value)
     else:
         assert f"{group}.{name} does not apply" in str(error.value)
+        if (group, name) in {("runtime", "n_jobs"), ("inference", "n_bootstrap")}:
+            # The reason names the real cause, not an unrelated fluctuation.
+            assert "no outcome fluctuation" not in str(error.value)
 
 
 def test_the_allowlist_keeps_what_the_engine_reads() -> None:
@@ -279,3 +300,18 @@ def test_the_allowlist_keeps_what_the_engine_reads() -> None:
     assert (kwargs["n_folds"], kwargs["inner_folds"], kwargs["random_state"]) == (4, 3, 3)
     assert kwargs["g_bounds"] == (0.05, 0.95)
     assert method.inference.alpha == 0.1
+
+
+def test_a_custom_method_named_atmle_is_refused_by_message_not_by_assert(
+    no_engine: None,
+) -> None:
+    from cleverly import TMLEMethod
+
+    impostor = dataclasses.replace(TMLEMethod(), name="atmle")
+    effect = CausalStudy(_frame(), design=_design()).identify(TrialATE(population="trial"))
+    with pytest.raises(CapabilityError, match="not AdaptiveTMLEMethod") as error:
+        effect.estimate(method=impostor)
+    assert _code(error) is RefusalReason.INVALID_DECLARATION
+    assert error.value.refusal is not None and "AdaptiveTMLEMethod" in str(
+        error.value.refusal.alternative
+    )

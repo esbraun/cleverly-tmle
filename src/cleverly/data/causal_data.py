@@ -585,7 +585,17 @@ class CausalData:
         )
         if source is None:
             return built
-        membership = np.asarray(frame[source].to_numpy() == trial, dtype=bool)
+        column = frame[source]
+        holes = has_nulls(frame, source) or (
+            column.dtype.is_float() and bool(column.is_nan().any())
+        )
+        if holes:
+            raise DataError(
+                f"trial-membership column {source!r} contains missing values. A row with no "
+                "membership label would be read as an external row. Drop those rows or "
+                "label them before handing the data to CausalData."
+            )
+        membership = np.asarray(column.to_numpy() == trial, dtype=bool)
         return replace(built, source=membership, source_name=source)
 
     @classmethod
