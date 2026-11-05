@@ -20,8 +20,8 @@ efficient plug-in (EP) learner of a conditional contrast in three steps.
      \varphi_k^\top b` and :math:`\operatorname{logit}\mu^*(r, W) =
      \operatorname{logit}\mu_n(r, W) - \varphi_k^\top b`;
    - log ratio (log CRR): :math:`x = (\mathbb 1\{A \in \{t, r\}\}\,\varphi_k,
-     \mathbb 1\{A = t\}\,\varphi_k)`, the two blocks :math:`H_1 = 1` and :math:`H_2 = a` of
-     EPL eq (3).
+     \mathbb 1\{A = t\}\,\varphi_k)`, which span the two blocks :math:`H_1 = 1` and
+     :math:`H_2 = -a` of EPL eq (3).
 
 3. **Final stage** (EPL Algorithm 3).  On the difference scale, least squares of
    :math:`\mu^*(t, W) - \mu^*(r, W)` on the sieve basis (or any regressor the caller
@@ -49,6 +49,7 @@ import numpy as np
 from scipy.special import expit, logit
 
 from .._typing import FloatArray
+from .._warnings import attach
 from ..bases import Constant, Modifiers, Sieve, resolve
 from ..data.causal_data import CausalData
 from ..effect_modification import EffectModification, modifier_frame
@@ -781,7 +782,7 @@ class EPEstimator:
         family = self.effect_modification.basis
         if size == 0:
             basis: Any = Constant()
-        elif int(size) >= int(family.max_size):
+        elif int(size) == int(family.max_size):
             basis = family
         else:
             basis = family.truncate(int(size))
@@ -834,12 +835,25 @@ class EPEstimator:
         Raises
         ------
         CapabilityError
-            If a basis reads an undeclared domain or level (R3).
+            If a fixed or scheduled size exceeds the family's largest member, or a basis
+            reads an undeclared domain or level (R3).
         DataError
             If a row breaks the modifier schema, or a member is collinear on the rows.
         """
         frame = modifier_frame(data, tuple(self.effect_modification.modifiers.columns))
+        largest = int(self.effect_modification.basis.max_size)
         for size in self.sizes(data.n):
+            if size > largest:
+                raise _refuse(
+                    f"The sieve declares {size} terms per component at n = {data.n}, and its "
+                    f"family {self.effect_modification.basis!r} has at most {largest}. Fitting "
+                    f"the {largest}-term member would replace the declared size, which is the "
+                    "size the EP learner's rate claims name.",
+                    alternative=(
+                        f"Declare a size of at most {largest}, or a larger family "
+                        "(Sieve.default(..., max_size=...))."
+                    ),
+                )
             design = np.asarray(
                 self.member(size).evaluate(frame, self.effect_modification.modifiers), dtype=float
             )
@@ -1053,7 +1067,8 @@ class EPEstimator:
         else:
             sentence = (
                 f"the {stem} given {given}, approximated within the span of the sieve at its "
-                f"chosen size ({fit.sieve.chosen} terms per component)"
+                f"chosen size ({fit.sieve.chosen} "
+                f"{'term' if fit.sieve.chosen == 1 else 'terms'} per component)"
             )
         lower, upper = fit.nuisance.scaler.unscale_levels(np.array([0.0, 1.0]))
         clipped = float(np.mean(raw != in_sample)) if fit.curve.clip else 0.0
@@ -1077,6 +1092,9 @@ class EPEstimator:
             sieve=fit.sieve,
             clipped_share=clipped,
         )
+        # The outer nuisance fit's warnings (positivity, convergence, weighting) are the EP
+        # curve's own; the inner refits' stay on the sieve record.
+        attach(result, getattr(fit.nuisance_fit, "fit_warnings", ()))
         register = getattr(self.identified_effect, "_register_curve", None)
         if register is not None:
             register(result.in_sample)

@@ -149,6 +149,15 @@ _SIEVE_MODES = {
 }
 
 
+def _ep_reason_kind(result: Any) -> str:
+    """The kind of an EP curve's gap: ``"theory"`` outside the source's theorems."""
+    fit = result.fit
+    declared_learner = fit is not None and fit.estimator.final_learner is not None
+    if result.sieve.mode == "cv" or declared_learner:
+        return "theory"
+    return reason_kind(result.status_reason)
+
+
 def _ep_summary(result: Any, *, detail: str) -> Summary:
     """The report of an EP curve: no coefficients with errors, and no interval."""
     sieve = result.sieve
@@ -201,9 +210,9 @@ def _ep_summary(result: Any, *, detail: str) -> Summary:
             note(
                 "ep_experimental",
                 vocabulary.NOTE_TEXTS["ep_experimental"].format(
-                    reason=vocabulary.EXPERIMENTAL_REASONS[
-                        reason_kind(result.status_reason)
-                    ].format(names="the curve")
+                    reason=vocabulary.EXPERIMENTAL_REASONS[_ep_reason_kind(result)].format(
+                        names="the curve"
+                    )
                 ),
             )
         )
@@ -227,6 +236,9 @@ def _ep_summary(result: Any, *, detail: str) -> Summary:
                 ),
             )
         )
+    from ..estimators._point_summary import _warning_notes
+
+    notes.extend(_warning_notes(result.fit_warnings))
     return Summary.build(
         title=vocabulary.EFFECT_CURVE_TITLE, header=header, tables=tables, notes=notes
     )

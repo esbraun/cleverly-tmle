@@ -395,10 +395,23 @@ class TestEachComponentMatters:
         assert np.max(np.abs(after)) > 1e-3
         assert self.error(law) > 1e-3
 
-    def test_the_inverse_propensity_weight(self) -> None:
+    @pytest.mark.parametrize("scale", ["difference", "log_ratio"])
+    def test_the_inverse_propensity_weight(self, scale: str) -> None:
+        """Drop ``1 / pi`` and keep the mass: both scales move off the truth.
+
+        On the log ratio this is the only witness of the propensity weight: the ep-crr
+        rescue cell does not see it (design review B1 of PR-b).
+        """
         law = population(wrong_mu=True)
-        _, beta = run(law, linear(law.v), "difference", weight=law.mass)
-        assert np.max(np.abs(beta - truth(law))) > 1e-3
+        design, exact = (
+            (linear(law.v), truth(law))
+            if scale == "difference"
+            else (indicators(law.v), log_crr_by_cell(law))
+        )
+        _, right = run(law, design, scale)
+        np.testing.assert_allclose(right, exact, atol=EXACT)
+        _, beta = run(law, design, scale, weight=law.mass)
+        assert np.max(np.abs(beta - exact)) > 1e-3
 
     def test_the_inverse_observation_weight(self) -> None:
         """L-miss: keep ``Delta`` and ``1 / pi``, drop ``1 / Pi``; both scales move."""

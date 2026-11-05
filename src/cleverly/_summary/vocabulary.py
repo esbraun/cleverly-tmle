@@ -502,6 +502,11 @@ EXPERIMENTAL_REASONS: Final[Mapping[str, str]] = MappingProxyType(
             "This fit has a feature the validation study of its kind does not cover, so "
             "cleverly marks {names} experimental."
         ),
+        "theory": (
+            "The method's published theory does not cover a sieve size chosen by "
+            "cross-validation or a final learner you supply, so cleverly marks {names} "
+            "experimental whatever a study shows."
+        ),
     }
 )
 

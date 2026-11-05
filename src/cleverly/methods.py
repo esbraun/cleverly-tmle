@@ -1354,7 +1354,8 @@ class EPMethod(TMLEMethod):
         Nuisance learners and related model settings.
     cross_fitting : CrossFitting
         Sample-splitting settings.  The fit needs out-of-fold nuisances, so
-        ``enabled=False``, ``repeats`` above 1 and ``fold_evaluation=True`` are refused.
+        ``enabled=False``, ``repeats`` above 1 and ``fold_evaluation=True`` (the
+        ``cv_evaluation=True`` shortcut) are refused.
     targeting : Targeting
         Only ``g_bounds``, ``q_bounds``, ``nuisance_bound`` and ``submodel_alpha`` are read;
         the EP learner fits no fluctuation, and any other non-default setting is refused.
@@ -1382,12 +1383,28 @@ class EPMethod(TMLEMethod):
 
     Examples
     --------
-    >>> from cleverly import EPMethod
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from sklearn.linear_model import LogisticRegression
+    >>> from cleverly import CausalStudy, ConditionalContrast, EPMethod, PointTreatment
     >>> from cleverly.bases import Cosine, Modifiers, Sieve
-    >>> sieve = Sieve(Cosine(["W1"], size=4), size=3)
-    >>> method = EPMethod(sieve=sieve).with_overrides(n_folds=5)
-    >>> method.name, method.cross_fitting.n_folds, method.sieve.size
-    ('ep', 5, 3)
+    >>> rng = np.random.default_rng(0)
+    >>> w = rng.uniform(0.0, 1.0, 400)
+    >>> a = rng.binomial(1, 0.5, 400)
+    >>> y = rng.binomial(1, 0.3 + 0.3 * a * w)
+    >>> study = CausalStudy(
+    ...     pd.DataFrame({"W": w, "A": a, "Y": y}),
+    ...     design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",)),
+    ... )
+    >>> effect = study.identify(ConditionalContrast(Modifiers(["W"], domains={"W": (0.0, 1.0)})))
+    >>> method = EPMethod(sieve=Sieve(Cosine(["W"], size=3), size=2)).with_overrides(
+    ...     outcome_learner=LogisticRegression(),
+    ...     treatment_learner=LogisticRegression(),
+    ...     random_state=0,
+    ... )
+    >>> curve = effect.estimate(method)
+    >>> curve.fitted_method, curve.inference_status, curve.sieve.chosen
+    ('ep', 'no_interval', 2)
     """
 
     name: str = "ep"

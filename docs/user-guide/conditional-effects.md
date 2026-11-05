@@ -136,23 +136,31 @@ curve.summary()
 
 This is the efficient plug-in (EP) learner of van der Laan, Carone and Luedtke (a preprint).
 It fits the outcome and treatment models so that no row is predicted by a model fitted on it,
-corrects the outcome models with one
-weighted regression on smooth functions of the modifiers, and fits the curve to the corrected
-difference between the arms. The correction is what keeps the curve on target when the
-outcome model is wrong and the treatment model is right. It then stays on target but is noisier,
-and when the outcome itself has little noise the curve's error can be several times what a right
-outcome model would give. The smooth functions are cosines of
-each modifier, so each continuous modifier needs a declared domain, and their number is chosen
-by cross-validation. `sieve=Sieve(Cosine(["age"], 6), size=3)` fixes the number instead.
+corrects the outcome models with one weighted regression on simple functions of the modifiers,
+and fits the curve to the corrected difference between the arms. The correction is what keeps
+the curve on target when the outcome model is wrong and the treatment model is right. It then
+stays on target but is noisier: in a simulation with little outcome noise, the curve's error was
+several times what a right outcome model gave (see the
+[technical reference](../technical-reference/conditional-effects.md#status-and-evidence)).
+
+The functions are cosines of each continuous modifier, which therefore needs a declared
+domain, and indicators of each categorical one. Their number is chosen by cross-validation, and
+`sieve=Sieve(Cosine(["age"], 6), size=3)` fixes it instead. A number larger than the basis
+holds is refused.
 
 The EP curve has no confidence interval, and `curve.predict(rows, interval=True)` is refused.
-Its theory says how fast the curve approaches the true effect, not how far off one fit can be.
 Check it with `curve.diagnostics` as above, and `curve.diagnostics.score_equations()` shows that
 the correction solved its equations. A difference curve is kept inside the outcome's range
-(`curve.clipped_share` says how often that bound was hit). Every EP fit is labelled
-experimental: its study is declared and has not run.
+(`curve.clipped_share` says how often that bound was hit).
 
-With `model=` declared, `method="ep"` estimates the same best line as the default fit, without
+Every EP fit is labelled experimental, for one of two reasons. The method's theory gives a rate
+at which the curve approaches the true effect only when the number of functions follows a
+schedule fixed before the fit, and only under the paper's conditions. Such a schedule is
+`Sieve(Cosine(["age"], 6), size=lambda n: 3 if n < 2000 else 5)`. A number chosen by cross-validation (the default) or a final learner you supply lies outside
+that theory, so those fits stay experimental. A fixed number or a schedule waits on a validation
+study that is declared and has not run.
+
+With `model=` declared, `method="ep"` estimates the same projection as the default fit, without
 intervals, so the default fit is the better choice there.
 
 ## Check a score fitted elsewhere

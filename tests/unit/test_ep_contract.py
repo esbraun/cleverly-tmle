@@ -333,9 +333,11 @@ class TestTheRecords:
     def test_the_summary_names_the_method_and_the_missing_interval(
         self, cv_fit: EffectCurveResult
     ) -> None:
-        text = str(cv_fit.summary())
+        text = " ".join(str(cv_fit.summary()).split())
         assert "EP learner" in text
         assert "interval" in text
+        assert "published theory does not cover a sieve size chosen by cross-validation" in text
+        assert "validation study of its kind" not in text
 
     def test_persistence(self, cv_fit: EffectCurveResult, tmp_path: Any) -> None:
         path = tmp_path / "curve.joblib"
@@ -343,6 +345,26 @@ class TestTheRecords:
         loaded = cleverly.load(path)
         new = {"W": np.array([0.1, 0.9, 1.7])}
         np.testing.assert_array_equal(loaded.predict(new), cv_fit.predict(new))
+
+
+def test_the_outer_nuisance_warnings_reach_the_curve_and_its_summary() -> None:
+    frame = continuous_frame(300, seed=1)
+    frame["A"] = (frame["W"] > 0.3).astype(int)
+    frame.loc[frame.index[:6], "A"] = 0
+    effect = law_study(frame).identify(ConditionalContrast(MODIFIERS))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = effect.estimate(
+            "ep",
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            sieve=Sieve(Cosine(["W"], 3), size=2),
+            random_state=0,
+        )
+    categories = {record.category for record in fit.fit_warnings}
+    assert "PositivityWarning" in categories
+    assert {r.category for r in fit.fit.nuisance_fit.fit_warnings} <= categories
+    assert "truncation bounds" in str(fit.summary())
 
 
 def continuous_frame(n: int, *, seed: int, clusters: int | None = None) -> pd.DataFrame:
@@ -364,6 +386,7 @@ class CurveSpy:
 
     def __init__(self, monkeypatch: Any) -> None:
         self.betas: list[np.ndarray] = []
+        self.curves: list[Any] = []
         self.training: list[Any] = []
         curve_at = ep.EPEstimator._curve_at
         nuisances = ep.EPEstimator._nuisances
@@ -372,6 +395,7 @@ class CurveSpy:
         def recording_curve(self: Any, nuisance_fit: Any, size: int) -> Any:
             curve, debiased = curve_at(self, nuisance_fit, size)
             spy.betas.append(np.asarray(curve.beta).copy())
+            spy.curves.append(curve)
             return curve, debiased
 
         def recording_nuisances(self: Any, data: CausalData, **changes: Any) -> Any:
@@ -383,8 +407,10 @@ class CurveSpy:
         monkeypatch.setattr(ep.EPEstimator, "_nuisances", recording_nuisances)
 
 
-def cv_estimate(frame: pd.DataFrame, **design: Any) -> EffectCurveResult:
-    effect = law_study(frame, **design).identify(ConditionalContrast(MODIFIERS))
+def cv_estimate(
+    frame: pd.DataFrame, *, scale: str = "difference", **design: Any
+) -> EffectCurveResult:
+    effect = law_study(frame, **design).identify(ConditionalContrast(MODIFIERS, scale=scale))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return effect.estimate(
@@ -432,6 +458,48 @@ class TestTheCrossValidationIsFoldLocal:
         assert np.max(np.abs(after[0] - before[0])) > 1e-4
 
 
+@pytest.mark.parametrize("scale", ["difference", "log_ratio"])
+def test_the_cv_risks_are_the_held_out_weighted_one_step_risks(
+    scale: str, monkeypatch: Any
+) -> None:
+    """Each size's risk, recomputed by hand from the fold curves and the outer pseudo-outcomes.
+
+    Evaluating a fold's curves on its training rows, swapping ``D_t`` and ``D_r``, or dropping
+    the row weights from the risk each moves the table (M2 of the PR-b review).
+    """
+    from cleverly.effect_curves import _pseudo_outcomes
+
+    frame = continuous_frame(450, seed=11)
+    frame["w"] = np.random.default_rng(3).uniform(0.2, 3.0, len(frame))
+    spy = CurveSpy(monkeypatch)
+    fit = cv_estimate(frame, scale=scale, weights="w")
+    outer = spy.training[0][1]
+    config = outer.config
+    _, _, d_t, d_r = _pseudo_outcomes(
+        outer.nuisance,
+        fit.fit.data,
+        tuple(outer.nuisance.effect_modification.pair),
+        g_bounds=tuple(config.g_bounds),
+        missingness_bound=float(config.missingness_bound),
+    )
+    assignment = np.asarray(outer.nuisance.folds.assignment)
+    weights = np.asarray(fit.fit.data.weights, dtype=float)
+    assert np.ptp(weights) > 1.0
+    w_column = frame["W"].to_numpy()
+    sizes = TestTheCrossValidationIsFoldLocal.SIZES
+    totals = np.zeros(sizes)
+    for position, fold in enumerate(np.unique(assignment)):
+        held = assignment == fold
+        for index in range(sizes):
+            theta = spy.curves[position * sizes + index].predict({"W": w_column[held]})
+            if scale == "difference":
+                loss = theta**2 - 2.0 * theta * (d_t[held] - d_r[held])
+            else:
+                loss = (d_t[held] + d_r[held]) * np.log1p(np.exp(theta)) - d_t[held] * theta
+            totals[index] += np.sum(weights[held] * loss)
+    np.testing.assert_allclose(fit.sieve.cv_risks, totals / weights.sum(), rtol=0, atol=1e-12)
+
+
 class TestClustersStayWhole:
     def clusters_whole(self, assignment: np.ndarray, cluster: np.ndarray) -> bool:
         return all(np.unique(assignment[cluster == c]).size == 1 for c in np.unique(cluster))
@@ -464,6 +532,57 @@ class TestClustersStayWhole:
         )
 
 
+# ---------------------------------------------------------------- row weights
+
+
+def compressed() -> pd.DataFrame:
+    """:func:`tests.discrete_law.frame` with each support point once, its count as its weight."""
+    frame = law.frame()
+    return frame.groupby(["W", "A", "Y"], as_index=False).size().rename(columns={"size": "n"})
+
+
+@pytest.mark.filterwarnings("ignore::cleverly.exceptions.WeightingWarning")
+@pytest.mark.parametrize("scale", ["difference", "log_ratio"])
+def test_frequency_weights_equal_replicated_rows(scale: str) -> None:
+    """Integer row weights fit the same curve as the rows repeated (M1 of the PR-b review).
+
+    The oracle learners ignore the folds, so the 12-row weighted frame and the 1,000-row
+    replicated frame carry the same nuisances at the same rows.  Each EP use of the weights
+    (the debiasing weight, the final stage) changes the weighted fit alone if it is dropped.
+    """
+    contrast = ConditionalContrast(MODIFIERS, scale=scale, model=Linear(["W"]))  # type: ignore[arg-type]
+    settings = {**oracle(wrong(law.DiscreteLaw())), "g_bounds": (0.01, 0.99)}
+    replicated = law_study().identify(contrast).estimate("ep", **settings)
+    weighted = law_study(compressed(), weights="n").identify(contrast).estimate("ep", **settings)
+    assert weighted.fit.data.n == 12
+    np.testing.assert_allclose(beta(weighted), beta(replicated), rtol=0, atol=1e-10)
+
+
+@pytest.mark.filterwarnings("ignore::cleverly.exceptions.WeightingWarning")
+@pytest.mark.parametrize("scale", ["difference", "log_ratio"])
+@pytest.mark.parametrize("drop", ["debiasing", "final stage"])
+def test_dropping_a_row_weight_breaks_the_equality(scale: str, drop: str, monkeypatch: Any) -> None:
+    """The deliberate-mutation control of :func:`test_frequency_weights_equal_replicated_rows`."""
+    pieces = ep._pieces
+    if drop == "debiasing":
+
+        def mutated(fit: Any) -> Any:
+            out = pieces(fit)
+            return replace(out, weight=out.weight / out.rows)
+    else:
+
+        def mutated(fit: Any) -> Any:
+            out = pieces(fit)
+            return replace(out, rows=np.ones_like(out.rows))
+
+    contrast = ConditionalContrast(MODIFIERS, scale=scale, model=Linear(["W"]))  # type: ignore[arg-type]
+    settings = {**oracle(wrong(law.DiscreteLaw())), "g_bounds": (0.01, 0.99)}
+    replicated = law_study().identify(contrast).estimate("ep", **settings)
+    monkeypatch.setattr(ep, "_pieces", mutated)
+    weighted = law_study(compressed(), weights="n").identify(contrast).estimate("ep", **settings)
+    assert np.max(np.abs(beta(weighted) - beta(replicated))) > 1e-3
+
+
 # ---------------------------------------------------------------- ensemble weights
 
 
@@ -481,27 +600,67 @@ class WeightSpy(RegressorMixin, BaseEstimator):
         return self.fitted_.predict(X)
 
 
-def test_the_row_weights_reach_every_outer_and_inner_fit() -> None:
+class TreatmentWeightSpy(BaseEstimator):
+    """A treatment learner that records the ``sample_weight`` each of its fits receives."""
+
+    seen: ClassVar[list[Any]] = []
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> TreatmentWeightSpy:
+        TreatmentWeightSpy.seen.append(None if sample_weight is None else np.array(sample_weight))
+        self.fitted_ = LogisticRegression().fit(X, y, sample_weight=sample_weight)
+        self.classes_ = self.fitted_.classes_
+        return self
+
+    def predict_proba(self, X: Any) -> Any:
+        return self.fitted_.predict_proba(X)
+
+
+def weighted_spy_fit() -> EffectCurveResult:
     frame = continuous_frame(300, seed=9)
     frame["Y"] = np.clip(0.5 * frame["Y"] + 0.5 * frame["W"] / 2.0, 0.0, 1.0)
     frame["w"] = np.random.default_rng(1).uniform(0.5, 2.0, len(frame))
     effect = law_study(frame, weights="w").identify(ConditionalContrast(MODIFIERS))
     WeightSpy.seen.clear()
+    TreatmentWeightSpy.seen.clear()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fit = effect.estimate(
+        return effect.estimate(
             "ep",
             outcome_learner=WeightSpy(),
-            treatment_learner=LogisticRegression(),
+            treatment_learner=TreatmentWeightSpy(),
             q_bounds=(0.0, 1.0),
             sieve=Sieve(Cosine(["W"], 2)),
             n_folds=2,
             random_state=0,
         )
+
+
+def every_fit_weighted(seen: list[Any]) -> bool:
+    return all(weights is not None and np.ptp(weights) > 0.5 for weights in seen)
+
+
+def test_the_row_weights_reach_every_outer_and_inner_fit() -> None:
+    fit = weighted_spy_fit()
     # Two outer folds, then two training folds each refitted on five inner folds.
     assert len(WeightSpy.seen) == 2 + 2 * 5
-    assert all(weights is not None and np.ptp(weights) > 0.5 for weights in WeightSpy.seen)
+    assert len(TreatmentWeightSpy.seen) == 2 + 2 * 5
+    assert every_fit_weighted(WeightSpy.seen)
+    assert every_fit_weighted(TreatmentWeightSpy.seen)
     assert "observation weights" in fit.status_reason
+
+
+def test_stripping_the_weights_is_seen(monkeypatch: Any) -> None:
+    """The deliberate-mutation control: a nuisance fit that drops ``sample_weight``."""
+    nuisance = importlib.import_module("cleverly.estimators._nuisance")
+    fit_learner = nuisance.fit_learner
+
+    def unweighted(learner: Any, x: Any, y: Any, sample_weight: Any = None, **kwargs: Any) -> Any:
+        return fit_learner(learner, x, y, None, **kwargs)
+
+    monkeypatch.setattr(nuisance, "fit_learner", unweighted)
+    weighted_spy_fit()
+    assert not every_fit_weighted(WeightSpy.seen)
+    assert not every_fit_weighted(TreatmentWeightSpy.seen)
 
 
 # ---------------------------------------------------------------- refusals before any learner
@@ -548,7 +707,7 @@ class TestRefusalsBeforeAnyLearner:
 
     def test_a_final_learner_on_the_log_ratio(self) -> None:
         effect = law_study().identify(ConditionalContrast(MODIFIERS, scale="log_ratio"))
-        error = self.refuses(effect, "", final_learner=LinearRegression())
+        error = self.refuses(effect, "no seam passes that loss", final_learner=LinearRegression())
         assert error.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
 
     @pytest.mark.parametrize(
@@ -576,6 +735,12 @@ class TestRefusalsBeforeAnyLearner:
             effect.estimate("ep", **never())
         assert NeverFit.calls == 0
         assert "domain" in str(caught.value)
+
+    @pytest.mark.parametrize("size", [9, lambda n: 9], ids=["fixed", "schedule"])
+    def test_a_size_above_the_family(self, size: Any) -> None:
+        effect = law_study().identify(ConditionalContrast(MODIFIERS))
+        error = self.refuses(effect, "at most 4", sieve=Sieve(Cosine(["W"], 4), size=size))
+        assert error.refusal.reason is RefusalReason.INVALID_DECLARATION
 
     def test_a_collinear_member(self) -> None:
         effect = law_study().identify(ConditionalContrast(MODIFIERS))
