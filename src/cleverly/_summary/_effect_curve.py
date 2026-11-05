@@ -45,6 +45,8 @@ def effect_curve_summary(result: Any, *, detail: str = "short") -> Summary:
         The report.
     """
     detail = check_detail(detail)
+    if result.fitted_method == "ep":
+        return _ep_summary(result, detail=detail)
     curve = result.model
     scale = "difference (CATE)" if result.scale == "difference" else "log ratio (log CRR)"
     header = [
@@ -137,6 +139,96 @@ def effect_curve_summary(result: Any, *, detail: str = "short") -> Summary:
         tables=[coefficients, quantiles],
         notes=notes,
         sections=sections,
+    )
+
+
+_SIEVE_MODES = {
+    "fixed": "fixed size",
+    "schedule": "declared schedule",
+    "cv": "chosen by cross-validation",
+}
+
+
+def _ep_summary(result: Any, *, detail: str) -> Summary:
+    """The report of an EP curve: no coefficients with errors, and no interval."""
+    sieve = result.sieve
+    scale = "difference (CATE)" if result.scale == "difference" else "log ratio (log CRR)"
+    header = [
+        (vocabulary.QUESTION, f"how the effect changes with {', '.join(result.modifiers.columns)}"),
+        (vocabulary.MODIFIERS, _modifier_text(result.modifiers)),
+        (vocabulary.CURVE_SCALE, scale),
+        (vocabulary.METHOD, "EP learner"),
+        (
+            vocabulary.SIEVE,
+            f"size {sieve.chosen} per component, {_SIEVE_MODES[sieve.mode]}",
+        ),
+        (vocabulary.ROWS, count_text(int(result.in_sample.size))),
+        (vocabulary.CURVE_STATUS, result.status),
+    ]
+    spread = np.quantile(result.in_sample, _QUANTILES)
+    places = decimals_for(np.abs(spread))
+    tables = [
+        SummaryTable(
+            ("quantile", "prediction"),
+            tuple(
+                (Cell(q, f"{q:.2f}"), Cell(float(value), number_text(float(value), places)))
+                for q, value in zip(_QUANTILES, spread, strict=True)
+            ),
+            title="In-sample predictions",
+        )
+    ]
+    if sieve.cv_risks and detail == "full":
+        risk_places = decimals_for(np.abs(np.asarray(sieve.cv_risks)))
+        tables.append(
+            SummaryTable(
+                ("size", "cross-validated risk"),
+                tuple(
+                    (
+                        Cell(size, str(size)),
+                        Cell(float(risk), number_text(float(risk), risk_places)),
+                    )
+                    for size, risk in zip(sieve.sizes, sieve.cv_risks, strict=True)
+                ),
+                title="Sieve sizes (lower risk is better)",
+            )
+        )
+    notes = [
+        note("ep_target", vocabulary.NOTE_TEXTS["ep_target"].format(target=result.target_sentence)),
+        note("ep_no_interval", vocabulary.NOTE_TEXTS["ep_no_interval"]),
+    ]
+    if result.status == "experimental":
+        notes.append(
+            note(
+                "ep_experimental",
+                vocabulary.NOTE_TEXTS["ep_experimental"].format(
+                    reason=vocabulary.EXPERIMENTAL_REASONS[
+                        reason_kind(result.status_reason)
+                    ].format(names="the curve")
+                ),
+            )
+        )
+    if result.clipped_share > 0:
+        notes.append(
+            note(
+                "ep_clipped",
+                vocabulary.NOTE_TEXTS["ep_clipped"].format(
+                    share=share_text(result.clipped_share),
+                    width=f"{result.upper_bound - result.lower_bound:g}",
+                ),
+            )
+        )
+    if result.outside_share > 0:
+        notes.append(
+            note(
+                "curve_outside_range",
+                vocabulary.NOTE_TEXTS["curve_outside_range"].format(
+                    share=share_text(result.outside_share),
+                    width=f"{result.upper_bound - result.lower_bound:g}",
+                ),
+            )
+        )
+    return Summary.build(
+        title=vocabulary.EFFECT_CURVE_TITLE, header=header, tables=tables, notes=notes
     )
 
 

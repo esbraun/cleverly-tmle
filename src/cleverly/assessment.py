@@ -620,8 +620,11 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
     _capability(
         "score_equations",
         "effect_modification",
-        artifacts=("the producing fit's targeting state", "influence curves"),
-        interpretation="the projection's score equations, as the producing fit solved them",
+        artifacts=("the producing fit's targeting or debiasing state",),
+        interpretation=(
+            "the score equations the producing fit solved: the projection's targeting, or the "
+            "EP learner's debiasing regression"
+        ),
     ),
     _capability(
         "corrections",
@@ -631,8 +634,8 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         status=AssessmentStatus.NOT_APPLICABLE,
         refusal=Refusal(
             RefusalReason.INVALID_DECLARATION,
-            "a projection curve is fitted by TMLE, which solves no doubly-robust correction "
-            "equations.",
+            "a projection curve is fitted by TMLE and an EP curve by one debiasing regression, "
+            "and neither solves doubly-robust correction equations.",
         ),
         interpretation="the correction identities solved by guarded doubly-robust targeting",
     ),

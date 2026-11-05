@@ -86,11 +86,11 @@ class TestTheStudyFit:
         assert linear_contrast("log_ratio").name == "log_crr"
         assert "projection" in linear_contrast().definition
 
-    def test_only_tmle_is_available(self) -> None:
+    def test_tmle_and_ep_are_available(self) -> None:
         methods = {m.name: m for m in law_study().identify(linear_contrast()).available_methods()}
         assert methods["tmle"].available
-        assert not any(m.available for name, m in methods.items() if name != "tmle")
-        assert methods["ep"].refusal.roadmap == "P1"
+        assert methods["ep"].available
+        assert not any(m.available for name, m in methods.items() if name not in ("tmle", "ep"))
 
     def test_other_estimands_read_the_ep_record(self) -> None:
         methods = {m.name: m for m in law_study().identify(ATE()).available_methods()}
@@ -107,8 +107,8 @@ class TestRefusalsBeforeAnyLearner:
         with pytest.raises(CapabilityError, match="not pathwise differentiable") as caught:
             effect.estimate(**never())
         assert NeverFit.calls == 0
-        # The EP learner refuses until P1 part (b), so no alternative may send a user there.
-        assert "ep" not in caught.value.refusal.alternative.split("'")
+        # The EP learner fits the curve without a model, so the alternative names it.
+        assert "ep" in caught.value.refusal.alternative.split("'")
 
     def test_r3_a_basis_that_reads_an_undeclared_domain(self) -> None:
         with pytest.raises(CapabilityError, match="known function of the modifiers"):
@@ -123,7 +123,7 @@ class TestRefusalsBeforeAnyLearner:
         with pytest.raises(CapabilityError, match="chosen by cross-validation") as caught:
             effect.estimate(**never())
         assert NeverFit.calls == 0
-        assert "ep" not in caught.value.refusal.alternative.split("'")
+        assert "ep" in caught.value.refusal.alternative.split("'")
 
     def test_r4_a_declared_size_resolves(self) -> None:
         effect = law_study().identify(
