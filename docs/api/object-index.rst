@@ -71,6 +71,7 @@ categorized API tables.
    cleverly.ControlledDirectEffect
    cleverly.EstimationMethod
    cleverly.TMLEMethod
+   cleverly.EPMethod
    cleverly.AdaptiveIPTWMethod
    cleverly.CollaborativeTMLEMethod
    cleverly.DRTMLEMethod
