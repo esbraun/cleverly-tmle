@@ -29,7 +29,8 @@ records the rules of that fit, with one `LearnedRegimenNode` for each node.
 
 `LearnedRule` declares a rule that the fit learns inside each training fold. By default the rule
 comes from the fit's outcome model, and `loss="blip"` or `loss="weighted_classification"` learns
-it with a learner that you pass. `LearnedRuleRecord` records that fit, with one `LearnedRuleSplit`
+it with a learner that you pass. `loss="ep"` learns it from the EP curve of the effect given the
+`modifiers` you declare. `LearnedRuleRecord` records that fit, with one `LearnedRuleSplit`
 for each split of the folds.
 
 ```{eval-rst}

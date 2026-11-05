@@ -1963,11 +1963,21 @@ the sieve size fixed, scheduled or chosen by cross-validation with inner refits)
 `ep-cate`, `ep-crr` and `ep-assessment` studies, whose hte3 comparators are pending. Its curves
 read experimental until those studies run.
 
+Part (c) has shipped the EP curve as the rule learner
+of the learned-rule value (`LearnedRule(loss="ep", modifiers=...)`,
+[the EP rule learner](technical-reference/point-treatment-tmle.md#the-ep-rule-learner)) and the
+declared `learned-rule-ep` study. Its fits read experimental until that study runs.
+
+What stays here is the compositions the shipped refusals name with this item: missing
+treatments, an intermediate, a continuous or vector treatment, `strata=`, `repeats` above 1 and
+the full-refit bootstrap for `ConditionalContrast`; sensitivity analyses and refutations of a
+curve; a declared final learner on the log-ratio scale; and scalar aggregates of an EP curve.
+
 | part | what ships |
 | --- | --- |
 | (a) | the registered run of the `conditional-projection` study and the support rows it decides |
 | (b) | the EP learner for the CATE and the conditional relative risk, with its studies |
-| (c) | the EP curve as the declared rule learner of the shipped [learned-rule value](technical-reference/point-treatment-tmle.md#learned-rules), whose condition C3 then reads on the EP curve |
+| (c) | the registered run of the `learned-rule-ep` study and the `T49` support rows it decides |
 
 The sieve can be any basis the caller declares. The package ships no HAL learner, and none is
 planned.
