@@ -13,9 +13,11 @@ selects two working models by a lasso over a dictionary of functions:
     control rows, so ``psi(W, A) = phi(W)``.
 
 :class:`WorkingBasis` is the default transformer of ``W`` into the non-constant columns of
-``phi``. :class:`WorkingDictionary` adds the constant, builds ``psi`` and drops exactly
-collinear columns with a pivoted QR on the selection rows (:func:`independent_columns`).
-A declared transformer replaces :class:`WorkingBasis` and goes through the same steps.
+``phi``. :class:`WorkingDictionary` adds the constant, builds ``psi``, drops the columns
+with too little support among the rows that identify them (:func:`supported_columns`) and
+drops exactly collinear columns with a pivoted QR on the selection rows
+(:func:`independent_columns`). A declared transformer replaces :class:`WorkingBasis` and
+goes through the same steps.
 """
 
 from __future__ import annotations
@@ -26,55 +28,65 @@ from typing import Any
 import numpy as np
 import scipy.linalg
 from sklearn.base import BaseEstimator, TransformerMixin, clone
-from sklearn.preprocessing import SplineTransformer
 
 from .._typing import BoolArray, FloatArray, IntArray
 
 __all__ = [
     "COLLINEARITY_TOLERANCE",
+    "CONTINUOUS_LEVELS",
     "WorkingBasis",
     "WorkingDictionary",
     "bias_columns",
     "independent_columns",
+    "minimum_support",
+    "supported_columns",
 ]
 
 #: The relative size below which a column's part outside the span of the columns kept
 #: before it counts as zero, so that the column is dropped as exactly collinear.
 COLLINEARITY_TOLERANCE = 1e-10
 
+#: The fewest distinct values on the fit rows for which a covariate gets a linear term and
+#: hinge columns rather than level indicators.
+CONTINUOUS_LEVELS = 9
+
 
 class WorkingBasis(TransformerMixin, BaseEstimator):
     """The default dictionary of the working models, without its constant.
 
-    A covariate with at least ``n_knots + degree + 1`` distinct values on the fit rows
-    gets cubic B-splines on quantile knots without the intercept column. The spline span
-    holds the linear function, so no separate main term is added. A covariate with fewer
-    distinct values gets one indicator column for each level other than the smallest. Each
-    pair of covariates then gets the product of the two covariates, each centred and scaled
-    by its mean and standard deviation on the fit rows. A covariate constant on the fit rows
-    contributes no column.
+    A covariate with at least :data:`CONTINUOUS_LEVELS` distinct values on the fit rows gets
+    its standardized linear term ``z = (x - mean) / sd`` and the first-order hinges
+    ``(z - k_j)_+`` at ``n_knots`` interior quantiles of ``z`` on the fit rows. The linear
+    function is then one column, and each hinge is exactly zero below its knot. A covariate
+    with fewer distinct values gets one indicator column for each level other than the
+    smallest. Each pair of covariates then gets the product of their standardized values. A
+    covariate constant on the fit rows contributes no column.
 
     Parameters
     ----------
     n_knots : int, default=5
-        The number of quantile knots of each spline.
-    degree : int, default=3
-        The degree of each spline.
+        The number of interior quantile knots of each continuous covariate.
     interactions : bool, default=True
         Whether to add the pairwise products.
 
+    Attributes
+    ----------
+    unscreened_ : ndarray of bool
+        Marks the linear terms, which the support screen of :class:`WorkingDictionary`
+        always keeps.
+
     See Also
     --------
-    WorkingDictionary : Adds the constant and the bias columns, and drops collinear columns.
+    WorkingDictionary : Adds the constant and the bias columns, and drops unsupported and
+        collinear columns.
     """
 
-    def __init__(self, n_knots: int = 5, degree: int = 3, interactions: bool = True) -> None:
+    def __init__(self, n_knots: int = 5, interactions: bool = True) -> None:
         self.n_knots = n_knots
-        self.degree = degree
         self.interactions = interactions
 
     def fit(self, X: Any, y: Any = None) -> WorkingBasis:
-        """Learn the knots, levels and scales on the fit rows.
+        """Learn the scales, knots and levels on the fit rows.
 
         Parameters
         ----------
@@ -90,28 +102,29 @@ class WorkingBasis(TransformerMixin, BaseEstimator):
         """
         del y
         matrix = _as_matrix(X)
-        threshold = self.n_knots + self.degree + 1
-        self.splines_: dict[int, SplineTransformer] = {}
-        self.levels_: dict[int, FloatArray] = {}
-        for j in range(matrix.shape[1]):
-            values = np.unique(matrix[:, j])
-            if values.size >= threshold:
-                self.splines_[j] = SplineTransformer(
-                    n_knots=self.n_knots,
-                    degree=self.degree,
-                    knots="quantile",
-                    include_bias=False,
-                ).fit(matrix[:, [j]])
-            else:
-                self.levels_[j] = values[1:]
         self.mean_ = matrix.mean(axis=0)
         self.scale_ = matrix.std(axis=0)
+        self.knots_: dict[int, FloatArray] = {}
+        self.levels_: dict[int, FloatArray] = {}
+        probabilities = np.arange(1, self.n_knots + 1) / (self.n_knots + 1)
+        unscreened: list[bool] = []
+        for j in range(matrix.shape[1]):
+            values = np.unique(matrix[:, j])
+            if values.size >= CONTINUOUS_LEVELS:
+                z = (matrix[:, j] - self.mean_[j]) / self.scale_[j]
+                self.knots_[j] = np.unique(np.quantile(z, probabilities))
+                unscreened.extend([True] + [False] * self.knots_[j].size)
+            else:
+                self.levels_[j] = values[1:]
+                unscreened.extend([False] * self.levels_[j].size)
         varying = [j for j in range(matrix.shape[1]) if self.scale_[j] > 0.0]
         self.pairs_ = (
             [(j, k) for i, j in enumerate(varying) for k in varying[i + 1 :]]
             if self.interactions
             else []
         )
+        unscreened.extend([False] * len(self.pairs_))
+        self.unscreened_ = np.asarray(unscreened, dtype=bool)
         self.n_features_in_ = matrix.shape[1]
         return self
 
@@ -134,17 +147,17 @@ class WorkingBasis(TransformerMixin, BaseEstimator):
                 f"the working basis was fitted on {self.n_features_in_} covariates; got "
                 f"{matrix.shape[1]}"
             )
+        standardized = (matrix - self.mean_) / np.where(self.scale_ > 0.0, self.scale_, 1.0)
         blocks: list[FloatArray] = []
         for j in range(matrix.shape[1]):
-            if j in self.splines_:
-                blocks.append(np.asarray(self.splines_[j].transform(matrix[:, [j]]), float))
+            if j in self.knots_:
+                z = standardized[:, [j]]
+                blocks.append(np.column_stack([z, np.maximum(z - self.knots_[j][None, :], 0.0)]))
             else:
                 levels = self.levels_[j]
                 blocks.append((matrix[:, [j]] == levels[None, :]).astype(float))
         for j, k in self.pairs_:
-            left = (matrix[:, j] - self.mean_[j]) / self.scale_[j]
-            right = (matrix[:, k] - self.mean_[k]) / self.scale_[k]
-            blocks.append((left * right)[:, None])
+            blocks.append((standardized[:, j] * standardized[:, k])[:, None])
         if not blocks:
             return np.zeros((matrix.shape[0], 0))
         return np.column_stack(blocks)
@@ -169,9 +182,9 @@ class WorkingBasis(TransformerMixin, BaseEstimator):
         )
         out: list[str] = []
         for j in range(self.n_features_in_):
-            if j in self.splines_:
-                count = int(self.splines_[j].n_features_out_)
-                out.extend(f"{names[j]}_spline{b}" for b in range(count))
+            if j in self.knots_:
+                out.append(names[j])
+                out.extend(f"{names[j]}_hinge{b}" for b in range(self.knots_[j].size))
             else:
                 out.extend(f"{names[j]}=={level:g}" for level in self.levels_[j])
         out.extend(f"{names[j]}*{names[k]}" for j, k in self.pairs_)
@@ -275,32 +288,10 @@ def minimum_support(rows: int) -> int:
     Returns
     -------
     int
-        The fewest effective rows a dictionary column needs in each group of
+        The fewest nonzero rows a dictionary column needs in each group of
         :func:`supported_columns`.
     """
     return max(10, int(np.ceil(np.sqrt(rows) / 2.0)))
-
-
-def effective_support(column: FloatArray) -> float:
-    """The number of rows that carry a column's variation, ``(sum x^2)^2 / sum x^4``.
-
-    For a 0/1 column it is the number of nonzero rows. A smooth column that is small on
-    most rows, such as a B-spline at the edge of the data, counts only the rows where it
-    is large.
-
-    Parameters
-    ----------
-    column : ndarray of float
-        The column on the rows of one group.
-
-    Returns
-    -------
-    float
-        The effective number of rows; 0 for a zero column.
-    """
-    x2 = np.asarray(column, dtype=float) ** 2
-    fourth = float(np.sum(x2**2))
-    return float(np.sum(x2)) ** 2 / fourth if fourth > 0.0 else 0.0
 
 
 def supported_columns(
@@ -308,14 +299,13 @@ def supported_columns(
     groups: tuple[BoolArray, BoolArray],
     arm_columns: BoolArray,
     arm_rows: BoolArray,
-    n_fixed: int,
+    fixed: BoolArray,
     k_min: int,
 ) -> IntArray:
-    """The columns whose support reaches ``k_min`` effective rows in each of two groups.
+    """The columns that are nonzero on at least ``k_min`` rows of each of two groups.
 
-    A column is kept when :func:`effective_support` reaches ``k_min`` on the rows of each
-    group. For a column marked in ``arm_columns`` only the rows marked in ``arm_rows`` count.
-    The first ``n_fixed`` columns are always kept.
+    For a column marked in ``arm_columns`` only the rows marked in ``arm_rows`` count.
+    Columns marked in ``fixed`` are always kept.
 
     Parameters
     ----------
@@ -327,24 +317,27 @@ def supported_columns(
         The columns that live in one arm (the ``A`` columns of the bias dictionary).
     arm_rows : ndarray of bool
         The rows of that arm.
-    n_fixed : int
-        The number of leading columns that are always kept.
+    fixed : ndarray of bool
+        The columns that are always kept.
     k_min : int
-        The fewest effective rows a column needs in each group.
+        The fewest nonzero rows a column needs in each group.
 
     Returns
     -------
     ndarray of int
         The kept column positions, ascending.
     """
-    kept = []
-    for j in range(matrix.shape[1]):
-        if j < n_fixed:
-            kept.append(j)
-            continue
-        rows = arm_rows if arm_columns[j] else np.ones(matrix.shape[0], dtype=bool)
-        if all(effective_support(matrix[rows & group, j]) >= k_min for group in groups):
-            kept.append(j)
+    nonzero = np.asarray(matrix, dtype=float) != 0.0
+    everywhere = np.ones(matrix.shape[0], dtype=bool)
+    kept = [
+        j
+        for j in range(matrix.shape[1])
+        if fixed[j]
+        or all(
+            int(np.sum(nonzero[(arm_rows if arm_columns[j] else everywhere) & group, j])) >= k_min
+            for group in groups
+        )
+    ]
     return np.asarray(kept, dtype=np.int64)
 
 
@@ -353,12 +346,14 @@ class WorkingDictionary:
     """The two working-model dictionaries of one selection, fitted on its selection rows.
 
     Each dictionary is screened for support (:func:`supported_columns`) and then reduced to
-    linearly independent columns (:func:`independent_columns`). An effect column needs
-    ``k_min`` effective rows among the treated and among the controls. A bias column needs
-    ``k_min`` effective rows among the external and among the trial rows, counting only the
-    treated rows for a column that carries ``A``. ``k_min`` is :func:`minimum_support` of
-    the rows the model is selected on. A column whose variation rests on a handful of rows
-    of one group cannot identify its coefficient there.
+    linearly independent columns (:func:`independent_columns`). An effect column must be
+    nonzero on ``k_min`` treated and ``k_min`` control rows. A bias column must be nonzero on
+    ``k_min`` external and ``k_min`` trial rows, counting only the treated rows for a column
+    that carries ``A``. ``k_min`` is :func:`minimum_support` of the rows the model is selected
+    on. A column nonzero on a handful of rows of one group cannot identify its coefficient
+    there. The constant, ``A``, and the columns the basis marks in an ``unscreened_``
+    attribute (the linear terms of :class:`WorkingBasis`) and their ``A`` products are always
+    kept.
 
     Parameters
     ----------
@@ -422,24 +417,30 @@ class WorkingDictionary:
         """
         fitted = clone(WorkingBasis() if basis is None else basis).fit(covariates)
         raw = _with_constant(fitted, covariates)
+        marked = getattr(fitted, "unscreened_", None)
+        unscreened = np.r_[
+            True,
+            np.zeros(raw.shape[1] - 1, dtype=bool) if marked is None else np.asarray(marked, bool),
+        ]
         treated = np.asarray(treatment, dtype=float) == 1.0
         phi_supported = supported_columns(
             raw,
             (treated, ~treated),
             np.zeros(raw.shape[1], dtype=bool),
             treated,
-            1,
+            unscreened,
             minimum_support(raw.shape[0]),
         )
         phi_keep = phi_supported[independent_columns(raw[:, phi_supported], 1)]
         phi = raw[:, phi_keep]
         bias = bias_columns(phi[bias_rows], treatment[bias_rows], controls_only)
-        fixed = 1 if controls_only else 2
-        width = phi.shape[1] - 1
-        arm_columns = np.zeros(bias.shape[1], dtype=bool)
-        if not controls_only:
-            arm_columns[1] = True
-            arm_columns[2 + width :] = True
+        rest = unscreened[phi_keep][1:]
+        if controls_only:
+            fixed = np.r_[True, rest]
+            arm_columns = np.zeros(bias.shape[1], dtype=bool)
+        else:
+            fixed = np.r_[True, True, rest, rest]
+            arm_columns = np.r_[False, True, np.zeros(rest.size, bool), np.ones(rest.size, bool)]
         external = np.asarray(source, dtype=float)[bias_rows] == 0.0
         psi_supported = supported_columns(
             bias,
@@ -449,7 +450,9 @@ class WorkingDictionary:
             fixed,
             minimum_support(bias.shape[0]),
         )
-        psi_keep = psi_supported[independent_columns(bias[:, psi_supported], fixed)]
+        psi_keep = psi_supported[
+            independent_columns(bias[:, psi_supported], 1 if controls_only else 2)
+        ]
         return cls(
             fitted,
             phi_keep,

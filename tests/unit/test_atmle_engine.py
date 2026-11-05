@@ -274,27 +274,21 @@ def test_the_default_dictionary_has_full_rank_and_indicator_columns_for_few_leve
     s = rng.binomial(1, 0.5, n).astype(float)
     basis = WorkingBasis().fit(w)
     names = list(basis.get_feature_names_out())
-    assert sum(name.startswith("x0_spline") for name in names) == 6
-    assert [name for name in names if name.startswith(("x1==", "x2=="))] == [
-        "x1==1",
-        "x2==1",
-        "x2==2",
-    ]
-    assert basis.transform(w).shape[1] == len(names) == 6 + 3 + 3
+    assert names[:6] == ["x0", *(f"x0_hinge{b}" for b in range(5))]
+    assert names[6:] == ["x1==1", "x2==1", "x2==2", "x0*x1", "x0*x2", "x1*x2"]
+    assert basis.transform(w).shape[1] == len(names)
+    assert basis.unscreened_.tolist() == [True] + [False] * 11
     for controls_only in (False, True):
         rows = np.flatnonzero(a == 0) if controls_only else np.arange(n)
         dictionary = WorkingDictionary.fit(None, w, a, s, rows, controls_only=controls_only)
         phi = dictionary.phi(w)
         psi = dictionary.psi(w[rows], a[rows])
-        assert np.linalg.matrix_rank(phi) == phi.shape[1]
+        # Linear plus hinges on a generic continuous covariate is full rank and well
+        # supported here: neither the screen nor the pivoted QR drops a column.
+        assert dictionary.unsupported_phi_names == dictionary.unsupported_psi_names == ()
+        assert np.linalg.matrix_rank(phi) == phi.shape[1] == 1 + len(names)
         assert np.linalg.matrix_rank(psi) == psi.shape[1] == len(dictionary.psi_names)
-        # The pivoted QR drops nothing here: every column is kept or screened out.
-        assert phi.shape[1] + len(dictionary.unsupported_phi_names) == 1 + len(names)
-        width = phi.shape[1] - 1
-        expected = 1 + width if controls_only else 2 + 2 * width
-        assert psi.shape[1] + len(dictionary.unsupported_psi_names) == expected
-        # The indicator columns are well supported and stay.
-        assert {"x1==1", "x2==1", "x2==2"} <= set(dictionary.phi_names)
+        assert psi.shape[1] == (1 + len(names) if controls_only else 2 + 2 * len(names))
 
 
 def test_the_pivoted_qr_drops_exactly_collinear_columns() -> None:
@@ -312,41 +306,56 @@ def test_the_pivoted_qr_drops_exactly_collinear_columns() -> None:
         independent_columns(np.column_stack([np.ones(100), np.full(100, 2.0), x]), 2)
 
 
-def test_a_tied_covariate_keeps_only_the_columns_its_splines_span() -> None:
+def test_a_tied_covariate_keeps_only_independent_hinge_columns() -> None:
     w = np.r_[np.zeros(50), np.linspace(0, 1, 9)][:, None]
+    a = np.tile([0.0, 1.0], 30)[:59]
     dictionary = WorkingDictionary.fit(
-        None, w, np.zeros(59), np.r_[np.zeros(30), np.ones(29)], np.arange(59), controls_only=True
+        None, w, a, np.r_[np.zeros(30), np.ones(29)], np.arange(59), controls_only=False
     )
     phi = dictionary.phi(w)
+    # The hinges at the tied knots equal the linear term plus a constant.
     assert np.linalg.matrix_rank(phi) == phi.shape[1] < 7
 
 
 def _screen_draw(k: int) -> tuple[np.ndarray, ...]:
-    """400 rows, with ``x1 = 1`` on ``k`` external treated rows and on many other rows."""
+    """400 rows; ``k`` of the 80 external treated rows lie above the top hinge knot."""
     rng = np.random.default_rng(3)
     n = 400
     s = np.r_[np.ones(200), np.zeros(200)]
     a = np.r_[np.tile([0.0, 1.0], 100), np.zeros(120), np.ones(80)]
-    x1 = np.zeros(n)
-    x1[:100] = 1.0  # trial rows in both arms
-    x1[200:260] = 1.0  # external controls
-    x1[320 : 320 + k] = 1.0  # external treated
-    return np.column_stack([rng.normal(size=n), x1]), a, s
+    x0 = rng.uniform(size=n)
+    x0[320:] = rng.uniform(0.0, 0.5, 80)
+    x0[320 : 320 + k] = 0.995 + 0.001 * np.arange(k)
+    return np.column_stack([x0, rng.normal(size=n)]), a, s
 
 
 @pytest.mark.parametrize("k", [9, 11])
-def test_the_support_screen_drops_a_bias_column_few_external_treated_rows_carry(k: int) -> None:
+def test_the_support_screen_drops_a_hinge_few_external_treated_rows_carry(k: int) -> None:
     w, a, s = _screen_draw(k)
     assert minimum_support(400) == 10
     dictionary = WorkingDictionary.fit(None, w, a, s, np.arange(400), controls_only=False)
-    assert "x1==1" in dictionary.phi_names
-    assert "x1==1" in dictionary.psi_names
+    top = "x0_hinge4"
+    z = dictionary.phi(w)[:, list(dictionary.phi_names).index(top)]
+    assert int(np.sum((z != 0) & (s == 0) & (a == 1))) == k
+    assert top in dictionary.psi_names
+    # The linear term and its A product are never screened.
+    assert {"x0", "A*x0"} <= set(dictionary.psi_names)
     if k < 10:
-        assert "A*x1==1" in dictionary.unsupported_psi_names
-        assert "A*x1==1" not in dictionary.psi_names
+        assert f"A*{top}" in dictionary.unsupported_psi_names
+        assert f"A*{top}" not in dictionary.psi_names
     else:
-        assert "A*x1==1" not in dictionary.unsupported_psi_names
-        assert "A*x1==1" in dictionary.psi_names
+        assert f"A*{top}" not in dictionary.unsupported_psi_names
+        assert f"A*{top}" in dictionary.psi_names
+
+
+def test_the_support_screen_keeps_the_linear_term_with_few_external_treated_rows() -> None:
+    w, a, s = _screen_draw(0)
+    a[320:395] = 0.0  # 5 external treated rows, below k_min
+    dictionary = WorkingDictionary.fit(None, w, a, s, np.arange(400), controls_only=False)
+    assert {"A", "A*x0", "A*x1"} <= set(dictionary.psi_names)
+    # Every other A column is nonzero on at most 5 external treated rows and is dropped.
+    hinges = [f"A*x{j}_hinge{b}" for j in range(2) for b in range(5)]
+    assert dictionary.unsupported_psi_names == (*hinges, "A*x0*x1")
 
 
 # --------------------------------------------------------------------------- fold roles
