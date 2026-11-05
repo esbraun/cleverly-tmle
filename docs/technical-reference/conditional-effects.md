@@ -184,8 +184,8 @@ What the theory claims, by configuration:
 
 With `model=None` on the difference scale the curve is clipped to $[-(b - a), b - a]$, where
 the target lies, and the result records the clipped share. With `model=` declared the target is
-that projection and nothing is clipped. Every EP fit reads `experimental`: the `ep-cate` study
-below is declared and has not run, and weights, clusters and missing outcomes are implemented
+that projection and nothing is clipped. Every EP fit reads `experimental`: the `ep-cate`,
+`ep-crr` and `ep-assessment` studies below are declared and have not run, and weights, clusters and missing outcomes are implemented
 (the weighted law, the cluster as the unit with grouped folds, the $\Delta/(g\Pi)$ weight)
 without a study. `diagnostics.score_equations()` reports each debiasing feature's weighted mean
 score before and after the regression.
@@ -339,26 +339,76 @@ The `ep-cate` study, declared in `tests/studies/ep_cate.py` with its verdicts in
 `python -m tests.canonical.ep_cate.regenerate`. Its laws are hte3's code at `eac64673` (the
 d = 3 generator differs from EPL App B.2: noise SD 1, `positivity=TRUE` is the limited overlap,
 and the simple CATE under moderate overlap is $1 + W_1$), with the noise truncated at $\pm 4$.
-Each gate reads the paired mean of $\log \mathrm{ISE}(\text{EP}) - \log \mathrm{ISE}(\theta_{n0})$
-over replicates, one-sided at 99%:
+The two rescue laws are the complex d = 3 laws with App B.2's noise, SD 2 truncated at
+$\pm 8$. Each gate reads the paired mean of
+$\log \mathrm{ISE}(\text{EP}) - \log \mathrm{ISE}(\theta_{n0})$ over replicates, one-sided at
+99%:
 
 | gate | cells | rule |
 | --- | --- | --- |
-| oracle comparison (EPL Theorem 5) | every law, the plan's ensemble, the schedule $k(n) = 3, 4, 5$ at $n = 1{,}000, 2{,}000, 4{,}000$ | upper bound at 4,000 below $\log 1.5$ |
+| oracle comparison (EPL Theorem 5) | every law but the rescue laws, the plan's ensemble, the schedule $k(n) = 3, 4, 5$ at $n = 1{,}000, 2{,}000, 4{,}000$ | upper bound at 4,000 below $\log 1.5$ |
 | no growth | the same | upper bound of the change from 1,000 to 4,000 below $\log 1.25$ |
-| DR rescue | the complex d = 3 CATE, both overlaps, a per-arm main-terms linear outcome learner | upper bound at 4,000 below $\log 3$, and no growth |
+| DR rescue | the rescue laws, both overlaps, a per-arm main-terms linear outcome learner | upper bound at 4,000 below $\log 3$, and no growth |
 | control that must fail | the T-learner at that learner | lower bound at 4,000 above $\log 3$ |
 | fixed size, `ep_fixed_obs_4k` | the observational law of `conditional-projection`, `model=Linear(["W1", "W3"])`, R = 2,400 | each coefficient's standardized bias inside $\pm 0.25$ |
 
-The replicate count of each law comes from a pilot on its own stream
-(`tests/studies/ep_cate_pilot.csv`) by the plan's sizing rule, and
-`tests/unit/test_ep_cate_design.py` pins it: 300 for the simple d = 3 laws, 200 for the
-d = 20 laws, and 600 for the complex d = 3 laws, where the rule cannot power the rescue gate.
-Under hte3's noise SD of 1 the pilot reads the misspecified-learner EP at a mean log ratio of
-1.46 at $n = 4{,}000$, above $\log 3 = 1.10$, so that gate fails at any R and the schedule row
-stays experimental. The comparator, hte3 `Lrnr_cate_EP` with
-`targeting_style="dr"`, is declared pending: its debiasing is the linear Method 2, so the two
-agree only to $o_p(n^{-1/2})$ and the comparison is of different estimators.
+The rescue claim depends on the outcome noise. With a wrong outcome regression the EP curve
+stays consistent when the propensity is right, but the residual $Y - \bar Q_n$ enters its
+variance, and the oracle's does not carry it. When the outcome noise is small, that residual
+dominates. In the pilot at hte3's noise SD of 1 the misspecified-learner EP has a mean log ratio
+of about 1.45 at $n = 4{,}000$ under both overlaps, an ISE about four times the oracle's, against
+$\log 3 = 1.10$. Under App B.2's SD of 2, the setting of the paper's rescue claim, it reads 0.71
+(moderate overlap) and 0.64 (limited). The code-law reading stays in the study as an ungated
+diagnostic row, and the gate runs at App B.2's noise (plan amendment rev 2.4).
+
+The replicate count of each law comes from pilots on their own streams
+(`tests/studies/ep_cate_pilot.csv`; the rescue laws' stream is separate) by the plan's sizing
+rule, and `tests/unit/test_ep_cate_design.py` pins it: 300 for the d = 3 laws and the rescue
+laws and 200 for the d = 20 laws, each gate passing with probability above 0.98 at the
+pilot's means and spreads. The 2,000-row d = 3 groups feed only the ungated rate report and run
+100 replicates. The comparator, hte3 `Lrnr_cate_EP` with `targeting_style="dr"`, is declared
+pending: its debiasing is the linear Method 2, so the two agree only to $o_p(n^{-1/2})$ and the
+comparison is of different estimators.
+
+The `ep-crr` study (`tests/studies/ep_crr.py`, run by
+`python -m tests.canonical.ep_crr.regenerate`) has not run. Its laws are hte3's
+`generate_data_RR.R`: $W \sim U(-1, 1)^3$, a binary outcome with
+$\operatorname{logit} \mu_0(0, w) = -1 + 0.3 \sum_k (w_k + \sin 4 w_k)$, the log CRR
+$0.1(-1 + \sum_k w_k)$ (simple) or $0.1(-1 + \sum_k \{w_k + \sin 4w_k\})$ (complex), and the
+two overlaps; $\mu(1, w)$ stays below 0.8, so nothing is clipped.
+
+The `ep-crr` oracle minimises the
+one-step log-CRR risk at the true nuisances on the same sieve. That risk is not convex in
+general (EPL Section 3.2), so each replicate records whether the oracle's Hessian is positive
+definite. A replicate where it is not is excluded from its group's comparisons, and a gated row
+is red when more than 1% of its group's replicates were excluded. The gates are as in
+`ep-cate`, with the rescue margin at $\log 1.5$: an intercept-only outcome learner on the
+complex law at limited overlap, with the intercept-only T-learner as the control. No DR-learner
+is compared, since the ratio has no such pseudo-outcome.
+
+In the `ep-crr` pilot
+(`tests/studies/ep_crr_pilot.csv`) EP reads between $-0.08$ and $-0.02$ at 4,000 on every law,
+the intercept-learner EP $-0.08$ and its T-learner $1.02$, and every gate passes with
+probability above 0.999 at R = 300. No oracle Hessian failed in 240 checks, too few to resolve
+a rate near the 1% bound.
+
+The `ep-assessment` study (`tests/studies/ep_assessment.py`) has not run. It reads the
+diagnostics of an EP curve on the complex d = 3 law at moderate overlap and on a weak law with
+the constant CATE 0.1, at $n = 2{,}000$ with the ensemble:
+
+| reading | claim | control |
+| --- | --- | --- |
+| out-of-fold calibration slope, 300 replicates | the 99% interval of its mean inside $[0.85, 1.15]$ | the curve stretched by 1.5 about its mean on the same folds, whose slope is exactly $1/1.5$ of the curve's: its 99% upper bound below 0.85 |
+| stability, `relative_sd` over 5 split seeds, 100 replicates per law | the share below 0.5 at the complex law has a 99% Clopper-Pearson lower bound of at least 0.80 | the share above 0.5 at the weak law, with the same bound |
+| risk comparison, EP against the constant | the share of complex-law replicates whose reported DR risk difference has the sign of its exact value at the true CATE, with the same bound | none; at the weak law the share is reported only |
+
+The pilot (`tests/studies/ep_assessment_pilot.csv`) reads the slope at 0.987 (SD 0.005) and
+the stretched slope at 0.658, so the calibration claim and its control pass with probability
+1.0, as does the sign share. The weak-law stability claim cannot pass: refits under other
+split seeds reuse the same draw, and the curve's wiggle at a constant effect comes from the
+draw, so `relative_sd` reads 0.088 there (0.009 at the complex law), far below 0.5. Until the
+claim is redecided, the stability warning has no control that can fail, and the declared run
+refuses to start.
 
 The EP learner's fast-tier instruments are:
 

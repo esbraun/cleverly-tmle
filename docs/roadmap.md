@@ -1960,8 +1960,8 @@ fitted curve (out-of-fold calibration, risk comparison and stability), and the d
 `conditional-projection` study. Its fits read experimental until that study runs. Part (b)
 has shipped the EP learner of the CATE and the log conditional risk ratio (`method="ep"`, with
 the sieve size fixed, scheduled or chosen by cross-validation with inner refits) and the declared
-`ep-cate` study, whose hte3 comparator is pending. Its curves read experimental until that study
-runs, and the `ep-crr` and `ep-assessment` studies are not declared yet.
+`ep-cate`, `ep-crr` and `ep-assessment` studies, whose hte3 comparators are pending. Its curves
+read experimental until those studies run.
 
 | part | what ships |
 | --- | --- |

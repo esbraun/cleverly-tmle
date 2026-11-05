@@ -135,7 +135,9 @@ It fits the outcome and treatment models so that no row is predicted by a model 
 corrects the outcome models with one
 weighted regression on smooth functions of the modifiers, and fits the curve to the corrected
 difference between the arms. The correction is what keeps the curve on target when the
-outcome model is wrong and the treatment model is right. The smooth functions are cosines of
+outcome model is wrong and the treatment model is right. It then stays on target but is noisier,
+and when the outcome itself has little noise the curve's error can be several times what a right
+outcome model would give. The smooth functions are cosines of
 each modifier, so each continuous modifier needs a declared domain, and their number is chosen
 by cross-validation. `sieve=Sieve(Cosine(["age"], 6), size=3)` fixes the number instead.
 
