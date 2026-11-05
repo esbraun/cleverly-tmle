@@ -167,11 +167,36 @@ effect, or named with the `effect_curve:` prefix, is refused, and that detection
 
 ## Weights, clusters and missing outcomes
 
-Weights define the weighted law, as for every point target. With `id=` the cluster is the unit:
+Weights define the weighted law, as for every point target. With `PointTreatment(cluster=...)` the cluster is the unit:
 the variance sums the influence curve within clusters, with the $G/(G - 1)$ factor of the shipped
 cluster-robust variance, and folds are grouped by cluster. With missing outcomes the clever
 covariate carries $\Delta/\Pi$, and a cross-fitted fit meets the
 [arm-indexed contract](scope-and-refusals.md#missing-outcome-arm-indexed-contract).
+
+## Assessing a curve
+
+`EffectCurveResult.diagnostics` reads the producing fit for `support()`, `nuisance_models()`
+and `score_equations()`, and refits the producing estimator for four point readings with no
+interval. The out-of-fold refits run on folds of independent units (clusters kept whole), and
+each held-out prediction is compared with the doubly robust pseudo-outcome
+$\tilde D = D_t - D_r$ of the producing fit's cross-fitted nuisances, which never saw that row.
+
+- `calibration()`: the least-squares line of $\tilde D$ on $(1, \hat\tau_{-k})$, and the bin
+  means of both over quantile bins of $\hat\tau_{-k}$. On the log-ratio scale the line
+  minimises the one-step loss $(D_t + D_r)\log(1 + e^\eta) - D_t\eta$ and a bin reports
+  $\log(\bar D_t / \bar D_r)$.
+- `risk_comparison()`: the out-of-fold risk $P_n[s^2 - 2 s\tilde D]$ (on the log-ratio scale
+  the one-step loss) of the curve, the training-fold constant, the T-learner and, for a
+  difference, the DR-learner on the same basis. No log-ratio DR-learner exists to compare.
+- `stability()`: the mean across rows of the SD of the refitted curves over 5 split seeds,
+  over the SD of the curve; above 0.5 it warns. A cosine basis is also refitted as a B-spline
+  of the same size, and the reverse.
+- `modifier_stability()`: the out-of-fold risk with each modifier dropped from the basis.
+
+`corrections`, `truncation_curve` and `refute` are declared unavailable, the last with R9.
+`tests/unit/test_curve_assessment.py` checks the rows, that a held-out fold's predictions do
+not move when its own outcomes are flipped (and that a refit on every row does move them), and
+each reading against its formula.
 
 ## Refusals
 
@@ -184,6 +209,7 @@ covariate carries $\Delta/\Pi$, and a cross-fitted fit meets the
 | a modifier outside the adjustment set | the contrast given $V$ is identified only when $V \subseteq W$ | `invalid_declaration` |
 | missing treatments, an intermediate, a continuous or vector treatment, `strata=`, `repeats` above 1, the full-refit bootstrap | the projection's clever covariate, covariance or study cell for the composition is not built | `implementation_gap`, roadmap P1 |
 | a sensitivity analysis or refutation of a projection fit | each is defined for a mean or a contrast of means | `implementation_gap`, roadmap P1 |
+| `heterogeneity_test()` on a basis without an intercept column | its coefficients being zero says the contrast is zero, not that it is constant | `invalid_declaration` |
 | `method="ep"` | the EP learner is not shipped; for any other estimand it estimates a different target | `implementation_gap`; `different_estimand` |
 | `assess_score` without `score_kind="external"`, with `computed_from` outside the adjustment set, or on an in-sample curve | the interval needs a fixed function of adjustment columns | `invalid_declaration` |
 
@@ -193,11 +219,25 @@ pins its text.
 ## Status and evidence
 
 No support row covers these fits yet, so every projection fit reads `experimental`. The
-`conditional-projection` study, declared in `tests/studies/conditional_projection.py`, measures
-interval calibration of the coefficients on both scales with a known and an estimated mechanism,
-three arms, weights, clusters, missing outcomes and an external score. It also runs a ladder with
-both nuisances slow for the product remainder, and the size and power of the heterogeneity test.
-It is not registered and has not run.
+`conditional-projection` study, declared in `tests/studies/conditional_projection.py` with its
+verdicts in `tests/studies/conditional_projection_properties.py`, has not run. Its declared run
+is `python -m tests.canonical.conditional_projection.regenerate`, whose docstring holds the
+red-cell reading. The declaration fixes, before the run:
+
+| family | groups | rule |
+| --- | --- | --- |
+| `interval_calibration` | `trial_2k`, `obs_1k`, `obs_4k`, `crr_1k`, `crr_4k`, `multi_4k`, `clustered_4k`, `obs_missing_4k`, `obs_missing_crr_4k`, `assess_score_2k`, the three ladder rungs (R = 4,800), and `weighted_sl_2k` with the ensemble learner and 5 outer folds (R = 3,600) | 99% bootstrap SE-ratio interval in [0.93, 1.07] and 99% Clopper-Pearson coverage interval in [0.92, 0.98] |
+| `bias` | `slow_1k`, `slow_4k`, `slow_16k` (both nuisances off by $5 n^{-1/3}$ on the logit scale); `noweight_dr_4k` and `missing_dr_4k` (a declared wrong outcome regression) | 99% interval of the standardized bias inside $\pm 0.25$ |
+| `type_i_error`, `power` | the df-2 heterogeneity test at slope 0 ($n = 2{,}000$, R = 2,400) and 0.10 ($n = 4{,}000$, R = 1,000; power 0.933, noncentrality 14.27) | rejection upper end at most 0.10; lower end at least 0.80 |
+
+Each control shares its group's draws and must fail: the row-level SE on `clustered_4k` falls
+below the SE-ratio band; the T-learner (the projection of $\bar Q_1 - \bar Q_0$), the IPW
+projection, the one-step with unit weights in place of $1/g$, the one-step without $1/\Pi$,
+and the fit that drops the sampling weights each have a bias interval wholly outside
+$\pm 0.25$ of their own spread. `tests/unit/test_conditional_projection_design.py` computes
+each calibration row's pass probability (above 0.999 at a calibrated SE, 0.99 for the family),
+the power and type-I pass probabilities, and each control's detection probability (above 0.99),
+from the laws by quadrature. The EP cell of the plan moves to the part (b) study.
 
 The fast-tier instruments are:
 
@@ -210,10 +250,15 @@ The fast-tier instruments are:
 - nonzero witnesses of the residual term, and mutation controls that the exact checks must
   fail: the arm sign replaced by its absolute value, a third arm given a nonzero weight, and the
   reference arm dropped from the log-ratio curve;
-- Gâteaux checks of the score risk on both scales, with the risk curve that omits the term for the
+- the heterogeneity statistic on a two-modifier exact law, equal to the exact noncentrality on 2
+  degrees of freedom, with clusters summed within each cluster, and the intercept-free basis
+  refused because its test would reject a constant effect;
+- the row weights reaching each candidate of the ensemble in every outer and inner fold, by a
+  spy, with the weightless member fit as a mutation that must fail;
+- Gâteaux checks of the score risk on both scales, on the complete and the missing-outcome law, with the risk curve that omits the term for the
   constant as a mutation that must fail, and the true CATE calibrated to intercept 0 and slope 1
   (`tests/unit/test_conditional_contrast.py`).
 
 The [evidence manifest](evidence.md#the-table) lists them. The source is
-van der Laan, Carone and Luedtke (2024), arXiv:2402.01972v2, a preprint; see the
+van der Laan, Carone and Luedtke (2024; v2 dated 2026), arXiv:2402.01972v2, a preprint; see the
 [reference list](../references.md#conditional-effects).

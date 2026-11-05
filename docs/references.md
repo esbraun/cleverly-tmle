@@ -2547,7 +2547,7 @@ The notebook also cites one source for its sensitivity analysis. Its entry is un
 The [conditional effects reference](technical-reference/conditional-effects.md) cites this source
 for the projection targets of `ConditionalContrast` and for the check of an external score.
 
-- van der Laan, Carone & Luedtke (2024), [*Combining T-learning and DR-learning: a framework for
+- van der Laan, Carone & Luedtke (2024; v2 2026), [*Combining T-learning and DR-learning: a framework for
   oracle-efficient estimation of causal contrasts*](https://arxiv.org/abs/2402.01972),
   arXiv:2402.01972v2. The paper is a preprint, and its claims are not peer reviewed. Section 2.2,
   Examples 1 and 2 (equations (2) and (3)), define the conditional average treatment effect and

@@ -41,7 +41,8 @@ Even the jokes in this library are targeted.*
   untreated, as a difference, a risk ratio, or an odds ratio, with two or more treatment levels.
   Missing outcomes and missing treatments can be declared and handled.
 - How an effect changes with a few baseline columns, such as age: a declared curve of the
-  effect with intervals, a band, and a test of whether the effect varies at all.
+  effect with intervals, a band, and a test of whether the effect varies at all. These fits are
+  labelled experimental until their validation study has run.
 - Effects of policies: treating only some people by a rule, following a rule learned from the
   data, raising each person's chance of treatment, or shifting a continuous dose or price.
 - Treatments over time: treatments that repeat, outcomes measured at the end or every period, and

@@ -1,10 +1,11 @@
 # Conditional effects
 
-`ConditionalContrast` asks how the effect of a treatment changes with a few baseline columns,
-the *modifiers*. Declare the modifiers, a small set of fixed functions of them called the
-*basis*, and fit. The result is a curve over the modifiers, with a confidence interval at each
-point, a band over a grid you choose, and a test of whether the effect varies at all along the
-basis.
+`ConditionalContrast` answers questions such as these. In a trial, does the treatment help
+older patients more than younger ones? In a marketing campaign, which customers does a coupon
+move most, the *uplift* of each customer? Declare the baseline columns the effect may change
+with, the *modifiers*, and a small set of fixed functions of them called the *basis*, and fit.
+The result is a curve over the modifiers, with a confidence interval at each point, a band over
+a grid you choose, and a test of whether the effect varies at all along the basis.
 
 ```python
 from sklearn.linear_model import LogisticRegression
@@ -27,6 +28,11 @@ fit.heterogeneity_test()  # does the effect change with age at all?
 curve = fit.effect_curve(grid={"age": [30, 50, 70]}, random_state=0)
 curve.predict({"age": [40, 60]}, interval=True)  # the effect at new ages, with intervals
 ```
+
+Every fit of a conditional effect is labelled `experimental` for now. The study that measures
+how often these intervals cover the true curve is declared and has not run yet, so no one has
+checked the intervals in repeated samples. They are computed the way the validated methods
+compute theirs; read them with that caution, and see the status line of `fit.summary()`.
 
 Every modifier must also be an adjustment column. A column outside the adjustment set is
 refused, because the effect given a column can be worked out from the outcome model only when
@@ -58,9 +64,9 @@ The basis is fixed before the fit, so the coefficients carry ordinary confidence
 | --- | --- | --- |
 | `Linear(columns)` | a straight-line trend in each modifier | nothing more |
 | `Indicators(column)` | one effect per level of a categorical modifier | the levels in `Modifiers(levels=...)` |
-| `Cosine(columns, size)` | a smooth curve with `size` wiggles per modifier | each domain in `Modifiers(domains=...)` |
+| `Cosine(columns, size)` | a smooth curve with `size` cosine terms per modifier | each domain in `Modifiers(domains=...)` |
 | `BSpline(columns, n_interior_knots)` | a smooth curve with local flexibility | each domain |
-| `Additive((...))`, `Tensor(left, right)` | several modifiers side by side, or their interactions | what each part needs |
+| `Additive(left, right, ...)`, `Tensor(left, right)` | several modifiers side by side, or their interactions | what each part needs |
 
 A domain or a set of levels must be declared rather than read off the data. A basis whose knots
 came from the sample would make the target depend on the sample, and the interval would miss
@@ -87,6 +93,26 @@ in a way the basis cannot draw.
 simultaneous band over those points, which holds at all of them together; it is wider than the
 pointwise intervals. `curve.summary()` prints the coefficients, the spread of the in-sample
 predictions and the band. `curve.save(path)` writes it, and `cleverly.load(path)` reads it back.
+
+## Check the curve
+
+`curve.diagnostics` checks a fitted curve against the data it came from. Each check refits the
+same procedure on part of the rows and compares its predictions on the rows it left out with a
+per-row estimate of each unit's effect built from the outcome and treatment models (a
+*pseudo-outcome*, whose average over a group estimates the group's effect).
+
+- `curve.diagnostics.calibration()`: the line from the held-out predictions to the
+  pseudo-outcome, where a slope of 1 and an intercept of 0 mean the curve is calibrated, and a
+  table of the two side by side within five bins of the prediction.
+- `curve.diagnostics.risk_comparison()`: how well the curve predicts the effect on held-out
+  rows, beside the average effect, the difference of the two outcome models, and, for a
+  difference, a regression of the pseudo-outcome on the same basis. Lower is better.
+- `curve.diagnostics.stability()`: how much the curve moves when the fit is repeated on other
+  random splits. It warns when that movement is more than half the curve's own spread.
+- `curve.diagnostics.modifier_stability()`: how much worse the held-out prediction gets when
+  each modifier is left out of the basis.
+
+These are single numbers with no intervals. They describe this fit and do not test it.
 
 ## Check a score fitted elsewhere
 
@@ -119,7 +145,8 @@ matches a curve fitted from this effect, or that carries the `effect_curve:` pre
 The curve without a basis (`model=None`), the efficient plug-in learner (`method="ep"`),
 checks of how much hidden confounding would move the coefficients, missing treatment values, an
 intermediate variable, `strata=`, repeated out-of-fold fits on new splits and the bootstrap each
-refuse before any model is fitted and say what to do instead. Weights, clusters and missing outcomes are supported.
+refuse before any model is fitted and say what to do instead. Weights, clusters and missing
+outcomes are accepted, and those fits are labelled experimental like every other.
 
 The [conditional effects reference](../technical-reference/conditional-effects.md) gives
 the exact targets, the formulas behind the intervals and the evidence.
