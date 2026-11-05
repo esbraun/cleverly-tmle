@@ -14,7 +14,26 @@
       "pandas": "3.1.0",
       "scikit_learn": "1.9.1"
     },
-    "reference": null
+    "reference": {
+      "implementation": "ltmle",
+      "environment": {
+        "CLEVERLY_X59_MUTATION": "none"
+      },
+      "input_module_sha256": {
+        "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
+        "tests/discrete_law_longitudinal_horizon.py": "71e40519f054a82ae0fbbe57f1d28a9a3b1cc1c30fab31c421e26c725450415c",
+        "tests/longitudinal_horizon_plans.py": "2650b254ad14ff780e70d6b89bf5509639925fdb3d235e93fb83df234c089dab",
+        "tests/studies/canonical_long_horizon_ltmle_parity.py": "f44f8918b2d9141c5fb5b73baa0a88e1546eb1e2f9bb14156f73fd2dd06e54ab",
+        "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+        "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+        "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+        "tests/studies/long_horizon_common.py": "32769d292315d96a6d8f5703941d7ad751056738e21da696e2c8596f1173f55c",
+        "tests/studies/long_horizon_parity.py": "77cb255be6e9eb8627fcda90669873025bfc5cd7fa150cc4c37dce10ff9e6517",
+        "tests/studies/long_horizon_parity_properties.py": "7125f80e83b048b9305d1cb12f46aef6fb4d072447bc720771d9a56181bb47ef",
+        "tests/studies/long_horizon_primary.py": "747b32db6bf08422a9b8f6da520d50fd04d3e0091ce1a91c0fae5fc2e43c62b3",
+        "tests/studies/long_horizon_reference.py": "a1c940f8158ec494213f65254d167fe1b0b361488aa70de6f1638354114fc26e"
+      }
+    }
   },
   "configuration": {
     "replicates": 500,
@@ -22,6 +41,7 @@
     "seed": 20265901,
     "resampling_seed": 2026590101,
     "publication_policy": "reporting",
+    "paired_role": "descriptive",
     "failure_bound": {
       "cleverly-long-horizon-ltmle-parity": 0.01,
       "ltmle": 0.01
@@ -99,25 +119,20 @@
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
     "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
   },
-  "reference_sha256": {},
-  "sha256": {
-    "replicates.parquet": "b149cff7ec2c9f0af15db045f1f4c1ed01b585c67437e19c532e64e782f955d7",
-    "summary.csv": "281db24b0f53909c1f4c1191b46451c000730e63e7efd0275450ab664840b765",
-    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "77594a4cb66b526d865c10f9c8554d21ca55147d56180632f7ca45178c3cebc3",
-    "property-replicates.parquet": "fe49529a9c5ec7471753784931995f374450e205a24c8ab596190a8f6d95f940",
-    "properties.csv": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+  "reference_sha256": {
+    "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
+    "tests/canonical/long_horizon_ltmle/run_study.R": "13bd0abe4efb0d08c6bcbf26238c34fadeb14953dfedcfc15563c10ba2e10e51",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
+    "tests/canonical/ltmle_horizon_adapter.R": "8c909efd5b51bfda0f5653d4768093b7246e82aa4b7978e63b2de55d026d7639"
   },
-  "comparator": {
-    "status": "pending",
-    "implementation": "ltmle",
-    "reason": "X59 section 5: the R ltmle side runs reference-only after the subject phase",
-    "metadata": {},
-    "declared_sources_sha256": {
-      "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
-      "tests/canonical/long_horizon_ltmle/run_study.R": "13bd0abe4efb0d08c6bcbf26238c34fadeb14953dfedcfc15563c10ba2e10e51",
-      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
-      "tests/canonical/ltmle_horizon_adapter.R": "8c909efd5b51bfda0f5653d4768093b7246e82aa4b7978e63b2de55d026d7639"
-    }
+  "sha256": {
+    "replicates.parquet": "76516e76f99bd631192e630413ea47f88f6336613d8f0dee520b2e3dd46b3efe",
+    "summary.csv": "bba43b72c5895369d304035f75ebebc943c0316f9571ce61fba089e79dc32d30",
+    "equivalence.csv": "9428b17448662533f12aa9350380b68ff00d59535da068fdbc29d7b6b467571e",
+    "performance-tests.csv": "064ae1a478f417b868423929a8ede5361823e5ccb172848d929f8735ba45f00c",
+    "property-replicates.parquet": "fe49529a9c5ec7471753784931995f374450e205a24c8ab596190a8f6d95f940",
+    "properties.csv": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "parity.csv": "eb7754a817fd157f7cdff5bfd3269a4741cd777ca9ee182ed74ea44250a0c026",
+    "parity-replicates.csv": "1d08977b51652493b68de90a439c5945880ad7f6090adf969f77c352359271a7"
   }
 }

@@ -14,7 +14,30 @@
       "pandas": "3.0.5",
       "scikit_learn": "1.9.1"
     },
-    "reference": null
+    "reference": {
+      "implementation": "lmtp",
+      "environment": {
+        "CLEVERLY_X59_LEARNER": "stratified",
+        "CLEVERLY_X59_MUTATION": "none"
+      },
+      "input_module_sha256": {
+        "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
+        "tests/discrete_law_longitudinal_horizon.py": "71e40519f054a82ae0fbbe57f1d28a9a3b1cc1c30fab31c421e26c725450415c",
+        "tests/long_horizon_design.py": "c5d09242636b55ce2e3dfeb626d99298c052a2f00074f11a2bea4ac5d85e5045",
+        "tests/long_horizon_sampling_sd.py": "71a9147f120d752fc6513975372555a892743f5621a56b5febc4e7979271c7ee",
+        "tests/longitudinal_horizon_plans.py": "2650b254ad14ff780e70d6b89bf5509639925fdb3d235e93fb83df234c089dab",
+        "tests/studies/canonical_long_horizon_categorical_ltmle.py": "e84c54c5f9428059b928f92795728b3ef80487859c3b94cf98e4cfe778847f0f",
+        "tests/studies/canonical_long_horizon_ltmle.py": "215d966b287cbabf6c8223f8d30b16ec0919fb7f6a6c00d16bc92cf91e9375cb",
+        "tests/studies/canonical_long_horizon_sdr.py": "40ce753d6a0001c81d999c8be7c68356777717e03105b08b1c587b2a8a8f4109",
+        "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+        "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+        "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+        "tests/studies/long_horizon_common.py": "32769d292315d96a6d8f5703941d7ad751056738e21da696e2c8596f1173f55c",
+        "tests/studies/long_horizon_primary.py": "747b32db6bf08422a9b8f6da520d50fd04d3e0091ce1a91c0fae5fc2e43c62b3",
+        "tests/studies/long_horizon_properties.py": "b820217549d857dd5c2665bce6487488ca1c3b43eac1e6a432f7d915a80e2b44",
+        "tests/studies/long_horizon_sdr_properties.py": "1c7d96ee30a6b55b35896cb95e71956db72b0fe005f7b698be41d6b02e0a7cbb"
+      }
+    }
   },
   "configuration": {
     "replicates": 1200,
@@ -39,6 +62,7 @@
       "sdr_categorical_k5_crossfit": "sdr_categorical_k5"
     },
     "publication_policy": "reporting",
+    "paired_role": "descriptive",
     "failure_bound": {
       "cleverly-long-horizon-sdr": 0.01,
       "lmtp": 0.01
@@ -203,6 +227,104 @@
         "ey_regimen[low]__bca",
         "ey_regimen[taper]__bca",
         "ate_regimen[taper vs low]__bca"
+      ]
+    },
+    "reference_scenarios": {
+      "sdr_binary_k3": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ey_regimen[respond]",
+        "ey_regimen[switch]",
+        "ey_regimen[coin]",
+        "ate_regimen[always vs never]",
+        "ate_regimen[respond vs never]",
+        "ate_regimen[switch vs never]",
+        "ate_regimen[coin vs never]"
+      ],
+      "sdr_binary_k4": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ey_regimen[respond]",
+        "ey_regimen[switch]",
+        "ey_regimen[coin]",
+        "ate_regimen[always vs never]",
+        "ate_regimen[respond vs never]",
+        "ate_regimen[switch vs never]",
+        "ate_regimen[coin vs never]"
+      ],
+      "sdr_binary_k5": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ey_regimen[respond]",
+        "ey_regimen[switch]",
+        "ey_regimen[coin]",
+        "ate_regimen[always vs never]",
+        "ate_regimen[respond vs never]",
+        "ate_regimen[switch vs never]",
+        "ate_regimen[coin vs never]"
+      ],
+      "sdr_categorical_k5": [
+        "ey_regimen[low]",
+        "ey_regimen[respond]",
+        "ey_regimen[mix]",
+        "ey_regimen[mixlast]",
+        "ate_regimen[respond vs low]",
+        "ate_regimen[mix vs low]",
+        "ate_regimen[mixlast vs low]",
+        "ate_regimen[mix vs mixlast]"
+      ],
+      "sdr_categorical_k5_crossfit": [
+        "ey_regimen[low]",
+        "ey_regimen[respond]",
+        "ey_regimen[mix]",
+        "ey_regimen[mixlast]",
+        "ate_regimen[respond vs low]",
+        "ate_regimen[mix vs low]",
+        "ate_regimen[mixlast vs low]",
+        "ate_regimen[mix vs mixlast]"
+      ],
+      "sdr_categorical_k5_static": [
+        "ey_regimen[low]",
+        "ey_regimen[high]",
+        "ey_regimen[switch]",
+        "ate_regimen[high vs low]",
+        "ate_regimen[switch vs low]"
+      ],
+      "sdr_categorical_k5_switch": [
+        "ey_regimen[low]",
+        "ey_regimen[switch]",
+        "ate_regimen[switch vs low]"
+      ],
+      "sdr_categorical_k5_high": [
+        "ey_regimen[low]",
+        "ey_regimen[high]",
+        "ate_regimen[high vs low]"
+      ],
+      "sdr_categorical_k5_mix": [
+        "ey_regimen[low]",
+        "ey_regimen[mix]",
+        "ate_regimen[mix vs low]"
+      ],
+      "sdr_policy_k5": [
+        "ey_regimen[low]",
+        "ey_regimen[mix]",
+        "ey_regimen[taper]",
+        "ate_regimen[mix vs low]",
+        "ate_regimen[taper vs low]",
+        "ate_regimen[taper vs mix]"
+      ],
+      "sdr_policy_k5_mix": [
+        "ey_regimen[low]",
+        "ey_regimen[mix]",
+        "ey_regimen[taper]",
+        "ate_regimen[mix vs low]",
+        "ate_regimen[taper vs low]",
+        "ate_regimen[taper vs mix]"
+      ],
+      "sdr_policy_k5_taper": [
+        "ey_regimen[low]",
+        "ey_regimen[taper]",
+        "ate_regimen[taper vs low]"
       ]
     },
     "estimator": "SDR",
@@ -399,32 +521,27 @@
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
     "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
   },
-  "reference_sha256": {},
-  "sha256": {
-    "replicates.parquet": "7dfd247bbe33480c5d8d9a92bdbd60d6878e31eca65b54b410bcf27866031324",
-    "summary.csv": "95cc124efae2575bcf0ff5a567578e32e611a1afdb7a1ac6837136fba4ba98e7",
-    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "78d525b3d420d73010f0e700919c31b4e946e9472434513f46cad79ab520a8bc",
-    "property-replicates.parquet": "9569053dfcadb0125719532d91c85a3757fe43c4183b3cc0e93bcc221da8cd22",
-    "properties.csv": "9b10dbb07298b8a2bdd324e942dcff7adb03f028f0b5e9fc5eb16c55ebe2701c"
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/lmtp_9996b04/Dockerfile": "f84d552bcad2d1ad712b04ebd009e327b469cd5f27e0b54e0c3845d11dc4c281",
+    "tests/canonical/long_horizon_sdr/run_study.R": "7581546aa74331def9941cd5b87243ecb2aa52a32adfd5b61b97ccb5a580a8ac",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
+    "tests/canonical/lmtp_sdr_adapter.R": "bc3e42a2762f4e8a6eb4f1e29eb60e211da7d7675975f82511e454f316d7e608",
+    "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
+    "tests/canonical/lmtp_policy_adapter.R": "d98ec147eacf700a84c399aa2bcb0a16248d8b7141bc827879488c0b5c0f9d45",
+    "tests/canonical/lmtp_9996b04_crossfit_adapter.R": "35d2b4cc639c1d7e62314707863dc4fb307215ed7ae59aa9107ee1e019bf58f4",
+    "tests/canonical/lmtp_9996b04_policy_adapter.R": "3b1633040c3375cd6b6d9902c0a38422fb06a7b8247c9de2013cfa932cb7a252",
+    "tests/canonical/lmtp_horizon_learners.R": "ce4cb5f0cebd9a83889b0cb74de86d291447c6cc6636bd10c16bba067de79642",
+    "tests/canonical/long_horizon_lmtp_adapter.R": "92de88dc9ee481e1183790ebd8f0228c7b3484110ff11ac01e1ede801a0f3eda"
   },
-  "comparator": {
-    "status": "pending",
-    "implementation": "lmtp",
-    "reason": "X59: R lmtp comparator runs deferred by the owner on 2026-10-14; X39 accepted on Python property evidence",
-    "metadata": {},
-    "declared_sources_sha256": {
-      "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
-      "tests/canonical/lmtp_9996b04/Dockerfile": "f84d552bcad2d1ad712b04ebd009e327b469cd5f27e0b54e0c3845d11dc4c281",
-      "tests/canonical/long_horizon_sdr/run_study.R": "7581546aa74331def9941cd5b87243ecb2aa52a32adfd5b61b97ccb5a580a8ac",
-      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
-      "tests/canonical/lmtp_sdr_adapter.R": "bc3e42a2762f4e8a6eb4f1e29eb60e211da7d7675975f82511e454f316d7e608",
-      "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
-      "tests/canonical/lmtp_policy_adapter.R": "d98ec147eacf700a84c399aa2bcb0a16248d8b7141bc827879488c0b5c0f9d45",
-      "tests/canonical/lmtp_9996b04_crossfit_adapter.R": "35d2b4cc639c1d7e62314707863dc4fb307215ed7ae59aa9107ee1e019bf58f4",
-      "tests/canonical/lmtp_9996b04_policy_adapter.R": "3b1633040c3375cd6b6d9902c0a38422fb06a7b8247c9de2013cfa932cb7a252",
-      "tests/canonical/lmtp_horizon_learners.R": "ce4cb5f0cebd9a83889b0cb74de86d291447c6cc6636bd10c16bba067de79642",
-      "tests/canonical/long_horizon_lmtp_adapter.R": "92de88dc9ee481e1183790ebd8f0228c7b3484110ff11ac01e1ede801a0f3eda"
-    }
+  "sha256": {
+    "replicates.parquet": "c0b26f5077c4b929eb2410d5d19cd3998991f6ac98ba69c63c223fc40a41535d",
+    "summary.csv": "7b93e7f5628a3d30d1d0c4f064342b97fc526622319632fc84dd2d543cf4f9d0",
+    "equivalence.csv": "be7047cf42399d3bd4b6db595920ec3f9ba650b6fe17581a517a3b151acb79c7",
+    "performance-tests.csv": "ae0deacfd0f1ff2ae77f385a2f2cc0ec4d3b5ebfe5705a950f2e3b5388546278",
+    "property-replicates.parquet": "9569053dfcadb0125719532d91c85a3757fe43c4183b3cc0e93bcc221da8cd22",
+    "properties.csv": "9b10dbb07298b8a2bdd324e942dcff7adb03f028f0b5e9fc5eb16c55ebe2701c",
+    "parity.csv": "3b915be42ca7467440319f3a2529877efca29d200b504fc0de4dc271254cb170",
+    "parity-replicates.csv": "ac27915741c0b4b6dc390bd0fba883ee625e5a909a116dbf0de7d667f03b784e"
   }
 }
