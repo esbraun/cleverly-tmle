@@ -11,12 +11,14 @@ Its rev 1 curve, ``+ 2 (c - E s)(Dtilde - c)``, is checked to fail.
 from __future__ import annotations
 
 import warnings
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.base import BaseEstimator, ClassifierMixin, clone
 from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
 
 import cleverly
 from cleverly import ATE, CausalStudy, ConditionalContrast, PointTreatment, sensitivity
@@ -730,6 +732,68 @@ class TestScoreRefusalsBeforeAnyLearner:
         effect = self.effect()
         curve = effect.estimate(**oracle()).effect_curve()
         assert any(np.array_equal(stored, curve.in_sample) for stored in effect._curves)
+
+
+class WeightSpy(ClassifierMixin, BaseEstimator):
+    """A candidate that records the ``sample_weight`` each of its fits receives."""
+
+    seen: ClassVar[list[Any]] = []
+
+    def __init__(self, inner: Any = None) -> None:
+        self.inner = inner
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> WeightSpy:
+        WeightSpy.seen.append(None if sample_weight is None else np.array(sample_weight))
+        self.fitted_ = clone(self.inner).fit(X, y, sample_weight=sample_weight)
+        self.classes_ = self.fitted_.classes_
+        return self
+
+    def predict_proba(self, X: Any) -> Any:
+        return self.fitted_.predict_proba(X)
+
+
+def spied(learner: Any) -> Any:
+    """The study's ensemble with each candidate's final estimator wrapped in a spy.
+
+    A pipeline keeps its steps and gets the spy as its last step, so the weight reaches it
+    as ``<step>__sample_weight`` (``src/cleverly/learners/_fitting.py``); the boosting
+    candidate is wrapped whole.  The candidates are made cheap, not changed in kind.
+    """
+    library = []
+    for name, candidate in learner.library:
+        if isinstance(candidate, Pipeline):
+            step, final = candidate.steps[-1]
+            if hasattr(final, "Cs"):
+                final = clone(final).set_params(Cs=3, cv=2)
+            candidate = Pipeline([*candidate.steps[:-1], (step, WeightSpy(final))])
+        else:
+            candidate = WeightSpy(clone(candidate).set_params(max_iter=10))
+        library.append((name, candidate))
+    return clone(learner).set_params(library=library, n_folds=2)
+
+
+def test_the_ensemble_hands_the_row_weights_to_every_candidate() -> None:
+    """Plan 4.2: each candidate's fit receives the weights, in every outer and inner fold."""
+    from tests.studies import conditional_projection as declared
+
+    group = declared.GROUP_BY_LABEL["weighted_sl_2k"]
+    frame = declared.sample("weighted", 300, np.random.default_rng(0))
+    study = CausalStudy(frame, design=declared.design(group))
+    WeightSpy.seen.clear()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        study.identify(declared.estimand(group)).estimate(
+            outcome_learner=spied(declared.ensemble((0.005, 0.995))),
+            treatment_learner=spied(declared.ensemble((0.01, 0.99))),
+            outcome_by_arm=True,
+            n_folds=2,
+            random_state=0,
+        )
+    # Two outer folds, three nuisances (two arms and the mechanism), three candidates, and
+    # each candidate fitted on two inner folds and once on its whole training fold.
+    assert len(WeightSpy.seen) == 2 * 3 * 3 * 3
+    assert all(weights is not None for weights in WeightSpy.seen)
+    assert all(np.ptp(weights) > 0.5 for weights in WeightSpy.seen)
 
 
 def test_a_learned_fit_runs_end_to_end() -> None:
