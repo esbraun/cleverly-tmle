@@ -1965,8 +1965,11 @@ read experimental until those studies run.
 
 Part (c) has shipped the EP curve as the rule learner
 of the learned-rule value (`LearnedRule(loss="ep", modifiers=...)`,
-[the EP rule learner](technical-reference/point-treatment-tmle.md#the-ep-rule-learner)) and the
-declared `learned-rule-ep` study. Its fits read experimental until that study runs.
+[the EP rule learner](technical-reference/point-treatment-tmle.md#learned-rules)) and the
+declared `learned-rule-ep` study. Its fits read experimental. The study's sizing pilot reads an
+SE ratio of 0.970 at n = 4,000, and 0.953 after one pilot SE lies below the plan's bound of
+0.96, so its declared run leaves the `T49` rows experimental whatever it shows. Support for
+these fits needs a fresh declaration.
 
 What stays here is the compositions the shipped refusals name with this item: missing
 treatments, an intermediate, a continuous or vector treatment, `strata=`, `repeats` above 1 and
@@ -1977,7 +1980,7 @@ curve; a declared final learner on the log-ratio scale; and scalar aggregates of
 | --- | --- |
 | (a) | the registered run of the `conditional-projection` study and the support rows it decides |
 | (b) | the EP learner for the CATE and the conditional relative risk, with its studies |
-| (c) | the registered run of the `learned-rule-ep` study and the `T49` support rows it decides |
+| (c) | the registered run of the `learned-rule-ep` study, and `T49` support rows from a declaration powered at its measured SE deficit |
 
 The sieve can be any basis the caller declares. The package ships no HAL learner, and none is
 planned.

@@ -1414,8 +1414,9 @@ projection in the tilted law. So a blip learner can improve on the plug-in rule 
 outcome regression. At an exceptional law a consistent learner has no fixed limit, as for the
 plug-in rule.
 
-[The EP rule learner](#the-ep-rule-learner) states C3 on the EP curve. Each outer fold adds 5 inner outcome fits, 5 inner treatment fits and one
-rule-learner fit, so a fit makes about six times the nuisance fits of the plug-in fit.
+The EP rule learner subsection below states C3 on the EP curve. Each outer fold adds 5 inner
+outcome fits, 5 inner treatment fits and one rule-learner fit, so a fit makes about six times the
+nuisance fits of the plug-in fit.
 
 `LearnedRule` refuses a learner that does not suit its loss when it is built. It refuses a learner
 beside `loss="plug_in"` and a missing learner beside another loss. It also refuses a classifier
@@ -1505,6 +1506,10 @@ fit on rows at both RM30 laws, the optimal value with $g_0$ supplied, n = 1,000 
 exceptional law. With the size chosen by cross-validation, each outer fold fits 5 inner and 25
 inner-inner nuisance pairs, so a fit at n = 4,000 takes about 5 CPU-seconds against 0.2 for the
 plug-in rule.
+Its sizing pilot reads an SE ratio of 0.970 at n = 4,000, where the reported SE is the
+fixed-rule SE of the realized rules: rule learning adds about 6% to the error variance. That
+ratio less one pilot SE lies below the plan's 0.96, so the declared run cannot make these fits
+supported (`tests/canonical/learned_rule_ep/README.md`).
 
 `tests/unit/test_learned_rule_ep.py` holds the witnesses. On a finite population whose training
 folds are whole copies of it, with $g$ known and an outcome regression that is wrong in the
