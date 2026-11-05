@@ -85,18 +85,21 @@ def _row(
 
 def oracle_values(group: Any, fitted: dict[str, Any]) -> dict[str, float]:
     """Each ``oracle_comparison`` cell's log ISE ratio in one replicate."""
-    ensemble = fitted["ensemble"]
-    out = {f"{group.label}__ep": math.log(ensemble["ep"] / ensemble["oracle"])}
-    if group.kind == "cv":
-        return out
-    out[f"{group.label}__t_learner"] = math.log(ensemble["t_learner"] / ensemble["oracle"])
-    out[f"{group.label}__dr_learner"] = math.log(ensemble["dr_learner"] / ensemble["oracle"])
+    out: dict[str, float] = {}
+    if "ensemble" in fitted:
+        ensemble = fitted["ensemble"]
+        out[f"{group.label}__ep"] = math.log(ensemble["ep"] / ensemble["oracle"])
+        if group.kind == "cv":
+            return out
+        out[f"{group.label}__t_learner"] = math.log(ensemble["t_learner"] / ensemble["oracle"])
+        out[f"{group.label}__dr_learner"] = math.log(ensemble["dr_learner"] / ensemble["oracle"])
     if "misspecified" in fitted:
         wrong = fitted["misspecified"]
         out[f"{group.label}__ep_misspecified"] = math.log(wrong["ep"] / wrong["oracle"])
         out[f"{group.label}__t_misspecified"] = math.log(wrong["t_learner"] / wrong["oracle"])
     if "greedy" in fitted:
-        out[f"{group.label}__ep_greedy_hgb"] = math.log(fitted["greedy"] / ensemble["oracle"])
+        oracle = fitted["ensemble"]["oracle"]
+        out[f"{group.label}__ep_greedy_hgb"] = math.log(fitted["greedy"] / oracle)
     return out
 
 
@@ -226,14 +229,66 @@ def _bounds(values: np.ndarray) -> tuple[float, float, float, float]:
 
 def oracle_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> list[dict[str, Any]]:
     """Each ``oracle_comparison`` row's bounds and verdict, and the growth rows."""
+    return comparison_verdicts(
+        summary,
+        rows,
+        margin_of=margin_of,
+        growth=[
+            (law.label, study.gated_n(law), estimator)
+            for law in study.LAWS
+            for estimator in ("ep",) * law.ensemble + ("ep_misspecified",) * law.rescue
+        ],
+    )
+
+
+def comparison_verdicts(
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    *,
+    margin_of: Any,
+    growth: list[tuple[str, tuple[int, int], str]],
+    excluded: dict[str, set[int]] | None = None,
+    allowed: dict[str, int] | None = None,
+) -> list[dict[str, Any]]:
+    """The bounds and verdicts of the ``oracle_comparison`` rows, and the growth rows.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The shared summary; its ``oracle_comparison`` rows gain the bound columns.
+    rows : pandas.DataFrame
+        The replication rows.
+    margin_of : Callable
+        A cell's declared margin and side.
+    growth : list
+        ``(law, (small_n, large_n), estimator)`` for each growth row.
+    excluded : dict or None
+        Group label -> replicates excluded from that group's comparisons (``ep-crr``'s
+        non-positive-definite oracle Hessians).
+    allowed : dict or None
+        Group label -> the exclusions the failure bound allows; a gated row of a group with
+        more is red.
+
+    Returns
+    -------
+    list of dict
+        The growth rows.
+    """
+    excluded = excluded or {}
+    allowed = allowed or {}
     for column in ORACLE_COLUMNS:
         if column not in summary:
             summary[column] = np.nan
+
+    def group_of(cell: str) -> str:
+        return cell.split("__", 1)[0]
+
+    values: dict[str, np.ndarray] = {}
+    for cell, group in rows.loc[rows["property"] == study.ORACLE].groupby("cell"):
+        drop = excluded.get(group_of(str(cell)), set())
+        keep = ~group["replicate"].isin(drop)
+        values[str(cell)] = group.loc[keep, "estimate"].to_numpy(dtype=float)
     family = summary["property"] == study.ORACLE
-    values: dict[str, np.ndarray] = {
-        str(cell): group["estimate"].to_numpy(dtype=float)
-        for cell, group in rows.loc[rows["property"] == study.ORACLE].groupby("cell")
-    }
     for index in summary.index[family.to_numpy()]:
         cell = str(summary.loc[index, "cell"])
         mean, sd, low, high = _bounds(values[cell])
@@ -248,41 +303,42 @@ def oracle_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> list[dict[str,
         if role == property_verdicts.DIAGNOSTIC_ROLE:
             summary.loc[index, "passed"] = True
             continue
+        label = group_of(cell)
+        within = len(excluded.get(label, set())) <= allowed.get(label, 0)
         summary.loc[index, "margin"] = margin
-        summary.loc[index, "passed"] = bool(high < margin if side == "below" else low > margin)
-    growth: list[dict[str, Any]] = []
-    for law in study.LAWS:
-        small_n, large_n = study.gated_n(law)
-        estimators = ("ep", "ep_misspecified") if law.rescue else ("ep",)
-        for estimator in estimators:
-            small = values[f"{study.group_label(law.label, small_n)}__{estimator}"]
-            large = values[f"{study.group_label(law.label, large_n)}__{estimator}"]
-            change = float(np.mean(large) - np.mean(small))
-            spread = math.sqrt(
-                np.var(small, ddof=1) / small.size + np.var(large, ddof=1) / large.size
-            )
-            upper = (
-                change + float(stats.t.ppf(study.CONFIDENCE, small.size + large.size - 2)) * spread
-            )
-            row = dict.fromkeys(summary.columns, np.nan)
-            row.update(
-                {
-                    "property": study.ORACLE,
-                    "cell": f"{law.label}__{estimator}_growth",
-                    "role": "positive",
-                    "n": large_n,
-                    "replicates": int(min(small.size, large.size)),
-                    "failed_replicates": 0,
-                    "ratio_mean": change,
-                    "ratio_sd": spread,
-                    "ratio_upper": upper,
-                    "margin": study.GROWTH_MARGIN,
-                    "passed": bool(upper < study.GROWTH_MARGIN),
-                    "property_passed": None,
-                }
-            )
-            growth.append(row)
-    return growth
+        clears = bool(high < margin if side == "below" else low > margin)
+        summary.loc[index, "passed"] = clears and within
+    out: list[dict[str, Any]] = []
+    for law, (small_n, large_n), estimator in growth:
+        small = values[f"{study.group_label(law, small_n)}__{estimator}"]
+        large = values[f"{study.group_label(law, large_n)}__{estimator}"]
+        change = float(np.mean(large) - np.mean(small))
+        spread = math.sqrt(np.var(small, ddof=1) / small.size + np.var(large, ddof=1) / large.size)
+        upper = change + float(stats.t.ppf(study.CONFIDENCE, small.size + large.size - 2)) * spread
+        within = all(
+            len(excluded.get(study.group_label(law, n), set()))
+            <= allowed.get(study.group_label(law, n), 0)
+            for n in (small_n, large_n)
+        )
+        row = dict.fromkeys(summary.columns, np.nan)
+        row.update(
+            {
+                "property": study.ORACLE,
+                "cell": f"{law}__{estimator}_growth",
+                "role": "positive",
+                "n": large_n,
+                "replicates": int(min(small.size, large.size)),
+                "failed_replicates": 0,
+                "ratio_mean": change,
+                "ratio_sd": spread,
+                "ratio_upper": upper,
+                "margin": study.GROWTH_MARGIN,
+                "passed": bool(upper < study.GROWTH_MARGIN) and within,
+                "property_passed": None,
+            }
+        )
+        out.append(row)
+    return out
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

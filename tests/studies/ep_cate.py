@@ -30,11 +30,23 @@ declared change from the code is C1: the noise is a standard normal truncated at
 :data:`NOISE_TRUNCATION` (which moves the law by ``P(|e| > 4) = 6.3e-5``; symmetric, so the
 CATE is unchanged), and ``q_bounds`` covers the outcome range (:func:`q_bounds`).
 
+**Rescue laws** (plan amendment rev 2.4).  ``d3_complex_moderate_noise2`` and
+``d3_complex_limited_noise2`` are the ``d3_complex`` laws with EPL App B.2's noise, SD
+:data:`RESCUE_NOISE_SD` = 2 truncated at :data:`RESCUE_NOISE_TRUNCATION` = 8 (moving the law by
+``6.3e-5`` as above), the setting of the paper's rescue claim.  The first pilot found that
+under the code law's SD 1 the misspecified EP learner reads about ``log 4.3`` above the oracle
+at 4k, above the plan's ``log 3`` margin at every ``R``: with little outcome noise the oracle's
+ISE is small and the misspecified residual ``Y - mu_n`` dominates EP's.  The margin does not
+move; the rescue gate moves to the noise of the claim it tests, and the code-law reading stays
+as an ungated diagnostic row on ``d3_complex_*_4k``.  The rescue laws fit only the
+misspecified learner, at 1k and 4k.
+
 **Learners.**  The plan's ensemble (section 5.0): ``mu`` per arm by spline GLM, shallow HGB and
 the lasso with ``nnls`` (:func:`regression_ensemble`), ``pi`` by the classification ensemble
-of :mod:`tests.studies.conditional_projection`.  On ``d3_complex`` (both overlaps) the
-declared misspecified learner: per-arm main-terms ``LinearRegression`` with the same
-ensemble ``pi`` (the same folds and seeds, so the same fitted ``pi``).  5 outer folds.
+of :mod:`tests.studies.conditional_projection`.  On the rescue laws, and at 4k on the code-law
+``d3_complex`` laws, the declared misspecified learner: per-arm main-terms
+``LinearRegression`` with the same ensemble ``pi`` (the same folds and seeds, so the same
+fitted ``pi``).  5 outer folds.
 
 **Estimators** per replicate: EP at the declared schedule :func:`schedule`, ``k(n)`` = 3, 4, 5
 cosines per modifier at n = 1,000, 2,000, 4,000; the T-learner and the DR-learner on the same
@@ -50,10 +62,13 @@ n = 2,000 (reporting, the default's experimental row).
   ``log 1.5``;
 - no growth: the upper bound of the change in mean log ratio from 1k to 4k, from an
   independent-samples interval, below ``log 1.25``;
-- DR rescue, misspecified learner, ``d3_complex`` both overlaps, at 4,000: upper bound below
+- DR rescue, misspecified learner, the two rescue laws, at 4,000: upper bound below
   ``log 3``, and its growth bound below ``log 1.25``;
 - control that must fail: the T-learner at the misspecified learner, lower bound at 4,000
   above ``log 3``.
+
+``R`` is the sized count at each law's smallest and largest ``n``; the d = 3 laws' 2,000-row
+groups feed only the ungated rate report and run :data:`DESCRIPTIVE_REPLICATES`.
 
 **Fixed size** (``ep_fixed_obs_4k``, moved from ``conditional-projection``, its finding m7):
 the observational law of :mod:`tests.studies.conditional_projection` at n = 4,000 with its
@@ -74,6 +89,8 @@ reading.  ``R`` per law is fixed by :func:`design_numbers` from the committed pi
 
 from __future__ import annotations
 
+import functools
+import importlib
 import math
 import warnings
 from collections.abc import Mapping
@@ -108,6 +125,9 @@ RESAMPLING_SEED = 20261122
 
 NOISE_SD = 1.0
 NOISE_TRUNCATION = 4.0
+#: EPL App B.2's noise, which the rescue laws carry (plan amendment rev 2.4).
+RESCUE_NOISE_SD = 2.0
+RESCUE_NOISE_TRUNCATION = 8.0
 
 #: Monte Carlo points of each law's ISE, drawn once per law from stream ``ise_points``.
 ISE_POINTS = 20_000
@@ -156,14 +176,21 @@ class Law:
         The law's name in every cell.
     dimension : int
         3 or 20.
-    cate : {"simple", "complex"}
-        The CATE.
+    cate : {"simple", "complex", "constant"}
+        The CATE; ``"constant"`` is :data:`WEAK_CATE` (``ep-assessment`` only).
     overlap : {"moderate", "limited"}
         The propensity (d = 3 only; the d = 20 laws are hte3's ``positivity=FALSE``).
     sizes : tuple of int
         The sample sizes.
-    rescue : bool
-        Whether the law carries the misspecified-learner cells.
+    ensemble : bool
+        Whether the law fits the ensemble (the Thm 5 and growth gates).
+    misspecified : {"", "gated", "diagnostic"}
+        Whether the law fits the misspecified outcome learner, and whether its rescue cells
+        are gated.  A diagnostic law fits it at its largest ``n`` only.
+    noise_sd : float
+        The SD of the outcome noise before truncation.
+    noise_truncation : float
+        The noise's symmetric truncation point.
     """
 
     label: str
@@ -171,7 +198,21 @@ class Law:
     cate: str
     overlap: str
     sizes: tuple[int, ...]
-    rescue: bool = False
+    ensemble: bool = True
+    misspecified: str = ""
+    noise_sd: float = NOISE_SD
+    noise_truncation: float = NOISE_TRUNCATION
+
+    @property
+    def rescue(self) -> bool:
+        """Whether the law's rescue cells are gated."""
+        return self.misspecified == "gated"
+
+    def fits_misspecified(self, n: int) -> bool:
+        """Whether a replicate at ``n`` fits the misspecified learner."""
+        if self.misspecified == "gated":
+            return True
+        return self.misspecified == "diagnostic" and n == self.sizes[-1]
 
     @property
     def columns(self) -> tuple[str, ...]:
@@ -182,12 +223,43 @@ class Law:
 LAWS: tuple[Law, ...] = (
     Law("d3_simple_moderate", 3, "simple", "moderate", (1_000, 2_000, 4_000)),
     Law("d3_simple_limited", 3, "simple", "limited", (1_000, 2_000, 4_000)),
-    Law("d3_complex_moderate", 3, "complex", "moderate", (1_000, 2_000, 4_000), rescue=True),
-    Law("d3_complex_limited", 3, "complex", "limited", (1_000, 2_000, 4_000), rescue=True),
+    Law(
+        "d3_complex_moderate",
+        3,
+        "complex",
+        "moderate",
+        (1_000, 2_000, 4_000),
+        misspecified="diagnostic",
+    ),
+    Law(
+        "d3_complex_limited",
+        3,
+        "complex",
+        "limited",
+        (1_000, 2_000, 4_000),
+        misspecified="diagnostic",
+    ),
+    *(
+        Law(
+            f"d3_complex_{overlap}_noise2",
+            3,
+            "complex",
+            overlap,
+            (1_000, 4_000),
+            ensemble=False,
+            misspecified="gated",
+            noise_sd=RESCUE_NOISE_SD,
+            noise_truncation=RESCUE_NOISE_TRUNCATION,
+        )
+        for overlap in ("moderate", "limited")
+    ),
     Law("d20_simple", 20, "simple", "limited", (1_000, 4_000)),
     Law("d20_complex", 20, "complex", "limited", (1_000, 4_000)),
 )
 LAW_BY_LABEL: Mapping[str, Law] = {law.label: law for law in LAWS}
+
+#: The constant CATE of ``ep-assessment``'s weak law (``cate="constant"``; plan 5.4).
+WEAK_CATE = 0.1
 
 #: The equicorrelation of the d = 20 normal vector before truncation.
 D20_CORRELATION = 0.4
@@ -227,6 +299,8 @@ def baseline(law: Law, w: np.ndarray) -> np.ndarray:
 
 def cate(law: Law, w: np.ndarray) -> np.ndarray:
     """The CATE ``E[Y | A = 1, W] - E[Y | A = 0, W]``, hte3's code."""
+    if law.cate == "constant":
+        return np.full(w.shape[0], WEAK_CATE)
     if law.dimension == 3:
         if law.cate == "complex":
             return 1.0 + w.sum(axis=1) + np.sin(5 * w).sum(axis=1)
@@ -241,7 +315,9 @@ def mean_range(law: Law) -> tuple[float, float]:
     """Bounds on ``E[Y | A, W]`` over the support, from the terms' own ranges."""
     if law.dimension == 3:
         base = (-1.5 - 3.0 + 3.0 / 2.2, 1.5 + 3.0 + 3.0 / 0.2)
-        effect = (-5.0, 7.0) if law.cate == "complex" else (-2.0, 4.0)
+        effect = {"complex": (-5.0, 7.0), "simple": (-2.0, 4.0)}.get(
+            law.cate, (WEAK_CATE, WEAK_CATE)
+        )
     else:
         base = (-0.6 + 0.8 / 5 - 1.5, 0.6 + 4.0 / 5 + 1.5)
         effect = (0.0, 2.0) if law.cate == "simple" else (1.0 - 4.5 / 5, 1.0 + 4.5 / 5)
@@ -251,7 +327,8 @@ def mean_range(law: Law) -> tuple[float, float]:
 def q_bounds(law: Law) -> tuple[float, float]:
     """The declared outcome range: the mean's range widened by the noise truncation."""
     low, high = mean_range(law)
-    return (math.floor(low - NOISE_TRUNCATION), math.ceil(high + NOISE_TRUNCATION))
+    width = law.noise_sd * law.noise_truncation
+    return (math.floor(low - width), math.ceil(high + width))
 
 
 def sample(law: Law, n: int, rng: np.random.Generator) -> pd.DataFrame:
@@ -259,7 +336,11 @@ def sample(law: Law, n: int, rng: np.random.Generator) -> pd.DataFrame:
     w = covariates(law, n, rng)
     a = rng.binomial(1, propensity(law, w))
     noise = stats.truncnorm.rvs(
-        -NOISE_TRUNCATION, NOISE_TRUNCATION, scale=NOISE_SD, size=n, random_state=rng
+        -law.noise_truncation,
+        law.noise_truncation,
+        scale=law.noise_sd,
+        size=n,
+        random_state=rng,
     )
     y = baseline(law, w) + a * cate(law, w) + noise
     frame = pd.DataFrame(w, columns=list(law.columns))
@@ -427,14 +508,16 @@ def greedy_ise(law: Law, fit: Any) -> float:
 def fit_replicate(law: Law, n: int, frame: pd.DataFrame, replicate: int) -> dict[str, Any]:
     """Every ISE of one replicate of ``law`` at ``n`` (the gated group)."""
     random_state = replicate
-    ensemble = fit_ep(law, frame, "ensemble", random_state, size=schedule)
-    out = {"ensemble": curves(law, frame, ensemble)}
-    if law.rescue:
+    out: dict[str, Any] = {}
+    if law.ensemble:
+        ensemble = fit_ep(law, frame, "ensemble", random_state, size=schedule)
+        out["ensemble"] = curves(law, frame, ensemble)
+        greedy = law.label == "d3_complex_moderate" and n in (1_000, 4_000)
+        if greedy and replicate < DESCRIPTIVE_REPLICATES:
+            out["greedy"] = greedy_ise(law, ensemble)
+    if law.fits_misspecified(n):
         wrong = fit_ep(law, frame, "misspecified", random_state, size=schedule)
         out["misspecified"] = curves(law, frame, wrong)
-    greedy = law.label == "d3_complex_moderate" and n in (1_000, 4_000)
-    if greedy and replicate < DESCRIPTIVE_REPLICATES:
-        out["greedy"] = greedy_ise(law, ensemble)
     return out
 
 
@@ -451,19 +534,31 @@ FIXED_LABEL = "ep_fixed_obs_4k"
 FIXED_N = 4_000
 
 
-def fit_fixed(frame: pd.DataFrame, replicate: int) -> dict[str, Any]:
-    """EP at a fixed declared basis, and the projection TMLE, on one ``obs_4k`` draw."""
+def _fixed_effect(frame: pd.DataFrame, replicate: int) -> tuple[Any, dict[str, Any]]:
     study = CausalStudy(frame, design=projection.design(FIXED_GROUP))
     effect = study.identify(projection.estimand(FIXED_GROUP))
-    settings = {**projection.learners(FIXED_GROUP), "random_state": replicate}
+    return effect, {**projection.learners(FIXED_GROUP), "random_state": replicate}
+
+
+def fit_tmle(frame: pd.DataFrame, replicate: int) -> dict[str, Any]:
+    """The projection TMLE of one ``obs_4k`` draw, by coefficient."""
+    effect, settings = _fixed_effect(frame, replicate)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        tmle = effect.estimate(**settings)
+    return {term: tmle.estimates[f"cate_projection[{term}]"] for term in projection.TERMS}
+
+
+def fit_fixed(frame: pd.DataFrame, replicate: int) -> dict[str, Any]:
+    """EP at a fixed declared basis, and the projection TMLE, on one ``obs_4k`` draw."""
+    effect, settings = _fixed_effect(frame, replicate)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         ep_fit = effect.estimate("ep", **settings)
-        tmle = effect.estimate(**settings)
     beta = np.asarray(ep_fit.model.beta) * ep_fit.model.width
     return {
         "ep": dict(zip(projection.TERMS, beta, strict=True)),
-        "tmle": {term: tmle.estimates[f"cate_projection[{term}]"] for term in projection.TERMS},
+        "tmle": fit_tmle(frame, replicate),
     }
 
 
@@ -492,22 +587,37 @@ class Group:
 REPLICATES: Mapping[str, int] = {
     "d3_simple_moderate": 300,
     "d3_simple_limited": 300,
-    # Not powered: the pilot's rescue ratio (mean 1.46 at 4k) lies above log 3 at every R.
-    "d3_complex_moderate": 600,
-    "d3_complex_limited": 600,
+    "d3_complex_moderate": 300,
+    "d3_complex_limited": 300,
+    "d3_complex_moderate_noise2": 300,
+    "d3_complex_limited_noise2": 300,
     "d20_simple": 200,
     "d20_complex": 200,
 }
 FIXED_REPLICATES = 2_400
 
 
+def gated_n(law: Law) -> tuple[int, int]:
+    """The smallest and largest ``n`` of a law: the growth gate's two ends."""
+    return law.sizes[0], law.sizes[-1]
+
+
 def group_label(law: str, n: int) -> str:
     return f"{law}_{n // 1000}k"
 
 
+def replicates_at(law: Law, n: int) -> int:
+    """``R`` of a law at ``n``: the sized count at the gated ends, 100 at an ungated middle ``n``.
+
+    The middle ``n`` (2,000 on the d = 3 laws) feeds only the ungated rate report (plan 5.2,
+    finding 8), so it needs no power (amendment rev 2.4, which cut it from the law's ``R``).
+    """
+    return REPLICATES[law.label] if n in gated_n(law) else DESCRIPTIVE_REPLICATES
+
+
 GROUPS: tuple[Group, ...] = (
     *(
-        Group(group_label(law.label, n), law.label, n, REPLICATES[law.label])
+        Group(group_label(law.label, n), law.label, n, replicates_at(law, n))
         for law in LAWS
         for n in law.sizes
     ),
@@ -517,25 +627,23 @@ GROUPS: tuple[Group, ...] = (
 GROUP_BY_LABEL: Mapping[str, Group] = {group.label: group for group in GROUPS}
 
 
-def gated_n(law: Law) -> tuple[int, int]:
-    """The smallest and largest ``n`` of a law: the growth gate's two ends."""
-    return law.sizes[0], law.sizes[-1]
-
-
 def oracle_cells(group: Group) -> dict[str, str]:
     """The ``oracle_comparison`` cells of a group, each with its role."""
     law = LAW_BY_LABEL[group.law]
     largest = group.n == law.sizes[-1]
     if group.kind == "cv":
         return {f"{group.label}__ep": DIAGNOSTIC}
-    cells = {
-        f"{group.label}__ep": "positive" if largest else DIAGNOSTIC,
-        f"{group.label}__t_learner": DIAGNOSTIC,
-        f"{group.label}__dr_learner": DIAGNOSTIC,
-    }
-    if law.rescue:
-        cells[f"{group.label}__ep_misspecified"] = "positive" if largest else DIAGNOSTIC
-        cells[f"{group.label}__t_misspecified"] = "control" if largest else DIAGNOSTIC
+    cells = {}
+    if law.ensemble:
+        cells = {
+            f"{group.label}__ep": "positive" if largest else DIAGNOSTIC,
+            f"{group.label}__t_learner": DIAGNOSTIC,
+            f"{group.label}__dr_learner": DIAGNOSTIC,
+        }
+    if law.fits_misspecified(group.n):
+        gated = law.rescue and largest
+        cells[f"{group.label}__ep_misspecified"] = "positive" if gated else DIAGNOSTIC
+        cells[f"{group.label}__t_misspecified"] = "control" if gated else DIAGNOSTIC
     if group.law == "d3_complex_moderate" and group.n in (1_000, 4_000):
         cells[f"{group.label}__ep_greedy_hgb"] = DIAGNOSTIC
     return cells
@@ -544,7 +652,8 @@ def oracle_cells(group: Group) -> dict[str, str]:
 def nuisance_cells(group: Group) -> tuple[str, ...]:
     if group.kind != "gated":
         return ()
-    learners = ("ensemble", "misspecified") if LAW_BY_LABEL[group.law].rescue else ("ensemble",)
+    law = LAW_BY_LABEL[group.law]
+    learners = ("ensemble",) * law.ensemble + ("misspecified",) * law.fits_misspecified(group.n)
     return tuple(
         f"{group.label}__{learner}_{name}"
         for learner in learners
@@ -699,10 +808,19 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
 
 
 def primary_rows(
-    frame: pd.DataFrame, truths: Mapping[str, float], scenario: str, replicate: int
+    frame: pd.DataFrame,
+    truths: Mapping[str, float],
+    scenario: str,
+    replicate: int,
+    *,
+    implementation: str = IMPLEMENTATION,
 ) -> list[dict[str, Any]]:
-    """One primary row per coefficient of the projection TMLE at ``obs_4k``."""
-    fitted = fit_fixed(frame, replicate)["tmle"]
+    """One primary row per coefficient of the projection TMLE at ``obs_4k``.
+
+    The ``ep-crr`` and ``ep-assessment`` studies share this primary phase under their own
+    seeds and implementation labels (:func:`primary_phase`).
+    """
+    fitted = fit_tmle(frame, replicate)
     rows = []
     for term, estimate in fitted.items():
         name = f"cate_projection[{term}]"
@@ -710,7 +828,7 @@ def primary_rows(
         std_error, low, high = reported_inference(estimate)
         rows.append(
             {
-                "implementation": STUDY.implementation,
+                "implementation": implementation,
                 "scenario": scenario,
                 "replicate": replicate,
                 "n": len(frame),
@@ -729,32 +847,49 @@ def primary_rows(
     return rows
 
 
-def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+def _record(owner: str) -> StudyRecord:
+    return importlib.import_module(owner).STUDY
+
+
+def _primary_draw(owner: str, key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
     scenario, index, n = key
-    return draw_scenario(scenario, n, index)
+    return draw_replicate(_record(owner), draw_from_seed, scenario, n, index)
 
 
-def _replicate(
-    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+def _primary_replicate(
+    owner: str, key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> list[dict[str, Any]]:
     scenario, index, _ = key
     frame, truths = drawn
-    return primary_rows(frame, truths, scenario, index)
+    return primary_rows(
+        frame, truths, scenario, index, implementation=_record(owner).implementation
+    )
+
+
+def primary_phase(
+    owner: str, *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
+) -> replication.PhaseResult:
+    """The projection TMLE of ``obs_4k`` under the study ``owner``'s seed and label.
+
+    ``owner`` is the import path of the study module, so the workers resolve its record.
+    """
+    record = _record(owner)
+    outcomes = replication.fit_primary(
+        [(scenario, index, n) for scenario in record.scenarios for index in range(replicates)],
+        functools.partial(_primary_replicate, owner),
+        draw=functools.partial(_primary_draw, owner),
+        rows_at=None,
+        n_jobs=n_jobs,
+        implementation=record.implementation,
+        seed_of=lambda key: replicate_seed(record, key[0], key[1]),
+    )
+    built = pd.DataFrame([row for records in outcomes.kept for row in records])
+    return replication.result(outcomes, built.loc[:, list(REPLICATE_COLUMNS)])
 
 
 def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     """Draw and fit every declared primary replication."""
-    outcomes = replication.fit_primary(
-        [(scenario, index, n) for scenario in STUDY.scenarios for index in range(replicates)],
-        _replicate,
-        draw=_draw,
-        rows_at=None,
-        n_jobs=n_jobs,
-        implementation=STUDY.implementation,
-        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
-    )
-    built = pd.DataFrame([row for records in outcomes.kept for row in records])
-    return replication.result(outcomes, built.loc[:, list(REPLICATE_COLUMNS)])
+    return primary_phase(__name__, replicates=replicates, n=n, n_jobs=n_jobs)
 
 
 # ---------------------------------------------------------------- the design numbers
@@ -815,10 +950,10 @@ def law_gates(
         row = pilot[(group, statistic)]
         return row["mean"], row["sd"]
 
-    out = {
-        "thm5": gate_pass(*at(large, "ep"), replicates, THM5_MARGIN, below=True),
-        "growth": growth_pass(at(small, "ep"), at(large, "ep"), replicates, GROWTH_MARGIN),
-    }
+    out = {}
+    if law.ensemble:
+        out["thm5"] = gate_pass(*at(large, "ep"), replicates, THM5_MARGIN, below=True)
+        out["growth"] = growth_pass(at(small, "ep"), at(large, "ep"), replicates, GROWTH_MARGIN)
     if law.rescue:
         out["rescue"] = gate_pass(
             *at(large, "ep_misspecified"), replicates, RESCUE_MARGIN, below=True
@@ -900,6 +1035,8 @@ def design_numbers() -> dict[str, Any]:
         fixed[term] = {"standardized_bias": bias, "pass": fixed_bias_pass(bias)}
     nuisance = {}
     for law in LAWS:
+        if not law.ensemble:
+            continue
         sizes = np.array(law.sizes, dtype=float)
         products = [pilot[(group_label(law.label, int(n)), "product")]["mean"] for n in law.sizes]
         slope = float(np.polyfit(np.log(sizes), np.log(products), 1)[0])

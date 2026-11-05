@@ -15,9 +15,11 @@ Red-cell reading (declared before any run; P1 plan sections 5.0 and 5.2).
   not fall faster than ``n^{-1/2}`` on that law, C2 is not met at these ``n`` and the row is a
   finding about the learner, not the estimator: the schedule row of the plan's 2.6 stays
   experimental with that reason, and no margin moves.
-* A red rescue row (misspecified learner) with its T-learner control green is a defect suspect
-  of the debiasing; with the control red as well, the cells cannot see the debiasing, and the
-  rescue claim is withheld until the control is repaired under a fresh declaration.
+* A red rescue row (misspecified learner, the ``_noise2`` laws) with its T-learner control
+  green is a defect suspect of the debiasing; with the control red as well, the cells cannot
+  see the debiasing, and the rescue claim is withheld until the control is repaired under a
+  fresh declaration.  The code-law misspecified rows on ``d3_complex_*_4k`` are diagnostic:
+  the pilot reads them near ``log 4.3``, and they state no verdict (plan amendment rev 2.4).
 * A red ``ep_fixed_obs_4k`` bias row is a defect suspect of the fixed-size EP fit; its paired
   EP-minus-TMLE diagnostic rows say whether the projection TMLE on the same draws moved too.
 * The CV-size, greedy final learner, T-learner, DR-learner and nuisance-error rows are

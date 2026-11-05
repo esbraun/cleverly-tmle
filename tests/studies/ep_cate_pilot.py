@@ -8,7 +8,8 @@ committed summary, ``ep_cate_pilot.csv`` beside this module.  The margins are th
 do not move with it.
 
 Every draw comes from the named stream ``stream_seed(STUDY, "ise_ratio_pilot", label, r)``,
-disjoint from the run's ``property_sample`` streams and from its primary ``SEED``.  The
+or ``"rescue_noise_pilot"`` for the rescue laws, disjoint from the run's ``property_sample``
+streams and from its primary ``SEED``.  The
 summary is written by::
 
     OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \\
@@ -37,8 +38,12 @@ from tests.studies.evidence.seeds import stream_seed
 
 STREAM = "ise_ratio_pilot"
 
-#: Pilot replicates per group: d = 3, d = 20 and the fixed-size cell.
-REPLICATES = {3: 20, 20: 8, "fixed": 200}
+#: The stream of the rescue laws' pilot (App B.2's noise, plan amendment rev 2.4), added after
+#: the first pilot found the code law's rescue unpowered; disjoint from :data:`STREAM`.
+RESCUE_STREAM = "rescue_noise_pilot"
+
+#: Pilot replicates per group: d = 3, d = 20, the rescue laws and the fixed-size cell.
+REPLICATES = {3: 20, 20: 8, "rescue": 40, "fixed": 200}
 
 PILOT_CSV = Path(__file__).with_name("ep_cate_pilot.csv")
 
@@ -49,16 +54,28 @@ def pilot_groups() -> list[study.Group]:
     return [group for group in study.GROUPS if group.kind in ("gated", "fixed")]
 
 
+def _rescue_law(group: study.Group) -> bool:
+    law = study.LAW_BY_LABEL.get(group.law)
+    return law is not None and not law.ensemble
+
+
+def stream_of(group: study.Group) -> str:
+    """The pilot stream of a group: :data:`RESCUE_STREAM` for a rescue-only law."""
+    return RESCUE_STREAM if _rescue_law(group) else STREAM
+
+
 def replicates_of(group: study.Group) -> int:
     if group.kind == "fixed":
         return int(REPLICATES["fixed"])
+    if _rescue_law(group):
+        return int(REPLICATES["rescue"])
     return int(REPLICATES[study.LAW_BY_LABEL[group.law].dimension])
 
 
 def one(task: tuple[str, int]) -> dict[str, Any]:
     label, replicate = task
     group = study.GROUP_BY_LABEL[label]
-    seed = stream_seed(study.STUDY, STREAM, label, replicate)
+    seed = stream_seed(study.STUDY, stream_of(group), label, replicate)
     frame, _ = study.draw_from_seed(label, group.n, seed)
     start = time.process_time()
     if group.kind == "fixed":
@@ -189,4 +206,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["PILOT_CSV", "REPLICATES", "STREAM", "summarize"]
+__all__ = ["PILOT_CSV", "REPLICATES", "RESCUE_STREAM", "STREAM", "stream_of", "summarize"]
