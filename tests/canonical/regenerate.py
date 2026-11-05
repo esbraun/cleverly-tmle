@@ -2599,8 +2599,12 @@ def _regenerate(
         # Both columns, not just ``passed``: a family whose claim spans its cells records that
         # verdict in ``property_passed`` alone, so gating on the per-row column would let a
         # failed joint claim through while every row read green.
+        # A record with no property family (the X59 parity records) writes an empty summary
+        # with no columns; it has no property verdict to fail.
         "statistical property": None
         if property_summary is None
+        else property_summary
+        if property_summary.empty
         else property_summary.loc[
             ~property_summary["passed"] | ~property_summary["property_passed"]
         ],
