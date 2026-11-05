@@ -21,7 +21,7 @@ from .._inference_status import (
 )
 from .._refusal import Refusal
 from .._summary import Detail, Summary, check_detail
-from .._support import Classification, SupportKey
+from .._support import Classification, SupportKey, combine_support
 from .._typing import FloatArray, ParameterAxis
 from .._warnings import FitWarning
 from ..data.causal_data import CausalData
@@ -1468,7 +1468,15 @@ class TMLEResult:
                 estimate, psi=float(np.exp(estimate.psi)), log_psi=estimate.psi, scale="ratio"
             )
             row = exponentiated.to_dict()
-            row["scale"] = "baseline ratio" if column in intercepts else "ratio per unit"
+            if column in intercepts:
+                row["scale"] = "baseline ratio"
+            elif (
+                contrast.spec is not None
+                and contrast.terms[column] in contrast.spec.modifiers.columns
+            ):
+                row["scale"] = "ratio per unit"
+            else:
+                row["scale"] = "ratio per unit of the basis term"
             rows.append(row)
         return self.data.frame_like({key: [row[key] for row in rows] for key in rows[0]})
 
@@ -1489,8 +1497,8 @@ class TMLEResult:
         Raises
         ------
         CapabilityError
-            If this fit projects no conditional contrast, or its basis has no
-            non-constant term.
+            If this fit projects no conditional contrast, or its basis has no intercept
+            column or no non-constant term.
         """
         from ..effect_curves import heterogeneity_test
 
@@ -1589,6 +1597,7 @@ class TMLEResult:
             )
         )
         lower, upper = self.nuisance.scaler.unscale_levels(np.array([0.0, 1.0]))
+        support = combine_support(self.estimates[name].support for name in names)
         stem = (
             "conditional average treatment effect"
             if contrast.scale == "difference"
@@ -1605,12 +1614,16 @@ class TMLEResult:
                 f"the projection of the {stem} given {given} onto the declared basis "
                 f"({', '.join(contrast.terms)})"
             ),
-            status=str(self.inference_status),
+            inference_status=str(self.inference_status),
+            status=support.label,
+            status_reason=support.reason,
             lower_bound=float(lower),
             upper_bound=float(upper),
             band=band,
             backend=str(self.data.backend),
             identified_effect=self.identified_effect,
+            provenance=self.provenance,
+            fit=self,
         )
         register = getattr(self.identified_effect, "_register_curve", None)
         if register is not None:

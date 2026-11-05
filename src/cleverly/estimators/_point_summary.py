@@ -638,6 +638,8 @@ _GROUP_WORDS = {
     "regime": "the rule means",
     "msm": "the projection",
     "mtp": "the shifted-treatment mean",
+    "effect_modification": "the conditional-contrast projection",
+    "effect_modification_ratio": "the log-ratio conditional-contrast projection",
 }
 
 

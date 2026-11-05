@@ -115,8 +115,20 @@ def heterogeneity_test(
     Raises
     ------
     CapabilityError
-        If the basis has no non-constant term.
+        If the basis has no intercept column, or no non-constant term.
     """
+    if not intercepts:
+        raise CapabilityError(
+            "the basis has no intercept column, so its coefficients being zero says the "
+            "contrast is zero, not that it is constant; a test of heterogeneity needs the "
+            "constant function to be one term of the basis, so that the other terms carry "
+            "only the variation",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=(
+                "Declare the basis with its intercept (the default), for example Linear(...) "
+                "or Indicators(...) without intercept=False."
+            ),
+        )
     keep = [j for j in range(len(terms)) if j not in intercepts]
     if not keep:
         raise CapabilityError(
@@ -333,8 +345,12 @@ class EffectCurveResult:
         The curve at the rows of the fit.
     target_sentence : str
         What the curve estimates, in one sentence.
-    status : str
+    inference_status : str
         The inference status of the coefficients.
+    status : {"supported", "experimental"}
+        The support label of the coefficients the curve is built from.
+    status_reason : str
+        Why the curve carries that label, in plain words.
     lower_bound : float
         The lower end of the range a contrast of means of the outcome can take.
     upper_bound : float
@@ -345,6 +361,11 @@ class EffectCurveResult:
         The dataframe backend of the fit's data.
     identified_effect : Any
         The identified effect the fit came from, or ``None`` for an engine fit.
+    provenance : Provenance or None
+        The producing fit's provenance record.
+    fit : Any
+        The producing :class:`~cleverly.estimators.TMLEResult`, which the curve's
+        assessment reads and refits.
     """
 
     estimand_name: str
@@ -353,16 +374,22 @@ class EffectCurveResult:
     scale: str
     in_sample: FloatArray
     target_sentence: str
+    inference_status: str
     status: str
+    status_reason: str
     lower_bound: float
     upper_bound: float
     band: CurveBand | None = None
     backend: str = "pandas"
     identified_effect: Any = field(default=None, repr=False, compare=False)
+    provenance: Any = field(default=None, repr=False, compare=False)
+    fit: Any = field(default=None, repr=False, compare=False)
     assessment_cache: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
 
     #: The method that produced the curve.
     fitted_method: ClassVar[str] = "tmle"
+    #: The assessment family whose capability rows a curve reads.
+    assessment_family: ClassVar[str] = "effect_modification"
 
     @property
     def prediction_column(self) -> str:
@@ -573,11 +600,20 @@ class ScoreAssessment:
         )
 
 
-def _pseudo_outcomes(nuisance: Any, data: Any, pair: tuple[float, float]) -> tuple[FloatArray, ...]:
+def _pseudo_outcomes(
+    nuisance: Any,
+    data: Any,
+    pair: tuple[float, float],
+    *,
+    g_bounds: tuple[float, float] | None = None,
+    missingness_bound: float | None = None,
+) -> tuple[FloatArray, ...]:
     """The arm regressions and their AIPW pseudo-outcomes, on the outcome's own scale.
 
     ``D_a = Delta 1{A = a} / (g(a | W) Pi(a, W)) (Y - Q_a) + Q_a`` from the fit's
-    out-of-fold nuisances.
+    out-of-fold nuisances.  ``g`` is truncated into ``g_bounds`` and ``Pi`` away from
+    ``missingness_bound``, the fit's own bounds, as the projection fit reads them; ``None``
+    reads the untruncated mechanism (an exact law in a test).
     """
     t, r = pair
     scaler = nuisance.scaler
@@ -586,13 +622,25 @@ def _pseudo_outcomes(nuisance: Any, data: Any, pair: tuple[float, float]) -> tup
     treatment = np.asarray(data.treatment, dtype=float)
     observed = np.asarray(data.observed, dtype=bool)
     y = np.where(observed, np.asarray(data.outcome, dtype=float), 0.0)
+    propensity = (
+        nuisance.propensity.values
+        if g_bounds is None
+        else nuisance.propensity.bounded(tuple(g_bounds))
+    )
+    missingness: Any = None
+    if nuisance.missingness is not None:
+        missingness = (
+            np.asarray(nuisance.missingness, dtype=float)
+            if missingness_bound is None
+            else np.asarray(nuisance.bounded_missingness(missingness_bound), dtype=float)
+        )
     out = []
     for a in (t, r):
-        g = nuisance.propensity.values[:, nuisance.propensity.column_for(a)]
+        column = nuisance.propensity.column_for(a)
+        g = np.asarray(propensity, dtype=float)[:, column]
         pi: Any = 1.0
-        if nuisance.missingness is not None:
-            missing = np.asarray(nuisance.missingness, dtype=float)
-            pi = missing[:, nuisance.propensity.column_for(a)] if missing.ndim == 2 else missing
+        if missingness is not None:
+            pi = missingness[:, column] if missingness.ndim == 2 else missingness
         weight = observed * (treatment == a) / (g * pi)
         out.append(weight * (y - q[a]) + q[a])
     return q[t], q[r], out[0], out[1]
@@ -607,6 +655,8 @@ def score_assessment(
     scale: str = "difference",
     pair: tuple[float, float] = (1.0, 0.0),
     alpha: float = 0.05,
+    g_bounds: tuple[float, float] | None = None,
+    missingness_bound: float | None = None,
 ) -> ScoreAssessment:
     r"""One-step estimates of a fixed score's risk difference and calibration.
 
@@ -637,6 +687,10 @@ def score_assessment(
         The arm codes ``(t, r)``.
     alpha : float
         The intervals hold at ``1 - alpha``.
+    g_bounds : tuple of float or None
+        The fit's truncation of the treatment mechanism; ``None`` reads it untruncated.
+    missingness_bound : float or None
+        The fit's floor on the missingness mechanism; ``None`` reads it unbounded.
 
     Returns
     -------
@@ -652,7 +706,9 @@ def score_assessment(
     def mean(values: FloatArray) -> float:
         return float(np.mean(w * values))
 
-    q_t, q_r, d_t, d_r = _pseudo_outcomes(nuisance, data, pair)
+    q_t, q_r, d_t, d_r = _pseudo_outcomes(
+        nuisance, data, pair, g_bounds=g_bounds, missingness_bound=missingness_bound
+    )
     phi = np.column_stack([np.ones(n), s])
     estimates: dict[str, ParameterEstimate] = {}
     if scale == "difference":

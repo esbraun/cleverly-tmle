@@ -262,10 +262,10 @@ class Modifiers:
         if self.outside == "clip":
             undeclared = [c for c in self.continuous if c not in dict(domains)]
             if undeclared:
-                raise DataError(
+                raise _refuse_sample_basis(
                     f"outside='clip' maps a value to the nearest end of its domain, and "
-                    f"{undeclared} declare no domain. Declare domains={{...}} for every "
-                    "continuous modifier, or use outside='refuse'."
+                    f"{undeclared} declare no domain, so the ends would be read off the "
+                    "sample."
                 )
 
     @property
@@ -1107,13 +1107,13 @@ def _block_terms(basis: Any) -> tuple[str, ...]:
     return terms[1:] if terms and terms[0] == INTERCEPT else terms
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class Additive:
     """Several bases side by side, sharing one intercept.
 
     Parameters
     ----------
-    bases : tuple of Basis
+    *bases : Basis
         The components.  Each component's own intercept is dropped.
     intercept : bool
         Whether to prepend the shared intercept column.
@@ -1122,16 +1122,17 @@ class Additive:
     --------
     >>> from cleverly.bases import Additive, Cosine, Indicators, Modifiers
     >>> modifiers = Modifiers(["W1", "W2"], domains={"W1": (-1, 1)}, levels={"W2": (0, 1)})
-    >>> basis = Additive((Cosine(["W1"], 2), Indicators("W2"))).named(modifiers)
+    >>> basis = Additive(Cosine(["W1"], 2), Indicators("W2")).named(modifiers)
     >>> basis.terms
     ('(intercept)', 'cos1(W1)', 'cos2(W1)', 'W2[1]')
     """
 
     bases: tuple[Any, ...]
-    intercept: bool = True
+    intercept: bool
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "bases", _components(self.bases, "Additive"))
+    def __init__(self, *bases: Any, intercept: bool = True) -> None:
+        object.__setattr__(self, "bases", _components(bases, "Additive"))
+        object.__setattr__(self, "intercept", intercept)
 
     @property
     def basis_kind(self) -> str:
@@ -1175,7 +1176,7 @@ class Additive:
         Additive
             A basis whose terms carry the level names.
         """
-        return Additive(tuple(_resolved(b, modifiers) for b in self.bases), self.intercept)
+        return Additive(*(_resolved(b, modifiers) for b in self.bases), intercept=self.intercept)
 
     def evaluate(self, frame: Any, modifiers: Modifiers | None = None) -> np.ndarray:
         """The ``(n, p)`` design: the intercept, then each component's columns.
@@ -1212,7 +1213,9 @@ class Additive:
             The truncated basis.
         """
         k = _as_size(k, "Additive.truncate")
-        return Additive(tuple(b.truncate(min(k, b.max_size)) for b in self.bases), self.intercept)
+        return Additive(
+            *(b.truncate(min(k, b.max_size)) for b in self.bases), intercept=self.intercept
+        )
 
 
 @dataclass(frozen=True)
@@ -1718,4 +1721,4 @@ class Sieve:
         if modifiers.continuous:
             components.append(Cosine(modifiers.continuous, max_size))
         components.extend(Indicators(column) for column in modifiers.categorical)
-        return cls(Additive(tuple(components)).named(modifiers), size)
+        return cls(Additive(*components).named(modifiers), size)

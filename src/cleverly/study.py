@@ -92,6 +92,7 @@ from .methods import (
 )
 from .msm import MSM, MSMSet, refuse_continuous_msm_mechanisms
 from .protocol import StudyProtocol, protocol_summary_lines
+from .provenance import fingerprint_array
 from .targets import TARGETS
 from .targets.base import (
     INTERMEDIATE_MECHANISM,
@@ -2532,7 +2533,7 @@ _STRING_ESTIMANDS: dict[str, str] = {
 EP_OTHER_ESTIMAND_REFUSAL = Refusal(
     RefusalReason.DIFFERENT_ESTIMAND,
     "EP estimates a ConditionalContrast.",
-    alternative="Request ConditionalContrast(modifiers=...).",
+    alternative="Fit method='tmle' for this estimand.",
 )
 
 #: Why the EP method is not available yet for a conditional contrast.
@@ -2552,10 +2553,7 @@ TMLE_WITHOUT_MODEL_REFUSAL = Refusal(
     RefusalReason.INVALID_DECLARATION,
     "TMLE estimates a finite-dimensional parameter, and with model=None this estimand is the "
     "conditional effect given the modifiers, a function that is not pathwise differentiable.",
-    alternative=(
-        "Declare model=, a basis from cleverly.bases, for the projection with intervals, or "
-        "fit method='ep' for the curve without intervals."
-    ),
+    alternative="Declare model=, a basis from cleverly.bases, for the projection with intervals.",
 )
 
 #: Why ``tmle`` does not fit a sieve whose size cross-validation chooses (R4).
@@ -2564,7 +2562,7 @@ TMLE_CV_SIEVE_REFUSAL = Refusal(
     "The projection's interval holds for a basis fixed before the fit. A basis size chosen by "
     "cross-validation makes the target data-adaptive, and no reviewed result covers inference "
     "after that selection.",
-    alternative="Fix the size, or fit method='ep'.",
+    alternative="Fix the size before the fit, for example Sieve(basis, size=3).",
 )
 
 
@@ -2865,6 +2863,18 @@ class BackdoorMeanContrast:
                 "mean's functional under another estimand's name. This is a package defect; "
                 "report it.",
                 reason=RefusalReason.INVALID_DECLARATION,
+            )
+        if self.axis == "effect_modification" and self.effect_modification is not None:
+            spec = self.effect_modification
+            contrast = (
+                "E[Y | A = t, W] - E[Y | A = r, W]"
+                if spec.scale == "difference"
+                else "log E[E[Y | A = t, W] | V] - log E[E[Y | A = r, W] | V]"
+            )
+            return (
+                f"the projection of {contrast} onto the declared basis "
+                f"({', '.join(spec.terms)}) of the modifiers V, with the outcome regression "
+                f"{regression()}{support}, corrected by its influence function"
             )
         return (
             f"identified {self.axis}-indexed plug-in functional of {regression()}{support} "
@@ -4446,6 +4456,12 @@ class CausalStudy:
         return self.identify(estimand).estimate(method=method, **overrides)
 
 
+#: Study fingerprint -> the in-sample predictions of every effect curve fitted on those rows
+#: in this process (R13 (i)).  Detection is best effort: the interval of an external score
+#: rests on ``score_kind="external"``.
+_FITTED_CURVES: dict[str, list[FloatArray]] = {}
+
+
 @dataclass(frozen=True)
 class IdentifiedEffect:  # numpydoc ignore=PR01
     """Bind an estimand to a functional and its identification assumptions.
@@ -4502,15 +4518,33 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     provider: IdentificationProvider
     protocol: StudyProtocol | None = None
     _study: CausalStudy | None = field(repr=False, compare=False, default=None)
-    _curves: list[FloatArray] = field(default_factory=list, init=False, repr=False, compare=False)
+
+    def _study_fingerprint(self) -> str | None:
+        """The digest of the study's rows, which the curve registry is keyed by."""
+        if self._study is None or not isinstance(self._study.data, CausalData):
+            return None
+        data = self._study.data
+        return fingerprint_array(
+            np.asarray(data.outcome), np.asarray(data.treatment), np.asarray(data.covariates)
+        )
 
     def _register_curve(self, in_sample: FloatArray) -> None:
-        """Record the in-sample predictions of a curve fitted from this effect.
+        """Record the in-sample predictions of a curve fitted on this study's rows.
 
+        The registry is keyed by the study fingerprint, so a later ``identify`` of the same
+        rows, through this study or another built on the same data, sees the curve too.
         :meth:`assess_score` refuses a score that matches one (R13 (i)): a curve fitted on
         these rows is not an external score.
         """
-        self._curves.append(np.asarray(in_sample, dtype=float).copy())
+        key = self._study_fingerprint()
+        if key is not None:
+            _FITTED_CURVES.setdefault(key, []).append(np.asarray(in_sample, dtype=float).copy())
+
+    @property
+    def _curves(self) -> list[FloatArray]:
+        """The in-sample curves registered under this study's fingerprint."""
+        key = self._study_fingerprint()
+        return [] if key is None else list(_FITTED_CURVES.get(key, ()))
 
     def assess_score(
         self,
@@ -4567,7 +4601,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             declared external (R13).
         """
         from .effect_curves import PREDICTION_PREFIX, score_assessment
-        from .effect_modification import _resolve_pair
+        from .effect_modification import _resolve_pair, log_ratio_scale_refusal
 
         estimand = self.estimand
         if not isinstance(estimand, ConditionalContrast) or self._study is None:
@@ -4612,10 +4646,21 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             data,
         )
         kwargs = TMLEMethod().with_overrides(**overrides).estimator_kwargs()
+        refusal = log_ratio_scale_refusal(data, chosen, kwargs.get("q_bounds"))
+        if refusal is not None:
+            raise CapabilityError.from_refusal(refusal)
         kwargs.update({"estimands": ("ate",), "reference": pair[1]})
         fit = TMLE(**kwargs).fit(data).single()
         return score_assessment(
-            fit.nuisance, data, score, column, scale=chosen, pair=pair, alpha=alpha
+            fit.nuisance,
+            data,
+            score,
+            column,
+            scale=chosen,
+            pair=pair,
+            alpha=alpha,
+            g_bounds=(float(fit.config.g_bounds[0]), float(fit.config.g_bounds[1])),
+            missingness_bound=float(fit.config.missingness_bound),
         )
 
     def available_methods(self) -> MethodAvailabilities:

@@ -133,7 +133,7 @@ from .._inference_status import InferenceStatus, is_labelled
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._support import record_refusal_site
 from .._typing import FloatArray
-from ..assessment import SENSITIVITY_ROUTES
+from ..assessment import SENSITIVITY_ROUTES, projection_sensitivity_refusal
 from ..estimators.composite import composite_state
 from ..estimators.ctmle import (
     CTMLEDerivativeFit,
@@ -404,6 +404,8 @@ def _refuse_non_arm_axis(result: Any) -> Refusal | None:
         return None
     if axis == "learned_rule":
         return _refuse_learned_rule_bound(result)
+    if axis == "effect_modification":
+        return projection_sensitivity_refusal("the omitted-variable bound")
     if axis == "ipsi":
         return Refusal(
             RefusalReason.INVALID_DECLARATION,
@@ -3159,7 +3161,12 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> Refusal | N
 
 def _axis_benchmark_refusal(axis: str, names: tuple[str, ...]) -> Refusal:
     """Why a benchmark that drops a covariate the declared intervention reads is refused."""
-    noun = {"regime": "regime", "policy": "policy", "msm": "working model"}[axis]
+    noun = {
+        "regime": "regime",
+        "policy": "policy",
+        "msm": "working model",
+        "effect_modification": "basis of the modifiers",
+    }[axis]
     return Refusal(
         RefusalReason.INVALID_DECLARATION,
         f"benchmark refits the model without {list(names)}, and the declared {noun} reads "

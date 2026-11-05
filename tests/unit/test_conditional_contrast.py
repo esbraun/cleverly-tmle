@@ -19,12 +19,14 @@ import pytest
 from sklearn.linear_model import LogisticRegression
 
 import cleverly
-from cleverly import ATE, CausalStudy, ConditionalContrast, PointTreatment
+from cleverly import ATE, CausalStudy, ConditionalContrast, PointTreatment, sensitivity
 from cleverly.bases import Constant, Cosine, Indicators, Linear, Modifiers, Sieve
 from cleverly.effect_curves import EffectCurveResult
 from cleverly.exceptions import CapabilityError, DataError, RefusalReason
+from cleverly.validation import refute
 from tests import discrete_law as law
-from tests.conftest import OracleOutcome, OracleTreatment
+from tests import discrete_law_mar as mar
+from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment
 from tests.unit._natural_course_support import NeverFit
 
 MODIFIERS = Modifiers(["W"], domains={"W": (0.0, 2.0)})
@@ -93,15 +95,18 @@ class TestTheStudyFit:
         refusal = methods["ep"].refusal
         assert refusal.reason is RefusalReason.DIFFERENT_ESTIMAND
         assert refusal.condition == "EP estimates a ConditionalContrast."
-        assert refusal.alternative == "Request ConditionalContrast(modifiers=...)."
+        assert refusal.alternative == "Fit method='tmle' for this estimand."
+        assert "'ep'" not in refusal.alternative
 
 
 class TestRefusalsBeforeAnyLearner:
     def test_r2_tmle_without_a_model(self) -> None:
         effect = law_study().identify(ConditionalContrast(MODIFIERS))
-        with pytest.raises(CapabilityError, match="not pathwise differentiable"):
+        with pytest.raises(CapabilityError, match="not pathwise differentiable") as caught:
             effect.estimate(**never())
         assert NeverFit.calls == 0
+        # The EP learner refuses until P1 part (b), so no alternative may send a user there.
+        assert "ep" not in caught.value.refusal.alternative.split("'")
 
     def test_r3_a_basis_that_reads_an_undeclared_domain(self) -> None:
         with pytest.raises(CapabilityError, match="known function of the modifiers"):
@@ -113,9 +118,10 @@ class TestRefusalsBeforeAnyLearner:
 
     def test_r4_a_sieve_sized_by_cross_validation(self) -> None:
         effect = law_study().identify(ConditionalContrast(MODIFIERS, model=Sieve(Cosine(["W"], 3))))
-        with pytest.raises(CapabilityError, match="chosen by cross-validation"):
+        with pytest.raises(CapabilityError, match="chosen by cross-validation") as caught:
             effect.estimate(**never())
         assert NeverFit.calls == 0
+        assert "ep" not in caught.value.refusal.alternative.split("'")
 
     def test_r4_a_declared_size_resolves(self) -> None:
         effect = law_study().identify(
@@ -172,6 +178,30 @@ class TestRefusalsBeforeAnyLearner:
             projection_fit.sensitivity.evalue()
 
 
+#: Every free sensitivity or refutation function, called the way a user would on a fit.
+FREE_FUNCTIONS = {
+    "omitted_variable_bounds": lambda fit: sensitivity.omitted_variable_bounds(fit),
+    "robustness_value": lambda fit: sensitivity.robustness_value(fit),
+    "sensitivity_elements": lambda fit: sensitivity.sensitivity_elements(fit),
+    "contour_data": lambda fit: sensitivity.contour_data(fit),
+    "benchmark": lambda fit: sensitivity.benchmark(fit, ["W"]),
+    "simulated_confounding": lambda fit: sensitivity.simulated_confounding(
+        fit,
+        grid=sensitivity.ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.1)),
+        random_state=0,
+    ),
+    "refute": lambda fit: refute(fit, random_state=0),
+}
+
+
+@pytest.mark.parametrize("name", sorted(FREE_FUNCTIONS))
+def test_r9_each_free_function_refuses_the_projection(projection_fit: Any, name: str) -> None:
+    """Each one read an axis-keyed map that omitted the axis and raised ``KeyError``."""
+    with pytest.raises(CapabilityError, match="working-model coefficient") as caught:
+        FREE_FUNCTIONS[name](projection_fit)
+    assert caught.value.refusal.roadmap == "P1"
+
+
 class TestTheHeterogeneityTest:
     def test_it_tests_the_slope_alone(self, projection_fit: Any) -> None:
         test = projection_fit.heterogeneity_test()
@@ -186,6 +216,37 @@ class TestTheHeterogeneityTest:
         joint = float(beta @ np.linalg.solve(projection_fit.covariance(names), beta))
         assert joint - projection_fit.heterogeneity_test().statistic > 1.0
 
+    def test_b1_a_basis_without_an_intercept_refuses(self) -> None:
+        """On a constant effect the intercept-free slope is far from 0, so a test would reject.
+
+        The law's effect is 0.2 in every cell. Without the intercept the coefficient of ``W``
+        is ``0.2 E[W] / E[W^2]``, not 0, so a Wald test of it rejects a constant effect. With
+        the intercept the slope is exactly 0.
+        """
+        q = np.array([[0.40, 0.60], [0.20, 0.40], [0.60, 0.80]])
+        counts = law.cell_counts(q=q)
+        dgp = law.DiscreteLaw(counts / law.N)
+        study = CausalStudy(
+            law.frame(counts), design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+        )
+        settings = {
+            **oracle(),
+            "outcome_learner": OracleOutcome(dgp),
+            "treatment_learner": OracleTreatment(dgp),
+        }
+        free = study.identify(
+            ConditionalContrast(MODIFIERS, model=Linear(["W"], intercept=False))
+        ).estimate(**settings)
+        with pytest.raises(CapabilityError, match="no intercept column") as caught:
+            free.heterogeneity_test()
+        assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        slope = free.estimates["cate_projection[W]"]
+        assert (slope.psi / slope.std_error) ** 2 > 10.0
+        held = study.identify(ConditionalContrast(MODIFIERS, model=Linear(["W"]))).estimate(
+            **settings
+        )
+        assert held.heterogeneity_test().statistic == pytest.approx(0.0, abs=1e-12)
+
     def test_a_constant_basis_has_nothing_to_test(self) -> None:
         fit = (
             law_study()
@@ -199,6 +260,179 @@ class TestTheHeterogeneityTest:
         fit = law_study().identify(ATE()).estimate(**oracle())
         with pytest.raises(CapabilityError, match="projects no conditional contrast"):
             fit.heterogeneity_test()
+
+
+# ----------------------------------------------------------------- L-disc, two modifiers
+
+#: L-disc of plan 4.1: ``P(V, W2)``, ``g(V, W2)`` and ``Qbar(a, V, W2)``, each a multiple of
+#: ``1 / 20``, ``1 / 10`` and ``1 / 10``, so ``LDISC_N`` rows realise the law exactly. The blip
+#: varies with both modifiers.
+LDISC_N = 10_000
+LDISC_P = np.array([[0.20, 0.30], [0.15, 0.15], [0.10, 0.10]])
+LDISC_G = np.array([[0.4, 0.6], [0.5, 0.3], [0.6, 0.5]])
+LDISC_Q = np.array([[[0.3, 0.5], [0.4, 0.5]], [[0.2, 0.6], [0.5, 0.8]], [[0.4, 0.9], [0.3, 0.6]]])
+LDISC_SUPPORT = tuple(
+    (v, w2, a, y) for v in range(3) for w2 in range(2) for a in range(2) for y in range(2)
+)
+
+
+def ldisc_counts() -> np.ndarray:
+    counts = np.zeros((3, 2, 2, 2))
+    for v, w2, a, y in LDISC_SUPPORT:
+        arm = LDISC_G[v, w2] if a else 1.0 - LDISC_G[v, w2]
+        outcome = LDISC_Q[v, w2, a] if y else 1.0 - LDISC_Q[v, w2, a]
+        counts[v, w2, a, y] = LDISC_P[v, w2] * arm * outcome * LDISC_N
+    rounded = np.rint(counts)
+    assert np.max(np.abs(counts - rounded)) < 1e-6
+    return rounded.astype(int)
+
+
+LDISC_COUNTS = ldisc_counts()
+LDISC_PROBS = LDISC_COUNTS / LDISC_N
+
+
+class LDiscLaw:
+    """The oracle nuisances of L-disc, read off the realised cells."""
+
+    def __init__(self) -> None:
+        p = LDISC_PROBS
+        self.g = p.sum(axis=3)[:, :, 1] / p.sum(axis=(2, 3))
+        self.q = p[..., 1] / p.sum(axis=3)
+
+    def propensity(self, covariates: Any) -> np.ndarray:
+        cells = np.rint(np.asarray(covariates, dtype=float)).astype(int)
+        return self.g[cells[:, 0], cells[:, 1]]
+
+    def outcome_mean(self, covariates: Any, arm: float, intermediate: float | None) -> np.ndarray:
+        cells = np.rint(np.asarray(covariates, dtype=float)).astype(int)
+        return self.q[cells[:, 0], cells[:, 1], int(arm)]
+
+
+def ldisc_frame() -> pd.DataFrame:
+    cells = np.repeat(np.arange(len(LDISC_SUPPORT)), [LDISC_COUNTS[cell] for cell in LDISC_SUPPORT])
+    columns = np.array(LDISC_SUPPORT, dtype=float)[cells]
+    return pd.DataFrame(
+        {"V": columns[:, 0], "W2": columns[:, 1], "A": columns[:, 2], "Y": columns[:, 3]}
+    )
+
+
+def ldisc_first_rows() -> np.ndarray:
+    per_cell = np.array([LDISC_COUNTS[cell] for cell in LDISC_SUPPORT])
+    return np.concatenate([[0], np.cumsum(per_cell)[:-1]])
+
+
+def ldisc_beta(probs: Any) -> Any:
+    """``beta`` of the CATE projection onto ``(1, V, W2)``, from the cell probabilities."""
+    p_vw = probs.sum(axis=(2, 3))
+    q = probs[..., 1] / probs.sum(axis=3)
+    tau = q[..., 1] - q[..., 0]
+    phi = np.array([[[1.0, v, w2] for w2 in range(2)] for v in range(3)])
+    gram = np.einsum("vwp,vwq,vw->pq", phi, phi, p_vw)
+    return np.linalg.solve(gram, np.einsum("vwp,vw->p", phi, p_vw * tau))
+
+
+def ldisc_fit(**design: Any) -> Any:
+    frame = ldisc_frame()
+    for name, values in design.pop("columns", {}).items():
+        frame[name] = values
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("V", "W2"), **design),
+    )
+    dgp = LDiscLaw()
+    return study.identify(
+        ConditionalContrast(Modifiers(["V", "W2"]), model=Linear(["V", "W2"]))
+    ).estimate(
+        outcome_learner=OracleOutcome(dgp),
+        treatment_learner=OracleTreatment(dgp),
+        cross_fit=False,
+        random_state=0,
+    )
+
+
+@pytest.fixture(scope="module")
+def ldisc() -> Any:
+    return ldisc_fit()
+
+
+class TestTheHeterogeneityTestOnTwoModifiers:
+    """Plan 4.2: L-disc with ``Linear(V, W2)``, df 2 and the exact noncentrality."""
+
+    def test_the_statistic_is_the_exact_noncentrality(self, ldisc: Any) -> None:
+        beta = ldisc_beta(LDISC_PROBS)
+        eif = law.contamination_eif(ldisc_beta, LDISC_PROBS, LDISC_SUPPORT)
+        mass = np.array([LDISC_PROBS[cell] for cell in LDISC_SUPPORT])
+        sigma = np.einsum("c,cp,cq->pq", mass, eif, eif)
+        slopes = sigma[1:, 1:]
+        noncentrality = LDISC_N * float(beta[1:] @ np.linalg.solve(slopes, beta[1:]))
+        test = ldisc.heterogeneity_test()
+        assert test.df == 2 and test.terms == ("V", "W2")
+        # The reported covariance is the sample covariance with ``ddof=1``.
+        expected = noncentrality * (LDISC_N - 1) / LDISC_N
+        assert test.statistic == pytest.approx(expected, rel=1e-9)
+        # The two slopes covary, so a diagonal covariance would give another number.
+        diagonal = LDISC_N * float(np.sum(beta[1:] ** 2 / np.diag(slopes)))
+        assert abs(diagonal - noncentrality) > 1.0
+        assert abs(sigma[1, 2]) > 0.01
+
+    def test_including_the_intercept_is_df_3_and_another_statistic(self, ldisc: Any) -> None:
+        names = list(ldisc.estimates)
+        beta = np.array([ldisc.estimates[name].psi for name in names])
+        joint = float(beta @ np.linalg.solve(ldisc.covariance(names), beta))
+        assert len(names) == 3
+        assert joint - ldisc.heterogeneity_test().statistic > 10.0
+
+
+#: Pairs of consecutive rows, which share a cell almost always, so the influence curves of a
+#: pair agree and the cluster-level variance is close to twice the row-level one.
+PAIRS = np.arange(LDISC_N) // 2
+
+
+@pytest.fixture(scope="module")
+def ldisc_clustered() -> Any:
+    return ldisc_fit(cluster="C", columns={"C": PAIRS})
+
+
+class TestTheClusteredProjection:
+    def clustered_covariance(self, fit: Any) -> np.ndarray:
+        curves = np.column_stack([np.asarray(e.influence_curve) for e in fit.estimates.values()])
+        sums = np.zeros((LDISC_N // 2, curves.shape[1]))
+        np.add.at(sums, PAIRS, curves)
+        return (LDISC_N // 2) * np.cov(sums, rowvar=False, ddof=1) / LDISC_N**2
+
+    def test_the_heterogeneity_test_sums_the_curves_within_clusters(
+        self, ldisc_clustered: Any, ldisc: Any
+    ) -> None:
+        covariance = self.clustered_covariance(ldisc_clustered)
+        beta = np.array([e.psi for e in ldisc_clustered.estimates.values()])
+        expected = float(beta[1:] @ np.linalg.solve(covariance[1:, 1:], beta[1:]))
+        test = ldisc_clustered.heterogeneity_test()
+        assert test.statistic == pytest.approx(expected, rel=1e-10)
+        # The row-level test reads about twice the statistic.
+        assert ldisc.heterogeneity_test().statistic / test.statistic > 1.5
+
+    def test_the_band_draws_one_multiplier_per_cluster(self, ldisc_clustered: Any) -> None:
+        from cleverly.inference.multiplier import multiplier_critical_value
+
+        grid = {"V": np.array([0.0, 1.0, 2.0, 0.0, 1.0, 2.0]), "W2": np.repeat([0.0, 1.0], 3)}
+        curve = ldisc_clustered.effect_curve(grid=grid, random_state=0)
+        phi = np.column_stack([np.ones(6), grid["V"], grid["W2"]])
+        covariance = self.clustered_covariance(ldisc_clustered)
+        se = np.sqrt(np.einsum("ip,pq,iq->i", phi, covariance, phi))
+        np.testing.assert_allclose(
+            (curve.band.upper - curve.band.lower) / 2, curve.band.critical_value * se, rtol=1e-10
+        )
+        curves = (
+            np.column_stack(
+                [np.asarray(e.influence_curve) for e in ldisc_clustered.estimates.values()]
+            )
+            @ phi.T
+        )
+        settings = {"alpha": 0.05, "n_replicates": 1000, "kind": "rademacher", "random_state": 0}
+        by_cluster = multiplier_critical_value(curves, se, n=LDISC_N, cluster=PAIRS, **settings)
+        by_row = multiplier_critical_value(curves, se, n=LDISC_N, cluster=None, **settings)
+        assert curve.band.critical_value == pytest.approx(by_cluster, rel=1e-12)
+        assert by_row != pytest.approx(by_cluster, rel=1e-3)
 
 
 #: The three ``W`` cells, as a grid of modifier values.
@@ -272,13 +506,21 @@ class TestTheCurve:
         assert curve.upper_bound - curve.lower_bound == pytest.approx(7.0)
 
 
-def score_functional(score: np.ndarray, scale: str) -> Any:
-    """``(risk difference, calibration intercept, calibration slope)`` of a fixed score."""
+def score_functional(score: np.ndarray, scale: str, *, missing: bool = False) -> Any:
+    """``(risk difference, calibration intercept, calibration slope)`` of a fixed score.
+
+    ``missing=True`` reads the ``(3, 2, 3)`` cells of :mod:`tests.discrete_law_mar`, whose
+    outcome regression conditions on the outcome being observed.
+    """
     phi = np.column_stack([np.ones(3), score])
 
     def functional(probs: Any) -> Any:
         p_w = probs.sum(axis=(1, 2))
-        q = probs[:, :, 1] / probs.sum(axis=2)
+        if missing:
+            observed = probs[:, :, mar.OBSERVED_ZERO] + probs[:, :, mar.OBSERVED_ONE]
+            q = probs[:, :, mar.OBSERVED_ONE] / observed
+        else:
+            q = probs[:, :, 1] / probs.sum(axis=2)
         if scale == "difference":
             tau = q[:, 1] - q[:, 0]
             ate = (p_w * tau).sum()
@@ -330,6 +572,44 @@ class TestTheScoreAssessment:
         np.testing.assert_allclose(
             score_curves(assessment), law.gateaux_eif(functional), atol=1e-11, rtol=0
         )
+
+    @pytest.mark.parametrize("scale", ["difference", "log_ratio"])
+    def test_missing_outcomes_enter_through_the_observation_mechanism(self, scale: str) -> None:
+        """The MAR law: the curve is the derivative only with ``1 / Pi`` in the residual term.
+
+        On a law with every outcome observed ``Pi = 1``, so the factor vanishes there. Here it
+        varies with ``W`` and ``A``, and dropping it moves the curve at the observed cells.
+        """
+        dgp = mar.DiscreteLaw()
+        frame = mar.frame()
+        frame["S"] = SCORE[frame["W"].astype(int)]
+        study = CausalStudy(
+            frame,
+            design=PointTreatment(
+                outcome="Y", treatment="A", adjustment=("W",), missingness="Delta"
+            ),
+        )
+        assessment = study.identify(linear_contrast(scale)).assess_score(
+            "S",
+            computed_from=["W"],
+            score_kind="external",
+            scale=scale,
+            outcome_learner=OracleOutcome(dgp),
+            treatment_learner=OracleTreatment(dgp),
+            missingness_learner=OracleMissingness(dgp),
+            cross_fit=False,
+            random_state=0,
+        )
+        functional = score_functional(SCORE, scale, missing=True)
+        np.testing.assert_allclose(
+            [assessment[name].psi for name in SCORE_NAMES], functional(mar.PROBS), atol=1e-12
+        )
+        rows = mar.first_row_of()
+        reported = np.column_stack(
+            [np.asarray(assessment[name].influence_curve)[rows] for name in SCORE_NAMES]
+        )
+        expected = law.contamination_eif(functional, mar.PROBS, mar.SUPPORT)
+        np.testing.assert_allclose(reported, expected, atol=1e-11, rtol=0)
 
     def test_the_rev_1_risk_curve_misses_the_derivative(self) -> None:
         """Mutation: ``+ 2 (c - E s)(Dtilde - c)`` in place of ``+ 2 ATE (Dtilde - ATE)``."""
@@ -405,6 +685,44 @@ class TestScoreRefusalsBeforeAnyLearner:
         with pytest.raises(CapabilityError, match="fitted on the rows it would be assessed on"):
             study.identify(linear_contrast()).assess_score(
                 "effect_curve:cate", computed_from=["W"], score_kind="external", **never()
+            )
+        assert NeverFit.calls == 0
+
+    def test_r13_i_a_second_identify_on_the_study_sees_the_curve(self) -> None:
+        """The curves are kept under the study's data fingerprint, not one effect object."""
+        study = law_study()
+        curve = study.identify(linear_contrast()).estimate(**oracle()).effect_curve()
+        frame = law.frame()
+        frame["S"] = curve.in_sample
+        other = CausalStudy(
+            frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+        )
+        assert any(
+            np.array_equal(stored, curve.in_sample)
+            for stored in other.identify(linear_contrast())._curves
+        )
+        with pytest.raises(CapabilityError, match="fitted on the rows it would be assessed on"):
+            other.identify(linear_contrast()).assess_score(
+                "S", computed_from=["W"], score_kind="external", **never()
+            )
+        assert NeverFit.calls == 0
+
+    def test_r5_a_log_ratio_score_on_a_shifted_outcome(self) -> None:
+        """A difference-scale estimand: ``scale='log_ratio'`` reads R5 before any learner."""
+        frame = law.frame()
+        frame["Y"] = 7.0 * frame["Y"] - 2.0
+        frame["S"] = SCORE[frame["W"].astype(int)]
+        study = CausalStudy(
+            frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+        )
+        with pytest.raises(CapabilityError, match="q_bounds"):
+            study.identify(linear_contrast()).assess_score(
+                "S",
+                computed_from=["W"],
+                score_kind="external",
+                scale="log_ratio",
+                q_bounds=(-2.0, 5.0),
+                **never(),
             )
         assert NeverFit.calls == 0
 

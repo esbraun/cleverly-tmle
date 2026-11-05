@@ -482,13 +482,14 @@ _CONDITIONAL_CONTRAST_ID = Identification(
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
         DR_MECHANISM_HEAD + ", and the interval holds only when both converge at the "
-        "product rate: the remainder is M^-1 P0[phi(V) sum_a s_a (g0 - gn)(a, W) / gn(a, W) "
-        "(Qbar0 - Qbar*)(a, W)], a product of the two errors with no term first order in "
+        "product rate: the remainder is M^-1 P0[phi(V) sum_a s_a (g0 Pi0 - gn Pin)(a, W) / "
+        "(gn Pin)(a, W) (Qbar0 - Qbar*)(a, W)], with Pi = 1 when every outcome is observed, "
+        "a product of the two errors with no term first order in "
         "either; beta is a projection, so the working model need not be correct"
         + DR_DESIGN_CONDITIONAL_CLAUSE
     ),
     references=(
-        "van der Laan, Carone & Luedtke (2024), arXiv:2402.01972v2",
+        "van der Laan, Carone & Luedtke (2024; v2 2026), arXiv:2402.01972v2 (preprint)",
         "Zheng & van der Laan (2011)",
     ),
 )

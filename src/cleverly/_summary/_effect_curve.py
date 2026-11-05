@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from . import Cell, Summary, SummarySection, SummaryTable, check_detail, note, vocabulary
+from ._estimates import reason_kind
 from ._render import count_text, decimals_for, number_text, share_text
 
 __all__ = ["effect_curve_summary", "score_assessment_summary"]
@@ -53,6 +54,7 @@ def effect_curve_summary(result: Any, *, detail: str = "short") -> Summary:
         (vocabulary.METHOD, "projection TMLE"),
         (vocabulary.BASIS, f"{count_text(len(curve.terms))} terms, fixed before the fit"),
         (vocabulary.ROWS, count_text(int(result.in_sample.size))),
+        (vocabulary.CURVE_STATUS, result.status),
     ]
     spread = np.quantile(result.in_sample, _QUANTILES)
     places = decimals_for(np.abs(spread))
@@ -83,6 +85,17 @@ def effect_curve_summary(result: Any, *, detail: str = "short") -> Summary:
             vocabulary.NOTE_TEXTS["projection_target"].format(target=result.target_sentence),
         )
     ]
+    if result.status == "experimental":
+        notes.append(
+            note(
+                "curve_experimental",
+                vocabulary.NOTE_TEXTS["curve_experimental"].format(
+                    reason=vocabulary.EXPERIMENTAL_REASONS[
+                        reason_kind(result.status_reason)
+                    ].format(names="the curve")
+                ),
+            )
+        )
     if result.outside_share > 0:
         notes.append(
             note(

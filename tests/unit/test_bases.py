@@ -25,7 +25,7 @@ from cleverly.bases import (
     interactions,
     resolve,
 )
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import CapabilityError, DataError, RefusalReason
 
 MODIFIERS = Modifiers(["x", "g"], domains={"x": (0.0, 2.0)}, levels={"g": ("a", "b", "c")})
 FRAME = {"x": np.array([0.0, 0.5, 1.0, 2.0]), "g": np.array(["a", "b", "c", "a"])}
@@ -52,12 +52,18 @@ def test_module_is_a_leaf_that_imports_numpy_and_exceptions_only() -> None:
         ({"columns": ["x"], "domains": {"z": (0, 1)}}, "not modifier columns"),
         ({"columns": ["x"], "domains": {"x": (0, 1)}, "levels": {"x": (0, 1)}}, "both"),
         ({"columns": ["x"], "outside": "drop"}, "outside"),
-        ({"columns": ["x"], "outside": "clip"}, "declare no domain"),
     ],
 )
 def test_modifiers_refuse_a_malformed_declaration(arguments: dict, message: str) -> None:
     with pytest.raises(DataError, match=message):
         Modifiers(**arguments)
+
+
+def test_clipping_without_a_domain_is_the_sample_basis_refusal() -> None:
+    """R3: the ends ``clip`` maps to would be read off the sample."""
+    with pytest.raises(CapabilityError, match="declare no domain") as caught:
+        Modifiers(["x"], outside="clip")
+    assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
 
 
 def test_modifiers_split_continuous_and_categorical_columns() -> None:
@@ -91,7 +97,7 @@ def test_an_undeclared_level_is_refused_even_under_clip() -> None:
         (Cosine(["x"], 2), (INTERCEPT, "cos1(x)", "cos2(x)")),
         (Indicators("g"), (INTERCEPT, "g[b]", "g[c]")),
         (
-            Additive((Cosine(["x"], 1), Indicators("g"))),
+            Additive(Cosine(["x"], 1), Indicators("g")),
             (INTERCEPT, "cos1(x)", "g[b]", "g[c]"),
         ),
         (
@@ -146,7 +152,7 @@ def test_indicators_report_the_reference_level_as_the_intercept() -> None:
 
 
 def test_interactions_of_order_one_return_the_basis() -> None:
-    additive = Additive((Linear(["x"]), Indicators("g")))
+    additive = Additive(Linear(["x"]), Indicators("g"))
     assert interactions(additive, 1) is additive
     terms = resolve(interactions(additive, 2), MODIFIERS).terms
     assert "x:g[b]" in terms and "x:g[c]" in terms

@@ -12,7 +12,7 @@ binary treatment, or a declared pair ``(t, r)`` of a multi-arm one, with modifie
   :math:`U(\beta) = E[\varphi\{(\bar Q_t + \bar Q_r)\,\operatorname{expit}(\varphi^\top\beta)
   - \bar Q_t\}] = 0`, the minimiser over :math:`\{\varphi^\top\beta\}` of the log-CRR risk
   :math:`E[(\bar Q_t + \bar Q_r)\log(1 + e^\theta) - \bar Q_t\theta]` (van der Laan, Carone
-  and Luedtke, arXiv:2402.01972v2, Example 2).  With :math:`\varphi = 1` it is
+  and Luedtke, arXiv:2402.01972v2, a preprint, Example 2).  With :math:`\varphi = 1` it is
   :math:`\log(E\bar Q_t / E\bar Q_r)`, the marginal log risk ratio.
 
 Both are smooth functionals of the arm regressions with a known weight, so a TMLE
@@ -175,8 +175,9 @@ def log_ratio_scale_refusal(
     if q_bounds is None:
         observed = data.outcome[data.observed]
         start = (
-            "With q_bounds=None the lower end is the observed minimum, "
-            f"{float(np.min(observed)):g}."
+            "With q_bounds=None the lower end is read off the sample (here the observed "
+            f"minimum, {float(np.min(observed)):g}), so the scale the ratio is computed on "
+            "would change from one sample to the next, even when that minimum is 0."
         )
     else:
         start = f"These q_bounds start at {float(q_bounds[0]):g}."

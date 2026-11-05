@@ -359,7 +359,7 @@ class TestTheOutcomeScale:
 
     @pytest.mark.parametrize(
         ("bounds", "start"),
-        [((1.0, 6.0), "These q_bounds start at 1."), (None, "the observed minimum, 1.")],
+        [((1.0, 6.0), "These q_bounds start at 1."), (None, "the observed minimum, 1)")],
     )
     def test_a_log_ratio_on_a_shifted_scale_is_refused(self, bounds: Any, start: str) -> None:
         with pytest.raises(CapabilityError, match="q_bounds=\\(0, upper\\)") as caught:

@@ -1086,6 +1086,15 @@ def _refuse_missing_estimator(result: TMLEResult, request: _RefuteRequest) -> Re
     return _invalid("refute needs the fitted estimator that produced the result")
 
 
+def _refuse_projection(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
+    """Refuse a fit of a conditional contrast's projection, which no refutation covers."""
+    if getattr(result.config, "parameter_axis", None) != "effect_modification":
+        return None
+    from ..assessment import projection_sensitivity_refusal
+
+    return projection_sensitivity_refusal("refute")
+
+
 def _refuse_unreported_estimand(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse an estimand the fit did not report, which no refit can compare against."""
     if request.estimand in result.estimates:
@@ -1876,6 +1885,7 @@ def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> Ref
 #: contract, so a test pins the order without respelling a message.
 _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal | None]], ...] = (
     ("estimator", _refuse_missing_estimator),
+    ("projection", _refuse_projection),
     ("estimand", _refuse_unreported_estimand),
     ("structural_tests", _refuse_structural_tests),
     ("longitudinal_tests", _refuse_longitudinal_tests),

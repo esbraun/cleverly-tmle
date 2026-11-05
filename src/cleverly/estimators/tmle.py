@@ -433,8 +433,10 @@ def _is_arm_indexed_missing_crossfit(
         The resolved estimand names.
     cross_fit : bool
         Whether the nuisances are cross-fitted.
-    axis : {"arm", "regime", "learned_rule", "policy", "rr_tilt", "ipsi", "msm"}
-        What the fit's parameters are indexed by.
+    axis : str
+        What the fit's parameters are indexed by: ``"arm"``, ``"regime"``,
+        ``"learned_rule"``, ``"policy"``, ``"rr_tilt"``, ``"ipsi"``, ``"msm"`` or
+        ``"effect_modification"``.
 
     Returns
     -------
@@ -501,6 +503,7 @@ _OFF_CONTRACT_AXIS_NAMES: dict[ParameterAxis, str] = {
     "ipsi": "incremental",
     "regime": "regime",
     "msm": "MSM",
+    "effect_modification": "conditional-contrast projection",
 }
 
 #: The projection stems a fold-evaluated fit refuses, beside ``rr``, ``or`` and ``msm``.

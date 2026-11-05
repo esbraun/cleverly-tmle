@@ -90,6 +90,7 @@ _AXIS_SLOTS = {
     "msm": ("msm",),
     "ipsi": ("incremental",),
     "learned_rule": ("learned_rule",),
+    "effect_modification": ("effect_modification",),
 }
 
 
