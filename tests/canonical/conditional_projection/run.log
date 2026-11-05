@@ -1,0 +1,22 @@
+=== conditional-projection declared run
+command: /usr/local/bin/python /home/user/cleverly-tmle/tests/canonical/conditional_projection/regenerate.py --output /home/user/runout6 --jobs 4
+commit: 00a9c83955e9c046adcff9f27780c375530f8c24; upstream 00a9c83955e9c046adcff9f27780c375530f8c24
+clean tree: True
+cleverly 0.2.0 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.18; numpy 2.5.3; scipy 1.18.1; pandas 3.0.5; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 194, sha256 d17335c3eaf7b79105c54254a7046d27928378d490092089a83a0a1fa1dc3ade
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-05T23:02:52+00:00
+note: resumed from /root/.cache/cleverly/runs/conditional-projection/1fa43a0088e6, reused the Python phase
+finished: 2026-11-05T23:21:41+00:00
+wall seconds: 1128.2
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: afb0120c15f7464206d591571f3532f1ed713c2836c413e5df6793cdca2a1e84
+sha256 performance-tests.csv: 37292b5c4cf03608c06b64825eeda5f517d57d683cf15fb4d5856c7d531e6cf3
+sha256 properties.csv: 7a49ba9bdd5a2c7b529f5e2dbe2430fb25ea8889b16c61b8a7acc452406d09fe
+sha256 property-replicates.parquet: 2941058d19c60a40255db7a942741cee40b6ba9cbaf42a1c02f4ea248128bbce
+sha256 replicates.parquet: 43ec63b5b7600a4e4c2bf706da6ee412ffe629b5704e0fac1536a550e066bde6
+sha256 summary.csv: 09e84c57c747926bc1db42e7c4c1fd7ef948b42a515bcf79d252105ae9223d22
+
