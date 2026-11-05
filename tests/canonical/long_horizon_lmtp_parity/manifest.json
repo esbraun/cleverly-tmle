@@ -1,0 +1,148 @@
+{
+  "schema_version": 2,
+  "study": "long-horizon mix parity with R lmtp",
+  "slug": "long-horizon-lmtp-parity",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-long-horizon-lmtp-parity",
+      "cleverly_version": "0.1.7",
+      "cleverly_commit": "9a346b27347e3eb4ef1c1ded09626ef365e87d75",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 500,
+    "n": 8000,
+    "seed": 20265911,
+    "resampling_seed": 2026591101,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-long-horizon-lmtp-parity": 0.01,
+      "lmtp": 0.01
+    },
+    "scenarios": {
+      "parity_tmle_mix": [
+        "ey_regimen[mix]"
+      ],
+      "parity_sdr_mix": [
+        "ey_regimen[mix]"
+      ],
+      "parity_sdr_mix_folds": [
+        "ey_regimen[mix]"
+      ]
+    },
+    "estimator": {
+      "parity_tmle_mix": "LTMLE",
+      "parity_sdr_mix": "SDR",
+      "parity_sdr_mix_folds": "SDR"
+    },
+    "comparator": {
+      "parity_tmle_mix": "lmtp_tmle",
+      "parity_sdr_mix": "lmtp_sdr",
+      "parity_sdr_mix_folds": "lmtp_sdr"
+    },
+    "bootstrap": false,
+    "outcome_learner": "QuasiBinomialGLM",
+    "pseudo_learner": {
+      "LTMLE": "QuasiBinomialGLM",
+      "SDR": "LinearRegression"
+    },
+    "mechanism": "the law's, passed as probability columns",
+    "laws": {
+      "parity_tmle_mix": [
+        1.0,
+        0.1,
+        3.5
+      ],
+      "parity_sdr_mix": [
+        1.0,
+        0.1,
+        3.5
+      ],
+      "parity_sdr_mix_folds": [
+        1.0,
+        0.1,
+        3.5
+      ]
+    },
+    "n_folds": {
+      "parity_tmle_mix": 1,
+      "parity_sdr_mix": 1,
+      "parity_sdr_mix_folds": 5
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_long_horizon_lmtp_parity.py": "0778a144a505d462bdb462ae5f4ff58a8c42c93df918be08b0c5c0accca777bb",
+    "tests/studies/long_horizon_parity.py": "77cb255be6e9eb8627fcda90669873025bfc5cd7fa150cc4c37dce10ff9e6517",
+    "tests/studies/long_horizon_parity_properties.py": "7125f80e83b048b9305d1cb12f46aef6fb4d072447bc720771d9a56181bb47ef",
+    "tests/studies/long_horizon_reference.py": "a1c940f8158ec494213f65254d167fe1b0b361488aa70de6f1638354114fc26e",
+    "tests/studies/long_horizon_primary.py": "747b32db6bf08422a9b8f6da520d50fd04d3e0091ce1a91c0fae5fc2e43c62b3",
+    "tests/studies/long_horizon_common.py": "32769d292315d96a6d8f5703941d7ad751056738e21da696e2c8596f1173f55c",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "tests/discrete_law_longitudinal_horizon.py": "71e40519f054a82ae0fbbe57f1d28a9a3b1cc1c30fab31c421e26c725450415c",
+    "tests/longitudinal_horizon_plans.py": "2650b254ad14ff780e70d6b89bf5509639925fdb3d235e93fb83df234c089dab",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "e7d9c0d8e1b3134c26517484a6538c014f0221f5e9438b740aa3ad1b4338bf49",
+    "summary.csv": "44f7a3318beac4d86282474e4c3ce767ea34d90fe0a3a32b2d750b9540a6d51a",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "53573d8301fb5ce434fe97a3757fce3c6a6b2ee6881c354023232c2657fb3039",
+    "property-replicates.parquet": "fe49529a9c5ec7471753784931995f374450e205a24c8ab596190a8f6d95f940",
+    "properties.csv": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+  },
+  "comparator": {
+    "status": "pending",
+    "implementation": "lmtp",
+    "reason": "X59 section 5: the R lmtp side runs reference-only after the subject phase",
+    "metadata": {},
+    "declared_sources_sha256": {
+      "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+      "tests/canonical/lmtp_9996b04/Dockerfile": "f84d552bcad2d1ad712b04ebd009e327b469cd5f27e0b54e0c3845d11dc4c281",
+      "tests/canonical/long_horizon_lmtp_parity/run_study.R": "cbb939facaf407d531b40ca31a712a7b3c54cbedfa47ba0a0abb5a2cb04f6511",
+      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
+      "tests/canonical/lmtp_sdr_adapter.R": "bc3e42a2762f4e8a6eb4f1e29eb60e211da7d7675975f82511e454f316d7e608",
+      "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
+      "tests/canonical/lmtp_policy_adapter.R": "d98ec147eacf700a84c399aa2bcb0a16248d8b7141bc827879488c0b5c0f9d45",
+      "tests/canonical/lmtp_9996b04_crossfit_adapter.R": "35d2b4cc639c1d7e62314707863dc4fb307215ed7ae59aa9107ee1e019bf58f4",
+      "tests/canonical/lmtp_9996b04_policy_adapter.R": "3b1633040c3375cd6b6d9902c0a38422fb06a7b8247c9de2013cfa932cb7a252",
+      "tests/canonical/lmtp_horizon_learners.R": "ce4cb5f0cebd9a83889b0cb74de86d291447c6cc6636bd10c16bba067de79642",
+      "tests/canonical/long_horizon_lmtp_adapter.R": "92de88dc9ee481e1183790ebd8f0228c7b3484110ff11ac01e1ede801a0f3eda"
+    }
+  }
+}
