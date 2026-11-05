@@ -259,6 +259,7 @@ It moved each part that an established method or a natural extension carries to 
 | E-values beyond the total-population arm contrast | the ATT and ATC E-value on a binomial outcome; the E-value of a regime, policy or incremental contrast, with the derived risk ratio off the arm axis | identification | E-values of total-population arm contrasts, of a controlled direct effect, and the standardized ATT and ATC E-value on a gaussian outcome | [F34](#f34-e-values-beyond-the-total-population-arm-contrast) |
 | Inference for sequential baselines with data-adaptive nuisances | an asymptotic-linearity result for longitudinal sequential g-computation or IPW whose nuisances are fitted by a data-adaptive learner | asymptotic | the point estimate stands. A fit that reads a regression fitted by a learner other than `GLM` takes the `adaptive_baseline_plugin` status and reports a plug-in diagnostic only | [F35](#f35-inference-for-sequential-baselines-with-data-adaptive-nuisances) |
 | Locally efficient g-estimation of the structural nested mean model | an interval for the blips from the g-estimator that weights its instrument by the conditional variance of the outcome residual | efficiency | the shipped `StructuralNestedMean` solves the unweighted equation. Its interval is valid under the linear model, and it is not the efficient estimator of that model | [F36](#f36-locally-efficient-g-estimation-of-the-structural-nested-mean-model) |
+| Adaptive TMLE for a trial with external data | an interval for the trial effect itself rather than its working-model projection; a treatment with more than two levels; a ratio scale | adaptive-optimum inference for the interval; regularity for the other two | `AdaptiveTMLEMethod` reports the projection interval under the `working_model_projection` status, for a binary treatment on the difference scale. Every other treatment and scale refuses before any learner | [F39](#f39-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope) |
 
 ## Eligibility
 
@@ -2711,6 +2712,22 @@ variance of `LTMLE`. The weighted instrument also needs a nuisance for that vari
 | kept claim | kind | missing argument |
 | --- | --- | --- |
 | an interval for the blips from the variance-weighted g-estimator, with a cross-fitted variance nuisance | efficiency | the efficient influence function of the linear structural nested mean model, and a limit theorem for the cross-fitted weighted estimator. No source read for this item states either |
+
+### F39. Adaptive TMLE: the oracle-approximation condition and the underived scope
+
+`AdaptiveTMLEMethod` estimates the trial effect of a randomized trial pooled with external data.
+It selects a working model for the conditional effect and one for the bias of the external rows,
+and its interval covers the projection of the trial effect onto those models. The interval covers
+the trial effect itself only under the oracle-approximation condition of arXiv:2405.07186v2,
+Theorem 1 (Theorem 2 for the CV form), which makes the gap between the projection and the trial
+effect $o_P(n^{-1/2})$. The source states that condition and gives no test of it, so the fit
+reports the `working_model_projection` status. A testable form of the condition would reopen it.
+
+| kept claim | kind | missing argument |
+| --- | --- | --- |
+| an interval for the trial effect, from a testable oracle-approximation condition | adaptive-optimum inference | a rate for the approximation error of the selected working model that the data can check, and a limit law under it. Theorem 1 assumes the rate and does not test it |
+| adaptive TMLE for a treatment with more than two levels, a continuous dose or a vector treatment | regularity | the decomposition of Lemma 2 and the working models of Sections 2 to 4 are stated for a binary treatment |
+| a ratio scale for the trial effect | regularity | the source gives no working model and no projection parameter for a ratio |
 
 ## Reading a gap correctly
 

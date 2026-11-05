@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 import numpy as np
 
 from .._refusal import Refusal, RefusalReason
+from .._trial_family import AUGMENTED_TRIAL_FAMILY, augmented_trial_refusal
 from ..estimators.base import MEAN_GROUP_ESTIMANDS, TMLEResult
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
@@ -217,6 +218,8 @@ def _refuse_longitudinal(result: Any) -> Refusal | None:
     family = getattr(result, "assessment_family", None)
     if family == "longitudinal":
         return longitudinal_fit_refusal(result)
+    if family == AUGMENTED_TRIAL_FAMILY:
+        return augmented_trial_refusal("simulated_confounding", "bound")
     if family is not None and family != "point":
         return Refusal(
             RefusalReason.INVALID_DECLARATION,

@@ -10,6 +10,7 @@ Use these objects to declare the observed data, identify a causal quantity, and 
    cleverly.CausalStudy
    cleverly.StudyProtocol
    cleverly.PointTreatment
+   cleverly.TrialWithExternalData
    cleverly.LongitudinalTreatment
    cleverly.Repeated
    cleverly.TimeToEvent
@@ -56,7 +57,7 @@ The public objects divide responsibility as follows:
 | object | responsibility |
 | --- | --- |
 | `StudyProtocol` | study context and study-specific assumption rationale |
-| `PointTreatment`, `LongitudinalTreatment`, `LongPanel` or `TimeToEvent` | observed column roles and treatment-time structure |
+| `PointTreatment`, `TrialWithExternalData`, `LongitudinalTreatment`, `LongPanel` or `TimeToEvent` | observed column roles and treatment-time structure |
 | `Repeated` | a non-absorbing outcome column at every node, passed as `outcome=` of `LongitudinalTreatment` |
 | typed estimand | the mathematical contrast and intervention metadata |
 | `IdentifiedEffect` | the observed-data functional and identification contract |

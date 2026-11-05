@@ -88,6 +88,7 @@ import numpy as np
 
 from .._inference_status import InferenceStatus, supplies_inference
 from .._summary import Detail, Summary, check_detail
+from .._trial_family import augmented_trial_refusal, is_augmented_trial, refuse_augmented_trial
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import NO_ALTERNATIVE, CapabilityError, CleverlyError, Refusal, RefusalReason
 from ..inference.bootstrap import Resampling, _bootstrap_design
@@ -1984,6 +1985,8 @@ def refute_refusal(
         The exact refusal record, or ``None`` when no rule refuses the request or an
         argument is malformed.
     """
+    if is_augmented_trial(result):
+        return augmented_trial_refusal("refute", "refutation")
     try:
         requested = _validated_tests(
             tests,
@@ -5017,6 +5020,7 @@ def refute(
     CapabilityError
         If ``refute_refusal`` refuses the request. Each such refusal precedes every refit.
     """
+    refuse_augmented_trial(result, "refute", "refutation")
     # The malformed arguments first, and the refusals of a well-formed request after them.
     # Every refusal is decided before any refit, so a mixed call does not pay for placebo
     # fits and only then discover that its outcome process has no effect derivation. The

@@ -132,6 +132,7 @@ from scipy import optimize
 from .._inference_status import InferenceStatus, is_labelled
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._support import record_refusal_site
+from .._trial_family import refuse_augmented_trial
 from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES
 from ..estimators.composite import composite_state
@@ -915,6 +916,7 @@ def sensitivity_elements(
         fit with several draws, or if the doubly robust estimate of :math:`\nu^2` is not
         positive.
     """
+    refuse_augmented_trial(result, "sensitivity_elements", "bound")
     _resolved_nu2_estimator(nu2_estimator)
     draw = _draw_index(result, repeat)
     refusal = fit_wide_bound_refusal(result)
@@ -2667,6 +2669,7 @@ def omitted_variable_bounds(
     that restriction. Collaborative fits stay refused. If a later release admits a collaborative
     fit that selects nothing, the same statement covers it.
     """
+    refuse_augmented_trial(result, "omitted_variable_bounds", "bound")
     _one_sided_quantile(level)
     if benchmark is not None:
         cf_y, cf_d = _benchmark_strengths(result, estimand, benchmark, cf_y, cf_d)
@@ -3242,6 +3245,7 @@ def benchmark(
         the refusal of ``benchmark_refusal``.  The full fit and the covariates are
         checked before the refit runs.
     """
+    refuse_augmented_trial(result, "benchmark", "bound")
     names = _benchmark_names(result, covariates)
     estimator = result.estimator
     if estimator is None:
@@ -3385,6 +3389,7 @@ def robustness_value(
         refuses, an estimand the bound does not cover, or a doubly robust estimate of
         ``nu^2`` that is not positive.
     """
+    refuse_augmented_trial(result, "robustness_value", "bound")
     draws = _bound_draws(
         result,
         estimand,
@@ -3485,6 +3490,7 @@ def contour_data(
         refuses, an estimand the bound does not cover, or a doubly robust estimate of
         ``nu^2`` that is not positive.
     """
+    refuse_augmented_trial(result, "contour_data", "bound")
     if bound not in ("lower", "upper"):
         raise ValueError(f"bound must be 'lower' or 'upper'; got {bound!r}")
     draws = _bound_draws(

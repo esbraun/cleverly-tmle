@@ -46,6 +46,7 @@ import numpy as np
 
 from .._refusal import Refusal, RefusalReason
 from .._summary import Detail, Summary, check_detail
+from .._trial_family import refuse_augmented_trial
 from .._typing import BoolArray, FloatArray
 from ..data.known_mechanism import moved_known_values_refusal
 from ..data.validate import MISSING_OUTCOME_DECLARATION
@@ -627,6 +628,7 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
     DataError
         If the treatment is continuous, which has no per-arm propensity either.
     """
+    refuse_augmented_trial(result, "positivity_report", "report")
     if not result.nuisance.fits_treatment:
         raise CapabilityError.from_refusal(NATURAL_COURSE_SUPPORT_REFUSAL)
     if result.data.is_continuous_treatment:
@@ -1476,6 +1478,7 @@ def truncation_curve(
         When the requested axis is refused, as :func:`truncation_refusal` states, or when an
         explicit ``g(W)`` bound moves a value of a declared known mechanism.
     """
+    refuse_augmented_trial(result, "truncation_curve", "truncation")
     estimator = result.estimator
     if estimator is None:
         raise CapabilityError(

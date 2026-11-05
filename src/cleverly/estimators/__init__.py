@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ._nuisance import NuisanceEstimates
+from .atmle_result import AdaptiveTMLEResult
 from .base import (
     ALL_ESTIMANDS,
     DEFAULT_ESTIMANDS,
@@ -35,6 +36,7 @@ __all__ = [
     "TMLE",
     "AdaptiveIPTW",
     "AdaptiveIPTWFit",
+    "AdaptiveTMLEResult",
     "CTMLEDerivativeFit",
     "CTMLEOutcomeAdaptiveFit",
     "CTMLEPreorder",

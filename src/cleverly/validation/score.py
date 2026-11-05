@@ -98,6 +98,7 @@ import numpy as np
 
 from .._inference_status import InferenceStatus
 from .._summary import Detail, Summary, check_detail
+from .._trial_family import refuse_augmented_trial
 from ..fluctuation._score import (
     RESIDUAL_LINE,
     residual_se,
@@ -604,6 +605,7 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
     ScoreCheck
         One row per score equation the fit's method relies on.
     """
+    refuse_augmented_trial(result, "score_check", "report")
     n = result.data.n
     rows: list[ScoreCheckRow] = []
 

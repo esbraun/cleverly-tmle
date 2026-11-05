@@ -947,6 +947,8 @@ def test_method_availability_is_structured_and_refuses_before_fitting(monkeypatc
     assert methods["tmle"].available
     assert not methods["riesz_tmle"].available
     assert "representer" in (methods["riesz_tmle"].reason or "")
+    assert not methods["atmle"].available
+    assert "TrialWithExternalData" in (methods["atmle"].reason or "")
 
     class MustNotConstruct:
         def __init__(self, **kwargs) -> None:

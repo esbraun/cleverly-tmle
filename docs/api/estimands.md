@@ -12,6 +12,7 @@ that reading adds.
    cleverly.ATE
    cleverly.ATT
    cleverly.ATC
+   cleverly.TrialATE
    cleverly.BackdoorMeanContrast
    cleverly.CounterfactualMean
    cleverly.NaturalCourseMean

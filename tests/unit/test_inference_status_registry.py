@@ -50,11 +50,13 @@ PRECEDENCE = (
     "few_cluster_plugin",
     "constant_node_plugin",
     "stack_failure_plugin",
+    "working_model_projection",
 )
 
 #: The statuses whose interval is shown under the experimental label. Eric's answer of
-#: 2026-10-15 keeps the other labelled statuses point-only.
-SHOWN = ("estimated_weight_plugin", "few_cluster_plugin")
+#: 2026-10-15 keeps the other labelled statuses point-only. The adaptive TMLE of a trial
+#: with external data (X90) shows its working-model projection interval.
+SHOWN = ("estimated_weight_plugin", "few_cluster_plugin", "working_model_projection")
 WITHHELD = tuple(status for status in PRECEDENCE if status not in SHOWN)
 
 
@@ -176,7 +178,7 @@ class TestThePrecedence:
     def test_the_order_is_pinned(self) -> None:
         assert tuple(STATUS_RECORDS) == PRECEDENCE
 
-    def test_the_shown_statuses_are_the_two_the_owner_chose(self) -> None:
+    def test_the_shown_statuses_are_the_ones_the_owner_chose(self) -> None:
         shown = tuple(s for s, r in STATUS_RECORDS.items() if r.interval == "shown")
         assert shown == SHOWN
 

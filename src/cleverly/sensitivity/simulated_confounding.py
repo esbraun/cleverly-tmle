@@ -21,6 +21,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
 from .._summary import short_repr
+from .._trial_family import refuse_augmented_trial
 from ..data.causal_data import arm_share
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
@@ -1741,6 +1742,7 @@ def simulated_confounding(
     natural course as its reference. The same refusal applies to ``NaturalCourseMean``.
     PAR and PAF retain counterfactual treatment dependence through their reference intervention.
     """
+    refuse_augmented_trial(result, "simulated_confounding", "bound")
     if type(grid) is not ConfounderStrengthGrid:
         raise TypeError("grid must be an exact ConfounderStrengthGrid declaration")
     if getattr(result, "assessment_family", None) == "longitudinal":

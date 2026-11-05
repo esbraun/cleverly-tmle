@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
+from dataclasses import fields as dataclass_fields
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, runtime_checkable
 
 from ._typing import (
@@ -30,6 +31,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = [
     "ADAPTIVE_IPTW_LONGITUDINAL_REFUSAL",
+    "ATMLE_CV_FOLDS_REFUSAL",
+    "ATMLE_FIELDS",
+    "ATMLE_REPEATS_REFUSAL",
     "BASELINE_HAZARD_POOLING_REFUSAL",
     "BASELINE_POINT_REFUSAL",
     "BASELINE_RATIO_TRIM_REFUSAL",
@@ -47,6 +51,7 @@ __all__ = [
     "SDR_TILT_REFUSAL",
     "SHORTCUTS",
     "AdaptiveIPTWMethod",
+    "AdaptiveTMLEMethod",
     "CollaborativeTMLEMethod",
     "CrossFitting",
     "DRTMLEMethod",
@@ -1749,6 +1754,213 @@ class AdaptiveIPTWMethod(TMLEMethod):
             **super().estimator_kwargs(),
             "form": self.form,
             "reduced_outcome_learner": self.reduced_outcome_learner,
+        }
+
+
+#: The settings of the shared configuration groups that :class:`AdaptiveTMLEMethod` reads,
+#: as ``(group, field)``. Every other field of :class:`ModelSpec`, :class:`CrossFitting`,
+#: :class:`Targeting`, :class:`Inference` and :class:`Runtime` must keep its default, so a
+#: field added to a group later is refused until it is read here.
+ATMLE_FIELDS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("models", "outcome_learner"),
+        ("models", "treatment_learner"),
+        ("models", "missingness_learner"),
+        ("cross_fitting", "enabled"),
+        ("cross_fitting", "n_folds"),
+        ("cross_fitting", "learner_folds"),
+        ("targeting", "g_bounds"),
+        ("inference", "alpha"),
+        ("runtime", "random_state"),
+        ("runtime", "run_id"),
+    }
+)
+
+#: Why adaptive TMLE takes one outer split.
+ATMLE_REPEATS_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "No source combines adaptive working-model fits across repeated splits; a median of fits "
+    "with different working models has no derived variance.",
+    alternative="Use CrossFitting(repeats=1).",
+)
+
+#: Why the adaptive CV-TMLE needs three folds.
+ATMLE_CV_FOLDS_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "The adaptive CV-TMLE selects each fold's working model with nuisances that read neither "
+    "that fold nor the row's own fold, which needs at least three folds. Use n_folds=3 or "
+    "more, or form='pooled'.",
+)
+
+
+@dataclass(frozen=True)
+class AdaptiveTMLEMethod(TMLEMethod):
+    """Configure adaptive TMLE for a randomized trial pooled with external data.
+
+    The estimator of van der Laan, Qiu, Tarp and van der Laan (arXiv:2405.07186v2) learns two
+    working models by lasso over a dictionary of covariate functions: one for the treatment
+    effect on the pooled rows, and one for how the external outcomes differ from the trial's.
+    It then targets the trial's effect, removing the bias the second model describes. The
+    interval covers the effect within the selected working models, so every estimate carries
+    the status ``working_model_projection``. Only :class:`~cleverly.TrialWithExternalData`
+    takes this method.
+
+    The method reads the learners of :class:`ModelSpec`, ``enabled``, ``n_folds`` and
+    ``learner_folds`` of :class:`CrossFitting`, ``g_bounds`` of :class:`Targeting`,
+    ``alpha`` of :class:`Inference` and ``random_state`` and ``run_id`` of :class:`Runtime`.
+    It fits no outcome fluctuation, so every other field of those groups must keep its
+    default, and a changed one is refused by name.
+
+    Parameters
+    ----------
+    models : ModelSpec
+        ``outcome_learner`` fits the outcome regressions, ``treatment_learner`` the pooled
+        treatment mechanism, and ``missingness_learner`` the outcome-observation mechanism.
+        ``None`` takes the default Super Learner library.
+    cross_fitting : CrossFitting, default=CrossFitting(n_folds=5)
+        The outer split. ``learner_folds`` also sets the folds of the cross-validation that
+        chooses each lasso penalty. ``form="cv"`` needs ``enabled=True`` and at least three
+        folds. ``repeats`` above one is refused.
+    targeting : Targeting
+        ``g_bounds`` bounds the treatment, trial-membership and observation probabilities.
+    inference : Inference
+        ``alpha`` sets the interval's level.
+    runtime : Runtime
+        Seed and run identifier.
+    name : str
+        Stable method name.
+    form : {"cv", "pooled"}, default="cv"
+        ``"cv"`` is the adaptive CV-TMLE (Appendix C, Theorem 2), which selects each fold's
+        working models on the other folds. ``"pooled"`` is Algorithm 1 (Section 7,
+        Theorem 1), which selects them on every row with cross-fitted nuisances.
+    working_basis : scikit-learn transformer or None, default=None
+        Maps the covariates to the dictionary the working models are selected from.
+        ``None`` takes a standardized linear term, hinge terms at five quantile knots and
+        pairwise products for each continuous covariate, and indicators for a covariate with
+        few values.
+    source_learner : estimator or None, default=None
+        Learner for the trial-membership probabilities ``P(S = 1 | W, A)`` and
+        ``P(S = 1 | W)``. ``None`` takes ``models.treatment_learner``, then the default
+        Super Learner.
+
+    Raises
+    ------
+    MethodConfigurationError
+        When ``form`` is not ``"cv"`` or ``"pooled"``, when ``repeats`` is above one, when
+        ``form="cv"`` has fewer than three folds or cross-fitting off, or when a field the
+        method does not read differs from its default.
+
+    See Also
+    --------
+    TrialWithExternalData : The design this method fits.
+    TrialATE : The effect it estimates.
+    cleverly.estimators.atmle_result.AdaptiveTMLEResult : What a fit returns.
+
+    Examples
+    --------
+    >>> from cleverly import AdaptiveTMLEMethod, CrossFitting
+    >>> method = AdaptiveTMLEMethod(form="pooled", cross_fitting=CrossFitting(n_folds=3))
+    >>> method.name, method.form, method.cross_fitting.n_folds
+    ('atmle', 'pooled', 3)
+
+    A setting the method does not read is refused before any fit:
+
+    >>> from cleverly import MethodConfigurationError
+    >>> try:
+    ...     AdaptiveTMLEMethod().with_overrides(n_bootstrap=200)
+    ... except MethodConfigurationError as error:
+    ...     print(str(error).split(";")[1].strip())
+    inference.n_bootstrap does not apply. Remove it.
+    """
+
+    _ratio_refusal: ClassVar[Refusal | None] = None
+    _density_bins_refusal: ClassVar[Refusal | None] = None
+
+    cross_fitting: CrossFitting = CrossFitting(n_folds=5)
+    form: Literal["cv", "pooled"] = "cv"
+    working_basis: Any = None
+    source_learner: Any = None
+    name: str = "atmle"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.form not in ("cv", "pooled"):
+            raise MethodConfigurationError(
+                f"form must be 'cv' or 'pooled'; got {self.form!r}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        cross = self.cross_fitting
+        if cross.repeats > 1:
+            raise MethodConfigurationError.from_refusal(ATMLE_REPEATS_REFUSAL)
+        if self.form == "cv" and (not cross.enabled or cross.n_folds < 3):
+            raise MethodConfigurationError.from_refusal(ATMLE_CV_FOLDS_REFUSAL)
+        defaults = AdaptiveTMLEMethod.__dataclass_fields__
+        for group in ("models", "cross_fitting", "targeting", "inference", "runtime"):
+            value = getattr(self, group)
+            default = defaults[group].default
+            for item in dataclass_fields(value):
+                if (group, item.name) in ATMLE_FIELDS:
+                    continue
+                if _differs_from_default(getattr(value, item.name), getattr(default, item.name)):
+                    raise MethodConfigurationError(
+                        f"adaptive TMLE fits no outcome fluctuation; {group}.{item.name} does "
+                        "not apply. Remove it.",
+                        reason=RefusalReason.INVALID_DECLARATION,
+                    )
+        if self.working_basis is not None and not (
+            callable(getattr(self.working_basis, "fit", None))
+            and callable(getattr(self.working_basis, "transform", None))
+        ):
+            raise MethodConfigurationError(
+                "working_basis must be a scikit-learn transformer with fit and transform, or "
+                f"None; got {type(self.working_basis).__name__}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        _validate_learner(self.source_learner, "source_learner")
+
+    def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
+        """Translate this configuration for the adaptive TMLE engine.
+
+        The learners are returned as declared: the fit resolves ``None`` to the default
+        library once it knows the outcome family, and ``g_bounds="auto"`` once it knows the
+        number of rows.
+
+        Parameters
+        ----------
+        longitudinal : bool
+            Must be false, because adaptive TMLE is derived for one treatment decision.
+
+        Returns
+        -------
+        dict of str to Any
+            Engine keyword arguments.
+
+        Raises
+        ------
+        MethodConfigurationError
+            When ``longitudinal`` is true.
+        """
+        if longitudinal:
+            raise MethodConfigurationError(
+                "adaptive TMLE is derived for one treatment decision in a trial pooled with "
+                "external data; declare TrialWithExternalData",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        models = self.models
+        cross = self.cross_fitting
+        return {
+            "outcome_learner": models.outcome_learner,
+            "treatment_learner": models.treatment_learner,
+            "source_learner": (
+                self.source_learner if self.source_learner is not None else models.treatment_learner
+            ),
+            "missingness_learner": models.missingness_learner,
+            "g_bounds": self.targeting.g_bounds,
+            "basis": self.working_basis,
+            "form": self.form,
+            "n_folds": cross.n_folds if cross.enabled else 1,
+            "inner_folds": cross.learner_folds,
+            "random_state": self.runtime.random_state,
         }
 
 

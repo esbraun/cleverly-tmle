@@ -41,6 +41,7 @@ from .assessment import (
     TruncationCurve,
     ValidationReport,
 )
+from .estimators.atmle_result import AdaptiveTMLEResult
 from .estimators.serialize import load
 from .exceptions import (
     CapabilityError,
@@ -62,6 +63,7 @@ from .learners import SplitPlan, SuperLearner
 from .longitudinal import Repeated
 from .methods import (
     AdaptiveIPTWMethod,
+    AdaptiveTMLEMethod,
     CollaborativeTMLEMethod,
     CrossFitting,
     DRTMLEMethod,
@@ -113,6 +115,8 @@ from .study import (
     RegimeMean,
     RiskRatio,
     TimeToEvent,
+    TrialATE,
+    TrialWithExternalData,
 )
 from .variable_importance import (
     VariableImportanceEntry,
@@ -125,6 +129,8 @@ __all__ = [
     "ATE",
     "ATT",
     "AdaptiveIPTWMethod",
+    "AdaptiveTMLEMethod",
+    "AdaptiveTMLEResult",
     "AssessmentCapability",
     "AssessmentReport",
     "AssessmentStatus",
@@ -191,6 +197,8 @@ __all__ = [
     "TMLEMethod",
     "Targeting",
     "TimeToEvent",
+    "TrialATE",
+    "TrialWithExternalData",
     "TruncationCurve",
     "ValidationReport",
     "VariableImportanceEntry",
