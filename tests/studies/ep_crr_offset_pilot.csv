@@ -1,0 +1,9 @@
+group,statistic,replicates,mean,sd
+d3_complex_limited_1k,ep_offset,31,0.16159,0.462589
+d3_complex_limited_1k,t_offset,31,0.231517,0.519841
+d3_complex_limited_1k,ep_offset_unit_weight,31,0.832946,0.592276
+d3_complex_limited_1k,offset_seconds,31,24.3818,0.747276
+d3_complex_limited_4k,ep_offset,31,0.245716,0.344483
+d3_complex_limited_4k,t_offset,31,1.34554,0.351074
+d3_complex_limited_4k,ep_offset_unit_weight,31,1.71717,0.34093
+d3_complex_limited_4k,offset_seconds,31,31.3399,0.991856

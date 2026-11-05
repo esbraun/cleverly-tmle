@@ -187,9 +187,56 @@ class TestTheDesignNumbers:
         assert study.REPLICATES[label] == numbers["laws"][label]["replicates"]
 
     def test_every_powered_law_reaches_the_target(self, numbers: dict) -> None:
+        # The N2 rule reads each gate's assurance: its pass probability averaged over the
+        # pilot's uncertainty (design review B2 of PR-b), which is below the point value.
         for label, row in numbers["laws"].items():
             if row["powered"]:
+                assert study.min_gate(row["assurance"]) >= study.TARGET_PASS, label
                 assert min(row["gates"].values()) >= study.TARGET_PASS, label
+
+    def test_the_family_wise_assurance(self, numbers: dict) -> None:
+        # Every gated row green together, and no red row other than a growth row under
+        # reading (a) of the regenerate docstring.  The residual is mostly the moderate rescue
+        # law's growth gate, whose 40-replicate pilot places it least well.
+        family = numbers["family"]
+        assert family["pass"] > 0.9
+        assert family["no_suspect"] > 0.95
+        rescue = numbers["laws"]["d3_complex_moderate_noise2"]["assurance"]
+        assert rescue["rescue_growth_suspect"] < 0.05
+
+    def test_reading_a_takes_a_red_growth_from_below_and_nothing_else(self) -> None:
+        # EP below the oracle at 1k and at it by 4k: a red growth row is reading (a).
+        below = study.growth_assurance(
+            {"mean": -0.3, "sd": 0.4, "replicates": 24},
+            {"mean": 0.0, "sd": 0.4, "replicates": 24},
+            300,
+            study.GROWTH_MARGIN,
+            large_margin=study.THM5_MARGIN,
+            seed=3,
+        )
+        assert below["reading_a"] > 0.5 and below["suspect"] < 0.01
+        assert below["pass"] + below["reading_a"] + below["suspect"] == pytest.approx(1, abs=0.02)
+        # The same change from above 0: a red row stays a defect suspect.
+        above = study.growth_assurance(
+            {"mean": 0.3, "sd": 0.4, "replicates": 24},
+            {"mean": 0.6, "sd": 0.4, "replicates": 24},
+            300,
+            study.GROWTH_MARGIN,
+            large_margin=study.THM5_MARGIN,
+            seed=3,
+        )
+        assert above["reading_a"] < 0.01 and above["suspect"] > 0.5
+
+    def test_assurance_averages_below_the_point_value(self) -> None:
+        # A pilot that cannot place a gate far from its margin reads lower under assurance.
+        row = {"mean": 0.10, "sd": 0.35, "replicates": 24}
+        point = study.gate_pass(0.10, 0.35, 300, study.GROWTH_MARGIN, below=True)
+        assured = study.gate_assurance(row, 300, study.GROWTH_MARGIN, below=True, seed=1)
+        assert assured < point
+        resolved = study.gate_assurance(
+            {**row, "replicates": 100_000}, 300, study.GROWTH_MARGIN, below=True, seed=1
+        )
+        assert resolved == pytest.approx(point, abs=0.01)
 
     def test_every_law_is_powered(self, numbers: dict) -> None:
         assert all(row["powered"] for row in numbers["laws"].values())

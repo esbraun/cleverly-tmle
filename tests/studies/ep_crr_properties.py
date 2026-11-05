@@ -74,10 +74,11 @@ def oracle_values(group: Any, fitted: dict[str, Any]) -> dict[str, float]:
     if group.kind == "cv":
         return out
     out[f"{group.label}__t_learner"] = math.log(ensemble["t_learner"] / ensemble["oracle"])
-    if "misspecified" in fitted:
-        wrong = fitted["misspecified"]
-        out[f"{group.label}__ep_misspecified"] = math.log(wrong["ep"] / wrong["oracle"])
-        out[f"{group.label}__t_misspecified"] = math.log(wrong["t_learner"] / wrong["oracle"])
+    for learner in study.RESCUE_LEARNERS:
+        if learner in fitted:
+            wrong = fitted[learner]
+            out[f"{group.label}__ep_{learner}"] = math.log(wrong["ep"] / wrong["oracle"])
+            out[f"{group.label}__t_{learner}"] = math.log(wrong["t_learner"] / wrong["oracle"])
     return out
 
 
@@ -94,18 +95,19 @@ def _replicate(label: str, replicate: int, drawn: Any) -> list[dict[str, Any]]:
         _row(study.ORACLE, cell, roles[cell], group, replicate, value)
         for cell, value in oracle_values(group, fitted).items()
     ]
+    (hessian,) = study.hessian_cells(group)
+    rows.append(
+        _row(
+            study.HESSIAN,
+            hessian,
+            property_verdicts.DIAGNOSTIC_ROLE,
+            group,
+            replicate,
+            fitted["ensemble"]["oracle_pd"],
+        )
+    )
     for learner in study.learners_of(group):
         errors = fitted[learner]
-        rows.append(
-            _row(
-                study.HESSIAN,
-                f"{group.label}__{learner}_oracle_pd",
-                property_verdicts.DIAGNOSTIC_ROLE,
-                group,
-                replicate,
-                errors["oracle_pd"],
-            )
-        )
         if group.kind != "gated":
             continue
         values = {
@@ -166,15 +168,16 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
 
 
 def margin_of(cell: str) -> tuple[float, str]:
-    if cell.endswith("__t_misspecified"):
-        return study.RESCUE_MARGIN, "above"
-    if cell.endswith("__ep_misspecified"):
-        return study.RESCUE_MARGIN, "below"
+    for learner in study.RESCUE_LEARNERS:
+        if cell.endswith(f"__t_{learner}"):
+            return study.RESCUE_MARGIN, "above"
+        if cell.endswith(f"__ep_{learner}"):
+            return study.RESCUE_MARGIN, "below"
     return study.THM5_MARGIN, "below"
 
 
 def excluded_replicates(rows: pd.DataFrame) -> dict[str, set[int]]:
-    """Group label -> the replicates whose oracle Hessian (any learner) was not PD."""
+    """Group label -> the replicates whose oracle Hessian was not PD."""
     hessian = rows.loc[(rows["property"] == study.HESSIAN) & (rows["estimate"] < 0.5)]
     out: dict[str, set[int]] = {}
     for cell, replicate in zip(hessian["cell"], hessian["replicate"], strict=True):
@@ -192,10 +195,19 @@ def oracle_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> list[dict[str,
         growth=[
             (law.label, study.gated_n(law), estimator)
             for law in study.LAWS
-            for estimator in ("ep",) + ("ep_misspecified",) * law.rescue
+            for estimator in (
+                "ep",
+                *(f"ep_{learner}" for learner in study.RESCUE_LEARNERS * law.rescue),
+            )
         ],
         excluded=excluded_replicates(rows),
         allowed=allowed,
+        reported=frozenset(
+            f"{law.label}__ep_{learner}_growth"
+            for law in study.LAWS
+            if law.rescue
+            for learner in study.REPORTED_GROWTH
+        ),
     )
 
 

@@ -34,8 +34,11 @@ no control could make its warning fail.  The strong-law replicates are the first
 EP-minus-constant DR risk difference against its exact value at the true CATE,
 ``mean_i (p_i - tau_0(W_i))^2 - (c_i - tau_0(W_i))^2``: at the strong law, the share of
 replicates whose reported difference has the exact value's sign has a 99% Clopper-Pearson
-lower bound of at least 0.80.  At the weak law the true difference is of the order of the
-estimation SD, so the share is reported only.
+lower bound of at least 0.80.  The claim is near certain at the strong law (the pilot's signed
+difference is 2.00 with SD 0.091), so it detects only a gross defect, such as a sign error in
+the risk's cross term; the accuracy of the reading is reported by the ``risk_difference`` and
+``exact_difference`` rows, not gated (design review S5 of PR-b).  At the weak law the true
+difference is of the order of the estimation SD, so the share is reported only.
 
 The run is ``python -m tests.canonical.ep_assessment.regenerate``.  The replicate counts are
 the plan's; :func:`design_numbers` computes every claim's pass probability from the committed

@@ -25,7 +25,9 @@ plan's reading of EPL App B.2 in three ways, recorded here:
 The baseline is ``0.5 sum W + sum sin(5 W) + sum 1/(W + 1.2)``.  The d = 20 laws are
 ``sim.CATEHighDim(positivity=FALSE)``: ``W = Z / 2`` with ``Z`` a normal vector with unit
 variances and covariances 0.4 truncated to ``[-2, 2]^20`` (drawn here by rejection, which is
-exact; hte3 uses a Gibbs sampler), ``logit pi = (W1 + W5 + W9 + W11 + W19) / 1.3``.  The one
+exact; hte3 uses a Gibbs sampler), ``logit pi = (W1 + W5 + W9 + W11 + W19) / 1.3``.  Their
+labels read "limited" because ``/ 1.3`` is hte3's worse overlap at d = 20: in that generator
+``positivity=TRUE`` divides by 5 and gives the *better* overlap, the reverse of d = 3.  The one
 declared change from the code is C1: the noise is a standard normal truncated at
 :data:`NOISE_TRUNCATION` (which moves the law by ``P(|e| > 4) = 6.3e-5``; symmetric, so the
 CATE is unchanged), and ``q_bounds`` covers the outcome range (:func:`q_bounds`).
@@ -746,7 +748,12 @@ COMPARATOR = Comparator(
     kind="different estimator",
     runner="hte3_ep_runner.R",
     status="pending",
-    reason="hte3 runs on the owner's machine (P1 plan 5.2); this session has no R",
+    reason=(
+        "hte3 runs on the owner's machine (P1 plan 5.2); this session has no R. The runner "
+        "reads DRAWS.csv and POINTS.csv, which no code writes yet: the draws regenerate from "
+        "the run's stream seeds, so the declared run saves nothing extra, and the comparator "
+        "run needs an exporter first"
+    ),
 )
 
 STUDY = StudyRecord(
@@ -922,6 +929,83 @@ def growth_pass(
     return float(stats.norm.cdf((margin - half - (large[0] - small[0])) / spread))
 
 
+#: Draws of the pilot's uncertainty that :func:`assurance_draws` averages over, and their seed.
+ASSURANCE_DRAWS = 20_000
+ASSURANCE_SEED = 7
+
+
+def assurance_draws(
+    row: Mapping[str, float], rng: np.random.Generator
+) -> tuple[np.ndarray, np.ndarray]:
+    """Plausible true means and SDs of one pilot statistic (design review B2 of PR-b).
+
+    The mean is normal about the pilot's with its standard error; the SD is the pilot's
+    scaled by ``sqrt((m - 1) / chi2_{m-1})``, the posterior of a normal SD under the usual
+    reference prior.  :func:`gate_assurance` and :func:`growth_assurance` average the pass
+    probability over them, so a gate the pilot cannot place far from its margin reads lower
+    than at the pilot's point values.
+    """
+    m = int(row["replicates"])
+    mean = rng.normal(row["mean"], row["sd"] / math.sqrt(m), ASSURANCE_DRAWS)
+    sd = row["sd"] * np.sqrt((m - 1) / rng.chisquare(m - 1, ASSURANCE_DRAWS))
+    return mean, sd
+
+
+def _bound_pass(
+    mean: np.ndarray, sd: np.ndarray, replicates: int, margin: float, below: bool
+) -> np.ndarray:
+    half = float(stats.t.ppf(CONFIDENCE, replicates - 1)) * sd / math.sqrt(replicates)
+    spread = sd / math.sqrt(replicates)
+    if below:
+        return np.asarray(stats.norm.cdf((margin - half - mean) / spread))
+    return np.asarray(stats.norm.sf((margin + half - mean) / spread))
+
+
+def gate_assurance(
+    row: Mapping[str, float], replicates: int, margin: float, *, below: bool, seed: int
+) -> float:
+    """:func:`gate_pass` averaged over :func:`assurance_draws`."""
+    mean, sd = assurance_draws(row, np.random.default_rng(seed))
+    return float(np.mean(_bound_pass(mean, sd, replicates, margin, below)))
+
+
+def growth_assurance(
+    small: Mapping[str, float],
+    large: Mapping[str, float],
+    replicates: int,
+    margin: float,
+    *,
+    large_margin: float,
+    seed: int,
+) -> dict[str, float]:
+    """The growth gate's assurance, and how a red growth row would be read.
+
+    Returns ``pass``, the growth gate's pass probability averaged over the pilot's
+    uncertainty, and ``reading_a``, the probability that the growth row is red while the
+    small end's mean log ratio is below 0 and the large end's own gate (Thm 5, or the rescue
+    gate at ``large_margin``) is green: EP
+    approaching the oracle from below, which the declared reading takes as reporting, not as
+    a defect suspect.  ``suspect`` is the rest of the red probability.  One run outcome is
+    drawn per pilot draw, so the joint event is read by Monte Carlo.
+    """
+    rng = np.random.default_rng(seed)
+    mean_s, sd_s = assurance_draws(small, rng)
+    mean_l, sd_l = assurance_draws(large, rng)
+    spread = np.sqrt((sd_s**2 + sd_l**2) / replicates)
+    half = float(stats.t.ppf(CONFIDENCE, 2 * replicates - 2)) * spread
+    passes = stats.norm.cdf((margin - half - (mean_l - mean_s)) / spread)
+    run_s = rng.normal(mean_s, sd_s / math.sqrt(replicates))
+    run_l = rng.normal(mean_l, sd_l / math.sqrt(replicates))
+    red = run_l - run_s + half >= margin
+    bound_l = run_l + float(stats.t.ppf(CONFIDENCE, replicates - 1)) * sd_l / math.sqrt(replicates)
+    reading_a = red & (run_s < 0.0) & (bound_l < large_margin)
+    return {
+        "pass": float(np.mean(passes)),
+        "reading_a": float(np.mean(reading_a)),
+        "suspect": float(np.mean(red & ~reading_a)),
+    }
+
+
 #: The committed pilot summary (:mod:`tests.studies.ep_cate_pilot`), on a stream disjoint
 #: from the run's.
 PILOT_CSV = ROOT / "tests" / "studies" / "ep_cate_pilot.csv"
@@ -967,19 +1051,108 @@ def law_gates(
     return out
 
 
+def law_assurance(
+    law: Any,
+    pilot: Mapping[tuple[str, str], Mapping[str, float]],
+    replicates: int,
+    *,
+    rescue_margin: float,
+    record: StudyRecord,
+    rescue_learners: tuple[str, ...] = ("misspecified",),
+    reported_growth: tuple[str, ...] = (),
+) -> dict[str, float]:
+    """:func:`law_gates` averaged over the pilot's uncertainty (design review B2 of PR-b).
+
+    A rescue learner in ``reported_growth`` has its growth row reported, not gated, so it has no
+    growth entry here.
+
+    Each growth gate also gives ``<gate>_reading_a`` and ``<gate>_suspect``
+    (:func:`growth_assurance`).  ``law`` is an ``ep-cate`` or ``ep-crr`` law; the latter has no
+    ``ensemble`` field and always fits the ensemble.
+    """
+    small, large = (group_label(law.label, n) for n in (law.sizes[0], law.sizes[-1]))
+
+    def seed(gate: str) -> int:
+        return stream_seed(record, "assurance", law.label, gate)
+
+    out: dict[str, float] = {}
+    estimators = []
+    if getattr(law, "ensemble", True):
+        estimators.append(("ep", THM5_MARGIN, "thm5", "growth"))
+    if law.rescue:
+        for learner in rescue_learners:
+            suffix = rescue_suffix(learner)
+            estimators.append(
+                (f"ep_{learner}", rescue_margin, f"rescue{suffix}", f"rescue{suffix}_growth")
+            )
+    reported = {f"ep_{learner}" for learner in reported_growth}
+    for statistic, margin, gate, growth in estimators:
+        out[gate] = gate_assurance(
+            pilot[(large, statistic)], replicates, margin, below=True, seed=seed(gate)
+        )
+        if statistic in reported:
+            continue
+        reading = growth_assurance(
+            pilot[(small, statistic)],
+            pilot[(large, statistic)],
+            replicates,
+            GROWTH_MARGIN,
+            large_margin=margin,
+            seed=seed(growth),
+        )
+        out[growth] = reading["pass"]
+        out[f"{growth}_reading_a"] = reading["reading_a"]
+        out[f"{growth}_suspect"] = reading["suspect"]
+    if law.rescue:
+        for learner in rescue_learners:
+            control = f"control{rescue_suffix(learner)}"
+            out[control] = gate_assurance(
+                pilot[(large, f"t_{learner}")],
+                replicates,
+                rescue_margin,
+                below=False,
+                seed=seed(control),
+            )
+    return out
+
+
+def rescue_suffix(learner: str) -> str:
+    """The gate-name suffix of a rescue learner: none for the plan's own."""
+    return "" if learner == "misspecified" else f"_{learner}"
+
+
+def gate_names(gates: Mapping[str, float]) -> tuple[str, ...]:
+    """The gates of a :func:`law_assurance` result, without the growth readings."""
+    return tuple(name for name in gates if not name.endswith(("_reading_a", "_suspect")))
+
+
 def sized_replicates(
     law: Law, pilot: Mapping[tuple[str, str], Mapping[str, float]]
 ) -> tuple[int, bool]:
     """The N2 rule: the smallest candidate ``R`` at which every gate reaches the target.
 
-    Returns the largest candidate and ``False`` when none does (the schedule row then stays
-    experimental with the plan's reason, and the gates still run).
+    A gate's probability is its assurance (:func:`law_assurance`), the pass probability
+    averaged over the pilot's uncertainty, not its value at the pilot's point estimates
+    (design review B2 of PR-b).  Returns the largest candidate and ``False`` when none does
+    (the schedule row then stays experimental with the plan's reason, and the gates still run).
     """
     candidates = R_CANDIDATES[law.dimension]
     for replicates in candidates:
-        if min(law_gates(law, pilot, replicates).values()) >= TARGET_PASS:
+        if min_gate(assured(law, pilot, replicates)) >= TARGET_PASS:
             return replicates, True
     return candidates[-1], False
+
+
+def assured(
+    law: Law, pilot: Mapping[tuple[str, str], Mapping[str, float]], replicates: int
+) -> dict[str, float]:
+    """This study's :func:`law_assurance`."""
+    return law_assurance(law, pilot, replicates, rescue_margin=RESCUE_MARGIN, record=STUDY)
+
+
+def min_gate(gates: Mapping[str, float]) -> float:
+    """The smallest gate probability, the growth readings left out."""
+    return min(gates[name] for name in gate_names(gates))
 
 
 def fixed_bias_pass(standardized: float, replicates: int = FIXED_REPLICATES) -> float:
@@ -1001,6 +1174,8 @@ def cost_hours(pilot: Mapping[tuple[str, str], Mapping[str, float]]) -> dict[str
             total += pilot[key]["mean"] * group.replicates
         elif group.kind == "cv":
             total += CV_SECONDS * group.replicates
+    # The primary phase: the projection TMLE of obs_4k, about 0.31 CPU-s per replicate.
+    total += PRIMARY_REPLICATES * 0.31
     hours = total / 3600.0
     return {"cpu_hours": hours, "wall_hours_4": hours / 4.0, "wall_hours_16": hours / 16.0}
 
@@ -1024,7 +1199,9 @@ def design_numbers() -> dict[str, Any]:
             "replicates": replicates,
             "powered": powered,
             "gates": law_gates(law, pilot, replicates),
+            "assurance": assured(law, pilot, replicates),
         }
+    family = family_assurance(laws)
     projection_pilot = projection.pilot_rows()
     fixed = {}
     for term in projection.TERMS:
@@ -1041,4 +1218,25 @@ def design_numbers() -> dict[str, Any]:
         products = [pilot[(group_label(law.label, int(n)), "product")]["mean"] for n in law.sizes]
         slope = float(np.polyfit(np.log(sizes), np.log(products), 1)[0])
         nuisance[law.label] = {"product_slope": slope, "faster_than_root_n": slope < -0.5}
-    return {"laws": laws, "fixed": fixed, "nuisance": nuisance, "cost": cost_hours(pilot)}
+    return {
+        "laws": laws,
+        "family": family,
+        "fixed": fixed,
+        "nuisance": nuisance,
+        "cost": cost_hours(pilot),
+    }
+
+
+def family_assurance(laws: Mapping[str, Mapping[str, Any]]) -> dict[str, float]:
+    """The family-wise reading of every gate, laws and gates taken as independent.
+
+    ``pass`` is the probability that every gated row is green; ``no_suspect`` the probability
+    that no row is red other than a growth row under declared reading (a).
+    """
+    passes, clean = [], []
+    for row in laws.values():
+        gates = row["assurance"]
+        for name in gate_names(gates):
+            passes.append(gates[name])
+            clean.append(gates[name] + gates.get(f"{name}_reading_a", 0.0))
+    return {"pass": float(np.prod(passes)), "no_suspect": float(np.prod(clean))}

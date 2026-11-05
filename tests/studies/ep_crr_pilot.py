@@ -28,17 +28,24 @@ from tests.studies.evidence.seeds import stream_seed
 
 STREAM = "crr_ise_ratio_pilot"
 
+#: The second pilot (design review B2): ``d3_simple_limited`` at both ends of its growth gate,
+#: on its own stream, so the gate's pass probability is read at a resolved spread.
+GROWTH_STREAM = "crr_growth_pilot"
+GROWTH_GROUPS = ("d3_simple_limited_1k", "d3_simple_limited_4k")
+GROWTH_REPLICATES = 100
+GROWTH_CSV = Path(__file__).with_name("ep_crr_growth_pilot.csv")
+
 #: Pilot replicates per gated group.
 REPLICATES = 24
 
 PILOT_CSV = Path(__file__).with_name("ep_crr_pilot.csv")
 
 
-def one(task: tuple[str, int]) -> dict[str, Any]:
-    label, replicate = task
+def one(task: tuple[str, int, str]) -> dict[str, Any]:
+    label, replicate, stream = task
     group = study.GROUP_BY_LABEL[label]
     frame, _ = study.draw_from_seed(
-        label, group.n, stream_seed(study.STUDY, STREAM, label, replicate)
+        label, group.n, stream_seed(study.STUDY, stream, label, replicate)
     )
     start = time.process_time()
     law = study.LAW_BY_LABEL[group.law]
@@ -62,23 +69,27 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--raw", type=Path, required=True)
     parser.add_argument("--jobs", type=int, default=4)
-    parser.add_argument("--replicates", type=int, default=REPLICATES)
+    parser.add_argument("--replicates", type=int, default=None)
+    parser.add_argument("--growth", action="store_true", help="the B2 growth pilot")
     parser.add_argument("--summarize", action="store_true")
     arguments = parser.parse_args()
     arguments.raw.mkdir(parents=True, exist_ok=True)
     if arguments.summarize:
         summary = ep_cate_pilot.summarize(arguments.raw)
-        summary.to_csv(PILOT_CSV, index=False, float_format="%.6g")
+        target = GROWTH_CSV if arguments.growth else PILOT_CSV
+        summary.to_csv(target, index=False, float_format="%.6g")
         return
     tasks = []
+    stream = GROWTH_STREAM if arguments.growth else STREAM
+    count = arguments.replicates or (GROWTH_REPLICATES if arguments.growth else REPLICATES)
     for group in study.GROUPS:
-        if group.kind != "gated":
+        if group.kind != "gated" or (arguments.growth and group.label not in GROWTH_GROUPS):
             continue
         path = arguments.raw / f"{group.label}.jsonl"
         done = set()
         if path.exists():
             done = {json.loads(line)["replicate"] for line in path.read_text().splitlines()}
-        tasks += [(group.label, r) for r in range(arguments.replicates) if r not in done]
+        tasks += [(group.label, r, stream) for r in range(count) if r not in done]
     tasks.sort(key=lambda task: -study.GROUP_BY_LABEL[task[0]].n)
     with Pool(arguments.jobs, maxtasksperchild=4) as pool:
         for record in pool.imap_unordered(one, tasks):
@@ -91,4 +102,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["PILOT_CSV", "REPLICATES", "STREAM"]
+__all__ = ["GROWTH_CSV", "GROWTH_STREAM", "PILOT_CSV", "REPLICATES", "STREAM"]

@@ -126,6 +126,10 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
 # ---------------------------------------------------------------- the verdicts
 
 
+#: The cells whose reading is the share of replicates at 1: the rest are continuous.
+SHARE_SUFFIXES = ("__warns", "__sign_agrees")
+
+
 def verdict(family: str, cell: str, values: np.ndarray) -> dict[str, Any]:
     """The reading, its bounds, the threshold and the verdict of one gated cell."""
     if family == study.CALIBRATION:
@@ -142,6 +146,17 @@ def verdict(family: str, cell: str, values: np.ndarray) -> dict[str, Any]:
             "reading_upper": high,
             "threshold": threshold,
             "passed": bool(passed),
+        }
+    if not cell.endswith(SHARE_SUFFIXES):
+        # A continuous diagnostic (relative_sd, risk_difference, exact_difference) reads its
+        # mean, with no threshold (design review S4 of PR-b).
+        low, high = study.mean_interval(values)
+        return {
+            "reading": float(np.mean(values)),
+            "reading_lower": low,
+            "reading_upper": high,
+            "threshold": float("nan"),
+            "passed": True,
         }
     successes = int(np.sum(values > 0.5))
     lower = study.share_lower(successes, values.size)

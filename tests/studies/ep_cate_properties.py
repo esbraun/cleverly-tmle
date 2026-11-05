@@ -241,6 +241,30 @@ def oracle_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> list[dict[str,
     )
 
 
+#: The shared summary columns that an ``oracle_comparison`` row leaves blank.
+MEANINGLESS_ON_RATIOS = (
+    "truth",
+    "bias",
+    "bias_se",
+    "bias_ci_lower",
+    "bias_ci_upper",
+    "bias_margin",
+    "standardized_bias",
+    "bias_equivalent",
+    "bias_discriminated",
+    "root_n_bias",
+    "mean_std_error",
+    "se_ratio",
+    "coverage",
+    "coverage_ci_lower",
+    "coverage_ci_upper",
+    "rejection_rate",
+    "rejection_ci_lower",
+    "rejection_ci_upper",
+    "nominal_size",
+)
+
+
 def comparison_verdicts(
     summary: pd.DataFrame,
     rows: pd.DataFrame,
@@ -249,6 +273,7 @@ def comparison_verdicts(
     growth: list[tuple[str, tuple[int, int], str]],
     excluded: dict[str, set[int]] | None = None,
     allowed: dict[str, int] | None = None,
+    reported: frozenset[str] = frozenset(),
 ) -> list[dict[str, Any]]:
     """The bounds and verdicts of the ``oracle_comparison`` rows, and the growth rows.
 
@@ -268,6 +293,9 @@ def comparison_verdicts(
     allowed : dict or None
         Group label -> the exclusions the failure bound allows; a gated row of a group with
         more is red.
+    reported : frozenset of str
+        The growth cells (``<law>__<estimator>_growth``) that are reported, not gated: their
+        row is diagnostic and always passes.
 
     Returns
     -------
@@ -279,6 +307,14 @@ def comparison_verdicts(
     for column in ORACLE_COLUMNS:
         if column not in summary:
             summary[column] = np.nan
+    # Each oracle_comparison row is a log ratio carried with a unit "standard error" and a
+    # zero "truth", so the shared bias, coverage and rejection columns mean nothing there
+    # (design review S3 of PR-b): they are blanked, and the ratio columns are the reading.
+    oracle = summary["property"] == study.ORACLE
+    for column in MEANINGLESS_ON_RATIOS:
+        if column in summary:
+            summary[column] = summary[column].astype(object)
+            summary.loc[oracle, column] = np.nan
 
     def group_of(cell: str) -> str:
         return cell.split("__", 1)[0]
@@ -320,20 +356,22 @@ def comparison_verdicts(
             <= allowed.get(study.group_label(law, n), 0)
             for n in (small_n, large_n)
         )
+        cell = f"{law}__{estimator}_growth"
+        gated = cell not in reported
         row = dict.fromkeys(summary.columns, np.nan)
         row.update(
             {
                 "property": study.ORACLE,
-                "cell": f"{law}__{estimator}_growth",
-                "role": "positive",
+                "cell": cell,
+                "role": "positive" if gated else property_verdicts.DIAGNOSTIC_ROLE,
                 "n": large_n,
                 "replicates": int(min(small.size, large.size)),
                 "failed_replicates": 0,
                 "ratio_mean": change,
                 "ratio_sd": spread,
                 "ratio_upper": upper,
-                "margin": study.GROWTH_MARGIN,
-                "passed": bool(upper < study.GROWTH_MARGIN) and within,
+                "margin": study.GROWTH_MARGIN if gated else np.nan,
+                "passed": (bool(upper < study.GROWTH_MARGIN) and within) or not gated,
                 "property_passed": None,
             }
         )

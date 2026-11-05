@@ -176,3 +176,16 @@ class TestTheVerdicts:
 
     def test_the_stability_warning_states_no_verdict(self) -> None:
         assert self.failed(warns=1.0) == set()
+
+    def test_a_continuous_diagnostic_reads_its_mean(self) -> None:
+        # S4 of the PR-b design review: relative_sd and the risk differences are not shares.
+        rows = synthetic_rows()
+        summary = properties.summarize_properties(rows).set_index("cell")
+        for suffix in ("relative_sd", "risk_difference", "exact_difference"):
+            for group in ("strong_2k", "weak_2k"):
+                cell = study.cell_name(group, suffix)
+                values = rows.loc[rows["cell"] == cell, "estimate"]
+                assert summary.loc[cell, "reading"] == pytest.approx(values.mean())
+                assert np.isnan(summary.loc[cell, "threshold"])
+        share = study.cell_name("weak_2k", "warns")
+        assert summary.loc[share, "threshold"] == study.SHARE_FLOOR

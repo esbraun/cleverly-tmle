@@ -1,0 +1,15 @@
+group,statistic,replicates,mean,sd
+d3_simple_limited_1k,ep,100,-0.139085,0.284838
+d3_simple_limited_1k,t_learner,100,-0.945191,0.506578
+d3_simple_limited_1k,ensemble_oracle_pd,100,1,0
+d3_simple_limited_1k,product,100,0.00241507,0.000749688
+d3_simple_limited_1k,mu_l2,100,0.0683139,0.00880725
+d3_simple_limited_1k,pi_l2,100,0.0352269,0.00956732
+d3_simple_limited_1k,seconds,100,36.7269,2.09758
+d3_simple_limited_4k,ep,100,-0.079689,0.150787
+d3_simple_limited_4k,t_learner,100,-0.85268,0.39486
+d3_simple_limited_4k,ensemble_oracle_pd,100,1,0
+d3_simple_limited_4k,product,100,0.000715503,0.000207957
+d3_simple_limited_4k,mu_l2,100,0.0390675,0.00399974
+d3_simple_limited_4k,pi_l2,100,0.0182741,0.00465624
+d3_simple_limited_4k,seconds,100,43.1169,2.09288

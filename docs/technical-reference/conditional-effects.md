@@ -151,9 +151,10 @@ van der Laan, Carone and Luedtke (arXiv:2402.01972v2, "EPL" below). It runs in t
    the scaled outcome on features $x$, with offset $\operatorname{logit}\bar Q_n(A, W)$ and
    weight $\Delta w / \{g_n(A \mid W)\Pi_n(A, W)\}$. On the difference scale
    $x = (1\{A = t\} - 1\{A = r\})\varphi_k(V)$; on the log-ratio scale
-   $x = (1\{A \in \{t, r\}\}\varphi_k, 1\{A = t\}\varphi_k)$, the blocks $H_1 = 1$ and
-   $H_2 = a$ of EPL eq (3). Its score is zero at the fit, which is EPL's equations (6), and the
-   updated $\bar Q^*$ stays inside $(0, 1)$. Rows of a third arm carry no feature.
+   $x = (1\{A \in \{t, r\}\}\varphi_k, 1\{A = t\}\varphi_k)$, which span the blocks
+   $H_1 = 1$ and $H_2 = -a$ of EPL eq (3). Its score is zero at the fit, which is EPL's
+   equations (6), and the updated $\bar Q^*$ stays inside $(0, 1)$. Rows of a third arm carry
+   no feature.
 3. **Final stage** (EPL Algorithm 3). On the difference scale, least squares of
    $\bar Q^*(t, W) - \bar Q^*(r, W)$ on $\varphi_k(V)$, times $b - a$ of the declared outcome
    range, or a declared `final_learner` on the modifier columns. On the log-ratio scale, the
@@ -176,7 +177,7 @@ What the theory claims, by configuration:
 | configuration | claim |
 | --- | --- |
 | difference, fixed size $k$, default final stage | the projection onto $\operatorname{span}(\varphi_k)$, the target of the TMLE projection: the EP coefficients solve both parts of its efficient estimating equation, $P_n\varphi\{(2A - 1)(Y - \bar Q^*)/g\} = 0$ and $P_n\varphi(\tau^* - \varphi^\top\beta) = 0$. Consistent if either nuisance is; no interval |
-| difference, a declared schedule $k(n)$ | EPL Theorems 4 and 5 under their conditions C1 to C6, which the user must judge: a rate, and $\lVert\theta^*_n - \theta_{n0}\rVert = o_p(E\lVert\theta_{n0} - \theta_0\rVert)$ for the oracle DR-learner $\theta_{n0}$ |
+| difference, a declared schedule $k(n)$ | EPL Theorems 4 and 5 under their conditions C1 to C6, which the user must judge, for empirical risk minimisation over a fixed, uniformly bounded convex class $\mathcal F$ that meets C4. The default final stage is least squares over the growing, unbounded span of $\varphi_{k(n)}$, so the user must also judge that it behaves as such a class. Then: a rate, and $\lVert\theta^*_n - \theta_{n0}\rVert = o_p(E\lVert\theta_{n0} - \theta_0\rVert)$ for the oracle DR-learner $\theta_{n0}$ |
 | `size="cv"` (the default) | none: EPL proves no theorem for the selected size (Section 5.1) |
 | a declared `final_learner` | none: the theorems cover least squares over a declared convex class (Section 7.1) |
 | log ratio, fixed size | the log-CRR projection's target, but the two-block debiasing does not solve that projection's efficient score $\varphi\{\operatorname{expit}(\eta) - 1\{A = t\}\}$, so no root-$n$ claim |
@@ -184,10 +185,13 @@ What the theory claims, by configuration:
 
 With `model=None` on the difference scale the curve is clipped to $[-(b - a), b - a]$, where
 the target lies, and the result records the clipped share. With `model=` declared the target is
-that projection and nothing is clipped. Every EP fit reads `experimental`: the `ep-cate`,
-`ep-crr` and `ep-assessment` studies below are declared and have not run, and weights, clusters and missing outcomes are implemented
-(the weighted law, the cluster as the unit with grouped folds, the $\Delta/(g\Pi)$ weight)
-without a study. `diagnostics.score_equations()` reports each debiasing feature's weighted mean
+that projection and nothing is clipped. Every EP fit reads `experimental`, for one of two
+reasons. A size chosen by cross-validation (the default) or a declared `final_learner` lies
+outside EPL's theorems, so those fits stay experimental after any study. A fixed size or a
+declared schedule waits on the `ep-cate`, `ep-crr` and `ep-assessment` studies below, which are
+declared and have not run. Weights, clusters and missing outcomes are implemented (the weighted
+law, the cluster as the unit with grouped folds, the $\Delta/(g\Pi)$ weight) without a
+study. `diagnostics.score_equations()` reports each debiasing feature's weighted mean
 score before and after the regression.
 
 ## External scores
@@ -367,8 +371,12 @@ diagnostic row, and the gate runs at App B.2's noise (plan amendment rev 2.4).
 The replicate count of each law comes from pilots on their own streams
 (`tests/studies/ep_cate_pilot.csv`; the rescue laws' stream is separate) by the plan's sizing
 rule, and `tests/unit/test_ep_cate_design.py` pins it: 300 for the d = 3 laws and the rescue
-laws and 200 for the d = 20 laws, each gate passing with probability above 0.98 at the
-pilot's means and spreads. The 2,000-row d = 3 groups feed only the ungated rate report and run
+laws and 200 for the d = 20 laws. Each gate's pass probability is averaged over the pilot's
+own uncertainty in its mean and spread, and every gate passes with probability at least 0.9;
+the whole family passes with probability 0.93. A growth row red while its 1,000-row mean is
+below 0 and the same estimator's 4,000-row gate is green is read before the run as EP
+approaching the oracle from below, and is reported rather than treated as a defect; with that
+reading the family is free of a defect suspect with probability 0.97. The 2,000-row d = 3 groups feed only the ungated rate report and run
 100 replicates. The comparator, hte3 `Lrnr_cate_EP` with `targeting_style="dr"`, is declared
 pending: its debiasing is the linear Method 2, so the two agree only to $o_p(n^{-1/2})$ and the
 comparison is of different estimators.
@@ -384,16 +392,34 @@ The `ep-crr` oracle minimises the
 one-step log-CRR risk at the true nuisances on the same sieve. That risk is not convex in
 general (EPL Section 3.2), so each replicate records whether the oracle's Hessian is positive
 definite. A replicate where it is not is excluded from its group's comparisons, and a gated row
-is red when more than 1% of its group's replicates were excluded. The gates are as in
-`ep-cate`, with the rescue margin at $\log 1.5$: an intercept-only outcome learner on the
-complex law at limited overlap, with the intercept-only T-learner as the control. No DR-learner
-is compared, since the ratio has no such pseudo-outcome.
+is red when more than 1% of its group's replicates were excluded.
+
+The gates are as in
+`ep-cate`, with the rescue margin at $\log 1.5$, on the complex law at limited overlap with two
+wrong outcome learners, each with its T-learner as the control. The first ignores $W$. The
+log-ratio debiasing features span a per-arm logistic model on the sieve and this law's
+$\operatorname{logit} \mu_0$ is nearly additive, so even a debiasing without the $1/\pi$ weight
+recovers the curve there: that cell shows that the debiasing corrects an intercept-only $\mu$,
+and does not see the weight. The second is the true regression with the treated arm's logit
+off by $2\{(\sum_k W_k)^2 - 1\}$, whose cross terms lie outside the additive sieve, so only the
+weighted correction removes the error; its growth row is reported, not gated, because with
+$\mu$ wrong the remainder is first order in the error of $\pi$ and no theorem bounds the
+ratio's growth. No DR-learner is compared, since the ratio has no such pseudo-outcome.
 
 In the `ep-crr` pilot
 (`tests/studies/ep_crr_pilot.csv`) EP reads between $-0.08$ and $-0.02$ at 4,000 on every law,
-the intercept-learner EP $-0.08$ and its T-learner $1.02$, and every gate passes with
-probability above 0.999 at R = 300. No oracle Hessian failed in 240 checks, too few to resolve
-a rate near the 1% bound.
+and the intercept-learner EP $-0.08$ against its T-learner's $1.02$. A second pilot of 100
+replicates at each end of the simple law at limited overlap
+(`tests/studies/ep_crr_growth_pilot.csv`) reads $-0.14$ at 1,000 and $-0.08$ at 4,000. The
+offset pilot (`tests/studies/ep_crr_offset_pilot.csv`, 31 replicates at each end) reads the
+offset-learner EP at 0.25 (SD 0.34) at 4,000, its T-learner at 1.35, and EP with the weight
+replaced by 1 at 1.72, so that mutation fails the rescue gate with probability above 0.999.
+At R = 300 every gate passes with probability at least 0.95 averaged over the pilots'
+uncertainty, and the family with probability 0.93. The test
+`test_the_inverse_propensity_weight[log_ratio]` in `tests/unit/test_ep_exact.py` checks the
+weight exactly on a small population. No oracle Hessian failed in 24,000 checks on the gated
+laws and sizes (`tests/studies/ep_crr_hessian_pilot.csv`), so the 1% exclusion bound turns no
+row red with probability above 0.9999 even at the 95% upper rate.
 
 The `ep-assessment` study (`tests/studies/ep_assessment.py`) has not run. It reads the
 diagnostics of an EP curve on the complex d = 3 law at moderate overlap and on a weak law with
@@ -421,12 +447,21 @@ The EP learner's fast-tier instruments are:
   gap reported (`tests/unit/test_ep_exact.py`);
 - a mutation of each component that the exact checks must fail: the targeting sign, a dropped
   basis column, the contrast's direction, the third arm's feature, the offset, the $(2A - 1)$
-  factor, the $1/g$ and $1/\Pi$ weights, the log ratio's second block and its final-stage
-  weight;
+  factor, the $1/g$ weight on both scales, the $1/\Pi$ weight, the log ratio's second block and
+  its final-stage weight;
 - the study layer at the oracle, the $b - a$ factor, the clip, the estimating equation against
   the TMLE projection, fold locality of the size selection (with a refit that sees its fold as
   the mutation), clusters kept whole in outer and inner folds, the row weights in every outer
-  and inner fit, and each refusal before any learner (`tests/unit/test_ep_contract.py`).
+  and inner outcome and treatment fit (with a fit that drops them as the mutation), and each
+  refusal before any learner, a declared size above the family's largest member among them
+  (`tests/unit/test_ep_contract.py`);
+- frequency weights: on both scales, integer row weights fit the same curve as the rows
+  repeated, to $10^{-10}$, and dropping the row weight from the debiasing weight or from the
+  final stage breaks the equality;
+- the cross-validated risk table recomputed by hand, on a weighted sample and both scales, from
+  each fold's curves, the outer out-of-fold pseudo-outcomes at the held-out rows and the row
+  weights, to $10^{-12}$: evaluating on the training rows, swapping $D_t$ and $D_r$, or dropping
+  the weights moves it.
 
 The [evidence manifest](evidence.md#the-table) lists them. The source is
 van der Laan, Carone and Luedtke (2024; v2 dated 2026), arXiv:2402.01972v2, a preprint; see the
