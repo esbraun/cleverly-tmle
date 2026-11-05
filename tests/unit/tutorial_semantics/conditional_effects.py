@@ -18,8 +18,8 @@ REFIT_CELLS = ("stability",)
 
 #: Decimals the prose writes that no output prints, each with how it follows from one.
 UNPRINTED_DECIMALS = {
-    "0.05": "the calibration line at a prediction of 0.03: intercept 0.028 + slope 0.76 x 0.03",
-    "0.22": "the calibration line at a prediction of 0.25: intercept 0.028 + slope 0.76 x 0.25",
+    "1.00": "the slope of the true effect on the calibration's own out-of-fold predictions, "
+    "which only the simulation knows; _check_assessment recomputes it",
 }
 
 
@@ -45,12 +45,13 @@ def _check_curve(namespace: dict[str, Any]) -> None:
     assert curve.sieve.mode == "cv"
     assert curve.sieve.chosen == 1
     assert 1.8 < estimate[4] / truth[4] < 2.3, "the reading says about double at 60"
+    assert 2.4 < estimate[5] / truth[5] < 3.0, "nearly three times at 70"
     chances = curve.diagnostics.support().propensity_quantiles["overall"]
     assert chances[0.0] > 0.1 and chances[1.0] < 0.9, "the overlap reading"
 
 
 def _check_assessment(namespace: dict[str, Any]) -> None:
-    """The slope is below 1, and the curve has the lowest out-of-fold error."""
+    """The slope is below 1 by noise, and the curve reads below the constant and T-learner."""
     calibration = namespace["calibration"]
     assert 0.5 < calibration.slope < 1.0
     risks = namespace["risks"]
@@ -59,8 +60,15 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     bins = calibration.to_frame()
     middle = bins.iloc[2]
     assert middle["pseudo_outcome_contrast"] < 0.5 * middle["mean_prediction"], "a noisy bin"
-    line = calibration.intercept + calibration.slope * np.array([0.03, 0.25])
-    assert np.allclose(line, [0.05, 0.22], atol=0.005), "the narrated line values"
+    assert risks["dr_learner"] < risks["curve"], "the DR-learner reads slightly lower"
+    # The 0.76 slope is noise in the stand-ins: the true effect against the same out-of-fold
+    # predictions (the calibration's folds and seed) has slope about 1 (accuracy review H2).
+    diagnostics = namespace["curve"].diagnostics
+    predictions, _ = diagnostics._out_of_fold(calibration.n_folds, calibration.random_state)
+    truth = namespace["true_uplift"](namespace["frame"]["age"].to_numpy())
+    design = np.column_stack([np.ones_like(predictions), predictions])
+    _, true_slope = np.linalg.lstsq(design, truth, rcond=None)[0]
+    assert abs(true_slope - 1.0) < 0.05, true_slope
 
 
 def _check_targeting(namespace: dict[str, Any]) -> None:
@@ -92,6 +100,22 @@ def _check_trial(namespace: dict[str, Any]) -> None:
     assert ratio[0] > 0.9 and ratio[-1] < 0.6
     assert 0.7 < namespace["trial_calibration"].slope < 1.3
     assert namespace["ratio_curve"].sieve.mode == "fixed"
+    assert namespace["ratio_curve"].status == "experimental", "a fixed size stays experimental"
+    assert namespace["ratio_curve"].inference_status == "no_interval"
+
+
+def _check_score(namespace: dict[str, Any]) -> None:
+    """On half the rows the CV picks more waves, the cutoff moves far, and the interval covers."""
+    assert namespace["first_curve"].sieve.chosen > 1
+    assert namespace["cutoff"] > 65
+    rise, coupon_cost, true_net = (
+        namespace["rise"],
+        namespace["coupon_cost"],
+        namespace["true_net"],
+    )
+    assert rise["ci_lower"] - coupon_cost < 0 < rise["ci_upper"] - coupon_cost
+    assert rise["ci_lower"] - coupon_cost < true_net < rise["ci_upper"] - coupon_cost
+    assert rise["support"] == "experimental"
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -100,6 +124,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_curve(namespace)
     _check_assessment(namespace)
     _check_targeting(namespace)
+    _check_score(namespace)
     _check_trial(namespace)
 
 
