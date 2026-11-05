@@ -70,8 +70,9 @@ genuinely the scientific question.
 ## Explicitly unimplemented
 
 Graph identification, front-door adjustment, instrumental-variable effects, mediation
-decompositions, transport, direct Riesz learning, and EP learning are proposals or outside the
-current scope. The [roadmap](../roadmap.md) states the evidence required before a proposed method
+decompositions, transport, and direct Riesz learning are proposals or outside the current scope.
+The EP learner of a conditional effect curve ships for `ConditionalContrast` without intervals,
+and EP learning of any other target is not implemented. The [roadmap](../roadmap.md) states the evidence required before a proposed method
 can become a release claim.
 
 ## Extending the package

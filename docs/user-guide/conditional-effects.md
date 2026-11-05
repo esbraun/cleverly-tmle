@@ -114,6 +114,41 @@ per-row estimate of each unit's effect built from the outcome and treatment mode
 
 These are single numbers with no intervals. They describe this fit and do not test it.
 
+## Fit the effect without choosing a basis
+
+When you have no shape in mind for the effect, leave `model=` out and fit `method="ep"`:
+
+```python
+effect = study.identify(ConditionalContrast(Modifiers(["age"], domains={"age": (18, 90)})))
+curve = effect.estimate(
+    "ep",
+    outcome_learner=LogisticRegression(max_iter=1000),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    random_state=0,
+)
+curve.predict({"age": [40, 60]})  # the estimated effect at those ages, with no interval
+curve.summary()
+```
+
+This is the efficient plug-in (EP) learner of van der Laan, Carone and Luedtke (a preprint).
+It fits the outcome and treatment models so that no row is predicted by a model fitted on it,
+corrects the outcome models with one
+weighted regression on smooth functions of the modifiers, and fits the curve to the corrected
+difference between the arms. The correction is what keeps the curve on target when the
+outcome model is wrong and the treatment model is right. The smooth functions are cosines of
+each modifier, so each continuous modifier needs a declared domain, and their number is chosen
+by cross-validation. `sieve=Sieve(Cosine(["age"], 6), size=3)` fixes the number instead.
+
+The EP curve has no confidence interval, and `curve.predict(rows, interval=True)` is refused.
+Its theory says how fast the curve approaches the true effect, not how far off one fit can be.
+Check it with `curve.diagnostics` as above, and `curve.diagnostics.score_equations()` shows that
+the correction solved its equations. A difference curve is kept inside the outcome's range
+(`curve.clipped_share` says how often that bound was hit). Every EP fit is labelled
+experimental: its study is declared and has not run.
+
+With `model=` declared, `method="ep"` estimates the same best line as the default fit, without
+intervals, so the default fit is the better choice there.
+
 ## Check a score fitted elsewhere
 
 A risk score built on other data can be checked against this study's conditional effect:
@@ -142,7 +177,7 @@ matches a curve fitted from this effect, or that carries the `effect_curve:` pre
 
 ## What is not supported yet
 
-The curve without a basis (`model=None`), the efficient plug-in learner (`method="ep"`),
+An interval for the EP curve, a learner of your own as its last step on the log-ratio scale,
 checks of how much hidden confounding would move the coefficients, missing treatment values, an
 intermediate variable, `strata=`, repeated out-of-fold fits on new splits and the bootstrap each
 refuse before any model is fitted and say what to do instead. Weights, clusters and missing

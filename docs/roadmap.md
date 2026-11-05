@@ -1957,7 +1957,11 @@ modifier schema in `cleverly.bases`, the projection TMLE on the difference and l
 and a curve result that predicts on new rows and persists
 ([conditional effects](technical-reference/conditional-effects.md)), the assessment of a
 fitted curve (out-of-fold calibration, risk comparison and stability), and the declared
-`conditional-projection` study. Its fits read experimental until that study runs.
+`conditional-projection` study. Its fits read experimental until that study runs. Part (b)
+has shipped the EP learner of the CATE and the log conditional risk ratio (`method="ep"`, with
+the sieve size fixed, scheduled or chosen by cross-validation with inner refits) and the declared
+`ep-cate` study, whose hte3 comparator is pending. Its curves read experimental until that study
+runs, and the `ep-crr` and `ep-assessment` studies are not declared yet.
 
 | part | what ships |
 | --- | --- |
