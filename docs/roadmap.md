@@ -6,8 +6,8 @@ capabilities belong in the [user guide](user-guide/index.md), scientific contrac
 [evidence manifest](technical-reference/evidence.md), and cross-module standing decisions in the
 [architecture invariants](architecture-invariants.md).
 
-The main grid orders open work by beta milestone. Complete a milestone's dependencies before its
-rows. An item enters the grid through one of the acceptance routes in [Eligibility](#eligibility).
+The main grid lists open work by milestone, and [Priority order](#priority-order) ranks it.
+Complete a row's dependencies before the row. An item enters the grid through one of the acceptance routes in [Eligibility](#eligibility).
 An item that needs a new identification, regularity, or asymptotic argument stays in the future
 investigations grid.
 
@@ -162,15 +162,34 @@ not change the package version.
 | after beta | Ratio trimming on the hazard path | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` | [X80](#x80-ratio-trimming-on-the-hazard-path) |
 | after beta | Typed study requests for the risk-ratio tilt | natural extension | the shipped `RiskRatioTilt` fit and the shipped typed policy requests | [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) |
 | after beta | Marginal sensitivity model bounds that need a second sensitivity parameter | new theory | X82 part H | [X87](#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter) |
-| after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
+| after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
+| after beta | Adaptive TMLE for a trial augmented with external data | published support; pending source read | the shipped point-treatment TMLE and its known treatment mechanism | [X90](#x90-adaptive-tmle-for-a-trial-augmented-with-external-data) |
+| after beta | Survival targets across the estimators | published support for parts (a) and (b); source audit for the other parts | the shipped survival and competing-risk paths of `LTMLE`; X56 | [X91](#x91-survival-targets-across-the-estimators) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
 
 Rows in progress keep their order within a milestone. The BP rows close estimator gaps against the
 pinned comparators `ctmle` 0.1.2, `ctmle3` 0.1.0, `tmle3` 0.2.0, `drtmle` 1.1.2 and `lmtp` 1.5.4.
 They also close gaps against the survival packages `survtmle`, `concrete` and MOSS.
-X2 moves forward only if a pilot analysis needs survey weights. P1, R1, and R2 move forward only
-when they reduce a concrete implementation burden of a beta row.
+
+### Priority order
+
+The owner set this order on 2026-11-05. It ranks the open rows by how much routine analysis each
+one opens to four groups of users: marketing, clinical trials, policy and performance evaluation,
+and applied economics. A row that another row depends on goes first. Remediation rows keep their
+own tiers and come before every row here.
+
+| tier | rows | why |
+| --- | --- | --- |
+| 1 | [P1](#p1-ep-learner) parts (a) to (c), then [X90](#x90-adaptive-tmle-for-a-trial-augmented-with-external-data) | conditional effects are the largest missing capability for every group, and a trial augmented with external data is a common design |
+| 2 | [X91](#x91-survival-targets-across-the-estimators), [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment), [X6](#x6-continuous-time-survival-and-competing-risks) | most trial endpoints are times to an event. X91 puts the survival targets on as many shipped estimators as possible |
+| 3 | [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes), [X77](#x77-censored-data-for-continuous-price-policies), [X35](#x35-efficient-known-score-att-and-atc), [X76](#x76-studies-of-the-targeting-and-fitting-options), [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi), [X71](#x71-repeated-outcomes-for-the-sequential-baselines), [X73](#x73-pooled-over-time-parametric-g-formula-models), [X11](#x11-learned-policy-follow-ups), [X81](#x81-adaptiveiptw-follow-ups), [X80](#x80-ratio-trimming-on-the-hazard-path), [X75](#x75-data-tuned-policies-beyond-the-shipped-tuned-caps) | gaps in shipped functionality, in that order |
+| 4 | [R1](#r1-nested-riesz-engine-and-initial-catalog), then [R2](#r2-evidence-gated-riesz-catalog-expansion) target by target | one engine for the representer of later targets |
+| 5 | [X5](#x5-natural-and-interventional-mediation-effects), [X2](#x2-replicate-weight-designs), [X7](#x7-two-phase-and-outcome-dependent-sampling) | further estimands and designs |
+| 6 | every other row | compositions of advanced options. A row here starts when a user or a higher row needs it |
+
+[X59](#x59-long-horizon-comparator-parity-for-ltmle-and-sdr) runs outside this order, since its
+comparator runs never block a row.
 
 ### Validate the claim that a release makes
 
@@ -1594,6 +1613,9 @@ condition.
 | (b) | `outcome_by_arm=True` | bias and coverage with one outcome regression per arm |
 | (c) | `patience=` on the cross-validated C-TMLE path | bias and coverage when the counter stops the path early |
 | (d) | `treatment_adjustment=` | bias and coverage under the declared restriction, with a correct mechanism model on the subset, and with a dropped covariate that affects only the treatment |
+| (e) | `ratio_trim=` on `LTMLE` and `SDR` | bias and coverage at a trim that binds on a law with weak support, beside the untrimmed fit |
+| (f) | `markov_order=` | bias and coverage on a law whose history beyond the declared order does not affect later nodes, and a law where it does |
+| (g) | `isotonic=True` | bias and coverage on a law where the projection binds. The [point survival study](technical-reference/method-evidence/point-survival-curve.md) has one cell, and its projection does not bind |
 
 `iterate="best"` and `step_bound=` under `stopping="relative"` keep the support of the fit. That
 walk stops only at the solution of the score equation, to `tol`.
@@ -1915,7 +1937,7 @@ law; a registered coverage study for each interval.
 
 ### P1. EP learner
 
-Van der Laan, Carone and Luedtke (2024), arXiv:2402.01972, govern this item. After first-hand
+Van der Laan, Carone and Luedtke (2024), [arXiv:2402.01972v2](https://arxiv.org/html/2402.01972v2), govern this item. After first-hand
 review of their EP derivation, add `ConditionalContrast` estimands, modifier schema, sieve/basis
 strategy, efficient plug-in risk and targeting, bounded outcome predictions, a second-stage
 contrast learner, out-of-fold risk/calibration, and a conditional prediction result. Reuse
@@ -1929,6 +1951,56 @@ inference only after its influence contribution is implemented and tested.
 Acceptance requires exact score and risk checks, bounded predictions, out-of-fold calibration,
 modifier and split/basis stability diagnostics, mutation controls for targeting sign, basis
 contribution, and contrast construction, plus registered oracle-efficiency and stability studies.
+
+The item ships in three parts.
+
+| part | what ships |
+| --- | --- |
+| (a) | the conditional-effect contract: `ConditionalContrast` estimands, the modifier schema, a result that predicts on new rows and persists, and out-of-fold calibration in the assessment |
+| (b) | the EP learner for the CATE and the conditional relative risk, with its studies |
+| (c) | the EP curve as the declared rule learner of the shipped [learned-rule value](technical-reference/point-treatment-tmle.md#learned-rules), whose condition C3 then reads on the EP curve |
+
+The sieve can be any basis the caller declares. The package ships no HAL learner, and none is
+planned.
+
+### X90. Adaptive TMLE for a trial augmented with external data
+
+Van der Laan, Qiu, Tarp and van der Laan (2024), arXiv:2405.07186, govern this item. The source
+read is pending, so the summary here is provisional. The target is the average treatment effect
+in the trial population. The estimator writes it as an effect on the pooled trial and external
+data minus a bias term. It learns a working model for that bias term from the data, and it
+targets the projection on that model. When the external data are nearly unbiased, the estimate can
+be more precise than one from the trial alone.
+
+The item needs a two-source study declaration, with a source indicator beside the trial's known
+assignment, and a refusal for targets outside the trial population. The working model can be any
+declared basis with the shipped lasso. The interval treats the selected working model as fixed, and
+the contract page must state that condition.
+
+Acceptance requires exact-law checks of the decomposition with a nonzero bias term, and a
+mutation control that flips the sign of that term. Registered studies with the bias absent and
+present compare the efficiency with a trial-only TMLE.
+
+### X91. Survival targets across the estimators
+
+`LTMLE` (both survival models), `SDR`, `IPSI`, `SequentialGComputation`, `SequentialIPW` and
+`ParametricGFormula` fit survival and competing-risk outcomes. `CTMLE`, `DRTMLE` and
+`AdaptiveIPTW` have no longitudinal or `TimeToEvent` path, and `StructuralNestedMean` refuses a
+survival outcome. This item carries the survival targets to as many shipped estimators as the
+sources allow.
+
+| part | request | base | readiness |
+| --- | --- | --- | --- |
+| (a) | the risk under eliminated competing events on every longitudinal engine | [X56](#x56-competing-event-intervention-targets) part (a): the competing event becomes a censoring event | published support |
+| (b) | collaborative TMLE for a time-to-event outcome with a baseline treatment | Stitelman and van der Laan (2010), *The International Journal of Biostatistics* 6(1) | published support; pending source read |
+| (c) | `DRTMLE` and `AdaptiveIPTW` on a `TimeToEvent` design | no source read here | source audit |
+| (d) | simulated confounding and sensitivity bounds on censored and survival fits | the [simulated common-cause surface](technical-reference/validation-methods.md#simulated-common-cause-stress-surface) refuses these fits; [F16](#f16-longitudinal-sensitivity-bound-estimation) keeps the bounds | natural extension for the replay |
+| (e) | separable effects | X56 parts (b) and (c) | source audit |
+| (f) | a structural nested failure-time model | no source read here | source audit |
+
+Acceptance: each part that ships needs exact-law checks with a nonzero witness of each new term,
+a mutation control, and a registered study. Each request that stays refused needs a pre-fit
+refusal test.
 
 ### R1. Nested Riesz engine and initial catalog
 
