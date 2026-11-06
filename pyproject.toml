@@ -1,5 +1,6 @@
 [build-system]
-requires = ["hatchling==1.32.0"]
+# A floor, not a pin: 1.27 is the first release that writes PEP 639 `license-files` metadata.
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -48,15 +49,17 @@ pandas = ["pandas>=1.5"]
 polars = ["polars>=0.20"]
 plot = ["matplotlib>=3.7"]
 all = ["cleverly[pandas,polars,plot]"]
+# Floors only. `uv.lock` holds the versions CI builds the site with; an upper bound goes here only
+# when a release is known to break the build, with the failure named beside it.
 docs = [
     "cleverly[all]",
-    "numpydoc>=1.10,<2",
-    "sphinx>=8.1,<9",
-    "myst-parser>=4.0,<5",
-    "myst-nb>=1.2,<2",
-    "pydata-sphinx-theme>=0.16,<0.17",
-    "sphinx-copybutton>=0.5,<0.6",
-    "sphinx-design>=0.6,<1",
+    "numpydoc>=1.10",
+    "sphinx>=8.1",
+    "myst-parser>=4.0",
+    "myst-nb>=1.2",
+    "pydata-sphinx-theme>=0.16",
+    "sphinx-copybutton>=0.5",
+    "sphinx-design>=0.6",
 ]
 dev = [
     "cleverly[all]",
@@ -65,16 +68,18 @@ dev = [
     # No upper bound: nothing here calls an `ipykernel` API, and a cap would hold the `docs`
     # extra below the version `myst-nb` already resolves.
     "ipykernel>=6.29",
-    "nbclient>=0.10,<1",
-    "nbformat>=5.10,<6",
-    "numpydoc>=1.10,<2",
+    "nbclient>=0.10",
+    "nbformat>=5.10",
+    "numpydoc>=1.10",
     "pyarrow>=15",
     "pytest>=7.4",
     "pytest-xdist>=3.5",
-    "build>=1.2,<2",
-    "twine>=7,<8",
-    # Exact pins live here and in uv.lock. CI and nox install this extra rather than
-    # restating versions, so local and automated toolchains resolve from one declaration.
+    "build>=1.2",
+    "twine>=7",
+    # The only exact pins in the project, and they are tools, not libraries a method runs on.
+    # A Ruff or mypy release changes formatting and diagnostics, so an unpinned local install
+    # would disagree with the `lint` and `typecheck` jobs about code nobody touched. CI and nox
+    # install this extra rather than restating versions, so every toolchain resolves from here.
     "ruff==0.16.1",
     "mypy==1.19.1",
     "nox>=2024.3",

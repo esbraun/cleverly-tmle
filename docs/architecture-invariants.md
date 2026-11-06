@@ -903,7 +903,9 @@ enforcement mode did the damage.
 
 Development-tool versions have one declaration: exact Ruff and mypy pins in the `dev` extra,
 resolved by `uv.lock`. Nox and CI install that extra; they do not restate versions in session or
-workflow files.
+workflow files. Library dependencies carry floors only. An upper bound needs a named release that
+breaks a method or the build, and the 3.13 row of the `tests` job resolves the newest releases so
+such a break shows up before the next lock refresh.
 
 Size every layer from `tests/parallel.available_cores()`, which reads a container's CPU quota and
 affinity mask through joblib. Neither `os.cpu_count()` nor xdist's `-n auto` does. Nesting pools is
