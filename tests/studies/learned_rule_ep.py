@@ -13,13 +13,15 @@ logistic treatment learner, rows only: no weights, no clusters, pooled targeting
 The primary phase fits n = 2,000, 2,000 replications per law, read by the framework defaults
 (the coverage floor 0.90 and the SE sanity screen).  The gated calibration cells fit n = 16,000
 (:mod:`tests.studies.learned_rule_ep_properties`, plan rev 2.6), the size at which the size
-pilot finds the error variance that rule learning adds within about 1% of zero.
+pilot finds the error variance of the learned-value fits within about 1.5% (one SE) of that of
+a fit whose rule is fixed.
 
 The target of each replication is data-adaptive, so each row carries its own truth: the
 fold-average value of the rules the fit learned (rule L4).  :mod:`tests.studies._learned_rule_ep_law`
-holds the fits, the limits and the controls.  The P1 plan (``P1-plan.md`` rev 2.5 in the plans
-repository, section 5.5) declares every quantity here before any run, and the sizing pilot
-(:mod:`tests.studies.learned_rule_ep_pilot`) ran on a stream no declared draw reads.
+holds the fits, the limits and the controls.  The P1 plan (``P1-plan.md`` rev 2.7 in the plans
+repository, section 5.5 and its amendments) declares every quantity here before any run, and
+the sizing pilots (:mod:`tests.studies.learned_rule_ep_pilot` and
+:mod:`tests.studies.learned_rule_ep_size_pilot`) ran on streams no declared draw reads.
 
 The study is declared, not registered: no support row cites it, and every ``loss="ep"`` fit
 reads experimental until its declared run lands.
@@ -56,8 +58,8 @@ SCENARIOS = dict.fromkeys(law.LAWS, (law.ESTIMAND,))
 #: (:func:`~tests.studies._learned_rule_ep_law.limit_value`), and ``d0`` for the optimal value.
 #: They size the noise controls only, at one unit each; no verdict reads an efficiency ratio.
 EFFICIENCY_BOUNDS = {
-    "non_exceptional": 0.664841,
-    "misspecified_limit": 0.663086,
+    "non_exceptional": 0.664747,
+    "misspecified_limit": 0.663107,
     "optimal_known_g": 0.664438,
 }
 
@@ -135,7 +137,7 @@ CONFIGURATION = {
         "TMLE(learned_rule=LearnedRule(loss='ep', modifiers=Modifiers(['W1', 'W2'], "
         "domains={'W1': (-1, 1)}, levels={'W2': (0, 1)})), n_folds=10, cv_evaluation=True, "
         "targeting_scheme='pooled', g_bounds='auto', random_state=<fold seed>); primary "
-        "n = 2000, interval_calibration n = 4000 (the fold-locality control n = 2000), "
+        "n = 2000, interval_calibration n = 16000 (the fold-locality control n = 2000), "
         "small_sample_diagnostic n = 1000, exceptional_law_report n = 2000; rows only, repeats=1"
     ),
     "rule_learner": (

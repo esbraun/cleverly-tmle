@@ -6,8 +6,10 @@ the plan's sizing bound.  This pilot fits the declared estimator of the ``non_ex
 calibration cell at n = 8,000 and 16,000 to size a redeclaration at a larger n.
 
 Each replicate also fits the paired *limit-rule* fit: the same estimator, sample and outer folds
-with every row's rule fixed at the EP limit rule ``1{theta_1(W) > 0}``
-(:func:`tests.studies._learned_rule_ep_law.limit_rule`), whose truth is fixed.  Its error is
+with every row's rule fixed at the additive rule ``1{E[tau | W1] + E[tau | W2] - E[tau] > 0}``
+(:func:`tests.studies._learned_rule_ep_law.additive_scores`), whose truth is fixed.  That is the
+infinite-size limit; the declared limit is the projection onto the default family's largest
+member, which differs from it by at most 0.016 (``_learned_rule_ep_law``).  Its error is
 highly correlated with the learned fit's, so the paired variance ratio
 ``Var(error) / Var(limit error)`` resolves the excess variance that rule learning adds far more
 tightly than the SE ratio alone.
@@ -34,8 +36,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from cleverly.estimators import TMLE
-from cleverly.interventions.base import RegimeSet
 from tests.studies import _learned_rule_ep_law as law
 from tests.studies import _learned_rule_law as base
 from tests.studies.evidence.seeds import stream_seed
@@ -54,55 +54,6 @@ CELLS: dict[str, tuple[str, str, int, int]] = {
 }
 
 PILOT_CSV = Path(__file__).with_name("learned_rule_ep_size_pilot.csv")
-
-
-def limit_treat(covariates: np.ndarray, name: str) -> np.ndarray:
-    """The EP limit rule of law ``name`` at covariate rows ``(W1, W2)``."""
-    w1, w2 = covariates[:, 0], covariates[:, 1]
-    out = np.zeros(len(w1), dtype=bool)
-    for level, score in law.limit_scores(name).items():
-        rows = w2 == level
-        out[rows] = np.interp(w1[rows], base.GRID, score) > 0.0
-    return out
-
-
-class LimitRule(TMLE):
-    """Study-only: every row's rule is the EP limit rule; nuisances and targeting unchanged.
-
-    The law is read from :attr:`LAW`, which :func:`limit_estimator` sets on a subclass.
-    """
-
-    LAW = "non_exceptional"
-
-    def _regimes(self, data: Any, estimates: Any, *, seed: int | None = None) -> RegimeSet | None:
-        assert self.learned_rule is not None
-        treat = limit_treat(np.asarray(data.covariates, dtype=float), self.LAW)
-        values = np.zeros((data.n, 2, 1), dtype=float)
-        values[:, 1, 0] = treat
-        values[:, 0, 0] = ~treat
-        return RegimeSet((self.learned_rule.name,), values, 0.0)
-
-
-def limit_estimator(name: str, fold_seed: int, *, optimal: bool) -> TMLE:
-    """The cell's estimator with its rule fixed at the EP limit rule of law ``name``."""
-    kind = type(f"LimitRule_{name}", (LimitRule,), {"LAW": name})
-    template = (
-        law.optimal_estimator(fold_seed)
-        if optimal
-        else base.estimator(base.outcome_learner(), fold_seed, rule=law.rule())
-    )
-    extra = {"estimands": [law.optimal_law.TARGET]} if optimal else {}
-    return kind(
-        learned_rule=template.learned_rule,
-        n_folds=base.N_FOLDS,
-        cv_evaluation=True,
-        targeting_scheme="pooled",
-        g_bounds="auto",
-        outcome_learner=base.outcome_learner(),
-        treatment_learner=base.treatment_learner(),
-        random_state=fold_seed,
-        **extra,
-    )
 
 
 def one(task: tuple[str, int]) -> dict[str, Any]:
@@ -126,18 +77,9 @@ def one(task: tuple[str, int]) -> dict[str, Any]:
     seconds = time.process_time() - start
     if len(rules) != base.N_FOLDS:
         raise RuntimeError(f"{cell} {replicate}: recorded {len(rules)} fold rules")
-    optimal = kind == "optimal"
-    fit_arguments: dict[str, Any] = {"covariates": list(base.COVARIATES)}
-    if optimal:
-        fit_arguments["treatment_probabilities"] = law.optimal_law.known_probabilities(frame)
-    fixed = (
-        limit_estimator(name, fold_seed, optimal=optimal)
-        .fit(frame, outcome="Y", treatment="A", **fit_arguments)
-        .single()
+    paired = law.paired_fit(
+        frame, name, fold_seed, result, optimal=kind == "optimal", scores="additive"
     )
-    if not law._same_folds(result, fixed):
-        raise RuntimeError("the limit-rule fit drew other outer folds")
-    limit = fixed.estimates[law.OPTIMAL_ESTIMAND if optimal else law.ESTIMAND]
     return {
         "cell": cell,
         "replicate": replicate,
@@ -145,9 +87,9 @@ def one(task: tuple[str, int]) -> dict[str, Any]:
         "std_error": float(estimate.std_error),
         "truth": float(truth),
         "oracle_se": float(oracle),
-        "limit_estimate": float(limit.psi),
-        "limit_std_error": float(limit.std_error),
-        "limit_truth": float(law.limit_value(name)[0]),
+        "limit_estimate": paired.estimate,
+        "limit_std_error": paired.std_error,
+        "limit_truth": paired.truth,
         "solver_warnings": int(warnings),
         "sizes": [int(rule.ep.chosen) for rule in rules if rule.ep is not None],
         "seconds": seconds,

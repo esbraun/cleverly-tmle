@@ -240,10 +240,11 @@ A rule can also read only the covariates you choose, which makes it easier to ap
 explain. Pass `LearnedRule(loss="ep", modifiers=...)` as the rule. Each fold then fits a curve of
 the treatment effect against those covariates, with the EP learner of
 [effects that differ between people](conditional-effects.md), and treats where the curve is
-above zero. The curve corrects the outcome model's predictions with the treatment model, so
-when the treatment model is right the curve still approaches the average effect at each value
-of those covariates, even if the outcome model is wrong. With several covariates the default
-curve adds one curve per covariate, so it approaches the closest such sum.
+above zero. The curve corrects the outcome model's predictions with the treatment model. So
+when the treatment model is right, the curve still approaches the closest curve that the
+default shapes can draw, even if the outcome model is wrong. The default shapes are up to six
+smooth waves for each numeric covariate and one step for each level of a categorical one,
+added together, so with several covariates the curve is a sum of one curve per covariate.
 
 ```python
 from cleverly.bases import Modifiers
