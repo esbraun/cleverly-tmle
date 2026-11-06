@@ -189,9 +189,6 @@ own tiers and come before every row here.
 | 5 | [X5](#x5-natural-and-interventional-mediation-effects), [X2](#x2-replicate-weight-designs), [X7](#x7-two-phase-and-outcome-dependent-sampling) | further estimands and designs |
 | 6 | every other row | compositions of advanced options. A row here starts when a user or a higher row needs it |
 
-[X59](#x59-long-horizon-comparator-parity-for-ltmle-and-sdr) runs outside this order, since its
-comparator runs never block a row.
-
 ### Validate the claim that a release makes
 
 Each released configuration has a support row and an evidence status that matches its output.
