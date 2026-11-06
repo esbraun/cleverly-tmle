@@ -73,6 +73,7 @@ __all__ = [
     "Selection",
     "WorkingModel",
     "WorkingUnit",
+    "arm_hierarchy",
     "bias_term",
     "evaluate",
     "fit_adaptive_tmle",
@@ -157,7 +158,9 @@ class Selection:
     penalty : float
         The chosen penalty, the largest that attains the smallest cross-validated risk.
     selected : ndarray of int
-        The unpenalized columns and the columns with a nonzero coefficient, ascending.
+        The unpenalized columns and the columns with a nonzero coefficient, ascending. In
+        the bias model it also holds ``A`` when another column carrying ``A`` is selected
+        (:func:`arm_hierarchy`).
     coef : ndarray of float
         The lasso coefficients at the chosen penalty.
     grid : ndarray of float
@@ -1765,7 +1768,39 @@ def _select(
         1,
         inner[bias_rows],
     )
-    return dictionary, effect, bias
+    return dictionary, effect, arm_hierarchy(bias, dictionary.psi_arm)
+
+
+def arm_hierarchy(selection: Selection, arm: BoolArray) -> Selection:
+    """Add the arm column ``A`` to a bias selection that holds a column carrying ``A``.
+
+    A selection without ``A`` but with ``A * f(W)`` states that the two external arms' biases
+    differ by ``f(W)``, which is zero where ``f`` is. The dictionary centres its columns at the
+    selection rows' means and puts its knots at their quantiles, so that zero is a sample
+    quantity: the bias the selection then assumes away is of order ``n^{-1/2}`` at every ``n``,
+    and the working model's projection misses the effect by that order, which the oracle
+    approximation condition (arXiv:2405.07186v2, Theorem 1) forbids. With ``A`` in whenever an
+    ``A`` column is, the only arm restriction a selection can make is that the external bias
+    is the same in both arms, ``tau_S(W, 1) = tau_S(W, 0)``, which does not depend on how the
+    columns are centred.
+
+    Parameters
+    ----------
+    selection : Selection
+        The lasso selection of the bias model.
+    arm : ndarray of bool
+        Marks the bias columns that carry ``A``; position 1 is ``A`` itself. All false when
+        the external data are controls only.
+
+    Returns
+    -------
+    Selection
+        ``selection``, with ``A`` added to ``selected`` when another arm column is selected.
+    """
+    carries = np.asarray(arm, dtype=bool)
+    if not carries.any() or 1 in selection.selected or not carries[selection.selected].any():
+        return selection
+    return replace(selection, selected=np.union1d(selection.selected, [1]).astype(np.int64))
 
 
 def _unit(

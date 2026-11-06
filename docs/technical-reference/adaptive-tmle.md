@@ -142,6 +142,18 @@ $1.00$ times with $A$ forced
 therefore depends on the lasso dropping every column that shifts an external arm's mean, which
 nothing guarantees at a given $n$.
 
+A bias selection that holds a column carrying $A$, such as $A \cdot x_0$, also holds $A$
+(`atmle.arm_hierarchy`). Without $A$, the product says the two external arms' biases agree where
+the centred column is zero. The dictionary centres at the selection rows' mean, so that point is a
+sample quantity, and the projection then misses $\Psi$ by the order of the sample mean's error at
+every $n$. On law `a3` with the selection $\{1, A x_0\}$ the miss is 1.15 standard errors of
+$D_w$ at $n = 4{,}000$. $A$ added, or centring at the population mean, removes it
+(`test_an_arm_product_without_the_arm_column_misses_the_effect_by_a_sample_mean`).
+
+With the rule, the one arm restriction a selection can make is $\tau_S(W, 1) = \tau_S(W, 0)$: the external bias
+is the same in both arms. That restriction does not depend on how the columns are centred, and
+the efficiency gain comes from it.
+
 ## The estimator
 
 Nuisances are $g(W) = P(A = 1 \mid W)$, $\theta(W)$, $\tilde Q(W, A)$, $\Pi(W, A)$ and
@@ -389,7 +401,7 @@ grid row and a study page under [method evidence](method-evidence/index.md).
 | test | what it checks | what it cannot see |
 | --- | --- | --- |
 | `tests/unit/test_atmle_exact.py` | on finite laws with the dictionary outside the truth's span: Lemma 2, the saturated dictionary projecting to the trial effect, the influence function as a Gateaux derivative, each influence component being needed, the remainder as a second-order product, first-order remainders for a trial treatment mechanism in the covariate and for an inverse-weighted residual, Lemma 1, and the $\Pi$ fluctuation solving the source score | the truth at a fitted learner |
-| `tests/unit/test_atmle_engine.py` | the lasso against its optimality conditions and an independent solver, the refit and fluctuation score equations, full rank and the support screen, the rows each fold reads, and the penalized $A$ column with a nonzero witness | coverage |
+| `tests/unit/test_atmle_engine.py` | the lasso against its optimality conditions and an independent solver, the refit and fluctuation score equations, full rank and the support screen, the rows each fold reads, the penalized $A$ column with a nonzero witness, and the arm column kept beside a selected arm product with a mutation control | coverage |
 | `tests/unit/test_atmle_refusals.py` | every refusal text and code, with a spy that proves no engine call | none |
 | `tests/unit/test_atmle_workflow.py` | the fit through `CausalStudy` equals the engine on the same arrays, the status, the controls-only and few-treated cases, and `save` and `load` | none |
 | `tests/unit/test_adaptive_tmle_trial_design.py` | every declared constant of the studies: truths, separations, control powers and sizing, recomputed without a run | estimator behaviour |

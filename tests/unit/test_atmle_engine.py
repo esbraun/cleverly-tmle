@@ -650,6 +650,49 @@ def test_the_bias_model_penalizes_the_arm_column_so_compatible_arms_add_informat
     assert arm.std_error > 0.9 * bound
 
 
+def _sloped_draw(seed: int, n: int) -> dict[str, np.ndarray]:
+    """External treated rows biased by ``1.5 W1``: the arms' biases differ, by zero at
+    ``W1 = 0``, the covariate's population mean."""
+    rng = np.random.default_rng(seed)
+    w = rng.normal(size=(n, 2))
+    s = rng.binomial(1, 0.3, n).astype(float)
+    external = rng.binomial(1, 1.0 / (1.0 + np.exp(-0.5 * w[:, 0])), n)
+    a = np.where(s == 1, rng.binomial(1, 0.5, n), external).astype(float)
+    y = 1 + w[:, 0] + 0.5 * w[:, 1] + 1.5 * a + (1 - s) * (0.5 + 1.5 * a * w[:, 0])
+    return {"outcome": y + rng.normal(size=n), "treatment": a, "source": s, "covariates": w}
+
+
+def test_a_bias_selection_with_an_arm_product_keeps_the_arm_column(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``A * f(W)`` without ``A`` would assume the arms' biases agree where the centred
+    ``f`` is zero, a sample point, so the selection keeps ``A`` with any column carrying it
+    (:func:`~cleverly.estimators.atmle.arm_hierarchy`). The mutation control removes the rule:
+    on the same draw a fold then selects ``A * x0`` without ``A``."""
+    data = _sloped_draw(3, 2_000)
+    fit = _fit(data)
+    for model in fit.working_models:
+        assert "A*x0" in model.bias_columns and "A" in model.bias_columns
+        assert model.beta_s.size == len(model.bias_columns)
+    monkeypatch.setattr(atmle, "arm_hierarchy", lambda selection, arm: selection)
+    loose = _fit(data)
+    assert any(
+        "A*x0" in model.bias_columns and "A" not in model.bias_columns
+        for model in loose.working_models
+    )
+
+
+def test_the_arm_hierarchy_adds_only_the_arm_column() -> None:
+    selection = atmle.Selection(
+        0.1, np.array([0, 4]), np.zeros(6), np.array([1.0, 0.1]), np.zeros(2), 0.0
+    )
+    arm = np.array([False, True, False, False, True, True])
+    assert list(atmle.arm_hierarchy(selection, arm).selected) == [0, 1, 4]
+    plain = replace(selection, selected=np.array([0, 2]))
+    assert atmle.arm_hierarchy(plain, arm) is plain
+    assert atmle.arm_hierarchy(selection, np.zeros(6, dtype=bool)) is selection
+
+
 FITS = [
     {"form": form, "population": population}
     for form in ("cv", "pooled")

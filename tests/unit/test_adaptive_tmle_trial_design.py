@@ -376,6 +376,38 @@ def test_the_a0_efficiency_gain_is_the_theory_and_a_forced_arm_column_removes_it
     assert ratios[2] == pytest.approx(1.0, abs=0.01)
 
 
+def test_an_arm_product_without_the_arm_column_misses_the_effect_by_a_sample_mean() -> None:
+    """The witness of ``atmle.arm_hierarchy``. On ``a3`` the external treated rows' bias is
+    ``2.1 W1`` and ``E[W1] = 0``, so ``{1, A*W1}`` holds the truth in population-centred
+    columns. The dictionary centres ``W1`` at a sample mean, and there that selection's
+    projection misses ``Psi`` by more than half the standard error of ``D_w`` at the study's
+    ``n`` (1.15 on this draw), a bias of the sample mean's order at every ``n``. ``A`` added
+    restores ``Psi``, and so does centring at the population mean."""
+    from cleverly.estimators._working_basis import WorkingBasis
+
+    law = laws.LAWS["a3"]
+
+    def selection(population_centred: bool, columns: list[str]) -> SimpleNamespace:
+        model = _model(law, WorkingBasis())
+        if population_centred:
+            basis = model.dictionary.basis
+            for j, knots in basis.knots_.items():
+                basis.knots_[j] = knots + basis.mean_[j] / basis.scale_[j]
+            basis.mean_ = np.zeros_like(basis.mean_)
+        names = list(model.dictionary.psi_names)
+        model.bias = SimpleNamespace(selected=np.array([names.index(c) for c in columns]))
+        return model
+
+    psi = study.exact("a3")["psi"]
+    sparse = selection(False, ["1", "A*x0"])
+    _, _, table = laws.oracle_parts(law, sparse, "pooled", n=300_000, seed=24)
+    se = float(table["total"].std()) / np.sqrt(N)
+    assert abs(laws.projection(law, sparse, "pooled").value - psi) > 0.5 * se
+    for centred, columns in ((False, ["1", "A", "A*x0"]), (True, ["1", "A*x0"])):
+        value = laws.projection(law, selection(centred, columns), "pooled").value
+        assert value == pytest.approx(psi, abs=0.02 * se)
+
+
 def test_a_cheap_cell_fits_and_every_extra_column_is_present() -> None:
     """Fit one small cell through the public workflow and read every column of its row."""
     frame, _ = study.draw_from_seed("b1y", 900, 5)

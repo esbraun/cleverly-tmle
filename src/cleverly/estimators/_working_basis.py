@@ -512,6 +512,16 @@ class WorkingDictionary:
         return tuple(raw[j] for j in self.psi_keep)
 
     @property
+    def psi_arm(self) -> BoolArray:
+        """Marks the kept bias columns that carry ``A``: ``A`` and its products.
+
+        All false when the external data are controls only.
+        """
+        if self.controls_only:
+            return np.zeros(self.psi_keep.size, dtype=bool)
+        return np.asarray((self.psi_keep == 1) | (self.psi_keep >= 1 + self.phi_keep.size))
+
+    @property
     def unsupported_phi_names(self) -> tuple[str, ...]:
         """The names of the effect columns that the support screen dropped."""
         return tuple(self.names[j] for j in self.phi_unsupported)
