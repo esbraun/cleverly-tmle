@@ -4867,6 +4867,19 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
 #: The registered studies that no row names, each with the reason. A study that measures no
 #: estimate cannot license a configuration, so it is not the evidence of a row.
 EXEMPT_STUDIES: Final[Mapping[str, str]] = {
+    "ep-cate": (
+        "It measures the EP curve, which carries no interval and is no fit of a point row. "
+        "cleverly.estimators.ep.EP_MEASURED, not a support row, records what the study licenses."
+    ),
+    "ep-crr": (
+        "It measures the log-CRR EP curve, which carries no interval and is no fit of a point "
+        "row. cleverly.estimators.ep.EP_MEASURED, not a support row, records what the study "
+        "licenses."
+    ),
+    "ep-assessment": (
+        "It measures the held-out readings of an EP curve. A reading is no estimate and carries "
+        "no status."
+    ),
     "omitted-variable-bound-se": (
         "It measures the standard error of a sensitivity bound. The bound carries its own "
         "status and is no fit of a row."

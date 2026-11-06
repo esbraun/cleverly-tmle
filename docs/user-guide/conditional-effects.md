@@ -127,42 +127,64 @@ These are single numbers with no intervals. They describe this fit and do not te
 When you have no shape in mind for the effect, leave `model=` out and fit `method="ep"`:
 
 ```python
+from cleverly.bases import Cosine, Sieve
+
 effect = study.identify(ConditionalContrast(Modifiers(["age"], domains={"age": (18, 90)})))
 curve = effect.estimate(
     "ep",
+    sieve=Sieve(Cosine(["age"], 6), size=lambda n: 3 if n < 2000 else 5),  # set before the fit
     outcome_learner=LogisticRegression(max_iter=1000),
     treatment_learner=LogisticRegression(max_iter=1000),
+    outcome_by_arm=True,
     random_state=0,
 )
 curve.predict({"age": [40, 60]})  # the estimated effect at those ages, with no interval
 curve.summary()
 ```
 
+The result predicts the effect for each row you pass it, but it has no confidence interval, and
+`curve.predict(rows, interval=True)` is refused. For intervals, declare a basis and use the
+default fit above, or check a score with `assess_score` below.
+
 This is the efficient plug-in (EP) learner of van der Laan, Carone and Luedtke (a preprint).
 It fits the outcome and treatment models so that no row is predicted by a model fitted on it,
 corrects the outcome models with one weighted regression on simple functions of the modifiers,
-and fits the curve to the corrected difference between the arms. The correction is what keeps
-the curve on target when the outcome model is wrong and the treatment model is right. It then
-stays on target but is noisier: in a simulation with little outcome noise, the curve's error was
-several times what a right outcome model gave (see the
-[technical reference](../technical-reference/conditional-effects.md#status-and-evidence)).
+and fits the curve to the corrected difference between the arms. The functions are cosines of
+each continuous modifier, which therefore needs a declared domain, and indicators of each
+categorical one. `size=` sets how many: a number, or a rule in the sample size `n` as above.
+Left out, the number is chosen by cross-validation. A number larger than the basis holds is
+refused.
 
-The functions are cosines of each continuous modifier, which therefore needs a declared
-domain, and indicators of each categorical one. Their number is chosen by cross-validation, and
-`sieve=Sieve(Cosine(["age"], 6), size=3)` fixes it instead. A number larger than the basis
-holds is refused.
+Two simulation studies checked the curve against a reference fit that knew the true outcome and
+treatment models, with the number of functions set by a rule like the one above. On the
+difference scale, at 4,000 rows, the curve's mean squared error was within about 8% of the
+reference's on six simulated populations, and the gap did not grow from 1,000 to 4,000 rows. On
+the log-ratio scale its error was no larger than the reference's. The status line of
+`curve.summary()` reads `supported` for a fit like the one the studies ran: a rule for the
+number of functions, one outcome model per arm (`outcome_by_arm=True`), two arms, an estimated
+treatment model and no weights, clusters or missing outcomes. The method's theory backs that
+label only under the paper's conditions on the models and the rule, which you have to judge.
 
-The EP curve has no confidence interval, and `curve.predict(rows, interval=True)` is refused.
-Check it with `curve.diagnostics` as above, and `curve.diagnostics.score_equations()` shows that
-the correction solved its equations. A difference curve is kept inside the outcome's range
-(`curve.clipped_share` says how often that bound was hit).
+A fit outside that setting reads `experimental`. That covers the default, a number chosen by
+cross-validation, and a final learner you supply, which the theory does not cover. In the study
+the cross-validated number did about as well as the rule. It also covers a pooled outcome model,
+weights, clusters, missing outcomes, three or more arms, treatment probabilities you declare,
+and a fixed number of functions with `model=None`. They are computed the same way, and no study
+has checked them.
 
-Every EP fit is labelled experimental, for one of two reasons. The method's theory gives a rate
-at which the curve approaches the true effect only when the number of functions follows a
-schedule fixed before the fit, and only under the paper's conditions. Such a schedule is
-`Sieve(Cosine(["age"], 6), size=lambda n: 3 if n < 2000 else 5)`. A number chosen by cross-validation (the default) or a final learner you supply lies outside
-that theory, so those fits stay experimental. A fixed number or a schedule waits on a validation
-study that is declared and has not run.
+The correction is what keeps the curve on target when the outcome model is wrong and the
+treatment model is right. With a deliberately wrong outcome model, at the outcome noise of the
+paper's simulations, the corrected curve's error was about twice the reference's, against about
+twenty times without the correction. The gap depends on the noise: with a less noisy outcome the
+reference's error shrinks and the wrong model's leftover error does not, and the ratio was about
+four times (see the [study page](../technical-reference/method-evidence/ep-cate.md)).
+
+Check the curve with `curve.diagnostics` as above. A third study checked those checks on an EP
+curve whose effect varies strongly: its held-out calibration slope came out at 0.99, and the
+risk comparison picked the curve over the average effect in every run.
+`curve.diagnostics.score_equations()` shows that the correction solved its equations. A
+difference curve is kept inside the outcome's range (`curve.clipped_share` says how often that
+bound was hit).
 
 With `model=` declared, `method="ep"` estimates the same projection as the default fit, without
 intervals, so the default fit is the better choice there.

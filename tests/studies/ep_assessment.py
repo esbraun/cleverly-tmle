@@ -63,6 +63,7 @@ from tests.parallel import STUDY_JOBS
 from tests.studies import ep_cate
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
+from tests.studies.evidence.seeds import draw_replicate
 
 SLUG = "ep-assessment"
 SEED = 20261125
@@ -234,8 +235,8 @@ STUDY = StudyRecord(
     name="Assessment readings of an EP curve",
     slug=SLUG,
     artifacts=ROOT / "tests" / "canonical" / "ep_assessment",
-    document="docs/technical-reference/conditional-effects.md",
-    anchor="status-and-evidence",
+    document="docs/technical-reference/method-evidence/ep-assessment.md",
+    anchor="assessment-readings-of-an-ep-curve",
     scenarios=SCENARIOS,
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
@@ -277,6 +278,11 @@ def draw_from_seed(group_label: str, n: int, seed: int) -> tuple[pd.DataFrame, d
         return ep_cate.draw_from_seed(group_label, n, seed)
     law = GROUP_BY_LABEL[group_label].law
     return ep_cate.sample(law, n, np.random.default_rng(seed)), {}
+
+
+def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
+    """One primary draw under this study's seed, as :func:`draw_and_fit` draws it."""
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:

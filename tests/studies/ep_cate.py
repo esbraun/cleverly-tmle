@@ -85,8 +85,9 @@ its own seed: the estimator the fixed-size EP row is compared with.
 The run is ``python -m tests.canonical.ep_cate.regenerate``; its docstring holds the red-cell
 reading.  ``R`` per law is fixed by :func:`design_numbers` from the committed pilot
 (:mod:`tests.studies.ep_cate_pilot`).  The comparator, hte3 ``Lrnr_cate_EP`` with
-``targeting_style="dr"``, is declared pending (:data:`STUDY`).  The study is not yet in
-:func:`tests.studies.evidence.registry.registered`: registration lands with the artifacts.
+``targeting_style="dr"``, is declared pending (:data:`COMPARATOR`).  The study is registered
+in :func:`tests.studies.evidence.registry.registered` with the artifacts of its declared run,
+which the fast tier reads.
 """
 
 from __future__ import annotations
@@ -760,8 +761,8 @@ STUDY = StudyRecord(
     name="EP learner of the CATE",
     slug=SLUG,
     artifacts=ROOT / "tests" / "canonical" / "ep_cate",
-    document="docs/technical-reference/conditional-effects.md",
-    anchor="status-and-evidence",
+    document="docs/technical-reference/method-evidence/ep-cate.md",
+    anchor="ep-learner-of-the-cate",
     scenarios=SCENARIOS,
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

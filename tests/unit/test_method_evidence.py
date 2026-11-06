@@ -1093,6 +1093,38 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own one-wrong endpoint"
             )
 
+        # The EP studies' log ISE ratios (P1 part (b)): a positive answers to its one-sided
+        # upper bound below the declared margin, a control to its lower bound above it, and a
+        # diagnostic row states no verdict.
+        oracle = published.loc[published["property"] == "oracle_comparison"]
+        for row in oracle.itertuples():
+            if row.role == "positive":
+                expected = row.ratio_upper < row.margin
+            elif row.role == "control":
+                expected = row.ratio_lower > row.margin
+            else:
+                expected = True
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own ratio bound"
+            )
+        # ``ep-assessment``: the calibration slope's interval inside the declared band, the
+        # stretched control's upper end below the band's floor, and a sign share's
+        # Clopper-Pearson lower end at or above its floor.
+        readings = published.loc[published["property"].isin({"calibration", "risk_comparison"})]
+        for row in readings.itertuples():
+            if row.role == "diagnostic":
+                expected = True
+            elif row.property == "risk_comparison":
+                expected = row.reading_lower >= row.threshold
+            elif row.role == "control":
+                expected = row.reading_upper < row.threshold
+            else:
+                low, high = study.runner().CALIBRATION_BAND
+                expected = low < row.reading_lower and row.reading_upper < high
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own reading"
+            )
+
         accuracy = published.loc[published["property"] == "known_mechanism_accuracy"]
         for row in accuracy.itertuples():
             if row.role == "control":
@@ -1754,6 +1786,12 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # margin, a control's outside it.  The ladder rows read the same equivalence endpoint.
         "bias",
         "root_n_points",
+        # P1 part (b), the EP studies: a log ISE ratio against its declared margin, a
+        # calibration slope against its band and a sign share against its floor.  Checked row
+        # by row below.
+        "oracle_comparison",
+        "calibration",
+        "risk_comparison",
     }
 )
 
@@ -1840,6 +1878,13 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # X46's first-draw reading and its displacement share, reported with no verdict.
         "single_draw_reading",
         "split_displacement",
+        # P1 part (b), the EP studies: the paired EP-minus-TMLE difference at a fixed basis, the
+        # nuisance errors, the oracle Hessian checks and the split-stability readings, each
+        # reported with no verdict.
+        "diagnostic",
+        "nuisance_error",
+        "oracle_hessian",
+        "stability",
         # X33's bounded fits on the parameters the bounds do not gate, and the unbounded fits on
         # the same draws, each reported with no verdict.
         "reported_calibration",
@@ -3729,6 +3774,11 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
         ("natural_course_identity", "sup-norm identity"),
         ("static_reduction", "sup-norm identity"),
         ("correction_necessity", "closed score below the initial"),
+        # ep-cate and ep-crr: a lost replicate of an ISE comparison has no candidate value.
+        ("oracle_comparison", "oracle comparison bound"),
+        # ep-assessment: a lost replicate of a refit-based reading has no candidate value.
+        ("calibration", "assessment reading"),
+        ("risk_comparison", "assessment reading"),
     }
 )
 

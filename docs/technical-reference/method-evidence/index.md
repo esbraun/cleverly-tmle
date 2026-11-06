@@ -86,6 +86,9 @@ learned-rule-optimal-value
 learned-rule-intermediate
 learned-regimen-ltmle
 conditional-projection
+ep-cate
+ep-crr
+ep-assessment
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 point-modified-treatment-policies
