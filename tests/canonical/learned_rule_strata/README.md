@@ -67,12 +67,13 @@ The run form is the X11 one in `tests/canonical/learned_rule_run.py`.
 
 ## Run
 
-A declared run takes `--output` and `--jobs` only, on the Python and package versions that rule L7
-of `tests/canonical/learned_rule_run.py` declares, with one thread per numerical library. It
-draws 78,800 samples (8,000 primary, 59,200 calibration, 3,600 necessity and 8,000
-weak-margin), each one fit and its harness and each weak-margin draw two, at about 0.10 core-s
-per bounded draw, 0.22 per binary draw and 0.44 per weak-margin pair (timed on a shared
-machine). That is about 14,700 core-s, about an hour on 4 cores; allow three hours with the
+A declared run takes `--output` and `--jobs` only, with one thread per numerical library. Rule L7 of
+`tests/canonical/learned_rule_run.py` declares the stack the committed run used and refuses no
+other: a run on another stack warns, and `manifest.json` records the versions the run used and each
+difference from the declared stack. It draws 78,800 samples (8,000 primary, 59,200 calibration,
+3,600 necessity and 8,000 weak-margin), each one fit and its harness and each weak-margin draw two,
+at about 0.10 core-s per bounded draw, 0.22 per binary draw and 0.44 per weak-margin pair (timed on
+a shared machine). That is about 14,700 core-s, about an hour on 4 cores; allow three hours with the
 summaries:
 
 ```bash

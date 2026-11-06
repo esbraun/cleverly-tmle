@@ -54,12 +54,13 @@ The declarations are in `tests/studies/learned_rule_stacked.py`,
 
 ## Run
 
-A declared run takes `--output` and `--jobs` only, on the Python and package versions that rule L7
-of `tests/canonical/learned_rule_run.py` declares, with one thread per numerical library. It
-draws 32,400 samples (6,000 primary and 26,400 calibration); each is one fit and its harness,
-and each clustered calibration draw also fits the fold-evaluated report. The pilot read about
-0.21 core-s per rows draw, 0.23 per weighted draw and 0.9 per clustered pair: about 13,600
-core-s, an hour on 4 cores; allow three hours with the summaries and bootstraps:
+A declared run takes `--output` and `--jobs` only, with one thread per numerical library. Rule L7 of
+`tests/canonical/learned_rule_run.py` declares the stack the committed run used and refuses no
+other: a run on another stack warns, and `manifest.json` records the versions the run used and each
+difference from the declared stack. It draws 32,400 samples (6,000 primary and 26,400 calibration);
+each is one fit and its harness, and each clustered calibration draw also fits the fold-evaluated
+report. The pilot read about 0.21 core-s per rows draw, 0.23 per weighted draw and 0.9 per clustered
+pair: about 13,600 core-s, an hour on 4 cores; allow three hours with the summaries and bootstraps:
 
 ```bash
 python -u -m tests.canonical.learned_rule_stacked.regenerate --jobs 4 --output <empty scratch directory>
