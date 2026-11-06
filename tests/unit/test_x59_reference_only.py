@@ -187,7 +187,8 @@ def test_each_scenario_has_its_own_archive_in_replicate_order(tmp_path: Path) ->
         assert pd.read_csv(held.truth)["replicate"].tolist() == list(range(count))
     assert len(pd.read_csv(inputs.paths["truth.csv"])) == 5
     frame, _ = synthetic.draw_scenario("b", 60, 1)
-    drawn = pd.read_csv(inputs.scenarios["b"].samples)
+    # The python engine parses each float exactly; the C parser can miss the last digit.
+    drawn = pd.read_csv(inputs.scenarios["b"].samples, engine="python")
     drawn = drawn.loc[drawn["replicate"] == 1, "x"]
     assert drawn.tolist() == frame["x"].tolist(), "a re-drawn replicate is not its seeded sample"
 
