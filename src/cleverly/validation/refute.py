@@ -1088,7 +1088,7 @@ def _refuse_missing_estimator(result: TMLEResult, request: _RefuteRequest) -> Re
 
 def _refuse_projection(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a fit of a conditional contrast's projection, which no refutation covers."""
-    if getattr(result.config, "parameter_axis", None) != "effect_modification":
+    if getattr(getattr(result, "config", None), "parameter_axis", None) != "effect_modification":
         return None
     from ..assessment import projection_sensitivity_refusal
 
