@@ -771,6 +771,10 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
     "incremental": (lambda v: not v, "no incremental"),
     "msm": (lambda v: v is None, "msm=None"),
     "learned_rule": (lambda v: v is None, "learned_rule=None"),
+    "effect_modification": (
+        lambda v: v is None,
+        "effect_modification=None; the stack solves the arm-mean equations, not a projection",
+    ),
     "density_bins": (lambda v: v is None, "density_bins=None"),
     "ratio": (_anything, "any value"),
     "reference": (_anything, "any arm"),
