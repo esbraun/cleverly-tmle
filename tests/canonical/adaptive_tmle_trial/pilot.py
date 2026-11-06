@@ -52,7 +52,12 @@ def pilot(study: str, replicates: int, jobs: int) -> dict[str, object]:
         }
     controls = module.controls_table(rows, record)
     lost = replicates * len(record.scenarios) - len(rows)
-    covered = {name: int(cell["covered"]) for name, cell in cells.items()}
+    # A reported stress row is not gated, so the sizing rule does not read it.
+    covered = {
+        name: int(cell["covered"])
+        for name, cell in cells.items()
+        if name not in record.reported_scenarios
+    }
     try:
         rule: int | str = sizing.primary_replicates(
             record.margins, covered, replicates, implementations=1

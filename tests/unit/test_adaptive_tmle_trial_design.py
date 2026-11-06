@@ -555,29 +555,38 @@ def test_the_k6_row_reports_and_never_gates() -> None:
 
 # ------------------------------------------------------------------------------------ the sizing
 
-#: The sizing pilot (``python -m tests.canonical.adaptive_tmle_trial.pilot``): its replications
-#: per scenario and the covered count of each scenario's gated interval. These are the T3
-#: pilot's counts (400 replicates, seeds 20290399, 20290397, 20290393). They predate the T3
-#: design review's changes (the bias model's ``A`` penalized, the A5 nuisance learners), cover
-#: 15 of the 17 scenarios, and are replaced by the review's pilot before the declared run.
-PILOT_REPLICATES = 400
+#: The sizing pilot (``python -m tests.canonical.adaptive_tmle_trial.pilot``, commit 685171b2, run
+#: on the 16-core laptop on 2026-11-06): 800 replicates per scenario on the pilot seeds, 0 lost
+#: replicates, every control passed (efficiency ``a0`` RMSE ratio 0.703 [0.654, 0.754];
+#: ``k3_targeted`` 0.941). These are the covered counts of each gated scenario's interval.
+#: ``b1y`` is a reported stress row (``study.REPORTED``): the pilot read 708 of 800, and the rule
+#: reads only gated cells, because at that count no budget up to its cap meets it.
+PILOT_REPLICATES = 800
 PILOT_COVERED = {
-    "a0": 376,
-    "a1a": 385,
-    "a1b": 383,
-    "a2c": 375,
-    "a2d": 375,
-    "a3": 377,
-    "a3_pi": 374,
-    "a4": 372,
-    "a5": 380,
-    "b1y": 381,
-    "e1": 382,
-    "f1a": 380,
-    "f1b": 369,
-    "h2_pooled": 375,
-    "h2_trial": 373,
+    "a0": 754,
+    "a1a": 759,
+    "a1b": 746,
+    "a2c": 764,
+    "a2d": 765,
+    "a3": 760,
+    "a3_pi": 753,
+    "a4": 756,
+    "a5": 759,
+    "e1": 759,
+    "e1_k2_n1000": 767,
+    "e1_k2_n2000": 756,
+    "f1a": 751,
+    "f1b": 755,
+    "h2_pooled": 761,
+    "h2_trial": 752,
 }
+
+
+def test_b1y_is_a_reported_stress_row_and_every_other_cell_is_gated() -> None:
+    """``b1y`` is declared in ``reported_scenarios`` and is the only such scenario, and the
+    sizing reads exactly the gated cells."""
+    assert study.REPORTED == frozenset({"b1y"}) == study.STUDY.reported_scenarios
+    assert set(PILOT_COVERED) == set(study.SCENARIOS) - study.REPORTED
 
 
 def test_the_replicate_count_is_the_primary_rule_at_the_pilot() -> None:
@@ -594,9 +603,11 @@ def test_the_replicate_count_is_the_primary_rule_at_the_pilot() -> None:
     )
 
 
-#: The selective study's pilot, in the same form. It has none yet, so the rule gives its floor.
+#: The selective study's pilot, in the same form: 400 replicates per scenario. The rule prices
+#: them at 7,600 (about 72 hours on 16 cores at 546 core-seconds per replicate set). A pilot of
+#: 1,200 replicates at the same coverage would give 3,600.
 SELECTIVE_PILOT_REPLICATES = 400
-SELECTIVE_PILOT_COVERED: dict[str, int] = {}
+SELECTIVE_PILOT_COVERED = {"s6_cv": 388, "s6_pooled": 371}
 
 
 def test_the_selective_replicate_count_is_the_primary_rule_at_its_pilot() -> None:

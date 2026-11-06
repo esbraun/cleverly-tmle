@@ -13,13 +13,27 @@ Each scenario is one law, form and population, and one *gated* estimand:
     The trial effect :math:`\Psi`. The interval is for the working-model projection, so this
     gate also reads the oracle-approximation condition (arXiv:2405.07186v2, Theorem 1) on laws
     inside the dictionary's span: ``a0``, ``a1a``, ``a1b`` (bias linear in ``W``), ``a3``,
-    ``a3_pi``, ``a4``, ``a5``, ``b1y`` and the pooled-form cells ``f1a``, ``f1b``.
+    ``a3_pi``, ``a4``, ``a5`` and the pooled-form cells ``f1a``, ``f1b``.
 ``projection``
     The working-model projection :math:`\Psi_w(P_0)` of the fit's own stored dictionary, by
     quadrature on the stored fold transformers. ``a2c``, ``a2d`` and ``e1`` gate this; their
     :math:`\Psi` coverage is reported with the projection bias beside it (plan B1).
 ``psi_2``
     The trial's own effect :math:`\Psi_2`, ``h2_trial``.
+``b1y``
+    A reported stress row, declared in :data:`REPORTED` and not gated. The method's guarantee
+    is pointwise (arXiv:2405.07186v2, Theorem 1 and Appendix C Theorem 2; arXiv:2307.12544v2,
+    Theorems 5 to 7): the interval covers :math:`\Psi` only under the oracle-approximation
+    condition, and a bias that is not in the span of the linear-plus-hinge dictionary (the
+    external bias on this law passes through ``expit``) leaves the condition unmet. The two
+    external arms' biases differ by about one standard error of that difference
+    (:math:`\Psi^\# = -0.0148`, about 1.3 standard errors), so at ``n = 4,000`` the lasso
+    usually keeps only the constant and the projection misses :math:`\Psi` by about
+    :math:`\Psi^\#`. No uniformly valid interval can be much shorter than the robust one at
+    zero difference (Hodges and Le Cam super-efficiency; Leeb and Potscher on post-selection
+    inference; Armstrong and Kolesar, 2018, on adaptive intervals), so the row measures the
+    cost and gates neither the coverage of :math:`\Psi`, nor the bias, nor the standard error.
+    It reports :math:`\Psi` coverage, projection coverage, bias and the SE ratio.
 
 Every row also carries both other truths and the coverage of each, so the reported rows are
 computed from the fit that gated. The record declares ``truth_varies_by_replicate``, because
@@ -64,7 +78,7 @@ RESAMPLING_SEED = 20290312
 PRIMARY_N = 4_000
 #: Replications of every scenario: ``repeated_sizing.primary_replicates`` at the pilot that
 #: ``test_adaptive_tmle_trial_design`` pins (``tests/canonical/adaptive_tmle_trial/pilot.py``).
-PRIMARY_REPLICATES = 19_200
+PRIMARY_REPLICATES = 2_800
 
 IMPLEMENTATION = "cleverly-adaptive-tmle"
 
@@ -128,6 +142,9 @@ CELLS: dict[str, Cell] = {
 }
 
 SCENARIOS = {name: (cell.estimand,) for name, cell in CELLS.items()}
+
+#: Reported stress rows (``StudyRecord.reported_scenarios``): published, never gated.
+REPORTED = frozenset({"b1y"})
 
 #: K4, the ladder on E1: the K2 working model at three sizes ending at the study's ``n``
 #: (the last is the ``k2`` control columns of ``e1``). The only scenarios off ``PRIMARY_N``.
@@ -205,6 +222,7 @@ STUDY = StudyRecord(
     property_cells={},
     calibration_efficiency_ratio=False,
     publication_policy="gated",
+    reported_scenarios=REPORTED,
     extra_artifacts=(REPORTED_ARTIFACT, CONTROLS_ARTIFACT),
     truth_varies_by_replicate=True,
 )

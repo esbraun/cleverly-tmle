@@ -39,8 +39,9 @@ SEED = 20290321
 RESAMPLING_SEED = 20290322
 PRIMARY_N = 3_200
 #: Replications of each scenario: ``repeated_sizing.primary_replicates`` at the pilot that
-#: ``test_adaptive_tmle_trial_design`` pins. With no pilot yet it is the rule's floor.
-PRIMARY_REPLICATES = 2_400
+#: ``test_adaptive_tmle_trial_design`` pins: 400 replicates, which the rule prices at 7,600. A
+#: pilot of 1,200 replicates is planned before the declared run and may lower it.
+PRIMARY_REPLICATES = 7_600
 
 IMPLEMENTATION = "cleverly-adaptive-tmle-selective"
 

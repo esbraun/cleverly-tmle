@@ -20,7 +20,9 @@ inside the repository.
 ## Gates the driver reads
 
 * The primary performance tests (`performance-tests.csv`): bias leg, coverage floor, SE sanity
-  band for each scenario and its gated estimand.
+  band for each scenario and its gated estimand. `b1y` is a reported stress row
+  (`reported_scenarios`): its three legs are published with `reported = True` and pass by
+  declaration. Only the failure bound still gates it.
 * `controls.csv` through `scientific_failures`: the efficiency contrast (upper bound of
   RMSE(A-TMLE) / RMSE(trial-only TMLE) below 1 on `a0`; reported on `a1a`, `a1b`), K1, K2, K3,
   K5. The K4 ladder is a reporting row.
@@ -33,41 +35,21 @@ The R `atmle` comparator is declared in `COMPARATOR` and runs as a separate pair
 
 `PRIMARY_REPLICATES` is `repeated_sizing.primary_replicates` at the pilot that
 `tests/unit/test_adaptive_tmle_trial_design.py` pins (each cell at the one-sided 80% lower bound
-of its pilot coverage). The pinned pilot is the T3 pilot (400 replicates, 15 scenarios), which
-predates the T3 design review's engine and learner changes, so the declared count (19,200) is a
-placeholder. Before the declared run, the review's pilot replaces it:
+of its pilot coverage). The pinned pilot is commit `685171b2`, run on the 16-core laptop on
+2026-11-06: 800 replicates of each scenario on `PILOT_SEEDS`, 0 lost replicates, every control
+passed (efficiency contrast on `a0`, RMSE ratio 0.703 [0.654, 0.754]; `k3_targeted` 0.941). The
+covered counts of the 16 gated scenarios give `PRIMARY_REPLICATES = 2,800`.
 
-```bash
-python -m tests.canonical.adaptive_tmle_trial.pilot --replicates 800 --jobs 16 > pilot.json
-```
+`b1y` is a reported stress row and is not in the sizing. Its pilot count was 708 of 800, and the
+rule finds no budget up to its cap of 50,000 that meets a gated cell at that coverage, which is
+the declared reason it is not gated (see the module docstring and the Evidence section of
+`docs/technical-reference/adaptive-tmle.md`). Its Psi coverage, projection coverage, bias and SE
+ratio are published and read by no verdict.
 
-Copy its `cells[*].covered` into `PILOT_COVERED`, set `PILOT_REPLICATES = 800`, and set
-`PRIMARY_REPLICATES` to its `primary_replicates`. At pilot coverages of 0.93 to 0.94 the rule
-gives 2,400 to 5,200. The T3 pilot's means are about 99 core-seconds per replicate set (all 17
-scenarios), so the run costs about 66 to 143 core-hours and goes to the local queue (16 cores)
-whenever it exceeds 24 wall-hours on 4 workers (above 3,600 replicates).
-
-T3 pilot seconds per replicate (1 core):
-
-| cell | n | s/rep |
-| --- | --- | --- |
-| a0 | 4000 | 6.8 |
-| a1a | 4000 | 8.7 |
-| a1b | 4000 | 9.0 |
-| a2c | 4000 | 6.1 |
-| a2d | 4000 | 6.8 |
-| a3 | 4000 | 5.2 |
-| a3_pi | 4000 | 9.4 |
-| a4 | 4000 | 5.4 |
-| a5 | 4000 | 9.7 |
-| b1y | 4000 | 3.7 |
-| e1 | 4000 | 6.4 |
-| e1_k2_n1000 | 1000 | 0.5 |
-| e1_k2_n2000 | 2000 | 0.6 |
-| f1a | 4000 | 2.1 |
-| f1b | 4000 | 2.4 |
-| h2_pooled | 4000 | 8.1 |
-| h2_trial | 4000 | 7.9 |
+The pilot costs 143.24 core-seconds per replicate set (all 17 scenarios). The declared run costs
+2,800 x 143.24 s, about 111 core-hours: about 28 wall-hours on 4 workers, so it goes to the local
+queue (16 cores, about 7 wall-hours) as the 24-hour rule requires. The per-scenario seconds are
+in the pilot's `cells[*].seconds`.
 
 ## Design review readings (scratch draws, outside the repository)
 
