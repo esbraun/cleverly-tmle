@@ -502,6 +502,11 @@ EXPERIMENTAL_REASONS: Final[Mapping[str, str]] = MappingProxyType(
             "This fit has a feature the validation study of its kind does not cover, so "
             "cleverly marks {names} experimental."
         ),
+        "theory": (
+            "The method's published theory does not cover a sieve size chosen by "
+            "cross-validation or a final learner you supply, so cleverly marks {names} "
+            "experimental whatever a study shows."
+        ),
     }
 )
 
@@ -4239,6 +4244,7 @@ MODIFIERS: Final = "Modifiers"
 CURVE_SCALE: Final = "Scale"
 BASIS: Final = "Basis"
 CURVE_STATUS: Final = "Status"
+SIEVE: Final = "Sieve"
 SCORE_ASSESSMENT_TITLE: Final = "Check of an external score"
 
 #: The notes an effect-curve summary can print.
@@ -4249,6 +4255,10 @@ EFFECT_CURVE_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "curve_band": "note",
         "curve_experimental": "note",
         "score_external": "note",
+        "ep_target": "note",
+        "ep_no_interval": "note",
+        "ep_experimental": "note",
+        "ep_clipped": "note",
     }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **EFFECT_CURVE_NOTE_CODES})
@@ -4273,6 +4283,19 @@ EFFECT_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "curve_experimental": (
             "{reason} Its intervals are computed as for a validated fit; read them with more "
             "caution."
+        ),
+        "ep_target": (
+            "The curve estimates {target}. Check it out of fold with diagnostics.calibration() "
+            "before acting on it."
+        ),
+        "ep_no_interval": (
+            "This curve has no confidence interval: the EP learner's source proves rates, not "
+            "a limit law for the curve. For intervals, declare model= and fit method='tmle'."
+        ),
+        "ep_experimental": "{reason}",
+        "ep_clipped": (
+            "{share} of the in-sample predictions were clipped to [-{width}, {width}], the range "
+            "a difference of two means of this outcome can take."
         ),
         "score_external": (
             "The intervals hold only if {column} was fitted on other data. A negative risk "

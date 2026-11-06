@@ -1,0 +1,22 @@
+=== ep-assessment declared run
+command: /home/user/venv/bin/python /home/user/cleverly-tmle/tests/canonical/ep_assessment/regenerate.py --output /home/user/scratch/run4/out --jobs 4
+commit: 2172efe5357fdab296e46533207732155ec5b1e0; upstream 2172efe5357fdab296e46533207732155ec5b1e0
+clean tree: True
+cleverly 0.2.0 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.18; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 118, sha256 a0e4bbd6567787c52dca55f26dd2748491bb89d587bb57bea166df1ef64ed857
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-06T02:18:16+00:00
+note: resumed from /root/.cache/cleverly/runs/ep-assessment/3c7b48909181, reused the Python phase
+finished: 2026-11-06T04:13:39+00:00
+wall seconds: 6922.3
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: b9ac438bbb024268d063da2fc440270d344c3fdb90d30dd7fed404cde2412e3e
+sha256 performance-tests.csv: 5c6cb587efdf1dd3959911781499afb860b644965726318075b2aaada8678438
+sha256 properties.csv: 1100f8dafc56914a1282ce37b1e85818290cb08b2fba2608484b1fab8bca9f3c
+sha256 property-replicates.parquet: 6610b4bfd1fbfce1d128f4916d4af234561c370fc752331f6ca3c6b4efa43af0
+sha256 replicates.parquet: 2e45e65c3921bff13a49b45f74c74f4e19b8e8fb31c10cae23403aeefe0d9300
+sha256 summary.csv: 89b053050d21e093c5905d1748a95c60f7d6b49010cd9cee08c3406ac1b24420
+

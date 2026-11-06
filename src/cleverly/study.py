@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, overload, runtime_checkable
 
 import narwhals as nw
 import numpy as np
@@ -79,6 +79,7 @@ from .methods import (
     AdaptiveIPTWMethod,
     CollaborativeTMLEMethod,
     DRTMLEMethod,
+    EPMethod,
     EstimationMethod,
     GComputationMethod,
     IPSIMethod,
@@ -125,6 +126,7 @@ from .utils.frames import as_frame
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .assessment import AssessmentReport
+    from .effect_curves import EffectCurveResult
 
 __all__ = [
     "ATC",
@@ -2536,15 +2538,33 @@ EP_OTHER_ESTIMAND_REFUSAL = Refusal(
     alternative="Fit method='tmle' for this estimand.",
 )
 
-#: Why the EP method is not available yet for a conditional contrast.
-EP_NOT_YET_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "the EP learner of the conditional contrast curve is not implemented yet (P1 part (b) "
-    "in docs/roadmap.md).",
+#: Why the EP method does not take a model whose size cross-validation chooses.
+EP_CV_MODEL_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "With model= declared, the EP curve estimates the projection onto that model, and a model "
+    "whose size cross-validation chooses would make the projection's target move with the "
+    "sample.",
     alternative=(
-        "Declare model=, a basis from cleverly.bases, and fit method='tmle' for the "
-        "projection with intervals."
+        "Declare model=None and EPMethod(sieve=Sieve(basis, size='cv')) for the curve, or fix "
+        "the model's size."
     ),
+)
+
+#: Why a declared final learner does not fit a projection.
+EP_FINAL_LEARNER_PROJECTION_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "With model= declared, the EP curve is the projection onto that model, whose final stage "
+    "is least squares on the model's basis; another final learner would estimate a different "
+    "curve.",
+    alternative="Declare model=None to fit the curve with a final learner of your choice.",
+)
+
+#: Why a declared final learner does not fit a log ratio.
+EP_FINAL_LEARNER_RATIO_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "The log-ratio final stage is a weighted logistic regression with fractional targets "
+    "(arXiv:2402.01972v2, Section 3.2), and no seam passes that loss to a declared learner.",
+    alternative="Fit the log ratio with the default final stage (final_learner=None).",
     roadmap="P1",
 )
 
@@ -2553,7 +2573,10 @@ TMLE_WITHOUT_MODEL_REFUSAL = Refusal(
     RefusalReason.INVALID_DECLARATION,
     "TMLE estimates a finite-dimensional parameter, and with model=None this estimand is the "
     "conditional effect given the modifiers, a function that is not pathwise differentiable.",
-    alternative="Declare model=, a basis from cleverly.bases, for the projection with intervals.",
+    alternative=(
+        "Declare model=, a basis from cleverly.bases, for the projection with intervals, or "
+        "fit method='ep' for the curve without intervals."
+    ),
 )
 
 #: Why ``tmle`` does not fit a sieve whose size cross-validation chooses (R4).
@@ -2562,7 +2585,9 @@ TMLE_CV_SIEVE_REFUSAL = Refusal(
     "The projection's interval holds for a basis fixed before the fit. A basis size chosen by "
     "cross-validation makes the target data-adaptive, and no reviewed result covers inference "
     "after that selection.",
-    alternative="Fix the size before the fit, for example Sieve(basis, size=3).",
+    alternative=(
+        "Fix the size before the fit, for example Sieve(basis, size=3), or fit method='ep'."
+    ),
 )
 
 
@@ -4431,12 +4456,22 @@ class CausalStudy:
         effect = (provider or ExplicitAdjustmentProvider()).identify(self, estimand)
         return replace(effect, protocol=self.protocol, _study=self)
 
+    @overload
+    def estimate(
+        self, estimand: PointEstimand, method: Literal["ep"] | EPMethod, **overrides: Any
+    ) -> EffectCurveResult: ...
+
+    @overload
+    def estimate(
+        self, estimand: PointEstimand, method: str | EstimationMethod = "tmle", **overrides: Any
+    ) -> TMLEResult | LongitudinalResult: ...
+
     def estimate(
         self,
         estimand: PointEstimand,
         method: str | EstimationMethod = "tmle",
         **overrides: Any,
-    ) -> TMLEResult | LongitudinalResult:
+    ) -> TMLEResult | LongitudinalResult | EffectCurveResult:
         """Identify and estimate one causal quantity.
 
         Parameters
@@ -4450,8 +4485,8 @@ class CausalStudy:
 
         Returns
         -------
-        TMLEResult or LongitudinalResult
-            Fitted result for the declared design.
+        TMLEResult, LongitudinalResult or EffectCurveResult
+            Fitted result for the declared design; an EP fit returns its curve.
         """
         return self.identify(estimand).estimate(method=method, **overrides)
 
@@ -4789,11 +4824,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     def _effect_modification_methods(
         self, records: tuple[MethodAvailability, ...]
     ) -> tuple[MethodAvailability, ...]:
-        """The methods of a conditional contrast: ``tmle`` with a fixed basis, and no other.
+        """The methods of a conditional contrast: ``tmle`` with a fixed basis, and ``ep``.
 
         ``tmle`` needs a fixed basis: with ``model=None`` the target is not pathwise
         differentiable (R2), and a sieve sized by cross-validation makes it data-adaptive
-        (R4).  The EP learner is P1 part (b).  Every other method has no projection target.
+        (R4).  ``ep`` fits the curve, with or without a model, but not a model whose size
+        cross-validation chooses.  Every other method has no projection target.
         """
         estimand = self.estimand
         assert isinstance(estimand, ConditionalContrast)
@@ -4809,7 +4845,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             if record.name == "tmle":
                 out.append(MethodAvailability("tmle", tmle_refusal is None, tmle_refusal))
             elif record.name == "ep":
-                out.append(MethodAvailability("ep", False, EP_NOT_YET_REFUSAL))
+                model = estimand.model
+                refused = isinstance(model, Sieve) and model.chosen_by_cv
+                out.append(
+                    MethodAvailability("ep", not refused, EP_CV_MODEL_REFUSAL if refused else None)
+                )
             else:
                 out.append(
                     MethodAvailability(
@@ -5077,12 +5117,20 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             *protocol_summary_lines(self.protocol, detail),
         )
 
+    @overload
+    def estimate(self, method: Literal["ep"] | EPMethod, **overrides: Any) -> EffectCurveResult: ...
+
+    @overload
+    def estimate(
+        self, method: str | EstimationMethod = "tmle", **overrides: Any
+    ) -> TMLEResult | LongitudinalResult: ...
+
     @records_fit
     def estimate(
         self,
         method: str | EstimationMethod = "tmle",
         **overrides: Any,
-    ) -> TMLEResult | LongitudinalResult:
+    ) -> TMLEResult | LongitudinalResult | EffectCurveResult:
         """Estimate the identified functional.
 
         Parameters
@@ -5094,8 +5142,9 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
 
         Returns
         -------
-        TMLEResult or LongitudinalResult
-            Fitted result matching the study design.
+        TMLEResult or LongitudinalResult or EffectCurveResult
+            Fitted result matching the study design: an effect curve for
+            ``method="ep"``.
 
         Raises
         ------
@@ -5143,7 +5192,76 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             raise MethodConfigurationError.from_refusal(refusal)
         if self.functional.longitudinal:
             return self._estimate_longitudinal(normalized)
+        if isinstance(normalized, EPMethod):
+            return self._estimate_effect_curve(normalized)
         return self._estimate_point(normalized)
+
+    def _estimate_effect_curve(self, method: EPMethod) -> EffectCurveResult:
+        """Fit the EP learner of a conditional contrast (P1 part (b)).
+
+        Every refusal here runs before any learner: two declarations of the basis, a final
+        learner beside a declared model or on the log-ratio scale, and a sieve that reads an
+        undeclared domain or level.
+        """
+        from .estimators.ep import EPEstimator
+
+        assert self._study is not None and isinstance(self._study.data, CausalData)
+        estimand = self.estimand
+        assert isinstance(estimand, ConditionalContrast)
+        data = self._study.data
+        model = estimand.model
+        if model is not None and method.sieve is not None:
+            raise CapabilityError(
+                "the estimand declares model= and the method declares sieve=, two bases for one "
+                "fit; with model= the model is the sieve",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Keep one: model= for the projection, or sieve= with model=None.",
+            )
+        if method.final_learner is not None and (
+            model is not None or estimand.scale != "difference"
+        ):
+            raise CapabilityError.from_refusal(
+                EP_FINAL_LEARNER_PROJECTION_REFUSAL
+                if model is not None
+                else EP_FINAL_LEARNER_RATIO_REFUSAL
+            )
+        if model is None:
+            sieve = method.sieve if method.sieve is not None else Sieve.default(estimand.modifiers)
+            target = "curve"
+        else:
+            # A fixed basis is a sieve of one member: its own full size.
+            sieve = model if isinstance(model, Sieve) else Sieve(model, size=int(model.max_size))
+            target = "projection"
+        spec = EffectModification(
+            sieve.basis,
+            estimand.modifiers,
+            estimand.scale,
+            treatment=estimand.treatment,
+            reference=estimand.reference,
+        )
+        estimator = EPEstimator(
+            method.estimator_kwargs(),
+            spec,
+            sieve.size,
+            target=target,
+            final_learner=method.final_learner,
+            identified_effect=self,
+        )
+        result = estimator.fit(data).effect_curve()
+        provenance = result.provenance
+        return replace(
+            result,
+            provenance=(
+                None
+                if provenance is None
+                else replace(
+                    provenance,
+                    protocol_fingerprint=(
+                        None if self.protocol is None else self.protocol.fingerprint
+                    ),
+                )
+            ),
+        )
 
     def _unused_ratio_refusal(self, method: EstimationMethod) -> Refusal | None:
         """Why ``ratio="classifier"`` would change nothing on this fit, or ``None``.
@@ -5206,6 +5324,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 "gcomp": GComputationMethod,
                 "ipw": IPWMethod,
                 "parametric_gformula": ParametricGFormulaMethod,
+                "ep": EPMethod,
             }
             return constructors[method]().with_overrides(**overrides)
         if not isinstance(method, EstimationMethod):

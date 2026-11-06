@@ -1939,9 +1939,19 @@ registered [`conditional-projection` study](technical-reference/method-evidence/
 whose rows `T49` and `T50` label the projection fits it measured `supported`. The band, the
 external-score check and a pooled outcome regression on this axis read experimental.
 
+Part (b) has shipped the EP learner of the CATE and the log conditional risk ratio (`method="ep"`, with
+the sieve size fixed, scheduled or chosen by cross-validation with inner refits) and the declared
+registered [`ep-cate`](technical-reference/method-evidence/ep-cate.md),
+[`ep-crr`](technical-reference/method-evidence/ep-crr.md) and
+[`ep-assessment`](technical-reference/method-evidence/ep-assessment.md) studies, whose hte3
+comparators are pending. A curve fitted with a size schedule, one outcome regression per arm, two
+arms, an estimated mechanism and no weights, clusters or missing outcomes reads `supported`
+(`EP_MEASURED` in `cleverly.estimators.ep`). It carries no interval. A cross-validated size, a
+declared final learner, a pooled outcome regression and every unmeasured composition read
+experimental.
+
 | part | what ships |
 | --- | --- |
-| (b) | the EP learner for the CATE and the conditional relative risk, with its studies |
 | (c) | the EP curve as the declared rule learner of the shipped [learned-rule value](technical-reference/point-treatment-tmle.md#learned-rules), whose condition C3 then reads on the EP curve |
 
 The sieve can be any basis the caller declares. The package ships no HAL learner, and none is

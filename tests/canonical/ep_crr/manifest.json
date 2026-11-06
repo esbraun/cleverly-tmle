@@ -1,0 +1,91 @@
+{
+  "schema_version": 2,
+  "study": "EP learner of the log CRR",
+  "slug": "ep-crr",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-ep-crr",
+      "cleverly_version": "0.2.0",
+      "cleverly_commit": "2172efe5357fdab296e46533207732155ec5b1e0",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.18",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2400,
+    "n": 4000,
+    "seed": 20261123,
+    "resampling_seed": 20261124,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-ep-crr": 0.01
+    },
+    "scenarios": {
+      "obs_4k": [
+        "cate_projection[(intercept)]",
+        "cate_projection[W1]",
+        "cate_projection[W3]"
+      ]
+    },
+    "d3_simple_moderate_1k": "d3_simple_moderate log-CRR law, n=1000, R=300, gated, 5 outer folds",
+    "d3_simple_moderate_4k": "d3_simple_moderate log-CRR law, n=4000, R=300, gated, 5 outer folds",
+    "d3_simple_limited_1k": "d3_simple_limited log-CRR law, n=1000, R=300, gated, 5 outer folds",
+    "d3_simple_limited_4k": "d3_simple_limited log-CRR law, n=4000, R=300, gated, 5 outer folds",
+    "d3_complex_moderate_1k": "d3_complex_moderate log-CRR law, n=1000, R=300, gated, 5 outer folds",
+    "d3_complex_moderate_4k": "d3_complex_moderate log-CRR law, n=4000, R=300, gated, 5 outer folds",
+    "d3_complex_limited_1k": "d3_complex_limited log-CRR law, n=1000, R=300, gated, 5 outer folds",
+    "d3_complex_limited_4k": "d3_complex_limited log-CRR law, n=4000, R=300, gated, 5 outer folds",
+    "d3_complex_moderate_1k_cv": "d3_complex_moderate log-CRR law, n=1000, R=100, cv, 5 outer folds",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/ep_crr.py": "fd55faac1b2118281c29a959cd592a50d815f20f528d2307d61687eb8e8e80a9",
+    "tests/studies/ep_crr_properties.py": "a736dc57e065faffb0bc71ca7d40760539cbc04171fd0285bea214b3e0654a4a",
+    "tests/studies/ep_cate.py": "af9a43e1f010dc44af9313286fe65d20471f6246370956af427be4e8406329c7",
+    "tests/studies/ep_cate_properties.py": "ab1a07ab7d82284015fd99086499cf126f9c222a3557ebed861d03f487658b02",
+    "tests/studies/conditional_projection.py": "d377dbb8e6ab03f3f61092bc2e52a05404c825e6a40f6b3bdfb99788bbdabb05",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "c23ec6ca777d6bd662b759bdf3e09bd98afef526ba9ef7f2b3527e8a83146fea",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "c8e6b34a049ad82599dc9340824fdc097de8ff42963b9407caefa9bf81386269",
+    "summary.csv": "26ed8c8862a18cadb6283cba02fbf68a8f7580d9a466c2b23bb62acb8571a36c",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "3218915b72b26a30f0e5dce193558ecfb9c6f6210742339ac777fcd4128e8932",
+    "property-replicates.parquet": "70f19bd892d48e42ea80c2461b9ebfe6f83bbc8d3eb50de10c8a3046bef416b9",
+    "properties.csv": "e9f76506adf6e4a01fc59bacb88598c48292ea67291103bcdfc9b4611d38146d"
+  }
+}

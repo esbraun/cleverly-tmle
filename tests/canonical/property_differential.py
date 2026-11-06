@@ -646,7 +646,7 @@ REASON_CHECKS = {
 }
 
 
-def candidates_at_no_loss(subject: str) -> tuple[int, list[tuple[Any, ...]]]:
+def candidates_at_no_loss(subject: str) -> tuple[int, int, list[tuple[Any, ...]]]:
     """Read each clause's candidates on the complete case, where no replicate is lost.
 
     With ``k = 0`` every candidate set holds the complete case alone, so each candidate must
@@ -662,8 +662,11 @@ def candidates_at_no_loss(subject: str) -> tuple[int, list[tuple[Any, ...]]]:
     Returns
     -------
     tuple
-        The number of candidates read, and each one that differs as
-        ``(property, cell, clause, statistic, label, complete case, candidate)``.
+        The number of candidates read, the number of accountable clause verdicts judged, and
+        each candidate that differs as
+        ``(property, cell, clause, statistic, label, complete case, candidate)``.  A clause
+        built by :func:`property_failures.unaccountable_clause` has no candidate set, so a
+        subject whose clauses are all of that kind reads none.
     """
     module, record = subject_of(subject)
     rows = subject_rows(subject).copy()
@@ -677,6 +680,7 @@ def candidates_at_no_loss(subject: str) -> tuple[int, list[tuple[Any, ...]]]:
     rows["failed_replicates"] = 0
     wrong: list[tuple[Any, ...]] = []
     read = 0
+    accountable = 0
     with reduced(record) as cheap:
         summary = module.summarize_properties(rows)
         ctx = property_failures.module_context(cheap, rows, summary, {}, module)
@@ -694,6 +698,7 @@ def candidates_at_no_loss(subject: str) -> tuple[int, list[tuple[Any, ...]]]:
                 row = row.copy()
                 row["failed_replicates"] = 0
                 for clause, value in judged:
+                    accountable += clause.accountable
                     if clause.candidates is None:
                         continue
                     for label, candidate in clause.candidates(ctx, row):
@@ -704,7 +709,7 @@ def candidates_at_no_loss(subject: str) -> tuple[int, list[tuple[Any, ...]]]:
                         if not same:
                             name = (family, cell, clause.name, clause.statistic, label)
                             wrong.append((*name, value.slack, candidate.slack))
-    return read, wrong
+    return read, accountable, wrong
 
 
 # ---- the CI job ------------------------------------------------------------------------------
@@ -764,7 +769,9 @@ def test_the_perturbations_reach_a_threshold(subject: str) -> None:
         published = pd.read_csv(record.artifact("properties.csv"))
         assert published.empty, f"{subject} publishes verdicts without property rows"
         return
-    assert judge(subject, "se_low").moved or judge(subject, "bias").moved
+    # ``se_low`` and ``bias`` move most subjects; a subject whose cells are readings with no
+    # standard error, such as a calibration slope, is moved by another kind of the set.
+    assert any(judge(subject, kind).moved for kind in KINDS if kind != "none")
 
 
 @pytest.mark.parametrize("subject", [_by_subject(subject) for subject in SUBJECTS])
@@ -780,9 +787,9 @@ def test_each_clause_a_subject_uses_has_its_own_binding_witness(subject: str) ->
 @pytest.mark.parametrize("subject", [_by_subject(subject) for subject in SUBJECTS])
 def test_each_candidate_at_no_loss_reproduces_the_complete_case(subject: str) -> None:
     """F18 for every statistic type: at ``k = 0`` each candidate is the complete case."""
-    read, wrong = candidates_at_no_loss(subject)
+    read, accountable, wrong = candidates_at_no_loss(subject)
     assert wrong == []
-    if not subject_rows(subject).empty and judge(subject, "none").used:
+    if accountable:
         assert read > 0
 
 

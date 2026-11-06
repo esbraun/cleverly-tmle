@@ -13,8 +13,9 @@ producing fit's own cross-fitted nuisances give on the held-out rows, which neve
   against the constant (the average effect), the T-learner (the projection of the outcome
   regressions' contrast) and, for a difference, the DR-learner (the regression of
   :math:`\\tilde D` on the same basis).
-- :meth:`CurveDiagnostics.stability`: refits under other split seeds and, for a cosine or
-  B-spline basis, under the other family at a matched size.
+- :meth:`CurveDiagnostics.stability`: refits on the same data under other cross-fitting split
+  seeds and, for a cosine or B-spline basis, under the other family at a matched size.  It
+  measures sensitivity to the split, not sampling noise.
 - :meth:`CurveDiagnostics.modifier_stability`: refits without each modifier, and the change
   in the out-of-fold risk.
 """
@@ -42,7 +43,8 @@ __all__ = [
 ]
 
 #: The across-refit SD of the predictions, relative to the curve's own spread, above which
-#: :meth:`CurveDiagnostics.stability` warns (P1 plan 3.5 and 5.4).
+#: :meth:`CurveDiagnostics.stability` warns that the curve is sensitive to the cross-fitting
+#: split (P1 plan 3.5 and 5.4).  It is not a threshold on sampling noise.
 STABILITY_WARNING = 0.5
 
 
@@ -155,7 +157,14 @@ class CurveRiskComparison:
 
 @dataclass(frozen=True)
 class CurveStability:
-    """The spread of the curve's predictions across refits.
+    """The spread of the curve's predictions across refits on the same data.
+
+    The refits differ only in the cross-fitting split, so the reading measures sensitivity to
+    the split, not sampling noise: a low value does not mean the curve is well determined.  A
+    curve of pure noise at a constant effect reads low, because its wiggle comes from the
+    draw, which every refit shares (the ``ep-assessment`` pilot reads 0.09).  Whether the
+    effect varies at all is the question of ``heterogeneity_test`` and the projection's
+    intervals.
 
     Parameters
     ----------
@@ -163,7 +172,8 @@ class CurveStability:
         The mean across rows of the across-refit SD of the predictions, over the SD of the
         curve's own in-sample predictions.
     warning : bool
-        Whether ``relative_sd`` exceeds :data:`STABILITY_WARNING`.
+        Whether ``relative_sd`` exceeds :data:`STABILITY_WARNING`: a split-sensitivity
+        warning.
     seeds : tuple of int
         The split seeds of the refits.
     alternative : str
@@ -240,7 +250,8 @@ class CurveDiagnostics:
     Parameters
     ----------
     curve : EffectCurveResult
-        A curve fitted by :meth:`cleverly.estimators.TMLEResult.effect_curve`.
+        A curve fitted by :meth:`cleverly.estimators.TMLEResult.effect_curve` or by the EP
+        learner (``method="ep"``).
     """
 
     def __init__(self, curve: Any) -> None:
@@ -304,14 +315,23 @@ class CurveDiagnostics:
         return self._fit().diagnostics.nuisance_models()
 
     def score_equations(self) -> Any:
-        """The score equations the projection's targeting solved.
+        """The score equations the producing fit solved.
+
+        A projection fit reports its targeting's score equations.  An EP fit reports the
+        weighted mean score of each debiasing feature before and after its debiasing
+        regression, which solves them.
 
         Returns
         -------
-        ScoreVerdict
+        ScoreVerdict or DebiasingScores
             The producing fit's report.
         """
-        return self._fit().diagnostics.score_equations()
+        fit = self._fit()
+        if self.curve.fitted_method == "ep":
+            from .estimators.ep import DebiasingScores
+
+            return DebiasingScores.of(fit, backend=self.curve.backend)
+        return fit.diagnostics.score_equations()
 
     # ---------------------------------------------------------------- refits
 
@@ -350,6 +370,8 @@ class CurveDiagnostics:
         estimator = fit.estimator
         if basis is None:
             return estimator
+        if hasattr(estimator, "with_basis"):
+            return estimator.with_basis(basis)
         rebuilt = copy.copy(estimator)
         rebuilt.effect_modification = replace(estimator.effect_modification, basis=basis)
         return rebuilt
@@ -495,6 +517,11 @@ class CurveDiagnostics:
     def stability(self, *, n_seeds: int = 5, random_state: int | None = None) -> CurveStability:
         """The spread of the in-sample curve across refits under other split seeds.
 
+        Every refit uses the same rows; only the cross-fitting split changes.  The reading
+        measures sensitivity to the split, not sampling noise, so a low value does not mean
+        the curve is well determined.  For whether the effect varies at all, fit the
+        projection and read ``heterogeneity_test()`` and its intervals.
+
         Parameters
         ----------
         n_seeds : int
@@ -594,16 +621,42 @@ class CurveDiagnostics:
         full, _ = self._out_of_fold(n_folds, seed)
         risks = {"(none)": self._risk(full, scale, pseudo)}
         for name in columns:
-            kept = [column for column in columns if column != name]
-            fields: dict[str, Any] = {"columns": kept}
-            domains = getattr(basis, "domains", None)
-            if isinstance(domains, dict):
-                fields["domains"] = {key: value for key, value in domains.items() if key in kept}
-            elif isinstance(domains, tuple) and domains:
-                fields["domains"] = tuple(item for item in domains if item[0] in kept)
-            predictions, _ = self._out_of_fold(n_folds, seed, basis=replace(basis, **fields))
+            predictions, _ = self._out_of_fold(n_folds, seed, basis=_without(basis, name))
             risks[name] = self._risk(predictions, scale, pseudo)
         return ModifierStability(risks=risks, random_state=seed, backend=self.curve.backend)
+
+
+def _without(basis: Any, name: str) -> Any:
+    """``basis`` without the modifier ``name``: its columns and domains, or its components.
+
+    An :class:`~cleverly.bases.Additive` basis drops each component that reads only ``name``
+    and rebuilds each that reads it among others; every other shipped basis is a dataclass
+    of columns and domains.
+    """
+    from .bases import Additive
+
+    if isinstance(basis, Additive):
+        parts = []
+        for component in basis.bases:
+            reads = tuple(getattr(component, "columns", ()))
+            if name not in reads:
+                parts.append(component)
+            elif len(reads) > 1:
+                parts.append(_without(component, name))
+        if not parts:
+            raise _refuse(
+                f"every component of the basis reads {name}, so nothing is left without it",
+                "Declare a basis with a component for each modifier.",
+            )
+        return Additive(*parts, intercept=basis.intercept)
+    kept = [column for column in basis.columns if column != name]
+    fields: dict[str, Any] = {"columns": kept}
+    domains = getattr(basis, "domains", None)
+    if isinstance(domains, dict):
+        fields["domains"] = {key: value for key, value in domains.items() if key in kept}
+    elif isinstance(domains, tuple) and domains:
+        fields["domains"] = tuple(item for item in domains if item[0] in kept)
+    return replace(basis, **fields)
 
 
 def _log_ratio_calibration(design: FloatArray, d_t: FloatArray, d_r: FloatArray) -> FloatArray:

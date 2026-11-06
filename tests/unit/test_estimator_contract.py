@@ -124,6 +124,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "CounterfactualMean",
         "CrossFitting",
         "DRTMLEMethod",
+        "EPMethod",
         "DataError",
         "DiagnosticReport",
         "Estimand",
@@ -517,6 +518,8 @@ BACKEND_ROUTES: dict[str, str] = {
     "CurveRiskComparison": "field",
     "ModifierStability": "field",
     "ScoreAssessment": "field",
+    # The EP learner's debiasing-score report (P1 part b).
+    "DebiasingScores": "field",
 }
 
 

@@ -84,6 +84,14 @@ node the treatment mechanism defines the plan, and the estimator is not doubly r
 [Incremental interventions over time](../technical-reference/longitudinal-tmle.md#incremental-interventions-over-time) states
 its contract.
 
+`EPMethod` selects the efficient plug-in learner of a conditional effect curve, for a
+`ConditionalContrast` only. It fits the nuisances out of fold and fits no fluctuation, so it
+refuses `cross_fit=False`, `repeats` above 1, `cv_evaluation=True` and every targeting setting
+except the bounds. It reports no interval. `EPMethod(sieve=..., final_learner=...)` sets the
+smooth functions the correction uses and the regressor of the last step.
+[Conditional effects](conditional-effects.md#fit-the-effect-without-choosing-a-basis) shows the
+workflow.
+
 The collaborative fit above reports no confidence interval, no p-value, and no standard error. The
 `"greedy"` strategy is the default. `"ordered"`, `"discrete"`, `"lasso"` and `"learners"` refuse the
 same three accessors, and so does `"oat"` with a flexible learner. Each estimate keeps

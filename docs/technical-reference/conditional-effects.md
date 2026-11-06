@@ -15,7 +15,7 @@ a declared grid, and a Wald test of the non-constant terms all carry intervals.
 | heterogeneity test | joint Wald chi-square, df the number of non-constant terms | a fixed-dimension stack of the coefficients |
 | curve $\varphi(v)^\top\beta$ at declared points; band over a declared finite grid | pointwise Wald; multiplier band | linear in $\beta$; the shipped multiplier band over a fixed finite set |
 | risk difference and calibration of a fixed external score (`assess_score`) | Wald | the efficient influence curve of the risk at a fixed function; the calibration is a projection onto $(1, s(V))$ |
-| the conditional effect itself, with no basis (`model=None`) | refused | not pathwise differentiable |
+| the conditional effect itself, with no basis (`model=None`), by `method="ep"` | none: `predict(interval=True)` refuses | not pathwise differentiable; the EP learner's theorems give rates, not a limit law |
 
 The [user guide page](../user-guide/conditional-effects.md) gives the workflow.
 
@@ -138,6 +138,70 @@ end, for the fit and for prediction alike.
 chi-square on as many degrees of freedom. It tests the absence of variation along the basis, not
 the absence of heterogeneity.
 
+## The EP learner
+
+`method="ep"` (`EPMethod`, `cleverly/estimators/ep.py`) is the efficient plug-in learner of
+van der Laan, Carone and Luedtke (arXiv:2402.01972v2, "EPL" below). It runs in three steps.
+
+1. **Nuisances.** The cross-fitted $\bar Q_n(a, W)$, $g_n(a \mid W)$ and, with missing
+   outcomes, $\Pi_n(a, W)$ of the shipped point fit, each row with its own out-of-fold fit,
+   $g$ truncated at the resolved `g_bounds` and $\bar Q$ shrunk into the open unit interval
+   on the scale `q_bounds` declares.
+2. **Debiasing** (EPL Algorithm 2 and App C.1, Method 1). One pooled logistic regression of
+   the scaled outcome on features $x$, with offset $\operatorname{logit}\bar Q_n(A, W)$ and
+   weight $\Delta w / \{g_n(A \mid W)\Pi_n(A, W)\}$. On the difference scale
+   $x = (1\{A = t\} - 1\{A = r\})\varphi_k(V)$; on the log-ratio scale
+   $x = (1\{A \in \{t, r\}\}\varphi_k, 1\{A = t\}\varphi_k)$, which span the blocks
+   $H_1 = 1$ and $H_2 = -a$ of EPL eq (3). Its score is zero at the fit, which is EPL's
+   equations (6), and the updated $\bar Q^*$ stays inside $(0, 1)$. Rows of a third arm carry
+   no feature.
+3. **Final stage** (EPL Algorithm 3). On the difference scale, least squares of
+   $\bar Q^*(t, W) - \bar Q^*(r, W)$ on $\varphi_k(V)$, times $b - a$ of the declared outcome
+   range, or a declared `final_learner` on the modifier columns. On the log-ratio scale, the
+   logistic regression of $\bar Q^*_t / (\bar Q^*_t + \bar Q^*_r)$ on $\varphi_k$ with weight
+   $\bar Q^*_t + \bar Q^*_r$.
+
+The sieve is `Sieve(basis, size=...)`, by default `Sieve.default(modifiers)`: additive cosines
+of each continuous modifier and indicators of each categorical one, up to 6 terms per
+component. A fixed size, or a schedule $n \mapsto k(n)$ declared before the fit, is used as
+given. `size="cv"` chooses $k$ by EPL Algorithm 4: the cross-validated one-step risk
+$P_n[\theta^2 - 2\theta(D_t - D_r)]$, or $P_n[(D_t + D_r)\log(1 + e^\theta) - D_t\theta]$ on
+the log-ratio scale. Each training fold refits the nuisances by an inner cross-fit of 5 folds
+(clusters kept whole) before it debiases and fits the curve at each size, and the held-out
+fold's risk uses the outer out-of-fold pseudo-outcomes. No nuisance and no curve that is
+evaluated on a fold saw that fold, which is EPL's own remedy for the leakage it notes after
+Algorithm 4. The result records the sizes, the risks, the chosen size and the inner seeds.
+
+What the theory claims, by configuration:
+
+| configuration | claim |
+| --- | --- |
+| difference, fixed size $k$, default final stage | the projection onto $\operatorname{span}(\varphi_k)$, the target of the TMLE projection: the EP coefficients solve both parts of its efficient estimating equation, $P_n\varphi\{(2A - 1)(Y - \bar Q^*)/g\} = 0$ and $P_n\varphi(\tau^* - \varphi^\top\beta) = 0$. Consistent if either nuisance is; no interval |
+| difference, a declared schedule $k(n)$ | EPL Theorems 4 and 5 under their conditions C1 to C6, which the user must judge, for empirical risk minimisation over a fixed, uniformly bounded convex class $\mathcal F$ that meets C4. The default final stage is least squares over the growing, unbounded span of $\varphi_{k(n)}$, so the user must also judge that it behaves as such a class. Then: a rate, and $\lVert\theta^*_n - \theta_{n0}\rVert = o_p(E\lVert\theta_{n0} - \theta_0\rVert)$ for the oracle DR-learner $\theta_{n0}$ |
+| log ratio, a declared schedule $k(n)$ | EPL Theorems 4 and 5 under C1 to C6 for the log-CRR risk of eq (3), whose population risk is strictly convex (Lemma 16), with the same caveat on the final stage, a weighted logistic regression over the span of $\varphi_{k(n)}$. The one-step empirical risk need not be convex (Section 3.2) |
+| `size="cv"` (the default) | none: EPL proves no theorem for the selected size (Section 5.1) |
+| a declared `final_learner` | none: the theorems cover least squares over a declared convex class (Section 7.1) |
+| log ratio, fixed size | the log-CRR projection's target, but the two-block debiasing does not solve that projection's efficient score $\varphi\{\operatorname{expit}(\eta) - 1\{A = t\}\}$, so no root-$n$ claim |
+| any EP curve | no interval: `predict(interval=True)` raises the R1 refusal |
+
+With `model=None` on the difference scale the curve is clipped to $[-(b - a), b - a]$, where
+the target lies, and the result records the clipped share. With `model=` declared the target is
+that projection and nothing is clipped.
+
+An EP fit reads `supported` only in a composition a
+registered study measured (`EP_MEASURED` in `cleverly/estimators/ep.py`): a declared schedule
+with `model=None` on either scale (`ep-cate`, `ep-crr`), or a fixed size with `model=` declared
+on the difference scale (`ep-cate`'s `ep_fixed_obs_4k` cells), each with one outcome regression
+per arm, two arms, an estimated mechanism and no weights, clusters or missing outcomes. The
+label carries no interval. A size chosen by cross-validation (the default) or a declared
+`final_learner` lies outside EPL's theorems and stays `experimental` after any study. So
+do a pooled outcome regression, a fixed size with `model=None`, the log-ratio fixed size (its
+debiasing does not solve the projection's efficient score), more than two arms and declared
+treatment probabilities. Weights, clusters and missing outcomes are implemented (the weighted
+law, the cluster as the unit with grouped folds, the $\Delta/(g\Pi)$ weight) without a study
+and read `experimental`. `diagnostics.score_equations()` reports each debiasing feature's weighted mean
+score before and after the regression.
+
 ## External scores
 
 `assess_score` reads a column $s(V)$ computed from declared adjustment columns and estimates,
@@ -189,8 +253,11 @@ $\tilde D = D_t - D_r$ of the producing fit's cross-fitted nuisances, which neve
   the one-step loss) of the curve, the training-fold constant, the T-learner and, for a
   difference, the DR-learner on the same basis. No log-ratio DR-learner exists to compare.
 - `stability()`: the mean across rows of the SD of the refitted curves over 5 split seeds,
-  over the SD of the curve; above 0.5 it warns. A cosine basis is also refitted as a B-spline
-  of the same size, and the reverse.
+  over the SD of the curve; above 0.5 it warns. Every refit uses the same sample, so the
+  reading measures sensitivity to the cross-fitting split, not sampling noise, and a low value
+  does not mean the curve is well determined (the `ep-assessment` pilot reads 0.09 on a curve
+  of noise at a constant effect). For that, read the heterogeneity test and the projection's
+  intervals. A cosine basis is also refitted as a B-spline of the same size, and the reverse.
 - `modifier_stability()`: the out-of-fold risk with each modifier dropped from the basis.
 
 `corrections`, `truncation_curve` and `refute` are declared unavailable, the last with R9.
@@ -210,7 +277,12 @@ each reading against its formula.
 | missing treatments, an intermediate, a continuous or vector treatment, `strata=`, `repeats` above 1, the full-refit bootstrap | the projection's clever covariate, covariance or study cell for the composition is not built | `implementation_gap`, roadmap P1 |
 | a sensitivity analysis or refutation of a projection fit | each is defined for a mean or a contrast of means | `implementation_gap`, roadmap P1 |
 | `heterogeneity_test()` on a basis without an intercept column | its coefficients being zero says the contrast is zero, not that it is constant | `invalid_declaration` |
-| `method="ep"` | the EP learner is not shipped; for any other estimand it estimates a different target | `implementation_gap`; `different_estimand` |
+| `method="ep"` for an estimand other than `ConditionalContrast` | it estimates a different target | `different_estimand` |
+| `predict(interval=True)` on an EP curve, or a non-default `Inference` on `EPMethod` | EPL proves rates, not a limit law for the curve | `inference_gap` |
+| `method="ep"` with `model=Sieve(basis)` sized by cross-validation | the model is a declared projection target; pass the sieve as `sieve=` with `model=None` | `invalid_declaration` |
+| `method="ep"` with both `model=` and `sieve=`, or `final_learner=` with `model=` | two bases for one fit; with a model the final stage is least squares on it | `invalid_declaration` |
+| `final_learner=` on the log-ratio scale | the weighted logistic final stage with a declared learner is not built | `implementation_gap`, roadmap P1 |
+| `EPMethod` with `cross_fit=False`, `repeats` above 1, `cv_evaluation=True`, a non-default targeting scheme, or a fluctuation setting | the debiasing pools every row with its own out-of-fold nuisances and fits no fluctuation | `invalid_declaration` |
 | `assess_score` without `score_kind="external"`, with `computed_from` outside the adjustment set, or on an in-sample curve | the interval needs a fixed function of adjustment columns | `invalid_declaration` |
 
 Each one is raised before any learner is fitted, and `tests/unit/test_conditional_contrast.py`
@@ -258,8 +330,9 @@ clustered one and carries no control row. The T-learner (the projection of
 $\bar Q_1 - \bar Q_0$), the IPW projection, the one-step with unit weights in place of $1/g$,
 the one-step without $1/\Pi$, and the spline-GLM fit that drops the sampling weights each have
 a bias interval wholly outside $\pm 0.25$ of their own spread.
-`tests/unit/test_conditional_projection_design.py` computes the power and type-I pass probabilities and each control's detection probability (above 0.99)
-from the laws by quadrature. The EP cell of the plan moves to the part (b) study.
+`tests/unit/test_conditional_projection_design.py` computes the power and type-I pass
+probabilities and each control's detection probability (above 0.99) from the laws by quadrature.
+The plan's fixed-size EP cell, `ep_fixed_obs_4k`, moved to the `ep-cate` study.
 
 The calibration rows' pass probabilities are read at SE ratios from a pilot on its own seed
 stream, committed as `tests/studies/conditional_projection_pilot.csv`: 2,400 fits of each GLM
@@ -290,6 +363,140 @@ The fast-tier instruments are:
 - Gâteaux checks of the score risk on both scales, on the complete and the missing-outcome law, with the risk curve that omits the term for the
   constant as a mutation that must fail, and the true CATE calibrated to intercept 0 and slope 1
   (`tests/unit/test_conditional_contrast.py`).
+
+The [`ep-cate` study](method-evidence/ep-cate.md), declared in `tests/studies/ep_cate.py` with
+its verdicts in `tests/studies/ep_cate_properties.py` and run by
+`python -m tests.canonical.ep_cate.regenerate`, passed every primary test and all 21 gated
+cells. At 4,000 rows the upper bounds of the oracle comparison run from 0.033 to 0.076 and every
+growth bound is at most 0.065. On the rescue laws EP reads 0.67 and 0.72 (upper bounds 0.72 and
+0.77) while its T-learner reads 3.08 and 2.94. The fixed-size coefficients have standardized
+biases of at most 0.030.
+
+Its laws are hte3's code at `eac64673` (the d = 3 generator differs from EPL App B.2: noise SD 1, `positivity=TRUE` is the limited overlap,
+and the simple CATE under moderate overlap is $1 + W_1$), with the noise truncated at $\pm 4$.
+The two rescue laws are the complex d = 3 laws with App B.2's noise, SD 2 truncated at
+$\pm 8$. Each gate reads the paired mean of
+$\log \mathrm{ISE}(\text{EP}) - \log \mathrm{ISE}(\theta_{n0})$ over replicates, one-sided at
+99%:
+
+| gate | cells | rule |
+| --- | --- | --- |
+| oracle comparison (EPL Theorem 5) | every law but the rescue laws, the plan's ensemble, the schedule $k(n) = 3, 4, 5$ at $n = 1{,}000, 2{,}000, 4{,}000$ | upper bound at 4,000 below $\log 1.5$ |
+| no growth | the same | upper bound of the change from 1,000 to 4,000 below $\log 1.25$ |
+| DR rescue | the rescue laws, both overlaps, a per-arm main-terms linear outcome learner | upper bound at 4,000 below $\log 3$, and no growth |
+| control that must fail | the T-learner at that learner | lower bound at 4,000 above $\log 3$ |
+| fixed size, `ep_fixed_obs_4k` | the observational law of `conditional-projection`, `model=Linear(["W1", "W3"])`, R = 2,400 | each coefficient's standardized bias inside $\pm 0.25$ |
+
+The rescue claim depends on the outcome noise. With a wrong outcome regression the EP curve
+stays consistent when the propensity is right, but the residual $Y - \bar Q_n$ enters its
+variance, and the oracle's does not carry it. When the outcome noise is small, that residual
+dominates. In the pilot at hte3's noise SD of 1 the misspecified-learner EP has a mean log ratio
+of about 1.45 at $n = 4{,}000$ under both overlaps, an ISE about four times the oracle's, against
+$\log 3 = 1.10$. Under App B.2's SD of 2, the setting of the paper's rescue claim, it reads 0.71
+(moderate overlap) and 0.64 (limited). The code-law reading stays in the study as an ungated
+diagnostic row, and the gate runs at App B.2's noise (plan amendment rev 2.4).
+
+The replicate count of each law comes from pilots on their own streams
+(`tests/studies/ep_cate_pilot.csv`; the rescue laws' stream is separate) by the plan's sizing
+rule, and `tests/unit/test_ep_cate_design.py` pins it: 300 for the d = 3 laws and the rescue
+laws and 200 for the d = 20 laws. Each gate's pass probability is averaged over the pilot's
+own uncertainty in its mean and spread, and every gate passes with probability at least 0.9;
+the whole family passes with probability 0.93. A growth row red while its 1,000-row mean is
+below 0 and the same estimator's 4,000-row gate is green is read before the run as EP
+approaching the oracle from below, and is reported rather than treated as a defect; with that
+reading the family is free of a defect suspect with probability 0.97. The 2,000-row d = 3 groups feed only the ungated rate report and run
+100 replicates. The comparator, hte3 `Lrnr_cate_EP` with `targeting_style="dr"`, is declared
+pending: its debiasing is the linear Method 2, so the two agree only to $o_p(n^{-1/2})$ and the
+comparison is of different estimators.
+
+The [`ep-crr` study](method-evidence/ep-crr.md) (`tests/studies/ep_crr.py`, run by
+`python -m tests.canonical.ep_crr.regenerate`) passed every primary test and all 13 gated
+cells, and every oracle Hessian was positive definite. At 4,000 rows EP's upper bounds run from
+$-0.063$ to $-0.017$; the intercept-only learner's EP reads $-0.09$ against its T-learner's 0.92,
+and the offset learner's EP 0.25 (upper bound 0.30) against 1.22.
+
+Its laws are hte3's `generate_data_RR.R`: $W \sim U(-1, 1)^3$, a binary outcome with
+$\operatorname{logit} \mu_0(0, w) = -1 + 0.3 \sum_k (w_k + \sin 4 w_k)$, the log CRR
+$0.1(-1 + \sum_k w_k)$ (simple) or $0.1(-1 + \sum_k \{w_k + \sin 4w_k\})$ (complex), and the
+two overlaps; $\mu(1, w)$ stays below 0.8, so nothing is clipped.
+
+The `ep-crr` oracle minimises the
+one-step log-CRR risk at the true nuisances on the same sieve. That risk is not convex in
+general (EPL Section 3.2), so each replicate records whether the oracle's Hessian is positive
+definite. A replicate where it is not is excluded from its group's comparisons, and a gated row
+is red when more than 1% of its group's replicates were excluded.
+
+The gates are as in
+`ep-cate`, with the rescue margin at $\log 1.5$, on the complex law at limited overlap with two
+wrong outcome learners, each with its T-learner as the control. The first ignores $W$. The
+log-ratio debiasing features span a per-arm logistic model on the sieve and this law's
+$\operatorname{logit} \mu_0$ is nearly additive, so even a debiasing without the $1/\pi$ weight
+recovers the curve there: that cell shows that the debiasing corrects an intercept-only $\mu$,
+and does not see the weight. The second is the true regression with the treated arm's logit
+off by $2\{(\sum_k W_k)^2 - 1\}$, whose cross terms lie outside the additive sieve, so only the
+weighted correction removes the error; its growth row is reported, not gated, because with
+$\mu$ wrong the remainder is first order in the error of $\pi$ and no theorem bounds the
+ratio's growth. No DR-learner is compared, since the ratio has no such pseudo-outcome.
+
+In the `ep-crr` pilot
+(`tests/studies/ep_crr_pilot.csv`) EP reads between $-0.08$ and $-0.02$ at 4,000 on every law,
+and the intercept-learner EP $-0.08$ against its T-learner's $1.02$. A second pilot of 100
+replicates at each end of the simple law at limited overlap
+(`tests/studies/ep_crr_growth_pilot.csv`) reads $-0.14$ at 1,000 and $-0.08$ at 4,000. The
+offset pilot (`tests/studies/ep_crr_offset_pilot.csv`, 31 replicates at each end) reads the
+offset-learner EP at 0.25 (SD 0.34) at 4,000, its T-learner at 1.35, and EP with the weight
+replaced by 1 at 1.72, so that mutation fails the rescue gate with probability above 0.999.
+At R = 300 every gate passes with probability at least 0.95 averaged over the pilots'
+uncertainty, and the family with probability 0.93. The test
+`test_the_inverse_propensity_weight[log_ratio]` in `tests/unit/test_ep_exact.py` checks the
+weight exactly on a small population. No oracle Hessian failed in 24,000 checks on the gated
+laws and sizes (`tests/studies/ep_crr_hessian_pilot.csv`), so the 1% exclusion bound turns no
+row red with probability above 0.9999 even at the 95% upper rate.
+
+The [`ep-assessment` study](method-evidence/ep-assessment.md) (`tests/studies/ep_assessment.py`)
+passed its three gated cells: the calibration slope reads 0.986 (99% interval 0.985 to 0.987),
+the stretched control 0.657, and the risk difference has the right sign in all 300 strong-law
+replicates. `relative_sd` reads 0.009 and 0.077, and no replicate warns. It reads the
+diagnostics of an EP curve on the complex d = 3 law at moderate overlap and on a weak law with
+the constant CATE 0.1, at $n = 2{,}000$ with the ensemble:
+
+| reading | claim | control |
+| --- | --- | --- |
+| out-of-fold calibration slope, 300 replicates | the 99% interval of its mean inside $[0.85, 1.15]$ | the curve stretched by 1.5 about its mean on the same folds, whose slope is exactly $1/1.5$ of the curve's: its 99% upper bound below 0.85 |
+| stability, `relative_sd` over 5 split seeds, 100 replicates per law | none: reported only, with the share of each law's replicates above 0.5 | none |
+| risk comparison, EP against the constant | the share of complex-law replicates whose reported DR risk difference has the sign of its exact value at the true CATE, with the same bound | none; at the weak law the share is reported only |
+
+The pilot (`tests/studies/ep_assessment_pilot.csv`) reads the slope at 0.987 (SD 0.005) and
+the stretched slope at 0.658, so the calibration claim and its control pass with probability
+1.0, as does the sign share. Stability is reported, not gated (plan amendment rev 2.4).
+Refits under other split seeds reuse the same draw, and a curve's wiggle at a constant effect
+comes from the draw, so `relative_sd` reads 0.088 at the weak law (0.009 at the complex law).
+A claim that the weak law reads above 0.5 would fail at any R, and no control could make the
+reading's warning fail.
+
+The EP learner's fast-tier instruments are:
+
+- the debiasing on finite-support populations with the curve indexed by part of $W$: the
+  projection exact at a wrong outcome regression and at a wrong propensity, under missing
+  outcomes and with a third arm, the saturated log ratio exact, and the unsaturated log ratio's
+  gap reported (`tests/unit/test_ep_exact.py`);
+- a mutation of each component that the exact checks must fail: the targeting sign, a dropped
+  basis column, the contrast's direction, the third arm's feature, the offset, the $(2A - 1)$
+  factor, the $1/g$ weight on both scales, the $1/\Pi$ weight, the log ratio's second block and
+  its final-stage weight;
+- the study layer at the oracle, the $b - a$ factor, the clip, the estimating equation against
+  the TMLE projection, fold locality of the size selection (with a refit that sees its fold as
+  the mutation), clusters kept whole in outer and inner folds, the row weights in every outer
+  and inner outcome and treatment fit (with a fit that drops them as the mutation), and each
+  refusal before any learner, a declared size above the family's largest member among them
+  (`tests/unit/test_ep_contract.py`);
+- frequency weights: on both scales, integer row weights fit the same curve as the rows
+  repeated, to $10^{-10}$, and dropping the row weight from the debiasing weight or from the
+  final stage breaks the equality;
+- the cross-validated risk table recomputed by hand, on a weighted sample and both scales, from
+  each fold's curves, the outer out-of-fold pseudo-outcomes at the held-out rows and the row
+  weights, to $10^{-12}$: evaluating on the training rows, swapping $D_t$ and $D_r$, or dropping
+  the weights moves it.
 
 The [evidence manifest](evidence.md#the-table) lists them. The source is
 van der Laan, Carone and Luedtke (2024; v2 dated 2026), arXiv:2402.01972v2, a preprint; see the

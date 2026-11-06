@@ -50,6 +50,7 @@ __all__ = [
     "CollaborativeTMLEMethod",
     "CrossFitting",
     "DRTMLEMethod",
+    "EPMethod",
     "EstimationMethod",
     "GComputationMethod",
     "IPSIMethod",
@@ -1319,6 +1320,166 @@ class TMLEMethod:
             }
         )
         return common
+
+
+#: The targeting settings an EP fit reads: the bounds of the nuisances it debiases.  Every
+#: other :class:`Targeting` field configures a fluctuation, which the EP learner does not fit.
+_EP_TARGETING_FIELDS = ("g_bounds", "q_bounds", "nuisance_bound", "submodel_alpha")
+
+
+def _ep_setting_refusal(names: list[str], why: str) -> Refusal:
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f"EPMethod does not read {', '.join(names)}: {why}",
+        alternative=(
+            "Remove these settings, or declare model= and fit method='tmle', which reads them."
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class EPMethod(TMLEMethod):
+    """Configure the EP learner of a conditional effect curve.
+
+    The EP learner (van der Laan, Carone and Luedtke, arXiv:2402.01972v2, a preprint) fits the
+    outcome regressions and the treatment model out of fold, adjusts the outcome regressions
+    by one weighted logistic regression on a sieve of the modifiers, and fits the curve to the
+    adjusted contrast.  The curve has no confidence interval.  It estimates a
+    :class:`cleverly.ConditionalContrast`; with ``model=None`` the target is the conditional
+    effect itself, approximated within the final learner's class.
+
+    Parameters
+    ----------
+    models : ModelSpec
+        Nuisance learners and related model settings.
+    cross_fitting : CrossFitting
+        Sample-splitting settings.  The fit needs out-of-fold nuisances, so
+        ``enabled=False``, ``repeats`` above 1 and ``fold_evaluation=True`` (the
+        ``cv_evaluation=True`` shortcut) are refused.
+    targeting : Targeting
+        Only ``g_bounds``, ``q_bounds``, ``nuisance_bound`` and ``submodel_alpha`` are read;
+        the EP learner fits no fluctuation, and any other non-default setting is refused.
+    inference : Inference
+        Must be the default: the EP curve has no interval (R1 of the P1 plan).
+    runtime : Runtime
+        Seed, run identifier, and parallelism.
+    name : str
+        Stable method name.
+    sieve : Sieve or None
+        The debiasing sieve of a fit with ``model=None``.  ``None`` uses
+        ``Sieve.default(modifiers)``: additive cosines of the continuous modifiers and
+        indicators of the categorical ones, sizes 1 to 6, chosen by cross-validation.  A
+        fixed size or a declared schedule ``n -> size`` skips the cross-validation.  With
+        ``model=`` declared on the estimand, the model is the sieve and this stays ``None``.
+    final_learner : Any
+        A regressor fitted to the adjusted contrast on the modifier columns, in place of the
+        default least squares on the sieve basis.  Difference scale and ``model=None`` only.
+
+    See Also
+    --------
+    cleverly.ConditionalContrast : The estimand this method fits.
+    cleverly.bases.Sieve : The sieve and its size rule.
+    TMLEMethod : The projection fit with intervals, for a declared model.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from sklearn.linear_model import LogisticRegression
+    >>> from cleverly import CausalStudy, ConditionalContrast, EPMethod, PointTreatment
+    >>> from cleverly.bases import Cosine, Modifiers, Sieve
+    >>> rng = np.random.default_rng(0)
+    >>> w = rng.uniform(0.0, 1.0, 400)
+    >>> a = rng.binomial(1, 0.5, 400)
+    >>> y = rng.binomial(1, 0.3 + 0.3 * a * w)
+    >>> study = CausalStudy(
+    ...     pd.DataFrame({"W": w, "A": a, "Y": y}),
+    ...     design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",)),
+    ... )
+    >>> effect = study.identify(ConditionalContrast(Modifiers(["W"], domains={"W": (0.0, 1.0)})))
+    >>> method = EPMethod(sieve=Sieve(Cosine(["W"], size=3), size=2)).with_overrides(
+    ...     outcome_learner=LogisticRegression(),
+    ...     treatment_learner=LogisticRegression(),
+    ...     random_state=0,
+    ... )
+    >>> curve = effect.estimate(method)
+    >>> curve.fitted_method, curve.inference_status, curve.sieve.chosen
+    ('ep', 'no_interval', 2)
+    """
+
+    name: str = "ep"
+    sieve: Any = None
+    final_learner: Any = None
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        from .bases import Sieve
+
+        if self.sieve is not None and not isinstance(self.sieve, Sieve):
+            raise MethodConfigurationError(
+                f"EPMethod(sieve=...) takes a cleverly.bases.Sieve; got {self.sieve!r}",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Pass Sieve(basis, size=...), or None for the default sieve.",
+            )
+        if self.inference != Inference():
+            from .estimators.ep import EP_INTERVAL_REFUSAL
+
+            raise MethodConfigurationError.from_refusal(EP_INTERVAL_REFUSAL)
+        defaults = Targeting()
+        targeting = [
+            name
+            for name in Targeting.__dataclass_fields__
+            if name not in _EP_TARGETING_FIELDS
+            and _differs_from_default(getattr(self.targeting, name), getattr(defaults, name))
+        ]
+        if targeting:
+            raise MethodConfigurationError.from_refusal(
+                _ep_setting_refusal(
+                    targeting,
+                    "the EP learner fits no fluctuation, so these settings would change nothing.",
+                )
+            )
+        cross = self.cross_fitting
+        unread = [
+            name
+            for name, refused in (
+                ("cross_fit=False", not cross.enabled),
+                ("repeats above 1", cross.repeats != 1),
+                ("cv_evaluation=True", cross.fold_evaluation),
+                (
+                    f"targeting_scheme={cross.targeting_scheme!r}",
+                    cross.targeting_scheme != CrossFitting().targeting_scheme,
+                ),
+            )
+            if refused
+        ]
+        if unread:
+            raise MethodConfigurationError.from_refusal(
+                _ep_setting_refusal(
+                    unread,
+                    "the debiasing regression pools every row with its own out-of-fold "
+                    "nuisances from one split, and fits no fold-level update.",
+                )
+            )
+
+    def with_overrides(self, **overrides: Any) -> EPMethod:
+        """Return a copy with flat shortcuts normalized by concern.
+
+        Parameters
+        ----------
+        **overrides : Any
+            The shortcuts :meth:`TMLEMethod.with_overrides` takes, plus ``sieve`` and
+            ``final_learner``.
+
+        Returns
+        -------
+        EPMethod
+            New immutable configuration.
+        """
+        own = {key: overrides.pop(key) for key in ("sieve", "final_learner") if key in overrides}
+        method = super().with_overrides(**overrides)
+        assert isinstance(method, EPMethod)
+        return replace(method, **own) if own else method
 
 
 @dataclass(frozen=True)

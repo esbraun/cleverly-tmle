@@ -164,9 +164,9 @@ alternative must still converge to the same structured identification and result
 An estimation method is named, never selected from the data. `estimate(method=...)` carries a
 fixed default preset, which is a declaration rather than a choice. What is excluded is picking an
 estimator by scanning `available_methods()`, or by comparing fits on the rows being estimated. The
-temptation grows with the catalog. `riesz_tmle` and `ep` already appear there as
-unavailable-with-reason, so a "use the best available method" convenience is one short function
-away. It would report an interval whose post-selection coverage nothing certified and for which no
+temptation grows with the catalog. For a `ConditionalContrast` both `tmle` and `ep` are
+available, and `riesz_tmle` appears as unavailable-with-reason, so a "use the best available
+method" convenience is one short function away. It would report an interval whose post-selection coverage nothing certified and for which no
 selection contribution, common-influence-curve reduction, or stable-oracle reduction had been
 derived. *Reconsider when* a published selector supplies selection-aware inference and certifies
 on draws that did not do the selecting.
@@ -182,8 +182,8 @@ modifiers of a `ConditionalContrast` are adjustment columns, and the domains, le
 its basis are declared in `cleverly.bases.Modifiers`, never read off the sample, because a basis
 estimated from the rows is a functional of the observed law that the influence curve does not
 carry. The coefficients, the curve at declared points and the band over a declared grid report on
-the `effect_modification` axis with intervals; the conditional effect with no working model has
-no interval. *Reconsider when* a reviewed source gives inference for a data-chosen basis.
+the `effect_modification` axis with intervals; the conditional effect with no working model,
+which `method="ep"` fits, has no interval. *Reconsider when* a reviewed source gives inference for a data-chosen basis.
 
 A design and a prepared data container must agree on every role before either is used. Both
 `CausalStudy` and the containers accept the same roles, and neither module alone can see a
