@@ -1,0 +1,83 @@
+{
+  "schema_version": 2,
+  "study": "Assessment readings of an EP curve",
+  "slug": "ep-assessment",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-ep-assessment",
+      "cleverly_version": "0.2.0",
+      "cleverly_commit": "2172efe5357fdab296e46533207732155ec5b1e0",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.18",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2400,
+    "n": 4000,
+    "seed": 20261125,
+    "resampling_seed": 20261126,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-ep-assessment": 0.01
+    },
+    "scenarios": {
+      "obs_4k": [
+        "cate_projection[(intercept)]",
+        "cate_projection[W1]",
+        "cate_projection[W3]"
+      ]
+    },
+    "strong_2k": "d3_complex_moderate law, n=2000, R=300, 5 out-of-fold refits, 5 split seeds on the first 100",
+    "weak_2k": "d3_weak_moderate law, n=2000, R=100, 5 out-of-fold refits, 5 split seeds on the first 100",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/ep_assessment.py": "e4b0adb21593ec4b73fc3e64d37f87b75a57cbdb9c4032a07ae71451487548be",
+    "tests/studies/ep_assessment_properties.py": "427c080a330ce4dd6961da2964f73a34cc08d88987185f7ba19fcf19974f04be",
+    "tests/studies/ep_cate.py": "af9a43e1f010dc44af9313286fe65d20471f6246370956af427be4e8406329c7",
+    "tests/studies/conditional_projection.py": "d377dbb8e6ab03f3f61092bc2e52a05404c825e6a40f6b3bdfb99788bbdabb05",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "c23ec6ca777d6bd662b759bdf3e09bd98afef526ba9ef7f2b3527e8a83146fea",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "2e45e65c3921bff13a49b45f74c74f4e19b8e8fb31c10cae23403aeefe0d9300",
+    "summary.csv": "89b053050d21e093c5905d1748a95c60f7d6b49010cd9cee08c3406ac1b24420",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "5c6cb587efdf1dd3959911781499afb860b644965726318075b2aaada8678438",
+    "property-replicates.parquet": "6610b4bfd1fbfce1d128f4916d4af234561c370fc752331f6ca3c6b4efa43af0",
+    "properties.csv": "1100f8dafc56914a1282ce37b1e85818290cb08b2fba2608484b1fab8bca9f3c"
+  }
+}
