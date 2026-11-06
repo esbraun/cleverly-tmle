@@ -16,7 +16,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -188,17 +187,10 @@ def test_each_scenario_has_its_own_archive_in_replicate_order(tmp_path: Path) ->
         assert pd.read_csv(held.truth)["replicate"].tolist() == list(range(count))
     assert len(pd.read_csv(inputs.paths["truth.csv"])) == 5
     frame, _ = synthetic.draw_scenario("b", 60, 1)
-    drawn = pd.read_csv(inputs.scenarios["b"].samples)
+    # round_trip: the default parser of pandas 3.0 can miss a float's last digit.
+    drawn = pd.read_csv(inputs.scenarios["b"].samples, float_precision="round_trip")
     drawn = drawn.loc[drawn["replicate"] == 1, "x"]
-    # Some pandas builds write or parse the last digit differently (1 ulp), so compare at
-    # 1e-15: a different draw would differ at order one.
-    np.testing.assert_allclose(
-        drawn.to_numpy(),
-        frame["x"].to_numpy(),
-        rtol=1e-15,
-        atol=0.0,
-        err_msg="a re-drawn replicate is not its seeded sample",
-    )
+    assert drawn.tolist() == frame["x"].tolist(), "a re-drawn replicate is not its seeded sample"
 
 
 def test_each_scenario_runs_alone_with_a_chunk_of_one_replicate_per_worker(
