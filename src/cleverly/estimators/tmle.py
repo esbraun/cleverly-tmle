@@ -131,6 +131,13 @@ from ..data.known_mechanism import (
 )
 from ..data.treatment_covariates import known_and_restricted
 from ..data.validate import MISSING_OUTCOME_DECLARATION
+from ..effect_modification import (
+    EffectModification,
+    EffectModificationSet,
+    effect_modification_data_refusal,
+    effect_modification_gap,
+    log_ratio_scale_refusal,
+)
 from ..exceptions import (
     CapabilityError,
     CleverlyError,
@@ -426,8 +433,10 @@ def _is_arm_indexed_missing_crossfit(
         The resolved estimand names.
     cross_fit : bool
         Whether the nuisances are cross-fitted.
-    axis : {"arm", "regime", "learned_rule", "policy", "rr_tilt", "ipsi", "msm"}
-        What the fit's parameters are indexed by.
+    axis : str
+        What the fit's parameters are indexed by: ``"arm"``, ``"regime"``,
+        ``"learned_rule"``, ``"policy"``, ``"rr_tilt"``, ``"ipsi"``, ``"msm"`` or
+        ``"effect_modification"``.
 
     Returns
     -------
@@ -439,7 +448,7 @@ def _is_arm_indexed_missing_crossfit(
     return (
         data.has_missing_outcome
         and cross_fit
-        and axis == "arm"
+        and axis in ("arm", "effect_modification")
         and not data.has_intermediate
         and not data.is_continuous_treatment
         and not _is_natural_course(data, estimands)
@@ -494,7 +503,11 @@ _OFF_CONTRACT_AXIS_NAMES: dict[ParameterAxis, str] = {
     "ipsi": "incremental",
     "regime": "regime",
     "msm": "MSM",
+    "effect_modification": "conditional-contrast projection",
 }
+
+#: The projection stems a fold-evaluated fit refuses, beside ``rr``, ``or`` and ``msm``.
+_PROJECTION_STEMS = frozenset({"cate_projection", "log_crr_projection"})
 
 
 def _independent_units(data: CausalData) -> tuple[IntArray, str]:
@@ -783,6 +796,15 @@ class TMLE:
         contract (X11 (f)).  Only the fold-evaluated report on rows with known
         ``treatment_probabilities=`` reads supported.  It is then the fit's one estimand, and it
         refuses known regimes beside it, ``weights=``, ``strata=`` and ``cross_fit=False``.
+    effect_modification:
+        A :class:`~cleverly.effect_modification.EffectModification`: the projection of a
+        conditional contrast of two arms onto a declared basis of the modifiers, reported
+        as ``cate_projection[<term>]`` (difference scale) or ``log_crr_projection[<term>]``
+        (log-ratio scale).  :class:`cleverly.ConditionalContrast` is the study spelling.
+        It refuses ``msm=``, ``interventions=``, ``policies=``, ``incremental=``,
+        ``learned_rule=`` and ``reference=``; strata, ``repeats`` above 1, the bootstrap,
+        ``cv_evaluation=True``, an intermediate, a missing treatment and a continuous or
+        vector treatment (P1 in ``docs/roadmap.md``).
     n_folds, learner_folds:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
         its candidates.
@@ -1103,6 +1125,7 @@ class TMLE:
         policies: Sequence[Policy] | None = None,
         incremental: Sequence[Incremental] | None = None,
         msm: MSM | None = None,
+        effect_modification: EffectModification | None = None,
         learned_rule: LearnedRule | None = None,
         density_bins: int | None = None,
         ratio: Literal["density", "classifier"] = "density",
@@ -1168,6 +1191,7 @@ class TMLE:
         _refuse_mixed_tilts(self.policies)
         refuse_mixed_interventions(self.incremental, kind="incremental", holder="incremental=")
         self.msm = msm
+        self.effect_modification = effect_modification
         self.learned_rule = learned_rule
         self.density_bins = density_bins
         self.ratio = ratio
@@ -1319,6 +1343,8 @@ class TMLE:
                 ),
                 roadmap="X57",
             )
+        if self.effect_modification is not None:
+            self._refuse_effect_modification_settings()
         if self.msm is not None and self.reference is not None:
             raise ValueError(
                 "reference= names the arm, regime or shift every contrast is taken "
@@ -1875,7 +1901,9 @@ class TMLE:
             # The nonlinear aggregates have no fold-evaluated construction with or without
             # strata (X61), so they meet that refusal before the stratified one (X28).
             unsupported = [
-                name for name in estimands if parameter_stem(name) in {"rr", "or", "msm"}
+                name
+                for name in estimands
+                if parameter_stem(name) in {"rr", "or", "msm"} | _PROJECTION_STEMS
             ]
             if unsupported:
                 raise CapabilityError(
@@ -2536,6 +2564,12 @@ class TMLE:
         """
         self._refuse_fold_policy()
         self._refuse_undeclared_functions()
+        if self.effect_modification is not None:
+            refusal = effect_modification_data_refusal(data) or log_ratio_scale_refusal(
+                data, self.effect_modification.scale, self.q_bounds
+            )
+            if refusal is not None:
+                raise CapabilityError.from_refusal(refusal)
         if self.msm is not None:
             refuse_continuous_msm_mechanisms(data, subject="An MSM (msm=)", missingness="delta=")
         check_stratified_targets(data, incremental=bool(self.incremental), msm=self.msm)
@@ -2652,7 +2686,7 @@ class TMLE:
         """
         if not (self._assessment_method == "tmle" and self.cross_fit and data.has_missing_outcome):
             return
-        if self._axis == "arm" and not data.has_intermediate:
+        if self._axis in ("arm", "effect_modification") and not data.has_intermediate:
             return
         parts = []
         if self._axis != "arm":
@@ -2949,7 +2983,10 @@ class TMLE:
         # A vector treatment with a dose component has no arms, as a continuous one has none.
         arms = 0 if data.treatment_kind == "vector" else data.n_arms
         estimands = learned_rule_estimands(
-            self, resolve_estimands(self.estimands, data.family, arms, axis=self._axis)
+            self,
+            resolve_estimands(
+                self._effect_modification_request(), data.family, arms, axis=self._axis
+            ),
         )
         if not data.has_missing_outcome:
             return estimands
@@ -3728,6 +3765,8 @@ class TMLE:
         """
         if self.learned_rule is not None:
             return "learned_rule"
+        if self.effect_modification is not None:
+            return "effect_modification"
         if self.msm is not None:
             return "msm"
         if self.policies:
@@ -3737,6 +3776,75 @@ class TMLE:
         if self.interventions:
             return "regime"
         return "arm"
+
+    def _effect_modification_request(self) -> Sequence[str] | str | None:
+        """The estimands to resolve: the declared scale's target on a projection fit.
+
+        A conditional contrast's projection reports one target, the one its scale names, so
+        its default is that target and a request for the other scale's is refused.
+
+        Returns
+        -------
+        sequence of str, str or None
+            The request :func:`~cleverly.targets.resolve_estimands` reads.
+
+        Raises
+        ------
+        CapabilityError
+            If ``estimands=`` names a target other than the declared scale's.
+        """
+        spec = self.effect_modification
+        if spec is None:
+            return self.estimands
+        if self.estimands is None or self.estimands == "all":
+            return (spec.target,)
+        requested = (self.estimands,) if isinstance(self.estimands, str) else self.estimands
+        other = [name for name in requested if name != spec.target]
+        if other:
+            raise CapabilityError(
+                f"estimand(s) {list(other)} are not the target of this projection: "
+                f"effect_modification declares scale={spec.scale!r}, which reports "
+                f"{spec.target!r} alone.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative=(
+                    "Declare the other scale on the EffectModification, or drop estimands=."
+                ),
+            )
+        return tuple(requested)
+
+    def _refuse_effect_modification_settings(self) -> None:
+        """Refuse the settings a conditional contrast's projection does not compose with.
+
+        Each is an ``IMPLEMENTATION_GAP`` of P1 in ``docs/roadmap.md`` (R7 of the P1 plan),
+        or a keyword that names a different parameter axis.
+
+        Raises
+        ------
+        CapabilityError
+            For another axis keyword, ``repeats`` above 1, or the bootstrap.
+        ValueError
+            For ``reference=``, which the declared pair replaces.
+        """
+        for keyword in ("msm", "interventions", "policies", "incremental", "learned_rule"):
+            value = getattr(self, keyword)
+            if value is not None and value != ():
+                raise CapabilityError(
+                    f"effect_modification= and {keyword}= cannot be combined: a conditional "
+                    "contrast's projection is indexed by the terms of its basis, and "
+                    f"{keyword}= declares a different parameter axis.",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative="Fit them in separate fits.",
+                )
+        if self.reference is not None:
+            raise ValueError(
+                "reference= names the arm every contrast is taken against, and a conditional "
+                "contrast declares its pair on the EffectModification (treatment=, "
+                "reference=); drop reference= here."
+            )
+        if int(self.repeats) > 1:
+            raise CapabilityError.from_refusal(effect_modification_gap("repeats above 1"))
+        if int(self.n_bootstrap) > 0:
+            raise CapabilityError.from_refusal(effect_modification_gap("the full-refit bootstrap"))
 
     def _check_incremental(self, data: CausalData) -> None:
         """Refuse what an incremental fit has no derivation for.
@@ -4103,6 +4211,11 @@ class TMLE:
     ) -> NuisanceEstimates:
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
         msm = self._msm(data)
+        contrast = (
+            None
+            if self.effect_modification is None
+            else EffectModificationSet.evaluate(self.effect_modification, data)
+        )
         # A data-tuned cap is fitted here, on the realised split and before any learner
         # (X40 part (e)), and the expanded policies are what the nuisances evaluate.
         tuned = resolve_point_policies(self.policies, data, folds) if self.policies else None
@@ -4203,6 +4316,7 @@ class TMLE:
             regimes=regimes,
             regimes_by_level=regimes_by_level,
             msm=msm,
+            effect_modification=contrast,
             fold_plug_in_rules=None,
             fold_plug_in_rules_by_level={},
         )
@@ -5772,6 +5886,7 @@ class TMLE:
         policies: PolicySet | None,
         incremental: IPSISet | None,
         msm: MSMSet | None,
+        contrast: EffectModificationSet | None = None,
     ) -> tuple[tuple[float, ...], dict[float, Any]]:
         """The codes this fit's parameters are keyed by, and what to report them as.
 
@@ -5782,6 +5897,8 @@ class TMLE:
         The working model's codes index its *terms*, not its arms -- which is the whole of
         what makes ``msm`` a fourth axis rather than a target on the arm axis.
         """
+        if contrast is not None:
+            return contrast.codes, dict(contrast.labels)
         if msm is not None:
             return msm.codes, dict(msm.labels)
         if policies is not None:
@@ -5848,6 +5965,7 @@ class TMLE:
         # carrying the fluctuated mechanism, and it is that one which reaches here.
         incremental = nuisance.incremental
         msm = nuisance.msm
+        contrast = nuisance.effect_modification
         # The two terms doubly-robust inference subtracts, built from the arrays the
         # alternation exited at: the refitted reductions and the *targeted* mechanism, both
         # of which live on the fluctuation rather than on the nuisances. `None` for every
@@ -5866,6 +5984,7 @@ class TMLE:
             policies = None if policies is None else policies.subset(index)
             incremental = None if incremental is None else incremental.subset(index)
             msm = None if msm is None else msm.subset(index)
+            contrast = None if contrast is None else contrast.subset(index)
             corrections = (
                 None
                 if corrections is None
@@ -5878,7 +5997,7 @@ class TMLE:
         # The five cases are the same shape on purpose --
         # see TargetContext.arms. `data.arm_label` is not reached on a continuous fit,
         # where it would raise.
-        codes, labels = self._parameter_axis(data, regimes, policies, incremental, msm)
+        codes, labels = self._parameter_axis(data, regimes, policies, incremental, msm, contrast)
         context = TargetContext(
             scaled=scaled,
             targeted=targeted,
@@ -5903,11 +6022,13 @@ class TMLE:
             msm_design=None if msm is None else msm.design,
             msm_weights=None if msm is None else msm.weights,
             msm_link="identity" if msm is None else str(msm.link),
+            effect_modification=contrast,
             always_label=(
                 regimes is not None
                 or policies is not None
                 or incremental is not None
                 or msm is not None
+                or contrast is not None
             ),
             # The stacked natural-course estimator declares the raw second moment, so its variance,
             # covariance and contrasts all read one rule. ``make_estimate`` owns the map

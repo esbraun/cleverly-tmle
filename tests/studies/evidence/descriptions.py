@@ -1126,6 +1126,60 @@ ARMS.update(
     }
 )
 
+#: The arms of ``conditional-projection`` (P1 part (a)): each calibration group and coefficient
+#: of the projection of a conditional contrast on ``Linear(W1, W3)``, and the heterogeneity
+#: test.  Mirrored from ``tests.studies.conditional_projection``, which this module cannot
+#: import; ``tests/unit/test_conditional_projection_design.py`` pins the two equal.
+_PROJECTION_LAWS = {
+    "trial_2k": "the randomized trial law with P(A = 1) = 0.5 known, n = 2,000",
+    "obs_1k": "the observational law, n = 1,000",
+    "obs_4k": "the observational law, n = 4,000",
+    "crr_1k": "the observational law on the log-ratio scale, n = 1,000",
+    "crr_4k": "the observational law on the log-ratio scale, n = 4,000",
+    "multi_4k": "the three-arm law, contrast of arm 2 with arm 0, n = 4,000",
+    "weighted_sl_2k": (
+        "the observational law with sampling weights 0.25 + 1.75 expit(6 W3) and the ensemble "
+        "learner (spline GLM, gradient boosting and lasso), five outer folds, n = 2,000"
+    ),
+    "clustered_4k": (
+        "the clustered law, 800 clusters of 5 rows with W1 and the treatment at cluster level "
+        "and a N(0, 1) cluster effect on the outcome logit, n = 4,000"
+    ),
+    "obs_missing_4k": "the observational law with outcomes missing at random, n = 4,000",
+    "obs_missing_crr_4k": (
+        "the observational law with outcomes missing at random, on the log-ratio scale, n = 4,000"
+    ),
+}
+_PROJECTION_TERMS = {
+    "intercept": "intercept",
+    "W1": "W1 slope",
+    "W3": "W3 slope",
+}
+_PROJECTION_ASSESS = {
+    "risk_difference": "the external score's MSE for the CATE minus the constant's",
+    "calibration_intercept": "the intercept of the calibration line from the score to the CATE",
+    "calibration_S": "the slope of the calibration line from the score to the CATE",
+}
+ARMS.update(
+    {
+        **{
+            f"{group}_{term}": f"{law}: the {words} of the projection on (1, W1, W3)"
+            for group, law in _PROJECTION_LAWS.items()
+            for term, words in _PROJECTION_TERMS.items()
+        },
+        **{
+            f"assess_score_2k_{name}": (
+                f"the observational law with the declared score s = 0.2 + 0.3 W1, n = 2,000: {words}"
+            )
+            for name, words in _PROJECTION_ASSESS.items()
+        },
+        "heterogeneity": (
+            "the df-2 heterogeneity test of the W1 and W3 slopes of Linear(W1, W3) on a "
+            "randomized law with the risk-scale CATE 0.2 + s W1"
+        ),
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -6867,5 +6921,122 @@ STUDY_ARM_CELLS.update(
             "validation rows, read against the value of those pairs",
             "bias interval must fall entirely outside the margin",
         ),
+    }
+)
+
+
+#: ``conditional-projection`` (P1 part (a)): the projection TMLE of a conditional contrast on
+#: ``Linear(W1, W3)``.  The laws, groups and cell names are those of
+#: ``tests/studies/conditional_projection.py``.
+_PROJECTION_SLUG = "conditional-projection"
+IMPLEMENTATIONS["cleverly-projection-tmle"] = (
+    "`cleverly` projection TMLE of a conditional contrast: the coefficients of the "
+    "least-squares projection of the CATE on a fixed basis, targeted jointly, with an "
+    "influence-curve Wald interval"
+)
+STUDY_SCENARIOS[(_PROJECTION_SLUG, "obs_4k")] = (
+    "observational law with a CATE that is not linear in W3, spline GLM learners, n = 4,000"
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_PROJECTION_SLUG, f"cate_projection[{term}]"): (
+            f"the {words} of the least-squares projection of the CATE on (1, W1, W3)"
+        )
+        for term, words in (
+            ("(intercept)", "intercept"),
+            ("W1", "W1 slope"),
+            ("W3", "W3 slope"),
+        )
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_PROJECTION_SLUG, "interval_calibration", arm, "correctly_specified"): (
+                "the declared fit with consistent nuisance learners",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for arm in (
+                *(f"{group}_{term}" for group in _PROJECTION_LAWS for term in _PROJECTION_TERMS),
+                *(f"assess_score_2k_{name}" for name in _PROJECTION_ASSESS),
+            )
+        },
+        **{
+            (_PROJECTION_SLUG, "interval_calibration", f"clustered_4k_{term}", kind): (
+                "the same fits with the row-level standard error, which ignores the clusters",
+                "the SE-ratio interval must fall below the calibration band",
+            )
+            for term in ("intercept", "W1")
+            for kind in ("row_variance_control",)
+        },
+        (_PROJECTION_SLUG, "type_i_error", "heterogeneity", "sharp_null"): (
+            "slope s = 0, so the effect does not vary, n = 2,000",
+            "the 99% upper end of the rejection rate at most 0.10",
+        ),
+        (_PROJECTION_SLUG, "power", "heterogeneity", "slope_0.10"): (
+            "slope s = 0.10, n = 4,000",
+            "the rejection rate's lower end at least 0.80",
+        ),
+    }
+)
+_PROJECTION_BIAS_ROWS = {
+    "slow_1k": "the slow-nuisance ladder at n = 1,000",
+    "slow_4k": "the slow-nuisance ladder at n = 4,000",
+    "slow_16k": "the slow-nuisance ladder at n = 16,000",
+    "noweight_dr_4k": "the wide-overlap law with a declared wrong outcome regression, n = 4,000",
+    "missing_dr_4k": (
+        "the missing-outcome law with a declared wrong outcome regression correlated with the "
+        "observation probability, n = 4,000"
+    ),
+}
+_PROJECTION_BIAS_CONTROLS = {
+    "ipw_1k": ("slow_1k", "the projection of (2A - 1) Y / pi_n(A, W), with no outcome fit"),
+    "ipw_4k": ("slow_4k", "the projection of (2A - 1) Y / pi_n(A, W), with no outcome fit"),
+    "ipw_16k": ("slow_16k", "the projection of (2A - 1) Y / pi_n(A, W), with no outcome fit"),
+    "t_learner_4k": ("slow_4k", "the projection of mu_n(1) - mu_n(0), with no targeting"),
+    "no_weight_4k": (
+        "noweight_dr_4k",
+        "the one-step with unit weights in place of 1 / pi_n",
+    ),
+    "missing_ignored_4k": ("missing_dr_4k", "the one-step without the 1 / Pi weight"),
+    "weights_ignored_2k": (
+        "weighted_sl_2k",
+        "the same draws fitted with the spline GLM and without the sampling weights, read "
+        "against the weighted truth",
+    ),
+}
+#: The coefficients each control publishes, the ones its displacement moves.
+_PROJECTION_CONTROL_TERMS = {
+    "ipw": ("W1", "W3"),
+    "t_learner": ("W1",),
+    "no_weight": ("intercept", "W1"),
+    "missing_ignored": ("intercept", "W3"),
+    "weights_ignored": ("intercept",),
+}
+_PROJECTION_LADDER = (
+    "both nuisances the correct-family logistic GLM with a logit offset 5 n^(-1/3) h(W), "
+    "h = W1^2 - 1/3 + W1 W3"
+)
+CELLS.update(
+    {
+        **{
+            ("bias", f"{group}_{term}"): (
+                f"{words}"
+                + (f", {_PROJECTION_LADDER}" if group.startswith("slow") else "")
+                + f": the projection TMLE's {_PROJECTION_TERMS[term]}",
+                "the 99% interval of the standardized bias inside +-0.25",
+            )
+            for group, words in _PROJECTION_BIAS_ROWS.items()
+            for term in _PROJECTION_TERMS
+        },
+        **{
+            ("bias", f"{control}_{term}"): (
+                f"{_PROJECTION_BIAS_ROWS.get(group, _PROJECTION_LAWS.get(group, group))}: "
+                f"{words}, {_PROJECTION_TERMS[term]}",
+                "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+            )
+            for control, (group, words) in _PROJECTION_BIAS_CONTROLS.items()
+            for term in _PROJECTION_CONTROL_TERMS[control.rsplit("_", 1)[0]]
+        },
     }
 )

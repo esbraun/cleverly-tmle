@@ -1,0 +1,145 @@
+gate,scenario,estimand,quantity,paired_replicates,max_abs_difference,max_replicate,rms,tolerance,passed,graded
+G1,sdr_binary_k3,ey_regimen[never],estimate,100,5.551115123125783e-16,16,3.197557957060819e-16,1e-06,True,True
+G1,sdr_binary_k3,ey_regimen[never],std_error,100,1.0061396160665481e-16,0,7.87892993575026e-17,1e-06,True,True
+G1,sdr_binary_k3,ey_regimen[always],estimate,100,6.661338147750939e-16,71,3.21773202442742e-16,1e-06,True,True
+G1,sdr_binary_k3,ey_regimen[always],std_error,100,1.0061396160665481e-16,0,6.946089275667711e-17,1e-06,True,True
+G1,sdr_binary_k3,ey_regimen[respond],estimate,100,5.551115123125783e-16,42,2.579925170969555e-16,1e-06,True,True
+G1,sdr_binary_k3,ey_regimen[respond],std_error,100,1.0061396160665481e-16,3,6.693245693897513e-17,1e-06,True,True
+G1,sdr_binary_k3,ey_regimen[switch],estimate,100,6.661338147750939e-16,34,2.9310728916085625e-16,1e-06,True,True
+G1,sdr_binary_k3,ey_regimen[switch],std_error,100,1.0408340855860843e-16,7,7.189460938673197e-17,1e-06,True,True
+G1,sdr_binary_k3,ey_regimen[coin],estimate,100,5.551115123125783e-16,10,2.875884829609236e-16,1e-06,True,True
+G1,sdr_binary_k3,ey_regimen[coin],std_error,100,1.0061396160665481e-16,0,6.15648449243079e-17,1e-06,True,True
+G1,sdr_binary_k3,ate_regimen[always vs never],estimate,100,6.106226635438361e-16,22,3.220932602745783e-16,1e-06,True,True
+G1,sdr_binary_k3,ate_regimen[always vs never],std_error,100,1.0408340855860843e-16,5,6.881497381663122e-17,1e-06,True,True
+G1,sdr_binary_k3,ate_regimen[respond vs never],estimate,100,5.967448757360216e-16,69,1.8313028041288265e-16,1e-06,True,True
+G1,sdr_binary_k3,ate_regimen[respond vs never],std_error,100,1.0061396160665481e-16,0,7.222201978973072e-17,1e-06,True,True
+G1,sdr_binary_k3,ate_regimen[switch vs never],estimate,100,7.771561172376096e-16,90,3.144720190802288e-16,1e-06,True,True
+G1,sdr_binary_k3,ate_regimen[switch vs never],std_error,100,1.0408340855860843e-16,3,7.689972622994835e-17,1e-06,True,True
+G1,sdr_binary_k3,ate_regimen[coin vs never],estimate,100,6.106226635438361e-16,10,2.679311716599803e-16,1e-06,True,True
+G1,sdr_binary_k3,ate_regimen[coin vs never],std_error,100,1.0061396160665481e-16,1,6.926305740325849e-17,1e-06,True,True
+G1,sdr_binary_k4,ey_regimen[never],estimate,100,6.661338147750939e-16,23,2.918429815167415e-16,1e-06,True,True
+G1,sdr_binary_k4,ey_regimen[never],std_error,100,1.0061396160665481e-16,0,7.417905576637679e-17,1e-06,True,True
+G1,sdr_binary_k4,ey_regimen[always],estimate,100,6.661338147750939e-16,38,2.730787568572e-16,1e-06,True,True
+G1,sdr_binary_k4,ey_regimen[always],std_error,100,1.0061396160665481e-16,3,7.212695676135585e-17,1e-06,True,True
+G1,sdr_binary_k4,ey_regimen[respond],estimate,100,5.551115123125783e-16,0,2.901486683220429e-16,1e-06,True,True
+G1,sdr_binary_k4,ey_regimen[respond],std_error,100,1.0061396160665481e-16,0,7.348985612921367e-17,1e-06,True,True
+G1,sdr_binary_k4,ey_regimen[switch],estimate,100,5.551115123125783e-16,2,2.643636620678493e-16,1e-06,True,True
+G1,sdr_binary_k4,ey_regimen[switch],std_error,100,1.0061396160665481e-16,1,7.550890828065843e-17,1e-06,True,True
+G1,sdr_binary_k4,ey_regimen[coin],estimate,100,5.551115123125783e-16,33,3.0767402982137023e-16,1e-06,True,True
+G1,sdr_binary_k4,ey_regimen[coin],std_error,100,1.0061396160665481e-16,55,5.981325538947833e-17,1e-06,True,True
+G1,sdr_binary_k4,ate_regimen[always vs never],estimate,100,6.106226635438361e-16,37,3.0104245458587027e-16,1e-06,True,True
+G1,sdr_binary_k4,ate_regimen[always vs never],std_error,100,1.0061396160665481e-16,0,6.951026361611267e-17,1e-06,True,True
+G1,sdr_binary_k4,ate_regimen[respond vs never],estimate,100,5.967448757360216e-16,1,2.6320277373084213e-16,1e-06,True,True
+G1,sdr_binary_k4,ate_regimen[respond vs never],std_error,100,1.0061396160665481e-16,0,6.723927828619992e-17,1e-06,True,True
+G1,sdr_binary_k4,ate_regimen[switch vs never],estimate,100,6.106226635438361e-16,51,3.259951139684269e-16,1e-06,True,True
+G1,sdr_binary_k4,ate_regimen[switch vs never],std_error,100,1.0061396160665481e-16,3,6.783633879323274e-17,1e-06,True,True
+G1,sdr_binary_k4,ate_regimen[coin vs never],estimate,100,9.020562075079397e-16,23,3.307778802619414e-16,1e-06,True,True
+G1,sdr_binary_k4,ate_regimen[coin vs never],std_error,100,1.0061396160665481e-16,0,7.934269427675274e-17,1e-06,True,True
+G1,sdr_binary_k5,ey_regimen[never],estimate,100,6.661338147750939e-16,14,2.9790409838967276e-16,1e-06,True,True
+G1,sdr_binary_k5,ey_regimen[never],std_error,100,1.0061396160665481e-16,0,6.93839515298338e-17,1e-06,True,True
+G1,sdr_binary_k5,ey_regimen[always],estimate,100,6.661338147750939e-16,32,3.132324617386636e-16,1e-06,True,True
+G1,sdr_binary_k5,ey_regimen[always],std_error,100,1.0061396160665481e-16,1,7.06141132964231e-17,1e-06,True,True
+G1,sdr_binary_k5,ey_regimen[respond],estimate,100,5.551115123125783e-16,5,2.981109044530317e-16,1e-06,True,True
+G1,sdr_binary_k5,ey_regimen[respond],std_error,100,1.0061396160665481e-16,18,5.440792252050972e-17,1e-06,True,True
+G1,sdr_binary_k5,ey_regimen[switch],estimate,100,7.771561172376096e-16,11,3.383904413151877e-16,1e-06,True,True
+G1,sdr_binary_k5,ey_regimen[switch],std_error,100,1.0061396160665481e-16,1,7.499404404438184e-17,1e-06,True,True
+G1,sdr_binary_k5,ey_regimen[coin],estimate,100,5.551115123125783e-16,8,3.0445222344970466e-16,1e-06,True,True
+G1,sdr_binary_k5,ey_regimen[coin],std_error,100,1.0018028073766061e-16,13,5.722011089441424e-17,1e-06,True,True
+G1,sdr_binary_k5,ate_regimen[always vs never],estimate,100,7.771561172376096e-16,59,3.8301688699568396e-16,1e-06,True,True
+G1,sdr_binary_k5,ate_regimen[always vs never],std_error,100,1.0061396160665481e-16,1,7.492720325681983e-17,1e-06,True,True
+G1,sdr_binary_k5,ate_regimen[respond vs never],estimate,100,6.106226635438361e-16,10,3.156518014251293e-16,1e-06,True,True
+G1,sdr_binary_k5,ate_regimen[respond vs never],std_error,100,1.0061396160665481e-16,4,6.801244387535406e-17,1e-06,True,True
+G1,sdr_binary_k5,ate_regimen[switch vs never],estimate,100,9.992007221626409e-16,94,3.6960798532401246e-16,1e-06,True,True
+G1,sdr_binary_k5,ate_regimen[switch vs never],std_error,100,1.0061396160665481e-16,3,6.926305740325849e-17,1e-06,True,True
+G1,sdr_binary_k5,ate_regimen[coin vs never],estimate,100,6.106226635438361e-16,46,3.2376614247494823e-16,1e-06,True,True
+G1,sdr_binary_k5,ate_regimen[coin vs never],std_error,100,1.0061396160665481e-16,1,7.62635422473751e-17,1e-06,True,True
+G1,sdr_categorical_k5,ey_regimen[low],estimate,100,6.661338147750939e-16,44,3.272804909966992e-16,1e-06,True,True
+G1,sdr_categorical_k5,ey_regimen[low],std_error,100,1.0061396160665481e-16,0,6.94338105005909e-17,1e-06,True,True
+G1,sdr_categorical_k5,ey_regimen[respond],estimate,100,6.661338147750939e-16,89,3.272804909966992e-16,1e-06,True,True
+G1,sdr_categorical_k5,ey_regimen[respond],std_error,100,1.0061396160665481e-16,0,6.855231234306951e-17,1e-06,True,True
+G1,sdr_categorical_k5,ey_regimen[mix],estimate,100,6.661338147750939e-16,29,3.090730095650652e-16,1e-06,True,True
+G1,sdr_categorical_k5,ey_regimen[mix],std_error,100,9.974659986866641e-17,40,4.980605291883539e-17,1e-06,True,True
+G1,sdr_categorical_k5,ey_regimen[mixlast],estimate,100,5.551115123125783e-16,13,3.020133145511626e-16,1e-06,True,True
+G1,sdr_categorical_k5,ey_regimen[mixlast],std_error,100,1.0061396160665481e-16,51,5.636183046763253e-17,1e-06,True,True
+G1,sdr_categorical_k5,ate_regimen[respond vs low],estimate,100,6.938893903907228e-16,31,3.1404302347318843e-16,1e-06,True,True
+G1,sdr_categorical_k5,ate_regimen[respond vs low],std_error,100,1.0061396160665481e-16,0,5.985474758467227e-17,1e-06,True,True
+G1,sdr_categorical_k5,ate_regimen[mix vs low],estimate,100,7.216449660063518e-16,79,3.2588875533422403e-16,1e-06,True,True
+G1,sdr_categorical_k5,ate_regimen[mix vs low],std_error,100,1.0061396160665481e-16,1,7.006028198529133e-17,1e-06,True,True
+G1,sdr_categorical_k5,ate_regimen[mixlast vs low],estimate,100,6.106226635438361e-16,1,3.347539899899198e-16,1e-06,True,True
+G1,sdr_categorical_k5,ate_regimen[mixlast vs low],std_error,100,1.0061396160665481e-16,4,6.93112666912218e-17,1e-06,True,True
+G1,sdr_categorical_k5,ate_regimen[mix vs mixlast],estimate,100,3.9898639947466563e-16,23,1.2315983876626177e-16,1e-06,True,True
+G1,sdr_categorical_k5,ate_regimen[mix vs mixlast],std_error,100,1.0061396160665481e-16,24,5.723345431676872e-17,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ey_regimen[low],estimate,100,5.551115123125783e-16,15,3.0160491231625843e-16,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ey_regimen[low],std_error,100,1.0061396160665481e-16,0,6.550321358178506e-17,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ey_regimen[respond],estimate,100,6.661338147750939e-16,47,3.024211652630501e-16,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ey_regimen[respond],std_error,100,1.0061396160665481e-16,0,6.918633111747991e-17,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ey_regimen[mix],estimate,100,6.661338147750939e-16,14,3.0767402982137023e-16,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ey_regimen[mix],std_error,100,1.0061396160665481e-16,42,5.793385586838285e-17,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ey_regimen[mixlast],estimate,100,5.551115123125783e-16,4,2.918429815167415e-16,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ey_regimen[mixlast],std_error,100,1.0061396160665481e-16,46,5.4760689447099625e-17,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ate_regimen[respond vs low],estimate,100,7.077671781985373e-16,47,3.192042037752741e-16,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ate_regimen[respond vs low],std_error,100,1.0061396160665481e-16,2,6.545495803918089e-17,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ate_regimen[mix vs low],estimate,100,9.159339953157541e-16,41,3.1691228240619767e-16,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ate_regimen[mix vs low],std_error,100,1.0061396160665481e-16,2,7.480963563934046e-17,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ate_regimen[mixlast vs low],estimate,100,6.106226635438361e-16,6,3.1166990327116765e-16,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ate_regimen[mixlast vs low],std_error,100,1.0061396160665481e-16,3,6.77853048243689e-17,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ate_regimen[mix vs mixlast],estimate,100,3.0010716134398763e-16,41,1.144210901963371e-16,1e-06,True,True
+G1,sdr_categorical_k5_crossfit,ate_regimen[mix vs mixlast],std_error,100,1.0061396160665481e-16,9,5.709612465031745e-17,1e-06,True,True
+G1,sdr_categorical_k5_static,ey_regimen[low],estimate,100,6.661338147750939e-16,70,3.1061453039744124e-16,1e-06,True,True
+G1,sdr_categorical_k5_static,ey_regimen[low],std_error,100,1.0061396160665481e-16,0,6.622373611185633e-17,1e-06,True,True
+G1,sdr_categorical_k5_static,ey_regimen[high],estimate,100,8.881784197001252e-16,11,3.990630216413089e-16,1e-06,True,True
+G1,sdr_categorical_k5_static,ey_regimen[high],std_error,100,1.0408340855860843e-16,1,6.180875978318227e-17,1e-06,True,True
+G1,sdr_categorical_k5_static,ey_regimen[switch],estimate,100,1.1102230246251565e-15,6,4.3041730124438187e-16,1e-06,True,True
+G1,sdr_categorical_k5_static,ey_regimen[switch],std_error,100,1.0408340855860843e-16,70,5.386700476601998e-17,1e-06,True,True
+G1,sdr_categorical_k5_static,ate_regimen[high vs low],estimate,100,9.992007221626409e-16,14,4.0350727068851797e-16,1e-06,True,True
+G1,sdr_categorical_k5_static,ate_regimen[high vs low],std_error,100,1.0408340855860843e-16,3,6.116862267092748e-17,1e-06,True,True
+G1,sdr_categorical_k5_static,ate_regimen[switch vs low],estimate,100,9.992007221626409e-16,39,4.501882494110187e-16,1e-06,True,True
+G1,sdr_categorical_k5_static,ate_regimen[switch vs low],std_error,100,1.0408340855860843e-16,5,6.327247822926997e-17,1e-06,True,True
+G1,sdr_categorical_k5_switch,ey_regimen[low],estimate,100,5.551115123125783e-16,17,2.989882343816859e-16,1e-06,True,True
+G1,sdr_categorical_k5_switch,ey_regimen[low],std_error,100,1.0061396160665481e-16,2,6.926305740325849e-17,1e-06,True,True
+G1,sdr_categorical_k5_switch,ey_regimen[switch],estimate,100,8.881784197001252e-16,28,3.942464333787022e-16,1e-06,True,True
+G1,sdr_categorical_k5_switch,ey_regimen[switch],std_error,100,1.0408340855860843e-16,5,7.549057361976945e-17,1e-06,True,True
+G1,sdr_categorical_k5_switch,ate_regimen[switch vs low],estimate,100,8.881784197001252e-16,76,3.6409560548304097e-16,1e-06,True,True
+G1,sdr_categorical_k5_switch,ate_regimen[switch vs low],std_error,100,1.0408340855860843e-16,2,7.15051249246062e-17,1e-06,True,True
+G1,sdr_categorical_k5_high,ey_regimen[low],estimate,100,6.661338147750939e-16,8,3.2258618500352915e-16,1e-06,True,True
+G1,sdr_categorical_k5_high,ey_regimen[low],std_error,100,1.0061396160665481e-16,0,6.778574876361087e-17,1e-06,True,True
+G1,sdr_categorical_k5_high,ey_regimen[high],estimate,100,7.771561172376096e-16,51,3.5751939604599367e-16,1e-06,True,True
+G1,sdr_categorical_k5_high,ey_regimen[high],std_error,100,1.0408340855860843e-16,0,6.908208184160381e-17,1e-06,True,True
+G1,sdr_categorical_k5_high,ate_regimen[high vs low],estimate,100,8.326672684688674e-16,62,3.622634294825944e-16,1e-06,True,True
+G1,sdr_categorical_k5_high,ate_regimen[high vs low],std_error,100,1.0408340855860843e-16,11,6.924654561086871e-17,1e-06,True,True
+G1,sdr_categorical_k5_mix,ey_regimen[low],estimate,100,7.771561172376096e-16,93,3.161699983133679e-16,1e-06,True,True
+G1,sdr_categorical_k5_mix,ey_regimen[low],std_error,100,1.0061396160665481e-16,1,5.843160526823847e-17,1e-06,True,True
+G1,sdr_categorical_k5_mix,ey_regimen[mix],estimate,100,6.661338147750939e-16,74,2.993487405225706e-16,1e-06,True,True
+G1,sdr_categorical_k5_mix,ey_regimen[mix],std_error,100,1.0061396160665481e-16,0,5.618623125144313e-17,1e-06,True,True
+G1,sdr_categorical_k5_mix,ate_regimen[mix vs low],estimate,100,8.049116928532385e-16,16,3.602776353479663e-16,1e-06,True,True
+G1,sdr_categorical_k5_mix,ate_regimen[mix vs low],std_error,100,1.0061396160665481e-16,1,7.410985574743956e-17,1e-06,True,True
+G1,sdr_policy_k5,ey_regimen[low],estimate,100,5.551115123125783e-16,13,2.9173737522360885e-16,1e-06,True,True
+G1,sdr_policy_k5,ey_regimen[low],std_error,100,1.0061396160665481e-16,0,6.862843200160546e-17,1e-06,True,True
+G1,sdr_policy_k5,ey_regimen[mix],estimate,100,5.551115123125783e-16,83,2.9436616663242827e-16,1e-06,True,True
+G1,sdr_policy_k5,ey_regimen[mix],std_error,100,1.0061396160665481e-16,7,5.803823245418131e-17,1e-06,True,True
+G1,sdr_policy_k5,ey_regimen[taper],estimate,100,1.4432899320127035e-15,58,4.811251104190995e-16,1e-06,True,True
+G1,sdr_policy_k5,ey_regimen[taper],std_error,100,1.0061396160665481e-16,4,6.931170085672719e-17,1e-06,True,True
+G1,sdr_policy_k5,ate_regimen[mix vs low],estimate,100,6.106226635438361e-16,7,3.0789303941893285e-16,1e-06,True,True
+G1,sdr_policy_k5,ate_regimen[mix vs low],std_error,100,1.0061396160665481e-16,1,5.46082574125982e-17,1e-06,True,True
+G1,sdr_policy_k5,ate_regimen[taper vs low],estimate,100,1.304512053934559e-15,1,4.458767143945923e-16,1e-06,True,True
+G1,sdr_policy_k5,ate_regimen[taper vs low],std_error,100,1.0408340855860843e-16,37,6.773689800440777e-17,1e-06,True,True
+G1,sdr_policy_k5,ate_regimen[taper vs mix],estimate,100,1.0998146837692957e-15,57,4.056546790951048e-16,1e-06,True,True
+G1,sdr_policy_k5,ate_regimen[taper vs mix],std_error,100,1.0061396160665481e-16,16,5.868347995526943e-17,1e-06,True,True
+G1,sdr_policy_k5_mix,ey_regimen[low],estimate,100,6.661338147750939e-16,5,3.192735818957272e-16,1e-06,True,True
+G1,sdr_policy_k5_mix,ey_regimen[low],std_error,100,1.0061396160665481e-16,0,7.144344436305469e-17,1e-06,True,True
+G1,sdr_policy_k5_mix,ey_regimen[mix],estimate,100,6.661338147750939e-16,47,3.206219529471011e-16,1e-06,True,True
+G1,sdr_policy_k5_mix,ey_regimen[mix],std_error,100,9.974659986866641e-17,20,5.931213379380984e-17,1e-06,True,True
+G1,sdr_policy_k5_mix,ey_regimen[taper],estimate,100,2.4424906541753444e-15,17,8.862333997095065e-16,1e-06,True,True
+G1,sdr_policy_k5_mix,ey_regimen[taper],std_error,100,1.0061396160665481e-16,4,6.112703772226252e-17,1e-06,True,True
+G1,sdr_policy_k5_mix,ate_regimen[mix vs low],estimate,100,8.881784197001252e-16,41,3.302242864798858e-16,1e-06,True,True
+G1,sdr_policy_k5_mix,ate_regimen[mix vs low],std_error,100,1.0061396160665481e-16,2,6.306501247471968e-17,1e-06,True,True
+G1,sdr_policy_k5_mix,ate_regimen[taper vs low],estimate,100,2.6922908347160046e-15,50,9.37818144484128e-16,1e-06,True,True
+G1,sdr_policy_k5_mix,ate_regimen[taper vs low],std_error,100,1.0061396160665481e-16,3,7.857129288812652e-17,1e-06,True,True
+G1,sdr_policy_k5_mix,ate_regimen[taper vs mix],estimate,100,2.501471252358556e-15,54,8.792994848339221e-16,1e-06,True,True
+G1,sdr_policy_k5_mix,ate_regimen[taper vs mix],std_error,100,1.0061396160665481e-16,51,5.860760118646355e-17,1e-06,True,True
+G1,sdr_policy_k5_taper,ey_regimen[low],estimate,100,6.661338147750939e-16,28,3.2148577656810357e-16,1e-06,True,True
+G1,sdr_policy_k5_taper,ey_regimen[low],std_error,100,1.0061396160665481e-16,1,5.577399010336233e-17,1e-06,True,True
+G1,sdr_policy_k5_taper,ey_regimen[taper],estimate,100,1.6653345369377348e-15,14,6.880696204956645e-16,1e-06,True,True
+G1,sdr_policy_k5_taper,ey_regimen[taper],std_error,100,1.0061396160665481e-16,3,6.56860322738377e-17,1e-06,True,True
+G1,sdr_policy_k5_taper,ate_regimen[taper vs low],estimate,100,1.8041124150158794e-15,51,7.060944246794563e-16,1e-06,True,True
+G1,sdr_policy_k5_taper,ate_regimen[taper vs low],std_error,100,1.0061396160665481e-16,1,6.255981448372359e-17,1e-06,True,True

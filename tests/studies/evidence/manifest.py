@@ -218,8 +218,14 @@ def write_manifest(
     reference_files: Iterable[Path] = (),
     reference_metadata: Mapping[str, Any] | None = None,
     configuration: Mapping[str, Any] | None = None,
+    subject_provenance: Mapping[str, Any] | None = None,
+    module_hashes: Mapping[str, str] | None = None,
 ) -> None:
     """Write the artefact manifest for one study.
+
+    ``subject_provenance`` and ``module_hashes`` replace the subject's provenance and the study
+    module hashes of this checkout.  A reference-only run (X59) passes the committed ones,
+    because its subject rows are the committed run's.
 
     A record whose comparator is pending (:attr:`StudyRecord.comparator_state`) records no
     reference provenance and an empty ``reference_sha256``, because no reference ran.  Its
@@ -244,7 +250,11 @@ def write_manifest(
         "study": record.name,
         "slug": record.slug,
         "generated_with": {
-            "subject": {"implementation": record.implementation, **provenance()},
+            "subject": (
+                {"implementation": record.implementation, **provenance()}
+                if subject_provenance is None
+                else dict(subject_provenance)
+            ),
             "reference": (
                 None
                 if record.reference is None
@@ -288,7 +298,9 @@ def write_manifest(
             **dict(configuration or {}),
             "margins": record.margins.as_json(),
         },
-        "study_module_sha256": study_module_hashes(record),
+        "study_module_sha256": (
+            study_module_hashes(record) if module_hashes is None else dict(module_hashes)
+        ),
         "reference_sha256": {} if pending else reference_hashes(files),
         "sha256": hashes(artifacts),
     }

@@ -51,11 +51,18 @@ _GZIP_MAGIC = b"\x1f\x8b"
 
 
 def _check_result(result: Any, *, operation: str) -> None:
+    from ..effect_curves import EffectCurveResult
     from ..longitudinal import LongitudinalResult, StructuralNestedMeanResult
     from .atmle_result import AdaptiveTMLEResult
     from .base import TMLEResult
 
-    fitted = (TMLEResult, LongitudinalResult, StructuralNestedMeanResult, AdaptiveTMLEResult)
+    fitted = (
+        TMLEResult,
+        LongitudinalResult,
+        StructuralNestedMeanResult,
+        EffectCurveResult,
+        AdaptiveTMLEResult,
+    )
     if not isinstance(result, fitted):
         raise TypeError(f"{operation} expects a fitted causal result; got {type(result).__name__}")
 

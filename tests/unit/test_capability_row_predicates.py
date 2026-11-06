@@ -600,6 +600,7 @@ class TestTheRefuteRowResolvesEachRequest:
     def test_the_rule_table_is_ordered(self) -> None:
         assert [name for name, _ in _REQUEST_RULES] == [
             "estimator",
+            "projection",
             "estimand",
             "structural_tests",
             "longitudinal_tests",
@@ -1237,7 +1238,8 @@ class TestTheRefuteRowReadsEveryRefusalBeforeARefit:
         The call reads the table directly, so replacing the predicate the row reads leaves
         the call as it is.
         """
-        old_rules = _REQUEST_RULES[:4]
+        old_names = ("estimator", "estimand", "structural_tests", "longitudinal_tests")
+        old_rules = tuple(entry for entry in _REQUEST_RULES if entry[0] in old_names)
 
         def four_rules(result: Any, *, estimand: str, tests: Any, **_: Any) -> Refusal | None:
             request = _RefuteRequest(estimand=estimand, tests=tuple(tests))

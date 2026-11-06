@@ -44,6 +44,7 @@ from ..inference.influence import (
     ParameterEstimate,
     Scale,
     counterfactual_means,
+    effect_modification_coefficients,
     ipsi_means,
     make_estimate,
     msm_coefficients,
@@ -318,7 +319,8 @@ class Target:
         for a rule learned inside each training fold and declared with ``learned_rule=``,
         ``"policy"`` for a modified treatment policy declared with ``policies=``, ``"ipsi"``
         for a tilt of the mechanism declared with ``incremental=``, ``"msm"`` for a
-        coefficient of a working model declared with ``msm=``.
+        coefficient of a working model declared with ``msm=``, ``"effect_modification"`` for
+        a coefficient of the projection of a conditional contrast onto a declared basis.
 
         ``"learned_rule"`` reuses the ``regime`` group, because each fold evaluates one
         fixed rule.  It is an axis of its own because its target is data-adaptive: a
@@ -466,6 +468,9 @@ class TargetContext:
     #: two were built from, and reading them off one object is what stops the middle term
     #: being evaluated at a different ``g`` than the plug-in used.
     incremental: Any | None = None
+    #: The :class:`~cleverly.effect_modification.EffectModificationSet` of a conditional
+    #: contrast's projection, for the ``effect_modification`` groups; ``None`` otherwise.
+    effect_modification: Any | None = None
     #: Report every parameter with its label even when there are exactly two of them.
     #: The two-arm short names (``"ate"``, ``"ey1"``) exist because they are historical
     #: and unambiguous; two *regimes* have neither property, and "the ATE" of a rule
@@ -540,6 +545,16 @@ class TargetContext:
         :func:`~cleverly.inference.influence.msm_coefficients` for why the projection is
         solved there.  A target reading this branch must call :meth:`finish_unscaled`.
         """
+        if self.effect_modification is not None:
+            return effect_modification_coefficients(
+                self.scaled,
+                self.targeted,
+                self.submodel,
+                self.effect_modification,
+                self.weights,
+                self.scaler,
+                self.observed,
+            )
         if self.msm_design is not None:
             assert self.msm_weights is not None
             return msm_coefficients(

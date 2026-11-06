@@ -1108,6 +1108,8 @@ EQUATION_GROUPS: Final[Mapping[str, str]] = MappingProxyType(
         "regime": "rule means",
         "msm": "projection",
         "mtp": "shifted-treatment mean",
+        "effect_modification": "conditional-contrast projection",
+        "effect_modification_ratio": "log-ratio conditional-contrast projection",
     }
 )
 
@@ -4344,3 +4346,55 @@ T2_ATMLE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T2_ATMLE_NOTE_TEXTS})
+
+# ------------------------------------------------------------ effect curves (P1 part (a))
+
+EFFECT_CURVE_TITLE: Final = "Conditional effect curve"
+MODIFIERS: Final = "Modifiers"
+CURVE_SCALE: Final = "Scale"
+BASIS: Final = "Basis"
+CURVE_STATUS: Final = "Status"
+SCORE_ASSESSMENT_TITLE: Final = "Check of an external score"
+
+#: The notes an effect-curve summary can print.
+EFFECT_CURVE_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "projection_target": "note",
+        "curve_outside_range": "note",
+        "curve_band": "note",
+        "curve_experimental": "note",
+        "score_external": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **EFFECT_CURVE_NOTE_CODES})
+
+EFFECT_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "projection_target": (
+            "The curve is {target}. It equals the conditional effect only where that effect "
+            "lies in the span of the basis; elsewhere it is the closest curve the basis can "
+            "draw."
+        ),
+        "curve_outside_range": (
+            "{share} of the in-sample predictions lie outside [-{width}, {width}], the range "
+            "a difference of two means of this outcome can take. A projection is not "
+            "clipped."
+        ),
+        "curve_band": (
+            "The band holds jointly at {level} over the {points} declared grid points, with "
+            "critical value {critical}. No registered study measures its joint coverage, so "
+            "the status above covers the coefficients and not the band."
+        ),
+        "curve_experimental": (
+            "{reason} Its intervals are computed as for a validated fit; read them with more "
+            "caution."
+        ),
+        "score_external": (
+            "The intervals hold only if {column} was fitted on other data. A negative risk "
+            "difference says the score predicts the conditional effect better than the "
+            "average effect does; a calibration line with no intercept and unit slope says "
+            "it is calibrated."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **EFFECT_CURVE_NOTE_TEXTS})

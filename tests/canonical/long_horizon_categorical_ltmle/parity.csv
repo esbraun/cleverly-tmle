@@ -1,0 +1,9 @@
+gate,scenario,estimand,quantity,paired_replicates,max_abs_difference,max_replicate,rms,tolerance,passed,graded
+G1,categorical_k3,ey_regimen[mix],estimate,100,3.0397795391934324e-11,78,1.5519701892185028e-11,1e-06,True,True
+G1,categorical_k3,ey_regimen[mix],std_error,100,6.740268065907884e-15,12,2.0200387524879164e-15,1e-06,True,True
+G1,categorical_k4,ey_regimen[mix],estimate,100,7.727818385205865e-12,3,3.3283840094970766e-12,1e-06,True,True
+G1,categorical_k4,ey_regimen[mix],std_error,100,6.619704784327496e-15,3,2.1076967108712295e-15,1e-06,True,True
+G1,categorical_k5,ey_regimen[mix],estimate,100,1.1907219654716528e-10,74,3.625009543579845e-11,1e-06,True,True
+G1,categorical_k5,ey_regimen[mix],std_error,100,5.90810386724705e-13,82,9.98720072690875e-14,1e-06,True,True
+G1,categorical_k5_mix,ey_regimen[mix],estimate,100,1.8543100388512812e-10,67,3.501435674231822e-11,1e-06,True,True
+G1,categorical_k5_mix,ey_regimen[mix],std_error,100,1.1318584958175393e-12,67,1.269276417169188e-13,1e-06,True,True

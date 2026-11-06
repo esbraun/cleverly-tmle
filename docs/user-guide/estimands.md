@@ -535,6 +535,14 @@ raises `CapabilityError` when an outcome is missing. The refused table of
 [MSM projections](../technical-reference/msm-projections.md#variations) lists this refusal.
 [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism) tracks that composition.
 
+## Effects that change with a baseline column
+
+`ConditionalContrast` asks how the effect of a treatment changes with a few adjustment columns,
+such as age. You declare those columns and a fixed set of functions of them, and the fit reports
+the best curve of that form with intervals. On the difference scale the curve summarizes the
+conditional average treatment effect, the average effect among people with the same values of
+those columns. [Conditional effects](conditional-effects.md) gives the workflow.
+
 ## Controlled direct effects
 
 `ControlledDirectEffect(intermediate=z)` compares treatment arms while setting the declared

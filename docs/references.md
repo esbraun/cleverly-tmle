@@ -2557,6 +2557,23 @@ The notebook also cites one source for its sensitivity analysis. Its entry is un
 
 - Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2026), for the omitted-variable bounds.
 
+## Conditional effects
+
+The [conditional effects reference](technical-reference/conditional-effects.md) cites this source
+for the projection targets of `ConditionalContrast` and for the check of an external score.
+
+- van der Laan, Carone & Luedtke (2024; v2 2026), [*Combining T-learning and DR-learning: a framework for
+  oracle-efficient estimation of causal contrasts*](https://arxiv.org/abs/2402.01972),
+  arXiv:2402.01972v2. The paper is a preprint, and its claims are not peer reviewed. Section 2.2,
+  Examples 1 and 2 (equations (2) and (3)), define the conditional average treatment effect and
+  the log conditional relative risk as the minimizers of a risk, and Lemma 16 gives the strict
+  convexity of the log-ratio risk. Theorem 1, specialized in Section 3.1, gives the efficient
+  influence curve of the risk of a fixed function, which `assess_score` uses for an external
+  score. Section 4, Example 1, identifies the debiasing regression with a linear class of fixed
+  size as a TMLE of the best linear projection of the effect. The paper states no
+  identification conditions; the package takes them from its point-treatment contract. Roadmap
+  item P1 cites the same paper for the EP learner, which is not shipped.
+
 ## Proposed methods on the roadmap
 
 These sources locate unshipped methods in the [roadmap](roadmap.md). A roadmap citation does not
@@ -2580,10 +2597,6 @@ support a shipped claim. Each item states the remaining source work.
   reports no sampling inference for any bound. Cited by future investigation
   [F16](roadmap.md#f16-longitudinal-sensitivity-bound-estimation), which states the missing
   contracts.
-- van der Laan, Carone & Luedtke (2024), [*Combining T-learning and DR-learning: a framework for
-  oracle-efficient estimation of causal contrasts*](https://arxiv.org/abs/2402.01972),
-  arXiv:2402.01972. The paper derives EP learning for heterogeneous causal contrasts. Cited by
-  roadmap item P1.
 - Rust & Rao (1996), [*Variance estimation for complex surveys using replication
   techniques*](https://doi.org/10.1177/096228029600500305), *Statistical Methods in Medical
   Research* 5(3):283–310, DOI 10.1177/096228029600500305. The paper reviews jackknife, balanced

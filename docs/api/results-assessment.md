@@ -33,6 +33,10 @@ rows as a dataframe.
    cleverly.VariableImportanceResult
    cleverly.variable_importance
    cleverly.load
+   cleverly.effect_curves.EffectCurveResult
+   cleverly.effect_curves.CurveBand
+   cleverly.effect_curves.HeterogeneityTest
+   cleverly.effect_curves.ScoreAssessment
 ```
 
 `CausalResult` is the protocol every fitted scalar result satisfies. The concrete classes are
@@ -44,3 +48,7 @@ rows as a dataframe.
 `TMLEResult.fluctuations` returns one `Fluctuation` for each target group. A fold-targeted
 cross-validated fit fills that record's `folds` field with one `FoldFluctuation` for each
 validation fold.
+
+`TMLEResult.effect_curve()` returns an `EffectCurveResult` for a fit of a `ConditionalContrast`,
+and `TMLEResult.heterogeneity_test()` returns a `HeterogeneityTest`.
+`IdentifiedEffect.assess_score()` returns a `ScoreAssessment` for a score fitted on other data.

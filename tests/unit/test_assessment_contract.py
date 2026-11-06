@@ -39,6 +39,7 @@ from cleverly.assessment import (
     _SUMMARY_CHECK_ORDER,
     _SUMMARY_OMISSION_ORDER,
     ASSESSMENT_CAPABILITIES,
+    CURVE_OPERATIONS,
     INTERPRETERS,
     SENSITIVITY_ROUTES,
     AssessmentItem,
@@ -268,12 +269,20 @@ def test_every_diagnostic_operation_covers_every_result_family() -> None:
         "truncation_curve",
         "refute",
     }
-    families = {"point", "longitudinal", "structural", "augmented_trial"}
+    families = {
+        "point",
+        "longitudinal",
+        "structural",
+        "augmented_trial",
+        "effect_modification",
+    }
     assert {item.result_family for item in ASSESSMENT_CAPABILITIES} == families
     for family in sorted(families):
         family_rows = [item for item in ASSESSMENT_CAPABILITIES if item.result_family == family]
         declared = {item.operation for item in family_rows}
-        assert declared == expected
+        # Calibration, risk and stability are readings of a curve, which only a curve has.
+        curve = set(CURVE_OPERATIONS) if family == "effect_modification" else set()
+        assert declared == expected | curve
         if family == "point":
             corrections = next(item for item in family_rows if item.operation == "corrections")
             assert set(corrections.methods) == {"drtmle"}
