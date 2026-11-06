@@ -218,11 +218,27 @@ pins its text.
 
 ## Status and evidence
 
-No support row covers these fits yet, so every projection fit reads `experimental`. The
-`conditional-projection` study, declared in `tests/studies/conditional_projection.py` with its
-verdicts in `tests/studies/conditional_projection_properties.py`, has not run. Its declared run
-is `python -m tests.canonical.conditional_projection.regenerate`, whose docstring holds the
-red-cell reading. The declaration fixes, before the run:
+The registered [conditional-projection study](method-evidence/conditional-projection.md)
+passed every one of its 64 property cells and its three primary tests. Its support rows `T49`
+(the CATE projection, family `P13`) and `T50` (the log-CRR projection, `P14`) label a fit
+`supported` when its key is one the study measured, with one outcome regression per arm
+(`outcome_by_arm=True`):
+
+| row | composition |
+| --- | --- |
+| `T49`, `T50` | binary outcome and treatment, iid rows, complete outcomes, stacked cross-fitting |
+| `T49.known` | the same with `treatment_probabilities=` |
+| `T49.arms3` | three arms |
+| `T49.weighted` | sampling weights |
+| `T49.clustered` | equal clusters |
+| `T49.missing`, `T50.missing` | outcomes missing at random |
+
+A pooled outcome regression on this axis, a composition no group measured (weights with
+clusters, for example), the simultaneous band and the external-score check read `experimental`.
+The study was declared in `tests/studies/conditional_projection.py` with its verdicts in
+`tests/studies/conditional_projection_properties.py`, and its declared run is
+`python -m tests.canonical.conditional_projection.regenerate`, whose docstring holds the
+red-cell reading. The declaration fixed, before the run:
 
 | family | groups | rule |
 | --- | --- | --- |
@@ -232,9 +248,8 @@ red-cell reading. The declaration fixes, before the run:
 
 The ladder claims bias and not interval calibration. With both nuisances wrong on purpose, the
 plug-in variance overstates the spread at 1k (the re-review's pilot read SE ratios up to about
-1.06), so the band
-would read a conservative interval as a defect; its coverage is published on the bias rows
-without a gate.
+1.06), so the band would read a conservative interval as a defect. Its coverage is published
+on the bias rows without a gate.
 
 Each control shares its group's draws and must fail: the row-level SE of the intercept and the
 `W1` slope on `clustered_4k`, where `W1` and the treatment are cluster level, falls below the
@@ -242,8 +257,8 @@ SE-ratio band. The `W3` slope varies within clusters, so its row-level SE is clo
 clustered one and carries no control row. The T-learner (the projection of
 $\bar Q_1 - \bar Q_0$), the IPW projection, the one-step with unit weights in place of $1/g$,
 the one-step without $1/\Pi$, and the spline-GLM fit that drops the sampling weights each have
-a bias interval wholly outside $\pm 0.25$ of their own spread. `tests/unit/test_conditional_projection_design.py` computes
-the power and type-I pass probabilities and each control's detection probability (above 0.99)
+a bias interval wholly outside $\pm 0.25$ of their own spread.
+`tests/unit/test_conditional_projection_design.py` computes the power and type-I pass probabilities and each control's detection probability (above 0.99)
 from the laws by quadrature. The EP cell of the plan moves to the part (b) study.
 
 The calibration rows' pass probabilities are read at SE ratios from a pilot on its own seed

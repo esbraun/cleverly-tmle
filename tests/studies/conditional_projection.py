@@ -21,8 +21,8 @@ test; and controls that must fail.  Everything a run reads is fixed here before 
 
 The run is ``python -m tests.canonical.conditional_projection.regenerate`` (the declared
 form of :mod:`tests.canonical.declared_run`); its docstring holds the red-cell reading.  The
-study is not yet in :func:`tests.studies.evidence.registry.registered`: the fast tier reads
-committed artifacts for every registered study, so registration lands with the artifacts.
+study is registered in :func:`tests.studies.evidence.registry.registered` with the artifacts
+of its declared run, which the fast tier reads.
 
 What the cells can and cannot see (design review B4, B5):
 
@@ -951,8 +951,8 @@ STUDY = StudyRecord(
     name="Conditional-contrast projection",
     slug=SLUG,
     artifacts=ROOT / "tests" / "canonical" / "conditional_projection",
-    document="docs/technical-reference/conditional-effects.md",
-    anchor="status-and-evidence",
+    document="docs/technical-reference/method-evidence/conditional-projection.md",
+    anchor="conditional-contrast-projection",
     scenarios=SCENARIOS,
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

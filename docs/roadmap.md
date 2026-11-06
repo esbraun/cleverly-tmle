@@ -1956,12 +1956,13 @@ The item ships in three parts. Part (a) has shipped its contract: `ConditionalCo
 modifier schema in `cleverly.bases`, the projection TMLE on the difference and log-ratio scales,
 and a curve result that predicts on new rows and persists
 ([conditional effects](technical-reference/conditional-effects.md)), the assessment of a
-fitted curve (out-of-fold calibration, risk comparison and stability), and the declared
-`conditional-projection` study. Its fits read experimental until that study runs.
+fitted curve (out-of-fold calibration, risk comparison and stability), and the
+registered [`conditional-projection` study](technical-reference/method-evidence/conditional-projection.md),
+whose rows `T49` and `T50` label the projection fits it measured `supported`. The band, the
+external-score check and a pooled outcome regression on this axis read experimental.
 
 | part | what ships |
 | --- | --- |
-| (a) | the registered run of the `conditional-projection` study and the support rows it decides |
 | (b) | the EP learner for the CATE and the conditional relative risk, with its studies |
 | (c) | the EP curve as the declared rule learner of the shipped [learned-rule value](technical-reference/point-treatment-tmle.md#learned-rules), whose condition C3 then reads on the EP curve |
 

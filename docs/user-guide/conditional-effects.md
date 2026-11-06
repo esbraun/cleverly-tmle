@@ -21,6 +21,7 @@ effect = study.identify(
 fit = effect.estimate(
     outcome_learner=LogisticRegression(max_iter=1000),
     treatment_learner=LogisticRegression(max_iter=1000),
+    outcome_by_arm=True,  # one outcome model per treatment arm, as the validation study fits
     random_state=0,
 )
 fit.summary()  # one coefficient per basis term, each with a 95% interval
@@ -29,10 +30,13 @@ curve = fit.effect_curve(grid={"age": [30, 50, 70]}, random_state=0)
 curve.predict({"age": [40, 60]}, interval=True)  # the effect at new ages, with intervals
 ```
 
-Every fit of a conditional effect is labelled `experimental` for now. The study that measures
-how often these intervals cover the true curve is declared and has not run yet, so no one has
-checked the intervals in repeated samples. They are computed the way the validated methods
-compute theirs; read them with that caution, and see the status line of `fit.summary()`.
+A simulation study checked these intervals in repeated samples: they covered the true
+coefficients about 95% of the time, on both scales and with three treatment levels, weights,
+clusters and missing outcomes. The status line of `fit.summary()` reads `supported` for a fit
+like the one the study ran, with one outcome model per arm (`outcome_by_arm=True`). A fit with
+one pooled outcome model, a combination the study did not run (weights together with clusters,
+for example) and the band over a grid read `experimental`: they are computed the same way, and
+no study has checked them.
 
 Every modifier must also be an adjustment column. A column outside the adjustment set is
 refused, because the effect given a column can be worked out from the outcome model only when
@@ -145,8 +149,7 @@ matches a curve fitted from this effect, or that carries the `effect_curve:` pre
 The curve without a basis (`model=None`), the efficient plug-in learner (`method="ep"`),
 checks of how much hidden confounding would move the coefficients, missing treatment values, an
 intermediate variable, `strata=`, repeated out-of-fold fits on new splits and the bootstrap each
-refuse before any model is fitted and say what to do instead. Weights, clusters and missing
-outcomes are accepted, and those fits are labelled experimental like every other.
+refuse before any model is fitted and say what to do instead.
 
 The [conditional effects reference](../technical-reference/conditional-effects.md) gives
 the exact targets, the formulas behind the intervals and the evidence.

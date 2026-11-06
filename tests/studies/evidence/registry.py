@@ -669,6 +669,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.clustered_crossfit_ltmle import STUDY as CLUSTERED_CROSSFIT_LTMLE
     from tests.studies.clustered_few_cluster_tmle import STUDY as CLUSTERED_FEW_CLUSTER_TMLE
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
+    from tests.studies.conditional_projection import STUDY as CONDITIONAL_PROJECTION
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
     from tests.studies.drtmle_foldwise import STUDY as DRTMLE_FOLDWISE
     from tests.studies.drtmle_one_wrong import STUDY as DRTMLE_ONE_WRONG
@@ -756,6 +757,7 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_RULE_OPTIMAL_VALUE,
         LEARNED_RULE_INTERMEDIATE,
         LEARNED_REGIMEN_LTMLE,
+        CONDITIONAL_PROJECTION,
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,

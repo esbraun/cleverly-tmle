@@ -10,10 +10,15 @@ option                    default             why the evidence of the default do
 ========================  ==================  =====================================================
 ``stopping=``             ``"relative"``      the rule leaves a score residual by design, and the
                                               interval coverage depends on it
-``outcome_by_arm=``       ``False``           another outcome regression
+``outcome_by_arm=``       ``False``           another outcome regression; on the
+                                              effect-modification axis the default is ``True``
 ``patience=``             ``None``            another collaborative selection
 ``treatment_adjustment=`` the adjustment set  another treatment mechanism, under a restriction
 ========================  ==================  =====================================================
+
+The ``conditional-projection`` study fits every projection with one outcome regression per arm,
+so on the effect-modification axis the condition reverses: ``outcome_by_arm=True`` is the
+measured fit, and a pooled outcome regression carries the condition.
 
 ``iterate="best"`` and ``step_bound=`` keep the support of the fit under
 ``stopping="relative"``.  The walk then stops only at a fit that solves the score equation to
@@ -83,7 +88,23 @@ def point_option_conditions(estimator: Any, data: Any) -> list[Refusal]:
         One condition per declared option, in the order of the module table.
     """
     conditions = stopping_conditions(str(getattr(estimator, "stopping", "relative")))
-    if getattr(estimator, "outcome_by_arm", False):
+    by_arm = bool(getattr(estimator, "outcome_by_arm", False))
+    if str(getattr(estimator, "_axis", "arm")) == "effect_modification":
+        if not by_arm:
+            conditions.append(
+                Refusal(
+                    RefusalReason.INFERENCE_GAP,
+                    "The projection fit pools the arms in one outcome regression, and the "
+                    "registered conditional-projection study measures the interval with one "
+                    "outcome regression per arm.",
+                    alternative=(
+                        "outcome_by_arm=True fits one outcome regression per arm, as the "
+                        "registered study does."
+                    ),
+                    roadmap=OPTION_STUDIES_ROADMAP,
+                )
+            )
+    elif by_arm:
         conditions.append(
             Refusal(
                 RefusalReason.INFERENCE_GAP,
