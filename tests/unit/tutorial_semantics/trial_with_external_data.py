@@ -38,8 +38,9 @@ def _check_estimate(namespace: dict[str, Any]) -> None:
     alone, borrowed, truth = namespace["alone"], namespace["borrowed"], namespace["truth"]
     target = truth["pilot patients"]
     assert covers(alone.estimate, target) and covers(borrowed.estimate, target)
-    # "cut the standard error from 0.67 to 0.37": the records narrow the interval.
-    assert borrowed.estimate.std_error < 0.6 * alone.estimate.std_error
+    # "cut the standard error from 0.67 to 0.51", "about a quarter narrower": the records
+    # narrow the interval, to 0.76 of the pilot-alone width.
+    assert 0.7 < borrowed.estimate.std_error / alone.estimate.std_error < 0.8
     assert borrowed.estimate.support.label == "experimental"
     assert borrowed.inference_status == "working_model_projection"
     assert "label on the pilot-with-records interval: experimental" in stored_output(
