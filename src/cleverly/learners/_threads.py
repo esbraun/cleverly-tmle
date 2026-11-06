@@ -94,6 +94,18 @@ gets one and is never told).  A later block's limit wins while it holds it, the 
 one comes back when it leaves, and the process's own setting comes back when the last block
 does -- in whatever order the exits arrive.  If you need two different limits at once, you
 need two processes.
+
+threadpoolctl 3.8 hands a shared OpenBLAS pool to one Python thread
+----------------------------------------------------------------------
+
+From 3.8, a pthreads OpenBLAS pool belongs to the first Python thread that sets its limit, and
+a set from any other thread is silently dropped until the owner leaves a ``with`` limiter or
+dies. This module never enters one, so the first thread to fit would own OpenBLAS for the life
+of the process, and a block opened in any other thread would leave BLAS unlimited.
+``_claimed`` gives each apply and restore the pools for its duration, then frees them, so
+threadpoolctl's own users still find no owner. ``_STATE_LOCK`` already serializes every write
+this module makes, which is the fight the ownership rule exists to prevent. Before 3.8 there
+is no owner and the claim does nothing.
 """
 
 from __future__ import annotations
@@ -118,6 +130,11 @@ try:  # pragma: no cover - threadpoolctl ships with scikit-learn
     from threadpoolctl import ThreadpoolController as _ThreadpoolController
 except ImportError:  # pragma: no cover - defensive
     _ThreadpoolController = None
+
+try:  # pragma: no cover - threadpoolctl ships with scikit-learn
+    from threadpoolctl import OpenBLASController as _OpenBLASController
+except ImportError:  # pragma: no cover - defensive
+    _OpenBLASController = None
 
 #: The process-wide controller, built on first use.  ``_CONTROLLER_LOCK`` guards its
 #: *construction* and nothing else: two threads racing to build one would each pay the
@@ -252,6 +269,24 @@ if hasattr(os, "register_at_fork"):  # pragma: no branch - POSIX
     )
 
 
+@contextlib.contextmanager
+def _claimed() -> Iterator[None]:
+    """Let this thread set a shared OpenBLAS pool, and free the pool afterwards.
+
+    threadpoolctl 3.8 drops a set from any thread but the pool's owner; the module docstring
+    says why this module takes the pool for each write. Callers hold ``_STATE_LOCK``.
+    """
+    clear = getattr(_OpenBLASController, "clear_controlling_thread", None)
+    if clear is None:  # threadpoolctl before 3.8 has no owner to clear
+        yield
+        return
+    clear(force=True)
+    try:
+        yield
+    finally:
+        clear(force=True)
+
+
 def _acquire(controller: Any, resolved: int) -> _Entry:
     """Put ``resolved`` in force from *this* thread, and record the open block."""
     global _ROOT
@@ -262,7 +297,8 @@ def _acquire(controller: Any, resolved: int) -> _Entry:
         # limiter is kept only for the outermost one: every other snapshot records some
         # inner state rather than the process's own, and restoring from one of those is
         # the bug the module docstring opens with.
-        limiter = controller.limit(limits=resolved)
+        with _claimed():
+            limiter = controller.limit(limits=resolved)
         if not _STACK:
             _ROOT = limiter
         entry = _Entry(resolved)
@@ -283,9 +319,11 @@ def _release(controller: Any, entry: _Entry) -> None:
         if _STACK:
             # Re-*apply* the limit that is now innermost rather than restore this block's
             # snapshot: with overlapping blocks that snapshot is another one's setting.
-            controller.limit(limits=_STACK[-1].limit)
+            with _claimed():
+                controller.limit(limits=_STACK[-1].limit)
         elif _ROOT is not None:
-            _ROOT.restore_original_limits()
+            with _claimed():
+                _ROOT.restore_original_limits()
             _ROOT = None
 
 
