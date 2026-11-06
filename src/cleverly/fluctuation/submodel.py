@@ -133,6 +133,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from typing import Any
 
 import numpy as np
 
@@ -147,6 +148,8 @@ __all__ = [
     "att_submodel",
     "check_arms",
     "derivative_columns",
+    "effect_modification_ratio_submodel",
+    "effect_modification_submodel",
     "ipsi_submodel",
     "mean_submodel",
     "msm_submodel",
@@ -1196,6 +1199,171 @@ def _required_arm_fractions(
     return shares
 
 
+def _effect_modification(group: str, **arguments: Any) -> Submodel:
+    """The ``msm`` arithmetic on a conditional contrast's numerators, under ``group``."""
+    submodel = msm_submodel(**arguments)
+    return replace(
+        submodel,
+        names=tuple(f"h_em{j}" for j in range(submodel.dim)),
+        group=group,
+    )
+
+
+def effect_modification_submodel(
+    treatment: FloatArray,
+    propensity: FloatArray,
+    *,
+    arms: tuple[float, ...] = (0.0, 1.0),
+    arm_fractions: FloatArray | float | None = None,
+    reference: float | None = None,
+    missingness: FloatArray | None = None,
+    intermediate_density: FloatArray | None = None,
+    selection: FloatArray | None = None,
+    regimes: FloatArray | None = None,
+    policies: FloatArray | None = None,
+    msm: FloatArray | None = None,
+    incremental: FloatArray | None = None,
+) -> Submodel:
+    r"""One column per term of a conditional contrast's basis, on the difference scale.
+
+    .. math::
+
+        H(A, W) = \frac{(\mathbb 1\{A = t\} - \mathbb 1\{A = r\})\,\varphi(V)}
+                       {g(A \mid W)\,\Pi(A, W)}
+
+    which is :func:`msm_submodel`'s arithmetic on the numerators :math:`c_a(V)`:
+    :math:`\varphi` at arm ``t``, :math:`-\varphi` at arm ``r`` and 0 at every other arm.
+    Rows of a third arm carry 0.  The missing-outcome indicator enters through the
+    fluctuation's observed mask, so the covariate divides by :math:`\Pi` and the residual
+    is :math:`\Delta (Y - \bar Q)`.  See :mod:`cleverly.effect_modification`.
+
+    Parameters
+    ----------
+    treatment : ndarray
+        Arm codes, length ``n``.
+    propensity : ndarray
+        ``(n, K)`` bounded treatment mechanism.
+    arms : tuple of float
+        The arm codes, ascending.
+    arm_fractions : ndarray, float or None
+        Accepted and ignored; see :func:`mean_submodel`.
+    reference : float or None
+        Accepted and ignored: the pair is in the numerators.
+    missingness : ndarray or None
+        ``(n, K)`` response mechanism.
+    intermediate_density : ndarray or None
+        Accepted for the common signature; a conditional contrast refuses an
+        intermediate before any learner.
+    selection : ndarray or None
+        Accepted for the common signature.
+    regimes : ndarray or None
+        Accepted and ignored.
+    policies : ndarray or None
+        Accepted and ignored.
+    msm : ndarray or None
+        ``(n, K, p)`` numerators :math:`c_a(V)`, from
+        :meth:`cleverly.effect_modification.EffectModificationSet.coefficients_at`.  The
+        keyword is the one every builder takes for an ``(n, K, p)`` design.
+    incremental : ndarray or None
+        Accepted and ignored.
+
+    Returns
+    -------
+    Submodel
+        The ``effect_modification`` submodel.
+    """
+    return _effect_modification(
+        "effect_modification",
+        treatment=treatment,
+        propensity=propensity,
+        arms=arms,
+        arm_fractions=arm_fractions,
+        reference=reference,
+        missingness=missingness,
+        intermediate_density=intermediate_density,
+        selection=selection,
+        regimes=regimes,
+        policies=policies,
+        msm=msm,
+        incremental=incremental,
+    )
+
+
+def effect_modification_ratio_submodel(
+    treatment: FloatArray,
+    propensity: FloatArray,
+    *,
+    arms: tuple[float, ...] = (0.0, 1.0),
+    arm_fractions: FloatArray | float | None = None,
+    reference: float | None = None,
+    missingness: FloatArray | None = None,
+    intermediate_density: FloatArray | None = None,
+    selection: FloatArray | None = None,
+    regimes: FloatArray | None = None,
+    policies: FloatArray | None = None,
+    msm: FloatArray | None = None,
+    incremental: FloatArray | None = None,
+) -> Submodel:
+    r"""One column per term of a conditional contrast's basis, on the log-ratio scale.
+
+    .. math::
+
+        H(A, W) = \frac{\varphi(V)\,\{\operatorname{expit}(\varphi^\top\beta)
+                         - \mathbb 1\{A = t\}\}\,(\mathbb 1\{A = t\} + \mathbb 1\{A = r\})}
+                        {g(A \mid W)\,\Pi(A, W)}
+
+    the covariate of the efficient score of the log-CRR projection.  It reads
+    :math:`\beta`, so the targeting alternates with the projection.
+
+    Parameters
+    ----------
+    treatment : ndarray
+        Arm codes, length ``n``.
+    propensity : ndarray
+        ``(n, K)`` bounded treatment mechanism.
+    arms : tuple of float
+        The arm codes, ascending.
+    arm_fractions : ndarray, float or None
+        Accepted and ignored.
+    reference : float or None
+        Accepted and ignored.
+    missingness : ndarray or None
+        ``(n, K)`` response mechanism.
+    intermediate_density : ndarray or None
+        Accepted for the common signature.
+    selection : ndarray or None
+        Accepted for the common signature.
+    regimes : ndarray or None
+        Accepted and ignored.
+    policies : ndarray or None
+        Accepted and ignored.
+    msm : ndarray or None
+        ``(n, K, p)`` numerators at the current ``beta``.
+    incremental : ndarray or None
+        Accepted and ignored.
+
+    Returns
+    -------
+    Submodel
+        The ``effect_modification_ratio`` submodel.
+    """
+    return _effect_modification(
+        "effect_modification_ratio",
+        treatment=treatment,
+        propensity=propensity,
+        arms=arms,
+        arm_fractions=arm_fractions,
+        reference=reference,
+        missingness=missingness,
+        intermediate_density=intermediate_density,
+        selection=selection,
+        regimes=regimes,
+        policies=policies,
+        msm=msm,
+        incremental=incremental,
+    )
+
+
 #: What a submodel builder looks like from the registry's side.  Every builder takes the
 #: treatment, the truncated per-arm propensity, and the same five keyword arguments --
 #: ignoring the ones it has no use for -- so that :func:`submodel_for` can dispatch on the
@@ -1243,6 +1411,8 @@ register_submodel("regime", regime_submodel)
 register_submodel("ipsi", ipsi_submodel)
 register_submodel("mtp", mtp_submodel)
 register_submodel("msm", msm_submodel)
+register_submodel("effect_modification", effect_modification_submodel)
+register_submodel("effect_modification_ratio", effect_modification_ratio_submodel)
 
 
 #: The keyword arguments of :data:`SubmodelBuilder`, and what to tell the author of a

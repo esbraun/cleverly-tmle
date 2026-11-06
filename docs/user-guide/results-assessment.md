@@ -1206,6 +1206,11 @@ assert type(restored.method) is type(result.method)
 assert type(restored.method.models.outcome_learner) is type(result.method.models.outcome_learner)
 ```
 
+A curve from `fit.effect_curve()` on a
+[conditional effect](conditional-effects.md) saves and loads the same way. The loaded curve keeps
+its coefficients, their joint covariance, the declared modifiers and basis, and any band, so
+`curve.predict(rows, interval=True)` evaluates it at new rows after loading.
+
 Print `restored.replayability.summary()` to see what a loaded result can redo: show its stored
 checks, re-estimate from its stored models, refit the models, or rerun on changed data. A note
 names any part the result lacks. Read `result.diagnostics.capabilities` before you run an

@@ -26,3 +26,26 @@ thread limits. Learners follow the relevant scikit-learn fit and predict contrac
    cleverly.learners.set_thread_limit
    cleverly.learners.get_thread_limit
 ```
+
+## Bases of effect modifiers
+
+`cleverly.bases` declares the modifiers of a `ConditionalContrast`, with their domains and
+levels, and the fixed functions of them that the working model is built from.
+
+```{eval-rst}
+.. autosummary::
+   :nosignatures:
+
+   cleverly.bases.Modifiers
+   cleverly.bases.Constant
+   cleverly.bases.Linear
+   cleverly.bases.Indicators
+   cleverly.bases.Cosine
+   cleverly.bases.BSpline
+   cleverly.bases.Additive
+   cleverly.bases.Tensor
+   cleverly.bases.Interactions
+   cleverly.bases.Sieve
+   cleverly.bases.UserBasis
+   cleverly.bases.Basis
+```
