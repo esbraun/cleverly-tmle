@@ -330,7 +330,7 @@ class CurveDiagnostics:
         if self.curve.fitted_method == "ep":
             from .estimators.ep import DebiasingScores
 
-            return DebiasingScores.of(fit)
+            return DebiasingScores.of(fit, backend=self.curve.backend)
         return fit.diagnostics.score_equations()
 
     # ---------------------------------------------------------------- refits

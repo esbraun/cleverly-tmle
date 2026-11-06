@@ -656,20 +656,25 @@ class DebiasingScores:
         The score at the initial outcome regression.
     after : ndarray
         The score at the debiased one; the regression solves these equations.
+    backend : str
+        The dataframe backend of the producing fit's data, which :meth:`to_frame` emits in.
     """
 
     features: tuple[str, ...]
     before: FloatArray
     after: FloatArray
+    backend: str = "pandas"
 
     @classmethod
-    def of(cls, fit: EPFit) -> DebiasingScores:
+    def of(cls, fit: EPFit, backend: str = "pandas") -> DebiasingScores:
         """The report of one EP fit.
 
         Parameters
         ----------
         fit : EPFit
             The fit.
+        backend : str, default "pandas"
+            The dataframe backend of the fit's data.
 
         Returns
         -------
@@ -681,7 +686,7 @@ class DebiasingScores:
             names = tuple(f"(A)*{term}" for term in terms)
         else:
             names = (*(f"pair*{term}" for term in terms), *(f"t*{term}" for term in terms))
-        return cls(names, fit.debiasing.score_before, fit.debiasing.score_after)
+        return cls(names, fit.debiasing.score_before, fit.debiasing.score_after, backend)
 
     @property
     def max_after(self) -> float:
@@ -689,16 +694,19 @@ class DebiasingScores:
         return float(np.max(np.abs(self.after))) if self.after.size else 0.0
 
     def to_frame(self) -> Any:
-        """One row per feature.
+        """One row per feature, in the producing fit's backend.
 
         Returns
         -------
-        pandas.DataFrame
+        dataframe
             The scores before and after.
         """
-        import pandas as pd
+        from ..utils.frames import frame_from_dict
 
-        return pd.DataFrame({"feature": self.features, "before": self.before, "after": self.after})
+        return frame_from_dict(
+            {"feature": np.asarray(self.features), "before": self.before, "after": self.after},
+            backend=self.backend,
+        )
 
     def __repr__(self) -> str:
         return f"DebiasingScores(features={len(self.features)}, max_after={self.max_after:.3g})"
