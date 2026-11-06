@@ -44,6 +44,7 @@ import enum
 import gzip
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -51,7 +52,7 @@ import socket
 import subprocess
 import sys
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
@@ -60,9 +61,15 @@ from typing import Any
 import pandas as pd
 
 from tests.parallel import available_cores
-from tests.studies.evidence import failures, property_failures, replication
+from tests.studies.evidence import failures, parity, property_failures, replication
 from tests.studies.evidence.comparison import empty_equivalence, equivalence
-from tests.studies.evidence.manifest import read_rows, write_csv, write_manifest, write_rows
+from tests.studies.evidence.manifest import (
+    read_rows,
+    study_module_hashes,
+    write_csv,
+    write_manifest,
+    write_rows,
+)
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import REPLICATE_COLUMNS as PROPERTY_COLUMNS
 from tests.studies.evidence.registry import ROOT, StudyRecord
@@ -160,11 +167,15 @@ class Reference:
     worker_memory_mb: float | None = None
     #: ``(factor, share, reason)`` in place of the harness defaults 1.25 and 0.85.
     memory_override: tuple[float, float, str] | None = None
+    #: ``(image, context)`` of the image this one is built ``FROM``, built first.  Its
+    #: Dockerfile is a reference source, and the image content key covers its layers.
+    base: tuple[str, Path] | None = None
 
     def files(self, here: Path) -> list[Path]:
         context = self.build_context or here
         root = self.runner_root or here
         return [
+            *((self.base[1] / "Dockerfile",) if self.base is not None else ()),
             context / "Dockerfile",
             root / self.runner,
             *(root / name for name in self.extra_files),
@@ -195,6 +206,8 @@ class Reference:
             raise ValueError("an alternate reference runner requires mount_runner=True")
         # A failure file left by an earlier run in the same scratch would read as this run's.
         failures_path(output).unlink(missing_ok=True)
+        if self.base is not None:
+            build_image(*self.base)
         build_image(self.image, context)
         active = _ACTIVE.get()
         if active is not None and self.interpreter == "Rscript":
@@ -228,6 +241,10 @@ THREAD_CAPS = dict.fromkeys(
 )
 
 
+#: The environment variable whose value a reference container gets as ``docker run --memory``.
+DOCKER_MEMORY_ENV = "CLEVERLY_DOCKER_MEMORY"
+
+
 def _docker_command(
     reference: Reference,
     root: Path,
@@ -253,12 +270,16 @@ def _docker_command(
         **(env or {}),
     }
     flags = [part for name, value in variables.items() for part in ("-e", f"{name}={value}")]
+    # A container memory limit, for a host that must leave memory to other work.  The harness
+    # reads the limit from its cgroup and sizes its workers to it; no result depends on it.
+    memory = os.environ.get(DOCKER_MEMORY_ENV, "")
     return [
         "docker",
         "run",
         "--rm",
         "--cpus",
         str(max(cores, 1)),
+        *(("--memory", memory) if memory else ()),
         *extra,
         *flags,
         *mounts,
@@ -336,8 +357,14 @@ def content_sha(path: Path) -> str:
 
     A gzip header carries a timestamp, so the archive bytes of two equal tables can differ.
     """
-    data = path.read_bytes()
-    return hashlib.sha256(gzip.decompress(data) if path.name.endswith(".gz") else data).hexdigest()
+    sha = hashlib.sha256()
+    # Streamed: a reference-only archive of the long-horizon studies runs to tens of GB, which
+    # must not be decompressed into memory to be hashed.  The digest is the same either way.
+    opener = gzip.open if path.name.endswith(".gz") else open
+    with opener(path, "rb") as stream:
+        for block in iter(lambda: stream.read(1 << 24), b""):
+            sha.update(block)
+    return sha.hexdigest()
 
 
 def _git_bytes(*arguments: str) -> bytes:
@@ -390,13 +417,27 @@ def _declared_sizes(record: StudyRecord, n: int) -> dict[str, int]:
     return dict(record.scenario_n) if n == record.n else {}
 
 
-def run_key(record: StudyRecord) -> dict[str, Any]:
+def reference_environment(study: ModuleType) -> dict[str, str]:
+    """The study's declared reference inputs read from the environment, defaults filled in.
+
+    A study module's ``REFERENCE_ENVIRONMENT`` maps a variable to its default.  Each one changes
+    what the comparator fits (X59's declared mutation and learner), so its value enters the
+    resume key, the reference-input stamp, the container's environment and the manifest.
+    """
+    declared = getattr(study, "REFERENCE_ENVIRONMENT", None) or {}
+    return {
+        name: os.environ.get(name) or str(default) for name, default in sorted(declared.items())
+    }
+
+
+def run_key(record: StudyRecord, environment: Mapping[str, str] | None = None) -> dict[str, Any]:
     """The resume-key fields known before the Python phase draws anything."""
     return {
         "declaration": declaration_hash(record),
         "git": git_state(),
         "n": record.n,
         **({"scenario_n": dict(sorted(record.scenario_n.items()))} if record.scenario_n else {}),
+        **({"reference_environment": dict(environment)} if environment else {}),
         "replicates": record.replicates,
         "versions": python_versions(),
     }
@@ -613,41 +654,137 @@ def _calibrate(
     work: Path,
     leaf: str,
     key12: str,
+    *,
+    cores: int,
+    replicate_lines: int | None = None,
 ) -> dict[str, str]:
-    """Run calibration once per key, and return the memory variables for the real run."""
+    """Run calibration once per key, and return the memory variables for the real run.
+
+    A streamed run (``replicate_lines`` given) calibrates on a read of
+    :data:`CALIBRATION_REPLICATES` replicates, and :func:`stream_plan` sizes the real run's
+    read chunk and its per-worker cost from that measurement.
+    """
     calibration = work / f"{leaf}.calibration.json"
     stamp = work / f"{leaf}.calibration.key"
-    if not (calibration.exists() and stamp.exists() and stamp.read_text().strip() == key12):
+    extra = {"CLEVERLY_HARNESS_CALIBRATE": "1"}
+    expected = key12
+    if replicate_lines is not None:
+        extra[CHUNK_LINES_ENV] = str(CALIBRATION_REPLICATES * replicate_lines)
+        expected = f"{key12} chunk {extra[CHUNK_LINES_ENV]}"
+    if not (calibration.exists() and stamp.exists() and stamp.read_text().strip() == expected):
         calibration.unlink(missing_ok=True)
-        code = run({"CLEVERLY_HARNESS_CALIBRATE": "1"})
+        code = run(extra)
         if code != 0 or not calibration.exists():
             raise RuntimeError(
                 f"the calibration run of {leaf} exited {code} and wrote no calibration file"
             )
-        stamp.write_text(key12 + "\n", encoding="utf-8", newline="\n")
+        stamp.write_text(expected + "\n", encoding="utf-8", newline="\n")
     else:
         print(f"reusing the calibration of {leaf}", flush=True)
     measured = json.loads(calibration.read_text(encoding="utf-8"))
     heaviest = max(measured["groups"], key=lambda group: group["per_worker"])
     declared = reference.worker_memory_mb or 0.0
-    per_worker = max(float(heaviest["per_worker"]), float(declared))
+    factor, share = HARNESS_FACTOR, HARNESS_SHARE
+    if reference.memory_override is not None:
+        factor, share = float(reference.memory_override[0]), float(reference.memory_override[1])
+    cost = float(heaviest["per_worker"])
+    note = ""
+    chunk: int | None = None
+    if replicate_lines is not None:
+        chunk, cost = stream_plan(
+            cost,
+            float(measured["parent_private_mb"]),
+            calibration_available(measured["memory"]),
+            cores,
+            factor=factor,
+            share=share,
+        )
+        note = f"; planned {cost:.0f} MB per worker for a read of {chunk} replicates"
+    per_worker = max(cost, float(declared))
     variables = {
         "CLEVERLY_R_WORKER_MB": f"{per_worker:.0f}",
-        "CLEVERLY_R_WORKER_BASIS": "declared" if declared > heaviest["per_worker"] else "measured",
+        "CLEVERLY_R_WORKER_BASIS": "declared" if declared > cost else "measured",
         "CLEVERLY_R_MEASURED": (
             f"group {heaviest['id']}: peak_growth {heaviest['peak_growth']:.0f} MB, "
             f"private_after_gc {heaviest['private_after_gc']:.0f} MB, "
-            f"per_worker {heaviest['per_worker']:.0f} MB"
+            f"per_worker {heaviest['per_worker']:.0f} MB{note}"
         ),
         "CLEVERLY_R_DECLARED_MB": "none" if not declared else f"{declared:.0f}",
     }
+    if chunk is not None and replicate_lines is not None:
+        variables[CHUNK_LINES_ENV] = str(chunk * replicate_lines)
     if reference.memory_override is not None:
-        factor, share, reason = reference.memory_override
-        variables["CLEVERLY_R_MEMORY_FACTOR"] = repr(float(factor))
-        variables["CLEVERLY_R_MEMORY_SHARE"] = repr(float(share))
+        reason = reference.memory_override[2]
+        variables["CLEVERLY_R_MEMORY_FACTOR"] = repr(factor)
+        variables["CLEVERLY_R_MEMORY_SHARE"] = repr(share)
         variables["CLEVERLY_R_MEMORY_REASON"] = reason
         print(f"memory override for {leaf}: factor {factor}, share {share}: {reason}", flush=True)
     return variables
+
+
+#: ``study_worker_plan``'s defaults (study_harness.R): planned memory per worker is the
+#: measured cost times the factor, and the workers may take the share of what is available.
+HARNESS_FACTOR = 1.25
+HARNESS_SHARE = 0.85
+#: The replicates a streamed run's calibration read holds: the one it fits and the one it
+#: carries (``study_stream``).
+CALIBRATION_REPLICATES = 2
+
+
+def harness_workers(
+    cores: int,
+    per_worker_mb: float,
+    available_mb: float,
+    *,
+    factor: float = HARNESS_FACTOR,
+    share: float = HARNESS_SHARE,
+) -> int:
+    """``study_worker_plan``'s count: ``min(cores, floor(share x available / (factor x cost)))``."""
+    if per_worker_mb <= 0.0:
+        return max(1, int(cores))
+    affordable = math.floor(share * available_mb / (factor * per_worker_mb))
+    return max(1, min(int(cores), affordable))
+
+
+def calibration_available(memory: Mapping[str, float | None]) -> float:
+    """The memory a calibration file says is available, under the cgroup limit when one is set."""
+    available = float(memory["available"] or 0.0)
+    limit, current = memory.get("limit"), memory.get("current")
+    if limit is not None and current is not None:
+        available = min(available, float(limit) - float(current))
+    return available
+
+
+def stream_plan(
+    per_worker_mb: float,
+    parent_mb: float,
+    available_mb: float,
+    cores: int,
+    *,
+    factor: float = HARNESS_FACTOR,
+    share: float = HARNESS_SHARE,
+) -> tuple[int, float]:
+    """The read chunk, in replicates, and the per-worker cost to plan it with.
+
+    ``per_worker_mb`` and ``parent_mb`` are a calibration's measurements on a read of
+    :data:`CALIBRATION_REPLICATES` replicates.  A forked worker's private memory holds its
+    copy of the parent heap, which grows with the replicates a read holds (the read's lines,
+    its frame and its groups); the rest of the cost is the fit's.  A read of ``c`` replicates
+    holds at most ``c + 1`` (the carried one), so the parent is bounded by
+    ``parent_mb x (c + 1) / 2``, the whole parent scaled, its fixed part included.  The chunk is
+    the smallest ``c`` that keeps the most workers busy, ``min(c, workers(c))``: a chunk above
+    the worker count fits in two rounds, and a heavier read costs every worker its copy.
+    """
+    fit = max(per_worker_mb - parent_mb, 0.0)
+    best: tuple[int, int, float] | None = None
+    for chunk in range(1, max(int(cores), 1) + 1):
+        held = max(chunk + 1, CALIBRATION_REPLICATES) / CALIBRATION_REPLICATES
+        cost = max(fit + parent_mb * held, per_worker_mb)
+        busy = min(chunk, harness_workers(cores, cost, available_mb, factor=factor, share=share))
+        if best is None or busy > best[0]:
+            best = (busy, chunk, cost)
+    assert best is not None
+    return best[1], best[2]
 
 
 def _run_resumable(
@@ -713,7 +850,20 @@ def _run_resumable(
         return subprocess.run(command).returncode
 
     source = (root / runner).read_text(encoding="utf-8")
-    memory = _calibrate(reference, run, work, leaf, key12) if _CALIBRATES.search(source) else {}
+    lines = env.get(REPLICATE_LINES_ENV)
+    memory = (
+        _calibrate(
+            reference,
+            run,
+            work,
+            leaf,
+            key12,
+            cores=cores,
+            replicate_lines=None if lines is None else int(lines),
+        )
+        if _CALIBRATES.search(source)
+        else {}
+    )
     cap: int | None = None
     for attempt in (1, 2):
         variables = dict(memory)
@@ -809,6 +959,10 @@ class _Phase:
     subject_failures: pd.DataFrame | None = None
     #: Whether a failed subject fit leaves its replicate without a reference input.
     reference_input_from_fit: bool = False
+    #: A reference-only run's per-scenario comparator inputs; the comparator runs once each.
+    scenario_inputs: dict[str, ScenarioInput] = field(default_factory=dict)
+    #: Scenario -> the replicates it paired, for each scenario the 24-hour cap cut.
+    capped: dict[str, int] = field(default_factory=dict)
 
     def recorded(self, record: StudyRecord) -> pd.DataFrame | None:
         """Both sides' records, the induced reference records included, or ``None``.
@@ -870,6 +1024,47 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
                 "study with no reference process to run (its comparator is pending or absent)"
             ),
         )
+    if reference is not None or study.STUDY.comparator_state == "pending":
+        parser.add_argument(
+            "--reference-only",
+            action="store_true",
+            help=(
+                "reuse the committed subject rows, re-draw the reference's declared replicate "
+                "prefix from its seeds and run only the reference (X59)"
+            ),
+        )
+        parser.add_argument(
+            "--reference-prefix",
+            type=int,
+            help=(
+                "with --reference-only: pair the first N replicates of every scenario instead "
+                "of the declared prefix; a smoke run, refused into the committed directory"
+            ),
+        )
+        parser.add_argument(
+            "--subject",
+            type=Path,
+            help=(
+                "with --reference-prefix: pair the subject rows of this directory's run instead "
+                "of the committed ones, for a record that has committed none yet"
+            ),
+        )
+        parser.add_argument(
+            "--reference-deadline",
+            type=_deadline,
+            help=(
+                "with --reference-only: an ISO 8601 time with its offset; each scenario pairs "
+                "the longest prefix its committed timing predicts ends by then (the 24-hour cap)"
+            ),
+        )
+    if reference is None and study.STUDY.comparator_state == "pending":
+        parser.add_argument(
+            "--reference-jobs",
+            "--r-jobs",
+            dest="reference_jobs",
+            type=int,
+            help="reference-process concurrency of a --reference-only run (defaults to --jobs)",
+        )
     if reference is not None:
         parser.add_argument(
             "--skip-reference",
@@ -902,7 +1097,46 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
         arguments.skip_properties = True
     if getattr(arguments, "reference_jobs", None) is not None and arguments.reference_jobs < 1:
         parser.error("--reference-jobs must be >= 1")
+    if getattr(arguments, "reference_prefix", None) is not None:
+        if not arguments.reference_only:
+            parser.error("--reference-prefix needs --reference-only")
+        if arguments.reference_prefix < 2:
+            parser.error("--reference-prefix must be >= 2")
+    if getattr(arguments, "reference_deadline", None) is not None and (
+        not arguments.reference_only or arguments.reference_prefix is not None
+    ):
+        # A smoke run measures its prefix whole; only a declared run is cut by the cap.
+        parser.error("--reference-deadline needs --reference-only and no --reference-prefix")
+    if getattr(arguments, "reference_deadline", None) is not None and arguments.cache is None:
+        # The cap decisions live in the scratch, and a default scratch is deleted when the run
+        # completes, so a later rerun would charge every scenario again.
+        parser.error("--reference-deadline needs --cache, which keeps its cap decisions")
+    if getattr(arguments, "subject", None) is not None and (
+        getattr(arguments, "reference_prefix", None) is None
+    ):
+        # A declared run pairs the committed subject; another subject is a smoke's.
+        parser.error("--subject needs --reference-only and --reference-prefix")
+    if getattr(arguments, "reference_only", False):
+        if getattr(arguments, "reuse_subject", False) or getattr(
+            arguments, "skip_reference", False
+        ):
+            parser.error("--reference-only already reuses the subject and runs the reference")
+        # The committed property files keep their bytes: the subject's evidence is not rerun.
+        arguments.skip_properties = True
     return arguments
+
+
+def _deadline(text: str) -> float:
+    """``--reference-deadline``: an ISO 8601 time with its UTC offset, as epoch seconds."""
+    import datetime
+
+    try:
+        moment = datetime.datetime.fromisoformat(text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"not an ISO 8601 time: {text!r}") from error
+    if moment.tzinfo is None:
+        raise argparse.ArgumentTypeError(f"{text!r} has no UTC offset")
+    return moment.timestamp()
 
 
 def _claim_scratch(scratch: Path, key: Mapping[str, Any], *, fresh: bool) -> None:
@@ -911,7 +1145,7 @@ def _claim_scratch(scratch: Path, key: Mapping[str, Any], *, fresh: bool) -> Non
     text = json.dumps(canonical(key), sort_keys=True, indent=1) + "\n"
     cached = [
         name for name in (*_PYTHON_CACHE, "reference-results.csv") if (scratch / name).exists()
-    ]
+    ] + [path.name for path in scratch.glob("reference-results__*.csv")]
     checkpointed = (scratch / CHECKPOINTS).exists()
     if fresh:
         for name in cached:
@@ -938,7 +1172,9 @@ def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Pat
     replicate checkpoints, so the next run fits only the replicates it did not finish.
     ``--refresh-python`` discards both.
     """
-    paths = {name: scratch / name for name in (*_PYTHON_CACHE, "reference-results.csv")}
+    paths = {
+        name: scratch / name for name in (*_PYTHON_CACHE, "reference-results.csv", _SUBJECT_PLUGINS)
+    }
     stamp = paths["python-phase.json"]
     if arguments.refresh_python:
         stamp.unlink(missing_ok=True)
@@ -981,6 +1217,10 @@ def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Pat
         write_csv(result.truths, paths["truth.csv"])
         files += ["samples.csv.gz", "truth.csv"]
     paths["python-failures.csv"].unlink(missing_ok=True)
+    paths[_SUBJECT_PLUGINS].unlink(missing_ok=True)
+    if result.plugins is not None:
+        write_csv(result.plugins, paths[_SUBJECT_PLUGINS])
+        files.append(_SUBJECT_PLUGINS)
     if result.failures is not None:
         write_csv(result.failures, paths["python-failures.csv"])
         files.append("python-failures.csv")
@@ -1056,15 +1296,423 @@ def _committed_subject(study: ModuleType, arguments: argparse.Namespace, here: P
     return _Phase(rows=rows, cached=True, subject_failures=recorded_failures)
 
 
-def _reference_key(reference: Reference, here: Path, phase: _Phase) -> str | None:
+# ---- the reference-only phase (X59) ----------------------------------------------------------
+
+#: What a reference-only phase writes in its scratch, and the stamp that names a finished one.
+_REFERENCE_INPUTS = "reference-inputs.json"
+#: ``cleverly``'s untargeted plug-in per paired replicate, for the parity inputs.
+_SUBJECT_PLUGINS = "subject-plugins.csv"
+#: The parity artefacts of a study that declares ``PARITY``.
+PARITY_ARTIFACTS = ("parity.csv", "parity-replicates.csv")
+
+
+def compared_record(study: ModuleType, arguments: argparse.Namespace, here: Path) -> StudyRecord:
+    """The record a ``--reference-only`` run pairs under.
+
+    A pending record is promoted for the run: its pending comparator becomes the reference, and
+    the study module's ``COMPARATOR_DECLARATION`` adds the fields the comparator run declares
+    (the prefix, the unpaired cells, the paired role).  The registration commit makes those
+    fields the record's own once the runs land.  ``--reference-prefix N`` replaces the prefix
+    with the first ``N`` replicates of every paired scenario, for a smoke run, and is refused
+    into the committed directory.
+    """
+    record = study.STUDY
+    declaration = dict(getattr(study, "COMPARATOR_DECLARATION", {}) or {})
+    if record.comparator_state == "pending":
+        record = dataclasses.replace(
+            record,
+            reference=record.pending_reference,
+            pending_reference=None,
+            pending_reason="",
+            **declaration,
+        )
+    elif declaration:
+        raise RuntimeError(
+            f"{record.slug} is compared already; its COMPARATOR_DECLARATION belongs in the record"
+        )
+    prefix = getattr(arguments, "reference_prefix", None)
+    if prefix is not None:
+        if Path(arguments.output).resolve() == here.resolve():
+            raise RuntimeError(
+                "--reference-prefix is a smoke run; pass an --output outside the committed "
+                "directory"
+            )
+        paired = record.reported(str(record.reference))
+        record = dataclasses.replace(
+            record,
+            reference_replicates={name: min(prefix, record.replicates) for name in paired},
+        )
+    return record
+
+
+def check_comparator_declaration(
+    study: ModuleType, record: StudyRecord, arguments: argparse.Namespace
+) -> None:
+    """Refuse a declared reference-only run whose prefix or parity tolerance is undeclared.
+
+    Both refusals come before any input is drawn.  A paired scenario without a declared
+    ``reference_replicates`` entry would pair every replicate, which no sizing rule chose.  A
+    parity gate without its tolerance would fail only after the comparator ran.  A smoke run
+    (``--reference-prefix``) declares its own prefix and reads its gates at the floor.
+    """
+    if getattr(arguments, "reference_prefix", None) is not None:
+        return
+    paired = record.reported(str(record.reference))
+    missing = sorted(set(paired) - set(record.reference_replicates))
+    if missing:
+        raise RuntimeError(
+            f"{record.slug} declares no reference_replicates for {missing}: the declared run "
+            "pairs a declared prefix, so add it to COMPARATOR_DECLARATION (or pass "
+            "--reference-prefix for a smoke run)"
+        )
+    declaration = getattr(study, "PARITY", None)
+    if declaration is not None:
+        declaration.check_declared()
+    if getattr(arguments, "reference_deadline", None) is not None:
+        # The cap charges the committed timings; refuse moved ones before any input is drawn.
+        reference_costs(study)
+
+
+def _paired_keys(record: StudyRecord, n: int) -> list[tuple[str, int, int]]:
+    """``(scenario, replicate, n)`` of every paired replicate, replicate-major (M6)."""
+    reference = str(record.reference)
+    sizes = record.sizes(n)
+    counts = {name: record.replicates_of(reference, name) for name in record.reported(reference)}
+    return [
+        (name, replicate, sizes[name])
+        for replicate in range(max(counts.values(), default=0))
+        for name in record.scenarios
+        if name in counts and replicate < counts[name]
+    ]
+
+
+def _archive_columns(module: ModuleType, scenario: str, n: int) -> list[str]:
+    """One scenario archive's columns: the keys, then what the scenario's hook writes.
+
+    Read off replicate 0 at the scenario's own size, which the archive pairs first.  A smaller
+    probe is a different sample: its plug-in can leave the Q bound that every paired replicate
+    keeps (X59 smoke row 50: ``binary_k3`` at n = 200).
+    """
+    sample = module.reference_sample(scenario, n, 0)
+    keys = ["scenario", "replicate", "row"]
+    return keys + [column for column in sample.frame.columns if column not in keys]
+
+
+def _reference_input(
+    module_name: str,
+    columns: Mapping[str, list[str]],
+    reported: dict[str, tuple[str, ...]],
+    key: tuple[str, int, int],
+) -> tuple[str, bytes, int, list[dict[str, Any]], list[dict[str, Any]]]:
+    """One paired replicate of one scenario: its gzip CSV member, line count, truths, plug-ins."""
+    import importlib
+    import io
+
+    scenario, replicate, n = key
+    module = importlib.import_module(module_name)
+    sample = module.reference_sample(scenario, n, replicate)
+    frame = sample.frame.copy()
+    unknown = sorted(set(frame.columns) - set(columns[scenario]))
+    if unknown:
+        raise RuntimeError(f"{scenario} replicate {replicate} wrote undeclared columns {unknown}")
+    frame.insert(0, "row", range(len(frame)))
+    frame.insert(0, "replicate", replicate)
+    frame.insert(0, "scenario", scenario)
+    text = io.StringIO()
+    frame.reindex(columns=columns[scenario]).to_csv(
+        text, index=False, header=False, lineterminator="\n"
+    )
+    member = gzip.compress(text.getvalue().encode("utf-8"), mtime=0)
+    wanted = reported[scenario]
+    truths = [
+        {
+            "scenario": scenario,
+            "replicate": replicate,
+            "estimand": name,
+            "truth": sample.truths[name],
+        }
+        for name in wanted
+    ]
+    plugins = [
+        {"scenario": scenario, "replicate": replicate, "estimand": name, "subject_plugin": value}
+        for name, value in sample.plugins.items()
+        if name in wanted
+    ]
+    return scenario, member, len(frame), truths, plugins
+
+
+def _ordered_map(function: Any, keys: list[Any], jobs: int) -> Iterator[Any]:
+    """``function`` over ``keys`` in order, at most ``2 jobs`` results in flight."""
+    if jobs <= 1:
+        yield from map(function, keys)
+        return
+    import concurrent.futures
+    import multiprocessing
+
+    context = multiprocessing.get_context("spawn")
+    with concurrent.futures.ProcessPoolExecutor(jobs, mp_context=context) as pool:
+        pending: list[Any] = []
+        queued = iter(keys)
+        for key in queued:
+            pending.append(pool.submit(function, key))
+            if len(pending) >= 2 * jobs:
+                break
+        while pending:
+            done = pending.pop(0)
+            yield done.result()
+            for key in queued:
+                pending.append(pool.submit(function, key))
+                break
+
+
+@dataclass(frozen=True)
+class ScenarioInput:
+    """One paired scenario's comparator inputs.
+
+    Parameters
+    ----------
+    samples : Path
+        The scenario's archive: one gzip member per paired replicate, in replicate order.
+    truth : Path
+        The scenario's truth rows.
+    lines : int
+        The most archive lines one replicate holds, which sizes the runner's read chunk.
+    offsets : tuple of int
+        The archive's byte length after its header and after each replicate's member, so the
+        first ``m`` replicates are its first ``offsets[m]`` bytes (:func:`capped_inputs`).
+    """
+
+    samples: Path
+    truth: Path
+    lines: int
+    offsets: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class ReferenceInputs:
+    """What :func:`write_reference_inputs` writes.
+
+    Parameters
+    ----------
+    paths : dict[str, Path]
+        ``truth.csv`` (every scenario's truth rows) and the subject's plug-ins.
+    scenarios : dict[str, ScenarioInput]
+        Each paired scenario's own archive and truth, in record order.
+    """
+
+    paths: dict[str, Path]
+    scenarios: dict[str, ScenarioInput]
+
+
+def scenario_input_paths(scratch: Path, scenario: str) -> tuple[Path, Path]:
+    """Where one scenario's archive and truth rows live in ``scratch``."""
+    return scratch / f"samples__{scenario}.csv.gz", scratch / f"truth__{scenario}.csv"
+
+
+def write_reference_inputs(
+    study: ModuleType, record: StudyRecord, n: int, scratch: Path, *, jobs: int
+) -> ReferenceInputs:
+    """Re-draw the paired prefix from its seeds and write the comparator's inputs (M6).
+
+    No ``cleverly`` fit runs.  Each paired ``(scenario, replicate)`` is drawn by the study's own
+    ``reference_sample`` hook, which builds every column the runner reads from the law and the
+    plan.  Each scenario gets its own archive of concatenated gzip members in replicate order,
+    so ``study_stream`` reads one replicate of one scenario as one group, and its own truth
+    file.  The comparator runs once per scenario (:func:`_reference_rows`).
+    """
+    import functools
+
+    keys = _paired_keys(record, n)
+    if not keys:
+        raise RuntimeError(f"{record.slug}: the reference pairs no replicate")
+    reported = {
+        name: tuple(cells) for name, cells in record.reported(str(record.reference)).items()
+    }
+    names = [name for name in record.scenarios if name in reported]
+    sizes = record.sizes(n)
+    columns = {name: _archive_columns(study, name, sizes[name]) for name in names}
+    worker = functools.partial(_reference_input, study.__name__, columns, reported)
+    truths: dict[str, list[dict[str, Any]]] = {name: [] for name in names}
+    plugins: list[dict[str, Any]] = []
+    lines = dict.fromkeys(names, 0)
+    offsets: dict[str, list[int]] = {name: [] for name in names}
+    archives = {name: scenario_input_paths(scratch, name) for name in names}
+    partials = {
+        name: archives[name][0].with_name(archives[name][0].name + ".partial") for name in names
+    }
+    streams = {name: partials[name].open("wb") for name in names}
+    try:
+        for name in names:
+            header = gzip.compress((",".join(columns[name]) + "\n").encode("utf-8"), mtime=0)
+            streams[name].write(header)
+            offsets[name].append(len(header))
+        for done, (name, member, count, truth_rows, plugin_rows) in enumerate(
+            _ordered_map(worker, keys, jobs), start=1
+        ):
+            streams[name].write(member)
+            offsets[name].append(offsets[name][-1] + len(member))
+            lines[name] = max(lines[name], count)
+            truths[name] += truth_rows
+            plugins += plugin_rows
+            if done % 50 == 0 or done == len(keys):
+                print(f"wrote {done}/{len(keys)} paired samples", flush=True)
+    finally:
+        for stream in streams.values():
+            stream.close()
+    truth_columns = ["scenario", "replicate", "estimand", "truth"]
+    for name in names:
+        partials[name].replace(archives[name][0])
+        write_csv(pd.DataFrame(truths[name], columns=truth_columns), archives[name][1])
+    paths = {"truth.csv": scratch / "truth.csv", _SUBJECT_PLUGINS: scratch / _SUBJECT_PLUGINS}
+    write_csv(
+        pd.DataFrame([row for name in names for row in truths[name]], columns=truth_columns),
+        paths["truth.csv"],
+    )
+    write_csv(
+        pd.DataFrame(plugins, columns=["scenario", "replicate", "estimand", "subject_plugin"]),
+        paths[_SUBJECT_PLUGINS],
+    )
+    scenarios = {
+        name: ScenarioInput(
+            samples=archives[name][0],
+            truth=archives[name][1],
+            lines=lines[name],
+            offsets=tuple(offsets[name]),
+        )
+        for name in names
+    }
+    return ReferenceInputs(paths=paths, scenarios=scenarios)
+
+
+def capped_inputs(
+    inputs: ScenarioInput, replicates: int, scratch: Path, name: str
+) -> ScenarioInput:
+    """The first ``replicates`` replicates of one scenario's inputs, for the 24-hour cap.
+
+    The archive holds one gzip member per replicate in replicate order, so the prefix is a
+    byte prefix of it (:attr:`ScenarioInput.offsets`); the truth rows are filtered to match.
+    """
+    if not 1 <= replicates < len(inputs.offsets) - 1:
+        raise ValueError(
+            f"{name}: a cut keeps 1 to {len(inputs.offsets) - 2} of its "
+            f"{len(inputs.offsets) - 1} replicates, not {replicates}"
+        )
+    samples = scratch / f"samples__{name}__cap{replicates}.csv.gz"
+    truth = scratch / f"truth__{name}__cap{replicates}.csv"
+    with inputs.samples.open("rb") as source, samples.open("wb") as target:
+        target.write(source.read(inputs.offsets[replicates]))
+    rows = pd.read_csv(inputs.truth, float_precision="round_trip")
+    write_csv(rows.loc[rows["replicate"] < replicates], truth)
+    return ScenarioInput(
+        samples=samples,
+        truth=truth,
+        lines=inputs.lines,
+        offsets=inputs.offsets[: replicates + 1],
+    )
+
+
+def _reference_only_phase(
+    study: ModuleType,
+    record: StudyRecord,
+    arguments: argparse.Namespace,
+    here: Path,
+    scratch: Path,
+) -> _Phase:
+    """The committed subject, and the comparator inputs of the paired prefix (X59 section 3).
+
+    The subject rows and records are the committed ones, checked against the committed manifest
+    as ``--reuse-subject`` checks them.  The inputs are re-drawn from the seeds, reused from the
+    scratch when a finished phase of the same paired keys and reference environment is there.
+    """
+    phase = _committed_subject(study, arguments, _subject_directory(arguments, here))
+    phase.paths = {
+        name: scratch / name for name in ("truth.csv", "reference-results.csv", _SUBJECT_PLUGINS)
+    }
+    stamp = scratch / _REFERENCE_INPUTS
+    keys = [list(key) for key in _paired_keys(record, arguments.n)]
+    environment = reference_environment(study)
+    if stamp.exists():
+        written = json.loads(stamp.read_text(encoding="utf-8"))
+        lines = written.get("lines", {})
+        held_offsets = written.get("offsets", {})
+        scenarios = {
+            name: ScenarioInput(
+                *scenario_input_paths(scratch, name),
+                lines=int(count),
+                offsets=tuple(int(value) for value in held_offsets.get(name, ())),
+            )
+            for name, count in lines.items()
+        }
+        held = [phase.paths["truth.csv"], phase.paths[_SUBJECT_PLUGINS]] + [
+            path for inputs in scenarios.values() for path in (inputs.samples, inputs.truth)
+        ]
+        if (
+            written.get("keys") == keys
+            and written.get("environment") == environment
+            and scenarios
+            and all(inputs.offsets for inputs in scenarios.values())
+            and all(path.exists() for path in held)
+        ):
+            print(f"reusing the reference inputs in {scratch}", flush=True)
+            RUN_NOTES.append(f"resumed from {scratch}, reused the reference inputs")
+            phase.scenario_inputs = scenarios
+            return phase
+        stamp.unlink()
+    inputs = write_reference_inputs(study, record, arguments.n, scratch, jobs=arguments.jobs)
+    stamp.write_text(
+        json.dumps(
+            {
+                "environment": environment,
+                "keys": keys,
+                "lines": {name: value.lines for name, value in inputs.scenarios.items()},
+                "offsets": {name: list(value.offsets) for name, value in inputs.scenarios.items()},
+            },
+            indent=1,
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    phase.scenario_inputs = dict(inputs.scenarios)
+    return phase
+
+
+def parity_inputs(phase: _Phase) -> pd.DataFrame:
+    """``parity-replicates.csv``: the subject's plug-ins beside the reference's ``gcomp`` values.
+
+    The reference writes its untargeted estimate in an extra ``gcomp_estimate`` column of its
+    rows where it computes one; the shared replicate schema drops that column, so it travels
+    here.
+    """
+    plugins_path = phase.paths.get(_SUBJECT_PLUGINS)
+    plugins = (
+        pd.read_csv(plugins_path, float_precision="round_trip")
+        if plugins_path is not None and plugins_path.exists()
+        else pd.DataFrame(columns=["scenario", "replicate", "estimand", "subject_plugin"])
+    )
+    results = phase.reference_results
+    gcomp = pd.DataFrame(columns=["scenario", "replicate", "estimand", "reference_gcomp"])
+    if results is not None and results.exists():
+        held = pd.read_csv(results, float_precision="round_trip")
+        if "gcomp_estimate" in held.columns:
+            gcomp = held.loc[:, ["scenario", "replicate", "estimand", "gcomp_estimate"]].rename(
+                columns={"gcomp_estimate": "reference_gcomp"}
+            )
+    merged = plugins.merge(gcomp, on=["scenario", "replicate", "estimand"], how="outer")
+    return merged.loc[:, list(parity.INPUT_COLUMNS)].sort_values(
+        ["scenario", "replicate", "estimand"], ignore_index=True
+    )
+
+
+def _reference_key(
+    reference: Reference, here: Path, samples: Path | None, truths: Path | None
+) -> str | None:
     """What a cached reference result must have been written under, or ``None``.
 
     The key is the reference run's resume key and its image content: equal sources, inputs,
-    declaration, code and versions.  Outside :func:`main` there is no key.
+    declaration, environment, code and versions.  Outside :func:`main` there is no key.
     """
     active = _ACTIVE.get()
-    samples = phase.paths.get("samples.csv.gz")
-    truths = phase.paths.get("truth.csv")
     if active is None or samples is None or truths is None or not samples.exists():
         return None
     fields = leaf_key(reference, active.key, here, samples, truths)
@@ -1077,14 +1725,16 @@ def _reference_rows(
     arguments: argparse.Namespace,
     here: Path,
     phase: _Phase,
+    record: StudyRecord | None = None,
 ) -> pd.DataFrame:
+    record = study.STUDY if record is None else record
     # ``--skip-reference`` is only registered when the study declares a reference, so the one
     # ``getattr`` here stands in for a flag an unpaired study never carries.
     if getattr(arguments, "skip_reference", False):
         committed = read_rows(here / "replicates.parquet")
-        sizes = study.STUDY.sizes(arguments.n)
+        sizes = record.sizes(arguments.n)
         rows = committed.loc[
-            (committed["implementation"] == study.STUDY.reference)
+            (committed["implementation"] == record.reference)
             & (committed["replicate"] < arguments.replicates)
             & (committed["n"] == committed["scenario"].map(sizes).fillna(arguments.n))
         ]
@@ -1104,14 +1754,18 @@ def _reference_rows(
             )
         if committed_failures is not None:
             committed_failures = committed_failures.loc[
-                committed_failures["implementation"] == study.STUDY.reference
+                committed_failures["implementation"] == record.reference
             ]
             phase.reference_failures = _failures_below(committed_failures, arguments.replicates)
         return rows
+    if phase.scenario_inputs:
+        return _reference_rows_by_scenario(study, reference, arguments, here, phase, record)
     cached_reference = phase.paths["reference-results.csv"]
     phase.reference_results = cached_reference
     stamp = cached_reference.with_name(f"{cached_reference.name}.key")
-    expected = _reference_key(reference, here, phase)
+    expected = _reference_key(
+        reference, here, phase.paths.get("samples.csv.gz"), phase.paths.get("truth.csv")
+    )
     if (
         expected is not None
         and cached_reference.exists()
@@ -1120,21 +1774,301 @@ def _reference_rows(
     ):
         print(f"reusing the cached reference phase in {cached_reference.parent}", flush=True)
         RUN_NOTES.append(f"resumed from {cached_reference.parent}, reused the reference phase")
-        phase.reference_failures = _reference_failures(study, cached_reference)
+        phase.reference_failures = _reference_failures(str(record.reference), cached_reference)
         return pd.read_csv(cached_reference)
     stamp.unlink(missing_ok=True)
+    environment = reference_environment(study)
     reference.run(
         here,
         phase.paths["samples.csv.gz"],
         phase.paths["truth.csv"],
         cached_reference,
         cores=(getattr(arguments, "reference_jobs", None) or arguments.jobs),
+        # Only a study that declares REFERENCE_ENVIRONMENT forwards one.
+        **({"env": environment} if environment else {}),  # type: ignore[arg-type]
     )
     if expected is not None and reference.interpreter != "Rscript":
         # An R run writes its own stamp when it completes; any other reference gets it here.
         stamp.write_text(expected, encoding="utf-8", newline="\n")
-    phase.reference_failures = _reference_failures(study, cached_reference)
+    phase.reference_failures = _reference_failures(str(record.reference), cached_reference)
     return pd.read_csv(cached_reference)
+
+
+#: The runner reads its archive in chunks of this many lines (``study_stream``'s ``chunk_lines``).
+CHUNK_LINES_ENV = "CLEVERLY_R_CHUNK_LINES"
+#: The archive lines of one replicate, which a streamed run's calibration sizes its chunk by.
+REPLICATE_LINES_ENV = "CLEVERLY_R_REPLICATE_LINES"
+
+
+def chunk_lines(lines: int, cores: int) -> int:
+    """A read chunk of ``cores`` replicates of ``lines`` archive lines each.
+
+    ``study_stream`` carries a chunk's last replicate into the next read and fits the rest, so
+    after the first read every read fits ``cores`` replicates: one round on ``cores`` workers,
+    and one round on any worker count that divides it.  A calibrated run replaces it with
+    :func:`stream_plan`'s chunk.
+    """
+    return max(cores, 1) * max(lines, 1)
+
+
+def _concatenate_csv(sources: Sequence[Path], target: Path) -> None:
+    """``sources`` as one CSV of their bytes, under the first header; refuses another header."""
+    header: str | None = None
+    with target.open("w", encoding="utf-8", newline="\n") as out:
+        for source in sources:
+            with source.open(encoding="utf-8", newline="") as stream:
+                first = stream.readline()
+                if header is None:
+                    header = first
+                    out.write(first)
+                elif first != header:
+                    raise RuntimeError(f"{source.name} has another header than {sources[0].name}")
+                body = stream.read()
+            out.write(body if not body or body.endswith("\n") else body + "\n")
+
+
+#: The committed sizing inputs: the smoke's timings and memory plans, and the declaration.
+SIZING = ROOT / "tests" / "canonical" / "x59_sizing"
+
+
+def reference_costs(study: ModuleType) -> tuple[dict[str, parity.ScenarioCost], float]:
+    """``study``'s paired scenarios at the sizing rule's cost model, and its contention.
+
+    The cap charges a scenario as the sizing rule did: the committed smoke timings and memory
+    plans (``tests/canonical/x59_sizing``) at the declared contention.
+    """
+    from tests.canonical import x59_smoke
+
+    labels = [label for label, held in x59_smoke.STUDIES.items() if held[0] == study.__name__]
+    if not labels:
+        raise RuntimeError(f"{study.__name__} has no committed sizing inputs for the cap")
+    declared = json.loads((SIZING / "sizing.json").read_text(encoding="utf-8"))
+    held = sizing_digests()
+    if held != declared["sha256"]:
+        moved = sorted(
+            name
+            for name in set(held) | set(declared["sha256"])
+            if held.get(name) != declared["sha256"].get(name)
+        )
+        raise RuntimeError(
+            f"the committed sizing inputs differ from sizing.json's digests: {moved}; the cap "
+            "charges only the declared timings"
+        )
+    costs = x59_smoke.sizing_costs(SIZING / "timing", SIZING / "memory")
+    prefix = f"{labels[0]}:"
+    own = {key[len(prefix) :]: cost for key, cost in costs.items() if key.startswith(prefix)}
+    return own, float(declared["contention"])
+
+
+def sizing_digests() -> dict[str, str]:
+    """The sha256 of each committed sizing CSV, on LF line endings whatever the checkout."""
+    return {
+        str(path.relative_to(SIZING).as_posix()): hashlib.sha256(
+            path.read_bytes().replace(b"\r\n", b"\n")
+        ).hexdigest()
+        for path in sorted(SIZING.glob("*/*.csv"))
+    }
+
+
+#: The file in a run's scratch that holds each scenario's cap decision, made once.
+CAP_DECISIONS = "cap.json"
+
+
+def _cap_decisions(path: Path, deadline: float | None) -> dict[str, int | str]:
+    """The cap decisions a resumed run already made, under the same deadline.
+
+    A decision is made once, before its scenario starts, and a resume reads it back instead
+    of charging the scenario again: a re-charge would re-cut a cut scenario, cut an
+    interrupted whole one, and publish a finished one as unpaired past the deadline.
+    """
+    if not path.exists():
+        return {}
+    held = json.loads(path.read_text(encoding="utf-8"))
+    if deadline is None or float(held["deadline"]) != deadline:
+        raise RuntimeError(
+            f"{path} holds the cap decisions of --reference-deadline {held['deadline_iso']}; "
+            "resume with that deadline"
+        )
+    return dict(held["decisions"])
+
+
+def _write_cap_decisions(path: Path, deadline: float, decisions: Mapping[str, int | str]) -> None:
+    import datetime
+
+    payload = {
+        "deadline": deadline,
+        "deadline_iso": datetime.datetime.fromtimestamp(deadline, datetime.UTC).isoformat(),
+        "decisions": dict(decisions),
+    }
+    partial = path.with_name(path.name + ".partial")
+    partial.write_text(json.dumps(payload, indent=1) + "\n", encoding="utf-8", newline="\n")
+    partial.replace(path)
+
+
+def _now() -> float:
+    """The wall clock the cap reads, in seconds since the epoch."""
+    return time.time()
+
+
+def reference_order(study: ModuleType, names: Sequence[str]) -> list[str]:
+    """The order the comparator runs ``names`` in: the study's ``REFERENCE_LAST`` at the end.
+
+    Under the 24-hour cap the cut falls on what runs last, so the costliest scenario is
+    placed there and the cheap ones pair their whole prefix first.
+    """
+    last = tuple(getattr(study, "REFERENCE_LAST", ()))
+    unknown = sorted(set(last) - set(names))
+    if unknown:
+        raise RuntimeError(f"REFERENCE_LAST names {unknown}, which the reference does not pair")
+    return [name for name in names if name not in last] + list(last)
+
+
+def _reference_rows_by_scenario(
+    study: ModuleType,
+    reference: Reference,
+    arguments: argparse.Namespace,
+    here: Path,
+    phase: _Phase,
+    record: StudyRecord,
+) -> pd.DataFrame:
+    """A reference-only run: the comparator once per paired scenario, its rows concatenated.
+
+    One replicate of one scenario is one ``study_stream`` group, and a read holds as many as
+    the calibration says keep the most workers busy (:func:`stream_plan`), so the scenario's
+    replicates fit in parallel.  Each scenario's run is resumable and cached on its own key.
+
+    With ``--reference-deadline``, each scenario is charged once, before it first starts
+    (:func:`tests.studies.evidence.parity.capped_prefix`), and pairs the longest prefix
+    predicted to end by the deadline; a scenario with no such prefix of 2 is not run.  The
+    decision is written to the scratch's :data:`CAP_DECISIONS` with the deadline before the
+    scenario starts, and a resume reads it back (:func:`_cap_decisions`), so an interruption
+    moves no decision.  Each cut is recorded in ``phase.capped``.  A running scenario is never
+    stopped: the 3-hour reserve of the 24-hour cap absorbs a scenario that runs past its
+    prediction.
+    """
+    cores = getattr(arguments, "reference_jobs", None) or arguments.jobs
+    environment = reference_environment(study)
+    combined = phase.paths["reference-results.csv"]
+    deadline = getattr(arguments, "reference_deadline", None)
+    costs, contention = reference_costs(study) if deadline is not None else ({}, 1.0)
+    decisions_path = combined.parent / CAP_DECISIONS
+    decisions = _cap_decisions(decisions_path, deadline)
+    outputs: list[Path] = []
+    for name in reference_order(study, list(phase.scenario_inputs)):
+        inputs = phase.scenario_inputs[name]
+        output = combined.with_name(f"reference-results__{name}.csv")
+        if deadline is not None:
+            declared = record.replicates_of(str(record.reference), name)
+            if name not in decisions:
+                if name not in costs:
+                    raise RuntimeError(f"{name} has no committed timing for the cap to charge")
+                charged = parity.capped_prefix(
+                    costs[name], declared, deadline - _now(), contention=contention
+                )
+                decisions[name] = "whole" if charged >= declared else charged
+                _write_cap_decisions(decisions_path, deadline, decisions)
+            decision = decisions[name]
+            if decision != "whole":
+                kept = int(decision)
+                phase.capped[name] = kept
+                print(f"the cap pairs {kept} of {declared} replicates of {name}", flush=True)
+                RUN_NOTES.append(f"the 24-hour cap paired {kept} of {declared} of {name}")
+                if kept == 0:
+                    continue
+                inputs = capped_inputs(inputs, kept, combined.parent, name)
+                output = combined.with_name(f"reference-results__{name}__cap{kept}.csv")
+        stamp = output.with_name(f"{output.name}.key")
+        expected = _reference_key(reference, here, inputs.samples, inputs.truth)
+        cached = (
+            expected is not None
+            and output.exists()
+            and stamp.exists()
+            and stamp.read_text(encoding="utf-8") == expected
+        )
+        outputs.append(output)
+        if cached:
+            print(f"reusing the cached reference rows of {name}", flush=True)
+            RUN_NOTES.append(f"resumed from {output.parent}, reused the reference rows of {name}")
+            continue
+        stamp.unlink(missing_ok=True)
+        print(f"reference run of {name}", flush=True)
+        reference.run(
+            here,
+            inputs.samples,
+            inputs.truth,
+            output,
+            cores=cores,
+            env={
+                **environment,
+                CHUNK_LINES_ENV: str(chunk_lines(inputs.lines, cores)),
+                REPLICATE_LINES_ENV: str(inputs.lines),
+            },
+        )
+        if expected is not None and reference.interpreter != "Rscript":
+            stamp.write_text(expected, encoding="utf-8", newline="\n")
+    if not outputs:
+        raise RuntimeError(f"{record.slug}: the cap left no paired scenario to run")
+    _concatenate_csv(outputs, combined)
+    failed = [failures_path(output) for output in outputs if failures_path(output).exists()]
+    failures_path(combined).unlink(missing_ok=True)
+    if failed:
+        _concatenate_csv(failed, failures_path(combined))
+    phase.reference_results = combined
+    phase.reference_failures = _reference_failures(str(record.reference), combined)
+    return pd.read_csv(combined)
+
+
+def cap_record(
+    declared: Mapping[str, int],
+    capped: Mapping[str, int],
+    table: pd.DataFrame | None,
+    deadline: float,
+) -> dict[str, Any]:
+    """The manifest's account of the cap: each cut, and one limit line per cut scenario.
+
+    A limit line names what the cut scenario still claims: its exact cells graded at the kept
+    prefix, or reported without a verdict under :data:`~tests.studies.evidence.parity.EXACT_FLOOR`.
+    """
+    import datetime
+
+    ungraded = set() if table is None else set(parity.ungraded_cells(table)["scenario"])
+    limits = []
+    for name, kept in capped.items():
+        if kept == 0:
+            reading = "not paired: no prefix of 2 fit before the deadline"
+        elif name in ungraded:
+            reading = (
+                f"its exact cells report without a verdict, under the floor of "
+                f"{parity.EXACT_FLOOR} paired replicates"
+            )
+        else:
+            reading = "its exact cells are graded at the kept prefix"
+        limits.append(f"{name}: the 24-hour cap paired {kept} of {declared[name]}; {reading}")
+    return {
+        "deadline": datetime.datetime.fromtimestamp(deadline, datetime.UTC).isoformat(),
+        "paired": {name: {"declared": declared[name], "kept": capped[name]} for name in capped},
+        "limits": limits,
+    }
+
+
+def capped_record(record: StudyRecord, capped: Mapping[str, int]) -> StudyRecord:
+    """``record`` pairing only what the cap left: each cut scenario at its kept prefix.
+
+    A scenario the cap left with no replicate leaves the paired cells, so no reader looks for
+    its reference rows.
+    """
+    if not capped:
+        return record
+    reference = str(record.reference)
+    reported = {
+        name: cells
+        for name, cells in record.reported(reference).items()
+        if capped.get(name, 2) >= 2
+    }
+    counts = {
+        name: int(capped.get(name, record.replicates_of(reference, name))) for name in reported
+    }
+    return dataclasses.replace(record, reference_scenarios=reported, reference_replicates=counts)
 
 
 def _failures_below(frame: pd.DataFrame, replicates: int) -> pd.DataFrame | None:
@@ -1146,7 +2080,7 @@ def _failures_below(frame: pd.DataFrame, replicates: int) -> pd.DataFrame | None
     return None if kept.empty else kept.reset_index(drop=True)
 
 
-def _reference_failures(study: ModuleType, results: Path) -> pd.DataFrame | None:
+def _reference_failures(reference_name: str, results: Path) -> pd.DataFrame | None:
     """The harness's failure records beside ``results``, labelled with the reference's name.
 
     The harness does not know the implementation's name; the rows carry it, and every record
@@ -1158,7 +2092,7 @@ def _reference_failures(study: ModuleType, results: Path) -> pd.DataFrame | None
     raw = pd.read_csv(path, dtype={"scenarios": str, "replicates": str}, keep_default_na=False)
     if raw.empty:
         return None
-    raw.insert(0, "implementation", str(study.STUDY.reference))
+    raw.insert(0, "implementation", reference_name)
     frame = raw.loc[:, list(failures.FAILURE_COLUMNS)]
     for message, count in frame["message"].value_counts().items():
         print(f"recorded failure ({count}x): {message}", flush=True)
@@ -1285,6 +2219,26 @@ def _property_artifacts(
     return None, ()
 
 
+def _subject_directory(arguments: argparse.Namespace, here: Path) -> Path:
+    """Where a reference-only run reads its subject: ``--subject``, else the committed one."""
+    subject = getattr(arguments, "subject", None)
+    return here if subject is None else Path(subject)
+
+
+def _committed_subject_provenance(here: Path) -> dict[str, Any]:
+    """The committed subject provenance a reference-only manifest carries forward (B4).
+
+    The subject rows were written by the committed run, so the manifest keeps that run's
+    ``generated_with.subject`` and ``study_module_sha256``: re-stamping them would describe
+    bytes that never produced those rows.
+    """
+    committed = json.loads((here / "manifest.json").read_text(encoding="utf-8"))
+    return {
+        "subject_provenance": committed["generated_with"]["subject"],
+        "module_hashes": committed["study_module_sha256"],
+    }
+
+
 #: The manifest configuration key that records the property phase's declared failure bound.
 PROPERTY_FAILURE_BOUND_KEY = property_failures.PROPERTY_BOUND_KEY
 
@@ -1334,22 +2288,35 @@ def main(
             "cannot record the declared reference sources"
         )
     declared_reference = reference if pending else None
-    if pending:
+    arguments = _arguments(study, here, None if pending else reference)
+    base = study.STUDY
+    if getattr(arguments, "reference_only", False):
+        # A pending comparator runs here, on the committed subject rows (X59).
+        if reference is None:
+            raise RuntimeError(f"{base.slug}: --reference-only needs a Reference to run")
+        base = compared_record(study, arguments, here)
+        check_comparator_declaration(study, base, arguments)
+        declared_reference = None
+        print(
+            f"reference-only run of {base.reference}: {len(_paired_keys(base, arguments.n))} "
+            "paired samples",
+            flush=True,
+        )
+    elif pending:
         reference = None
         print(
             f"comparator {study.STUDY.pending_reference} is pending "
             f"({study.STUDY.pending_reason}): no reference process runs",
             flush=True,
         )
-    arguments = _arguments(study, here, reference)
     RUN_NOTES.clear()
     declared = dataclasses.replace(
-        study.STUDY,
+        base,
         replicates=arguments.replicates,
         n=arguments.n,
-        scenario_n=_declared_sizes(study.STUDY, arguments.n),
+        scenario_n=_declared_sizes(base, arguments.n),
     )
-    key = run_key(declared)
+    key = run_key(declared, reference_environment(study))
     cache = getattr(arguments, "cache", None)
     scratch = Path(cache) if cache else runs_root() / declared.slug / digest(key)[:12]
     scratch.mkdir(parents=True, exist_ok=True)
@@ -1376,6 +2343,7 @@ def main(
                         reference,
                         context,
                         declared_reference=declared_reference,
+                        base_record=base,
                     )
             finally:
                 _ACTIVE.reset(token)
@@ -1393,14 +2361,17 @@ def _regenerate(
     context: RunContext,
     *,
     declared_reference: Reference | None = None,
+    base_record: StudyRecord | None = None,
 ) -> None:
     out = arguments.output
     out.mkdir(parents=True, exist_ok=True)
+    base = study.STUDY if base_record is None else base_record
+    reference_only = getattr(arguments, "reference_only", False)
     record = dataclasses.replace(
-        study.STUDY,
+        base,
         replicates=arguments.replicates,
         n=arguments.n,
-        scenario_n=_declared_sizes(study.STUDY, arguments.n),
+        scenario_n=_declared_sizes(base, arguments.n),
         artifacts=out,
     )
     skip_reference = getattr(arguments, "skip_reference", False)
@@ -1438,17 +2409,24 @@ def _regenerate(
     if record.scenario_n:
         print(f"scenario sizes: {dict(record.scenario_n)}", flush=True)
     scratch = context.scratch
-    phase = (
-        _committed_subject(study, arguments, here)
-        if getattr(arguments, "reuse_subject", False)
-        else _python_phase(study, arguments, scratch)
-    )
+    if reference_only:
+        phase = _reference_only_phase(study, record, arguments, here, scratch)
+    elif getattr(arguments, "reuse_subject", False):
+        phase = _committed_subject(study, arguments, here)
+    else:
+        phase = _python_phase(study, arguments, scratch)
     rows = phase.rows
+    declared_counts: dict[str, int] = {}
     if reference is not None:
         rows = pd.concat(
-            [phase.rows, _reference_rows(study, reference, arguments, here, phase)],
+            [phase.rows, _reference_rows(study, reference, arguments, here, phase, record)],
             ignore_index=True,
         )
+        # The cap's cuts, before any reader counts the paired replicates.
+        declared_counts = {
+            name: record.replicates_of(str(record.reference), name) for name in phase.capped
+        }
+        record = capped_record(record, phase.capped)
     reference_extra_frames: dict[str, pd.DataFrame] = {}
     if reference is not None and hasattr(study, "reference_artifacts"):
         reference_extra_frames = study.reference_artifacts(
@@ -1531,10 +2509,33 @@ def _regenerate(
     for name, frame in extra_frames.items():
         compression = {"method": "gzip", "mtime": 0} if name.endswith(".csv.gz") else None
         write_csv(frame, paths[name], compression=compression)
+    declaration = getattr(study, "PARITY", None)
+    parity_table: pd.DataFrame | None = None
+    if reference is not None and declaration is not None:
+        # X59: the exact gates read every paired replicate; the margins rows above describe.
+        inputs = parity_inputs(phase)
+        if phase.capped:
+            # A cut scenario's plug-ins beyond its kept prefix pair nothing.
+            kept = (
+                inputs["scenario"]
+                .map(lambda name: phase.capped.get(str(name), math.inf))
+                .astype(float)
+            )
+            inputs = inputs.loc[inputs["replicate"] < kept].reset_index(drop=True)
+        if getattr(arguments, "reference_prefix", None) is not None:
+            declaration = parity.smoke_declaration(declaration)
+        parity_table = parity.parity_table(
+            rows, inputs, record=record, declaration=declaration, capped=phase.capped
+        )
+        write_csv(inputs, out / "parity-replicates.csv")
+        write_csv(parity_table, out / "parity.csv")
+        artifact_names = (*artifact_names, *PARITY_ARTIFACTS)
 
     if arguments.primary_only:
         print(performance.to_string(index=False))
         print(paired.to_string(index=False))
+        if parity_table is not None:
+            print(parity_table.to_string(index=False))
         print(
             "primary-only probe: no property artefacts or publishable manifest were written",
             flush=True,
@@ -1549,6 +2550,29 @@ def _regenerate(
     # exist.
     artifact_names = (*artifact_names, *property_failure_names)
 
+    reference_metadata = dict(getattr(study, "REFERENCE_METADATA", None) or {})
+    if phase.capped:
+        reference_metadata["cap"] = cap_record(
+            declared_counts, phase.capped, parity_table, arguments.reference_deadline
+        )
+        for line in reference_metadata["cap"]["limits"]:
+            print(f"limit: {line}", flush=True)
+    environment = reference_environment(study)
+    if reference is not None and environment:
+        reference_metadata["environment"] = environment
+    if reference_only:
+        # The subject's module hashes are the committed run's; the bytes that drew this run's
+        # comparator inputs are today's, and are recorded beside the reference.
+        reference_metadata["input_module_sha256"] = dict(
+            sorted(
+                {
+                    _repository_name(Path(str(study.__file__))): _file_sha(
+                        Path(str(study.__file__))
+                    ),
+                    **study_module_hashes(record),
+                }.items()
+            )
+        )
     write_manifest(
         out / "manifest.json",
         record,
@@ -1558,11 +2582,16 @@ def _regenerate(
             if reference is not None
             else (() if declared_reference is None else declared_reference.files(here))
         ),
-        reference_metadata=getattr(study, "REFERENCE_METADATA", None),
+        reference_metadata=reference_metadata or None,
         configuration={
             **dict(study.CONFIGURATION or {}),
             **_property_failure_bound(properties, arguments, here),
         },
+        **(
+            _committed_subject_provenance(_subject_directory(arguments, here))
+            if reference_only
+            else {}
+        ),
     )
     context.completed = True
 
@@ -1576,8 +2605,12 @@ def _regenerate(
         # Both columns, not just ``passed``: a family whose claim spans its cells records that
         # verdict in ``property_passed`` alone, so gating on the per-row column would let a
         # failed joint claim through while every row read green.
+        # A record with no property family (the X59 parity records) writes an empty summary
+        # with no columns; it has no property verdict to fail.
         "statistical property": None
         if property_summary is None
+        else property_summary
+        if property_summary.empty
         else property_summary.loc[
             ~property_summary["passed"] | ~property_summary["property_passed"]
         ],
@@ -1622,6 +2655,8 @@ def _regenerate(
             )
         ]
     gates["failure accounting"] = accounted
+    if parity_table is not None:
+        gates["exact parity"] = parity.failed_gates(parity_table)
     reported = {
         name: frame for name, frame in gates.items() if frame is not None and not frame.empty
     }

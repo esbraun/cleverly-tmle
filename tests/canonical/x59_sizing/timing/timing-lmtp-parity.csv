@@ -1,0 +1,4 @@
+study,scenario,tier,replicates,seconds
+lmtp-parity,parity_tmle_mix,3,500,1.508
+lmtp-parity,parity_sdr_mix,3,500,1.423
+lmtp-parity,parity_sdr_mix_folds,3,500,5.1899999999999995
