@@ -2226,6 +2226,7 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
     assert [name for name, _ in _FIT_WIDE_RULES] == [
         "longitudinal",
         "result_type",
+        "projection",
         "risk_ratio_tilt",
         "missing_estimator",
         "repeat_provenance",

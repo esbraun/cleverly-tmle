@@ -40,6 +40,9 @@ Even the jokes in this library are targeted.*
 - Effects of a one-time treatment: the average effect for everyone, for the treated, or for the
   untreated, as a difference, a risk ratio, or an odds ratio, with two or more treatment levels.
   Missing outcomes and missing treatments can be declared and handled.
+- How an effect changes with a few baseline columns, such as age: a declared curve of the
+  effect with intervals, a band, and a test of whether the effect varies at all. A validation
+  study covers the curve's intervals; the band is labelled experimental.
 - Effects of policies: treating only some people by a rule, following a rule learned from the
   data, raising each person's chance of treatment, or shifting a continuous dose or price.
 - Treatments over time: treatments that repeat, outcomes measured at the end or every period, and

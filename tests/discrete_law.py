@@ -274,6 +274,40 @@ def msm_beta(probs: Any, weights: Any, design: Any = None) -> Any:
     return np.linalg.solve(gram, moment)
 
 
+#: The basis the conditional-contrast projections are checked against: ``phi(V) = (1, W)``
+#: with the modifier ``V = W`` read as a number, one row per ``w``.  Two terms against three
+#: cells, so the projection is **not** saturated and its residual
+#: ``phi (tau - phi' beta)`` is nonzero: a saturated basis would hide a curve that dropped
+#: that term.  ``tests/unit/test_effect_modification_exact.py`` declares the matching
+#: ``Linear(["W"])``.
+EFFECT_MODIFICATION_TERMS: tuple[str, ...] = ("(intercept)", "W")
+EFFECT_MODIFICATION_DESIGN = np.array([[1.0, float(w)] for w in range(3)])
+
+
+def effect_modification_beta(p_w: Any, q_t: Any, q_r: Any, scale: str) -> Any:
+    r"""The projection of a conditional contrast onto :data:`EFFECT_MODIFICATION_DESIGN`.
+
+    ``p_w`` is :math:`P(W = w)` and ``q_t``, ``q_r`` the arm regressions at each ``w``.
+    On the difference scale :math:`\beta = M^{-1} E[\varphi(\bar Q_t - \bar Q_r)]`.  On the
+    log-ratio scale :math:`\beta` solves
+    :math:`E[\varphi\{(\bar Q_t + \bar Q_r)\operatorname{expit}(\varphi^\top\beta)
+    - \bar Q_t\}] = 0` by :data:`MSM_NEWTON_STEPS` Newton steps with no convergence test,
+    which keeps it analytic in the cell probabilities.  The missing-outcome and three-arm
+    laws pass their own regressions to the same solve.
+    """
+    phi = EFFECT_MODIFICATION_DESIGN
+    if scale == "difference":
+        gram = np.einsum("wp,wq,w->pq", phi, phi, p_w)
+        return np.linalg.solve(gram, np.einsum("wp,w->p", phi, p_w * (q_t - q_r)))
+    beta = np.zeros(phi.shape[1], dtype=np.asarray(p_w).dtype)
+    for _ in range(MSM_NEWTON_STEPS):
+        e = 1.0 / (1.0 + np.exp(-(phi @ beta)))
+        score = np.einsum("wp,w->p", phi, p_w * ((q_t + q_r) * e - q_t))
+        jacobian = np.einsum("wp,wq,w->pq", phi, phi, p_w * (q_t + q_r) * e * (1.0 - e))
+        beta = beta - np.linalg.solve(jacobian, score)
+    return beta
+
+
 def functional(probs: Any, estimand: str) -> Any:
     r"""The target parameter as a closed-form function of the cell probabilities.
 
@@ -422,6 +456,11 @@ def functional(probs: Any, estimand: str) -> Any:
             beta = beta + np.linalg.solve(jacobian, score)
         return beta[MSM_TERMS.index(estimand[len(f"msm_{name}[") : -1])]
 
+    for stem, scale in (("cate_projection", "difference"), ("log_crr_projection", "log_ratio")):
+        if estimand.startswith(f"{stem}["):
+            beta = effect_modification_beta(p_w, q[:, 1], q[:, 0], scale)
+            return beta[EFFECT_MODIFICATION_TERMS.index(estimand[len(stem) + 1 : -1])]
+
     raise ValueError(f"unknown estimand {estimand!r}")
 
 
@@ -462,6 +501,10 @@ PER_ARM_NAMES: dict[str, tuple[str, ...]] = {
         f"msm[{term}]" if link == "identity" else f"msm_{link}[{term}]"
         for link in MSM_LINKS
         for term in MSM_TERMS
+    ),
+    "cate_projection": tuple(f"cate_projection[{term}]" for term in EFFECT_MODIFICATION_TERMS),
+    "log_crr_projection": tuple(
+        f"log_crr_projection[{term}]" for term in EFFECT_MODIFICATION_TERMS
     ),
 }
 
@@ -519,6 +562,8 @@ TRUTH = {
         *PER_ARM_NAMES["ey_rr_tilt"],
         *PER_ARM_NAMES["ate_rr_tilt"],
         *PER_ARM_NAMES["msm"],
+        *PER_ARM_NAMES["cate_projection"],
+        *PER_ARM_NAMES["log_crr_projection"],
     )
 }
 

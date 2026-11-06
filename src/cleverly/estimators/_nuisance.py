@@ -672,6 +672,11 @@ class NuisanceEstimates:
     #: it -- unlike a shift, a working model's design is a function of the covariates
     #: alone and needs no mechanism to evaluate.
     msm: MSMSet | None = None
+    #: The projection of a conditional contrast, evaluated once on the data, or ``None``.
+    #: Carried for the reason ``msm`` is: a retarget reads the evaluated basis and never the
+    #: declaration's callables.  Typed loosely because
+    #: :mod:`cleverly.effect_modification` imports nothing from this module's callers.
+    effect_modification: Any = None
     #: The reduced-dimension regressions of the doubly-robust-inference variant, or
     #: ``None`` for every fit that is not one.  Carried for the reason ``regimes`` is,
     #: and built *outside* :func:`fit_nuisances` -- unlike ``policies`` and ``incremental``,

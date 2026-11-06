@@ -463,6 +463,14 @@ composite-missing-drtmle,simultaneous_coverage,joint coverage in calibration ban
 composite-missing-drtmle,treatment_complete_case,bias discriminated,affine
 composite-missing-drtmle,type_i_error,coverage floor,coverage/0.5
 composite-missing-drtmle,type_i_error,rejection ceiling,rejection/0.1
+conditional-projection,bias,bias discriminated,bias
+conditional-projection,bias,bias equivalent,bias
+conditional-projection,interval_calibration,coverage in calibration band,bias
+conditional-projection,interval_calibration,row variance se ratio below band,se_high
+conditional-projection,interval_calibration,se ratio in calibration band,affine
+conditional-projection,power,rejection floor,affine
+conditional-projection,type_i_error,coverage floor,coverage/0.5
+conditional-projection,type_i_error,rejection ceiling,rejection/0.1
 cross-fitted-longitudinal-msm,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
 cross-fitted-longitudinal-msm,crossfit_overfitting,coverage gain,shift/3
 cross-fitted-longitudinal-msm,crossfit_overfitting,cross-fit se ratio honest,se_low

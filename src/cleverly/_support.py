@@ -262,8 +262,9 @@ class SupportKey:
         The estimation procedure: the assessment method and, for C-TMLE, its strategy and design.
         A longitudinal key holds the recursion name.
     family : frozenset of str
-        The target families the fit reports, as the ids ``P1`` to ``P12`` of the support
-        inventory, ``P12`` being the value of the optimal rule. A row covers a fit when its
+        The target families the fit reports, as the ids ``P1`` to ``P14`` of the support
+        inventory, ``P12`` being the value of the optimal rule and ``P13`` and ``P14`` the
+        CATE and log-CRR projections of a conditional contrast. A row covers a fit when its
         family set holds every family of the fit. A longitudinal key holds the outcome kind,
         the working-model flag and the regimen-kind flags.
     outcome : tuple of str
@@ -583,6 +584,7 @@ _AXIS_FAMILIES: Final[Mapping[str, str]] = {
     "ipsi": "P9",
     "msm": "P10",
     "learned_rule": "P11",
+    "effect_modification": "P13",
 }
 
 
@@ -590,17 +592,25 @@ _AXIS_FAMILIES: Final[Mapping[str, str]] = {
 #: axis and arithmetic, and it is another target, so no ``P11`` row covers it.
 OPTIMAL_RULE_FAMILY: Final = "P12"
 
+#: The target family of the log-CRR projection (P1 part (a)).  It shares the
+#: effect-modification axis with the CATE projection (``P13``), and its fluctuation
+#: alternates with the projection, so no ``P13`` row covers it.
+LOG_CRR_PROJECTION_FAMILY: Final = "P14"
+
 
 def _point_families(estimator: Any, estimands: Sequence[str]) -> frozenset[str]:
     """The target families of a point fit: its parameter axis and, on the arm axis, its names.
 
     On the learned-rule axis, a fit of the value of the optimal rule is :data:`OPTIMAL_RULE_FAMILY`.
+    On the effect-modification axis, a log-CRR projection is :data:`LOG_CRR_PROJECTION_FAMILY`.
     """
     axis = str(estimator._axis)
     if axis == "arm":
         return frozenset(_ARM_FAMILIES.get(str(name), f"?{name}") for name in estimands)
     if axis == "learned_rule" and "ey_optimal_rule" in estimands:
         return frozenset({OPTIMAL_RULE_FAMILY})
+    if axis == "effect_modification" and "log_crr_projection" in estimands:
+        return frozenset({LOG_CRR_PROJECTION_FAMILY})
     if axis == "regime" and any(
         type(item).__name__ == "Stochastic" for item in estimator.interventions
     ):

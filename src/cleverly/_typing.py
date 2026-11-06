@@ -117,6 +117,8 @@ EstimandName = Literal[
     "ey_policy",
     "ate_policy",
     "msm",
+    "cate_projection",
+    "log_crr_projection",
 ]
 
 #: What a fit's parameters are indexed *by*: a treatment arm, a declared regime, a
@@ -140,7 +142,13 @@ EstimandName = Literal[
 #: ``"rr_tilt"`` is the risk-ratio tilt of ``lmtp::ipsi``, a randomized modified
 #: treatment policy with its own estimand names, so it is not reported under
 #: ``"policy"`` or ``"ipsi"``.
-ParameterAxis = Literal["arm", "regime", "learned_rule", "policy", "rr_tilt", "ipsi", "msm"]
+#: ``"effect_modification"`` is a coefficient of the projection of a conditional contrast
+#: onto a declared basis of the modifiers (:class:`cleverly.ConditionalContrast`).  Like
+#: ``"msm"`` its counterfactuals are the arms and its parameters are indexed by term, but
+#: its terms describe a contrast of two arms rather than a mean at every arm.
+ParameterAxis = Literal[
+    "arm", "regime", "learned_rule", "policy", "rr_tilt", "ipsi", "msm", "effect_modification"
+]
 
 #: Propensity-score truncation: ``"auto"`` for the sample-size dependent
 #: default, a single float ``lo`` meaning ``[lo, 1 - lo]``, or an explicit pair.

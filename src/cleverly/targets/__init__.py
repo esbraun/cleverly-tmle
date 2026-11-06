@@ -164,6 +164,7 @@ _AXIS_DECLARED_BY = {
     "rr_tilt": "a fit that declares policies= of RiskRatioTilt objects",
     "ipsi": "a fit that declares incremental=",
     "msm": "a fit that declares msm=",
+    "effect_modification": "a fit that declares effect_modification=",
 }
 
 #: What each axis indexes its parameters by, for the same message.
@@ -175,6 +176,7 @@ _AXIS_INDEXES_BY = {
     "rr_tilt": "declared risk-ratio tilt",
     "ipsi": "declared tilt of the treatment mechanism",
     "msm": "working-model coefficient",
+    "effect_modification": "coefficient of a conditional contrast's projection",
 }
 
 #: The fit that reports each axis's targets, for the remedy of the same message.  A

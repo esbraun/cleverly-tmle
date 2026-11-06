@@ -76,6 +76,9 @@ REPR_CLASSES = (
     "Provenance",
     "DiagnosticsFacade",
     "SensitivityFacade",
+    "CurveCalibration",
+    "CurveRiskComparison",
+    "ModifierStability",
 )
 
 #: Classes with a ``summary``, ``to_frame`` or ``to_dict`` that no fixture can build, and why.
@@ -123,7 +126,7 @@ def _built(keys: typing.Iterable[str]) -> set[str]:
 
 def _repr_only() -> dict[str, Any]:
     """An instance of each Repr class that no fixture builds, from the parent that holds it."""
-    from tests.unit.summary_fixtures import point_tmle
+    from tests.unit.summary_fixtures import conditional, point_tmle
 
     fit = _fitted("point_tmle:canonical")
     study = setup_fixtures.point_study()
@@ -141,6 +144,7 @@ def _repr_only() -> dict[str, Any]:
         "Provenance": fit.provenance,
         "DiagnosticsFacade": point_tmle.single_ate().diagnostics,
         "SensitivityFacade": point_tmle.single_ate().sensitivity,
+        **conditional.curve_checks(),
     }
 
 
