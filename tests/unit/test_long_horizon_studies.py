@@ -27,7 +27,7 @@ STUDIES = (
     canonical_long_horizon_categorical_ltmle,
     canonical_long_horizon_sdr,
 )
-PENDING = {
+REFERENCE = {
     "long-horizon-ltmle": "ltmle",
     "long-horizon-categorical-ltmle": "lmtp",
     "long-horizon-sdr": "lmtp",
@@ -35,12 +35,13 @@ PENDING = {
 
 
 @pytest.mark.parametrize("study", STUDIES, ids=lambda module: module.STUDY.slug)
-def test_the_record_declares_a_pending_comparator_and_its_sizes(study: object) -> None:
+def test_the_record_declares_its_compared_reference_and_its_sizes(study: object) -> None:
     record = study.STUDY  # type: ignore[attr-defined]
-    assert record.comparator_state == "pending"
-    assert record.reference is None
-    assert record.pending_reference == PENDING[record.slug]
-    assert "X59" in record.pending_reason
+    assert record.comparator_state == "compared"
+    assert record.reference == REFERENCE[record.slug]
+    assert record.pending_reference is None and not record.pending_reason
+    assert record.paired_role == "descriptive"
+    assert set(record.reference_replicates.values()) == {100}
     assert record.publication_policy == "reporting"
     sizes = record.sizes(record.n)
     assert sizes == {s.name: s.n for s in study.SCENARIOS}  # type: ignore[attr-defined]
@@ -114,21 +115,41 @@ def test_the_declared_runner_streams_one_scenario_per_worker(study: object) -> N
     assert not re.search(r"^stop\(", text, re.M)
 
 
+def test_the_msm_pair_is_labelled_a_different_estimator() -> None:
+    """The R MSM rows project per-plan ``ltmle`` fits; ``cleverly`` fits the pooled fluctuation.
+
+    Every other paired row of ``long-horizon-ltmle`` is the same estimator, and its G-P and G-C
+    cells agree to about 1e-9 (``parity.csv``).
+    """
+    record = STUDIES[0].STUDY
+    assert record.comparison_overrides == {"binary_k5_msm:*": "different estimator"}
+    for scenario, estimands in record.reference_scenarios.items():
+        for estimand in estimands:
+            expected = (
+                "different estimator" if scenario == "binary_k5_msm" else "matching implementation"
+            )
+            assert record.comparison_kind(scenario, estimand) == expected
+
+
 @pytest.mark.parametrize("study", STUDIES[1:], ids=lambda module: module.STUDY.slug)
 def test_the_cross_fitted_scenario_declares_its_comparison_kind_with_the_runs(
     study: object,
 ) -> None:
-    """The comparison kind stays one default while the comparator is pending.
+    """Every paired row is a matching implementation, so the record declares no override.
 
-    ``test_a_study_with_a_reference_declares_its_comparison_kind`` forbids an override on a
-    record with no compared reference.  X59 declares ``"<crossfit scenario>:*"`` as a
-    ``"different estimator"`` override together with the R runs.
+    The plan expected a ``"different estimator"`` override on the five-fold scenario.  The
+    categorical one is unpaired (``unpaired_scenarios``), so it has no equivalence row to
+    label.  The SDR one is ``lmtp::cf_sdr`` on fold-free supplied ratios, the same recursion,
+    and its G1 cells agree at ``|d estimate| <= 2.7e-15`` (``parity.csv``).
     """
     record = study.STUDY  # type: ignore[attr-defined]
-    assert record.reference is None
+    assert record.reference is not None
     assert not record.comparison_overrides
     crossfit = next(s for s in study.SCENARIOS if s.name.endswith("k5_crossfit"))  # type: ignore[attr-defined]
     for scenario in study.SCENARIOS:  # type: ignore[attr-defined]
         for estimand in record.scenarios[scenario.name]:
             assert record.comparison_kind(scenario.name, estimand) == "matching implementation"
+    assert (crossfit.name in record.reference_scenarios) is (
+        record.reference == "lmtp" and "sdr" in crossfit.name
+    )
     assert crossfit.n_folds == 5

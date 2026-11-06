@@ -439,7 +439,12 @@ class TestArtifacts:
             "performance-tests.csv",
             "property-replicates.parquet",
             "properties.csv",
-        } | set(study.extra_artifacts) | set(study.property_artifacts) | {
+        } | set(study.extra_artifacts) | set(study.property_artifacts) | (
+            # A compared study that declares exact parity gates publishes their tables (X59).
+            {"parity.csv", "parity-replicates.csv"}
+            if study.reference is not None and getattr(study.runner(), "PARITY", None) is not None
+            else set()
+        ) | {
             # The failure files exist only when a fit failed, and then each is hashed.
             name
             for name in (

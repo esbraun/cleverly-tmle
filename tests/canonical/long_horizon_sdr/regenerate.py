@@ -12,8 +12,8 @@ if __name__ == "__main__":
         canonical_long_horizon_sdr,
         long_horizon_sdr_properties,
         here=Path(__file__).resolve().parent,
-        # The record is pending: a full run fits no reference, and --reference-only runs it
-        # on the paired prefix of COMPARATOR_DECLARATION (X59).
+        # --reference-only refits the reference alone on the record's paired prefix
+        # (reference_replicates), against the committed subject rows (X59).
         reference=Reference(
             image="cleverly-lmtp:9996b04",
             runner="long_horizon_sdr/run_study.R",

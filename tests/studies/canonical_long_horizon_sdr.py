@@ -24,9 +24,9 @@ scenario                            subject
 The policy scenarios also report ``taper`` against ``mix``, and the categorical ones ``mix``
 against ``mixlast``.
 
-**Comparator.**  R ``lmtp`` is the declared comparator, and its runs are pending: the record
-declares ``pending_reference="lmtp"`` and keeps ``reference=None``.  The primary phase writes no
-sample.  ``tests/canonical/long_horizon_sdr/run_study.R`` is a stub that names the owning item.
+**Comparator** (X59).  R ``lmtp`` 9996b04 is the reference, run reference-only on the first 100
+replicates of each paired scenario (``tests/canonical/long_horizon_sdr/run_study.R``).  Its exact
+claim is the G1 gate on every paired cell (``parity.csv``); every margins pair is descriptive.
 
 **Intervals** (plan rev 4.4).  A single-fold, non-MSM scenario fits with ``n_bootstrap=199`` and
 ``bootstrap_interval="bca"``.  It writes a Wald row and, under the estimand name plus ``__bca``,
@@ -381,6 +381,10 @@ PROPERTY_CELLS = {
     ),
 }
 
+#: The comparator's cells (X59 plan section 2.2): every Wald row of every scenario.  With
+#: fold-free supplied ratios the five-fold recursion is ``lmtp::cf_sdr``'s, so the five-fold
+#: scenario is paired too.
+REFERENCE_SCENARIOS = reference_.reported_cells(SCENARIOS)
 STUDY = StudyRecord(
     name="long-horizon sequentially doubly robust estimation",
     slug="long-horizon-sdr",
@@ -395,12 +399,14 @@ STUDY = StudyRecord(
     scenario_n=SCENARIO_N,
     resampling_seed=RESAMPLING_SEED,
     implementation="cleverly-long-horizon-sdr",
-    pending_reference="lmtp",
-    pending_reason=(
-        "X59: R lmtp comparator runs deferred by the owner on 2026-10-14; X39 accepted on Python property evidence"
-    ),
-    # No comparison_overrides while the runs are pending. X59 declares
-    # "sdr_categorical_k5_crossfit:*": "different estimator" with the runs.
+    reference="lmtp",
+    # X59: the comparator pairs the cells above on the first 100 replicates of each paired
+    # scenario, the section 6 sizing rule's output (tests/canonical/x59_sizing).  Every
+    # margins pair is descriptive; the exact claims are the parity gates (``PARITY``).
+    reference_scenarios=REFERENCE_SCENARIOS,
+    reference_replicates=dict.fromkeys(REFERENCE_SCENARIOS, 100),
+    paired_role="descriptive",
+    accepted_reference_failure=reference_.PREFIX_REFERENCE_FAILURE,
     comparison="matching implementation",
     modules=(
         "tests/studies/canonical_long_horizon_sdr.py",
@@ -458,10 +464,6 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
 
 
 # ----------------------------------------------------------------------------- the X59 comparator
-#: The comparator's cells (X59 plan section 2.2): every Wald row of every scenario.  With
-#: fold-free supplied ratios the five-fold recursion is ``lmtp::cf_sdr``'s, so the five-fold
-#: scenario is paired too.
-REFERENCE_SCENARIOS = reference_.reported_cells(SCENARIOS)
 #: The section 6 priority tier of each paired scenario, as the attempt-5 smoke measured it
 #: (``tests/canonical/x59_sizing``): 2 for a scenario that held a G1 cell before the promotion
 #: below, 4 for one with margins pairs only.  The tiers fix the sizing and are not re-derived
@@ -481,16 +483,10 @@ REFERENCE_TIERS = {
     "sdr_policy_k5_mix": 2,
     "sdr_policy_k5_taper": 4,
 }
-#: The fields the comparator run declares; see ``canonical_long_horizon_ltmle``.  Every paired
-#: scenario pairs its first 100 replicates: the section 6 rule's output on the measured tiers
-#: (tier 2 and tier 4 at 100, 14.8 of 21 wall hours; ``tests/unit/test_x59_parity.py``).
-COMPARATOR_DECLARATION = {
-    "reference_scenarios": REFERENCE_SCENARIOS,
-    "reference_replicates": dict.fromkeys(REFERENCE_SCENARIOS, 100),
-    "paired_role": "descriptive",
-}
 #: The comparator's declared environment: no mutation, and the declared learner (M2).
 REFERENCE_ENVIRONMENT = reference_.LMTP_ENVIRONMENT
+#: The comparator's pins, for the manifest's ``generated_with.reference`` block.
+REFERENCE_METADATA = reference_.LMTP_METADATA
 #: The G1 cells: every paired cell (plan rev 2.1, the promotion).  The smoke paired all 72 at
 #: ``|d estimate| <= 1.44e-15`` and ``|d SE| <= 1.04e-16`` over its eight replicates, and G0
 #: agreed at 1e-10, so the label, rule, ``mixlast`` and ``taper`` plans and every contrast

@@ -381,8 +381,8 @@ row. A move to `gated` is a separate registry decision.
 | [vector modified treatment policies](vector-modified-treatment-policies.md) | 96 | 0 |
 | [tuned caps and their population and fold-average targets](mtp-tuning.md) | 26 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |
-| [long-horizon longitudinal TMLE](long-horizon-longitudinal-tmle.md) | 136 | 0 |
-| [long-horizon categorical longitudinal TMLE](long-horizon-categorical-longitudinal-tmle.md) | 196 | 0 |
+| [long-horizon longitudinal TMLE](long-horizon-longitudinal-tmle.md) | 159 | 0 |
+| [long-horizon categorical longitudinal TMLE](long-horizon-categorical-longitudinal-tmle.md) | 234 | 0 |
 | [point-treatment survival, per-horizon hazard targeting](point-survival-hazard.md) | 81 | 0 |
 | [point-treatment survival, one-step hazard targeting of the curve](point-survival-curve.md) | 76 | 0 |
 | [cross-fitted point-treatment survival, hazard targeting](point-survival-curve-crossfit.md) | 24 | 0 |

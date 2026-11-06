@@ -20,9 +20,10 @@ its largest :math:`n_\kappa` (94,226 for the intercept), rounded up to 96,000, s
 coefficients are in the Wald regime.  The mechanism is the law's,
 passed as probability columns; the outcome regressions are the declared quasibinomial GLM.
 
-**Comparator.**  R ``ltmle`` 1.3-0 is the declared comparator, and its runs are pending: the record
-declares ``pending_reference="ltmle"`` and keeps ``reference=None``.  The primary phase writes no
-sample.  ``tests/canonical/long_horizon_ltmle/run_study.R`` is a stub that names the owning item.
+**Comparator** (X59).  R ``ltmle`` 1.3-0 is the reference, run reference-only on the first 100
+replicates of each paired scenario (``tests/canonical/long_horizon_ltmle/run_study.R``).  Its
+exact claims are the G-P and G-C parity gates (``parity.csv``); every margins pair is
+descriptive.
 
 **Intervals** (plan rev 4.4).  A single-fold, non-MSM scenario fits with ``n_bootstrap=199`` and
 ``bootstrap_interval="bca"``.  It writes a Wald row and, under the estimand name plus ``__bca``,
@@ -315,6 +316,11 @@ PROPERTY_CELLS = {
     "type_i_error": ("policy_vs_policylast__k5__sharp_null",),
 }
 
+#: The comparator's cells (X59 plan section 2.1): every Wald row but the stochastic plans, which
+#: ``ltmle`` takes no stochastic intervention for.  ``__bca`` rows are not paired.
+REFERENCE_SCENARIOS = reference_.reported_cells(
+    SCENARIOS, unpaired_plans={"binary_k5": ("coin", "coinlast")}
+)
 STUDY = StudyRecord(
     name="long-horizon longitudinal TMLE",
     slug="long-horizon-ltmle",
@@ -329,11 +335,18 @@ STUDY = StudyRecord(
     scenario_n=SCENARIO_N,
     resampling_seed=RESAMPLING_SEED,
     implementation="cleverly-long-horizon-ltmle",
-    pending_reference="ltmle",
-    pending_reason=(
-        "X59: R ltmle 1.3-0 comparator runs deferred by the owner on 2026-10-14; X39 accepted on Python property evidence"
-    ),
+    reference="ltmle",
+    # X59: the comparator pairs the cells above on the first 100 replicates of each paired
+    # scenario, the section 6 sizing rule's output (tests/canonical/x59_sizing).  Every
+    # margins pair is descriptive; the exact claims are the parity gates (``PARITY``).
+    reference_scenarios=REFERENCE_SCENARIOS,
+    reference_replicates=dict.fromkeys(REFERENCE_SCENARIOS, 100),
+    paired_role="descriptive",
+    accepted_reference_failure=reference_.PREFIX_REFERENCE_FAILURE,
     comparison="matching implementation",
+    # The R side projects the per-plan TMLEs on the working model; ``cleverly`` fits the pooled
+    # MSM fluctuation (X59-plan.md, 4.4; ``tests/canonical/ltmle_horizon_adapter.R``).
+    comparison_overrides={"binary_k5_msm:*": "different estimator"},
     modules=(
         "tests/studies/canonical_long_horizon_ltmle.py",
         "tests/studies/long_horizon_ltmle_properties.py",
@@ -390,23 +403,10 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
 
 
 # ----------------------------------------------------------------------------- the X59 comparator
-#: The comparator's cells (X59 plan section 2.1): every Wald row but the stochastic plans, which
-#: ``ltmle`` takes no stochastic intervention for.  ``__bca`` rows are not paired.
-REFERENCE_SCENARIOS = reference_.reported_cells(
-    SCENARIOS, unpaired_plans={"binary_k5": ("coin", "coinlast")}
-)
-#: The fields the comparator run declares.  The registration commit moves them into ``STUDY``
-#: with ``reference="ltmle"``.  ``reference_replicates`` is the section 6 sizing rule's output
-#: on the smoke's measured timings and memory plans (``tests/canonical/x59_sizing``): 100 for
-#: every paired scenario.  Every margins pair is descriptive (section 4.4): the exact claims
-#: are the parity gates below.
-COMPARATOR_DECLARATION = {
-    "reference_scenarios": REFERENCE_SCENARIOS,
-    "reference_replicates": dict.fromkeys(REFERENCE_SCENARIOS, 100),
-    "paired_role": "descriptive",
-}
 #: The comparator's declared environment: no mutation (M2); ``ltmle`` reads no learner.
 REFERENCE_ENVIRONMENT = reference_.LTMLE_ENVIRONMENT
+#: The comparator's pins, for the manifest's ``generated_with.reference`` block.
+REFERENCE_METADATA = reference_.LTMLE_METADATA
 #: The section 6 priority tier of each paired scenario: 2 holds exact cells, 4 margins only.
 #: A tier-2 scenario's descriptive plans are fitted, and charged, at the tier-2 prefix.
 REFERENCE_TIERS = {"binary_k3": 2, "binary_k4": 2, "binary_k5": 2, "binary_k5_msm": 4}

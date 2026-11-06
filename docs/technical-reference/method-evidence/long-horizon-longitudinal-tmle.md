@@ -3,11 +3,10 @@
 This study validates `LTMLE` with binary treatment nodes at three, four and five decisions. It also
 validates the duration working model of the marginal structural model (MSM) at five decisions. The laws come
 from `tests/discrete_law_longitudinal_horizon.py`, which gives the exact truth of every estimand. The
-declared comparator is R [`ltmle`](https://www.jstatsoft.org/article/view/v081i01) 1.3-0.
-
-Its runs are pending as roadmap item
-[X59](../../roadmap.md#x59-long-horizon-comparator-parity-for-ltmle-and-sdr). This page holds Python property
-evidence, with comparator runs pending.
+comparator is R [`ltmle`](https://www.jstatsoft.org/article/view/v081i01) 1.3-0, fitted on the first
+100 replications of the four paired scenarios. On the three non-MSM scenarios the `ltmle` targeted estimate,
+standard error and untargeted g-computation estimate agree with those of `cleverly` to within $10^{-6}$ on
+every paired replication. The paired margins rows are descriptive.
 
 The study publishes under the `reporting` policy. The design lists 28 gated truth rows and 16 gated
 calibration cells before any run (`tests/long_horizon_design.py`). A red gated row or cell fails
@@ -29,10 +28,11 @@ $n_\kappa$, rounded up to 96,000, so that both coefficients are in the Wald regi
 
 | setting | `cleverly` | R `ltmle` 1.3-0 |
 | --- | --- | --- |
-| mechanism | the law's treatment and censoring probabilities, passed as probability columns | pending under X59 |
-| bounds | `g_bounds=(1e-8, 1)` | pending under X59 |
-| outcome fit | the declared quasibinomial GLM for each outcome and pseudo-outcome regression | pending under X59 |
-| intervals | Wald for every row. A single-fold, non-MSM scenario also writes a BCa row from 199 bootstrap refits | pending under X59 |
+| mechanism | the law's treatment and censoring probabilities, passed as probability columns | the same probabilities, passed as the numeric `gform` matrix |
+| bounds | `g_bounds=(1e-8, 1)` | `gbounds = c(1e-8, 1)` |
+| outcome fit | the declared quasibinomial GLM for each outcome and pseudo-outcome regression | `SL.library = "glm"` with `stratify = TRUE`, on the main-terms `Qform` of `tests/canonical/ltmle_horizon_adapter.R` |
+| intervals | Wald for every row. A single-fold, non-MSM scenario also writes a BCa row from 199 bootstrap refits | Wald from the influence curve (`variance.method = "ic"`). No bootstrap |
+| replications | 3,000 per scenario | the first 100 of each paired scenario, on the same draws |
 
 `never` and `always` are static plans, `respond` and `switch` are dynamic, and `coin` and `coinlast` are
 known stochastic plans. `tests/longitudinal_horizon_plans.py` states each plan as the regimen that `LTMLE` takes.
@@ -43,34 +43,49 @@ known stochastic plans. `tests/longitudinal_horizon_plans.py` states each plan a
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[always vs never]` | difference in counterfactual mean outcome between the plans "treat at every decision" against "never treat" | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000913 to 0.0022 | 0.9477 | 1.0052 | pass |
+| three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[always vs never]` | difference in counterfactual mean outcome between the plans "treat at every decision" against "never treat" | R `ltmle` | -0.0056 to 0.0091 | 0.9900 | 1.2112 | **fail** |
 | three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[always vs never]__bca` | difference in counterfactual mean outcome between the plans "treat at every decision" against "never treat", read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000913 to 0.0022 | 0.9553 | 1.0079 | pass |
 | three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[respond vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise" against "never treat" | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000067 to 0.0025 | 0.9477 | 1.0002 | pass |
+| three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[respond vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise" against "never treat" | R `ltmle` | -0.0019 to 0.0121 | 0.9600 | 0.9965 | **fail** |
 | three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[respond vs never]__bca` | difference in counterfactual mean outcome between the plans "assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise" against "never treat", read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000067 to 0.0025 | 0.9527 | 1.0006 | pass |
 | three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[switch vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm at every decision but the last, and the lowest arm at the last" against "never treat" | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0013 to 0.0026 | 0.9433 | 0.9921 | pass |
+| three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[switch vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm at every decision but the last, and the lowest arm at the last" against "never treat" | R `ltmle` | -0.0016 to 0.0185 | 0.9400 | 1.0584 | **fail** |
 | three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[switch vs never]__bca` | difference in counterfactual mean outcome between the plans "assign the highest arm at every decision but the last, and the lowest arm at the last" against "never treat", read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0013 to 0.0026 | 0.9503 | 1.0055 | pass |
 | three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[always]` | counterfactual mean outcome under the plan: treat at every decision | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000936 to 0.0015 | 0.9357 | 0.9983 | pass |
+| three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[always]` | counterfactual mean outcome under the plan: treat at every decision | R `ltmle` | -0.0074 to 0.0058 | 0.9800 | 1.0648 | **fail** |
 | three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[always]__bca` | counterfactual mean outcome under the plan: treat at every decision, read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000936 to 0.0015 | 0.9560 | 1.0013 | pass |
 | three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[never]` | counterfactual mean outcome under the plan: never treat | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0014 to 0.000630 | 0.9493 | 1.0007 | pass |
+| three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[never]` | counterfactual mean outcome under the plan: never treat | R `ltmle` | -0.0077 to 0.0025 | 0.9700 | 1.0830 | **fail** |
 | three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[never]__bca` | counterfactual mean outcome under the plan: never treat, read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0014 to 0.000630 | 0.9563 | 1.0030 | pass |
 | three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[respond]` | counterfactual mean outcome under the plan: assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000051 to 0.0017 | 0.9467 | 0.9941 | pass |
+| three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[respond]` | counterfactual mean outcome under the plan: assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise | R `ltmle` | -0.0030 to 0.0080 | 0.9100 | 0.8897 | **fail** |
 | three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[respond]__bca` | counterfactual mean outcome under the plan: assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise, read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000051 to 0.0017 | 0.9493 | 0.9904 | pass |
 | three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[switch]` | counterfactual mean outcome under the plan: assign the highest arm at every decision but the last, and the lowest arm at the last | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0014 to 0.0019 | 0.9417 | 0.9841 | pass |
+| three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[switch]` | counterfactual mean outcome under the plan: assign the highest arm at every decision but the last, and the lowest arm at the last | R `ltmle` | -0.0024 to 0.0141 | 0.9700 | 1.0945 | **fail** |
 | three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[switch]__bca` | counterfactual mean outcome under the plan: assign the highest arm at every decision but the last, and the lowest arm at the last, read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0014 to 0.0019 | 0.9603 | 1.0008 | pass |
 | four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[always vs never]` | difference in counterfactual mean outcome between the plans "treat at every decision" against "never treat" | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0012 to 0.0012 | 0.9480 | 1.0120 | pass |
+| four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[always vs never]` | difference in counterfactual mean outcome between the plans "treat at every decision" against "never treat" | R `ltmle` | -0.0066 to 0.0077 | 0.9200 | 0.9473 | **fail** |
 | four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[always vs never]__bca` | difference in counterfactual mean outcome between the plans "treat at every decision" against "never treat", read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0012 to 0.0012 | 0.9510 | 1.0129 | pass |
 | four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[respond vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise" against "never treat" | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000672 to 0.0013 | 0.9487 | 1.0001 | pass |
+| four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[respond vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise" against "never treat" | R `ltmle` | -0.0050 to 0.0056 | 0.9600 | 1.0399 | **fail** |
 | four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[respond vs never]__bca` | difference in counterfactual mean outcome between the plans "assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise" against "never treat", read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000672 to 0.0013 | 0.9507 | 1.0003 | pass |
 | four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[switch vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm at every decision but the last, and the lowest arm at the last" against "never treat" | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0019 to 0.000833 | 0.9410 | 0.9757 | pass |
+| four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[switch vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm at every decision but the last, and the lowest arm at the last" against "never treat" | R `ltmle` | -0.0110 to 0.0055 | 0.9400 | 0.9264 | **fail** |
 | four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[switch vs never]__bca` | difference in counterfactual mean outcome between the plans "assign the highest arm at every decision but the last, and the lowest arm at the last" against "never treat", read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0019 to 0.000833 | 0.9513 | 0.9857 | pass |
 | four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[always]` | counterfactual mean outcome under the plan: treat at every decision | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0011 to 0.000655 | 0.9453 | 0.9934 | pass |
+| four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[always]` | counterfactual mean outcome under the plan: treat at every decision | R `ltmle` | -0.0042 to 0.0056 | 0.9500 | 1.0024 | **fail** |
 | four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[always]__bca` | counterfactual mean outcome under the plan: treat at every decision, read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0011 to 0.000655 | 0.9503 | 0.9955 | pass |
 | four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[never]` | counterfactual mean outcome under the plan: never treat | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0010 to 0.000577 | 0.9490 | 1.0121 | pass |
+| four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[never]` | counterfactual mean outcome under the plan: never treat | R `ltmle` | -0.0045 to 0.0048 | 0.9500 | 0.9820 | **fail** |
 | four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[never]__bca` | counterfactual mean outcome under the plan: never treat, read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0010 to 0.000577 | 0.9570 | 1.0146 | pass |
 | four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[respond]` | counterfactual mean outcome under the plan: assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000492 to 0.000653 | 0.9560 | 1.0155 | pass |
+| four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[respond]` | counterfactual mean outcome under the plan: assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise | R `ltmle` | -0.0026 to 0.0035 | 0.9900 | 1.0717 | **fail** |
 | four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[respond]__bca` | counterfactual mean outcome under the plan: assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise, read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000492 to 0.000653 | 0.9607 | 1.0143 | pass |
 | four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[switch]` | counterfactual mean outcome under the plan: assign the highest arm at every decision but the last, and the lowest arm at the last | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0019 to 0.000320 | 0.9420 | 0.9724 | pass |
+| four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[switch]` | counterfactual mean outcome under the plan: assign the highest arm at every decision but the last, and the lowest arm at the last | R `ltmle` | -0.0093 to 0.0042 | 0.9300 | 0.8958 | **fail** |
 | four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[switch]__bca` | counterfactual mean outcome under the plan: assign the highest arm at every decision but the last, and the lowest arm at the last, read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0019 to 0.000320 | 0.9513 | 0.9858 | pass |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[always vs never]` | difference in counterfactual mean outcome between the plans "treat at every decision" against "never treat" | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0012 to 0.000554 | 0.9540 | 1.0126 | pass |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[always vs never]` | difference in counterfactual mean outcome between the plans "treat at every decision" against "never treat" | R `ltmle` | -0.0049 to 0.0044 | 0.9700 | 1.0777 | **fail** |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[always vs never]__bca` | difference in counterfactual mean outcome between the plans "treat at every decision" against "never treat", read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0012 to 0.000554 | 0.9543 | 1.0111 | pass |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[coin vs coinlast]` | difference in counterfactual mean outcome between the plans "draw the arm at each decision from a known policy that reads the covariate" against "draw the arm from the known policy `coin` at every decision but the last, and assign the lowest arm at the last" | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000238 to 0.000170 | 0.9510 | 0.9967 | pass |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[coin vs coinlast]__bca` | difference in counterfactual mean outcome between the plans "draw the arm at each decision from a known policy that reads the covariate" against "draw the arm from the known policy `coin` at every decision but the last, and assign the lowest arm at the last", read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000238 to 0.000170 | 0.9527 | 0.9971 | pass |
@@ -79,23 +94,31 @@ known stochastic plans. `tests/longitudinal_horizon_plans.py` states each plan a
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[coinlast vs never]` | difference in counterfactual mean outcome between the plans "draw the arm from the known policy `coin` at every decision but the last, and assign the lowest arm at the last" against "never treat" | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000343 to 0.000984 | 0.9593 | 1.0439 | pass |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[coinlast vs never]__bca` | difference in counterfactual mean outcome between the plans "draw the arm from the known policy `coin` at every decision but the last, and assign the lowest arm at the last" against "never treat", read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000343 to 0.000984 | 0.9597 | 1.0408 | pass |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[respond vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise" against "never treat" | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000659 to 0.000813 | 0.9523 | 1.0203 | pass |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[respond vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise" against "never treat" | R `ltmle` | -0.0029 to 0.0047 | 0.9600 | 1.1075 | **fail** |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[respond vs never]__bca` | difference in counterfactual mean outcome between the plans "assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise" against "never treat", read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000659 to 0.000813 | 0.9540 | 1.0168 | pass |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[switch vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm at every decision but the last, and the lowest arm at the last" against "never treat" | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000641 to 0.0012 | 0.9557 | 1.0240 | pass |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[switch vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm at every decision but the last, and the lowest arm at the last" against "never treat" | R `ltmle` | -0.0058 to 0.0043 | 0.9300 | 1.0598 | **fail** |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[switch vs never]__bca` | difference in counterfactual mean outcome between the plans "assign the highest arm at every decision but the last, and the lowest arm at the last" against "never treat", read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000641 to 0.0012 | 0.9590 | 1.0250 | pass |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[always]` | counterfactual mean outcome under the plan: treat at every decision | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0012 to 0.000073 | 0.9390 | 0.9872 | pass |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[always]` | counterfactual mean outcome under the plan: treat at every decision | R `ltmle` | -0.0040 to 0.0027 | 0.9500 | 1.0201 | **fail** |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[always]__bca` | counterfactual mean outcome under the plan: treat at every decision, read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0012 to 0.000073 | 0.9480 | 0.9894 | pass |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[coin]` | counterfactual mean outcome under the plan: draw the arm at each decision from a known policy that reads the covariate | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000078 to 0.000232 | 0.9503 | 0.9976 | pass |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[coin]__bca` | counterfactual mean outcome under the plan: draw the arm at each decision from a known policy that reads the covariate, read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000078 to 0.000232 | 0.9547 | 0.9962 | pass |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[coinlast]` | counterfactual mean outcome under the plan: draw the arm from the known policy `coin` at every decision but the last, and assign the lowest arm at the last | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000129 to 0.000351 | 0.9470 | 0.9921 | pass |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[coinlast]__bca` | counterfactual mean outcome under the plan: draw the arm from the known policy `coin` at every decision but the last, and assign the lowest arm at the last, read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000129 to 0.000351 | 0.9543 | 0.9909 | pass |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[never]` | counterfactual mean outcome under the plan: never treat | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000850 to 0.000431 | 0.9560 | 1.0350 | pass |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[never]` | counterfactual mean outcome under the plan: never treat | R `ltmle` | -0.0033 to 0.0026 | 0.9900 | 1.2585 | **fail** |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[never]__bca` | counterfactual mean outcome under the plan: never treat, read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000850 to 0.000431 | 0.9567 | 1.0326 | pass |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[respond]` | counterfactual mean outcome under the plan: assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000497 to 0.000232 | 0.9487 | 1.0033 | pass |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[respond]` | counterfactual mean outcome under the plan: assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise | R `ltmle` | -0.0016 to 0.0026 | 0.9400 | 0.9740 | **fail** |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[respond]__bca` | counterfactual mean outcome under the plan: assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise, read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000497 to 0.000232 | 0.9543 | 1.0013 | pass |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[switch]` | counterfactual mean outcome under the plan: assign the highest arm at every decision but the last, and the lowest arm at the last | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000601 to 0.000766 | 0.9480 | 1.0051 | pass |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[switch]` | counterfactual mean outcome under the plan: assign the highest arm at every decision but the last, and the lowest arm at the last | R `ltmle` | -0.0049 to 0.0027 | 0.9400 | 1.0125 | **fail** |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[switch]__bca` | counterfactual mean outcome under the plan: assign the highest arm at every decision but the last, and the lowest arm at the last, read from the BCa interval of the refit bootstrap at B = 199 | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000601 to 0.000766 | 0.9560 | 1.0113 | pass |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5), with the working model of treatment duration | `msm_regimen[(intercept)]` | working-model coefficient of treatment duration over the horizon: the intercept coefficient | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.0010 to 0.000084 | 0.9467 | 0.9851 | pass |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5), with the working model of treatment duration | `msm_regimen[(intercept)]` | working-model coefficient of treatment duration over the horizon: the intercept coefficient | R `ltmle` | -0.0026 to 0.0037 | 0.9300 | 0.9591 | **fail** |
 | five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5), with the working model of treatment duration | `msm_regimen[duration]` | working-model coefficient of treatment duration over the horizon: the treatment-duration coefficient | `cleverly` `LTMLE` at three to five decisions, with the declared mechanism | -0.000089 to 0.000226 | 0.9477 | 1.0012 | pass |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5), with the working model of treatment duration | `msm_regimen[duration]` | working-model coefficient of treatment duration over the horizon: the treatment-duration coefficient | R `ltmle` | -0.000866 to 0.000840 | 0.9600 | 1.0275 | **fail** |
 <!-- /generated -->
 
 Every primary row reports against the exact truth of the law. The gated rows are the Wald rows that
@@ -108,12 +131,77 @@ does not gate. Where the Wald row gates, the BCa row reports. `tests/long_horizo
 rule in `interval_of`, and `tests/unit/test_long_horizon_design.py` checks the gated lists against it.
 A cross-fitted fit reports Wald rows only, because the cross-fitted bootstrap is experimental (X20).
 
+Every R `ltmle` row reads **fail**. Those rows come from 100 replications, and the gates are sized for
+3,000. The 99% interval of the bias is then too wide to fit inside the margin, and the Clopper-Pearson lower
+limit of a coverage near 0.95 falls below the 0.90 floor. The record declares this before the rows are read
+(`accepted_reference_failure`), so the red-cell ledger does not list them. The exact gates below carry the
+comparison.
+
 ## Agreement with the canonical implementation
 
-Python property evidence, with comparator runs pending. The R `ltmle` runs have not run on
-the declared draws, so this study publishes no paired verdict. Roadmap item
-[X59](../../roadmap.md#x59-long-horizon-comparator-parity-for-ltmle-and-sdr) adds the runs and
-the paired verdicts. `tests/canonical/long_horizon_ltmle/run_study.R` is a stub that names X59.
+R `ltmle` 1.3-0 refits the first 100 replications of each paired scenario from the same draws
+(`tests/canonical/long_horizon_ltmle/run_study.R`). The study makes two exact claims, and both pass on
+every paired replication. They are graded in `parity.csv`, and `parity-replicates.csv` holds each
+replication's differences.
+
+| gate | what it compares | cells | largest difference | tolerance |
+| --- | --- | --- | --- | --- |
+| G-P | the targeted estimate and its standard error | 21 | estimate $2.69 \times 10^{-9}$, standard error $4.04 \times 10^{-11}$ | $10^{-6}$ |
+| G-C | the untargeted g-computation estimate (`ltmle` with `gcomp = TRUE`) | 21 | $4.54 \times 10^{-9}$ | $10^{-6}$ |
+
+The 21 cells are every regimen mean and contrast of `binary_k3`, `binary_k4` and `binary_k5` that `ltmle`
+can fit. A G-P match alone could hide a targeting step that both implementations skip, so each cell also
+reports how far targeting moved the estimate. The smallest root-mean-square move is $5.7 \times 10^{-3}$,
+above the declared $10^{-4}$ witness floor, so in every cell the step moved the estimate and the two
+implementations moved it the same way.
+
+The margins rows below compare the two implementations' estimates on the 100 paired replications. They
+are descriptive by declaration: no pass probability was computed for their legs at 100 replications, so
+they state no verdict.
+
+<!-- generated: agreement -->
+Comparator-backed: a paired comparison with `ltmle` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[always vs never]` | difference in counterfactual mean outcome between the plans "treat at every decision" against "never treat" | 2.209e-10 | 5.249e-08 | 1.0000 | 0 | matching implementation | 4.402e-09 vs 0.0500 | descriptive |
+| three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[respond vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise" against "never treat" | 1.993e-10 | 4.964e-08 | 1.0000 | 0 | matching implementation | 2.517e-09 vs 0.0500 | descriptive |
+| three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[switch vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm at every decision but the last, and the lowest arm at the last" against "never treat" | 8.281e-11 | 1.445e-08 | 1.0000 | 0 | matching implementation | 4.296e-09 vs 0.0500 | descriptive |
+| three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[always]` | counterfactual mean outcome under the plan: treat at every decision | 2.571e-10 | 6.854e-08 | 1.0000 | 0 | matching implementation | 5.302e-09 vs 0.0500 | descriptive |
+| three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[never]` | counterfactual mean outcome under the plan: never treat | 3.620e-11 | 1.240e-08 | 1.0000 | 0 | matching implementation | 2.291e-09 vs 0.0500 | descriptive |
+| three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[respond]` | counterfactual mean outcome under the plan: assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise | 2.355e-10 | 7.544e-08 | 1.0000 | 0 | matching implementation | 6.231e-09 vs 0.0500 | descriptive |
+| three binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[switch]` | counterfactual mean outcome under the plan: assign the highest arm at every decision but the last, and the lowest arm at the last | 1.190e-10 | 2.519e-08 | 1.0000 | 0 | matching implementation | 6.955e-09 vs 0.0500 | descriptive |
+| four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[always vs never]` | difference in counterfactual mean outcome between the plans "treat at every decision" against "never treat" | 9.336e-13 | 2.299e-10 | 1.0000 | 0 | matching implementation | 7.966e-10 vs 0.0500 | descriptive |
+| four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[respond vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise" against "never treat" | 1.747e-10 | 5.792e-08 | 1.0000 | 0 | matching implementation | 4.321e-09 vs 0.0500 | descriptive |
+| four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[switch vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm at every decision but the last, and the lowest arm at the last" against "never treat" | 8.497e-11 | 1.812e-08 | 1.0000 | 0 | matching implementation | 1.969e-09 vs 0.0500 | descriptive |
+| four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[always]` | counterfactual mean outcome under the plan: treat at every decision | 3.451e-11 | 1.230e-08 | 1.0000 | 0 | matching implementation | 2.361e-09 vs 0.0500 | descriptive |
+| four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[never]` | counterfactual mean outcome under the plan: never treat | 3.358e-11 | 1.260e-08 | 1.0000 | 0 | matching implementation | 1.230e-09 vs 0.0500 | descriptive |
+| four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[respond]` | counterfactual mean outcome under the plan: assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise | 2.083e-10 | 1.209e-07 | 1.0000 | 0 | matching implementation | 7.448e-09 vs 0.0500 | descriptive |
+| four binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[switch]` | counterfactual mean outcome under the plan: assign the highest arm at every decision but the last, and the lowest arm at the last | 1.185e-10 | 3.068e-08 | 1.0000 | 0 | matching implementation | 2.111e-09 vs 0.0500 | descriptive |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[always vs never]` | difference in counterfactual mean outcome between the plans "treat at every decision" against "never treat" | 5.876e-10 | 2.198e-07 | 1.0000 | 0 | matching implementation | 2.383e-08 vs 0.0500 | descriptive |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[respond vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise" against "never treat" | -3.945e-11 | 1.826e-08 | 1.0000 | 0 | matching implementation | 8.712e-09 vs 0.0500 | descriptive |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ate_regimen[switch vs never]` | difference in counterfactual mean outcome between the plans "assign the highest arm at every decision but the last, and the lowest arm at the last" against "never treat" | 1.139e-10 | 3.956e-08 | 1.0000 | 0 | matching implementation | 6.735e-09 vs 0.0500 | descriptive |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[always]` | counterfactual mean outcome under the plan: treat at every decision | 6.744e-10 | 3.525e-07 | 1.0000 | 0 | matching implementation | 3.476e-08 vs 0.0500 | descriptive |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[never]` | counterfactual mean outcome under the plan: never treat | 8.681e-11 | 5.175e-08 | 1.0000 | 0 | matching implementation | 3.109e-09 vs 0.0500 | descriptive |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[respond]` | counterfactual mean outcome under the plan: assign the highest arm where the covariate rule is on (W of at least 2 at the first decision, L_t = 1 afterwards) and the lowest arm otherwise | 4.736e-11 | 3.962e-08 | 1.0000 | 0 | matching implementation | 3.690e-09 vs 0.0500 | descriptive |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5) | `ey_regimen[switch]` | counterfactual mean outcome under the plan: assign the highest arm at every decision but the last, and the lowest arm at the last | 2.007e-10 | 9.254e-08 | 1.0000 | 0 | matching implementation | 7.811e-09 vs 0.0500 | descriptive |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5), with the working model of treatment duration | `msm_regimen[(intercept)]` | working-model coefficient of treatment duration over the horizon: the intercept coefficient | 0.000017 | 0.0092 | 1.0069 | 0 | different estimator | 0.0117 vs 0.0500 | descriptive |
+| five binary decisions on law L_R (B = 1, s = 0.1, c0 = 3.5), with the working model of treatment duration | `msm_regimen[duration]` | working-model coefficient of treatment duration over the horizon: the treatment-duration coefficient | 0.000008 | 0.0157 | 1.0114 | 0 | different estimator | 0.0079 vs 0.0500 | descriptive |
+<!-- /generated -->
+
+`ltmle` takes no stochastic intervention, so five `binary_k5` cells have no paired row: the means under
+`coin` and `coinlast`, their contrasts with `never`, and their paired contrast. The BCa rows have no paired
+row either, because `ltmle` fits no bootstrap. `binary_k5_msm` pairs its two coefficients in margins rows
+only, and they compare a different estimator of the same coefficients. The R side fits `ltmle` for each
+of the six plans and projects the six estimates on the working model by least squares
+(`tests/canonical/ltmle_horizon_adapter.R`). `cleverly` fits one pooled MSM fluctuation. The logit-link
+`ltmleMSM` cell, which would fit the MSM inside `ltmle`, was not audited within the comparator's run
+budget, so no exact gate is declared on the MSM coefficients.
+
+The separate parity record `long-horizon-ltmle-parity` repeats both gates at a small $n$ on 500
+replications of `binary_k5` (G-P $2.71 \times 10^{-9}$, G-C $7.06 \times 10^{-9}$, smallest witness move
+$1.3 \times 10^{-2}$). It is not a registered study and publishes no page. Its artifacts are in
+`tests/canonical/long_horizon_ltmle_parity/`.
 
 ## Theory properties
 
@@ -258,17 +346,18 @@ the committed results and checked at the precision printed.
 | --- | --- | --- |
 | `replicates` | 3000 | primary replications per scenario |
 | `n` | 4000 | observations per replication in the first scenario |
-| `independent_tests_total` | 54 | implementation-estimand tests against the truth |
+| `independent_tests_total` | 77 | estimand tests against the truth, `cleverly` and R `ltmle` rows together |
 | `independent_tests_passed` | 54 | of those, passing |
-| `paired_tests_total` | 0 | paired comparisons with R `ltmle` |
-| `paired_tests_passed` | 0 | of those, passing |
+| `subject_tests_total` | 54 | the `cleverly` rows among them |
+| `subject_tests_passed` | 54 | of those, passing |
+| `paired_tests_total` | 23 | descriptive paired rows with R `ltmle`, which state no verdict |
 | `property_cells_total` | 82 | repeated-sampling property cells, reported cells excluded |
 | `property_cells_passed` | 82 | cells whose own and family verdicts pass |
 | `property_cells_reported` | 5 | cells reported and not gated, as the `support_loss` and `learned_mechanism` readings |
-| `max_standardized_bias` | 0.0446 | largest absolute primary bias in empirical standard deviations |
-| `min_coverage` | 0.9357 | lowest measured primary-study coverage |
-| `min_se_ratio_ci_lower` | 0.9410 | lowest bootstrap primary SE-ratio endpoint |
-| `max_se_ratio_ci_upper` | 1.0794 | highest bootstrap primary SE-ratio endpoint |
+| `max_standardized_bias` | 0.2211 | largest absolute bias in empirical standard deviations, over both implementations' rows |
+| `min_coverage` | 0.9100 | lowest measured coverage, over both implementations' rows |
+| `min_se_ratio_ci_lower` | 0.7511 | lowest bootstrap SE-ratio endpoint, over both implementations' rows |
+| `max_se_ratio_ci_upper` | 1.5711 | highest bootstrap SE-ratio endpoint, over both implementations' rows |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | test size |
 | `margin:nominal_coverage` | 0.9500 | nominal interval coverage |
@@ -297,13 +386,16 @@ the committed results and checked at the precision printed.
 | `margin:shrunken_se_factor` | 0.8000 | negative-control SE multiplier |
 | `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell of `cleverly` may lose to a recordable fitting failure |
 | `margin:subject_failures_allowed` | 30 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `ltmle` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 30 | the same bound, in primary replications |
 
 ## Limitations
 
 | limit | what it means for use |
 | --- | --- |
 | one law family with binary nodes | the laws are the `L_R` family of `tests/discrete_law_longitudinal_horizon.py`. The study does not cover continuous covariates or a continuous outcome |
-| the comparator runs are pending | no external implementation checks these rows. Roadmap item X59 adds R `ltmle` 1.3-0 for the ordinary and MSM scenarios |
+| the comparator is exact on 100 replications | R `ltmle` 1.3-0 matches the estimate, standard error and g-computation estimate of 21 cells on the first 100 replications of each scenario. Its own truth rows cannot resolve the declared margins at that count, so they add no evidence about bias or coverage beyond the match. The margins rows state no verdict |
+| some cells have no exact comparison | the stochastic plans `coin` and `coinlast` have no `ltmle` counterpart, and the MSM coefficients are compared with a different estimator in margins rows only |
 | the declared mechanism is exact | the law's probabilities enter as columns, so the study measures the targeting and outcome regressions with the mechanism known. The `learned_mechanism` row reports one learned case and gates nothing |
 | the outcome regressions are one quasibinomial GLM | the exact-law criterion reads the declared GLM curve. The study does not cover a flexible learner library |
 | the Wald interval gates only at $n \ge 2 n_\kappa$ | below that size the Wald row reports and the BCa row gates. A reader who needs a valid interval at a smaller $n$ must read the BCa row |
@@ -321,7 +413,7 @@ and the estimate under those conditions. They do not test the conditions.
 The [regeneration script](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/long_horizon_ltmle/regenerate.py)
 regenerates the committed results. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/long_horizon_ltmle/manifest.json)
-records the pending comparator, the seeds and the artifact hashes. The
+records the comparator pins, the seeds and the artifact hashes. The
 [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/long_horizon_ltmle/replicates.parquet)
 and
 [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/long_horizon_ltmle/properties.csv)

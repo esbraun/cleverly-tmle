@@ -16,6 +16,9 @@
     },
     "reference": {
       "implementation": "lmtp",
+      "lmtp_version": "1.5.5",
+      "lmtp_source_commit": "9996b04dcbb3ae0b1ef8862097c36d95e9f2fcf9",
+      "lmtp_tarball_sha256": "b3c5896272cf6c07127764c1880758fdb5020506a271b453e907a7b69bebb2ab",
       "environment": {
         "CLEVERLY_X59_LEARNER": "stratified",
         "CLEVERLY_X59_MUTATION": "none"

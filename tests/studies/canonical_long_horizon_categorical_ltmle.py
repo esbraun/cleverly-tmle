@@ -25,10 +25,9 @@ scenario                       subject
 A law is written ``(B, s, c0)``.  The policy scenarios also report ``mix`` against ``mixlast``,
 the paired contrast whose two plans share every follower path.
 
-**Comparator.**  R ``lmtp`` is the declared comparator, and its runs are pending: the record
-declares ``pending_reference="lmtp"`` and keeps ``reference=None``.  The primary phase writes no
-sample.  ``tests/canonical/long_horizon_categorical_ltmle/run_study.R`` is a stub that names the
-owning item.
+**Comparator** (X59).  R ``lmtp`` 9996b04 is the reference, run reference-only on the first 100
+replicates of each paired scenario (``tests/canonical/long_horizon_categorical_ltmle/run_study.R``).
+Its exact claim is the G1 gate on ``mix`` (``parity.csv``); every margins pair is descriptive.
 
 **Intervals** (plan rev 4.4).  A single-fold, non-MSM scenario fits with ``n_bootstrap=199`` and
 ``bootstrap_interval="bca"``.  It writes a Wald row and, under the estimand name plus ``__bca``,
@@ -366,6 +365,44 @@ PROPERTY_CELLS = {
     ),
 }
 
+#: The plans ``lmtp`` ``9996b04`` cannot fit on this study's inputs.  Its node-K fluctuation
+#: (``fluc`` in R/tmle.R) is ``glm(y ~ offset(qlogis(Q)), weights = cumulative ratios, family =
+#: binomial)`` at R's default start; under node-K weights of about 1e3 glm.fit overshoots from
+#: that start, reports convergence at an epsilon of about 3e15, and every targeted prediction
+#: and every earlier pseudo-outcome becomes 0.99999.  The same fit on the weights rescaled to
+#: mean one, whose maximum-likelihood estimate is the same, converges (2.014 on
+#: ``categorical_k5_static`` ``high``, replicate 0), and ``cleverly``'s fit of these cells
+#: converges.  A comparator limitation, not a ``cleverly`` result.  Evidence:
+#: ``tests/canonical/lmtp_9996b04/fluctuation_scan.py`` on replicates 0 to 99, a default-start
+#: fit against the rescaled one, diverged when they differ by more than 1e-6, node K only:
+#: ``categorical_k5_static`` ``high`` 100/100 and ``switch`` 100/100, ``categorical_k5_switch``
+#: ``switch`` 100/100, ``categorical_k5_high`` ``high`` 100/100, ``categorical_k4`` ``switch``
+#: 70/100 and ``categorical_k4_high`` ``high`` 10/100.  Every other one-fold plan, every G1
+#: ``mix`` cell among them, diverged on 0/100.  All six are descriptive plans, and the decision
+#: was taken on the smoke inputs before any parity output.  That scan is an intercept-only
+#: proxy at node K.  The exact check ran for the declaration (pre-queue review item 7):
+#: ``fluctuation_emulation_scan.py`` runs lmtp 9996b04's whole one-fold TMLE loop
+#: (``fluctuation_emulation.R``, host R 4.3.3) on the full input of replicates 0 to 99 of every
+#: paired plan here and 0 to 499 of ``long-horizon-lmtp-parity`` ``parity_tmle_mix``.  No node
+#: of any of the 2,700 plan-replicates diverged (largest ``|epsilon|`` 0.45) and no targeted
+#: follower cell left ``Q_BOUNDS`` (``lmtp_9996b04/emulation-summary.csv``).  The paired
+#: adapters also record a replicate as failed when any node's epsilon is non-finite or above
+#: 1e3 (lmtp's ``fluc`` guard, ``lmtp_9996b04_crossfit_adapter.R``), for whatever the main run
+#: meets beyond these replicates.
+UNPAIRED_PLANS = {
+    "categorical_k4": ("switch",),
+    "categorical_k4_high": ("high",),
+    "categorical_k5_static": ("high", "switch"),
+    "categorical_k5_switch": ("switch",),
+    "categorical_k5_high": ("high",),
+}
+#: The comparator's cells (X59 plan section 2.2): every Wald row of every one-fold scenario but
+#: those that read an unpaired plan.  The five-fold scenario has no counterpart: ``cleverly``
+#: fits the pooled update and ``lmtp`` ``9996b04`` a per-fold one (section 4.4), so it stays
+#: unpaired.  The runner fits only the plans its truth rows name, so it never fits these.
+REFERENCE_SCENARIOS = reference_.reported_cells(
+    SCENARIOS, unpaired_plans=UNPAIRED_PLANS, unpaired_scenarios=("categorical_k5_crossfit",)
+)
 STUDY = StudyRecord(
     name="long-horizon categorical longitudinal TMLE",
     slug="long-horizon-categorical-ltmle",
@@ -380,12 +417,14 @@ STUDY = StudyRecord(
     scenario_n=SCENARIO_N,
     resampling_seed=RESAMPLING_SEED,
     implementation="cleverly-long-horizon-categorical-ltmle",
-    pending_reference="lmtp",
-    pending_reason=(
-        "X59: R lmtp comparator runs deferred by the owner on 2026-10-14; X39 accepted on Python property evidence"
-    ),
-    # No comparison_overrides while the runs are pending. X59 declares
-    # "categorical_k5_crossfit:*": "different estimator" with the runs.
+    reference="lmtp",
+    # X59: the comparator pairs the cells above on the first 100 replicates of each paired
+    # scenario, the section 6 sizing rule's output (tests/canonical/x59_sizing).  Every
+    # margins pair is descriptive; the exact claims are the parity gates (``PARITY``).
+    reference_scenarios=REFERENCE_SCENARIOS,
+    reference_replicates=dict.fromkeys(REFERENCE_SCENARIOS, 100),
+    paired_role="descriptive",
+    accepted_reference_failure=reference_.PREFIX_REFERENCE_FAILURE,
     comparison="matching implementation",
     modules=(
         "tests/studies/canonical_long_horizon_categorical_ltmle.py",
@@ -443,54 +482,10 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
 
 
 # ----------------------------------------------------------------------------- the X59 comparator
-#: The plans ``lmtp`` ``9996b04`` cannot fit on this study's inputs.  Its node-K fluctuation
-#: (``fluc`` in R/tmle.R) is ``glm(y ~ offset(qlogis(Q)), weights = cumulative ratios, family =
-#: binomial)`` at R's default start; under node-K weights of about 1e3 glm.fit overshoots from
-#: that start, reports convergence at an epsilon of about 3e15, and every targeted prediction
-#: and every earlier pseudo-outcome becomes 0.99999.  The same fit on the weights rescaled to
-#: mean one, whose maximum-likelihood estimate is the same, converges (2.014 on
-#: ``categorical_k5_static`` ``high``, replicate 0), and ``cleverly``'s fit of these cells
-#: converges.  A comparator limitation, not a ``cleverly`` result.  Evidence:
-#: ``tests/canonical/lmtp_9996b04/fluctuation_scan.py`` on replicates 0 to 99, a default-start
-#: fit against the rescaled one, diverged when they differ by more than 1e-6, node K only:
-#: ``categorical_k5_static`` ``high`` 100/100 and ``switch`` 100/100, ``categorical_k5_switch``
-#: ``switch`` 100/100, ``categorical_k5_high`` ``high`` 100/100, ``categorical_k4`` ``switch``
-#: 70/100 and ``categorical_k4_high`` ``high`` 10/100.  Every other one-fold plan, every G1
-#: ``mix`` cell among them, diverged on 0/100.  All six are descriptive plans, and the decision
-#: was taken on the smoke inputs before any parity output.  That scan is an intercept-only
-#: proxy at node K.  The exact check ran for the declaration (pre-queue review item 7):
-#: ``fluctuation_emulation_scan.py`` runs lmtp 9996b04's whole one-fold TMLE loop
-#: (``fluctuation_emulation.R``, host R 4.3.3) on the full input of replicates 0 to 99 of every
-#: paired plan here and 0 to 499 of ``long-horizon-lmtp-parity`` ``parity_tmle_mix``.  No node
-#: of any of the 2,700 plan-replicates diverged (largest ``|epsilon|`` 0.45) and no targeted
-#: follower cell left ``Q_BOUNDS`` (``lmtp_9996b04/emulation-summary.csv``).  The paired
-#: adapters also record a replicate as failed when any node's epsilon is non-finite or above
-#: 1e3 (lmtp's ``fluc`` guard, ``lmtp_9996b04_crossfit_adapter.R``), for whatever the main run
-#: meets beyond these replicates.
-UNPAIRED_PLANS = {
-    "categorical_k4": ("switch",),
-    "categorical_k4_high": ("high",),
-    "categorical_k5_static": ("high", "switch"),
-    "categorical_k5_switch": ("switch",),
-    "categorical_k5_high": ("high",),
-}
-#: The comparator's cells (X59 plan section 2.2): every Wald row of every one-fold scenario but
-#: those that read an unpaired plan.  The five-fold scenario has no counterpart: ``cleverly``
-#: fits the pooled update and ``lmtp`` ``9996b04`` a per-fold one (section 4.4), so it stays
-#: unpaired.  The runner fits only the plans its truth rows name, so it never fits these.
-REFERENCE_SCENARIOS = reference_.reported_cells(
-    SCENARIOS, unpaired_plans=UNPAIRED_PLANS, unpaired_scenarios=("categorical_k5_crossfit",)
-)
-#: The fields the comparator run declares; see ``canonical_long_horizon_ltmle``.  Every paired
-#: scenario pairs its first 100 replicates: the section 6 rule's output on the measured tiers
-#: (``tests/canonical/x59_sizing``).
-COMPARATOR_DECLARATION = {
-    "reference_scenarios": REFERENCE_SCENARIOS,
-    "reference_replicates": dict.fromkeys(REFERENCE_SCENARIOS, 100),
-    "paired_role": "descriptive",
-}
 #: The comparator's declared environment: no mutation, and the declared learner (M2).
 REFERENCE_ENVIRONMENT = reference_.LMTP_ENVIRONMENT
+#: The comparator's pins, for the manifest's ``generated_with.reference`` block.
+REFERENCE_METADATA = reference_.LMTP_METADATA
 #: The section 6 priority tier of each paired scenario: 2 holds exact cells, 4 margins only.
 #: A tier-2 scenario's descriptive plans are fitted, and charged, at the tier-2 prefix.
 REFERENCE_TIERS = {

@@ -85,6 +85,28 @@ LEARNERS = ("stratified", "pooled")
 #: (``tests/canonical/regenerate.py``, ``reference_environment``).  ``ltmle`` reads no learner.
 LTMLE_ENVIRONMENT = {MUTATION_ENV: "none"}
 LMTP_ENVIRONMENT = {MUTATION_ENV: "none", LEARNER_ENV: "stratified"}
+#: A study module's ``REFERENCE_METADATA``: the comparator pins the manifest records under
+#: ``generated_with.reference``.  The values are the ones the hashed build contexts install,
+#: ``tests/canonical/ltmle/Dockerfile`` and ``tests/canonical/lmtp_9996b04/Dockerfile``.
+LTMLE_METADATA = {
+    "ltmle_version": "1.3-0",
+    "ltmle_source_commit": "338c029dae9692ef20714125773da7037688993b",
+    "ltmle_tarball_sha256": "fb31d0dd6ab81687b81f3279b414c21e91c655e10aac12f73fc6723efd848aad",
+}
+#: The ``accepted_reference_failure`` of S1, S2 and S3.  The reference's truth rows are read on
+#: the 100-replicate prefix, so they cannot pass gates sized for the subject's thousands.
+PREFIX_REFERENCE_FAILURE = (
+    "X59: the reference is fitted on the first 100 replicates of each paired scenario, so no "
+    "reference row can pass a truth gate sized for the subject's replicate count: its 99% "
+    "bias interval cannot fit inside the margin, and most of its coverage lower limits sit "
+    "below the floor. The comparator's claim is the exact parity gates (parity.csv), which match "
+    "its estimates to the subject's on those replicates in every exactly paired cell"
+)
+LMTP_METADATA = {
+    "lmtp_version": "1.5.5",
+    "lmtp_source_commit": "9996b04dcbb3ae0b1ef8862097c36d95e9f2fcf9",
+    "lmtp_tarball_sha256": "b3c5896272cf6c07127764c1880758fdb5020506a271b453e907a7b69bebb2ab",
+}
 
 
 def mutation() -> str:

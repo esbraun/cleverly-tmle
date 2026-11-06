@@ -49,8 +49,11 @@ STUDY = StudyRecord(
     seed=SEED,
     resampling_seed=RESAMPLING_SEED,
     implementation="cleverly-long-horizon-ltmle-parity",
-    pending_reference="ltmle",
-    pending_reason="X59 section 5: the R ltmle side runs reference-only after the subject phase",
+    reference="ltmle",
+    # Every replicate is paired: the parity gates read each one, and the record's 500 were
+    # chosen for them (X59 section 4.2).  Every margins pair is descriptive.
+    reference_replicates=dict.fromkeys((s.name for s in SCENARIOS), PRIMARY_REPLICATES),
+    paired_role="descriptive",
     comparison="matching implementation",
     modules=(
         "tests/studies/canonical_long_horizon_ltmle_parity.py",
@@ -81,15 +84,10 @@ CONFIGURATION: dict[str, Any] = {
     "plans": {s.name: list(s.plans) for s in SCENARIOS},
 }
 
-#: Every margins pair is descriptive: the record reads its exact gates only.
-COMPARATOR_DECLARATION = {
-    "paired_role": "descriptive",
-    # Every replicate is paired: the parity gates read each one, and the record's 500 were
-    # chosen for them (section 4.2).
-    "reference_replicates": dict.fromkeys(STUDY.scenarios, STUDY.replicates),
-}
 #: The comparator's declared environment: no mutation (M2); ``ltmle`` reads no learner.
 REFERENCE_ENVIRONMENT = reference_.LTMLE_ENVIRONMENT
+#: The comparator's pins, for the manifest's ``generated_with.reference`` block.
+REFERENCE_METADATA = reference_.LTMLE_METADATA
 PARITY_SCENARIOS = frozenset(ESTIMATORS)
 #: Both tolerances are ``declared_tolerance`` of the smoke maxima, which the attempt-5 smoke
 #: read at G-P 2.258e-9 and G-C 1.666e-9 over eight replicates: ten times either is under the

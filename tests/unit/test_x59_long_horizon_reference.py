@@ -163,23 +163,16 @@ def test_the_sample_carries_every_column_its_runner_reads(module) -> None:  # ty
     sample = module.reference_sample(scenario.name, scenario.n, 0)
     columns = set(sample.frame.columns)
     assert {"W", "Y", "fold", "design__K", "design__m", "design__mutation"} <= columns
-    assert set(sample.truths) >= set(
-        module.COMPARATOR_DECLARATION["reference_scenarios"].get(scenario.name, ())
-    )
+    assert set(sample.truths) >= set(module.STUDY.reference_scenarios.get(scenario.name, ()))
     again = module.reference_sample(scenario.name, scenario.n, 0)
     assert sample.frame.equals(again.frame), "a re-drawn sample is not its seeded sample"
     assert not sample.frame.equals(module.reference_sample(scenario.name, scenario.n, 1).frame)
 
 
 @pytest.mark.parametrize("module", MODULES, ids=[m.STUDY.slug for m in MODULES])
-def test_the_comparator_declaration_validates(module) -> None:  # type: ignore[no-untyped-def]
-    record: StudyRecord = dataclasses.replace(
-        module.STUDY,
-        reference=module.STUDY.pending_reference,
-        pending_reference=None,
-        pending_reason="",
-        **module.COMPARATOR_DECLARATION,
-    )
+def test_the_registered_comparator_declaration_holds(module) -> None:  # type: ignore[no-untyped-def]
+    record: StudyRecord = module.STUDY
+    assert record.comparator_state != "pending" and record.reference is not None
     assert record.paired_role == "descriptive"
     assert set(module.REFERENCE_TIERS) == set(record.reference_scenarios)
     for cell in module.PARITY.cells:
@@ -213,7 +206,7 @@ def _declared_scenarios():  # type: ignore[no-untyped-def]
 
     for module in (s1, s2, s3, ltmle_parity, lmtp_parity):
         record = module.STUDY
-        reference = str(record.pending_reference or record.reference)
+        reference = str(record.reference)
         for name in record.reported(reference):
             yield module, name, record.n_of(name)
 

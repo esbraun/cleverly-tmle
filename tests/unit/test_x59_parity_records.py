@@ -1,7 +1,7 @@
 """X59 section 5: the two parity-only records, on their own seed streams.
 
 Neither record is registered, so the registry's own checks never see them.  This module holds
-what a registered study gets for free: the record validates once promoted, its stream is its
+what a registered study gets for free: the record validates as compared, its stream is its
 own, its inputs carry what the runner reads, and its empty property phase runs through the
 driver.
 """
@@ -9,7 +9,6 @@ driver.
 from __future__ import annotations
 
 import argparse
-import dataclasses
 from pathlib import Path
 
 import pytest
@@ -25,21 +24,12 @@ MODULES = (ltmle_parity, lmtp_parity)
 IDS = [module.STUDY.slug for module in MODULES]
 
 
-def _promoted(module) -> StudyRecord:  # type: ignore[no-untyped-def]
-    record = module.STUDY
-    return dataclasses.replace(
-        record,
-        reference=record.pending_reference,
-        pending_reference=None,
-        pending_reason="",
-        **module.COMPARATOR_DECLARATION,
-    )
-
-
 @pytest.mark.parametrize("module", MODULES, ids=IDS)
-def test_the_record_is_parity_only_and_validates_once_promoted(module) -> None:  # type: ignore[no-untyped-def]
+def test_the_record_is_parity_only_and_compared(module) -> None:  # type: ignore[no-untyped-def]
     assert module.STUDY.slug not in {study.slug for study in registered()}
-    record = _promoted(module)
+    record = module.STUDY
+    assert record.reference is not None and record.comparator_state != "pending"
+    assert dict(record.reference_replicates) == dict.fromkeys(record.scenarios, 500)
     assert record.paired_role == "descriptive"
     assert record.replicates == 500
     for cell in module.PARITY.cells:

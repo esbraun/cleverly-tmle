@@ -198,7 +198,8 @@ def test_the_subject_mutation_moves_g_p_against_an_unmutated_reference(tmp_path:
     committed = read_rows(s1.STUDY.artifact("replicates.parquet"))
     wald = set(s1.REFERENCE_SCENARIOS["binary_k3"])
     held = committed.loc[
-        (committed["scenario"] == "binary_k3")
+        (committed["implementation"] == s1.STUDY.implementation)
+        & (committed["scenario"] == "binary_k3")
         & (committed["replicate"] == 0)
         & committed["estimand"].isin(wald)
     ]

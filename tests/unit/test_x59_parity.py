@@ -321,7 +321,7 @@ def test_the_declared_prefixes_are_the_sizing_rule_s_output_on_the_measured_tier
     )
     for label, held in x59_smoke.STUDIES.items():
         module = importlib.import_module(held[0])
-        prefix = module.COMPARATOR_DECLARATION["reference_replicates"]
+        prefix = module.STUDY.reference_replicates
         for name, count in prefix.items():
             assert sized.counts[f"{label}:{name}"] == count, (label, name)
             assert costs[f"{label}:{name}"].tier == x59_smoke.reference_tier(label, name)

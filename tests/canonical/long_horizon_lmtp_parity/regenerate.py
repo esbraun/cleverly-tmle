@@ -12,8 +12,8 @@ if __name__ == "__main__":
         canonical_long_horizon_lmtp_parity,
         long_horizon_parity_properties,
         here=Path(__file__).resolve().parent,
-        # The record is pending: the first run fits the subject, and --reference-only then
-        # fits the comparator on the same seeds (X59 section 5).
+        # A full run fits both sides; --reference-only refits the comparator alone on the same
+        # seeds, against the committed subject rows (X59 section 5).
         reference=Reference(
             image="cleverly-lmtp:9996b04",
             runner="long_horizon_lmtp_parity/run_study.R",

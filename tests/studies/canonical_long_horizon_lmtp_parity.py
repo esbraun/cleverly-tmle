@@ -61,8 +61,11 @@ STUDY = StudyRecord(
     seed=SEED,
     resampling_seed=RESAMPLING_SEED,
     implementation="cleverly-long-horizon-lmtp-parity",
-    pending_reference="lmtp",
-    pending_reason="X59 section 5: the R lmtp side runs reference-only after the subject phase",
+    reference="lmtp",
+    # Every replicate is paired: the parity gates read each one, and the record's 500 were
+    # chosen for them (X59 section 4.2).  Every margins pair is descriptive.
+    reference_replicates=dict.fromkeys((s.name for s in SCENARIOS), PRIMARY_REPLICATES),
+    paired_role="descriptive",
     comparison="matching implementation",
     modules=(
         "tests/studies/canonical_long_horizon_lmtp_parity.py",
@@ -95,15 +98,10 @@ CONFIGURATION: dict[str, Any] = {
     "n_folds": {s.name: s.n_folds for s in SCENARIOS},
 }
 
-#: Every margins pair is descriptive: the record reads its exact gates only.
-COMPARATOR_DECLARATION = {
-    "paired_role": "descriptive",
-    # Every replicate is paired: the parity gates read each one, and the record's 500 were
-    # chosen for them (section 4.2).
-    "reference_replicates": dict.fromkeys(STUDY.scenarios, STUDY.replicates),
-}
 #: The comparator's declared environment: no mutation, and the declared learner (M2).
 REFERENCE_ENVIRONMENT = reference_.LMTP_ENVIRONMENT
+#: The comparator's pins, for the manifest's ``generated_with.reference`` block.
+REFERENCE_METADATA = reference_.LMTP_METADATA
 PARITY = ParityDeclaration(
     cells=tuple(ParityCell("G1", name, "ey_regimen[mix]") for name in ESTIMATORS)
 )

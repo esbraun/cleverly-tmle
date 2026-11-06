@@ -126,9 +126,9 @@ no longer imports. Remove the row when you regenerate the study.
 | `longitudinal-repeated-crossfit` | `tests/discrete_law_competing.py` | result-neutral: the competing-risks law draws the samples of the study, so the run read this source, but the first module list omitted it. This branch leaves the file unchanged from main. Two replicates of each primary fit, refitted after the merge, agree with the committed replicates to a maximum relative difference of 4.2e-14 on the estimate, standard error and interval ends |
 | `longitudinal-repeated-crossfit` | `tests/discrete_law_longitudinal_ipsi.py` | result-neutral: the longitudinal IPSI law draws the samples of the study, so the run read this source, but the first module list omitted it. This branch leaves the file unchanged from main. Two replicates of each primary fit, refitted after the merge, agree with the committed replicates to a maximum relative difference of 4.2e-14 on the estimate, standard error and interval ends |
 | `longitudinal-repeated-crossfit` | `tests/discrete_law_survival.py` | result-neutral: the survival law draws the samples of the study, so the run read this source, but the first module list omitted it. This branch leaves the file unchanged from main. Two replicates of each primary fit, refitted after the merge, agree with the committed replicates to a maximum relative difference of 4.2e-14 on the estimate, standard error and interval ends |
-| `long-horizon-ltmle` | `tests/studies/long_horizon_reference.py` | result-neutral: the X59 comparator-input builder. The study module imports it only for `reference_sample`, `REFERENCE_SCENARIOS` and `PARITY`, which a reference-only run reads to write R's inputs. No subject fit calls it, so the committed rows never read it, and the manifest can record no hash for it |
-| `long-horizon-categorical-ltmle` | `tests/studies/long_horizon_reference.py` | result-neutral: the X59 comparator-input builder. The study module imports it only for `reference_sample`, `REFERENCE_SCENARIOS` and `PARITY`, which a reference-only run reads to write R's inputs. No subject fit calls it, so the committed rows never read it, and the manifest can record no hash for it |
-| `long-horizon-sdr` | `tests/studies/long_horizon_reference.py` | result-neutral: the X59 comparator-input builder. The study module imports it only for `reference_sample`, `REFERENCE_SCENARIOS` and `PARITY`, which a reference-only run reads to write R's inputs. No subject fit calls it, so the committed rows never read it, and the manifest can record no hash for it |
+| `long-horizon-ltmle` | `tests/studies/long_horizon_reference.py` | result-neutral: the X59 comparator-input builder. The study module imports it only for `reference_sample`, `REFERENCE_SCENARIOS`, `PARITY`, `REFERENCE_ENVIRONMENT` and `REFERENCE_METADATA`, which a reference-only run reads to write R's inputs and the manifest's reference provenance. No subject fit calls it, so the committed rows never read it, and the manifest can record no hash for it |
+| `long-horizon-categorical-ltmle` | `tests/studies/long_horizon_reference.py` | result-neutral: the X59 comparator-input builder. The study module imports it only for `reference_sample`, `REFERENCE_SCENARIOS`, `PARITY`, `REFERENCE_ENVIRONMENT` and `REFERENCE_METADATA`, which a reference-only run reads to write R's inputs and the manifest's reference provenance. No subject fit calls it, so the committed rows never read it, and the manifest can record no hash for it |
+| `long-horizon-sdr` | `tests/studies/long_horizon_reference.py` | result-neutral: the X59 comparator-input builder. The study module imports it only for `reference_sample`, `REFERENCE_SCENARIOS`, `PARITY`, `REFERENCE_ENVIRONMENT` and `REFERENCE_METADATA`, which a reference-only run reads to write R's inputs and the manifest's reference provenance. No subject fit calls it, so the committed rows never read it, and the manifest can record no hash for it |
 
 ## Descriptive manifest text
 
@@ -512,3 +512,29 @@ attempt-5 smoke logs contain no such warning, so the smoke's identity and run re
 11967f8f stand. The declaration digest of `long-horizon-ltmle` was refreshed with
 `python -m tests.canonical.x59_smoke declared-sources`. `long-horizon-ltmle-parity` has no
 manifest yet and declares its sources at its run. No reference process has run.
+
+The X59 reference-only runs are committed (`9de2da30`), and the registration commit flips the
+five records from pending to compared. The runs' manifests recorded the comparator's
+environment and input-module digests but no package pins, because the study modules declared no
+`REFERENCE_METADATA` while the comparator was pending. The registration adds that constant
+(`tests/studies/long_horizon_reference.py`, `LTMLE_METADATA` and `LMTP_METADATA`) and writes the
+same keys into each manifest's `generated_with.reference` block. The values are the ones the
+recorded build contexts install: `tests/canonical/ltmle/Dockerfile` downloads `ltmle` 1.3-0 and
+checks its tarball digest, and `tests/canonical/lmtp_9996b04/Dockerfile` downloads `lmtp` at
+commit `9996b04dcbb3ae0b1ef8862097c36d95e9f2fcf9`, checks its tarball digest and asserts
+`packageVersion("lmtp") == "1.5.5"`. Both Dockerfiles' recorded `reference_sha256` entries match
+the working tree, so the added keys restate what those hashed bytes pinned and change no row.
+The other registration edits to the five study modules (the record's `reference`,
+`reference_scenarios`, `reference_replicates` and `paired_role`, their docstrings and comments)
+change what the fast tier checks, not what a fit computes: no seed, draw, learner or plan moved,
+and the reference-only runs already read the same scenarios and prefixes from
+`REFERENCE_SCENARIOS` and the declared sizes.
+
+The registration also declares `accepted_reference_failure` on the three registered records
+(`PREFIX_REFERENCE_FAILURE` in `tests/studies/long_horizon_reference.py`) and writes the same
+string into each manifest's `configuration` block, where a regeneration would record it. Every
+reference truth row is read on the 100-replicate prefix, so none can pass a bias margin sized
+for 3,000, 2,000 or 1,200 replicates (0 of 23, 38 and 72 rows pass). The records publish under
+the `reporting` policy, so the run published these rows either way. The declaration moves no
+row and no verdict: it keeps the reference's own truth rows out of the red-cell ledger, as it
+does for every study that carries one, and the exact parity gates stay the comparator's claim.

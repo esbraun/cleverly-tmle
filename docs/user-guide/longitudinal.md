@@ -523,7 +523,7 @@ parallel.
 
 **Evidence.** The three long-horizon studies fit the bootstrap with `B = 199`. Each study gates a BCa interval only where its Wald interval does not gate, that is where $n$ is below twice the exact-law tail size. The three-level `LTMLE` study gates the sup-t band over six plans at five decisions.
 
-The `SDR` bootstrap band, the cross-fitted bootstrap and an MSM fit stay `experimental`. The studies carry Python property evidence. The R comparators (`ltmle` and `lmtp`) are deferred to [X59](../roadmap.md#x59-long-horizon-comparator-parity-for-ltmle-and-sdr). No study gates the warning threshold.
+The `SDR` bootstrap band, the cross-fitted bootstrap and an MSM fit stay `experimental`. The R packages `ltmle` and `lmtp` give the same estimates and standard errors as `cleverly`, to within $10^{-6}$, on the cells the studies compare exactly. Neither package fits a bootstrap, so the BCa interval and the band are checked against the known truth only. No study gates the warning threshold.
 
 ## Repeated outcomes
 

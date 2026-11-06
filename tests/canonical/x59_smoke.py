@@ -978,11 +978,12 @@ def guard_failures(study: str, out: Path) -> pd.DataFrame:
         if path.exists()
         else pd.DataFrame(columns=["implementation", "scenarios", "replicates", "message"])
     )
+    comparator = str(module.STUDY.reference or module.STUDY.pending_reference)
     guarded = held.loc[
-        (held["implementation"] == module.STUDY.pending_reference)
+        (held["implementation"] == comparator)
         & held["message"].astype(str).str.contains(GUARD_MESSAGE, regex=False)
     ]
-    bound = float(module.STUDY.failure_bound.get(str(module.STUDY.pending_reference), 0.01))
+    bound = float(module.STUDY.failure_bound.get(comparator, 0.01))
     rows = []
     for name, count in declared.items():
         paired = cut.get(name, count)
