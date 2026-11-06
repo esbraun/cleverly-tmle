@@ -20,6 +20,8 @@ REFIT_CELLS = ("stability",)
 UNPRINTED_DECIMALS = {
     "1.5": "the curve over the true effect at age 51 (about 1.47); _check_targeting recomputes it",
     "1.6": "the curve over the true effect at age 56 (about 1.64); _check_targeting recomputes it",
+    "0.1": "the robust standard error of the calibration slope (about 0.12); _check_assessment "
+    "recomputes it",
 }
 
 
@@ -32,7 +34,7 @@ def _check_confounding(namespace: dict[str, Any]) -> None:
 
 
 def _check_curve(namespace: dict[str, Any]) -> None:
-    """The EP curve has the true shape, a few points high to 60, and uses one wave."""
+    """The EP curve falls too steeply, a few points high to 60, and uses one wave."""
     curve = namespace["curve"]
     ages = namespace["ages"]
     truth = namespace["true_uplift"](ages)
@@ -51,13 +53,32 @@ def _check_curve(namespace: dict[str, Any]) -> None:
 
 
 def _check_assessment(namespace: dict[str, Any]) -> None:
-    """The calibration is near perfect, and the curve reads below the constant and T-learner."""
+    """The check reads near 1 but is too coarse to see the curve's real, too-steep error."""
     calibration = namespace["calibration"]
     assert 0.85 < calibration.slope < 1.05
     assert abs(calibration.intercept) < 0.02
     bins = calibration.to_frame()
     gap = bins["pseudo_outcome_contrast"] - bins["mean_prediction"]
-    assert np.max(np.abs(gap)) < 0.03, "the groups track their stand-ins closely"
+    assert np.max(np.abs(gap)) < 0.02, "the groups sit within 2 points of their stand-ins"
+    # Accuracy review round 4, M1: the stand-ins are too noisy at this size to see the error.
+    diagnostics = namespace["curve"].diagnostics
+    predictions, _ = diagnostics._out_of_fold(calibration.n_folds, calibration.random_state)
+    *_, d_t, d_r = diagnostics._pieces()[3]
+    stand_in = d_t - d_r
+    design = np.column_stack([np.ones_like(predictions), predictions])
+    beta = np.linalg.lstsq(design, stand_in, rcond=None)[0]
+    residual = stand_in - design @ beta
+    bread = np.linalg.inv(design.T @ design)
+    slope_se = np.sqrt((bread @ (design.T * residual**2) @ design @ bread)[1, 1])
+    assert 0.07 < slope_se < 0.15, "the slope is uncertain by about 0.1"
+    groups = np.digitize(predictions, np.quantile(predictions, [0.2, 0.4, 0.6, 0.8]))
+    group_se = [stand_in[groups == g].std(ddof=1) / np.sqrt(np.sum(groups == g)) for g in range(5)]
+    assert all(0.02 < se < 0.04 for se in group_se), "each group uncertain by about 3 points"
+    # The curve is in fact about 20% too steep from 20 to 80.
+    ages, truth = namespace["ages"], namespace["true_uplift"](namespace["ages"])
+    estimate = namespace["curve"].predict({"age": ages})
+    steepness = (estimate[0] - estimate[-1]) / (truth[0] - truth[-1])
+    assert 1.15 < steepness < 1.25, steepness
     risks = namespace["risks"]
     assert risks["curve"] < risks["t_learner"] < risks["constant"] < 0
     assert risks["t_learner"] - risks["curve"] > 0.005, "clearly lower"
@@ -80,6 +101,7 @@ def _check_targeting(namespace: dict[str, Any]) -> None:
     # The true gain beats the cost only up to about age 51.
     true_uplift, cost = namespace["true_uplift"], namespace["COST"]
     assert true_uplift(50.5) > cost > true_uplift(51.5)
+    assert namespace["break_even"] == 51
     curve = namespace["curve"]
     ratio = curve.predict({"age": np.array([51.0, 56.0])}) / true_uplift(np.array([51.0, 56.0]))
     assert np.allclose(ratio, [1.5, 1.6], atol=0.05), ratio
