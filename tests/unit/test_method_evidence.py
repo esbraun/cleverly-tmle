@@ -2877,6 +2877,75 @@ def _published_block(study: StudyRecord, name: str) -> list[str]:
     return lines[head + 1 : tail]
 
 
+#: A number as a published cell prints it: fixed point or scientific notation.
+_PRINTED_NUMBER = re.compile(r"-?\d+(?:\.(?P<fraction>\d+))?(?:e(?P<exponent>[+-]?\d+))?")
+
+
+def _last_place(token: re.Match[str]) -> float | None:
+    """One unit in the last printed place of ``token``, or ``None`` for an integer.
+
+    An integer is a count, and a count that moves by one is a real change, so it has no
+    tolerance.  A rounded quantity does: the same committed rows can print one last digit
+    apart under two library versions, as ``3/800``'s ``-0.0037`` and ``-0.0038`` did across
+    a pandas release.
+    """
+    fraction, exponent = token.group("fraction"), token.group("exponent")
+    if fraction is None:
+        return None
+    return 10.0 ** (-len(fraction) + (int(exponent) if exponent else 0))
+
+
+def _same_printed_table(published: list[str], rendered: list[str]) -> bool:
+    """Whether two renderings of a table agree up to the last printed digit of a number.
+
+    Text, counts, verdicts and each number's printed precision must match exactly.  A
+    rounded number may differ from its rendering by one unit in its last printed place and
+    no more: a version of a library may round a value that sits on a tie the other way,
+    and that is not a change to the evidence.
+    """
+    if len(published) != len(rendered):
+        return False
+    for left, right in zip(published, rendered, strict=True):
+        left_numbers = list(_PRINTED_NUMBER.finditer(left))
+        right_numbers = list(_PRINTED_NUMBER.finditer(right))
+        if _PRINTED_NUMBER.sub("#", left) != _PRINTED_NUMBER.sub("#", right):
+            return False
+        for a, b in zip(left_numbers, right_numbers, strict=True):
+            if a.group(0) == b.group(0):
+                continue
+            unit = _last_place(a)
+            if unit is None or _last_place(b) != unit:
+                return False
+            if abs(float(a.group(0)) - float(b.group(0))) > unit * (1.0 + 1e-9):
+                return False
+    return True
+
+
+def _first_difference(published: list[str], rendered: list[str]) -> str:
+    """The first published line that its rendering does not reproduce, beside the rendering."""
+    for left, right in zip(published, rendered, strict=False):
+        if not _same_printed_table([left], [right]):
+            return f"published {left!r}, rendered {right!r}"
+    return f"{len(published)} published lines against {len(rendered)} rendered"
+
+
+def test_a_last_digit_tie_is_the_same_table_and_a_real_change_is_not() -> None:
+    """The tolerance covers a rounding tie and nothing a reader would read as new evidence."""
+    row = "| `or` | -2.211e-11 | 1.0000 | {coverage} | 34/34 | 0.0200 vs 0.0500 | {verdict} |"
+    published = [row.format(coverage="0.0037", verdict="equivalent")]
+    assert _same_printed_table(published, [row.format(coverage="0.0038", verdict="equivalent")])
+    assert _same_printed_table(published, published)
+    for changed in (
+        row.format(coverage="0.0039", verdict="equivalent"),  # two places: a moved value
+        row.format(coverage="0.00375", verdict="equivalent"),  # another precision
+        row.format(coverage="0.0037", verdict="**not equivalent**"),  # a flipped verdict
+        row.format(coverage="0.0037", verdict="equivalent").replace("34/34", "33/34"),
+        row.format(coverage="0.0037", verdict="equivalent").replace("e-11", "e-10"),
+    ):
+        assert not _same_printed_table(published, [changed]), changed
+    assert not _same_printed_table(published, published * 2)
+
+
 def _agreement_result(row: Any) -> str:
     """How one committed paired verdict must read in the published table.
 
@@ -2926,9 +2995,10 @@ class TestThePublishedTestTables:
             pytest.skip("study declares no property cell")
         published = _published_block(study, name)
         rendered = GENERATED[name](study, _artifacts(study.slug))
-        assert published == rendered, (
+        assert _same_printed_table(published, rendered), (
             f"{study.slug}'s {name} table is not what its artefacts render. Run "
-            f"`python -m tests.studies.evidence.document` rather than editing it by hand"
+            f"`python -m tests.studies.evidence.document` rather than editing it by hand. "
+            f"First difference: {_first_difference(published, rendered)}"
         )
 
     def test_generated_efficiency_language_requires_an_independent_bound(
