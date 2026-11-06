@@ -37,11 +37,15 @@ uv pip install -e ".[dev,docs]"
 The `dev` extra pins Ruff and mypy to exact versions, and `uv.lock` resolves them. CI and `nox`
 install the same extra. Do not restate a tool version anywhere else.
 
-Runtime libraries are not pinned tightly, and their versions float between releases. A test must
-tolerate the rounding changes a new library version can bring, such as a value that prints one
-last digit apart. It should fail only when the evidence or the behavior really changes. The published
-study tables compare that way in `tests/unit/test_method_evidence.py`. Pin a library version only
-when a release breaks a method, and say which method in the change that adds the pin.
+Runtime libraries are not pinned tightly, and their versions float between releases. Each
+library dependency has a floor and no upper bound. `uv.lock` records the versions most CI jobs
+install, and the Python 3.13 row of the `tests` job installs the newest releases instead. A test
+must tolerate the rounding changes a new library version can bring, such as a value that prints
+one last digit apart, and fail only when the evidence or the behavior really changes. The
+published study tables compare that way in `tests/unit/test_method_evidence.py`.
+
+Pin a library version only when a release breaks a method or the build. Name the failure in a
+comment beside the upper bound in `pyproject.toml`.
 
 The `docs` extra adds Sphinx. Install it so you can run the documentation build directly, which is
 faster than the isolated `nox` session.

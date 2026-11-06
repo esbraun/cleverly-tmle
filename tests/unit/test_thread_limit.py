@@ -375,3 +375,37 @@ class TestOverlappingBlocks:
             with thread_limit(1):
                 pass
         assert _threads._STACK == []
+
+
+class TestTheSharedOpenBLASPool:
+    """threadpoolctl 3.8 gives a pthreads OpenBLAS pool to one Python thread at a time."""
+
+    def test_a_block_in_another_thread_limits_blas_while_this_thread_holds_a_limiter(self):
+        """Under 3.8 the main thread's ``with`` makes it the pool's owner.
+
+        A worker's block must still put BLAS at one, put back the main thread's setting when
+        it leaves, and leave no owner behind that would drop the next thread's write. Before
+        3.8 there is no owner and this reads the same.
+        """
+        seen: list[int | None] = []
+        failures: list[BaseException] = []
+
+        def worker() -> None:
+            try:
+                with thread_limit(1):
+                    seen.extend(_limits())
+            except BaseException as error:  # pragma: no cover - reported below
+                failures.append(error)
+
+        with threadpoolctl.threadpool_limits(limits=2):
+            before = _needs_a_multi_thread_pool()
+            thread = threading.Thread(target=worker)
+            thread.start()
+            thread.join(timeout=60)
+            after = _limits()
+
+        assert not failures, failures
+        assert seen and all(count == 1 for count in seen), seen
+        assert after == before
+        shared = getattr(_threads._OpenBLASController, "_SHARED_STATE", None)
+        assert getattr(shared, "controlling_thread", None) is None
