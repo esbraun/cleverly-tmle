@@ -9,10 +9,12 @@ closes that gap.  It writes the artifacts, the manifest and a ``run.log`` into a
 A **declared run** passes no ``--replicates``.  It takes ``--output``, ``--jobs`` and ``--fresh``
 and refuses every other flag.  It refuses to start unless RM18 rule R6 holds (through
 :func:`tests.diagnostics.rm18_shared.refusals`: a clean tree, ``HEAD`` equal to its upstream,
-and ``cleverly`` imported from this tree's ``src``) and every thread variable is 1.  A study
-can add refusals of its own.  The copy happens whenever the driver wrote a manifest, so a gated
-study whose verdict fails still publishes the run, and the run then stops with the driver's
-error.
+and ``cleverly`` imported from this tree's ``src``) and every thread variable is 1.  It refuses
+no library version: the manifest records the versions of the run.  A study may declare the stack
+it was run on; a run on another stack then warns, names each difference in ``run.log``, and
+records them in the manifest (:func:`tests.studies.evidence.manifest.declared_stack`).  The copy
+happens whenever the driver wrote a manifest, so a gated study whose verdict fails still
+publishes the run, and the run then stops with the driver's error.
 
 A declared run keeps its scratch directory and its checkpoints until its PR merges, for audit.
 The driver prints both paths, and the implementer records them in the row's progress file.  A
@@ -30,10 +32,11 @@ form.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import shutil
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -47,6 +50,7 @@ from tests.canonical.regenerate import (
 from tests.canonical.regenerate import main as regenerate
 from tests.diagnostics.rm18_shared import THREAD_VARIABLES, note, refusals, run_log
 from tests.parallel import available_cores
+from tests.studies.evidence.manifest import declared_stack, provenance, stack_differences
 from tests.studies.evidence.registry import ROOT
 
 #: What a declared run writes beside the study's artifacts.
@@ -82,6 +86,7 @@ def publish_run(
     arguments: Sequence[str],
     title: str,
     reference: Reference | None = None,
+    warnings: Sequence[str] = (),
 ) -> None:
     """Run the shared driver into the scratch ``output`` and copy the record into ``here``.
 
@@ -90,6 +95,7 @@ def publish_run(
     its block, and every artifact, the manifest and the log are copied into ``here``.  A driver
     error after the manifest exists is a failed verdict of a gated study: the record is copied
     and the error is raised again.  A driver error before the manifest exists copies nothing.
+    Each of ``warnings`` is a note in ``run.log``.
     """
     # A study's property artifacts, such as ``cells.csv``, are part of its record too. The SL
     # and SD runs of ``refuter-calibration-longitudinal`` lost theirs before this line read them.
@@ -108,7 +114,7 @@ def publish_run(
             try:
                 regenerate(study, properties, here=here, reference=reference)
             finally:
-                for line in RUN_NOTES:
+                for line in (*(f"warning: {text}" for text in warnings), *RUN_NOTES):
                     note(line)
     except RuntimeError as error:
         if not (output / "manifest.json").exists():
@@ -139,13 +145,15 @@ def declared(
     here: Path,
     arguments: Sequence[str],
     reference: Reference | None = None,
-    study_refusals: Callable[[], list[str]] = list,
     flag_rule: str | None = None,
+    stack: Mapping[str, str] | None = None,
 ) -> None:
     """A declared run: the guard, the scratch output, the run log and the copy.
 
     ``flag_rule`` names the study's own declared rule in the refusal of an extra flag, as RM30
-    names its rule L11.
+    names its rule L11.  ``stack`` is the study's declared stack, keyed as the manifest keys its
+    versions.  A run on another stack is not refused: it prints a warning for each difference,
+    notes it in ``run.log``, and the manifest records it.
     """
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--output", type=Path)
@@ -162,24 +170,33 @@ def declared(
     output = outside(known.output, "declared")
     if output.exists() and any(output.iterdir()):
         raise SystemExit(f"refused: the scratch --output {output} is not empty")
-    refused = refusals(False) + thread_refusals() + study_refusals()
+    refused = refusals(False) + thread_refusals()
     if refused:
         raise SystemExit("refused:\n  " + "\n  ".join(refused))
     output.mkdir(parents=True, exist_ok=True)
-    publish_run(
-        study,
-        properties,
-        here=here,
-        output=output,
-        arguments=(
-            "--jobs",
-            str(known.jobs),
-            "--keep-cache",
-            *(("--fresh",) if known.fresh else ()),
-        ),
-        title=f"{study.STUDY.slug} declared run",
-        reference=reference,
-    )
+    differences = {} if stack is None else stack_differences(stack, provenance())
+    warnings = [
+        f"{name} is {found['ran']}, not the declared {found['declared']}"
+        for name, found in differences.items()
+    ]
+    for line in warnings:
+        print(f"warning: {line}", file=sys.stderr, flush=True)
+    with contextlib.nullcontext() if stack is None else declared_stack(stack):
+        publish_run(
+            study,
+            properties,
+            here=here,
+            output=output,
+            arguments=(
+                "--jobs",
+                str(known.jobs),
+                "--keep-cache",
+                *(("--fresh",) if known.fresh else ()),
+            ),
+            title=f"{study.STUDY.slug} declared run",
+            reference=reference,
+            warnings=warnings,
+        )
 
 
 def run(

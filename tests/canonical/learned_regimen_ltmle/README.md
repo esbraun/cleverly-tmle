@@ -58,7 +58,7 @@ recomputes every count from the pinned pilot readings.
 - Calibration: 9,200, the per-cell rule on the 8,000 pilot draws pooled with a probe (0.952).
   The probe rule's budget fallback, read on pilot timings from a host at load 8, gave 4,000. The
   design review recorded an exception: the run host's timing admits 9,200 in the same 75-minute
-  budget. The condition is that the run host's mean seconds per fit, read off the L7 smoke's
+  budget. The condition is that the run host's mean seconds per fit, read off the run host's smoke
   `--property-harness-check`, is at most about 1.02 (17,600 fits over 4 jobs in 75 minutes).
   Otherwise the count is the largest multiple of 400 that fits, published as a known risk.
 - Coverage: 2,400, on the redesign pilot of `squared_w1`.
@@ -86,25 +86,27 @@ recomputes every count from the pinned pilot readings.
 
 ## Run
 
-A declared run takes `--output`, `--jobs` and `--fresh` only, on the Python and package versions
-that rule L7 of `tests/canonical/learned_rule_run.py` declares, with one thread per numerical
-library. It also needs `cleverly` imported from the tree's `src`, a clean tree, and `HEAD`
-equal to its upstream. The run fits 16,400 draws, 17,600 fits (fold locality fits twice per
-draw). At 0.75 to 0.84 s per fit on an idle host that is 55 to 62 minutes at four jobs; with the
-summary bootstraps, allow 70 to 80 minutes, and run nothing else on the host. Run the smoke on
-L7 first and read the timing condition (Sizing) off its harness-check wall time:
+A declared run takes `--output`, `--jobs` and `--fresh` only, with one thread per numerical library.
+Rule L7 of `tests/canonical/learned_rule_run.py` declares the stack the committed run used and
+refuses no other: a run on another stack warns, and `manifest.json` records the versions the run
+used and each difference from the declared stack. It also needs `cleverly` imported from the tree's
+`src`, a clean tree, and `HEAD` equal to its upstream. The run fits 16,400 draws, 17,600 fits (fold
+locality fits twice per draw). At 0.75 to 0.84 s per fit on an idle host that is 55 to 62 minutes at
+four jobs; with the summary bootstraps, allow 70 to 80 minutes, and run nothing else on the host.
+Run the smoke first, on the host and interpreter of the declared run, and read the timing condition
+(Sizing) off its harness-check wall time:
 
 ```bash
 cd /home/user/x11-pr-k
 export PYTHONPATH=$PWD/src:$PWD OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
     VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-<L7 python> -u -m tests.canonical.learned_regimen_ltmle.regenerate \
+python -u -m tests.canonical.learned_regimen_ltmle.regenerate \
     --replicates 4 --jobs 4 --allow-failures --output /tmp/k-smoke --property-harness-check 3
 mkdir /tmp/k-out   # empty, outside the repository
-<L7 python> -u -m tests.canonical.learned_regimen_ltmle.regenerate --jobs 4 --output /tmp/k-out
+python -u -m tests.canonical.learned_regimen_ltmle.regenerate --jobs 4 --output /tmp/k-out
 ```
 
 A smoke run passes another `--replicates` and writes outside the repository.
 `--property-harness-check 3` also fits three draws of every property cell and prints the rule
-agreement, the solver warnings and the wall time. A smoke never checks the runtime, so only a
-smoke on L7 times the run host.
+agreement, the solver warnings and the wall time. A smoke never compares its stack with the declared
+one, so only a smoke on the declared run's host and interpreter times that host.

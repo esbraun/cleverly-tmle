@@ -7,8 +7,13 @@ rule.  The regeneration itself is the shared
 
 A **declared run** passes no ``--replicates``.  It is the shared declared run form of
 :mod:`tests.canonical.declared_run`: the RM18 rule R6 guard, one thread per library, a scratch
-``--output`` outside the repository, a ``run.log`` and the copy into the study directory.  This
-module adds one refusal: the runtime must be the one rule L7 declares.
+``--output`` outside the repository, a ``run.log`` and the copy into the study directory.  Rule
+L7 ties each run to a stack without pinning one.  The manifest's ``generated_with.subject``
+records the Python, NumPy, SciPy, pandas, scikit-learn and joblib versions the run used and the
+digest of ``uv.lock`` (:func:`tests.studies.evidence.manifest.provenance`).
+:data:`DECLARED_STACK` is the stack the committed runs used.  A declared run on another stack is
+not refused: it warns, notes each difference in ``run.log``, and records the declared stack and
+the differences in ``generated_with.declared_stack``.
 
 A **smoke run** passes a ``--replicates`` other than the declared budget.  It runs on the
 throwaway record of rule L9, whose seeds come from the labels ``("rm30", "smoke")`` and
@@ -26,7 +31,6 @@ agreement; a learned-rule study whose rows lack ``rule_rows_checked`` stops the 
 from __future__ import annotations
 
 import argparse
-import platform
 import sys
 import time
 from functools import partial
@@ -42,15 +46,13 @@ from tests.studies import _learned_rule_law as law
 from tests.studies.evidence.manifest import write_csv
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
-#: The interpreter version of rules L6 and L7.
-PYTHON = "3.13.7"
-
-#: The package versions of rule L7, by import name.
-PACKAGES = {
+#: The stack of rule L7, keyed as the manifest keys its versions: a record, not a gate.
+DECLARED_STACK = {
+    "python": "3.13.7",
     "numpy": "2.4.6",
     "scipy": "1.18.0",
     "pandas": "3.0.5",
-    "sklearn": "1.9.0",
+    "scikit_learn": "1.9.0",
     "joblib": "1.5.3",
 }
 
@@ -175,20 +177,6 @@ def declared_sample_seeds() -> set[int]:
     return seeds
 
 
-def runtime_refusals() -> list[str]:
-    """Why the runtime is not the one rules L6 and L7 declare."""
-    import importlib
-
-    out = []
-    if platform.python_version() != PYTHON:
-        out.append(f"Python is {platform.python_version()}, not {PYTHON} (rules L6 and L7)")
-    for name, version in PACKAGES.items():
-        found = importlib.import_module(name).__version__
-        if found != version:
-            out.append(f"{name} is {found}, not {version} (rule L7)")
-    return out
-
-
 def _smoke_study(study: ModuleType, record: Any) -> SimpleNamespace:
     """``study`` with its record and its sampler bound to the throwaway record."""
     names = {name: getattr(study, name) for name in dir(study) if not name.startswith("__")}
@@ -260,8 +248,8 @@ def run(study: ModuleType, properties: ModuleType, *, here: Path) -> None:
             properties,
             here=here,
             arguments=rest,
-            study_refusals=runtime_refusals,
             flag_rule="rule L11",
+            stack=DECLARED_STACK,
         )
         return
     if known.replicates == study.PRIMARY_REPLICATES:
