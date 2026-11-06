@@ -51,6 +51,23 @@ categorized API tables.
    cleverly.IncrementalEffect
    cleverly.MSMProjection
    cleverly.msm.MSM
+   cleverly.ConditionalContrast
+   cleverly.bases.Modifiers
+   cleverly.bases.Constant
+   cleverly.bases.Linear
+   cleverly.bases.Indicators
+   cleverly.bases.Cosine
+   cleverly.bases.BSpline
+   cleverly.bases.Additive
+   cleverly.bases.Tensor
+   cleverly.bases.Interactions
+   cleverly.bases.Sieve
+   cleverly.bases.UserBasis
+   cleverly.bases.Basis
+   cleverly.effect_curves.EffectCurveResult
+   cleverly.effect_curves.CurveBand
+   cleverly.effect_curves.HeterogeneityTest
+   cleverly.effect_curves.ScoreAssessment
    cleverly.ControlledDirectEffect
    cleverly.EstimationMethod
    cleverly.TMLEMethod

@@ -1,0 +1,5 @@
+study,scenario,per_worker_mb,peak_growth_mb,private_after_gc_mb,parent_mb,available_mb,planned_mb,chunk,workers
+ltmle,binary_k3,155.57,52.852,102.719,80.66,19931.41,599.1999999999999,12,12
+ltmle,binary_k4,218.824,70.887,147.938,114.461,19898.102,848.3595,12,12
+ltmle,binary_k5,851.348,383.906,467.441,264.707,19747.359,1645.469,7,8
+ltmle,binary_k5_msm,1106.297,544.406,561.891,347.367,19665.035,1974.7145,6,6

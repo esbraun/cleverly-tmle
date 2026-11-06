@@ -1,0 +1,4 @@
+study,scenario,per_worker_mb,peak_growth_mb,private_after_gc_mb,parent_mb,available_mb,planned_mb,chunk,workers
+lmtp-parity,parity_sdr_mix,332.219,116.141,216.078,141.457,19871.91,1110.2324999999998,12,12
+lmtp-parity,parity_sdr_mix_folds,302.375,107.652,194.723,141.555,19871.711,1080.9275,12,12
+lmtp-parity,parity_tmle_mix,314.578,117.41,197.168,141.402,19872.172,1092.289,12,12

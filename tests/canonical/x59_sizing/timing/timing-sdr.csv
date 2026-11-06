@@ -1,0 +1,13 @@
+study,scenario,tier,replicates,seconds
+sdr,sdr_binary_k3,2,,1.049
+sdr,sdr_binary_k4,2,,4.1625
+sdr,sdr_binary_k5,2,,22.894
+sdr,sdr_categorical_k5,2,,44.292500000000004
+sdr,sdr_categorical_k5_crossfit,2,,732.063
+sdr,sdr_categorical_k5_static,4,,15.150500000000001
+sdr,sdr_categorical_k5_switch,4,,5.5845
+sdr,sdr_categorical_k5_high,4,,5.2245
+sdr,sdr_categorical_k5_mix,2,,18.630000000000003
+sdr,sdr_policy_k5,2,,14.822
+sdr,sdr_policy_k5_mix,2,,30.3355
+sdr,sdr_policy_k5_taper,4,,14.0655

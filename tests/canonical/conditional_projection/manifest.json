@@ -1,0 +1,97 @@
+{
+  "schema_version": 2,
+  "study": "Conditional-contrast projection",
+  "slug": "conditional-projection",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-projection-tmle",
+      "cleverly_version": "0.2.0",
+      "cleverly_commit": "00a9c83955e9c046adcff9f27780c375530f8c24",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.18",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 4800,
+    "n": 4000,
+    "seed": 20261105,
+    "resampling_seed": 20261106,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-projection-tmle": 0.01
+    },
+    "scenarios": {
+      "obs_4k": [
+        "cate_projection[(intercept)]",
+        "cate_projection[W1]",
+        "cate_projection[W3]"
+      ]
+    },
+    "trial_2k": "trial law, n=2000, R=4800, learner spline, scale difference",
+    "obs_1k": "observational law, n=1000, R=4800, learner spline, scale difference",
+    "obs_4k": "observational law, n=4000, R=4800, learner spline, scale difference",
+    "crr_1k": "crr law, n=1000, R=4800, learner spline, scale log_ratio",
+    "crr_4k": "crr law, n=4000, R=4800, learner spline, scale log_ratio",
+    "multi_4k": "multi_arm law, n=4000, R=4800, learner spline, scale difference",
+    "weighted_sl_2k": "weighted law, n=2000, R=3600, learner ensemble, 5 outer folds, scale difference",
+    "clustered_4k": "clustered law, n=4000, R=4800, learner spline, scale difference",
+    "obs_missing_4k": "missing law, n=4000, R=4800, learner spline, scale difference",
+    "obs_missing_crr_4k": "missing law, n=4000, R=4800, learner spline, scale log_ratio",
+    "assess_score_2k": "assess law, n=2000, R=4800, learner spline, scale difference",
+    "slow_1k": "slow_both law, n=1000, R=4800, learner slow, scale difference",
+    "slow_4k": "slow_both law, n=4000, R=4800, learner slow, scale difference",
+    "slow_16k": "slow_both law, n=16000, R=4800, learner slow, scale difference",
+    "null_2k": "hetero_trial law, n=2000, R=2400, learner risk_glm, scale difference",
+    "power_4k": "hetero_trial law, n=4000, R=1000, learner risk_glm, scale difference",
+    "noweight_dr_4k": "noweight_law law, n=4000, R=1000, learner declared_noweight, scale difference",
+    "missing_dr_4k": "missing law, n=4000, R=1000, learner declared_missing, scale difference",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/conditional_projection.py": "d377dbb8e6ab03f3f61092bc2e52a05404c825e6a40f6b3bdfb99788bbdabb05",
+    "tests/studies/conditional_projection_properties.py": "35fa09dabeb48a7874ff92c7ad35f1eb5bb8a27dbf3a7963842b1ce754de9630",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "c23ec6ca777d6bd662b759bdf3e09bd98afef526ba9ef7f2b3527e8a83146fea",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "43ec63b5b7600a4e4c2bf706da6ee412ffe629b5704e0fac1536a550e066bde6",
+    "summary.csv": "09e84c57c747926bc1db42e7c4c1fd7ef948b42a515bcf79d252105ae9223d22",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "37292b5c4cf03608c06b64825eeda5f517d57d683cf15fb4d5856c7d531e6cf3",
+    "property-replicates.parquet": "2941058d19c60a40255db7a942741cee40b6ba9cbaf42a1c02f4ea248128bbce",
+    "properties.csv": "7a49ba9bdd5a2c7b529f5e2dbe2430fb25ea8889b16c61b8a7acc452406d09fe"
+  }
+}

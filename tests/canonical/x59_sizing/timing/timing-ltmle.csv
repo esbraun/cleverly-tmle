@@ -1,0 +1,5 @@
+study,scenario,tier,replicates,seconds
+ltmle,binary_k3,2,,0.4395
+ltmle,binary_k4,2,,1.217
+ltmle,binary_k5,2,,5.259
+ltmle,binary_k5_msm,4,,8.747499999999999

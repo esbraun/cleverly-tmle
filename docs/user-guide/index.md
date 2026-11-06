@@ -22,6 +22,7 @@ registered validation studies, not in an example.
 
 data-design
 estimands
+conditional-effects
 methods-learners
 results-assessment
 longitudinal

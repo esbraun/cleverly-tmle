@@ -324,6 +324,14 @@ def test_registered_point_targets_have_an_explicit_surface_disposition() -> None
         ),
         "ey_rr_tilt": "risk-ratio tilt mean: no replay reading of its rule is declared",
         "ate_rr_tilt": "risk-ratio tilt contrast: refused fit-wide for the same reason",
+        "cate_projection": (
+            "working-model coefficient of a conditional difference: no derivation of a "
+            "confounding replay for a projection coefficient, so the fit is refused (P1)"
+        ),
+        "log_crr_projection": (
+            "working-model coefficient of a conditional log risk ratio: refused fit-wide for "
+            "the same reason (P1)"
+        ),
     }
     assert binary == set(_BINARY_PARAMETER_TARGETS)
     dispositions = (binary, continuous, policy.keys(), refused.keys())

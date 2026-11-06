@@ -225,6 +225,26 @@ data = frame.rename(
 """
 )
 
+#: A trial-like frame for ``docs/user-guide/conditional-effects.md``: an ``age`` modifier inside
+#: the declared domain (18, 90), an effect that grows with age, and an external ``risk_score``
+#: that is a fixed function of ``age`` and ``W2``.
+_CONDITIONAL = """
+import numpy as np
+import pandas as pd
+from scipy.special import expit
+
+_rng = np.random.default_rng(7)
+_n = 400
+age = _rng.uniform(18, 90, _n)
+W2 = _rng.normal(size=_n)
+W3 = _rng.binomial(1, 0.5, _n)
+A = _rng.binomial(1, expit(0.3 * W2 - 0.2 * W3))
+Y = _rng.binomial(1, expit(-0.5 + 0.4 * W2 + A * (age - 50) / 40))
+frame = pd.DataFrame(
+    {"Y": Y, "A": A, "age": age, "W2": W2, "W3": W3, "risk_score": 0.01 * (age - 50) + 0.05 * W2}
+)
+"""
+
 #: Document -> the code its fences assume was already run.  An empty string means the document
 #: builds everything it uses.  Tutorials under ``docs/examples`` hold that standard without an
 #: entry here: :data:`TUTORIALS` discovers them, so converting one to a notebook edits no
@@ -241,6 +261,7 @@ PRELUDES: dict[str, str] = {
     "docs/technical-reference/structural-dynamic-effects.md": "",
     "docs/technical-reference/validation-methods.md": "",
     "docs/user-guide/longitudinal.md": "",
+    "docs/user-guide/conditional-effects.md": _CONDITIONAL,
     "docs/user-guide/data-design.md": _FRAME,
     "docs/user-guide/estimands.md": _STUDY,
     "docs/user-guide/methods-learners.md": _EFFECT,

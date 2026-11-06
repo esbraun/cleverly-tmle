@@ -88,6 +88,7 @@ from .validation.score import DEFAULT_TOLERANCE
 
 __all__ = [
     "ASSESSMENT_CAPABILITIES",
+    "CURVE_OPERATIONS",
     "LONGITUDINAL_CENSORING_NOT_FITTED",
     "LONGITUDINAL_CONSTANT_TARGET",
     "LONGITUDINAL_CONSTANT_TARGET_IN_FOLD",
@@ -318,6 +319,7 @@ _FAMILY_METHODS: dict[str, tuple[str, ...]] = {
     "point": ("tmle", "collaborative_tmle", "drtmle"),
     "longitudinal": ("tmle", "sdr", "ipsi", "gcomp", "ipw", "parametric_gformula"),
     "structural": ("snmm",),
+    "effect_modification": ("tmle", "ep"),
 }
 
 
@@ -353,6 +355,28 @@ def _capability(
         requires_arguments=tuple(requires_arguments),
         accepts_random_state=accepts_random_state,
         requires_replay=requires_replay,
+    )
+
+
+def projection_sensitivity_refusal(operation: str) -> Refusal:
+    """R9 of the P1 plan: a sensitivity analysis or refutation of a projection coefficient.
+
+    Parameters
+    ----------
+    operation : str
+        The refused operation.
+
+    Returns
+    -------
+    Refusal
+        An ``IMPLEMENTATION_GAP`` record with roadmap ``P1``.
+    """
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"{operation} is defined for a mean or a contrast of means, and a working-model "
+        "coefficient of a conditional contrast has no derivation of it.",
+        alternative="Run it on ATE() or RiskRatio() on the same study.",
+        roadmap="P1",
     )
 
 
@@ -579,7 +603,93 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
             "bootstrap resampling of the panel"
         ),
     ),
+    # An effect curve (P1 plan 3.5).  It shares the six operations of every family, read off
+    # the producing fit, and declares four of its own, which only a curve has.
+    _capability(
+        "support",
+        "effect_modification",
+        artifacts=("the producing fit's mechanism",),
+        interpretation="overlap of the producing fit's mechanism, as the point support report",
+    ),
+    _capability(
+        "nuisance_models",
+        "effect_modification",
+        artifacts=("the producing fit's out-of-fold nuisance predictions",),
+        interpretation="the producing fit's held-out nuisance fit",
+    ),
+    _capability(
+        "score_equations",
+        "effect_modification",
+        artifacts=("the producing fit's targeting state", "influence curves"),
+        interpretation="the projection's score equations, as the producing fit solved them",
+    ),
+    _capability(
+        "corrections",
+        "effect_modification",
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.NOT_APPLICABLE,
+        refusal=Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "a projection curve is fitted by TMLE, which solves no doubly-robust correction "
+            "equations.",
+        ),
+        interpretation="the correction identities solved by guarded doubly-robust targeting",
+    ),
+    _capability(
+        "truncation_curve",
+        "effect_modification",
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.UNAVAILABLE,
+        refusal=Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "truncation_curve retargets one arm-indexed parameter at each bound, and no "
+            "retargeting of a projection's coefficients across bounds is built.",
+            alternative="Refit the projection at the bounds you want to compare, with g_bounds=.",
+            roadmap="P1",
+        ),
+        interpretation="estimate stability across declared mechanism bounds",
+    ),
+    _capability(
+        "refute",
+        "effect_modification",
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.UNAVAILABLE,
+        refusal=projection_sensitivity_refusal("refute"),
+        interpretation="behavior under placebo, noise, and subsampling perturbations",
+    ),
+    *(
+        _capability(
+            operation,
+            "effect_modification",
+            artifacts=("the producing estimator", "analysis data", "out-of-fold refits"),
+            execution="refit",
+            deterministic=True,
+            cost="expensive",
+            accepts_random_state=True,
+            interpretation=interpretation,
+        )
+        for operation, interpretation in (
+            (
+                "calibration",
+                "out-of-fold calibration slope and binned table against the doubly robust "
+                "pseudo-outcome; point readings",
+            ),
+            (
+                "risk_comparison",
+                "out-of-fold doubly robust risk against the constant, the T-learner and the "
+                "DR-learner; point readings",
+            ),
+            ("stability", "spread of the curve across split seeds and the alternative basis"),
+            ("modifier_stability", "change in out-of-fold risk without each modifier"),
+        )
+    ),
 )
+
+#: The operations only an effect curve declares.
+CURVE_OPERATIONS = ("calibration", "risk_comparison", "stability", "modifier_stability")
 
 
 @dataclass(frozen=True)
@@ -671,11 +781,37 @@ def _method(result: Any) -> str:
     raise TypeError("assessment requires the fitted artifact to declare its fitted method")
 
 
+def _is_projection(result: Any) -> bool:
+    """Whether ``result`` is a point fit of a conditional contrast's projection."""
+    return getattr(getattr(result, "config", None), "parameter_axis", None) == (
+        "effect_modification"
+    )
+
+
+def _refuse_on_projection(
+    rows: tuple[AssessmentCapability, ...], operations: Container[str] | None = None
+) -> tuple[AssessmentCapability, ...]:
+    """Mark ``operations`` (every row when ``None``) unavailable with the R9 record."""
+    return tuple(
+        replace(
+            row,
+            available=False,
+            status=AssessmentStatus.UNAVAILABLE,
+            refusal=projection_sensitivity_refusal(row.operation),
+        )
+        if operations is None or row.operation in operations
+        else row
+        for row in rows
+    )
+
+
 def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
     """All operation declarations for the result's family."""
 
     family = _family(result)
     rows = tuple(item for item in ASSESSMENT_CAPABILITIES if item.result_family == family)
+    if family == "point" and _is_projection(result):
+        rows = _refuse_on_projection(rows, {"refute"})
     if family == "point" and is_natural_course_fit(result):
         rows = tuple(
             replace(
@@ -3966,6 +4102,69 @@ def _marginal_item(
     return AssessmentItem("marginal_bounds", AssessmentStatus.COMPLETED, "; ".join(facts))
 
 
+def _curve_calibration_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
+    # A point reading: no interval and no derived cutoff, so no row can pass or fail it.
+    detail = (
+        f"out-of-fold calibration slope {report.slope:.3g} and intercept "
+        f"{report.intercept:.3g} on the {report.scale} scale over {report.n_folds} folds; "
+        "point readings"
+    )
+    return AssessmentItem("calibration", AssessmentStatus.COMPLETED, detail)
+
+
+def _curve_risk_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
+    curve = report.risks["curve"]
+    others = ", ".join(
+        f"{name} {value - curve:+.3g}" for name, value in report.risks.items() if name != "curve"
+    )
+    detail = (
+        f"out-of-fold doubly robust risk of the curve {curve:.4g}; each comparator minus the "
+        f"curve: {others}; point readings"
+    )
+    if report.omitted:
+        detail += f"; {report.omitted}"
+    return AssessmentItem("risk_comparison", AssessmentStatus.COMPLETED, detail)
+
+
+def _curve_stability_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
+    from ._curve_assessment import STABILITY_WARNING
+
+    detail = (
+        f"relative SD {report.relative_sd:.3g} across {len(report.seeds)} split seeds; "
+        f"alternative basis: {report.alternative}"
+    )
+    if report.alternative_relative_sd is not None:
+        detail += f" (relative change {report.alternative_relative_sd:.3g})"
+    if not report.warning:
+        return AssessmentItem("stability", AssessmentStatus.COMPLETED, detail)
+    return AssessmentItem(
+        "stability",
+        AssessmentStatus.WARNING,
+        f"{detail}; the relative SD exceeds {STABILITY_WARNING:g}",
+        ("inspect curve.diagnostics.stability() and the alternative basis",),
+    )
+
+
+def _modifier_stability_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
+    full = report.risks["(none)"]
+    changes = ", ".join(
+        f"{name} {value - full:+.3g}" for name, value in report.risks.items() if name != "(none)"
+    )
+    detail = (
+        f"out-of-fold risk {full:.4g} with every modifier; change without each: {changes}; "
+        "point readings"
+    )
+    return AssessmentItem("modifier_stability", AssessmentStatus.COMPLETED, detail)
+
+
 #: How each operation's own report becomes one report row.
 #:
 #: The third argument is what the caller supplied for that operation.  An interpreter that
@@ -3991,6 +4190,11 @@ INTERPRETERS: dict[str, Callable[[Any, Any, Mapping[str, Any]], AssessmentItem]]
     "missingness": _missingness_item,
     "tipping_gamma": _tipping_item,
     "marginal_bounds": _marginal_item,
+    # The readings only an effect curve declares (``CURVE_OPERATIONS``).
+    "calibration": _curve_calibration_item,
+    "risk_comparison": _curve_risk_item,
+    "stability": _curve_stability_item,
+    "modifier_stability": _modifier_stability_item,
 }
 
 
@@ -4414,6 +4618,21 @@ class SensitivityFacade(_CapabilityFacade):
         family = _family(self._result)
         if family == "structural":
             return _STRUCTURAL_SENSITIVITY
+        if family == "point" and _is_projection(self._result):
+            # Every row refuses with R9 of the P1 plan, before any fit-wide rule reads an
+            # axis it has no entry for.
+            return tuple(
+                _capability(
+                    operation,
+                    family,
+                    artifacts=(),
+                    interpretation="not defined for a projection coefficient",
+                    available=False,
+                    status=AssessmentStatus.UNAVAILABLE,
+                    refusal=projection_sensitivity_refusal(operation),
+                )
+                for operation in SENSITIVITY_ROUTES
+            )
         longitudinal = family == "longitudinal"
         # The two tilt rows read the table both tilt entry points raise from.  Its
         # ``missing_outcome`` rule reads the data flag the bound's response rule reads, so
@@ -4521,7 +4740,7 @@ class SensitivityFacade(_CapabilityFacade):
                 refusal=None if tilt_rule is None else tilt_rule[1],
             )
 
-        return (
+        rows = (
             standard(
                 "omitted_confounding",
                 artifacts=("fitted representer", "outcome residuals"),
@@ -4595,6 +4814,7 @@ class SensitivityFacade(_CapabilityFacade):
             ),
             _marginal_row(self._result, family),
         )
+        return rows
 
     @cached_property
     def _evalue_selections(self) -> dict[str | None, Any]:

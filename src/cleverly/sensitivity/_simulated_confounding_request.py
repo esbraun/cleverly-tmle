@@ -237,6 +237,15 @@ def _refuse_result_type(result: Any) -> Refusal | None:
     return None
 
 
+def _refuse_projection(result: Any) -> Refusal | None:
+    """Refuse a fit of a conditional contrast's projection (R9 of the P1 plan)."""
+    if result.config.parameter_axis != "effect_modification":
+        return None
+    from ..assessment import projection_sensitivity_refusal
+
+    return projection_sensitivity_refusal("simulated_confounding")
+
+
 def _refuse_risk_ratio_tilt(result: Any) -> Refusal | None:
     """Refuse a risk-ratio tilt fit, which carries no backdoor identification to read.
 
@@ -442,6 +451,7 @@ def _refuse_provider(result: Any) -> Refusal | None:
 _FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("result_type", _refuse_result_type),
+    ("projection", _refuse_projection),
     ("risk_ratio_tilt", _refuse_risk_ratio_tilt),
     ("missing_estimator", _refuse_missing_estimator),
     ("repeat_provenance", _refuse_repeat_provenance),

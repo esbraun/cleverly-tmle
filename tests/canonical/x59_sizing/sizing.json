@@ -1,0 +1,50 @@
+{
+  "commit": "11967f8f5dedfb8926add906b02a7a3a18dd91d8",
+  "plans": "x59-smoke 2592b449",
+  "run": "smoke attempt 5, 2026-11-04T01:28:16Z to 2026-11-04T10:19:00Z, laptop, 12 cores",
+  "contention": 1.3,
+  "tier1_hours": 0.0,
+  "sha256": {
+    "memory/memory-categorical.csv": "b13794cdf2ab895e7ae7d95ac8fc937330c2839bd255003698f91f16351fcede",
+    "memory/memory-lmtp-parity.csv": "382bcc5affc7926b8fa13ba0f89b0a5ecce8006cf3bb1265074c6728f62506bb",
+    "memory/memory-ltmle-parity.csv": "8e2a60505a67fe1aac40711da9268aea9f4be395325ce75caedab56656613093",
+    "memory/memory-ltmle.csv": "452bdffcbefd820159cbe7111e4ffb37470add54c8140462e14c0b77e6bcc26a",
+    "memory/memory-sdr.csv": "3ff69c307067a15171ee6cf31dbbe4c2b53c2e1cdca1f23b14d5dfbb0a45de7e",
+    "timing/timing-categorical.csv": "31337451045582eb2d7ef5b562a67a6f1564e609780ebcd525d36e74c20bf6c6",
+    "timing/timing-lmtp-parity.csv": "a444d2054d14116471b05d9bd00f73bcd3b2cc34b9dfa7db5985d198ef837f63",
+    "timing/timing-ltmle-parity.csv": "fac0bb4f8a15f06d8b906af9b471965ba49f83a325d2be24febe6e565b347961",
+    "timing/timing-ltmle.csv": "187bf8f48db1338fe026cdb6b1620cc4b37cf3adf8e291c2b065b1217d05ffc1",
+    "timing/timing-sdr.csv": "acd0d04cd34fa0be548a7f392cf158d4d381e206876259fd1e2d318f1a2a6061"
+  },
+  "as_run": {
+    "log": "tier 2 at 100, tier 4 at 100; tier 1 0.0 h, tier 2 13.3 h, tier 3 0.1 h, tier 4 1.3 h; 14.8 of 21 wall hours",
+    "tier2": 100,
+    "tier4": 100,
+    "hours": {
+      "1": 0.0,
+      "2": 13.346689777777778,
+      "3": 0.1464876111111111,
+      "4": 1.3056215972222223
+    }
+  },
+  "promoted": {
+    "note": "the rule on the tiers after every paired S3 plan moved to G1 (all sdr scenarios at tier 2); recorded, not applied: the tiers were fixed from the attempt-5 measurement before the promotion",
+    "tier2": 50,
+    "tier4": 100,
+    "tier2_hours_at_100": 13.637343416666667,
+    "tier2_room": 13.554783052777777
+  },
+  "sha256_laptop_crlf": {
+    "memory/memory-categorical.csv": "69295047f31a81cc4921595894852a114e6365be7f5909f87df49dbd6c98e22b",
+    "memory/memory-lmtp-parity.csv": "e754c5430b00b8a49b7b3bdd2c2b67e52d635679a0db901daeb61ab206346fd8",
+    "memory/memory-ltmle-parity.csv": "f49e88cbab3d72f67674e4b52a80d1bcc9bf1728b1573900032e4cbbd26eb0b1",
+    "memory/memory-ltmle.csv": "5474f8ccac8b3265b2c8a8e3324ca0f4781793fae68894e7a6dcb8fca69cfa36",
+    "memory/memory-sdr.csv": "aa095b55427fdd5245401979798b5068dcf34466a25b1922395e2d974160d250",
+    "timing/timing-categorical.csv": "c6b375f75cae63bb4e28283c37f2d89395d1bb871c5ba5cbc75840ae25cc6515",
+    "timing/timing-lmtp-parity.csv": "961d7ec276c86511d9fa78ecbc9fd838eb712ed990f74b14938cb769bb8dd221",
+    "timing/timing-ltmle-parity.csv": "e91dc8120ced60568b6c74ee54ef36f6421495b0e211ef9b51a6c09d1022b1d1",
+    "timing/timing-ltmle.csv": "34b35f62ab32bdf6385460ed4e904ca960b26697b10ccefec07ff53d6070ed4d",
+    "timing/timing-sdr.csv": "09969473df5af6d2d55b4a286e8c75438586d34dba701e4b8fe47f95bffd3b32"
+  },
+  "sha256_note": "sha256 is of the committed LF bytes; sha256_laptop_crlf of the laptop's CRLF files as written (same rows)"
+}

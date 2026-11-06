@@ -527,7 +527,13 @@ def build_submodel(
         # The covariate needs only h * (dm/deta) * phi; the factors are wanted apart one
         # layer up, in the projection itself. See cleverly.msm.MSMSet.weighted_design_at,
         # which is the identity link's beta-free array whenever the link is the identity.
-        msm=None if nuisance.msm is None else nuisance.msm.weighted_design_at(msm_beta),
+        msm=(
+            nuisance.effect_modification.coefficients_at(msm_beta)
+            if nuisance.effect_modification is not None
+            else None
+            if nuisance.msm is None
+            else nuisance.msm.weighted_design_at(msm_beta)
+        ),
         # The tilt's covariate, precomputed from the *untruncated* mechanism. The
         # `propensity` above still arrives bounded and the ipsi builder discards it:
         # g is inside that estimand, so a bound there would move the parameter.
@@ -711,6 +717,8 @@ def needs_projection(nuisance: NuisanceEstimates, group: TargetGroup) -> bool:
     model has a clever covariate free of ``beta``, so its targeting is one fluctuation and
     goes down exactly the path it went down before links existed.
     """
+    if group == "effect_modification_ratio":
+        return nuisance.effect_modification is not None
     return group == "msm" and nuisance.msm is not None and nuisance.msm.link != "identity"
 
 
@@ -725,6 +733,10 @@ def reported_beta(
     two callers each writing the solve, for the reason there is one
     :func:`~cleverly.msm.solve_projection`.
     """
+    contrast = nuisance.effect_modification
+    if contrast is not None:
+        predictions = _raw_arms(targeted, contrast.arms, nuisance.scaler)
+        return contrast.project(predictions, weights).beta
     msm = nuisance.msm
     if msm is None:
         return None
@@ -806,7 +818,7 @@ def solve_with_projection(
     solves receive ``stop.restrict(rows)``.  The loop's own exit tests the shift in ``beta``
     and does not read the rule.
     """
-    if nuisance.msm is None:  # pragma: no cover - guarded by needs_projection
+    if nuisance.msm is None and nuisance.effect_modification is None:  # pragma: no cover
         raise ValueError(
             f"group {group!r} targets a working model's coefficients, so the fit must "
             "carry the model that defines them; this NuisanceEstimates has none"
@@ -814,14 +826,27 @@ def solve_with_projection(
     if (project is None) != (submodel_at is None) or (project is not None and rows is not None):
         raise ValueError("project= and submodel_at= go together, and without rows=")
     index = None if rows is None else np.asarray(rows)
-    msm = nuisance.msm if index is None else nuisance.msm.subset(index)
     initial = nuisance.outcome if index is None else _slice(nuisance.outcome, index)
     y = scaled if index is None else scaled[index]
     w = weights if index is None else weights[index]
     seen = observed if index is None else observed[index]
     fold_stop = stop if stop is None or index is None else stop.restrict(index)
     scaler = nuisance.scaler
-    if project is None or submodel_at is None:
+    if (project is None or submodel_at is None) and nuisance.effect_modification is not None:
+        contrast = nuisance.effect_modification
+        contrast = contrast if index is None else contrast.subset(index)
+
+        def project(fit: InitialFit) -> FloatArray:
+            return contrast.project(_raw_arms(fit, contrast.arms, scaler), w).beta
+
+        def submodel_at(coefficients: FloatArray) -> Submodel:
+            return _projection_submodel(
+                data, nuisance, group, bounds, nuisance_bound, coefficients, index
+            )
+
+    elif project is None or submodel_at is None:
+        assert nuisance.msm is not None
+        msm = nuisance.msm if index is None else nuisance.msm.subset(index)
 
         def project(fit: InitialFit) -> FloatArray:
             return solve_projection(

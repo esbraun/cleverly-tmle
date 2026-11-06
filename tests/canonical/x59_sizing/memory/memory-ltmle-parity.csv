@@ -1,0 +1,2 @@
+study,scenario,per_worker_mb,peak_growth_mb,private_after_gc_mb,parent_mb,available_mb,planned_mb,chunk,workers
+ltmle-parity,parity_binary_k5,188.203,56.777,131.426,110.336,19902.383,795.0509999999999,12,12

@@ -177,6 +177,14 @@ estimate for graph, Riesz, EP, front-door, IV, mediation, or transport behavior 
 implemented and evidenced. *Reconsider when* the corresponding work package supplies its
 functional, method artifacts, persistence, and independent evidence.
 
+A conditional effect is a parameter only through a working model fixed before the fit. The
+modifiers of a `ConditionalContrast` are adjustment columns, and the domains, levels and knots of
+its basis are declared in `cleverly.bases.Modifiers`, never read off the sample, because a basis
+estimated from the rows is a functional of the observed law that the influence curve does not
+carry. The coefficients, the curve at declared points and the band over a declared grid report on
+the `effect_modification` axis with intervals; the conditional effect with no working model has
+no interval. *Reconsider when* a reviewed source gives inference for a data-chosen basis.
+
 A design and a prepared data container must agree on every role before either is used. Both
 `CausalStudy` and the containers accept the same roles, and neither module alone can see a
 disagreement: the container holds arrays that no longer name their source, while the design is
