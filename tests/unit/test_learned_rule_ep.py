@@ -9,7 +9,7 @@ outer fluctuation, estimate and variance are the plug-in rule's.
   outcome regression that is wrong in the blip.  Every training fold is a whole number of copies
   of the population, so each fold's EP curve is the population EP curve, and with ``g`` exact it
   equals the true conditional effect given ``V`` in every cell to ``1e-10``.  The plug-in rule of
-  the same regression has the wrong sign at ``V = 0``.  Four mutations each break it: no
+  the same regression has the wrong sign at ``V = 0``.  Five mutations each break it: no
   debiasing, unit ``1/g`` weights, no row weights, an unweighted final stage, and the ``(2A - 1)``
   factor replaced by 1.
 * W-c2 (outer fold locality): flipping fold ``v``'s validation outcomes leaves fold ``v``'s curve
@@ -247,8 +247,21 @@ class TestTheRefusalsComeBeforeAnyLearner:
         assert "has at most 3" in str(error)
 
     def test_a_schedule_above_the_family_refuses(self) -> None:
-        error = _refused(ep_rule(sieve=Sieve.default(MODIFIERS, max_size=3, size={100: 4})))
+        error = _refused(ep_rule(sieve=Sieve.default(MODIFIERS, max_size=3, size={1: 4})))
         assert "has at most 3" in str(error)
+
+    def test_a_schedule_is_read_at_each_outer_training_size(self) -> None:
+        """At n = 120 the schedule gives 2, but each 5-fold training fold of 96 rows reads 4."""
+        sieve = Sieve.default(MODIFIERS, max_size=3, size={1: 4, 110: 2})
+        assert sieve.size_at(120) == 2 and sieve.size_at(96) == 4
+        error = _refused(ep_rule(sieve=sieve))
+        assert isinstance(error, CapabilityError)
+        assert "at n = 96" in str(error) and "has at most 3" in str(error)
+
+    def test_a_schedule_with_no_size_at_a_training_fold_refuses(self) -> None:
+        error = _refused(ep_rule(sieve=Sieve.default(MODIFIERS, max_size=3, size={100: 2})))
+        assert isinstance(error, DataError)
+        assert "declares no size at n = 96" in str(error)
 
     def test_a_collinear_member_refuses(self) -> None:
         frame = _frame().assign(W1=lambda f: np.where(f["W1"] > 0, 0.5, -0.5))
@@ -691,6 +704,152 @@ class TestWc3TheSizeStepIsFoldLocal:
         assert max(np.max(np.abs(after[i] - before[i])) for i in range(self.SIZES)) > 1e-6
 
 
+# ------------------------------------------------------------- the size step's arithmetic
+
+#: A continuous outcome on ``[LOW, HIGH]``: ``b - a = 6``, so a risk read off the unscaled
+#: curve differs from the declared one.
+LOW, HIGH = 1.0, 7.0
+
+
+@cache
+def _continuous_weighted_fit() -> Any:
+    """A weighted fit of a continuous outcome with ``q_bounds=(1, 7)`` and the CV sieve."""
+    frame = support.law_frame(400, 0)
+    rng = np.random.default_rng(5)
+    frame = frame.assign(
+        Y=2.0 + 2.0 * frame["Y"] + rng.uniform(0.0, 2.0, len(frame)),
+        w=1.0 + 1.5 * (frame["W1"] > 0.2),
+    )
+    return (
+        support.learned_tmle(
+            learned_rule=ep_rule(), outcome_learner=LinearRegression(), q_bounds=(LOW, HIGH)
+        )
+        .fit(frame, outcome="Y", treatment="A", covariates=support.COVARIATES, weights="w")
+        .single()
+    )
+
+
+def _rebuilt_risks(result: Any, fold: int) -> dict[str, np.ndarray]:
+    """The size step of outer fold ``fold``, rebuilt from the EP core outside the rule learner.
+
+    For each inner fold ``j`` of ``T_v``: the rows ``T_v`` minus ``j``, their own 5-fold split
+    at ``refit_seed(seed, j)`` and nuisances, the curve of each size through
+    ``nuisance_pieces`` and ``curve_from_pieces``, and its weighted one-step loss
+    ``theta^2 - 2 theta D`` on fold ``j`` on the scaled outcome, with ``D`` the pseudo-outcome
+    at ``T_v``'s inner nuisances.  Returns the weighted, unweighted and sign-flipped risks.
+    """
+    from cleverly.effect_modification import modifier_frame
+
+    (split,) = result.extra["learned_rule"].splits
+    seed = split.inner_seeds[fold]
+    train, _ = list(result.nuisance.folds)[fold]
+    inner = result.data.subset(np.asarray(train))
+    fit_inner = partial(result.estimator._inner_rule_nuisances, scaler=result.nuisance.scaler)
+    folds = random_partition(inner.n, INNER_FOLDS, cluster=inner.cluster, seed=seed)
+    nuisance = fit_inner(inner, folds, seed)
+    bounds = result.config.g_bounds
+    target = rule_learners.pseudo_outcome(
+        nuisance,
+        result.nuisance.scaler.scale(np.asarray(inner.outcome, dtype=float)),
+        np.asarray(inner.treatment, dtype=float),
+        bounds,
+    )
+    family = Sieve.default(MODIFIERS).basis
+    weights = np.asarray(inner.weights, dtype=float)
+    frame = modifier_frame(inner, MODIFIERS.columns)
+    sizes = range(1, int(family.max_size) + 1)
+    sums = {key: np.zeros(len(sizes)) for key in ("weighted", "unweighted", "flipped")}
+    mass = {"weighted": 0.0, "unweighted": 0.0}
+    for j, (rows_j, held_j) in enumerate(folds):
+        rows_j, held_j = np.asarray(rows_j), np.asarray(held_j)
+        refit = ep_module.refit_seed(seed, j)
+        rows = inner.subset(rows_j)
+        fitted = fit_inner(
+            rows, random_partition(rows.n, INNER_FOLDS, cluster=rows.cluster, seed=refit), refit
+        )
+        values = modifier_frame(rows, MODIFIERS.columns)
+        pieces = ep_module.nuisance_pieces(
+            rows, fitted, pair=(1.0, 0.0), g_bounds=bounds, alpha=result.estimator.alpha
+        )
+        held = {name: np.asarray(column)[held_j] for name, column in frame.items()}
+        d, w = target[held_j], weights[held_j]
+        for position, size in enumerate(sizes):
+            basis = ep_module.sieve_member(family, size, MODIFIERS)
+            curve = ep_module.curve_from_pieces(
+                pieces,
+                np.asarray(basis.evaluate(values, MODIFIERS), dtype=float),
+                basis=basis,
+                modifiers=MODIFIERS,
+                scale="difference",
+                width=HIGH - LOW,
+                clip=True,
+                final_learner=None,
+                values=values,
+            )[0]
+            theta = np.asarray(curve.predict(held), dtype=float) / (HIGH - LOW)
+            sums["weighted"][position] += float(np.sum(w * (theta**2 - 2.0 * theta * d)))
+            sums["unweighted"][position] += float(np.sum(theta**2 - 2.0 * theta * d))
+            sums["flipped"][position] += float(np.sum(w * (theta**2 + 2.0 * theta * d)))
+        mass["weighted"] += float(np.sum(w))
+        mass["unweighted"] += float(held_j.size)
+    return {
+        "weighted": sums["weighted"] / mass["weighted"],
+        "unweighted": sums["unweighted"] / mass["unweighted"],
+        "flipped": sums["flipped"] / mass["weighted"],
+    }
+
+
+class TestTheSizeStepArithmetic:
+    """Plan 3.7: the CV risks, recomputed outside the rule learner, and the chosen refit."""
+
+    def test_the_fit_is_weighted_with_a_wide_continuous_outcome(self) -> None:
+        result = _continuous_weighted_fit()
+        assert result.data.family != "binomial" and result.data.is_weighted
+        assert np.ptp(np.asarray(result.data.weights)) > 0.5
+
+    @pytest.mark.parametrize("fold", [0, 3])
+    def test_the_cv_risks_are_the_weighted_held_out_one_step_risks(self, fold: int) -> None:
+        result = _continuous_weighted_fit()
+        record = _refit(result, fold, ep_rule()).ep
+        assert record is not None and record.mode == "cv"
+        rebuilt = _rebuilt_risks(result, fold)
+        np.testing.assert_allclose(record.cv_risks, rebuilt["weighted"], rtol=0, atol=1e-12)
+        # nonzero witnesses: the weights and the sign of D each move the risks
+        assert np.max(np.abs(rebuilt["weighted"] - rebuilt["unweighted"])) > 1e-5
+        assert np.max(np.abs(rebuilt["weighted"] - rebuilt["flipped"])) > 1e-3
+
+    @pytest.mark.parametrize("fold", [0, 3])
+    def test_the_chosen_size_is_refitted_on_every_training_row(self, fold: int) -> None:
+        """The CV fold curve equals, bit for bit, the declared-size refit at the chosen size."""
+        result = _continuous_weighted_fit()
+        cv = _refit(result, fold, ep_rule())
+        assert cv.ep is not None
+        sieve = Sieve(Sieve.default(MODIFIERS).basis, size=cv.ep.chosen)
+        fixed = _refit(result, fold, ep_rule(sieve=sieve))
+        covariates = np.asarray(result.data.covariates, dtype=float)
+        np.testing.assert_array_equal(cv.margin(covariates), fixed.margin(covariates))
+        assert fixed.ep == EPRuleRecord("fixed", (cv.ep.chosen,), (), cv.ep.chosen)
+
+
+def test_a_sparse_categorical_level_names_its_fold_and_the_remedy() -> None:
+    """A level held by 4 of 600 rows makes a fold's debiasing singular; the error says where."""
+    frame = support.law_frame(600, 1)
+    level = np.zeros(len(frame))
+    level[:4], level[4:300] = 2.0, 1.0
+    frame = frame.assign(W3=level)
+    modifiers = Modifiers(["W1", "W3"], domains={"W1": (-1.0, 1.0)}, levels={"W3": (0.0, 1.0, 2.0)})
+    rule = LearnedRule(
+        loss="ep", modifiers=modifiers, sieve=Sieve.default(modifiers, max_size=3, size=2)
+    )
+    with pytest.raises(DataError) as caught:
+        support.learned_tmle(learned_rule=rule).fit(
+            frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"]
+        )
+    message = str(caught.value)
+    assert "outer fold" in message and "W1, W3" in message
+    assert "Merge the sparse level" in message
+
+
 # ------------------------------------------------------------------------ compositions
 
 
@@ -778,6 +937,26 @@ class TestTheCompositions:
             assert cluster is not None
             for code in np.unique(cluster):
                 assert np.unique(folds.assignment[cluster == code]).size == 1
+
+    @pytest.mark.parametrize(
+        ("sieve", "family"),
+        [
+            (None, "adaptive"),
+            (Sieve.default(MODIFIERS, size="cv"), "adaptive"),
+            (FIXED, "parametric"),
+        ],
+    )
+    def test_the_in_sample_key_reads_the_sieve_mode(self, sieve: Any, family: str) -> None:
+        """A size chosen by cross-validation selects, so it keys adaptive; a fixed size does not."""
+        from types import SimpleNamespace
+
+        from cleverly._support import in_sample_learned_rule_learners
+
+        estimator = support.learned_tmle(
+            learned_rule=ep_rule(sieve=sieve), cross_fit=False, cv_evaluation=False
+        )
+        options = in_sample_learned_rule_learners(estimator, SimpleNamespace(known_treatment=None))
+        assert options["rule_learner_family"] == family
 
     def test_an_in_sample_fit_learns_one_curve_on_every_row(self) -> None:
         # The support module's outcome learner is a Pipeline, which reads as adaptive in sample.

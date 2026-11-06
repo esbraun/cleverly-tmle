@@ -517,18 +517,20 @@ def ep_fold_curve(
     CapabilityError
         If a declared size exceeds the family's largest member at :math:`T_v`'s size.
     DataError
-        If an inner-inner training complement lacks an arm or an outcome class.
+        If an inner-inner training complement lacks an arm or an outcome class, or a curve's
+        debiasing is singular on a fold's rows (a sparse categorical level), naming the fold.
     """
     from ..bases import Sieve
     from ..effect_modification import modifier_frame
     from ..estimators.ep import (
+        cross_validated_risks,
         curve_from_pieces,
         nuisance_pieces,
-        one_step_risk,
         refit_seed,
         sieve_member,
         size_refusal,
     )
+    from ..exceptions import DataError
 
     declared = sieve if sieve is not None else Sieve.default(modifiers)
     family = declared.basis
@@ -542,17 +544,26 @@ def ep_fold_curve(
         values = modifier_frame(rows, columns)
         design = np.asarray(basis.evaluate(values, modifiers), dtype=float)
         pieces = nuisance_pieces(rows, fitted, pair=pair, g_bounds=g_bounds, alpha=alpha)
-        return curve_from_pieces(
-            pieces,
-            design,
-            basis=basis,
-            modifiers=modifiers,
-            scale="difference",
-            width=width,
-            clip=True,
-            final_learner=learner,
-            values=values,
-        )[0]
+        try:
+            return curve_from_pieces(
+                pieces,
+                design,
+                basis=basis,
+                modifiers=modifiers,
+                scale="difference",
+                width=width,
+                clip=True,
+                final_learner=learner,
+                values=values,
+            )[0]
+        except DataError as error:
+            where = "the fit's rows" if fold is None else f"the training rows of outer fold {fold}"
+            raise DataError(
+                f"LearnedRule(loss='ep') could not fit its size-{size} curve of "
+                f"{', '.join(columns)} on {where} ({rows.n} rows): {error} A categorical "
+                "modifier level that few rows of a fold hold makes the debiasing singular. "
+                "Merge the sparse level, drop that modifier, or declare a smaller sieve."
+            ) from error
 
     if not declared.chosen_by_cv:
         size = int(declared.size_at(inner.n))
@@ -563,27 +574,29 @@ def ep_fold_curve(
         return curve(inner, nuisance, size), EPRuleRecord(mode, (size,), (), size)
 
     sizes = tuple(range(1, int(family.max_size) + 1))
-    weights = np.asarray(inner.weights, dtype=float)
-    frame = modifier_frame(inner, columns)
-    totals = np.zeros(len(sizes))
-    mass = 0.0
     seeds: list[int] = []
-    for index, (train, test) in enumerate(folds):
-        train = np.asarray(train)
-        test = np.asarray(test)
+
+    def fit_fold(index: int, train: np.ndarray) -> Any:
         refit = refit_seed(seed, index)
         seeds.append(refit)
         rows, fitted = _size_step_nuisance(inner, train, fit_inner, refit, fold)
-        held = {name: np.asarray(column)[test] for name, column in frame.items()}
-        for position, size in enumerate(sizes):
-            # Both sides on the scaled outcome: the curve's prediction is on the outcome's
-            # own scale, b - a times the scaled contrast.
-            prediction = curve(rows, fitted, size).predict(held) / width
-            totals[position] += one_step_risk(
-                prediction, target[test], np.zeros(test.size), "difference", weights[test]
-            ) * float(np.sum(weights[test]))
-        mass += float(np.sum(weights[test]))
-    risks = tuple(float(total / mass) for total in totals)
+        # Both sides on the scaled outcome: the curve's prediction is on the outcome's own
+        # scale, b - a times the scaled contrast.
+        return lambda size, held: curve(rows, fitted, size).predict(held) / width
+
+    splits = [
+        (index, np.asarray(train), np.asarray(test)) for index, (train, test) in enumerate(folds)
+    ]
+    risks = cross_validated_risks(
+        splits,
+        sizes,
+        fit_fold,
+        modifier_frame(inner, columns),
+        target,
+        np.zeros(inner.n),
+        "difference",
+        np.asarray(inner.weights, dtype=float),
+    )
     chosen = sizes[int(np.argmin(risks))]
     return curve(inner, nuisance, chosen), EPRuleRecord("cv", sizes, risks, chosen, tuple(seeds))
 

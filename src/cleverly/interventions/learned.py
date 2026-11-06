@@ -973,9 +973,14 @@ class LearnedRuleSplit:
     score_quantiles : tuple of tuple of float
         For a pseudo-outcome loss, for each fold, quantiles of the rule learner's score
         minus its threshold on the fold's validation rows, at :data:`BLIP_QUANTILE_LEVELS`:
-        :math:`\hat b_v(w)` for ``loss="blip"`` and :math:`\hat P_v(\tilde D > 0 \mid w) - 1/2`
-        for ``loss="weighted_classification"``.  The rule treats where this is positive, so
-        its mass at 0 speaks to C3.  Empty for the plug-in rule and for a frozen rule.
+        :math:`\hat b_v(w)` for ``loss="blip"``, :math:`\hat P_v(\tilde D > 0 \mid w) - 1/2`
+        for ``loss="weighted_classification"``, and the EP curve :math:`\hat\theta_v(v)` of
+        the declared modifiers for ``loss="ep"``, on the outcome's own scale (not the scaled
+        blip).  The rule treats where this is positive, so its mass at 0 speaks to C3.  Empty
+        for the plug-in rule and for a frozen rule.  An EP fold's chosen sieve size and its
+        cross-validated risks are not recorded here; a refit of the fold through
+        :func:`~cleverly.interventions._rule_learners.fit_fold_rule` with its
+        :attr:`inner_seeds` entry returns them in ``FoldRule.ep``.
     inner_seeds : tuple of int
         For a pseudo-outcome loss, the seed of each fold's inner cross-fit and rule learner
         (:func:`~cleverly.interventions._rule_learners.inner_seed`), so that a refit of one
@@ -2368,13 +2373,54 @@ def _ep_modifier_refusal(
     return None
 
 
-def check_ep_rule_sieve(data: CausalData, rule: LearnedRule | None) -> None:
+def outer_training_sizes(data: CausalData, estimator: Any) -> tuple[int, ...]:
+    """Every size an outer training fold of ``estimator`` can have on ``data``, before the split.
+
+    One fold (``cross_fit=False``, or no estimator) trains on every row.  Row folds of a
+    ``V``-fold split hold ``floor(n / V)`` or ``ceil(n / V)`` rows.  Cluster folds hold whole
+    clusters, so a held-out fold lies between the ``floor(C / V)`` smallest and the
+    ``ceil(C / V)`` largest clusters.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    estimator : object or None
+        The estimator, which carries ``cross_fit`` and ``n_folds``.
+
+    Returns
+    -------
+    tuple of int
+        The training sizes, ascending.
+    """
+    n = int(data.n)
+    if estimator is None or not getattr(estimator, "cross_fit", True):
+        return (n,)
+    folds = int(getattr(estimator, "n_folds", 1) or 1)
+    if folds <= 1:
+        return (n,)
+    if data.cluster is None:
+        largest, smallest = -(-n // folds), n // folds
+    else:
+        _, counts = np.unique(np.asarray(data.cluster), return_counts=True)
+        ordered = np.sort(counts)
+        clusters = ordered.size
+        largest = int(np.sum(ordered[::-1][: -(-clusters // folds)]))
+        smallest = int(np.sum(ordered[: clusters // folds]))
+    return tuple(range(max(n - largest, 1), n - smallest + 1))
+
+
+def check_ep_rule_sieve(
+    data: CausalData, rule: LearnedRule | None, training_sizes: tuple[int, ...] | None = None
+) -> None:
     """Evaluate every member of an EP rule's sieve on the rows, before any learner.
 
     The check reads the modifier columns and the declared domains and levels, so a row
     outside a declared domain, an undeclared level, a basis that reads an undeclared domain
     (R3), a collinear member, or a declared size above the family's largest member refuses
-    here rather than inside a fold.
+    here rather than inside a fold.  A schedule is read at every size an outer training fold
+    can have (:func:`outer_training_sizes`), since each fold's curve reads ``size_at`` of its
+    own rows.
 
     Parameters
     ----------
@@ -2382,12 +2428,14 @@ def check_ep_rule_sieve(data: CausalData, rule: LearnedRule | None) -> None:
         The prepared data.
     rule : LearnedRule or None
         The declared rule; anything but an EP rule passes.
+    training_sizes : tuple of int or None
+        The outer training sizes, or ``None`` for ``data.n`` alone.
 
     Raises
     ------
     CapabilityError
         If a basis reads an undeclared domain or level, or a declared size exceeds the
-        family's largest member at ``n``.
+        family's largest member at ``n`` or at an outer training size.
     DataError
         If a row breaks the modifier schema, or a member is collinear on the rows.
     """
@@ -2403,10 +2451,15 @@ def check_ep_rule_sieve(data: CausalData, rule: LearnedRule | None) -> None:
     if sieve.chosen_by_cv:
         sizes: tuple[int, ...] = tuple(range(1, int(family.max_size) + 1))
     else:
-        sizes = (int(sieve.size_at(data.n)),)
-        refusal = size_refusal(sizes[0], family, data.n)
-        if refusal is not None:
-            raise refusal
+        rows = (int(data.n),) if training_sizes is None else training_sizes
+        declared: dict[int, int] = {}
+        for m in rows:
+            declared.setdefault(int(sieve.size_at(m)), m)
+        for size, m in sorted(declared.items()):
+            refusal = size_refusal(size, family, m)
+            if refusal is not None:
+                raise refusal
+        sizes = tuple(sorted(declared))
     frame = modifier_frame(data, tuple(modifiers.columns))
     for size in sizes:
         design = np.asarray(sieve_member(family, size, modifiers).evaluate(frame, modifiers))
@@ -2649,7 +2702,7 @@ def refuse_learned_rule_composition(
         refusal = _weighted_learner_refusal(estimator.learned_rule, data)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)
-    check_ep_rule_sieve(data, rule)
+    check_ep_rule_sieve(data, rule, outer_training_sizes(data, estimator))
 
 
 def _weighted_learner_refusal(rule: LearnedRule, data: CausalData) -> Refusal | None:

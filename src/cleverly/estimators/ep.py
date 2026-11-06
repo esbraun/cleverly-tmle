@@ -42,13 +42,14 @@ from __future__ import annotations
 
 import copy
 import warnings
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
 from scipy.special import expit, logit
 
-from .._typing import FloatArray
+from .._typing import FloatArray, IntArray
 from .._warnings import attach
 from ..bases import Constant, Modifiers, Sieve, resolve
 from ..data.causal_data import CausalData
@@ -66,6 +67,7 @@ __all__ = [
     "EPEstimator",
     "EPFit",
     "SieveRecord",
+    "cross_validated_risks",
     "curve_from_pieces",
     "debias",
     "debias_features",
@@ -431,6 +433,68 @@ def one_step_risk(
     else:
         loss = (d_t + d_r) * np.logaddexp(0.0, theta) - d_t * theta
     return float(np.sum(w * loss) / np.sum(w))
+
+
+#: One training fold's curves at a size, predicted at the fold's held-out modifier rows.
+FoldPredictor = Callable[[int, dict[str, Any]], FloatArray]
+
+
+def cross_validated_risks(
+    splits: Sequence[tuple[int, IntArray, IntArray]],
+    sizes: Sequence[int],
+    fit_fold: Callable[[int, IntArray], FoldPredictor],
+    frame: Mapping[str, Any],
+    d_t: FloatArray,
+    d_r: FloatArray,
+    scale: str,
+    weights: FloatArray,
+) -> tuple[float, ...]:
+    """The weighted cross-validated one-step risk of each sieve size (EPL Algorithm 4).
+
+    Each split ``(key, train, test)`` refits its curves through ``fit_fold(key, train)``,
+    which sees the training rows only, and scores each size's curve on ``test`` against the
+    pseudo-outcomes there.  A size's risk is the weight-pooled mean of its held-out losses.
+    Both the EP learner's size step and the EP rule learner's read this one loop.
+
+    Parameters
+    ----------
+    splits : sequence of tuple
+        ``(key, train, test)`` per training fold, with integer row indices.
+    sizes : sequence of int
+        The sieve sizes compared.
+    fit_fold : callable
+        ``fit_fold(key, train)`` returns ``predict(size, held)``, the curve of that size at the
+        held-out modifier columns ``held``, on the scale the pseudo-outcomes are on.
+    frame : mapping
+        The modifier columns of every row.
+    d_t : ndarray
+        Pseudo-outcome of arm ``t`` at every row.
+    d_r : ndarray
+        Pseudo-outcome of arm ``r`` at every row.
+    scale : {"difference", "log_ratio"}
+        The contrast's scale.
+    weights : ndarray
+        The row weights.
+
+    Returns
+    -------
+    tuple of float
+        The risk of each size, in the order of ``sizes``.
+    """
+    totals = np.zeros(len(sizes))
+    mass = 0.0
+    for key, train, test in splits:
+        predict = fit_fold(key, train)
+        held = {name: np.asarray(column)[test] for name, column in frame.items()}
+        held_weights = weights[test]
+        total = float(np.sum(held_weights))
+        for position, size in enumerate(sizes):
+            totals[position] += (
+                one_step_risk(predict(size, held), d_t[test], d_r[test], scale, held_weights)
+                * total
+            )
+        mass += total
+    return tuple(float(value / mass) for value in totals)
 
 
 # ---------------------------------------------------------------- records and status
@@ -1074,15 +1138,16 @@ class EPEstimator:
         assignment = np.asarray(outer.nuisance.folds.assignment)
         weights = np.asarray(data.weights, dtype=float)
         frame = modifier_frame(data, tuple(spec.modifiers.columns))
-        totals = np.zeros(len(sizes))
-        mass = 0.0
         seeds: list[int] = []
         messages: list[str] = []
         base = self.tmle_kwargs.get("random_state")
-        for fold in np.unique(assignment):
-            held = assignment == fold
-            train = np.flatnonzero(~held)
-            seed = refit_seed(base, int(fold))
+        splits = [
+            (int(fold), np.flatnonzero(assignment != fold), np.flatnonzero(assignment == fold))
+            for fold in np.unique(assignment)
+        ]
+
+        def fit_fold(fold: int, train: Any) -> FoldPredictor:
+            seed = refit_seed(base, fold)
             seeds.append(seed)
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
@@ -1090,15 +1155,9 @@ class EPEstimator:
                     data.subset(train), n_folds=INNER_FOLDS, random_state=seed, split_plan=None
                 )
             messages.extend(str(item.message) for item in caught)
-            test_frame = {name: np.asarray(column)[held] for name, column in frame.items()}
-            for index, size in enumerate(sizes):
-                curve, _ = self._curve_at(inner, size)
-                prediction = curve.predict(test_frame)
-                totals[index] += one_step_risk(
-                    prediction, d_t[held], d_r[held], spec.scale, weights[held]
-                ) * float(np.sum(weights[held]))
-            mass += float(np.sum(weights[held]))
-        risks = tuple(float(value / mass) for value in totals)
+            return lambda size, held: self._curve_at(inner, size)[0].predict(held)
+
+        risks = cross_validated_risks(splits, sizes, fit_fold, frame, d_t, d_r, spec.scale, weights)
         chosen = sizes[int(np.argmin(risks))]
         return chosen, risks, tuple(seeds), tuple(dict.fromkeys(messages))
 
