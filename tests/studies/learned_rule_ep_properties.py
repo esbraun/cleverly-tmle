@@ -4,7 +4,9 @@ The gated family, ``interval_calibration``, fits at n = 16,000 (:data:`CALIBRATI
 times the primary size (plan rev 2.6).  At n = 4,000 the declared sizing pilot read an SE ratio
 of 0.970: rule learning adds about 6.5% to the error variance there, and the plan's rule put the
 ``T49`` rows out of reach.  The size pilot (:mod:`tests.studies.learned_rule_ep_size_pilot`)
-reads 0.997 at n = 16,000, and the error variance within 1% of the fixed limit rule's.  Two
+reads 0.997 at n = 16,000.  At the two learned-value laws the error variance there is within
+about 1.5% (one SE) of a fit of the fixed limit rule on the same draws; at the optimal cell it
+is 3.4% (SD 1.5%) above it, because rule variability reaches the optimal value's error.  Two
 families report and state no verdict: ``small_sample_diagnostic`` at n = 1,000 and
 ``exceptional_law_report`` at n = 2,000.
 
@@ -15,11 +17,15 @@ families report and state no verdict: ``small_sample_diagnostic`` at n = 1,000 a
 ``optimal_known_g__declared``
     The value of the optimal rule, ``ey_optimal_rule[learned rule]``, with the EP rule given
     both adjustment columns (R12 admits it) and ``g0`` supplied, at ``non_exceptional``.  Its
-    truth is the fixed :math:`\\Psi_{d_0}(P_0)`.  The EP limit rule is the sign of the additive
-    projection of the effect, which differs from ``d0`` on 1.0% of the population near the
-    threshold, and its regret is about 2.5e-5, 0.005 SE at n = 16,000
+    truth is the fixed :math:`\\Psi_{d_0}(P_0)`.  The EP limit rule is the sign of the effect's
+    projection onto the default family's largest member, which differs from ``d0`` on 0.98% of
+    the population near the threshold, and its regret is about 2.4e-5, 0.005 SE at n = 16,000
     (:func:`~tests.studies._learned_rule_ep_law.optimal_regret`), so condition C3f holds up to
-    a bias no budget here resolves.  The same band as the declared cells.
+    a bias no budget here resolves.  The same band as the declared cells.  It is the only cell
+    that sees whether the EP rule learner learns a good rule: the other cells' truth is the
+    value of the rules the fit learned, so a learner that never treats still covers there.  The
+    EP curve's ``1/g`` term vanishes at ``non_exceptional``, where the main-terms outcome
+    regression is correct, so no cell sees it; the unit witness W-c1 does.
 ``<label>__shrunken_se_control`` and ``<label>__noise_control``
     The two derived controls of
     :func:`~tests.studies.evidence.property_verdicts.calibration_controls` for each of the three
@@ -45,14 +51,18 @@ families report and state no verdict: ``small_sample_diagnostic`` at n = 1,000 a
     Clopper-Pearson coverage interval below 0.95 reads "under-covers at the exceptional law", a
     lower end at or above 0.90 reads "no under-coverage resolved at the declared budget", and
     anything else reads "unresolved".  At 2,400 draws the first two meet at 2,252 covered, so
-    the cell always resolves one way or the other.  The plug-in rule's boundary study measured coverage
-    0.894 there; this cell reports the EP rule's.
+    the cell always resolves one way or the other.  The plug-in rule's boundary study measured
+    coverage 0.894 there; this cell reports the EP rule's.
 
 Each row of the gated laws and of the diagnostic cells also carries the descriptive
 ``plug_in_estimate``, ``plug_in_std_error`` and ``plug_in_truth`` of the plug-in fit on the same
 sample and fold seed; the optimal and control rows carry none.  The summary publishes
 ``value_gain_mean``, ``value_gain_sd`` and ``value_gain_positive_share`` on each gated law's
-positive cell, and no verdict reads them.
+positive cell, and no verdict reads them.  Each calibration row (the three gated labels) also
+carries the descriptive ``limit_estimate``, ``limit_std_error`` and ``limit_truth`` of the
+limit-rule paired fit (:data:`LIMIT_COLUMNS`, plan rev 2.7), which the red-cell readings of
+``regenerate.py`` read.  The ``exceptional_law_report`` row of the summary carries the declared
+reading in its ``reading`` column.
 
 A property draw's sample seed is ``stream_seed(record, "property_sample", family, label,
 replicate, *suffix)`` and its fold seed the same tuple with ``"fold_partition"`` first; rule L3
@@ -128,10 +138,17 @@ def sizing_reading(ratio: float, sigma: float) -> tuple[int, bool]:
 #: The ``non_exceptional`` ratio is 0.997 over 1,400 draws and one pilot SE is 0.020, so
 #: :func:`sizing_reading` gives 4,800 and admits the ``T49`` rows.  At 4,800 the
 #: ``misspecified_limit`` cell's assurance is 0.85, below the 0.9 target of rev 2.5 (B2), so R is
-#: the plan's other count, 7,200, at which every gated cell's assurance is at least 0.92.
+#: the plan's other count, 7,200, at which every gated cell's assurance is at least 0.917.
 #: (The first pilot, at n = 4,000, read 0.970 and put the rows out of reach.)
 CALIBRATION_REPLICATES = 7_200
 T49_ADMITTED = True
+
+#: The limits every ``T49`` and ``T49.optimal`` row carries, whatever the run shows (plan rev
+#: 2.7, S5): the size moved after a pilot found a deficit at n = 4,000.
+T49_LIMITS = (
+    "calibrated at n = 16,000 at these laws; at n = 4,000 the sizing pilot read an SE ratio of "
+    "0.970 and coverage 0.9365, about 6.5% excess error variance from learning the rule"
+)
 CONTROL_N = PRIMARY_N
 CONTROL_REPLICATES = 500
 DIAGNOSTIC_N = 1_000
@@ -198,10 +215,23 @@ def suffixes(record: StudyRecord) -> dict[tuple[str, str], tuple[Any, ...]]:
 #: The calibration positive arms to the controls derived from their rows.
 DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS, positive_suffix=POSITIVE)
 
-#: The columns every property row carries beside the shared schema.
-ROW_COLUMNS = (*base.HARNESS_COLUMNS, *law.VALUE_GAIN_COLUMNS)
+#: The descriptive columns of each calibration replicate's limit-rule paired fit: the same
+#: estimator, sample and outer folds with the rule fixed at the EP limit rule
+#: (:func:`tests.studies._learned_rule_ep_law.paired_fit`).  They read no margin; the red-cell
+#: readings of ``regenerate.py`` read them to tell the fixed-rule CV-TMLE's own conservative
+#: variance from a rule-learner defect.  Other fitted rows carry NaN; the derived controls
+#: copy their positive arm's.
+LIMIT_COLUMNS = ("limit_estimate", "limit_std_error", "limit_truth")
 
-_NO_GAIN = dict.fromkeys(law.VALUE_GAIN_COLUMNS, float("nan"))
+#: The columns every property row carries beside the shared schema.
+ROW_COLUMNS = (*base.HARNESS_COLUMNS, *law.VALUE_GAIN_COLUMNS, *LIMIT_COLUMNS)
+
+_NO_GAIN = dict.fromkeys((*law.VALUE_GAIN_COLUMNS, *LIMIT_COLUMNS), float("nan"))
+
+
+def _limit_columns(paired: law.Paired) -> dict[str, float]:
+    return dict(zip(LIMIT_COLUMNS, (paired.estimate, paired.std_error, paired.truth), strict=True))
+
 
 _Key = tuple[tuple[str, str, int, int, int, int, int, str]]
 
@@ -252,6 +282,8 @@ def _replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
     if label == f"{OPTIMAL_LABEL}__{POSITIVE}":
         optimal = law.optimal_measured(frame, fold_seed)
         refit = optimal.refit
+        paired = law.paired_fit(frame, name, fold_seed, optimal.result, optimal=True)
+        gain = {**dict.fromkeys(law.VALUE_GAIN_COLUMNS, float("nan")), **_limit_columns(paired)}
         return [
             _row(
                 family,
@@ -261,7 +293,7 @@ def _replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
                 optimal.truth,
                 optimal.result.estimates[law.OPTIMAL_ESTIMAND],
                 (refit.oracle_se, refit.rows_checked, optimal.warnings),
-                _NO_GAIN,
+                gain,
             )
         ]
     if label.endswith(f"__{CONTROL_KIND}"):
@@ -286,6 +318,12 @@ def _replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
     else:
         raise ValueError(f"unknown property family {family!r}")
     truth = fitted.truth
+    gain = law.value_gain_columns(fitted)
+    if family == "interval_calibration":
+        paired = law.paired_fit(frame, name, fold_seed, fitted.result, optimal=False)
+        gain.update(_limit_columns(paired))
+    else:
+        gain.update(dict.fromkeys(LIMIT_COLUMNS, float("nan")))
     return [
         _row(
             family,
@@ -295,7 +333,7 @@ def _replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
             truth.truth,
             fitted.result.estimates[law.ESTIMAND],
             (truth.oracle_se, truth.rows_checked, fitted.warnings),
-            law.value_gain_columns(fitted),
+            gain,
         )
     ]
 
@@ -431,6 +469,29 @@ def exceptional_reading(covered: int, replicates: int) -> tuple[str, Interval]:
     return UNRESOLVED, interval
 
 
+#: The label a run whose exceptional cell is not at the declared budget writes in place of
+#: the reading (rule L9, as the boundary study's).
+SMOKE = "smoke run, not the declared budget"
+
+
+def exceptional(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
+    """Write the declared reading of the exceptional cell into its ``reading`` column.
+
+    Every other row's reading is empty.  A run whose exceptional cell holds other than
+    :data:`EXCEPTIONAL_REPLICATES` draws writes :data:`SMOKE` (rule L9).
+    """
+    summary["reading"] = pd.Series(pd.NA, index=summary.index, dtype=object)
+    group = rows.loc[(rows["property"] == EXCEPTIONAL_FAMILY) & (rows["cell"] == EXCEPTIONAL_CELL)]
+    if group.empty:
+        return
+    replicates = len(group)
+    text, _ = exceptional_reading(int(group["covered"].sum()), replicates)
+    if replicates != EXCEPTIONAL_REPLICATES:
+        text = SMOKE
+    mask = (summary["property"] == EXCEPTIONAL_FAMILY) & (summary["cell"] == EXCEPTIONAL_CELL)
+    summary.loc[mask, "reading"] = text
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The verdict of each cell, every statistic on the error of each row.
 
@@ -442,6 +503,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     calibration_verdicts(summary, margins=STUDY.margins, positive_suffix=POSITIVE)
     value_gain(summary, rows)
     report_diagnostics(summary, rows)
+    exceptional(summary, rows)
     return finish(summary, rates)
 
 

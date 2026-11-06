@@ -1480,18 +1480,24 @@ The size step is fold-local at both levels. The curve scored on inner fold $j$ c
 nuisances fitted without fold $j$, and $\tilde D$ at fold $j$'s rows comes from the inner
 cross-fit, whose models did not train on those rows. The outer construction does not move.
 
-C3 reads on the EP limit. The fold curves converge to $\theta_1$, the projection of the blip
-$\bar Q_0(1, W) - \bar Q_0(0, W)$ onto the closure of the final stage's class over $V$, and C3
-asks that $\theta_1(V) = 0$ only on a set of probability zero. The EP risk is doubly robust, so
-$\theta_1$ is that projection when either the inner outcome fit or the inner treatment fit is
-consistent. Under the default sieve the class is the additive functions of the modifiers.
+C3 reads on the EP limit $\theta_1$, and asks that $\theta_1(V) = 0$ only on a set of
+probability zero. At a declared fixed size, least squares on the sieve converges to the
+projection of the blip $\bar Q_0(1, W) - \bar Q_0(0, W)$ onto the span of that member. The EP
+risk is doubly robust, so this holds when either the inner outcome fit or the inner treatment
+fit is consistent. The default sieve chooses its size by cross-validation among 6 members, and
+then $\theta_1$ is the projection onto the largest member's span: 6 cosines of each continuous
+modifier and the indicators of each categorical one. That step is the package's own argument
+over a finite family, not a theorem of the EP paper.
+
+A schedule reads the closure of the family, under the EP paper's conditions, which the user
+judges. A declared final learner carries no limit claim.
 
 The value of the optimal rule (`OptimalRuleValue`, `ey_optimal_rule`) needs the modifiers to be
 the whole adjustment set, and narrower modifiers refuse with `DIFFERENT_ESTIMAND` (R12). Even
 then the limit rule is the sign of the class's projection, which equals $d_0$ only when the sign
 of the blip is that of a function in the class (C3f). At RM30's `non_exceptional` law the
-additive limit rule differs from $d_0$ on 1.0% of the population near the threshold, and its
-regret is $2.5 \times 10^{-5}$, 0.005 SE at n = 16,000 (`tests/studies/_learned_rule_ep_law.py`).
+limit rule differs from $d_0$ on 0.98% of the population near the threshold, and its regret is
+$2.4 \times 10^{-5}$, 0.005 SE at n = 16,000 (`tests/studies/_learned_rule_ep_law.py`).
 
 `LearnedRule` refuses `modifiers=` or `sieve=` beside another loss, a missing `Modifiers`, a
 classifier as the final learner and a `SuperLearner` that clips. At the fit, before any learner,
@@ -1507,12 +1513,25 @@ exceptional law. With the size chosen by cross-validation, each outer fold fits 
 inner-inner nuisance pairs, so a fit at n = 4,000 takes about 5 CPU-seconds against 0.2 for the
 plug-in rule.
 
-At n = 4,000 the study's first pilot reads an SE ratio of 0.970 at the `non_exceptional` law.
-The reported SE there is the fixed-rule SE of the realized rules, and rule learning adds about
-6.5% to the error variance. At n = 16,000 a second pilot reads 0.997, and the error variance is
-within 1% of a fit on the same draws whose rule is fixed at the limit rule. So the study's
-calibration cells fit n = 16,000
-(`tests/canonical/learned_rule_ep/README.md`).
+The study's pilots read the `non_exceptional` law. Its SE ratio is 0.943 at n = 2,000 (coverage
+0.930, 300 draws) and 0.970 at n = 4,000 (coverage 0.9365, 2,000 draws). The reported SE there is
+the fixed-rule SE of the realized rules, and rule learning adds about 13% (SD 9%) and 6.5%
+(SD 3%) to the error variance. At n = 16,000 the SE ratio is 0.997, and the error variance over
+that of a fit on the same draws whose rule is fixed is 0.993 (SE 0.015). For the optimal value
+the same ratio is 1.034 (SE 0.015), so rule learning still reaches that error. The calibration
+cells fit n = 16,000 (`tests/canonical/learned_rule_ep/README.md`).
+
+Each calibration draw of the declared run also fits the fixed-rule fit. When the outcome
+regression is wrong and a correct treatment model is estimated, the fixed-rule CV-TMLE's own
+variance estimate is conservative. So a cell whose SE ratio is above the band is read against
+the fixed-rule fit's SE ratio on the same draws before it is read as a defect.
+
+Only the optimal-value cell sees whether the EP rule is a good rule. The learned-value target
+moves with the learned rule, so a rule learner that never treats still covers its own value
+there, and the optimal cell is the study's one witness of rule quality. At `non_exceptional`
+the main-terms outcome regression is correct, so the debiasing's $1/g$ weight multiplies a zero
+residual and no study cell sees it. The unit witness W-c1 does, with an outcome regression that
+is wrong in the blip.
 
 `tests/unit/test_learned_rule_ep.py` holds the witnesses. On a finite population whose training
 folds are whole copies of it, with $g$ known and an outcome regression that is wrong in the

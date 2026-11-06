@@ -51,8 +51,8 @@ def test_the_efficiency_bounds_are_the_limit_rules_sds() -> None:
 def test_the_limit_rule_crosses_once_with_no_mass_at_its_threshold() -> None:
     """C3 on the EP limit: one crossing per ``W2``, and a share near 0 linear in ``epsilon``."""
     expected = {
-        "non_exceptional": (-0.079741, -0.120259),
-        "misspecified_limit": (0.290044, 0.266244),
+        "non_exceptional": (-0.077024, -0.116253),
+        "misspecified_limit": (0.284089, 0.260469),
     }
     for name, (low, high) in expected.items():
         crossings = law.thresholds(name)
@@ -64,28 +64,40 @@ def test_the_limit_rule_crosses_once_with_no_mass_at_its_threshold() -> None:
 
 
 def test_the_limit_rules_regret_against_d0_is_below_any_budget() -> None:
-    """C3f for the optimal value: the additive limit rule gives up 0.005 SE at n = 16,000."""
-    assert law.disagreement("non_exceptional") == pytest.approx(0.010125, abs=1e-6)
+    """C3f for the optimal value: the limit rule gives up 0.005 SE at n = 16,000."""
+    assert law.disagreement("non_exceptional") == pytest.approx(0.00975, abs=1e-6)
     regret = law.optimal_regret("non_exceptional")
-    assert regret == pytest.approx(2.5454e-5, rel=1e-3)
+    assert regret == pytest.approx(2.4259e-5, rel=1e-3)
     se = study.EFFICIENCY_BOUNDS["optimal_known_g"] / math.sqrt(properties.CALIBRATION_N)
     assert regret / se < 0.01
     truth = optimal_law.law_limit("non_exceptional")["truth"]
     assert law.limit_value("non_exceptional")[0] == pytest.approx(truth - regret, abs=1e-12)
 
 
-def test_the_limit_is_the_additive_projection_of_the_effect() -> None:
-    """``E[tau | W1] + E[tau | W2] - E[tau]``: its residual is orthogonal to both margins."""
+def test_the_limit_is_the_projection_onto_the_largest_default_member() -> None:
+    """The residual of ``tau`` is orthogonal, under ``P_0``, to every column of the member.
+
+    The member is the default family's largest (six cosines of ``W1`` and the indicator of
+    ``W2``), the limit of the size step over the finite family.  The size pilot's additive rule
+    is the infinite-size limit, within 0.017 of it.
+    """
+    from cleverly.bases import Sieve
+
+    assert Sieve.default(law.MODIFIERS).basis.max_size == 6
+    mass = law._mass() / len(base.W2_LEVELS)
     for name in law.LAWS:
         scores = law.limit_scores(name)
         effect = law._effect(name)
-        mass = law._mass()
-        residual = {w2: effect[w2] - scores[w2] for w2 in base.W2_LEVELS}
-        np.testing.assert_allclose(
-            np.mean([residual[w2] for w2 in base.W2_LEVELS], axis=0), 0.0, atol=1e-12
+        design = np.vstack([law._member_design(w2) for w2 in base.W2_LEVELS])
+        residual = np.concatenate([effect[w2] - scores[w2] for w2 in base.W2_LEVELS])
+        weight = np.concatenate([mass for _ in base.W2_LEVELS])
+        assert design.shape[1] >= 7
+        np.testing.assert_allclose(design.T @ (weight * residual), 0.0, atol=1e-12)
+        gap = max(
+            float(np.max(np.abs(scores[w2] - law.additive_scores(name)[w2])))
+            for w2 in base.W2_LEVELS
         )
-        for w2 in base.W2_LEVELS:
-            assert abs(float(np.sum(mass * residual[w2]))) < 1e-12
+        assert 0.005 < gap < 0.017
 
 
 # ------------------------------------------------------------------------------- the pilot
@@ -199,14 +211,32 @@ def _interval_pass(coverage: np.ndarray, replicates: int, accept: Any) -> float:
     return float(np.mean(pmf @ ok))
 
 
-def calibration_assurance(cell: str, replicates: int) -> dict[str, float]:
+def pooled_limit_ratio() -> tuple[float, float]:
+    """The limit-rule fits' SE ratio pooled over the three gated pilot cells, with its SD.
+
+    Each cell's ratio carries the pilot error of :func:`tools.pilot_sigma`, so the pool is the
+    plain mean and its SD that error over the square root of three.
+    """
+    rows = [_size_row(SIZED[cell]) for cell in SIZED]
+    ratios = np.array([float(row["limit_se_ratio"]) for row in rows])
+    sigmas = np.array([tools.pilot_sigma(int(row["replicates"])) for row in rows])
+    weights = sigmas**-2
+    return float(np.sum(weights * ratios) / np.sum(weights)), float(np.sum(weights) ** -0.5)
+
+
+def calibration_assurance(cell: str, replicates: int) -> dict[str, Any]:
     """A gated cell's assurance at ``replicates`` from its pilot at the calibration size.
 
     ``unpaired`` reads the SE ratio with the pilot error of :func:`tools.pilot_sigma`.
-    ``paired`` reads the SE ratio against the limit-rule fit on the same draws, with its
-    bootstrap SD; it equals the SE ratio when the limit-rule fit, a CV-TMLE of a fixed rule at
-    n = 16,000, has an SE ratio of 1.  The coverage gate reads the pilot coverage's Jeffreys
-    posterior.  The gates are read as independent: a cell's number is their product.
+    ``paired`` reads the SE ratio as the limit-rule fit's ratio times the paired ratio
+    (learned over limit fit, on the same draws, with its bootstrap SD), and takes the limit-rule
+    fit's ratio to be exactly 1.  Theory does not give that at ``misspecified_limit``, where the
+    outcome regression is wrong and the fixed-rule variance is conservative.  ``pooled`` takes
+    the limit-rule fit's ratio from :func:`pooled_limit_ratio` instead, one draw shared by the
+    three cells.  The coverage gate reads the pilot coverage's Jeffreys posterior.  The gates
+    of a cell are read as independent: a cell's number is their product.  ``pooled_nodes``
+    holds the cell's pooled number at each quadrature node of the shared limit ratio, for the
+    family reading.
     """
     row = _size_row(SIZED[cell])
     band = study.STUDY.margins.calibration_coverage
@@ -218,42 +248,110 @@ def calibration_assurance(cell: str, replicates: int) -> dict[str, float]:
     unpaired = _assured(
         float(row["se_ratio"]), tools.pilot_sigma(int(row["replicates"])), replicates
     )
-    paired = _assured(float(row["paired_se_ratio"]), float(row["paired_se_ratio_sd"]), replicates)
-    return {"coverage": coverage, "unpaired": unpaired * coverage, "paired": paired * coverage}
+    ratio, sd = float(row["paired_se_ratio"]), float(row["paired_se_ratio_sd"])
+    paired = _assured(ratio, sd, replicates)
+    centre, spread = pooled_limit_ratio()
+    nodes = np.array(
+        [
+            np.sum(
+                tools._GH_W
+                * tools.cell_pass(
+                    (centre + spread * x) * (ratio + sd * tools._GH_X), replicates, tools.C_FIT
+                )
+            )
+            for x in tools._GH_X
+        ]
+    )
+    return {
+        "coverage": coverage,
+        "unpaired": unpaired * coverage,
+        "paired": paired * coverage,
+        "pooled": float(np.sum(tools._GH_W * nodes)) * coverage,
+        "pooled_nodes": nodes * coverage,
+    }
+
+
+def family_assurance(replicates: int) -> dict[str, float]:
+    """The chance that every gated cell passes, on each reading of :func:`calibration_assurance`.
+
+    The unpaired and paired readings multiply the cells' numbers.  The pooled reading
+    multiplies them at each node of the shared limit ratio and then averages, because the
+    three cells see the same limit-rule ratio.
+    """
+    readings = [calibration_assurance(cell, replicates) for cell in GATED]
+    nodes = np.prod([reading["pooled_nodes"] for reading in readings], axis=0)
+    return {
+        "unpaired": float(np.prod([reading["unpaired"] for reading in readings])),
+        "paired": float(np.prod([reading["paired"] for reading in readings])),
+        "pooled": float(np.sum(tools._GH_W * nodes)),
+    }
 
 
 GATED = tuple(SIZED)
 
 #: Each gated cell's assurance at the declared R = 7,200, recomputed here.
 ASSURANCE = {
-    "non_exceptional__declared": {"coverage": 1.000, "unpaired": 0.965, "paired": 1.000},
-    "misspecified_limit__declared": {"coverage": 0.972, "unpaired": 0.917, "paired": 0.972},
-    "optimal_known_g__declared": {"coverage": 1.000, "unpaired": 0.953, "paired": 0.996},
+    "non_exceptional__declared": {
+        "coverage": 1.000,
+        "unpaired": 0.965,
+        "paired": 1.000,
+        "pooled": 0.973,
+    },
+    "misspecified_limit__declared": {
+        "coverage": 0.972,
+        "unpaired": 0.917,
+        "paired": 0.972,
+        "pooled": 0.965,
+    },
+    "optimal_known_g__declared": {
+        "coverage": 1.000,
+        "unpaired": 0.953,
+        "paired": 0.996,
+        "pooled": 0.996,
+    },
 }
+
+#: The family readings at R = 7,200: the chance that no gated cell reads red under a correct
+#: method.  Plan rev 2.7 records them; R stays at the rule's 7,200.
+FAMILY = {"unpaired": 0.84, "paired": 0.97, "pooled": 0.94}
 
 
 def test_every_calibration_cell_is_assured_at_the_declared_count() -> None:
-    """Every gated cell reaches the 0.9 target (rev 2.5 B2) on both readings at R = 7,200.
+    """Every gated cell reaches the 0.9 target (rev 2.5 B2) on every reading at R = 7,200.
 
     The plan's rule reads 4,800 from the ``non_exceptional`` pilot, but at 4,800 the
     ``misspecified_limit`` cell's unpaired assurance is 0.85, so the count is the plan's other
-    count, 7,200 (rev 2.6), which reaches the target without the paired reading's assumption.
+    count, 7,200 (rev 2.6), which reaches the per-cell target without the paired reading's
+    assumption.  Family-wise the unpaired reading is 0.84: about a 16% chance of some gated
+    red under a correct method, which the red-cell readings of ``regenerate.py`` absorb.  The
+    pooled-limit reading gives 0.94 and the paired one, which takes the limit-rule fit's ratio
+    to be 1, gives 0.97.
     """
     replicates = properties.CALIBRATION_REPLICATES
     assert replicates == 7_200
-    unpaired = paired = 1.0
     for cell in GATED:
         reading = calibration_assurance(cell, replicates)
         for key, value in ASSURANCE[cell].items():
             assert reading[key] == pytest.approx(value, abs=0.01), (cell, reading)
-        assert min(reading["unpaired"], reading["paired"]) >= TARGET, (cell, reading)
-        unpaired *= reading["unpaired"]
-        paired *= reading["paired"]
-    assert unpaired >= 0.8
-    assert paired >= 0.95
+        assert min(reading["unpaired"], reading["paired"], reading["pooled"]) >= TARGET
+    family = family_assurance(replicates)
+    for key, value in FAMILY.items():
+        assert family[key] == pytest.approx(value, abs=0.01), family
+    centre, spread = pooled_limit_ratio()
+    assert centre == pytest.approx(1.011, abs=0.002)
+    assert spread == pytest.approx(0.0117, abs=0.0005)
     smaller = calibration_assurance("misspecified_limit__declared", 4_800)
     assert smaller["unpaired"] == pytest.approx(0.849, abs=0.01)
     assert smaller["unpaired"] < TARGET
+
+
+def test_the_unpaired_family_reaches_090_only_above_the_rule_counts() -> None:
+    """The unpaired family reaches 0.90 at about R = 9,600, above the rule's 4,800 and 7,200.
+
+    Plan rev 2.7 records this and keeps R at 7,200: the rule allows no other count.
+    """
+    assert family_assurance(9_600)["unpaired"] == pytest.approx(0.90, abs=0.015)
+    assert family_assurance(7_200)["unpaired"] < 0.88
 
 
 def test_the_fold_locality_control_resolves_below_the_band() -> None:
@@ -299,12 +397,19 @@ def test_the_pilot_cost_bounds_the_declared_run() -> None:
 
     The pilots replay each fold rule; the run refits it, which costs about one more fit.  A
     gated or diagnostic replicate also fits the plug-in rule and its harness, which the
-    limit-rule fit's seconds stand in for.  The calibration cells read the size pilot, the
-    others the first pilot.
+    limit-rule fit's seconds stand in for; a calibration replicate also fits the limit-rule
+    paired fit (rev 2.7), about 1.5 CPU-hours in all.  The calibration cells read the size
+    pilot, the others the first pilot.
     """
     sized = {cell: _size_row(SIZED[cell]) for cell in GATED}
-    calibration = properties.CALIBRATION_REPLICATES * sum(
-        2 * float(row["seconds"]) + float(row["limit_seconds"]) for row in sized.values()
+    paired = properties.CALIBRATION_REPLICATES * sum(
+        float(row["limit_seconds"]) for row in sized.values()
+    )
+    assert 1.2 < paired / 3600 < 1.8
+    calibration = (
+        properties.CALIBRATION_REPLICATES
+        * sum(2 * float(row["seconds"]) + float(row["limit_seconds"]) for row in sized.values())
+        + paired
     )
     small = float(_row("non_exceptional__primary")["seconds"])
     others = (
@@ -343,6 +448,14 @@ def test_the_cells_and_their_sizes() -> None:
     assert law.rule().modifiers.columns == ("W1", "W2")
 
 
+def test_the_manifest_configuration_names_the_declared_sizes() -> None:
+    """The run copies ``CONFIGURATION`` into ``manifest.json``: it must say what runs."""
+    fit = study.CONFIGURATION["fit"]
+    assert f"interval_calibration n = {properties.CALIBRATION_N}" in fit
+    assert f"primary n = {study.PRIMARY_N}" in fit
+    assert f"small_sample_diagnostic n = {properties.DIAGNOSTIC_N}" in fit
+
+
 def test_the_study_is_declared_not_registered() -> None:
     """No support row cites it, so every EP-rule fit reads experimental until the run lands."""
     assert study.STUDY.slug not in {record.slug for record in registered()}
@@ -361,6 +474,8 @@ def test_the_red_cell_readings_are_declared_in_the_driver() -> None:
     assert "Red-cell readings, declared before any run" in text
     for cell in ("__declared", "optimal_known_g__declared", "validation_rule_control"):
         assert cell in text
+    assert "limit_std_error" in text
+    assert "T49_LIMITS" in text
 
 
 def test_the_exceptional_reading_resolves_at_every_count() -> None:
@@ -443,3 +558,46 @@ def test_no_seed_is_shared_with_another_learned_rule_study_or_the_pilot(
     assert not seeds & everyone
     assert not seeds & mine["fold"]
     assert replicate_seed(record, "non_exceptional", 0) not in seeds
+
+
+def test_the_t49_limits_name_the_calibration_size_and_the_first_pilot() -> None:
+    """Every ``T49`` row's limits name n = 16,000 and the n = 4,000 pilot's deficit (rev 2.7)."""
+    first = _row("non_exceptional__declared")
+    limits = properties.T49_LIMITS
+    assert f"n = {properties.CALIBRATION_N:,}" in limits
+    assert f"n = {int(first['n']):,}" in limits
+    assert f"{float(first['se_ratio']):.3f}" in limits
+    assert f"{float(first['coverage']):.4f}" in limits
+
+
+def test_every_calibration_row_carries_its_limit_rule_fit() -> None:
+    """The paired limit-rule fit's columns are published on every row (rev 2.7, S2)."""
+    assert set(properties.LIMIT_COLUMNS) <= set(properties.ROW_COLUMNS)
+    assert set(properties.LIMIT_COLUMNS) == {"limit_estimate", "limit_std_error", "limit_truth"}
+
+
+def test_the_exceptional_reading_is_published() -> None:
+    """The summary writes the declared reading on the exceptional row, and smoke off budget."""
+    rows = pd.DataFrame(
+        {
+            "property": [study.EXCEPTIONAL_FAMILY] * 4 + ["interval_calibration"],
+            "cell": [study.EXCEPTIONAL_CELL] * 4 + ["non_exceptional__declared"],
+            "covered": [1, 1, 1, 0, 1],
+        }
+    )
+    summary = rows.drop_duplicates(["property", "cell"])[["property", "cell"]].reset_index(
+        drop=True
+    )
+    properties.exceptional(summary, rows)
+    texts = summary.set_index("cell")["reading"]
+    assert texts[study.EXCEPTIONAL_CELL] == properties.SMOKE
+    assert pd.isna(texts["non_exceptional__declared"])
+    full = pd.DataFrame(
+        {
+            "property": study.EXCEPTIONAL_FAMILY,
+            "cell": study.EXCEPTIONAL_CELL,
+            "covered": [1] * 2_100 + [0] * (properties.EXCEPTIONAL_REPLICATES - 2_100),
+        }
+    )
+    properties.exceptional(summary, full)
+    assert summary.set_index("cell")["reading"][study.EXCEPTIONAL_CELL] == properties.UNDER_COVERS

@@ -11,9 +11,9 @@ registered: no support row cites it until its run lands.
 | part | declaration |
 | --- | --- |
 | scenarios | RM30 `non_exceptional` and `misspecified_limit` with the main-terms outcome learner and the logistic treatment learner (Q12: the RM30 GLMs), rows only. The primary phase fits n = 2,000 for 2,000 replications per law; the calibration cells fit n = 16,000 (plan rev 2.6) |
-| limit | with the inner treatment learner correct, the EP risk is doubly robust and each fold curve converges to the additive projection `E[tau \| W1] + E[tau \| W2] - E[tau]` of the effect. Its sign changes once in `W1` for each `W2` (thresholds -0.0797 and -0.1203 at `non_exceptional`, 0.2900 and 0.2662 at `misspecified_limit`), with a share near zero linear in the distance, so C3 holds. Against `d0` it differs on 1.0% of the population and gives up 2.5e-5 of value, 0.005 SE at n = 16,000 |
+| limit | the default family has six members and the size step chooses among them. At a fixed size, with the inner treatment learner correct, the EP risk is doubly robust and the curve converges to the projection of the effect onto that member's span; over the finite family the chosen size converges to the largest member (the package's own argument, not a theorem of the EP paper). So the limit is the projection of the effect onto six cosines of `W1` plus the indicator of `W2` (`_learned_rule_ep_law.limit_scores`), within 0.008 (`non_exceptional`) and 0.016 (`misspecified_limit`) of the additive projection `E[tau \| W1] + E[tau \| W2] - E[tau]`. Its sign changes once in `W1` for each `W2` (thresholds -0.0770 and -0.1163 at `non_exceptional`, 0.2841 and 0.2605 at `misspecified_limit`), with a share near zero linear in the distance, so C3 holds. Against `d0` it differs on 0.98% of the population and gives up 2.4e-5 of value, 0.005 SE at n = 16,000 |
 | truth | rule L4: each replication refits each fold's rule through `fit_fold_rule` with the fold's recorded inner seed and the fit's resolved `g_bounds` and `alpha`, requires the fit's rule on every validation row, integrates each rule's value on the RM30 grid, and averages over the folds. The construction rests on the unit witnesses W-c1 to W-c3 of `tests/unit/test_learned_rule_ep.py` |
-| properties | `interval_calibration`: `<law>__declared` for both laws and `optimal_known_g__declared` (the value of the optimal rule with `g0` supplied at `non_exceptional`, truth `Psi_d0 = 0.577115`), 7,200 draws each at n = 16,000, with the shrunken-SE (0.70) and noise controls of each, and the fold-locality control `non_exceptional__validation_rule_control` (each fold's EP curve fitted on its own validation rows, 500 draws at n = 2,000), whose coverage interval must lie below 0.92. `small_sample_diagnostic` fits each law at n = 1,000 for 2,000 draws and `exceptional_law_report` fits the RM30 `exceptional` law at n = 2,000 for 2,400 draws; both are role `diagnostic` and state no verdict. Every gated and diagnostic row also carries the paired plug-in fit on the same sample and folds |
+| properties | `interval_calibration`: `<law>__declared` for both laws and `optimal_known_g__declared` (the value of the optimal rule with `g0` supplied at `non_exceptional`, truth `Psi_d0 = 0.577115`), 7,200 draws each at n = 16,000, with the shrunken-SE (0.70) and noise controls of each, and the fold-locality control `non_exceptional__validation_rule_control` (each fold's EP curve fitted on its own validation rows, 500 draws at n = 2,000), whose coverage interval must lie below 0.92. `small_sample_diagnostic` fits each law at n = 1,000 for 2,000 draws and `exceptional_law_report` fits the RM30 `exceptional` law at n = 2,000 for 2,400 draws; both are role `diagnostic` and state no verdict. Every gated and diagnostic row also carries the paired plug-in fit on the same sample and folds, and every calibration row the limit-rule fit |
 | verdicts | the framework defaults, read on the error `estimate - truth` of each row: coverage floor 0.90 and SE screen 0.80 to 1.20 on the primary phase, SE-ratio band 0.93 to 1.07 and coverage band 0.92 to 0.98 on the calibration cells, 99% intervals |
 | comparator | none |
 
@@ -22,7 +22,8 @@ The declarations are in `tests/studies/learned_rule_ep.py`,
 red-cell readings are in the docstring of `regenerate.py`, declared before any run and before the
 first pilot's summary was read. Plan rev 2.6 moved the calibration cells from n = 4,000 to 16,000
 after both pilots were read and before any declared draw; it changed the size the readings name
-and nothing else in them.
+and nothing else in them. Plan rev 2.7, also before any declared draw, added the limit-rule fit
+to each calibration replicate and the readings that use it.
 
 ## Sizing
 
@@ -71,28 +72,50 @@ The excess is consistent with a second-order remainder of order `1/n` or faster.
 At n = 16,000 the plan's rule reads 0.997 - 0.020 = 0.977, at least 0.975, so it gives R = 4,800
 and admits the `T49` rows. At 4,800 the `misspecified_limit` cell's assurance over its pilot error
 is 0.85, below the 0.9 target of rev 2.5 (B2), so R is the plan's other count, 7,200. There every
-gated cell reaches the target on the unpaired reading (0.965, 0.917, 0.953; family 0.84) and on
-the paired reading (1.000, 0.972, 0.996; family 0.97). The paired reading equals the SE ratio when
-the limit-rule fit, a CV-TMLE of a fixed rule, has an SE ratio of 1; its pilot reads 0.99 to 1.03.
+gated cell reaches the target on three readings of its SE ratio:
+
+| reading at R = 7,200 | `non_exceptional` | `misspecified_limit` | `optimal_known_g` | all three |
+| --- | --- | --- | --- | --- |
+| unpaired: the pilot SE ratio with its pilot error | 0.965 | 0.917 | 0.953 | 0.84 |
+| pooled: the paired SE ratio times the limit-rule fits' SE ratio pooled over the cells, 1.011 (SD 0.012) | 0.973 | 0.965 | 0.994 | 0.94 |
+| paired: the paired SE ratio, with the limit-rule fit's SE ratio taken as 1 | 1.000 | 0.972 | 0.996 | 0.97 |
+
+The paired reading's assumption is not given by theory at `misspecified_limit`, where the outcome
+regression is wrong and a fixed-rule CV-TMLE's variance is conservative; the pilot's limit-rule
+ratios are 0.993, 1.015 and 1.026. So the run should expect some gated cell red under a correct
+method with probability about 16% (unpaired) or 6% (pooled). The unpaired family reaches 0.90 only
+at about R = 9,600, which the plan's rule does not allow; R stays at 7,200 (plan rev 2.7), and the
+red-cell readings of `regenerate.py` cover the likely reds. The run fits the limit-rule fit on
+every calibration replicate too (`limit_estimate`, `limit_std_error`, `limit_truth`), so an
+above-band red can be read against the fixed-rule fit's own SE ratio on the same draws.
+
+At the two learned-value laws the error variance at n = 16,000 is within about 1.5% (one SE) of
+the limit-rule fit's. At the optimal cell it is 3.4% (SD 1.5%) above it, because the learned
+rule's variability reaches the optimal value's error. The optimal cell is also the only one that
+sees whether the learner learns a good rule: the others' truth is the value of the learned rules.
 The primary floor passes with probability 0.99 at the pilot coverage and 0.77 over its 300-draw
 pilot; a red floor with the 16,000-row cells green reads as finite-sample. The control's interval
 lies below 0.92 with assurance above 0.999. The cells run as declared and are never downgraded.
+Whatever the run shows, the `T49` limits name n = 16,000 and the n = 4,000 pilot's deficit
+(`learned_rule_ep_properties.T49_LIMITS`).
 
 ## Run
 
 A declared run takes `--output` and `--jobs` only, on the Python and package versions that rule L7
-of `tests/canonical/learned_rule_run.py` declares, with one thread per numerical library:
+of `tests/canonical/learned_rule_run.py` declares, with one thread per numerical library, from a
+clean checkout whose `HEAD` equals its upstream:
 
 ```bash
-OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+NUMEXPR_NUM_THREADS=1 \
 python -u -m tests.canonical.learned_rule_ep.regenerate --jobs 4 --output <empty scratch directory>
 ```
 
-Cost from the pilots' CPU seconds, with the harness refit of each fold rule and the paired
-plug-in fit: the calibration cells about 89 CPU-hours (35, 29 and 24), the primary phase 9, the
-diagnostic cells 7, the exceptional cell 5.5 and the control 1, about 112 CPU-hours. That is
-about 29 hours on 4 cores or 7 on 16; the run is one run, and a stopped run resumes from its
-checkpoints with a new empty `--output`.
+Cost from the pilots' CPU seconds, with the harness refit of each fold rule, the paired plug-in
+fit and the limit-rule fit: the calibration cells about 90 CPU-hours (36, 30 and 25), the
+primary phase 9, the diagnostic cells 7, the exceptional cell 5.5 and the control 1, about 114
+CPU-hours. That is about 29 hours on 4 cores or 7 on 16, at about 240 MB per worker; the run is
+one run, and a stopped run resumes from its checkpoints with a new empty `--output`.
 
 A smoke run passes another `--replicates` and writes outside the repository.
 `--property-harness-check 2` also fits two draws of every property cell and prints the rule
