@@ -29,7 +29,7 @@ projection is ``E[tau | W1] + E[tau | W2] - E[tau]``.  The inner treatment learn
 correct logistic model, so the DR branch through ``g`` holds whatever the main-terms outcome
 learner converges to.  ``tau`` is not additive on the probability scale, so the limit rule
 differs from ``d0`` on a band near the threshold; its regret is about ``2.5e-5`` at
-``non_exceptional``, 0.002 SE at n = 4,000 (:func:`optimal_regret`).
+``non_exceptional``, 0.005 SE at n = 16,000 (:func:`optimal_regret`).
 """
 
 from __future__ import annotations

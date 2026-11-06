@@ -1491,7 +1491,7 @@ the whole adjustment set, and narrower modifiers refuse with `DIFFERENT_ESTIMAND
 then the limit rule is the sign of the class's projection, which equals $d_0$ only when the sign
 of the blip is that of a function in the class (C3f). At RM30's `non_exceptional` law the
 additive limit rule differs from $d_0$ on 1.0% of the population near the threshold, and its
-regret is $2.5 \times 10^{-5}$, 0.002 SE at n = 4,000 (`tests/studies/_learned_rule_ep_law.py`).
+regret is $2.5 \times 10^{-5}$, 0.005 SE at n = 16,000 (`tests/studies/_learned_rule_ep_law.py`).
 
 `LearnedRule` refuses `modifiers=` or `sieve=` beside another loss, a missing `Modifiers`, a
 classifier as the final learner and a `SuperLearner` that clips. At the fit, before any learner,
@@ -1506,10 +1506,13 @@ fit on rows at both RM30 laws, the optimal value with $g_0$ supplied, n = 1,000 
 exceptional law. With the size chosen by cross-validation, each outer fold fits 5 inner and 25
 inner-inner nuisance pairs, so a fit at n = 4,000 takes about 5 CPU-seconds against 0.2 for the
 plug-in rule.
-Its sizing pilot reads an SE ratio of 0.970 at n = 4,000, where the reported SE is the
-fixed-rule SE of the realized rules: rule learning adds about 6% to the error variance. That
-ratio less one pilot SE lies below the plan's 0.96, so the declared run cannot make these fits
-supported (`tests/canonical/learned_rule_ep/README.md`).
+
+At n = 4,000 the study's first pilot reads an SE ratio of 0.970 at the `non_exceptional` law.
+The reported SE there is the fixed-rule SE of the realized rules, and rule learning adds about
+6.5% to the error variance. At n = 16,000 a second pilot reads 0.997, and the error variance is
+within 1% of a fit on the same draws whose rule is fixed at the limit rule. So the study's
+calibration cells fit n = 16,000
+(`tests/canonical/learned_rule_ep/README.md`).
 
 `tests/unit/test_learned_rule_ep.py` holds the witnesses. On a finite population whose training
 folds are whole copies of it, with $g$ known and an outcome regression that is wrong in the

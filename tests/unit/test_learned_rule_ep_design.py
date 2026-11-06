@@ -27,6 +27,7 @@ from tests.studies import _learned_rule_optimal_law as optimal_law
 from tests.studies import learned_rule_ep as study
 from tests.studies import learned_rule_ep_pilot as pilot
 from tests.studies import learned_rule_ep_properties as properties
+from tests.studies import learned_rule_ep_size_pilot as size_pilot
 from tests.studies import mtp_study_tools as tools
 from tests.studies.evidence.registry import registered
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
@@ -63,7 +64,7 @@ def test_the_limit_rule_crosses_once_with_no_mass_at_its_threshold() -> None:
 
 
 def test_the_limit_rules_regret_against_d0_is_below_any_budget() -> None:
-    """C3f for the optimal value: the additive limit rule gives up 0.002 SE at n = 4,000."""
+    """C3f for the optimal value: the additive limit rule gives up 0.005 SE at n = 16,000."""
     assert law.disagreement("non_exceptional") == pytest.approx(0.010125, abs=1e-6)
     regret = law.optimal_regret("non_exceptional")
     assert regret == pytest.approx(2.5454e-5, rel=1e-3)
@@ -108,32 +109,76 @@ def test_the_pilot_ran_every_declared_cell_in_full() -> None:
     assert pilot.CELLS["non_exceptional__declared"][3] == 2_000
 
 
-def test_the_calibration_count_follows_the_plans_rule() -> None:
-    """R from the ``non_exceptional`` pilot ratio minus one pilot SE (plan 5.5)."""
-    row = _row("non_exceptional__declared")
-    sigma = tools.pilot_sigma(int(row["replicates"]))
-    assert 0.016 < sigma < 0.018
-    replicates, admitted = properties.sizing_reading(float(row["se_ratio"]), sigma)
-    assert replicates == properties.CALIBRATION_REPLICATES
-    assert admitted is properties.T49_ADMITTED
+@cache
+def size_rows() -> pd.DataFrame:
+    return pd.read_csv(size_pilot.PILOT_CSV).set_index("cell")
 
 
-def _se_pass(cell: str, replicates: int) -> tuple[float, float]:
-    """The SE-ratio gate's pass probability at the pilot ratio, and its assurance.
+#: Each gated cell and its pilot at the calibration size (plan rev 2.6).
+SIZED = {
+    "non_exceptional__declared": "non_exceptional__n16000",
+    "misspecified_limit__declared": "misspecified_limit__n16000",
+    "optimal_known_g__declared": "optimal_known_g__n16000",
+}
 
-    The assurance is :func:`tests.studies.mtp_study_tools.per_arm_pass`: the pass probability
-    averaged over the pilot ratio's normal error.
+
+def _size_row(cell: str) -> Any:
+    return size_rows().loc[cell]
+
+
+def test_the_size_pilot_ran_every_cell_in_full() -> None:
+    rows = size_rows()
+    assert set(rows.index) == set(size_pilot.CELLS)
+    for cell, (_, _, n, replicates) in size_pilot.CELLS.items():
+        assert int(rows.loc[cell, "replicates"]) == replicates
+        assert int(rows.loc[cell, "n"]) == n
+    assert set(SIZED.values()) <= set(rows.index)
+    for pilot_cell in SIZED.values():
+        assert int(_size_row(pilot_cell)["n"]) == properties.CALIBRATION_N
+
+
+def test_the_excess_variance_of_rule_learning_shrinks_with_n() -> None:
+    """At n = 4,000 rule learning adds 6.5% to the error variance; at 16,000 it adds about none.
+
+    The n = 4,000 excess reads the oracle-SE ratio, ``ratio ** -2 - 1``; the n = 16,000 excess
+    reads the paired variance ratio against the limit-rule fit on the same draws, whose 95% upper
+    end lies below the n = 4,000 point excess.
     """
-    row = _row(cell)
-    ratio = float(row["se_ratio"])
-    point = float(tools.cell_pass(ratio, replicates, tools.C_FIT))
-    (assured,) = tools.per_arm_pass((ratio,), int(row["replicates"]), replicates)
-    return point, float(assured)
+    four = float(_row("non_exceptional__declared")["oracle_ratio"]) ** -2 - 1
+    assert four == pytest.approx(0.065, abs=0.002)
+    sixteen = _size_row("non_exceptional__n16000")
+    upper = float(sixteen["variance_ratio"]) - 1 + 1.96 * float(sixteen["variance_ratio_sd"])
+    assert upper < four
+    assert float(sixteen["error_correlation"]) > 0.95
 
 
-def _coverage_law(cell: str, points: int = 400) -> np.ndarray:
+def test_the_calibration_count_follows_the_plans_rule() -> None:
+    """The plan's rule on the ``non_exceptional`` ratio minus one pilot SE at n = 16,000 (5.5)."""
+    row = _size_row("non_exceptional__n16000")
+    sigma = tools.pilot_sigma(int(row["replicates"]))
+    assert 0.019 < sigma < 0.021
+    replicates, admitted = properties.sizing_reading(float(row["se_ratio"]), sigma)
+    assert (replicates, admitted) == (4_800, True)
+    assert admitted is properties.T49_ADMITTED
+    # the assurance test raises 4,800 to the plan's other count
+    assert properties.CALIBRATION_REPLICATES == 7_200
+    # the first pilot, at n = 4,000, put the rows out of reach (rev 2.5's declaration)
+    first = _row("non_exceptional__declared")
+    old = properties.sizing_reading(
+        float(first["se_ratio"]), tools.pilot_sigma(int(first["replicates"]))
+    )
+    assert old == (7_200, False)
+
+
+def _assured(ratio: float, sigma: float, replicates: int) -> float:
+    """The SE-ratio gate's pass probability averaged over a normal law of the true ratio."""
+    passes = tools.cell_pass(ratio + sigma * tools._GH_X, replicates, tools.C_FIT)
+    return float(np.sum(tools._GH_W * passes))
+
+
+def _coverage_law(cell: str, points: int = 400, rows: Any = None) -> np.ndarray:
     """The pilot coverage's Jeffreys posterior, as ``points`` equal-mass quantiles."""
-    row = _row(cell)
+    row = _row(cell) if rows is None else rows
     m = int(row["replicates"])
     covered = round(float(row["coverage"]) * m)
     mass = (np.arange(points) + 0.5) / points
@@ -154,45 +199,61 @@ def _interval_pass(coverage: np.ndarray, replicates: int, accept: Any) -> float:
     return float(np.mean(pmf @ ok))
 
 
-def calibration_pass(cell: str, replicates: int) -> dict[str, float]:
-    """A gated cell's pass probability at its pilot values and its assurance.
+def calibration_assurance(cell: str, replicates: int) -> dict[str, float]:
+    """A gated cell's assurance at ``replicates`` from its pilot at the calibration size.
 
-    The two gates are read as independent: the cell's number is their product.
+    ``unpaired`` reads the SE ratio with the pilot error of :func:`tools.pilot_sigma`.
+    ``paired`` reads the SE ratio against the limit-rule fit on the same draws, with its
+    bootstrap SD; it equals the SE ratio when the limit-rule fit, a CV-TMLE of a fixed rule at
+    n = 16,000, has an SE ratio of 1.  The coverage gate reads the pilot coverage's Jeffreys
+    posterior.  The gates are read as independent: a cell's number is their product.
     """
+    row = _size_row(SIZED[cell])
     band = study.STUDY.margins.calibration_coverage
 
     def inside(lo: np.ndarray, hi: np.ndarray) -> np.ndarray:
         return (lo > band[0]) & (hi < band[1])
 
-    se_point, se_assured = _se_pass(cell, replicates)
-    coverage = float(_row(cell)["coverage"])
-    cov_point = _interval_pass(np.array([coverage]), replicates, inside)
-    cov_assured = _interval_pass(_coverage_law(cell), replicates, inside)
-    return {"point": se_point * cov_point, "assurance": se_assured * cov_assured}
+    coverage = _interval_pass(_coverage_law(cell, rows=row), replicates, inside)
+    unpaired = _assured(
+        float(row["se_ratio"]), tools.pilot_sigma(int(row["replicates"])), replicates
+    )
+    paired = _assured(float(row["paired_se_ratio"]), float(row["paired_se_ratio_sd"]), replicates)
+    return {"coverage": coverage, "unpaired": unpaired * coverage, "paired": paired * coverage}
 
 
-GATED = ("non_exceptional__declared", "misspecified_limit__declared", "optimal_known_g__declared")
+GATED = tuple(SIZED)
 
-#: Each gated cell's assurance at R = 7,200, recomputed here: below the 0.9 target for every
-#: cell, because the pilot's own error is as large as the margin it is read against.  With the
-#: ``non_exceptional`` ratio minus one SE below 0.96 the plan's rule already keeps the ``T49``
-#: rows experimental; the cells run as declared and are never downgraded (plan 5.5).
+#: Each gated cell's assurance at the declared R = 7,200, recomputed here.
 ASSURANCE = {
-    "non_exceptional__declared": 0.737,
-    "misspecified_limit__declared": 0.806,
-    "optimal_known_g__declared": 0.851,
+    "non_exceptional__declared": {"coverage": 1.000, "unpaired": 0.965, "paired": 1.000},
+    "misspecified_limit__declared": {"coverage": 0.972, "unpaired": 0.917, "paired": 0.972},
+    "optimal_known_g__declared": {"coverage": 1.000, "unpaired": 0.953, "paired": 0.996},
 }
 
 
-def test_every_calibration_cell_passes_at_its_pilot_values() -> None:
-    """At R = 7,200 each gated cell passes at its pilot SE ratio and coverage (plan 5.5)."""
+def test_every_calibration_cell_is_assured_at_the_declared_count() -> None:
+    """Every gated cell reaches the 0.9 target (rev 2.5 B2) on both readings at R = 7,200.
+
+    The plan's rule reads 4,800 from the ``non_exceptional`` pilot, but at 4,800 the
+    ``misspecified_limit`` cell's unpaired assurance is 0.85, so the count is the plan's other
+    count, 7,200 (rev 2.6), which reaches the target without the paired reading's assumption.
+    """
     replicates = properties.CALIBRATION_REPLICATES
+    assert replicates == 7_200
+    unpaired = paired = 1.0
     for cell in GATED:
-        reading = calibration_pass(cell, replicates)
-        assert reading["point"] >= 0.95, (cell, reading)
-        assert reading["assurance"] == pytest.approx(ASSURANCE[cell], abs=0.01), (cell, reading)
-        assert reading["assurance"] < TARGET
-    assert not properties.T49_ADMITTED
+        reading = calibration_assurance(cell, replicates)
+        for key, value in ASSURANCE[cell].items():
+            assert reading[key] == pytest.approx(value, abs=0.01), (cell, reading)
+        assert min(reading["unpaired"], reading["paired"]) >= TARGET, (cell, reading)
+        unpaired *= reading["unpaired"]
+        paired *= reading["paired"]
+    assert unpaired >= 0.8
+    assert paired >= 0.95
+    smaller = calibration_assurance("misspecified_limit__declared", 4_800)
+    assert smaller["unpaired"] == pytest.approx(0.849, abs=0.01)
+    assert smaller["unpaired"] < TARGET
 
 
 def test_the_fold_locality_control_resolves_below_the_band() -> None:
@@ -210,7 +271,7 @@ def test_the_primary_budget_resolves_the_framework_defaults() -> None:
     """At 2,000 replicates of n = 2,000: the coverage floor, the SE screen and the bias margin.
 
     The floor passes with probability 0.99 at the pilot coverage 0.930 but its assurance over
-    the 300-draw pilot is 0.77: a red floor with the n = 4,000 cells green reads as the
+    the 300-draw pilot is 0.77: a red floor with the n = 16,000 cells green reads as the
     finite-sample rule-learner deficit (the red-cell readings of ``regenerate.py``).
     """
     cell = "non_exceptional__primary"
@@ -234,24 +295,26 @@ def test_the_primary_budget_resolves_the_framework_defaults() -> None:
 
 
 def test_the_pilot_cost_bounds_the_declared_run() -> None:
-    """The declared run's CPU hours from the pilot's seconds per fit, harness refit included.
+    """The declared run's CPU hours from the pilots' seconds per fit, harness refit included.
 
-    The pilot replays each fold rule; the run refits it, which costs about one more fit. A
-    gated or diagnostic replicate also fits the plug-in rule (0.2 s) and its harness.
+    The pilots replay each fold rule; the run refits it, which costs about one more fit.  A
+    gated or diagnostic replicate also fits the plug-in rule and its harness, which the
+    limit-rule fit's seconds stand in for.  The calibration cells read the size pilot, the
+    others the first pilot.
     """
-    seconds = {cell: float(_row(cell)["seconds"]) for cell in pilot.CELLS}
-    big = seconds["non_exceptional__declared"]
-    small = seconds["non_exceptional__primary"]
-    calibration = properties.CALIBRATION_REPLICATES
-    hours = (
-        2 * calibration * 2 * big
-        + calibration * 2 * seconds["optimal_known_g__declared"]
-        + 2 * study.PRIMARY_REPLICATES * 2 * small
+    sized = {cell: _size_row(SIZED[cell]) for cell in GATED}
+    calibration = properties.CALIBRATION_REPLICATES * sum(
+        2 * float(row["seconds"]) + float(row["limit_seconds"]) for row in sized.values()
+    )
+    small = float(_row("non_exceptional__primary")["seconds"])
+    others = (
+        2 * study.PRIMARY_REPLICATES * 2 * small
         + 2 * properties.DIAGNOSTIC_REPLICATES * 2 * small * 0.8
         + properties.EXCEPTIONAL_REPLICATES * 2 * small
         + properties.CONTROL_REPLICATES * 2 * small
-    ) / 3600
-    assert hours < 96, hours  # one run inside 24 hours on 4 cores
+    )
+    hours = (calibration + others) / 3600
+    assert 100 < hours < 120, hours  # one resumable run: about 29 hours on 4 cores, 7 on 16
 
 
 # ------------------------------------------------------------------------- the declaration
@@ -268,7 +331,7 @@ def test_the_cells_and_their_sizes() -> None:
     for name in law.LAWS:
         draw = draws["interval_calibration", f"{name}__declared"]
         assert draw.replicates == properties.CALIBRATION_REPLICATES
-        assert properties.size_of(draw.family, draw.label) == 4_000
+        assert properties.size_of(draw.family, draw.label) == 16_000
         diagnostic = draws["small_sample_diagnostic", f"{name}__n1000"]
         assert diagnostic.replicates == 2_000
         assert properties.size_of(diagnostic.family, diagnostic.label) == 1_000
@@ -342,10 +405,14 @@ def _seeds(record: Any) -> dict[str, set[int]]:
 
 
 def _pilot_seeds() -> set[int]:
+    """The sample and fold seeds of both pilots."""
+    cells = [(pilot.STREAM, pilot.FOLD_STREAM, pilot.CELLS)]
+    cells.append((size_pilot.STREAM, size_pilot.FOLD_STREAM, size_pilot.CELLS))
     return {
         stream_seed(pilot.PILOT_RECORD, stream, cell, r)
-        for stream in (pilot.STREAM, pilot.FOLD_STREAM)
-        for cell, (_, _, _, replicates) in pilot.CELLS.items()
+        for sample, fold, table in cells
+        for stream in (sample, fold)
+        for cell, (_, _, _, replicates) in table.items()
         for r in range(replicates)
     }
 
@@ -371,7 +438,8 @@ def test_no_seed_is_shared_with_another_learned_rule_study_or_the_pilot(
     others = run.declared_sample_seeds()
     assert not mine["sample"] & others
     seeds = _pilot_seeds()
-    assert len(seeds) == 2 * sum(cell[3] for cell in pilot.CELLS.values())
+    cells = (*pilot.CELLS.values(), *size_pilot.CELLS.values())
+    assert len(seeds) == 2 * sum(cell[3] for cell in cells)
     assert not seeds & everyone
     assert not seeds & mine["fold"]
     assert replicate_seed(record, "non_exceptional", 0) not in seeds

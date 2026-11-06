@@ -2,7 +2,9 @@
 
 Red-cell readings, declared before any run and before the sizing pilot's summary was read
 (P1 plan section 5.5).  A red cell is diagnosed before a route is chosen; no cell is re-sized,
-re-drawn or downgraded after the run.
+re-drawn or downgraded after the run.  Plan rev 2.6 moved the calibration cells from n = 4,000 to
+n = 16,000 after both pilots were read and before any declared draw; it changed the size each
+reading names and the sizing reading's pilot, and no reading's text otherwise.
 
 * A ``<law>__declared`` cell whose SE-ratio interval lies below the band while its oracle-SE
   ratio (the fixed-rule SE of the realized rules over the error SD) sits below one by about
@@ -16,7 +18,7 @@ re-drawn or downgraded after the run.
   the realized-rule target: a fold-locality or harness defect suspect.  Diagnose it against the
   unit witnesses W-c1 to W-c3, the published ``rule_rows_checked`` and the standardized bias.
 * ``optimal_known_g__declared`` red while both learned-value cells are green is not explained
-  by the EP limit rule, whose regret is 0.002 SE at n = 4,000: it is a defect suspect.  With
+  by the EP limit rule, whose regret is 0.005 SE at n = 16,000: it is a defect suspect.  With
   no defect found it is published red under ``reporting`` with the owner P1, and
   ``T49.optimal`` is not added.
 * A derived control (``shrunken_se_control``, ``noise_control``) that does not leave the band
@@ -26,10 +28,10 @@ re-drawn or downgraded after the run.
   The run's fold-locality evidence then rests on the unit witnesses W-c2 and W-c3 alone; the
   ``T49`` rows are not added until a stronger control is declared under a fresh run.
 * The primary phase (n = 2,000) red on its coverage floor 0.90 or its SE sanity screen while the
-  n = 4,000 cells are green reads as the finite-sample rule-learner deficit: reported, and the
-  ``T49`` limits name the size.  Red with a red n = 4,000 cell reads with that cell.
+  n = 16,000 cells are green reads as the finite-sample rule-learner deficit: reported, and the
+  ``T49`` limits name the size.  Red with a red n = 16,000 cell reads with that cell.
 * The pilot's sizing reading.  When the ``non_exceptional`` pilot's SE ratio minus one pilot SE
-  is below 0.96, R = 7,200 and the ``T49`` rows stay experimental whatever the run shows, with
+  at the calibration size (the n = 16,000 cell of the size pilot, rev 2.6) is below 0.96, R = 7,200 and the ``T49`` rows stay experimental whatever the run shows, with
   the reason "the calibration cells are not powered at the measured SE deficit" (plan 5.5).
 
 The reporting cells state no verdict.  ``small_sample_diagnostic`` publishes the SE ratio, the

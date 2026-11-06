@@ -1,10 +1,12 @@
 """Repeated-sampling properties of the learned-rule value with the EP rule learner (P1 5.5).
 
-The gated family, ``interval_calibration``, fits at n = 4,000 (:data:`CALIBRATION_N`), twice the
-primary size, where the learned-rule-learners pilot found the rule-learner SE deficit within
-about 3% of zero (``tests/canonical/learned_rule_learners/README.md``).  Two families report
-and state no verdict: ``small_sample_diagnostic`` at n = 1,000 and ``exceptional_law_report``
-at n = 2,000.
+The gated family, ``interval_calibration``, fits at n = 16,000 (:data:`CALIBRATION_N`), eight
+times the primary size (plan rev 2.6).  At n = 4,000 the declared sizing pilot read an SE ratio
+of 0.970: rule learning adds about 6.5% to the error variance there, and the plan's rule put the
+``T49`` rows out of reach.  The size pilot (:mod:`tests.studies.learned_rule_ep_size_pilot`)
+reads 0.997 at n = 16,000, and the error variance within 1% of the fixed limit rule's.  Two
+families report and state no verdict: ``small_sample_diagnostic`` at n = 1,000 and
+``exceptional_law_report`` at n = 2,000.
 
 ``<law>__declared`` for ``non_exceptional`` and ``misspecified_limit``
     The declared fit.  Its SE-ratio interval must lie inside 0.93 to 1.07 and its coverage
@@ -15,7 +17,7 @@ at n = 2,000.
     both adjustment columns (R12 admits it) and ``g0`` supplied, at ``non_exceptional``.  Its
     truth is the fixed :math:`\\Psi_{d_0}(P_0)`.  The EP limit rule is the sign of the additive
     projection of the effect, which differs from ``d0`` on 1.0% of the population near the
-    threshold, and its regret is about 2.5e-5, 0.002 SE at n = 4,000
+    threshold, and its regret is about 2.5e-5, 0.005 SE at n = 16,000
     (:func:`~tests.studies._learned_rule_ep_law.optimal_regret`), so condition C3f holds up to
     a bias no budget here resolves.  The same band as the declared cells.
 ``<label>__shrunken_se_control`` and ``<label>__noise_control``
@@ -102,7 +104,7 @@ from tests.studies.learned_rule_ep import (
     STUDY,
 )
 
-CALIBRATION_N = 4_000
+CALIBRATION_N = 16_000
 
 
 def sizing_reading(ratio: float, sigma: float) -> tuple[int, bool]:
@@ -120,13 +122,16 @@ def sizing_reading(ratio: float, sigma: float) -> tuple[int, bool]:
     return 7_200, False
 
 
-#: Set from the ``non_exceptional`` sizing pilot by :func:`sizing_reading`
-#: (``tests/unit/test_learned_rule_ep_design.py`` recomputes both from the committed pilot).
-#: The pilot ratio is 0.970 over 2,000 draws, one pilot SE is 0.017, and 0.953 lies below 0.96:
-#: R = 7,200, and the ``T49`` rows stay experimental whatever the run shows, because the
-#: calibration cells are not powered at the measured SE deficit (plan 5.5).
+#: Set by plan rev 2.6 from the size pilot at n = 16,000
+#: (:mod:`tests.studies.learned_rule_ep_size_pilot`;
+#: ``tests/unit/test_learned_rule_ep_design.py`` recomputes both from the committed summaries).
+#: The ``non_exceptional`` ratio is 0.997 over 1,400 draws and one pilot SE is 0.020, so
+#: :func:`sizing_reading` gives 4,800 and admits the ``T49`` rows.  At 4,800 the
+#: ``misspecified_limit`` cell's assurance is 0.85, below the 0.9 target of rev 2.5 (B2), so R is
+#: the plan's other count, 7,200, at which every gated cell's assurance is at least 0.92.
+#: (The first pilot, at n = 4,000, read 0.970 and put the rows out of reach.)
 CALIBRATION_REPLICATES = 7_200
-T49_ADMITTED = False
+T49_ADMITTED = True
 CONTROL_N = PRIMARY_N
 CONTROL_REPLICATES = 500
 DIAGNOSTIC_N = 1_000

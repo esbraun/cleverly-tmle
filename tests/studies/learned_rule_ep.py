@@ -11,9 +11,9 @@ laws ``non_exceptional`` and ``misspecified_limit`` with the main-terms outcome 
 logistic treatment learner, rows only: no weights, no clusters, pooled targeting, one split.
 
 The primary phase fits n = 2,000, 2,000 replications per law, read by the framework defaults
-(the coverage floor 0.90 and the SE sanity screen).  The gated calibration cells fit n = 4,000
-(:mod:`tests.studies.learned_rule_ep_properties`), the size at which the learned-rule-learners
-pilot found the rule-learner SE deficit within about 3% of zero.
+(the coverage floor 0.90 and the SE sanity screen).  The gated calibration cells fit n = 16,000
+(:mod:`tests.studies.learned_rule_ep_properties`, plan rev 2.6), the size at which the size
+pilot finds the error variance that rule learning adds within about 1% of zero.
 
 The target of each replication is data-adaptive, so each row carries its own truth: the
 fold-average value of the rules the fit learned (rule L4).  :mod:`tests.studies._learned_rule_ep_law`
