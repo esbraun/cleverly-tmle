@@ -278,7 +278,7 @@ class _RLoss:
         standardized = np.zeros(self.usable.size)
         for lam in values:
             if self.usable.size and lam > 0.0:
-                standardized = _feature_sign(gram, linear, float(lam), standardized)
+                standardized = _lasso(gram, linear, float(lam), standardized)
             elif self.usable.size:
                 standardized = np.linalg.lstsq(self.z, self.y, rcond=None)[0]
             coef = self.coefficients(standardized)
@@ -290,41 +290,83 @@ def _lasso_objective(gram: FloatArray, linear: FloatArray, penalty: float, c: Fl
     return float(0.5 * c @ gram @ c - linear @ c + penalty * np.sum(np.abs(c)))
 
 
+def _slack(linear: FloatArray, penalty: float) -> float:
+    """The optimality slack of the inner solvers, ``1e-12`` of the problem's scale."""
+    return 1e-12 * max(penalty, float(np.max(np.abs(linear))), 1e-300)
+
+
+def _optimality(gram: FloatArray, linear: FloatArray, penalty: float, c: FloatArray) -> float:
+    """The Karush-Kuhn-Tucker residual of ``c'Gc / 2 - b'c + lambda |c|_1`` at ``c``."""
+    gradient = gram @ c - linear
+    nonzero = c != 0.0
+    residual = np.where(
+        nonzero,
+        np.abs(gradient + penalty * np.sign(c)),
+        np.maximum(np.abs(gradient) - penalty, 0.0),
+    )
+    return float(np.max(residual)) if residual.size else 0.0
+
+
+def _lasso(gram: FloatArray, linear: FloatArray, penalty: float, start: FloatArray) -> FloatArray:
+    """Minimize ``c'Gc / 2 - b'c + lambda |c|_1`` to the slack of :func:`_slack`.
+
+    Feature-sign search (:func:`_feature_sign`) runs first. In floating point it can stop
+    short of the optimality conditions, for example when it can no longer lower the
+    objective. The problem is convex and always has a solution for ``lambda > 0``, so a
+    stall is a solver failure: the search then continues by coordinate descent with an
+    exact solve on its support and signs (:func:`_coordinate_descent`), and returns the
+    point with the smaller optimality residual.
+    """
+    c = _feature_sign(gram, linear, penalty, start)
+    slack = _slack(linear, penalty)
+    residual = _optimality(gram, linear, penalty, c)
+    if residual <= slack:
+        return c
+    fallback = _coordinate_descent(gram, linear, penalty, c)
+    return fallback if _optimality(gram, linear, penalty, fallback) < residual else c
+
+
 def _feature_sign(
     gram: FloatArray, linear: FloatArray, penalty: float, start: FloatArray
 ) -> FloatArray:
     """Minimize ``c'Gc / 2 - b'c + lambda |c|_1`` exactly by feature-sign search.
 
     The active-set method of Lee, Battle, Raina and Ng (2007, Algorithm 1), started from
-    ``start``, the solution at the previous penalty of the grid. A zero coefficient whose
-    gradient exceeds the penalty joins the active set with the sign that lowers the
-    objective. Each step solves the quadratic on the active set with its signs fixed and
-    moves to the lowest objective among that solution and the points where an active
-    coefficient crosses zero. When the entering coefficient's sign flips in that solution
-    and no point of the segment descends, an exact coordinate step on the entering
-    coefficient is taken instead, and when a coefficient crosses zero too early in the
-    segment to lower the objective in floating point, the search moves to that crossing and
-    drops it. The search ends when the optimality conditions hold to ``1e-12`` of the
-    penalty's scale; the caller checks them again (:func:`kkt_residual`).
+    ``start``, the solution at the previous penalty of the grid. Each step solves the
+    quadratic on the active set with its signs fixed and moves to the lowest objective among
+    that solution and the points where an active coefficient crosses zero. A zero
+    coefficient whose gradient exceeds the penalty joins the active set, with the sign that
+    lowers the objective, only once the active coefficients meet their optimality
+    conditions, as the algorithm's step 4 requires. Entering a coefficient while the active
+    set is still off its optimum lets two near-collinear columns trade places forever, each
+    step lowering the objective by less than the last. When the entering coefficient's sign
+    flips in the active-set solution and no point of the segment descends, an exact
+    coordinate step on the entering coefficient is taken instead, and when a coefficient
+    crosses zero too early in the segment to lower the objective in floating point, the
+    search moves to that crossing and drops it. The search ends when the optimality
+    conditions hold to the slack of :func:`_slack`, or when it can make no progress; the
+    caller checks them again.
     """
     c = np.array(start, dtype=float)
-    slack = 1e-12 * max(penalty, float(np.max(np.abs(linear))), 1e-300)
+    slack = _slack(linear, penalty)
     for _ in range(20 * c.size + 100):
         gradient = gram @ c - linear
         signs = np.sign(c)
-        zero = c == 0.0
+        active = np.flatnonzero(signs)
+        settled = active.size == 0 or bool(
+            np.max(np.abs(gradient[active] + penalty * signs[active])) <= slack
+        )
         entering = -1
-        if np.any(zero):
+        zero = c == 0.0
+        if settled and np.any(zero):
             candidates = np.where(zero, np.abs(gradient), -np.inf)
             j = int(np.argmax(candidates))
             if candidates[j] > penalty + slack:
                 signs[j] = -np.sign(gradient[j])
                 entering = j
+        if settled and entering < 0:
+            return c
         active = np.flatnonzero(signs)
-        if active.size == 0:
-            return c
-        if entering < 0 and np.max(np.abs(gradient[active] + penalty * signs[active])) <= slack:
-            return c
         sub = gram[np.ix_(active, active)]
         rhs = linear[active] - penalty * signs[active]
         try:
@@ -363,6 +405,49 @@ def _feature_sign(
             excess = abs(gradient[entering]) - penalty
             best[entering] = -np.sign(gradient[entering]) * excess / gram[entering, entering]
         c = best
+    return c
+
+
+#: The most sweeps of the coordinate-descent fallback of the lasso.
+_MAX_SWEEPS = 100_000
+
+
+def _coordinate_descent(
+    gram: FloatArray, linear: FloatArray, penalty: float, start: FloatArray
+) -> FloatArray:
+    """Minimize ``c'Gc / 2 - b'c + lambda |c|_1`` by cyclic coordinate descent.
+
+    Coordinate descent converges to a minimizer of this convex objective from any start
+    when every diagonal entry of ``G`` is positive (Tseng 2001), which holds for the
+    standardized columns. Every ten sweeps the quadratic is solved exactly on the current
+    support with its signs fixed; that point is returned once it meets the optimality
+    conditions to the slack of :func:`_slack`, so the result is the exact solution and not
+    an approximation to the descent's own tolerance. Without such a point the last iterate
+    is returned.
+    """
+    c = np.array(start, dtype=float)
+    slack = _slack(linear, penalty)
+    diagonal = np.diag(gram).copy()
+    gradient = gram @ c - linear
+    for sweep in range(_MAX_SWEEPS):
+        for j in range(c.size):
+            rho = diagonal[j] * c[j] - gradient[j]
+            new = np.sign(rho) * max(abs(rho) - penalty, 0.0) / diagonal[j]
+            change = new - c[j]
+            if change != 0.0:
+                gradient += change * gram[:, j]
+                c[j] = new
+        if sweep % 10 == 9:
+            active = np.flatnonzero(c)
+            polished = np.zeros_like(c)
+            if active.size:
+                sub = gram[np.ix_(active, active)]
+                rhs = linear[active] - penalty * np.sign(c[active])
+                polished[active] = np.linalg.lstsq(sub, rhs, rcond=None)[0]
+            consistent = np.all(np.sign(polished[active]) == np.sign(c[active]))
+            if consistent and _optimality(gram, linear, penalty, polished) <= slack:
+                return polished
+            gradient = gram @ c - linear
     return c
 
 
@@ -416,8 +501,9 @@ def lasso_solutions(
     column that is constant on the rows takes no coefficient. The leading ``k`` columns are
     partialled out exactly, the rest are solved by feature-sign search, an
     active-set method that solves exactly on the active columns and their signs, along the
-    penalty grid, and the solution is checked against the optimality conditions. A penalty
-    of 0 gives least squares.
+    penalty grid. Where the search stalls short of the optimality conditions, coordinate
+    descent with an exact solve on its support continues from it, and the solution is
+    checked against the optimality conditions. A penalty of 0 gives least squares.
 
     Parameters
     ----------

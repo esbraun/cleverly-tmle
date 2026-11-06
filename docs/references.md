@@ -1145,6 +1145,13 @@ sizes only the cluster sum is the delta-method variance of the row mean
   journal text has not been read, so the locators are arXiv's and the journal numbering may differ.
   The paper does not derive the trial-population effect, the $\Pi$ fluctuation, or a lasso-specific
   theorem. Those are stated on the technical page as extensions or as open (F39).
+- Tseng (2001), [*Convergence of a block coordinate descent method for nondifferentiable
+  minimization*](https://doi.org/10.1023/A:1017501703105), *Journal of Optimization Theory and
+  Applications* 109(3):475-494, DOI 10.1023/A:1017501703105. Its convergence result covers a smooth
+  convex loss plus a separable convex penalty, which includes the lasso: cyclic coordinate
+  descent from any start has every limit point a minimizer. It is the convergence argument of
+  the coordinate-descent fallback of the [adaptive TMLE](technical-reference/adaptive-tmle.md)
+  lasso.
 - Karim (2026), [*When Does Real-World Data Make a Randomized Trial More Efficient? Selection-Aware
   Inference for Adaptive-TMLE*](https://arxiv.org/abs/2607.02787), arXiv:2607.02787. This entry
   records a simulation caution. It reports undercoverage for selection-unaware standard errors and

@@ -129,9 +129,12 @@ with `fit` and `transform`.
 
 The lasso is the R-loss lasso, solved exactly by feature-sign search on `cv.glmnet`'s standardized
 scale, with only the constant unpenalized. The penalty is the largest one attaining the smallest
-cross-validated R-loss risk over a 100-point grid (`learner_folds` inner folds). The solver checks
-the Karush-Kuhn-Tucker conditions and raises `CapabilityError` with a smaller-basis alternative if
-they fail.
+cross-validated R-loss risk over a 100-point grid (`learner_folds` inner folds). Where the search
+stalls short of the optimality conditions, cyclic coordinate descent continues from it, and the
+quadratic is solved exactly on its support and signs. Coordinate descent converges on this convex
+objective from any start ([Tseng 2001](../references.md)). The solver checks the
+Karush-Kuhn-Tucker conditions and raises `CapabilityError` with a smaller-basis alternative if
+they still fail.
 
 The arm column $A$ of the bias dictionary is penalized. Forcing it in gives the external treated
 and control arms separate free mean shifts, so the external rows then carry no information on the

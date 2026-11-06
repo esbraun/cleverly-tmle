@@ -38,6 +38,7 @@ from cleverly.estimators.atmle import (
 )
 from cleverly.exceptions import DataError, MethodConfigurationError, PositivityWarning
 from cleverly.learners.crossfit import random_partition
+from tests.unit._atmle_lasso_witness import witness
 
 BOUNDS = (0.01, 0.99)
 
@@ -156,6 +157,58 @@ def test_the_kkt_residual_rejects_a_wrong_solution() -> None:
     (solution,) = lasso_solutions(basis, m, r, 2, [0.1 * top])
     shifted = atmle.LassoSolution(solution.penalty, solution.coef * 1.01, 0.0)
     assert atmle.kkt_residual(basis, m, r, 2, shifted) > 1e3 * atmle.KKT_TOLERANCE * top
+
+
+def _reference_lasso(gram: np.ndarray, linear: np.ndarray, penalty: float) -> np.ndarray:
+    """Cyclic coordinate descent on ``c'Gc / 2 - b'c + lambda |c|_1`` to a 1e-15 step."""
+    c = np.zeros(linear.size)
+    for _ in range(200_000):
+        largest = 0.0
+        for j in range(c.size):
+            rho = linear[j] - gram[j] @ c + gram[j, j] * c[j]
+            new = np.sign(rho) * max(abs(rho) - penalty, 0.0) / gram[j, j]
+            largest = max(largest, abs(new - c[j]))
+            c[j] = new
+        if largest < 1e-15:
+            return c
+    raise AssertionError("the reference coordinate descent did not converge")
+
+
+def _stalled(gram: np.ndarray, linear: np.ndarray, penalty: float, start: np.ndarray) -> Any:
+    return np.array(start, dtype=float)
+
+
+def test_feature_sign_search_reaches_the_optimum_where_eager_entry_cycles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Witness (roadmap X90): a search that admits a coefficient before the active set is
+    # optimal trades two near-collinear columns forever on this problem and stops with a
+    # residual 1e10 times the slack. The fallback is disabled, so the search alone passes.
+    gram, linear, penalty, start = witness()
+    slack = atmle._slack(linear, penalty)
+    assert atmle._optimality(gram, linear, penalty, start) > 1e6 * slack
+    monkeypatch.setattr(atmle, "_coordinate_descent", _stalled)
+    solution = atmle._lasso(gram, linear, penalty, start)
+    assert atmle._optimality(gram, linear, penalty, solution) <= slack
+    np.testing.assert_allclose(solution, _reference_lasso(gram, linear, penalty), atol=1e-10)
+
+
+def test_a_stalled_feature_sign_search_falls_back_to_coordinate_descent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gram, linear, penalty, start = witness()
+    slack = atmle._slack(linear, penalty)
+    monkeypatch.setattr(atmle, "_feature_sign", _stalled)
+    solution = atmle._lasso(gram, linear, penalty, start)
+    assert atmle._optimality(gram, linear, penalty, solution) <= slack
+    np.testing.assert_allclose(solution, _reference_lasso(gram, linear, penalty), atol=1e-10)
+    # Mutation control: without the fallback the stalled point is returned, and the
+    # acceptance check of the selection would refuse it.
+    monkeypatch.setattr(atmle, "_coordinate_descent", _stalled)
+    stalled = atmle._lasso(gram, linear, penalty, start)
+    assert atmle._optimality(gram, linear, penalty, stalled) > atmle.KKT_TOLERANCE * np.max(
+        np.abs(linear)
+    )
 
 
 def test_selection_takes_the_largest_penalty_at_the_smallest_risk() -> None:
