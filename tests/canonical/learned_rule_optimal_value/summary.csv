@@ -1,0 +1,2 @@
+implementation,scenario,estimand,n,replicates,truth,mean_estimate,bias,bias_se,root_n_bias,rmse,empirical_se,mean_std_error,se_ratio,coverage,coverage_se,inference_bias,standardized_bias
+cleverly-learned-rule-optimal-value,non_exceptional,ey_optimal_rule[learned rule],2000,1600,0.577114914094861,0.5754405475667823,-0.00167436652807873,0.00037664955770599305,-0.07487994752068702,0.015154057585122956,0.015065982308239722,0.014885987211992684,0.9880528801531515,0.944375,0.005729902888302298,-0.00167436652807873,-0.11113556977715312

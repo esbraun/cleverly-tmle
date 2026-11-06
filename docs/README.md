@@ -65,7 +65,7 @@ These are the documents no reader path introduces on its own.
 | [Writing for readers](development/writing-for-readers.md) | the reader of each documentation area, the writing rules, the library words to replace, and the reader review that checks a rewritten page |
 | [Contributing](development/contributing.md) | how to set up the project, which checks a change needs, and where each working rule is written down |
 | [Pull requests](development/pull-requests.md) | the commit style, the pull request body, what each CI job checks, and what none of them checks |
-| [Releases](development/releases.md) | the alpha version rule, package gates, tag process, and Trusted Publishing setup |
+| [Releases](development/releases.md) | the version rule, package gates, tag process, and Trusted Publishing setup |
 | [Release notes template](development/release-notes-template.md) | the reviewed GitHub release structure, writing rules, and source precedents |
 | [DR-TMLE](technical-reference/dr-tmle/index.md) | the doubly-robust variant's production contract: the supported estimands and refusals, what Theorem 1 covers, the targeting and cross-fitting choices, the nuisance conditions the interval is conditional on, and the diagnostics to inspect |
 | [References](references.md) | every paper a derivation is read off, with the locators the prose cites |

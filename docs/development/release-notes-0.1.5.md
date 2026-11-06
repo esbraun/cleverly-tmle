@@ -1,6 +1,6 @@
 # cleverly 0.1.5
 
-This alpha release adds the parametric g-formula and structural nested mean estimation.
+This release adds the parametric g-formula and structural nested mean estimation.
 It extends longitudinal curves, repeated cross-fitting, categorical incremental policies,
 and parametric C-TMLE intervals. These are the changes since 0.1.4.
 
@@ -203,7 +203,7 @@ It supplies no cross-implementation evidence or study coverage of weights, clust
 
 ## Packaging and compatibility
 
-This remains an alpha release. The package does not promise compatibility for public APIs,
+The package does not promise compatibility for public APIs,
 `CausalStudy` objects, pickled objects, or saved results. Follow the upgrade notes when you move
 an analysis to 0.1.5.
 

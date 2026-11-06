@@ -7,15 +7,15 @@ import runpy
 import sys
 from pathlib import Path
 
-ALPHA_TAG = re.compile(r"v(0\.1\.(?:0|[1-9][0-9]*))\Z")
+RELEASE_TAG = re.compile(r"v(0\.2\.(?:0|[1-9][0-9]*))\Z")
 VERSION_FILE = Path(__file__).parents[1] / "src" / "cleverly" / "_version.py"
 
 
 def validate_tag(tag: str) -> str:
-    """Return the version for a valid alpha tag that matches the source version."""
-    match = ALPHA_TAG.fullmatch(tag)
+    """Return the version for a valid release tag that matches the source version."""
+    match = RELEASE_TAG.fullmatch(tag)
     if match is None:
-        raise ValueError(f"release tag {tag!r} must have the form v0.1.N")
+        raise ValueError(f"release tag {tag!r} must have the form v0.2.N")
 
     version = runpy.run_path(str(VERSION_FILE))["__version__"]
     if not isinstance(version, str):

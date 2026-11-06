@@ -660,6 +660,24 @@ previous reader had is not a citation; a page number is.
   the treatment effect at the rule's node is 1 at every covariate value. The optimal rule therefore
   always treats. The witness rule uses a sample threshold. The paper's optimal-value result does
   not supply the curve for this threshold rule.
+  Its Supplementary Material (17 pages, on Project Euclid; the arXiv source does not carry it)
+  was read on 2026-11-04. Appendix A holds the proofs of Sections 3, 5 and 7. Appendix B treats
+  two time points with no censoring and states that the general case follows along the same
+  lines. It defines the sequential g-formula value, gives the two-node efficient influence
+  function, and gives an online one-step interval under conditions A.C1 to A.C5, where A.C4 takes
+  both treatment mechanisms as correctly specified and A.C5, the near-optimal value condition, has
+  no sufficient conditions. It gives no identification result, influence function or Wald
+  interval for more than two nodes, so it does not supply
+  [X11](roadmap.md#x11-learned-policy-follow-ups) part (b2).
+- Luedtke, Bibaut & van der Laan (2021), *Correction*, *Annals of Statistics* 49(4):2429–2430,
+  DOI [10.1214/20-AOS2031](https://doi.org/10.1214/20-AOS2031), read on 2026-11-04. It corrects
+  the end of the proof of Lemma 6 of the 2016 paper above, whose Cesàro-mean step needs the
+  almost-sure convergence $j^\beta R_j \to 0$. As a result the step from (C6) to (C7) needs
+  $n^{1/2}[\Psi_{d_n}(P_0) - \Psi(P_0)] \to 0$ almost surely, Theorem 7 needs $D_1$ to be a strong
+  Glivenko–Cantelli class, and the sufficient conditions for (C4) and (C5) need almost-sure
+  versions. No shipped estimator rests on these results: the value of the optimal rule (row
+  `T46`) is licensed by van der Laan and Luedtke (2015), Section 7.2. Part (f2b) of
+  [X11](roadmap.md#x11-learned-policy-follow-ups) must read the 2016 paper with this correction.
 - Scott (1979), *On optimal and data-based histograms*, *Biometrika* 66(3):605–610, DOI
   [10.1093/biomet/66.3.605](https://doi.org/10.1093/biomet/66.3.605). The bin width that
   minimises the integrated squared error of a histogram shrinks as $n^{-1/3}$. The default

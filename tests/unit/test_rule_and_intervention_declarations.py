@@ -138,13 +138,15 @@ UNDECLARED_RULE = _UNDECLARED_RULE
 ESTIMATED_RULE = _ESTIMATED_RULE
 
 #: The shared RM28 text names the route of each surface (RM30, Q2): the point treatment
-#: to ``LearnedRuleValue``, and a longitudinal regimen to X11.  ``Rule`` and
-#: ``DynamicRegimen`` share the text, so both refusals carry both sentences.
+#: to ``LearnedRuleValue``, and a two-node longitudinal regimen to ``LearnedRegimen``
+#: (X11 (b)).  ``Rule`` and ``DynamicRegimen`` share the text, so both refusals carry both
+#: sentences.
 ROUTES = (
     "For a point treatment, LearnedRuleValue estimates the average value of rules learned "
     "inside each training fold, or with cross_fit=False the value of one rule learned on every "
     "row (docs/technical-reference/point-treatment-tmle.md, Learned rules).",
-    "A learned longitudinal regimen has no supported path (X11 in docs/roadmap.md).",
+    "For two longitudinal nodes, LTMLE(regimens=LearnedRegimen()) estimates the value of the "
+    "rule pairs learned inside each training fold",
 )
 UNDECLARED_CLASS = _UNDECLARED_INTERVENTION
 ESTIMATED_CLASS = _ESTIMATED_INTERVENTION

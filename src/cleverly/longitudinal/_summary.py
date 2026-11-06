@@ -379,6 +379,8 @@ def plan_words(result: LongitudinalResult, regimen: Any) -> str:
         nodes: Sequence[Any] = regimen.values
     elif isinstance(regimen, DynamicRegimen):
         nodes = regimen.plan
+    elif getattr(regimen, "learned", False) is True:
+        return vocabulary.PLAN_EVERY_TIME.format(words=vocabulary.PLAN_LEARNED)
     else:  # pragma: no cover - every resolved plan is one of the two
         return str(regimen)
     words = [_node_words(node) for node in nodes]
@@ -1005,6 +1007,9 @@ def _settings(result: LongitudinalResult) -> SummarySection:
         )
     if any(isinstance(regimen, DynamicRegimen) and regimen.has_rule for regimen in config.regimens):
         lines.append(vocabulary.RULE_FOLLOWERS)
+    if result.learned_regimen is not None:
+        lines.append(vocabulary.RULE_FOLLOWERS)
+        lines.append(result.learned_regimen.describe())
     if any(
         isinstance(regimen, DynamicRegimen) and regimen.has_policy for regimen in config.regimens
     ):

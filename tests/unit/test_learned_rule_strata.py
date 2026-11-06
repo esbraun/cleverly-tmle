@@ -422,7 +422,7 @@ class TestTheExactLaw:
             table = _cell_means(
                 w, np.asarray(data.treatment).astype(int), np.asarray(data.outcome), weight
             )
-            everywhere = (table[:, 1] > table[:, 0])[w]
+            everywhere = (table[:, 1] > table[:, 0])[w].astype(np.int8)
             assert not np.array_equal(everywhere, treat)
             return everywhere, None, np.repeat(everywhere[:, None], rules.shape[1], axis=1)
 

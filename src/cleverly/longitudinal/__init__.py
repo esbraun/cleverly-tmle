@@ -48,6 +48,7 @@ from .estimator import (
     ltmle,
     sdr,
 )
+from .learned import LearnedRegimen, LearnedRegimenNode, LearnedRegimenRecord
 from .panel import NodeRule, PanelLayout, each_node
 from .regimen import (
     DynamicRegimen,
@@ -76,6 +77,9 @@ __all__ = [
     "LTMLE",
     "SDR",
     "DynamicRegimen",
+    "LearnedRegimen",
+    "LearnedRegimenNode",
+    "LearnedRegimenRecord",
     "LongitudinalConfig",
     "LongitudinalData",
     "LongitudinalError",

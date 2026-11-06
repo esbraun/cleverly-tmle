@@ -1,0 +1,105 @@
+{
+  "schema_version": 2,
+  "study": "The value of the optimal rule",
+  "slug": "learned-rule-optimal-value",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-learned-rule-optimal-value",
+      "cleverly_version": "0.1.7",
+      "cleverly_commit": "c17c185a4f0b044f4c9781bb47ab69424c99fcc9",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 2000,
+    "seed": 20269151,
+    "resampling_seed": 20269152,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-learned-rule-optimal-value": 0.01
+    },
+    "scenarios": {
+      "non_exceptional": [
+        "ey_optimal_rule[learned rule]"
+      ]
+    },
+    "fit": "TMLE(learned_rule=LearnedRule(), estimands=['ey_optimal_rule'], n_folds=10, cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', random_state=<fold seed>); every other setting the constructor's default; repeats=1",
+    "known_g": "fit(..., treatment_probabilities=[1 - g0(1 | W), g0(1 | W)]) with logit g0(1 | W) = 0.3 W1 - 0.2 W2, in every cell but the estimated-g one",
+    "outcome_learner": "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10)) on (A, W1, W2); on partially_exceptional the same six products and A (W1 - 0.2)_+",
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2)",
+    "laws": {
+      "non_exceptional": "RM30 law, blip 0.1 + W1; n = 2000; known g: primary and interval_calibration (SE x 0.80 and noise controls); estimated g: estimated_g_report",
+      "wrong_limit": "blip 3 (W1^2 - 0.5); n = 2500; known g; optimal_target_control: coverage interval upper bound < 0.92",
+      "partially_exceptional": "blip (W1 - 0.2)_+, zero on W1 <= 0.2; n = 2000; known g; exceptional_law_report"
+    },
+    "gate": "a law cell gates when its learner's limit has no tie mass (C7), differs from d0 off the tie set on at most 0.001 (C3f), and max_t P(0 < |b0| <= t) / t <= 10.0 (C8, exponent 1); only non_exceptional gates",
+    "variance": "V^-2 sum_v n_v^-2 sum_{i in v} D_i^2 of the raw fold curves, uncentred within each fold (JCI App B)",
+    "truth": "Psi_d0 = E Qbar0(d0(W), W), d0 = 1{Qbar0(1, W) > Qbar0(0, W)}, by the trapezoid rule on 4001 points of W1 for each W2; one number per law",
+    "regret": "per replication: refit each fold's outcome learner on the fit's training rows with the package's fit_on_rows, require the fit's rule on every validation row (rule L4), integrate each fold rule's value by the same rule, and publish rule_value = (1/V) sum_v Psi_{d_v} and regret = Psi_d0 - rule_value; descriptive",
+    "rule_disagreement": "the record's share of rows on which the ten fold rules disagree",
+    "oracle_se": "sqrt(V^-2 sum_v Var D*(d_v) / n_v) at the fold rules; descriptive",
+    "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/learned_rule_optimal_value.py": "0a5741fbc47e0c5bcbd1c6beb0e09b35777556c28711c0d7e12d251561a02668",
+    "tests/studies/learned_rule_optimal_value_properties.py": "3152686f64986d798581073a6b161c2eb6dbbbb3bf2f92f4df8a7fee29359ea0",
+    "tests/studies/_learned_rule_optimal_law.py": "c3f19cd0f97834cf3a04ae69c5f3b7aa1e5679b98d6fc5759fefc82fcf2cb711",
+    "tests/studies/_learned_rule_law.py": "c1d481a71a7eb36730712ddb1e7016ddc2e95e48b5e88aff5e119518f3151ef0",
+    "src/cleverly/estimators/tmle.py": "e082c4e0abda63440d5ecdc9f9d6e3f7859964f05bd4dca2d15f385b14c3b30f",
+    "src/cleverly/estimators/_nuisance.py": "dbef8ca33f9f98b28968b07e2088531a7c8cb4c1c956c86afadfabfc8251baf8",
+    "src/cleverly/interventions/learned.py": "68d27312075e1c8f37e3eb4a9d1201d8964920dd2df9c71f7e554e41109516ab",
+    "src/cleverly/interventions/base.py": "3b9db3199ad83dc5297396648e0c41acc755dcde5a675cf291da5de59692aa2b",
+    "src/cleverly/targets/builtin.py": "8459b874fa44843e8e48f16bfccbde8f8997260a0cba5c120277404d200f3380",
+    "src/cleverly/learners/crossfit.py": "5adc6d48078dfb36ac328b02ddeeef0845af11d9d7b4a51ca1a15293137e8eb3",
+    "src/cleverly/learners/_fitting.py": "3b6e8a9bd6d8b1499c3a86b6980929c3454147b9992e613744b3cbb87657f817",
+    "src/cleverly/_support.py": "36aa77eeee4a8fecebf0ba7d2a42ef3b6d2cd4b22dcac1ea313aeb36d30e94db",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "c23ec6ca777d6bd662b759bdf3e09bd98afef526ba9ef7f2b3527e8a83146fea",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "e84d03a9a117f426c3535ded8a0a81594002601ea023a1d3d0c08229123a8216",
+    "summary.csv": "6dade2752daf4cfec3b8cf643d650e0baaec46a196eefc15c6b0d1ae98dabb6e",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "72243ce39802421047f071868c95e825a85497541f6a88553572813e4d7d0d55",
+    "property-replicates.parquet": "a2c5292e3fcfa85919ade1c130248907f422bf8f2bfaee2bd85d52bb8ecde242",
+    "properties.csv": "2370db43b75d078f08d927cb9c38f390ac9efe927233b4a9e14fe7678477d418",
+    "harness.csv.gz": "6e5a28afa5ca6012d91bafe9da850b265eec60a493970856218067d1b86d6550"
+  }
+}

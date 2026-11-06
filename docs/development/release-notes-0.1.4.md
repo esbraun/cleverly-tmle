@@ -1,6 +1,6 @@
 # cleverly 0.1.4
 
-This alpha release labels each estimate as supported or experimental. It adds vector treatments
+This release labels each estimate as supported or experimental. It adds vector treatments
 with a continuous component, repeated-outcome curves, hazard-based survival curves, and
 sequential baselines. It also adds three C-TMLE paths and refusal reason codes. These are the
 changes since 0.1.3.
@@ -321,7 +321,7 @@ cleverly supports Python 3.11, 3.12, and 3.13 with pandas or Polars dataframes. 
 `scikit-learn>=1.8`.
 ([#308](https://github.com/esbraun/cleverly-tmle/pull/308))
 
-This remains an alpha release. The package does not promise compatibility for public APIs,
+The package does not promise compatibility for public APIs,
 `CausalStudy` objects, pickled objects, or saved results. Follow the upgrade notes when you move
 an analysis to 0.1.4.
 

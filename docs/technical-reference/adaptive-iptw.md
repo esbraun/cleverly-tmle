@@ -327,6 +327,7 @@ result on nine fits.
 | D6 | the fluctuation retries without a start, and sets $\epsilon = 0$ if it fails | the shipped solver, which records the stop reason |
 | D7 | a constant design gives $Q_r$ as the arm mean | the same. No learner runs |
 | D8 | `ci` and `wald_test` report the Theorem 1 interval for an estimated `gn` | no interval unless the mechanism is known |
+| D9 | cross-fitted `Qr` of fold $k$ trains on the supplied out-of-fold `gn`, and the targeted step moves each row along its own fold's $Q_r / g$ | fold $k$ trains on leave-two-folds-out designs and moves its whole fold along its own $Q_r / g$. With a known mechanism, or a learner that ignores its training data, the initial fit and the one-step form are equal and the targeted forms differ at order $1/n$. With a learner that reads its training data they are different estimators |
 
 ## Refusals
 
@@ -337,9 +338,10 @@ zero `fit` calls in `tests/unit/test_adaptive_iptw_refusals.py`.
 ## Validation
 
 The registered [adaptive IPTW study](method-evidence/adaptive-iptw.md) is the validation row of
-`AdaptiveIPTW` in the [implementation validation grid](method-evidence/validation-grid.md). It is
-Python property evidence, with comparator runs pending. The study `adaptive-iptw-pairing` runs the
-comparator against `drtmle` later. The study publishes 20 red cells under the `reporting` policy.
+`AdaptiveIPTW` in the [implementation validation grid](method-evidence/validation-grid.md). Its own
+record is Python property evidence, with comparator runs pending. The separate
+[pairing study](method-evidence/adaptive-iptw-pairing.md) runs the comparison against `drtmle`
+replicate by replicate, and every key with an agreement verdict passes. The gate study publishes 20 red cells under the `reporting` policy.
 Each one has an owner in the [red-cell ledger](method-evidence/red-cells.md).
 
 A fit that a support row covers carries the `supported` label. Any other fit carries the

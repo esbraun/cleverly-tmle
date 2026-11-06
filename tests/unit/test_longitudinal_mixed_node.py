@@ -586,12 +586,20 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/gformula.py", "write_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/hazard.py", "level_plans"): "after refuse_hazard_design",
     ("longitudinal/hazard.py", "regimen_weights"): "after refuse_hazard_design",
+    ("longitudinal/learned.py", "learned_regimen_record"): (
+        "after refuse_learned_regimen_data: two categorical binary nodes"
+    ),
+    ("longitudinal/learned.py", "refuse_learned_regimen_data"): (
+        "refuses a node that is not categorical before reading its levels"
+    ),
     ("longitudinal/regimen.py", "DynamicRegimen.policy_density"): "categorical policy node",
     ("longitudinal/regimen.py", "_categorical_carry"): "categorical policy node",
     ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
     ("longitudinal/regimen.py", "_resolve_plan"): "a tilt at a mixed node is refused first",
     ("longitudinal/sequential.py", "_categorical_node"): "categorical node",
     ("longitudinal/sequential.py", "_check_policy_arm_support"): "categorical node guard",
+    ("longitudinal/sequential.py", "_check_cell"): "categorical node guard",
+    ("longitudinal/sequential.py", "_single_arm_predictions"): "categorical node guard",
     ("longitudinal/sequential.py", "_rule_hint"): "a rule at a mixed node is refused",
     ("longitudinal/sequential.py", "_policy_block"): "mixed branch first",
     (

@@ -189,7 +189,7 @@ class ConvergenceWarning(UserWarning):
 class VersionMismatchWarning(UserWarning):
     """A saved result was written by a different cleverly version than the one loading it.
 
-    Alpha releases keep no compatibility for saved objects. :func:`cleverly.load` and
+    cleverly keeps no compatibility for saved objects between versions. :func:`cleverly.load` and
     :func:`cleverly.estimators.serialize.loads` emit this warning and then load the object
     as saved, with no migration. Fit the analysis again with the loading version.
     """

@@ -453,6 +453,51 @@ def test_a_cell_left_below_two_survivors_reads_bound_exceeded(
     assert "coverage" in summary.columns
 
 
+def test_a_study_with_no_property_cell_passes_the_property_gate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A gated study that declares no property cell completes and writes the verdict header.
+
+    The adaptive-iptw-pairing declared run stopped here on a summary with no columns.
+    """
+    from tests.studies import adaptive_iptw_pairing_properties
+
+    record = dataclasses.replace(
+        fold_evaluated_cvtmle.STUDY, artifacts=tmp_path, publication_policy="gated"
+    )
+    study = SimpleNamespace(
+        STUDY=record,
+        PRIMARY_REPLICATES=record.replicates,
+        PRIMARY_N=record.n,
+        CONFIGURATION={},
+    )
+    out = tmp_path / "out"
+    arguments = _arguments(out, primary_only=False)
+    monkeypatch.setattr(regenerate, "_arguments", lambda *args: arguments)
+    monkeypatch.setattr(
+        regenerate,
+        "_python_phase",
+        lambda *args: regenerate._Phase(rows=_rows(record.implementation)),
+    )
+    monkeypatch.setattr(regenerate, "validate_replicates", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        regenerate, "summarize", lambda rows, truth_varies: pd.DataFrame({"summary": [1.0]})
+    )
+    monkeypatch.setattr(
+        regenerate,
+        "independent_performance_tests",
+        lambda *args, **kwargs: pd.DataFrame({"passed": [True]}),
+    )
+    monkeypatch.setattr(regenerate, "empty_equivalence", lambda: pd.DataFrame({"passed": []}))
+    monkeypatch.setattr(regenerate, "write_manifest", lambda *args, **kwargs: None)
+
+    regenerate.main(study, adaptive_iptw_pairing_properties, here=tmp_path)
+
+    summary = pd.read_csv(out / "properties.csv")
+    assert summary.empty
+    assert {"passed", "property_passed"} <= set(summary.columns)
+
+
 def test_a_property_failure_is_recorded_accounted_and_hashed(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

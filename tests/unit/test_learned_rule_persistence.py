@@ -36,23 +36,34 @@ def test_the_record_describes_the_fit(result: Any) -> None:
         result.estimates[support.NAME].psi, abs=1e-12
     )
     rule = result.nuisance.regimes.values[:, 1, 0]
-    np.testing.assert_allclose(split.treated_shares, [np.mean(rule[test]) for test in tests])
+    np.testing.assert_allclose(
+        [shares[1] for shares in split.arm_shares], [np.mean(rule[test]) for test in tests]
+    )
+    np.testing.assert_allclose([sum(shares) for shares in split.arm_shares], 1.0, atol=1e-15)
+    assert record.arms == tuple(str(level) for level in result.data.treatment_levels)
+    assert len(record.arms) == 2
     assert record.target == "fold-average data-adaptive value"
 
 
-def test_the_blip_quantiles_are_those_of_each_complement_fit(result: Any) -> None:
-    """A longhand refit on each training complement gives the recorded quantiles."""
+def test_the_gap_quantiles_are_those_of_each_complement_fit(result: Any) -> None:
+    """A longhand refit on each training complement gives the recorded quantiles.
+
+    At two arms the top-two gap is the absolute blip.  The signed blip has quantiles that
+    differ from the recorded ones on this law (its blip takes both signs), so a record that
+    kept the signed blip fails here.
+    """
     record = result.extra["learned_rule"]
     data = result.data
     design = np.column_stack([data.treatment, data.covariates])
     outcome = np.asarray(data.outcome, dtype=float)
     (split,) = record.splits
-    for (train, test), recorded in zip(result.nuisance.folds, split.blip_quantiles, strict=True):
+    for (train, test), recorded in zip(result.nuisance.folds, split.gap_quantiles, strict=True):
         model = support.outcome_learner().fit(design[train], outcome[train])
         blip = support.blip(model, data.covariates[test])
         np.testing.assert_allclose(
-            recorded, np.quantile(blip, record.quantile_levels), rtol=0, atol=1e-9
+            recorded, np.quantile(np.abs(blip), record.quantile_levels), rtol=0, atol=1e-9
         )
+        assert np.max(np.abs(np.quantile(blip, record.quantile_levels) - recorded)) > 1e-3
     assert record.quantile_levels == (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0)
 
 

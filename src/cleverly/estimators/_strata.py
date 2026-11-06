@@ -440,10 +440,22 @@ def check_stratified_targets(data: CausalData, *, incremental: bool, msm: object
 #: (``learned_rule=``). Each is a mean of the targeted regression over the stratum's rows, so its
 #: fold plug-in, its fold curve and its solving weights follow one construction. The
 #: learned-rule value reads each fold's own rule as the one-hot regime density of the fold's
-#: rows, so stratum :math:`s` of fold :math:`v` evaluates the fixed rule :math:`d_v`. Every
-#: other target keeps the refusal of :func:`fold_evaluated_strata_refusal`.
+#: rows, so stratum :math:`s` of fold :math:`v` evaluates the fixed rule :math:`d_v`.
+#: The known regimes declared beside a learned rule (X11 (c)) and their contrasts with it are
+#: regime means and their differences on the same folds. Every other target keeps the refusal
+#: of :func:`fold_evaluated_strata_refusal`.
 FOLD_EVALUATED_STRATA_TARGETS: frozenset[str] = frozenset(
-    {"ate", "ey", "ey1", "ey0", "ey_regime", "ate_regime", "ey_learned_rule"}
+    {
+        "ate",
+        "ey",
+        "ey1",
+        "ey0",
+        "ey_regime",
+        "ate_regime",
+        "ey_learned_rule",
+        "ey_known_regime",
+        "ate_learned_rule",
+    }
 )
 
 _STACKED_REPORT = "the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))"
@@ -453,7 +465,8 @@ def _x28_gap(what: str, why: str, alternative: str) -> CapabilityError:
     return CapabilityError(
         "cv_evaluation=True with baseline strata reports the arm means and their linear "
         "contrasts (ey, ate), the regime means and their contrasts (ey_regime, ate_regime), "
-        "and the learned-rule value (ey_learned_rule), "
+        "and the learned-rule value (ey_learned_rule) with its known regimes and their "
+        "contrasts (ey_known_regime, ate_learned_rule), "
         f"on complete data with rows as the independent unit. {what} is not implemented: "
         f"{why}.",
         reason=RefusalReason.IMPLEMENTATION_GAP,

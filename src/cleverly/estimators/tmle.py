@@ -188,7 +188,7 @@ from ..inference.influence import (
     reduced_correction_parts,
     stamp_inference,
 )
-from ..inference.multiplier import MultiplierKind, simultaneous_bands
+from ..inference.multiplier import MultiplierKind, known_regime_estimates, simultaneous_bands
 from ..inference.results import attach_bootstrap
 from ..interventions import (
     Incremental,
@@ -205,17 +205,22 @@ from ..interventions.incremental import refuse_continuous_tilt
 from ..interventions.learned import (
     LEARNED_RULE_ARM_REMEDY,
     LEARNED_RULE_REMEDY,
+    OPTIMAL_RULE_TARGET,
     FrozenLearnedRule,
     LearnedRule,
     _learned_rule_regimes,
     check_fold_rules,
+    frozen_level_refusal,
     in_sample_learner_condition,
     learned_rule_configuration_refusal,
+    learned_rule_estimands,
     learned_rule_record,
+    learned_rule_retarget_refusal,
     learned_rule_scheme_refusal,
     learned_rule_split,
     learned_rule_treat,
     mean_over_splits,
+    optimal_rule_requested,
     refuse_learned_rule_composition,
     stacked_fold_estimates,
 )
@@ -300,6 +305,7 @@ from .composite import (
     missing_treatment_refusal,
     unidentified_targets,
 )
+from .direct_effect import check_level
 from .targeting import (
     DEFAULT_MAX_OUTER,
     ProjectionFluctuation,
@@ -757,15 +763,26 @@ class TMLE:
         plug-in over the fold's rows in the stratum, with the fold-evaluated stratum
         construction, and under the stacked report the pooled plug-in over the stratum's rows;
         strata refuse beside clusters and fold targeting.
-        It refuses ``interventions=``, ``policies=``, ``incremental=``, ``msm=``,
-        ``reference=`` and an arm estimand beside it, and a continuous or multi-arm treatment,
-        missing outcomes, ``intermediate=`` and estimated weights.
+        Known regimes in ``interventions=`` beside it are more columns of the same regime set,
+        on the same folds: the fit also reports each regime's value (``ey_known_regime``) and
+        its contrast with the learned rule (``ate_learned_rule``), the rule minus the regime,
+        or the regime minus the rule with ``reference=`` naming the rule (experimental; the
+        contrast's curve is the difference of the two curves).  Such a fit builds no
+        simultaneous band over those estimates, and ``summary()`` says why.  It refuses
+        ``policies=``, ``incremental=``, ``msm=`` and an arm estimand beside it, and a
+        continuous or multi-arm treatment, missing outcomes, ``intermediate=`` and estimated
+        weights.
         :func:`~cleverly.interventions.learned.refuse_learned_rule_composition` states the order.
         ``LearnedRule(loss="blip")`` and ``loss="weighted_classification"`` learn each fold's
         rule with a declared learner from a doubly robust pseudo-outcome, whose outcome and
         treatment fits are cross-fitted inside the fold's training rows with this estimator's
         own learners; the fluctuation, estimate and variance do not change.
         The result records the fold summaries under ``result.extra["learned_rule"]``.
+        ``estimands=["ey_optimal_rule"]`` reports the same estimate as the value of the
+        optimal rule, a fixed parameter, under the further conditions of the learned-rule
+        contract (X11 (f)).  Only the fold-evaluated report on rows with known
+        ``treatment_probabilities=`` reads supported.  It is then the fit's one estimand, and it
+        refuses known regimes beside it, ``weights=``, ``strata=`` and ``cross_fit=False``.
     n_folds, learner_folds:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
         its candidates.
@@ -1523,6 +1540,19 @@ class TMLE:
         ).with_dose_declarations(treatment_support, dose_atoms)
         if not prepared.has_intermediate:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
+        if isinstance(self.learned_rule, FrozenLearnedRule):
+            # Each level learns its own rules (X11 (j)), and this call reports every level, so
+            # one level's frozen rules would stand in for the other's.
+            raise CapabilityError.from_refusal(
+                Refusal(
+                    RefusalReason.INVALID_DECLARATION,
+                    "TMLE.fit with intermediate= reports every level of the intermediate, "
+                    "and a FrozenLearnedRule holds the rules of at most one level, because "
+                    "each level learns its own rules (X11 (j)).",
+                    alternative="Refit LearnedRule() with intermediate= to learn the rules "
+                    "of every level.",
+                )
+            )
 
         # The intermediate path otherwise fits shared nuisances before `_fit_single`.
         # Run the full preflight here as well, so every unsupported intermediate
@@ -1864,12 +1894,14 @@ class TMLE:
             refusal = fold_evaluated_strata_refusal(data, estimands)
             if refusal is not None:
                 raise refusal
-        if self.simultaneous and len(estimands) > 1:
+        if self.simultaneous and len(estimands) > 1 and self.learned_rule is None:
             # Guarded by the band's own construction condition, not by ``simultaneous``
             # alone.  ``simultaneous`` defaults to True and a band needs two estimates, so
             # refusing on the flag would refuse every single-estimand repeated fit over a
             # band the fit would never build.  One estimand can still expand into several
             # estimates, so the construction site refuses again once the count is known.
+            # A learned-rule fit reports the mean over splits, not the median, so it is
+            # exempt here as it is there; its known-regime band is skipped (X11 (c2)).
             refuse_after_repeats(
                 self.repeats,
                 operation="simultaneous=True",
@@ -2084,6 +2116,9 @@ class TMLE:
         estimates, which is what a band needs. A repeated fit that reports one estimate
         builds no band, so it is allowed.
         """
+        frozen = frozen_level_refusal(self.learned_rule, intermediate_value)
+        if frozen is not None:
+            raise CapabilityError.from_refusal(frozen)
         preflight = self._preflight_fit_configuration(data)
         estimands = preflight.estimands
         classification = classify_point_fit(
@@ -2172,7 +2207,9 @@ class TMLE:
             # targeting, so its fold values are read from its targeted fit, and they are
             # descriptive. An in-sample fit (cross_fit=False) reads its one pseudo-fold the
             # same way, and that value is its estimate. The record describes the marginal value.
-            name = parameter_name("ey_learned_rule", arm=self.learned_rule.name)
+            # The value of the optimal rule (X11 (f)) is the same column under another name.
+            stem = OPTIMAL_RULE_TARGET if optimal_rule_requested(self) else "ey_learned_rule"
+            name = parameter_name(stem, arm=self.learned_rule.name)
             scheme = (
                 "fold_evaluated"
                 if self.cv_evaluation
@@ -2202,7 +2239,17 @@ class TMLE:
                         weights=data.weights,
                     )
                 )
-            extra = {**extra, "learned_rule": learned_rule_record(self.learned_rule, splits)}
+            extra = {
+                **extra,
+                "learned_rule": learned_rule_record(
+                    self.learned_rule,
+                    splits,
+                    data.treatment_levels,
+                    estimand=stem,
+                    intermediate_name=data.intermediate_name,
+                    intermediate_level=intermediate_value,
+                ),
+            }
         result = TMLEResult(
             estimates=estimates,
             repeats=tuple(repeats),
@@ -2226,6 +2273,10 @@ class TMLE:
         # refuses, because that is an explicit request.
         # A band over an estimate with a Student t reference is skipped for the same
         # reason: no source gives a t-calibrated joint band, and ``summary()`` says so.
+        # So is a band over the known-regime values and contrasts of a learned-rule fit
+        # (X11 (c2)): no witness covers a band over a data-adaptive value and fixed regimes.
+        # The learned-rule value's own stratified band still runs when those are not
+        # reported.
         # An estimate whose parameter status withholds its interval stays out of the band,
         # which is then a joint statement over the others, and below two of them no band is
         # built. This is the rule of ``LTMLE._bands`` (docs/architecture-invariants.md, row
@@ -2238,10 +2289,12 @@ class TMLE:
             and len(banded) > 1
             and supplies_inference(result.inference_status)
             and not has_t_reference(banded)
+            and not known_regime_estimates(banded)
         ):
             # A learned-rule fit reports the mean over its splits, which is linear, so the
-            # band reads the mean curves as it reads the curves of one split. Several
-            # estimates reach here only from a learned-rule fit with baseline strata.
+            # band reads the mean curves as it reads the curves of one split. A learned-rule
+            # fit reaches here with several estimates only with baseline strata, because
+            # the band of a known-regime value or contrast is skipped above.
             if self.learned_rule is None:
                 refuse_after_repeats(
                     self.repeats,
@@ -2895,7 +2948,9 @@ class TMLE:
         """
         # A vector treatment with a dose component has no arms, as a continuous one has none.
         arms = 0 if data.treatment_kind == "vector" else data.n_arms
-        estimands = resolve_estimands(self.estimands, data.family, arms, axis=self._axis)
+        estimands = learned_rule_estimands(
+            self, resolve_estimands(self.estimands, data.family, arms, axis=self._axis)
+        )
         if not data.has_missing_outcome:
             return estimands
         if self.estimands == "all":
@@ -3854,6 +3909,8 @@ class TMLE:
         if self.incremental:
             # Resolved from the tilt *names*, for the reason the regime branch gives.
             return self._reference_incremental()
+        if self.learned_rule is not None:
+            return self._reference_learned()
         if self.interventions:
             # Resolved from the regime *names* rather than from an evaluated RegimeSet,
             # so the config -- built before any nuisance is fitted -- can record it, and
@@ -4126,11 +4183,28 @@ class TMLE:
         # caller's rules or its design.
         # A plug-in learned rule moves the fold rules into its regime set, so the nuisances
         # do not carry a second copy.
+        regimes_by_level: dict[float, RegimeSet] = {}
+        regimes: RegimeSet | None
+        if self.learned_rule is not None and data.has_intermediate:
+            # X11 (j): the rule at Z = z is learned from the outcome regression at (a, z), so
+            # each level gets its own fold rules and regime set; ``at_level`` swaps them.
+            # The level fits share every model, so the levels' rules come from one fold loop.
+            for level in estimates.outcome_by_level:
+                at_level = estimates.at_level(level)
+                regimes_by_level[level] = cast(
+                    "RegimeSet", self._regimes(data, at_level, seed=seed)
+                )
+            primary = check_level(cast("float", intermediate_value))
+            regimes = regimes_by_level[primary]
+        else:
+            regimes = self._regimes(data, estimates, seed=seed)
         return replace(
             estimates,
-            regimes=self._regimes(data, estimates, seed=seed),
+            regimes=regimes,
+            regimes_by_level=regimes_by_level,
             msm=msm,
             fold_plug_in_rules=None,
+            fold_plug_in_rules_by_level={},
         )
 
     def _reads_fold_plug_in_rules(self) -> bool:
@@ -4181,8 +4255,19 @@ class TMLE:
             )
             if fold_rules is not None:
                 # The diagonal at fit time, so a defect surfaces here and not at the bound.
-                check_fold_rules(fold_rules, treat, estimates.folds)
-            return _learned_rule_regimes(treat, self.learned_rule.name, margin, fold_rules)
+                check_fold_rules(fold_rules, treat, estimates.folds, n_arms=data.n_arms)
+            # Known regimes beside the rule (X11 (c)) are more columns of the same set, on
+            # the same folds; the fold rules and the margin stay on the learned column 0.
+            known = RegimeSet.evaluate(self.interventions, data) if self.interventions else None
+            return _learned_rule_regimes(
+                treat,
+                self.learned_rule.name,
+                margin,
+                fold_rules,
+                known=known,
+                reference=self._reference_learned(),
+                n_arms=data.n_arms,
+            )
         if not self.interventions:
             return None
         reference = None if self.reference is None else str(self.reference)
@@ -4227,6 +4312,23 @@ class TMLE:
             n_jobs=self.n_jobs,
             outcome_by_arm=self.outcome_by_arm,
         )
+
+    def _reference_learned(self) -> float:
+        """The reference code of a learned-rule fit: ``0`` for the rule, ``1`` otherwise.
+
+        The learned rule is code ``0`` and the known regimes of ``interventions=`` follow it
+        (X11 (c)).  With ``reference=`` naming the learned rule, or with no known regime, the
+        code is ``0``, and each contrast is a known regime minus the rule.  Otherwise it is
+        ``1``, and each contrast is the rule minus a known regime.
+        :func:`~cleverly.interventions.learned.learned_rule_configuration_refusal` has
+        already refused any other ``reference=``.
+        """
+        assert self.learned_rule is not None
+        if not self.interventions or (
+            self.reference is not None and str(self.reference) == self.learned_rule.name
+        ):
+            return 0.0
+        return 1.0
 
     def _reference_regime(self) -> float:
         """The regime code contrasts are taken against, from ``reference=`` and the names."""
@@ -4596,6 +4698,11 @@ class TMLE:
                 reason=RefusalReason.API_REDIRECTION,
                 alternative=f"{route}.",
             )
+        # A known-regime target of a learned-rule fit without ``interventions=`` would
+        # report nothing; it refuses as the constructor refuses it (X11 (c)).
+        contrast = learned_rule_retarget_refusal(self, requested)
+        if contrast is not None:
+            raise CapabilityError.from_refusal(contrast)
         if self.cv_evaluation and not nuisance.folds.is_single:
             # The fit refuses these before any learner; a direct call can still name a
             # target outside the fold-evaluated stratum construction (X28).

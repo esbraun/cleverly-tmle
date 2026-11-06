@@ -443,10 +443,11 @@ class TestTheRecordAndTheSurfaces:
                 fold_sizes=(1,),
                 fold_masses=(1.0,),
                 fold_estimates=(0.0,),
-                treated_shares=(0.0,),
-                blip_quantiles=((0.0,),),
+                arm_shares=((1.0, 0.0),),
+                gap_quantiles=((0.0,),),
                 score_quantiles=(),
                 inner_seeds=(),
+                rule_disagreement=0.0,
             )
 
     def test_the_fit_reads_its_registered_row(self) -> None:

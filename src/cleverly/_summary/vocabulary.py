@@ -358,6 +358,8 @@ SEVERAL_ROWS_QUESTION: Final = "effect of {A} on {Y}; each row is defined below"
 DIRECT_EFFECT_QUESTION: Final = "effect of {A} on {Y} with {Z} held at {z} for every unit"
 #: The Question fact of a learned-rule fit, whose target the data chose.
 LEARNED_RULE_QUESTION: Final = "value of a treatment rule learned from the data"
+#: The Question fact of a fit of the value of the optimal rule (X11 (f)), a fixed parameter.
+OPTIMAL_RULE_QUESTION: Final = "value of the best treatment rule, from rules learned on the data"
 #: The title of the key table.
 KEY_TITLE: Final = "What each row estimates"
 #: A per-stratum row: the row's meaning restricted to the units of one baseline stratum.
@@ -439,6 +441,20 @@ SUPPORT_AXES: Final[Mapping[str, str]] = MappingProxyType(
         "dependence": "clustering or the number of clusters",
         "qualifiers": "strata or a known treatment mechanism",
         "options": "estimator options",
+    }
+)
+
+#: Plain names of the qualifiers a support reason says the nearest validated fit differs
+#: on, keyed by the qualifier names of ``cleverly._support._point_key``. A reason that names
+#: no qualifier reads ``SUPPORT_AXES["qualifiers"]``.
+SUPPORT_QUALIFIERS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "strata": "baseline strata",
+        "known_mechanism": "a known treatment mechanism",
+        "unequal_clusters": "clusters of unequal size",
+        "known_regimes": "the fixed rules reported beside the learned rule",
+        "rule_learner_blip": "a rule learner",
+        "rule_learner_weighted_classification": "a rule learner",
     }
 )
 
@@ -573,6 +589,14 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
             "its own treatment rules, so each split has its own target, and the row estimates "
             "the mean of those targets. Its {spread} is computed from each observation's "
             "contribution to the estimate, averaged over the splits."
+        ),
+        "repeated_splits_mean_known": (
+            "Each row is the mean over {repeats} random splits into folds. Each split learns "
+            "its own treatment rules, so the learned rule's value and each difference with it "
+            "have their own target in each split, and the row estimates the mean of those "
+            "targets. A fixed rule's value has the same target in every split. Its {spread} "
+            "is computed from each observation's contribution to the estimate, averaged over "
+            "the splits."
         ),
         "simultaneous_bands": (
             "The bands cover all {count} rows at once with {level} probability; use them "
@@ -712,6 +736,26 @@ INTERMEDIATE_ASSUMPTIONS: Final[tuple[str, ...]] = (
 SENSITIVITY_POINTER: Final = (
     "result.sensitivity.omitted_confounding() shows how strong an unmeasured cause would "
     "need to be to change the conclusion."
+)
+#: The pointer of a fit whose bound answers for one named row at a time.
+SENSITIVITY_POINTER_ONE_ROW: Final = (
+    "result.sensitivity.omitted_confounding(estimand=...) shows, for one row at a time, how "
+    "strong an unmeasured cause would need to be to change the conclusion."
+)
+#: The Method details line of a learned-rule fit with fixed rules beside it (X11 (c)).
+LEARNED_RULE_KNOWN_REGIMES: Final = (
+    "Fixed rules beside the learned one: {names}. Each is estimated on the same folds with "
+    "the same models, and its target does not depend on the data. {contrast} The interval "
+    "of each difference uses the correlation between the two estimates, measured on the "
+    "same rows. The bound on unmeasured confounding runs for each value, not for a "
+    "difference."
+)
+#: How a learned-rule fit's contrasts read, keyed by whether ``reference=`` names the rule.
+LEARNED_RULE_CONTRAST_DIRECTION: Final[Mapping[bool, str]] = MappingProxyType(
+    {
+        False: "Each difference is the learned rule's value minus the fixed rule's.",
+        True: "Each difference is the fixed rule's value minus the learned rule's.",
+    }
 )
 NO_PROTOCOL: Final = "No study protocol was recorded."
 
@@ -3179,6 +3223,7 @@ BOOTSTRAP_BANDS_TITLE: Final = "Bootstrap sup-t {level} bands"
 
 #: Plain words for one node of a plan.
 PLAN_RULE: Final = "a declared rule"
+PLAN_LEARNED: Final = "a rule learned in each training fold"
 PLAN_NAMED_RULE: Final = "rule {name}"
 PLAN_POLICY: Final = "a known random draw"
 PLAN_NAMED_POLICY: Final = "random draw {name}"

@@ -117,7 +117,7 @@ def point_row(
     evidence : sequence of str
         The registered study slugs.
     families : iterable of str
-        The target families the row covers, as ``P1`` to ``P11``.
+        The target families the row covers, as ``P1`` to ``P12``.
     outcome : tuple of str, default BINARY
         The outcome axis of :class:`~cleverly._support.SupportKey`.
     missing : tuple of str, default ("complete",)
@@ -742,6 +742,21 @@ def _t_rows() -> tuple[SupportRow, ...]:
     # learner families (``outcome_learner_family``, ``treatment_learner_family`` and, for a rule
     # learner, ``rule_learner_family``). The row T43 of the ``learned-rule-in-sample`` study
     # covers the plug-in rule with a parametric outcome and a parametric treatment learner.
+    # X11 (c): known regimes beside a learned rule (``interventions=``) key the qualifier
+    # ``known_regimes``. The rows T44 of the ``learned-rule-contrast`` study cover such a fit on
+    # rows under each report, and every other composition with known regimes matches no row.
+    # X11 (d): the plug-in rule over K > 2 arms keys ``treatment=("arms{K}",)``. The row T45 of
+    # the ``learned-rule-arms`` study covers the fold-evaluated report on rows at three arms, and
+    # every other composition over more than two arms matches no row.
+    # X11 (f): the value of the optimal rule (``ey_optimal_rule``) keys family ``P12`` in place
+    # of ``P11``. The row T46 of the ``learned-rule-optimal-value`` study covers the
+    # fold-evaluated report on rows with a known treatment mechanism (``known_mechanism``), and
+    # every other composition of the optimal value, an estimated g among them, matches no row.
+    # X11 (j): the plug-in rule with the intermediate held at each level (``intermediate=``) keys
+    # ``missing=("intermediate",)``. The row T47 of the ``learned-rule-intermediate`` study covers
+    # the fold-evaluated report on rows at each level, and the row T48 covers a known regime
+    # through the same fold-evaluated controlled-direct-effect path. Every other composition with
+    # an intermediate matches no row.
     # X11 (i): the learned-rule value as the mean over R splits. The key reads ``repeated``
     # beside ``fold_evaluated``, so fold targeting, weights and clusters, which key other
     # splitting, weighting and dependence axes, match no row.
@@ -1131,6 +1146,289 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 "convergence warnings, in the fit and in its truth refit, and was kept. No "
                 "primary fit warned.",
                 "No comparator: no maintained package fits the in-sample learned-rule TMLE.",
+            ],
+        )
+    )
+    # X11 (c) (X11 PR G): the learned rule beside known regimes (``interventions=``), with each
+    # known value and each contrast ``ate_learned_rule``, keyed ``known_regimes``. One row for
+    # each report, because the study's declared support condition held for both: the five
+    # primary tests, every ``interval_calibration``, ``conservative_coverage`` and
+    # ``contrast_covariance`` verdict of that report's labels, and the ``targeting_necessity``
+    # verdicts passed. A row labels every estimate of a fit, so each covers the three P11 names.
+    # Weights, clusters, strata, fold targeting, a rule learner, repeats above 1, the in-sample
+    # fit and known treatment probabilities key other axes or qualifiers, so each of those
+    # compositions matches no row. The numbers are the committed results
+    # (``tests/canonical/learned_rule_contrast``).
+    contrast_limits = [
+        "The study measures the pointwise intervals of the plug-in rule (LearnedRule()) beside "
+        "Static(1) and Static(0) at n = 2,000 with 10 equal folds, repeats=1, pooled "
+        "targeting, the RM30 interaction logistic outcome model and a correct logistic "
+        "treatment model fitted by maximum likelihood, on two RM30 laws. Binary outcome and "
+        "treatment, iid rows, no weights. The key holds neither n, the fold count nor the "
+        "learner, so another n, V or learner reads supported and was not measured.",
+        "The key also covers compositions no cell measured: reference= naming the learned "
+        "rule (sign-flipped contrasts), known dynamic Rule regimes and more than two known "
+        "regimes. Each rests on the unit witnesses W-c1 and W-c2 and the linearity argument, as "
+        "T38.split_mean does for its repeat count.",
+        "On the misspecified_limit law (conservative_coverage) the cells claim coverage of each "
+        "parameter at or above 0.92 when the outcome model cannot represent the treated arm, "
+        "not SE calibration, and the study does not show that these intervals are "
+        "conservative. The reported curves omit the treatment model's projection term. "
+        "Corollary 2 (eq. 11) of van der Laan and Luedtke (2015) makes that variance "
+        "conservative for a maximum-likelihood g in a correct model, and the paper extends "
+        "this to the cross-validated TMLE by analogy only; the contrasts' version is the "
+        "research session's own derivation, not a statement in the paper. On this law the "
+        "omitted term is negligible (predicted SE ratio at most 1.0005), so the study tests "
+        "neither conservativeness nor the analogy.",
+        "The known_0 cells read an outcome arm the model represents correctly (the two laws "
+        "share Qbar0(0, W)), so they are not misspecified-outcome evidence.",
+        "The misspecified-outcome coverage was measured only with a correct parametric g "
+        "fitted by maximum likelihood. A known g (treatment_probabilities=, which keys "
+        "known_mechanism and matches no row) and a super-learner g were not measured.",
+        "The necessity pair reads the contrast against Static(0) only. Against Static(1) the "
+        "drop_w1 learner's limit rule is Static(1), so that contrast is degenerate: it was "
+        "exactly zero in 62% of the 4,000 pilot draws.",
+        "Pointwise intervals: the simultaneous band of a contrast fit refuses. No comparator: "
+        "no maintained package fits a cross-validated TMLE of a learned rule beside known "
+        "regimes.",
+        "The harness counts solver warnings: one necessity draw of 1,200 raised two and was "
+        "kept, and no primary, calibration or coverage draw warned. No rule reads the counts.",
+    ]
+    # The realized SE ratio and coverage of each positive, in the order value, Static(1),
+    # Static(0), the contrast against Static(1), the contrast against Static(0).
+    contrast_measured = {
+        "fold_evaluated": (
+            "The non_exceptional calibration positives read SE ratios of 0.975, 0.999, 1.004, "
+            "0.996 and 0.993 with coverage 0.946, 0.950, 0.956, 0.948 and 0.953 (5,600 draws). "
+            "The misspecified_limit positives read SE ratios of 0.997, 1.004, 1.003, 0.996 and "
+            "0.991 with coverage 0.950, 0.951, 0.951, 0.947 and 0.942 (3,200 draws). The lowest "
+            "primary cell, the contrast against Static(0), read SE ratio 0.970 and coverage "
+            "0.937 at 1,200 draws, inside the primary rules; its calibration cell reads 0.993 "
+            "and 0.953."
+        ),
+        "stacked": (
+            "The non_exceptional calibration positives read SE ratios of 0.975, 0.999, 1.004, "
+            "0.996 and 0.993 with coverage 0.946, 0.950, 0.956, 0.948 and 0.953 (5,600 draws). "
+            "The misspecified_limit positives read SE ratios of 0.997, 1.004, 1.003, 0.995 and "
+            "0.991 with coverage 0.950, 0.951, 0.951, 0.947 and 0.942 (3,200 draws). The "
+            "stacked point equals the fold-evaluated one at equal folds without weights, as in "
+            "every draw here, so the primary and necessity verdicts read it too. Without weights "
+            "or clusters the folds of a covered fit differ by a few rows, and only the variance "
+            "rule differs."
+        ),
+    }
+    for report in ("fold_evaluated", "stacked"):
+        rows.append(
+            point_row(
+                f"T44.{report}",
+                ["learned-rule-contrast"],
+                families=("P11",),
+                splitting=(report,),
+                qualifiers=["known_regimes"],
+                cells=["non_exceptional", "misspecified_limit"],
+                # Roadmap: X11.
+                limits=[contrast_measured[report], *contrast_limits],
+            )
+        )
+    # X11 (d) (X11 PR H): the plug-in rule over three arms, the argmax over every arm with a tie
+    # to the lowest arm code, keyed ``treatment=("arms3",)``. One row, for the fold-evaluated
+    # report on rows, because the study's declared support condition held: the primary bias
+    # leg, coverage floor and SE sanity, every ``interval_calibration`` verdict, both
+    # ``conservative_coverage`` verdicts and the ``targeting_necessity`` verdicts passed. Four or
+    # more arms key ``arms4`` and above, and weights, clusters, strata, fold targeting, repeats
+    # above 1, the stacked report, the in-sample fit and known regimes beside the rule key other
+    # axes or qualifiers, so each of those compositions matches no row. The numbers are the
+    # committed results (``tests/canonical/learned_rule_arms``).
+    rows.append(
+        point_row(
+            "T45",
+            ["learned-rule-arms"],
+            families=("P11",),
+            treatment=("arms3",),
+            splitting=("fold_evaluated",),
+            cells=["three_arms", "missing_quadratic"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures the pointwise interval of the plug-in rule (LearnedRule()) "
+                "over three arms at n = 2,000 on one law, with 10 equal folds, repeats=1, pooled "
+                "targeting, an arm-interacted logistic outcome model and a correct multinomial "
+                "logistic treatment model fitted by maximum likelihood. Binary outcome, iid "
+                "rows, no weights. The key holds neither n, the fold count nor the learner, so "
+                "another n, V or learner reads supported and was not measured.",
+                "With the correct outcome model the calibration positive reads SE ratio 0.986 "
+                "and coverage 0.9425 (3,200 draws), and the primary cell 0.997 and 0.947 (1,200 "
+                "draws).",
+                "The margin condition holds at both outcome learners' limits: every arm's share "
+                "is at least 0.175 and 0.2455, and the top two arms lie within 0.01 of each "
+                "other on 1.6% and 1.8% of the population. Over the draws the fitted rules "
+                "differ from the limit rule on 3.6% and 3.8% of rows on average, the smallest "
+                "arm share averages 0.177 and 0.245, and no draw leaves an arm without rows. "
+                "The no-tie form of C3 for the argmax is the package's own step.",
+                "When arm 2's outcome regression omits its quadratic term (arms 0 and 1 are "
+                "exact at the limit), the cells claim coverage at or above 0.92, not SE "
+                "calibration: coverage 0.940 at SE ratio 0.996 (1,200 draws). The reported "
+                "curve omits the treatment model's projection term, which Corollary 2 of van "
+                "der Laan and Luedtke (2015) makes conservative for a maximum-likelihood g in a "
+                "correct model, extended to the cross-validated TMLE by analogy only. On this "
+                "law the predicted SE ratio of that term is 1.0004, so the study does not test "
+                "conservativeness.",
+                "The necessity pair (an outcome model without W1) reads bias only. Its fold "
+                "rules have not settled at n = 2,000, so its targeted SE ratio 0.948 and "
+                "coverage 0.932 are a weak-margin reading, not calibration evidence or valid "
+                "inference under a misspecified outcome model.",
+                "The coverage was measured only with a correct parametric g fitted by maximum "
+                "likelihood. A known g (treatment_probabilities=, which keys known_mechanism "
+                "and matches no row) and a super-learner g were not measured.",
+                "The harness counts solver warnings: one necessity draw of 1,200 raised two and "
+                "was kept, and no primary, calibration or coverage draw warned. No rule reads "
+                "the counts. No comparator: no maintained package fits a cross-validated TMLE "
+                "of a learned rule over more than two arms.",
+            ],
+        )
+    )
+    # X11 (f) (X11 PR I): the value of the optimal rule, the fixed parameter Psi_d0, read from the
+    # fold-evaluated CV-TMLE of the learned-rule value, keyed family ``P12``. One row, for the
+    # fold-evaluated report on rows with the known treatment mechanism, because the study's
+    # declared support condition held: the primary bias leg, coverage floor and SE sanity, every
+    # ``interval_calibration`` verdict and the ``optimal_target_control`` verdict passed. An
+    # estimated g drops ``known_mechanism``, and repeats above 1, clusters, fold targeting, a
+    # rule learner, the stacked report and more than two arms key other axes or qualifiers, so
+    # each of those compositions matches no row. The numbers are the committed results
+    # (``tests/canonical/learned_rule_optimal_value``).
+    rows.append(
+        point_row(
+            "T46",
+            ["learned-rule-optimal-value"],
+            families=("P12",),
+            splitting=("fold_evaluated",),
+            qualifiers=("known_mechanism",),
+            cells=["non_exceptional", "wrong_limit"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures the pointwise interval of the value of the optimal rule "
+                "(OptimalRuleValue(), estimands=['ey_optimal_rule']) at n = 2,000 on one law: a "
+                "binary treatment and outcome, ten equal folds, pooled targeting, the plug-in "
+                "rule, repeats=1, iid rows, no weights, strata or known regimes. The treatment "
+                "mechanism is known (treatment_probabilities=). The outcome model is a "
+                "correctly specified parametric logistic model, so its limit rule is the "
+                "optimal rule, and the blip 0.1 + W1 has no tie set and a bounded density at 0 "
+                "(margin exponent 1, verified analytically). The key sees neither the learner, "
+                "the law nor n, so a misspecified or flexible learner, a law with ties, a "
+                "steeper margin or another n reads supported and was not measured.",
+                "The interval covers the optimal value only up to the regret, the gap between "
+                "the optimal value and the value of the fold rules, which is O_P(1/n) under "
+                "these conditions. The calibration cell's mean regret is 0.00138, 0.09 "
+                "estimate SDs: against the optimal value it reads standardized bias -0.088, SE "
+                "ratio 0.997 and coverage 0.949 (13,200 draws), and against the realized rule "
+                "value +0.004, 1.006 and 0.952. The primary bias interval, -0.0026 to -0.0007 "
+                "(1,600 draws), excludes zero because of the regret, and the regret's spread "
+                "lowers the SE ratio against the optimal value by about 0.9%. One n is "
+                "measured, so the rate is not shown.",
+                "The target control runs at n = 2,500, not 2,000. With a learner whose limit "
+                "rule treats nobody while the optimal rule treats 29.3%, the interval covers the "
+                "value of the learner's limit rule and misses the optimal value: coverage 0.09 "
+                "of the optimal value, 0.958 of the realized rule value, mean regret 0.0450.",
+                "An estimated g is a reading, not a claim, and has no row: at 1,200 draws its "
+                "bias interval is -0.0026 to -0.0004, its SE ratio 0.975 and its coverage 0.948 "
+                "(99% interval 0.930 to 0.963). Such a fit drops known_mechanism and reads "
+                "experimental.",
+                "On a law whose blip is zero on 60% of the population no claim is made. The "
+                "interval under-covers there, coverage 0.912 with SE ratio 0.888 against the "
+                "optimal value and 0.919 with 0.893 against the realized rule value, because "
+                "the fold rules do not settle on the tie set (disagreement 0 to 0.735, mean "
+                "0.280), not because of the regret (mean 0.00086).",
+                "A rule learner, clusters, repeats above 1, fold targeting, the stacked report, "
+                "more than two arms and an estimated g stay experimental. Weights, strata, the "
+                "in-sample fit and contrasts with known regimes refuse. No comparator: no "
+                "maintained package fits a cross-validated TMLE of the value of the optimal "
+                "rule. No draw raised a solver warning.",
+            ],
+        )
+    )
+    # X11 (j) (X11 PR J): the plug-in rule at A with a binary intermediate held at each level
+    # (``intermediate=``), keyed ``missing=("intermediate",)``, and a known regime through the
+    # same fold-evaluated controlled-direct-effect path. Two rows, for the fold-evaluated report
+    # on rows, because the study's declared support conditions held: for T47 the primary bias
+    # leg, coverage floor and SE sanity at both levels, every learned ``interval_calibration``
+    # verdict and the ``targeting_necessity`` verdicts; for T48 every known-rule
+    # ``interval_calibration`` verdict. Weights, clusters, strata, fold targeting, repeats above
+    # 1, the stacked and in-sample reports, more than two arms, a known g and a rule learner key
+    # other axes or qualifiers or refuse, so each of those compositions matches no row. The
+    # numbers are the committed results (``tests/canonical/learned_rule_intermediate``).
+    intermediate_limits = [
+        "The study measures one law at n = 2,000: a binary treatment, outcome and intermediate, "
+        "ten equal folds, pooled targeting, repeats=1, iid rows, and no weights, clusters, "
+        "strata, fold targeting, stacked report or contrasts. The outcome, treatment and "
+        "intermediate models are correctly specified parametric logistic models, fitted in "
+        "every cell. The key holds neither the learner, the law nor n, so a flexible learner, "
+        "another law or another n reads supported and rests on the theory alone.",
+        "Positivity: the smallest g0 q0 on the support is 0.045, and along the learned rules it "
+        "is 0.11 (z = 0) and 0.19 (z = 1). A law with q0(z | a, W) nearer 0 is not measured.",
+        "A rule learner with intermediate= refuses (X11 (j2)), and so do a non-binary "
+        "intermediate (X63), strata under cv_evaluation=True (X28), the omitted-variable bound "
+        "(X11 (n2)) and the placebo of a level in refute. Weights, clusters, fold targeting, "
+        "repeats, the stacked and in-sample reports, three or more arms and a known g stay "
+        "experimental. No comparator: no maintained package fits a learned rule with an "
+        "intermediate held fixed. No draw failed or raised a solver warning.",
+    ]
+    rows.append(
+        point_row(
+            "T47",
+            ["learned-rule-intermediate"],
+            families=("P11",),
+            missing=("intermediate",),
+            splitting=("fold_evaluated",),
+            cells=["cde_z0", "cde_z1", "learned_z0", "learned_z1", "drop_w1_z0", "drop_w1_z1"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures the pointwise interval of the plug-in rule (LearnedRule()) "
+                "fitted with intermediate=, one result per level of the intermediate. Each "
+                "level's interval targets the value of that level's own fold rules, V^-1 sum_v "
+                "E0 Qbar0(d^z_nv(W), z, W). That is neither the value of the optimal rule at "
+                "that level nor the jointly optimal pair of treatment and intermediate. The "
+                "optimal rules at the two levels differ on 30% of the population.",
+                intermediate_limits[0],
+                "The calibration positive reads SE ratio 0.998 (99% interval 0.985 to 1.010) "
+                "and coverage 0.949 at z = 0, and 0.983 (0.971 to 0.996) and 0.946 at z = 1 "
+                "(20,000 draws). The primary cells read coverage 0.946 and 0.931 and SE ratio "
+                "1.002 and 0.977 (1,200 draws). Plug-in learned rules read slightly below 1 at "
+                "n = 2,000, the between-fold covariance that T39 describes.",
+                "The control without the factor 1{Z = z} / q of the clever covariate reads SE "
+                "ratio 0.591 and 0.731, so the instrument resolves a variance missing that "
+                "factor. With an outcome model that omits W1, a confounder of A, Z and Y, the "
+                "untargeted plug-in is biased by +0.099 and -0.024 and targeting removes it; its "
+                "limit rules treat everyone at z = 0 and nobody at z = 1, so the pair tests a "
+                "gross misspecification, not a subtle one.",
+                intermediate_limits[1],
+                intermediate_limits[2],
+            ],
+        )
+    )
+    rows.append(
+        point_row(
+            "T48",
+            ["learned-rule-intermediate"],
+            families=("P5",),
+            missing=("intermediate",),
+            splitting=("fold_evaluated",),
+            cells=["known_z0", "known_z1"],
+            # Roadmap: X11.
+            limits=[
+                "The study measures one known rule, 1{W1 > 0}, and only its value, through the "
+                "fold-evaluated controlled-direct-effect path at each level of the "
+                "intermediate. The key also covers static regimes, contrasts between known "
+                "regimes and any deterministic rule with a binary intermediate on that path, "
+                "and none of those is measured. This is the measured path the learned fit "
+                "reduces to bit for bit at a constant rule (W-j1). T30 (in sample, missing "
+                "outcome) is a different configuration.",
+                intermediate_limits[0],
+                "The calibration positive reads SE ratio 1.007 (99% interval 0.990 to 1.025) "
+                "and coverage 0.952 at z = 0, and 0.997 (0.980 to 1.015) and 0.949 at z = 1 "
+                "(10,000 draws). The control without the factor 1{Z = z} / q reads SE ratio "
+                "0.607 and 0.770.",
+                "Positivity along the known rule: the smallest g0 q0 is 0.11 (z = 0) and 0.21 "
+                "(z = 1).",
+                intermediate_limits[2],
             ],
         )
     )
@@ -4400,9 +4698,75 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: the sequential baselines (``G28``), the parametric g-formula (``G29``), repeated-outcome
 #: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``), the
 #: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
-#: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``).
+#: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``) and the learned two-node
+#: regimen (``G47``).
+#:
+def _learned_regimen_rows() -> tuple[SupportRow, ...]:
+    """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
+
+    The row keys the regimen kind ``learned`` on the cross-fitted censored two-node fit with
+    every option at its default. It was added because every declared verdict passed: the
+    primary tests (bias leg, coverage floor, SE sanity), ``interval_calibration`` (the positive
+    and both controls), ``conservative_coverage`` (the positive and its control),
+    ``targeting_necessity`` (both labels) and ``fold_locality``. The numbers are the committed
+    results (``tests/canonical/learned_regimen_ltmle``).
+    """
+    return (
+        long_row(
+            "G47",
+            ["learned-regimen-ltmle"],
+            regimens=("learned",),
+            splitting=("cross_fitted",),
+            cells=["two_node", "squared_w1"],
+            # Roadmap: X11.
+            limits=[
+                "The interval targets the stacked value of the fit's own learned rule pairs, "
+                "sum_v (n_v / n) Psi_{d_nv}(P_0), not the value of the optimal pair.",
+                "The study measures one law at n = 2,000 with ten folds, two binary treatment "
+                "nodes, censoring at each node and an end-of-study binary outcome. Neither n nor "
+                "the fold count is in the key, so another n, another fold count or another law "
+                "reads supported and rests on the theory alone.",
+                "The treatment and censoring models are correct main-terms logistic models in "
+                "every cell, and coverage rests on them: the curve omits the treatment "
+                "mechanism's term and is conservative when they are correct. The node-2 learner "
+                "is a correct model of each stratum in the Q-learning that learns the rules. "
+                "The estimator's own outcome regressions pool the followers' strata with no "
+                "treatment column, so the logistic and the cubic node-1 learner are "
+                "approximations there. A misspecified treatment or censoring model is not "
+                "measured.",
+                "The primary cell reads coverage 0.954 and SE ratio 1.017 (1,200 draws). The "
+                "calibration positive reads SE ratio 0.979 (99% interval 0.960 to 0.998) and "
+                "coverage 0.939 (9,200 draws), and its controls read SE ratios 0.783 and 0.702.",
+                "A misspecified node-1 learner on (W1^2, W2), with g correct, claims coverage "
+                "only: coverage 0.940 over 2,400 draws, against a control at 0.865.",
+                "Targeting removes the plug-in's bias for that misspecified node-1 learner (a "
+                "limit bias, untargeted bias 0.060) and for the declared learners (a "
+                "finite-sample bias at n = 2,000 whose limit is about 0, untargeted bias 0.016).",
+                "A learner whose limit rule has no margin gives a non-regular target, and its "
+                "interval under-covers; no cell measures that regime. The fold-locality control "
+                "(rules learned on the rows that evaluate them) reads bias 0.090, so the "
+                "instrument resolves in-sample rule learning.",
+                "A continuous outcome with q_bounds=, declared node bounds, ratio_trim=, an "
+                "uncensored panel and a known mechanism are keyed apart and read experimental; a "
+                "stopping rule reads experimental through its fit condition. More than two "
+                "nodes, repeats above 1, n_folds=1, weights and clusters refuse. No comparator: "
+                "no maintained package fits a learned two-node regimen by cross-validated TMLE.",
+            ],
+        ),
+    )
+
+
+#: A learned two-node regimen (``LearnedRegimen``, X11 (b)) keys the regimen kind ``learned``.
+#: The row ``G47`` of the ``learned-regimen-ltmle`` study covers the cross-fitted censored
+#: two-node fit with every option at its default; every other composition of that kind matches
+#: no row and reads experimental.
 LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
-    (*_long_rows(), *_categorical_long_rows(), *_long_horizon_rows())
+    (
+        *_long_rows(),
+        *_categorical_long_rows(),
+        *_long_horizon_rows(),
+        *_learned_regimen_rows(),
+    )
 )
 
 
@@ -4448,6 +4812,11 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "It reports truth rows at the exceptional and weak-blip laws, has no property cell, "
         # Roadmap: F27.
         "and licenses no configuration."
+    ),
+    "adaptive-iptw-pairing": (
+        "It pairs the gate study's fits with R drtmle replicate by replicate, has no property "
+        "cell, and licenses no configuration. The gate study adaptive-iptw is the evidence of "
+        "the AI rows."
     ),
 }
 
@@ -4517,6 +4886,7 @@ FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
     ),
     "P10": _anchor("`msm`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux_msm.py"),
     "P11": _anchor("`ey_learned_rule`", "tests/discrete_law.py"),
+    "P12": _anchor("`ey_optimal_rule`", "tests/unit/test_learned_rule_optimal.py"),
     "blips": _anchor(
         "structural nested mean model (`StructuralNestedMean`)",
         "tests/discrete_law_structural.py",
@@ -4571,5 +4941,14 @@ FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
         "",
         "tests/discrete_law_longitudinal_ipsi.py",
         "tests/unit/test_influence_gateaux_ipsi.py",
+    ),
+    # X11 (b): with each fold's rule pair held fixed the learned fit is the known
+    # ``DynamicRegimen`` fit bit for bit, so the dynamic-rule oracle covers it fold by fold.
+    "learned": _anchor(
+        "a learned two-node regimen (`LearnedRegimen`), the stacked value "
+        "$\\sum_v (n_v/n)\\Psi_{d_{nv}}$",
+        "tests/discrete_law_longitudinal.py",
+        "tests/unit/test_influence_gateaux_longitudinal.py",
+        "tests/unit/test_longitudinal_learned_regimen.py",
     ),
 }

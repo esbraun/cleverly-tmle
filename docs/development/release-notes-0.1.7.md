@@ -1,6 +1,6 @@
 # cleverly 0.1.7
 
-This alpha release adds a readable `summary()` to every result, check and report type. It also
+This release adds a readable `summary()` to every result, check and report type. It also
 changes the default reduced-regression training of `DRTMLE` on cross-fitted fits. These are the
 changes since 0.1.6.
 
@@ -89,7 +89,7 @@ Refit analyses when you move saved results to 0.1.7. Loading another version's r
 
 ## Packaging and compatibility
 
-This remains an alpha release. The package does not promise compatibility for public APIs,
+The package does not promise compatibility for public APIs,
 `CausalStudy` objects, pickled objects, or saved results. Follow the upgrade notes when you move
 an analysis to 0.1.7.
 

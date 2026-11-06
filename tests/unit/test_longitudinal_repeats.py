@@ -1450,6 +1450,11 @@ RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
     "estimator": _REFUTE,
     "assessment_cache": _ASSESS,
     "bootstrap": _witness("test_repeats_refuse_the_bootstrap"),
+    "learned_regimen": (
+        "tests.unit.test_longitudinal_learned_regimen",
+        "test_repeats_are_refused_for_a_learned_regimen",
+        None,
+    ),
     "repeats": _witness(EACH_DRAW, "ltmle"),
     "assess": _ASSESS,
     "assessment_family": _ASSESS,

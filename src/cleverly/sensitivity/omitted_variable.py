@@ -153,7 +153,9 @@ from ..interventions.learned import (
     LEARNED_RULE_BENCHMARK_REFUSAL,
     LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL,
     LEARNED_RULE_LIMITS,
+    OPTIMAL_RULE_SENSITIVITY_REFUSAL,
     fold_rules,
+    reports_optimal_rule,
 )
 from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
@@ -196,8 +198,21 @@ LINEAR_ESTIMANDS: frozenset[str] = frozenset({"ate", "ey", "ey1", "ey0", "att", 
 #: linear functional of the outcome regression with a known Riesz representer, read off
 #: the fit's own clever covariate.  :func:`axis_parameters` turns a fit's codes into names.
 AXIS_ESTIMANDS: frozenset[str] = frozenset(
-    {"ey_regime", "ate_regime", "ey_policy", "ate_policy", "msm", "ey_learned_rule"}
+    {
+        "ey_regime",
+        "ate_regime",
+        "ey_policy",
+        "ate_policy",
+        "msm",
+        "ey_learned_rule",
+        "ey_known_regime",
+    }
 )
+
+#: The stem of a contrast of the learned rule with a known regime (X11 (c)).  Its bound is
+#: refused by name: no witness checks the bias of the difference of the combined
+#: representer and a known regime's representer (X11 (n2)).
+LEARNED_RULE_CONTRAST_STEM = "ate_learned_rule"
 
 #: The stem of the learned-rule value (X11 part (n)).  With the fold rules held fixed it is
 #: the regime functional of the stochastic regime that averages them, so it reuses the
@@ -436,8 +451,52 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
     weights the fold rules by :math:`W_v/W`, and no witness checks the bound of that
     combined representer.  An in-sample fit (``cross_fit=False``) has one rule :math:`d_n`,
     whose combined representer is the known-regime representer
-    :math:`1\{a = d_n(w)\}/g`, so it passes unless it has strata.
+    :math:`1\{a = d_n(w)\}/g`, so it passes unless it has strata.  A treatment with more
+    than two arms (X11 (d)) refuses as an implementation gap (X11 (n2)): the combined
+    representer is :math:`g^\star(a \mid w) = V^{-1}\sum_v 1\{a = d_v(w)\}` over every arm,
+    and no witness checks the bias or :math:`\nu^2` of a learned argmax rule against it.
+    A fit of the value of the optimal rule (X11 (f)) refuses first: the bound holds the
+    fold rules fixed, and that target moves with the rule
+    (:data:`~cleverly.interventions.learned.OPTIMAL_RULE_SENSITIVITY_REFUSAL`).  A fit with
+    an intermediate (X11 (j)) refuses next as an implementation gap (X11 (n2)): each level's
+    rules are learned from the outcome regression at that level, and no witness checks the
+    bias of the combined representer :math:`V^{-1}\sum_v 1\{a = d^z_v(w)\}1\{Z = z\}/(g q)`.
     """
+    if reports_optimal_rule(result):
+        return OPTIMAL_RULE_SENSITIVITY_REFUSAL
+    if declares_intermediate(result):
+        level = result.intermediate_value
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "the omitted-variable bound of a learned-rule value with an intermediate "
+            f"(intermediate=, here at Z = {level:g}) is not built. The rules at each level "
+            "are learned from the outcome regression at that level, so the combined "
+            "representer would average 1{A = d_v(W)} 1{Z = z} / (g(A | W) q(z | A, W)) over "
+            "the fold rules of the level, and no witness checks the bias of a learned rule "
+            "at a level of the intermediate against it (X11 (n2) in docs/roadmap.md).",
+            alternative=(
+                "Bound a fixed rule at each level with "
+                "TMLE(interventions=[Rule(..., rule_kind='known')]).fit(..., intermediate=...), "
+                "whose regime bound covers the controlled direct effect, or bound the "
+                "learned-rule value without intermediate=."
+            ),
+            roadmap="X11",
+        )
+    n_arms = int(getattr(result.data, "n_arms", 2))
+    if n_arms > 2:
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            f"the omitted-variable bound of a learned-rule value over {n_arms} arms is not "
+            "built. The combined representer would average the fold rules' one-hot "
+            "densities over every arm, and no witness checks the bias of a learned argmax "
+            "rule against it (X11 (n2) in docs/roadmap.md).",
+            alternative=(
+                "Bound a fixed rule on the same treatment with "
+                "TMLE(interventions=[Rule(..., rule_kind='known')]), whose regime bound "
+                "covers every arm, or bound a two-arm learned-rule fit."
+            ),
+            roadmap="X11",
+        )
     n_splits = int(getattr(result, "n_repeats", 1))
     if n_splits > 1:
         return Refusal(
@@ -592,12 +651,15 @@ def axis_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
         regimes = result.repeats[0].nuisance.regimes
         if regimes is None:
             return {}
-        name = parameter_name(LEARNED_RULE_STEM, arm=regimes.labels[0.0])
-        return (
-            {name: ArmParameter(name, LEARNED_RULE_STEM, "regime", 0.0)}
-            if name in result.estimates
-            else {}
-        )
+        # The learned-rule value, then the value of each known regime declared beside the
+        # rule (X11 (c)), which is a regime parameter of its own column.
+        learned: dict[str, ArmParameter] = {}
+        for code in regimes.codes:
+            stem = LEARNED_RULE_STEM if code == 0.0 else "ey_known_regime"
+            name = parameter_name(stem, arm=regimes.labels[code])
+            if name in result.estimates:
+                learned[name] = ArmParameter(name, stem, "regime", code)
+        return learned
     if axis not in _AXIS_GROUPS:
         return {}
     group = _AXIS_GROUPS[axis][0]
@@ -1322,6 +1384,20 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
         The reported parameter and the arms it is a functional of.
     """
     stem = parameter_stem(estimand)
+    if stem == LEARNED_RULE_CONTRAST_STEM:
+        raise CapabilityError(
+            f"the omitted-variable bound of {estimand!r}, a contrast of the learned rule "
+            "with a known regime, is not built. With the fold rules held fixed it is a "
+            "linear functional whose representer is the combined representer of the rules "
+            "minus the known regime's, and no witness checks its bias against that "
+            "difference (X11 (n2) in docs/roadmap.md).",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=(
+                "Bound each value on its own: ey_learned_rule[...] and ey_known_regime[...] "
+                "of this fit."
+            ),
+            roadmap="X11",
+        )
     if stem not in LINEAR_ESTIMANDS | AXIS_ESTIMANDS:
         # The pointer is for the two ratio scales an E-value is defined on. Offered for
         # anything else -- an attributable fraction, say -- it sends the reader from one
@@ -1707,10 +1783,12 @@ def _combined_rule_regimes(nuisance: NuisanceEstimates) -> RegimeSet:
     regimes = nuisance.regimes
     rules = fold_rules(nuisance)
     assert regimes is not None and rules is not None
-    treated = np.mean(rules, axis=1, dtype=float)
-    values = np.empty((treated.size, 2, 1), dtype=float)
-    values[:, 1, 0] = treated
-    values[:, 0, 0] = 1.0 - treated
+    # Known regimes declared beside the rule (X11 (c)) keep their own densities, so their
+    # columns of the clever covariate are the ones the fit was targeted with.  Column 0 is
+    # the share of the fold rules that assign each arm, read from the arm codes.
+    values = np.array(regimes.values, dtype=float)
+    for arm in range(values.shape[1]):
+        values[:, arm, 0] = np.mean(rules == arm, axis=1, dtype=float)
     return RegimeSet(regimes.names, values, regimes.reference)
 
 
@@ -3047,6 +3125,8 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> Refusal | N
         before any refusal.
     """
     if getattr(result.config, "parameter_axis", None) == "learned_rule":
+        if reports_optimal_rule(result):
+            return OPTIMAL_RULE_SENSITIVITY_REFUSAL
         if _in_sample_learned_rule(result):
             return LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL
         return LEARNED_RULE_BENCHMARK_REFUSAL

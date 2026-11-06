@@ -54,6 +54,7 @@ EXAMPLE_TARGETS = (
     "cleverly.RiskRatio",
     "cleverly.RegimeContrast",
     "cleverly.LearnedRuleValue",
+    "cleverly.OptimalRuleValue",
     "cleverly.ModifiedTreatmentPolicy",
     "cleverly.IncrementalEffect",
     "cleverly.ControlledDirectEffect",

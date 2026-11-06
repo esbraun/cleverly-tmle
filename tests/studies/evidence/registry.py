@@ -205,6 +205,11 @@ class StudyRecord:
     #: Estimands whose reference reports its standard error on a different scale, so a raw
     #: SE comparison would compare two different reported quantities.
     incomparable_se: frozenset[str] = frozenset()
+    #: Scenarios whose keys carry a point claim only: an estimated mechanism whose reported
+    #: standard error is a diagnostic with no validity claim (``AdaptiveIPTW`` withholds it as
+    #: inference).  Their truth rows pass on the bias leg alone; coverage and the SE ratio are
+    #: still published.  Their paired rows run no calibration leg (:meth:`se_comparable`).
+    point_only_scenarios: frozenset[str] = frozenset()
     #: Repository-relative modules whose content the manifest records.
     modules: tuple[str, ...] = ()
     #: Import paths for the study-specific sampling/fitting and property adapters.
@@ -308,6 +313,9 @@ class StudyRecord:
     reference_replicates: Mapping[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        unknown = self.point_only_scenarios - set(self.scenarios)
+        if unknown:
+            raise ValueError(f"point_only_scenarios names undeclared scenarios: {sorted(unknown)}")
         undeclared = self.bias_row_families - set(self.property_cells)
         if undeclared:
             raise ValueError(
@@ -494,6 +502,10 @@ class StudyRecord:
             self.comparison_overrides.get(f"{scenario}:*", self.comparison),
         )
 
+    def se_comparable(self, scenario: str, estimand: str) -> bool:
+        """Whether a paired cell compares the two standard errors (its calibration leg)."""
+        return estimand not in self.incomparable_se and scenario not in self.point_only_scenarios
+
     def reported(self, implementation: str) -> Mapping[str, tuple[str, ...]]:
         """Scenario -> the estimands ``implementation`` reports.
 
@@ -561,6 +573,7 @@ def registered() -> tuple[StudyRecord, ...]:
     """
     from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
     from tests.studies.canonical_adaptive_iptw import STUDY as ADAPTIVE_IPTW
+    from tests.studies.canonical_adaptive_iptw_pairing import STUDY as ADAPTIVE_IPTW_PAIRING
     from tests.studies.canonical_categorical_incremental import STUDY as CATEGORICAL_INCREMENTAL
     from tests.studies.canonical_categorical_ltmle import STUDY as CANONICAL_CATEGORICAL_LTMLE
     from tests.studies.canonical_categorical_ltmle_crossfit import (
@@ -704,11 +717,16 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_evaluated_strata import STUDY as FOLD_EVALUATED_STRATA
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
+    from tests.studies.learned_regimen_ltmle import STUDY as LEARNED_REGIMEN_LTMLE
+    from tests.studies.learned_rule_arms import STUDY as LEARNED_RULE_ARMS
     from tests.studies.learned_rule_compositions import STUDY as LEARNED_RULE_COMPOSITIONS
+    from tests.studies.learned_rule_contrast import STUDY as LEARNED_RULE_CONTRAST
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
     from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
     from tests.studies.learned_rule_in_sample import STUDY as LEARNED_RULE_IN_SAMPLE
+    from tests.studies.learned_rule_intermediate import STUDY as LEARNED_RULE_INTERMEDIATE
     from tests.studies.learned_rule_learners import STUDY as LEARNED_RULE_LEARNERS
+    from tests.studies.learned_rule_optimal_value import STUDY as LEARNED_RULE_OPTIMAL_VALUE
     from tests.studies.learned_rule_split_mean import STUDY as LEARNED_RULE_SPLIT_MEAN
     from tests.studies.learned_rule_stacked import STUDY as LEARNED_RULE_STACKED
     from tests.studies.learned_rule_strata import STUDY as LEARNED_RULE_STRATA
@@ -773,6 +791,11 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_RULE_STRATA,
         LEARNED_RULE_STACKED,
         LEARNED_RULE_IN_SAMPLE,
+        LEARNED_RULE_CONTRAST,
+        LEARNED_RULE_ARMS,
+        LEARNED_RULE_OPTIMAL_VALUE,
+        LEARNED_RULE_INTERMEDIATE,
+        LEARNED_REGIMEN_LTMLE,
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,
@@ -813,6 +836,7 @@ def registered() -> tuple[StudyRecord, ...]:
         POINT_SURVIVAL_POLICIES,
         SURVIVAL_NODE_BOUNDS,
         ADAPTIVE_IPTW,
+        ADAPTIVE_IPTW_PAIRING,
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
         DRTMLE_ONE_WRONG,

@@ -158,6 +158,10 @@ LEARNED_RULE = np.array([[0.0, 1.0], [1.0, 0.0], [0.0, 1.0]])
 #: in every fold.  :func:`cell_counts` realises it exactly on ``N`` rows.
 LEARNED_RULE_Q = np.array([[0.40, 0.70], [0.50, 0.20], [0.60, 0.80]])
 
+#: The known regimes ``Static(a)`` reported beside the learned rule (X11 (c)), by the label
+#: ``ey_known_regime[...]`` reports, and the arm each puts all its mass on.
+KNOWN_REGIME_ARMS = {"always 1": 1, "always 0": 0}
+
 
 #: The incremental interventions the ``ipsi`` estimands are checked against, as odds
 #: multipliers.  Unlike :data:`REGIMES` these are *not* densities: the density
@@ -328,6 +332,26 @@ def functional(probs: Any, estimand: str) -> Any:
     if estimand == f"ey_learned_rule[{LEARNED_RULE_LABEL}]":
         return (p_w * (LEARNED_RULE * q).sum(axis=1)).sum()
 
+    # A known regime beside the learned rule (X11 (c)) is Static(a): its value is the arm
+    # mean psi_a, written above. A contrast is the learned rule's value at LEARNED_RULE minus
+    # that arm mean, both functionals of the same law, so its curve is the difference.
+    if estimand.startswith("ey_known_regime["):
+        arm = KNOWN_REGIME_ARMS[estimand[len("ey_known_regime[") : -1]]
+        return (p_w * q[:, arm]).sum()
+    if estimand.startswith("ate_learned_rule["):
+        learned, known = estimand[len("ate_learned_rule[") : -1].split(" vs ")
+        return functional(p, f"ey_learned_rule[{learned}]") - functional(
+            p, f"ey_known_regime[{known}]"
+        )
+    # Psi_d0(P) = sum_w P(W = w) max_a E[Y | A = a, W = w], the value of the optimal rule of
+    # the law itself (X11 (f)). The best arm is read off the real part, so a complex step
+    # differentiates the value at that arm: away from a tie between the two arms of a cell
+    # the max is the fixed rule's value near P, and its derivative is that rule's. At a tie
+    # the functional is not differentiable, which this branch does not see.
+    if estimand == f"ey_optimal_rule[{LEARNED_RULE_LABEL}]":
+        best = np.argmax(np.real(q), axis=1)
+        return (p_w * q[np.arange(q.shape[0]), best]).sum()
+
     # beta = M^-1 b, the h-weighted least-squares projection of the counterfactual means
     # onto m(a, W; beta), written straight off the normal equations:
     #
@@ -409,6 +433,11 @@ PER_ARM_NAMES: dict[str, tuple[str, ...]] = {
     "ey": ("ey[0]", "ey[1]"),
     "ey_regime": tuple(f"ey_regime[{label}]" for label in REGIMES),
     "ey_learned_rule": (f"ey_learned_rule[{LEARNED_RULE_LABEL}]",),
+    "ey_known_regime": tuple(f"ey_known_regime[{label}]" for label in KNOWN_REGIME_ARMS),
+    "ate_learned_rule": tuple(
+        f"ate_learned_rule[{LEARNED_RULE_LABEL} vs {label}]" for label in KNOWN_REGIME_ARMS
+    ),
+    "ey_optimal_rule": (f"ey_optimal_rule[{LEARNED_RULE_LABEL}]",),
     "ey_ipsi": tuple(f"ey_ipsi[{label}]" for label in IPSI_DELTAS),
     "ate_ipsi": tuple(
         f"ate_ipsi[{label} vs {IPSI_REFERENCE}]" for label in IPSI_DELTAS if label != IPSI_REFERENCE
@@ -482,6 +511,9 @@ TRUTH = {
         *PER_ARM_NAMES["ey_regime"],
         *PER_ARM_NAMES["ate_regime"],
         *PER_ARM_NAMES["ey_learned_rule"],
+        *PER_ARM_NAMES["ey_known_regime"],
+        *PER_ARM_NAMES["ate_learned_rule"],
+        *PER_ARM_NAMES["ey_optimal_rule"],
         *PER_ARM_NAMES["ey_ipsi"],
         *PER_ARM_NAMES["ate_ipsi"],
         *PER_ARM_NAMES["ey_rr_tilt"],

@@ -174,7 +174,8 @@ class TestWhichBoundAGroupGets:
 
         binary_only = {t.group for t in TARGETS.values() if t.requires_binary_treatment}
         assert binary_only.isdisjoint(CONDITIONAL_GROUPS)
-        assert binary_only == {"mean", "regime", "mtp"}
+        # The learned-rule targets of the regime group read any number of arms (X11 (d)).
+        assert binary_only == {"mean", "mtp"}
 
 
 class TestOutcomeScaler:
