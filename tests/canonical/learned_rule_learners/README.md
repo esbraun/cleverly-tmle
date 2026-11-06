@@ -22,8 +22,10 @@ The declarations are in `tests/studies/learned_rule_learners.py`,
 
 ## Run
 
-A declared run takes `--output` and `--jobs` only, on the Python and package versions that rule L7
-of `tests/canonical/learned_rule_run.py` declares, with one thread per numerical library:
+A declared run takes `--output` and `--jobs` only, with one thread per numerical library. Rule L7 of
+`tests/canonical/learned_rule_run.py` declares the stack the committed run used and refuses no
+other: a run on another stack warns, and `manifest.json` records the versions the run used and each
+difference from the declared stack:
 
 ```bash
 python -u -m tests.canonical.learned_rule_learners.regenerate --jobs 4 --output <empty scratch directory>

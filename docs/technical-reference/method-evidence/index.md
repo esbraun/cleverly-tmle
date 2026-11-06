@@ -85,6 +85,7 @@ learned-rule-arms
 learned-rule-optimal-value
 learned-rule-intermediate
 learned-regimen-ltmle
+conditional-projection
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 point-modified-treatment-policies

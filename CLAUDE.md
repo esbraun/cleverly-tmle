@@ -63,6 +63,9 @@ objects, or `CausalStudy` objects, and not for the public API.
   result-neutral edit in `tests/canonical/provenance-revisions.md` rather than rewriting a
   recorded hash, which would leave the manifest describing bytes that never ran.
   `docs/development/method-benchmarking.md` says how to tell the two kinds of change apart.
+- Libraries are not pinned aggressively; versions float. A test must tolerate rounding changes
+  from library versions and fail only on a real change. Pin a version only when a release breaks
+  a method. `docs/development/contributing.md` states the policy.
 - Ruff and mypy are pinned once in `pyproject.toml`'s `dev` extra, which resolves to
   `cleverly[all]` plus tooling. For a new extra, follow
   [Add an optional dependency](docs/development/contributing.md#add-an-optional-dependency).

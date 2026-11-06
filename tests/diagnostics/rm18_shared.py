@@ -619,8 +619,6 @@ def run_log(output: Path, title: str, *, argv: Sequence[str] | None = None) -> I
     output directory sits outside it.  ``argv`` is the command line to record when the caller
     has already rewritten ``sys.argv`` for a driver; the default records ``sys.argv``.
     """
-    import joblib
-
     import cleverly
 
     digest, packages = _installed_digest()
@@ -633,7 +631,7 @@ def run_log(output: Path, title: str, *, argv: Sequence[str] | None = None) -> I
         f"clean tree: {record['cleverly_worktree_clean']}",
         f"cleverly {record['cleverly_version']} from {cleverly.__file__}",
         f"python {record['python']}; numpy {record['numpy']}; scipy {record['scipy']}; "
-        f"pandas {record['pandas']}; scikit-learn {record['scikit_learn']}; joblib {joblib.__version__}",
+        f"pandas {record['pandas']}; scikit-learn {record['scikit_learn']}; joblib {record['joblib']}",
         f"installed distributions: {packages}, sha256 {digest}",
         "threads: "
         + " ".join(f"{name}={os.environ.get(name, 'unset')}" for name in THREAD_VARIABLES),

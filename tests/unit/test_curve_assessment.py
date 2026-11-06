@@ -142,3 +142,45 @@ def test_a_curve_without_its_fit_refuses(fitted: Any) -> None:
 
     with pytest.raises(CapabilityError, match="keeps no producing fit"):
         replace(fitted, fit=None).diagnostics.calibration()
+
+
+def test_every_reading_becomes_one_report_row(fitted: Any) -> None:
+    """Each curve operation's report has an interpreter, and a warning reaches its status.
+
+    The mutation control is the stability row: the same report with ``warning`` flipped
+    must change status, so the row reads the flag rather than always completing.
+    """
+    from dataclasses import replace
+
+    from cleverly.assessment import INTERPRETERS, AssessmentStatus
+
+    diagnostics = fitted.diagnostics
+    reports = {
+        "calibration": diagnostics.calibration(n_folds=2, random_state=0),
+        "risk_comparison": diagnostics.risk_comparison(n_folds=2, random_state=0),
+        "stability": diagnostics.stability(n_seeds=2, random_state=0),
+        "modifier_stability": diagnostics.modifier_stability(n_folds=2, random_state=0),
+    }
+    assert set(reports) == set(CURVE_OPERATIONS)
+    for name, report in reports.items():
+        item = INTERPRETERS[name](report, fitted, {})
+        assert item.name == name and item.detail
+    stability = reports["stability"]
+    calm = INTERPRETERS["stability"](replace(stability, warning=False), fitted, {})
+    loud = INTERPRETERS["stability"](replace(stability, warning=True), fitted, {})
+    assert calm.status is AssessmentStatus.COMPLETED
+    assert loud.status is AssessmentStatus.WARNING and loud.next_steps
+
+
+def test_the_tables_come_back_in_the_fit_backend() -> None:
+    """A polars fit's curve readings emit polars, as every other result table does."""
+    pl = pytest.importorskip("polars")
+    polars_curve = curve(pl.from_pandas(frame()))
+    assert polars_curve.backend == "polars"
+    diagnostics = polars_curve.diagnostics
+    tables = (
+        diagnostics.calibration(n_folds=2, random_state=0).to_frame(),
+        diagnostics.risk_comparison(n_folds=2, random_state=0).to_frame(),
+        diagnostics.modifier_stability(n_folds=2, random_state=0).to_frame(),
+    )
+    assert all(isinstance(table, pl.DataFrame) for table in tables)

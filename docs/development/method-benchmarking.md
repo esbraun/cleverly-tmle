@@ -525,6 +525,44 @@ To rerun the property families against the committed Python rows, pass `--reuse-
 driver offers the flag only when no reference process runs. It checks the committed rows against
 their manifest hash and the declared budget, and then it fits no subject model.
 
+### Run the comparator on committed subject rows
+
+A comparator can be added to a study without refitting the subject. Pass `--reference-only` to
+the study's `regenerate.py`. The driver keeps the committed subject rows and property files,
+re-draws each paired replicate from its seed, runs only the reference, and writes a manifest that
+carries the committed subject provenance forward. The study module supplies the comparator's
+inputs through a `reference_sample(scenario, n, replicate)` hook, which returns the sample, the
+truths and the subject's untargeted values (`tests.studies.evidence.parity.ReferenceSample`). No
+`cleverly` fit runs in this mode.
+
+| field or flag | what it does |
+| --- | --- |
+| `reference_replicates` | `StudyRecord` field. Maps a paired scenario to the number of leading replicates the reference fits. Each count is at least 2 and at most `replicates`. A declared `--reference-only` run refuses a paired scenario without a count, so a record that pairs every replicate says so |
+| `COMPARATOR_DECLARATION` | Study-module mapping of the record fields the comparator run declares, such as `reference_replicates`, `reference_scenarios` and `paired_role`. A `--reference-only` run of a pending record promotes the record with them. The registration commit then moves them into the `StudyRecord` |
+| `--reference-prefix N` | Pairs the first `N` replicates of every paired scenario, for a smoke run. The driver refuses it into the committed directory, so pass `--output` |
+| `REFERENCE_ENVIRONMENT` | Study-module mapping of an environment variable to its default, for an input that changes what the comparator fits, such as the long-horizon studies' declared mutation and `lmtp` learner. The value in force enters the resume key and the input stamp, reaches the container, and is recorded under `generated_with.reference.environment` |
+| `--reference-jobs J` | Cores of each reference container (`docker run --cpus`), which is also the number of R workers. The inputs are written by `--jobs` processes |
+| `CLEVERLY_DOCKER_MEMORY` | Environment variable. When set, each reference container runs under `docker run --memory` with its value, and the harness sizes its workers to that limit |
+
+The subject keeps all `replicates` rows. Equivalence, failure accounting and the paired tables read
+each cell on its paired prefix only. A study that defines `PARITY` (a
+`tests.studies.evidence.parity.ParityDeclaration`) also gets `parity.csv` and
+`parity-replicates.csv`. Those tables hold the per-replicate exact gates, and
+`tests/unit/test_x59_parity.py` recomputes them from the committed rows.
+
+G1 is fixed at `1e-6`. The G-P and G-C tolerances stay `None` until the declaration commit sets
+them from the smoke maxima, and a declared run with one still at `None` is refused before it draws
+anything. A smoke maximum that would declare a tolerance above `1e-5` fails the smoke.
+
+The driver runs the comparator once per paired scenario, each on its own archive of that
+scenario's replicates. The R harness fits one replicate per worker, and each forked worker
+copies the replicates the parent holds. So the driver calibrates on a read of two replicates and
+then sizes the read chunk to the most replicates that keep a worker busy each, scaling the
+parent's share of the measured cost with the chunk (`regenerate.stream_plan`). The manifest records the hashes of the modules that drew the inputs under
+`generated_with.reference.input_module_sha256`, because the subject's module hashes are those of
+the committed run. `tests/canonical/x59_smoke.py` runs the smoke steps of the long-horizon
+studies, one command each.
+
 ## Red cells
 
 Diagnose every red cell before you route it. The table gives the route for each diagnosis.
@@ -575,6 +613,14 @@ a reader cannot re-derive from this repository. Declare a result-neutral differe
 
 Do not rewrite a recorded hash. The manifest keeps the hash of the bytes that ran. A rewritten
 hash makes the manifest claim that bytes which did not exist produced the result.
+
+The Python stack of a run is recorded, not gated. `generated_with.subject` records the Python,
+NumPy, SciPy, pandas, scikit-learn and joblib versions, and `dependency_lock_sha256`, the digest
+of `uv.lock`. A study may declare the stack its committed run used, as rule L7 of
+`tests/canonical/learned_rule_run.py` does for the learned-rule studies. A declared run on
+another stack still runs: it warns, notes each difference in `run.log`, and records the declared
+stack and the differences under `generated_with.declared_stack`. Read a regenerated artifact
+against any stack difference as well as against the code change.
 
 ### Targeted regeneration record
 

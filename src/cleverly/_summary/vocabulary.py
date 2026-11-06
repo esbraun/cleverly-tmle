@@ -4277,7 +4277,8 @@ EFFECT_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "curve_band": (
             "The band holds jointly at {level} over the {points} declared grid points, with "
-            "critical value {critical}."
+            "critical value {critical}. No registered study measures its joint coverage, so "
+            "the status above covers the coefficients and not the band."
         ),
         "curve_experimental": (
             "{reason} Its intervals are computed as for a validated fit; read them with more "

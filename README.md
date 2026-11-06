@@ -42,9 +42,8 @@ Even the jokes in this library are targeted.*
   Missing outcomes and missing treatments can be declared and handled.
 - How an effect changes with a few baseline columns, such as age: a declared curve of the
   effect with intervals, a band, and a test of whether the effect varies at all, or, with no
-  shape declared, a flexible curve (the EP learner) without intervals. These fits are labelled
-  experimental: their validation studies have not run, and the flexible curve's theory does not
-  cover its default, a shape chosen by cross-validation.
+  shape declared, a flexible curve (the EP learner) without intervals. A validation study covers
+  the declared curve's intervals; the band and the flexible curve are labelled experimental.
 - Effects of policies: treating only some people by a rule, following a rule learned from the
   data, raising each person's chance of treatment, or shifting a continuous dose or price.
 - Treatments over time: treatments that repeat, outcomes measured at the end or every period, and

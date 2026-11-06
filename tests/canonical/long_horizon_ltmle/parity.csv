@@ -1,0 +1,85 @@
+gate,scenario,estimand,quantity,paired_replicates,max_abs_difference,max_replicate,rms,tolerance,passed,graded
+G-P,binary_k3,ey_regimen[never],estimate,100,5.581288764489045e-10,40,9.62008744339368e-11,1e-06,True,True
+G-P,binary_k3,ey_regimen[never],std_error,100,2.349998667883213e-12,19,2.9962330982523953e-13,1e-06,True,True
+G-P,binary_k3,ey_regimen[always],estimate,100,2.349103911392092e-09,54,6.021227768723302e-10,1e-06,True,True
+G-P,binary_k3,ey_regimen[always],std_error,100,1.9945399498677574e-11,54,3.4181664248227965e-12,1e-06,True,True
+G-P,binary_k3,ey_regimen[respond],estimate,100,1.4448749974249608e-09,75,3.8068587784842734e-10,1e-06,True,True
+G-P,binary_k3,ey_regimen[respond],std_error,100,7.957100256472671e-12,74,1.353853109806488e-12,1e-06,True,True
+G-P,binary_k3,ey_regimen[switch],estimate,100,2.481746252946948e-09,43,3.975598344107994e-10,1e-06,True,True
+G-P,binary_k3,ey_regimen[switch],std_error,100,3.7510966555132086e-12,25,6.886635414540932e-13,1e-06,True,True
+G-P,binary_k3,ate_regimen[always vs never],estimate,100,2.348654687400753e-09,54,5.971928492790501e-10,1e-06,True,True
+G-P,binary_k3,ate_regimen[always vs never],std_error,100,1.5987801360584086e-11,54,2.6901726496259677e-12,1e-06,True,True
+G-P,binary_k3,ate_regimen[respond vs never],estimate,100,1.444850211695936e-09,75,3.6021256263968747e-10,1e-06,True,True
+G-P,binary_k3,ate_regimen[respond vs never],std_error,100,6.846599676091358e-12,74,1.2233932872343809e-12,1e-06,True,True
+G-P,binary_k3,ate_regimen[switch vs never],estimate,100,2.4659027042517323e-09,43,4.0028454860811046e-10,1e-06,True,True
+G-P,binary_k3,ate_regimen[switch vs never],std_error,100,3.4054009612205505e-12,25,6.13882480705229e-13,1e-06,True,True
+G-P,binary_k4,ey_regimen[never],estimate,100,5.162081873066882e-10,28,9.048364794900936e-11,1e-06,True,True
+G-P,binary_k4,ey_regimen[never],std_error,100,5.366200539480559e-12,98,9.357124553715133e-13,1e-06,True,True
+G-P,binary_k4,ey_regimen[always],estimate,100,1.1396078525294229e-09,89,1.2978535974063936e-10,1e-06,True,True
+G-P,binary_k4,ey_regimen[always],std_error,100,5.0143986185524625e-12,89,7.963321109919276e-13,1e-06,True,True
+G-P,binary_k4,ey_regimen[respond],estimate,100,1.1848889647225747e-09,8,3.692622142338449e-10,1e-06,True,True
+G-P,binary_k4,ey_regimen[respond],std_error,100,8.821899807887057e-12,72,2.6091324783385305e-12,1e-06,True,True
+G-P,binary_k4,ey_regimen[switch],estimate,100,1.9855870281304533e-09,58,3.913690560309767e-10,1e-06,True,True
+G-P,binary_k4,ey_regimen[switch],std_error,100,1.456119946841028e-11,50,1.819915718729623e-12,1e-06,True,True
+G-P,binary_k4,ate_regimen[always vs never],estimate,100,1.1396268095875683e-09,89,1.5386376557801419e-10,1e-06,True,True
+G-P,binary_k4,ate_regimen[always vs never],std_error,100,4.012200294223334e-12,98,8.91173725496777e-13,1e-06,True,True
+G-P,binary_k4,ate_regimen[respond vs never],estimate,100,1.0355759999525205e-09,8,3.510039209399392e-10,1e-06,True,True
+G-P,binary_k4,ate_regimen[respond vs never],std_error,100,5.4873015853385e-12,72,1.6944187231018146e-12,1e-06,True,True
+G-P,binary_k4,ate_regimen[switch vs never],estimate,100,1.9856002120288707e-09,58,3.9049159830637846e-10,1e-06,True,True
+G-P,binary_k4,ate_regimen[switch vs never],std_error,100,1.1273600108996362e-11,50,1.5466068739138214e-12,1e-06,True,True
+G-P,binary_k5,ey_regimen[never],estimate,100,4.6200665515527817e-10,79,1.446682388166227e-10,1e-06,True,True
+G-P,binary_k5,ey_regimen[never],std_error,100,3.858500324804837e-12,40,1.1617475800525924e-12,1e-06,True,True
+G-P,binary_k5,ey_regimen[always],estimate,100,2.6867550406706187e-09,37,1.019789813056998e-09,1e-06,True,True
+G-P,binary_k5,ey_regimen[always],std_error,100,4.0413901392089e-11,38,1.1660881733704557e-11,1e-06,True,True
+G-P,binary_k5,ey_regimen[respond],estimate,100,5.89459259181524e-10,75,1.1326363099104249e-10,1e-06,True,True
+G-P,binary_k5,ey_regimen[respond],std_error,100,9.1130054891142e-13,75,1.7087093067863985e-13,1e-06,True,True
+G-P,binary_k5,ey_regimen[switch],estimate,100,2.512273056254344e-09,25,5.578197613788167e-10,1e-06,True,True
+G-P,binary_k5,ey_regimen[switch],std_error,100,1.1089400231423241e-11,16,1.6828458715582728e-12,1e-06,True,True
+G-P,binary_k5,ate_regimen[always vs never],estimate,100,2.534590093361544e-09,90,9.534999846997532e-10,1e-06,True,True
+G-P,binary_k5,ate_regimen[always vs never],std_error,100,2.8389398470940463e-11,38,7.90739924840101e-12,1e-06,True,True
+G-P,binary_k5,ate_regimen[respond vs never],estimate,100,5.821950976869772e-10,75,1.7040101622459315e-10,1e-06,True,True
+G-P,binary_k5,ate_regimen[respond vs never],std_error,100,3.4110977931156583e-12,40,1.0276556715150338e-12,1e-06,True,True
+G-P,binary_k5,ate_regimen[switch vs never],estimate,100,2.4727103142829776e-09,72,5.402374525253435e-10,1e-06,True,True
+G-P,binary_k5,ate_regimen[switch vs never],std_error,100,7.59790147464301e-12,25,1.4297393446387954e-12,1e-06,True,True
+G-C,binary_k3,ey_regimen[never],gcomp,100,3.675015847193208e-11,43,5.170294165558515e-12,1e-06,True,True
+G-C,binary_k3,ey_regimen[always],gcomp,100,3.627120825910879e-11,71,4.57301256914174e-12,1e-06,True,True
+G-C,binary_k3,ey_regimen[respond],gcomp,100,2.761674777751466e-09,19,4.5790696845822247e-10,1e-06,True,True
+G-C,binary_k3,ey_regimen[switch],gcomp,100,1.1893610540880672e-09,0,1.8195909466798672e-10,1e-06,True,True
+G-C,binary_k3,ate_regimen[always vs never],gcomp,100,3.6140229697778636e-11,71,6.611813340725449e-12,1e-06,True,True
+G-C,binary_k3,ate_regimen[respond vs never],gcomp,100,2.7611998104637436e-09,19,4.577781202447918e-10,1e-06,True,True
+G-C,binary_k3,ate_regimen[switch vs never],gcomp,100,1.1888794115844092e-09,0,1.81695398226865e-10,1e-06,True,True
+G-C,binary_k4,ey_regimen[never],gcomp,100,8.764100556390986e-12,14,9.976246593242664e-13,1e-06,True,True
+G-C,binary_k4,ey_regimen[always],gcomp,100,2.4025226252888388e-11,85,9.394081612404423e-12,1e-06,True,True
+G-C,binary_k4,ey_regimen[respond],gcomp,100,3.6535962033568126e-09,78,1.0643486108368348e-09,1e-06,True,True
+G-C,binary_k4,ey_regimen[switch],gcomp,100,2.7124708035231038e-09,50,2.8131747583421184e-10,1e-06,True,True
+G-C,binary_k4,ate_regimen[always vs never],gcomp,100,2.3955892825000547e-11,85,9.313557702812332e-12,1e-06,True,True
+G-C,binary_k4,ate_regimen[respond vs never],gcomp,100,3.653550170734654e-09,78,1.064260129708057e-09,1e-06,True,True
+G-C,binary_k4,ate_regimen[switch vs never],gcomp,100,2.712309821184533e-09,50,2.8129778330930115e-10,1e-06,True,True
+G-C,binary_k5,ey_regimen[never],gcomp,100,2.970956813896919e-13,54,5.724184055290834e-14,1e-06,True,True
+G-C,binary_k5,ey_regimen[always],gcomp,100,7.135556590043279e-10,63,1.8739712062946497e-10,1e-06,True,True
+G-C,binary_k5,ey_regimen[respond],gcomp,100,4.5377858137740645e-09,59,4.827060067917121e-10,1e-06,True,True
+G-C,binary_k5,ey_regimen[switch],gcomp,100,1.6135421887497614e-09,16,1.9183937248919563e-10,1e-06,True,True
+G-C,binary_k5,ate_regimen[always vs never],gcomp,100,7.135443347294768e-10,63,1.8738907107796128e-10,1e-06,True,True
+G-C,binary_k5,ate_regimen[respond vs never],gcomp,100,4.537761805201157e-09,59,4.827072247577897e-10,1e-06,True,True
+G-C,binary_k5,ate_regimen[switch vs never],gcomp,100,1.6136639247044116e-09,16,1.9184099983382765e-10,1e-06,True,True
+witness,binary_k3,ey_regimen[never],targeting_move,100,0.03885363530957453,73,0.01940365435944878,9.999999999999999e-05,True,False
+witness,binary_k3,ey_regimen[always],targeting_move,100,0.03796053949270506,72,0.017163855309029863,9.999999999999999e-05,True,False
+witness,binary_k3,ey_regimen[respond],targeting_move,100,0.026126834887919337,6,0.010290068153849644,9.999999999999999e-05,True,False
+witness,binary_k3,ey_regimen[switch],targeting_move,100,0.01571448085996141,39,0.00690722970038018,9.999999999999999e-05,True,False
+witness,binary_k3,ate_regimen[always vs never],targeting_move,100,0.02801758829356149,86,0.013349015167266904,9.999999999999999e-05,True,False
+witness,binary_k3,ate_regimen[respond vs never],targeting_move,100,0.04441931868283021,30,0.020084006878388305,9.999999999999999e-05,True,False
+witness,binary_k3,ate_regimen[switch vs never],targeting_move,100,0.037314412491376375,73,0.016358218417770902,9.999999999999999e-05,True,False
+witness,binary_k4,ey_regimen[never],targeting_move,100,0.05427905427359825,56,0.030323112267213567,9.999999999999999e-05,True,False
+witness,binary_k4,ey_regimen[always],targeting_move,100,0.04527995778395422,54,0.022784849453774226,9.999999999999999e-05,True,False
+witness,binary_k4,ey_regimen[respond],targeting_move,100,0.02459545014386688,63,0.007974975556091729,9.999999999999999e-05,True,False
+witness,binary_k4,ey_regimen[switch],targeting_move,100,0.02320666808592009,31,0.009004622022035022,9.999999999999999e-05,True,False
+witness,binary_k4,ate_regimen[always vs never],targeting_move,100,0.042483716371711,28,0.016619241647028774,9.999999999999999e-05,True,False
+witness,binary_k4,ate_regimen[respond vs never],targeting_move,100,0.05715853857260573,2,0.031717973938406384,9.999999999999999e-05,True,False
+witness,binary_k4,ate_regimen[switch vs never],targeting_move,100,0.052176880575716456,92,0.024748905132168264,9.999999999999999e-05,True,False
+witness,binary_k5,ey_regimen[never],targeting_move,100,0.06589877077590156,1,0.04292880085058267,9.999999999999999e-05,True,False
+witness,binary_k5,ey_regimen[always],targeting_move,100,0.04688165179588455,36,0.02656862886916063,9.999999999999999e-05,True,False
+witness,binary_k5,ey_regimen[respond],targeting_move,100,0.015958801565027825,81,0.005724041133853001,9.999999999999999e-05,True,False
+witness,binary_k5,ey_regimen[switch],targeting_move,100,0.024733306290769197,68,0.01267969155628655,9.999999999999999e-05,True,False
+witness,binary_k5,ate_regimen[always vs never],targeting_move,100,0.0492732187202653,9,0.021530331206229856,9.999999999999999e-05,True,False
+witness,binary_k5,ate_regimen[respond vs never],targeting_move,100,0.07384069965216095,1,0.0457524036984066,9.999999999999999e-05,True,False
+witness,binary_k5,ate_regimen[switch vs never],targeting_move,100,0.06285413693394723,98,0.03217141771448534,9.999999999999999e-05,True,False

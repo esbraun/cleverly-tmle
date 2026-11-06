@@ -81,10 +81,12 @@ count from the pinned pilot readings.
 
 ## Run
 
-A declared run takes `--output`, `--jobs` and `--fresh` only, on the Python and package versions
-that rule L7 of `tests/canonical/learned_rule_run.py` declares, with one thread per numerical
-library. The run fits 32,400 draws: about 11,600 core-seconds on the pilot timings, or roughly
-48 minutes of fitting at four jobs. With the summary bootstraps, allow 60 to 70 minutes.
+A declared run takes `--output`, `--jobs` and `--fresh` only, with one thread per numerical library.
+Rule L7 of `tests/canonical/learned_rule_run.py` declares the stack the committed run used and
+refuses no other: a run on another stack warns, and `manifest.json` records the versions the run
+used and each difference from the declared stack. The run fits 32,400 draws: about 11,600
+core-seconds on the pilot timings, or roughly 48 minutes of fitting at four jobs. With the summary
+bootstraps, allow 60 to 70 minutes.
 
 ```bash
 python -u -m tests.canonical.learned_rule_intermediate.regenerate --jobs 4 --output <empty scratch directory>
