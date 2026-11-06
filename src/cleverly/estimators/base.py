@@ -41,6 +41,7 @@ from ..inference.influence import (
     ClusterReference,
     ParameterEstimate,
     Scale,
+    minimum_reference_df,
     spread_name,
     stamp_inference,
 )
@@ -1584,6 +1585,7 @@ class TMLEResult:
                 [np.asarray(self.estimates[name].influence_curve) for name in names]
             ),
             cluster=self.data.cluster,
+            reference_df=minimum_reference_df([self.estimates[name] for name in names]),
         )
         band = (
             None

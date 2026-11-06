@@ -11,11 +11,13 @@ Its rev 1 curve, ``+ 2 (c - E s)(Dtilde - c)``, is checked to fail.
 from __future__ import annotations
 
 import warnings
+from dataclasses import replace
 from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
 import pytest
+from scipy import stats
 from sklearn.base import BaseEstimator, ClassifierMixin, clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
@@ -453,6 +455,24 @@ class TestTheCurve:
             frame["std_err"], np.sqrt(np.einsum("ip,pq,iq->i", phi, covariance, phi))
         )
         assert curve.to_frame().columns.tolist() == ["effect_curve:cate"]
+
+    def test_the_pointwise_interval_reads_the_coefficients_reference(
+        self, projection_fit: Any
+    ) -> None:
+        """A t reference on the coefficients widens the curve's interval to the t quantile.
+
+        The fixture fit reads the normal, so the normal case alone cannot tell a curve that
+        reads the coefficients' reference from one that always reads the normal.  The t
+        model is the nonzero witness.
+        """
+        curve = projection_fit.effect_curve()
+        assert curve.model.reference_df is None
+        for df, quantile in ((None, stats.norm.ppf(0.975)), (4, stats.t.ppf(0.975, 4))):
+            moved = replace(curve, model=replace(curve.model, reference_df=df))
+            frame = moved.predict(GRID, interval=True)
+            np.testing.assert_allclose(
+                (frame["ci_upper"] - frame["ci_lower"]) / 2, quantile * frame["std_err"]
+            )
 
     def test_the_band_is_wider_than_the_pointwise_interval(self, projection_fit: Any) -> None:
         curve = projection_fit.effect_curve(GRID, random_state=0)

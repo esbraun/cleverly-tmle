@@ -26,6 +26,7 @@ from scipy.stats import chi2
 from ._typing import FloatArray, IntArray
 from .bases import Modifiers
 from .exceptions import CapabilityError, DataError, RefusalReason
+from .inference.delta import reference_quantile
 from .inference.influence import ParameterEstimate, make_estimate
 from .inference.multiplier import MultiplierKind, multiplier_critical_value
 from .inference.results import estimate_covariance
@@ -209,6 +210,9 @@ class ProjectionCurve:
         ``(n, p)`` influence curves of the coefficients, which a band reads.
     cluster : ndarray or None
         Cluster codes of the fit, or ``None``.
+    reference_df : int or None
+        Degrees of freedom of the t reference the coefficients' intervals read, or ``None``
+        for the normal reference.
     """
 
     basis: Any
@@ -219,6 +223,7 @@ class ProjectionCurve:
     covariance: FloatArray
     influence: FloatArray
     cluster: IntArray | None = None
+    reference_df: int | None = None
 
     def design(self, frame: Any) -> FloatArray:
         """The basis at the rows of ``frame``, checked against the modifier schema.
@@ -438,7 +443,8 @@ class EffectCurveResult:
             ``False`` returns the predictions.  ``True`` returns a frame with the
             estimate, its standard error and the interval.
         alpha : float
-            The pointwise interval holds at ``1 - alpha``.
+            The pointwise interval holds at ``1 - alpha``, against the coefficients' own
+            reference: the normal, or t on a few-cluster fit.
 
         Returns
         -------
@@ -482,10 +488,9 @@ class EffectCurveResult:
         estimate = self.model.predict(data)
         if not interval:
             return estimate
-        from scipy.stats import norm
-
         se = self.model.std_error(data)
-        z = float(norm.ppf(1.0 - alpha / 2.0))
+        # The reference the coefficients' own intervals read: t on a few-cluster fit.
+        z = reference_quantile(alpha, self.model.reference_df)
         backend = backend_of(as_frame(data)) if is_dataframe(data) else self.backend
         return frame_from_dict(
             {
