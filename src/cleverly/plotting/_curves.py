@@ -34,8 +34,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: Marker and dash pattern of the first three series, so identity never rests on colour.
 _MARKERS = ("o", "s", "^")
 _DASHES: tuple[Any, ...] = ("-", (0, (5, 2)), (0, (1, 1.6)))
-#: Inches between neighbouring series at a shared x, so their error bars do not overlap.
-_DODGE = 0.07
+#: Inches between neighbouring series at a shared x, so their error bars and band brackets
+#: do not overlap: wider than a band bracket (:func:`_core.brackets`, 12 points).
+_DODGE = 0.19
 
 
 # ----------------------------------------------------------------------- frame helpers

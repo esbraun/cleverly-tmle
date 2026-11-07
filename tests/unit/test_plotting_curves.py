@@ -1126,6 +1126,45 @@ class TestOverTime:
         assert fig.axes[0].get_title(loc="left") == "Mean outcome over time"
         assert "only the differences" not in _core.note_text(fig)
 
+    def test_series_at_the_last_time_point_are_dodged_apart_but_keep_their_times(self) -> None:
+        """Several regimens' marks at one time point sit side by side, wider than a bracket.
+
+        The shift is a display transform only: the drawn data keep the fit's own times.
+        """
+        result = full()
+        fig = curve(result)
+        top = fig.axes[0]
+        fig.canvas.draw()
+        last = float(frame_rows(result, "risk", "treated")["time"].max())
+        points = [ln for ln in lines(top, _core.GID_POINT) if ln.get_xdata()[0] == last]
+        assert len(points) == 2
+        assert all(float(ln.get_xdata()[0]) == last for ln in points)
+        screen = sorted(float(ln.get_transform().transform(ln.get_xydata())[0][0]) for ln in points)
+        bracket = 12.0 * fig.dpi / 72.0
+        assert screen[1] - screen[0] > bracket
+        # The band brackets and the bars at that node are dodged with their series.
+        for gid in (_core.GID_BAND, _core.GID_INTERVAL):
+            xs = set()
+            marks = [
+                c
+                for c in collections(top, gid)
+                if isinstance(c, matplotlib.collections.LineCollection)
+            ]
+            for artist in [*lines(top, gid), *marks]:
+                data = (
+                    artist.get_xydata()
+                    if hasattr(artist, "get_xydata")
+                    else np.vstack(artist.get_segments())
+                )
+                at_last = data[np.isclose(data[:, 0], last)]
+                if at_last.size:
+                    shown = artist.get_transform().transform(at_last)
+                    xs.add(round(float(shown[0, 0]), 3))
+            assert len(xs) == 2, gid
+            assert max(xs) - min(xs) > bracket
+        # The fit's frame, which the plot reads, still reports the true time point.
+        assert last in set(result.curve(scale="risk")["time"])
+
     def test_too_many_series_for_one_axes_are_refused(self) -> None:
         rows = [
             _Point(f"p{i}", name, 1.0, 1, 0.1, None, None, True, None)
