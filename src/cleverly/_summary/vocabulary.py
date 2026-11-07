@@ -4312,6 +4312,60 @@ EFFECT_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **EFFECT_CURVE_NOTE_TEXTS})
 
+# ------------------------------------------------------------ targeting curves (X92 PR-5)
+
+TARGETING_TITLE: Final = "Prioritization curve"
+TARGETING_ESTIMAND: Final = "the mean effect in the top fraction q minus the average, TOC(q)"
+TARGETING_SOURCE: Final = "Score"
+TARGETING_COMPARE: Final = "Compared with"
+TARGETING_ATE: Final = "Average effect"
+
+#: The notes a targeting-curve summary, or its plot, can print.
+TARGETING_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "targeting_external": "note",
+        "targeting_split": "note",
+        "targeting_band": "note",
+        "targeting_withheld": "note",
+        "targeting_experimental": "note",
+        "targeting_gain_interval": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **TARGETING_NOTE_CODES})
+
+TARGETING_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "targeting_external": (
+            "The intervals hold only if {column} was fitted on other rows. A positive TOC at "
+            "q says the rows the score puts in its top fraction q gain more from treatment "
+            "than the average row. AUTOC and Qini average the TOC over q, and Qini gives "
+            "larger fractions more weight."
+        ),
+        "targeting_split": (
+            "The score is the curve refit on {n_train} training rows and evaluated on the "
+            "other {n_eval}. The result describes that refit, not the curve fitted on every row."
+        ),
+        "targeting_band": (
+            "The band holds jointly at {level} over the {points} grid points below the whole "
+            "population, with critical value {critical}. It says nothing between grid points."
+        ),
+        "targeting_withheld": (
+            "Rows marked {mark} report the estimate with no interval. The status_reason column "
+            "of to_frame() gives the reason."
+        ),
+        "targeting_experimental": (
+            "{reason} The intervals are computed as for a validated fit; read them with more "
+            "caution."
+        ),
+        "targeting_gain_interval": (
+            "The gap of the gain to the line q times the average effect is q times the TOC, so "
+            "its interval is the TOC interval scaled by q; the gain view of the plot draws "
+            "that one. The gain rows of to_frame() carry the interval of the gain itself, "
+            "which also holds the uncertainty of the average effect."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **TARGETING_NOTE_TEXTS})
 
 # ------------------------------------------------------------ covariate balance (X92 V11)
 

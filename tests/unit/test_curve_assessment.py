@@ -160,6 +160,7 @@ def test_every_reading_becomes_one_report_row(fitted: Any) -> None:
         "risk_comparison": diagnostics.risk_comparison(n_folds=2, random_state=0),
         "stability": diagnostics.stability(n_seeds=2, random_state=0),
         "modifier_stability": diagnostics.modifier_stability(n_folds=2, random_state=0),
+        "targeting_curve": diagnostics.targeting_curve(n_half_samples=20, random_state=0),
     }
     assert set(reports) == set(CURVE_OPERATIONS)
     for name, report in reports.items():

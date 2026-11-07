@@ -76,7 +76,11 @@ def header_values(text: str) -> dict[str, str]:
                 owner = [name for start, name in columns if start <= offset][-1]
                 facts[owner] = f"{facts[owner]} {part}"
         if labelled:
-            columns = labelled
+            # A label opens its own column; a column with no new label on this line keeps
+            # its owner, whose value may still be wrapping under it.
+            starts = {start for start, _ in labelled}
+            kept = [column for column in columns if column[0] not in starts]
+            columns = sorted([*kept, *labelled])
     return facts
 
 

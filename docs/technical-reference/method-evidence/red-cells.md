@@ -137,7 +137,8 @@ The test fails on four states.
 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) | 16 | adaptive-propensity IPTW |
 | [`adaptive-iptw-composite-l3`](../../roadmap.md#red-cell-owners) | 1 | adaptive-propensity IPTW |
 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) | 5 | longitudinal refutation verdict rules, point-treatment refutation verdict rules, band-rank placebo verdict rule |
-| total | 214 | 41 studies |
+| [`X92-paired-conservative`](../../roadmap.md#red-cell-owners) | 1 | Targeting curves (TOC, cumulative gain, AUTOC, Qini) |
+| total | 215 | 42 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -203,6 +204,7 @@ same text as the "measured" column of its study page.
 | [observational missing-data DR-TMLE with a composite indicator](observational-missing-data-dr-tmle.md) | truth | `drtmle-r-composite/three_arm_mar_outcome_and_treatment/ey[high]` | drtmle-r-composite | its truth gate | bias -0.0054 to 0.0013, coverage 0.9237, SE ratio 0.9349 | [`composite-high-arm`](../../roadmap.md#red-cell-owners) |
 | [CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws](learned-rule-cvtmle-boundary.md) | truth | `cleverly-learned-rule-cvtmle/exceptional/ey_learned_rule[learned rule]` | cleverly-learned-rule-cvtmle | its truth gate | bias -0.000748 to 0.000535, coverage 0.8938, SE ratio 0.8211 | [`F27`](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | [CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws](learned-rule-cvtmle-boundary.md) | truth | `cleverly-learned-rule-cvtmle/weak_blip/ey_learned_rule[learned rule]` | cleverly-learned-rule-cvtmle | its truth gate | bias -0.000514 to 0.000732, coverage 0.8948, SE ratio 0.8314 | [`F27`](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
+| [Targeting curves (TOC, cumulative gain, AUTOC, Qini)](targeting-curves.md) | property | `interval_calibration/H_S_minus_S_B_toc_0.1__correctly_specified` | positive | its own rule | coverage 0.9559 to 0.9687, SE ratio 1.0350 to 1.0857 | [`X92-paired-conservative`](../../roadmap.md#red-cell-owners) |
 | [ordinary continuous modified treatment policies](continuous-modified-treatment-policies.md) | paired | `continuous_modified_policy/ate_policy[+0.25 vs natural course]` | paired | inconclusive: calibration leg | difference 0.000061 to 0.000361 within 0.000770, RMSE ratio bound 1.0587 vs 1.1000, coverage difference bound -0.0050 vs -0.0250, calibration excess bound 0.0648 vs 0.0500, resolution 0.0439 | [`RM18-comparator-density`](../../roadmap.md#red-cell-owners) |
 | [ordinary point modified treatment policies](point-modified-treatment-policies.md) | property | `interval_calibration/halve__correctly_specified` | positive | its own rule | coverage 0.9479 to 0.9709, SE ratio 1.0011 to 1.0881, empirical efficiency ratio 0.9208 to 1.0003, reported efficiency ratio 1.0003 to 1.0034 | [`mtp-point-calibration`](../../roadmap.md#red-cell-owners) |
 | [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `interval_calibration/static__correctly_specified` | positive | its own rule | coverage 0.9187 to 0.9454, SE ratio 0.9263 to 0.9985, empirical efficiency ratio 0.9855 to 1.0615, reported efficiency ratio 0.9783 to 0.9899 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |

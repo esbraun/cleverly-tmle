@@ -229,6 +229,132 @@ projection onto it has a remainder the interval ignores. `score_kind="external"`
 declaration the interval rests on. A column equal to an in-sample curve of the same identified
 effect, or named with the `effect_curve:` prefix, is refused, and that detection is best effort.
 
+## Targeting curves
+
+`IdentifiedEffect.targeting_curve(column, computed_from=..., score_kind="external")` asks how
+much treating by a priority score $S = s(W)$ first gains over treating at random. With $u$ the
+rank position by decreasing $S$ (ties broken by an independent uniform, so $u \sim U(0, 1)$),
+it estimates, on the difference scale whatever the scale of $S$:
+
+| quantity | definition | reference |
+| --- | --- | --- |
+| $\mathrm{TOC}(q)$ | $E[\tau \mid u \le q] - \mathrm{ATE}$ at each grid point; $\mathrm{TOC}(1) = 0$ | 0 |
+| $G(q)$ | $q\,E[\tau \mid u \le q]$, so $G(q) - q\,\mathrm{ATE} = q\,\mathrm{TOC}(q)$ | $q\,\mathrm{ATE}$ |
+| AUTOC | $\int_0^1 \mathrm{TOC}(q)\,dq$ | 0 |
+| Qini | $\int_0^1 q\,\mathrm{TOC}(q)\,dq$ | 0 |
+| group effect | $(G(q_k) - G(q_{k-1})) / (q_k - q_{k-1})$ for group edges on the grid | the ATE |
+
+These are Yadlowsky et al. (2025), Definition 2 and Examples 2 and 3 (arXiv:2111.07966v2). In
+the $n$ evaluation rows each is a weighted mean $n^{-1}\sum_i c(i)\Gamma_i$ of doubly robust
+scores: $m_q(i)/q - 1$ for the TOC, with $m_q$ the row's fractional membership of the top
+fraction ($\sum_i m_q(i) = nq$ exactly); $H_n - H_{k-1} - 1$ for the AUTOC and
+$(n + 1 - 2k)/(2n)$ for the Qini at rank $k$, which `tests/unit/test_targeting_curves.py`
+checks against the double sums of (2.9). A tied block takes the mean of its weights, which is
+the average over all orderings within it (the 720 orderings of a six-row example are checked).
+
+**The TMLE.** The weight columns of every score, with the ATE column, are reduced to an
+orthonormal basis of their span by a thin SVD (singular values above $10^{-10}$ times the
+largest are kept), so a score with few distinct values does not make the Newton Hessian
+singular. One pooled fluctuation of the ATE fit's cross-fitted outcome regression runs along
+that basis, with clever covariate $b(W)(1\{A = t\} - 1\{A = r\})/(g\Pi)$ and the fit's own
+truncated $g$. Every reported value is the substitution estimate
+$n^{-1}\sum_i c(i)(\bar Q^*_t - \bar Q^*_r)(W_i)$, and solving the score equations makes it equal
+$n^{-1}\sum_i c(i)\Gamma^*_i$, with $\Gamma^*$ the AIPW score built from $\bar Q^*$; the unit test
+checks the equality to $10^{-8}$ under a tight targeting tolerance, and the shipped stopping
+rule bounds the gap by its own tolerance. On a binary outcome the substitution estimate keeps
+the top-fraction mean in $[-1, 1]$, which the one-step score form can leave. `TargetingCurve.ate`
+is the fluctuation's own ATE column, so $\mathrm{TOC}(q)$ is the top-fraction mean minus it
+exactly.
+
+**Inference.** The standard error is the SD of $B$ half-sample draws (2,000 by default) of
+$\lfloor n/2 \rfloor$ rows, or whole clusters, without replacement and with no rescaling; the
+interval is $\hat\theta \pm z_{1-\alpha/2}\,\sigma^*$ (Lemma 4, Corollary 5). Each draw keeps
+$\Gamma^*$ fixed and recomputes the ranks, cuts, tie blocks and weights on its rows; the
+nuisances are not refit. The areas are the published results (Theorem 3, Corollary 7 for the
+Qini, Proposition 8 for the AUTOC). The rest rests on four natural extensions
+([verdicts](natural-extension-verdicts.md)):
+
+- D1, the TOC at a fixed $q$: asymptotically linear with influence function
+  $1\{S \ge s_q\}\Gamma/q - E[\tau \mid S \ge s_q] - \mu(s_q)(1\{S \ge s_q\} - q)/q - (\Gamma - \mathrm{ATE})$,
+  $\mu(s) = E[\tau \mid S = s]$, when $S$ has no atom at its $1 - q$ quantile $s_q$, that
+  quantile is unique, $\mu$ is continuous at $s_q$ and Theorem 3's Assumption C holds. Only
+  the first condition can be checked in the sample (the `tied_cut` column), approximately.
+- D2, the sup-t band over the grid points below 1: simultaneous coverage at the grid points,
+  not over continuous $q$, with the critical value of `studentized_critical_value`. It is
+  withheld when any point's SE is 0 or withheld.
+- D3, ties: a cut strictly inside an atom is the delta method on five sample means, and a cut
+  at an atom's edge has a non-normal limit. A cut inside a sample tied block, or exactly on the
+  boundary next to one (`tie_share` is then NaN), sets `tied_cut` and reads `experimental`; an
+  atom edge the sample does not show cannot be detected. Areas on a score with finitely many values are smooth functions of block
+  masses and sums. Areas on a continuous score with atoms (a block holding at least 1% of the
+  rows, and more than $n/10$ distinct values) rest on the source's unproved statement and read `experimental`.
+- D4, bootstrapping $\Gamma^*$: the targeting update is a fixed-dimension nuisance. With an
+  inconsistent $\bar Q$ this holds only under a known mechanism (`treatment_probabilities=`),
+  where the TMLE and the one-step have different influence functions and the draws carry the
+  TMLE's. On the study's cell K (a main-terms outcome regression with the known mechanism) the
+  TMLE's AUTOC draws are 1.25 to 1.3 times as wide as the one-step's, while at TOC(0.5) and the
+  Qini the two agree to 2% (`k_untargeted_ratio` in `tests/studies/targeting_curves.py`).
+
+The remainder is not of the linear-remainder form: $S$ is fixed given the evaluation rows, and
+the cut's first-order term is part of $\psi$ and is redrawn with each draw.
+
+**The bootstrap at the study's sizes.** With the true nuisances, so that only the half-sample
+SE is measured, its ratio to the estimator's SD lies between 0.987 and 1.027 for every row the
+study gates at $n = 2{,}000$, on 18,000 to 30,000 replicates per cell
+(`tests/studies/targeting_curves_oracle.csv`). The AUTOC of cell H reads 1.002 (SE 0.004).
+The exception is the paired difference of two correlated scores at TOC(0.1): 1.063 at
+$n = 2{,}000$, 1.051 at 4,000 and 1.024 at 8,000. That interval is conservative by a
+finite-sample amount that shrinks with $n$. The study reports the row with a one-sided gate:
+the lower ends of its 99% SE-ratio and coverage intervals must still reach 0.93 and 0.92, so
+an interval that became too narrow would fail. Only a row that errs on the safe side can be
+reported this way.
+
+**Routes.** Route 1 takes a study column fitted on other rows, with the three checks of
+`assess_score` on it and on a `compare=` column. Route 2,
+`curve.diagnostics.targeting_curve(split=0.5)`, refits the producing estimator on a share of
+the units, scores the other rows with that refit (kept as `TargetingCurve.score_curve`) and
+fits the ATE on them only; the curve is that of the refit, not of the curve fitted on all rows.
+A paired `compare=` column shares the draws, and the SE of a difference is the SD of the
+per-draw differences.
+
+**Guards.** A grid point with fewer than 50 rows in its top fraction (`TARGETING_MIN_TOP_ROWS`,
+a declared guard with no source) keeps its point and withholds its interval and the band; 50 to
+199 rows read `experimental`, because the study calibrates no interval with fewer than 200 top
+rows. Weights, clusters, missing outcomes and a multi-arm pair are
+computed and read `experimental`; fewer than 40 clusters withhold the intervals. A row whose
+half-sample draws do not vary (SE at most $10^{-12}$, as for every TOC of a score that ties all
+rows) withholds its interval rather than report a width of rounding. With weights, every rank
+weight reads the row mass normalised to mean one, so the weighted AUTOC is defined in those
+units. The status reads the configuration and the top-fraction rows only: the learners, the
+number of folds and $n$ are not checked against the study's cells, and an area row carries no
+size guard of its own.
+
+**Status.** The registered [targeting-curves study](method-evidence/targeting-curves.md)
+ran 6,000 replicates per cell at $n = 2{,}000$ (800 at $n = 1{,}000$ for the band's power), the
+count its declaration fixed from the oracle and pilot ratios. Every gated cell passed, and no
+fit failed. The 33 gated calibration rows have SE-ratio intervals inside 0.93 to 1.07 and
+coverage intervals inside 0.92 to 0.98. The band covers the grid jointly in 0.956 of the
+replications, with size 0.041 and 0.042 on the two null laws and power 0.874 at its declared
+slope. The one red cell is the reporting row, the paired TOC(0.1) difference: SE ratio 1.060
+(99% interval 1.035 to 1.086) and coverage 0.963 (0.956 to 0.969). It is conservative, as the
+oracle computation predicted, and both lower ends clear its one-sided gate.
+
+A curve reads `supported` when its configuration is one a cell measured, with a binary
+treatment, iid unweighted rows, complete outcomes, one split and cross-fitted nuisances
+(`TARGETING_MEASURED` in `cleverly.targeting_curves`):
+
+| configuration | cells |
+| --- | --- |
+| an external score, a continuous outcome, an estimated mechanism | `H`, `N`, `P`, and the paired difference `C` |
+| an external score, a binary outcome, an estimated mechanism | `B`, `U`, `D` |
+| an external score, a continuous outcome, a known mechanism | `K` |
+| a declared split, a continuous outcome, an estimated mechanism | `S` |
+
+A paired difference reads `supported` in the first configuration only. Any other configuration,
+a grid point with fewer than 200 top rows, a cut in a tied block and an area on a continuous
+score with atoms read `experimental`. No comparator is registered; the `grf` comparison is
+pending, and a missing comparator does not block the row.
+
 ## Weights, clusters and missing outcomes
 
 Weights define the weighted law, as for every point target. With `PointTreatment(cluster=...)` the cluster is the unit:
@@ -284,6 +410,11 @@ each reading against its formula.
 | `final_learner=` on the log-ratio scale | the weighted logistic final stage with a declared learner is not built | `implementation_gap`, roadmap P1 |
 | `EPMethod` with `cross_fit=False`, `repeats` above 1, `cv_evaluation=True`, a non-default targeting scheme, or a fluctuation setting | the debiasing pools every row with its own out-of-fold nuisances and fits no fluctuation | `invalid_declaration` |
 | `assess_score` without `score_kind="external"`, with `computed_from` outside the adjustment set, or on an in-sample curve | the interval needs a fixed function of adjustment columns | `invalid_declaration` |
+| `targeting_curve` under the same three conditions, for the score or the `compare=` column | as `assess_score` | `invalid_declaration` |
+| `curve.diagnostics.targeting_curve(split=...)` with a split that is not a fraction in $(0, 1)$ | a fold average of fold-specific curves is a property of the learning algorithm; its only source (Imai and Li 2023, Section 4) covers difference-in-means scores in a randomized experiment | `invalid_declaration` |
+| a targeting curve with `repeats` above 1 | a median over splits of a whole curve has no reviewed joint law | `inference_gap` |
+| a targeting curve with `target_weights=True` or a declared stopping rule | every row loads several weight columns, which the weighted submodel cannot carry; a declared stopping rule needs a stopping context no curve builds | `implementation_gap`, roadmap X92 |
+| `compare=` on route 2 of an engine fit | the column is read from the producing study, which an engine fit does not keep | `invalid_declaration` |
 
 Each one is raised before any learner is fitted, and `tests/unit/test_conditional_contrast.py`
 pins its text.

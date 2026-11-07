@@ -1,0 +1,22 @@
+=== targeting-curves declared run
+command: /home/claude/venv/bin/python /home/user/cleverly-tmle/tests/canonical/targeting_curves/regenerate.py --output /home/claude/tc-out-4 --jobs 4
+commit: 95676c8e8c7e81f7710d5594c5465a2fc389f62c; upstream 95676c8e8c7e81f7710d5594c5465a2fc389f62c
+clean tree: True
+cleverly 0.2.0 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.18; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 118, sha256 1a74c5b05d11b15a20df95fbc8ddf3b00a63e81a2a1f0c3b04b7302a095c7560
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-07T20:28:59+00:00
+note: resumed from /root/.cache/cleverly/runs/targeting-curves/50e6dc4136fa, reused the Python phase
+finished: 2026-11-07T21:26:51+00:00
+wall seconds: 3471.4
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 40f97d8723b0f5d59e138f196039f70970a694cdaec5b688d5b902662912e39c
+sha256 performance-tests.csv: 6511f030f731a68cf08da226a11c2d6228f5022d833eeb7eaee0855e86559e3b
+sha256 properties.csv: 6459ccc31e9edd2ce57a500ea65e5b6e8797fb6b132733979804aff7d3fec737
+sha256 property-replicates.parquet: 636b868f8fb3043b763ed080e3a93551b91683d9493621719e45f779314a2489
+sha256 replicates.parquet: 0d80e8136c4a18004b8aa0f006ab1dc946288df5da4baa4500a9589fa3a241ff
+sha256 summary.csv: 72f831999ba973ffca99345e555ba2107dc4928b4f3d4a8850e86d8236a1bfa3
+
