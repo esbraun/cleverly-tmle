@@ -763,7 +763,8 @@ class CurveDiagnostics:
         evaluation = np.flatnonzero(~in_train[inverse])
         frame = self._frame(data)
         refit = estimator.refit(data.subset(train), random_state=seed)
-        score = np.asarray(refit.effect_curve().predict(frame.iloc[evaluation]), dtype=float)
+        refit_curve = refit.effect_curve()
+        score = np.asarray(refit_curve.predict(frame.iloc[evaluation]), dtype=float)
         ate = TMLE(**kwargs).fit(data.subset(evaluation)).single()
         scores = {self.curve.prediction_column: score}
         if other is not None and compare is not None:
@@ -780,6 +781,7 @@ class CurveDiagnostics:
             random_state=seed,
             route="split",
             n_train=len(train),
+            score_curve=refit_curve,
         )
 
 

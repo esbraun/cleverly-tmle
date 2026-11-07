@@ -690,6 +690,9 @@ class TargetingCurve:
         The evaluation rows the draws read.
     fit : TMLEResult
         The ATE fit on the evaluation rows whose nuisances the curve targets.
+    score_curve : EffectCurveResult or None
+        On the split route, the curve refit on the training rows whose predictions are the
+        score; ``None`` on the external route.
     """
 
     score: str
@@ -709,6 +712,7 @@ class TargetingCurve:
     span: dict[str, float] = field(default_factory=dict, repr=False)
     evaluation: TargetingEvaluation | None = field(default=None, repr=False, compare=False)
     fit: Any = field(default=None, repr=False, compare=False)
+    score_curve: Any = field(default=None, repr=False, compare=False)
 
     def rows(self, quantity: str, score: str | None = None) -> list[dict[str, Any]]:
         """The rows of one quantity of one score, in grid order.
@@ -1045,6 +1049,7 @@ def targeting_fit(
     random_state: int | None = None,
     route: str = "external",
     n_train: int | None = None,
+    score_curve: Any = None,
 ) -> TargetingCurve:
     """Fit the targeting curve of one score, or two, from an ATE fit on the evaluation rows.
 
@@ -1072,6 +1077,8 @@ def targeting_fit(
         Where the score came from.
     n_train : int or None
         Training rows on the split route.
+    score_curve : EffectCurveResult or None
+        The training refit whose predictions are the score, on the split route.
 
     Returns
     -------
@@ -1196,6 +1203,7 @@ def targeting_fit(
         span=targeted.span,
         evaluation=evaluation,
         fit=fit,
+        score_curve=score_curve,
     )
 
 
