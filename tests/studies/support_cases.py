@@ -2330,6 +2330,39 @@ def _learned_rule_learners_cases() -> tuple[RowCase, ...]:
     return (case("blip"), case("weighted_classification"))
 
 
+def _learned_rule_ep_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-ep`` (P1 part (c)): ``T51`` and ``T51.optimal``.
+
+    ``T51`` runs the study's own declared fit of the EP rule on a draw of each law at the
+    primary size, and ``T51.optimal`` the study's optimal-value fit with ``g0`` supplied on a
+    draw of ``non_exceptional``, each up to the classifier.
+    """
+
+    def case(scenario: str) -> RowCase:
+        return _observed(
+            "T51",
+            "learned-rule-ep",
+            scenario,
+            "_learned_rule_law.py:358",
+            "learned_rule_ep",
+            lambda study: study.draw_from_seed(scenario, 2_000, 0)[0],
+            lambda study, frame: study.base.fit(
+                frame, study.base.outcome_learner(), 0, rule=study.law.rule()
+            ),
+        )
+
+    optimal = _observed(
+        "T51.optimal",
+        "learned-rule-ep",
+        "optimal_known_g__declared",
+        "_learned_rule_ep_law.py:192",
+        "_learned_rule_ep_law",
+        lambda study: study.base.draw("non_exceptional", 2_000, 0),
+        lambda study, frame: study.optimal_measured(frame, 0),
+    )
+    return (case("non_exceptional"), case("misspecified_limit"), optimal)
+
+
 def _fold_evaluated_strata_cases() -> tuple[RowCase, ...]:
     """The cases of ``fold-evaluated-strata`` (X11 PR E1, X28).
 
@@ -2912,6 +2945,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_composition_cases(),
     *_learned_rule_split_mean_cases(),
     *_learned_rule_learners_cases(),
+    *_learned_rule_ep_cases(),
     *_fold_evaluated_strata_cases(),
     *_learned_rule_strata_cases(),
     *_learned_rule_stacked_cases(),
