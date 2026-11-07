@@ -26,7 +26,8 @@ import pandas as pd
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import targeting_curves as study
-from tests.studies.evidence import property_failures as pf
+from tests.studies.conditional_projection_properties import PROPERTY_RULES as _BIAS_RULES
+from tests.studies.conditional_projection_properties import bias_verdicts
 from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, control_row
 from tests.studies.evidence.property_verdicts import (
@@ -47,7 +48,10 @@ FAILURE_BOUND = 0.01
 #: The draw-level statistic the accounting reports for each lost replicate.
 PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
-#: The families whose rows each answer to their own standardized-bias interval.
+#: The families whose rows each answer to their own standardized-bias interval.  The verdict
+#: and its rule are the conditional-projection study's (:func:`bias_verdicts`), which reads the
+#: same family name: a control row passes on its discrimination endpoint.  Every bias row here
+#: is a control.
 BIAS_FAMILIES = (study.BIAS,)
 
 
@@ -267,16 +271,6 @@ def generate_property_rows(
     return rows.loc[:, list(REPLICATE_COLUMNS)]
 
 
-def bias_verdicts(summary: pd.DataFrame) -> None:
-    """Every bias row here is a control, and passes on its discrimination endpoint."""
-    for family in BIAS_FAMILIES:
-        member = summary["property"] == family
-        control = member & (summary["role"] == "control")
-        summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
-        if (member & ~control).any():
-            raise ValueError(f"{family} cells of this study are controls only")
-
-
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The shared verdicts, the calibration kinds, the band's joint coverage and the controls."""
     summary, rates = apply_shared_verdicts(rows, STUDY, rate_labels=())
@@ -286,17 +280,9 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     return finish(summary, rates)
 
 
-def _bias_rule() -> pf.FamilyRule:
-    return pf.FamilyRule(
-        families=frozenset(BIAS_FAMILIES),
-        shared="bias_verdicts",
-        clauses=(pf.bias_clause("bias discriminated", kind="beyond", applies=pf.roles("control")),),
-    )
-
-
 #: The failure accounting's declared rules.  The calibration, joint-coverage, type-I and power
 #: families read the shared rules (:data:`~tests.studies.evidence.property_verdicts.FAMILY_RULES`).
-PROPERTY_RULES = (_bias_rule(),)
+PROPERTY_RULES = _BIAS_RULES
 
 __all__ = [
     "FAILURE_BOUND",
