@@ -76,9 +76,12 @@ def check_stored() -> None:
         for output in cell.get("outputs", ())
         if "image/png" in output.get("data", {})
     ]
-    assert len(figures) == 2, (
-        "the TWINS notebook has a gestational-age figure and an overlap figure"
+    assert len(figures) == 3, (
+        "the TWINS notebook has a gestational-age figure, an overlap figure, and a contour figure"
     )
+    # The library draws the overlap and the contour. The notebook binds each figure to a name.
+    assert "overlap_fig = plotting.overlap(result" in code["overlap"]
+    assert 'bound="upper"' in code["sensitivity"] and "confounding_fig = " in code["sensitivity"]
 
     # Every code cell is followed by a markdown reading, and the page keeps its landmarks.
     cells = notebook.cells
