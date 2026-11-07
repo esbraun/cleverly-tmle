@@ -18,6 +18,7 @@ results-assessment
 learners
 interventions
 sensitivity-validation
+plotting
 datasets
 exceptions
 object-index

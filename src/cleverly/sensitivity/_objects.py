@@ -342,6 +342,9 @@ class MissingnessTilt(_Rows):
         Each estimand's inference status, as ``(estimand, status)`` pairs.
     ratios : tuple of str
         The estimands on a ratio scale, whose spread is on the log scale.
+    scales : tuple of tuple of str
+        Each estimand's scale (``"difference"``, ``"ratio"``, ``"level"`` or
+        ``"fraction"``), as ``(estimand, scale)`` pairs, which sets its no-effect value.
     """
 
     outcome: str = ""
@@ -351,6 +354,7 @@ class MissingnessTilt(_Rows):
     level: float = 0.95
     statuses: tuple[tuple[str, str], ...] = field(default=())
     ratios: tuple[str, ...] = ()
+    scales: tuple[tuple[str, str], ...] = ()
 
     @classmethod
     def build(
@@ -365,6 +369,7 @@ class MissingnessTilt(_Rows):
         level: float,
         statuses: tuple[tuple[str, str], ...],
         ratios: tuple[str, ...] = (),
+        scales: tuple[tuple[str, str], ...] = (),
     ) -> MissingnessTilt:
         """Build the tilt from its columns and the fit facts its summary prints.
 
@@ -388,6 +393,8 @@ class MissingnessTilt(_Rows):
             Each estimand's inference status.
         ratios : tuple of str
             The estimands on a ratio scale.
+        scales : tuple of tuple of str
+            Each estimand's scale, as ``(estimand, scale)`` pairs.
 
         Returns
         -------
@@ -404,6 +411,7 @@ class MissingnessTilt(_Rows):
             float(level),
             statuses,
             ratios,
+            scales,
         )
 
     @property
@@ -445,7 +453,7 @@ class MissingnessTilt(_Rows):
         ... )
         >>> fig = result.sensitivity.missingness(gamma=[-1.0, 0.0, 1.0]).plot()
         >>> fig.axes[0].get_ylabel()
-        'Estimate of ate'
+        'Average effect (ate)'
         >>> plt.close(fig)
         """
         from ..plotting import sensitivity

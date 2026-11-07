@@ -112,7 +112,6 @@ def truncation(
     curve: Any,
     *,
     estimand: str | None = None,
-    scale: str | None = None,
     outcome_label: str | None = None,
     title: str | None = None,
 ) -> Figure:
@@ -124,11 +123,8 @@ def truncation(
         From ``result.diagnostics.truncation_curve()``.
     estimand : str or None, default=None
         Which estimate to draw; the first the curve holds when omitted.
-    scale : {"difference", "ratio", "level", "fraction"} or None, default=None
-        The estimate's scale, which sets the null line and a log axis for a ratio. Read from
-        the curve when the fit recorded it.
     outcome_label : str or None, default=None
-        Words for the y axis; ``"Estimate of <estimand>"`` when omitted.
+        Words for the y axis; the estimand's plain name when omitted.
     title : str or None, default=None
         The title.
 
@@ -141,7 +137,8 @@ def truncation(
     ------
     ValueError
         For a longitudinal curve, whose limits are cumulative and are not drawn by this
-        plot, or for an unknown estimand or scale.
+        plot, for a curve that does not record its scale and interval level, or for an
+        unknown estimand.
     """
     frame = curve.to_frame()
     columns = _columns(frame)
@@ -151,15 +148,16 @@ def truncation(
             "cumulative probability; plotting it is not supported yet. Read its frame with "
             "to_frame()"
         )
+    missing = [name for name in ("scale", "level") if name not in columns]
+    if missing:
+        raise ValueError(
+            f"this truncation curve does not record its {' and '.join(missing)}, which the "
+            "plot needs to draw the right null line and label the intervals; recompute it "
+            "with result.diagnostics.truncation_curve()"
+        )
     estimands = [str(value) for value in _column(frame, "estimand")]
     chosen = _choose(estimands, estimand, "truncation curve")
     rows = [index for index, name in enumerate(estimands) if name == chosen]
-    resolved = scale or dict(getattr(curve, "scales", {}) or {}).get(chosen)
-    if resolved is None:
-        raise ValueError(
-            f"the scale of {chosen!r} is not recorded on this curve; pass scale= "
-            "('difference', 'ratio', 'level' or 'fraction')"
-        )
 
     def pick(name: str) -> list[Any]:
         if name not in columns:
@@ -167,7 +165,10 @@ def truncation(
         values = _column(frame, name)
         return [values[index] for index in rows]
 
+    scale = str(pick("scale")[0])
+    level = float(pick("level")[0])
     bound = [float(value) for value in pick("bound")]
+    upper_bound = [float(value) for value in pick("upper_bound")]
     psi = [float(value) for value in pick("psi")]
     has_ci = "ci_lower" in columns
     lower = pick("ci_lower")
@@ -175,7 +176,7 @@ def truncation(
     capped = [float(value) for value in pick("truncated_fraction")]
     fitted = [bool(value) for value in pick("is_fitted_bound")]
     fitted_bound = float(pick("fitted_lower_bound")[0])
-    level = _level_from(curve, chosen)
+    fitted_upper = float(pick("fitted_upper_bound")[0])
 
     fig, (top, bottom) = _core.new_figure(
         2, figsize=(7.0, 5.4), height_ratios=(3.0, 1.3), sharex=True
@@ -190,8 +191,8 @@ def truncation(
             label="Limit the fit used" if axis is top else None,
             kind="marker",
         )
-    _null_axis(top, _core.null_for(resolved), resolved == "ratio")
-    top.set_ylabel(outcome_label or f"Estimate of {chosen}")
+    _null_axis(top, _core.null_for(scale), scale == "ratio")
+    top.set_ylabel(outcome_label or _core.estimand_words(chosen))
     bottom.plot(
         bound,
         [100.0 * value for value in capped],
@@ -203,16 +204,39 @@ def truncation(
     )
     bottom.set_ylabel("Units capped (%)")
     bottom.set_ylim(bottom=0.0)
-    bottom.set_xlabel("Lower limit on the probability of each arm (log scale)")
-    fitted_text = _core.format_values([fitted_bound], [fitted_bound / 10.0])[0]
-    _core.legend(top)
+    symmetric = all(abs(hi - (1.0 - lo)) < 1e-12 for lo, hi in zip(bound, upper_bound, strict=True))
+    one_sided = all(hi == 1.0 for hi in upper_bound)
+    decimals = [fitted_bound / 10.0]
+    low_text, high_text = _core.format_values([fitted_bound, fitted_upper], decimals * 2)
+    if symmetric:
+        bottom.set_xlabel("Lower limit on each arm's probability (log scale)")
+        how = "each arm's probability capped to [limit, 1 - limit]"
+        used = f"the fit used [{low_text}, {high_text}]"
+    elif one_sided:
+        bottom.set_xlabel("Lower limit on the probability in the weight (log scale)")
+        how = "the probability in the weight held at or above the limit"
+        used = f"the fit used {low_text}"
+    else:
+        bottom.set_xlabel("Lower limit of each pair of limits (log scale)")
+        how = "the probabilities capped to each declared pair of limits"
+        used = f"the fit used [{low_text}, {high_text}]"
     _core.header(
         top,
-        title or f"Does the estimate depend on the limits on the probabilities? ({chosen})",
-        f"Estimate re-targeted with each arm's probability capped to [limit, 1 - limit]; "
-        f"the fit used {fitted_text}",
+        title or "Does the estimate depend on the limits on the probabilities?",
+        f"{_core.estimand_words(chosen)}, re-estimated with {how}; {used}",
     )
     found = []
+    supports = pick("support")
+    reasons = pick("support_reason")
+    experimental = [
+        str(reason)
+        for label, reason in zip(supports, reasons, strict=True)
+        if label == "experimental"
+    ]
+    if experimental:
+        from .._summary._estimates import plain_support_reason
+
+        found.append(f"{chosen}: experimental. {plain_support_reason(experimental[0])}")
     if not has_ci:
         found.append(
             "No interval is drawn: the fit's inference status supplies none, so the curve "
@@ -224,15 +248,16 @@ def truncation(
     return fig
 
 
-def _level_from(curve: Any, estimand: str) -> float:
-    level = getattr(curve, "level", None)
-    return 0.95 if level is None else float(level)
-
-
 # ----------------------------------------------------------------------- marginal bounds
 
 
-def marginal(bounds: Any, *, outcome_label: str | None = None, title: str | None = None) -> Figure:
+def marginal(
+    bounds: Any,
+    *,
+    outcome_label: str | None = None,
+    title: str | None = None,
+    ax: Axes | None = None,
+) -> Figure:
     """Plot the marginal-sensitivity-model range of the estimate against gamma.
 
     Parameters
@@ -243,6 +268,8 @@ def marginal(bounds: Any, *, outcome_label: str | None = None, title: str | None
         Words for the y axis.
     title : str or None, default=None
         The title.
+    ax : Axes or None, default=None
+        Axes to draw on.
 
     Returns
     -------
@@ -250,7 +277,7 @@ def marginal(bounds: Any, *, outcome_label: str | None = None, title: str | None
         One panel: at each gamma, the range of the estimate as a thick bar and its interval as
         thin whiskers.
     """
-    fig, (ax,) = _core.new_figure(1)
+    fig, ax = _core.figure_for(ax)
     color = _core.PALETTE[0]
     level = float(bounds.level)
     range_label = "Range allowed by the model"
@@ -283,15 +310,17 @@ def marginal(bounds: Any, *, outcome_label: str | None = None, title: str | None
     ratio = bounds.scale == "log" or (bounds.null is not None and float(bounds.null) == 1.0)
     _null_axis(ax, bounds.null, ratio)
     breakdown = bounds.breakdown
-    subtitle = f"Range of {bounds.estimand} as treatment odds may shift by up to a factor gamma"
+    words = _core.estimand_words(str(bounds.estimand))
+    if words != str(bounds.estimand):
+        words = "the " + words[:1].lower() + words[1:]
+    subtitle = f"Range of {words} as treatment odds may shift by up to a factor gamma"
     if breakdown is not None:
         subtitle += f"; the range first reaches no effect at gamma = {breakdown:g}"
     elif bounds.null is not None:
         subtitle += "; no gamma on this grid reaches no effect"
     ax.set_xlabel("gamma, the largest factor by which hidden confounding may change treatment odds")
-    ax.set_ylabel(outcome_label or f"Range of {bounds.estimand}")
-    _core.legend(ax)
-    _core.header(ax, title or "How strong would hidden confounding need to be?", subtitle)
+    ax.set_ylabel(outcome_label or f"Range of {words}")
+    _core.header(ax, title or "Does the conclusion survive hidden confounding?", subtitle)
     _core.notes(ax, _warnings(bounds))
     return fig
 
@@ -305,6 +334,7 @@ def missingness(
     estimand: str | None = None,
     outcome_label: str | None = None,
     title: str | None = None,
+    ax: Axes | None = None,
 ) -> Figure:
     """Plot the estimate against the departure from outcomes missing at random.
 
@@ -318,12 +348,17 @@ def missingness(
         Words for the y axis.
     title : str or None, default=None
         The title.
+    ax : Axes or None, default=None
+        Axes to draw on.
 
     Returns
     -------
     Figure
         One panel: the estimate at each tilt, with its interval where the tilt reports one.
     """
+    from .._inference_status import status_record, supplies_inference
+    from .._summary import vocabulary
+
     columns = tilt.columns
     estimands = [str(value) for value in tilt.column("estimand")]
     chosen = _choose(estimands, estimand, "missingness tilt")
@@ -339,54 +374,58 @@ def missingness(
     psi = [float(value) for value in pick("psi")]
     lower = [_or_none(value) for value in pick("ci_lower")]
     upper = [_or_none(value) for value in pick("ci_upper")]
-    fig, (ax,) = _core.new_figure(1)
+    scale = dict(tilt.scales).get(chosen)
+    if scale is None:
+        scale = "ratio" if chosen in tilt.ratios else "level"
+    status = dict(tilt.statuses).get(chosen, "influence_curve")
+    if not supplies_inference(status):  # honesty rule 1: no interval the status withholds
+        lower = [None] * len(lower)
+        upper = [None] * len(upper)
+    fig, axis = _core.figure_for(ax)
     level = float(tilt.level)
-    _points(ax, gamma, psi, lower, upper, level)
-    _null_axis(ax, _tilt_null(tilt, chosen), chosen in tilt.ratios)
+    _points(axis, gamma, psi, lower, upper, level)
+    _null_axis(axis, _core.null_for(scale), scale == "ratio")
     _core.reference_line(
-        ax,
+        axis,
         0.0,
         orientation="vertical",
         label="Missing at random (the main analysis)",
         kind="marker",
     )
-    ax.set_xlabel("gamma, how far missing outcomes differ from recorded ones (log-odds scale)")
-    ax.set_ylabel(outcome_label or f"Estimate of {chosen}")
-    _core.legend(ax)
+    axis.set_xlabel("gamma, how far missing outcomes differ from recorded ones (log-odds scale)")
+    axis.set_ylabel(outcome_label or _core.estimand_words(chosen))
+    direction = (
+        f"positive gamma means the missing {tilt.outcome} values were higher"
+        if tilt.arm_gamma is None
+        else "each arm's tilt is gamma times its declared factor"
+    )
     _core.header(
-        ax,
-        title or f"Does the estimate depend on why outcomes are missing? ({chosen})",
-        f"{tilt.n_missing} of {tilt.n} outcomes missing; positive gamma means the missing "
-        f"{tilt.outcome} values were higher",
+        axis,
+        title or "Does the estimate depend on why outcomes are missing?",
+        f"{_core.estimand_words(chosen)}; {tilt.n_missing} of {tilt.n} outcomes missing; "
+        f"{direction}",
     )
     found = []
-    if any(lo is None for lo in lower):
-        found.append(
-            f"Hollow points have no interval: off gamma = 0 the fit reports only a plug-in "
-            f"spread for {chosen}, which is not a confidence interval."
-        )
-    if any(lo is not None for lo in lower):
-        found.append(
-            "An interval off gamma = 0 reuses the main analysis's standard error and treats "
-            "gamma as known, so it describes sampling error at that gamma, not doubt about "
-            "gamma."
-        )
-    _core.notes(ax, [*found, *_warnings(tilt), _others(estimands, chosen) or ""])
+    if not supplies_inference(status):
+        found.append(f"{chosen}: no interval is drawn. {status_record(status).plain_reason}")
+    else:
+        at_mar = [lo for g, lo in zip(gamma, lower, strict=True) if g == 0.0]
+        off_mar = [lo for g, lo in zip(gamma, lower, strict=True) if g != 0.0]
+        if any(lo is None for lo in off_mar) and at_mar and at_mar[0] is not None:
+            found.append(
+                f"Hollow points have no interval: off gamma = 0 the fit reports only a "
+                f"plug-in spread for {chosen}, which is not a confidence interval."
+            )
+        if any(lo is not None for lo in off_mar):
+            found.append(vocabulary.NOTE_TEXTS["tilt_interval"])
+    if tilt.arm_gamma is not None:
+        found.append(vocabulary.NOTE_TEXTS["tilt_direction_arms"])
+    _core.notes(axis, [*found, *_warnings(tilt), _others(estimands, chosen) or ""])
     return fig
 
 
 def _or_none(value: Any) -> float | None:
     return float(value) if _core.finite(value) else None
-
-
-def _tilt_null(tilt: Any, estimand: str) -> float | None:
-    """The no-effect value of a tilted estimand: 1 for a ratio, 0 for a contrast."""
-    if estimand in tilt.ratios:
-        return 1.0
-    stem = estimand.split("_", 1)[0]
-    if stem in ("ate", "att", "atc", "par") or estimand.startswith("contrast"):
-        return 0.0
-    return None
 
 
 # ----------------------------------------------------------------------- dispatch
@@ -406,8 +445,7 @@ def sensitivity(obj: Any, **kwargs: Any) -> Figure:
     obj : TruncationCurve, MarginalSensitivityBounds or MissingnessTilt
         The analysis to draw.
     **kwargs
-        ``estimand=`` (truncation and missingness), ``scale=`` (truncation),
-        ``outcome_label=`` and ``title=``.
+        ``estimand=`` (truncation and missingness), ``outcome_label=`` and ``title=``.
 
     Returns
     -------

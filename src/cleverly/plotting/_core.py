@@ -40,6 +40,18 @@ GRID: Final = "#e8e7e3"
 CONTEXT: Final = "#c9c8c3"
 FACE: Final = "#ffffff"
 
+#: The ``gid`` each kind of artist carries, which the tests and later plots read.
+GID_INTERVAL: Final = "cleverly-interval"
+GID_BAND: Final = "cleverly-band"
+GID_POINT: Final = "cleverly-point"
+GID_RANGE: Final = "cleverly-range"
+GID_REFERENCE: Final = "cleverly-reference"
+GID_MARKER: Final = "cleverly-marker"
+GID_SUBTITLE: Final = "cleverly-subtitle"
+GID_NOTES: Final = "cleverly-notes"
+GID_SERIES_LABEL: Final = "cleverly-series-label"
+GID_SWATCH: Final = "cleverly-swatch"
+
 #: Point sizes of the text roles.
 TITLE_SIZE: Final = 12.0
 SUBTITLE_SIZE: Final = 10.0
@@ -255,18 +267,24 @@ def wrap(text: str, ax: Axes, size: float) -> str:
     figure: Any = ax.figure
     while not hasattr(figure, "get_figwidth"):  # a subfigure: read its root figure
         figure = figure.figure
-    width_inches = float(figure.get_figwidth()) * 0.92
+    width_inches = float(figure.get_figwidth()) * 0.94
     characters = max(30, int(width_inches * 72.0 / (size * 0.52)))
     return "\n".join(textwrap.fill(part, characters) for part in text.split("\n"))
 
 
-def header(ax: Axes, title: str, subtitle: str | None = None) -> None:
+def header(
+    ax: Axes,
+    title: str,
+    subtitle: str | None = None,
+    *,
+    key_sources: Sequence[Axes] | None = None,
+) -> None:
     """Write the title (the question) and the subtitle (the estimand or headline number).
 
-    The title goes on ``ax``, left aligned, the subtitle under it, and the key that
-    :func:`legend` placed (if any) between the subtitle and the axes, so the layout engine
-    reserves room for all three and the key never covers data. Call :func:`legend` first.
-    Pass the top panel of a multi-panel plot.
+    The title goes on ``ax``, left aligned, the subtitle under it, and the key between the
+    subtitle and the axes, so the layout engine reserves room for all three and the key never
+    covers data. The key is drawn here by :func:`legend` unless one is already on ``ax``. Pass
+    the top panel of a multi-panel plot, after every labelled artist is drawn.
 
     Parameters
     ----------
@@ -276,7 +294,11 @@ def header(ax: Axes, title: str, subtitle: str | None = None) -> None:
         The title.
     subtitle : str or None, default=None
         One line, wrapped when long.
+    key_sources : sequence of Axes or None, default=None
+        The panels whose labelled artists the key lists; ``ax`` alone when omitted.
     """
+    if ax.get_legend() is None:
+        legend(ax, sources=key_sources)
     key = ax.get_legend()
     key_height = 0.0
     if key is not None:
@@ -306,7 +328,7 @@ def header(ax: Axes, title: str, subtitle: str | None = None) -> None:
             va="bottom",
             fontsize=SUBTITLE_SIZE,
             color=SECONDARY_INK,
-            gid="cleverly-subtitle",
+            gid=GID_SUBTITLE,
         )
 
 
@@ -324,7 +346,7 @@ def subtitle_text(ax: Axes) -> str | None:
         The subtitle with its line breaks joined by spaces.
     """
     for text in ax.texts:
-        if text.get_gid() == "cleverly-subtitle":
+        if text.get_gid() == GID_SUBTITLE:
             return " ".join(text.get_text().split())
     return None
 
@@ -333,7 +355,9 @@ def notes(ax: Axes, lines: Sequence[str]) -> None:
     """Write the note lines under the bottom axes, below its axis label.
 
     Each line is one statement the reader needs to read the figure correctly: what an
-    interval is, why one is missing, that a quantity is descriptive or experimental.
+    interval is, why one is missing, that a quantity is descriptive or experimental. The
+    block starts at the figure's left edge and is wrapped to the figure's width, so long row
+    labels cannot push it off the page.
 
     Parameters
     ----------
@@ -346,17 +370,19 @@ def notes(ax: Axes, lines: Sequence[str]) -> None:
     if not distinct:
         return
     text = "\n".join(wrap(line, ax, NOTE_SIZE) for line in distinct)
+    below = ax.xaxis.label if ax.get_xlabel() else ax
     ax.annotate(
         text,
-        xy=(0.0, 0.0),
-        xycoords=("axes fraction", ax.xaxis.label) if ax.get_xlabel() else "axes fraction",
-        xytext=(0.0, -6.0 if ax.get_xlabel() else -28.0),
+        xy=(0.015, 0.0),
+        xycoords=("figure fraction", below),
+        xytext=(0.0, -6.0),
         textcoords="offset points",
         ha="left",
         va="top",
         fontsize=NOTE_SIZE,
         color=SECONDARY_INK,
-        gid="cleverly-notes",
+        gid=GID_NOTES,
+        annotation_clip=False,
     )
 
 
@@ -374,10 +400,7 @@ def note_text(fig: Figure) -> str:
         The notes, or an empty string.
     """
     parts = [
-        text.get_text()
-        for axis in fig.axes
-        for text in axis.texts
-        if text.get_gid() == "cleverly-notes"
+        text.get_text() for axis in fig.axes for text in axis.texts if text.get_gid() == GID_NOTES
     ]
     return " ".join(" ".join(parts).split())
 
@@ -424,7 +447,7 @@ def reference_line(
         zorder=1.5,
         label=label if label is not None else "_nolegend_",
     )
-    line.set_gid(f"cleverly-{kind}")
+    line.set_gid(GID_REFERENCE if kind == "reference" else GID_MARKER)
     return line
 
 
@@ -474,8 +497,10 @@ def end_label(ax: Axes, x: float, y: float, text: str, color: str) -> None:
     ----------
     ax : Axes
         The axes.
-    x, y : float
-        The series' last drawn point, in data coordinates.
+    x : float
+        The series' last drawn x, in data coordinates.
+    y : float
+        The series' last drawn y, in data coordinates.
     text : str
         The series name.
     color : str
@@ -491,7 +516,7 @@ def end_label(ax: Axes, x: float, y: float, text: str, color: str) -> None:
         fontsize=TICK_SIZE,
         color=color,
         annotation_clip=False,
-        gid="cleverly-swatch",
+        gid=GID_SWATCH,
     )
     ax.annotate(
         text,
@@ -502,7 +527,7 @@ def end_label(ax: Axes, x: float, y: float, text: str, color: str) -> None:
         ha="left",
         fontsize=TICK_SIZE,
         color=INK,
-        gid="cleverly-series-label",
+        gid=GID_SERIES_LABEL,
         annotation_clip=False,
     )
 
@@ -532,7 +557,7 @@ def corner_label(ax: Axes, y: float, text: str, color: str, *, va: str = "top") 
         va=va,
         fontsize=TICK_SIZE,
         color=color,
-        gid="cleverly-swatch",
+        gid=GID_SWATCH,
     )
     ax.annotate(
         text,
@@ -545,8 +570,146 @@ def corner_label(ax: Axes, y: float, text: str, color: str, *, va: str = "top") 
         fontsize=TICK_SIZE,
         color=INK,
         bbox=box,
-        gid="cleverly-series-label",
+        gid=GID_SERIES_LABEL,
     )
+
+
+def series_color(index: int) -> str:
+    """The colour of the ``index``-th coloured entity on one axes, in fixed slot order.
+
+    Parameters
+    ----------
+    index : int
+        Zero-based position of the entity (regimen, arm, score or method).
+
+    Returns
+    -------
+    str
+        The palette slot.
+
+    Raises
+    ------
+    ValueError
+        For a fourth entity: four or more become small multiples, one panel each.
+    """
+    if not 0 <= index < MAX_SERIES:
+        raise ValueError(
+            f"at most {MAX_SERIES} coloured series share one axes; draw more as small "
+            "multiples, one panel per series"
+        )
+    return PALETTE[index]
+
+
+def ribbon(
+    ax: Axes,
+    x: Sequence[float],
+    lower: Sequence[float],
+    upper: Sequence[float],
+    *,
+    color: str,
+    label: str,
+    band: bool = False,
+    step: bool = False,
+) -> Any:
+    """A pointwise ribbon, or the lighter simultaneous band behind it.
+
+    Draw a ribbon only over a curve the fit evaluates on a fine grid, or as a step ribbon
+    over a discrete-time curve that reports every node (honesty rule 2). Over a finite grid
+    use :func:`brackets`.
+
+    Parameters
+    ----------
+    ax : Axes
+        The axes.
+    x : sequence of float
+        Positions.
+    lower : sequence of float
+        Lower limits at ``x``.
+    upper : sequence of float
+        Upper limits at ``x``.
+    color : str
+        The series colour.
+    label : str
+        The key entry, from :func:`pointwise_label` or :func:`band_label`.
+    band : bool, default=False
+        Whether this is a simultaneous band (lighter, drawn behind) rather than pointwise.
+    step : bool, default=False
+        Whether the curve is constant between nodes (``step="post"``).
+
+    Returns
+    -------
+    PolyCollection
+        The ribbon, with gid :data:`GID_BAND` or :data:`GID_INTERVAL`.
+    """
+    collection = ax.fill_between(
+        list(x),
+        list(lower),
+        list(upper),
+        color=color,
+        alpha=BAND_ALPHA if band else INTERVAL_ALPHA,
+        linewidth=0.0,
+        step="post" if step else None,
+        label=label,
+        zorder=1.0 if band else 1.2,
+    )
+    collection.set_gid(GID_BAND if band else GID_INTERVAL)
+    return collection
+
+
+def brackets(
+    ax: Axes,
+    x: Sequence[float],
+    lower: Sequence[float],
+    upper: Sequence[float],
+    *,
+    color: str,
+    label: str,
+    band: bool = False,
+) -> Any:
+    """Interval or band limits as marks at grid points only, never joined between them.
+
+    Parameters
+    ----------
+    ax : Axes
+        The axes.
+    x : sequence of float
+        The grid points.
+    lower : sequence of float
+        Lower limits at the grid points.
+    upper : sequence of float
+        Upper limits at the grid points.
+    color : str
+        The series colour.
+    label : str
+        The key entry.
+    band : bool, default=False
+        Whether these are simultaneous-band limits (open bracket marks) rather than a
+        pointwise interval (a solid bar).
+
+    Returns
+    -------
+    Artist
+        The drawn collection or container, with gid :data:`GID_BAND` or :data:`GID_INTERVAL`.
+    """
+    if band:
+        (line,) = ax.plot(
+            [*x, *x],
+            [*lower, *upper],
+            linestyle="none",
+            marker="_",
+            markersize=12,
+            markeredgewidth=1.6,
+            color=color,
+            label=label,
+            zorder=2.5,
+        )
+        line.set_gid(GID_BAND)
+        return line
+    collection = ax.vlines(
+        list(x), list(lower), list(upper), color=color, linewidth=2.0, label=label
+    )
+    collection.set_gid(GID_INTERVAL)
+    return collection
 
 
 def log_axis(ax: Axes, which: str) -> None:
@@ -676,8 +839,10 @@ class Interval:
     ----------
     psi : float
         The estimate.
-    lower, upper : float or None
-        The interval, or ``None`` when the estimate supplies no inference.
+    lower : float or None
+        The interval's lower limit, or ``None`` when the estimate supplies no inference.
+    upper : float or None
+        The interval's upper limit, or ``None`` when the estimate supplies no inference.
     level : float
         The coverage level.
     std_error : float
@@ -742,6 +907,42 @@ def estimate_interval(estimate: Any, name: str | None = None) -> Interval:
     )
 
 
+#: Plain words for the estimand stems a summary prints, keyed by the alias's first token.
+_ESTIMAND_WORDS: Final = {
+    "ate": "Average effect",
+    "att": "Average effect among the treated",
+    "atc": "Average effect among the untreated",
+    "rr": "Risk ratio",
+    "or": "Odds ratio",
+    "ey": "Mean outcome",
+    "ey0": "Mean outcome untreated",
+    "ey1": "Mean outcome treated",
+    "ey_obs": "Mean outcome as treated",
+    "par": "Population attributable effect",
+    "paf": "Population attributable fraction",
+}
+
+
+def estimand_words(name: str) -> str:
+    """An estimand alias in words, with the alias kept in parentheses.
+
+    Parameters
+    ----------
+    name : str
+        The alias a result reports, such as ``"ate"`` or ``"ate[high vs low]"``.
+
+    Returns
+    -------
+    str
+        For example ``"Average effect (ate)"``, or the alias alone when no words are known.
+    """
+    import re
+
+    stem = re.split(r"[\[_]", name, maxsplit=1)[0]
+    words = _ESTIMAND_WORDS.get(name) or _ESTIMAND_WORDS.get(stem)
+    return f"{words} ({name})" if words else name
+
+
 def null_for(scale: str) -> float | None:
     """The no-effect value of an estimate on ``scale``, or ``None`` for a level.
 
@@ -753,9 +954,10 @@ def null_for(scale: str) -> float | None:
     Returns
     -------
     float or None
-        ``0`` for a difference, ``1`` for a ratio, ``None`` otherwise.
+        ``0`` for a difference or a fraction (the share an effect explains), ``1`` for a
+        ratio, ``None`` for a level.
     """
-    if scale == "difference":
+    if scale in ("difference", "fraction"):
         return 0.0
     if scale == "ratio":
         return 1.0
@@ -786,6 +988,16 @@ __all__ = [
     "CONTEXT",
     "FACE",
     "FIGSIZE",
+    "GID_BAND",
+    "GID_INTERVAL",
+    "GID_MARKER",
+    "GID_NOTES",
+    "GID_POINT",
+    "GID_RANGE",
+    "GID_REFERENCE",
+    "GID_SERIES_LABEL",
+    "GID_SUBTITLE",
+    "GID_SWATCH",
     "GRID",
     "INK",
     "INSTALL_HINT",
@@ -796,8 +1008,10 @@ __all__ = [
     "SECONDARY_INK",
     "Interval",
     "band_label",
+    "brackets",
     "corner_label",
     "end_label",
+    "estimand_words",
     "estimate_interval",
     "figure_for",
     "finite",
@@ -814,6 +1028,8 @@ __all__ = [
     "pointwise_label",
     "pyplot",
     "reference_line",
+    "ribbon",
+    "series_color",
     "style",
     "style_axes",
     "subtitle_text",
