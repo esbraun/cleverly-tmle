@@ -90,8 +90,13 @@ class ReplicationRecord:
         What the estimator reported.
     std_error : float
         The standard error it reported.
+    lower : float
+        Lower limit of the interval, on the estimate's own scale (the natural scale for a
+        ratio).
+    upper : float
+        Upper limit of the interval, on the estimate's own scale.
     covered : bool
-        Whether the interval contained ``truth``.
+        Whether ``[lower, upper]`` contained ``truth``.
     rejected : bool
         Whether the null was rejected at ``alpha``.
     inference_estimate : float
@@ -115,6 +120,8 @@ class ReplicationRecord:
     truth: float
     estimate: float
     std_error: float
+    lower: float
+    upper: float
     covered: bool
     rejected: bool
     inference_estimate: float
@@ -603,6 +610,50 @@ class StudyResult:
 
         return simulation_reading(self)
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot every replication's interval, sorted by centre, with the misses coloured.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.zipper`: ``estimand=``, ``labels=`` and
+            ``title=``.
+
+        Returns
+        -------
+        Figure
+            One panel per estimand.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly.datasets import nonlinear_dgp
+        >>> from cleverly.estimators import TMLE
+        >>> from cleverly.validation import CoverageStudy
+        >>> study = CoverageStudy(
+        ...     dgp=nonlinear_dgp(),
+        ...     estimator=lambda: TMLE(
+        ...         outcome_learner=LinearRegression(),
+        ...         treatment_learner=LogisticRegression(max_iter=1000),
+        ...         cross_fit=False,
+        ...     ),
+        ...     n=200,
+        ...     n_replicates=12,
+        ...     estimands=("ate",),
+        ...     seed=0,
+        ... ).run()
+        >>> fig = study.plot()
+        >>> fig.axes[1].get_xlabel().splitlines()[0]
+        'ate'
+        >>> plt.close(fig)
+        """
+        from ..plotting import zipper
+
+        return zipper(self, **kwargs)
+
     def __repr__(self) -> str:
         from .._summary import short_repr
 
@@ -866,6 +917,8 @@ class CoverageStudy:
                         truth=float(reference),
                         estimate=float(estimate.psi),
                         std_error=float(error),
+                        lower=float(low),
+                        upper=float(high),
                         covered=bool(low <= reference <= high),
                         rejected=bool(probability < estimate.alpha),
                         inference_estimate=estimate.inference_value,

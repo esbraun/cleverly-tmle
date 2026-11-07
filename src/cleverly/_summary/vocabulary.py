@@ -4306,3 +4306,66 @@ EFFECT_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **EFFECT_CURVE_NOTE_TEXTS})
+
+
+# ------------------------------------------------------------ covariate balance (X92 V11)
+
+BALANCE_TITLE: Final = "Covariate balance before and after weighting"
+BALANCE_TREATMENT: Final = "Treatment"
+BALANCE_COVARIATES: Final = "Covariates"
+BALANCE_HELD_AGAINST: Final = "Held against"
+BALANCE_LARGEST: Final = "Largest after weighting"
+BALANCE_COLUMNS: Final[tuple[str, ...]] = (
+    "covariate",
+    "before weighting",
+    "after weighting",
+)
+BALANCE_MEANS_TITLE: Final = "Group means and spread"
+BALANCE_MEANS_LINE: Final = (
+    "{covariate}: mean {group} in the group and {rest} in the rest; {group_weighted} and "
+    "{rest_weighted} after weighting; spread {spread}"
+)
+
+#: The notes a balance summary can print.
+BALANCE_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "balance_descriptive": "note",
+        "balance_weights": "note",
+        "balance_unlisted": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **BALANCE_NOTE_CODES})
+
+BALANCE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "balance_descriptive": (
+            "These differences describe the data and the fitted weights. They carry no "
+            "interval or test, and each is the mean in the first group minus the mean in the "
+            "other, divided by the standard deviation of the two groups together."
+        ),
+        "balance_weights": (
+            "After weighting, each unit counts as its weight divided by the probability the "
+            "fit gave its own arm{limits}, from {origin}. Before weighting, units count as "
+            "the data's weights say."
+        ),
+        "balance_unlisted": (
+            "Balance on covariates that were not adjusted for is not shown, and small "
+            "differences on these do not show it."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **BALANCE_NOTE_TEXTS})
+
+BALANCE_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "balanced": (
+            "{before} of {total} covariate differences are larger than {threshold} before "
+            "weighting and {after} after."
+        ),
+        "residual": (
+            "{before} of {total} covariate differences are larger than {threshold} before "
+            "weighting and {after} after. The largest left is {worst} ({size}), so the "
+            "treatment model has not made the groups alike on it."
+        ),
+    }
+)

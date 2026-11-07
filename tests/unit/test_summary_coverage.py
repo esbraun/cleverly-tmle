@@ -84,6 +84,7 @@ REPR_CLASSES = (
 #: Classes with a ``summary``, ``to_frame`` or ``to_dict`` that no fixture can build, and why.
 EXEMPT = {
     "CausalResult": "a Protocol; each class that implements it has fixtures",
+    "NodeWeights": "per-unit arrays of one fitted regimen with a to_frame; no summary to print",
 }
 
 
