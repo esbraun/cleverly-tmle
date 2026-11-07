@@ -2866,6 +2866,7 @@ class BackdoorMeanContrast:
                 "weighted_classification": "a classifier of the sign of a doubly robust "
                 f"pseudo-outcome for {blip}, weighted by its size, predicts a positive sign "
                 "with probability above 1/2, fitted",
+                "ep": f"the EP curve of {blip} given the declared modifiers is positive, fitted",
             }[loss]
             return (
                 f"sum_v omega_v E_W[{regression('d_v(W)')}], where d_v(W) = 1 when "

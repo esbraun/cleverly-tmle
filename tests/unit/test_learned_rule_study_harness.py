@@ -30,6 +30,7 @@ from tests.studies import learned_rule_contrast as contrast
 from tests.studies import learned_rule_cvtmle as gated
 from tests.studies import learned_rule_cvtmle_boundary as boundary
 from tests.studies import learned_rule_cvtmle_properties as properties
+from tests.studies import learned_rule_ep as ep
 from tests.studies import learned_rule_in_sample as in_sample
 from tests.studies import learned_rule_intermediate as intermediate
 from tests.studies import learned_rule_learners as learners
@@ -121,6 +122,8 @@ class TestTheSeedRules:
         # seed (``test_learned_rule_intermediate_design``).
         # X11's learned-regimen-ltmle (X11 PR K) adds 1,200 primary and 15,200 property seeds,
         # none of which equals another X11 study's seed (``test_learned_regimen_ltmle_design``).
+        # P1 PR-c's learned-rule-ep adds 4,000 primary and 28,500 property seeds, none of which
+        # equals another learned-rule study's seed (``test_learned_rule_ep_design``).
         assert len(declared) == (
             46_310
             + 6_000
@@ -137,6 +140,7 @@ class TestTheSeedRules:
             + 18_400
             + 32_400
             + 16_400
+            + 32_500
         )
         for study in (
             gated,
@@ -153,6 +157,7 @@ class TestTheSeedRules:
             optimal,
             intermediate,
             regimen,
+            ep,
         ):
             smoke = law.smoke_record(study.STUDY)
             seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}

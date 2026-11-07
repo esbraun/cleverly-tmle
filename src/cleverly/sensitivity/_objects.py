@@ -205,12 +205,33 @@ class SensitivityContour(_Rows):
         Which end of the range each cell holds.
     rho : float
         The alignment every cell assumes.
+    scale : {"difference", "level"}
+        The scale of the estimate, as the fit reports it.  A difference has a no-effect value
+        of zero, and a level (a counterfactual mean) has none.
+    max_bias : float
+        The bias scale ``sqrt(sigma^2 nu^2)`` every cell multiplies, the median over the
+        fit's draws.
+    nu2 : float
+        The Riesz second moment ``nu^2`` behind it, the median over the fit's draws.
+    nu2_estimator : {"doubly_robust", "plugin"}
+        The estimator of ``nu^2`` the cells use.
+    n_repeats : int
+        The fit's cross-fitting draws.  Each cell is the median over them.
+    assumption : str or None
+        The sentence a point bound under ``assume_consistent_mechanism=True`` carries,
+        else ``None``.
     """
 
     estimand: str = ""
     psi: float = float("nan")
     bound: str = "lower"
     rho: float = 1.0
+    scale: str = "level"
+    max_bias: float = float("nan")
+    nu2: float = float("nan")
+    nu2_estimator: str = "doubly_robust"
+    n_repeats: int = 1
+    assumption: str | None = None
 
     @classmethod
     def build(
@@ -222,6 +243,12 @@ class SensitivityContour(_Rows):
         psi: float,
         bound: str,
         rho: float,
+        scale: str,
+        max_bias: float,
+        nu2: float,
+        nu2_estimator: str,
+        n_repeats: int,
+        assumption: str | None,
     ) -> SensitivityContour:
         """Build the grid from its columns.
 
@@ -239,13 +266,38 @@ class SensitivityContour(_Rows):
             Which end of the range each cell holds.
         rho : float
             The alignment every cell assumes.
+        scale : str
+            The scale of the estimate.
+        max_bias : float
+            The bias scale every cell multiplies.
+        nu2 : float
+            The Riesz second moment behind it.
+        nu2_estimator : str
+            The estimator of ``nu^2``.
+        n_repeats : int
+            The fit's cross-fitting draws.
+        assumption : str or None
+            The consistent-mechanism sentence, or ``None``.
 
         Returns
         -------
         SensitivityContour
             The grid.
         """
-        return cls(_columns(payload), backend, estimand, float(psi), bound, float(rho))
+        return cls(
+            _columns(payload),
+            backend,
+            estimand,
+            float(psi),
+            bound,
+            float(rho),
+            str(scale),
+            float(max_bias),
+            float(nu2),
+            str(nu2_estimator),
+            int(n_repeats),
+            assumption,
+        )
 
     def summary(self, *, detail: Detail = "short") -> Summary:
         """Return the printed summary.
@@ -263,6 +315,49 @@ class SensitivityContour(_Rows):
         from ._summaries import contour_summary
 
         return contour_summary(self, detail)
+
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the bias-adjusted bound over the two confounder strengths.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.confounding`: ``robustness=``, ``benchmarks=``,
+            ``multiples=``, ``null=``, ``x_label=``, ``y_label=``, ``title=`` and ``ax=``.
+
+        Returns
+        -------
+        Figure
+            A filled contour of the cells with the no-effect contour in bold.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> from cleverly.sensitivity import contour_data, robustness_value
+        >>> frame, _ = make_linear_ate(n=200, seed=0)
+        >>> design = PointTreatment(
+        ...     outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ... )
+        >>> result = CausalStudy(frame, design=design).identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     random_state=0,
+        ... )
+        >>> contour = contour_data(result, "ate", grid_size=8)
+        >>> fig = contour.plot(robustness=robustness_value(result, "ate"))
+        >>> fig.axes[-1].get_ylabel()
+        'Bias-adjusted lower bound, no sampling error'
+        >>> plt.close(fig)
+        """
+        from ..plotting import confounding
+
+        return confounding(self, **kwargs)
 
     def __repr__(self) -> str:
         from ._summaries import contour_repr
@@ -299,6 +394,9 @@ class MissingnessTilt(_Rows):
         Each estimand's inference status, as ``(estimand, status)`` pairs.
     ratios : tuple of str
         The estimands on a ratio scale, whose spread is on the log scale.
+    scales : tuple of tuple of str
+        Each estimand's scale (``"difference"``, ``"ratio"``, ``"level"`` or
+        ``"fraction"``), as ``(estimand, scale)`` pairs, which sets its no-effect value.
     """
 
     outcome: str = ""
@@ -308,6 +406,7 @@ class MissingnessTilt(_Rows):
     level: float = 0.95
     statuses: tuple[tuple[str, str], ...] = field(default=())
     ratios: tuple[str, ...] = ()
+    scales: tuple[tuple[str, str], ...] = ()
 
     @classmethod
     def build(
@@ -322,6 +421,7 @@ class MissingnessTilt(_Rows):
         level: float,
         statuses: tuple[tuple[str, str], ...],
         ratios: tuple[str, ...] = (),
+        scales: tuple[tuple[str, str], ...] = (),
     ) -> MissingnessTilt:
         """Build the tilt from its columns and the fit facts its summary prints.
 
@@ -345,6 +445,8 @@ class MissingnessTilt(_Rows):
             Each estimand's inference status.
         ratios : tuple of str
             The estimands on a ratio scale.
+        scales : tuple of tuple of str
+            Each estimand's scale, as ``(estimand, scale)`` pairs.
 
         Returns
         -------
@@ -361,12 +463,54 @@ class MissingnessTilt(_Rows):
             float(level),
             statuses,
             ratios,
+            scales,
         )
 
     @property
     def estimands(self) -> tuple[str, ...]:
         """The estimands the tilt reports, in order."""
         return tuple(dict.fromkeys(self.column("estimand")))
+
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot one estimate against the tilt γ, with its interval where one is reported.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.sensitivity`: ``estimand=``,
+            ``outcome_label=`` and ``title=``.
+
+        Returns
+        -------
+        Figure
+            One panel over the grid of γ.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_missing_outcome
+        >>> frame, _ = make_missing_outcome(n=300, seed=61)
+        >>> design = PointTreatment(
+        ...     outcome="Y", treatment="A", adjustment=["W1", "W2", "W3"], missingness="Delta"
+        ... )
+        >>> result = CausalStudy(frame, design=design).identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     random_state=4,
+        ... )
+        >>> fig = result.sensitivity.missingness(gamma=[-1.0, 0.0, 1.0]).plot()
+        >>> fig.axes[0].get_ylabel()
+        'Average effect (ate)'
+        >>> plt.close(fig)
+        """
+        from ..plotting import sensitivity
+
+        return sensitivity(self, **kwargs)
 
     def summary(self, *, detail: Detail = "short") -> Summary:
         """Return the printed summary.

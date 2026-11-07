@@ -1056,6 +1056,7 @@ class TruncationCurve:
     See Also
     --------
     cleverly.sensitivity.positivity.truncation_curve : The frame of a point-treatment fit.
+    cleverly.plotting.sensitivity : The plot :meth:`plot` draws.
     """
 
     frame: Any
@@ -1069,6 +1070,50 @@ class TruncationCurve:
             The frame, in the fit's backend.
         """
         return self.frame
+
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the estimate against the probability limits, with the share of units capped.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.sensitivity`: ``estimand=``,
+            ``outcome_label=`` and ``title=``.
+
+        Returns
+        -------
+        Figure
+            Two panels with a shared x axis.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=200, seed=0)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> result = study.identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     random_state=0,
+        ... )
+        >>> fig = result.diagnostics.truncation_curve().plot()
+        >>> fig.axes[0].get_ylabel()
+        'Average effect (ate)'
+        >>> plt.close(fig)
+        """
+        from .plotting import sensitivity
+
+        return sensitivity(self, **kwargs)
 
     def summary(self, detail: Detail = "short") -> Summary:
         """Return the printed summary of the curve.

@@ -679,6 +679,7 @@ def longitudinal_surface(
         estimand=estimand,
         original_estimate=original,
         movement_scale=request.movement_scale,
+        scale=str(original_parameter.scale),
         grid=grid,
         cells=tuple(cells),
         calibrations=calibrations,
@@ -699,6 +700,9 @@ def longitudinal_surface(
         weight_report=data.weight_report(),
         known_mechanism_carried=declared is not None and declared.treatment[0] is not None,
         treatment_components=request.nodes,
+        component_kinds=tuple(
+            "dose" if kind == "continuous" else "binary" for kind in request.kinds
+        ),
         weights_estimated=bool(data.weight_spec.estimated),
         bounded_outcome_law=request.bounded_outcome_law,
         outcome_bounds=request.outcome_bounds,

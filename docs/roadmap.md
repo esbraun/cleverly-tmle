@@ -166,6 +166,7 @@ not change the package version.
 | after beta | EP learner | preprint support, read first-hand | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | after beta | Adaptive TMLE for a trial augmented with external data | preprint support, read first-hand | the shipped point-treatment TMLE, its known treatment mechanism and the shipped lasso | [X90](#x90-adaptive-tmle-for-a-trial-augmented-with-external-data) |
 | after beta | Survival targets across the estimators | published support for parts (a) and (b); source audit for the other parts | the shipped survival and competing-risk paths of `LTMLE`; X56 | [X91](#x91-survival-targets-across-the-estimators) |
+| after beta | Plots and visualizations | no new theory for the plots; preprint and published support for the targeting curves of part 5, read first-hand | the shipped results, diagnostics and sensitivity analyses; `matplotlib` through the `plot` extra | [X92](#x92-plots-and-visualizations) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
 
@@ -178,11 +179,13 @@ They also close gaps against the survival packages `survtmle`, `concrete` and MO
 The owner set this order on 2026-11-05. It ranks the open rows by how much routine analysis each
 one opens to four groups of users: marketing, clinical trials, policy and performance evaluation,
 and applied economics. A row that another row depends on goes first. Remediation rows keep their
-own tiers and come before every row here.
+own tiers and come before every row here. The owner placed X92 between tiers 1 and 2 on
+2026-11-07.
 
 | tier | rows | why |
 | --- | --- | --- |
 | 1 | [P1](#p1-ep-learner) parts (a) to (c), then [X90](#x90-adaptive-tmle-for-a-trial-augmented-with-external-data) | conditional effects are the largest missing capability for every group, and a trial augmented with external data is a common design |
+| 1b | [X92](#x92-plots-and-visualizations) | a reader checks overlap, sensitivity, survival curves and targeting gain by looking at them; every group needs these figures |
 | 2 | [X91](#x91-survival-targets-across-the-estimators), [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment), [X6](#x6-continuous-time-survival-and-competing-risks) | most trial endpoints are times to an event. X91 puts the survival targets on as many shipped estimators as possible |
 | 3 | [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes), [X77](#x77-censored-data-for-continuous-price-policies), [X35](#x35-efficient-known-score-att-and-atc), [X76](#x76-studies-of-the-targeting-and-fitting-options), [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi), [X71](#x71-repeated-outcomes-for-the-sequential-baselines), [X73](#x73-pooled-over-time-parametric-g-formula-models), [X11](#x11-learned-policy-follow-ups), [X81](#x81-adaptiveiptw-follow-ups), [X80](#x80-ratio-trimming-on-the-hazard-path), [X75](#x75-data-tuned-policies-beyond-the-shipped-tuned-caps) | gaps in shipped functionality, in that order |
 | 4 | [R1](#r1-nested-riesz-engine-and-initial-catalog), then [R2](#r2-evidence-gated-riesz-catalog-expansion) target by target | one engine for the representer of later targets |
@@ -1940,7 +1943,7 @@ whose rows `T49` and `T50` label the projection fits it measured `supported`. Th
 external-score check and a pooled outcome regression on this axis read experimental.
 
 Part (b) has shipped the EP learner of the CATE and the log conditional risk ratio (`method="ep"`, with
-the sieve size fixed, scheduled or chosen by cross-validation with inner refits) and the declared
+the sieve size fixed, scheduled or chosen by cross-validation with inner refits) and the
 registered [`ep-cate`](technical-reference/method-evidence/ep-cate.md),
 [`ep-crr`](technical-reference/method-evidence/ep-crr.md) and
 [`ep-assessment`](technical-reference/method-evidence/ep-assessment.md) studies, whose hte3
@@ -1950,9 +1953,21 @@ arms, an estimated mechanism and no weights, clusters or missing outcomes reads 
 declared final learner, a pooled outcome regression and every unmeasured composition read
 experimental.
 
-| part | what ships |
-| --- | --- |
-| (c) | the EP curve as the declared rule learner of the shipped [learned-rule value](technical-reference/point-treatment-tmle.md#learned-rules), whose condition C3 then reads on the EP curve |
+Part (c) has shipped the EP curve as the rule learner of the learned-rule value
+(`LearnedRule(loss="ep", modifiers=...)`,
+[the EP rule learner](technical-reference/point-treatment-tmle.md#learned-rules)) and the
+registered [`learned-rule-ep` study](technical-reference/method-evidence/learned-rule-ep.md).
+Its rows `T51` and `T51.optimal` label `supported` the default sieve with least squares on
+unweighted rows with pooled targeting and one split, and the value of the optimal rule with the
+treatment mechanism supplied. The interval is calibrated at n = 16,000, after a pilot at 4,000
+read an SE ratio of 0.970, and it under-covers at the exceptional law (coverage 0.901 at
+n = 2,000). A declared sieve or final learner, an estimated mechanism for the optimal value and
+every unmeasured composition read experimental.
+
+What stays here is the compositions the shipped refusals name with this item: missing
+treatments, an intermediate, a continuous or vector treatment, `strata=`, `repeats` above 1 and
+the full-refit bootstrap for `ConditionalContrast`; sensitivity analyses and refutations of a
+curve; a declared final learner on the log-ratio scale; and scalar aggregates of an EP curve.
 
 The sieve can be any basis the caller declares. The package ships no HAL learner, and none is
 planned.
@@ -2001,6 +2016,40 @@ sources allow.
 Acceptance: each part that ships needs exact-law checks with a nonzero witness of each new term,
 a mutation control, and a registered study. Each request that stays refused needs a pre-fit
 refusal test.
+
+### X92. Plots and visualizations
+
+`cleverly.plotting` draws the figures a reader of a result needs and a table cannot show: a shape
+over an axis, a tail, a trade-off between two parameters, or where the data run out. Each plot
+draws numbers the object already holds, labels them in words, and never draws an interval or band
+the fit did not compute. A withheld interval leaves the point and a note with the reason; an
+experimental result says so in the note. `matplotlib` stays optional through the `plot` extra, and
+importing `cleverly` never imports it.
+
+The row ships in parts, one pull request each:
+
+| part | plots | state |
+| --- | --- | --- |
+| 1 | the style, palette and honesty helpers; estimates with intervals (`forest`); the estimate across a truncation bound, the marginal sensitivity parameter and the missingness tilt (`sensitivity`); propensity overlap (`overlap`) | shipped |
+| 2 | survival, risk and mean curves over time with their bands; restricted mean survival over the horizon; the working-model line over treatment levels; the effect over a policy parameter; the conditional effect over a modifier | shipped |
+| 3 | calibration of predicted effects and of nuisance predictions; learner risks and weights; per-repeat estimates and bootstrap draws; concentration of the influence curve; weights over time; covariate balance; sorted simulation intervals | open |
+| 4 | the omitted-variable contour and the simulated-confounding map | open |
+| 5 | targeting curves for a priority score: the TOC and cumulative gain over the treated fraction, their areas (AUTOC and the Qini coefficient), and the paired comparison of two scores, with a registered study | open; a new estimated quantity, gated on its own plan and study |
+| 6 | a "Plot results" tutorial notebook, then the plots in the notebooks whose questions they answer | open |
+
+Two views stay open after these parts, and the plots refuse them by name: the truncation curve
+of a longitudinal fit, whose limits bound a cumulative probability, and the overlap of a
+longitudinal fit's treatment probabilities, one per time point.
+
+Part 5 is the only one with new statistics. The area estimates with half-sample bootstrap
+standard errors are covered by Yadlowsky, Fleming, Shah, Brunskill and Wager (arXiv:2111.07966,
+Theorem 3 and Corollary 7). The pointwise TOC at a fixed fraction and a band over the grid are
+not covered by that proof, and ship only as standard extensions or not at all.
+
+Acceptance: every plot has structural tests that read its artists, one honesty test with a
+mutation control per applicable rule, a docstring example and a render check. Part 5 also needs
+exact-law checks, mutation controls for the sort direction, the tie rule and the reference line,
+and its registered study.
 
 ### R1. Nested Riesz engine and initial catalog
 

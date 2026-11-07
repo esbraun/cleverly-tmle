@@ -1,0 +1,101 @@
+{
+  "schema_version": 2,
+  "study": "Learned-rule value, EP rule learner",
+  "slug": "learned-rule-ep",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-learned-rule-ep",
+      "cleverly_version": "0.2.0",
+      "cleverly_commit": "d7874b624ed45ab08055ff74c7e23cc52d902b68",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2000,
+    "n": 2000,
+    "seed": 20261481,
+    "resampling_seed": 20261482,
+    "publication_policy": "gated",
+    "truth_varies_by_replicate": true,
+    "failure_bound": {
+      "cleverly-learned-rule-ep": 0.01
+    },
+    "scenarios": {
+      "non_exceptional": [
+        "ey_learned_rule[learned rule]"
+      ],
+      "misspecified_limit": [
+        "ey_learned_rule[learned rule]"
+      ]
+    },
+    "fit": "TMLE(learned_rule=LearnedRule(loss='ep', modifiers=Modifiers(['W1', 'W2'], domains={'W1': (-1, 1)}, levels={'W2': (0, 1)})), n_folds=10, cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', random_state=<fold seed>); primary n = 2000, interval_calibration n = 16000 (the fold-locality control n = 2000), small_sample_diagnostic n = 1000, exceptional_law_report n = 2000; rows only, repeats=1",
+    "rule_learner": "the EP curve on the default sieve Additive(Cosine(['W1'], 6), Indicators('W2')), its size 1 to 6 chosen by the one-step risk over the 5 inner folds with the nuisances refitted in 5 folds of each inner training fold; least squares final stage",
+    "optimal_value": "the same fit with estimands=['ey_optimal_rule'] and treatment_probabilities=g0 at non_exceptional; truth Psi_{d0}",
+    "outcome_learner": "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10)) on (A, W1, W2)",
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2)",
+    "laws": "RM30 non_exceptional and misspecified_limit; exceptional (reporting)",
+    "truth": "per replication: refit each fold's rule through fit_fold_rule with the recorded inner seed, the fit's g_bounds and alpha, require the fit's rule on every validation row, and average the fold rules' values E Qbar0(d, W) by the trapezoid rule on 4001 points of W1 for each W2",
+    "value_gain": "plug_in_estimate, plug_in_std_error and plug_in_truth: the plug-in rule's fit of the same sample with the same fold seed; descriptive",
+    "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate); the inner seeds derive from it by SeedSequence([split_seed, v])",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/learned_rule_ep.py": "0c0f1f5068dd60ffa86034cb68144801496278d3d897aa810e810a3f00ca04a3",
+    "tests/studies/learned_rule_ep_properties.py": "10cc010af1b5ec25c7762c022d895ddfce05ab282b53f476d5dbcf9831cfeadb",
+    "tests/studies/_learned_rule_ep_law.py": "e6e197e68f3fbd100857c80306a4114ba735b21f13e852d0c4c6e10c1178f541",
+    "tests/studies/_learned_rule_law.py": "b5ac84993710a463f4f118b8a4adb61e3895b7d749925a04802f75b4ebfa5225",
+    "tests/studies/_learned_rule_optimal_law.py": "c3f19cd0f97834cf3a04ae69c5f3b7aa1e5679b98d6fc5759fefc82fcf2cb711",
+    "src/cleverly/interventions/_rule_learners.py": "961daa8147c63178aba137ba9c3827f14cd8c3d6ffcdb8d8b7f3a57101dc16a7",
+    "src/cleverly/interventions/learned.py": "478e561b05e570bc5fe8dbaebc8b14e83cf8b32833c0059bd5c64dd06d993437",
+    "src/cleverly/estimators/ep.py": "4ca579d98ca56e69d0a6079f95e2785302b840fd00d616130f841e2a488f9ef6",
+    "src/cleverly/effect_modification.py": "2591c35cf2fdafadbd44fece1b4af2bb2ed1eda2bc7e3d9aaa517c06addd70c5",
+    "src/cleverly/bases.py": "e771d1243f25406489d36da6f2edfe5c51e2912ec7285de7bdc9ca23f04f6908",
+    "src/cleverly/estimators/tmle.py": "e8ab3184edfce05dcad16be1122ad6006805c7de2314a2b1129a15fa5e85891a",
+    "tests/studies/evidence/performance.py": "a7391841a88144dded6ef333be22c5a8520227ed93b17dc378356d865039d674",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "c23ec6ca777d6bd662b759bdf3e09bd98afef526ba9ef7f2b3527e8a83146fea",
+    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "5b19be931cb750fd511aa7519e414cf58680b7a7db5b5beb090d89fa45c3c9fb",
+    "summary.csv": "3f332468551a35f61eff8e6ee377432554807d831775b910f97b3c7191326897",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "1c158c8ef27c89eb2abfbb720ab22ad51ea703448d75670573d44feb830de121",
+    "property-replicates.parquet": "0ae4515752474b91487e9366dcdef359445963d5b0957417a136320131e0eda2",
+    "properties.csv": "d9be7bf0073bfe294f02130fd9fce2c1c1fad86f8500d740a49070d2aeaebea9",
+    "harness.csv.gz": "3138cf6cdc334bbf1817efdb7cbb68aaf8ff00901db41df132ac7d41ecb76f43"
+  }
+}

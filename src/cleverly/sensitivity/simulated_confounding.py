@@ -245,6 +245,10 @@ class SimulatedConfoundingResult:
     movement_scale : {"estimate_difference", "log_ratio"}
         Scale used for the signed displacement. Ratio estimates use their stored log
         value. Other estimates use their reported value.
+    scale : {"difference", "ratio", "level", "fraction"}
+        The scale of the estimate, as the fit reports it.  It names the estimate's
+        no-effect value: zero for a difference or a fraction, one for a ratio, and none for
+        a level (a counterfactual mean).
     grid : ConfounderStrengthGrid
         Explicit strength pairs evaluated by the surface.
     cells : tuple of SimulatedConfoundingCell
@@ -295,6 +299,10 @@ class SimulatedConfoundingResult:
         treatment nodes of a longitudinal fit, or ``()``.  Each cell's
         ``treatment_strength`` and ``induced_treatment_association`` then hold one value
         per component or node in this order.
+    component_kinds : tuple of str
+        For each entry of ``treatment_components``, ``"binary"`` when its strength is the
+        share of units flipped, or ``"dose"`` when it is the dose shift per standard
+        deviation of the simulated cause; ``()`` on a single treatment.
     arm_pair : tuple or None
         The two arm labels ``(a, b)`` that the pairwise swap of a multi-arm treatment
         exchanges, or ``None`` on every other treatment.  Each cell's
@@ -363,6 +371,7 @@ class SimulatedConfoundingResult:
     estimand: str
     original_estimate: float
     movement_scale: Literal["estimate_difference", "log_ratio"]
+    scale: str
     grid: ConfounderStrengthGrid
     cells: tuple[SimulatedConfoundingCell, ...]
     calibrations: tuple[ObservedConfounderCalibration, ...]
@@ -383,6 +392,7 @@ class SimulatedConfoundingResult:
     conditioning_arm: Any = None
     known_mechanism_carried: bool = False
     treatment_components: tuple[str, ...] = ()
+    component_kinds: tuple[str, ...] = ()
     arm_pair: tuple[Any, Any] | None = None
     latent_level: Literal["row", "cluster", "mixed"] = "row"
     latent_rho: float | None = None
@@ -643,6 +653,51 @@ class SimulatedConfoundingResult:
             }
         )
         return emit_frame(payload, backend=self.backend)
+
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the refitted estimate over the declared strengths of the simulated cause.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.confounding`: ``at=``, ``null=``,
+            ``x_label=``, ``y_label=``, ``title=`` and ``ax=``.
+
+        Returns
+        -------
+        Figure
+            A heat map of the estimate over two strength axes in their own units, with the
+            null crossing outlined; extra axes become small multiples.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
+        >>> frame, _ = make_linear_ate(n=200, seed=0)
+        >>> design = PointTreatment(
+        ...     outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ... )
+        >>> result = CausalStudy(frame, design=design).identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     random_state=0,
+        ... )
+        >>> grid = ConfounderStrengthGrid(treatment=(0.0, 0.1, 0.2), outcome=(0.0, 0.5, 1.0))
+        >>> surface = simulated_confounding(result, "ate", grid=grid, random_state=0)
+        >>> fig = surface.plot()
+        >>> fig.axes[0].get_title(loc="left").replace("\\n", " ")
+        'How far does the estimate move under a simulated common cause?'
+        >>> plt.close(fig)
+        """
+        from ..plotting import confounding
+
+        return confounding(self, **kwargs)
 
     def calibration_frame(self) -> Any:
         """Return model-dependent observed-covariate comparisons.
@@ -1973,6 +2028,7 @@ def simulated_confounding(
         estimand=estimand,
         original_estimate=original,
         movement_scale=request.movement_scale,
+        scale=str(original_parameter.scale),
         grid=grid,
         cells=tuple(cells),
         calibrations=calibrations,
@@ -1999,6 +2055,10 @@ def simulated_confounding(
         weight_report=result.data.weight_report(),
         known_mechanism_carried=result.data.known_treatment is not None,
         treatment_components=columns,
+        component_kinds=tuple(
+            "binary" if data.component_levels[data.component_names.index(name)] else "dose"
+            for name in columns
+        ),
         arm_pair=(
             None
             if request.arm_codes is None and not request.component_pairs
