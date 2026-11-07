@@ -752,3 +752,91 @@ class TestRefusalsBeforeAnyLearner:
         contrast = ConditionalContrast(MODIFIERS, model=Constant())  # type: ignore[arg-type]
         fit = law_study().identify(contrast).estimate("ep", **oracle(wrong(law.DiscreteLaw())))
         assert beta(fit)[0] == pytest.approx(law.TRUTH["ate"], abs=1e-10)
+
+
+# ---------------------------------------------------------------- the support label
+
+#: The composition every registered EP study measured.
+MEASURED = {
+    "declared_learner": False,
+    "weighted": False,
+    "clustered": False,
+    "missing": False,
+    "by_arm": True,
+    "arms": 2,
+    "known_mechanism": False,
+}
+
+
+class TestTheSupportLabel:
+    """``ep_status`` reads supported only on a configuration a registered study measured."""
+
+    @pytest.mark.parametrize(("scale", "mode", "target"), sorted(ep.EP_MEASURED))
+    def test_a_measured_configuration_is_supported(
+        self, scale: str, mode: str, target: str
+    ) -> None:
+        label, reason = ep.ep_status(scale=scale, mode=mode, target=target, **MEASURED)
+        assert label == "supported"
+        assert ep.EP_MEASURED[(scale, mode, target)] in reason
+        assert "no interval" in reason
+
+    @pytest.mark.parametrize(
+        ("change", "words"),
+        [
+            ({"declared_learner": True}, "final learner"),
+            ({"weighted": True}, "observation weights"),
+            ({"clustered": True}, "clusters"),
+            ({"missing": True}, "missing outcomes"),
+            ({"by_arm": False}, "pools the arms"),
+            ({"arms": 3}, "more than two arms"),
+            ({"known_mechanism": True}, "declared treatment probabilities"),
+        ],
+    )
+    def test_one_unmeasured_setting_leaves_the_label(
+        self, change: dict[str, Any], words: str
+    ) -> None:
+        label, reason = ep.ep_status(
+            scale="difference", mode="schedule", target="curve", **(MEASURED | change)
+        )
+        assert label == "experimental"
+        assert words in reason
+
+    @pytest.mark.parametrize(
+        ("scale", "mode", "target", "words"),
+        [
+            ("difference", "cv", "curve", "cross-validation"),
+            ("log_ratio", "cv", "curve", "cross-validation"),
+            ("log_ratio", "fixed", "curve", "efficient score"),
+            ("log_ratio", "fixed", "projection", "efficient score"),
+            ("difference", "fixed", "curve", "model=None at a fixed size"),
+        ],
+    )
+    def test_an_unmeasured_configuration_is_experimental(
+        self, scale: str, mode: str, target: str, words: str
+    ) -> None:
+        label, reason = ep.ep_status(scale=scale, mode=mode, target=target, **MEASURED)
+        assert label == "experimental"
+        assert words in reason
+
+    def test_every_measuring_study_is_registered(self) -> None:
+        from cleverly._support_rows import EXEMPT_STUDIES
+        from tests.studies.evidence.registry import registered
+
+        slugs = {record.slug for record in registered()}
+        assert set(ep.EP_MEASURED.values()) <= slugs & set(EXEMPT_STUDIES)
+
+    def test_a_fit_reads_its_label_through_the_study_layer(self) -> None:
+        settings = {
+            "outcome_learner": LogisticRegression(),
+            "treatment_learner": LogisticRegression(),
+            "n_folds": 2,
+            "random_state": 0,
+        }
+        schedule = Sieve(Cosine(["W"], 3), size=lambda n: 2)
+        effect = law_study().identify(ConditionalContrast(MODIFIERS))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            by_arm = effect.estimate("ep", sieve=schedule, outcome_by_arm=True, **settings)
+            pooled = effect.estimate("ep", sieve=schedule, **settings)
+        assert by_arm.status == "supported"
+        assert pooled.status == "experimental"

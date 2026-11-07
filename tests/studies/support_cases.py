@@ -2562,6 +2562,37 @@ def _learned_regimen_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _projection_cases() -> tuple[RowCase, ...]:
+    """The cases of ``conditional-projection`` (P1 part (a)): ``T49`` and ``T50``.
+
+    Each runs the study's own fit of one calibration group, on a draw of its law at the
+    group's size, up to the classifier.
+    """
+    module, slug = "conditional_projection", "conditional-projection"
+
+    def case(row: str, label: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            label,
+            f"{module}.py:876",
+            module,
+            lambda study: study.draw_from_seed(label, study.GROUP_BY_LABEL[label].n, 0)[0],
+            lambda study, frame: study._fit(study.GROUP_BY_LABEL[label], frame, 0),
+        )
+
+    return (
+        case("T49", "obs_4k"),
+        case("T49.known", "trial_2k"),
+        case("T49.arms3", "multi_4k"),
+        case("T49.weighted", "weighted_sl_2k"),
+        case("T49.clustered", "clustered_4k"),
+        case("T49.missing", "obs_missing_4k"),
+        case("T50", "crr_4k"),
+        case("T50.missing", "obs_missing_crr_4k"),
+    )
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -2890,6 +2921,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_optimal_value_cases(),
     *_learned_rule_intermediate_cases(),
     *_learned_regimen_cases(),
+    *_projection_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),

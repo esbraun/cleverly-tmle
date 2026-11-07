@@ -11,11 +11,12 @@ bisecting developer needs to place one.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import io
 import json
 import subprocess
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import IO, Any
 
@@ -153,6 +154,7 @@ def provenance() -> dict[str, Any]:
     """Version and revision of everything on the subject side of the comparison."""
     import platform
 
+    import joblib
     import numpy
     import pandas
     import scipy
@@ -162,6 +164,7 @@ def provenance() -> dict[str, Any]:
 
     commit = _git("rev-parse", "HEAD")
     status = _git("status", "--porcelain")
+    lock = ROOT / "uv.lock"
     return {
         "cleverly_version": cleverly.__version__,
         "cleverly_commit": commit,
@@ -171,7 +174,47 @@ def provenance() -> dict[str, Any]:
         "scipy": scipy.__version__,
         "pandas": pandas.__version__,
         "scikit_learn": sklearn.__version__,
+        "joblib": joblib.__version__,
+        "dependency_lock_sha256": (
+            hashlib.sha256(lock.read_bytes()).hexdigest() if lock.exists() else None
+        ),
     }
+
+
+#: The declared stack of the declared run in progress, which :func:`declared_stack` sets.
+_DECLARED_STACK: dict[str, str] | None = None
+
+
+def stack_differences(
+    declared: Mapping[str, str], subject: Mapping[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """Each version of ``declared`` that ``subject`` does not record, keyed by its field.
+
+    ``declared`` is keyed as :func:`provenance` keys its versions (``python``, ``numpy``,
+    ``scikit_learn``, ...).  Each difference holds the ``declared`` version and the one the
+    run ``ran``.
+    """
+    return {
+        name: {"declared": version, "ran": subject.get(name)}
+        for name, version in declared.items()
+        if subject.get(name) != version
+    }
+
+
+@contextlib.contextmanager
+def declared_stack(stack: Mapping[str, str]) -> Iterator[None]:
+    """Record ``stack``, and the run's differences from it, in each manifest written inside.
+
+    The stack is a record, not a gate: a run on another stack writes its manifest, and
+    ``generated_with.declared_stack`` names each difference so that a reader can tell the
+    run's stack from the study's.
+    """
+    global _DECLARED_STACK
+    previous, _DECLARED_STACK = _DECLARED_STACK, dict(stack)
+    try:
+        yield
+    finally:
+        _DECLARED_STACK = previous
 
 
 def study_module_hashes(record: StudyRecord) -> dict[str, str]:
@@ -218,8 +261,18 @@ def write_manifest(
     reference_files: Iterable[Path] = (),
     reference_metadata: Mapping[str, Any] | None = None,
     configuration: Mapping[str, Any] | None = None,
+    subject_provenance: Mapping[str, Any] | None = None,
+    module_hashes: Mapping[str, str] | None = None,
 ) -> None:
     """Write the artefact manifest for one study.
+
+    ``subject_provenance`` and ``module_hashes`` replace the subject's provenance and the study
+    module hashes of this checkout.  A reference-only run (X59) passes the committed ones,
+    because its subject rows are the committed run's.
+
+    Inside :func:`declared_stack`, a manifest that records this checkout's provenance also
+    records ``generated_with.declared_stack``: the study's declared versions and each one the
+    run differs from.
 
     A record whose comparator is pending (:attr:`StudyRecord.comparator_state`) records no
     reference provenance and an empty ``reference_sha256``, because no reference ran.  Its
@@ -239,12 +292,28 @@ def write_manifest(
         )
     pending = record.comparator_state == "pending"
     files = tuple(reference_files)
+    subject = (
+        {"implementation": record.implementation, **provenance()}
+        if subject_provenance is None
+        else dict(subject_provenance)
+    )
+    stack = (
+        {}
+        if _DECLARED_STACK is None or subject_provenance is not None
+        else {
+            "declared_stack": {
+                "versions": dict(_DECLARED_STACK),
+                "differences": stack_differences(_DECLARED_STACK, subject),
+            }
+        }
+    )
     payload: dict[str, Any] = {
         "schema_version": 2,
         "study": record.name,
         "slug": record.slug,
         "generated_with": {
-            "subject": {"implementation": record.implementation, **provenance()},
+            "subject": subject,
+            **stack,
             "reference": (
                 None
                 if record.reference is None
@@ -288,7 +357,9 @@ def write_manifest(
             **dict(configuration or {}),
             "margins": record.margins.as_json(),
         },
-        "study_module_sha256": study_module_hashes(record),
+        "study_module_sha256": (
+            study_module_hashes(record) if module_hashes is None else dict(module_hashes)
+        ),
         "reference_sha256": {} if pending else reference_hashes(files),
         "sha256": hashes(artifacts),
     }

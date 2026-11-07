@@ -1,0 +1,29 @@
+gate,scenario,estimand,quantity,paired_replicates,max_abs_difference,max_replicate,rms,tolerance,passed,graded
+G-P,parity_binary_k5,ey_regimen[never],estimate,500,8.97150576051331e-10,34,1.2938651527286756e-10,1e-06,True,True
+G-P,parity_binary_k5,ey_regimen[never],std_error,500,2.5160443173355418e-11,297,2.994853145249509e-12,1e-06,True,True
+G-P,parity_binary_k5,ey_regimen[always],estimate,500,2.5599401487497175e-09,133,6.229825877035393e-10,1e-06,True,True
+G-P,parity_binary_k5,ey_regimen[always],std_error,500,3.207329471455189e-10,496,5.164364668914735e-11,1e-06,True,True
+G-P,parity_binary_k5,ey_regimen[respond],estimate,500,1.4520619151525693e-09,267,3.5879914476705266e-10,1e-06,True,True
+G-P,parity_binary_k5,ey_regimen[respond],std_error,500,3.060803693832881e-11,459,2.685237512596747e-12,1e-06,True,True
+G-P,parity_binary_k5,ey_regimen[switch],estimate,500,2.7087833087691138e-09,363,5.109627915097213e-10,1e-06,True,True
+G-P,parity_binary_k5,ey_regimen[switch],std_error,500,1.6688028042777248e-10,338,1.878390469161583e-11,1e-06,True,True
+G-P,parity_binary_k5,ate_regimen[always vs never],estimate,500,2.4921465446858804e-09,490,6.224463873291312e-10,1e-06,True,True
+G-P,parity_binary_k5,ate_regimen[always vs never],std_error,500,2.4206984333696724e-10,496,3.636931509740765e-11,1e-06,True,True
+G-P,parity_binary_k5,ate_regimen[respond vs never],estimate,500,1.4481386367837246e-09,267,3.604888036101173e-10,1e-06,True,True
+G-P,parity_binary_k5,ate_regimen[respond vs never],std_error,500,2.3505059010275886e-11,297,3.051827367206142e-12,1e-06,True,True
+G-P,parity_binary_k5,ate_regimen[switch vs never],estimate,500,2.7082344700168903e-09,363,5.101745152204065e-10,1e-06,True,True
+G-P,parity_binary_k5,ate_regimen[switch vs never],std_error,500,1.0167112290959679e-10,365,1.3697829319529242e-11,1e-06,True,True
+G-C,parity_binary_k5,ey_regimen[never],gcomp,500,8.71441807603901e-11,209,5.108773247206583e-12,1e-06,True,True
+G-C,parity_binary_k5,ey_regimen[always],gcomp,500,5.01540931008293e-09,155,5.311975759889513e-10,1e-06,True,True
+G-C,parity_binary_k5,ey_regimen[respond],gcomp,500,5.3212289019555215e-09,374,8.507670139105438e-10,1e-06,True,True
+G-C,parity_binary_k5,ey_regimen[switch],gcomp,500,7.062771478771879e-09,338,9.898114768839055e-10,1e-06,True,True
+G-C,parity_binary_k5,ate_regimen[always vs never],gcomp,500,5.015402870789387e-09,155,5.310881642931783e-10,1e-06,True,True
+G-C,parity_binary_k5,ate_regimen[respond vs never],gcomp,500,5.321320356577175e-09,374,8.505977372619283e-10,1e-06,True,True
+G-C,parity_binary_k5,ate_regimen[switch vs never],gcomp,500,7.0627896864294826e-09,338,9.896168376040756e-10,1e-06,True,True
+witness,parity_binary_k5,ey_regimen[never],targeting_move,500,0.11337497685230863,71,0.04971607587539152,9.999999999999999e-05,True,False
+witness,parity_binary_k5,ey_regimen[always],targeting_move,500,0.08578630920431296,301,0.03248903885221207,9.999999999999999e-05,True,False
+witness,parity_binary_k5,ey_regimen[respond],targeting_move,500,0.04341449714739887,463,0.013279568475228402,9.999999999999999e-05,True,False
+witness,parity_binary_k5,ey_regimen[switch],targeting_move,500,0.05363890753737022,243,0.017920932973112706,9.999999999999999e-05,True,False
+witness,parity_binary_k5,ate_regimen[always vs never],targeting_move,500,0.14024684746615307,477,0.03756992263904115,9.999999999999999e-05,True,False
+witness,parity_binary_k5,ate_regimen[respond vs never],targeting_move,500,0.13752541931141243,477,0.0536556728318234,9.999999999999999e-05,True,False
+witness,parity_binary_k5,ate_regimen[switch vs never],targeting_move,500,0.12299298687801452,102,0.04273999795480353,9.999999999999999e-05,True,False

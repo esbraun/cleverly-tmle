@@ -1,0 +1,10 @@
+study,scenario,per_worker_mb,peak_growth_mb,private_after_gc_mb,parent_mb,available_mb,planned_mb,chunk,workers
+categorical,categorical_k3,696.941,348.844,348.098,217.793,19795.352,1459.2165,8,9
+categorical,categorical_k4,2996.633,1571.117,1425.516,585.371,19427.07,3582.004,3,3
+categorical,categorical_k4_high,1487.391,731.449,755.941,293.918,19718.844,2222.1859999999997,6,6
+categorical,categorical_k4_static,1702.273,865.293,836.98,316.426,19696.629,2335.125,5,5
+categorical,categorical_k5,3095.441,1762.75,1332.691,578.727,19433.703,3674.1679999999997,3,3
+categorical,categorical_k5_high,943.844,444.652,499.191,245.703,19767.176,1680.953,7,7
+categorical,categorical_k5_mix,2591.262,1324.84,1266.422,349.938,19663.199,3116.169,4,4
+categorical,categorical_k5_static,2101.816,1012.484,1089.332,409.758,19603.031,2716.4529999999995,4,4
+categorical,categorical_k5_switch,1065.09,506.855,558.234,265.047,19748.09,1860.231,7,7

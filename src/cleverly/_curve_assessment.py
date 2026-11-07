@@ -31,6 +31,7 @@ import pandas as pd
 
 from ._typing import FloatArray, IntArray
 from .exceptions import CapabilityError, RefusalReason
+from .utils.frames import frame_from_dict
 
 __all__ = [
     "STABILITY_WARNING",
@@ -71,6 +72,8 @@ class CurveCalibration:
         Outer folds of the refits.
     random_state : int
         The seed of the fold assignment and of each refit.
+    backend : str
+        The dataframe backend of the producing fit's data, which :meth:`to_frame` emits in.
     """
 
     scale: str
@@ -79,16 +82,20 @@ class CurveCalibration:
     bins: pd.DataFrame = field(compare=False)
     n_folds: int
     random_state: int
+    backend: str = "pandas"
 
-    def to_frame(self) -> pd.DataFrame:
-        """The binned table.
+    def to_frame(self) -> Any:
+        """The binned table, in the producing fit's backend.
 
         Returns
         -------
-        pandas.DataFrame
+        dataframe
             One row per bin.
         """
-        return self.bins.copy()
+        return frame_from_dict(
+            {name: self.bins[name].to_numpy() for name in self.bins.columns},
+            backend=self.backend,
+        )
 
     def __repr__(self) -> str:
         return _readable(
@@ -114,6 +121,8 @@ class CurveRiskComparison:
         Outer folds of the refits.
     random_state : int
         The seed of the fold assignment and of each refit.
+    backend : str
+        The dataframe backend of the producing fit's data, which :meth:`to_frame` emits in.
     """
 
     scale: str
@@ -121,22 +130,24 @@ class CurveRiskComparison:
     omitted: str
     n_folds: int
     random_state: int
+    backend: str = "pandas"
 
-    def to_frame(self) -> pd.DataFrame:
-        """The risks, and each one's difference from the curve's.
+    def to_frame(self) -> Any:
+        """The risks, and each one's difference from the curve's, in the fit's backend.
 
         Returns
         -------
-        pandas.DataFrame
+        dataframe
             One row per learner.
         """
         curve = self.risks["curve"]
-        return pd.DataFrame(
+        return frame_from_dict(
             {
                 "learner": list(self.risks),
                 "risk": list(self.risks.values()),
                 "minus_curve": [value - curve for value in self.risks.values()],
-            }
+            },
+            backend=self.backend,
         )
 
     def __repr__(self) -> str:
@@ -195,27 +206,31 @@ class ModifierStability:
         of the declared curve under ``"(none)"``.
     random_state : int
         The seed of the fold assignment and of each refit.
+    backend : str
+        The dataframe backend of the producing fit's data, which :meth:`to_frame` emits in.
     """
 
     risks: dict[str, float] = field(compare=False)
     random_state: int
+    backend: str = "pandas"
 
-    def to_frame(self) -> pd.DataFrame:
+    def to_frame(self) -> Any:
         """The risk without each modifier, and its change from the declared curve's.
 
         Returns
         -------
-        pandas.DataFrame
-            One row per dropped modifier.
+        dataframe
+            One row per dropped modifier, in the producing fit's backend.
         """
         full = self.risks["(none)"]
         names = [name for name in self.risks if name != "(none)"]
-        return pd.DataFrame(
+        return frame_from_dict(
             {
                 "dropped": names,
                 "risk": [self.risks[name] for name in names],
                 "change": [self.risks[name] - full for name in names],
-            }
+            },
+            backend=self.backend,
         )
 
     def __repr__(self) -> str:
@@ -315,7 +330,7 @@ class CurveDiagnostics:
         if self.curve.fitted_method == "ep":
             from .estimators.ep import DebiasingScores
 
-            return DebiasingScores.of(fit)
+            return DebiasingScores.of(fit, backend=self.curve.backend)
         return fit.diagnostics.score_equations()
 
     # ---------------------------------------------------------------- refits
@@ -436,6 +451,7 @@ class CurveDiagnostics:
             bins=frame,
             n_folds=n_folds,
             random_state=seed,
+            backend=self.curve.backend,
         )
 
     def risk_comparison(
@@ -490,7 +506,12 @@ class CurveDiagnostics:
                 "Luedtke 2024, section 3.2)."
             )
         return CurveRiskComparison(
-            scale=scale, risks=risks, omitted=omitted, n_folds=n_folds, random_state=seed
+            scale=scale,
+            risks=risks,
+            omitted=omitted,
+            n_folds=n_folds,
+            random_state=seed,
+            backend=self.curve.backend,
         )
 
     def stability(self, *, n_seeds: int = 5, random_state: int | None = None) -> CurveStability:
@@ -602,7 +623,7 @@ class CurveDiagnostics:
         for name in columns:
             predictions, _ = self._out_of_fold(n_folds, seed, basis=_without(basis, name))
             risks[name] = self._risk(predictions, scale, pseudo)
-        return ModifierStability(risks=risks, random_state=seed)
+        return ModifierStability(risks=risks, random_state=seed, backend=self.curve.backend)
 
 
 def _without(basis: Any, name: str) -> Any:

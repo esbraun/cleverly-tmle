@@ -60,6 +60,7 @@ from ..learners.parametric import logistic_newton
 
 __all__ = [
     "EP_INTERVAL_REFUSAL",
+    "EP_MEASURED",
     "INNER_FOLDS",
     "Debiasing",
     "DebiasingScores",
@@ -531,20 +532,37 @@ class SieveRecord:
     inner_warnings: tuple[str, ...] = ()
 
 
+#: The EP configurations a registered study measured, by ``(scale, mode, target)``, each with
+#: the study that measured it (P1 plan 2.6).  ``ep-cate`` measured the CATE curve at a declared
+#: schedule and the EP coefficients of a declared model at a fixed size; ``ep-crr`` measured the
+#: log-CRR curve at a declared schedule.  Each study fitted one outcome regression per arm, a
+#: binary treatment, iid rows, complete outcomes and the default final stage, so a fit that
+#: departs from any of these reads experimental.
+EP_MEASURED: dict[tuple[str, str, str], str] = {
+    ("difference", "schedule", "curve"): "ep-cate",
+    ("difference", "fixed", "projection"): "ep-cate",
+    ("log_ratio", "schedule", "curve"): "ep-crr",
+}
+
+
 def ep_status(
     *,
     scale: str,
     mode: str,
+    target: str,
     declared_learner: bool,
     weighted: bool,
     clustered: bool,
     missing: bool,
+    by_arm: bool,
+    arms: int,
+    known_mechanism: bool,
 ) -> tuple[str, str]:
     """The support label of an EP curve and its reason (P1 plan 2.6).
 
-    No EP configuration reads supported in this release: every row of the plan's table waits
-    on a study that is declared and has not run, or covers a configuration the theorems do
-    not.
+    A fit reads ``supported`` when its configuration is one of :data:`EP_MEASURED` and it
+    departs from the measured composition in nothing.  Otherwise it reads ``experimental``,
+    with every reason that applies.
 
     Parameters
     ----------
@@ -552,6 +570,8 @@ def ep_status(
         The contrast's scale.
     mode : {"fixed", "schedule", "cv"}
         The sieve size rule.
+    target : {"curve", "projection"}
+        ``"curve"`` for ``model=None``; ``"projection"`` when the estimand declared a model.
     declared_learner : bool
         Whether a declared final learner fitted the curve.
     weighted : bool
@@ -560,11 +580,17 @@ def ep_status(
         Whether the fit has clusters.
     missing : bool
         Whether the fit has missing outcomes.
+    by_arm : bool
+        Whether the outcome regression is fitted per arm (``outcome_by_arm=True``).
+    arms : int
+        The number of treatment arms.
+    known_mechanism : bool
+        Whether the design declares the treatment probabilities.
 
     Returns
     -------
     tuple of str
-        ``("experimental", reason)``.
+        The label, ``"supported"`` or ``"experimental"``, and its reason.
     """
     reasons = []
     if mode == "cv":
@@ -584,6 +610,8 @@ def ep_status(
             ("observation weights", weighted),
             ("clusters", clustered),
             ("missing outcomes", missing),
+            ("more than two arms", arms > 2),
+            ("declared treatment probabilities", known_mechanism),
         )
         if present
     ]
@@ -591,23 +619,39 @@ def ep_status(
         reasons.append(
             f"The EP curve with {' and '.join(extras)} is implemented and not measured by a study."
         )
-    if not reasons:
+    if not by_arm:
+        reasons.append(
+            "The fit pools the arms in one outcome regression, and the registered EP studies "
+            "measure one outcome regression per arm (outcome_by_arm=True)."
+        )
+    if mode != "cv" and not declared_learner and (scale, mode, target) not in EP_MEASURED:
         if scale == "log_ratio" and mode == "fixed":
             reasons.append(
                 "No registered study measures the log-ratio EP curve at a fixed size, and at a "
                 "fixed size its debiasing does not solve the projection's efficient score."
             )
-        elif mode == "fixed":
-            reasons.append(
-                "No registered study measures the EP curve at a fixed size yet: the ep-cate "
-                "study declares the measurement and has not run."
-            )
         else:
             reasons.append(
-                "No registered study measures the EP curve with a declared sieve schedule "
-                "yet: the ep-cate study declares the measurement and has not run."
+                "No registered study measures the EP curve with model=None at a fixed size: the "
+                "ep-cate study measures a fixed size with a declared model, and the curve at a "
+                "declared schedule."
             )
-    return "experimental", " ".join(reasons)
+    if reasons:
+        return "experimental", " ".join(reasons)
+    study = EP_MEASURED[(scale, mode, target)]
+    if mode == "fixed":
+        claim = (
+            "The registered ep-cate study measures the EP coefficients of a declared model at a "
+            "fixed size, the projection of the CATE onto the model's span; the curve has no "
+            "interval."
+        )
+    else:
+        claim = (
+            f"The registered {study} study measures the EP curve at a declared sieve schedule "
+            "against the oracle learner of arXiv:2402.01972v2, Theorem 5, whose conditions C1 "
+            "to C6 the user must judge; the curve has no interval."
+        )
+    return "supported", claim
 
 
 def sieve_member(family: Any, size: int, modifiers: Modifiers) -> Any:
@@ -856,20 +900,25 @@ class DebiasingScores:
         The score at the initial outcome regression.
     after : ndarray
         The score at the debiased one; the regression solves these equations.
+    backend : str
+        The dataframe backend of the producing fit's data, which :meth:`to_frame` emits in.
     """
 
     features: tuple[str, ...]
     before: FloatArray
     after: FloatArray
+    backend: str = "pandas"
 
     @classmethod
-    def of(cls, fit: EPFit) -> DebiasingScores:
+    def of(cls, fit: EPFit, backend: str = "pandas") -> DebiasingScores:
         """The report of one EP fit.
 
         Parameters
         ----------
         fit : EPFit
             The fit.
+        backend : str, default "pandas"
+            The dataframe backend of the fit's data.
 
         Returns
         -------
@@ -881,7 +930,7 @@ class DebiasingScores:
             names = tuple(f"(A)*{term}" for term in terms)
         else:
             names = (*(f"pair*{term}" for term in terms), *(f"t*{term}" for term in terms))
-        return cls(names, fit.debiasing.score_before, fit.debiasing.score_after)
+        return cls(names, fit.debiasing.score_before, fit.debiasing.score_after, backend)
 
     @property
     def max_after(self) -> float:
@@ -889,16 +938,19 @@ class DebiasingScores:
         return float(np.max(np.abs(self.after))) if self.after.size else 0.0
 
     def to_frame(self) -> Any:
-        """One row per feature.
+        """One row per feature, in the producing fit's backend.
 
         Returns
         -------
-        pandas.DataFrame
+        dataframe
             The scores before and after.
         """
-        import pandas as pd
+        from ..utils.frames import frame_from_dict
 
-        return pd.DataFrame({"feature": self.features, "before": self.before, "after": self.after})
+        return frame_from_dict(
+            {"feature": np.asarray(self.features), "before": self.before, "after": self.after},
+            backend=self.backend,
+        )
 
     def __repr__(self) -> str:
         return f"DebiasingScores(features={len(self.features)}, max_after={self.max_after:.3g})"
@@ -1249,10 +1301,14 @@ class EPEstimator:
         label, reason = ep_status(
             scale=spec.scale,
             mode=self.mode,
+            target=self.target,
             declared_learner=self.final_learner is not None,
             weighted=bool(data.is_weighted),
             clustered=data.cluster is not None,
             missing=bool(np.any(np.asarray(data.observed) < 0.5)),
+            by_arm=bool(self.tmle_kwargs.get("outcome_by_arm", False)),
+            arms=int(data.n_arms),
+            known_mechanism=data.known_treatment is not None,
         )
         stem = (
             "conditional average treatment effect"

@@ -2838,6 +2838,97 @@ def _adaptive_iptw_rows() -> tuple[SupportRow, ...]:
 
 #: The point-treatment rows: ordinary TMLE (``T``), DR-TMLE (``D``), C-TMLE (``C``), the
 #: categorical tilt (``T35``) and the adaptive-propensity IPTW (``AI``).
+def _projection_rows() -> tuple[SupportRow, ...]:
+    """The projection rows of ``conditional-projection`` (P1 part (a)): ``T49`` and ``T50``.
+
+    A ``ConditionalContrast`` with a fixed basis keys family ``P13`` (the CATE projection) or
+    ``P14`` (the log-CRR projection) on the effect-modification axis.  The rows were added
+    because every declared verdict passed: the primary tests (bias leg, coverage floor, SE
+    sanity), every ``interval_calibration`` positive and both row-level SE controls, every
+    ``bias`` positive and control, and the heterogeneity test's ``type_i_error`` and ``power``
+    cells.  Each row is the key of one calibration group of the study, so a composition no
+    group measured, such as weights with clusters, matches no row.  The numbers are the
+    committed results (``tests/canonical/conditional_projection``).
+    """
+    common = [
+        "The study measures the pointwise Wald intervals of the coefficients of the projection "
+        "on Linear(['W1', 'W3']), with continuous modifiers on [-1, 1], binary outcomes, "
+        "default targeting, stacked cross-fitting and one outcome regression per arm "
+        "(outcome_by_arm=True; a pooled outcome regression on this axis reads experimental). "
+        "The basis, the modifiers, the law and n are not in the key, so another basis "
+        "(Indicators, Cosine, BSpline, Additive, Tensor), another law or another n reads "
+        "supported and rests on the theory alone.",
+        "The interval covers the coefficients of the least-squares projection of the CATE on "
+        "the basis over the sample's modifier distribution, not the CATE where it lies outside "
+        "the span of the basis.",
+        "Every calibration group fits consistent learners: a spline GLM per arm for the outcome "
+        "and logistic GLMs for the treatment and observation mechanisms, and the ensemble for "
+        "the weighted group. The bias ladder (both nuisances off by 5 n^(-1/3)) and two laws "
+        "with a declared wrong outcome regression measure bias, not coverage; a misspecified "
+        "treatment model is not measured.",
+        "The simultaneous band of effect_curve(grid=) and the held-out curve checks of "
+        "curve.diagnostics are not measured and stay experimental. The plug-in learner "
+        "(method='ep'), model=None, strata=, an intermediate variable, missing treatment values, "
+        "repeats and the bootstrap refuse. No comparator: no maintained package fits a "
+        "projection TMLE of the CATE on a declared basis.",
+    ]
+    cells = {
+        "": ["obs_1k", "obs_4k", "slow_1k", "slow_4k", "slow_16k", "noweight_dr_4k"],
+        "known": ["trial_2k", "null_2k", "power_4k"],
+        "arms3": ["multi_4k"],
+        "weighted": ["weighted_sl_2k"],
+        "clustered": ["clustered_4k"],
+        "missing": ["obs_missing_4k", "missing_dr_4k"],
+    }
+    variants: dict[str, dict[str, Any]] = {
+        "": {},
+        "known": {"qualifiers": ("known_mechanism",)},
+        "arms3": {"treatment": ("arms3",)},
+        "weighted": {"weighting": "fixed"},
+        "clustered": {"dependence": "clustered"},
+        "missing": {"missing": ("outcome",)},
+    }
+    variant_limits = {
+        "": [],
+        "known": ["The trial groups declare P(A = 1) = 0.5 through treatment_probabilities=."],
+        "arms3": ["The study measures three arms and the contrast of arm 2 with arm 0."],
+        "weighted": [
+            "The study measures one weight, 0.25 + 1.75 expit(6 W3), which moves the intercept "
+            "by about half an SD, with the ensemble learner and five outer folds."
+        ],
+        "clustered": [
+            "The study measures 800 equal clusters of 5 rows with W1 and the treatment at "
+            "cluster level; the row-level SE reads ratios of 0.78 against it."
+        ],
+        "missing": [
+            "The study measures outcomes missing at random with an observation probability in "
+            "[0.60, 0.93]."
+        ],
+    }
+    rows = []
+    for family, row_id, scale_cells in (
+        ("P13", "T49", None),
+        ("P14", "T50", {"": ["crr_1k", "crr_4k"], "missing": ["obs_missing_crr_4k"]}),
+    ):
+        for suffix, settings in variants.items():
+            measured = cells[suffix] if scale_cells is None else scale_cells.get(suffix)
+            if not measured:
+                continue
+            rows.append(
+                point_row(
+                    row_id if not suffix else f"{row_id}.{suffix}",
+                    ["conditional-projection"],
+                    families=(family,),
+                    splitting=("stacked",),
+                    cells=measured,
+                    # Roadmap: P1.
+                    limits=[*common, *variant_limits[suffix]],
+                    **settings,
+                )
+            )
+    return tuple(rows)
+
+
 POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
     (
         *_t_rows(),
@@ -2845,6 +2936,7 @@ POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_c_rows(),
         *_categorical_point_rows(),
         *_adaptive_iptw_rows(),
+        *_projection_rows(),
     )
 )
 
@@ -4775,6 +4867,19 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
 #: The registered studies that no row names, each with the reason. A study that measures no
 #: estimate cannot license a configuration, so it is not the evidence of a row.
 EXEMPT_STUDIES: Final[Mapping[str, str]] = {
+    "ep-cate": (
+        "It measures the EP curve, which carries no interval and is no fit of a point row. "
+        "cleverly.estimators.ep.EP_MEASURED, not a support row, records what the study licenses."
+    ),
+    "ep-crr": (
+        "It measures the log-CRR EP curve, which carries no interval and is no fit of a point "
+        "row. cleverly.estimators.ep.EP_MEASURED, not a support row, records what the study "
+        "licenses."
+    ),
+    "ep-assessment": (
+        "It measures the held-out readings of an EP curve. A reading is no estimate and carries "
+        "no status."
+    ),
     "omitted-variable-bound-se": (
         "It measures the standard error of a sensitivity bound. The bound carries its own "
         "status and is no fit of a row."
@@ -4887,6 +4992,15 @@ FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
     "P10": _anchor("`msm`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux_msm.py"),
     "P11": _anchor("`ey_learned_rule`", "tests/discrete_law.py"),
     "P12": _anchor("`ey_optimal_rule`", "tests/unit/test_learned_rule_optimal.py"),
+    # P1 part (a): the exact-law point and influence-curve checks of both projections.
+    "P13": _anchor(
+        "`cate_projection`", "tests/discrete_law.py", "tests/unit/test_effect_modification_exact.py"
+    ),
+    "P14": _anchor(
+        "`log_crr_projection`",
+        "tests/discrete_law.py",
+        "tests/unit/test_effect_modification_exact.py",
+    ),
     "blips": _anchor(
         "structural nested mean model (`StructuralNestedMean`)",
         "tests/discrete_law_structural.py",

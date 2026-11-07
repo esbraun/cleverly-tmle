@@ -117,7 +117,7 @@ from tests.studies.ep_cate import (
 )
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
-from tests.studies.evidence.seeds import stream_seed
+from tests.studies.evidence.seeds import draw_replicate, stream_seed
 
 SLUG = "ep-crr"
 
@@ -545,8 +545,8 @@ STUDY = StudyRecord(
     name="EP learner of the log CRR",
     slug=SLUG,
     artifacts=ROOT / "tests" / "canonical" / "ep_crr",
-    document="docs/technical-reference/conditional-effects.md",
-    anchor="status-and-evidence",
+    document="docs/technical-reference/method-evidence/ep-crr.md",
+    anchor="ep-learner-of-the-log-crr",
     scenarios=SCENARIOS,
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
@@ -589,6 +589,11 @@ def draw_from_seed(group_label: str, n: int, seed: int) -> tuple[pd.DataFrame, d
         return ep_cate.draw_from_seed(group_label, n, seed)
     group = GROUP_BY_LABEL[group_label]
     return sample(LAW_BY_LABEL[group.law], n, np.random.default_rng(seed)), {}
+
+
+def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
+    """One primary draw under this study's seed, as :func:`draw_and_fit` draws it."""
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:

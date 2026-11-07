@@ -20,9 +20,10 @@ its largest :math:`n_\kappa` (94,226 for the intercept), rounded up to 96,000, s
 coefficients are in the Wald regime.  The mechanism is the law's,
 passed as probability columns; the outcome regressions are the declared quasibinomial GLM.
 
-**Comparator.**  R ``ltmle`` 1.3-0 is the declared comparator, and its runs are pending: the record
-declares ``pending_reference="ltmle"`` and keeps ``reference=None``.  The primary phase writes no
-sample.  ``tests/canonical/long_horizon_ltmle/run_study.R`` is a stub that names the owning item.
+**Comparator** (X59).  R ``ltmle`` 1.3-0 is the reference, run reference-only on the first 100
+replicates of each paired scenario (``tests/canonical/long_horizon_ltmle/run_study.R``).  Its
+exact claims are the G-P and G-C parity gates (``parity.csv``); every margins pair is
+descriptive.
 
 **Intervals** (plan rev 4.4).  A single-fold, non-MSM scenario fits with ``n_bootstrap=199`` and
 ``bootstrap_interval="bca"``.  It writes a Wald row and, under the estimand name plus ``__bca``,
@@ -101,6 +102,43 @@ a ``support_loss`` or                  Reporting; no verdict.  The page states t
 a recorded fitting failure             Accounted by RM39b2's ``require_accounted`` under
                                        ``FAILURE_BOUND`` = 0.01 and the module's declared clause
                                        tree.  A cell over the bound is red and diagnosed.
+a red G-P or G-C cell                  Blocks registration (plan section 4.3): no tolerance,
+(``parity.csv``)                       prefix or seed moves.  Diagnose the subject, the R
+                                       adapter, the shared input and ``ltmle`` itself; fix a
+                                       defect and re-run under a fresh declaration.  Both
+                                       tolerances are 1e-6, the floor: ten times the smoke
+                                       maxima (G-P 1.71e-9, G-C 1.63e-9) is below it.
+a G-P witness row under 100 tau        The cell still gates, but its scenario carries no
+                                       targeting claim, because the update moved too little to
+                                       tell a skipped fluctuation from a matched one.  The page
+                                       says so for that scenario.  The smoke's smallest witness
+                                       move was 1.0e-2, against 1e-4.
+a scenario the 24-hour cap cut         Each scenario is charged before it starts at the sizing
+(``--reference-deadline``)             rule's cost model and pairs the longest prefix predicted
+                                       to end by the deadline; the run's manifest gives each cut
+                                       a limit line.  At 50 or more kept replicates
+                                       (``EXACT_FLOOR``) its exact cells are graded at the kept
+                                       prefix.  Under 50 they report their differences without a
+                                       verdict.  With no prefix of 2 the scenario is unpaired
+                                       and the page states the gap.  The registration declares
+                                       the kept counts; no cut scenario is re-run to its
+                                       declared prefix after a verdict.
+a recorded comparator failure          Accounted under ``FAILURE_BOUND`` = 0.01 per cell: at the
+(the run's ``failures.csv``)           declared prefix of 100 one failed replicate is allowed,
+                                       and a second makes every cell of its scenario red; a cut
+                                       prefix under 100 allows none.  A refusal on either side
+                                       counts, never a skip.
+a margins pair                         Published with its four legs and no verdict.  No pass
+(``paired_role="descriptive"``)        probability is computed for these legs at the declared
+                                       prefix, so the page does not say in advance which legs
+                                       were resolvable; it reports each leg's interval as
+                                       measured.
+an unpaired cell                       ``binary_k5`` ``coin`` and ``coinlast``: ``ltmle`` takes
+                                       no stochastic intervention, so they have no counterpart,
+                                       and the page states the gap.  ``binary_k5_msm`` pairs its
+                                       margins rows only: the logit-MSM ``ltmleMSM`` cell of
+                                       plan rev 2.1 item 2 was not audited within the 24-hour
+                                       scope, so no exact gate is declared on it.
 =====================================  =========================================================
 
 No budget, margin, law, learner, fold count or seed moves after a verdict is seen, except under
@@ -113,7 +151,9 @@ import pandas as pd
 
 from tests import discrete_law_longitudinal_horizon as law_
 from tests.parallel import STUDY_JOBS
+from tests.studies import long_horizon_reference as reference_
 from tests.studies.evidence import replication
+from tests.studies.evidence.parity import ParityCell, ParityDeclaration, ReferenceSample
 from tests.studies.evidence.registry import ROOT, StudyRecord
 from tests.studies.evidence.seeds import draw_replicate
 from tests.studies.long_horizon_common import G_BOUNDS
@@ -276,6 +316,11 @@ PROPERTY_CELLS = {
     "type_i_error": ("policy_vs_policylast__k5__sharp_null",),
 }
 
+#: The comparator's cells (X59 plan section 2.1): every Wald row but the stochastic plans, which
+#: ``ltmle`` takes no stochastic intervention for.  ``__bca`` rows are not paired.
+REFERENCE_SCENARIOS = reference_.reported_cells(
+    SCENARIOS, unpaired_plans={"binary_k5": ("coin", "coinlast")}
+)
 STUDY = StudyRecord(
     name="long-horizon longitudinal TMLE",
     slug="long-horizon-ltmle",
@@ -290,11 +335,18 @@ STUDY = StudyRecord(
     scenario_n=SCENARIO_N,
     resampling_seed=RESAMPLING_SEED,
     implementation="cleverly-long-horizon-ltmle",
-    pending_reference="ltmle",
-    pending_reason=(
-        "X59: R ltmle 1.3-0 comparator runs deferred by the owner on 2026-10-14; X39 accepted on Python property evidence"
-    ),
+    reference="ltmle",
+    # X59: the comparator pairs the cells above on the first 100 replicates of each paired
+    # scenario, the section 6 sizing rule's output (tests/canonical/x59_sizing).  Every
+    # margins pair is descriptive; the exact claims are the parity gates (``PARITY``).
+    reference_scenarios=REFERENCE_SCENARIOS,
+    reference_replicates=dict.fromkeys(REFERENCE_SCENARIOS, 100),
+    paired_role="descriptive",
+    accepted_reference_failure=reference_.PREFIX_REFERENCE_FAILURE,
     comparison="matching implementation",
+    # The R side projects the per-plan TMLEs on the working model; ``cleverly`` fits the pooled
+    # MSM fluctuation (X59-plan.md, 4.4; ``tests/canonical/ltmle_horizon_adapter.R``).
+    comparison_overrides={"binary_k5_msm:*": "different estimator"},
     modules=(
         "tests/studies/canonical_long_horizon_ltmle.py",
         "tests/studies/long_horizon_ltmle_properties.py",
@@ -348,3 +400,35 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
     """Replication ``replicate`` of ``scenario``, from this study's own seed stream."""
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
+
+
+# ----------------------------------------------------------------------------- the X59 comparator
+#: The comparator's declared environment: no mutation (M2); ``ltmle`` reads no learner.
+REFERENCE_ENVIRONMENT = reference_.LTMLE_ENVIRONMENT
+#: The comparator's pins, for the manifest's ``generated_with.reference`` block.
+REFERENCE_METADATA = reference_.LTMLE_METADATA
+#: The section 6 priority tier of each paired scenario: 2 holds exact cells, 4 margins only.
+#: A tier-2 scenario's descriptive plans are fitted, and charged, at the tier-2 prefix.
+REFERENCE_TIERS = {"binary_k3": 2, "binary_k4": 2, "binary_k5": 2, "binary_k5_msm": 4}
+#: The scenarios whose G-C and witness rows need ``cleverly``'s untargeted plug-in.
+PARITY_SCENARIOS = frozenset({"binary_k3", "binary_k4", "binary_k5"})
+#: G-P and G-C on every paired Wald estimand of ``binary_k3`` to ``binary_k5`` (section 4.2).
+#: Both tolerances are ``declared_tolerance`` of the smoke maxima, which the attempt-5 smoke
+#: read at G-P 1.710e-9 and G-C 1.632e-9 over eight replicates: ten times either is under the
+#: 1e-6 floor.
+PARITY = ParityDeclaration(
+    cells=tuple(
+        ParityCell(gate, name, estimand)
+        for gate in ("G-P", "G-C")
+        for name in sorted(PARITY_SCENARIOS)
+        for estimand in REFERENCE_SCENARIOS[name]
+    ),
+    tolerance={"G-P": 1e-6, "G-C": 1e-6},
+)
+
+
+def reference_sample(scenario: str, n: int, replicate: int) -> ReferenceSample:
+    """The R ``ltmle`` input of one replicate, from this study's seed stream."""
+    return reference_.sample(
+        STUDY, SCENARIOS, "ltmle", scenario, n, replicate, parity_scenarios=PARITY_SCENARIOS
+    )

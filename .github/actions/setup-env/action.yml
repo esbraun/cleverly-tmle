@@ -11,6 +11,13 @@ inputs:
     description: Which optional-dependency group to install; "dev" for anything running pytest.
     required: false
     default: dev
+  resolution:
+    description: >-
+      "locked" installs the versions in `uv.lock`. "latest" resolves the newest releases the
+      `pyproject.toml` floors allow, so CI sees a new numpy, scipy or scikit-learn the day it
+      ships rather than at the next lock refresh.
+    required: false
+    default: locked
   packages:
     description: >-
       Further requirements to install after the locked project, space-separated.
@@ -46,7 +53,17 @@ runs:
       env:
         PYTHON_VERSION: ${{ inputs.python-version }}
 
-    - run: uv sync --locked --extra "${EXTRA}"
+    - if: ${{ inputs.resolution == 'locked' }}
+      run: uv sync --locked --extra "${EXTRA}"
+      shell: bash
+      env:
+        EXTRA: ${{ inputs.extra }}
+
+    # `--upgrade` re-resolves in the runner's checkout and leaves the committed lock alone.
+    - if: ${{ inputs.resolution == 'latest' }}
+      run: |
+        uv sync --upgrade --extra "${EXTRA}"
+        uv pip list
       shell: bash
       env:
         EXTRA: ${{ inputs.extra }}

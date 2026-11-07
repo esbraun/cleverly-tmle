@@ -73,10 +73,11 @@ The run form is the X11 one in `tests/canonical/learned_rule_run.py`.
 
 ## Run
 
-A declared run takes `--output`, `--jobs` and `--fresh` only, on the Python and package versions
-that rule L7 of `tests/canonical/learned_rule_run.py` declares, with one thread per numerical
-library. The run fits 6,800 draws at about 0.22 to 0.30 core-seconds each, truth included: about
-2,000 core-seconds, or roughly ten minutes at four jobs.
+A declared run takes `--output`, `--jobs` and `--fresh` only, with one thread per numerical library.
+Rule L7 of `tests/canonical/learned_rule_run.py` declares the stack the committed run used and
+refuses no other: a run on another stack warns, and `manifest.json` records the versions the run
+used and each difference from the declared stack. The run fits 6,800 draws at about 0.22 to 0.30
+core-seconds each, truth included: about 2,000 core-seconds, or roughly ten minutes at four jobs.
 
 ```bash
 python -u -m tests.canonical.learned_rule_arms.regenerate --jobs 4 --output <empty scratch directory>

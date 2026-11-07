@@ -1056,6 +1056,7 @@ class TruncationCurve:
     See Also
     --------
     cleverly.sensitivity.positivity.truncation_curve : The frame of a point-treatment fit.
+    cleverly.plotting.sensitivity : The plot :meth:`plot` draws.
     """
 
     frame: Any
@@ -1069,6 +1070,50 @@ class TruncationCurve:
             The frame, in the fit's backend.
         """
         return self.frame
+
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the estimate against the probability limits, with the share of units capped.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.sensitivity`: ``estimand=``,
+            ``outcome_label=`` and ``title=``.
+
+        Returns
+        -------
+        Figure
+            Two panels with a shared x axis.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=200, seed=0)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> result = study.identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     random_state=0,
+        ... )
+        >>> fig = result.diagnostics.truncation_curve().plot()
+        >>> fig.axes[0].get_ylabel()
+        'Average effect (ate)'
+        >>> plt.close(fig)
+        """
+        from .plotting import sensitivity
+
+        return sensitivity(self, **kwargs)
 
     def summary(self, detail: Detail = "short") -> Summary:
         """Return the printed summary of the curve.
@@ -4105,6 +4150,69 @@ def _marginal_item(
     return AssessmentItem("marginal_bounds", AssessmentStatus.COMPLETED, "; ".join(facts))
 
 
+def _curve_calibration_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
+    # A point reading: no interval and no derived cutoff, so no row can pass or fail it.
+    detail = (
+        f"out-of-fold calibration slope {report.slope:.3g} and intercept "
+        f"{report.intercept:.3g} on the {report.scale} scale over {report.n_folds} folds; "
+        "point readings"
+    )
+    return AssessmentItem("calibration", AssessmentStatus.COMPLETED, detail)
+
+
+def _curve_risk_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
+    curve = report.risks["curve"]
+    others = ", ".join(
+        f"{name} {value - curve:+.3g}" for name, value in report.risks.items() if name != "curve"
+    )
+    detail = (
+        f"out-of-fold doubly robust risk of the curve {curve:.4g}; each comparator minus the "
+        f"curve: {others}; point readings"
+    )
+    if report.omitted:
+        detail += f"; {report.omitted}"
+    return AssessmentItem("risk_comparison", AssessmentStatus.COMPLETED, detail)
+
+
+def _curve_stability_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
+    from ._curve_assessment import STABILITY_WARNING
+
+    detail = (
+        f"relative SD {report.relative_sd:.3g} across {len(report.seeds)} split seeds; "
+        f"alternative basis: {report.alternative}"
+    )
+    if report.alternative_relative_sd is not None:
+        detail += f" (relative change {report.alternative_relative_sd:.3g})"
+    if not report.warning:
+        return AssessmentItem("stability", AssessmentStatus.COMPLETED, detail)
+    return AssessmentItem(
+        "stability",
+        AssessmentStatus.WARNING,
+        f"{detail}; the relative SD exceeds {STABILITY_WARNING:g}",
+        ("inspect curve.diagnostics.stability() and the alternative basis",),
+    )
+
+
+def _modifier_stability_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
+    full = report.risks["(none)"]
+    changes = ", ".join(
+        f"{name} {value - full:+.3g}" for name, value in report.risks.items() if name != "(none)"
+    )
+    detail = (
+        f"out-of-fold risk {full:.4g} with every modifier; change without each: {changes}; "
+        "point readings"
+    )
+    return AssessmentItem("modifier_stability", AssessmentStatus.COMPLETED, detail)
+
+
 #: How each operation's own report becomes one report row.
 #:
 #: The third argument is what the caller supplied for that operation.  An interpreter that
@@ -4130,6 +4238,11 @@ INTERPRETERS: dict[str, Callable[[Any, Any, Mapping[str, Any]], AssessmentItem]]
     "missingness": _missingness_item,
     "tipping_gamma": _tipping_item,
     "marginal_bounds": _marginal_item,
+    # The readings only an effect curve declares (``CURVE_OPERATIONS``).
+    "calibration": _curve_calibration_item,
+    "risk_comparison": _curve_risk_item,
+    "stability": _curve_stability_item,
+    "modifier_stability": _modifier_stability_item,
 }
 
 

@@ -178,6 +178,7 @@ What the theory claims, by configuration:
 | --- | --- |
 | difference, fixed size $k$, default final stage | the projection onto $\operatorname{span}(\varphi_k)$, the target of the TMLE projection: the EP coefficients solve both parts of its efficient estimating equation, $P_n\varphi\{(2A - 1)(Y - \bar Q^*)/g\} = 0$ and $P_n\varphi(\tau^* - \varphi^\top\beta) = 0$. Consistent if either nuisance is; no interval |
 | difference, a declared schedule $k(n)$ | EPL Theorems 4 and 5 under their conditions C1 to C6, which the user must judge, for empirical risk minimisation over a fixed, uniformly bounded convex class $\mathcal F$ that meets C4. The default final stage is least squares over the growing, unbounded span of $\varphi_{k(n)}$, so the user must also judge that it behaves as such a class. Then: a rate, and $\lVert\theta^*_n - \theta_{n0}\rVert = o_p(E\lVert\theta_{n0} - \theta_0\rVert)$ for the oracle DR-learner $\theta_{n0}$ |
+| log ratio, a declared schedule $k(n)$ | EPL Theorems 4 and 5 under C1 to C6 for the log-CRR risk of eq (3), whose population risk is strictly convex (Lemma 16), with the same caveat on the final stage, a weighted logistic regression over the span of $\varphi_{k(n)}$. The one-step empirical risk need not be convex (Section 3.2) |
 | `size="cv"` (the default) | none: EPL proves no theorem for the selected size (Section 5.1) |
 | a declared `final_learner` | none: the theorems cover least squares over a declared convex class (Section 7.1) |
 | log ratio, fixed size | the log-CRR projection's target, but the two-block debiasing does not solve that projection's efficient score $\varphi\{\operatorname{expit}(\eta) - 1\{A = t\}\}$, so no root-$n$ claim |
@@ -185,13 +186,20 @@ What the theory claims, by configuration:
 
 With `model=None` on the difference scale the curve is clipped to $[-(b - a), b - a]$, where
 the target lies, and the result records the clipped share. With `model=` declared the target is
-that projection and nothing is clipped. Every EP fit reads `experimental`, for one of two
-reasons. A size chosen by cross-validation (the default) or a declared `final_learner` lies
-outside EPL's theorems, so those fits stay experimental after any study. A fixed size or a
-declared schedule waits on the `ep-cate`, `ep-crr` and `ep-assessment` studies below, which are
-declared and have not run. Weights, clusters and missing outcomes are implemented (the weighted
-law, the cluster as the unit with grouped folds, the $\Delta/(g\Pi)$ weight) without a
-study. `diagnostics.score_equations()` reports each debiasing feature's weighted mean
+that projection and nothing is clipped.
+
+An EP fit reads `supported` only in a composition a
+registered study measured (`EP_MEASURED` in `cleverly/estimators/ep.py`): a declared schedule
+with `model=None` on either scale (`ep-cate`, `ep-crr`), or a fixed size with `model=` declared
+on the difference scale (`ep-cate`'s `ep_fixed_obs_4k` cells), each with one outcome regression
+per arm, two arms, an estimated mechanism and no weights, clusters or missing outcomes. The
+label carries no interval. A size chosen by cross-validation (the default) or a declared
+`final_learner` lies outside EPL's theorems and stays `experimental` after any study. So
+do a pooled outcome regression, a fixed size with `model=None`, the log-ratio fixed size (its
+debiasing does not solve the projection's efficient score), more than two arms and declared
+treatment probabilities. Weights, clusters and missing outcomes are implemented (the weighted
+law, the cluster as the unit with grouped folds, the $\Delta/(g\Pi)$ weight) without a study
+and read `experimental`. `diagnostics.score_equations()` reports each debiasing feature's weighted mean
 score before and after the regression.
 
 ## External scores
@@ -282,11 +290,27 @@ pins its text.
 
 ## Status and evidence
 
-No support row covers these fits yet, so every projection fit reads `experimental`. The
-`conditional-projection` study, declared in `tests/studies/conditional_projection.py` with its
-verdicts in `tests/studies/conditional_projection_properties.py`, has not run. Its declared run
-is `python -m tests.canonical.conditional_projection.regenerate`, whose docstring holds the
-red-cell reading. The declaration fixes, before the run:
+The registered [conditional-projection study](method-evidence/conditional-projection.md)
+passed every one of its 64 property cells and its three primary tests. Its support rows `T49`
+(the CATE projection, family `P13`) and `T50` (the log-CRR projection, `P14`) label a fit
+`supported` when its key is one the study measured, with one outcome regression per arm
+(`outcome_by_arm=True`):
+
+| row | composition |
+| --- | --- |
+| `T49`, `T50` | binary outcome and treatment, iid rows, complete outcomes, stacked cross-fitting |
+| `T49.known` | the same with `treatment_probabilities=` |
+| `T49.arms3` | three arms |
+| `T49.weighted` | sampling weights |
+| `T49.clustered` | equal clusters |
+| `T49.missing`, `T50.missing` | outcomes missing at random |
+
+A pooled outcome regression on this axis, a composition no group measured (weights with
+clusters, for example), the simultaneous band and the external-score check read `experimental`.
+The study was declared in `tests/studies/conditional_projection.py` with its verdicts in
+`tests/studies/conditional_projection_properties.py`, and its declared run is
+`python -m tests.canonical.conditional_projection.regenerate`, whose docstring holds the
+red-cell reading. The declaration fixed, before the run:
 
 | family | groups | rule |
 | --- | --- | --- |
@@ -296,9 +320,8 @@ red-cell reading. The declaration fixes, before the run:
 
 The ladder claims bias and not interval calibration. With both nuisances wrong on purpose, the
 plug-in variance overstates the spread at 1k (the re-review's pilot read SE ratios up to about
-1.06), so the band
-would read a conservative interval as a defect; its coverage is published on the bias rows
-without a gate.
+1.06), so the band would read a conservative interval as a defect. Its coverage is published
+on the bias rows without a gate.
 
 Each control shares its group's draws and must fail: the row-level SE of the intercept and the
 `W1` slope on `clustered_4k`, where `W1` and the treatment are cluster level, falls below the
@@ -306,10 +329,10 @@ SE-ratio band. The `W3` slope varies within clusters, so its row-level SE is clo
 clustered one and carries no control row. The T-learner (the projection of
 $\bar Q_1 - \bar Q_0$), the IPW projection, the one-step with unit weights in place of $1/g$,
 the one-step without $1/\Pi$, and the spline-GLM fit that drops the sampling weights each have
-a bias interval wholly outside $\pm 0.25$ of their own spread. `tests/unit/test_conditional_projection_design.py` computes
-the power and type-I pass probabilities and each control's detection probability (above 0.99)
-from the laws by quadrature. The plan's fixed-size EP cell, `ep_fixed_obs_4k`, moved to the
-`ep-cate` study.
+a bias interval wholly outside $\pm 0.25$ of their own spread.
+`tests/unit/test_conditional_projection_design.py` computes the power and type-I pass
+probabilities and each control's detection probability (above 0.99) from the laws by quadrature.
+The plan's fixed-size EP cell, `ep_fixed_obs_4k`, moved to the `ep-cate` study.
 
 The calibration rows' pass probabilities are read at SE ratios from a pilot on its own seed
 stream, committed as `tests/studies/conditional_projection_pilot.csv`: 2,400 fits of each GLM
@@ -341,10 +364,15 @@ The fast-tier instruments are:
   constant as a mutation that must fail, and the true CATE calibrated to intercept 0 and slope 1
   (`tests/unit/test_conditional_contrast.py`).
 
-The `ep-cate` study, declared in `tests/studies/ep_cate.py` with its verdicts in
-`tests/studies/ep_cate_properties.py`, has not run. Its declared run is
-`python -m tests.canonical.ep_cate.regenerate`. Its laws are hte3's code at `eac64673` (the
-d = 3 generator differs from EPL App B.2: noise SD 1, `positivity=TRUE` is the limited overlap,
+The [`ep-cate` study](method-evidence/ep-cate.md), declared in `tests/studies/ep_cate.py` with
+its verdicts in `tests/studies/ep_cate_properties.py` and run by
+`python -m tests.canonical.ep_cate.regenerate`, passed every primary test and all 21 gated
+cells. At 4,000 rows the upper bounds of the oracle comparison run from 0.033 to 0.076 and every
+growth bound is at most 0.065. On the rescue laws EP reads 0.67 and 0.72 (upper bounds 0.72 and
+0.77) while its T-learner reads 3.08 and 2.94. The fixed-size coefficients have standardized
+biases of at most 0.030.
+
+Its laws are hte3's code at `eac64673` (the d = 3 generator differs from EPL App B.2: noise SD 1, `positivity=TRUE` is the limited overlap,
 and the simple CATE under moderate overlap is $1 + W_1$), with the noise truncated at $\pm 4$.
 The two rescue laws are the complex d = 3 laws with App B.2's noise, SD 2 truncated at
 $\pm 8$. Each gate reads the paired mean of
@@ -381,9 +409,13 @@ reading the family is free of a defect suspect with probability 0.97. The 2,000-
 pending: its debiasing is the linear Method 2, so the two agree only to $o_p(n^{-1/2})$ and the
 comparison is of different estimators.
 
-The `ep-crr` study (`tests/studies/ep_crr.py`, run by
-`python -m tests.canonical.ep_crr.regenerate`) has not run. Its laws are hte3's
-`generate_data_RR.R`: $W \sim U(-1, 1)^3$, a binary outcome with
+The [`ep-crr` study](method-evidence/ep-crr.md) (`tests/studies/ep_crr.py`, run by
+`python -m tests.canonical.ep_crr.regenerate`) passed every primary test and all 13 gated
+cells, and every oracle Hessian was positive definite. At 4,000 rows EP's upper bounds run from
+$-0.063$ to $-0.017$; the intercept-only learner's EP reads $-0.09$ against its T-learner's 0.92,
+and the offset learner's EP 0.25 (upper bound 0.30) against 1.22.
+
+Its laws are hte3's `generate_data_RR.R`: $W \sim U(-1, 1)^3$, a binary outcome with
 $\operatorname{logit} \mu_0(0, w) = -1 + 0.3 \sum_k (w_k + \sin 4 w_k)$, the log CRR
 $0.1(-1 + \sum_k w_k)$ (simple) or $0.1(-1 + \sum_k \{w_k + \sin 4w_k\})$ (complex), and the
 two overlaps; $\mu(1, w)$ stays below 0.8, so nothing is clipped.
@@ -421,7 +453,10 @@ weight exactly on a small population. No oracle Hessian failed in 24,000 checks 
 laws and sizes (`tests/studies/ep_crr_hessian_pilot.csv`), so the 1% exclusion bound turns no
 row red with probability above 0.9999 even at the 95% upper rate.
 
-The `ep-assessment` study (`tests/studies/ep_assessment.py`) has not run. It reads the
+The [`ep-assessment` study](method-evidence/ep-assessment.md) (`tests/studies/ep_assessment.py`)
+passed its three gated cells: the calibration slope reads 0.986 (99% interval 0.985 to 0.987),
+the stretched control 0.657, and the risk difference has the right sign in all 300 strong-law
+replicates. `relative_sd` reads 0.009 and 0.077, and no replicate warns. It reads the
 diagnostics of an EP curve on the complex d = 3 law at moderate overlap and on a weak law with
 the constant CATE 0.1, at $n = 2{,}000$ with the ensemble:
 

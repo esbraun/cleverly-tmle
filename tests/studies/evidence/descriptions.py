@@ -1126,6 +1126,152 @@ ARMS.update(
     }
 )
 
+#: The arms of ``conditional-projection`` (P1 part (a)): each calibration group and coefficient
+#: of the projection of a conditional contrast on ``Linear(W1, W3)``, and the heterogeneity
+#: test.  Mirrored from ``tests.studies.conditional_projection``, which this module cannot
+#: import; ``tests/unit/test_conditional_projection_design.py`` pins the two equal.
+_PROJECTION_LAWS = {
+    "trial_2k": "the randomized trial law with P(A = 1) = 0.5 known, n = 2,000",
+    "obs_1k": "the observational law, n = 1,000",
+    "obs_4k": "the observational law, n = 4,000",
+    "crr_1k": "the observational law on the log-ratio scale, n = 1,000",
+    "crr_4k": "the observational law on the log-ratio scale, n = 4,000",
+    "multi_4k": "the three-arm law, contrast of arm 2 with arm 0, n = 4,000",
+    "weighted_sl_2k": (
+        "the observational law with sampling weights 0.25 + 1.75 expit(6 W3) and the ensemble "
+        "learner (spline GLM, gradient boosting and lasso), five outer folds, n = 2,000"
+    ),
+    "clustered_4k": (
+        "the clustered law, 800 clusters of 5 rows with W1 and the treatment at cluster level "
+        "and a N(0, 1) cluster effect on the outcome logit, n = 4,000"
+    ),
+    "obs_missing_4k": "the observational law with outcomes missing at random, n = 4,000",
+    "obs_missing_crr_4k": (
+        "the observational law with outcomes missing at random, on the log-ratio scale, n = 4,000"
+    ),
+}
+_PROJECTION_TERMS = {
+    "intercept": "intercept",
+    "W1": "W1 slope",
+    "W3": "W3 slope",
+}
+_PROJECTION_ASSESS = {
+    "risk_difference": "the external score's MSE for the CATE minus the constant's",
+    "calibration_intercept": "the intercept of the calibration line from the score to the CATE",
+    "calibration_S": "the slope of the calibration line from the score to the CATE",
+}
+ARMS.update(
+    {
+        **{
+            f"{group}_{term}": f"{law}: the {words} of the projection on (1, W1, W3)"
+            for group, law in _PROJECTION_LAWS.items()
+            for term, words in _PROJECTION_TERMS.items()
+        },
+        **{
+            f"assess_score_2k_{name}": (
+                f"the observational law with the declared score s = 0.2 + 0.3 W1, n = 2,000: {words}"
+            )
+            for name, words in _PROJECTION_ASSESS.items()
+        },
+        "heterogeneity": (
+            "the df-2 heterogeneity test of the W1 and W3 slopes of Linear(W1, W3) on a "
+            "randomized law with the risk-scale CATE 0.2 + s W1"
+        ),
+    }
+)
+
+#: The laws and groups of the EP studies (P1 part (b)): ``ep-cate``, ``ep-crr`` and
+#: ``ep-assessment``.  Mirrored from ``tests.studies.ep_cate``, ``ep_crr`` and
+#: ``ep_assessment``, which this module cannot import.  A group is ``<law>_<size>`` and a growth
+#: row is read on the law alone.  ``ep-cate`` and ``ep-crr`` share law labels, so the words of
+#: both sit in :data:`STUDY_ARMS`; ``ARMS`` holds the labels for the cell-name match.
+_EP_CATE_LAWS = {
+    "d3_simple_moderate": (
+        "hte3's d = 3 law with the CATE 1 + W1 and moderate overlap, logit pi = (W1 + W2 + W3) / 3"
+    ),
+    "d3_simple_limited": (
+        "hte3's d = 3 law with the CATE 1 + W1 + W2 + W3 and limited overlap, "
+        "logit pi = W1 + W2 + W3"
+    ),
+    "d3_complex_moderate": (
+        "hte3's d = 3 law with the CATE 1 + sum W + sum sin(5 W) and moderate overlap"
+    ),
+    "d3_complex_limited": (
+        "hte3's d = 3 law with the CATE 1 + sum W + sum sin(5 W) and limited overlap"
+    ),
+    "d3_complex_moderate_noise2": (
+        "the complex d = 3 law at moderate overlap with EPL App B.2's noise, SD 2 truncated at +-8"
+    ),
+    "d3_complex_limited_noise2": (
+        "the complex d = 3 law at limited overlap with EPL App B.2's noise, SD 2 truncated at +-8"
+    ),
+    "d20_simple": (
+        "hte3's sim.CATEHighDim(positivity=FALSE), d = 20, with the CATE "
+        "1 + (W1 + W5 + W9 + W10 + W15) / 5"
+    ),
+    "d20_complex": (
+        "hte3's sim.CATEHighDim(positivity=FALSE), d = 20, with the CATE "
+        "1 + {sin(4 W1) + sin(4 W5) + cos(4 W9) + 1.5 (W15^2 - W10^2)} / 5"
+    ),
+}
+#: The sizes of each ``ep-cate`` law, in thousands.
+_EP_CATE_SIZES = {
+    **dict.fromkeys(
+        ("d3_simple_moderate", "d3_simple_limited", "d3_complex_moderate", "d3_complex_limited"),
+        (1, 2, 4),
+    ),
+    **dict.fromkeys(
+        ("d3_complex_moderate_noise2", "d3_complex_limited_noise2", "d20_simple", "d20_complex"),
+        (1, 4),
+    ),
+}
+_EP_CRR_LAWS = {
+    "d3_simple_moderate": (
+        "hte3's log-CRR law with the log CRR 0.1 (-1 + sum W) and moderate overlap, "
+        "logit pi = sum W / 3"
+    ),
+    "d3_simple_limited": (
+        "hte3's log-CRR law with the log CRR 0.1 (-1 + sum W) and limited overlap, logit pi = sum W"
+    ),
+    "d3_complex_moderate": (
+        "hte3's log-CRR law with the log CRR 0.1 (-1 + sum W + sum sin(4 W)) and moderate overlap"
+    ),
+    "d3_complex_limited": (
+        "hte3's log-CRR law with the log CRR 0.1 (-1 + sum W + sum sin(4 W)) and limited overlap"
+    ),
+}
+_EP_FIXED_TERMS = {"intercept": "intercept", "W1": "W1 slope", "W3": "W3 slope"}
+_EP_ASSESSMENT_LAWS = {
+    "strong_2k": "ep-cate's complex d = 3 law at moderate overlap, n = 2,000",
+    "weak_2k": "the same law with the constant CATE 0.1, n = 2,000",
+}
+ARMS.update(
+    {
+        **_EP_CATE_LAWS,
+        **{
+            f"{law}_{size}k": f"{words}, n = {size},000"
+            for law, words in _EP_CATE_LAWS.items()
+            for size in _EP_CATE_SIZES[law]
+        },
+        "d3_complex_moderate_2k_cv": (
+            f"{_EP_CATE_LAWS['d3_complex_moderate']}, n = 2,000, sieve size chosen by "
+            "cross-validation"
+        ),
+        "d3_complex_moderate_1k_cv": (
+            f"{_EP_CRR_LAWS['d3_complex_moderate']}, n = 1,000, sieve size chosen by "
+            "cross-validation"
+        ),
+        **{
+            f"ep_fixed_obs_4k_{term}": (
+                f"conditional-projection's observational law, n = 4,000: the {words} of "
+                "the EP fit with model=Linear(['W1', 'W3'])"
+            )
+            for term, words in _EP_FIXED_TERMS.items()
+        },
+        **_EP_ASSESSMENT_LAWS,
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -6867,5 +7013,402 @@ STUDY_ARM_CELLS.update(
             "validation rows, read against the value of those pairs",
             "bias interval must fall entirely outside the margin",
         ),
+    }
+)
+
+
+#: ``conditional-projection`` (P1 part (a)): the projection TMLE of a conditional contrast on
+#: ``Linear(W1, W3)``.  The laws, groups and cell names are those of
+#: ``tests/studies/conditional_projection.py``.
+_PROJECTION_SLUG = "conditional-projection"
+IMPLEMENTATIONS["cleverly-projection-tmle"] = (
+    "`cleverly` projection TMLE of a conditional contrast: the coefficients of the "
+    "least-squares projection of the CATE on a fixed basis, targeted jointly, with an "
+    "influence-curve Wald interval"
+)
+STUDY_SCENARIOS[(_PROJECTION_SLUG, "obs_4k")] = (
+    "observational law with a CATE that is not linear in W3, spline GLM learners, n = 4,000"
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_PROJECTION_SLUG, f"cate_projection[{term}]"): (
+            f"the {words} of the least-squares projection of the CATE on (1, W1, W3)"
+        )
+        for term, words in (
+            ("(intercept)", "intercept"),
+            ("W1", "W1 slope"),
+            ("W3", "W3 slope"),
+        )
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_PROJECTION_SLUG, "interval_calibration", arm, "correctly_specified"): (
+                "the declared fit with consistent nuisance learners",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for arm in (
+                *(f"{group}_{term}" for group in _PROJECTION_LAWS for term in _PROJECTION_TERMS),
+                *(f"assess_score_2k_{name}" for name in _PROJECTION_ASSESS),
+            )
+        },
+        **{
+            (_PROJECTION_SLUG, "interval_calibration", f"clustered_4k_{term}", kind): (
+                "the same fits with the row-level standard error, which ignores the clusters",
+                "the SE-ratio interval must fall below the calibration band",
+            )
+            for term in ("intercept", "W1")
+            for kind in ("row_variance_control",)
+        },
+        (_PROJECTION_SLUG, "type_i_error", "heterogeneity", "sharp_null"): (
+            "slope s = 0, so the effect does not vary, n = 2,000",
+            "the 99% upper end of the rejection rate at most 0.10",
+        ),
+        (_PROJECTION_SLUG, "power", "heterogeneity", "slope_0.10"): (
+            "slope s = 0.10, n = 4,000",
+            "the rejection rate's lower end at least 0.80",
+        ),
+    }
+)
+_PROJECTION_BIAS_ROWS = {
+    "slow_1k": "the slow-nuisance ladder at n = 1,000",
+    "slow_4k": "the slow-nuisance ladder at n = 4,000",
+    "slow_16k": "the slow-nuisance ladder at n = 16,000",
+    "noweight_dr_4k": "the wide-overlap law with a declared wrong outcome regression, n = 4,000",
+    "missing_dr_4k": (
+        "the missing-outcome law with a declared wrong outcome regression correlated with the "
+        "observation probability, n = 4,000"
+    ),
+}
+_PROJECTION_BIAS_CONTROLS = {
+    "ipw_1k": ("slow_1k", "the projection of (2A - 1) Y / pi_n(A, W), with no outcome fit"),
+    "ipw_4k": ("slow_4k", "the projection of (2A - 1) Y / pi_n(A, W), with no outcome fit"),
+    "ipw_16k": ("slow_16k", "the projection of (2A - 1) Y / pi_n(A, W), with no outcome fit"),
+    "t_learner_4k": ("slow_4k", "the projection of mu_n(1) - mu_n(0), with no targeting"),
+    "no_weight_4k": (
+        "noweight_dr_4k",
+        "the one-step with unit weights in place of 1 / pi_n",
+    ),
+    "missing_ignored_4k": ("missing_dr_4k", "the one-step without the 1 / Pi weight"),
+    "weights_ignored_2k": (
+        "weighted_sl_2k",
+        "the same draws fitted with the spline GLM and without the sampling weights, read "
+        "against the weighted truth",
+    ),
+}
+#: The coefficients each control publishes, the ones its displacement moves.
+_PROJECTION_CONTROL_TERMS = {
+    "ipw": ("W1", "W3"),
+    "t_learner": ("W1",),
+    "no_weight": ("intercept", "W1"),
+    "missing_ignored": ("intercept", "W3"),
+    "weights_ignored": ("intercept",),
+}
+_PROJECTION_LADDER = (
+    "both nuisances the correct-family logistic GLM with a logit offset 5 n^(-1/3) h(W), "
+    "h = W1^2 - 1/3 + W1 W3"
+)
+CELLS.update(
+    {
+        **{
+            ("bias", f"{group}_{term}"): (
+                f"{words}"
+                + (f", {_PROJECTION_LADDER}" if group.startswith("slow") else "")
+                + f": the projection TMLE's {_PROJECTION_TERMS[term]}",
+                "the 99% interval of the standardized bias inside +-0.25",
+            )
+            for group, words in _PROJECTION_BIAS_ROWS.items()
+            for term in _PROJECTION_TERMS
+        },
+        **{
+            ("bias", f"{control}_{term}"): (
+                f"{_PROJECTION_BIAS_ROWS.get(group, _PROJECTION_LAWS.get(group, group))}: "
+                f"{words}, {_PROJECTION_TERMS[term]}",
+                "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+            )
+            for control, (group, words) in _PROJECTION_BIAS_CONTROLS.items()
+            for term in _PROJECTION_CONTROL_TERMS[control.rsplit("_", 1)[0]]
+        },
+    }
+)
+
+
+#: The EP studies (P1 part (b)).  Every ``oracle_comparison`` row is the mean over replicates
+#: of ``log ISE(estimator) - log ISE(oracle)``, paired within a replicate, where the oracle is
+#: the least-squares fit (``ep-cate``) or the one-step log-CRR risk minimiser (``ep-crr``) of
+#: the pseudo-outcome at the true nuisances on the same sieve.  The laws, groups and cell names
+#: are those of ``tests/studies/ep_cate.py``, ``ep_crr.py`` and ``ep_assessment.py``.
+_EP_CATE_SLUG, _EP_CRR_SLUG, _EP_ASSESSMENT_SLUG = "ep-cate", "ep-crr", "ep-assessment"
+IMPLEMENTATIONS.update(
+    {
+        f"cleverly-{slug}": (
+            "`cleverly` projection TMLE of the CATE on (1, W1, W3), the primary phase of the "
+            f"{slug} study: the EP curve has no interval for the primary rows to read"
+        )
+        for slug in (_EP_CATE_SLUG, _EP_CRR_SLUG, _EP_ASSESSMENT_SLUG)
+    }
+)
+for _slug in (_EP_CATE_SLUG, _EP_CRR_SLUG, _EP_ASSESSMENT_SLUG):
+    STUDY_SCENARIOS[(_slug, "obs_4k")] = (
+        "conditional-projection's observational law with a CATE that is not linear in W3, "
+        "spline GLM learners, n = 4,000, on this study's own seed"
+    )
+    STUDY_ESTIMANDS.update(
+        {
+            (_slug, f"cate_projection[{term}]"): (
+                f"the {words} of the least-squares projection of the CATE on (1, W1, W3)"
+            )
+            for term, words in (
+                ("(intercept)", "intercept"),
+                ("W1", "W1 slope"),
+                ("W3", "W3 slope"),
+            )
+        }
+    )
+for _law, _words in _EP_CATE_LAWS.items():
+    STUDY_ARMS[(_EP_CATE_SLUG, _law)] = _words
+for _law, _words in _EP_CRR_LAWS.items():
+    STUDY_ARMS[(_EP_CRR_SLUG, _law)] = _words
+    for _size in (1, 4):
+        STUDY_ARMS[(_EP_CRR_SLUG, f"{_law}_{_size}k")] = f"{_words}, n = {_size},000"
+
+PROPERTIES.update(
+    {
+        "oracle_comparison": (
+            "the EP learner's integrated squared error is close to the oracle learner's, which "
+            "fits the same sieve to the pseudo-outcome at the true nuisances (EPL Theorem 5), "
+            "and stays close as n grows; with a wrong outcome learner the debiasing keeps it "
+            "close while the T-learner on that learner falls far behind"
+        ),
+        "nuisance_error": (
+            "the L2 errors of the outcome regression and the propensity and their product, "
+            "reported with no verdict"
+        ),
+        "oracle_hessian": (
+            "the share of replicates whose oracle log-CRR fit has a positive-definite Hessian, "
+            "reported with no verdict"
+        ),
+        "diagnostic": (
+            "the paired difference of the EP and projection-TMLE coefficients at a fixed basis, "
+            "reported with no verdict"
+        ),
+        "calibration": (
+            "the out-of-fold calibration slope of the EP curve is near 1, and a curve stretched "
+            "by 1.5 about its mean reads a slope below the band"
+        ),
+        "risk_comparison": (
+            "the out-of-fold risk difference of the EP curve against the constant has the sign "
+            "of its exact value"
+        ),
+        "stability": (
+            "the split sensitivity of the EP curve over five cross-fitting seeds on the same "
+            "draw, reported with no verdict"
+        ),
+    }
+)
+
+_EP_REPORTED = "reported with no verdict"
+_EP_TERMS = {
+    "ep": "EP at the declared schedule k(n) = 3, 4, 5 at n = 1,000, 2,000, 4,000, ensemble learners",
+    "t_learner": "the T-learner (no debiasing) on the same sieve and ensemble learners",
+    "dr_learner": "the DR-learner on the same sieve and ensemble learners",
+    "ep_greedy_hgb": "EP with a gradient-boosting final learner on the same nuisances",
+    "ep_misspecified": "EP with the per-arm main-terms linear outcome learner",
+    "t_misspecified": "the T-learner on the per-arm main-terms linear outcome learner",
+}
+_EP_CRR_TERMS = {
+    "ep": "EP at the declared schedule k(n) = 3, 5 at n = 1,000, 4,000, ensemble learners",
+    "t_learner": "the T-learner (no debiasing) on the same sieve and ensemble learners",
+    "ep_misspecified": "EP with the intercept-only outcome learner, which ignores W",
+    "t_misspecified": "the T-learner on the intercept-only outcome learner",
+    "ep_offset": (
+        "EP with the true outcome regression whose treated-arm logit is off by "
+        "2 {(sum W)^2 - 1}, outside the additive sieve"
+    ),
+    "t_offset": "the T-learner on that offset outcome learner",
+}
+
+
+def _ep_ratio(words: str) -> str:
+    return f"{words}: log ISE against the oracle's, paired by replicate"
+
+
+def _ep_bound(side: str, margin: str) -> str:
+    return f"one-sided 99% {side} bound {'below' if side == 'upper' else 'above'} {margin}"
+
+
+def _ep_oracle_cells() -> dict[tuple[str, str, str, str], tuple[str, str]]:
+    cells: dict[tuple[str, str, str, str], tuple[str, str]] = {}
+    family = "oracle_comparison"
+    for law, sizes in _EP_CATE_SIZES.items():
+        noise2 = law.endswith("_noise2")
+        for size in sizes:
+            arm = f"{law}_{size}k"
+            largest = size == sizes[-1]
+            gated = {
+                "ep": largest and not noise2,
+                "ep_misspecified": largest and noise2,
+                "t_misspecified": largest and noise2,
+            }
+            for base, words in _EP_TERMS.items():
+                if not gated.get(base):
+                    required = _EP_REPORTED
+                elif base == "t_misspecified":
+                    required = f"{_ep_bound('lower', 'log 3')}: the control must fail"
+                elif base == "ep_misspecified":
+                    required = _ep_bound("upper", "log 3")
+                else:
+                    required = _ep_bound("upper", "log 1.5")
+                cells[(_EP_CATE_SLUG, family, arm, base)] = (_ep_ratio(words), required)
+        estimator = "ep_misspecified" if noise2 else "ep"
+        cells[(_EP_CATE_SLUG, family, law, f"{estimator}_growth")] = (
+            f"the change in the mean log ISE ratio of {_EP_TERMS[estimator]} from n = 1,000 "
+            "to n = 4,000, from an independent-samples interval",
+            _ep_bound("upper", "log 1.25"),
+        )
+    cells[(_EP_CATE_SLUG, family, "d3_complex_moderate_2k_cv", "ep")] = (
+        _ep_ratio("EP with the default sieve size chosen by cross-validation, ensemble learners"),
+        _EP_REPORTED,
+    )
+    for law in _EP_CRR_LAWS:
+        rescue = law == "d3_complex_limited"
+        for size in (1, 4):
+            arm = f"{law}_{size}k"
+            for base, words in _EP_CRR_TERMS.items():
+                gated = size == 4 and (base in ("ep",) or rescue)
+                if not gated or base == "t_learner":
+                    required = _EP_REPORTED
+                elif base.startswith("t_"):
+                    required = f"{_ep_bound('lower', 'log 1.5')}: the control must fail"
+                else:
+                    required = _ep_bound("upper", "log 1.5")
+                cells[(_EP_CRR_SLUG, family, arm, base)] = (_ep_ratio(words), required)
+        for estimator in ("ep", "ep_misspecified", "ep_offset"):
+            cells[(_EP_CRR_SLUG, family, law, f"{estimator}_growth")] = (
+                f"the change in the mean log ISE ratio of {_EP_CRR_TERMS[estimator]} from "
+                "n = 1,000 to n = 4,000, from an independent-samples interval",
+                _EP_REPORTED if estimator == "ep_offset" else _ep_bound("upper", "log 1.25"),
+            )
+    cells[(_EP_CRR_SLUG, family, "d3_complex_moderate_1k_cv", "ep")] = (
+        _ep_ratio("EP with the default sieve size chosen by cross-validation, ensemble learners"),
+        _EP_REPORTED,
+    )
+    return cells
+
+
+def _ep_reported_cells() -> dict[tuple[str, str, str, str], tuple[str, str]]:
+    cells: dict[tuple[str, str, str, str], tuple[str, str]] = {}
+    nuisance = {
+        "mu_l2": "the L2 error of the outcome regression",
+        "pi_l2": "the L2 error of the propensity",
+        "product": "the product of the two L2 errors",
+    }
+    learners = {
+        _EP_CATE_SLUG: {
+            "ensemble": "the ensemble",
+            "misspecified": "the main-terms linear outcome learner",
+        },
+        _EP_CRR_SLUG: {
+            "ensemble": "the ensemble",
+            "misspecified": "the intercept-only outcome learner",
+            "offset": "the offset outcome learner",
+        },
+    }
+    arms = {
+        _EP_CATE_SLUG: [
+            f"{law}_{size}k" for law, sizes in _EP_CATE_SIZES.items() for size in sizes
+        ],
+        _EP_CRR_SLUG: [f"{law}_{size}k" for law in _EP_CRR_LAWS for size in (1, 4)],
+    }
+    for slug, names in arms.items():
+        for arm in names:
+            for learner, learner_words in learners[slug].items():
+                for name, words in nuisance.items():
+                    cells[(slug, "nuisance_error", arm, f"{learner}_{name}")] = (
+                        f"{words}, {learner_words}",
+                        _EP_REPORTED,
+                    )
+        if slug == _EP_CRR_SLUG:
+            for arm in (*names, "d3_complex_moderate_1k_cv"):
+                cells[(slug, "oracle_hessian", arm, "oracle_pd")] = (
+                    "whether the oracle fit's Hessian is positive definite; a replicate where it "
+                    "is not leaves every comparison of its group",
+                    "reported with no verdict; a gated row of a group that excluded more than 1% "
+                    "of its replicates is red",
+                )
+    for term, words in _EP_FIXED_TERMS.items():
+        cells[(_EP_CATE_SLUG, "diagnostic", f"ep_fixed_obs_4k_{term}", "ep_minus_tmle")] = (
+            f"the paired difference of the EP and projection-TMLE {words}s on the same draw",
+            _EP_REPORTED,
+        )
+    assessment = {
+        ("calibration", "strong_2k", "slope"): (
+            "the mean out-of-fold calibration slope of the EP curve at the schedule size 4",
+            "two-sided 99% interval inside 0.85 to 1.15",
+        ),
+        ("calibration", "strong_2k", "stretched_slope"): (
+            "the same slope of the curve stretched by 1.5 about its mean, on the same folds",
+            "one-sided 99% upper bound below 0.85: the control must fail",
+        ),
+        ("calibration", "weak_2k", "slope"): (
+            "the mean out-of-fold calibration slope of the EP curve at the schedule size 4",
+            _EP_REPORTED,
+        ),
+        ("stability", "strong_2k", "relative_sd"): (
+            "the mean relative SD of the curve over five split seeds on the same draw",
+            _EP_REPORTED,
+        ),
+        ("stability", "weak_2k", "relative_sd"): (
+            "the mean relative SD of the curve over five split seeds on the same draw",
+            _EP_REPORTED,
+        ),
+        ("stability", "strong_2k", "warns"): (
+            "the share of replicates whose relative SD exceeds 0.5 and warns",
+            _EP_REPORTED,
+        ),
+        ("stability", "weak_2k", "warns"): (
+            "the share of replicates whose relative SD exceeds 0.5 and warns",
+            _EP_REPORTED,
+        ),
+        ("risk_comparison", "strong_2k", "sign_agrees"): (
+            "the share of replicates whose reported EP-minus-constant DR risk difference has "
+            "the sign of the exact difference at the true CATE",
+            "one-sided 99% Clopper-Pearson lower bound at least 0.80",
+        ),
+        ("risk_comparison", "weak_2k", "sign_agrees"): (
+            "the share of replicates whose reported EP-minus-constant DR risk difference has "
+            "the sign of the exact difference at the true CATE",
+            _EP_REPORTED,
+        ),
+        **{
+            ("risk_comparison", arm, "risk_difference"): (
+                "the mean reported EP-minus-constant DR risk difference",
+                _EP_REPORTED,
+            )
+            for arm in _EP_ASSESSMENT_LAWS
+        },
+        **{
+            ("risk_comparison", arm, "exact_difference"): (
+                "the mean exact EP-minus-constant risk difference at the true CATE",
+                _EP_REPORTED,
+            )
+            for arm in _EP_ASSESSMENT_LAWS
+        },
+    }
+    for (family, arm, base), text in assessment.items():
+        cells[(_EP_ASSESSMENT_SLUG, family, arm, base)] = text
+    return cells
+
+
+STUDY_ARM_CELLS.update({**_ep_oracle_cells(), **_ep_reported_cells()})
+CELLS.update(
+    {
+        ("bias", f"ep_fixed_obs_4k_{term}"): (
+            "conditional-projection's observational law at n = 4,000 with its spline GLM "
+            f"learners: the {words} of the EP fit with model=Linear(['W1', 'W3'])",
+            "standardized-bias interval inside +-0.25",
+        )
+        for term, words in _EP_FIXED_TERMS.items()
     }
 )

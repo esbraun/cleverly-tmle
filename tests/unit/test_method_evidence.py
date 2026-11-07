@@ -439,7 +439,12 @@ class TestArtifacts:
             "performance-tests.csv",
             "property-replicates.parquet",
             "properties.csv",
-        } | set(study.extra_artifacts) | set(study.property_artifacts) | {
+        } | set(study.extra_artifacts) | set(study.property_artifacts) | (
+            # A compared study that declares exact parity gates publishes their tables (X59).
+            {"parity.csv", "parity-replicates.csv"}
+            if study.reference is not None and getattr(study.runner(), "PARITY", None) is not None
+            else set()
+        ) | {
             # The failure files exist only when a fit failed, and then each is hashed.
             name
             for name in (
@@ -1086,6 +1091,38 @@ class TestPublishedVerdicts:
                 )
             assert bool(row.passed) is bool(expected), (
                 f"{row.cell} publishes passed={row.passed} against its own one-wrong endpoint"
+            )
+
+        # The EP studies' log ISE ratios (P1 part (b)): a positive answers to its one-sided
+        # upper bound below the declared margin, a control to its lower bound above it, and a
+        # diagnostic row states no verdict.
+        oracle = published.loc[published["property"] == "oracle_comparison"]
+        for row in oracle.itertuples():
+            if row.role == "positive":
+                expected = row.ratio_upper < row.margin
+            elif row.role == "control":
+                expected = row.ratio_lower > row.margin
+            else:
+                expected = True
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own ratio bound"
+            )
+        # ``ep-assessment``: the calibration slope's interval inside the declared band, the
+        # stretched control's upper end below the band's floor, and a sign share's
+        # Clopper-Pearson lower end at or above its floor.
+        readings = published.loc[published["property"].isin({"calibration", "risk_comparison"})]
+        for row in readings.itertuples():
+            if row.role == "diagnostic":
+                expected = True
+            elif row.property == "risk_comparison":
+                expected = row.reading_lower >= row.threshold
+            elif row.role == "control":
+                expected = row.reading_upper < row.threshold
+            else:
+                low, high = study.runner().CALIBRATION_BAND
+                expected = low < row.reading_lower and row.reading_upper < high
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own reading"
             )
 
         accuracy = published.loc[published["property"] == "known_mechanism_accuracy"]
@@ -1749,6 +1786,12 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # margin, a control's outside it.  The ladder rows read the same equivalence endpoint.
         "bias",
         "root_n_points",
+        # P1 part (b), the EP studies: a log ISE ratio against its declared margin, a
+        # calibration slope against its band and a sign share against its floor.  Checked row
+        # by row below.
+        "oracle_comparison",
+        "calibration",
+        "risk_comparison",
     }
 )
 
@@ -1835,6 +1878,13 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # X46's first-draw reading and its displacement share, reported with no verdict.
         "single_draw_reading",
         "split_displacement",
+        # P1 part (b), the EP studies: the paired EP-minus-TMLE difference at a fixed basis, the
+        # nuisance errors, the oracle Hessian checks and the split-stability readings, each
+        # reported with no verdict.
+        "diagnostic",
+        "nuisance_error",
+        "oracle_hessian",
+        "stability",
         # X33's bounded fits on the parameters the bounds do not gate, and the unbounded fits on
         # the same draws, each reported with no verdict.
         "reported_calibration",
@@ -2877,6 +2927,75 @@ def _published_block(study: StudyRecord, name: str) -> list[str]:
     return lines[head + 1 : tail]
 
 
+#: A number as a published cell prints it: fixed point or scientific notation.
+_PRINTED_NUMBER = re.compile(r"-?\d+(?:\.(?P<fraction>\d+))?(?:e(?P<exponent>[+-]?\d+))?")
+
+
+def _last_place(token: re.Match[str]) -> float | None:
+    """One unit in the last printed place of ``token``, or ``None`` for an integer.
+
+    An integer is a count, and a count that moves by one is a real change, so it has no
+    tolerance.  A rounded quantity does: the same committed rows can print one last digit
+    apart under two library versions, as ``3/800``'s ``-0.0037`` and ``-0.0038`` did across
+    a pandas release.
+    """
+    fraction, exponent = token.group("fraction"), token.group("exponent")
+    if fraction is None:
+        return None
+    return 10.0 ** (-len(fraction) + (int(exponent) if exponent else 0))
+
+
+def _same_printed_table(published: list[str], rendered: list[str]) -> bool:
+    """Whether two renderings of a table agree up to the last printed digit of a number.
+
+    Text, counts, verdicts and each number's printed precision must match exactly.  A
+    rounded number may differ from its rendering by one unit in its last printed place and
+    no more: a version of a library may round a value that sits on a tie the other way,
+    and that is not a change to the evidence.
+    """
+    if len(published) != len(rendered):
+        return False
+    for left, right in zip(published, rendered, strict=True):
+        left_numbers = list(_PRINTED_NUMBER.finditer(left))
+        right_numbers = list(_PRINTED_NUMBER.finditer(right))
+        if _PRINTED_NUMBER.sub("#", left) != _PRINTED_NUMBER.sub("#", right):
+            return False
+        for a, b in zip(left_numbers, right_numbers, strict=True):
+            if a.group(0) == b.group(0):
+                continue
+            unit = _last_place(a)
+            if unit is None or _last_place(b) != unit:
+                return False
+            if abs(float(a.group(0)) - float(b.group(0))) > unit * (1.0 + 1e-9):
+                return False
+    return True
+
+
+def _first_difference(published: list[str], rendered: list[str]) -> str:
+    """The first published line that its rendering does not reproduce, beside the rendering."""
+    for left, right in zip(published, rendered, strict=False):
+        if not _same_printed_table([left], [right]):
+            return f"published {left!r}, rendered {right!r}"
+    return f"{len(published)} published lines against {len(rendered)} rendered"
+
+
+def test_a_last_digit_tie_is_the_same_table_and_a_real_change_is_not() -> None:
+    """The tolerance covers a rounding tie and nothing a reader would read as new evidence."""
+    row = "| `or` | -2.211e-11 | 1.0000 | {coverage} | 34/34 | 0.0200 vs 0.0500 | {verdict} |"
+    published = [row.format(coverage="0.0037", verdict="equivalent")]
+    assert _same_printed_table(published, [row.format(coverage="0.0038", verdict="equivalent")])
+    assert _same_printed_table(published, published)
+    for changed in (
+        row.format(coverage="0.0039", verdict="equivalent"),  # two places: a moved value
+        row.format(coverage="0.00375", verdict="equivalent"),  # another precision
+        row.format(coverage="0.0037", verdict="**not equivalent**"),  # a flipped verdict
+        row.format(coverage="0.0037", verdict="equivalent").replace("34/34", "33/34"),
+        row.format(coverage="0.0037", verdict="equivalent").replace("e-11", "e-10"),
+    ):
+        assert not _same_printed_table(published, [changed]), changed
+    assert not _same_printed_table(published, published * 2)
+
+
 def _agreement_result(row: Any) -> str:
     """How one committed paired verdict must read in the published table.
 
@@ -2926,9 +3045,10 @@ class TestThePublishedTestTables:
             pytest.skip("study declares no property cell")
         published = _published_block(study, name)
         rendered = GENERATED[name](study, _artifacts(study.slug))
-        assert published == rendered, (
+        assert _same_printed_table(published, rendered), (
             f"{study.slug}'s {name} table is not what its artefacts render. Run "
-            f"`python -m tests.studies.evidence.document` rather than editing it by hand"
+            f"`python -m tests.studies.evidence.document` rather than editing it by hand. "
+            f"First difference: {_first_difference(published, rendered)}"
         )
 
     def test_generated_efficiency_language_requires_an_independent_bound(
@@ -3654,6 +3774,11 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
         ("natural_course_identity", "sup-norm identity"),
         ("static_reduction", "sup-norm identity"),
         ("correction_necessity", "closed score below the initial"),
+        # ep-cate and ep-crr: a lost replicate of an ISE comparison has no candidate value.
+        ("oracle_comparison", "oracle comparison bound"),
+        # ep-assessment: a lost replicate of a refit-based reading has no candidate value.
+        ("calibration", "assessment reading"),
+        ("risk_comparison", "assessment reading"),
     }
 )
 

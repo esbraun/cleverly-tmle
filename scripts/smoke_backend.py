@@ -27,6 +27,7 @@ Usage::
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import sys
 
 import numpy as np
@@ -103,6 +104,19 @@ def main() -> None:
     ):
         built, _ = generator(n=200, seed=1, backend=backend)
         check(isinstance(built, frame_type), f"{name} returns a {backend} frame")
+
+    # The plotting layer's optional dependency: nothing above may import matplotlib, and
+    # without it a plot names the extra that installs it.
+    check("matplotlib" not in sys.modules, "a fit and its reports do not import matplotlib")
+    if importlib.util.find_spec("matplotlib") is None:
+        from cleverly.plotting import forest
+
+        try:
+            forest(result)
+        except ImportError as error:
+            check("cleverly[plot]" in str(error), "a plot without matplotlib names the extra")
+        else:
+            check(False, "a plot without matplotlib raised no ImportError")
 
     print(f"\n{backend}-only install: all checks passed")
 

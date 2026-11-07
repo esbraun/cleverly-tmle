@@ -126,6 +126,10 @@ no longer imports. Remove the row when you regenerate the study.
 | `longitudinal-repeated-crossfit` | `tests/discrete_law_competing.py` | result-neutral: the competing-risks law draws the samples of the study, so the run read this source, but the first module list omitted it. This branch leaves the file unchanged from main. Two replicates of each primary fit, refitted after the merge, agree with the committed replicates to a maximum relative difference of 4.2e-14 on the estimate, standard error and interval ends |
 | `longitudinal-repeated-crossfit` | `tests/discrete_law_longitudinal_ipsi.py` | result-neutral: the longitudinal IPSI law draws the samples of the study, so the run read this source, but the first module list omitted it. This branch leaves the file unchanged from main. Two replicates of each primary fit, refitted after the merge, agree with the committed replicates to a maximum relative difference of 4.2e-14 on the estimate, standard error and interval ends |
 | `longitudinal-repeated-crossfit` | `tests/discrete_law_survival.py` | result-neutral: the survival law draws the samples of the study, so the run read this source, but the first module list omitted it. This branch leaves the file unchanged from main. Two replicates of each primary fit, refitted after the merge, agree with the committed replicates to a maximum relative difference of 4.2e-14 on the estimate, standard error and interval ends |
+| `long-horizon-ltmle` | `tests/studies/long_horizon_reference.py` | result-neutral: the X59 comparator-input builder. The study module imports it only for `reference_sample`, `REFERENCE_SCENARIOS`, `PARITY`, `REFERENCE_ENVIRONMENT` and `REFERENCE_METADATA`, which a reference-only run reads to write R's inputs and the manifest's reference provenance. No subject fit calls it, so the committed rows never read it, and the manifest can record no hash for it |
+| `long-horizon-categorical-ltmle` | `tests/studies/long_horizon_reference.py` | result-neutral: the X59 comparator-input builder. The study module imports it only for `reference_sample`, `REFERENCE_SCENARIOS`, `PARITY`, `REFERENCE_ENVIRONMENT` and `REFERENCE_METADATA`, which a reference-only run reads to write R's inputs and the manifest's reference provenance. No subject fit calls it, so the committed rows never read it, and the manifest can record no hash for it |
+| `long-horizon-sdr` | `tests/studies/long_horizon_reference.py` | result-neutral: the X59 comparator-input builder. The study module imports it only for `reference_sample`, `REFERENCE_SCENARIOS`, `PARITY`, `REFERENCE_ENVIRONMENT` and `REFERENCE_METADATA`, which a reference-only run reads to write R's inputs and the manifest's reference provenance. No subject fit calls it, so the committed rows never read it, and the manifest can record no hash for it |
+| `ep-assessment` | `tests/studies/ep_cate_properties.py` | result-neutral: `tests/studies/ep_assessment_properties.py` imports `_oracle_read` from this module to read its calibration and risk rows, and the module list omitted it. The manifest records the run at commit `2172efe5`, whose copy of the module has the sha256 `ab1a07ab7d82284015fd99086499cf126f9c222a3557ebed861d03f487658b02` of the file on disk and of the copy the `ep-cate` and `ep-crr` manifests record, so the bytes that read the committed rows are the bytes on disk. The manifest records no hash for it |
 
 ## Descriptive manifest text
 
@@ -445,3 +449,100 @@ reference process, so the recorded hash describes no committed result.
 The runner also sources `study_harness.R`. The pending manifest now lists that file among its
 declared sources, with the hash of its bytes at the run commit `77a31636`. The file has not changed
 since `182b6438`, which precedes the run. No reference ran, so the added entry changes no result.
+
+The three long-horizon studies (`long-horizon-ltmle`, `long-horizon-categorical-ltmle` and
+`long-horizon-sdr`) declare pending comparators that X59 runs reference-only. X59 replaced each
+declared stub `run_study.R` with its K-node runner, and pointed the two `lmtp` studies at the
+`lmtp_9996b04` image context. The new runners source `ltmle_horizon_adapter.R` (S1) and the
+`lmtp` adapters and learners of S2 and S3, so the three pending manifests now list those files
+among their declared sources, each with the hash of its bytes at the X59 commit. No reference
+process ran for the committed rows, so the declared digests describe no committed result, and
+the subject rows, the property files and every recorded artifact hash are unchanged. The
+reference-only run writes the manifest's reference provenance from the bytes it runs.
+
+The first X59 review changed the declared sources again. The runners read their read-chunk size
+from the driver and time each replicate's fit. The adapters check the Q bound on followers only
+and record a failed check as the replicate's failure. The policy screen reads a support built
+from the draws, and the learner counts its followers and can log them for G0. The `lmtp_9996b04`
+image is now built `FROM` the shipped `lmtp_crossfit` image, whose Dockerfile the two `lmtp`
+studies now declare. Each commit that changed a declared source refreshed the declaration digests
+with `python -m tests.canonical.x59_smoke declared-sources`. No reference process has run, so the
+refreshed digests describe no committed result.
+
+The smoke of queue row 50 found that the two-node ratio screen's Pearson correlation misreads the
+heavy-tailed five-node products, so `lmtp_9996b04_crossfit_adapter.R` now screens them by rank
+correlation (`check_horizon_density_ratios`). The commit refreshed the declaration digests of
+`long-horizon-categorical-ltmle` and `long-horizon-sdr` the same way. No reference process has run.
+
+The next smoke round showed that the rank screen failed too, at 0.0090: lmtp's own main-effects
+GLM estimate of the ratios cannot represent a dynamic plan's ratio past the first node, so no
+correlation with it can screen a correct input. The screen now holds every node's supplied
+ratio to its exact mean of one over the units still on the path (`horizon_ratio_moments`), and
+the policy adapter applies the same check. The declaration digests were refreshed again, and no
+reference process has run.
+
+The smoke's memory readings showed a worker costing up to 4.7 GB, most of it its copy of the
+parent's read and the garbage of earlier plans. The adapters now collect garbage after each
+plan's fit and fit a one-scenario replicate without a split copy (`long_horizon_lmtp_adapter.R`
+and the S1 `run_study.R`), and the chunk comments of both horizon adapters name the driver's new
+rule. A collection draws no random number and moves no fitted value, so the edit is
+result-neutral. The declaration digests were refreshed again, and no reference process has run.
+
+The repaired smoke stopped at the calibration of `categorical_k5_static`: lmtp 9996b04's node-K
+fluctuation diverges at R's default `glm` start under large cumulative ratios. Six descriptive
+plans of `long-horizon-categorical-ltmle` are now unpaired (`UNPAIRED_PLANS`, with the scan
+behind it under `tests/canonical/lmtp_9996b04/`). `lmtp_9996b04_crossfit_adapter.R` now wraps
+lmtp's `fluc` with an observe-only guard that records a replicate as failed when its epsilon is
+non-finite or above 1e3, and returns lmtp's own fit otherwise. A fit that passes the guard is
+unchanged, so the edit moves no paired value. The declaration digests were refreshed again, and
+no reference process has run.
+
+The declaration commit fixes the comparator runs before any of them starts. Every paired
+scenario of S1, S2 and S3 pairs its first 100 replicates, the section 6 rule's output on the
+attempt-5 smoke's timings and memory plans at contention 1.3 (tier 2 and tier 4 at 100, 14.8
+of 21 wall hours). Those inputs, their digests and the rule's output are committed under
+`tests/canonical/x59_sizing`, and `tests/unit/test_x59_parity.py` recomputes the counts from
+them. Every paired S3 cell is promoted to G1 (plan rev 2.1) on the smoke's agreement of at
+most 1.44e-15. The S3 tiers stay as measured: on the promoted tiers the rule would give tier 2
+at 50, and `sizing.json` records that output beside the applied one. The S1 and
+`long-horizon-ltmle-parity` G-P and G-C tolerances are declared at the 1e-6 floor. The driver
+gained the 24-hour cap (`--reference-deadline`), which pairs the prefix each scenario's
+committed timing predicts will finish and grades no exact cell under 50 paired replicates.
+No R file or Dockerfile moved, so no declaration digest changed, and no reference process has
+run.
+
+`ltmle_horizon_adapter.R` now raises `study_fatal_error` for an unexpected `ltmle` warning,
+the way `ltmle_regimen_adapter.R` already did, instead of a plain `stop` that `study_stage`
+would have recorded as that replicate's failure. Only the failure path changed: a fit that
+raises no such warning writes the same row, and the muffled censoring notice is unchanged.
+Before, an unexpected warning would have cost one replicate. Now it stops the run. The
+attempt-5 smoke logs contain no such warning, so the smoke's identity and run results at
+11967f8f stand. The declaration digest of `long-horizon-ltmle` was refreshed with
+`python -m tests.canonical.x59_smoke declared-sources`. `long-horizon-ltmle-parity` has no
+manifest yet and declares its sources at its run. No reference process has run.
+
+The X59 reference-only runs are committed (`9de2da30`), and the registration commit flips the
+five records from pending to compared. The runs' manifests recorded the comparator's
+environment and input-module digests but no package pins, because the study modules declared no
+`REFERENCE_METADATA` while the comparator was pending. The registration adds that constant
+(`tests/studies/long_horizon_reference.py`, `LTMLE_METADATA` and `LMTP_METADATA`) and writes the
+same keys into each manifest's `generated_with.reference` block. The values are the ones the
+recorded build contexts install: `tests/canonical/ltmle/Dockerfile` downloads `ltmle` 1.3-0 and
+checks its tarball digest, and `tests/canonical/lmtp_9996b04/Dockerfile` downloads `lmtp` at
+commit `9996b04dcbb3ae0b1ef8862097c36d95e9f2fcf9`, checks its tarball digest and asserts
+`packageVersion("lmtp") == "1.5.5"`. Both Dockerfiles' recorded `reference_sha256` entries match
+the working tree, so the added keys restate what those hashed bytes pinned and change no row.
+The other registration edits to the five study modules (the record's `reference`,
+`reference_scenarios`, `reference_replicates` and `paired_role`, their docstrings and comments)
+change what the fast tier checks, not what a fit computes: no seed, draw, learner or plan moved,
+and the reference-only runs already read the same scenarios and prefixes from
+`REFERENCE_SCENARIOS` and the declared sizes.
+
+The registration also declares `accepted_reference_failure` on the three registered records
+(`PREFIX_REFERENCE_FAILURE` in `tests/studies/long_horizon_reference.py`) and writes the same
+string into each manifest's `configuration` block, where a regeneration would record it. Every
+reference truth row is read on the 100-replicate prefix, so none can pass a bias margin sized
+for 3,000, 2,000 or 1,200 replicates (0 of 23, 38 and 72 rows pass). The records publish under
+the `reporting` policy, so the run published these rows either way. The declaration moves no
+row and no verdict: it keeps the reference's own truth rows out of the red-cell ledger, as it
+does for every study that carries one, and the exact parity gates stay the comparator's claim.

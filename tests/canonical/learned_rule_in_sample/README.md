@@ -64,13 +64,14 @@ The declarations are in `tests/studies/learned_rule_in_sample.py`,
 
 ## Run
 
-A declared run takes `--output`, `--jobs` and `--fresh` only, on the Python and package versions
-that rule L7 of `tests/canonical/learned_rule_run.py` declares, with one thread per numerical
-library. It draws 45,600 samples (28,800 primary, 14,400 calibration and 2,400 necessity). The
-pilot read about 0.03 core-s per declared fit. A `non_exceptional` calibration draw also fits the
-tree and the ten fold rules (about 0.15 core-s in all), and a `misspecified_limit` one the ten
-fold rules (about 0.12 core-s). That is about 2,900 core-s, under 15 minutes on 4 cores; allow an
-hour with the summaries and bootstraps:
+A declared run takes `--output`, `--jobs` and `--fresh` only, with one thread per numerical library.
+Rule L7 of `tests/canonical/learned_rule_run.py` declares the stack the committed run used and
+refuses no other: a run on another stack warns, and `manifest.json` records the versions the run
+used and each difference from the declared stack. It draws 45,600 samples (28,800 primary, 14,400
+calibration and 2,400 necessity). The pilot read about 0.03 core-s per declared fit. A
+`non_exceptional` calibration draw also fits the tree and the ten fold rules (about 0.15 core-s in
+all), and a `misspecified_limit` one the ten fold rules (about 0.12 core-s). That is about 2,900
+core-s, under 15 minutes on 4 cores; allow an hour with the summaries and bootstraps:
 
 ```bash
 python -u -m tests.canonical.learned_rule_in_sample.regenerate --jobs 4 --output <empty scratch directory>

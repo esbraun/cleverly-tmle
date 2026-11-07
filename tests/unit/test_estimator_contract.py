@@ -118,11 +118,13 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "CausalStudy",
         "CleverlyError",
         "CollaborativeTMLEMethod",
+        "ConditionalContrast",
         "ControlledDirectEffect",
         "ConvergenceWarning",
         "CounterfactualMean",
         "CrossFitting",
         "DRTMLEMethod",
+        "EPMethod",
         "DataError",
         "DiagnosticReport",
         "Estimand",
@@ -510,6 +512,14 @@ BACKEND_ROUTES: dict[str, str] = {
     "SimultaneousBands": "argument",
     # The truncation curve (X89 T3) wraps the frame the diagnostics built.
     "TruncationCurve": "wrapped",
+    # A projection's effect curve, its readings, and the external-score check (P1 plan).
+    "EffectCurveResult": "field",
+    "CurveCalibration": "field",
+    "CurveRiskComparison": "field",
+    "ModifierStability": "field",
+    "ScoreAssessment": "field",
+    # The EP learner's debiasing-score report (P1 part b).
+    "DebiasingScores": "field",
 }
 
 

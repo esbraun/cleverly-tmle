@@ -74,9 +74,17 @@ jobs:
       - uses: actions/checkout@v4
       # The matrix version is threaded through to `uv venv --python`; without that, every
       # row of the matrix would install into `/usr`'s interpreter and exercise the same one.
+      #
+      # 3.11 and 3.12 install the locked versions. 3.13 installs the newest releases the
+      # floors allow (Eric, 2026-11-06: let library versions move, and pin only when a release
+      # breaks a method). A red here that the locked rows do not share is a new release
+      # changing behaviour: fix the code, or add an upper bound in `pyproject.toml` with the
+      # failure named beside it. It never runs `test_method_evidence.py`, so last-digit
+      # rounding in a published table cannot turn it red.
       - uses: ./.github/actions/setup-env
         with:
           python-version: ${{ matrix.python-version }}
+          resolution: ${{ matrix.python-version == '3.13' && 'latest' || 'locked' }}
       # `-n auto` resolves through psutil, else `os.cpu_count()` -- neither of which reads a
       # container's CFS quota, so on a quota-limited runner it asks for the *host's* cores.
       # `tests.parallel` goes through joblib/loky, which does read it.
