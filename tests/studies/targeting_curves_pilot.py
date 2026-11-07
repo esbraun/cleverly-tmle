@@ -10,16 +10,21 @@ bootstrap SE, the SE's coefficient of variation, the errors' kurtosis and the Wa
 control the ratio of its mean SE to the same SD; for every point control its standardized
 shift; the band's joint coverage and rejection rate; and the seconds per fit.
 
-Three declaration choices read it, before the run and never after a verdict:
+The design test reads it before the run, and never after a verdict, for three checks whose
+consequences are declared now:
 
-- ``K_UNTARGETED_SIDE`` in :mod:`tests.studies.targeting_curves`, from the ``untargeted``
-  rows' ratio on cell ``K`` (``"inflated"`` above 1, ``"shrunken"`` below); if neither row
-  leaves the band with detection 0.90, cell ``K``'s law changes instead, on record;
-- the in-sample control's displacement on cell ``S``; below detection 0.90 the ``S`` curve
-  gets a richer basis, on record;
-- the replicate count: any calibration ratio with ``|ratio - 1| > 0.02`` moves the design to
-  ``R = 4,800``, and a kurtosis above 4 to the smallest multiple of 400 meeting both floors at
+- the in-sample control's displacement on cell ``S``: below detection 0.90 the curve moves to
+  :data:`~tests.studies.targeting_curves.SPLIT_FALLBACK_BASIS`, on record;
+- each calibration ratio against its oracle ratio
+  (:data:`~tests.studies.targeting_curves.ORACLE_CSV`): a gap beyond a Bonferroni z over the
+  34 positives shows a nuisance effect the oracle cannot see, and the declaration is reviewed
+  before the run.  An 800-replicate ratio has an SE near 0.025, so the pilot does not size
+  ``R``; the oracle computation does;
+- the kurtosis: above 4, ``R`` moves to the smallest multiple of 400 meeting both floors at
   that kurtosis.
+
+Cell ``K``'s control side is computed, not piloted
+(:func:`~tests.studies.targeting_curves.k_untargeted_ratio`).
 
 The committed summary is ``targeting_curves_pilot.csv`` beside this module, written by::
 

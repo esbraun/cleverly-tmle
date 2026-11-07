@@ -12,6 +12,7 @@ import math
 
 import numpy as np
 import pytest
+from scipy import stats
 from scipy.stats import qmc
 
 from cleverly import targeting_curves as tc
@@ -28,7 +29,7 @@ def test_the_calibration_sizing_is_the_plan_s(design: dict) -> None:
     assert calibration["rows"] == 34
     assert calibration["pass_at_1"] > calibration["pass_at_1_r3200"]
     assert calibration["family"] >= 0.96
-    assert calibration["pass_at_0.97"] == pytest.approx(0.81, abs=0.01)
+    assert calibration["pass_at_0.97"] == pytest.approx(0.92, abs=0.01)
 
 
 def test_every_control_is_detected(design: dict) -> None:
@@ -113,6 +114,23 @@ def test_the_atomic_law_cuts_every_grid_point_inside_an_atom() -> None:
         assert np.min(np.abs(edges - q)) > 0.02
 
 
+def test_the_gating_cells_are_published_and_hold_no_inadmissible_red() -> None:
+    """The record publishes under ``reporting``; every cell but the reporting row gates."""
+    from tests.studies import mtp_study_tools as tools
+    from tests.studies import targeting_curves_properties as properties
+
+    published = {
+        f"{family}/{cell}" for family, cells in study.PROPERTY_CELLS.items() for cell in cells
+    }
+    assert study.STUDY.publication_policy == "reporting"
+    assert set(properties.GATING_CELLS) == published - {
+        f"{study.CALIBRATION}/{cell}" for cell in study.REPORTING_CELLS
+    }
+    assert (
+        tools.gating_findings(study.STUDY, properties.GATING_CELLS, properties.GATING_TRUTH) == []
+    )
+
+
 def test_the_declared_cells_are_the_plan_s() -> None:
     cells = study.PROPERTY_CELLS
     positives = [cell for cell in cells[study.CALIBRATION] if study.is_positive(cell)]
@@ -126,19 +144,69 @@ def test_the_declared_cells_are_the_plan_s() -> None:
     assert cells[study.POWER] == ("P_band__slope",)
 
 
+ORACLE = study.oracle_rows()
+needs_oracle = pytest.mark.skipif(not ORACLE, reason="the oracle computation has not run")
+
+
+@needs_oracle
+def test_the_oracle_covers_every_calibration_positive_at_its_size() -> None:
+    measured = {
+        study.calibration_cell(label, name, study.GROUP_BY_LABEL[label].positive)
+        for (label, n, name) in ORACLE
+        if n == study.GROUP_BY_LABEL[label].n
+    }
+    positives = {
+        cell for cell in study.PROPERTY_CELLS[study.CALIBRATION] if study.is_positive(cell)
+    }
+    assert measured == positives
+
+
+@needs_oracle
+def test_the_reporting_cells_are_the_oracle_s() -> None:
+    """A row the bootstrap alone makes more likely red than green reports; no other row does."""
+    assert study.oracle_reporting_cells() == study.REPORTING_CELLS
+
+
+@needs_oracle
+def test_the_reporting_row_s_departure_shrinks_with_n() -> None:
+    """The finite-sample reading of the paired TOC(0.1): conservative, and less so as n grows."""
+    name = study.row_key("toc", 0.1, study.DIFFERENCE)
+    ratios = [float(ORACLE[("H", n, name)]["se_ratio"]) for n in (2_000, 4_000, 8_000)]
+    assert all(ratio > 1.0 for ratio in ratios)
+    assert ratios[2] < ratios[0]
+
+
+@needs_oracle
+def test_the_declared_replicates_are_the_smallest_the_oracle_ratios_allow() -> None:
+    """R is the smallest multiple of 1,200 from 3,600 whose family-wise pass is at least 0.80."""
+    assert study.oracle_family_pass(study.R_MAIN) >= study.ORACLE_FAMILY_FLOOR
+    assert study.R_MAIN == 3_600 or (
+        study.oracle_family_pass(study.R_MAIN - 1_200) < study.ORACLE_FAMILY_FLOOR
+    )
+
+
 PILOT = study.pilot_rows()
 needs_pilot = pytest.mark.skipif(not PILOT, reason="the targeting-curves pilot has not run")
 
+#: A pilot ratio departs from its oracle ratio beyond noise at a Bonferroni z over the
+#: positives: the pilot then sees a nuisance effect the oracle cannot, and the declaration is
+#: reviewed before the run.  Under no departure every row stays inside with probability 0.99.
+PILOT_DEPARTURE_Z = float(stats.norm.ppf(1.0 - 0.01 / (2 * 34)))
+
 
 @needs_pilot
-def test_the_pilot_ratios_keep_the_declared_replicates() -> None:
-    """Any pilot ratio more than 0.02 from 1 moves the design to R = 4,800 (plan, sizing)."""
-    far = [
-        key
-        for key, row in PILOT.items()
-        if key[1] == study.POSITIVE and abs(float(row["se_ratio"]) - 1.0) > 0.02
-    ]
-    assert not far or study.R_MAIN >= 4_800, far
+@needs_oracle
+def test_the_pilot_ratios_agree_with_the_oracle_s() -> None:
+    far = []
+    for (label, kind, name), row in PILOT.items():
+        if kind not in study.POSITIVE_KINDS:
+            continue
+        oracle = ORACLE[(label, study.GROUP_BY_LABEL[label].n, name)]
+        gap = float(row["se_ratio"]) - float(oracle["se_ratio"])
+        scale = math.hypot(float(row["se_ratio_se"]), float(oracle["se_ratio_se"]))
+        if abs(gap) > PILOT_DEPARTURE_Z * scale:
+            far.append((label, name, round(gap, 3)))
+    assert far == []
 
 
 @needs_pilot

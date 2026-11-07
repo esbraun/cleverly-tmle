@@ -298,6 +298,14 @@ Qini, Proposition 8 for the AUTOC). The rest rests on four natural extensions
 The remainder is not of the linear-remainder form: $S$ is fixed given the evaluation rows, and
 the cut's first-order term is part of $\psi$ and is redrawn with each draw.
 
+**The bootstrap at the study's sizes.** With the true nuisances, so that only the half-sample
+SE is measured, its ratio to the estimator's SD lies between 0.978 and 1.027 for every row the
+study gates at $n = 2{,}000$, on 6,000 to 30,000 replicates per cell
+(`tests/studies/targeting_curves_oracle.csv`). The AUTOC of cell H reads 1.002 (SE 0.004).
+The exception is the paired difference of two correlated scores at TOC(0.1): 1.063 at
+$n = 2{,}000$, 1.051 at 4,000 and 1.024 at 8,000. That interval is conservative by a
+finite-sample amount that shrinks with $n$, so the study reports the row and does not gate it.
+
 **Routes.** Route 1 takes a study column fitted on other rows, with the three checks of
 `assess_score` on it and on a `compare=` column. Route 2,
 `curve.diagnostics.targeting_curve(split=0.5)`, refits the producing estimator on a share of
@@ -317,7 +325,9 @@ units. The status reads the configuration only: the learners, the number of fold
 not checked against the study's cells, and an area row carries no size guard of its own.
 
 **Status.** The `targeting-curves` study is declared in `tests/studies/targeting_curves.py`
-and has not run, so every curve reads `experimental` with that reason until it registers. The
+and has not run, so every curve reads `experimental` with that reason until it registers. It
+runs 4,800 replicates per cell, the smallest multiple of 1,200 at which every gated row passes
+together with probability 0.80 at its measured bootstrap ratio. The
 study's cells are the measured configurations: a continuous and a binary outcome, an atomic
 score, a known mechanism with a misspecified outcome regression, a declared split, a paired
 second score, and null laws for the band's size.

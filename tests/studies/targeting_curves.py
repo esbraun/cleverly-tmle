@@ -439,8 +439,13 @@ KNOWN_MECHANISM = "known_mechanism"
 #: The kinds of a calibration positive.
 POSITIVE_KINDS = (POSITIVE, KNOWN_MECHANISM)
 
-#: Replications of every group but ``P`` (plan section 10, sizing).
-R_MAIN = 3_600
+#: The family-wise pass probability, at the oracle SE ratios, that sets :data:`R_MAIN`.
+ORACLE_FAMILY_FLOOR = 0.80
+
+#: Replications of every group but ``P``: the smallest multiple of 1,200 from the plan's 3,600
+#: whose family-wise pass at the oracle ratios reaches :data:`ORACLE_FAMILY_FLOOR`
+#: (:func:`oracle_family_pass`; the design test recomputes it).
+R_MAIN = 4_800
 #: Replications of the band-power group.
 R_POWER = 800
 
@@ -918,7 +923,9 @@ STUDY = StudyRecord(
     property_cells=PROPERTY_CELLS,
     bias_row_families=frozenset({BIAS}),
     calibration_efficiency_ratio=False,
-    publication_policy="gated",
+    # Under "reporting" the run publishes REPORTING_CELLS' verdicts without refusing; every
+    # other cell gates through targeting_curves_properties.GATING_CELLS.
+    publication_policy="reporting",
     truth_varies_by_replicate=True,
 )
 
@@ -1349,6 +1356,66 @@ def design_numbers() -> dict[str, Any]:
 
 #: Replications of each group in the pilot.
 PILOT_REPLICATES = 800
+
+#: The oracle design computation's committed summary
+#: (:mod:`tests.studies.targeting_curves_oracle`): the half-sample bootstrap's own SE ratio
+#: for every calibration row, from the true nuisances, on its own seed stream.
+ORACLE_CSV = ROOT / "tests" / "studies" / "targeting_curves_oracle.csv"
+
+#: The rule that sends a calibration row to ``reporting`` before the pilot: its oracle SE
+#: ratio gives it a pass probability below one half at :data:`R_MAIN`
+#: (:func:`calibration_row_pass`), so the bootstrap alone makes it more likely red than
+#: green, whatever the fits do.
+REPORTING_PASS_FLOOR = 0.5
+
+#: The calibration cells declared ``reporting`` by that rule (the design test recomputes the
+#: set from :data:`ORACLE_CSV`).  ``H``'s paired difference at TOC(0.1): the half-sample SE
+#: is conservative, by a finite-sample amount that shrinks with ``n`` (oracle ratios in the
+#: CSV at 2,000, 4,000 and 8,000).  Owner: the targeting-curves inference paragraph of
+#: ``docs/technical-reference/conditional-effects.md``, which states the readings.
+REPORTING_CELLS: frozenset[str] = frozenset(
+    {calibration_cell("H", row_key("toc", 0.1, DIFFERENCE))}
+)
+
+
+def oracle_rows() -> dict[tuple[str, int, str], dict[str, float]]:
+    """The oracle summary's row of each ``(group, n, quantity)``; empty before it runs."""
+    if not ORACLE_CSV.exists():
+        return {}
+    frame = pd.read_csv(ORACLE_CSV)
+    return {
+        (str(row["group"]), int(row["n"]), str(row["name"])): row
+        for row in frame.to_dict("records")
+    }
+
+
+def oracle_reporting_cells() -> frozenset[str]:
+    """The calibration positives :data:`REPORTING_PASS_FLOOR` sends to ``reporting``."""
+    out = set()
+    for (label, n, name), row in oracle_rows().items():
+        group = GROUP_BY_LABEL[label]
+        if n != group.n:
+            continue
+        if calibration_row_pass(group.replicates, float(row["se_ratio"])) < REPORTING_PASS_FLOOR:
+            out.add(calibration_cell(label, name, group.positive))
+    return frozenset(out)
+
+
+def oracle_family_pass(replicates: int) -> float:
+    """P(every gated calibration positive passes) at ``replicates``, at its oracle ratio.
+
+    The rows are treated as independent; each reads :func:`calibration_row_pass` at its oracle
+    SE ratio with the default SE spread and kurtosis 3.  Each oracle ratio carries its own Monte
+    Carlo error (0.004 to 0.009), which spreads the ratios and makes this conservative.
+    """
+    probability = 1.0
+    for (label, n, name), row in oracle_rows().items():
+        group = GROUP_BY_LABEL[label]
+        if n != group.n or calibration_cell(label, name, group.positive) in REPORTING_CELLS:
+            continue
+        probability *= calibration_row_pass(replicates, float(row["se_ratio"]))
+    return probability
+
 
 #: The pilot's committed summary (:mod:`tests.studies.targeting_curves_pilot`): a pilot on its
 #: own seed stream, read by the design test, not a result of the run.

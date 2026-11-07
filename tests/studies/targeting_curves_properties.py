@@ -286,8 +286,22 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
 #: families read the shared rules (:data:`~tests.studies.evidence.property_verdicts.FAMILY_RULES`).
 PROPERTY_RULES = (bias_role_rule(BIAS_FAMILIES),)
 
+#: The cells that gate the merge though the record publishes under ``reporting``: every
+#: property cell but :data:`~tests.studies.targeting_curves.REPORTING_CELLS`, and every truth
+#: row of the primary phase.  ``tests/unit/test_targeting_curves_design.py`` reads the
+#: committed tables through :func:`~tests.studies.mtp_study_tools.gating_findings`.
+GATING_CELLS: tuple[str, ...] = tuple(
+    f"{family}/{cell}"
+    for family, cells in PROPERTY_CELLS.items()
+    for cell in cells
+    if not (family == study.CALIBRATION and cell in study.REPORTING_CELLS)
+)
+GATING_TRUTH: tuple[str, ...] = (STUDY.implementation,)
+
 __all__ = [
     "FAILURE_BOUND",
+    "GATING_CELLS",
+    "GATING_TRUTH",
     "PROPERTY_RULES",
     "PROPERTY_WITNESS",
     "generate_property_rows",
