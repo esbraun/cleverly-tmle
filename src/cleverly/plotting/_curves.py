@@ -435,20 +435,29 @@ def _read_curve(result: Any, view: str, cause: str | None) -> tuple[list[_Point]
 
 
 def _select(
-    rows: list[_Point], regimens: Sequence[str] | None, *, order: Sequence[str] | None = None
+    rows: list[_Point],
+    regimens: Sequence[str] | None,
+    *,
+    order: Sequence[str] | None = None,
+    sides: Sequence[str] = (),
 ) -> tuple[list[str], list[str]]:
-    """The level regimens to draw and the contrast labels that go with them.
+    """The regimens to draw and the contrast labels that go with them.
 
     The regimens follow ``order`` (the fit's own, :func:`_regimen_order`) when given, so
-    every plot of one result lists and colours them alike.
+    every plot of one result lists and colours them alike. A fit that reports contrasts
+    and no level of any regimen (a regime contrast) chooses among ``sides``, the regimens
+    its contrasts compare; those regimens get a row of counts and no curve of their own.
     """
     reported = list(dict.fromkeys(row.regimen for row in rows if row.level))
+    contrast_only = not reported
+    if contrast_only:
+        reported = list(sides)
     found = [name for name in order or () if name in reported] or reported
     chosen = found if regimens is None else list(regimens)
     unknown = [name for name in chosen if name not in found]
     if unknown:
         raise ValueError(f"unknown regimen {unknown}; this fit reports {found}")
-    if len(chosen) > _core.MAX_SERIES:
+    if not contrast_only and len(chosen) > _core.MAX_SERIES:
         raise ValueError(
             f"this fit has {len(chosen)} regimens and one axes holds at most "
             f"{_core.MAX_SERIES} coloured series; pass regimens= to draw up to "
@@ -458,6 +467,11 @@ def _select(
     if regimens is not None:
         wanted = {f"{a} vs {b}" for a in chosen for b in chosen if a != b}
         contrasts = [name for name in contrasts if name in wanted]
+    if contrast_only and not contrasts:
+        raise ValueError(
+            f"this fit reports only contrasts between regimens, and none of them is between "
+            f"the regimens {chosen}; pass at least two of {found}"
+        )
     if len(contrasts) > _core.MAX_SERIES:
         raise ValueError(
             f"this fit has {len(contrasts)} contrasts and one axes holds at most "
@@ -521,9 +535,27 @@ def _view_band(
 
 
 def _nodes_reported(result: Any, rows: list[_Point]) -> bool:
-    """Whether the fit reports every node (rule 2's exception for step ribbons)."""
-    reported = {row.node for row in rows if row.level}
+    """Whether the fit reports every node (rule 2's exception for step ribbons).
+
+    The levels decide, or the contrasts of a fit that reports no level.
+    """
+    reported = {row.node for row in rows if row.level} or {row.node for row in rows}
     return reported == set(range(1, int(result.data.n_times) + 1))
+
+
+def _contrast_sides(result: Any, rows: list[_Point]) -> list[str]:
+    """The regimens the fit's contrasts compare, in the fit's own regimen order."""
+    labels = [str(regimen.label) for regimen in result.config.regimens]
+    named = {row.regimen for row in rows if not row.level}
+    return [
+        name
+        for name in labels
+        if any(
+            contrast in named
+            for other in labels
+            for contrast in (f"{name} vs {other}", f"{other} vs {name}")
+        )
+    ]
 
 
 def _counts(
@@ -809,8 +841,12 @@ def _over_time(
     view = scale or ("mean" if result.data.is_repeated else "risk")
     rows, chosen_cause = _read_curve(result, view, cause)
     order = _regimen_order(result)
-    chosen, contrasts = _select(rows, regimens, order=order)
-    slot = _slots(chosen, order)
+    has_levels = any(row.level for row in rows)
+    sides = [] if has_levels else _contrast_sides(result, rows)
+    chosen, contrasts = _select(rows, regimens, order=order or sides, sides=sides)
+    # The regimens drawn as curves; a fit of contrasts alone draws its difference panel only.
+    drawn = chosen if has_levels else []
+    slot = _slots(drawn, order)
     name_of = (lambda s: str(labels.get(s, s))) if labels else str
     step = _nodes_reported(result, rows)
     level = 1.0 - float(rows[0].estimate.alpha)
@@ -836,7 +872,11 @@ def _over_time(
         None if band_obj is None else _core.band_label(1.0 - float(band_obj.alpha), band_kind or "")
     )
 
-    tall = [3.4] + ([1.7] if contrasts else []) + [0.45 + 0.3 * len(chosen)]
+    tall = (
+        ([3.4] if has_levels else [])
+        + ([1.7 if has_levels else 3.4] if contrasts else [])
+        + [0.45 + 0.3 * len(chosen)]
+    )
     fig, panels = _core.new_figure(
         len(tall), figsize=(7.2, 1.2 + sum(tall)), height_ratios=tall, sharex=True
     )
@@ -845,7 +885,7 @@ def _over_time(
     count_ax.grid(False)
     first = {"band": True, "pointwise": True}
     ends: list[tuple[float, float, str, str]] = []
-    for i, regimen in enumerate(chosen):
+    for i, regimen in enumerate(drawn):
         points = _series(rows, regimen, level=True)
         color = _core.series_color(slot[regimen])
         _draw_line(
@@ -853,7 +893,7 @@ def _over_time(
             points,
             color=color,
             index=slot[regimen],
-            dodge=(i, len(chosen)),
+            dodge=(i, len(drawn)),
             step=step,
             limits=limits,
             level=level,
@@ -861,11 +901,15 @@ def _over_time(
             first=first,
         )
         ends.append((points[-1].x, points[-1].psi, name_of(regimen), color))
-    marked = _mark_isotonic(top, result, rows, chosen, slot, view, psi_risk, chosen_cause)
-    _pad(top, _extent(rows, chosen, limits, level_rows=True))
+    marked = _mark_isotonic(top, result, rows, drawn, slot, view, psi_risk, chosen_cause)
+    if has_levels:
+        _pad(top, _extent(rows, chosen, limits, level_rows=True))
+        top.set_ylabel(
+            _wrap_axis_label(_measure_word(view, outcome_label, units, difference=False))
+        )
     diff_ends: list[tuple[float, float, str, str]] = []
+    diff = panels[1] if has_levels else panels[0]
     if contrasts:
-        diff = panels[1]
         for i, contrast in enumerate(contrasts):
             points = _series(rows, contrast, level=False)
             _draw_line(
@@ -886,30 +930,42 @@ def _over_time(
         diff.set_ylabel(
             _wrap_axis_label(_measure_word(view, outcome_label, units, difference=True))
         )
-    top.set_ylabel(_wrap_axis_label(_measure_word(view, outcome_label, units, difference=False)))
     xs = sorted({r.x for r in in_play})
     span = (xs[-1] - xs[0]) or 1.0
     left, right = xs[0] - 0.06 * span, xs[-1] + (0.24 if span else 0.4) * span
     for axis in panels:
         axis.set_xlim(left, right)
     nudge = 0.03 * span
-    _label_ends(top, [(x + nudge, y, text, color) for x, y, text, color in ends])
+    if has_levels:
+        _label_ends(top, [(x + nudge, y, text, color) for x, y, text, color in ends])
     if contrasts:
-        _label_ends(panels[1], [(x + nudge, y, t, c) for x, y, t, c in diff_ends])
+        _label_ends(diff, [(x + nudge, y, t, c) for x, y, t, c in diff_ends])
     _count_row(count_ax, result, rows, chosen, name_of, time_label)
     heading = {
         "risk": "Risk over time",
         "survival": "Survival over time",
         "mean": "Mean outcome over time",
     }[view]
+    if not has_levels:
+        heading = {
+            "risk": "Difference in risk over time",
+            "survival": "Difference in survival over time",
+            "mean": "Difference in mean outcome over time",
+        }[view]
     suffix = f" ({chosen_cause})" if chosen_cause else ""
     _core.header(
         top,
         title or heading,
-        _over_time_subtitle(view, suffix, contrasts),
+        _over_time_subtitle(view, suffix, contrasts, levels=has_levels),
         key_sources=panels[:-1],
     )
-    note_list = list(band_notes)
+    note_list = []
+    if not has_levels:
+        note_list.append(
+            "The fit estimates only the differences between regimens, so no regimen's own "
+            "curve is drawn."
+        )
+    note_list += band_notes
     note_list += _withheld_notes([r.estimate for r in in_play])
     gaps = sorted({r.x for r in in_play if r.estimate.supplies_inference and r.lower is None})
     if gaps:
@@ -928,7 +984,7 @@ def _over_time(
     if step:
         note_list.append(_step_note(any(r.lower is not None for r in in_play), limits is not None))
     else:
-        horizons = ", ".join(f"{r.x:g}" for r in _series(rows, chosen[0], level=True))
+        horizons = ", ".join(f"{x:g}" for x in sorted({r.x for r in in_play}))
         note_list.append(
             f"This fit reports only the horizons {horizons}, so the curve is drawn at those "
             "horizons and nothing is drawn between them."
@@ -959,7 +1015,16 @@ def _step_note(interval: bool, band: bool) -> str:
     return text
 
 
-def _over_time_subtitle(view: str, suffix: str, contrasts: list[str]) -> str:
+def _over_time_subtitle(
+    view: str, suffix: str, contrasts: list[str], *, levels: bool = True
+) -> str:
+    if not levels:
+        base = {
+            "risk": "Difference in cumulative risk between regimens",
+            "survival": "Difference in the chance of staying event-free between regimens",
+            "mean": "Difference in mean outcome between regimens",
+        }[view]
+        return f"{base}{suffix}"
     base = {
         "risk": "Cumulative risk under each regimen",
         "survival": "Chance of staying event-free under each regimen",
@@ -1039,10 +1104,16 @@ def _count_row(
     name_of: Any,
     time_label: str | None,
 ) -> None:
-    """The number following each regimen and still observed, under the time axis."""
+    """The number following each regimen and still observed, under the time axis.
+
+    The time points are those of the levels, or of the contrasts of a fit that reports no
+    level.
+    """
+    has_levels = any(row.level for row in rows)
+    timed = [row for row in rows if row.level == has_levels]
     nodes: dict[int, float] = {}
-    for row in rows:
-        if row.level and row.regimen in chosen:
+    for row in timed:
+        if not has_levels or row.regimen in chosen:
             nodes[row.node] = row.x
     counts = _counts(result, chosen, nodes)
     ax.set_ylim(len(chosen) - 0.4, -0.6)
@@ -1076,7 +1147,7 @@ def _count_row(
     grid = result.data.time_grid
     default = "Follow-up time" if grid is not None else "Follow-up time point"
     ax.set_xlabel(time_label or default)
-    ticks = sorted({row.x for row in rows if row.level})
+    ticks = sorted({row.x for row in timed})
     if len(ticks) <= 12:
         ax.set_xticks(ticks)
     else:

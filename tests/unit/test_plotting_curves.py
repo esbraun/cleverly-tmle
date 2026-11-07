@@ -26,12 +26,18 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import (
     CausalStudy,
     ConditionalContrast,
+    CrossFitting,
     EPMethod,
     IncrementalMean,
+    LongitudinalTreatment,
+    ModelSpec,
     ModifiedTreatmentPolicyEffect,
     MSMProjection,
     PointTreatment,
+    RegimeContrast,
     RegimeMean,
+    Runtime,
+    TMLEMethod,
 )
 from cleverly._support import Support
 from cleverly.bases import Additive, Cosine, Indicators, Linear, Modifiers, Sieve
@@ -172,6 +178,33 @@ def repeated() -> Any:
         time_varying=[[], ["L2"], ["L3"]],
         censoring=["C1", "C2", "C3"],
     )
+
+
+@cache
+def regime_contrast() -> Any:
+    """A repeated outcome fitted as a regime contrast: differences at each week, no levels."""
+    frame, _ = make_longitudinal_repeated(n=300, seed=0)
+    design = LongitudinalTreatment(
+        outcome=Repeated(["Y1", "Y2", "Y3"]),
+        treatment=("A1", "A2", "A3"),
+        baseline=("W",),
+        time_varying=((), ("L2",), ("L3",)),
+        censoring=("C1", "C2", "C3"),
+    )
+    logistic = LogisticRegression(max_iter=500)
+    method = TMLEMethod(
+        models=ModelSpec(
+            outcome_learner=logistic,
+            pseudo_learner=LinearRegression(),
+            treatment_learner=logistic,
+            censoring_learner=logistic,
+        ),
+        cross_fitting=CrossFitting(enabled=False),
+        runtime=Runtime(random_state=0, n_jobs=1),
+    )
+    plans = {"never": (0, 0, 0), "always": (1, 1, 1), "first": (1, 0, 0)}
+    effect = CausalStudy(frame, design=design).identify(RegimeContrast(plans, reference="never"))
+    return _quiet(effect.estimate, method=method)
 
 
 @cache
@@ -585,6 +618,7 @@ def all_figures() -> list[Any]:
         curve(mixed_family()),
         curve(multi_arm_curve()),
         curve(repeated()),
+        curve(regime_contrast()),
     ]
 
 
@@ -1014,6 +1048,51 @@ class TestOverTime:
             np.allclose(line.get_xydata()[:, 1], expected["psi"].to_numpy())
             for line in lines(top, "cleverly-curve")
         )
+
+    def test_a_fit_of_contrasts_alone_draws_its_difference_panel(self) -> None:
+        """A regime contrast reports no level, so the figure is the difference panel alone."""
+        result = regime_contrast()
+        assert not any(estimate.scale == "level" for estimate in result.estimates.values())
+        fig = curve(result)
+        diff, counts = fig.axes
+        assert diff.get_title(loc="left") == "Difference in mean outcome over time"
+        assert diff.get_ylabel() == "Difference in mean outcome"
+        for contrast in ("always vs never", "first vs never"):
+            expected = frame_rows(result, "mean", contrast, level=False)
+            drawn = [
+                line
+                for line in lines(diff, "cleverly-curve")
+                if np.allclose(line.get_xydata()[:, 1], expected["psi"].to_numpy())
+            ]
+            assert len(drawn) == 1
+            # The fit's own pointwise limits are drawn, as ribbons over its weekly steps.
+            low = expected["ci_lower"].to_numpy()
+            high = expected["ci_upper"].to_numpy()
+            assert _last_node_visible(diff, 3.0, low[-1], high[-1], _core.GID_INTERVAL)
+        assert len(lines(diff, "cleverly-curve")) == 2
+        assert [t.get_text() for t in counts.get_yticklabels()] == ["never", "always", "first"]
+        assert "only the differences between regimens" in _core.note_text(fig)
+        assert "No difference" in key_texts(diff)
+        assert_style(fig)
+        assert_text_inside(fig)
+
+    def test_a_fit_of_contrasts_alone_selects_regimens_in_pairs(self) -> None:
+        result = regime_contrast()
+        fig = curve(result, regimens=["always", "never"])
+        diff, counts = fig.axes
+        assert len(lines(diff, "cleverly-curve")) == 1
+        assert [t.get_text() for t in counts.get_yticklabels()] == ["always", "never"]
+        with pytest.raises(ValueError, match="none of them is between the regimens"):
+            curve(result, regimens=["always", "first"])
+        with pytest.raises(ValueError, match="unknown regimen"):
+            curve(result, regimens=["sometimes"])
+
+    def test_a_fit_with_levels_keeps_its_level_panel_and_no_contrast_only_note(self) -> None:
+        """Control: the contrast-only layout is chosen by the fit, not applied to every fit."""
+        fig = curve(repeated())
+        assert len(fig.axes) == 3
+        assert fig.axes[0].get_title(loc="left") == "Mean outcome over time"
+        assert "only the differences" not in _core.note_text(fig)
 
     def test_too_many_series_for_one_axes_are_refused(self) -> None:
         rows = [
