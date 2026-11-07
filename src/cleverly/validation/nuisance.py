@@ -203,6 +203,56 @@ class NuisanceModelReport:
             for key in _TABLE_METRICS
         ]
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the observed rate against the predicted probability, bin by bin.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.calibration`: ``title=`` and ``ax=``.
+
+        Returns
+        -------
+        Figure
+            One panel with the bins sized by their row count, the 45-degree line of perfect
+            calibration, and the logistic calibration slope in the subtitle.
+
+        Raises
+        ------
+        ValueError
+            When the model is a conditional mean, which has no probability to calibrate.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=200, seed=0)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> result = study.identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     random_state=0,
+        ... )
+        >>> report = result.diagnostics.nuisance_models().models[0]
+        >>> fig = report.plot()
+        >>> fig.axes[0].get_xlabel()
+        'Treatment model: mean predicted probability'
+        >>> plt.close(fig)
+        """
+        from ..plotting import calibration
+
+        return calibration(self, **kwargs)
+
     def __repr__(self) -> str:
         from ._nuisance_summary import report_repr
 

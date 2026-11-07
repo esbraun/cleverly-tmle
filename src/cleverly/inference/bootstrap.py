@@ -195,6 +195,54 @@ class BootstrapResult:
 
         return frame_from_dict(replicate_rows(self), backend=backend)
 
+    def plot(self, name: str | None = None, **kwargs: Any) -> Any:
+        """Plot the replicates of one estimand with a normal curve for comparison.
+
+        Parameters
+        ----------
+        name : str or None, default=None
+            The estimand alias; needed when the replicates hold several.
+        **kwargs
+            Passed to :func:`cleverly.plotting.bootstrap`: ``level=``, ``units=``,
+            ``title=`` and ``ax=``.
+
+        Returns
+        -------
+        Figure
+            A histogram of the replicates, a normal density with their mean and standard
+            deviation, and the percentile limits marked.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=120, seed=0)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> result = study.identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     n_bootstrap=40,
+        ...     random_state=0,
+        ... )
+        >>> fig = result.bootstrap.plot("ate")
+        >>> fig.axes[0].get_ylabel()
+        'Density of replicates'
+        >>> plt.close(fig)
+        """
+        from ..plotting import bootstrap
+
+        return bootstrap(self, name, **kwargs)
+
     def summary(self, *, detail: Detail = "short") -> Summary:
         """A printable report of the replicates, laid out like a statsmodels summary.
 

@@ -1324,6 +1324,46 @@ class CTMLESelection:
         chosen = set(self.selected_covariates)
         return tuple(name for name in self.covariates if name not in chosen)
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the cross-validated risk along the candidate sequence.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.learners`: ``ax=``.
+
+        Returns
+        -------
+        Figure
+            One panel with the chosen candidate marked.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly.datasets import make_linear_ate
+        >>> from cleverly.estimators import CTMLE
+        >>> frame, _ = make_linear_ate(n=200, seed=0)
+        >>> result = CTMLE(
+        ...     strategy="greedy",
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     selection_folds=3,
+        ...     estimands=("ate",),
+        ...     random_state=0,
+        ... ).fit(frame, outcome="Y", treatment="A").single()
+        >>> fig = result.ctmle_selection.plot()
+        >>> fig.axes[0].get_title(loc="left")
+        'How sharp was the choice of treatment model?'
+        >>> plt.close(fig)
+        """
+        from ..plotting import learners
+
+        return learners(self, **kwargs)
+
     def _label(self, index: int) -> str:
         if self.labels:
             return self.labels[index]
