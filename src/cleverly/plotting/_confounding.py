@@ -28,6 +28,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .._refusal import RefusalReason
+from ..exceptions import CapabilityError
 from . import _core
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -257,10 +259,11 @@ def _contour_null(data: Any, robustness: Any, null: float | None) -> tuple[float
     elif natural is not None:
         value = natural
     else:
-        raise ValueError(
+        raise CapabilityError(
             f"{data.estimand!r} is a level (a mean outcome), which has no no-effect value; "
             "pass null= the value the bold contour should mark, or a robustness value, whose "
-            "null_hypothesis it then reads"
+            "null_hypothesis it then reads",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     return value, natural is not None and math.isclose(value, natural, abs_tol=1e-12)
 
@@ -277,11 +280,12 @@ def _check_side(data: Any, null: float) -> None:
     needed = "lower" if data.psi > null else "upper"
     if data.bound != needed:
         side = "above" if data.psi > null else "below"
-        raise ValueError(
+        raise CapabilityError(
             f"this contour maps the {data.bound} bound, which moves away from {null:g} as "
             f"confounding grows, because the estimate {data.psi:.4g} lies {side} it; only the "
             f"{needed} bound can reach {null:g}. Build it with contour_data(..., "
-            f"bound={needed!r})"
+            f"bound={needed!r})",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
 
 
@@ -335,10 +339,11 @@ def _check_benchmark(data: Any, record: Any) -> None:
             f"({record.psi_long:.4g}) than the contour ({data.psi:.4g})"
         )
     if _core.finite(data.nu2) and not math.isclose(record.nu2_long, data.nu2, rel_tol=1e-7):
-        raise ValueError(
+        raise CapabilityError(
             f"the benchmark of {', '.join(record.covariates)} reads a Riesz second moment of "
             f"{record.nu2_long:.4g} and the contour {data.nu2:.4g}; build both with the same "
-            "nu2_estimator, and note that benchmark() has no consistent-mechanism form"
+            "nu2_estimator, and note that benchmark() has no consistent-mechanism form",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
 
 
@@ -499,9 +504,10 @@ def contour(
         _check_benchmark(data, record)
     vmin, vmax = float(np.min(grid)), float(np.max(grid))
     if not vmax > vmin:
-        raise ValueError(
+        raise CapabilityError(
             "every cell of the contour has the same value, because the estimate has no bias "
-            "scale to move it; there is no map to draw"
+            "scale to move it; there is no map to draw",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
 
     fig, axis = _core.figure_for(ax, figsize=(7.0, 4.7))
