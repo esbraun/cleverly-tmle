@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .._refusal import RefusalReason
+from ..exceptions import CapabilityError
 from . import _core
 from ._forest import _axis_label
 
@@ -249,9 +251,10 @@ def _probability_models(source: Any) -> tuple[list[Any], _Context]:
         if getattr(model, "kind", None) == "probability" and len(model.calibration.get("n", ()))
     ]
     if not drawn:
-        raise ValueError(
+        raise CapabilityError(
             "no probability model with a calibration table to draw: a conditional-mean "
-            "(continuous outcome) model has no probability to calibrate"
+            "(continuous outcome) model has no probability to calibrate",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     return drawn, context
 
@@ -1142,7 +1145,10 @@ def bootstrap(
         ordered = [alias for alias in (result.estimates if result else ()) if alias in held]
         name = (ordered or held)[0]
     if name not in replicates.draws:
-        raise ValueError(f"estimand {name!r} has no replicates; they hold {held}")
+        raise CapabilityError(
+            f"estimand {name!r} has no replicates; they hold {held}",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
     estimate = result.estimates.get(name) if result is not None else None
     if estimate is not None and estimate.bootstrap is not None:
         read = _from_summary(name, estimate)
