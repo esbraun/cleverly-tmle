@@ -316,20 +316,42 @@ def marginal(
         range_label = limit_label = "_nolegend_"
     ratio = bounds.scale == "log" or (bounds.null is not None and float(bounds.null) == 1.0)
     _null_axis(ax, bounds.null, ratio)
-    breakdown = bounds.breakdown
     words = _core.estimand_words(str(bounds.estimand))
     if words != str(bounds.estimand):
         words = "the " + words[:1].lower() + words[1:]
     subtitle = f"Range of {words} as treatment odds may shift by up to a factor gamma"
-    if breakdown is not None:
-        subtitle += f"; the range first reaches no effect at gamma = {breakdown:g}"
-    elif bounds.null is not None:
-        subtitle += "; no gamma on this grid reaches no effect"
+    if bounds.null is not None:
+        subtitle += "; " + _breakdowns(bounds, level)
     ax.set_xlabel("gamma, the largest factor by which hidden confounding may change treatment odds")
     ax.set_ylabel(outcome_label or f"Range of {words}")
     _core.header(ax, title or "Does the conclusion survive hidden confounding?", subtitle)
     _core.notes(ax, _warnings(bounds))
     return fig
+
+
+def _breakdowns(bounds: Any, level: float) -> str:
+    """Where the range, and where its interval, first include no effect on the grid.
+
+    The two differ: the interval is wider than the range, so it can include no effect at a
+    smaller gamma, or on a grid where the range never does. Both are named, as the printed
+    summary's breakdown table names both.
+    """
+    last = max(row.gamma for row in bounds.rows)
+    interval = f"its {_core.level_text(level)} interval"
+    range_at, limit_at = bounds.breakdown, bounds.limit_breakdown
+    if range_at is None and limit_at is None:
+        return f"neither the range nor {interval} includes no effect at any gamma up to {last:g}"
+    if range_at is None:
+        return (
+            f"the range excludes no effect at every gamma up to {last:g}, and {interval} "
+            f"first includes it at gamma = {limit_at:g}"
+        )
+    if limit_at is None:  # pragma: no cover - the interval holds the range
+        return f"the range first includes no effect at gamma = {range_at:g}"
+    return (
+        f"the range first includes no effect at gamma = {range_at:g}, and {interval} "
+        f"at gamma = {limit_at:g}"
+    )
 
 
 # ----------------------------------------------------------------------- missingness tilt

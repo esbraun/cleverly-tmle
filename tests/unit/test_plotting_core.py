@@ -453,6 +453,57 @@ def test_marginal_plot_draws_the_range_and_its_interval(binary_fit: Any) -> None
     assert "descriptive" in _core.note_text(fig)
 
 
+def _odds_bounds(rows: list[tuple[float, float, float, float, float]]) -> Any:
+    """Bounds of a difference over ``(gamma, lower, upper, lower_limit, upper_limit)`` rows."""
+    from cleverly.sensitivity.marginal import MarginalSensitivityBounds, MarginalSensitivityRow
+
+    return MarginalSensitivityBounds(
+        rows=tuple(
+            MarginalSensitivityRow(g, "ate", lo, hi, 0.01, 0.01, lo_lim, hi_lim)
+            for g, lo, hi, lo_lim, hi_lim in rows
+        ),
+        estimand="ate",
+        level=0.95,
+        null=0.0,
+        outcome_kind="binary",
+    )
+
+
+def test_marginal_subtitle_names_where_the_range_and_where_its_interval_include_zero() -> None:
+    """The point-treatment page's case: the range never includes zero, the interval does."""
+    bounds = _odds_bounds(
+        [
+            (1.0, 0.10, 0.10, 0.06, 0.14),
+            (2.0, 0.06, 0.14, 0.03, 0.17),
+            (3.0, 0.04, 0.16, 0.01, 0.19),
+            (4.0, 0.03, 0.17, -0.01, 0.20),
+        ]
+    )
+    assert bounds.breakdown is None
+    assert bounds.limit_breakdown == 4.0
+    subtitle = _core.subtitle_text(bounds.plot().axes[0]) or ""
+    flat = " ".join(subtitle.split())
+    assert "the range excludes no effect at every gamma up to 4" in flat
+    assert "its 95% interval first includes it at gamma = 4" in flat
+    assert "no gamma on this grid reaches no effect" not in flat
+    # Control: when the range itself includes zero, both breakdowns are named with their gamma.
+    reached = _odds_bounds(
+        [
+            (1.0, 0.10, 0.10, 0.06, 0.14),
+            (2.0, 0.02, 0.18, -0.01, 0.21),
+            (3.0, -0.02, 0.22, -0.05, 0.25),
+        ]
+    )
+    flat = " ".join((_core.subtitle_text(reached.plot().axes[0]) or "").split())
+    assert (
+        "the range first includes no effect at gamma = 3, and its 95% interval at gamma = 2" in flat
+    )
+    # Control: neither reaches zero.
+    never = _odds_bounds([(1.0, 0.10, 0.10, 0.06, 0.14), (2.0, 0.06, 0.14, 0.03, 0.17)])
+    flat = " ".join((_core.subtitle_text(never.plot().axes[0]) or "").split())
+    assert "neither the range nor its 95% interval includes no effect at any gamma up to 2" in flat
+
+
 def test_marginal_plot_control_fails_without_the_warnings(
     binary_fit: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
