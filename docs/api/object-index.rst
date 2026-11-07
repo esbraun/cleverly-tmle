@@ -312,4 +312,9 @@ categorized API tables.
    cleverly.plotting.weights
    cleverly.plotting.balance
    cleverly.plotting.zipper
+   cleverly.plotting.calibration
+   cleverly.plotting.learners
+   cleverly.plotting.repeats
+   cleverly.plotting.bootstrap
+   cleverly.plotting.influence
    cleverly.plotting.style
