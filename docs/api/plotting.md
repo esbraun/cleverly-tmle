@@ -1,0 +1,23 @@
+# Plotting
+
+Use these functions after estimation to look at a result. Each draws numbers the object
+already holds and returns the matplotlib `Figure`, so you can save it, restyle it, or add to it.
+The title of each figure states the question it answers, and the note under it says what an
+interval is, why one is missing, or that a quantity is descriptive. A plot never draws an
+interval or band the fit did not compute.
+
+matplotlib is optional. Install it with `pip install "cleverly[plot]"`.
+
+```{eval-rst}
+.. autosummary::
+   :nosignatures:
+
+   cleverly.plotting.forest
+   cleverly.plotting.sensitivity
+   cleverly.plotting.overlap
+   cleverly.plotting.style
+```
+
+The results that have one natural figure also draw it with `plot()`:
+`TMLEResult.plot()` and `TMLEResultSet.plot()` call `forest`, and `TruncationCurve.plot()`,
+`MarginalSensitivityBounds.plot()` and `MissingnessTilt.plot()` call `sensitivity`.

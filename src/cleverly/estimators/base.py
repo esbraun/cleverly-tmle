@@ -1847,6 +1847,30 @@ class TMLEResultSet(Mapping["float | None", TMLEResult]):
         -------
         Figure
             One row per estimate and level of the intermediate variable.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> import numpy as np, pandas as pd
+        >>> from sklearn.linear_model import LogisticRegression
+        >>> from cleverly.estimators import TMLE
+        >>> rng = np.random.default_rng(0)
+        >>> w = rng.normal(size=400)
+        >>> a = rng.binomial(1, 1 / (1 + np.exp(-w)))
+        >>> z = rng.binomial(1, 1 / (1 + np.exp(-(w + a))))
+        >>> y = rng.binomial(1, 1 / (1 + np.exp(-(w + a + z - 1))))
+        >>> frame = pd.DataFrame({"W": w, "A": a, "Z": z, "Y": y})
+        >>> fits = TMLE(
+        ...     outcome_learner=LogisticRegression(),
+        ...     treatment_learner=LogisticRegression(),
+        ...     random_state=0,
+        ... ).fit(frame, outcome="Y", treatment="A", covariates=["W"], intermediate="Z")
+        >>> fig = fits.plot()
+        >>> [text.get_text() for text in fig.axes[0].get_yticklabels()][:2]
+        ['Z = 0: ate', 'Z = 0: att']
+        >>> plt.close(fig)
         """
         from ..plotting import forest
 

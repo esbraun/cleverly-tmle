@@ -1614,6 +1614,10 @@ def truncation_curve(
                     "fitted_upper_bound": fitted_upper,
                     "fitted_psi": reference,
                     "delta_from_fitted": float(estimate.psi - reference),
+                    # What a reader of the row needs to draw it: the null follows the scale,
+                    # and the interval columns hold this coverage level.
+                    "scale": str(estimate.scale),
+                    "level": 1.0 - float(estimate.alpha),
                     # A composite fit divides by a product of factors, and a bound moves
                     # some of them only, so the row names the factors it truncated.
                     **({} if moved is None else {"truncated_factor": moved}),
