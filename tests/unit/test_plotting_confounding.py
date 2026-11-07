@@ -544,7 +544,7 @@ class TestSurface:
             movement_scale="log_ratio",
             estimand="rr",
             cells=tuple(
-                replace(cell, estimate=float(np.exp(0.3 - 3.0 * cell.treatment_strength)))
+                replace(cell, estimate=float(np.exp(0.15 - 3.0 * cell.treatment_strength)))
                 for cell in surface_result.cells
             ),
         )
