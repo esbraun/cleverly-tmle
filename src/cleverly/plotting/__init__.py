@@ -9,13 +9,17 @@ matplotlib is an optional dependency (``pip install "cleverly[plot]"``). Importi
 
 The plots:
 
-======================  ===========================================================
+======================  ============================================================================
 function                question
-======================  ===========================================================
+======================  ============================================================================
 :func:`forest`          the estimates of one or several fits, with their intervals
 :func:`curve`           how a result changes over time, dose, policy or modifier
 :func:`sensitivity`     does the estimate depend on a declared sensitivity parameter?
 :func:`overlap`         did every kind of unit have a chance of each treatment?
+:func:`weights`         at which time point do a longitudinal fit's weights grow too large?
+:func:`balance`         did weighting make treated and untreated units alike on each covariate?
+:func:`zipper`          do a study's intervals cover the true value, and how do they miss?
+======================  ============================================================================
 :func:`calibration`     do predicted effects or probabilities match what was measured?
 :func:`learners`        which learners carry the fit, and how sharp was the choice?
 :func:`repeats`         does the estimate depend on how the data were split?
@@ -32,9 +36,12 @@ from ._diagnostics import bootstrap, calibration, influence, learners, repeats
 from ._forest import forest
 from ._overlap import overlap
 from ._sensitivity import sensitivity
+from ._weights import balance, weights
+from ._zipper import zipper
 
 __all__ = [
     "PALETTE",
+    "balance",
     "bootstrap",
     "calibration",
     "curve",
@@ -45,4 +52,6 @@ __all__ = [
     "repeats",
     "sensitivity",
     "style",
+    "weights",
+    "zipper",
 ]

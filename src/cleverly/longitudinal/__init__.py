@@ -71,6 +71,7 @@ from .structural import (
     StructuralNestedMeanResult,
     snmm,
 )
+from .weights import NodeWeights, node_weights
 
 __all__ = [
     "IPSI",
@@ -87,6 +88,7 @@ __all__ = [
     "LongitudinalResult",
     "Mechanism",
     "NodeRule",
+    "NodeWeights",
     "PanelLayout",
     "ParametricGFormula",
     "Plan",
@@ -108,6 +110,7 @@ __all__ = [
     "ipsi",
     "ipw",
     "ltmle",
+    "node_weights",
     "resolve_plans",
     "resolve_regimens",
     "sdr",
