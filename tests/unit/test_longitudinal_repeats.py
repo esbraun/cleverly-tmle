@@ -1463,6 +1463,11 @@ RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
     "converged": _witness("test_converged_reads_every_draw"),
     "covariance": _witness("test_covariance_is_the_median_operator_norm_candidate"),
     "curve": _witness("test_median_of_monotone_curves_is_monotone"),
+    "plot": (
+        "tests.unit.test_plotting_curves",
+        "test_plot_of_a_fit_of_several_repeats_draws_its_reported_curve",
+        None,
+    ),
     "diagnostics": _witness("test_score_rows_cover_every_draw"),
     "estimate": _READERS,
     "fits": _READ_THROUGH,

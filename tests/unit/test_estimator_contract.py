@@ -512,6 +512,9 @@ BACKEND_ROUTES: dict[str, str] = {
     "SimultaneousBands": "argument",
     # The truncation curve (X89 T3) wraps the frame the diagnostics built.
     "TruncationCurve": "wrapped",
+    # The MSM working model's mean at each level (X92 part 2): built from a fit's
+    # coefficients alone, so the caller names the backend.
+    "WorkingModelMeans": "argument",
     # A projection's effect curve, its readings, and the external-score check (P1 plan).
     "EffectCurveResult": "field",
     "CurveCalibration": "field",
