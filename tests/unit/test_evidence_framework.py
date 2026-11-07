@@ -1196,6 +1196,8 @@ def test_a_cell_summary_is_the_summary_of_the_cells_records() -> None:
             truth=float(truth),
             estimate=float(estimate),
             std_error=float(std_error),
+            lower=float(estimate - 1.96 * std_error),
+            upper=float(estimate + 1.96 * std_error),
             covered=bool(hit),
             rejected=bool(reject),
             inference_estimate=float(estimate),

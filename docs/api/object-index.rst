@@ -196,6 +196,11 @@ categorized API tables.
    cleverly.sensitivity.EValue
    cleverly.sensitivity.positivity_report
    cleverly.sensitivity.truncation_curve
+   cleverly.sensitivity.covariate_balance
+   cleverly.sensitivity.CovariateBalance
+   cleverly.sensitivity.BalanceRow
+   cleverly.longitudinal.node_weights
+   cleverly.longitudinal.NodeWeights
    cleverly.sensitivity.omitted_variable_bounds
    cleverly.sensitivity.robustness_value
    cleverly.sensitivity.benchmark
@@ -302,4 +307,7 @@ categorized API tables.
    cleverly.plotting.forest
    cleverly.plotting.sensitivity
    cleverly.plotting.overlap
+   cleverly.plotting.weights
+   cleverly.plotting.balance
+   cleverly.plotting.zipper
    cleverly.plotting.style
