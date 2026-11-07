@@ -547,6 +547,53 @@ def test_a_longitudinal_qualifier_difference_is_named_in_words() -> None:
     )
 
 
+def _point_qualifiers() -> set[str]:
+    """Every qualifier ``cleverly._support.point_key`` can add, read from its source."""
+    import ast
+    import inspect
+
+    from cleverly import _support
+    from cleverly.interventions.learned import LOSSES
+
+    tree = ast.parse(inspect.getsource(_support.point_key))
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "qualifiers"
+        ):
+            continue
+        (argument,) = node.args
+        if isinstance(argument, ast.Constant):
+            found.add(str(argument.value))
+        elif isinstance(argument, ast.JoinedStr):
+            prefix = "".join(
+                str(part.value) for part in argument.values if isinstance(part, ast.Constant)
+            )
+            assert prefix == "rule_learner_", ast.unparse(argument)
+            found.update(f"{prefix}{loss}" for loss in LOSSES if loss != "plug_in")
+        else:  # pragma: no cover - a new form of qualifier the scan must learn
+            raise AssertionError(ast.unparse(argument))
+    return found
+
+
+def test_every_point_treatment_qualifier_has_its_own_words() -> None:
+    """A point-treatment qualifier never falls through to the longitudinal sentence."""
+    qualifiers = _point_qualifiers()
+    # Control: the scan reads the qualifiers it is meant to read, so it cannot pass empty.
+    assert {"strata", "known_mechanism", "unequal_clusters", "known_regimes"} <= qualifiers
+    missing = sorted(qualifiers - set(vocabulary.SUPPORT_QUALIFIERS))
+    assert not missing, missing
+    reason = (
+        "No registered study covers this configuration. Nearest row: T01.continuous "
+        f"(canonical-tmle), differing on qualifiers ({' and '.join(sorted(qualifiers))})."
+    )
+    assert vocabulary.SUPPORT_KNOWN_FACTORS not in plain_support_reason(reason)
+
+
 # ----------------------------------------------------------------- header numbers and assumptions
 
 

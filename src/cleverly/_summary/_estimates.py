@@ -103,8 +103,6 @@ def plain_support_reason(reason: str) -> str:
     def qualifier_words(name: str) -> str:
         if name in vocabulary.SUPPORT_QUALIFIERS:
             return vocabulary.SUPPORT_QUALIFIERS[name]
-        if name.startswith("rule_learner_"):
-            return vocabulary.SUPPORT_QUALIFIERS["rule_learner_blip"]
         # A longitudinal fit's qualifiers are the names of the treatment and censoring
         # columns it declares known, which differ from the validated fit's columns by name
         # alone; the names, and the ids they look like, would mean nothing to a reader.
