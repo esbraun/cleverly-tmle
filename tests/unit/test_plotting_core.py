@@ -880,3 +880,21 @@ def test_forest_scalar_truth_needs_one_estimand_and_a_mapping_its_names(binary_f
     assert len(_truth_marks(fig.axes[0])) == 2
     fig = forest(binary_fit, truth={"ate": 0.2})
     assert sum(len(_truth_marks(ax)) for ax in fig.axes) == 1
+
+
+@pytest.mark.parametrize(
+    ("treated", "untreated"), [("offered", "not offered"), ("an offer", "no offer")]
+)
+def test_overlap_arm_labels_stand_alone(binary_fit: Any, treated: str, untreated: str) -> None:
+    """A plain label ("offered") and a noun phrase ("an offer") both read as written."""
+    fig = overlap(binary_fit, labels={1: treated, 0: untreated})
+    ax = fig.axes[0]
+    groups = [t.get_text() for t in ax.texts if t.get_gid() == _core.GID_SERIES_LABEL]
+    assert groups == [treated, untreated]
+    assert ax.get_xlabel() == f"Predicted probability of the arm: {treated}"
+    assert not any("Units with" in text for text in [*groups, ax.get_xlabel()])
+    # Control: without labels the arm is named by its column and level.
+    plain = overlap(binary_fit).axes[0]
+    groups = [t.get_text() for t in plain.texts if t.get_gid() == _core.GID_SERIES_LABEL]
+    assert groups == ["Units with A = 1", "Units with A = 0"]
+    assert plain.get_xlabel() == "Predicted probability of A = 1"

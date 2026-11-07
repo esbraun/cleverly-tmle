@@ -131,7 +131,8 @@ def overlap(
     treatment_label : str or None, default=None
         Words for the treatment; its column name when omitted.
     labels : dict or None, default=None
-        Words for each arm, keyed by the arm's level as in the data.
+        Words for each arm, keyed by the arm's level as in the data, such as
+        ``{1: "offered", 0: "not offered"}``. Each names its group of units on its own.
     title : str or None, default=None
         The title.
 
@@ -201,11 +202,21 @@ def overlap(
     arms = tuple(float(arm) for arm in propensity.arms)
     bounds = _limits(result)
 
-    def arm_words(code: float) -> str:
+    def labelled(code: float) -> str | None:
         level = data.arm_label(code)
-        if labels is not None and level in labels:
-            return labels[level]
-        return f"{name} = {level}"
+        return None if labels is None or level not in labels else str(labels[level])
+
+    def group(code: float) -> str:
+        # A caller's label names the group on its own ("offered", "an offer"), so it is
+        # not fitted into a sentence; an unlabelled arm reads as its column and level.
+        own = labelled(code)
+        return own if own is not None else f"Units with {name} = {data.arm_label(code)}"
+
+    def axis_words(code: float) -> str:
+        own = labelled(code)
+        if own is not None:
+            return f"Predicted probability of the arm: {own}"
+        return f"Predicted probability of {name} = {data.arm_label(code)}"
 
     binary = len(arms) == 2
     shown = (arms[1],) if binary else arms
@@ -223,18 +234,18 @@ def overlap(
     for axis, arm in zip(axes, shown, strict=True):
         raw = raw_all[recorded, propensity.column_for(arm)]
         inside = treatment[recorded] == arm
-        rest = arm_words(arms[0]) if binary else "every other arm"
+        rest = group(arms[0]) if binary else "Units in every other arm"
         _mirror(
             axis,
             raw,
             weights,
             inside,
-            names=(f"Units with {arm_words(arm)}", f"Units with {rest}"),
+            names=(group(arm), rest),
             bounds=bounds,
             peak=peak,
         )
         axis.set_ylabel("Share of units")
-        axis.set_xlabel(f"Predicted probability of {arm_words(arm)}")
+        axis.set_xlabel(axis_words(arm))
     predictions = (
         "Out-of-fold predictions"
         if getattr(result.config, "cross_fit", True)
