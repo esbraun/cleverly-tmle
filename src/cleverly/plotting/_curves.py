@@ -1240,9 +1240,13 @@ def _numeric(value: Any, what: str) -> float:
     try:
         return float(value)
     except (TypeError, ValueError):
-        raise ValueError(
-            f"{what} {value!r} is not a number, so it has no place on a numeric axis; pass "
-            "levels= to give each regime its numeric treatment level"
+        from .._refusal import RefusalReason
+        from ..exceptions import CapabilityError
+
+        raise CapabilityError(
+            f"{what} {value!r} is not a number, so it has no place on a numeric axis",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative="pass levels= to give each regime its numeric treatment level",
         ) from None
 
 

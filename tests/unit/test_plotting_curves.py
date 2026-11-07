@@ -611,7 +611,11 @@ class TestStyle:
         """Control: an end label pushed past the right edge fails the same check."""
         fig = curve(level_means(), msm=msm_fit())
         ax = fig.axes[0]
-        _core.end_label(ax, ax.get_xlim()[1] * 1.3, 0.0, "a label off the page", "#2a78d6")
+        # Freeze the layout first: constrained layout would otherwise shrink the axes until
+        # the stray text fits. Axes coordinates keep the control off the data limits.
+        fig.canvas.draw()
+        fig.set_layout_engine("none")
+        ax.text(1.6, 0.5, "a label off the page", transform=ax.transAxes)
         with pytest.raises(AssertionError, match="off the page"):
             assert_text_inside(fig)
 
@@ -1598,3 +1602,19 @@ class TestEffectCurve:
         ):
             fig.savefig(tmp_path / f"{name}.png", dpi=60)
             assert (tmp_path / f"{name}.png").stat().st_size > 1000
+
+
+def test_plot_of_a_fit_of_several_repeats_draws_its_reported_curve() -> None:
+    """The repeat witness for ``LongitudinalResult.plot``: a fit of two repeats draws the
+    curve it reports, the median over its draws, and says the raw values are from one draw."""
+    single = isotonic()
+    combined = replace(single, repeats=(single.repeats[0], single.repeats[0]))
+    assert combined.n_repeats == 2
+    fig = combined.plot()
+    top = fig.axes[0]
+    for regimen in ("treated", "control"):
+        expected = frame_rows(combined, "risk", regimen)["psi"].to_numpy()
+        assert any(
+            np.allclose(line.get_xydata()[:, 1], expected) for line in lines(top, "cleverly-curve")
+        )
+    assert "one of the 2 repeats" in _core.note_text(fig)

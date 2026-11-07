@@ -3101,10 +3101,17 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 if self.msm is not None
                 else f"one end-of-study mean of {self.data.outcome_name!r}"
             )
-            raise ValueError(
+            from .._refusal import RefusalReason
+            from ..exceptions import CapabilityError
+
+            raise CapabilityError(
                 f"{', '.join(only_curve)} draw a curve over time, and this fit reports "
-                f"{reported}, so it has no curve; plot() draws its estimates as a forest plot, "
-                "which takes labels=, title=, subtitle=, units= and ax="
+                f"{reported}, so it has no curve",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "plot() draws its estimates as a forest plot, which takes labels=, "
+                    "title=, subtitle=, units= and ax="
+                ),
             )
         return forest(self, **kwargs)
 
