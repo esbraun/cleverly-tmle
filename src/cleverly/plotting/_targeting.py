@@ -15,7 +15,7 @@ guide line through the points.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from . import _core
@@ -149,6 +149,8 @@ def targeting(
     score: str | None = None,
     ax: Axes | None = None,
     title: str | None = None,
+    outcome_label: str | None = None,
+    labels: Mapping[str, str] | None = None,
 ) -> Figure:
     """Plot how much treating by a score first gains over treating at random.
 
@@ -168,6 +170,12 @@ def targeting(
         The axes to draw on; a new figure when omitted.
     title : str or None, default=None
         The title.
+    outcome_label : str or None, default=None
+        The outcome's quantity in your words, such as ``"order share"``, for the y axis; the
+        axis says "the mean outcome" or "effect" when omitted.
+    labels : mapping of str to str or None, default=None
+        Words for each score in the title and the y axis, keyed by the score's column name,
+        such as ``{"S": "the predicted effect"}``; the column name when omitted.
 
     Returns
     -------
@@ -211,6 +219,9 @@ def targeting(
     >>> fig = targeting(curve, view="gain")
     >>> fig.axes[0].get_xlabel()
     'Fraction treated, highest scores first'
+    >>> fig = targeting(curve, view="gain", outcome_label="Y", labels={"S": "the score"})
+    >>> fig.axes[0].get_ylabel()
+    'Change in Y from treating the top fraction'
     """
     if view not in _VIEWS:
         raise ValueError(f"view must be one of {_VIEWS}; got {view!r}")
@@ -225,6 +236,12 @@ def targeting(
         if name not in (curve.score, curve.compare):
             raise ValueError(f"score {name!r} is not in this curve")
     rows = curve.rows("toc", name)
+    words = dict(labels or {})
+    first = words.get(curve.score, curve.score)
+    second = words.get(curve.compare, curve.compare) if curve.compare is not None else None
+    said = words.get(name, name)
+    outcome = _core.mid_phrase(outcome_label) if outcome_label else "the mean outcome"
+    effect = f"Effect on {_core.mid_phrase(outcome_label)}" if outcome_label else "Effect"
     level = 1.0 - curve.alpha
     q = [float(row["q"]) for row in rows]
     toc = [float(row["estimate"]) for row in rows]
@@ -246,10 +263,11 @@ def targeting(
             f"{_core.level_text(level)} interval of the gap to random",
             origin=True,
         )
-        axis.set_ylabel("Cumulative gain")
-        from .._summary import vocabulary
-
-        lines.append(vocabulary.NOTE_TEXTS["targeting_gain_interval"])
+        axis.set_ylabel(f"Change in {outcome} from treating the top fraction")
+        lines.append(
+            "Each interval is for the gap to the random line. The interval of the gain itself, "
+            "which adds the uncertainty of the average effect, is in to_frame()."
+        )
     else:
         _core.reference_line(
             axis, 0.0, label="Treating at random" if view == "toc" else "No difference"
@@ -276,9 +294,9 @@ def targeting(
                     band=True,
                 )
                 lines.append("The band holds jointly at the grid points only.")
-            axis.set_ylabel("TOC: effect in the top fraction minus the average")
+            axis.set_ylabel(f"{effect} in the top fraction minus the average")
         else:
-            axis.set_ylabel(f"TOC of {curve.score} minus TOC of {curve.compare}")
+            axis.set_ylabel(f"TOC by {first} minus TOC by {second}")
             lines.append("Pointwise intervals only; no band is computed for the difference.")
     axis.set_xlim(0.0, 1.03)
     axis.set_xlabel("Fraction treated, highest scores first")
@@ -295,9 +313,9 @@ def targeting(
         lines.append(f"Experimental: {'; '.join(reasons)}.")
     _core.legend(axis)
     question = (
-        f"Does {curve.score} rank the effect better than {curve.compare}?"
+        f"Does {first} rank the effect better than {second}?"
         if view == "difference"
-        else f"How much does treating by {name} first gain over treating at random?"
+        else f"How much does treating by {said} first gain over treating at random?"
     )
     _core.header(
         axis,

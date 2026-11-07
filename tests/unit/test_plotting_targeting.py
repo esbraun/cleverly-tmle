@@ -175,7 +175,7 @@ def test_band_marks_sit_at_grid_points_only(curve: Any) -> None:
 def test_the_gain_view_draws_the_scaled_toc_interval(curve: Any) -> None:
     ax = targeting(curve, view="gain").axes[0]
     assert _gain_view_is_scaled_toc(ax, curve)
-    assert "scaled by q" in _core.note_text(ax.figure)
+    assert "gap to the random line" in _core.note_text(ax.figure)
 
 
 def test_drawing_the_gain_interval_instead_fails(
@@ -232,3 +232,14 @@ def test_plot_draws_on_the_callers_axes(curve: Any) -> None:
     fig, ax = plt.subplots()
     assert curve.plot(view="toc", ax=ax) is fig
     assert _core.subtitle_text(ax).startswith("AUTOC ")
+
+
+def test_the_labels_name_the_outcome_and_the_score(curve: Any) -> None:
+    words = {curve.score: "the predicted effect"}
+    gain = targeting(curve, view="gain", outcome_label="Order share", labels=words).axes[0]
+    assert gain.get_ylabel() == "Change in order share from treating the top fraction"
+    toc = targeting(curve, outcome_label="Order share", labels=words).axes[0]
+    assert toc.get_ylabel() == "Effect on order share in the top fraction minus the average"
+    title = toc.get_title(loc="left").replace("\n", " ")
+    assert "treating by the predicted effect first" in title
+    assert f"by {curve.score} first" not in title
