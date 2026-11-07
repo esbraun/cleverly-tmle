@@ -1,4 +1,4 @@
-*It is named for TMLE's clever covariate. Even the jokes in this toolbox are targeted.*
+<p align="center"><em>It is named for TMLE's clever covariate. Even the jokes in this toolbox are targeted.</em></p>
 
 # cleverly
 
