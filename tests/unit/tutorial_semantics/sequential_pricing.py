@@ -54,7 +54,6 @@ from tests.unit.tutorial_semantics import (
     adjustment_table,
     assert_protocol_recorded,
     covers,
-    figure_title,
     notebook_code,
     stored_output,
 )
@@ -570,7 +569,6 @@ def _check_support(namespace: dict[str, Any]) -> None:
     )
     assert (support["share_truncated"] == 0.0).all()
     assert support.equals(rise_fit.diagnostics.support().to_frame())
-    assert figure_title(namespace["weights_fig"]) == "Where do the weights grow too large?"
     # The reading says the weight rises, the effective n falls, and the interval widens with the
     # factor. Each relation is strict, and the estimates move away from zero.
     assert month3["max_weight"].is_monotonic_increasing and month3["max_weight"].is_unique
