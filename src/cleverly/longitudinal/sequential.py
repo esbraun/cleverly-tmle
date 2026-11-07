@@ -397,6 +397,22 @@ class Mechanism:
     treatment_models: tuple[Any, ...] = ()
     #: By censoring node, the in-sample fitted retention model, as ``treatment_models``.
     censoring_models: tuple[Any, ...] = ()
+    #: On data that eliminates competing causes, by node, the competing factor
+    #: :math:`P(D_t = 0 \mid H_t, C_t = 1)` at each plan's arms.  :attr:`censoring` already
+    #: holds its product with the censoring factor.  Empty on every other fit.
+    competing: tuple[dict[str, FloatArray], ...] = ()
+    #: The competing factor at the observed history, one per node, as
+    #: :attr:`censoring_observed`.
+    competing_observed: tuple[FloatArray, ...] = ()
+    #: Super Learner diagnostics of the competing factor's fits.
+    competing_diagnostics: tuple[tuple[SuperLearnerDiagnostics, ...], ...] = ()
+    #: By node, the in-sample fitted competing-factor model, as ``censoring_models``.
+    competing_models: tuple[Any, ...] = ()
+    #: The nodes, counted from one, at which no eligible unit had an eliminated event, so
+    #: the competing factor is exactly one and no learner is fitted.
+    no_competing_nodes: tuple[int, ...] = ()
+    #: By node, the training folds of a cross-fitted fit with no eliminated event.
+    no_competing_folds: dict[int, tuple[int, ...]] = field(default_factory=dict)
 
     def cumulative(
         self, data: LongitudinalData, plan: Plan, bounds: tuple[float, float]
@@ -1279,8 +1295,9 @@ def fit_mechanism(
     fit_rows: BoolArray | None = None,
     hazard_pooling: str = "node",
     keep_models: bool = False,
+    competing_learner: Learner | None = None,
 ) -> Mechanism:
-    """Fit the treatment and censoring mechanisms at every node, out of fold.
+    r"""Fit the treatment and censoring mechanisms at every node, out of fold.
 
     Each node's model is fitted on the units still in the study *before* that node's
     decision -- not on the regimen's followers.  The conditioning set carries the earlier
@@ -1319,6 +1336,18 @@ def fit_mechanism(
     is not declared known (:func:`~cleverly.longitudinal.pooled_hazards.fit_pooled_censoring`).
     ``keep_models=True`` keeps each node's in-sample fitted model on the result, for a
     stacked estimating equation that reads the coefficients.  It needs the single fold.
+
+    On data that eliminates competing causes
+    (:attr:`~cleverly.longitudinal.data.LongitudinalData.eliminated`) each node's retention
+    is the product of two factors fitted separately: the censoring factor
+    :math:`P(C_t = 1 \mid H_t)` on the rows at risk, with target
+    :attr:`~cleverly.longitudinal.data.LongitudinalData.retained`, and the competing factor
+    :math:`P(D_t = 0 \mid H_t, C_t = 1)` on the rows at risk that passed the censoring node,
+    with the composite :attr:`~cleverly.longitudinal.data.LongitudinalData.uncensored` as
+    target.  ``censoring[t]`` and ``censoring_observed[t]`` hold the product, so every reader
+    of the retention reads both; the competing factor alone is kept on the ``competing``
+    fields for diagnostics and the stacked estimating equation.  ``competing_learner``
+    fits it, and ``None`` uses ``censoring_learner``.
     """
     if fit_rows is not None and not folds.is_single:
         raise ValueError("fit_rows= is one training fold's restriction; pass the single fold")
@@ -1339,6 +1368,13 @@ def fit_mechanism(
     known_censoring_nodes: list[int] = []
     treatment_models: list[Any] = []
     censoring_models: list[Any] = []
+    competing: list[dict[str, FloatArray]] = []
+    competing_observed: list[FloatArray] = []
+    competing_diagnostics: list[tuple[SuperLearnerDiagnostics, ...]] = []
+    competing_models: list[Any] = []
+    no_competing_nodes: list[int] = []
+    no_competing_folds: dict[int, tuple[int, ...]] = {}
+    competing_learner = censoring_learner if competing_learner is None else competing_learner
     # Neither factor depends on a regimen, so one scan serves every node.  `followed` is
     # unused here and the all-true assignment makes that explicit rather than implicit.
     with phase("mask_construction"):
@@ -1348,6 +1384,11 @@ def fit_mechanism(
     pooled = (
         _pooled_censoring(data, plans, fit_masks, censoring_learner, folds, n_jobs, fit_rows)
         if hazard_pooling == "pooled" and data.censoring_names
+        else None
+    )
+    pooled_competing = (
+        _pooled_competing(data, plans, fit_masks, competing_learner, folds, n_jobs, fit_rows)
+        if hazard_pooling == "pooled" and data.eliminated
         else None
     )
     for time in range(1, data.n_times + 1):
@@ -1454,59 +1495,72 @@ def fit_mechanism(
             censoring_diagnostics.append(())
             known_censoring_nodes.append(time)
             censoring_models.append(None)
-            continue
-        if pooled is not None:
+        elif pooled is not None:
             censoring.append(pooled.by_plan[time])
             censoring_observed.append(pooled.observed[time])
             censoring_diagnostics.append(pooled.diagnostics)
             if pooled.constant_folds:
                 no_censoring_folds[time] = pooled.constant_folds
             censoring_models.append(None)
-            continue
-        stayed = np.where(at_risk, data.uncensored[:, time - 1].astype(float), 0.0)
-        # No eligible unit was censored at this node, so the retention factor is exactly
-        # one and the learner has a constant target, which a standard classifier refuses.
-        # This is the first node of every default integer grid.
-        if _retains_every_eligible_unit(data, fit_at, time):
-            censoring.append({plan.label: np.ones(data.n) for plan in plans})
-            censoring_observed.append(np.ones(data.n))
-            censoring_diagnostics.append(())
-            no_censoring_nodes.append(time)
-            censoring_models.append(None)
-            continue
-        censor_designs = {
-            plan.label: data.history_design(time, treatment=plan.values, include_current=True)
-            for plan in plans
-        }
-        censor_observed_key = _internal_prediction_key(tuple(censor_designs), "observed_censoring")
-        censor_prediction_designs = {
-            **censor_designs,
-            censor_observed_key: data.history_design(time, include_current=True),
-        }
-        constant_folds: list[int] = []
-        censor_models: list[Any] | None = [] if keep_models else None
-        with phase("mechanism_fit"):
-            predictions, diagnostics = cross_fit_predictions(
-                censoring_learner,
-                data.history_design(time, include_current=True),
-                stayed,
-                data.weights,
-                folds,
-                task="classification",
-                predict_designs=censor_prediction_designs,
-                fit_mask=fit_at,
-                groups=data.cluster,
-                clip=(0.0, 1.0),
+        else:
+            factor = _retention_factor(
+                data,
+                plans,
+                time,
+                fit_at,
+                target=data.censoring_target[:, time - 1],
+                learner=censoring_learner,
+                folds=folds,
                 n_jobs=n_jobs,
-                constant_folds=constant_folds,
-                models=censor_models,
+                keep_models=keep_models,
+                key="observed_censoring",
             )
-        censoring_models.append(censor_models[0] if censor_models else None)
-        if constant_folds:
-            no_censoring_folds[time] = tuple(sorted(constant_folds))
-        censoring_observed.append(np.asarray(predictions.pop(censor_observed_key), dtype=float))
-        censoring_diagnostics.append(tuple(diagnostics))
-        censoring.append(predictions)
+            censoring.append(factor.by_plan)
+            censoring_observed.append(factor.observed)
+            censoring_diagnostics.append(factor.diagnostics)
+            censoring_models.append(factor.model)
+            if factor.constant:
+                no_censoring_nodes.append(time)
+            if factor.constant_folds:
+                no_censoring_folds[time] = factor.constant_folds
+        if not data.eliminated:
+            continue
+        # The competing factor: P(D_t = 0 | H_t, C_t = 1), on the rows that passed the
+        # censoring node.  It multiplies into the node's retention, so every reader of
+        # ``censoring`` reads the product.
+        assert data.retained is not None
+        passed = fit_at & data.retained[:, time - 1]
+        if pooled_competing is not None:
+            by_plan = pooled_competing.by_plan[time]
+            observed = pooled_competing.observed[time]
+            competing_diagnostics.append(pooled_competing.diagnostics)
+            if pooled_competing.constant_folds:
+                no_competing_folds[time] = pooled_competing.constant_folds
+            competing_models.append(None)
+        else:
+            factor = _retention_factor(
+                data,
+                plans,
+                time,
+                passed,
+                target=data.uncensored[:, time - 1],
+                learner=competing_learner,
+                folds=folds,
+                n_jobs=n_jobs,
+                keep_models=keep_models,
+                key="observed_competing",
+            )
+            by_plan, observed = factor.by_plan, factor.observed
+            competing_diagnostics.append(factor.diagnostics)
+            competing_models.append(factor.model)
+            if factor.constant:
+                no_competing_nodes.append(time)
+            if factor.constant_folds:
+                no_competing_folds[time] = factor.constant_folds
+        competing.append(by_plan)
+        competing_observed.append(observed)
+        censoring[-1] = {label: censoring[-1][label] * by_plan[label] for label in censoring[-1]}
+        censoring_observed[-1] = censoring_observed[-1] * observed
     return Mechanism(
         tuple(treatment),
         tuple(censoring),
@@ -1522,7 +1576,124 @@ def fit_mechanism(
         tuple(known_censoring_nodes),
         treatment_models=tuple(treatment_models) if keep_models else (),
         censoring_models=tuple(censoring_models) if keep_models else (),
+        competing=tuple(competing),
+        competing_observed=tuple(competing_observed),
+        competing_diagnostics=tuple(competing_diagnostics),
+        competing_models=tuple(competing_models) if keep_models else (),
+        no_competing_nodes=tuple(no_competing_nodes),
+        no_competing_folds=no_competing_folds,
     )
+
+
+@dataclass(frozen=True)
+class _Retention:
+    """One node's fitted retention factor: the censoring or the competing factor."""
+
+    by_plan: dict[str, FloatArray]
+    observed: FloatArray
+    diagnostics: tuple[SuperLearnerDiagnostics, ...]
+    model: Any
+    constant: bool
+    constant_folds: tuple[int, ...]
+
+
+def _retention_factor(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    time: int,
+    fit_at: BoolArray,
+    *,
+    target: BoolArray,
+    learner: Learner,
+    folds: Folds,
+    n_jobs: int,
+    keep_models: bool,
+    key: str,
+) -> _Retention:
+    """Fit one retention factor at ``time`` on the rows ``fit_at``, out of fold.
+
+    When no eligible row left (``target`` false), the factor is exactly one and no learner
+    is fitted: the learner would see a constant target, which a standard classifier refuses.
+    This is the first node of every default integer grid.
+    """
+    ones = np.ones(data.n)
+    if _retains_every_eligible_unit(data, fit_at, target):
+        return _Retention({plan.label: ones for plan in plans}, ones, (), None, True, ())
+    stayed = np.where(fit_at, target.astype(float), 0.0)
+    designs = {
+        plan.label: data.history_design(time, treatment=plan.values, include_current=True)
+        for plan in plans
+    }
+    observed_key = _internal_prediction_key(tuple(designs), key)
+    prediction_designs = {
+        **designs,
+        observed_key: data.history_design(time, include_current=True),
+    }
+    constant_folds: list[int] = []
+    models: list[Any] | None = [] if keep_models else None
+    with phase("mechanism_fit"):
+        predictions, diagnostics = cross_fit_predictions(
+            learner,
+            data.history_design(time, include_current=True),
+            stayed,
+            data.weights,
+            folds,
+            task="classification",
+            predict_designs=prediction_designs,
+            fit_mask=fit_at,
+            groups=data.cluster,
+            clip=(0.0, 1.0),
+            n_jobs=n_jobs,
+            constant_folds=constant_folds,
+            models=models,
+        )
+    observed = np.asarray(predictions.pop(observed_key), dtype=float)
+    return _Retention(
+        predictions,
+        observed,
+        tuple(diagnostics),
+        models[0] if models else None,
+        False,
+        tuple(sorted(constant_folds)),
+    )
+
+
+def _pooled_competing(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    fit_masks: RegimenMasks,
+    learner: Learner,
+    folds: Folds,
+    n_jobs: int,
+    fit_rows: BoolArray | None = None,
+) -> PooledCensoring:
+    r"""The pooled competing factor of data that eliminates competing causes.
+
+    One model of :math:`P(D_t = 0 \mid H_t, C_t = 1)` over every node, fitted on the rows at
+    risk that passed each node's censoring, as :func:`_pooled_censoring` pools the
+    censoring factor.
+    """
+    assert data.retained is not None
+    nodes = tuple(range(1, data.n_times + 1))
+    at_risk = {
+        time: fit_masks.uncensored[:, time - 1]
+        & fit_masks.event_free[:, time - 1]
+        & data.retained[:, time - 1]
+        for time in nodes
+    }
+    if fit_rows is not None:
+        at_risk = {time: rows & fit_rows for time, rows in at_risk.items()}
+    with phase("mechanism_fit"):
+        return fit_pooled_censoring(
+            data,
+            plans,
+            nodes,
+            at_risk,
+            learner=learner,
+            folds=folds,
+            n_jobs=n_jobs,
+            target=data.uncensored,
+        )
 
 
 def _pooled_censoring(
@@ -1553,7 +1724,14 @@ def _pooled_censoring(
         at_risk = {time: rows & fit_rows for time, rows in at_risk.items()}
     with phase("mechanism_fit"):
         return fit_pooled_censoring(
-            data, plans, nodes, at_risk, learner=learner, folds=folds, n_jobs=n_jobs
+            data,
+            plans,
+            nodes,
+            at_risk,
+            learner=learner,
+            folds=folds,
+            n_jobs=n_jobs,
+            target=data.censoring_target,
         )
 
 
@@ -1819,14 +1997,16 @@ def _unidentified_message(label: str, node: str, reason: str, count: int) -> str
     )
 
 
-def _retains_every_eligible_unit(data: LongitudinalData, at_risk: BoolArray, time: int) -> bool:
-    """Whether no unit at risk before censoring node ``time``, with positive weight, left.
+def _retains_every_eligible_unit(
+    data: LongitudinalData, at_risk: BoolArray, stayed: BoolArray
+) -> bool:
+    """Whether no unit at risk before a retention node, with positive weight, left.
 
-    A zero-weight row is in no weighted fit, so it cannot make the node's retention rate
-    differ from one.
+    ``stayed`` is the node's ``(n,)`` retention target.  A zero-weight row is in no weighted
+    fit, so it cannot make the node's retention rate differ from one.
     """
     eligible = at_risk & (data.weights > 0.0)
-    return not bool(np.any(eligible & ~data.uncensored[:, time - 1]))
+    return not bool(np.any(eligible & ~stayed))
 
 
 def _categorical_node(

@@ -155,6 +155,7 @@ _ROW_FIELDS: tuple[str, ...] = (
     "weights",
     "event",
     "cause_event",
+    "retained",
     "repeated",
     "cluster",
     "weight_spec",
@@ -177,6 +178,7 @@ _SHARED_FIELDS: tuple[str, ...] = (
     "outcome_name",
     "event_names",
     "cause_labels",
+    "eliminated",
     "censoring_names",
     "cluster_name",
     "weights_name",
@@ -428,6 +430,17 @@ class LongitudinalData:
     cause_event: BoolArray | None = None
     #: The absorbing causes, in report order; empty unless the fit declared them.
     cause_labels: tuple[str, ...] = ()
+    #: The competing causes the estimand prevents (:meth:`eliminating`), in declared
+    #: order, and empty on every other fit.  Their events are no longer events here: a
+    #: unit that had one at node ``t`` is censored at ``t``, after the censoring node and
+    #: before the event of interest (Young et al. 2020, Section 5).
+    eliminated: tuple[str, ...] = ()
+    #: ``(n, T)`` "passed the censoring node at ``t``" on a fit that eliminates competing
+    #: causes, and ``None`` otherwise.  :attr:`uncensored` is then the composite "passed
+    #: the censoring node and had no eliminated event", which every mask reads, while this
+    #: is the target of the censoring factor alone; the eliminated causes get a factor of
+    #: their own (:attr:`censoring_target`).
+    retained: BoolArray | None = None
     censoring_names: tuple[str, ...] = ()
     cluster: IntArray | None = None
     cluster_name: str | None = None
@@ -529,6 +542,7 @@ class LongitudinalData:
         treatment_probabilities: Any = None,
         censoring_probabilities: Any = None,
         dose_atoms: Mapping[str, Sequence[float]] | None = None,
+        eliminate: Sequence[str] = (),
     ) -> LongitudinalData:
         """Build from one wide dataframe: a row per unit, a column per node.
 
@@ -613,6 +627,11 @@ class LongitudinalData:
             atoms, and a piece may send an interval to one of them with
             ``Piece(lower, upper, to_atom=value)``.  A continuous node with an undeclared
             point mass is refused before any learner.
+        eliminate:
+            The competing causes to prevent, by label: the fit then reports the risk of
+            each remaining cause had the named causes been prevented, and their events are
+            treated as censoring (:meth:`eliminating`).  Needs the mapping form of
+            ``outcome=``.
         """
         if not is_dataframe(data):
             raise DataError("LongitudinalData.from_frame expects a pandas or polars DataFrame")
@@ -817,7 +836,7 @@ class LongitudinalData:
         )
         built = built.with_dose_declarations(supports, dose_atoms or {})
         if treatment_probabilities is None and censoring_probabilities is None:
-            return built
+            return built.eliminating(eliminate)
         return built._declare_known(
             treatment_probabilities=(
                 treatment_probabilities
@@ -848,7 +867,7 @@ class LongitudinalData:
             ),
             treatment_columns=treatment_columns,
             censoring_columns=censoring_columns,
-        )
+        ).eliminating(eliminate)
 
     def with_dose_declarations(
         self,
@@ -1087,6 +1106,7 @@ class LongitudinalData:
         continuous_treatment: bool = False,
         treatment_probabilities: Mapping[Any, str] | None = None,
         censoring_probabilities: str | None = None,
+        eliminate: Sequence[str] = (),
     ) -> LongitudinalData:
         """Build from a long panel: one row per unit and decision time.
 
@@ -1149,6 +1169,9 @@ class LongitudinalData:
             ``P(A_t = level | past)`` on each row.
         censoring_probabilities : str or None
             The column that holds ``P(C_t = 1 | past)`` on each row.
+        eliminate : sequence of str
+            The competing causes to prevent, by label, as :meth:`eliminating` describes.
+            Needs the mapping form of ``event=``.
 
         Returns
         -------
@@ -1231,7 +1254,7 @@ class LongitudinalData:
             continuous_treatment=continuous_treatment,
             treatment_probabilities=treatment_probabilities,
             censoring_probabilities=censoring_probabilities,
-        )
+        ).eliminating(eliminate)
 
     def to_long_panel(self) -> Any:
         """Return the long panel this container holds: one row per unit and node.
@@ -1397,6 +1420,7 @@ class LongitudinalData:
         weights_estimated: bool = False,
         continuous_treatment: bool = False,
         treatment_probabilities: Mapping[Any, str] | None = None,
+        eliminate: Sequence[str] = (),
     ) -> LongitudinalData:
         r"""Build a point-treatment survival container from one time and one event column.
 
@@ -1471,6 +1495,9 @@ class LongitudinalData:
             these probabilities at the decision node and fits no treatment learner, as
             :attr:`known_mechanisms` describes.  The columns are not covariates.  Arrays go
             to :meth:`cleverly.longitudinal.LTMLE.fit`.
+        eliminate : sequence of str
+            The competing causes to prevent, by the labels of ``causes=``, as
+            :meth:`eliminating` describes.
 
         Returns
         -------
@@ -1631,7 +1658,7 @@ class LongitudinalData:
             event_codes=tuple(int(code) for code in code_of_cause),
         )
         if not known_columns:
-            return built
+            return built.eliminating(eliminate)
         node = str(treatment)
         return built._declare_known(
             treatment_probabilities={
@@ -1639,7 +1666,7 @@ class LongitudinalData:
             },
             censoring_probabilities=None,
             treatment_columns={node: known_columns},
-        )
+        ).eliminating(eliminate)
 
     def to_time_to_event(self) -> tuple[FloatArray, IntArray]:
         """The follow-up time and event code of each unit, in grid values.
@@ -2462,6 +2489,7 @@ class LongitudinalData:
             weights=check_weights(selected, idx.size),
             event=None if self.event is None else self.event[idx],
             cause_event=None if self.cause_event is None else self.cause_event[idx],
+            retained=None if self.retained is None else self.retained[idx],
             repeated=None if self.repeated is None else self.repeated[idx],
             cluster=cluster,
             weight_spec=self.weight_spec.rescaled(self.weight_spec.scale * mean),
@@ -2632,6 +2660,12 @@ class LongitudinalData:
         """
         if not self.is_survival:
             raise DataError("with_events replaces a survival outcome, and this fit has none")
+        if self.eliminated:
+            raise DataError(
+                f"with_events draws observed events, and this data eliminates "
+                f"{list(self.eliminated)}, whose events are recoded as censoring; draw on "
+                "the data built without eliminate="
+            )
         events = np.asarray(event, dtype=bool)
         kept = np.asarray(uncensored, dtype=bool)
         shape = (self.n, self.n_times)
@@ -2759,6 +2793,109 @@ class LongitudinalData:
             raise DataError(f"the new column name {name!r} is empty or already in use")
 
     # ------------------------------------------------------------------ masks
+
+    @property
+    def censoring_target(self) -> BoolArray:
+        r"""``(n, T)`` target of the censoring factor: :attr:`retained` when set, else
+        :attr:`uncensored`.
+
+        On a fit that eliminates competing causes the node retention is the product of
+        :math:`P(C_t = 1 \mid H_t)` and :math:`P(D_t = 0 \mid H_t, C_t = 1)`.  Fitting the
+        censoring factor to the composite would count the eliminated events twice.
+        """
+        return self.uncensored if self.retained is None else self.retained
+
+    def eliminating(self, causes: Sequence[str]) -> LongitudinalData:
+        """A copy whose estimand prevents the named competing causes.
+
+        The risk of each remaining cause is then the risk under an intervention that
+        eliminates the named causes (Young, Stensrud, Tchetgen Tchetgen and Hernán 2020,
+        *Statistics in Medicine* 39(8), estimand (5), identification (20) to (23)): an
+        eliminated event becomes a censoring event.  Within a node the order is censoring,
+        then the eliminated cause, then the event of interest, so a unit whose eliminated
+        event falls in node ``t`` is censored at ``t`` and is not in the risk set of node
+        ``t``'s event.  With one remaining cause the copy is a single-cause survival fit of
+        that cause; with more it stays a competing-risk fit over the remaining causes.
+
+        Parameters
+        ----------
+        causes : sequence of str
+            The cause labels to prevent.  Empty returns the data unchanged.
+
+        Returns
+        -------
+        LongitudinalData
+            The copy, with :attr:`eliminated`, :attr:`retained` and the composite
+            :attr:`uncensored` set.
+
+        Raises
+        ------
+        DataError
+            On a fit without competing causes, on an unknown or repeated label, when every
+            cause would be eliminated, or on data that already eliminates causes.
+        """
+        named = tuple(str(cause) for cause in causes)
+        if not named:
+            return self
+        if self.eliminated:
+            raise DataError(
+                f"this data already eliminates {list(self.eliminated)}; declare every "
+                "cause to prevent in one eliminate= on the original data"
+            )
+        if not self.is_competing or self.cause_event is None:
+            raise DataError(
+                "eliminate= prevents competing causes, and this fit declares none. Declare "
+                "competing risks with outcome={cause: [...]} (or the event codes of a "
+                "TimeToEvent design), then name the causes to prevent"
+            )
+        if len(set(named)) != len(named):
+            raise DataError(f"eliminate= names a cause more than once: {list(named)}")
+        unknown = [cause for cause in named if cause not in self.cause_labels]
+        if unknown:
+            raise DataError(
+                f"eliminate= names unknown cause(s) {unknown}; this fit declares "
+                f"{list(self.cause_labels)}"
+            )
+        keep = [j for j, label in enumerate(self.cause_labels) if label not in named]
+        if not keep:
+            raise DataError(
+                "eliminate= names every cause, which leaves no event to estimate the risk "
+                "of. Keep at least one cause"
+            )
+        drop = [j for j, label in enumerate(self.cause_labels) if label in named]
+        prevented = self.cause_event[:, :, drop].any(axis=2)
+        kept_causes = self.cause_event[:, :, keep]
+        event = kept_causes.any(axis=2)
+        uncensored = self.uncensored & ~prevented
+        labels = tuple(self.cause_labels[j] for j in keep)
+        per_cause = len(self.event_names) == len(self.cause_labels) * self.n_times
+        event_names = (
+            tuple(
+                name
+                for j in keep
+                for name in self.event_names[j * self.n_times : (j + 1) * self.n_times]
+            )
+            if per_cause
+            else self.event_names
+        )
+        single = len(keep) == 1
+        names = self.censoring_names or tuple(
+            f"eliminated_exit_{node}" for node in range(1, self.n_times + 1)
+        )
+        return replace(
+            self,
+            outcome=event[:, -1].astype(float),
+            event=event,
+            event_names=event_names,
+            cause_event=None if single else kept_causes,
+            cause_labels=() if single else labels,
+            event_codes=(tuple(self.event_codes[j] for j in keep) if self.event_codes else ()),
+            outcome_name=labels[0] if single else self.outcome_name,
+            uncensored=uncensored,
+            retained=self.uncensored.copy(),
+            censoring_names=names,
+            eliminated=named,
+        )
 
     def uncensored_through(self, time: int) -> BoolArray:
         """Still under observation after every node up to and including ``time``.

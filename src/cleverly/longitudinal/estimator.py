@@ -6054,6 +6054,12 @@ class _SequentialEstimator:
                 data.baseline,
                 data.weights,
                 *data.time_varying,
+                *(() if data.retained is None else (data.retained.astype(float),)),
+                *(
+                    ()
+                    if not data.eliminated
+                    else (np.asarray([repr(cause) for cause in data.eliminated], dtype=str),)
+                ),
                 np.asarray(
                     [
                         repr(level)
