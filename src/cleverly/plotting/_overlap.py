@@ -38,8 +38,9 @@ def _mirror(
     inside: Any,
     *,
     names: tuple[str, str],
-    bounds: tuple[float, float] | None,
-) -> None:
+    bounds: list[tuple[tuple[float, float], str]],
+    peak: float | None = None,
+) -> float:
     """One arm's probability, rows of that arm above the axis and the rest below."""
     edges = np.linspace(0.0, 1.0, _BINS + 1)
     total = float(weights.sum())
@@ -59,42 +60,50 @@ def _mirror(
             linewidth=0.6,
             gid=f"cleverly-overlap-{'above' if sign > 0 else 'below'}",
         )
-        _core.corner_label(
-            ax, 0.97 if sign > 0 else 0.03, name, color, va="top" if sign > 0 else "bottom"
+        ax.annotate(
+            name,
+            xy=(0.5, 0.98 if sign > 0 else 0.02),
+            xycoords="axes fraction",
+            ha="center",
+            va="top" if sign > 0 else "bottom",
+            fontsize=_core.TICK_SIZE,
+            color=_core.INK,
+            bbox={"boxstyle": "square,pad=0.2", "facecolor": _core.FACE, "edgecolor": color},
+            gid=_core.GID_SERIES_LABEL,
         )
     ax.axhline(0.0, color=_core.SECONDARY_INK, linewidth=0.8)
-    peak = float(np.max(np.abs(ax.get_ylim())))
-    ax.set_ylim(-peak * 1.15, peak * 1.15)
+    top = float(np.max(np.abs(ax.get_ylim()))) if peak is None else peak
+    ax.set_ylim(-top * 1.2, top * 1.2)
     ax.yaxis.set_major_formatter(_absolute_percent())
     ax.set_xlim(0.0, 1.0)
-    if bounds is None:
-        return
-    low, high = bounds
-    below = float(weights[raw < low].sum()) / total
-    above = float(weights[raw > high].sum()) / total
-    for value, share, side in ((low, below, "below"), (high, above, "above")):
-        _core.reference_line(
-            ax, value, orientation="vertical", label="Limits the fit used", kind="marker"
-        )
-        ax.annotate(
-            f"{_share_text(share)} {side}",
-            xy=(value, 0.5),
-            xycoords=("data", "axes fraction"),
-            xytext=(4.0 if side == "below" else -4.0, 3.0),
-            textcoords="offset points",
-            ha="left" if side == "below" else "right",
-            va="bottom",
-            fontsize=_core.TICK_SIZE,
-            color=_core.SECONDARY_INK,
-            bbox={"boxstyle": "square,pad=0.15", "facecolor": _core.FACE, "edgecolor": "none"},
-            gid="cleverly-tail-share",
-        )
+    for index, ((low, high), label) in enumerate(bounds):
+        below = float(weights[raw < low].sum()) / total
+        above = float(weights[raw > high].sum()) / total
+        for value, share, side in ((low, below, "below"), (high, above, "above")):
+            line = _core.reference_line(
+                ax, value, orientation="vertical", label=label, kind="marker"
+            )
+            if index:
+                line.set_linestyle((0, (5, 2, 1, 2)))
+            ax.annotate(
+                f"{_share_text(share)} {side}",
+                xy=(value, 0.0),
+                xycoords=("data", "axes fraction"),
+                xytext=(3.0 if side == "below" else -3.0, 3.0 + 11.0 * index),
+                textcoords="offset points",
+                ha="left" if side == "below" else "right",
+                va="bottom",
+                fontsize=_core.TICK_SIZE,
+                color=_core.SECONDARY_INK,
+                gid="cleverly-tail-share",
+            )
+    return top
 
 
 def _absolute_percent() -> Any:
     from matplotlib.ticker import FuncFormatter
 
-    return FuncFormatter(lambda value, _: f"{abs(value) * 100:.0f}%")
+    return FuncFormatter(lambda value, _: f"{round(abs(value) * 100, 2):g}%")
 
 
 def overlap(
@@ -134,7 +143,7 @@ def overlap(
     Raises
     ------
     CapabilityError
-        When the fit estimated no treatment mechanism.
+        When the fit estimated no treatment mechanism, or is not a point-treatment fit.
     DataError
         When the treatment is continuous, which has no probability per arm.
 
@@ -169,6 +178,17 @@ def overlap(
     """
     from ..sensitivity.positivity import positivity_report
 
+    if not hasattr(result, "repeats") or not hasattr(result, "nuisance"):
+        from .._refusal import NO_ALTERNATIVE, RefusalReason
+        from ..exceptions import CapabilityError
+
+        raise CapabilityError(
+            f"overlap() draws a point-treatment fit's predicted probability of treatment; a "
+            f"{type(result).__name__} has one treatment probability per time point, which this "
+            "plot does not draw",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=NO_ALTERNATIVE,
+        )
     positivity_report(result)  # the report's own refusals: no mechanism, a continuous dose
     data = result.data
     name = treatment_label or str(data.treatment_name)
@@ -178,8 +198,7 @@ def overlap(
     weights_all = np.asarray(data.weights, dtype=float)
     recorded = np.isfinite(treatment)
     arms = tuple(float(arm) for arm in propensity.arms)
-    bounds = getattr(result.config, "g_bounds", None)
-    bound_pair = None if bounds is None else (float(bounds[0]), float(bounds[1]))
+    bounds = _limits(result)
 
     def arm_words(code: float) -> str:
         level = data.arm_label(code)
@@ -191,6 +210,15 @@ def overlap(
     shown = (arms[1],) if binary else arms
     figure_height = 4.5 if binary else 1.0 + 2.4 * len(shown)
     fig, axes = _core.new_figure(len(shown), figsize=(7.0, figure_height), sharex=True)
+    edges = np.linspace(0.0, 1.0, _BINS + 1)
+    weights = weights_all[recorded]
+    peak = 0.0
+    for arm in shown:
+        raw = raw_all[recorded, propensity.column_for(arm)]
+        inside = treatment[recorded] == arm
+        for mask in (inside, ~inside):
+            counts, _ = np.histogram(raw[mask], bins=edges, weights=weights[mask])
+            peak = max(peak, float(counts.max(initial=0.0)) / float(weights.sum()))
     for axis, arm in zip(axes, shown, strict=True):
         raw = raw_all[recorded, propensity.column_for(arm)]
         inside = treatment[recorded] == arm
@@ -198,32 +226,71 @@ def overlap(
         _mirror(
             axis,
             raw,
-            weights_all[recorded],
+            weights,
             inside,
             names=(f"Units with {arm_words(arm)}", f"Units with {rest}"),
-            bounds=bound_pair,
+            bounds=bounds,
+            peak=peak,
         )
         axis.set_ylabel("Share of units")
         axis.set_xlabel(f"Predicted probability of {arm_words(arm)}")
-    _core.legend(axes[0])
+    predictions = (
+        "Out-of-fold predictions"
+        if getattr(result.config, "cross_fit", True)
+        else "In-sample predictions (the fit was not cross-fitted)"
+    )
+    weighted = float(np.ptp(weights_all)) != 0.0
     _core.header(
         axes[0],
         title or "Predicted probability of treatment, by group",
-        "Out-of-fold predictions before the limits were applied"
-        + ("" if float(np.ptp(weights_all)) == 0.0 else "; bars weighted by the data's weights"),
+        f"{predictions}, before the limits were applied"
+        + ("; bars weighted by the data's weights" if weighted else ""),
     )
     found = []
     if len(result.repeats) > 1:
         found.append(
             f"The fit has {len(result.repeats)} cross-fitting repeats; this figure shows the first."
         )
-    if bound_pair is not None:
+    if bounds:
         found.append(
-            "The limits are those used for the average effect; the share of units beyond "
-            "each is printed beside it."
+            "The share of units beyond each limit is printed at its foot"
+            + (", weighted by the data's weights." if weighted else ".")
+        )
+    if not binary:
+        found.append(
+            "Each panel compares one arm with the rest; blue is that arm and orange the rest "
+            "in every panel."
         )
     _core.notes(axes[-1], found)
     return fig
+
+
+def _limits(result: Any) -> list[tuple[tuple[float, float], str]]:
+    """The limit pairs the reported estimates used, each with its key entry.
+
+    The ATT and ATC divide by the other arm's probability under their own, conditional
+    limits; every other estimate uses the fit's marginal pair.
+    """
+    config = result.config
+    stems = {str(name).split("[")[0].split("_")[0] for name in result.estimates}
+    conditional = stems & {"att", "atc"}
+    marginal = stems - {"att", "atc"}
+    found: list[tuple[tuple[float, float], str]] = []
+    pair = getattr(config, "g_bounds", None)
+    if marginal and pair is not None:
+        found.append(((float(pair[0]), float(pair[1])), "Limits for the average effect"))
+    pair = getattr(config, "g_bounds_conditional", None)
+    if conditional and pair is not None:
+        pair = (float(pair[0]), float(pair[1]))
+        if not found or found[0][0] != pair:
+            words = " and ".join(
+                {"att": "the treated", "atc": "the untreated"}[stem]
+                for stem in sorted(conditional, reverse=True)
+            )
+            found.append((pair, f"Limits for the effect among {words}"))
+        else:
+            found[0] = (pair, "Limits the fit used")
+    return found
 
 
 __all__ = ["overlap"]

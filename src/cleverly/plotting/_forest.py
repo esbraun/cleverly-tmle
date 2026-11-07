@@ -8,6 +8,7 @@ ratios on a log axis around 1, and arm means with no null line.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -28,6 +29,32 @@ class _Row:
     interval: _core.Interval
     scale: str
     outcome: str | None
+    #: Whether the scale's no-effect value exists under the estimate's transform.
+    null_defined: bool = True
+    #: Which item the row came from; the numbers of one item share their decimals.
+    source: int = 0
+
+
+def _null_defined(estimate: Any) -> bool:
+    """Whether the default no-effect value maps through the estimate's transform."""
+    import numpy as np
+
+    transform = getattr(estimate, "transform", None)
+    if transform is None:
+        return True
+    default = 1.0 if str(estimate.scale) == "ratio" else 0.0
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return bool(np.isfinite(float(transform.forward(default))))
+
+
+def _row(label: str, estimate: Any, outcome: str | None) -> _Row:
+    return _Row(
+        label,
+        _core.estimate_interval(estimate, label),
+        str(estimate.scale),
+        outcome,
+        _null_defined(estimate),
+    )
 
 
 def _is_estimate(item: Any) -> bool:
@@ -52,9 +79,7 @@ def _result_rows(result: Any, prefix: str | None) -> list[_Row]:
     rows = []
     for name, estimate in estimates.items():
         label = str(name) if prefix is None else f"{prefix}: {name}"
-        rows.append(
-            _Row(label, _core.estimate_interval(estimate, label), str(estimate.scale), outcome)
-        )
+        rows.append(_row(label, estimate, outcome))
     return rows
 
 
@@ -62,7 +87,7 @@ def _expand(item: Any, label: str | None, several: bool) -> list[_Row]:
     """The rows one argument contributes."""
     if _is_estimate(item):
         name = label or str(item.name)
-        return [_Row(name, _core.estimate_interval(item, name), str(item.scale), None)]
+        return [_row(name, item, None)]
     if hasattr(item, "results") and hasattr(item, "levels"):  # TMLEResultSet
         levels = item.levels
         if len(levels) == 1:
@@ -77,14 +102,7 @@ def _expand(item: Any, label: str | None, several: bool) -> list[_Row]:
         prefix = label if label is not None else (_method(item) if several else None)
         if len(item.estimates) == 1 and prefix is not None:
             ((name, estimate),) = item.estimates.items()
-            return [
-                _Row(
-                    prefix,
-                    _core.estimate_interval(estimate, prefix),
-                    str(estimate.scale),
-                    _outcome(item),
-                )
-            ]
+            return [_row(prefix, estimate, _outcome(item))]
         return _result_rows(item, prefix)
     if isinstance(item, Mapping):
         rows = []
@@ -122,6 +140,8 @@ def _question(items: Sequence[Any]) -> str | None:
     if not question:
         return None
     text = " ".join(str(question).split())
+    # The summary defines its rows in a table below; the figure has no such table.
+    text = text.removesuffix("; each row is defined below")
     return text[:1].upper() + text[1:]
 
 
@@ -213,7 +233,8 @@ def forest(
     several = len(items) > 1
     rows: list[_Row] = []
     for index, item in enumerate(items):
-        rows.extend(_expand(item, None if labels is None else labels[index], several))
+        found = _expand(item, None if labels is None else labels[index], several)
+        rows.extend(dataclasses.replace(row, source=index) for row in found)
     scales = sorted({row.scale for row in rows}, key=_scale_rank)
     if ax is not None and len(scales) > 1:
         raise ValueError(
@@ -221,6 +242,15 @@ def forest(
             "panels; omit ax= or pass the estimates of one scale"
         )
     groups = [[row for row in rows if row.scale == scale] for scale in scales]
+    for scale, group in zip(scales, groups, strict=True):
+        levels = {round(row.interval.level, 12) for row in group}
+        if len(levels) > 1:
+            shown = ", ".join(_core.level_text(level) for level in sorted(levels))
+            raise ValueError(
+                f"the {scale} estimates use different confidence levels ({shown}), which one "
+                "panel cannot label; refit at one level or plot them separately"
+            )
+    texts = _number_texts(rows)
     if ax is None:
         heights = [max(1.0, 0.42 * len(group) + 0.9) for group in groups]
         fig, axes = _core.new_figure(
@@ -232,19 +262,61 @@ def forest(
         fig, axis = _core.figure_for(ax)
         axes = [axis]
     for axis, scale, group in zip(axes, scales, groups, strict=True):
-        _panel(axis, scale, group, units)
+        _panel(axis, scale, group, units, [texts[id(row)] for row in group])
     question = subtitle if subtitle is not None else _question(items)
-    _core.legend(axes[0], sources=axes)
-    _core.header(axes[0], title or "Estimated effects", question)
-    _core.notes(axes[-1], [note for row in rows for note in row.interval.notes])
+    _core.header(axes[0], title or "Estimated effects", question, key_sources=axes)
+    _core.notes(axes[-1], _merged_notes(rows))
     return fig
+
+
+def _merged_notes(rows: Sequence[_Row]) -> list[str]:
+    """Each row's notes, with rows that share a statement named together once."""
+    names: dict[str, list[str]] = {}
+    for row in rows:
+        for note in row.interval.notes:
+            statement = note.removeprefix(f"{row.label}: ")
+            if statement == note:
+                names.setdefault(note, [])
+            else:
+                names.setdefault(statement, []).append(row.label)
+    return [
+        f"{', '.join(dict.fromkeys(labels))}: {statement}" if labels else statement
+        for statement, labels in names.items()
+    ]
 
 
 def _scale_rank(scale: str) -> int:
     return _SCALE_ORDER.index(scale) if scale in _SCALE_ORDER else len(_SCALE_ORDER)
 
 
-def _panel(ax: Axes, scale: str, rows: Sequence[_Row], units: str | None) -> None:
+def _number_texts(rows: Sequence[_Row]) -> dict[int, str]:
+    """Each row's estimate and interval text, with decimals shared across one item's rows.
+
+    The printed summary takes its decimals over a result's whole estimates table, so the rows
+    of one item share them across panels.
+    """
+    nan = float("nan")
+    found: dict[int, str] = {}
+    for source in sorted({row.source for row in rows}):
+        group = [row for row in rows if row.source == source]
+        spreads = [row.interval.std_error for row in group]
+        values = [row.interval.psi for row in group]
+        lowers = [nan if row.interval.lower is None else row.interval.lower for row in group]
+        uppers = [nan if row.interval.upper is None else row.interval.upper for row in group]
+        texts = _core.format_values([*values, *lowers, *uppers], spreads)
+        count = len(group)
+        for index, row in enumerate(group):
+            if row.interval.drawn:
+                text = f"{texts[index]} [{texts[count + index]}, {texts[2 * count + index]}]"
+            else:
+                text = f"{texts[index]} (no interval)"
+            found[id(row)] = text
+    return found
+
+
+def _panel(
+    ax: Axes, scale: str, rows: Sequence[_Row], units: str | None, texts: Sequence[str]
+) -> None:
     """One scale's rows on one axes."""
     _core.style_axes(ax, grid="x")
     color = _core.PALETTE[0]
@@ -277,7 +349,7 @@ def _panel(ax: Axes, scale: str, rows: Sequence[_Row], units: str | None) -> Non
             zorder=3,
         )
     null = _core.null_for(scale)
-    if null is not None:
+    if null is not None and all(row.null_defined for row in rows):
         _core.reference_line(ax, null, orientation="vertical", label="No effect")
     if scale == "ratio":
         _core.log_axis(ax, "x")
@@ -288,21 +360,17 @@ def _panel(ax: Axes, scale: str, rows: Sequence[_Row], units: str | None) -> Non
     outcomes = {row.outcome for row in rows}
     outcome = outcomes.pop() if len(outcomes) == 1 else None
     ax.set_xlabel(_axis_label(scale, outcome, units))
-    _numbers(ax, rows, positions)
+    _numbers(ax, rows, positions, texts)
 
 
-def _numbers(ax: Axes, rows: Sequence[_Row], positions: Sequence[int]) -> None:
+def _numbers(
+    ax: Axes, rows: Sequence[_Row], positions: Sequence[int], texts: Sequence[str]
+) -> None:
     """The estimate and interval of each row, in a text column right of the axes."""
-    spreads = [row.interval.std_error for row in rows]
-    values = [row.interval.psi for row in rows]
-    nan = float("nan")
-    lowers = [nan if row.interval.lower is None else row.interval.lower for row in rows]
-    uppers = [nan if row.interval.upper is None else row.interval.upper for row in rows]
-    texts = _core.format_values([*values, *lowers, *uppers], spreads)
-    count = len(rows)
     level = _core.level_text(rows[0].interval.level)
+    any_interval = any(row.interval.drawn for row in rows)
     ax.annotate(
-        f"estimate [{level} CI]",
+        f"estimate [{level} CI]" if any_interval else "estimate",
         xy=(1.02, 1.0),
         xycoords="axes fraction",
         ha="left",
@@ -311,11 +379,7 @@ def _numbers(ax: Axes, rows: Sequence[_Row], positions: Sequence[int]) -> None:
         color=_core.SECONDARY_INK,
         gid="cleverly-number-header",
     )
-    for index, (y, row) in enumerate(zip(positions, rows, strict=True)):
-        if row.interval.drawn:
-            text = f"{texts[index]} [{texts[count + index]}, {texts[2 * count + index]}]"
-        else:
-            text = f"{texts[index]} (no interval)"
+    for y, text in zip(positions, texts, strict=True):
         ax.annotate(
             text,
             xy=(1.02, y),
