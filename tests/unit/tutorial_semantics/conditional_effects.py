@@ -12,6 +12,8 @@ from typing import Any
 
 import numpy as np
 
+from tests.unit.tutorial_semantics import figure_title
+
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
 REFIT_CELLS = ("stability",)
@@ -136,6 +138,7 @@ def check(namespace: dict[str, Any]) -> None:
     """The conditional-effects tutorial's claims hold at the displayed sample size."""
     _check_confounding(namespace)
     _check_curve(namespace)
+    assert figure_title(namespace["curve_fig"]) == "Conditional effect by age"
     _check_assessment(namespace)
     _check_targeting(namespace)
     _check_score(namespace)
