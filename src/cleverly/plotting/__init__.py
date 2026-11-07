@@ -15,6 +15,7 @@ function                question
 :func:`forest`          the estimates of one or several fits, with their intervals
 :func:`curve`           how a result changes over time, dose, policy or modifier
 :func:`sensitivity`     does the estimate depend on a declared sensitivity parameter?
+:func:`confounding`     how strong would hidden confounding need to be?
 :func:`overlap`         did every kind of unit have a chance of each treatment?
 :func:`weights`         at which time point do a longitudinal fit's weights grow too large?
 :func:`balance`         did weighting make treated and untreated units alike on each covariate?
@@ -30,6 +31,7 @@ function                question
 
 from __future__ import annotations
 
+from ._confounding import confounding
 from ._core import PALETTE, style
 from ._curves import curve
 from ._diagnostics import bootstrap, calibration, influence, learners, repeats
@@ -44,6 +46,7 @@ __all__ = [
     "balance",
     "bootstrap",
     "calibration",
+    "confounding",
     "curve",
     "forest",
     "influence",

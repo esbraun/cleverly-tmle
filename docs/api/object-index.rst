@@ -308,6 +308,7 @@ categorized API tables.
    cleverly.plotting.forest
    cleverly.plotting.curve
    cleverly.plotting.sensitivity
+   cleverly.plotting.confounding
    cleverly.plotting.overlap
    cleverly.plotting.weights
    cleverly.plotting.balance
