@@ -1114,7 +1114,7 @@ class TestOverTime:
         diff, counts = fig.axes
         assert len(lines(diff, "cleverly-curve")) == 1
         assert [t.get_text() for t in counts.get_yticklabels()] == ["always", "never"]
-        with pytest.raises(ValueError, match="none of them is between the regimens"):
+        with pytest.raises(ValueError, match="selects no contrast of this fit"):
             curve(result, regimens=["always", "first"])
         with pytest.raises(ValueError, match="unknown regimen"):
             curve(result, regimens=["sometimes"])

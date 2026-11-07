@@ -489,8 +489,8 @@ def _select(
         contrasts = [name for name in contrasts if name in wanted]
     if contrast_only and not contrasts:
         raise ValueError(
-            f"this fit reports only contrasts between regimens, and none of them is between "
-            f"the regimens {chosen}; pass at least two of {found}"
+            f"regimens={chosen} selects no contrast of this fit, because none of its "
+            f"contrasts is between those regimens; pass at least two of {found}"
         )
     if len(contrasts) > _core.MAX_SERIES:
         raise ValueError(

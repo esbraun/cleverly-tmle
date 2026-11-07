@@ -778,8 +778,10 @@ def _key_columns(ax: Axes, labels: Sequence[str]) -> int:
     A key wider than its axes runs into the text beside it, such as a forest plot's number
     column. Widths are estimated from the label lengths at the key's font size.
     """
-    fig = ax.figure
-    width = ax.get_position().width * fig.get_figwidth() * 72.0
+    fig = ax.get_figure(root=True)
+    width = (
+        ax.get_position().width * float(fig.get_size_inches()[0]) if fig is not None else 7.0 * 72.0
+    )
     per_char = TICK_SIZE * 0.55
     handle = TICK_SIZE * (1.8 + 0.8)
     gap = TICK_SIZE * 1.4
