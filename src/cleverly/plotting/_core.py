@@ -51,6 +51,9 @@ GID_SUBTITLE: Final = "cleverly-subtitle"
 GID_NOTES: Final = "cleverly-notes"
 GID_SERIES_LABEL: Final = "cleverly-series-label"
 GID_SWATCH: Final = "cleverly-swatch"
+#: The figure-level title and key that :func:`figure_header` writes.
+GID_TITLE: Final = "cleverly-title"
+GID_KEY: Final = "cleverly-key"
 
 #: Point sizes of the text roles.
 TITLE_SIZE: Final = 12.0
@@ -269,7 +272,9 @@ def wrap(text: str, ax: Axes, size: float) -> str:
         figure = figure.figure
     width_inches = float(figure.get_figwidth()) * 0.94
     characters = max(30, int(width_inches * 72.0 / (size * 0.52)))
-    return "\n".join(textwrap.fill(part, characters) for part in text.split("\n"))
+    return "\n".join(
+        textwrap.fill(part, characters, break_on_hyphens=False) for part in text.split("\n")
+    )
 
 
 def header(
@@ -333,7 +338,9 @@ def header(
 
 
 def subtitle_text(ax: Axes) -> str | None:
-    """The subtitle :func:`header` wrote on ``ax``, as one line, or ``None``.
+    """The subtitle :func:`header` wrote on ``ax``, or :func:`figure_header` on its figure.
+
+    The subtitle is returned as one line, or ``None`` when there is none.
 
     Parameters
     ----------
@@ -345,7 +352,7 @@ def subtitle_text(ax: Axes) -> str | None:
     str or None
         The subtitle with its line breaks joined by spaces.
     """
-    for text in ax.texts:
+    for text in [*ax.texts, *_root(ax).texts]:
         if text.get_gid() == GID_SUBTITLE:
             return " ".join(text.get_text().split())
     return None
@@ -399,10 +406,216 @@ def note_text(fig: Figure) -> str:
     str
         The notes, or an empty string.
     """
-    parts = [
-        text.get_text() for axis in fig.axes for text in axis.texts if text.get_gid() == GID_NOTES
-    ]
+    texts = [*(text for axis in fig.axes for text in axis.texts), *fig.texts]
+    parts = [text.get_text() for text in texts if text.get_gid() == GID_NOTES]
     return " ".join(" ".join(parts).split())
+
+
+# ----------------------------------------------------------------------- figure-level text
+#
+# header() and notes() write on one axes, so the layout engine counts the text's width
+# against that axes' column. In a figure with several columns of panels a long title or
+# note then squeezes its column and pushes the next one off the page. The figure-level
+# pair below writes the same roles as figure texts anchored at the figure's left edge,
+# leaves them out of the layout, and reserves their height through the layout rect.
+
+#: Left edge of figure-level text, in figure fraction (the edge notes() uses too).
+_FIGURE_LEFT: Final = 0.015
+#: Space between the figure's edge and its text, and between text blocks, in points.
+_EDGE_PAD: Final = 6.0
+_GAP: Final = 4.0
+
+
+def _root(ax: Any) -> Any:
+    """The root figure of an axes or a subfigure."""
+    figure: Any = ax.figure if hasattr(ax, "figure") else ax
+    while not hasattr(figure, "get_figwidth"):
+        figure = figure.figure
+    return figure
+
+
+def _text_height(text: str, size: float) -> float:
+    """The height in points of ``text`` at ``size``, at matplotlib's 1.2 line spacing."""
+    lines = text.count("\n") + 1
+    return size * (1.0 + 1.2 * (lines - 1)) + 0.3 * size
+
+
+def _reserve(fig: Figure, *, top: float | None = None, bottom: float | None = None) -> None:
+    """Keep the top or bottom band of ``fig`` free of panels, in figure fraction.
+
+    The band of the side not named is kept as it is, so the header and the notes can be
+    written in either order.
+    """
+    engine: Any = fig.get_layout_engine()
+    settings = engine.get() if engine is not None else {}
+    rect = settings.get("rect")
+    if rect is not None and type(engine).__name__ == "ConstrainedLayoutEngine":
+        left, low, width, height = (float(value) for value in rect)
+        high = low + height
+        low = bottom if bottom is not None else low
+        high = 1.0 - top if top is not None else high
+        engine.set(rect=(left, low, width, high - low))
+    elif rect is not None:  # the tight layout engine reads (left, bottom, right, top)
+        left, low, right, high = (float(value) for value in rect)
+        low = bottom if bottom is not None else low
+        high = 1.0 - top if top is not None else high
+        engine.set(rect=(left, low, right, high))
+    else:
+        settings = {}
+        if top is not None:
+            settings["top"] = 1.0 - top
+        if bottom is not None:
+            settings["bottom"] = bottom
+        fig.subplots_adjust(**settings)
+
+
+def figure_header(
+    fig: Figure,
+    title: str,
+    subtitle: str | None = None,
+    *,
+    key_sources: Sequence[Axes] | None = None,
+) -> None:
+    """Write the title, subtitle and key of a figure with several columns of panels.
+
+    The figure-level counterpart of :func:`header`, with the same roles and inks. The title,
+    the subtitle and the key (the labelled artists of ``key_sources``, as :func:`legend`
+    collects them) are written at the figure's left edge, wrapped to the figure's width and
+    left out of the layout, and the layout engine's ``rect`` is lowered at the top by their
+    height, so no panel is squeezed by text wider than its column. Use it, with
+    :func:`figure_notes`, for a figure the plot created; :func:`header` stays the call for
+    one axes. Call it after every labelled artist is drawn.
+
+    Parameters
+    ----------
+    fig : Figure
+        The figure; a constrained-layout figure from :func:`new_figure`, or any figure.
+    title : str
+        The title (the question).
+    subtitle : str or None, default=None
+        The estimand or the headline number.
+    key_sources : sequence of Axes or None, default=None
+        The panels whose labelled artists the key lists; every axes of ``fig`` when omitted.
+    """
+    height = float(fig.get_figheight()) * 72.0
+    cursor = _EDGE_PAD
+
+    def place(text: str, size: float, **style: Any) -> float:
+        wrapped = wrap(text, fig, size)  # type: ignore[arg-type]  # a figure has .figure too
+        fig.text(
+            _FIGURE_LEFT,
+            1.0 - cursor / height,
+            wrapped,
+            ha="left",
+            va="top",
+            fontsize=size,
+            **style,
+        ).set_in_layout(False)
+        return _text_height(wrapped, size)
+
+    cursor += place(title, TITLE_SIZE, fontweight="bold", color=INK, gid=GID_TITLE) + _GAP
+    if subtitle:
+        cursor += place(subtitle, SUBTITLE_SIZE, color=SECONDARY_INK, gid=GID_SUBTITLE) + _GAP
+    handles, labels = _key_entries(key_sources if key_sources is not None else fig.axes)
+    if handles:
+        columns = min(len(handles), 3)
+        key = fig.legend(
+            handles,
+            labels,
+            loc="upper left",
+            bbox_to_anchor=(_FIGURE_LEFT, 1.0 - cursor / height),
+            bbox_transform=fig.transFigure,
+            ncol=columns,
+            frameon=False,
+            fontsize=TICK_SIZE,
+            labelcolor=INK,
+            borderaxespad=0.0,
+            borderpad=0.0,
+            handlelength=1.8,
+            columnspacing=1.4,
+        )
+        key.set_in_layout(False)
+        key.set_gid(GID_KEY)
+        cursor += math.ceil(len(handles) / columns) * TICK_SIZE * 1.45 + _GAP
+    _reserve(fig, top=(cursor + _GAP) / height)
+
+
+def figure_notes(fig: Figure, lines: Sequence[str]) -> None:
+    """Write the note lines at the bottom of a figure with several columns of panels.
+
+    The figure-level counterpart of :func:`notes`: the same roles and ink, written at the
+    figure's left edge, wrapped to the figure's width and left out of the layout, with the
+    layout engine's ``rect`` raised at the bottom by their height. :func:`note_text` reads
+    them.
+
+    Parameters
+    ----------
+    fig : Figure
+        The figure.
+    lines : sequence of str
+        The notes, in order. Duplicates are dropped.
+    """
+    distinct = list(dict.fromkeys(line for line in lines if line))
+    if not distinct:
+        return
+    height = float(fig.get_figheight()) * 72.0
+    characters = max(30, int(float(fig.get_figwidth()) * 0.94 * 72.0 / (NOTE_SIZE * 0.52)))
+    text = "\n".join(
+        "\n".join(
+            textwrap.fill(part, characters, break_on_hyphens=False) for part in line.split("\n")
+        )
+        for line in distinct
+    )
+    fig.text(
+        _FIGURE_LEFT,
+        _EDGE_PAD / height,
+        text,
+        ha="left",
+        va="bottom",
+        fontsize=NOTE_SIZE,
+        color=SECONDARY_INK,
+        gid=GID_NOTES,
+    ).set_in_layout(False)
+    _reserve(fig, bottom=(_EDGE_PAD + _text_height(text, NOTE_SIZE) + 2.0 * _GAP) / height)
+
+
+def title_text(fig: Figure) -> str:
+    """The title of a figure a plot drew, as one line.
+
+    Parameters
+    ----------
+    fig : Figure
+        The figure.
+
+    Returns
+    -------
+    str
+        The :func:`figure_header` title, else the first axes' left title, else ``""``.
+    """
+    for text in fig.texts:
+        if text.get_gid() == GID_TITLE:
+            return " ".join(text.get_text().split())
+    if fig.axes:
+        return " ".join(fig.axes[0].get_title(loc="left").split())
+    return ""
+
+
+def key_labels(fig: Figure) -> list[str]:
+    """Every key entry of a figure: the axes keys of :func:`legend`, then the figure key.
+
+    Parameters
+    ----------
+    fig : Figure
+        The figure.
+
+    Returns
+    -------
+    list of str
+        The entries in drawing order.
+    """
+    keys = [axis.get_legend() for axis in fig.axes]
+    found = [key for key in keys if key is not None] + list(fig.legends)
+    return [text.get_text() for key in found for text in key.get_texts()]
 
 
 def reference_line(
@@ -465,21 +678,15 @@ def legend(ax: Axes, *, sources: Sequence[Axes] | None = None) -> None:
     sources : sequence of Axes or None, default=None
         The axes whose labelled artists the key lists; ``ax`` alone when omitted.
     """
-    handles: list[Any] = []
-    labels: list[str] = []
-    for axis in sources or [ax]:
-        found, names = axis.get_legend_handles_labels()
-        handles.extend(found)
-        labels.extend(names)
+    handles, labels = _key_entries(sources or [ax])
     if not handles:
         return
-    unique = dict(zip(labels, handles, strict=True))
     ax.legend(
-        list(unique.values()),
-        list(unique.keys()),
+        handles,
+        labels,
         loc="lower left",
         bbox_to_anchor=(0.0, 1.0),
-        ncol=min(len(unique), 3),
+        ncol=min(len(handles), 3),
         frameon=False,
         fontsize=TICK_SIZE,
         labelcolor=INK,
@@ -488,6 +695,16 @@ def legend(ax: Axes, *, sources: Sequence[Axes] | None = None) -> None:
         handlelength=1.8,
         columnspacing=1.4,
     )
+
+
+def _key_entries(sources: Sequence[Axes]) -> tuple[list[Any], list[str]]:
+    """The labelled artists of ``sources``, one handle per distinct label, in order."""
+    unique: dict[str, Any] = {}
+    for axis in sources:
+        found, names = axis.get_legend_handles_labels()
+        for handle, name in zip(found, names, strict=True):
+            unique[name] = handle  # first position, last handle, as dict(zip()) gave
+    return list(unique.values()), list(unique.keys())
 
 
 def end_label(ax: Axes, x: float, y: float, text: str, color: str) -> None:
@@ -990,6 +1207,7 @@ __all__ = [
     "FIGSIZE",
     "GID_BAND",
     "GID_INTERVAL",
+    "GID_KEY",
     "GID_MARKER",
     "GID_NOTES",
     "GID_POINT",
@@ -998,6 +1216,7 @@ __all__ = [
     "GID_SERIES_LABEL",
     "GID_SUBTITLE",
     "GID_SWATCH",
+    "GID_TITLE",
     "GRID",
     "INK",
     "INSTALL_HINT",
@@ -1014,10 +1233,13 @@ __all__ = [
     "estimand_words",
     "estimate_interval",
     "figure_for",
+    "figure_header",
+    "figure_notes",
     "finite",
     "format_values",
     "header",
     "interval_label",
+    "key_labels",
     "legend",
     "level_text",
     "log_axis",
@@ -1033,5 +1255,6 @@ __all__ = [
     "style",
     "style_axes",
     "subtitle_text",
+    "title_text",
     "wrap",
 ]

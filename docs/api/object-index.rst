@@ -302,4 +302,9 @@ categorized API tables.
    cleverly.plotting.forest
    cleverly.plotting.sensitivity
    cleverly.plotting.overlap
+   cleverly.plotting.calibration
+   cleverly.plotting.learners
+   cleverly.plotting.repeats
+   cleverly.plotting.bootstrap
+   cleverly.plotting.influence
    cleverly.plotting.style
