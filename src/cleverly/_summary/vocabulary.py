@@ -4353,9 +4353,10 @@ TARGETING_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "caution."
         ),
         "targeting_gain_interval": (
-            "The interval drawn at each gain is the TOC interval scaled by q: the uncertainty "
-            "of the gap to the line q times the average effect. The interval of the gain "
-            "itself is in to_frame()."
+            "The gap of the gain to the line q times the average effect is q times the TOC, so "
+            "its interval is the TOC interval scaled by q; the gain view of the plot draws "
+            "that one. The gain rows of to_frame() carry the interval of the gain itself, "
+            "which also holds the uncertainty of the average effect."
         ),
     }
 )

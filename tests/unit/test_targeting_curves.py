@@ -190,6 +190,52 @@ def test_the_exact_law_gives_the_hand_computed_truths() -> None:
     assert truths[("autoc", 1.0)] > 0.3 and truths[("qini", 1.0)] > 0.1
 
 
+def _edges_read_tied(curve: Any) -> bool:
+    """On the exact law, ``S = W1`` has five blocks of 80 rows, so the cuts at q = 0.2, 0.4,
+    0.6 and 0.8 fall exactly on block edges, where the limit is not normal (D3)."""
+    for row in curve.rows("toc"):
+        if row["q"] in (0.2, 0.4, 0.6, 0.8):
+            if not (row["tied_cut"] and math.isnan(row["tie_share"])):
+                return False
+            if "edge of a tied block" not in row["status_reason"]:
+                return False
+    return True
+
+
+@_quiet
+def test_a_cut_at_the_edge_of_a_tied_block_reads_tied() -> None:
+    curve = _exact_curve()
+    assert _edges_read_tied(curve)
+    assert all(row["status"] == "experimental" for row in curve.rows("toc") if row["q"] == 0.4)
+
+
+@_quiet
+def test_reading_only_cuts_inside_a_block_misses_the_edges(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutation control: the strict-inside rule leaves every edge cut reading untied."""
+
+    def strict(layout: Any, mass: Any, grid: Any) -> dict[float, Any]:
+        order = layout.order
+        m = tc._block_sums(mass[order], layout.starts)
+        counts = np.diff(np.append(layout.starts, order.size)).astype(float)
+        b = np.cumsum(m)
+        out = {}
+        for q in grid:
+            share = tc._shares(m, b - m, b[-1:], q, "average")
+            inside = np.flatnonzero((share > 0.0) & (share < 1.0))
+            tied = bool(inside.size and counts[inside[0]] > 1)
+            out[q] = tc._CutFact(
+                float(np.sum(counts * share)),
+                tied,
+                float(share[inside[0]]) if tied else float("nan"),
+            )
+        return out
+
+    monkeypatch.setattr(tc, "_cut_facts", strict)
+    assert not _edges_read_tied(_exact_curve())
+
+
 @pytest.mark.parametrize("mutation", ["ascending", "at_or_above", "h_k", "uncentred_qini"])
 @_quiet
 def test_each_rank_rule_mutation_moves_a_truth(

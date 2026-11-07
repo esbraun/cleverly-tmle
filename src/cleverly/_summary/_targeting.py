@@ -162,6 +162,8 @@ def _notes(curve: Any, level: str) -> list[Any]:
                 ),
             )
         )
+    # The gain rows (the frame, and the full report) carry the gain's own interval (plan 5.1).
+    notes.append(note("targeting_gain_interval", vocabulary.NOTE_TEXTS["targeting_gain_interval"]))
     shown = curve.rows("toc") + curve.rows("autoc") + curve.rows("qini")
     if any(_withheld(row) for row in shown):
         notes.append(

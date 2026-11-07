@@ -150,6 +150,9 @@ REASONS: Final[Mapping[str, str]] = {
         "population cut falls strictly inside the mass of one score value, not at its edge, and "
         "the data cannot tell the two apart"
     ),
+    "tied_edge": (
+        "the cut falls at the edge of a tied block of the score, where the limit is not normal"
+    ),
     "atoms": (
         "the tie rule for a continuous score with atoms rests on the source's unproved "
         "statement (Yadlowsky et al., Appendix A.2)"
@@ -1209,9 +1212,18 @@ def targeting_fit(
 
 @dataclass(frozen=True)
 class _CutFact:
+    """``tied`` is set when the cut falls inside a tied block (``share`` is its share above the
+    cut) or exactly at the edge of one (``share`` is NaN): either way the score has an atom at
+    the cut, which D1 excludes."""
+
     rows_in_top: float
     tied: bool
     share: float
+
+    @property
+    def code(self) -> str:
+        """The row reason of a tied cut: inside a block, or at its edge."""
+        return "tied_cut" if math.isfinite(self.share) else "tied_edge"
 
 
 def _cut_facts(layout: _Layout, mass: FloatArray, grid: Sequence[float]) -> dict[float, _CutFact]:
@@ -1227,8 +1239,16 @@ def _cut_facts(layout: _Layout, mass: FloatArray, grid: Sequence[float]) -> dict
         share = _shares(m, a, total, q, "average")
         rows = float(np.sum(counts * share))
         inside = np.flatnonzero((share > 0.0) & (share < 1.0))
-        tied = bool(inside.size and counts[inside[0]] > 1)
-        out[q] = _CutFact(rows, tied, float(share[inside[0]]) if tied else float("nan"))
+        if inside.size:
+            tied = bool(counts[inside[0]] > 1)
+            out[q] = _CutFact(rows, tied, float(share[inside[0]]) if tied else float("nan"))
+            continue
+        # The cut sits on the boundary between the last block wholly above it and the first
+        # wholly below; a tied block on either side is an atom of the score at the cut.
+        last = int(np.sum(share >= 1.0)) - 1
+        neighbours = [j for j in (last, last + 1) if 0 <= j < counts.size]
+        edge = q < 1.0 and any(counts[j] > 1 for j in neighbours)
+        out[q] = _CutFact(rows, edge, float("nan"))
     return out
 
 
@@ -1345,7 +1365,7 @@ class _Rows:
                 elif fact.rows_in_top < TARGETING_MEASURED_TOP_ROWS:
                     point_codes.append("few_rows")
                 if fact.tied:
-                    point_codes.append("tied_cut")
+                    point_codes.append(fact.code)
             point_state[q] = ("", withheld is not None, tuple(point_codes))
         # The band over the grid points below 1, from the same draws.
         se = np.array([_spread(draws[("toc", q)]) for q in below])
@@ -1489,7 +1509,8 @@ class _Rows:
                         and self.columns["q"][index] == q
                     ):
                         if self.columns["tied_cut"][index]:
-                            codes.append("tied_cut")
+                            share = self.columns["tie_share"][index]
+                            codes.append("tied_cut" if math.isfinite(share) else "tied_edge")
                         if (
                             TARGETING_MIN_TOP_ROWS
                             <= self.columns["rows_in_top"][index]
