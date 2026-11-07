@@ -12,7 +12,7 @@ The plots:
 ======================  ============================================================================
 function                question
 ======================  ============================================================================
-:func:`forest`          the estimates of one or several fits, with their intervals
+:func:`forest`          how large is each estimate, and how sure is it?
 :func:`curve`           how a result changes over time, dose, policy or modifier
 :func:`sensitivity`     does the estimate depend on a declared sensitivity parameter?
 :func:`confounding`     how strong would hidden confounding need to be?

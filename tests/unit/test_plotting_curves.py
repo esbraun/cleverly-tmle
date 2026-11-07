@@ -58,6 +58,7 @@ from cleverly.interventions import Incremental, Scale, Shift, Static
 from cleverly.longitudinal import LTMLE, LongitudinalData, Repeated, SequentialGComputation
 from cleverly.msm import MSM, working_model_means
 from cleverly.plotting import _core, curve
+from cleverly.plotting import _forest as forest_module
 from cleverly.plotting._curves import _Point, _select
 from cleverly.validation.longitudinal import _longitudinal_stagewise
 
@@ -1181,7 +1182,7 @@ class TestOverTime:
         fig = full().plot()
         assert fig.axes[0].get_title(loc="left") == "Risk over time"
         forest = end_of_study().plot()
-        assert forest.axes[0].get_title(loc="left") == "Estimated effects"
+        assert forest.axes[0].get_title(loc="left") == forest_module.TITLE
 
     def test_nothing_is_cached_on_the_result(self) -> None:
         result = full()
@@ -1607,7 +1608,7 @@ class TestPolicies:
 
     def test_a_mixed_family_falls_back_to_the_forest_and_says_why(self) -> None:
         fig = curve(mixed_family())
-        assert fig.axes[0].get_title(loc="left") == "Estimated effects"
+        assert fig.axes[0].get_title(loc="left") == forest_module.TITLE
         assert "No single parameter orders these policies" in _subtitle(fig)
         titled = curve(mixed_family(), title="Two policies")
         assert titled.axes[0].get_title(loc="left") == "Two policies"

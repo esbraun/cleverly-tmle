@@ -38,6 +38,7 @@ from cleverly.plotting import (
     sensitivity,
     style,
 )
+from cleverly.plotting import _forest as forest_module
 from cleverly.sensitivity import marginal_sensitivity_bounds
 
 pytestmark = pytest.mark.xdist_group("plotting_core")
@@ -262,7 +263,7 @@ def test_forest_draws_each_estimate_and_its_interval(binary_fit: Any) -> None:
             assert ax.get_xscale() == "log"
         nulls = [line.get_xdata()[0] for line in _lines(ax, "cleverly-reference")]
         assert nulls == ({"difference": [0.0], "ratio": [1.0], "level": []}[scale])
-    assert _title(fig) == "Estimated effects"
+    assert _title(fig) == forest_module.TITLE
     assert _key(fig.axes[0]) == ["95% confidence interval", "No effect"]
 
 
@@ -742,10 +743,11 @@ def test_forest_skips_the_null_a_transform_cannot_reach(binary_fit: Any) -> None
 
     estimate = binary_fit["ey1"]
     logged = dataclasses.replace(estimate, scale="difference", transform=LogOnly())
-    assert _lines(forest(logged).axes[0], "cleverly-reference") == []
-    # Control: without the transform the difference null is drawn.
+    assert _lines(forest(logged, include_null=True).axes[0], "cleverly-reference") == []
+    # Control: without the transform the difference null is drawn. A mean near 0.65 lies far
+    # from 0, so the axis reaches the null only when asked to.
     plain = dataclasses.replace(estimate, scale="difference")
-    assert len(_lines(forest(plain).axes[0], "cleverly-reference")) == 1
+    assert len(_lines(forest(plain, include_null=True).axes[0], "cleverly-reference")) == 1
 
 
 def test_notes_sit_inside_the_figure_after_drawing(binary_fit: Any) -> None:
@@ -953,3 +955,92 @@ def test_forest_names_the_outcome_in_the_words_given(binary_fit: Any) -> None:
     # the control: without the words the axis names the outcome column
     plain = forest(binary_fit).axes[0].get_xlabel()
     assert plain == f"Difference in mean {binary_fit.data.outcome_name}"
+
+
+# ----------------------------------------------------------------------- forest, the null's reach
+
+
+def _narrow(estimate: Any, psi: float, *, shrink: float = 0.04) -> Any:
+    """``estimate`` moved to ``psi`` with a narrower interval."""
+    moved = dataclasses.replace(estimate, psi=psi, variance=estimate.variance * shrink)
+    if estimate.scale == "ratio":
+        moved = dataclasses.replace(moved, log_psi=float(np.log(psi)))
+    return moved
+
+
+def _xlim(fig: Any) -> tuple[float, float]:
+    low, high = fig.axes[0].get_xlim()
+    return float(low), float(high)
+
+
+def test_forest_leaves_a_far_null_off_the_axis_and_says_where(binary_fit: Any) -> None:
+    ate = binary_fit["ate"]
+    near = [_narrow(ate, psi) for psi in (0.13, 0.15, 0.16, 0.18)]
+    fig = forest(*near, labels=["a", "b", "c", "d"])
+    ax = fig.axes[0]
+    assert _lines(ax, "cleverly-reference") == []
+    assert "No effect" not in _key(ax)
+    assert _xlim(fig)[0] > 0.0
+    note = _core.note_text(fig)
+    assert "No effect (0) lies off the axis to the left" in note
+    # The mirror image lies off to the right.
+    far = forest(*[_narrow(ate, -psi) for psi in (0.13, 0.15)], labels=["a", "b"])
+    assert _xlim(far)[1] < 0.0
+    assert "off the axis to the right" in _core.note_text(far)
+
+
+def test_forest_draws_a_null_near_the_intervals(binary_fit: Any) -> None:
+    """Control: intervals near 0 keep the line, and say nothing about an axis."""
+    fig = forest(_narrow(binary_fit["ate"], 0.05), binary_fit["att"], labels=["a", "b"])
+    ax = fig.axes[0]
+    assert [line.get_xdata()[0] for line in _lines(ax, "cleverly-reference")] == [0.0]
+    low, high = _xlim(fig)
+    assert low <= 0.0 <= high
+    assert "off the axis" not in _core.note_text(fig)
+
+
+def test_include_null_overrides_the_automatic_rule(binary_fit: Any) -> None:
+    near = [_narrow(binary_fit["ate"], psi) for psi in (0.13, 0.18)]
+    shown = forest(*near, labels=["a", "b"], include_null=True)
+    assert len(_lines(shown.axes[0], "cleverly-reference")) == 1
+    assert _xlim(shown)[0] <= 0.0
+    assert "off the axis" not in _core.note_text(shown)
+    # include_null=False drops a null the automatic rule would keep, and still says so.
+    kept = forest(binary_fit["ate"], include_null=False)
+    assert _lines(kept.axes[0], "cleverly-reference") == []
+    assert "No effect (0) lies off the axis to the left" in _core.note_text(kept)
+    # A null inside the intervals is always drawn: no axis can leave it out.
+    across = dataclasses.replace(binary_fit["ate"], psi=0.0)
+    assert len(_lines(forest(across, include_null=False).axes[0], "cleverly-reference")) == 1
+
+
+def test_a_far_ratio_null_is_measured_on_the_log_axis(binary_fit: Any) -> None:
+    ratio = _narrow(binary_fit["rr"], 3.0, shrink=0.25)
+    fig = forest(ratio)
+    assert _lines(fig.axes[0], "cleverly-reference") == []
+    assert "No effect (1) lies off the axis to the left" in _core.note_text(fig)
+    # Control: the fit's own risk ratio, near 1 on the log axis, keeps the line at 1.
+    own = forest(binary_fit["rr"])
+    assert [line.get_xdata()[0] for line in _lines(own.axes[0], "cleverly-reference")] == [1.0]
+
+
+def test_the_off_axis_note_names_its_panel_when_there_are_several(binary_fit: Any) -> None:
+    fig = forest(_narrow(binary_fit["ate"], 0.15), _narrow(binary_fit["rr"], 3.0, shrink=0.25))
+    note = _core.note_text(fig)
+    assert "On the difference panel, no effect (0) lies off the axis to the left" in note
+    assert "On the ratio panel, no effect (1) lies off the axis to the left" in note
+
+
+def test_a_true_value_near_the_null_brings_it_back(binary_fit: Any) -> None:
+    """The truth counts as drawn data, so a cross near 0 keeps the line in reach."""
+    near = _narrow(binary_fit["ate"], 0.15)
+    assert _lines(forest(near).axes[0], "cleverly-reference") == []
+    fig = forest(near, truth=0.02)
+    assert len(_lines(fig.axes[0], "cleverly-reference")) == 1
+
+
+def test_forest_title_is_a_question() -> None:
+    assert forest_module.TITLE.endswith("?")
+    from cleverly import plotting
+
+    assert forest_module.TITLE[:1].lower() + forest_module.TITLE[1:] in (plotting.__doc__ or "")

@@ -21,6 +21,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 #: The panel order and the x-axis words of each scale.
 _SCALE_ORDER = ("difference", "ratio", "level", "fraction")
+#: The default title, a question as every plot's title is.
+TITLE = "How large is each estimate, and how sure is it?"
+#: How far, as a share of the drawn data's span, the no-effect value may lie from the data and
+#: still widen the axis to show it, so the rows keep at least half the axis. A null further
+#: out would squeeze them into a corner.
+_NULL_REACH = 1.0
 
 
 @dataclass(frozen=True)
@@ -174,6 +180,7 @@ def forest(
     outcome_label: str | None = None,
     units: str | None = None,
     truth: float | Mapping[str, float] | None = None,
+    include_null: bool | None = None,
     ax: Axes | None = None,
 ) -> Figure:
     """Plot estimates with their intervals, one row each (a forest plot).
@@ -183,6 +190,9 @@ def forest(
     confidence interval; the numbers are printed in a column on the right with the decimals
     the printed summary uses. Estimates on different scales go in separate panels:
     differences around 0, ratios on a log axis around 1, and arm means with no null line.
+    The no-effect line is drawn when it lies near the intervals; when it lies far from them,
+    the axis keeps to the intervals and the note under the figure says on which side no
+    effect lies.
 
     An estimate whose inference the package withholds is drawn as a point with no interval,
     and the note under the figure gives the reason. An experimental estimate says so in the
@@ -197,7 +207,7 @@ def forest(
         One label per item. A result's default label is its method's short name when
         several items are drawn, and nothing when one is.
     title : str or None, default=None
-        The title; ``"Estimated effects"`` when omitted.
+        The title; ``"How large is each estimate, and how sure is it?"`` when omitted.
     subtitle : str or None, default=None
         The line under the title; the printed summary's question for a single result.
     outcome_label : str or None, default=None
@@ -214,6 +224,13 @@ def forest(
         gives the value of each estimate by the name the fit reports (``"ate"``) or by the
         row's label; a row it does not name gets no cross. A forest draws every estimate
         of each fit it is given, so a name that matches no row is refused.
+    include_null : bool or None, default=None
+        Whether the axis reaches the no-effect value (0 for a difference, 1 for a ratio)
+        and draws its line. ``None`` draws it when it lies no further from the drawn
+        intervals than their own span (a ratio's measured on the log axis), so the rows
+        keep at least half the axis; otherwise it leaves no effect off the axis and the
+        note says on which side it lies. ``True`` always draws it; ``False`` never widens
+        the axis for it.
     ax : Axes or None, default=None
         Axes to draw on. Only a plot with one scale can draw on a caller's axes.
 
@@ -258,7 +275,7 @@ def forest(
     >>> tmle = study.identify(ATE()).estimate(**learners)
     >>> fig = forest(tmle["ate"], labels=["TMLE"])
     >>> fig.axes[0].get_title(loc="left")
-    'Estimated effects'
+    'How large is each estimate, and how sure is it?'
     >>> [text.get_text() for text in fig.axes[0].get_yticklabels()]
     ['TMLE']
     >>> import matplotlib.pyplot as plt
@@ -299,14 +316,32 @@ def forest(
     else:
         fig, axis = _core.figure_for(ax)
         axes = [axis]
+    truths = None if truth is None else _truth_values(truth, rows)
+    off_axis: list[str] = []
+    at = 0
     for axis, scale, group in zip(axes, scales, groups, strict=True):
-        _panel(axis, scale, group, outcome_label, units, [texts[id(row)] for row in group])
-    if truth is not None:
-        _draw_truth(truth, axes, groups)
+        mine = None if truths is None else truths[at : at + len(group)]
+        at += len(group)
+        note = _panel(
+            axis,
+            scale,
+            group,
+            outcome_label,
+            units,
+            [texts[id(row)] for row in group],
+            include_null=include_null,
+            truths=[] if mine is None else [value for value in mine if value is not None],
+        )
+        if note is not None:
+            off_axis.append(
+                note[:1].upper() + note[1:] if len(scales) == 1 else f"On the {scale} panel, {note}"
+            )
+    if truths is not None:
+        _draw_truth(truths, axes, groups)
     question = subtitle if subtitle is not None else _question(items)
     # The number column sits right of the axes, so the key keeps to two columns.
-    _core.header(axes[0], title or "Estimated effects", question, key_sources=axes, key_columns=2)
-    _core.notes(axes[-1], _merged_notes(rows))
+    _core.header(axes[0], title or TITLE, question, key_sources=axes, key_columns=2)
+    _core.notes(axes[-1], [*_merged_notes(rows), *off_axis])
     return fig
 
 
@@ -343,9 +378,10 @@ def _truth_values(truth: Any, rows: Sequence[_Row]) -> list[float | None]:
     return [value] * len(rows)
 
 
-def _draw_truth(truth: Any, axes: Sequence[Axes], groups: Sequence[Sequence[_Row]]) -> None:
+def _draw_truth(
+    values: Sequence[float | None], axes: Sequence[Axes], groups: Sequence[Sequence[_Row]]
+) -> None:
     """A cross at each row's true value, on the row's own panel."""
-    values = _truth_values(truth, [row for group in groups for row in group])
     at = 0
     for axis, group in zip(axes, groups, strict=True):
         mine = values[at : at + len(group)]
@@ -410,8 +446,11 @@ def _panel(
     outcome_label: str | None,
     units: str | None,
     texts: Sequence[str],
-) -> None:
-    """One scale's rows on one axes."""
+    *,
+    include_null: bool | None,
+    truths: Sequence[float],
+) -> str | None:
+    """One scale's rows on one axes; returns the note of a null left off the axis."""
     _core.style_axes(ax, grid="x")
     color = _core.PALETTE[0]
     positions = list(range(len(rows)))[::-1]
@@ -443,8 +482,16 @@ def _panel(
             zorder=3,
         )
     null = _core.null_for(scale)
+    off_axis = None
     if null is not None and all(row.null_defined for row in rows):
-        _core.reference_line(ax, null, orientation="vertical", label="No effect")
+        side = _null_side(scale, null, rows, truths, include_null)
+        if side is None:
+            _core.reference_line(ax, null, orientation="vertical", label="No effect")
+        else:
+            off_axis = (
+                f"no effect ({null:g}) lies off the axis to the {side}, so its line is not "
+                "drawn and no interval here reaches it."
+            )
     if scale == "ratio":
         _core.log_axis(ax, "x")
     ax.set_yticks(positions, [row.label for row in rows])
@@ -455,6 +502,39 @@ def _panel(
     outcome = outcomes.pop() if len(outcomes) == 1 else None
     ax.set_xlabel(_axis_label(scale, outcome_label or outcome, units))
     _numbers(ax, rows, positions, texts)
+    return off_axis
+
+
+def _null_side(
+    scale: str,
+    null: float,
+    rows: Sequence[_Row],
+    truths: Sequence[float],
+    include_null: bool | None,
+) -> str | None:
+    """``None`` when the axis shows the no-effect value, else the side it lies off to.
+
+    The span is measured on the drawn scale (logged for a ratio) over every point, interval
+    limit and true value. A null inside that span is always shown, whatever ``include_null``.
+    """
+    import math
+
+    drawn = [row.interval.psi for row in rows]
+    drawn += [v for row in rows for v in (row.interval.lower, row.interval.upper) if v is not None]
+    drawn += list(truths)
+    found = [float(v) for v in drawn if _core.finite(v)]
+    if scale == "ratio":
+        found = [math.log(v) for v in found if v > 0]
+        null = 0.0
+    if not found or include_null is True:
+        return None
+    low, high = min(found), max(found)
+    if low <= null <= high:
+        return None
+    gap = low - null if null < low else null - high
+    if include_null is None and gap <= _NULL_REACH * (high - low):
+        return None
+    return "left" if null < low else "right"
 
 
 def _numbers(
