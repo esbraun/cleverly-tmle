@@ -26,6 +26,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: bound on that probability caps it. A policy or modified-treatment node divides a varying
 #: numerator by it, and a tilt node's factor is never bounded.
 _CAPPED_KINDS = ("label", "rule")
+#: Plain words for each node kind whose weight the limit does not cap, as the note names it.
+_UNCAPPED_WORDS = {
+    "policy": "a policy that assigns the treatment at random",
+    "tilt": "an incremental policy that scales the odds of treatment",
+    "mtp": "a modified treatment policy, which shifts the treatment each unit received",
+}
 #: The width one time point's boxes share.
 _BOX_WIDTH = 0.7
 #: The least vertical distance between two end labels, in points.
@@ -92,7 +98,7 @@ def _end_labels(ax: Axes, x: float, items: list[tuple[float, str, str]]) -> None
 def weights(
     result: Any,
     *,
-    regimen: str | None = None,
+    regimens: Sequence[str] | None = None,
     horizon: int | None = None,
     cause: str | None = None,
     repeat: int = 1,
@@ -115,14 +121,17 @@ def weights(
     the first, and the note says which. A time point whose weight the limit does not cap
     has no dotted line: one with an incremental or modified policy at it or at an earlier
     time point, whose factor the weight carries, or any time point when the data's weights
-    are not all one.
+    are not all one. A log axis cannot show a weight of zero, which a policy gives a unit
+    whose treatment it would never assign; the note counts those units at each time point,
+    and the boxes describe the other weights.
 
     Parameters
     ----------
     result : LongitudinalResult
         A fitted inverse-weighting or targeted longitudinal result.
-    regimen : str or None, default=None
-        One regimen's label; every regimen of the result, up to three, when omitted.
+    regimens : sequence of str or None, default=None
+        The labels of the regimens to draw, at most three, in the order given; every
+        regimen of the result, up to three, when omitted.
     horizon : int or None, default=None
         The horizon of a curve fit; the largest when omitted.
     cause : str or None, default=None
@@ -146,8 +155,9 @@ def weights(
     CapabilityError
         When the result is a g-computation or parametric g-formula fit, which has no weights.
     DataError
-        When the result holds more than three regimens and none is named, or the regimen,
-        cause, horizon or repeat is not in the result.
+        When the result holds more than three regimens and ``regimens`` is omitted, when
+        ``regimens`` is a single string, empty, repeats a label or names more than three,
+        or when a regimen, the cause, the horizon or the repeat is not in the result.
 
     See Also
     --------
@@ -190,16 +200,16 @@ def weights(
     if isinstance(repeat, bool) or not isinstance(repeat, int) or not 1 <= repeat <= len(repeats):
         raise DataError(f"repeat must be an integer from 1 to {len(repeats)}; got {repeat!r}")
     fits = repeats[repeat - 1].fits
-    names = (
-        [regimen]
-        if regimen is not None
-        else list(dict.fromkeys(f.regimen.label for f in fits.values()))
-    )
-    if len(names) > _core.MAX_SERIES:
-        raise DataError(
-            f"the result holds {len(names)} regimens and one panel draws at most "
-            f"{_core.MAX_SERIES}; name one with regimen="
-        )
+    held = list(dict.fromkeys(f.regimen.label for f in fits.values()))
+    if regimens is None:
+        names = held
+        if len(names) > _core.MAX_SERIES:
+            raise DataError(
+                f"the result holds {len(names)} regimens and one panel draws at most "
+                f"{_core.MAX_SERIES}; choose up to {_core.MAX_SERIES} of {held} with regimens="
+            )
+    else:
+        names = _chosen_regimens(regimens, held)
     series = [
         node_weights(result, regimen=name, horizon=horizon, cause=cause, repeat=repeat)
         for name in names
@@ -215,6 +225,7 @@ def weights(
     limits = {round(1.0 / item.bounds[0], 12) for item in series if item.bounds[0] > 0.0}
     shown_names = [(labels or {}).get(item.regimen, item.regimen) for item in series]
     ends: list[tuple[float, str, str]] = []
+    zeros: list[tuple[str, int, int, int]] = []
     for index, item in enumerate(series):
         color = _core.series_color(index)
         shown = shown_names[index]
@@ -222,6 +233,9 @@ def weights(
         stats, positions, peaks = [], [], []
         for node, time in enumerate(times):
             used = item.used[item.followed[:, node], node]
+            zero = int(np.sum(used == 0.0))
+            if zero:
+                zeros.append((shown, time, zero, int(used.size)))
             used = used[np.isfinite(used) & (used > 0)]
             if not used.size:
                 continue
@@ -365,14 +379,26 @@ def weights(
             "The percentage above each dotted line is the share of units whose cumulative "
             "probability the limit replaced."
         )
-    uncapped = sorted(
-        {kind for item in series for kind in item.node_kinds if kind not in _CAPPED_KINDS}
+    if zeros:
+        found.append(
+            _zero_text(
+                zeros,
+                time_label,
+                named=count > 1,
+                unit_weights=all(item.unit_weights for item in series),
+            )
+        )
+    uncapped = list(
+        dict.fromkeys(
+            kind for item in series for kind in item.node_kinds if kind not in _CAPPED_KINDS
+        )
     )
     if uncapped and all(item.unit_weights for item in series):
+        words = [_UNCAPPED_WORDS.get(kind, kind) for kind in uncapped]
+        joined = words[0] if len(words) == 1 else ", ".join(words[:-1]) + " or " + words[-1]
         found.append(
-            "No limit line is drawn at a time point of kind "
-            + ", ".join(uncapped)
-            + ", or after one, because the weight carries a factor the limit does not cap."
+            f"No limit line is drawn at a {time_label.lower()} under {joined}, or at a later "
+            "one, because the weight carries the policy's factor, which the limit does not cap."
         )
     if not all(item.unit_weights for item in series):
         found.append("The data's weights multiply the limit, so no limit line is drawn.")
@@ -380,6 +406,59 @@ def weights(
     _core.notes(bottom, found)
     _end_labels(bottom, float(times[-1]), ends)
     return fig
+
+
+def _chosen_regimens(regimens: Sequence[str], held: Sequence[str]) -> list[str]:
+    """The regimens ``regimens=`` names, checked against the result's own labels."""
+    from ..exceptions import DataError
+
+    if isinstance(regimens, str):
+        raise DataError(
+            f"regimens= takes a list of regimen labels; got the string {regimens!r}. "
+            f"Pass [{regimens!r}] to draw that one regimen"
+        )
+    names = [str(name) for name in regimens]
+    if not names:
+        raise DataError(f"regimens= names no regimen; choose up to {_core.MAX_SERIES} of {held}")
+    if len(set(names)) != len(names):
+        raise DataError(f"regimens= repeats a label: {names}")
+    unknown = [name for name in names if name not in held]
+    if unknown:
+        raise DataError(
+            f"regimens= names {unknown}, which this result does not hold; it holds {held}"
+        )
+    if len(names) > _core.MAX_SERIES:
+        raise DataError(
+            f"regimens= names {len(names)} regimens and one panel draws at most "
+            f"{_core.MAX_SERIES}; choose fewer of {held}"
+        )
+    return names
+
+
+def _zero_text(
+    zeros: Sequence[tuple[str, int, int, int]], time_label: str, *, named: bool, unit_weights: bool
+) -> str:
+    """The note that counts the followed units whose weight is zero, which a log axis drops.
+
+    ``zeros`` holds each regimen's shown name, the time point, the count of zero weights and
+    the units still followed there. With unit data weights a zero can only come from the
+    regimen's own probability of the treatment the unit received.
+    """
+    parts = [
+        (f"{name}, " if named else "") + f"{time_label.lower()} {time}: {zero} of {followed}"
+        for name, time, zero, followed in zeros
+    ]
+    why = (
+        "the regimen gives the treatment they received no chance"
+        if unit_weights
+        else "the regimen gives the treatment they received no chance, or their data weight is zero"
+    )
+    return (
+        "Units still followed with a weight of zero, which a log axis cannot show: "
+        + "; ".join(parts)
+        + f". Their weight is zero because {why}. The boxes and crosses describe the other "
+        "weights; the lower panel counts these units among those still followed."
+    )
 
 
 # ---------------------------------------------------------------------------- V11

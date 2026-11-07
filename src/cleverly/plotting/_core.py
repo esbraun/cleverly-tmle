@@ -1056,8 +1056,10 @@ def log_axis(ax: Axes, which: str) -> None:
     """A log scale whose tick labels are plain numbers (``0.5``, ``1``, ``2``).
 
     Call it after the data are drawn: an axis that spans less than a factor of ten gets
-    evenly spaced round ticks, and a wider one gets ticks at 1, 2 and 5 times each power of
-    ten.
+    evenly spaced round ticks, one that spans up to :data:`_LOG_DENSE_DECADES` powers of ten
+    gets ticks at 1, 2 and 5 times each power, and a wider one ticks at powers of ten alone,
+    at most :data:`_LOG_MOST_TICKS` of them. A number from 0.001 to 9999 is printed as
+    it is, a smaller or larger power of ten as ``10`` with an exponent.
 
     Parameters
     ----------
@@ -1071,13 +1073,45 @@ def log_axis(ax: Axes, which: str) -> None:
     axis = ax.xaxis if which == "x" else ax.yaxis
     (ax.set_xscale if which == "x" else ax.set_yscale)("log")
     low, high = ax.get_xlim() if which == "x" else ax.get_ylim()
-    narrow = low > 0 and high > 0 and math.log10(max(high, low) / min(high, low)) < 1.0
-    if narrow:
+    decades = math.log10(max(high, low) / min(high, low)) if low > 0 and high > 0 else math.inf
+    if decades < 1.0:
         axis.set_major_locator(MaxNLocator(nbins=6, steps=[1, 2, 2.5, 5, 10]))
-    else:
+    elif decades <= _LOG_DENSE_DECADES:
         axis.set_major_locator(LogLocator(base=10.0, subs=(1.0, 2.0, 5.0)))
-    axis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:g}"))
+    else:
+        axis.set_major_locator(LogLocator(base=10.0, subs=(1.0,), numticks=_LOG_MOST_TICKS))
+    axis.set_major_formatter(FuncFormatter(lambda value, _: log_tick_text(value)))
     axis.set_minor_formatter(NullFormatter())
+
+
+#: The widest span, in powers of ten, that a log axis ticks at 1, 2 and 5 times each power.
+_LOG_DENSE_DECADES: Final = 2.0
+#: The most ticks a log axis wider than that carries.
+_LOG_MOST_TICKS: Final = 7
+
+
+def log_tick_text(value: float) -> str:
+    """A log axis tick label: the number from 0.001 to 9999, a power of ten beyond.
+
+    Parameters
+    ----------
+    value : float
+        The tick's value.
+
+    Returns
+    -------
+    str
+        ``"0.5"`` or ``"20"`` as written, ``"$10^{-6}$"`` for a power of ten outside that
+        range, and the number in ``g`` form for any other value outside it.
+    """
+    if value <= 0.0 or not math.isfinite(value):
+        return f"{value:g}"
+    if 1e-3 <= value < 1e4:
+        return f"{value:g}"
+    power = math.log10(value)
+    if abs(power - round(power)) < 1e-9:
+        return f"$10^{{{round(power)}}}$"
+    return f"{value:g}"
 
 
 # ----------------------------------------------------------------------- interval words
@@ -1368,6 +1402,7 @@ __all__ = [
     "legend",
     "level_text",
     "log_axis",
+    "log_tick_text",
     "new_figure",
     "note_text",
     "notes",
