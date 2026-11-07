@@ -589,7 +589,8 @@ def test_overlap_mirrors_the_unbounded_propensity_by_arm(binary_fit: Any) -> Non
     markers = sorted(line.get_xdata()[0] for line in _lines(ax, "cleverly-marker"))
     assert markers == pytest.approx(sorted([*bounds, *conditional]))
     assert _key(ax)[-2:] == [
-        "Probability limits used for the average effect",
+        "Probability limits used for every estimate but the effect among the treated and "
+        "the untreated",
         "Probability limits used for the effect among the treated and the untreated",
     ]
     shares = [text.get_text() for text in ax.texts if text.get_gid() == "cleverly-tail-share"]
@@ -1067,3 +1068,71 @@ def test_overlap_key_names_the_limits_as_probability_limits(binary_fit: Any) -> 
     assert limits and all(key.startswith("Probability limits") for key in limits)
     # The estimand each pair belongs to stays named: the ATT and ATC use their own pair.
     assert "Probability limits used for the effect among the treated and the untreated" in keys
+
+
+def test_overlap_key_names_the_marginal_pair_by_what_it_serves(
+    binary_fit: Any, missing_fit: Any
+) -> None:
+    # The marginal pair serves the arm means and ratios too, not the average effect alone.
+    assert {"ey1", "ey0", "rr", "or"} <= set(binary_fit.estimates)
+    keys = _key(overlap(binary_fit).axes[0])
+    assert not any("for the average effect" in key for key in keys)
+    # Control: a fit with no ATT or ATC has one pair, which every estimate used.
+    assert not {"att", "atc"} & set(missing_fit.estimates)
+    assert [key for key in _key(overlap(missing_fit).axes[0]) if "limits" in key] == [
+        "Probability limits the fit used"
+    ]
+
+
+# ----------------------------------------------------------------------- forest, rows with no interval
+
+
+def test_forest_keeps_the_null_beside_a_row_with_no_interval(binary_fit: Any) -> None:
+    withheld = dataclasses.replace(binary_fit["ate"], psi=0.01, inference=WITHHELD)
+    unknown = dataclasses.replace(binary_fit["ate"], psi=0.5, variance=float("inf"))
+    assert not all(np.isfinite(unknown.ci))
+    for row in (withheld, unknown):
+        fig = forest(row)
+        assert len(_lines(fig.axes[0], "cleverly-reference")) == 1
+        assert "off the axis" not in _core.note_text(fig)
+    # Beside a drawn narrow interval far from 0 the row without one still keeps the null.
+    near = _narrow(binary_fit["ate"], 0.15)
+    assert len(_lines(forest(near, withheld, labels=["a", "b"]).axes[0], "cleverly-reference"))
+    # Control: the drawn narrow interval alone drops it.
+    assert _lines(forest(near).axes[0], "cleverly-reference") == []
+
+
+def test_a_null_left_off_by_hand_never_claims_an_interval_that_is_missing(
+    binary_fit: Any,
+) -> None:
+    withheld = dataclasses.replace(binary_fit["ate"], psi=0.15, inference=WITHHELD)
+    note = _core.note_text(forest(withheld, include_null=False))
+    assert "lies off the axis to the left, so its line is not drawn." in note
+    assert "no interval here reaches it" not in note
+    # Control: rows that all have an interval say none reaches the null.
+    drawn = _core.note_text(forest(_narrow(binary_fit["ate"], 0.15), include_null=False))
+    assert "no interval here reaches it" in drawn
+
+
+def test_a_null_left_off_by_hand_is_really_off_the_axis(
+    binary_fit: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ate = binary_fit["ate"]
+    # An interval close to 0, about (0.003, 0.188): the autoscale margin would reach 0.
+    close = dataclasses.replace(
+        ate, psi=0.0955, variance=ate.variance * (0.0473 / ate.std_error) ** 2
+    )
+    low, high = close.ci
+    assert 0.0 < low < 0.01 and high == pytest.approx(0.188, abs=0.002)
+    fig = forest(close, include_null=False)
+    assert "off the axis to the left" in _core.note_text(fig)
+    assert 0.0 < fig.axes[0].get_xlim()[0] < low
+    # On a ratio the limit is kept off 1 on the log axis.
+    ratio = binary_fit["rr"]
+    near_one = _narrow(ratio, 1.15, shrink=0.25)
+    assert near_one.ci[0] > 1.0
+    fig = forest(near_one, include_null=False)
+    assert 1.0 < fig.axes[0].get_xlim()[0] < near_one.ci[0]
+    # Mutation control: without the clamp the autoscale margin puts the null back on.
+    monkeypatch.setattr(forest_module, "_keep_off", lambda *args, **kwargs: None)
+    assert forest(close, include_null=False).axes[0].get_xlim()[0] <= 0.0

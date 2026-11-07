@@ -293,22 +293,29 @@ def _limits(result: Any) -> list[tuple[tuple[float, float], str]]:
     conditional = stems & {"att", "atc"}
     marginal = stems - {"att", "atc"}
     found: list[tuple[tuple[float, float], str]] = []
-    pair = getattr(config, "g_bounds", None)
-    if marginal and pair is not None:
-        found.append(
-            ((float(pair[0]), float(pair[1])), "Probability limits used for the average effect")
+    words = " and ".join(
+        {"att": "the treated", "atc": "the untreated"}[stem]
+        for stem in sorted(conditional, reverse=True)
+    )
+    marginal_pair = getattr(config, "g_bounds", None)
+    conditional_pair = getattr(config, "g_bounds_conditional", None)
+    if conditional_pair is not None and conditional:
+        conditional_pair = (float(conditional_pair[0]), float(conditional_pair[1]))
+    else:
+        conditional_pair = None
+    if marginal and marginal_pair is not None:
+        marginal_pair = (float(marginal_pair[0]), float(marginal_pair[1]))
+        # The marginal pair serves every estimate but the ATT and ATC (arm means, ratios,
+        # the average effect); it is named as the rest only when those are drawn too.
+        own = conditional_pair is not None and conditional_pair != marginal_pair
+        text = (
+            f"Probability limits used for every estimate but the effect among {words}"
+            if own
+            else "Probability limits the fit used"
         )
-    pair = getattr(config, "g_bounds_conditional", None)
-    if conditional and pair is not None:
-        pair = (float(pair[0]), float(pair[1]))
-        if not found or found[0][0] != pair:
-            words = " and ".join(
-                {"att": "the treated", "atc": "the untreated"}[stem]
-                for stem in sorted(conditional, reverse=True)
-            )
-            found.append((pair, f"Probability limits used for the effect among {words}"))
-        else:
-            found[0] = (pair, "Probability limits the fit used")
+        found.append((marginal_pair, text))
+    if conditional_pair is not None and (not found or found[0][0] != conditional_pair):
+        found.append((conditional_pair, f"Probability limits used for the effect among {words}"))
     return found
 
 

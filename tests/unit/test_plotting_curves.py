@@ -2259,3 +2259,14 @@ class TestEffectCurveBand:
             curve(cate(), band="sup", modifier="W", at={"Z": 0.0})
         # Control: "none" on a curve without a band has nothing to turn off, and draws.
         assert curve(cate_by(), band="none", modifier="W", by="G")
+
+
+def test_an_effect_curve_puts_the_callers_words_mid_phrase() -> None:
+    settings = {"modifier": "W", "at": {"Z": 0.0}}
+    worded = curve(cate(), outcome_label="Customers who order", **settings).axes[0]
+    assert worded.get_ylabel() == "Effect on customers who order"
+    # Control: a name or symbol stays as written, and the column name is untouched.
+    assert curve(cate(), outcome_label="HbA1c", **settings).axes[0].get_ylabel() == (
+        "Effect on HbA1c"
+    )
+    assert curve(cate(), **settings).axes[0].get_ylabel() == "Effect on Y"

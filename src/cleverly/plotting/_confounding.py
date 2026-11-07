@@ -419,7 +419,9 @@ def _label_points(
             gap = np.abs(inside[:, None, :] / scale - marks[None, :, :])
             covered = ((gap[..., 0] < _MARK_ZONE[0]) & (gap[..., 1] < _MARK_ZONE[1])).any(axis=1)
             if covered.all():
-                nearest = np.hypot(*(gap / np.array(_MARK_ZONE)).transpose(2, 0, 1)).min(axis=1)
+                nearest = np.hypot(*(gap / np.maximum(_MARK_ZONE, 1e-9)).transpose(2, 0, 1)).min(
+                    axis=1
+                )
                 best = inside[int(np.argmax(nearest))]
                 chosen.append((float(best[0]), float(best[1])))
                 continue
@@ -429,19 +431,43 @@ def _label_points(
     return chosen
 
 
-def _null_label(bold: Any, rv: float | None, d_max: float, y_max: float) -> tuple[float, float]:
-    """A vertex of the bold contour clear of the edges and of the robustness value."""
+def _null_label(
+    bold: Any,
+    rv: float | None,
+    d_max: float,
+    y_max: float,
+    benchmarks: Sequence[tuple[float, float]] = (),
+) -> tuple[float, float]:
+    """A vertex of the bold contour clear of the edges, the robustness value and benchmarks.
+
+    The label sits along the line a fifth of the map or more from the robustness value and
+    outside the zone of each benchmark and its name. With no such vertex it takes the one
+    farthest from the marks.
+    """
     segments = [seg for seg in getattr(bold, "allsegs", [[]])[0] if len(seg)]
     points = np.vstack(segments)
-    scaled = points / np.array([d_max, y_max])
+    scale = np.array([d_max, y_max])
+    scaled = points / scale
     inner = (scaled > 0.08).all(axis=1) & (scaled < 0.92).all(axis=1)
     candidates = points[inner] if inner.any() else points
-    if rv is None:
+    if rv is None and not benchmarks:
         return tuple(float(v) for v in candidates[len(candidates) // 2])  # type: ignore[return-value]
-    away = np.hypot(*((candidates - np.array([rv, rv])) / np.array([d_max, y_max])).T)
-    # the label sits along the line, a fifth of the map or more from the marker
-    clear = candidates[away > 0.2]
-    pick = clear[len(clear) // 2] if len(clear) else candidates[int(np.argmax(away))]
+    clear = np.ones(len(candidates), dtype=bool)
+    # How far each candidate is from the nearest mark, in units of that mark's clearance.
+    room = np.full(len(candidates), np.inf)
+    if rv is not None:
+        away = np.hypot(*((candidates - np.array([rv, rv])) / scale).T)
+        clear &= away > 0.2
+        room = np.minimum(room, away / 0.2)
+    if benchmarks:
+        marks = np.asarray(benchmarks, dtype=float).reshape(-1, 2) / scale
+        gap = np.abs(candidates[:, None, :] / scale - marks[None, :, :])
+        clear &= ~((gap[..., 0] < _MARK_ZONE[0]) & (gap[..., 1] < _MARK_ZONE[1])).any(axis=1)
+        room = np.minimum(
+            room, np.hypot(*(gap / np.maximum(_MARK_ZONE, 1e-9)).transpose(2, 0, 1)).min(axis=1)
+        )
+    chosen = candidates[clear]
+    pick = chosen[len(chosen) // 2] if len(chosen) else candidates[int(np.argmax(room))]
     return float(pick[0]), float(pick[1])
 
 
@@ -576,7 +602,7 @@ def contour(
         bold = axis.contour(xs, ys, grid, levels=[null_value], colors=_core.INK, linewidths=2.6)
         _tag(bold, GID_NULL_CONTOUR)
         if any(len(seg) for seg in bold.allsegs[0]):
-            where = _null_label(bold, rv, d_max, y_max)
+            where = _null_label(bold, rv, d_max, y_max, [(d, y) for _, d, y in drawn])
             for text in axis.clabel(
                 bold,
                 fmt=lambda _level: line_name,

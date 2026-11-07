@@ -2119,8 +2119,11 @@ def _effect_curve(
     else:
         fig, only = _core.figure_for(ax)
         panels = [only]
-    outcome = outcome_label or str(
-        getattr(getattr(result.fit, "data", None), "outcome_name", "outcome")
+    # The caller's words go mid-phrase, after "Effect on"; a column name stays as written.
+    outcome = (
+        _core.mid_phrase(outcome_label)
+        if outcome_label
+        else str(getattr(getattr(result.fit, "data", None), "outcome_name", "outcome"))
     )
     unit = f" ({units})" if units else ""
     binary = _binary_outcome(result)

@@ -964,3 +964,39 @@ class TestBenchmarksOnTheMap:
         # Mutation control: with no zone around the marks the label lands on the benchmark.
         monkeypatch.setattr(module, "_MARK_ZONE", (0.0, 0.0))
         assert _overlaps(grid_data.plot(benchmarks=[onto]))
+
+
+def _segments(points: list[tuple[float, float]]) -> Any:
+    """A contour set's shape, one level of one segment through ``points``."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(allsegs=[[np.asarray(points, dtype=float)]])
+
+
+class TestLabelsAvoidTheMarks:
+    #: A level line across the map, through its middle.
+    LINE = tuple((0.1 * i, 0.6) for i in range(1, 10))
+
+    def test_a_level_label_keeps_off_the_robustness_value(self) -> None:
+        bare = module._label_points(_segments(list(self.LINE)), 1.0, 1.0)
+        assert bare == [pytest.approx((0.6, 0.6))]
+        # The robustness value sits where the label went: the label moves out of its zone.
+        (moved,) = module._label_points(_segments(list(self.LINE)), 1.0, 1.0, [(0.6, 0.6)])
+        assert abs(moved[0] - 0.6) >= module._MARK_ZONE[0]
+        # Mutation control: with no zone the label stays on the mark.
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(module, "_MARK_ZONE", (0.0, 0.0))
+            assert module._label_points(_segments(list(self.LINE)), 1.0, 1.0, [(0.6, 0.6)]) == bare
+
+    def test_the_no_effect_label_keeps_off_benchmarks_and_the_robustness_value(self) -> None:
+        bold = _segments(list(self.LINE))
+        middle = module._null_label(bold, None, 1.0, 1.0)
+        # A benchmark on the label's spot moves it out of the benchmark's zone.
+        moved = module._null_label(bold, None, 1.0, 1.0, [middle])
+        assert abs(moved[0] - middle[0]) >= module._MARK_ZONE[0]
+        # With the robustness value too, the label keeps a fifth of the map from it.
+        both = module._null_label(bold, 0.2, 1.0, 1.0, [middle])
+        assert abs(both[0] - middle[0]) >= module._MARK_ZONE[0]
+        assert np.hypot(both[0] - 0.2, both[1] - 0.2) > 0.2
+        # Control: without marks the label takes the middle of the line.
+        assert middle == pytest.approx((0.5, 0.6))

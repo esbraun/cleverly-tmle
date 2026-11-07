@@ -239,8 +239,10 @@ def forest(
         and draws its line. ``None`` draws it when it lies no further from the drawn
         intervals than their own span (a ratio's measured on the log axis), so the rows
         keep at least half the axis; otherwise it leaves no effect off the axis and the
-        note says on which side it lies. ``True`` always draws it; ``False`` never widens
-        the axis for it.
+        note says on which side it lies. A panel with a row that has no finite interval
+        always draws it under ``None``. ``True`` draws it wherever the estimates' scale has
+        a no-effect value (a transform with no finite null draws no line); ``False`` leaves
+        it off the axis unless the intervals cross it.
     ax : Axes or None, default=None
         Axes to draw on. Only a plot with one scale can draw on a caller's axes.
 
@@ -328,11 +330,12 @@ def forest(
         axes = [axis]
     truths = None if truth is None else _truth_values(truth, rows)
     off_axis: list[str] = []
+    clamps: list[tuple[Axes, str, float, float, bool]] = []
     at = 0
     for axis, scale, group in zip(axes, scales, groups, strict=True):
         mine = None if truths is None else truths[at : at + len(group)]
         at += len(group)
-        note = _panel(
+        note, keep_off = _panel(
             axis,
             scale,
             group,
@@ -342,12 +345,16 @@ def forest(
             include_null=include_null,
             truths=[] if mine is None else [value for value in mine if value is not None],
         )
+        if keep_off is not None:
+            clamps.append((axis, *keep_off))
         if note is not None:
             off_axis.append(
                 note[:1].upper() + note[1:] if len(scales) == 1 else f"On the {scale} panel, {note}"
             )
     if truths is not None:
         _draw_truth(truths, axes, groups)
+    for axis, side, null, edge, log in clamps:
+        _keep_off(axis, side, null, edge, log=log)
     question = subtitle if subtitle is not None else _question(items)
     # The number column sits right of the axes, so the key keeps to two columns.
     _core.header(axes[0], title or TITLE, question, key_sources=axes, key_columns=2)
@@ -459,8 +466,13 @@ def _panel(
     *,
     include_null: bool | None,
     truths: Sequence[float],
-) -> str | None:
-    """One scale's rows on one axes; returns the note of a null left off the axis."""
+) -> tuple[str | None, tuple[str, float, float, bool] | None]:
+    """One scale's rows on one axes.
+
+    Returns the note of a null left off the axis, and what :func:`_keep_off` needs to keep
+    it off: the side, the null and the near data edge (logged for a ratio), and whether the
+    axis is logged.
+    """
     _core.style_axes(ax, grid="x")
     color = _core.PALETTE[0]
     positions = list(range(len(rows)))[::-1]
@@ -493,15 +505,20 @@ def _panel(
         )
     null = _core.null_for(scale)
     off_axis = None
+    keep_off = None
     if null is not None and all(row.null_defined for row in rows):
-        side = _null_side(scale, null, rows, truths, include_null)
-        if side is None:
+        placed = _null_side(scale, null, rows, truths, include_null)
+        if placed is None:
             _core.reference_line(ax, null, orientation="vertical", label="No effect")
         else:
+            side, edge = placed
+            # Only rows that all have an interval can say none reaches the null.
+            reach = " and no interval here reaches it" if _all_intervals(rows) else ""
             off_axis = (
                 f"no effect ({null:g}) lies off the axis to the {side}, so its line is not "
-                "drawn and no interval here reaches it."
+                f"drawn{reach}."
             )
+            keep_off = (side, null, edge, scale == "ratio")
     if scale == "ratio":
         _core.log_axis(ax, "x")
     ax.set_yticks(positions, [row.label for row in rows])
@@ -512,7 +529,35 @@ def _panel(
     outcome = outcomes.pop() if len(outcomes) == 1 else None
     ax.set_xlabel(_axis_label(scale, outcome_label, outcome, units))
     _numbers(ax, rows, positions, texts)
-    return off_axis
+    return off_axis, keep_off
+
+
+def _all_intervals(rows: Sequence[_Row]) -> bool:
+    """Whether every row has a finite interval: a pair of finite limits."""
+    return all(
+        _core.finite(row.interval.lower) and _core.finite(row.interval.upper) for row in rows
+    )
+
+
+def _keep_off(ax: Axes, side: str, null: float, edge: float, *, log: bool) -> None:
+    """Move the near x limit between the null and the data, so the null is off the axis.
+
+    The autoscale margin, or the room a true value's cross takes, can reach past a null
+    that sits close to the data; the limit then goes halfway from the data's edge to the
+    null, or to the autoscale's own limit when that already leaves the null out. ``edge``
+    and ``null`` are on the drawn scale (logged for a ratio).
+    """
+    import math
+
+    low, high = ax.get_xlim()
+    point = (lambda v: math.log(v)) if log else (lambda v: v)
+    back = (lambda v: math.exp(v)) if log else (lambda v: v)
+    where = 0.0 if log else null
+    middle = back(where + 0.5 * (edge - where))
+    if side == "left" and point(low) <= where:
+        ax.set_xlim(middle, high)
+    elif side == "right" and point(high) >= where:
+        ax.set_xlim(low, middle)
 
 
 def _null_side(
@@ -521,11 +566,14 @@ def _null_side(
     rows: Sequence[_Row],
     truths: Sequence[float],
     include_null: bool | None,
-) -> str | None:
-    """``None`` when the axis shows the no-effect value, else the side it lies off to.
+) -> tuple[str, float] | None:
+    """``None`` when the axis shows the no-effect value, else its side and the data's edge.
 
     The span is measured on the drawn scale (logged for a ratio) over every point, interval
-    limit and true value. A null inside that span is always shown, whatever ``include_null``.
+    limit and true value, and the edge is the data's limit nearest the null on that scale.
+    A null inside that span is always shown, whatever ``include_null``. Under the automatic
+    rule a panel with a row that has no finite interval always shows it: a point alone
+    says nothing about how far the null is.
     """
     import math
 
@@ -538,13 +586,15 @@ def _null_side(
         null = 0.0
     if not found or include_null is True:
         return None
+    if include_null is None and not _all_intervals(rows):
+        return None
     low, high = min(found), max(found)
     if low <= null <= high:
         return None
     gap = low - null if null < low else null - high
     if include_null is None and gap <= _NULL_REACH * (high - low):
         return None
-    return "left" if null < low else "right"
+    return ("left", low) if null < low else ("right", high)
 
 
 def _numbers(
