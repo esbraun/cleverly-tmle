@@ -2025,6 +2025,10 @@ The row ships in parts, one pull request each:
 | 5 | targeting curves for a priority score: the TOC and cumulative gain over the treated fraction, their areas (AUTOC and the Qini coefficient), and the paired comparison of two scores, with a registered study | open; a new estimated quantity, gated on its own plan and study |
 | 6 | a "Plot results" tutorial notebook, then the plots in the notebooks whose questions they answer | open |
 
+Two views stay open after these parts, and the plots refuse them by name: the truncation curve
+of a longitudinal fit, whose limits bound a cumulative probability, and the overlap of a
+longitudinal fit's treatment probabilities, one per time point.
+
 Part 5 is the only one with new statistics. The area estimates with half-sample bootstrap
 standard errors are covered by Yadlowsky, Fleming, Shah, Brunskill and Wager (arXiv:2111.07966,
 Theorem 3 and Corollary 7). The pointwise TOC at a fixed fraction and a band over the grid are

@@ -135,18 +135,25 @@ def truncation(
 
     Raises
     ------
-    ValueError
+    CapabilityError
         For a longitudinal curve, whose limits are cumulative and are not drawn by this
-        plot, for a curve that does not record its scale and interval level, or for an
-        unknown estimand.
+        plot.
+    ValueError
+        For a curve that does not record its scale and interval level, or for an unknown
+        estimand.
     """
     frame = curve.to_frame()
     columns = _columns(frame)
     if "bound" not in columns or "truncated_fraction" not in columns:
-        raise ValueError(
+        from .._refusal import RefusalReason
+        from ..exceptions import CapabilityError
+
+        raise CapabilityError(
             "this truncation curve is from a longitudinal fit, whose limits bound a "
-            "cumulative probability; plotting it is not supported yet. Read its frame with "
-            "to_frame()"
+            "cumulative probability; this plot draws only a point-treatment curve",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="curve.to_frame() holds the longitudinal curve's rows",
+            roadmap="X92",
         )
     missing = [name for name in ("scale", "level") if name not in columns]
     if missing:

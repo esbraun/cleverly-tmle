@@ -188,6 +188,7 @@ def overlap(
             "plot does not draw",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=NO_ALTERNATIVE,
+            roadmap="X92",
         )
     positivity_report(result)  # the report's own refusals: no mechanism, a continuous dose
     data = result.data
