@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import textwrap
+import weakref
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -530,6 +531,7 @@ def figure_header(
         key = fig.legend(
             handles,
             labels,
+            handler_map=_key_handlers(handles),
             loc="upper left",
             bbox_to_anchor=(_FIGURE_LEFT, 1.0 - cursor / height),
             bbox_transform=fig.transFigure,
@@ -765,6 +767,7 @@ def legend(ax: Axes, *, sources: Sequence[Axes] | None = None, max_columns: int 
     ax.legend(
         handles,
         labels,
+        handler_map=_key_handlers(handles),
         loc="lower left",
         bbox_to_anchor=(0.0, 1.0),
         ncol=_key_columns(ax, labels, max_columns),
@@ -1044,12 +1047,80 @@ def brackets(
             zorder=2.5,
         )
         line.set_gid(GID_BAND)
+        _BRACKET_GLYPHS[line] = True
         return line
     collection = ax.vlines(
         list(x), list(lower), list(upper), color=color, linewidth=2.0, label=label
     )
     collection.set_gid(GID_INTERVAL)
+    _BRACKET_GLYPHS[collection] = False
     return collection
+
+
+#: The artists :func:`brackets` drew, with whether each is a band. The key draws their glyphs
+#: as the marks look on the axes: matplotlib's default would draw both a band's caps and an
+#: interval's bar as one short horizontal dash. Weak keys let a closed figure's artists go.
+_BRACKET_GLYPHS: weakref.WeakKeyDictionary[Any, bool] = weakref.WeakKeyDictionary()
+#: The ``gid`` of the key glyphs of :func:`brackets`' marks.
+GID_KEY_BAND: Final = "cleverly-key-band"
+GID_KEY_INTERVAL: Final = "cleverly-key-interval"
+
+
+def _key_handlers(handles: Sequence[Any]) -> dict[Any, Any]:
+    """A legend handler map that draws each bracket handle as the mark it stands for.
+
+    A band's key glyph is its two caps, one above the other with nothing between them; an
+    interval's is one vertical bar of the same height. They differ by shape, so the two
+    entries of one colour read apart at a glance.
+    """
+    from matplotlib.legend_handler import HandlerBase
+    from matplotlib.lines import Line2D
+
+    class _Glyph(HandlerBase):
+        def __init__(self, band: bool) -> None:
+            super().__init__()
+            self.band = band
+
+        def create_artists(
+            self,
+            legend: Any,
+            orig_handle: Any,
+            xdescent: float,
+            ydescent: float,
+            width: float,
+            height: float,
+            fontsize: float,
+            trans: Any,
+        ) -> list[Any]:
+            from matplotlib.colors import to_hex
+
+            color = orig_handle.get_color()
+            if not isinstance(color, str):
+                # a line collection holds one colour per segment; brackets() gives one
+                color = to_hex(next(iter(color)), keep_alpha=True)
+            middle = width / 2.0 - xdescent
+            low, high = -ydescent - 0.25 * height, -ydescent + 1.25 * height
+            if self.band:
+                half = 0.3 * width
+                pieces = [
+                    Line2D([middle - half, middle + half], [y, y], color=color, linewidth=1.6)
+                    for y in (low, high)
+                ]
+                gid = GID_KEY_BAND
+            else:
+                pieces = [Line2D([middle, middle], [low, high], color=color, linewidth=2.0)]
+                gid = GID_KEY_INTERVAL
+            for piece in pieces:
+                piece.set_transform(trans)
+                piece.set_gid(gid)
+            return pieces
+
+    found: dict[Any, Any] = {}
+    for handle in handles:
+        band = _BRACKET_GLYPHS.get(handle)
+        if band is not None:
+            found[handle] = _Glyph(band)
+    return found
 
 
 def log_axis(ax: Axes, which: str) -> None:
@@ -1365,6 +1436,8 @@ __all__ = [
     "GID_BAND",
     "GID_INTERVAL",
     "GID_KEY",
+    "GID_KEY_BAND",
+    "GID_KEY_INTERVAL",
     "GID_MARKER",
     "GID_NOTES",
     "GID_POINT",

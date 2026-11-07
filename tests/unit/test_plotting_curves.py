@@ -1972,3 +1972,40 @@ def _regimen_order_of(result: Any) -> list[str]:
     from cleverly.plotting._curves import _regimen_order
 
     return _regimen_order(result)
+
+
+class TestTheKeyGlyphs:
+    """A band's caps and an interval's bar read apart in the key, not by a dash's width."""
+
+    @staticmethod
+    def _glyphs(ax: Any, gid: str) -> list[Any]:
+        from matplotlib.lines import Line2D
+
+        return [line for line in ax.get_legend().findobj(Line2D) if line.get_gid() == gid]
+
+    def test_brackets_on_a_finite_grid_draw_caps_and_a_bar_in_the_key(self) -> None:
+        # the discharge-to-readmission risk curve: horizons only, a multiplier band and
+        # pointwise intervals, both as marks at the horizons in the first series' colour
+        top = curve(subset()).axes[0]
+        assert band_marks(top).size and bars(top).size
+        caps = self._glyphs(top, _core.GID_KEY_BAND)
+        (bar,) = self._glyphs(top, _core.GID_KEY_INTERVAL)
+        # the band's glyph is two horizontal caps, one above the other, and no stem
+        assert len(caps) == 2
+        assert all(np.ptp(cap.get_ydata()) == 0.0 and np.ptp(cap.get_xdata()) > 0 for cap in caps)
+        assert caps[0].get_ydata()[0] != caps[1].get_ydata()[0]
+        # the interval's glyph is one vertical bar spanning the caps
+        assert np.ptp(bar.get_xdata()) == 0.0
+        assert min(bar.get_ydata()) == min(cap.get_ydata()[0] for cap in caps)
+        assert max(bar.get_ydata()) == max(cap.get_ydata()[0] for cap in caps)
+        # each glyph keeps its mark's colour
+        band_color = lines(top, _core.GID_BAND)[0].get_color()
+        assert matplotlib.colors.to_hex(caps[0].get_color()) == matplotlib.colors.to_hex(band_color)
+
+    def test_ribbons_keep_their_swatches(self) -> None:
+        # the control: a curve that reports every node draws ribbons, whose key entries are
+        # filled swatches, lighter for the band, and no bracket glyph
+        top = curve(full()).axes[0]
+        assert ribbons(top, _core.GID_BAND)
+        assert not self._glyphs(top, _core.GID_KEY_BAND)
+        assert not self._glyphs(top, _core.GID_KEY_INTERVAL)
