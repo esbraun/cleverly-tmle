@@ -151,7 +151,7 @@ def curve(
     modifier: str | None = None,
     by: str | None = None,
     at: Mapping[str, Any] | None = None,
-    alpha: float = 0.05,
+    alpha: float | None = None,
     outcome_label: str | None = None,
     treatment_label: str | None = None,
     units: str | None = None,
@@ -171,8 +171,9 @@ def curve(
     A conditional effect curve draws the effect over one modifier.
 
     A band is drawn only when the fit computed one. A fit that reports every time point
-    gets step ribbons, because the curve is constant between time points; a fit that
-    reports only some horizons gets points and bracket marks at those horizons. A result
+    gets step ribbons, because the curve is constant between time points, and the last time
+    point, where a step has no width, gets a bar and bracket marks; a fit that reports only
+    some horizons gets points and bracket marks at those horizons. A result
     that withholds inference draws points only and the note under the figure gives the
     reason; an experimental result or band says so there.
 
@@ -211,16 +212,21 @@ def curve(
     at : mapping or None, default=None
         Conditional effect curve: the value at which each other modifier the curve reads is
         held.
-    alpha : float, default=0.05
-        Conditional effect curve: the pointwise interval holds at ``1 - alpha``.
+    alpha : float or None, default=None
+        Conditional effect curve: the pointwise interval holds at ``1 - alpha``. ``None``
+        uses the level of the curve's band when it has one, so the two are read at one
+        level, and the level of the fit's coefficients otherwise.
     outcome_label : str or None, default=None
         Words for the outcome on the y axis.
     treatment_label : str or None, default=None
         Words for the treatment on the x axis.
     units : str or None, default=None
-        Units of the outcome or of time, added to the axis label.
+        Units of the quantity on the y axis, added to its label: the outcome of a mean
+        view, a dose, policy or effect plot, or time for a restricted mean. A risk or a
+        survival probability has none, and this is ignored there.
     time_label : str or None, default=None
-        Words for the time axis of a longitudinal fit.
+        Words for the time axis of a longitudinal fit, with its units, such as
+        ``"Days since enrolment"``.
     title : str or None, default=None
         The title.
     ax : Axes or None, default=None
@@ -428,9 +434,16 @@ def _read_curve(result: Any, view: str, cause: str | None) -> tuple[list[_Point]
     return rows, chosen
 
 
-def _select(rows: list[_Point], regimens: Sequence[str] | None) -> tuple[list[str], list[str]]:
-    """The level regimens to draw and the contrast labels that go with them."""
-    found = list(dict.fromkeys(row.regimen for row in rows if row.level))
+def _select(
+    rows: list[_Point], regimens: Sequence[str] | None, *, order: Sequence[str] | None = None
+) -> tuple[list[str], list[str]]:
+    """The level regimens to draw and the contrast labels that go with them.
+
+    The regimens follow ``order`` (the fit's own, :func:`_regimen_order`) when given, so
+    every plot of one result lists and colours them alike.
+    """
+    reported = list(dict.fromkeys(row.regimen for row in rows if row.level))
+    found = [name for name in order or () if name in reported] or reported
     chosen = found if regimens is None else list(regimens)
     unknown = [name for name in chosen if name not in found]
     if unknown:
@@ -534,30 +547,130 @@ def _counts(
     return found
 
 
+def _regimen_order(result: Any) -> list[str]:
+    """The fit's regimens in its own reporting order, the one source of series colours."""
+    return list(dict.fromkeys(str(key[0]) for key in result._levels()))
+
+
+def _slots(chosen: Sequence[str], order: Sequence[str]) -> dict[str, int]:
+    """The palette slot of each drawn regimen.
+
+    A regimen keeps its slot in the fit's order across every plot of one result (style rule
+    of plan 4.2); a fit with more regimens than slots numbers the drawn ones in turn.
+    """
+    if len(order) <= _core.MAX_SERIES and all(name in order for name in chosen):
+        return {name: order.index(name) for name in chosen}
+    return {name: i for i, name in enumerate(chosen)}
+
+
+def _draw_points(
+    ax: Axes,
+    xs: Sequence[float],
+    ys: Sequence[float],
+    has_interval: Sequence[bool],
+    *,
+    color: str,
+    marker: str,
+    transform: Any,
+    size: float = 7.0,
+) -> None:
+    """The estimates: filled where an interval is drawn, hollow where none is (rule 1)."""
+    for x, y, has in zip(xs, ys, has_interval, strict=True):
+        ax.plot(
+            [x],
+            [y],
+            marker=marker,
+            markersize=size,
+            color=color,
+            markerfacecolor=color if has else _core.FACE,
+            markeredgewidth=1.5,
+            linestyle="none",
+            transform=transform,
+            gid=_core.GID_POINT,
+            zorder=3,
+        )
+
+
+def _dodged_brackets(
+    ax: Axes,
+    xs: Sequence[float],
+    lower: Sequence[float],
+    upper: Sequence[float],
+    *,
+    color: str,
+    label: str,
+    band: bool,
+    transform: Any,
+) -> None:
+    """:func:`_core.brackets` at the finite limits, shifted sideways with the series."""
+    keep = [i for i in range(len(xs)) if _finite_pair(lower[i], upper[i])]
+    if not keep:
+        return
+    artist = _core.brackets(
+        ax,
+        [float(xs[i]) for i in keep],
+        [float(lower[i]) for i in keep],
+        [float(upper[i]) for i in keep],
+        color=color,
+        label=label,
+        band=band,
+    )
+    artist.set_transform(transform)
+
+
+def _held_steps(
+    x: Sequence[float], low: Sequence[float], high: Sequence[float]
+) -> tuple[list[float], list[float], list[float]]:
+    """Step-ribbon inputs in which a node before a missing one still holds to the next node.
+
+    ``fill_between(step="post")`` breaks at a missing value and drops the step that leads
+    into it, so a node followed by a missing node would span no width. Its limits are
+    repeated at the next node's position before the gap.
+    """
+    xs: list[float] = []
+    lows: list[float] = []
+    highs: list[float] = []
+    for i, (position, lo, hi) in enumerate(zip(x, low, high, strict=True)):
+        xs.append(position)
+        lows.append(lo)
+        highs.append(hi)
+        if i + 1 < len(x) and _finite_pair(lo, hi) and not _finite_pair(low[i + 1], high[i + 1]):
+            xs.append(x[i + 1])
+            lows.append(lo)
+            highs.append(hi)
+    return xs, lows, highs
+
+
 def _draw_line(
     ax: Axes,
     points: list[_Point],
     *,
     color: str,
     index: int,
-    count: int,
+    dodge: tuple[int, int],
     step: bool,
-    pointwise: bool,
     limits: Mapping[str, tuple[float, float]] | None,
     level: float,
     band_text: str | None,
     first: dict[str, bool],
 ) -> None:
-    """One series: the curve, its pointwise interval and its band."""
-    x = np.array([p.x for p in points])
-    y = np.array([p.psi for p in points])
+    """One series: the curve, its pointwise interval and its band.
+
+    A node without an interval leaves a gap in the ribbon (or no bar) and a hollow marker;
+    the other nodes keep theirs.
+    """
+    x = [p.x for p in points]
+    y = [p.psi for p in points]
     style = _DASHES[index % len(_DASHES)]
-    has_interval = pointwise and all(p.lower is not None for p in points)
-    low = np.array([p.lower if p.lower is not None else np.nan for p in points])
-    high = np.array([p.upper if p.upper is not None else np.nan for p in points])
+    low = [p.lower if p.lower is not None else math.nan for p in points]
+    high = [p.upper if p.upper is not None else math.nan for p in points]
+    has = [_finite_pair(lo, hi) for lo, hi in zip(low, high, strict=True)]
     box = None
-    if limits is not None and all(p.parameter in limits for p in points):
-        box = np.array([limits[p.parameter] for p in points])
+    if limits is not None and any(p.parameter in limits for p in points):
+        box = (
+            [limits[p.parameter][0] if p.parameter in limits else math.nan for p in points],
+            [limits[p.parameter][1] if p.parameter in limits else math.nan for p in points],
+        )
 
     def tag(key: str, text: str) -> str:
         if first[key]:
@@ -566,81 +679,88 @@ def _draw_line(
         return "_nolegend_"
 
     if step:
+        # The ribbons mark the last node with a bar and brackets; those, and the last point,
+        # move sideways with the series so that several series' marks there do not overlap.
+        from matplotlib.collections import PolyCollection
+
+        before = (len(ax.lines), len(ax.collections))
         if box is not None:
-            ax.fill_between(
-                x,
-                box[:, 0],
-                box[:, 1],
-                step="post",
+            _core.ribbon(
+                ax,
+                *_held_steps(x, box[0], box[1]),
                 color=color,
-                alpha=_core.BAND_ALPHA,
-                linewidth=0,
                 label=tag("band", band_text or ""),
-                gid="cleverly-band",
+                band=True,
+                step=True,
             )
-        if has_interval:
-            ax.fill_between(
-                x,
-                low,
-                high,
-                step="post",
+        if any(has):
+            _core.ribbon(
+                ax,
+                *_held_steps(x, low, high),
                 color=color,
-                alpha=_core.INTERVAL_ALPHA,
-                linewidth=0,
                 label=tag("pointwise", _core.pointwise_label(level)),
-                gid="cleverly-ribbon",
+                step=True,
             )
+        ends = _offset(ax, *dodge)
+        for artist in [*ax.lines[before[0] :], *ax.collections[before[1] :]]:
+            if not isinstance(artist, PolyCollection):
+                artist.set_transform(ends)
         ax.step(
             x, y, where="post", color=color, linewidth=2.0, linestyle=style, gid="cleverly-curve"
         )
-    else:
-        shift = _offset(ax, index, count)
-        if box is not None:
-            ax.vlines(
-                x,
-                box[:, 0],
-                box[:, 1],
-                color=color,
-                linewidth=1.0,
-                alpha=0.55,
-                transform=shift,
-                label=tag("band", band_text or ""),
-                gid="cleverly-band",
-            )
-            for edge in (0, 1):
-                ax.plot(
-                    x,
-                    box[:, edge],
-                    marker="_",
-                    markersize=9,
-                    color=color,
-                    alpha=0.55,
-                    linestyle="none",
-                    transform=shift,
-                    gid="cleverly-band-cap",
-                )
-        if has_interval:
-            ax.vlines(
-                x,
-                low,
-                high,
-                color=color,
-                linewidth=2.2,
-                transform=shift,
-                label=tag("pointwise", _core.pointwise_label(level)),
-                gid="cleverly-interval",
-            )
-    ax.plot(
+        _draw_points(
+            ax,
+            x[:-1],
+            y[:-1],
+            has[:-1],
+            color=color,
+            marker=_MARKERS[index % len(_MARKERS)],
+            transform=ax.transData,
+            size=5.5,
+        )
+        _draw_points(
+            ax,
+            x[-1:],
+            y[-1:],
+            has[-1:],
+            color=color,
+            marker=_MARKERS[index % len(_MARKERS)],
+            transform=ends,
+            size=5.5,
+        )
+        return
+    transform = _offset(ax, *dodge)
+    if box is not None:
+        _dodged_brackets(
+            ax,
+            x,
+            box[0],
+            box[1],
+            color=color,
+            label=tag("band", band_text or ""),
+            band=True,
+            transform=transform,
+        )
+    if any(has):
+        _dodged_brackets(
+            ax,
+            x,
+            low,
+            high,
+            color=color,
+            label=tag("pointwise", _core.pointwise_label(level)),
+            band=False,
+            transform=transform,
+        )
+    _draw_points(
+        ax,
         x,
         y,
-        marker=_MARKERS[index % len(_MARKERS)],
-        markersize=5.5 if step else 7,
+        has,
         color=color,
-        markerfacecolor=color,
-        linestyle="none",
-        transform=ax.transData if step else _offset(ax, index, count),
-        gid="cleverly-point",
-        zorder=3,
+        marker=_MARKERS[index % len(_MARKERS)],
+        transform=transform,
+        size=7.0,
     )
 
 
@@ -688,7 +808,9 @@ def _over_time(
 ) -> Figure:
     view = scale or ("mean" if result.data.is_repeated else "risk")
     rows, chosen_cause = _read_curve(result, view, cause)
-    chosen, contrasts = _select(rows, regimens)
+    order = _regimen_order(result)
+    chosen, contrasts = _select(rows, regimens, order=order)
+    slot = _slots(chosen, order)
     name_of = (lambda s: str(labels.get(s, s))) if labels else str
     step = _nodes_reported(result, rows)
     level = 1.0 - float(rows[0].estimate.alpha)
@@ -725,22 +847,23 @@ def _over_time(
     ends: list[tuple[float, float, str, str]] = []
     for i, regimen in enumerate(chosen):
         points = _series(rows, regimen, level=True)
+        color = _core.series_color(slot[regimen])
         _draw_line(
             top,
             points,
-            color=_core.PALETTE[i],
-            index=i,
-            count=len(chosen),
+            color=color,
+            index=slot[regimen],
+            dodge=(i, len(chosen)),
             step=step,
-            pointwise=True,
             limits=limits,
             level=level,
             band_text=band_text,
             first=first,
         )
-        ends.append((points[-1].x, points[-1].psi, name_of(regimen), _core.PALETTE[i]))
-    _mark_isotonic(top, result, rows, chosen, view, psi_risk, chosen_cause)
+        ends.append((points[-1].x, points[-1].psi, name_of(regimen), color))
+    marked = _mark_isotonic(top, result, rows, chosen, slot, view, psi_risk, chosen_cause)
     _pad(top, _extent(rows, chosen, limits, level_rows=True))
+    diff_ends: list[tuple[float, float, str, str]] = []
     if contrasts:
         diff = panels[1]
         for i, contrast in enumerate(contrasts):
@@ -750,35 +873,26 @@ def _over_time(
                 points,
                 color=_core.SECONDARY_INK,
                 index=i,
-                count=len(contrasts),
+                dodge=(i, len(contrasts)),
                 step=step,
-                pointwise=True,
                 limits=limits,
                 level=level,
                 band_text=band_text,
                 first=first,
             )
+            diff_ends.append((points[-1].x, points[-1].psi, name_of(contrast), _core.SECONDARY_INK))
         _core.reference_line(diff, 0.0, label="No difference")
         _pad(diff, [0.0, *_extent(rows, contrasts, limits, level_rows=False)])
         diff.set_ylabel(
             _wrap_axis_label(_measure_word(view, outcome_label, units, difference=True))
         )
-        diff_ends = []
-        for contrast in contrasts:
-            points = _series(rows, contrast, level=False)
-            diff_ends.append((points[-1].x, points[-1].psi, name_of(contrast), _core.SECONDARY_INK))
-        _core.legend(top, sources=[diff, top])
-    else:
-        diff_ends = []
-        _core.legend(top, sources=[top])
     top.set_ylabel(_wrap_axis_label(_measure_word(view, outcome_label, units, difference=False)))
     xs = sorted({r.x for r in in_play})
     span = (xs[-1] - xs[0]) or 1.0
     left, right = xs[0] - 0.06 * span, xs[-1] + (0.24 if span else 0.4) * span
-    top.set_xlim(left, right)
     for axis in panels:
         axis.set_xlim(left, right)
-    nudge = 0.0 if step else 0.04 * span
+    nudge = 0.03 * span
     _label_ends(top, [(x + nudge, y, text, color) for x, y, text, color in ends])
     if contrasts:
         _label_ends(panels[1], [(x + nudge, y, t, c) for x, y, t, c in diff_ends])
@@ -789,9 +903,21 @@ def _over_time(
         "mean": "Mean outcome over time",
     }[view]
     suffix = f" ({chosen_cause})" if chosen_cause else ""
-    _core.header(top, title or heading, _over_time_subtitle(view, suffix, step, contrasts))
+    _core.header(
+        top,
+        title or heading,
+        _over_time_subtitle(view, suffix, contrasts),
+        key_sources=panels[:-1],
+    )
     note_list = list(band_notes)
     note_list += _withheld_notes([r.estimate for r in in_play])
+    gaps = sorted({r.x for r in in_play if r.estimate.supplies_inference and r.lower is None})
+    if gaps:
+        note_list.append(
+            "The fit reports no finite interval at time "
+            + ", ".join(f"{x:g}" for x in gaps)
+            + ", so none is drawn there and the marker is hollow."
+        )
     note_list += _support_notes([r.estimate for r in in_play], "curve")
     if band_obj is not None:
         note_list += _band_note(band_obj.support, "simultaneous band")
@@ -799,22 +925,41 @@ def _over_time(
             note_list.append(
                 "The survival band mirrors the fit's risk band about the survival estimate."
             )
-    if not step:
+    if step:
+        note_list.append(_step_note(any(r.lower is not None for r in in_play), limits is not None))
+    else:
         horizons = ", ".join(f"{r.x:g}" for r in _series(rows, chosen[0], level=True))
         note_list.append(
             f"This fit reports only the horizons {horizons}, so the curve is drawn at those "
             "horizons and nothing is drawn between them."
         )
-    if result.isotonic_moves:
+    if marked:
         note_list.append(
-            "Hollow markers are the raw estimates the monotone projection moved; the drawn "
-            "curve is the projected one."
+            "Hollow markers without an interval are the raw estimates the monotone projection "
+            "moved; the drawn curve is the projected one."
+        )
+    elif result.isotonic_moves and result.n_repeats > 1 and view != "mean":
+        note_list.append(
+            "The monotone projection moved some estimates. The raw values are not marked, "
+            f"because they belong to one of the {result.n_repeats} repeats this curve combines."
         )
     _core.notes(count_ax, note_list)
     return fig
 
 
-def _over_time_subtitle(view: str, suffix: str, step: bool, contrasts: list[str]) -> str:
+def _step_note(interval: bool, band: bool) -> str:
+    """What a step curve's last time point shows, where its ribbons have no width."""
+    text = "Each estimate holds until the next time point."
+    if interval and band:
+        return f"{text} At the last one the interval is drawn as a bar and the band as brackets."
+    if interval:
+        return f"{text} At the last one the interval is drawn as a bar."
+    if band:
+        return f"{text} At the last one the band is drawn as brackets."
+    return text
+
+
+def _over_time_subtitle(view: str, suffix: str, contrasts: list[str]) -> str:
     base = {
         "risk": "Cumulative risk under each regimen",
         "survival": "Chance of staying event-free under each regimen",
@@ -840,17 +985,23 @@ def _mark_isotonic(
     result: Any,
     rows: list[_Point],
     chosen: Sequence[str],
+    slot: Mapping[str, int],
     view: str,
     psi_risk: Mapping[str, float],
     cause: str | None,
-) -> None:
-    """Hollow markers at the raw estimates the isotonic projection moved (rule 6)."""
-    if not result.isotonic_moves or view == "mean":
-        return
+) -> bool:
+    """Hollow markers at the raw estimates the isotonic projection moved (rule 6).
+
+    Returns whether any marker was drawn. A fit of several repeats records the moves of one
+    repeat, whose raw values are not the combined curve's, so none is drawn for it.
+    """
+    if not result.isotonic_moves or view == "mean" or result.n_repeats > 1:
+        return False
     index = result.parameter_index or {}
     lookup = {index[r.parameter]: r for r in rows if r.level}
     scaler = result.scaler
-    for position, name in enumerate(chosen):
+    marked = False
+    for name in chosen:
         raw_x, raw_y = [], []
         for label, move_cause, horizon, before, _after in result.isotonic_moves:
             if label != name or (move_cause is not None and move_cause != cause):
@@ -866,15 +1017,18 @@ def _mark_isotonic(
             ax.plot(
                 raw_x,
                 raw_y,
-                marker=_MARKERS[position],
+                marker=_MARKERS[slot[name] % len(_MARKERS)],
                 markersize=8,
+                color=_core.series_color(slot[name]),
                 markerfacecolor=_core.FACE,
-                markeredgecolor=_core.PALETTE[position],
+                markeredgecolor=_core.series_color(slot[name]),
                 markeredgewidth=1.6,
                 linestyle="none",
                 gid="cleverly-raw",
                 zorder=4,
             )
+            marked = True
+    return marked
 
 
 def _count_row(
@@ -950,7 +1104,7 @@ def _restricted(
     horizons: list[Any] = (
         list(range(2, n_times + 2)) if grid is None else [float(value) for value in grid[1:]]
     )
-    found = sorted({key[0] for key in result._levels()})
+    found = _regimen_order(result)
     chosen = found if regimens is None else list(regimens)
     unknown = [name for name in chosen if name not in found]
     if unknown:
@@ -961,6 +1115,7 @@ def _restricted(
             f"{_core.MAX_SERIES} coloured series; pass regimens= to draw up to "
             f"{_core.MAX_SERIES} of them"
         )
+    slot = _slots(chosen, found)
     reference = str(result.config.reference)
     versus = [name for name in chosen if name != reference] if reference in chosen else []
     compute = result.rmst if measure == "rmst" else result.rmtl
@@ -980,39 +1135,42 @@ def _restricted(
     ends = []
     notes: list[str] = []
     all_estimates: list[Any] = []
+    spans: dict[Any, list[float]] = {panel: [] for panel in panels}
+    keyed = {"pointwise": False}
 
-    def draw(
-        ax: Axes, series: list[Any], color: str, index: int, count: int, *, first: bool
-    ) -> None:
-        xs = np.array([float(h) for h in horizons])
+    def draw(ax: Axes, series: list[Any], color: str, style: int, dodge: tuple[int, int]) -> None:
+        xs = [float(h) for h in horizons]
         intervals = [_core.estimate_interval(e) for e in series]
-        ys = np.array([i.psi for i in intervals])
-        shift = _offset(ax, index, count)
-        ax.plot(xs, ys, color=color, linewidth=1.0, alpha=0.7, gid="cleverly-guide", zorder=2)
-        label = _core.interval_label(intervals[0].level).replace("confidence", "pointwise")
-        for x, interval in zip(xs, intervals, strict=True):
-            if interval.drawn and interval.lower is not None and interval.upper is not None:
-                ax.vlines(
-                    x,
-                    interval.lower,
-                    interval.upper,
-                    color=color,
-                    linewidth=2.2,
-                    transform=shift,
-                    label=label if first else "_nolegend_",
-                    gid="cleverly-interval",
-                )
-                first = False
+        ys = [i.psi for i in intervals]
+        shift = _offset(ax, *dodge)
         ax.plot(
             xs,
             ys,
-            marker=_MARKERS[index % 3],
-            markersize=6.5,
             color=color,
-            linestyle="none",
+            linewidth=1.0,
+            alpha=0.7,
             transform=shift,
-            gid="cleverly-point",
-            zorder=3,
+            gid="cleverly-guide",
+            zorder=2,
+        )
+        has = [i.drawn for i in intervals]
+        if any(has):
+            label = (
+                "_nolegend_" if keyed["pointwise"] else _core.pointwise_label(intervals[0].level)
+            )
+            keyed["pointwise"] = True
+            _dodged_brackets(
+                ax,
+                xs,
+                [math.nan if i.lower is None else i.lower for i in intervals],
+                [math.nan if i.upper is None else i.upper for i in intervals],
+                color=color,
+                label=label,
+                band=False,
+                transform=shift,
+            )
+        _draw_points(
+            ax, xs, ys, has, color=color, marker=_MARKERS[style % 3], transform=shift, size=6.5
         )
         spans[ax].extend(
             value
@@ -1021,17 +1179,17 @@ def _restricted(
             if value is not None
         )
 
-    spans: dict[Any, list[float]] = {panel: [] for panel in panels}
     for i, name in enumerate(chosen):
-        draw(top, levels[name], _core.PALETTE[i], i, len(chosen), first=i == 0)
+        color = _core.series_color(slot[name])
+        draw(top, levels[name], color, slot[name], (i, len(chosen)))
         all_estimates.extend(levels[name])
-        ends.append((float(horizons[-1]), levels[name][-1].psi, name_of(name), _core.PALETTE[i]))
+        ends.append((float(horizons[-1]), levels[name][-1].psi, name_of(name), color))
     top.set_ylabel(_wrap_axis_label(f"Restricted mean {word}{unit}"))
+    diff_ends = []
     if contrasts:
         diff = panels[1]
-        diff_ends = []
         for i, name in enumerate(versus):
-            draw(diff, contrasts[name], _core.SECONDARY_INK, i, len(versus), first=i == 0)
+            draw(diff, contrasts[name], _core.SECONDARY_INK, i, (i, len(versus)))
             all_estimates.extend(contrasts[name])
             diff_ends.append(
                 (
@@ -1054,7 +1212,6 @@ def _restricted(
         _label_ends(panels[1], [(x + nudge, y, t, c) for x, y, t, c in diff_ends])
     panels[-1].set_xlabel(time_label or "Restriction time (up to this time point)")
     panels[-1].set_xticks([float(h) for h in horizons])
-    _core.legend(top, sources=panels[::-1])
     heading = (
         "Restricted mean survival up to each horizon"
         if measure == "rmst"
@@ -1064,6 +1221,7 @@ def _restricted(
         top,
         title or heading,
         f"Average {word} accumulated before each restriction time, under each regimen",
+        key_sources=panels,
     )
     notes.extend(_withheld_notes(all_estimates))
     notes.extend(_support_notes(all_estimates, "estimate"))
@@ -1103,8 +1261,14 @@ def _points_at(
     intervals: Sequence[tuple[float | None, float | None]] | None = None,
     band_text: str | None = None,
     extent: list[float] | None = None,
+    guide_through: Sequence[tuple[float, float]] = (),
 ) -> list[str]:
-    """Points with pointwise error bars and, where given, band brackets; returns the notes."""
+    """Points with pointwise error bars and, where given, band brackets; returns the notes.
+
+    The guide line, the bars, the brackets and the points share one sideways shift, so the
+    line runs through the markers. ``guide_through`` adds points the guide passes through
+    that are drawn elsewhere (a reference policy).
+    """
     shift = _offset(ax, index, count)
     xs = list(xs)
     if intervals is None:
@@ -1122,74 +1286,37 @@ def _points_at(
         extent.extend(ys)
         extent.extend(v for pair in pairs for v in pair if v is not None)
         extent.extend(v for pair in box or () if pair is not None for v in pair)
-    order = np.argsort(xs)
     if guide:
+        joined = sorted([*zip(xs, ys, strict=True), *guide_through])
         ax.plot(
-            np.asarray(xs)[order],
-            np.asarray(ys)[order],
+            [x for x, _ in joined],
+            [y for _, y in joined],
             color=color,
             linewidth=1.0,
             alpha=0.7,
+            transform=shift,
             gid="cleverly-guide",
             zorder=2,
         )
-    first = True
-    for x, (low, high) in zip(xs, pairs, strict=True):
-        if low is not None and high is not None and _finite_pair(low, high):
-            ax.vlines(
-                x,
-                low,
-                high,
-                color=color,
-                linewidth=2.2,
-                transform=shift,
-                label=interval_text if first else "_nolegend_",
-                gid="cleverly-interval",
-            )
-            first = False
-    if box is not None:
-        shown = [(x, pair) for x, pair in zip(xs, box, strict=True) if pair is not None]
-        named = band_text
-        for x, (low, high) in shown:
-            ax.vlines(
-                x,
-                low,
-                high,
-                color=color,
-                linewidth=1.0,
-                alpha=0.55,
-                transform=shift,
-                label=named if named else "_nolegend_",
-                gid="cleverly-band",
-            )
-            named = None
-            for edge in (low, high):
-                ax.plot(
-                    [x],
-                    [edge],
-                    marker="_",
-                    markersize=9,
-                    color=color,
-                    alpha=0.55,
-                    linestyle="none",
-                    transform=shift,
-                    gid="cleverly-band-cap",
-                )
-    drawn = [low is not None and high is not None for low, high in pairs]
-    for x, y, has in zip(xs, ys, drawn, strict=True):
-        ax.plot(
-            [x],
-            [y],
-            marker=marker,
-            markersize=7,
-            color=color,
-            markerfacecolor=color if has else _core.FACE,
-            markeredgewidth=1.5,
-            linestyle="none",
-            transform=shift,
-            gid="cleverly-point",
-            zorder=3,
+    low = [math.nan if lo is None else float(lo) for lo, _ in pairs]
+    high = [math.nan if hi is None else float(hi) for _, hi in pairs]
+    has = [_finite_pair(lo, hi) for lo, hi in zip(low, high, strict=True)]
+    if any(has):
+        _dodged_brackets(
+            ax, xs, low, high, color=color, label=interval_text, band=False, transform=shift
         )
+    if box is not None and any(pair is not None for pair in box):
+        _dodged_brackets(
+            ax,
+            xs,
+            [math.nan if pair is None else float(pair[0]) for pair in box],
+            [math.nan if pair is None else float(pair[1]) for pair in box],
+            color=color,
+            label=band_text or "_nolegend_",
+            band=True,
+            transform=shift,
+        )
+    _draw_points(ax, xs, ys, has, color=color, marker=marker, transform=shift)
     return found
 
 
@@ -1205,6 +1332,16 @@ def _regime_levels(means: Any, levels: Mapping[str, Any] | None) -> dict[str, An
     if levels:
         found.update({str(key): value for key, value in levels.items()})
     return found
+
+
+def _same_data(first: Any, second: Any) -> bool:
+    """Whether two point-treatment fits read the same outcome and treatment columns."""
+    for name in ("outcome", "treatment"):
+        left = np.asarray(getattr(first, name), dtype=float)
+        right = np.asarray(getattr(second, name), dtype=float)
+        if left.shape != right.shape or not np.array_equal(left, right, equal_nan=True):
+            return False
+    return True
 
 
 def _dose(
@@ -1235,6 +1372,21 @@ def _dose(
     entries.sort(key=lambda item: item[0])
     xs = [e[0] for e in entries]
     estimates = [e[1] for e in entries]
+    fitted = None
+    if msm_fit is not None:
+        fitted = working_model_means(msm_fit)
+        mx = [_numeric(label, "the working model's level") for label in fitted.levels]
+        missing = [x for x in mx if not any(math.isclose(x, level) for level in xs)]
+        if missing:
+            raise ValueError(
+                f"the working model is fitted at the levels {mx}, and the per-level means "
+                f"report no mean at {missing}; fit both on the same data and levels"
+            )
+        if not _same_data(means.data, msm_fit.data):
+            raise ValueError(
+                "the working model and the per-level means were fitted on different data "
+                "(their outcome or treatment columns differ); fit both on the same data"
+            )
     fig, axis = _core.figure_for(ax, figsize=(7.8, 4.8))
     outcome = outcome_label or str(getattr(means.data, "outcome_name", "outcome"))
     treatment = treatment_label or str(getattr(means.data, "treatment_name", "treatment"))
@@ -1244,29 +1396,34 @@ def _dose(
     box = None
     if bands is not None:
         box = [bands.bands.get(e[2]) for e in entries]
-    count = 2 if msm_fit is not None else 1
+    count = 2 if fitted is not None else 1
     extent: list[float] = []
+    means_color = _core.series_color(0)
     notes = _points_at(
         axis,
         xs,
         estimates,
-        color=_core.PALETTE[0],
+        color=means_color,
         marker="o",
         index=0,
         count=count,
-        interval_text=_core.interval_label(level),
+        interval_text=(
+            _core.interval_label(level)
+            if bands is None and fitted is None
+            else _core.pointwise_label(level)
+        ),
         box=box,
         band_text=None
         if bands is None
         else _core.band_label(1.0 - float(bands.alpha), "multiplier"),
         extent=extent,
     )
-    _core.corner_label(axis, 0.97, "Mean outcome at each level", _core.PALETTE[0])
+    ends = [(xs[-1], float(estimates[-1].psi), "Mean at each level", means_color)]
     if bands is not None:
         notes += _band_note(bands.support, "simultaneous band")
     subtitle = "Mean outcome if everyone were given each level"
-    if msm_fit is not None:
-        fitted = working_model_means(msm_fit)
+    if fitted is not None:
+        model_color = _core.series_color(1)
         mx = [_numeric(label, "the working model's level") for label in fitted.levels]
         pairs: list[tuple[float | None, float | None]] = (
             [(None, None)] * len(mx)
@@ -1277,15 +1434,22 @@ def _dose(
             axis,
             mx,
             [float(v) for v in fitted.estimate],
-            color=_core.PALETTE[1],
+            color=model_color,
             marker="D",
             index=1,
             count=2,
-            interval_text=(f"{_core.level_text(1.0 - fitted.alpha)} interval of the working model"),
+            # The key lists interval kinds and the end labels name the series, so the
+            # model's interval shares the means' entry when the two levels agree.
+            interval_text=(
+                "_nolegend_"
+                if math.isclose(fitted.alpha, float(estimates[0].alpha))
+                else _core.pointwise_label(1.0 - fitted.alpha)
+            ),
             intervals=pairs,
             extent=extent,
         )
-        _core.corner_label(axis, 0.88, "Working model", _core.PALETTE[1])
+        last = int(np.argmax(mx))
+        ends.append((mx[last], float(fitted.estimate[last]), "Working model", model_color))
         coefficients = [msm_fit.estimates[k] for k in msm_fit.estimates]
         notes += _withheld_notes(coefficients)
         notes += _support_notes(coefficients, "working-model fit")
@@ -1297,10 +1461,12 @@ def _dose(
         )
         subtitle += ", and the working model fitted to those means"
     axis.set_xticks(xs)
+    span = (max(xs) - min(xs)) or 1.0
+    axis.set_xlim(min(xs) - 0.08 * span, max(xs) + 0.42 * span)
     _pad(axis, extent)
+    _label_ends(axis, [(x + 0.05 * span, y, t, c) for x, y, t, c in ends])
     axis.set_xlabel(f"{treatment}")
     axis.set_ylabel(f"Mean {outcome}{unit}")
-    _core.legend(axis)
     _core.header(axis, title or "How does the mean outcome change with the dose?", subtitle)
     _core.notes(axis, notes)
     return fig
@@ -1358,7 +1524,13 @@ def _policies(
     if axis_spec is None:
         # No single scalar parameter orders these policies, so there is no axis to draw them
         # against: they are separate estimates, and a forest plot shows them as such.
-        return forest(result, units=units)
+        return forest(
+            result,
+            title=title,
+            subtitle="No single parameter orders these policies, so each is drawn alone",
+            units=units,
+            ax=ax,
+        )
     values, axis_words, log, cap_note = axis_spec
     entries = []
     for alias, key in result.parameter_keys.items():
@@ -1376,22 +1548,73 @@ def _policies(
     bands = result.simultaneous
     box = None if bands is None else [bands.bands.get(e[2]) for e in entries]
     extent: list[float] = [0.0] if contrast else []
+    color = _core.series_color(0)
+    # The effect form reports each policy against the reference, whose own effect is zero
+    # by definition and is not an estimate: it is drawn on the null line with no interval,
+    # and the guide runs through it.
+    anchor = None
+    if contrast and reference is not None and str(reference) in values:
+        anchor = (values[str(reference)], 0.0)
     notes = _points_at(
         axis,
         xs,
         estimates,
-        color=_core.PALETTE[0],
+        color=color,
         marker="o",
         index=0,
         count=1,
-        interval_text=_core.interval_label(level),
+        interval_text=(
+            _core.interval_label(level) if bands is None else _core.pointwise_label(level)
+        ),
         box=box,
         band_text=None
         if bands is None
         else _core.band_label(1.0 - float(bands.alpha), "multiplier"),
         extent=extent,
+        guide_through=() if anchor is None else (anchor,),
     )
+    if anchor is not None:
+        axis.plot(
+            [anchor[0]],
+            [anchor[1]],
+            marker="o",
+            markersize=7,
+            color=color,
+            markerfacecolor=_core.FACE,
+            markeredgewidth=1.5,
+            linestyle="none",
+            gid="cleverly-reference-policy",
+            zorder=3,
+        )
+        axis.annotate(
+            "reference",
+            xy=anchor,
+            xytext=(6.0, -6.0),
+            textcoords="offset points",
+            ha="left",
+            va="top",
+            fontsize=_core.TICK_SIZE,
+            color=_core.SECONDARY_INK,
+            gid="cleverly-reference-policy-label",
+        )
+        notes.append(
+            f"The open marker at {anchor[0]:g} is the reference policy {reference}: its "
+            "effect is zero by definition, so it has no interval."
+        )
+    elif contrast and reference is not None:
+        notes.append(
+            f"The reference policy {reference} is not one of the declared policies, so it "
+            "has no place on this axis."
+        )
+    shown = [*xs, *(() if anchor is None else (anchor[0],))]
+    if not log:
+        span = (max(shown) - min(shown)) or 1.0
+        axis.set_xlim(min(shown) - 0.08 * span, max(shown) + 0.08 * span)
     _pad(axis, extent)
+    if anchor is not None:
+        # Room for the reference label under the marker.
+        low, high = axis.get_ylim()
+        axis.set_ylim(min(low, anchor[1] - 0.12 * (high - low)), high)
     if bands is not None:
         notes += _band_note(bands.support, "simultaneous band")
         notes.append(
@@ -1407,12 +1630,14 @@ def _policies(
         axis.set_ylabel(f"Mean {outcome}{unit}")
         subtitle = f"Mean outcome under each policy{cap_note}"
         heading = "How does the mean outcome change as the policy shifts?"
+    ticks = sorted(set(shown))
     if log:
         _core.log_axis(axis, "x")
-        axis.set_xticks(xs, [f"{x:g}" for x in xs])
+        axis.set_xticks(ticks, [f"{x:g}" for x in ticks])
         axis.xaxis.set_minor_formatter(_null_formatter())
+    else:
+        axis.set_xticks(ticks)
     axis.set_xlabel(f"{axis_words} ({treatment})" if not log else axis_words)
-    _core.legend(axis)
     _core.header(axis, title or heading, subtitle)
     _core.notes(axis, notes)
     return fig
@@ -1456,7 +1681,7 @@ def _effect_curve(
     modifier: str | None,
     by: str | None,
     at: Mapping[str, Any] | None,
-    alpha: float,
+    alpha: float | None,
     outcome_label: str | None,
     treatment_label: str | None,
     units: str | None,
@@ -1511,6 +1736,8 @@ def _effect_curve(
     transform = np.exp if ratio else (lambda v: v)
     projection = result.fitted_method != "ep"
     drawn_interval = projection and supplies_inference(result.inference_status)
+    band = result.band
+    level_alpha = _curve_alpha(result) if alpha is None else float(alpha)
 
     def evaluate(level: Any) -> dict[str, np.ndarray]:
         frame: dict[str, Any] = {modifier: grid}
@@ -1521,7 +1748,7 @@ def _effect_curve(
             frame[by] = np.full(grid.size, level)
         found: dict[str, np.ndarray] = {}
         if projection:
-            table = result.predict(frame, interval=True, alpha=alpha)
+            table = result.predict(frame, interval=True, alpha=level_alpha)
             found["estimate"] = np.asarray(_column(table, "estimate"), dtype=float)
             found["lower"] = np.asarray(_column(table, "ci_lower"), dtype=float)
             found["upper"] = np.asarray(_column(table, "ci_upper"), dtype=float)
@@ -1542,9 +1769,10 @@ def _effect_curve(
         getattr(getattr(result.fit, "data", None), "outcome_name", "outcome")
     )
     unit = f" ({units})" if units else ""
-    average = _curve_average(result)
-    band = result.band
+    binary = _binary_outcome(result)
+    average, average_note = _average_effect(result, binary, several_panels=rows > 1)
     notes: list[str] = []
+    color = _core.series_color(0)
     for panel, level in zip(panels, panels_levels, strict=True):
         if by is not None:
             for other in panels_levels:
@@ -1558,17 +1786,14 @@ def _effect_curve(
                         zorder=1,
                     )
         data = predictions[level]
-        color = _core.PALETTE[0]
         if drawn_interval:
-            panel.fill_between(
-                grid,
-                transform(data["lower"]),
-                transform(data["upper"]),
+            _core.ribbon(
+                panel,
+                grid.tolist(),
+                np.asarray(transform(data["lower"])).tolist(),
+                np.asarray(transform(data["upper"])).tolist(),
                 color=color,
-                alpha=_core.INTERVAL_ALPHA,
-                linewidth=0,
-                label=_core.pointwise_label(1.0 - alpha),
-                gid="cleverly-ribbon",
+                label=_core.pointwise_label(1.0 - level_alpha),
             )
         panel.plot(
             grid,
@@ -1579,23 +1804,25 @@ def _effect_curve(
             zorder=3,
         )
         _core.reference_line(panel, 1.0 if ratio else 0.0, label="No effect")
-        panel.axhline(
-            transform(average),
-            color=_core.SECONDARY_INK,
-            linewidth=1.0,
-            linestyle=(0, (1, 2)),
-            label="Average of the curve",
-            gid="cleverly-average",
-            zorder=1.5,
-        )
+        if average is not None:
+            panel.axhline(
+                average,
+                color=_core.SECONDARY_INK,
+                linewidth=1.0,
+                linestyle=(0, (1, 2)),
+                label="Average effect (all rows)" if rows > 1 else "Average effect",
+                gid="cleverly-average",
+                zorder=1.5,
+            )
         if band is not None:
             _band_marks(panel, band, modifier, by, level, held, transform, color)
         _rug(panel, result, modifier, by, level, mods)
         if by is not None:
             _core.corner_label(panel, 0.97, f"{by} = {level}", color)
-        panel.set_ylabel(
-            "Conditional risk ratio (log scale)" if ratio else f"Effect on {outcome}{unit}"
-        )
+        if ratio:
+            panel.set_ylabel(f"Conditional {_ratio_word(binary)} (log scale)")
+        else:
+            panel.set_ylabel(f"Effect on {outcome}{unit}")
         if ratio:
             _core.log_axis(panel, "y")
     if len(panels) > 1:
@@ -1603,7 +1830,6 @@ def _effect_curve(
         for panel in panels:
             panel.set_ylim(min(low for low, _ in shared), max(high for _, high in shared))
     panels[-1].set_xlabel(modifier)
-    _core.legend(panels[0], sources=[panels[0]])
     if band is not None:
         matching = _matching_band_points(band, modifier, by, panels_levels[0], held)
         if not matching.any():
@@ -1636,10 +1862,7 @@ def _effect_curve(
                 names="the curve"
             )
         )
-    notes.append(
-        "The dotted line is the average of the curve over the fitted rows"
-        + (", weighted by the data's weights." if _has_weights(result) else ".")
-    )
+    notes.append(average_note)
     if held:
         shown = ", ".join(
             f"{name} = {value:g}" if isinstance(value, (int, float)) else f"{name} = {value}"
@@ -1655,16 +1878,57 @@ def _effect_curve(
     _core.header(
         panels[0],
         title or f"Conditional effect by {modifier}",
-        _effect_subtitle(result, ratio),
+        _effect_subtitle(result, ratio, binary),
+        key_sources=[panels[0]],
     )
     _core.notes(panels[-1], notes)
     return fig
 
 
-def _effect_subtitle(result: Any, ratio: bool) -> str:
-    word = "risk ratio" if ratio else "average treatment effect"
+def _curve_alpha(result: Any) -> float:
+    """The level the pointwise interval is drawn at when ``alpha=`` is omitted.
+
+    The band's own level when the curve has a band, so the two are read at one level, else
+    the level of the coefficients the curve is built from.
+    """
+    if result.band is not None:
+        return float(result.band.alpha)
+    estimates = getattr(getattr(result, "fit", None), "estimates", None) or {}
+    for estimate in getattr(estimates, "values", lambda: ())():
+        return float(estimate.alpha)
+    return 0.05
+
+
+def _binary_outcome(result: Any) -> bool:
+    from .._summary._data import binary_outcome
+
+    data = getattr(getattr(result, "fit", None), "data", None)
+    outcome = getattr(data, "outcome", None)
+    return outcome is not None and binary_outcome(outcome)
+
+
+def _contrast_arms(result: Any) -> str | None:
+    """``"t vs r"`` for a curve that contrasts two arms of a treatment with more than two."""
+    fit: Any = getattr(result, "fit", None)
+    contrast = getattr(getattr(fit, "nuisance", None), "effect_modification", None)
+    arms = tuple(getattr(contrast, "arms", ()) or ())
+    pair = getattr(contrast, "pair", None)
+    if len(arms) <= 2 or pair is None:
+        return None
+    label = getattr(fit.data, "arm_label", str)
+    return f"{label(pair[0])} vs {label(pair[1])}"
+
+
+def _ratio_word(binary: bool) -> str:
+    """A ratio of two arm means: a risk ratio when the outcome is binary."""
+    return "risk ratio" if binary else "ratio of means"
+
+
+def _effect_subtitle(result: Any, ratio: bool, binary: bool) -> str:
+    word = _ratio_word(binary) if ratio else "average treatment effect"
     method = "projected onto the declared model" if result.fitted_method != "ep" else "EP learner"
-    return f"Conditional {word}, {method}"
+    arms = _contrast_arms(result)
+    return f"Conditional {word}{f' of {arms}' if arms else ''}, {method}"
 
 
 def _has_weights(result: Any) -> bool:
@@ -1675,13 +1939,56 @@ def _has_weights(result: Any) -> bool:
     return bool(np.ptp(np.asarray(weights, dtype=float)) > 0.0)
 
 
-def _curve_average(result: Any) -> float:
-    """The average of the curve over the fitted rows, weighted when the fit has weights."""
+def _average_effect(result: Any, binary: bool, *, several_panels: bool) -> tuple[float | None, str]:
+    """The average effect to draw as a reference line, or ``None``, and the note that says so.
+
+    The curve holds no estimate of the average effect. The mean of the curve over the fitted
+    rows equals the fit's plug-in average effect in one case only: a difference-scale
+    projection whose model spans the constant, because the projection's normal equations
+    then make the (weighted) mean of the fitted curve equal the mean of the per-row effect
+    predictions it projects. Anywhere else the mean of the curve is another number, and no
+    line is drawn.
+    """
+    if result.fitted_method == "ep":
+        return None, (
+            "No average-effect line is drawn: the EP learner's curve is not fitted so that its "
+            "mean over the rows equals the average effect."
+        )
+    if result.scale != "difference":
+        return None, (
+            f"No average-effect line is drawn: the mean of a log-ratio curve is not the overall "
+            f"{_ratio_word(binary)}, which is the ratio of the two average "
+            f"{'risks' if binary else 'outcomes'}."
+        )
+    contrast = getattr(getattr(result.fit, "nuisance", None), "effect_modification", None)
+    design = getattr(contrast, "design", None)
     values = np.asarray(result.in_sample, dtype=float)
-    if _has_weights(result):
-        weights = np.asarray(result.fit.data.weights, dtype=float)
-        return float(np.average(values, weights=weights))
-    return float(np.mean(values))
+    if design is None or np.asarray(design).shape[0] != values.size:
+        return None, (
+            "No average-effect line is drawn: the curve does not carry the model at its fitted "
+            "rows, so it cannot show that its mean is the average effect."
+        )
+    phi = np.asarray(design, dtype=float)
+    ones = np.ones(phi.shape[0])
+    solution = np.linalg.lstsq(phi, ones, rcond=None)[0]
+    if float(np.max(np.abs(phi @ solution - ones))) > 1e-8:
+        return None, (
+            "No average-effect line is drawn: the model has no constant term, so the mean of "
+            "the curve over the fitted rows need not equal the average effect."
+        )
+    weighted = _has_weights(result)
+    if weighted:
+        value = float(np.average(values, weights=np.asarray(result.fit.data.weights, dtype=float)))
+    else:
+        value = float(np.mean(values))
+    rows = "all fitted rows" if several_panels else "the fitted rows"
+    return value, (
+        f"The dotted line is the mean of the curve over {rows}"
+        + (", weighted by the data's weights" if weighted else "")
+        + (", drawn alike in every panel" if several_panels else "")
+        + ". Because the model includes a constant term, it equals the fit's plug-in average "
+        "effect; no interval is drawn for it."
+    )
 
 
 def _matching_band_points(
@@ -1720,30 +2027,15 @@ def _band_marks(
     mask = _matching_band_points(band, modifier, by, level, held)
     if not mask.any():
         return
-    x = np.asarray(band.grid[modifier], dtype=float)[mask]
-    low = transform(np.asarray(band.lower, dtype=float)[mask])
-    high = transform(np.asarray(band.upper, dtype=float)[mask])
-    ax.vlines(
-        x,
-        low,
-        high,
+    _core.brackets(
+        ax,
+        np.asarray(band.grid[modifier], dtype=float)[mask].tolist(),
+        transform(np.asarray(band.lower, dtype=float)[mask]).tolist(),
+        transform(np.asarray(band.upper, dtype=float)[mask]).tolist(),
         color=color,
-        linewidth=1.2,
-        alpha=0.6,
         label=_core.band_label(1.0 - float(band.alpha), "multiplier"),
-        gid="cleverly-band",
+        band=True,
     )
-    for edge in (low, high):
-        ax.plot(
-            x,
-            edge,
-            marker="_",
-            markersize=9,
-            color=color,
-            alpha=0.6,
-            linestyle="none",
-            gid="cleverly-band-cap",
-        )
 
 
 def _rug(ax: Axes, result: Any, modifier: str, by: str | None, level: Any, mods: Any) -> None:

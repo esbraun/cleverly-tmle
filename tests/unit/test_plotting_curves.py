@@ -44,12 +44,15 @@ from cleverly.datasets import (
     make_shift_dose,
 )
 from cleverly.exceptions import CapabilityError
+from cleverly.inference.influence import minimum_reference_df
 from cleverly.interventions import Incremental, Scale, Shift, Static
 from cleverly.longitudinal import LTMLE, LongitudinalData, Repeated, SequentialGComputation
 from cleverly.msm import MSM, working_model_means
 from cleverly.plotting import _core, curve
 from cleverly.plotting._curves import _Point, _select
 from cleverly.validation.longitudinal import _longitudinal_stagewise
+
+pytestmark = pytest.mark.xdist_group("plotting_curves")
 
 # ---------------------------------------------------------------------------- fixtures
 
@@ -244,6 +247,23 @@ def msm_binary(link: str, modifiers: tuple[str, ...] = ()) -> Any:
 
 
 @cache
+def msm_clustered() -> Any:
+    rng = np.random.default_rng(0)
+    a = rng.integers(0, 3, 400).astype(float)
+    frame = pd.DataFrame({"A": a, "W": rng.normal(size=400), "cl": rng.integers(0, 8, 400)})
+    frame["Y"] = rng.binomial(1, expit(-0.5 + 0.6 * a + 0.3 * frame["W"])).astype(float)
+    design = PointTreatment(outcome="Y", treatment="A", adjustment=("W",), cluster="cl")
+    study = CausalStudy(frame, design=design)
+    return _quiet(study.identify(MSMProjection(MSM.linear())).estimate, **_BINARY)
+
+
+@cache
+def msm_repeats() -> Any:
+    settings = {**_BINARY, "cross_fit": True, "n_folds": 3, "repeats": 3, "simultaneous": False}
+    return _quiet(_binary_study().identify(MSMProjection(MSM.linear())).estimate, **settings)
+
+
+@cache
 def _dose_study() -> Any:
     frame, _ = make_shift_dose(n=300, seed=1)
     return CausalStudy(
@@ -257,11 +277,18 @@ def _dose_study() -> Any:
     )
 
 
-def policy_fit(policies: list[Any]) -> Any:
-    return _quiet(
-        _dose_study().identify(ModifiedTreatmentPolicyEffect(policies=policies)).estimate,
-        **_ESTIMATE,
+def policy_fit(policies: list[Any], reference: str | None = None) -> Any:
+    estimand = (
+        ModifiedTreatmentPolicyEffect(policies=policies)
+        if reference is None
+        else ModifiedTreatmentPolicyEffect(policies=policies, reference=reference)
     )
+    return _quiet(_dose_study().identify(estimand).estimate, **_ESTIMATE)
+
+
+@cache
+def middle_reference() -> Any:
+    return policy_fit([Shift(d, cap=3.0, name=f"s{d:g}") for d in (0.0, 0.5, 1.0)], "s0.5")
 
 
 @cache
@@ -305,11 +332,12 @@ _CURVE_FIT: dict[str, Any] = {
 }
 
 
-def _effect(model: Any, modifiers: Modifiers = _MODS, **kwargs: Any) -> Any:
-    study = CausalStudy(
-        _modifier_frame(),
-        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W", "Z", "G")),
-    )
+def _effect(
+    model: Any, modifiers: Modifiers = _MODS, weights: str | None = None, **kwargs: Any
+) -> Any:
+    frame = _modifier_frame().assign(wt=np.random.default_rng(3).uniform(0.2, 3.0, 500))
+    design = PointTreatment(outcome="Y", treatment="A", adjustment=("W", "Z", "G"), weights=weights)
+    study = CausalStudy(frame, design=design)
     contrast = ConditionalContrast(modifiers, model=model, **kwargs)
     return _quiet(study.identify(contrast).estimate, **_CURVE_FIT).effect_curve
 
@@ -328,6 +356,33 @@ def cate_by() -> Any:
 @cache
 def log_ratio_curve() -> Any:
     return _quiet(_effect(Linear(["W"]), scale="log_ratio"))
+
+
+@cache
+def no_intercept_curve() -> Any:
+    return _quiet(_effect(Linear(["W"], intercept=False)))
+
+
+@cache
+def intercept_curve() -> Any:
+    return _quiet(_effect(Linear(["W"])))
+
+
+@cache
+def weighted_curve() -> Any:
+    return _quiet(_effect(Linear(["W"]), weights="wt"))
+
+
+@cache
+def multi_arm_curve() -> Any:
+    frame, _ = make_multi_arm(n=400, seed=0)
+    study = CausalStudy(
+        frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3"))
+    )
+    contrast = ConditionalContrast(
+        Modifiers(["W1"]), model=Linear(["W1"]), treatment="high", reference="low"
+    )
+    return _quiet(study.identify(contrast).estimate, **_ESTIMATE).effect_curve()
 
 
 @cache
@@ -367,13 +422,64 @@ def filled(ax: Any, gid: str) -> list[Any]:
 
 
 def segments(ax: Any, gid: str) -> np.ndarray:
-    """Every ``(x, low, high)`` of the vertical segments drawn under ``gid``."""
+    """Every ``(x, low, high)`` of the vertical bars drawn under ``gid``."""
     found = [
         (seg[0][0], seg[0][1], seg[1][1])
         for item in collections(ax, gid)
+        if isinstance(item, matplotlib.collections.LineCollection)
         for seg in item.get_segments()
     ]
     return np.array(sorted(found))
+
+
+def bars(ax: Any) -> np.ndarray:
+    """``(x, low, high)`` of each pointwise interval drawn as a bar."""
+    return segments(ax, _core.GID_INTERVAL)
+
+
+def band_marks(ax: Any) -> np.ndarray:
+    """``(x, low, high)`` of each simultaneous-band bracket pair (:func:`_core.brackets`)."""
+    found = []
+    for line in lines(ax, _core.GID_BAND):
+        x, y = line.get_xdata(), line.get_ydata()
+        half = len(x) // 2
+        found.extend(zip(x[:half], y[:half], y[half:], strict=True))
+    return np.array(sorted(found))
+
+
+def ribbons(ax: Any, gid: str) -> list[Any]:
+    """The ribbons (filled polygons) drawn under ``gid``."""
+    return filled(ax, gid)
+
+
+def _last_node_visible(ax: Any, x: float, low: float, high: float, gid: str) -> bool:
+    """Whether the limits ``low`` and ``high`` at the last node ``x`` have a visible mark.
+
+    A bar or a bracket pair at ``x``, or a ribbon that reaches past ``x`` at those limits.
+    A ribbon that stops at ``x`` gives the last node zero width and fails.
+    """
+    for item in collections(ax, gid):
+        if isinstance(item, matplotlib.collections.LineCollection):
+            for seg in item.get_segments():
+                ends = sorted([seg[0][1], seg[1][1]])
+                if np.isclose(seg[0][0], x) and np.allclose(ends, [low, high]):
+                    return True
+        elif isinstance(item, matplotlib.collections.PolyCollection):
+            for path in item.get_paths():
+                beyond = path.vertices[path.vertices[:, 0] > x + 1e-9]
+                if (
+                    beyond.size
+                    and np.isclose(beyond[:, 1], low).any()
+                    and np.isclose(beyond[:, 1], high).any()
+                ):
+                    return True
+    for line in lines(ax, gid):
+        xs, ys = line.get_xdata(), line.get_ydata()
+        half = len(xs) // 2
+        for at, lo, hi in zip(xs[:half], ys[:half], ys[half:], strict=True):
+            if np.isclose(at, x) and np.allclose([lo, hi], [low, high]):
+                return True
+    return False
 
 
 def texts(fig: Any, gid: str) -> list[str]:
@@ -391,23 +497,123 @@ def frame_rows(result: Any, scale: str, regimen: str, *, level: bool = True) -> 
     return table.sort_values("time")
 
 
+def _is_grey(color: str) -> bool:
+    import colorsys
+
+    red, green, blue = matplotlib.colors.to_rgb(color)
+    return colorsys.rgb_to_hsv(red, green, blue)[1] < 0.2
+
+
+def _colors(artist: Any) -> Any:
+    if hasattr(artist, "get_edgecolor") and hasattr(artist, "get_facecolor"):
+        faces = np.atleast_2d(artist.get_facecolor())
+        edges = np.atleast_2d(artist.get_edgecolor())
+        return np.vstack([faces, edges]) if faces.size and edges.size else faces
+    found = [matplotlib.colors.to_rgba(artist.get_color())]
+    for getter in ("get_markeredgecolor", "get_markerfacecolor"):
+        value = getattr(artist, getter, lambda: "none")()
+        if not (isinstance(value, str) and value == "none"):
+            found.append(matplotlib.colors.to_rgba(value))
+    return np.array(found)
+
+
 def assert_style(fig: Any) -> None:
-    """The style contract every figure meets."""
-    assert tuple(fig.get_facecolor()) == (1.0, 1.0, 1.0, 1.0)
+    """The style contract every figure meets, read from every artist.
+
+    White face, a title, no overlaid axes, a y label or row labels on every axes, an x label
+    on the bottom axes, and every coloured artist (lines, markers, collections, patches) in
+    a palette colour, at most three per axes.
+    """
+    assert matplotlib.colors.to_hex(fig.get_facecolor(), keep_alpha=True) == "#ffffffff"
     positions = [tuple(np.round(ax.get_position().bounds, 6)) for ax in fig.axes]
-    assert len(set(positions)) == len(positions)
+    assert len(set(positions)) == len(positions), "two axes overlay each other"
     assert fig.axes[0].get_title(loc="left")
+    fig.canvas.draw()
     for ax in fig.axes:
-        captioned = any(t.get_gid() == "cleverly-count-caption" for t in ax.texts)
-        assert ax.get_ylabel() or captioned
+        ticks = [t.get_text() for t in ax.get_yticklabels()]
+        assert ax.get_ylabel() or any(ticks), "an axes with neither a y label nor row labels"
+        assert ax.get_xlabel() or ax.get_shared_x_axes().get_siblings(ax) != [ax]
+        used = set()
+        for artist in [*ax.lines, *ax.collections, *ax.patches]:
+            for color in np.atleast_2d(_colors(artist)):
+                if color.size == 4 and color[3] == 0.0:
+                    continue
+                hexed = matplotlib.colors.to_hex(color)
+                if _is_grey(hexed):
+                    continue
+                assert hexed in _core.PALETTE, f"{hexed} is not a palette colour"
+                used.add(hexed)
+        assert len(used) <= _core.MAX_SERIES
     assert fig.axes[-1].get_xlabel()
+
+
+def assert_text_inside(fig: Any) -> None:
+    """Every text the figure writes (title, subtitle, key, labels, notes) lies on the page."""
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    found = []
     for ax in fig.axes:
-        colours = {
-            line.get_color()
-            for line in ax.lines
-            if line.get_gid() in ("cleverly-curve", "cleverly-point")
-        }
-        assert len(colours & set(_core.PALETTE)) <= _core.MAX_SERIES
+        found.extend(ax.texts)
+        found.extend([ax.title, ax._left_title, ax.xaxis.label, ax.yaxis.label])
+        if ax.get_legend() is not None:
+            found.extend(ax.get_legend().get_texts())
+    for text in found:
+        if not text.get_visible() or not text.get_text().strip():
+            continue
+        box = text.get_window_extent(renderer)
+        assert box.x0 >= fig.bbox.x0 - 1 and box.x1 <= fig.bbox.x1 + 1, text.get_text()
+        assert box.y0 >= fig.bbox.y0 - 1 and box.y1 <= fig.bbox.y1 + 1, text.get_text()
+
+
+def all_figures() -> list[Any]:
+    return [
+        curve(full()),
+        curve(full(), scale="survival"),
+        curve(subset()),
+        curve(isotonic()),
+        curve(withheld()),
+        curve(full(), measure="rmst", units="time units"),
+        curve(full(), measure="rmtl"),
+        curve(level_means(), msm=msm_fit(), treatment_label="Dose level"),
+        curve(shifts()),
+        curve(middle_reference()),
+        curve(ipsi()),
+        curve(cate(), modifier="W", at={"Z": 0.0}),
+        curve(cate_by(), modifier="W", by="G"),
+        curve(log_ratio_curve(), modifier="W"),
+        curve(ep_curve()),
+        curve(mixed_family()),
+        curve(multi_arm_curve()),
+        curve(repeated()),
+    ]
+
+
+class TestStyle:
+    def test_every_figure_passes_the_style_checks_with_its_text_on_the_page(self) -> None:
+        for fig in all_figures():
+            assert_style(fig)
+            assert_text_inside(fig)
+            plt.close(fig)
+
+    def test_the_style_checks_reject_an_off_palette_or_cluttered_figure(self) -> None:
+        """Control: the same checks fail on a figure that breaks the contract."""
+        fig = curve(full())
+        fig.axes[0].plot([1, 2], [0.1, 0.2], color="#1f77b4")
+        with pytest.raises(AssertionError, match="not a palette colour"):
+            assert_style(fig)
+        fig = curve(full())
+        fig.axes[0].set_ylabel("")
+        fig.axes[0].set_yticks([])
+        with pytest.raises(AssertionError, match="neither a y label"):
+            assert_style(fig)
+
+    def test_the_text_check_rejects_a_label_off_the_page(self) -> None:
+        """Control: an end label pushed past the right edge fails the same check."""
+        fig = curve(level_means(), msm=msm_fit())
+        ax = fig.axes[0]
+        _core.end_label(ax, ax.get_xlim()[1] * 1.3, 0.0, "a label off the page", "#2a78d6")
+        with pytest.raises(AssertionError, match="off the page"):
+            assert_text_inside(fig)
 
 
 # ---------------------------------------------------------------------------- V2
@@ -487,63 +693,150 @@ class TestOverTime:
         assert not np.allclose(np.asarray(drawn_levels), risk["psi"].to_numpy())
         assert fig.axes[0].get_title(loc="left") == "Survival over time"
 
-    def test_the_survival_band_mirrors_the_risk_band_about_the_survival_estimate(self) -> None:
+    def test_the_survival_band_mirrors_the_risk_band_in_both_panels(self) -> None:
+        """Rule 5: a level's band is [1 - hi, 1 - lo]; a contrast's is [-hi, -lo]."""
         result = full()
         fig = curve(result, scale="survival")
-        top = fig.axes[0]
-        ribbons = collections(top, "cleverly-band")
-        assert len(ribbons) == 2
+        top, diff, _ = fig.axes
         bands = result.simultaneous.bands
+
+        def drawn(ax: Any) -> list[set[float]]:
+            return [
+                set(np.round(r.get_paths()[0].vertices[:, 1], 9))
+                for r in ribbons(ax, _core.GID_BAND)
+            ]
+
         for regimen in ("treated", "control"):
             risk = frame_rows(result, "risk", regimen)
-            low = np.array([bands[p][0] for p in risk["parameter"]])
-            high = np.array([bands[p][1] for p in risk["parameter"]])
-            survival_low = 1.0 - high
-            survival_high = 1.0 - low
-            found = False
-            for ribbon in ribbons:
-                values = np.unique(np.round(ribbon.get_paths()[0].vertices[:, 1], 9))
-                if np.all(np.isin(np.round(survival_low, 9), values)) and np.all(
-                    np.isin(np.round(survival_high, 9), values)
-                ):
-                    found = True
-            assert found
+            limits = np.array([bands[p] for p in risk["parameter"]])
+            expected = set(np.round(np.r_[1.0 - limits[:, 1], 1.0 - limits[:, 0]], 9))
+            assert expected in drawn(top)
+        contrast = frame_rows(result, "risk", "control vs treated", level=False)
+        limits = np.array([bands[p] for p in contrast["parameter"]])
+        expected = set(np.round(np.r_[-limits[:, 1], -limits[:, 0]], 9))
+        (ribbon,) = drawn(diff)
+        assert ribbon == expected
+        # The last node's band is the bracket pair, mirrored the same way.
+        marks = band_marks(diff)
+        assert marks[-1, 0] == 4.0
+        np.testing.assert_allclose(marks[-1, 1:], [-limits[-1, 1], -limits[-1, 0]])
+        # Mutation control: the wrong map for a contrast, 1 - x, is not what is drawn.
+        wrong = set(np.round(np.r_[1.0 - limits[:, 1], 1.0 - limits[:, 0]], 9))
+        assert ribbon != wrong
 
     def test_step_ribbons_when_the_fit_reports_every_node(self) -> None:
         result = full()
         top = curve(result).axes[0]
-        ribbons = collections(top, "cleverly-ribbon")
-        assert len(ribbons) == 2
+        found = ribbons(top, _core.GID_INTERVAL)
+        assert len(found) == 2
         risk = frame_rows(result, "risk", "treated")
-        expected = np.unique(np.round(np.r_[risk["ci_lower"], risk["ci_upper"]], 9))
-        found = [
-            np.all(np.isin(expected, np.unique(np.round(r.get_paths()[0].vertices[:, 1], 9))))
-            for r in ribbons
-        ]
-        assert any(found)
+        expected = set(np.round(np.r_[risk["ci_lower"], risk["ci_upper"]], 9))
+        drawn = [set(np.round(r.get_paths()[0].vertices[:, 1], 9)) for r in found]
+        assert expected in drawn
         # The ribbon is constant between nodes: the outline has a vertical edge at each node.
-        vertices = ribbons[0].get_paths()[0].vertices
+        vertices = found[0].get_paths()[0].vertices
         assert {1.0, 2.0, 3.0, 4.0} <= set(np.round(vertices[:, 0], 9))
+
+    def test_the_last_node_shows_its_interval_and_band(self) -> None:
+        """A step ribbon has no width at the last node; a bar and brackets mark it there."""
+        result = full()
+        fig = curve(result)
+        top, diff, _ = fig.axes
+        for regimen in ("treated", "control"):
+            last = frame_rows(result, "risk", regimen).iloc[-1]
+            band = result.simultaneous.bands[last["parameter"]]
+            assert _last_node_visible(
+                top, 4.0, last["ci_lower"], last["ci_upper"], _core.GID_INTERVAL
+            )
+            assert _last_node_visible(top, 4.0, *band, _core.GID_BAND)
+        last = frame_rows(result, "risk", "control vs treated", level=False).iloc[-1]
+        assert _last_node_visible(diff, 4.0, last["ci_lower"], last["ci_upper"], _core.GID_INTERVAL)
+        assert "the interval is drawn as a bar and the band as brackets" in _core.note_text(fig)
+
+    def test_the_last_node_check_rejects_a_bare_step_ribbon(self, monkeypatch: Any) -> None:
+        """Control: the plain ``fill_between(step="post")`` ribbon fails the same check."""
+        result = full()
+        last = frame_rows(result, "risk", "treated").iloc[-1]
+        monkeypatch.setattr(_core, "brackets", lambda *args, **kwargs: None)
+        top = curve(result).axes[0]
+        assert not _last_node_visible(
+            top, 4.0, last["ci_lower"], last["ci_upper"], _core.GID_INTERVAL
+        )
+
+    def test_the_core_step_ribbon_marks_its_last_node(self) -> None:
+        _, ax = plt.subplots()
+        _core.ribbon(
+            ax, [1, 2, 3], [0.1, 0.2, 0.3], [0.4, 0.5, 0.6], color="#2a78d6", label="x", step=True
+        )
+        assert _last_node_visible(ax, 3.0, 0.3, 0.6, _core.GID_INTERVAL)
+        _core.ribbon(
+            ax,
+            [1, 2, 3],
+            [0.0, 0.1, 0.2],
+            [0.7, 0.8, 0.9],
+            color="#2a78d6",
+            label="y",
+            band=True,
+            step=True,
+        )
+        assert _last_node_visible(ax, 3.0, 0.2, 0.9, _core.GID_BAND)
+        # Control: a ribbon over a smooth grid is not a step, and adds no mark.
+        _, plain = plt.subplots()
+        _core.ribbon(plain, [1, 2, 3], [0.1, 0.2, 0.3], [0.4, 0.5, 0.6], color="#2a78d6", label="x")
+        assert not bars(plain).size
+
+    def test_a_missing_interval_leaves_a_gap_and_says_so(self) -> None:
+        """A node with no finite interval drops its own step only, and its marker is hollow."""
+        result = full()
+        name = "risk_regimen[treated @ t=3]"
+        broken = replace(result.estimates[name], variance=float("nan"))
+        assert broken.supplies_inference
+        gap = replace(result, estimates={**result.estimates, name: broken})
+        fig = curve(gap)
+        top = fig.axes[0]
+        risk = frame_rows(result, "risk", "treated")
+        held = risk.iloc[1]  # t = 2, which holds until t = 3
+        outlines = [r.get_paths() for r in ribbons(top, _core.GID_INTERVAL)]
+        covered = [
+            path.vertices
+            for paths in outlines
+            for path in paths
+            if np.isclose(path.vertices[:, 1], held["ci_upper"]).any()
+        ]
+        assert covered and max(v[:, 0].max() for v in covered) == pytest.approx(3.0)
+        hollow = [
+            tuple(line.get_xydata()[0])
+            for line in lines(top, _core.GID_POINT)
+            if line.get_markerfacecolor() == _core.FACE
+        ]
+        assert [x for x, _ in hollow] == [3.0]
+        assert "no finite interval at time 3" in _core.note_text(fig)
+        # Mutation control: the intact fit draws no hollow marker and no gap note.
+        intact = curve(result)
+        assert not [
+            line
+            for line in lines(intact.axes[0], _core.GID_POINT)
+            if line.get_markerfacecolor() == _core.FACE
+        ]
+        assert "no finite interval" not in _core.note_text(intact)
 
     def test_a_declared_subset_of_horizons_draws_points_and_brackets_only(self) -> None:
         """Rule 2's exception: no step artist between declared horizons."""
         result = subset()
         fig = curve(result)
         top = fig.axes[0]
-        assert not filled(top, "cleverly-ribbon")
-        assert not filled(top, "cleverly-band")
+        assert not ribbons(top, _core.GID_INTERVAL)
+        assert not ribbons(top, _core.GID_BAND)
         assert not any(ln.get_drawstyle().startswith("steps") for ln in top.lines)
         assert not lines(top, "cleverly-curve")
-        points = {tuple(np.round(ln.get_xydata()[:, 0], 9)) for ln in lines(top, "cleverly-point")}
-        assert points == {(2.0, 4.0)}
-        bars = segments(top, "cleverly-interval")
-        assert sorted(set(bars[:, 0])) == [2.0, 4.0]
-        brackets = segments(top, "cleverly-band")
-        assert sorted(set(brackets[:, 0])) == [2.0, 4.0]
+        points = sorted(float(ln.get_xdata()[0]) for ln in lines(top, _core.GID_POINT))
+        assert points == [2.0, 2.0, 4.0, 4.0]
+        assert sorted(set(bars(top)[:, 0])) == [2.0, 4.0]
+        assert sorted(set(band_marks(top)[:, 0])) == [2.0, 4.0]
         assert "horizons 2, 4" in _core.note_text(fig)
         # Mutation control: the fit that reports every node does draw the step artists.
         every = curve(full()).axes[0]
-        assert filled(every, "cleverly-ribbon") and filled(every, "cleverly-band")
+        assert ribbons(every, _core.GID_INTERVAL) and ribbons(every, _core.GID_BAND)
         assert lines(every, "cleverly-curve")
 
     def test_the_band_is_the_one_the_fit_computed_and_wider_than_the_interval(self) -> None:
@@ -552,7 +845,7 @@ class TestOverTime:
         bands = result.simultaneous.bands
         top = fig.axes[0]
         (outer, _) = sorted(
-            collections(top, "cleverly-band"),
+            ribbons(top, _core.GID_BAND),
             key=lambda c: c.get_paths()[0].vertices[:, 1].max(),
             reverse=True,
         )
@@ -568,12 +861,12 @@ class TestOverTime:
         result = full()
         bare = replace(result, simultaneous=None)
         top = curve(bare).axes[0]
-        assert not collections(top, "cleverly-band")
-        assert collections(top, "cleverly-ribbon")
+        assert not ribbons(top, _core.GID_BAND) and not band_marks(top).size
+        assert ribbons(top, _core.GID_INTERVAL)
         assert "95% pointwise interval" in key_texts(top)
         assert "95% simultaneous band (multiplier)" not in key_texts(top)
         # Mutation control: the fit with the band draws one.
-        assert collections(curve(result).axes[0], "cleverly-band")
+        assert ribbons(curve(result).axes[0], _core.GID_BAND)
 
     def test_the_band_kind_and_the_other_band_are_named(self) -> None:
         result = boot()
@@ -587,7 +880,7 @@ class TestOverTime:
         assert "95% simultaneous band (bootstrap sup-t)" in key_texts(only.axes[0])
         with pytest.raises(ValueError, match="no bootstrap band"):
             curve(full(), band="bootstrap")
-        assert not collections(curve(result, band="none").axes[0], "cleverly-band")
+        assert not ribbons(curve(result, band="none").axes[0], _core.GID_BAND)
 
     def test_an_experimental_band_says_so_and_a_supported_one_does_not(self) -> None:
         """Rule 3, with the band's own support."""
@@ -606,11 +899,17 @@ class TestOverTime:
         assert not any(e.supplies_inference for e in result.estimates.values())
         fig = curve(result)
         top = fig.axes[0]
-        assert not collections(top, "cleverly-ribbon") and not collections(top, "cleverly-band")
-        assert not segments(top, "cleverly-interval").size
+        assert not collections(top, _core.GID_INTERVAL) and not collections(top, _core.GID_BAND)
         assert "No interval is drawn" in _core.note_text(fig)
-        # Mutation control: the fit with inference draws the ribbon.
-        assert collections(curve(full()).axes[0], "cleverly-ribbon")
+        # Rule 1's marker: a point without an interval is hollow, as in the forest plot.
+        points = lines(top, _core.GID_POINT)
+        assert points and all(line.get_markerfacecolor() == _core.FACE for line in points)
+        # Mutation control: the fit with inference draws the ribbon and filled points.
+        every = curve(full()).axes[0]
+        assert ribbons(every, _core.GID_INTERVAL)
+        assert all(
+            line.get_markerfacecolor() != _core.FACE for line in lines(every, _core.GID_POINT)
+        )
 
     def test_isotonic_moves_draw_hollow_raw_markers_beside_the_projected_curve(self) -> None:
         """Rule 6."""
@@ -635,6 +934,56 @@ class TestOverTime:
         assert not lines(curve(full()).axes[0], "cleverly-raw")
         survival = curve(result, scale="survival").axes[0]
         assert lines(survival, "cleverly-raw")
+
+    def test_the_isotonic_note_appears_only_with_its_markers(self) -> None:
+        result = isotonic()
+        treated_only = tuple(move for move in result.isotonic_moves if move[0] == "treated")
+        assert treated_only
+        repeat = replace(result.repeats[0], isotonic_moves=treated_only)
+        moved = replace(result, repeats=(repeat, *result.repeats[1:]))
+        quiet = curve(moved, regimens=["control"])
+        assert not lines(quiet.axes[0], "cleverly-raw")
+        assert "Hollow markers" not in _core.note_text(quiet)
+        # Mutation control: the regimen the projection moved draws both.
+        shown = curve(moved, regimens=["treated"])
+        assert lines(shown.axes[0], "cleverly-raw")
+        assert "Hollow markers" in _core.note_text(shown)
+
+    def test_a_fit_of_several_repeats_marks_no_raw_values_and_says_why(self) -> None:
+        single = isotonic()
+        combined = replace(single, repeats=(single.repeats[0], single.repeats[0]))
+        assert combined.n_repeats == 2 and combined.isotonic_moves
+        fig = curve(combined)
+        assert not lines(fig.axes[0], "cleverly-raw")
+        assert "one of the 2 repeats" in _core.note_text(fig)
+        assert "Hollow markers" not in _core.note_text(fig)
+        # Mutation control: the one-repeat fit marks them.
+        assert lines(curve(single).axes[0], "cleverly-raw")
+
+    def test_a_regimen_keeps_its_colour_across_the_curve_and_the_restricted_means(self) -> None:
+        """Plan 4.2: one colour per regimen across every plot of one result."""
+        result = full()
+        order = [key[0] for key in result._levels()]
+        # The fit's own order is not alphabetical, so a sorted order would swap colours.
+        assert list(dict.fromkeys(order)) != sorted(set(order))
+        found = []
+        for fig in (curve(result), curve(result, measure="rmst"), curve(result, measure="rmtl")):
+            found.append(_label_colours(fig.axes[0]))
+        assert found[0] == found[1] == found[2]
+        assert set(found[0]) == {"treated", "control"}
+        # Mutation control: colouring the regimens in sorted order gives another map.
+        ordered = sorted(found[0])
+        sorted_map = {name: _core.PALETTE[i] for i, name in enumerate(ordered)}
+        assert sorted_map != found[0]
+
+    def test_plot_of_a_fit_without_a_curve_refuses_curve_options(self) -> None:
+        with pytest.raises(ValueError, match="has no curve"):
+            end_of_study().plot(scale="survival")
+        with pytest.raises(ValueError, match="measure"):
+            end_of_study().plot(measure="rmst")
+        # Mutation control: forest options draw the forest.
+        fig = end_of_study().plot(title="Effects at the end of the study")
+        assert fig.axes[0].get_title(loc="left") == "Effects at the end of the study"
 
     def test_a_refused_view_raises_the_fits_own_reason(self) -> None:
         """Rule 7."""
@@ -696,6 +1045,16 @@ class TestOverTime:
             fig.savefig(tmp_path / f"{name}.png", dpi=60)
             assert (tmp_path / f"{name}.png").stat().st_size > 1000
         assert not path.exists()
+
+
+def _label_colours(ax: Any) -> dict[str, str]:
+    """Each direct end label's text and the colour of its swatch."""
+    swatches = [t for t in ax.texts if t.get_gid() == _core.GID_SWATCH]
+    names = [t for t in ax.texts if t.get_gid() == _core.GID_SERIES_LABEL]
+    return {
+        name.get_text(): matplotlib.colors.to_hex(swatch.get_color())
+        for swatch, name in zip(swatches, names, strict=True)
+    }
 
 
 def _subtitle(fig: Any) -> str:
@@ -821,6 +1180,33 @@ class TestWorkingModelMeans:
         with pytest.raises(CapabilityError, match="no working model"):
             working_model_means(level_means())
 
+    def test_a_clustered_fit_reads_the_t_reference_of_its_coefficients(self) -> None:
+        """Plan 5.3: the fit's own reference distribution, here t on few clusters."""
+        fit = msm_clustered()
+        fitted = working_model_means(fit)
+        intercept = fit.estimates["msm[(intercept)]"]
+        assert intercept.reference_df is not None
+        assert fitted.reference_df == minimum_reference_df(list(fit.estimates.values()))
+        # At level 0 the identity model's mean is the intercept, so the limits are its CI.
+        np.testing.assert_allclose([fitted.lower[0], fitted.upper[0]], intercept.ci, rtol=1e-12)
+        # Mutation control: the normal quantile gives narrower limits, which the check rejects.
+        z = norm.ppf(0.975)
+        normal = intercept.psi - z * fitted.link_std_error[0]
+        assert not np.isclose(normal, fitted.lower[0], rtol=1e-6)
+
+    def test_a_fit_of_several_repeats_is_refused_with_its_own_reason(self) -> None:
+        fit = msm_repeats()
+        assert fit.n_repeats == 3
+        with pytest.raises(CapabilityError, match="joint covariance of its coefficients") as read:
+            working_model_means(fit)
+        assert "covariance()" not in str(read.value)
+        with pytest.raises(CapabilityError, match="joint covariance of its coefficients"):
+            curve(level_means(), msm=fit)
+        # Mutation control: the reason is not the one covariance() gives.
+        with pytest.raises(Exception) as direct:
+            fit.covariance()
+        assert str(direct.value) != str(read.value)
+
 
 class TestLevelMeans:
     def test_points_are_the_per_level_means_and_the_model_is_read_back(self) -> None:
@@ -835,16 +1221,44 @@ class TestLevelMeans:
             + list(zip((0.0, 1.0, 2.0), fitted.estimate, strict=True))
         )
         np.testing.assert_allclose(xy, expected)
-        bars = segments(ax, "cleverly-interval")
-        model = [(x, lo, hi) for x, lo, hi in bars if np.isclose(lo, fitted.lower[int(x)])]
+        model = [(x, lo, hi) for x, lo, hi in bars(ax) if np.isclose(lo, fitted.lower[int(x)])]
         assert len(model) == 3
         for x, _lo, hi in model:
             assert hi == pytest.approx(fitted.upper[int(x)])
         assert ax.get_xlabel() == "Dose level"
         assert ax.get_title(loc="left") == "How does the mean outcome change with the dose?"
-        assert "95% interval of the working model" in key_texts(ax)
-        assert "95% confidence interval" in key_texts(ax)
+        # Plan 4.2: the interval kind is "pointwise" beside a band, and the series are
+        # named by direct labels at their ends, not by a second key.
+        assert key_texts(ax) == ["95% pointwise interval", "95% simultaneous band (multiplier)"]
+        assert set(_label_colours(ax)) == {"Mean at each level", "Working model"}
         assert_style(fig)
+
+    def test_the_guide_line_runs_through_the_dodged_markers(self) -> None:
+        fig = curve(level_means(), msm=msm_fit())
+        ax = fig.axes[0]
+        fig.canvas.draw()
+        guides = lines(ax, "cleverly-guide")
+        points = lines(ax, _core.GID_POINT)
+        assert len(guides) == 2
+        for guide in guides:
+            on_screen = guide.get_transform().transform(guide.get_xydata())
+            colour = guide.get_color()
+            markers = [p for p in points if p.get_color() == colour]
+            centres = np.vstack([p.get_transform().transform(p.get_xydata()) for p in markers])
+            np.testing.assert_allclose(np.sort(on_screen, 0), np.sort(centres, 0), atol=1e-6)
+            # Mutation control: the same line drawn at the undodged x misses the markers.
+            plain = ax.transData.transform(guide.get_xydata())
+            assert np.abs(plain[:, 0] - on_screen[:, 0]).max() > 1.0
+
+    def test_a_working_model_of_other_levels_or_data_is_refused(self) -> None:
+        two = (Static(0, name="a0"), Static(1, name="a1"))
+        fewer = _quiet(_multi().identify(RegimeMean(two)).estimate, **_ESTIMATE)
+        with pytest.raises(ValueError, match="report no mean at"):
+            curve(fewer, msm=msm_fit())
+        with pytest.raises(ValueError, match="different data"):
+            curve(level_means(), msm=msm_binary("identity"))
+        # Mutation control: the matching pair draws.
+        assert curve(level_means(), msm=msm_fit()).axes[0].get_title(loc="left")
 
     def test_the_fit_of_the_working_model_can_be_the_first_argument(self) -> None:
         fig = curve(msm_fit(), means=level_means())
@@ -854,8 +1268,12 @@ class TestLevelMeans:
 
     def test_the_means_alone_draw_no_model(self) -> None:
         ax = curve(level_means()).axes[0]
-        assert "Working model" not in texts(ax.figure, "cleverly-series-label")
-        assert len(lines(ax, "cleverly-point")) == 3
+        assert "Working model" not in texts(ax.figure, _core.GID_SERIES_LABEL)
+        assert len(lines(ax, _core.GID_POINT)) == 3
+        assert "95% pointwise interval" in key_texts(ax)
+        # Without a band the bars are each estimate's own confidence interval.
+        bare = curve(replace(level_means(), simultaneous=None)).axes[0]
+        assert key_texts(bare) == ["95% confidence interval"]
 
     def test_a_working_model_with_modifiers_is_refused(self) -> None:
         fit = msm_binary("identity", modifiers=("W",))
@@ -869,14 +1287,14 @@ class TestLevelMeans:
     def test_the_band_marks_are_the_fits_bands_at_its_levels(self) -> None:
         means = level_means()
         ax = curve(means).axes[0]
-        marks = segments(ax, "cleverly-band")
+        marks = band_marks(ax)
         assert len(marks) == 3
         for x, lo, hi in marks:
             bound = means.simultaneous.bands[f"ey_regime[a{int(x)}]"]
             assert (lo, hi) == pytest.approx(bound)
         # Mutation control: without the fit's band nothing is marked.
         bare = replace(means, simultaneous=None)
-        assert not collections(curve(bare).axes[0], "cleverly-band")
+        assert not band_marks(curve(bare).axes[0]).size
 
 
 # ---------------------------------------------------------------------------- V5
@@ -889,13 +1307,15 @@ class TestPolicies:
         ax = fig.axes[0]
         xy = sorted(
             (float(ln.get_xdata()[0]), float(ln.get_ydata()[0]))
-            for ln in lines(ax, "cleverly-point")
+            for ln in lines(ax, _core.GID_POINT)
         )
         expected = sorted(
             (float(key.value.split()[1]), result.estimates[alias].psi)
             for alias, key in result.parameter_keys.items()
         )
         np.testing.assert_allclose(xy, expected)
+        (anchor,) = lines(ax, "cleverly-reference-policy")
+        assert tuple(anchor.get_xydata()[0]) == (0.0, 0.0)
         (null,) = [ln for ln in ax.lines if ln.get_gid() == "cleverly-reference"]
         assert list(null.get_ydata()) == [0.0, 0.0]
         assert ax.get_title(loc="left") == "How does the effect change as the policy shifts?"
@@ -908,7 +1328,7 @@ class TestPolicies:
         """Rule 2: bracket marks at the policies, never a ribbon."""
         result = shifts()
         ax = curve(result).axes[0]
-        marks = segments(ax, "cleverly-band")
+        marks = band_marks(ax)
         assert len(marks) == 3
         assert not any(isinstance(c, matplotlib.collections.PolyCollection) for c in ax.collections)
         for (_x, lo, hi), (alias, _key) in zip(
@@ -916,9 +1336,13 @@ class TestPolicies:
         ):
             assert (lo, hi) == pytest.approx(result.simultaneous.bands[alias])
         assert "95% simultaneous band (multiplier)" in key_texts(ax)
+        assert "95% pointwise interval" in key_texts(ax)
         assert "experimental" in _core.note_text(ax.figure)
-        # Mutation control: with no band on the fit nothing is marked.
-        assert not collections(curve(replace(result, simultaneous=None)).axes[0], "cleverly-band")
+        # Mutation control: with no band on the fit nothing is marked, and the bars are each
+        # estimate's own confidence interval.
+        bare = curve(replace(result, simultaneous=None)).axes[0]
+        assert not band_marks(bare).size
+        assert "95% confidence interval" in key_texts(bare)
 
     def test_incremental_odds_multipliers_use_a_log_axis(self) -> None:
         result = ipsi()
@@ -931,9 +1355,34 @@ class TestPolicies:
         assert xs == [0.5, 1.0, 2.0, 4.0]
         assert not [ln for ln in ax.lines if ln.get_gid() == "cleverly-reference"]
 
-    def test_a_mixed_family_falls_back_to_the_forest(self) -> None:
+    def test_the_reference_policy_is_drawn_on_the_null_line_and_the_guide_runs_through_it(
+        self,
+    ) -> None:
+        result = middle_reference()
+        fig = curve(result)
+        ax = fig.axes[0]
+        (anchor,) = lines(ax, "cleverly-reference-policy")
+        assert tuple(anchor.get_xydata()[0]) == (0.5, 0.0)
+        assert anchor.get_markerfacecolor() == _core.FACE
+        (guide,) = lines(ax, "cleverly-guide")
+        x, y = guide.get_xydata().T
+        assert x.tolist() == [0.0, 0.5, 1.0]
+        assert y[1] == 0.0
+        assert "reference policy s0.5" in _core.note_text(fig)
+        assert [t.get_text() for t in ax.get_xticklabels()] == ["0.0", "0.5", "1.0"]
+        # Mutation control: a guide joining the reported policies alone crosses zero
+        # elsewhere than at the reference.
+        points = sorted(tuple(ln.get_xydata()[0]) for ln in lines(ax, _core.GID_POINT))
+        (x0, y0), (x1, y1) = points
+        crossing = x0 - y0 * (x1 - x0) / (y1 - y0)
+        assert abs(crossing - 0.5) > 0.01
+
+    def test_a_mixed_family_falls_back_to_the_forest_and_says_why(self) -> None:
         fig = curve(mixed_family())
         assert fig.axes[0].get_title(loc="left") == "Estimated effects"
+        assert "No single parameter orders these policies" in _subtitle(fig)
+        titled = curve(mixed_family(), title="Two policies")
+        assert titled.axes[0].get_title(loc="left") == "Two policies"
 
     def test_an_object_that_is_not_a_result_is_refused(self) -> None:
         with pytest.raises(TypeError, match="curve\\(\\) draws"):
@@ -953,7 +1402,7 @@ class TestEffectCurve:
         frame = pd.DataFrame({"W": x, "Z": 0.0})
         np.testing.assert_allclose(y, result.predict(frame), rtol=1e-10)
         table = result.predict(frame, interval=True)
-        (ribbon,) = collections(ax, "cleverly-ribbon")
+        (ribbon,) = ribbons(ax, _core.GID_INTERVAL)
         values = ribbon.get_paths()[0].vertices[:, 1]
         assert values.min() == pytest.approx(table["ci_lower"].min())
         assert values.max() == pytest.approx(table["ci_upper"].max())
@@ -962,37 +1411,104 @@ class TestEffectCurve:
         assert "Effect on Y" in ax.get_ylabel()
         assert_style(fig)
 
-    def test_the_reference_lines_are_no_effect_and_the_average_of_the_curve(self) -> None:
+    def test_the_average_effect_line_is_the_mean_of_a_curve_with_a_constant(self) -> None:
         result = cate()
         ax = curve(result, modifier="W", at={"Z": 0.0}).axes[0]
-        (null,) = [ln for ln in ax.lines if ln.get_gid() == "cleverly-reference"]
+        (null,) = lines(ax, _core.GID_REFERENCE)
         assert list(null.get_ydata()) == [0.0, 0.0]
-        (average,) = [ln for ln in ax.lines if ln.get_gid() == "cleverly-average"]
+        (average,) = lines(ax, "cleverly-average")
         assert average.get_ydata()[0] == pytest.approx(float(np.mean(result.in_sample)))
-        assert "Average of the curve" in key_texts(ax)
+        assert "Average effect" in key_texts(ax)
         assert "No effect" in key_texts(ax)
+        assert "equals the fit's plug-in average effect" in _core.note_text(ax.figure)
+
+    def test_no_average_line_without_a_constant_term(self) -> None:
+        result = no_intercept_curve()
+        fig = curve(result)
+        assert not lines(fig.axes[0], "cleverly-average")
+        assert "the model has no constant term" in _core.note_text(fig)
+        # Mutation control: the line the old plot drew, the mean of this curve, is far from
+        # the average effect the same data give with a constant in the model.
+        naive = float(np.mean(result.in_sample))
+        effect = float(np.mean(intercept_curve().in_sample))
+        assert abs(naive - effect) > 0.05
+
+    def test_no_average_line_on_a_log_ratio_curve(self) -> None:
+        result = log_ratio_curve()
+        fig = curve(result, modifier="W")
+        assert not lines(fig.axes[0], "cleverly-average")
+        assert "is not the overall risk ratio" in _core.note_text(fig)
+        assert "Average effect" not in key_texts(fig.axes[0])
+        # Mutation control: the difference-scale curve of the same data draws the line.
+        assert lines(curve(intercept_curve()).axes[0], "cleverly-average")
+
+    def test_a_weighted_fit_draws_the_weighted_mean_and_says_so(self) -> None:
+        result = weighted_curve()
+        weights = np.asarray(result.fit.data.weights, dtype=float)
+        fig = curve(result)
+        (average,) = lines(fig.axes[0], "cleverly-average")
+        expected = float(np.average(result.in_sample, weights=weights))
+        assert average.get_ydata()[0] == pytest.approx(expected)
+        assert "weighted by the data's weights" in _core.note_text(fig)
+        # Mutation control: the unweighted mean is another number.
+        assert not np.isclose(float(np.mean(result.in_sample)), expected, rtol=1e-4)
+
+    def test_small_multiples_say_the_average_is_over_all_rows(self) -> None:
+        fig = curve(cate_by(), modifier="W", by="G")
+        heights = {lines(panel, "cleverly-average")[0].get_ydata()[0] for panel in fig.axes}
+        assert len(heights) == 1
+        assert "Average effect (all rows)" in key_texts(fig.axes[0])
+        assert "drawn alike in every panel" in _core.note_text(fig)
+
+    def test_the_interval_level_follows_the_band(self) -> None:
+        """The pointwise ribbon is read at the band's level unless alpha= says otherwise."""
+        grid = pd.DataFrame({"W": np.linspace(-0.8, 0.8, 5), "Z": 0.0, "G": "f"})
+        result = _quiet(_effect(Linear(["W", "Z"])), grid=grid, alpha=0.1, random_state=0)
+        ax = curve(result, modifier="W", at={"Z": 0.0}).axes[0]
+        assert "90% pointwise interval" in key_texts(ax)
+        assert "90% simultaneous band (multiplier)" in key_texts(ax)
+        # Mutation control: an explicit level overrides it.
+        chosen = curve(result, modifier="W", at={"Z": 0.0}, alpha=0.05).axes[0]
+        assert "95% pointwise interval" in key_texts(chosen)
+
+    def test_a_multi_arm_curve_names_its_arms(self) -> None:
+        fig = curve(multi_arm_curve())
+        assert "of high vs low" in _subtitle(fig)
+        # Mutation control: a binary treatment names none.
+        assert " vs " not in _subtitle(curve(intercept_curve()))
+
+    def test_a_ratio_of_means_is_not_called_a_risk_ratio(self) -> None:
+        from cleverly.plotting._curves import _effect_subtitle
+
+        class Stub:
+            fitted_method = "tmle"
+            fit = None
+
+        assert _effect_subtitle(Stub(), True, False).startswith("Conditional ratio of means")
+        assert _effect_subtitle(Stub(), True, True).startswith("Conditional risk ratio")
 
     def test_the_band_is_marked_at_its_grid_points_never_as_a_ribbon(self) -> None:
         """Rule 2."""
         result = cate()
         ax = curve(result, modifier="W", at={"Z": 0.0}).axes[0]
-        marks = segments(ax, "cleverly-band")
+        marks = band_marks(ax)
         assert marks[:, 0].tolist() == pytest.approx(result.band.grid["W"].tolist())
         np.testing.assert_allclose(marks[:, 1], result.band.lower)
         np.testing.assert_allclose(marks[:, 2], result.band.upper)
-        assert len(collections(ax, "cleverly-ribbon")) == 1
+        assert len(ribbons(ax, _core.GID_INTERVAL)) == 1
+        assert not ribbons(ax, _core.GID_BAND)
         assert "95% simultaneous band (multiplier)" in key_texts(ax)
         note = _core.note_text(ax.figure)
         assert "No registered study measures its joint coverage" in note
         assert "Brackets mark it at those points only" in note
         # Mutation control: the same curve without a band marks nothing.
         bare = replace(result, band=None)
-        assert not collections(curve(bare, modifier="W", at={"Z": 0.0}).axes[0], "cleverly-band")
+        assert not band_marks(curve(bare, modifier="W", at={"Z": 0.0}).axes[0]).size
 
     def test_a_band_at_other_held_values_is_not_drawn_and_the_note_says_so(self) -> None:
         result = cate()
         fig = curve(result, modifier="W", at={"Z": 0.5})
-        assert not collections(fig.axes[0], "cleverly-band")
+        assert not band_marks(fig.axes[0]).size
         assert "other values of the held modifiers" in _core.note_text(fig)
 
     def test_the_rug_is_one_tick_per_fitted_row(self) -> None:
@@ -1046,14 +1562,15 @@ class TestEffectCurve:
         result = ep_curve()
         fig = curve(result)
         ax = fig.axes[0]
-        assert not collections(ax, "cleverly-ribbon")
-        assert not collections(ax, "cleverly-band")
+        assert not ribbons(ax, _core.GID_INTERVAL)
+        assert not band_marks(ax).size
+        assert not lines(ax, "cleverly-average")
         (line,) = lines(ax, "cleverly-curve")
         x, y = line.get_xydata().T
         np.testing.assert_allclose(y, result.predict({"W": x}))
         assert "carries no interval" in _core.note_text(fig)
         # Mutation control: the projection curve draws its ribbon.
-        assert collections(curve(cate(), modifier="W", at={"Z": 0.0}).axes[0], "cleverly-ribbon")
+        assert ribbons(curve(cate(), modifier="W", at={"Z": 0.0}).axes[0], _core.GID_INTERVAL)
 
     def test_an_experimental_curve_says_so(self) -> None:
         """Rule 3."""

@@ -1454,8 +1454,8 @@ class WorkingModelMeans:
     alpha : float
         The interval holds at ``1 - alpha``.
     reference_df : int or None
-        Degrees of freedom of the t reference the coefficients' own intervals read, or
-        ``None`` for the normal reference.
+        Degrees of freedom of the t reference, the smallest over the coefficients (a
+        clustered fit with few clusters), or ``None`` for the normal reference.
     inference : str
         The inference status of the coefficients.
     """
@@ -1528,9 +1528,10 @@ def working_model_means(result: Any, *, alpha: float | None = None) -> WorkingMo
     Raises
     ------
     CapabilityError
-        When the fit has no working model, the treatment is continuous, or the design
+        When the fit has no working model, the treatment is continuous, the design
         depends on covariates (a model with modifier terms has one curve per modifier value,
-        which the fit does not store).
+        which the fit does not store), or the fit reports the median of several
+        cross-fitting draws, which has no joint covariance.
 
     See Also
     --------
@@ -1562,6 +1563,7 @@ def working_model_means(result: Any, *, alpha: float | None = None) -> WorkingMo
     ((0.0, 1.0, 2.0), (3,))
     """
     from .inference.delta import reference_quantile
+    from .inference.influence import minimum_reference_df
     from .targets import parameter_name
 
     msm = getattr(getattr(result, "nuisance", None), "msm", None)
@@ -1590,6 +1592,17 @@ def working_model_means(result: Any, *, alpha: float | None = None) -> WorkingMo
                 "coefficients with result.coefficients()."
             ),
         )
+    if int(getattr(result, "_median_draws", 1)) > 1:
+        raise CapabilityError(
+            "the working model's interval at each level needs the joint covariance of its "
+            f"coefficients, and this fit reports the median over {result.n_repeats} "
+            "cross-fitting draws, which has no joint covariance.",
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative=(
+                "Fit one draw (repeats=1) to read the fitted means with their intervals, or "
+                "read each coefficient with result.coefficients()."
+            ),
+        )
     names = [parameter_name("msm", arm=term) for term in msm.terms]
     estimates = [result.estimates[name] for name in names]
     beta = np.array([float(estimate.psi) for estimate in estimates])
@@ -1599,7 +1612,7 @@ def working_model_means(result: Any, *, alpha: float | None = None) -> WorkingMo
     linear = phi @ beta
     link_se = np.sqrt(np.einsum("jp,pq,jq->j", phi, covariance, phi))
     level = float(estimates[0].alpha) if alpha is None else float(alpha)
-    df = estimates[0].reference_df
+    df = minimum_reference_df(estimates)
     lower = upper = None
     if all(estimate.supplies_inference for estimate in estimates):
         z = reference_quantile(level, df)

@@ -532,10 +532,12 @@ class EffectCurveResult:
         """Plot the conditional effect over one modifier.
 
         The curve is drawn over the modifier with its pointwise interval (a projection fit
-        only; an EP curve carries none), the average of the curve over the fitted rows as a
-        reference line, a rug of the modifier's values, and the band at the grid points the
-        fit declared. A curve that reads other modifiers is drawn with each held at a value
-        you give in ``at=``.
+        only; an EP curve carries none), a rug of the modifier's values, and the band at the
+        grid points the fit declared. A difference-scale projection whose model includes a
+        constant term also draws its average effect as a reference line: the mean of the
+        curve over the fitted rows, which equals the fit's plug-in average effect only then.
+        A curve that reads other modifiers is drawn with each held at a value you give in
+        ``at=``.
 
         Parameters
         ----------

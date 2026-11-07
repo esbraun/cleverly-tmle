@@ -3045,7 +3045,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         **kwargs
             Passed to :func:`cleverly.plotting.curve` (``scale=``, ``measure=``, ``band=``,
             ``cause=``, ``regimens=``, ``labels=``, ``units=``, ``time_label=`` and
-            ``title=``), or to :func:`cleverly.plotting.forest` when the fit has no curve.
+            ``title=``), or to :func:`cleverly.plotting.forest` when the fit has no curve
+            (``labels=``, ``title=``, ``subtitle=``, ``units=`` and ``ax=``).
 
         Returns
         -------
@@ -3056,6 +3057,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         ------
         CapabilityError
             When the fit refuses the requested view, with the fit's own reason.
+        ValueError
+            When a fit without a curve is given an option that only a curve takes.
 
         Examples
         --------
@@ -3089,6 +3092,20 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
         if self.data.reports_curve and self.msm is None:
             return curve(self, **kwargs)
+        only_curve = sorted(
+            set(kwargs) & {"scale", "measure", "band", "cause", "regimens", "time_label"}
+        )
+        if only_curve:
+            reported = (
+                "the coefficients of a working model"
+                if self.msm is not None
+                else f"one end-of-study mean of {self.data.outcome_name!r}"
+            )
+            raise ValueError(
+                f"{', '.join(only_curve)} draw a curve over time, and this fit reports "
+                f"{reported}, so it has no curve; plot() draws its estimates as a forest plot, "
+                "which takes labels=, title=, subtitle=, units= and ax="
+            )
         return forest(self, **kwargs)
 
     def to_frame(self) -> Any:
