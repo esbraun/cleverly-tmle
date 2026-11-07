@@ -676,6 +676,12 @@ def test_route_two_scores_held_out_rows_and_is_deterministic() -> None:
     assert one.route == "split" and one.n_train == 500 and one.n_eval == 500
     pd.testing.assert_frame_equal(one.to_frame(), two.to_frame())
     assert one.score == curve.prediction_column
+    # The score is the training refit's prediction, which the curve keeps; it is not the
+    # curve fitted on every row.
+    refit = one.score_curve
+    assert refit is not None and refit is not curve
+    probe = pd.DataFrame({"W1": np.linspace(-1.0, 1.0, 7)})
+    assert not np.allclose(refit.predict(probe), curve.predict(probe))
     with pytest.raises(CapabilityError, match="engine"):
         from dataclasses import replace
 

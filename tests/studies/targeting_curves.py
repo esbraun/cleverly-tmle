@@ -401,7 +401,16 @@ def split_truth(
     """
     w = _sobol() if points is None else points
     law = LAWS["H"]
-    values = np.asarray(score(pd.DataFrame(w, columns=["W1", "W2", "W3"])), dtype=float)
+    chunk = 2**18
+    values = np.concatenate(
+        [
+            np.asarray(
+                score(pd.DataFrame(w[start : start + chunk], columns=["W1", "W2", "W3"])),
+                dtype=float,
+            )
+            for start in range(0, len(w), chunk)
+        ]
+    )
     tau = law.tau(w)
     order = np.argsort(-values, kind="stable")
     m = len(w)
@@ -1237,9 +1246,16 @@ def design_numbers() -> dict[str, Any]:
 PILOT_CSV = ROOT / "tests" / "studies" / "targeting_curves_pilot.csv"
 
 
-def pilot_rows() -> dict[tuple[str, str], dict[str, float]]:
-    """The pilot's summary row of each ``(group, quantity)``; empty before the pilot runs."""
+def pilot_rows() -> dict[tuple[str, str, str], dict[str, float]]:
+    """The pilot's summary row of each ``(group, kind, quantity)``; empty before the pilot runs.
+
+    ``kind`` is ``correctly_specified`` for a calibration row, the control's name for a
+    control, and ``band`` for the band's rates.
+    """
     if not PILOT_CSV.exists():
         return {}
     frame = pd.read_csv(PILOT_CSV)
-    return {(str(row["group"]), str(row["name"])): row for row in frame.to_dict("records")}
+    return {
+        (str(row["group"]), str(row["kind"]), str(row["name"])): row
+        for row in frame.to_dict("records")
+    }
