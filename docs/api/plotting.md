@@ -17,6 +17,9 @@ matplotlib is optional. Install it with `pip install "cleverly[plot]"`.
    cleverly.plotting.sensitivity
    cleverly.plotting.confounding
    cleverly.plotting.overlap
+   cleverly.plotting.weights
+   cleverly.plotting.balance
+   cleverly.plotting.zipper
    cleverly.plotting.calibration
    cleverly.plotting.learners
    cleverly.plotting.repeats
@@ -29,6 +32,7 @@ The results that have one natural figure also draw it with `plot()`:
 `TMLEResult.plot()` and `TMLEResultSet.plot()` call `forest`, and `TruncationCurve.plot()`,
 `MarginalSensitivityBounds.plot()` and `MissingnessTilt.plot()` call `sensitivity`, and
 `SensitivityContour.plot()` and `SimulatedConfoundingResult.plot()` call `confounding`.
+`CovariateBalance.plot()` calls `balance`, and `StudyResult.plot()` calls `zipper`.
 `CurveCalibration.plot()` and `NuisanceModelReport.plot()` call `calibration`,
 `SuperLearnerDiagnostics.plot()` and `CTMLESelection.plot()` call `learners`, and
 `BootstrapResult.plot()` calls `bootstrap`.
