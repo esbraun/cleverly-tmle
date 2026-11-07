@@ -11,6 +11,7 @@ covariates the reader knows.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -26,6 +27,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: bound on that probability caps it. A policy or modified-treatment node divides a varying
 #: numerator by it, and a tilt node's factor is never bounded.
 _CAPPED_KINDS = ("label", "rule")
+#: Plain words for each node kind whose weight the limit does not cap, as the note names it.
+_UNCAPPED_WORDS = {
+    "policy": "a policy that gives each treatment a set probability",
+    "tilt": "an incremental policy that scales the odds of treatment",
+    "mtp": "a modified treatment policy that shifts each unit's treatment",
+}
 #: The width one time point's boxes share.
 _BOX_WIDTH = 0.7
 #: The least vertical distance between two end labels, in points.
@@ -92,7 +99,7 @@ def _end_labels(ax: Axes, x: float, items: list[tuple[float, str, str]]) -> None
 def weights(
     result: Any,
     *,
-    regimen: str | None = None,
+    regimens: Sequence[str] | None = None,
     horizon: int | None = None,
     cause: str | None = None,
     repeat: int = 1,
@@ -115,14 +122,18 @@ def weights(
     the first, and the note says which. A time point whose weight the limit does not cap
     has no dotted line: one with an incremental or modified policy at it or at an earlier
     time point, whose factor the weight carries, or any time point when the data's weights
-    are not all one.
+    are not all one. A log axis cannot show a weight of zero, which a modified treatment
+    policy at that or an earlier time point gives a unit when the shifted treatment cannot
+    produce the one it received; the note counts the units still followed with a weight of
+    zero at each time point, and the boxes describe the other weights.
 
     Parameters
     ----------
     result : LongitudinalResult
         A fitted inverse-weighting or targeted longitudinal result.
-    regimen : str or None, default=None
-        One regimen's label; every regimen of the result, up to three, when omitted.
+    regimens : sequence of str or None, default=None
+        The labels of the regimens to draw, at most three, in the order given; every
+        regimen of the result, up to three, when omitted.
     horizon : int or None, default=None
         The horizon of a curve fit; the largest when omitted.
     cause : str or None, default=None
@@ -146,8 +157,9 @@ def weights(
     CapabilityError
         When the result is a g-computation or parametric g-formula fit, which has no weights.
     DataError
-        When the result holds more than three regimens and none is named, or the regimen,
-        cause, horizon or repeat is not in the result.
+        When the result holds more than three regimens and ``regimens`` is omitted, when
+        ``regimens`` is a single string, empty, repeats a label or names more than three,
+        or when a regimen, the cause, the horizon or the repeat is not in the result.
 
     See Also
     --------
@@ -190,16 +202,16 @@ def weights(
     if isinstance(repeat, bool) or not isinstance(repeat, int) or not 1 <= repeat <= len(repeats):
         raise DataError(f"repeat must be an integer from 1 to {len(repeats)}; got {repeat!r}")
     fits = repeats[repeat - 1].fits
-    names = (
-        [regimen]
-        if regimen is not None
-        else list(dict.fromkeys(f.regimen.label for f in fits.values()))
-    )
-    if len(names) > _core.MAX_SERIES:
-        raise DataError(
-            f"the result holds {len(names)} regimens and one panel draws at most "
-            f"{_core.MAX_SERIES}; name one with regimen="
-        )
+    held = list(dict.fromkeys(f.regimen.label for f in fits.values()))
+    if regimens is None:
+        names = held
+        if len(names) > _core.MAX_SERIES:
+            raise DataError(
+                f"the result holds {len(names)} regimens and one panel draws at most "
+                f"{_core.MAX_SERIES}; choose up to {_core.MAX_SERIES} of {held} with regimens="
+            )
+    else:
+        names = _chosen_regimens(regimens, held)
     series = [
         node_weights(result, regimen=name, horizon=horizon, cause=cause, repeat=repeat)
         for name in names
@@ -215,6 +227,7 @@ def weights(
     limits = {round(1.0 / item.bounds[0], 12) for item in series if item.bounds[0] > 0.0}
     shown_names = [(labels or {}).get(item.regimen, item.regimen) for item in series]
     ends: list[tuple[float, str, str]] = []
+    zeros: list[_Zeros] = []
     for index, item in enumerate(series):
         color = _core.series_color(index)
         shown = shown_names[index]
@@ -222,6 +235,18 @@ def weights(
         stats, positions, peaks = [], [], []
         for node, time in enumerate(times):
             used = item.used[item.followed[:, node], node]
+            zero = int(np.sum(used == 0.0))
+            if zero:
+                zeros.append(
+                    _Zeros(
+                        shown,
+                        time,
+                        zero,
+                        int(used.size),
+                        shifted="mtp" in item.node_kinds[: node + 1],
+                        unit_weights=item.unit_weights,
+                    )
+                )
             used = used[np.isfinite(used) & (used > 0)]
             if not used.size:
                 continue
@@ -365,14 +390,20 @@ def weights(
             "The percentage above each dotted line is the share of units whose cumulative "
             "probability the limit replaced."
         )
-    uncapped = sorted(
-        {kind for item in series for kind in item.node_kinds if kind not in _CAPPED_KINDS}
+    if zeros:
+        found.append(_zero_text(zeros, time_label, named=count > 1))
+    uncapped = list(
+        dict.fromkeys(
+            kind for item in series for kind in item.node_kinds if kind not in _CAPPED_KINDS
+        )
     )
     if uncapped and all(item.unit_weights for item in series):
+        words = [_UNCAPPED_WORDS.get(kind, kind) for kind in uncapped]
+        joined = words[0] if len(words) == 1 else ", ".join(words[:-1]) + " or " + words[-1]
+        point = time_label.lower()
         found.append(
-            "No limit line is drawn at a time point of kind "
-            + ", ".join(uncapped)
-            + ", or after one, because the weight carries a factor the limit does not cap."
+            f"No limit line is drawn where {joined} acts at that {point} or an earlier one: "
+            "the weight carries the policy's factor, which the limit does not cap."
         )
     if not all(item.unit_weights for item in series):
         found.append("The data's weights multiply the limit, so no limit line is drawn.")
@@ -380,6 +411,85 @@ def weights(
     _core.notes(bottom, found)
     _end_labels(bottom, float(times[-1]), ends)
     return fig
+
+
+def _chosen_regimens(regimens: Sequence[str], held: Sequence[str]) -> list[str]:
+    """The regimens ``regimens=`` names, checked against the result's own labels."""
+    from ..exceptions import DataError
+
+    if isinstance(regimens, str):
+        raise DataError(
+            f"regimens= takes a list of regimen labels; got the string {regimens!r}. "
+            f"Pass [{regimens!r}] to draw that one regimen"
+        )
+    names = [str(name) for name in regimens]
+    if not names:
+        raise DataError(f"regimens= names no regimen; choose up to {_core.MAX_SERIES} of {held}")
+    if len(set(names)) != len(names):
+        raise DataError(f"regimens= repeats a label: {names}")
+    unknown = [name for name in names if name not in held]
+    if unknown:
+        raise DataError(
+            f"regimens= names {unknown}, which this result does not hold; it holds {held}"
+        )
+    if len(names) > _core.MAX_SERIES:
+        raise DataError(
+            f"regimens= names {len(names)} regimens and one panel draws at most "
+            f"{_core.MAX_SERIES}; choose fewer of {held}"
+        )
+    return names
+
+
+@dataclass(frozen=True)
+class _Zeros:
+    """The units still followed with a weight of zero at one time point of one regimen."""
+
+    name: str
+    time: int
+    count: int
+    followed: int
+    #: Whether a modified treatment policy acts at this or an earlier time point.
+    shifted: bool
+    unit_weights: bool
+
+
+def _zero_text(zeros: Sequence[_Zeros], time_label: str, *, named: bool) -> str:
+    """The note that counts the followed units whose weight is zero, which a log axis drops.
+
+    A follower's weight is zero only where a modified treatment policy at this or an
+    earlier time point gives its treatment a ratio of zero, or where its data weight is
+    zero (``Plan.support`` in ``cleverly.longitudinal.regimen`` keeps no other follower whose
+    factor is zero). The note names that cause only for a time point where such a policy
+    acts, and names none elsewhere.
+    """
+    point = time_label.lower()
+
+    def where(item: _Zeros) -> str:
+        return (f"{item.name}, " if named else "") + f"{point} {item.time}"
+
+    text = (
+        "Units still followed with a weight of zero, which a log axis cannot show: "
+        + "; ".join(f"{where(item)}: {item.count} of {item.followed}" for item in zeros)
+        + "."
+    )
+    shifted = [item for item in zeros if item.shifted]
+    if shifted:
+        at = "" if len(shifted) == len(zeros) else f" ({', '.join(map(where, shifted))})"
+        text += (
+            f" A modified treatment policy acts at this or an earlier {point}{at}; it gives a "
+            "unit a weight of zero when the shifted treatment cannot produce the one the unit "
+            "received"
+            + (
+                ""
+                if all(item.unit_weights for item in shifted)
+                else ", and so does a data weight of zero"
+            )
+            + "."
+        )
+    return (
+        text + " The boxes and crosses describe the other weights; the lower panel counts these "
+        "units among those still followed."
+    )
 
 
 # ---------------------------------------------------------------------------- V11

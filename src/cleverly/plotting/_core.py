@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import textwrap
+import weakref
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -530,6 +531,7 @@ def figure_header(
         key = fig.legend(
             handles,
             labels,
+            handler_map=_key_handlers(handles),
             loc="upper left",
             bbox_to_anchor=(_FIGURE_LEFT, 1.0 - cursor / height),
             bbox_transform=fig.transFigure,
@@ -765,6 +767,7 @@ def legend(ax: Axes, *, sources: Sequence[Axes] | None = None, max_columns: int 
     ax.legend(
         handles,
         labels,
+        handler_map=_key_handlers(handles),
         loc="lower left",
         bbox_to_anchor=(0.0, 1.0),
         ncol=_key_columns(ax, labels, max_columns),
@@ -1044,20 +1047,111 @@ def brackets(
             zorder=2.5,
         )
         line.set_gid(GID_BAND)
+        _BRACKET_GLYPHS[line] = True
         return line
     collection = ax.vlines(
         list(x), list(lower), list(upper), color=color, linewidth=2.0, label=label
     )
     collection.set_gid(GID_INTERVAL)
+    _BRACKET_GLYPHS[collection] = False
     return collection
+
+
+#: The artists :func:`brackets` drew, with whether each is a band. The key draws their glyphs
+#: as the marks look on the axes: matplotlib's default would draw both a band's caps and an
+#: interval's bar as one short horizontal dash. Weak keys let a closed figure's artists go.
+_BRACKET_GLYPHS: weakref.WeakKeyDictionary[Any, bool] = weakref.WeakKeyDictionary()
+#: The ``gid`` of the key glyphs of :func:`brackets`' marks.
+GID_KEY_BAND: Final = "cleverly-key-band"
+GID_KEY_INTERVAL: Final = "cleverly-key-interval"
+
+
+def _key_handlers(handles: Sequence[Any]) -> dict[Any, Any]:
+    """A legend handler map that draws each bracket handle as the mark it stands for.
+
+    A band's key glyph is its two caps, one above the other with nothing between them; an
+    interval's is one vertical bar of the same height. They differ by shape, so the two
+    entries of one colour read apart at a glance. The map lives in this module's own
+    legend calls; a caller who draws the key again with ``ax.legend()`` gets matplotlib's
+    dashes.
+    """
+    found: dict[Any, Any] = {}
+    for handle in handles:
+        band = _BRACKET_GLYPHS.get(handle)
+        if band is not None:
+            found[handle] = _BracketGlyph(band)
+    return found
+
+
+class _BracketGlyph:
+    """The legend handler of a bracket handle: a band's two caps or an interval's bar.
+
+    It keeps to matplotlib's handler protocol (``legend_artist``) without subclassing
+    ``HandlerBase``, so it sits at module level, a figure that holds it pickles, and this
+    module still imports no matplotlib until a plot runs.
+    """
+
+    def __init__(self, band: bool) -> None:
+        self.band = band
+
+    def legend_artist(self, legend: Any, orig_handle: Any, fontsize: float, handlebox: Any) -> Any:
+        """Add the glyph's lines to ``handlebox`` and return the first."""
+        pieces = _glyph_artists(
+            self.band,
+            orig_handle,
+            handlebox.xdescent,
+            handlebox.ydescent,
+            handlebox.width,
+            handlebox.height,
+            handlebox.get_transform(),
+        )
+        for piece in pieces:
+            handlebox.add_artist(piece)
+        return pieces[0]
+
+
+def _glyph_artists(
+    band: bool,
+    orig_handle: Any,
+    xdescent: float,
+    ydescent: float,
+    width: float,
+    height: float,
+    trans: Any,
+) -> list[Any]:
+    """The lines of one bracket glyph, in the handle's colour."""
+    from matplotlib.colors import to_rgba_array
+    from matplotlib.lines import Line2D
+
+    # a band's Line2D gives its colour as given (a name, a hex or a tuple); an interval's
+    # line collection gives one row per segment, and brackets() gives them all one colour
+    color = tuple(to_rgba_array(orig_handle.get_color())[0])
+    middle = width / 2.0 - xdescent
+    low, high = -ydescent - 0.25 * height, -ydescent + 1.25 * height
+    if band:
+        half = 0.3 * width
+        pieces = [
+            Line2D([middle - half, middle + half], [y, y], color=color, linewidth=1.6)
+            for y in (low, high)
+        ]
+        gid = GID_KEY_BAND
+    else:
+        pieces = [Line2D([middle, middle], [low, high], color=color, linewidth=2.0)]
+        gid = GID_KEY_INTERVAL
+    for piece in pieces:
+        piece.set_transform(trans)
+        piece.set_gid(gid)
+    return pieces
 
 
 def log_axis(ax: Axes, which: str) -> None:
     """A log scale whose tick labels are plain numbers (``0.5``, ``1``, ``2``).
 
     Call it after the data are drawn: an axis that spans less than a factor of ten gets
-    evenly spaced round ticks, and a wider one gets ticks at 1, 2 and 5 times each power of
-    ten.
+    evenly spaced round ticks. A wider one gets ticks at 1, 2 and 5 times each power of ten,
+    unless at least four powers of ten fall inside its limits: then it ticks at powers of
+    ten alone, at most seven of them, so a span of many powers keeps a few readable labels.
+    :func:`log_tick_text` writes the labels.
 
     Parameters
     ----------
@@ -1070,14 +1164,56 @@ def log_axis(ax: Axes, which: str) -> None:
 
     axis = ax.xaxis if which == "x" else ax.yaxis
     (ax.set_xscale if which == "x" else ax.set_yscale)("log")
-    low, high = ax.get_xlim() if which == "x" else ax.get_ylim()
-    narrow = low > 0 and high > 0 and math.log10(max(high, low) / min(high, low)) < 1.0
-    if narrow:
+    low, high = sorted(ax.get_xlim() if which == "x" else ax.get_ylim())
+    positive = low > 0 and high > 0
+    if positive and math.log10(high / low) < 1.0:
         axis.set_major_locator(MaxNLocator(nbins=6, steps=[1, 2, 2.5, 5, 10]))
-    else:
+    elif positive and _powers_inside(low, high) < _LOG_POWERS_ONLY:
         axis.set_major_locator(LogLocator(base=10.0, subs=(1.0, 2.0, 5.0)))
-    axis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:g}"))
+    else:
+        axis.set_major_locator(LogLocator(base=10.0, subs=(1.0,), numticks=_LOG_MOST_TICKS))
+    axis.set_major_formatter(FuncFormatter(lambda value, _: log_tick_text(value)))
     axis.set_minor_formatter(NullFormatter())
+
+
+#: How many powers of ten inside its limits make a log axis tick at powers of ten alone.
+_LOG_POWERS_ONLY: Final = 4
+#: The most ticks such an axis carries.
+_LOG_MOST_TICKS: Final = 7
+
+
+def _powers_inside(low: float, high: float) -> int:
+    """How many powers of ten lie in ``[low, high]``, both positive."""
+    return max(0, math.floor(math.log10(high) + 1e-9) - math.ceil(math.log10(low) - 1e-9) + 1)
+
+
+def log_tick_text(value: float) -> str:
+    """A log axis tick label: the number from 0.001 to 9999, a power of ten beyond.
+
+    Outside that range every label is written against a power of ten, so one axis keeps
+    one style: ``$10^{-6}$``, ``$2\\times10^{-6}$``.
+
+    Parameters
+    ----------
+    value : float
+        The tick's value.
+
+    Returns
+    -------
+    str
+        ``"0.5"`` or ``"20"`` as written from 0.001 to 9999; a power of ten outside that
+        range as ``"$10^{-6}$"``, and another value as its leading digits times the power,
+        ``"$2\\times10^{-6}$"``.
+    """
+    if value <= 0.0 or not math.isfinite(value):
+        return f"{value:g}"
+    if 1e-3 <= value < 1e4:
+        return f"{value:g}"
+    power = math.floor(math.log10(value) + 1e-9)
+    mantissa = value / 10.0**power
+    if abs(mantissa - 1.0) < 1e-9:
+        return f"$10^{{{power}}}$"
+    return f"${mantissa:.3g}\\times10^{{{power}}}$"
 
 
 # ----------------------------------------------------------------------- interval words
@@ -1331,6 +1467,8 @@ __all__ = [
     "GID_BAND",
     "GID_INTERVAL",
     "GID_KEY",
+    "GID_KEY_BAND",
+    "GID_KEY_INTERVAL",
     "GID_MARKER",
     "GID_NOTES",
     "GID_POINT",
@@ -1368,6 +1506,7 @@ __all__ = [
     "legend",
     "level_text",
     "log_axis",
+    "log_tick_text",
     "new_figure",
     "note_text",
     "notes",

@@ -323,7 +323,7 @@ class SensitivityContour(_Rows):
         ----------
         **kwargs
             Passed to :func:`cleverly.plotting.confounding`: ``robustness=``, ``benchmarks=``,
-            ``multiples=``, ``null=``, ``title=`` and ``ax=``.
+            ``multiples=``, ``null=``, ``x_label=``, ``y_label=``, ``title=`` and ``ax=``.
 
         Returns
         -------

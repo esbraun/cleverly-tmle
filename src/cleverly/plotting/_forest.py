@@ -171,6 +171,7 @@ def forest(
     labels: Sequence[str] | None = None,
     title: str | None = None,
     subtitle: str | None = None,
+    outcome_label: str | None = None,
     units: str | None = None,
     truth: float | Mapping[str, float] | None = None,
     ax: Axes | None = None,
@@ -199,6 +200,10 @@ def forest(
         The title; ``"Estimated effects"`` when omitted.
     subtitle : str or None, default=None
         The line under the title; the printed summary's question for a single result.
+    outcome_label : str or None, default=None
+        Words for the outcome in the axis label of differences and means, such as
+        ``"orders in the third month"``; the outcome column's name when every row shares
+        one, and no name otherwise.
     units : str or None, default=None
         Units of the outcome, added to the axis label of differences and means.
     truth : float, mapping of str to float, or None, default=None
@@ -295,7 +300,7 @@ def forest(
         fig, axis = _core.figure_for(ax)
         axes = [axis]
     for axis, scale, group in zip(axes, scales, groups, strict=True):
-        _panel(axis, scale, group, units, [texts[id(row)] for row in group])
+        _panel(axis, scale, group, outcome_label, units, [texts[id(row)] for row in group])
     if truth is not None:
         _draw_truth(truth, axes, groups)
     question = subtitle if subtitle is not None else _question(items)
@@ -399,7 +404,12 @@ def _number_texts(rows: Sequence[_Row]) -> dict[int, str]:
 
 
 def _panel(
-    ax: Axes, scale: str, rows: Sequence[_Row], units: str | None, texts: Sequence[str]
+    ax: Axes,
+    scale: str,
+    rows: Sequence[_Row],
+    outcome_label: str | None,
+    units: str | None,
+    texts: Sequence[str],
 ) -> None:
     """One scale's rows on one axes."""
     _core.style_axes(ax, grid="x")
@@ -443,7 +453,7 @@ def _panel(
     ax.spines["left"].set_visible(False)
     outcomes = {row.outcome for row in rows}
     outcome = outcomes.pop() if len(outcomes) == 1 else None
-    ax.set_xlabel(_axis_label(scale, outcome, units))
+    ax.set_xlabel(_axis_label(scale, outcome_label or outcome, units))
     _numbers(ax, rows, positions, texts)
 
 

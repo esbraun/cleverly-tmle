@@ -70,6 +70,12 @@ def repeated() -> Any:
     return _ltmle({"always": 1}, frame, n_folds=2, repeats=2)
 
 
+@pytest.fixture(autouse=True)
+def _close_figures() -> Any:
+    yield
+    plt.close("all")
+
+
 def _close(fig: Any) -> None:
     plt.close(fig)
 
@@ -219,7 +225,7 @@ class TestTheWeightsPlot:
         _close(fig)
 
     def test_the_declared_limit_is_marked_with_the_share_beyond_it(self, bounded: Any) -> None:
-        fig = plotting.weights(bounded, regimen="never")
+        fig = plotting.weights(bounded, regimens=["never"])
         top = fig.axes[0]
         marks = [line for line in top.lines if line.get_gid() == "cleverly-marker"]
         assert len(marks) == 2
@@ -236,25 +242,27 @@ class TestTheWeightsPlot:
     def test_a_tilt_node_has_no_limit_line(self) -> None:
         result = fit_ipsi()
         label = next(iter(result.repeats[0].fits.values())).regimen.label
-        fig = plotting.weights(result, regimen=label)
+        fig = plotting.weights(result, regimens=[label])
         top = fig.axes[0]
         kinds = node_weights(result, regimen=label).node_kinds
         assert set(kinds) == {"tilt"}
         assert [line for line in top.lines if line.get_gid() == "cleverly-marker"] == []
-        assert "tilt" in _core.note_text(fig)
+        notes = _core.note_text(fig)
+        assert "an incremental policy that scales the odds of treatment" in notes
+        assert "kind" not in notes and "tilt" not in notes
         _close(fig)
 
     def test_a_mutated_node_kind_changes_the_limit_lines(
         self, longitudinal: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # control for the test above: the same fit read as a static plan draws lines
-        fig = plotting.weights(longitudinal, regimen="always")
+        fig = plotting.weights(longitudinal, regimens=["always"])
         assert [line for line in fig.axes[0].lines if line.get_gid() == "cleverly-marker"], (
             "a static plan with unit weights is capped by the limit"
         )
         _close(fig)
         monkeypatch.setattr("cleverly.validation.longitudinal._node_kind", lambda fit, time: "tilt")
-        fig = plotting.weights(longitudinal, regimen="always")
+        fig = plotting.weights(longitudinal, regimens=["always"])
         assert [line for line in fig.axes[0].lines if line.get_gid() == "cleverly-marker"] == []
         _close(fig)
 
@@ -294,7 +302,7 @@ class TestTheWeightsPlot:
         _close(fig)
 
     def test_one_regimen_labels_both_lines_and_no_box(self, longitudinal: Any) -> None:
-        fig = plotting.weights(longitudinal, regimen="always")
+        fig = plotting.weights(longitudinal, regimens=["always"])
         labels = sorted(
             t.get_text() for t in fig.axes[1].texts if t.get_gid() == _core.GID_SERIES_LABEL
         )
@@ -662,7 +670,7 @@ class TestTheWeightsPlotRefusalsAndNotes:
 
     def test_cause_is_passed_to_the_accessor(self, longitudinal: Any) -> None:
         with pytest.raises(DataError, match="no cause 'nope'"):
-            plotting.weights(longitudinal, regimen="always", cause="nope")
+            plotting.weights(longitudinal, regimens=["always"], cause="nope")
 
     def test_an_uncrossfitted_fit_says_in_sample_and_names_the_final_time_point(
         self, longitudinal: Any
@@ -679,7 +687,7 @@ class TestTheWeightsPlotRefusalsAndNotes:
         self, longitudinal: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         def marks() -> list[float]:
-            fig = plotting.weights(longitudinal, regimen="always")
+            fig = plotting.weights(longitudinal, regimens=["always"])
             found = [
                 float(np.mean(line.get_xdata()))
                 for line in fig.axes[0].lines
@@ -707,7 +715,7 @@ class TestTheWeightsPlotRefusalsAndNotes:
         monkeypatch.setattr(
             NodeWeights, "share_beyond_bounds", property(lambda self: np.array([0.25, np.nan]))
         )
-        fig = plotting.weights(bounded, regimen="never")
+        fig = plotting.weights(bounded, regimens=["never"])
         texts = [t.get_text() for t in fig.axes[0].texts if t.get_gid() == "cleverly-tail-share"]
         assert texts == ["25%"]
         _close(fig)
@@ -715,7 +723,7 @@ class TestTheWeightsPlotRefusalsAndNotes:
     def test_the_figures_pass_the_style_and_layout_checks(
         self, longitudinal: Any, bounded: Any
     ) -> None:
-        for fig in (plotting.weights(longitudinal), plotting.weights(bounded, regimen="never")):
+        for fig in (plotting.weights(longitudinal), plotting.weights(bounded, regimens=["never"])):
             assert_style(fig)
             assert_text_inside(fig)
             _close(fig)
@@ -968,3 +976,287 @@ class TestTheBalanceLayout:
 
         # each panel is laid out 3.6 inches wide; long labels widen the figure instead
         assert width({"W1": "W1 measured at the first clinic visit, in years"}) > 3.3
+
+
+# ---------------------------------------------------------------------------- docs-examples fixes
+
+
+@pytest.fixture(scope="module")
+def four_plans() -> Any:
+    frame, _ = make_longitudinal(n=300, seed=0)
+    return _ltmle({"always": 1, "never": 0, "first": (1, 0), "second": (0, 1)}, frame)
+
+
+def _with_zeros(
+    monkeypatch: pytest.MonkeyPatch, node: int, count: int, *, unit_weights: bool = True
+) -> None:
+    """Make ``count`` followers' weights zero at ``node``, and the data's weights non-unit
+    when ``unit_weights`` is false."""
+    import dataclasses
+
+    from cleverly.longitudinal import weights as module
+
+    original = module.node_weights
+
+    def patched(*args: Any, **kwargs: Any) -> NodeWeights:
+        found = original(*args, **kwargs)
+        used = found.used.copy()
+        rows = np.flatnonzero(found.followed[:, node])[:count]
+        used[rows, node] = 0.0
+        return dataclasses.replace(
+            found, used=used, unit_weights=found.unit_weights and unit_weights
+        )
+
+    monkeypatch.setattr(module, "node_weights", patched)
+
+
+def _kinds(monkeypatch: pytest.MonkeyPatch, *kinds: str) -> None:
+    """Read the fit's nodes as ``kinds``, one per time point."""
+    monkeypatch.setattr(
+        "cleverly.validation.longitudinal._node_kind", lambda fit, time: kinds[time - 1]
+    )
+
+
+class TestZeroWeights:
+    def test_followers_with_a_zero_weight_are_counted_in_the_note(
+        self, longitudinal: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fig = plotting.weights(longitudinal, regimens=["always"])
+        # the control: an ordinary fit has no zero weight and says nothing about one
+        assert "weight of zero" not in _core.note_text(fig)
+        _close(fig)
+        _with_zeros(monkeypatch, node=1, count=7)
+        followed = int(node_weights(longitudinal, regimen="always").followed[:, 1].sum())
+        fig = plotting.weights(longitudinal, regimens=["always"])
+        notes = _core.note_text(fig)
+        assert f"time point 2: 7 of {followed}" in notes
+        assert "a log axis cannot show" in notes
+        # a static regimen gives a follower no zero factor, so the note names no cause
+        assert "modified treatment policy" not in notes and "data weight" not in notes
+        # the boxes describe the other weights, and the lower panel still counts every unit
+        crosses = [c for c in fig.axes[0].collections if c.get_gid() == "cleverly-weight-max"]
+        assert np.all(crosses[0].get_offsets()[:, 1] > 0.0)
+        drawn = [line for line in fig.axes[1].lines if line.get_gid() == "cleverly-followed"]
+        assert drawn[0].get_ydata()[1] == followed
+        _close(fig)
+
+    def test_several_regimens_name_the_regimen_of_each_count(
+        self, longitudinal: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _with_zeros(monkeypatch, node=0, count=3)
+        fig = plotting.weights(longitudinal)
+        notes = _core.note_text(fig)
+        assert "always, time point 1: 3 of" in notes and "never, time point 1: 3 of" in notes
+        _close(fig)
+
+
+class TestTheLogAxisTicks:
+    def _labels(self, low: float, high: float) -> list[str]:
+        fig, ax = plt.subplots()
+        ax.plot([0, 1], [low, high])
+        ax.set_ylim(low, high)
+        _core.log_axis(ax, "y")
+        fig.canvas.draw()
+        found = [
+            tick.label1.get_text()
+            for tick in ax.yaxis.get_major_ticks()
+            if low <= tick.get_loc() <= high and tick.label1.get_text()
+        ]
+        plt.close(fig)
+        return found
+
+    def test_a_span_of_seven_decades_gets_few_readable_ticks(self) -> None:
+        # the up_25 rise of the sequential-pricing page: weights from 5e-06 to 20
+        labels = self._labels(2e-6, 43.0)
+        assert 4 <= len(labels) <= 8, labels
+        assert not any("e-" in label or "e+" in label for label in labels), labels
+        assert "1" in labels and "10" in labels and "$10^{-5}$" in labels
+
+    def test_a_span_of_two_decades_keeps_the_one_two_five_ticks(self) -> None:
+        # the control: a narrower axis still reads at 1, 2 and 5 times each power of ten
+        assert self._labels(0.1, 10.0) == ["0.1", "0.2", "0.5", "1", "2", "5", "10"]
+
+    @pytest.mark.parametrize(("low", "high"), [(0.15, 20.0), (0.3, 40.0), (3.0, 400.0)])
+    def test_an_axis_just_over_two_decades_keeps_the_one_two_five_ticks(
+        self, low: float, high: float
+    ) -> None:
+        # the boundary: two or three powers of ten inside the limits are too few to tick at
+        # powers alone, so these axes keep 1, 2 and 5 times each power
+        labels = self._labels(low, high)
+        assert len(labels) >= 5, labels
+        assert any(label.startswith(("2", "5")) for label in labels), labels
+
+    def test_four_powers_inside_tick_at_powers_alone(self) -> None:
+        assert self._labels(0.9, 1200.0) == ["1", "10", "100", "1000"]
+
+    def test_one_axis_keeps_one_style_outside_the_plain_range(self) -> None:
+        labels = self._labels(1e-6, 5e-5)
+        assert labels == [
+            "$10^{-6}$",
+            "$2\\times10^{-6}$",
+            "$5\\times10^{-6}$",
+            "$10^{-5}$",
+            "$2\\times10^{-5}$",
+            "$5\\times10^{-5}$",
+        ]
+
+    def test_the_tick_text(self) -> None:
+        assert _core.log_tick_text(0.001) == "0.001"
+        assert _core.log_tick_text(2000.0) == "2000"
+        assert _core.log_tick_text(1e-6) == "$10^{-6}$"
+        assert _core.log_tick_text(1e5) == "$10^{5}$"
+        assert _core.log_tick_text(2e-6) == "$2\\times10^{-6}$"
+        assert _core.log_tick_text(20000.0) == "$2\\times10^{4}$"
+
+    def test_a_wide_weights_axis_carries_few_ticks(
+        self, longitudinal: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import dataclasses
+
+        from cleverly.longitudinal import weights as module
+
+        original = module.node_weights
+
+        def spread(*args: Any, **kwargs: Any) -> NodeWeights:
+            found = original(*args, **kwargs)
+            used = found.used.copy()
+            rows = np.flatnonzero(found.followed[:, 1])
+            used[rows, 1] = np.geomspace(5e-6, 20.0, rows.size)
+            return dataclasses.replace(found, used=used)
+
+        monkeypatch.setattr(module, "node_weights", spread)
+        fig = plotting.weights(longitudinal, regimens=["always"])
+        top = fig.axes[0]
+        fig.canvas.draw()
+        low, high = top.get_ylim()
+        shown = [
+            tick.label1.get_text()
+            for tick in top.yaxis.get_major_ticks()
+            if low <= tick.get_loc() <= high and tick.label1.get_text()
+        ]
+        assert 4 <= len(shown) <= 8, shown
+        assert_text_inside(fig)
+        _close(fig)
+
+
+class TestChosenRegimens:
+    def test_four_regimens_need_a_choice(self, four_plans: Any) -> None:
+        with pytest.raises(DataError, match="regimens="):
+            plotting.weights(four_plans)
+
+    def test_the_chosen_regimens_are_drawn_in_order(self, four_plans: Any) -> None:
+        fig = plotting.weights(four_plans, regimens=["first", "never"])
+        lines = [line for line in fig.axes[1].lines if line.get_gid() == "cleverly-effective-n"]
+        assert len(lines) == 2
+        for line, name in zip(lines, ("first", "never"), strict=True):
+            np.testing.assert_allclose(
+                line.get_ydata(), node_weights(four_plans, regimen=name).effective_n
+            )
+        # the witness: the two chosen regimens differ, so a swapped order would fail
+        assert not np.allclose(lines[0].get_ydata(), lines[1].get_ydata())
+        subtitle = [t.get_text() for t in fig.axes[0].texts if t.get_gid() == _core.GID_SUBTITLE]
+        assert subtitle and subtitle[0].endswith("regimen first, never")
+        _close(fig)
+
+    @pytest.mark.parametrize(
+        ("chosen", "message"),
+        [
+            ("always", "takes a list"),
+            ([], "names no regimen"),
+            (["always", "always"], "repeats a label"),
+            (["always", "nope"], "does not hold"),
+            (["always", "never", "first", "second"], "at most 3"),
+        ],
+    )
+    def test_a_bad_choice_is_refused(self, four_plans: Any, chosen: Any, message: str) -> None:
+        with pytest.raises(DataError, match=message):
+            plotting.weights(four_plans, regimens=chosen)
+
+
+class TestThePolicyWords:
+    def test_a_modified_treatment_policy_is_named_in_plain_words(
+        self, longitudinal: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("cleverly.validation.longitudinal._node_kind", lambda fit, time: "mtp")
+        fig = plotting.weights(longitudinal, regimens=["always"])
+        notes = _core.note_text(fig)
+        assert "a modified treatment policy" in notes
+        assert "mtp" not in notes and "kind" not in notes
+        _close(fig)
+
+
+class TestTheCauseOfAZeroWeight:
+    """The note names a cause only where a modified treatment policy can give a zero."""
+
+    def test_a_modified_treatment_policy_at_or_before_the_time_point_is_named(
+        self, longitudinal: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # the witness: the policy acts at time point 1 and the zeros sit at time point 2
+        _kinds(monkeypatch, "mtp", "label")
+        _with_zeros(monkeypatch, node=1, count=4)
+        fig = plotting.weights(longitudinal, regimens=["always"])
+        notes = _core.note_text(fig)
+        assert "time point 2: 4 of" in notes
+        assert "A modified treatment policy acts at this or an earlier time point;" in notes
+        assert "cannot produce the one the unit received." in notes
+        assert "data weight" not in notes
+        _close(fig)
+
+    def test_a_policy_after_the_time_point_is_not_a_cause(
+        self, longitudinal: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # the control: the policy acts only at time point 2, after the zeros at time point 1
+        _kinds(monkeypatch, "label", "mtp")
+        _with_zeros(monkeypatch, node=0, count=4)
+        notes = _core.note_text(plotting.weights(longitudinal, regimens=["always"]))
+        assert "time point 1: 4 of" in notes
+        assert "acts at this or an earlier" not in notes
+
+    def test_non_unit_data_weights_add_a_zero_data_weight(
+        self, longitudinal: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _kinds(monkeypatch, "mtp", "mtp")
+        _with_zeros(monkeypatch, node=1, count=4, unit_weights=False)
+        notes = _core.note_text(plotting.weights(longitudinal, regimens=["always"]))
+        assert "the one the unit received, and so does a data weight of zero." in notes
+
+    def test_only_the_shifted_entries_are_named_when_some_are(
+        self, longitudinal: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # zeros at both time points; the policy acts only at time point 2
+        _kinds(monkeypatch, "label", "mtp")
+        _with_zeros(monkeypatch, node=0, count=2)
+        notes_one = _core.note_text(plotting.weights(longitudinal, regimens=["always"]))
+        assert "acts at this or an earlier" not in notes_one
+        monkeypatch.undo()
+        _kinds(monkeypatch, "label", "mtp")
+        import dataclasses
+
+        from cleverly.longitudinal import weights as module
+
+        original = module.node_weights
+
+        def both(*args: Any, **kwargs: Any) -> NodeWeights:
+            found = original(*args, **kwargs)
+            used = found.used.copy()
+            for node in (0, 1):
+                used[np.flatnonzero(found.followed[:, node])[:2], node] = 0.0
+            return dataclasses.replace(found, used=used)
+
+        monkeypatch.setattr(module, "node_weights", both)
+        notes = _core.note_text(plotting.weights(longitudinal, regimens=["always"]))
+        assert "acts at this or an earlier time point (time point 2);" in notes
+
+
+class TestThePolicySentence:
+    def test_several_kinds_are_listed_in_plain_words(
+        self, longitudinal: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _kinds(monkeypatch, "policy", "mtp")
+        notes = _core.note_text(plotting.weights(longitudinal, regimens=["always"]))
+        assert (
+            "No limit line is drawn where a policy that gives each treatment a set probability "
+            "or a modified treatment policy that shifts each unit's treatment acts at that "
+            "time point or an earlier one: the weight carries the policy's factor, which the "
+            "limit does not cap."
+        ) in notes

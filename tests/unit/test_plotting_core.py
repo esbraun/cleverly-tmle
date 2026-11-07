@@ -942,3 +942,14 @@ def test_forest_truth_refuses_an_empty_mapping_and_a_boolean(binary_fit: Any) ->
         forest(binary_fit, truth={"ate": np.bool_(False)})
     # Control: the number 1 is a true value.
     assert _truth_marks(forest(binary_fit["ate"], truth=1).axes[0]) == [(1.0, 0.0)]
+
+
+def test_forest_names_the_outcome_in_the_words_given(binary_fit: Any) -> None:
+    fig = forest(binary_fit, outcome_label="orders in month 3", units="orders")
+    difference, ratio, level = fig.axes
+    assert difference.get_xlabel() == "Difference in mean orders in month 3 (orders)"
+    assert level.get_xlabel() == "Mean orders in month 3 (orders)"
+    assert ratio.get_xlabel() == "Ratio (log scale)"
+    # the control: without the words the axis names the outcome column
+    plain = forest(binary_fit).axes[0].get_xlabel()
+    assert plain == f"Difference in mean {binary_fit.data.outcome_name}"
