@@ -458,7 +458,9 @@ class Group:
     band : str or None
         ``"coverage"``, ``"type_i"`` or ``"power"``: the band row the group fills.
     seconds : float
-        Declared single-thread seconds per replication, for the cost.
+        Single-thread seconds per replication, for the cost: measured on the smoke run with
+        its controls (cell ``S`` includes its per-replicate Sobol truth and the in-sample
+        refit); the pilot remeasures them.
     """
 
     label: str
@@ -489,7 +491,7 @@ GROUPS: tuple[Group, ...] = (
             "unpaired": (row_key("toc", 0.1, DIFFERENCE), row_key("autoc", score=DIFFERENCE)),
         },
         band="coverage",
-        seconds=1.0,
+        seconds=2.3,
     ),
     Group("B", "B", 2_000, R_MAIN, CORE, seconds=0.8),
     Group(
@@ -499,7 +501,7 @@ GROUPS: tuple[Group, ...] = (
         R_MAIN,
         (row_key("toc", 0.5), "autoc", "qini"),
         controls={"untargeted": (row_key("toc", 0.5), "autoc")},
-        seconds=0.5,
+        seconds=1.0,
     ),
     Group("P", "P", 1_000, R_POWER, (), band="power", seconds=0.4),
     Group(
@@ -509,9 +511,9 @@ GROUPS: tuple[Group, ...] = (
         R_MAIN,
         (row_key("toc", 0.1), row_key("toc", 0.5), "autoc", "qini"),
         band="type_i",
-        seconds=0.6,
+        seconds=0.7,
     ),
-    Group("N", "N", 2_000, R_MAIN, ("autoc", "qini"), band="type_i", seconds=0.6),
+    Group("N", "N", 2_000, R_MAIN, ("autoc", "qini"), band="type_i", seconds=0.7),
     Group(
         "D",
         "D",
@@ -519,7 +521,7 @@ GROUPS: tuple[Group, ...] = (
         R_MAIN,
         (row_key("toc", 0.2), row_key("toc", 0.5), "autoc", "qini"),
         controls={"whole_block": (row_key("toc", 0.2),)},
-        seconds=0.6,
+        seconds=0.4,
     ),
     Group(
         "S",
@@ -528,7 +530,7 @@ GROUPS: tuple[Group, ...] = (
         R_MAIN,
         CORE,
         controls={"in_sample": (row_key("toc", 0.1), "autoc")},
-        seconds=1.5,
+        seconds=8.0,
     ),
 )
 
@@ -766,6 +768,7 @@ def fit_group(group: Group, frame: pd.DataFrame, *, random_state: int) -> dict[s
             )
             out["truths"] = split_truth(curve.score_curve.predict)
             out["rows"] = _rows_of(curve, curve.score)
+            out["curve_status"] = curve.status
             evaluation = frame.loc[_evaluation_rows(curve, frame)].reset_index(drop=True)
             out["controls"]["in_sample"] = _in_sample(group, evaluation, random_state)
             return out
