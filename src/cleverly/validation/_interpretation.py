@@ -355,6 +355,8 @@ def _longitudinal_learners(estimator: Any, data: Any) -> tuple[Any, ...]:
         mechanisms.append(estimator.treatment_learner)
     if data.has_censoring:
         mechanisms.append(estimator.censoring_learner)
+    if data.eliminated and estimator.competing_learner is not None:
+        mechanisms.append(estimator.competing_learner)
     # An unset pseudo learner reads the outcome learner: g-computation uses it as it is, and
     # the targeted estimators read its library as a regression.
     pseudo = getattr(estimator, "pseudo_learner", None)

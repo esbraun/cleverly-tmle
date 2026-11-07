@@ -4176,6 +4176,7 @@ class _SequentialEstimator:
         pseudo_learner: Learner | None = None,
         treatment_learner: Learner | None = None,
         censoring_learner: Learner | None = None,
+        competing_learner: Learner | None = None,
         n_folds: int = 10,
         learner_folds: int = 5,
         g_bounds: CumulativeGBounds = DEFAULT_LTMLE_G_BOUNDS,
@@ -4201,6 +4202,7 @@ class _SequentialEstimator:
         _validate_learner(pseudo_learner, "pseudo_learner")
         _validate_learner(treatment_learner, "treatment_learner")
         _validate_learner(censoring_learner, "censoring_learner")
+        _validate_learner(competing_learner, "competing_learner")
         self.regimens = regimens
         self.reference = reference
         self.horizons = horizons
@@ -4209,6 +4211,7 @@ class _SequentialEstimator:
         self.pseudo_learner = pseudo_learner
         self.treatment_learner = treatment_learner
         self.censoring_learner = censoring_learner
+        self.competing_learner = competing_learner
         self.n_folds = n_folds
         self.learner_folds = learner_folds
         self.g_bounds = g_bounds
@@ -4406,6 +4409,7 @@ class _SequentialEstimator:
         *,
         treatment_learner: Learner,
         censoring_learner: Learner,
+        competing_learner: Learner | None = None,
         folds: Folds,
     ) -> Mechanism:
         """Fit the out-of-fold treatment and censoring mechanism.
@@ -4420,6 +4424,8 @@ class _SequentialEstimator:
             The treatment mechanism learner.
         censoring_learner : Learner
             The censoring mechanism learner.
+        competing_learner : Learner or None
+            The learner of an eliminated competing event; ``None`` uses the censoring learner.
         folds : Folds
             The realized outer split.
 
@@ -4433,6 +4439,7 @@ class _SequentialEstimator:
             plans,
             treatment_learner=treatment_learner,
             censoring_learner=censoring_learner,
+            competing_learner=competing_learner,
             folds=folds,
             n_jobs=self.n_jobs,
             density_bins=self.density_bins,
@@ -5154,11 +5161,22 @@ class _SequentialEstimator:
             random_state=learner_seed,
             fallback=self.treatment_learner,
         )
+        competing_learner = (
+            None
+            if self.competing_learner is None
+            else resolve_learner(
+                self.competing_learner,
+                task="classification",
+                n_folds=self.learner_folds,
+                random_state=learner_seed,
+            )
+        )
         mechanism = self._fit_mechanism(
             prepared,
             (*plans, *levels),
             treatment_learner=treatment_learner,
             censoring_learner=censoring_learner,
+            competing_learner=competing_learner,
             folds=folds,
         )
         parametric = self._parametric(outcome_learner, pseudo_learner, mechanism, horizons, plans)
@@ -5181,6 +5199,7 @@ class _SequentialEstimator:
                 resolved,
                 treatment_learner=treatment_learner,
                 censoring_learner=censoring_learner,
+                competing_learner=competing_learner,
                 folds=folds,
                 density_bins=self.density_bins,
                 ratio=self.ratio,
@@ -6353,6 +6372,9 @@ class LTMLE(_SequentialEstimator):
     censoring_learner : object or None
         Learner specification for the censoring mechanism at each node, as for
         :class:`~cleverly.TMLE`.
+    competing_learner : object or None
+        The learner of each eliminated competing event (``eliminate=`` on the data), fit on
+        the rows that passed censoring at the node.  ``None`` uses the censoring learner.
     n_folds : int
         Outer cross-fitting folds; one split serves every node and every regimen, so a unit
         is out of fold in all of them at once.  Above one fold the fit follows the
@@ -6557,6 +6579,7 @@ class LTMLE(_SequentialEstimator):
         pseudo_learner: Learner | None = None,
         treatment_learner: Learner | None = None,
         censoring_learner: Learner | None = None,
+        competing_learner: Learner | None = None,
         n_folds: int = 10,
         learner_folds: int = 5,
         g_bounds: CumulativeGBounds = DEFAULT_LTMLE_G_BOUNDS,
@@ -6611,6 +6634,7 @@ class LTMLE(_SequentialEstimator):
             pseudo_learner=pseudo_learner,
             treatment_learner=treatment_learner,
             censoring_learner=censoring_learner,
+            competing_learner=competing_learner,
             n_folds=n_folds,
             learner_folds=learner_folds,
             g_bounds=g_bounds,
@@ -6721,6 +6745,9 @@ class SDR(_SequentialEstimator):
         The treatment mechanism at each node, as for :class:`LTMLE`.
     censoring_learner : object or None
         The censoring mechanism at each node, as for :class:`LTMLE`.
+    competing_learner : object or None
+        The learner of each eliminated competing event (``eliminate=`` on the data), fit on
+        the rows that passed censoring at the node.  ``None`` uses the censoring learner.
     n_folds : int
         Outer cross-fitting folds.  Above one fold, each fold fits the mechanism and the
         backward recursion on its training rows alone, with its own mechanism in every
@@ -6820,6 +6847,7 @@ class SDR(_SequentialEstimator):
         pseudo_learner: Learner | None = None,
         treatment_learner: Learner | None = None,
         censoring_learner: Learner | None = None,
+        competing_learner: Learner | None = None,
         n_folds: int = 10,
         learner_folds: int = 5,
         g_bounds: CumulativeGBounds = DEFAULT_LTMLE_G_BOUNDS,
@@ -6855,6 +6883,7 @@ class SDR(_SequentialEstimator):
             pseudo_learner=pseudo_learner,
             treatment_learner=treatment_learner,
             censoring_learner=censoring_learner,
+            competing_learner=competing_learner,
             n_folds=n_folds,
             learner_folds=learner_folds,
             g_bounds=g_bounds,
@@ -6996,6 +7025,9 @@ class IPSI(_SequentialEstimator):
         The treatment mechanism at each node.  At a tilt node it is part of the estimand.
     censoring_learner : object or None
         The censoring mechanism at each node.
+    competing_learner : object or None
+        The learner of each eliminated competing event (``eliminate=`` on the data), fit on
+        the rows that passed censoring at the node.  ``None`` uses the censoring learner.
     n_folds : int
         Outer cross-fitting folds.  Above one fold, each fold fits every nuisance on its
         training rows alone, and its held-out rows take the influence function from that
@@ -7086,6 +7118,7 @@ class IPSI(_SequentialEstimator):
         pseudo_learner: Learner | None = None,
         treatment_learner: Learner | None = None,
         censoring_learner: Learner | None = None,
+        competing_learner: Learner | None = None,
         n_folds: int = 10,
         learner_folds: int = 5,
         g_bounds: CumulativeGBounds = DEFAULT_LTMLE_G_BOUNDS,
@@ -7118,6 +7151,7 @@ class IPSI(_SequentialEstimator):
             pseudo_learner=pseudo_learner,
             treatment_learner=treatment_learner,
             censoring_learner=censoring_learner,
+            competing_learner=competing_learner,
             n_folds=n_folds,
             learner_folds=learner_folds,
             g_bounds=g_bounds,
@@ -7239,6 +7273,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
         *,
         treatment_learner: Learner,
         censoring_learner: Learner,
+        competing_learner: Learner | None = None,
         folds: Folds,
     ) -> Mechanism:
         """Fit the diagnostic mechanism, and degrade the diagnostics when it cannot fit.
@@ -7253,6 +7288,8 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
             The treatment mechanism learner.
         censoring_learner : Learner
             The censoring mechanism learner.
+        competing_learner : Learner or None
+            The learner of an eliminated competing event; ``None`` uses the censoring learner.
         folds : Folds
             The single in-sample fold.
 
@@ -7272,6 +7309,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
                 plans,
                 treatment_learner=treatment_learner,
                 censoring_learner=censoring_learner,
+                competing_learner=competing_learner,
                 folds=folds,
                 n_jobs=self.n_jobs,
                 density_bins=self.density_bins,
@@ -7321,6 +7359,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
         pseudo_learner: Learner | None = None,
         treatment_learner: Learner | None = None,
         censoring_learner: Learner | None = None,
+        competing_learner: Learner | None = None,
         n_folds: int = 1,
         g_bounds: CumulativeGBounds = DEFAULT_LTMLE_G_BOUNDS,
         q_bounds: tuple[float, float] | None = None,
@@ -7359,6 +7398,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
             pseudo_learner=pseudo_learner,
             treatment_learner=GLM() if treatment_learner is None else treatment_learner,
             censoring_learner=GLM() if censoring_learner is None else censoring_learner,
+            competing_learner=competing_learner,
             n_folds=n_folds,
             g_bounds=g_bounds,
             q_bounds=q_bounds,
@@ -7449,6 +7489,9 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
     censoring_learner : object or None
         The censoring mechanism of the diagnostics.  The default is a
         :class:`~cleverly.learners.GLM`.
+    competing_learner : object or None
+        The learner of each eliminated competing event (``eliminate=`` on the data), fit on
+        the rows that passed censoring at the node.  ``None`` uses the censoring learner.
     n_folds : int
         Must be ``1``.  The estimator fits in sample.
     g_bounds : float or tuple of float
@@ -7559,6 +7602,7 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
         *,
         treatment_learner: Learner,
         censoring_learner: Learner,
+        competing_learner: Learner | None = None,
         folds: Folds,
     ) -> Mechanism:
         """Fit the diagnostic mechanism, and degrade the diagnostics when it cannot fit.
@@ -7573,6 +7617,8 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
             The treatment mechanism learner.
         censoring_learner : Learner
             The censoring mechanism learner.
+        competing_learner : Learner or None
+            The learner of an eliminated competing event; ``None`` uses the censoring learner.
         folds : Folds
             The single in-sample fold.
 
@@ -7586,6 +7632,7 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
             plans,
             treatment_learner=treatment_learner,
             censoring_learner=censoring_learner,
+            competing_learner=competing_learner,
             folds=folds,
         )
 
@@ -7657,6 +7704,9 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
     censoring_learner : object or None
         The censoring mechanism at each node.  The default is a
         :class:`~cleverly.learners.GLM`.
+    competing_learner : object or None
+        The learner of each eliminated competing event (``eliminate=`` on the data), fit on
+        the rows that passed censoring at the node.  ``None`` uses the censoring learner.
     n_folds : int
         Must be ``1``.  The estimator fits in sample.
     g_bounds : float or tuple of float
@@ -7782,6 +7832,7 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
         *,
         treatment_learner: Learner,
         censoring_learner: Learner,
+        competing_learner: Learner | None = None,
         folds: Folds,
     ) -> Mechanism:
         """Fit the mechanism and keep each node's model for the stacked curve.
@@ -7796,6 +7847,8 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
             The treatment mechanism learner.
         censoring_learner : Learner
             The censoring mechanism learner.
+        competing_learner : Learner or None
+            The learner of an eliminated competing event; ``None`` uses the censoring learner.
         folds : Folds
             The single in-sample fold.
 
@@ -7809,6 +7862,7 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
             plans,
             treatment_learner=treatment_learner,
             censoring_learner=censoring_learner,
+            competing_learner=competing_learner,
             folds=folds,
             n_jobs=self.n_jobs,
             keep_models=True,
@@ -7940,11 +7994,11 @@ class ParametricGFormula(_Baseline):
     **kwargs : Any
         The settings of :class:`SequentialGComputation` that apply: ``reference``,
         ``horizons``, ``treatment_learner`` (the natural-treatment models and the diagnostic
-        mechanism), ``censoring_learner``, ``g_bounds``, ``q_bounds``, ``alpha_sig``,
-        ``simultaneous``, ``n_multiplier``, ``multiplier_kind``, ``random_state``,
-        ``run_id``, ``n_jobs``, ``n_bootstrap``, ``bootstrap_resampling``, ``density_bins``
-        and ``ratio``.  ``n_folds`` must be ``1``.  ``msm``, ``alpha``, ``max_iter`` and
-        ``tol`` are refused.
+        mechanism), ``censoring_learner``, ``competing_learner``, ``g_bounds``, ``q_bounds``,
+        ``alpha_sig``, ``simultaneous``, ``n_multiplier``, ``multiplier_kind``,
+        ``random_state``, ``run_id``, ``n_jobs``, ``n_bootstrap``, ``bootstrap_resampling``,
+        ``density_bins`` and ``ratio``.  ``n_folds`` must be ``1``.  ``msm``, ``alpha``,
+        ``max_iter`` and ``tol`` are refused.
 
     See Also
     --------
@@ -8082,14 +8136,13 @@ class ParametricGFormula(_Baseline):
         declared_natural(data, plans)
         for plan in plans:
             for node in range(1, data.n_times + 1):
+                # A held node repeats the baseline treatment: the plan declares node 1 only.
+                if data.is_held_node(node):
+                    continue
                 kind, spec = plan_node(plan.regimen, node)
                 if kind == "mtp" and isinstance(spec, RiskRatioTilt):
                     raise CapabilityError(refusal=GFORMULA_RR_TILT_REFUSAL)
-                if (
-                    kind == "tilt"
-                    and not data.is_held_node(node)
-                    and len(data.treatment_levels[node - 1]) != 2
-                ):
+                if kind == "tilt" and len(data.treatment_levels[node - 1]) != 2:
                     raise CapabilityError(refusal=GFORMULA_CATEGORICAL_TILT_REFUSAL)
         variables = resolve_covariates(data, self.covariate_types)
         for argument, learner in (
@@ -8160,6 +8213,7 @@ class ParametricGFormula(_Baseline):
         *,
         treatment_learner: Learner,
         censoring_learner: Learner,
+        competing_learner: Learner | None = None,
         folds: Folds,
     ) -> Mechanism:
         """Fit the diagnostic mechanism, and degrade the diagnostics when it cannot fit.
@@ -8178,6 +8232,8 @@ class ParametricGFormula(_Baseline):
             The treatment mechanism learner.
         censoring_learner : Learner
             The censoring mechanism learner.
+        competing_learner : Learner or None
+            The learner of an eliminated competing event; ``None`` uses the censoring learner.
         folds : Folds
             The single in-sample fold.
 
@@ -8193,6 +8249,7 @@ class ParametricGFormula(_Baseline):
             plans,
             treatment_learner=treatment_learner,
             censoring_learner=censoring_learner,
+            competing_learner=competing_learner,
             folds=folds,
         )
 

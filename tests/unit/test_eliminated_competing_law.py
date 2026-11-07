@@ -443,3 +443,240 @@ def test_the_setup_summary_reports_prevented_events_apart_from_censoring() -> No
     assert prevented.mean() > 0.05
     assert header[vocabulary.PREVENTED_BEFORE_END] == f"{prevented.mean():.3f}"
     assert header[vocabulary.CENSORED_BEFORE_END] == f"{(lost & ~prevented).mean():.3f}"
+
+
+# ------------------------------------------------------------------ competing_learner
+
+
+class _MarkedCells(CellMeans):
+    """The saturated learner under another class, to tell the competing factor apart."""
+
+
+class _Marginal(CellMeans):
+    """A learner that reads no covariate: the training mean in every row."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _Marginal:
+        return super().fit(np.zeros((len(y), 1)), y, sample_weight)
+
+    def predict(self, X: Any) -> np.ndarray:
+        return super().predict(np.zeros((len(X), 1)))
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        return super().predict_proba(np.zeros((len(X), 1)))
+
+
+def _learners_by_factor(monkeypatch: pytest.MonkeyPatch) -> dict[str, set[type]]:
+    seen: dict[str, set[type]] = {"observed_censoring": set(), "observed_competing": set()}
+    original = sequential_module._retention_factor
+
+    def recording(*args: Any, **kwargs: Any) -> Any:
+        seen.setdefault(kwargs["key"], set()).add(type(kwargs["learner"]))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(sequential_module, "_retention_factor", recording)
+    return seen
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: LTMLE(REGIMENS, n_folds=1, competing_learner=_MarkedCells(), **_cells()),
+        # Two folds: each training fold fits its own mechanism, the competing factor too.
+        lambda: SDR(REGIMENS, n_folds=2, competing_learner=_MarkedCells(), **_cells()),
+        lambda: SequentialIPW(
+            REGIMENS, censoring_learner=CellMeans(), competing_learner=_MarkedCells()
+        ),
+    ],
+    ids=["ltmle", "sdr_cross_fitted", "ipw"],
+)
+def test_competing_learner_fits_the_competing_factor_only(
+    monkeypatch: pytest.MonkeyPatch, build: Any
+) -> None:
+    seen = _learners_by_factor(monkeypatch)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        build().fit(_data(_law(False)))
+    assert seen["observed_competing"] == {_MarkedCells}
+    assert _MarkedCells not in seen["observed_censoring"]
+
+
+def test_without_competing_learner_the_censoring_learner_fits_both(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen = _learners_by_factor(monkeypatch)
+    _fit("ltmle", _law(False))
+    assert seen["observed_competing"] == seen["observed_censoring"] == {CellMeans}
+
+
+def test_a_competing_learner_that_reads_no_covariate_breaks_the_curve() -> None:
+    """The witness that the option reaches the fit: death depends on the history here."""
+    law = _law(False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = LTMLE(
+            REGIMENS, n_folds=1, g_bounds=NO_TRUNCATION, competing_learner=_Marginal(), **_cells()
+        ).fit(_data(law))
+    assert _worst_curve_gap(law, result) > MUTATION_FLOOR
+
+
+# ------------------------------------------------------------------ compositions
+
+
+def _truth(arm: int, horizon: int) -> float:
+    law = _law(False)
+    return law.functional(law.probs, static(arm), horizon, RELAPSE, eliminate=DEATH)
+
+
+def test_rmst_and_ratio_compose_from_the_eliminated_risks(
+    fits: dict[tuple[str, bool], Any],
+) -> None:
+    result = fits[("ltmle", False)]
+    # RMST(3) = 3 - F(1) - F(2) on the node scale.
+    assert result.rmst("a1", 3).psi == pytest.approx(3 - _truth(1, 1) - _truth(1, 2), abs=1e-10)
+    ratio = result.ratio(_name("a1", 3), _name("a0", 3))
+    assert ratio.psi == pytest.approx(_truth(1, 3) / _truth(0, 3), abs=1e-10)
+    curve = result.curve()
+    row = curve[curve["estimand"] == _name("a2", 2)]
+    assert float(row["psi"].iloc[0]) == pytest.approx(_truth(2, 2), abs=1e-10)
+
+
+def _truncated_cells(result: Any) -> list[int]:
+    from cleverly.longitudinal.estimator import longitudinal_truncation_curve
+
+    bounds = [NO_TRUNCATION, *((b, 1.0) for b in (0.1, 0.2, 0.3, 0.4, 0.5))]
+    table = longitudinal_truncation_curve(result, bounds, estimands=[_name("a1", 3)])
+    return [int(count) for count in table["truncated_score_cells"]]
+
+
+def test_the_truncation_curve_replays_both_factors(
+    monkeypatch: pytest.MonkeyPatch, fits: dict[tuple[str, bool], Any]
+) -> None:
+    result = fits[("ltmle", False)]
+    name = _name("a1", 3)
+    from cleverly.longitudinal.estimator import longitudinal_truncation_curve
+
+    table = longitudinal_truncation_curve(result, [NO_TRUNCATION], estimands=[name])
+    assert float(table["psi"].iloc[0]) == pytest.approx(result[name].psi, abs=1e-12)
+    # The point estimate cannot see the mechanism on this law, so the witness is which
+    # cells a bound clips: a replay without the competing factor clips other cells.
+    full = _truncated_cells(result)
+    original = sequential_module._retention_factor
+
+    def without_competing(*args: Any, **kwargs: Any) -> Any:
+        factor = original(*args, **kwargs)
+        if kwargs.get("key") != "observed_competing":
+            return factor
+        ones = np.ones_like(factor.observed)
+        return replace(factor, by_plan=dict.fromkeys(factor.by_plan, ones), observed=ones)
+
+    monkeypatch.setattr(sequential_module, "_retention_factor", without_competing)
+    assert _truncated_cells(_fit("ltmle", _law(False))) != full
+
+
+def test_a_saturated_working_model_returns_the_eliminated_risks() -> None:
+    from cleverly.msm import MSM
+
+    cells = [(label, horizon) for label in REGIMENS for horizon in HORIZONS]
+
+    def design(label: str, horizon: int, frame: Any) -> np.ndarray:
+        return np.column_stack(
+            [np.full(len(frame), float((label, horizon) == cell)) for cell in cells]
+        )
+
+    msm = MSM(design=design, terms=tuple(f"{l}@{h}" for l, h in cells), design_kind="known")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = LTMLE(
+            REGIMENS, n_folds=1, reference=None, msm=msm, g_bounds=NO_TRUNCATION, **_cells()
+        ).fit(_data(_law(False)))
+    for label, arm in REGIMENS.items():
+        for horizon in HORIZONS:
+            estimate = result[f"msm_regimen[{label}@{horizon}]"].psi
+            assert estimate == pytest.approx(_truth(arm, horizon), abs=1e-10)
+
+
+def test_the_bootstrap_refits_the_competing_factor_in_every_replicate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen = {"calls": 0}
+    original = sequential_module._retention_factor
+
+    def counting(*args: Any, **kwargs: Any) -> Any:
+        if kwargs["key"] == "observed_competing":
+            seen["calls"] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(sequential_module, "_retention_factor", counting)
+    replicates = 4
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = LTMLE(REGIMENS, n_folds=1, n_bootstrap=replicates, random_state=1, **_cells()).fit(
+            _data(_law(False))
+        )
+    # One fit per node for the original and for each replicate.
+    assert seen["calls"] == (replicates + 1) * len(HORIZONS)
+    assert result.bootstrap is not None
+
+
+def test_a_learned_regimen_refuses_an_eliminated_fit() -> None:
+    from cleverly.exceptions import CapabilityError
+    from cleverly.longitudinal import LearnedRegimen
+
+    with pytest.raises(CapabilityError, match="survival"):
+        LTMLE({"learned": LearnedRegimen()}, n_folds=2, **_cells()).fit(_data(_law(False)))
+
+
+def test_the_result_summary_names_the_prevented_cause(
+    fits: dict[tuple[str, bool], Any],
+) -> None:
+    from cleverly._summary import vocabulary
+
+    summary = fits[("ltmle", False)].summary()
+    header = dict(summary.header)
+    assert header[vocabulary.PREVENTED].startswith("death;")
+    assert header[vocabulary.OUTCOME].startswith("relapse at")
+    assert header[vocabulary.PREVENTED_MODEL] == "CellMeans"
+    text = str(summary)
+    assert "probability of relapse by time 1 if every unit followed plan a0, had death" in (
+        " ".join(text.split())
+    )
+
+
+# ------------------------------------------------------------------ parametric g-formula
+
+
+def _gformula() -> Any:
+    from cleverly.longitudinal import ParametricGFormula
+
+    return ParametricGFormula(
+        REGIMENS,
+        hazard_learner=SATURATED,
+        treatment_learner=SATURATED,
+        censoring_learner=SATURATED,
+        simultaneous=False,
+    )
+
+
+@pytest.mark.parametrize("eliminate", [True, False], ids=["eliminated", "total_effect"])
+def test_the_parametric_g_formula_returns_the_g_formula(eliminate: bool) -> None:
+    """The hazard rows read the composite risk set, which is the eliminated risk set.
+
+    The total-effect case pins the held baseline treatment, which the design check once
+    read past the plan's one node.
+    """
+    law = _law(False)
+    data = (
+        _data(law) if eliminate else LongitudinalData.from_frame(law.frame(), **law.fit_columns())
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = _gformula().fit(data)
+    for label, arm in REGIMENS.items():
+        for horizon in HORIZONS:
+            if eliminate:
+                truth = law.functional(law.probs, static(arm), horizon, RELAPSE, eliminate=DEATH)
+                name = _name(label, horizon)
+            else:
+                truth = law.functional(law.probs, static(arm), horizon, RELAPSE)
+                name = f"cif_regimen[{label}, relapse @ t={horizon}]"
+            assert result[name].psi == pytest.approx(truth, abs=1e-9)
