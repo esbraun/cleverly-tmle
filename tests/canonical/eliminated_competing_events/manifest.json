@@ -1,0 +1,157 @@
+{
+  "schema_version": 2,
+  "study": "eliminated competing events longitudinal TMLE",
+  "slug": "eliminated-competing-events",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-eliminated-ltmle",
+      "cleverly_version": "0.2.0",
+      "cleverly_commit": "f9650869616ec6fa5edce1cda72dcbf36c3f596b",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.18",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2800,
+    "n": 16000,
+    "seed": 20261191,
+    "resampling_seed": 2026119101,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-eliminated-ltmle": 0.01
+    },
+    "scenarios": {
+      "ltmle_time_varying": [
+        "risk_regimen[never @ t=1]",
+        "risk_regimen[never @ t=2]",
+        "risk_regimen[always @ t=1]",
+        "risk_regimen[always @ t=2]",
+        "risk_regimen[continue_if_l2 @ t=2]",
+        "ate_regimen[always vs never @ t=1]",
+        "ate_regimen[always vs never @ t=2]",
+        "ate_regimen[continue_if_l2 vs never @ t=2]"
+      ],
+      "ltmle_time_varying_crossfit": [
+        "risk_regimen[never @ t=1]",
+        "risk_regimen[never @ t=2]",
+        "risk_regimen[always @ t=1]",
+        "risk_regimen[always @ t=2]",
+        "risk_regimen[continue_if_l2 @ t=2]",
+        "ate_regimen[always vs never @ t=1]",
+        "ate_regimen[always vs never @ t=2]",
+        "ate_regimen[continue_if_l2 vs never @ t=2]"
+      ],
+      "hazard_held_baseline": [
+        "risk_regimen[a0 @ t=1]",
+        "risk_regimen[a0 @ t=2]",
+        "risk_regimen[a0 @ t=3]",
+        "risk_regimen[a1 @ t=1]",
+        "risk_regimen[a1 @ t=2]",
+        "risk_regimen[a1 @ t=3]",
+        "risk_regimen[a2 @ t=1]",
+        "risk_regimen[a2 @ t=2]",
+        "risk_regimen[a2 @ t=3]",
+        "ate_regimen[a1 vs a0 @ t=1]",
+        "ate_regimen[a1 vs a0 @ t=2]",
+        "ate_regimen[a1 vs a0 @ t=3]",
+        "ate_regimen[a2 vs a0 @ t=1]",
+        "ate_regimen[a2 vs a0 @ t=2]",
+        "ate_regimen[a2 vs a0 @ t=3]"
+      ]
+    },
+    "construction": "eliminated competing events (Young 2020, eq. 23)",
+    "eliminate": [
+      "death"
+    ],
+    "within_node_order": [
+      "censoring",
+      "death",
+      "relapse"
+    ],
+    "engines": {
+      "ltmle_time_varying": "LTMLE iterated mean, one fold",
+      "ltmle_time_varying_crossfit": "LTMLE iterated mean, two outer folds",
+      "hazard_held_baseline": "LTMLE survival_model='hazard', one fold"
+    },
+    "sizes": {
+      "ltmle_time_varying": 16000,
+      "ltmle_time_varying_crossfit": 16000,
+      "hazard_held_baseline": 16000
+    },
+    "learners": "CellMeans (outcome, pseudo, censoring, competing), CellProbabilities (treatment)",
+    "competing_learner": {
+      "ltmle_time_varying": "CellMeans, passed",
+      "ltmle_time_varying_crossfit": "not passed: the censoring learner's clone",
+      "hazard_held_baseline": "CellMeans, passed"
+    },
+    "initial_estimate": "the untargeted plug-in: SequentialGComputation with the same learners, fitted in sample, on the iterated scenarios (on the cross-fitted scenario the displacement also holds the gap between in-sample and two-fold fits, so it is not a targeting displacement there); the initial hazards' plug-in on the hazard scenario",
+    "g_bounds": [
+      0.001,
+      1.0
+    ],
+    "simultaneous_intervals": false,
+    "variance_method": "ic",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/eliminated_competing_events.py": "6a682a949f73e62e8a6dd2e33041cf616956e77ce10b5d2baa5ea2885f9fe099",
+    "tests/studies/eliminated_competing_events_properties.py": "447421c8c0cc63961335c31d9926b8b6212389410aaed6ed09baca235136e789",
+    "tests/studies/eliminated_competing_law.py": "6e83fd66f27286becb8d8eb9ce34c24198c224fd0dbdaade0590642f6bb76763",
+    "tests/discrete_law_competing.py": "cd24ff5b1177f25206f3b29115e645e63749823f7440117deb267fbd733a7092",
+    "tests/discrete_law_point_survival.py": "80ace818e92b0f618c563f216d4d8e3914532716d12b70142ace8a9b7d3637f9",
+    "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
+    "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
+    "tests/studies/canonical_ltmle.py": "fa6fb1791c08f2ab67ed672b5d225d9fe213b705e7cd23e683fec7a3d3c147f9",
+    "tests/studies/canonical_point_survival.py": "dedd35c5ee735ee4ebf8a93acb090bf921d5890ae568ad838dc8892146f077ee",
+    "tests/studies/canonical_point_survival_hazard.py": "ed441a9c316d8daba353aa9425516b4bd84b7cbad8e62aa3af931339c4388f34",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "tests/studies/point_survival_common.py": "62af3d7ffb412864671a6bf2d0b5eda54420a0ca98775f7c657bf5fe160dac2b",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "9240d2569b567fc10e0db520a062ef6ae8e3f31814facbbe6fecc818bfccbb50",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "c23ec6ca777d6bd662b759bdf3e09bd98afef526ba9ef7f2b3527e8a83146fea",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "a5290240a8fb513191037f7fb582f766a6301a54130230057fdc44c7451483e7",
+    "summary.csv": "a5f1e5d6e17378e24eaf63ae1dde2eea8d5ee2eef99e20c2d9af4a28158e0823",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "37c6d55ba1f1eed0c00c1fcea8e69812786ea8ee9c8284357569dfa433db7ea9",
+    "property-replicates.parquet": "242aa7b9304ccf0109a7a976fc328aac079138a60689211713a68678cb041ddc",
+    "properties.csv": "392fed75ec07c3506c5f549aaddd9471698486bde1607d84547f8b66f0e7d455"
+  }
+}
