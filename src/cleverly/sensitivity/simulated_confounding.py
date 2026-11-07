@@ -660,8 +660,8 @@ class SimulatedConfoundingResult:
         Parameters
         ----------
         **kwargs
-            Passed to :func:`cleverly.plotting.confounding`: ``at=``, ``null=``, ``title=``
-            and ``ax=``.
+            Passed to :func:`cleverly.plotting.confounding`: ``at=``, ``null=``,
+            ``x_label=``, ``y_label=``, ``title=`` and ``ax=``.
 
         Returns
         -------
