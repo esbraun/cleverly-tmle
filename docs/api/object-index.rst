@@ -299,3 +299,7 @@ categorized API tables.
    cleverly.datasets.weekly_orders_truth
    cleverly.datasets.weekly_orders_protocol
    cleverly.datasets.offer_after_no_order
+   cleverly.plotting.forest
+   cleverly.plotting.sensitivity
+   cleverly.plotting.overlap
+   cleverly.plotting.style
