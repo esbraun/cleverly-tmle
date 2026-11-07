@@ -898,3 +898,34 @@ def test_overlap_arm_labels_stand_alone(binary_fit: Any, treated: str, untreated
     groups = [t.get_text() for t in plain.texts if t.get_gid() == _core.GID_SERIES_LABEL]
     assert groups == ["Units with A = 1", "Units with A = 0"]
     assert plain.get_xlabel() == "Predicted probability of A = 1"
+
+
+def _key_column_count(fig: Any, ax: Any) -> int:
+    """How many columns the drawn key has, read from where its texts sit."""
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    key = ax.get_legend()
+    return len({round(text.get_window_extent(renderer).x0) for text in key.get_texts()})
+
+
+def test_the_key_takes_as_many_columns_as_fit_over_its_axes() -> None:
+    from cleverly.plotting import curve
+    from tests.unit.test_plotting_curves import full
+
+    fig = curve(full())
+    top = fig.axes[0]
+    assert len(_key(top)) == 3
+    assert _key_column_count(fig, top) == 3
+    # Control: the same labels over a narrow axes drop to fewer columns.
+    _, ax = plt.subplots(figsize=(1.5, 2.0))
+    labels = _key(top)
+    assert _core._key_columns(ax, labels) == 1
+    _, ax = plt.subplots(figsize=(12.0, 2.0))
+    assert _core._key_columns(ax, labels) == 3
+
+
+def test_the_forest_key_keeps_clear_of_its_number_column(binary_fit: Any) -> None:
+    fig = forest(binary_fit["ate"], truth=0.2)
+    ax = fig.axes[0]
+    assert len(_key(ax)) == 3
+    assert _key_column_count(fig, ax) == 2

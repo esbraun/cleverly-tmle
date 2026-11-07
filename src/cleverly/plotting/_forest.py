@@ -298,7 +298,8 @@ def forest(
     if truth is not None:
         _draw_truth(truth, axes, groups)
     question = subtitle if subtitle is not None else _question(items)
-    _core.header(axes[0], title or "Estimated effects", question, key_sources=axes)
+    # The number column sits right of the axes, so the key keeps to two columns.
+    _core.header(axes[0], title or "Estimated effects", question, key_sources=axes, key_columns=2)
     _core.notes(axes[-1], _merged_notes(rows))
     return fig
 

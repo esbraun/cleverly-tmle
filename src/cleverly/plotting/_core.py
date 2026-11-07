@@ -287,6 +287,7 @@ def header(
     subtitle: str | None = None,
     *,
     key_sources: Sequence[Axes] | None = None,
+    key_columns: int = 3,
 ) -> None:
     """Write the title (the question) and the subtitle (the estimand or headline number).
 
@@ -305,13 +306,16 @@ def header(
         One line, wrapped when long.
     key_sources : sequence of Axes or None, default=None
         The panels whose labelled artists the key lists; ``ax`` alone when omitted.
+    key_columns : int, default=3
+        The most columns the key may take, for a plot with text beside its axes.
     """
     if ax.get_legend() is None:
-        legend(ax, sources=key_sources)
+        legend(ax, sources=key_sources, max_columns=key_columns)
     key = ax.get_legend()
     key_height = 0.0
     if key is not None:
-        rows = math.ceil(len(key.get_texts()) / max(1, int(getattr(key, "_ncols", 3))))
+        names = [text.get_text() for text in key.get_texts()]
+        rows = math.ceil(len(names) / _key_columns(ax, names, key_columns))
         key_height = rows * TICK_SIZE * 1.45 + 4.0
     sub_lines = 0
     if subtitle:
@@ -739,7 +743,7 @@ def truth_line(ax: Axes, x: Sequence[float], y: Sequence[float]) -> Any:
     return line
 
 
-def legend(ax: Axes, *, sources: Sequence[Axes] | None = None) -> None:
+def legend(ax: Axes, *, sources: Sequence[Axes] | None = None, max_columns: int = 3) -> None:
     """The key of interval kinds and reference lines, in one row above ``ax``.
 
     Series are labelled directly, so the key holds only labelled artists, which the plots
@@ -752,6 +756,8 @@ def legend(ax: Axes, *, sources: Sequence[Axes] | None = None) -> None:
         The top axes.
     sources : sequence of Axes or None, default=None
         The axes whose labelled artists the key lists; ``ax`` alone when omitted.
+    max_columns : int, default=3
+        The most columns the key may take.
     """
     handles, labels = _key_entries(sources or [ax])
     if not handles:
@@ -761,7 +767,7 @@ def legend(ax: Axes, *, sources: Sequence[Axes] | None = None) -> None:
         labels,
         loc="lower left",
         bbox_to_anchor=(0.0, 1.0),
-        ncol=_key_columns(ax, labels),
+        ncol=_key_columns(ax, labels, max_columns),
         frameon=False,
         fontsize=TICK_SIZE,
         labelcolor=INK,
@@ -772,24 +778,31 @@ def legend(ax: Axes, *, sources: Sequence[Axes] | None = None) -> None:
     )
 
 
-def _key_columns(ax: Axes, labels: Sequence[str]) -> int:
-    """The most key columns, up to three, whose widest row fits over the axes.
+#: How much wider an axes is after the layout engine runs than the default subplot it
+#: starts as (0.775 of the figure), which is the width :func:`_key_columns` reads.
+_LAYOUT_GROWTH: Final = 1.1
 
-    A key wider than its axes runs into the text beside it, such as a forest plot's number
-    column. Widths are estimated from the label lengths at the key's font size.
+
+def _key_columns(ax: Axes, labels: Sequence[str], most: int = 3) -> int:
+    """The most key columns, up to ``most``, whose widest row fits over the axes.
+
+    A key wider than its axes runs past the figure. The label widths are measured at the
+    key's font size, in points, and compared with the axes width in points.
     """
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.textpath import TextToPath
+
     fig = ax.get_figure(root=True)
-    width = (
-        ax.get_position().width * float(fig.get_size_inches()[0]) if fig is not None else 7.0 * 72.0
-    )
-    per_char = TICK_SIZE * 0.55
+    inches = float(fig.get_size_inches()[0]) if fig is not None else FIGSIZE[0]
+    width = ax.get_position().width * inches * 72.0 * _LAYOUT_GROWTH
+    font = FontProperties(size=TICK_SIZE)
+    measure = TextToPath()
+    text = [measure.get_text_width_height_descent(label, font, ismath=False)[0] for label in labels]
     handle = TICK_SIZE * (1.8 + 0.8)
     gap = TICK_SIZE * 1.4
-    for columns in range(min(len(labels), 3), 1, -1):
-        rows = [labels[i : i + columns] for i in range(0, len(labels), columns)]
+    for columns in range(min(len(labels), most), 1, -1):
         widths = [
-            max(len(row[c]) for row in rows if c < len(row)) * per_char + handle
-            for c in range(columns)
+            max(text[i] for i in range(c, len(labels), columns)) + handle for c in range(columns)
         ]
         if sum(widths) + gap * (columns - 1) <= width:
             return columns
