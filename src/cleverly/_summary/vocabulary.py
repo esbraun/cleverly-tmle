@@ -455,6 +455,7 @@ SUPPORT_QUALIFIERS: Final[Mapping[str, str]] = MappingProxyType(
         "known_regimes": "the fixed rules reported beside the learned rule",
         "rule_learner_blip": "a rule learner",
         "rule_learner_weighted_classification": "a rule learner",
+        "rule_learner_ep": "a rule learner",
     }
 )
 

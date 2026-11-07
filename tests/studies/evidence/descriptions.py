@@ -937,6 +937,12 @@ ARMS["misspecified_limit"] = (
 ARMS["blip"] = "the learned-rule law with a blip rule learner"
 ARMS["weighted_classification"] = "the learned-rule law with a weighted-classification rule learner"
 
+#: The two labels of ``learned-rule-ep`` (P1 part (c)) that no other study uses, which
+#: :data:`STUDY_ARMS` scopes to the study. They sit here because the cell-name pattern below is
+#: built from :data:`ARMS` at import.
+ARMS["optimal_known_g"] = "the value of the optimal rule at the learned-rule law, with g0 known"
+ARMS["exceptional"] = "the learned-rule law with no treatment effect for any unit"
+
 #: The parameter labels of ``fold-evaluated-strata`` (X11 PR E1, X28), one arm per setting,
 #: target and stratum, ``<setting>_<target>_<stratum>``. They sit here because the cell-name
 #: pattern below is built from :data:`ARMS` at import. Mirrored from
@@ -6885,6 +6891,86 @@ STUDY_ARM_CELLS.update(
             "none. The cell reports its bias, SE ratio and coverage against the value of the "
             "optimal rule, with the mean regret, the readings against the realized rule value "
             "and the range of the fold-rule disagreement",
+        ),
+    }
+)
+
+
+#: ``learned-rule-ep`` (P1 part (c)): the learned-rule value when the sign of the EP curve of
+#: the effect given (W1, W2) sets each fold's rule. The laws and learners are those of
+#: ``tests/studies/_learned_rule_ep_law.py``; the cell names are those of
+#: ``tests/studies/learned_rule_ep_properties.py``.
+_EP_RULE_SLUG = "learned-rule-ep"
+IMPLEMENTATIONS["cleverly-learned-rule-ep"] = (
+    "`cleverly` fold-evaluated CV-TMLE of the learned-rule value, each fold's rule the sign of "
+    "the EP curve of the effect given (W1, W2) fitted on the fold's training rows, with the "
+    "default sieve's size chosen by cross-validation over five inner folds"
+)
+STUDY_ESTIMANDS[_EP_RULE_SLUG, "ey_learned_rule[learned rule]"] = (
+    "fold average of the value of the rule that the EP curve fitted on each fold's training rows "
+    "sets"
+)
+_EP_RULE_LAWS = {
+    "non_exceptional": (
+        "the learned-rule law with the blip 0.1 + W1, whose main-terms interaction logistic "
+        "outcome learner is correct"
+    ),
+    "misspecified_limit": (
+        "the learned-rule law with the blip 0.8 W1 + W1^2 - 0.3, whose main-terms interaction "
+        "logistic outcome learner has no W1^2 term"
+    ),
+}
+STUDY_SCENARIOS.update(
+    {
+        (_EP_RULE_SLUG, name): (
+            f"{words.removeprefix('the ')}, with `LearnedRule(loss='ep')` on the default sieve"
+        )
+        for name, words in _EP_RULE_LAWS.items()
+    }
+)
+STUDY_ARMS.update(
+    {
+        **{
+            (_EP_RULE_SLUG, name): f"{words}, with `LearnedRule(loss='ep')` on the default sieve"
+            for name, words in _EP_RULE_LAWS.items()
+        },
+        (_EP_RULE_SLUG, "optimal_known_g"): (
+            "the value of the optimal rule at the learned-rule law with the blip 0.1 + W1, with "
+            "`LearnedRule(loss='ep')` on both adjustment columns and the treatment mechanism "
+            "known, read against the fixed optimal value 0.577115"
+        ),
+        (_EP_RULE_SLUG, "exceptional"): (
+            "the learned-rule law with no effect anywhere (RM30 `exceptional`), with "
+            "`LearnedRule(loss='ep')` on the default sieve"
+        ),
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_EP_RULE_SLUG, "interval_calibration", label, "declared"): (
+                "the declared fit at n = 16,000 with the study's logistic nuisance learners",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for label in ("non_exceptional", "misspecified_limit", "optimal_known_g")
+        },
+        (_EP_RULE_SLUG, "interval_calibration", "non_exceptional", "validation_rule_control"): (
+            "the same fit at n = 2,000 with each fold's EP curve fitted on that fold's own "
+            "validation rows, so the rule has seen the rows that evaluate it",
+            "the coverage interval must fall below the calibration band",
+        ),
+        **{
+            (_EP_RULE_SLUG, "small_sample_diagnostic", label, "n1000"): (
+                "the declared fit at n = 1,000, reported without a verdict",
+                "none. The cell reports the SE ratio, coverage and bias at the smaller size",
+            )
+            for label in ("non_exceptional", "misspecified_limit")
+        },
+        (_EP_RULE_SLUG, "exceptional_law_report", "exceptional", "n2000"): (
+            "the declared fit at n = 2,000, where condition C3 fails because the fold curves "
+            "have no fixed sign",
+            "none. The cell reports its coverage with the declared reading: an upper 99% "
+            "coverage endpoint below 0.95 reads under-coverage",
         ),
     }
 )

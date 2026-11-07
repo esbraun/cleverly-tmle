@@ -51,6 +51,7 @@ categorized API tables.
    cleverly.IncrementalEffect
    cleverly.MSMProjection
    cleverly.msm.MSM
+   cleverly.msm.working_model_means
    cleverly.ConditionalContrast
    cleverly.bases.Modifiers
    cleverly.bases.Constant
@@ -305,6 +306,7 @@ categorized API tables.
    cleverly.datasets.weekly_orders_protocol
    cleverly.datasets.offer_after_no_order
    cleverly.plotting.forest
+   cleverly.plotting.curve
    cleverly.plotting.sensitivity
    cleverly.plotting.overlap
    cleverly.plotting.weights

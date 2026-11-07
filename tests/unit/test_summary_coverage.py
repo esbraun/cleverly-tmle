@@ -85,6 +85,10 @@ REPR_CLASSES = (
 EXEMPT = {
     "CausalResult": "a Protocol; each class that implements it has fixtures",
     "NodeWeights": "per-unit arrays of one fitted regimen with a to_frame; no summary to print",
+    "WorkingModelMeans": (
+        "a value object with a to_frame and no summary; TestWorkingModelMeans in "
+        "tests/unit/test_plotting_curves.py checks its values against a hand computation"
+    ),
 }
 
 

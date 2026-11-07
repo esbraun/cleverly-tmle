@@ -298,7 +298,7 @@ class TestTheRecord:
         assert "linear regression after polynomial terms" in line
 
     def test_each_loss_has_its_rule_class(self) -> None:
-        assert set(RULE_CLASS) == {"plug_in", "blip", "weighted_classification"}
+        assert set(RULE_CLASS) == {"plug_in", "blip", "weighted_classification", "ep"}
         assert "sample weights |D|" in RULE_CLASS["weighted_classification"]
         plug_in = support.fit().extra["learned_rule"]
         assert (plug_in.loss, plug_in.learner) == ("plug_in", None)
