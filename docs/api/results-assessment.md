@@ -31,6 +31,7 @@ rows as a dataframe.
    cleverly.effect_curves.CurveBand
    cleverly.effect_curves.HeterogeneityTest
    cleverly.effect_curves.ScoreAssessment
+   cleverly.targeting_curves.TargetingCurve
 ```
 
 `CausalResult` is the protocol every fitted scalar result satisfies. The concrete classes are
@@ -44,3 +45,5 @@ validation fold.
 `TMLEResult.effect_curve()` returns an `EffectCurveResult` for a fit of a `ConditionalContrast`,
 and `TMLEResult.heterogeneity_test()` returns a `HeterogeneityTest`.
 `IdentifiedEffect.assess_score()` returns a `ScoreAssessment` for a score fitted on other data.
+`IdentifiedEffect.targeting_curve()` and `EffectCurveResult.diagnostics.targeting_curve()` return
+a `TargetingCurve`: how much treating by a score first gains over treating at random.

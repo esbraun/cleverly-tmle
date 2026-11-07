@@ -246,6 +246,59 @@ def robustness_verdicts(summary: pd.DataFrame, *, family: str) -> None:
     summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"] & scaled
 
 
+def bias_role_verdicts(summary: pd.DataFrame, *, families: Sequence[str]) -> None:
+    """Read each bias row by its role: a positive on its equivalence endpoint, a control beyond.
+
+    A bias control is a number, not a fit with an interval, so its row carries a unit standard
+    error and only its bias is read.  A module that calls this declares
+    :func:`bias_role_rule` with the same families in its ``PROPERTY_RULES``.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The summary, whose ``passed`` column is written in place.
+    families : sequence of str
+        The bias families.
+
+    Raises
+    ------
+    ValueError
+        When a row of one of ``families`` has a role other than positive or control.
+    """
+    for family in families:
+        member = summary["property"] == family
+        positive = member & (summary["role"] == "positive")
+        control = member & (summary["role"] == "control")
+        summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"]
+        summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
+        unknown = member & ~summary["role"].isin(("positive", "control"))
+        if unknown.any():
+            raise ValueError(f"{family} cells need a positive or control role")
+
+
+def bias_role_rule(families: Sequence[str]) -> pf.FamilyRule:
+    """The rule of :func:`bias_role_verdicts` for ``families``.
+
+    Parameters
+    ----------
+    families : sequence of str
+        The families the module passes to :func:`bias_role_verdicts`.
+
+    Returns
+    -------
+    FamilyRule
+        The rule.
+    """
+    return pf.FamilyRule(
+        families=frozenset(families),
+        shared="bias_role_verdicts",
+        clauses=(
+            pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
+            pf.bias_clause("bias discriminated", kind="beyond", applies=pf.roles("control")),
+        ),
+    )
+
+
 def apply_shared_verdicts(
     rows: pd.DataFrame,
     record: StudyRecord,
@@ -1062,7 +1115,7 @@ def calibration_verdicts(
     *,
     margins: Margins,
     efficiency_band: tuple[float, float] | None = None,
-    positive_suffix: str = "correctly_specified",
+    positive_suffix: str | Sequence[str] = "correctly_specified",
 ) -> None:
     """Read each calibration cell's verdict against the rule its *kind* answers to.
 
@@ -1088,13 +1141,15 @@ def calibration_verdicts(
     only reading left when there is no bound to form an efficiency ratio against.
 
     ``positive_suffix`` names the positive arm, for the reason
-    :func:`calibration_controls` takes it.
+    :func:`calibration_controls` takes it.  A study whose positives carry more than one name,
+    because some of its cells are not correctly specified, passes them all.
     """
+    positives = (positive_suffix,) if isinstance(positive_suffix, str) else tuple(positive_suffix)
     calibration = summary["property"] == "interval_calibration"
     for index in summary.index[calibration]:
         kind = str(summary.loc[index, "cell"]).rsplit("__", 1)[-1]
         ratio = summary_interval(summary, index, "se_ratio")
-        if kind == positive_suffix:
+        if kind in positives:
             coverage = summary_interval(summary, index, "coverage")
             passed = ratio.within(*margins.calibration_se_ratio) and coverage.within(
                 *margins.calibration_coverage

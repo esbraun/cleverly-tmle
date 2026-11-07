@@ -512,6 +512,8 @@ BACKEND_ROUTES: dict[str, str] = {
     "SimultaneousBands": "argument",
     # The truncation curve (X89 T3) wraps the frame the diagnostics built.
     "TruncationCurve": "wrapped",
+    # The targeting curves (X92 part 5) carry the study's backend name.
+    "TargetingCurve": "field",
     # Balance and per-node weight readings (X92 part 3b): built from a fit's weights,
     # so the caller names the backend.
     "CovariateBalance": "argument",

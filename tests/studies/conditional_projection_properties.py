@@ -7,7 +7,8 @@ and its rows fill the cells :func:`~tests.studies.conditional_projection.group_c
   99% SE-ratio and coverage bands), and on ``clustered_4k`` the ``__row_variance_control``
   rows, the same estimates with the row-level SE, which must fall below the band;
 - ``bias``: the ladder rungs' and the declared-error groups' TMLE rows, each inside +-0.25 of
-  its own SD, and every control row, each wholly outside it (:func:`bias_verdicts`);
+  its own SD, and every control row, each wholly outside it
+  (:func:`~tests.studies.evidence.property_verdicts.bias_role_verdicts`);
 - ``type_i_error`` and ``power``: the df-2 heterogeneity test on ``hetero_trial``, its
   rejection read under the null and at slope 0.10.
 
@@ -25,11 +26,12 @@ import pandas as pd
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import conditional_projection as study
-from tests.studies.evidence import property_failures as pf
 from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, control_row, replicate_row
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
+    bias_role_rule,
+    bias_role_verdicts,
     calibration_verdicts,
     finish,
 )
@@ -214,47 +216,22 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     return rows.loc[:, list(REPLICATE_COLUMNS)]
 
 
-def bias_verdicts(summary: pd.DataFrame) -> None:
-    """A positive bias row passes on its equivalence endpoint and a control on its discrimination one."""
-    for family in BIAS_FAMILIES:
-        member = summary["property"] == family
-        positive = member & (summary["role"] == "positive")
-        control = member & (summary["role"] == "control")
-        summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"]
-        summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
-        unknown = member & ~summary["role"].isin(("positive", "control"))
-        if unknown.any():
-            raise ValueError(f"{family} cells need a positive or control role")
-
-
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The shared verdicts, the calibration kinds and the bias rows."""
     summary, rates = apply_shared_verdicts(rows, STUDY, rate_labels=())
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=None)
-    bias_verdicts(summary)
+    bias_role_verdicts(summary, families=BIAS_FAMILIES)
     return finish(summary, rates)
-
-
-def _bias_rule() -> pf.FamilyRule:
-    return pf.FamilyRule(
-        families=frozenset(BIAS_FAMILIES),
-        shared="bias_verdicts",
-        clauses=(
-            pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
-            pf.bias_clause("bias discriminated", kind="beyond", applies=pf.roles("control")),
-        ),
-    )
 
 
 #: The failure accounting's declared rules.  The calibration, type-I and power families read
 #: the shared rules (:data:`~tests.studies.evidence.property_verdicts.FAMILY_RULES`).
-PROPERTY_RULES = (_bias_rule(),)
+PROPERTY_RULES = (bias_role_rule(BIAS_FAMILIES),)
 
 __all__ = [
     "FAILURE_BOUND",
     "PROPERTY_RULES",
     "PROPERTY_WITNESS",
-    "bias_verdicts",
     "generate_property_rows",
     "summarize_properties",
 ]
