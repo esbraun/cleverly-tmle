@@ -713,3 +713,63 @@ def test_notes_sit_inside_the_figure_after_drawing(binary_fit: Any) -> None:
             assert extent.x0 >= fig.bbox.x0 - 1
             assert extent.x1 <= fig.bbox.x1 + 1
             assert extent.y0 >= fig.bbox.y0 - 1
+
+
+def _nearest_row_reason(qualifiers: str) -> Support:
+    """An experimental support whose nearest validated row differs on ``qualifiers``.
+
+    The text is the one :func:`cleverly._support.support_for` writes.
+    """
+    return Support(
+        "experimental",
+        "No registered study covers this configuration. Nearest row: G46.tmle.categorical_k3 "
+        f"(long-horizon-categorical-ltmle), differing on qualifiers ({qualifiers}).",
+    )
+
+
+def test_forest_note_names_known_mechanisms_in_words_not_column_ids(binary_fit: Any) -> None:
+    """A longitudinal fit's qualifiers are column names; ids such as A1 must not leave gaps."""
+    support = _nearest_row_reason("A1 and A2 and A3 and C1 and C2 and offer@1 and offer@2")
+    note = _core.note_text(forest(dataclasses.replace(binary_fit["ate"], support=support)))
+    assert "and and" not in note
+    assert "in and" not in note
+    assert "offer@1" not in note
+    assert "differs in which treatment and censoring mechanisms are declared known." in note
+    # Control: the qualifiers of a point-treatment fit keep their own words.
+    support = _nearest_row_reason("known_mechanism and strata")
+    note = _core.note_text(forest(dataclasses.replace(binary_fit["ate"], support=support)))
+    assert "differs in a known treatment mechanism and baseline strata." in note
+
+
+def test_forest_subtitle_keeps_a_column_name_as_written() -> None:
+    """The summary's question can open with the outcome column, which is not capitalised."""
+    from cleverly.datasets import make_longitudinal
+    from cleverly.longitudinal import LTMLE
+
+    frame, _ = make_longitudinal(n=200, seed=0)
+    frame = frame.rename(columns={"Y": "full_price"})
+    fit = LTMLE(
+        {"always": 1, "never": 0},
+        n_folds=1,
+        random_state=0,
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=500),
+        censoring_learner=LogisticRegression(max_iter=500),
+    ).fit(
+        frame,
+        outcome="full_price",
+        treatment=["A1", "A2"],
+        baseline=["W1", "W2"],
+        time_varying=[[], ["L2"]],
+        censoring=["C1", "C2"],
+    )
+    assert fit.summary().facts["Question"].startswith("full_price ")
+    assert _core.subtitle_text(forest(fit).axes[0]) == "full_price under each plan"
+    # Control: a question that opens with an English word still starts with a capital.
+    from tests.unit._capability_sweep_support import fit_multi_arm
+
+    multi = fit_multi_arm()
+    question = multi.summary().facts["Question"]
+    assert question[:1].islower()
+    subtitle = _core.subtitle_text(forest(multi).axes[0]) or ""
+    assert subtitle[:1].isupper()

@@ -535,6 +535,18 @@ def test_a_support_reason_loses_its_ids_and_names_its_axes() -> None:
     )
 
 
+def test_a_longitudinal_qualifier_difference_is_named_in_words() -> None:
+    """Known-factor qualifiers are column names, some shaped like ids; none leaves a gap."""
+    reason = (
+        "No registered study covers this configuration. Nearest row: G46.tmle.categorical_k3 "
+        "(long-horizon-categorical-ltmle), differing on qualifiers (A1 and C1 and offer@1)."
+    )
+    assert plain_support_reason(reason) == (
+        "No validation study covers this kind of fit. The nearest validated kind of fit "
+        "differs in which treatment and censoring mechanisms are declared known."
+    )
+
+
 # ----------------------------------------------------------------- header numbers and assumptions
 
 

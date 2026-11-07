@@ -142,7 +142,25 @@ def _question(items: Sequence[Any]) -> str | None:
     text = " ".join(str(question).split())
     # The summary defines its rows in a table below; the figure has no such table.
     text = text.removesuffix("; each row is defined below")
+    if _starts_with_a_name(text, item):
+        # A question that opens with a column name keeps the name as the data spell it.
+        return text
     return text[:1].upper() + text[1:]
+
+
+def _starts_with_a_name(text: str, result: Any) -> bool:
+    """Whether ``text`` opens with a name from the data rather than an English word."""
+    first = text.split(" ", 1)[0]
+    data = getattr(result, "data", None)
+    names = {
+        str(name)
+        for name in (
+            getattr(data, "outcome_name", None),
+            getattr(data, "treatment_name", None),
+        )
+        if name is not None
+    }
+    return first in names or not first.isalpha()
 
 
 def forest(
