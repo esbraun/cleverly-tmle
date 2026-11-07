@@ -13,7 +13,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from . import _core
+from . import _core, _truth
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from matplotlib.axes import Axes
@@ -33,6 +33,8 @@ class _Row:
     null_defined: bool = True
     #: Which item the row came from; the numbers of one item share their decimals.
     source: int = 0
+    #: The name the fit reports the estimate under, which ``truth=`` keys.
+    estimand: str = ""
 
 
 def _null_defined(estimate: Any) -> bool:
@@ -47,13 +49,14 @@ def _null_defined(estimate: Any) -> bool:
         return bool(np.isfinite(float(transform.forward(default))))
 
 
-def _row(label: str, estimate: Any, outcome: str | None) -> _Row:
+def _row(label: str, estimate: Any, outcome: str | None, estimand: str | None = None) -> _Row:
     return _Row(
         label,
         _core.estimate_interval(estimate, label),
         str(estimate.scale),
         outcome,
         _null_defined(estimate),
+        estimand=str(estimand if estimand is not None else getattr(estimate, "name", label)),
     )
 
 
@@ -79,7 +82,7 @@ def _result_rows(result: Any, prefix: str | None) -> list[_Row]:
     rows = []
     for name, estimate in estimates.items():
         label = str(name) if prefix is None else f"{prefix}: {name}"
-        rows.append(_row(label, estimate, outcome))
+        rows.append(_row(label, estimate, outcome, str(name)))
     return rows
 
 
@@ -102,7 +105,7 @@ def _expand(item: Any, label: str | None, several: bool) -> list[_Row]:
         prefix = label if label is not None else (_method(item) if several else None)
         if len(item.estimates) == 1 and prefix is not None:
             ((name, estimate),) = item.estimates.items()
-            return [_row(prefix, estimate, _outcome(item))]
+            return [_row(prefix, estimate, _outcome(item), str(name))]
         return _result_rows(item, prefix)
     if isinstance(item, Mapping):
         rows = []
@@ -142,7 +145,25 @@ def _question(items: Sequence[Any]) -> str | None:
     text = " ".join(str(question).split())
     # The summary defines its rows in a table below; the figure has no such table.
     text = text.removesuffix("; each row is defined below")
+    if _starts_with_a_name(text, item):
+        # A question that opens with a column name keeps the name as the data spell it.
+        return text
     return text[:1].upper() + text[1:]
+
+
+def _starts_with_a_name(text: str, result: Any) -> bool:
+    """Whether ``text`` opens with a name from the data rather than an English word."""
+    first = text.split(" ", 1)[0]
+    data = getattr(result, "data", None)
+    names = {
+        str(name)
+        for name in (
+            getattr(data, "outcome_name", None),
+            getattr(data, "treatment_name", None),
+        )
+        if name is not None
+    }
+    return first in names or not first.isalpha()
 
 
 def forest(
@@ -150,7 +171,9 @@ def forest(
     labels: Sequence[str] | None = None,
     title: str | None = None,
     subtitle: str | None = None,
+    outcome_label: str | None = None,
     units: str | None = None,
+    truth: float | Mapping[str, float] | None = None,
     ax: Axes | None = None,
 ) -> Figure:
     """Plot estimates with their intervals, one row each (a forest plot).
@@ -177,8 +200,20 @@ def forest(
         The title; ``"Estimated effects"`` when omitted.
     subtitle : str or None, default=None
         The line under the title; the printed summary's question for a single result.
+    outcome_label : str or None, default=None
+        Words for the outcome in the axis label of differences and means, such as
+        ``"orders in the third month"``; the outcome column's name when every row shares
+        one, and no name otherwise.
     units : str or None, default=None
         Units of the outcome, added to the axis label of differences and means.
+    truth : float, mapping of str to float, or None, default=None
+        The known true values of simulated data, drawn as an ink cross on each row it
+        belongs to and named "True value (simulated data only)" in the key. Real data have
+        none. A number is the true value of every row, and needs rows that all estimate
+        one quantity (one estimate, or one estimate from each of several fits). A mapping
+        gives the value of each estimate by the name the fit reports (``"ate"``) or by the
+        row's label; a row it does not name gets no cross. A forest draws every estimate
+        of each fit it is given, so a name that matches no row is refused.
     ax : Axes or None, default=None
         Axes to draw on. Only a plot with one scale can draw on a caller's axes.
 
@@ -192,6 +227,9 @@ def forest(
     ValueError
         When ``labels`` does not match ``items``, when nothing is given, or when ``ax`` is
         passed for estimates on more than one scale.
+    CapabilityError
+        When ``truth`` names no drawn row, or is one number for rows that estimate
+        different quantities.
 
     See Also
     --------
@@ -262,11 +300,62 @@ def forest(
         fig, axis = _core.figure_for(ax)
         axes = [axis]
     for axis, scale, group in zip(axes, scales, groups, strict=True):
-        _panel(axis, scale, group, units, [texts[id(row)] for row in group])
+        _panel(axis, scale, group, outcome_label, units, [texts[id(row)] for row in group])
+    if truth is not None:
+        _draw_truth(truth, axes, groups)
     question = subtitle if subtitle is not None else _question(items)
-    _core.header(axes[0], title or "Estimated effects", question, key_sources=axes)
+    # The number column sits right of the axes, so the key keeps to two columns.
+    _core.header(axes[0], title or "Estimated effects", question, key_sources=axes, key_columns=2)
     _core.notes(axes[-1], _merged_notes(rows))
     return fig
+
+
+def _truth_values(truth: Any, rows: Sequence[_Row]) -> list[float | None]:
+    """The true value of each row, in order, or ``None`` where ``truth`` gives none."""
+    if isinstance(truth, Mapping):
+        if not truth:
+            raise _truth.refuse(
+                "truth= is an empty mapping, so it gives no true value to draw",
+                "pass the true values, or leave truth= out",
+            )
+        known = {name for row in rows for name in (row.estimand, row.label)}
+        unknown = [str(key) for key in truth if str(key) not in known]
+        if unknown:
+            raise _truth.refuse(
+                f"truth= names {unknown}, which no row of this plot estimates; the rows are "
+                f"{list(dict.fromkeys(row.estimand for row in rows))}",
+                "key truth= by the names the fits report or by the row labels",
+            )
+        keyed = {str(key): value for key, value in truth.items()}
+        found: list[float | None] = []
+        for row in rows:
+            value = keyed.get(row.label, keyed.get(row.estimand))
+            found.append(None if value is None else _truth.number(value, row.label))
+        return found
+    estimands = list(dict.fromkeys(row.estimand for row in rows))
+    if len(estimands) > 1:
+        raise _truth.refuse(
+            f"truth= is one number, and the rows of this plot estimate {len(estimands)} "
+            f"quantities: {estimands}",
+            "pass a mapping of each estimate's name to its true value",
+        )
+    value = _truth.number(truth, estimands[0])
+    return [value] * len(rows)
+
+
+def _draw_truth(truth: Any, axes: Sequence[Axes], groups: Sequence[Sequence[_Row]]) -> None:
+    """A cross at each row's true value, on the row's own panel."""
+    values = _truth_values(truth, [row for group in groups for row in group])
+    at = 0
+    for axis, group in zip(axes, groups, strict=True):
+        mine = values[at : at + len(group)]
+        at += len(group)
+        positions = list(range(len(group)))[::-1]
+        drawn = [(y, value) for y, value in zip(positions, mine, strict=True) if value is not None]
+        _truth.check_log(axis, [value for _, value in drawn], axis="x")
+        for y, value in drawn:
+            _core.truth_mark(axis, value, y)
+        _truth.include(axis, [value for _, value in drawn], axis="x")
 
 
 def _merged_notes(rows: Sequence[_Row]) -> list[str]:
@@ -315,7 +404,12 @@ def _number_texts(rows: Sequence[_Row]) -> dict[int, str]:
 
 
 def _panel(
-    ax: Axes, scale: str, rows: Sequence[_Row], units: str | None, texts: Sequence[str]
+    ax: Axes,
+    scale: str,
+    rows: Sequence[_Row],
+    outcome_label: str | None,
+    units: str | None,
+    texts: Sequence[str],
 ) -> None:
     """One scale's rows on one axes."""
     _core.style_axes(ax, grid="x")
@@ -359,7 +453,7 @@ def _panel(
     ax.spines["left"].set_visible(False)
     outcomes = {row.outcome for row in rows}
     outcome = outcomes.pop() if len(outcomes) == 1 else None
-    ax.set_xlabel(_axis_label(scale, outcome, units))
+    ax.set_xlabel(_axis_label(scale, outcome_label or outcome, units))
     _numbers(ax, rows, positions, texts)
 
 

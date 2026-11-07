@@ -82,9 +82,11 @@ from tests.notebooks import (
     notebook_execution_stamp,
 )
 from tests.unit.tutorial_semantics import (
+    _FIGURE_REPRS,
     NOT_TUTORIALS,
     STATIC_ONLY,
     RefitNamespace,
+    _output_text,
     assert_protocol_recorded,
     callback,
     callback_module,
@@ -510,6 +512,11 @@ def test_every_static_only_notebook_keeps_its_pinned_outputs(stem: str) -> None:
     callback_module(stem).check_stored()
 
 
+#: The ``text/plain`` reprs of a figure or an axes object, which carry no values to compare.
+#: A matplotlib object repr with its memory address, which moves on every run.
+_MEMORY_ADDRESS_REPR = re.compile(r"<matplotlib\..* at 0x")
+
+
 @pytest.mark.parametrize(
     "path",
     NOTEBOOKS,
@@ -531,10 +538,7 @@ def test_every_published_figure_has_a_non_image_companion(path: Path) -> None:
             str(output.get("text", "")).strip()
             or any(
                 not mime.startswith("image/")
-                and (
-                    mime != "text/plain"
-                    or not str(payload).lstrip().startswith(("<Figure", "Figure("))
-                )
+                and (mime != "text/plain" or not str(payload).lstrip().startswith(_FIGURE_REPRS))
                 for mime, payload in output.get("data", {}).items()
             )
             for output in cell.get("outputs", ())
@@ -546,6 +550,45 @@ def test_every_published_figure_has_a_non_image_companion(path: Path) -> None:
         f"{path.relative_to(ROOT).as_posix()} has image-only cell(s) {unsupported}; publish the "
         "plotted values as text, HTML, or JSON so --check can compare them"
     )
+
+
+@pytest.mark.parametrize(
+    "path",
+    NOTEBOOKS,
+    ids=lambda path: path.relative_to(ROOT).as_posix(),
+)
+def test_no_stored_output_prints_a_matplotlib_memory_address(path: Path) -> None:
+    """A repr such as ``<matplotlib.lines.Line2D at 0x7f...>`` moves on every run.
+
+    A cell that ends in a bare plot call stores one, and ``--check`` then reports a moved output
+    each time. Bind the figure to a name instead.
+
+    Parameters
+    ----------
+    path : Path
+        The notebook to read.
+    """
+    notebook = nbformat.read(path, as_version=4)
+    moving = [
+        cell["id"]
+        for cell in code_cells(notebook)
+        for output in cell.get("outputs", ())
+        for payload in output.get("data", {}).values()
+        if _MEMORY_ADDRESS_REPR.search(str(payload))
+    ]
+    assert not moving, (
+        f"{path.relative_to(ROOT).as_posix()} stores a matplotlib memory address in cell(s) "
+        f"{moving}; bind the figure to a name so the cell does not end in an expression"
+    )
+
+
+def test_a_figure_repr_is_not_a_cells_last_line_and_a_memory_address_is_found() -> None:
+    """The callbacks' text skips a figure repr beside an image, and the address test sees one."""
+    figure = {"image/png": "", "text/plain": "<Figure size 700x450 with 1 Axes>"}
+    assert _output_text({"data": figure}) == ""
+    assert _output_text({"data": {"text/plain": "<Figure size 700x450 with 1 Axes>"}})
+    assert _MEMORY_ADDRESS_REPR.search("<matplotlib.lines.Line2D at 0x7f3a>")
+    assert not _MEMORY_ADDRESS_REPR.search("<Figure size 700x450 with 1 Axes>")
 
 
 def _run_document(

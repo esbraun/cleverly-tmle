@@ -94,6 +94,45 @@ class SuperLearnerDiagnostics:
             "weight": self.weights.tolist(),
         }
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot each candidate's cross-validated risk and its ensemble weight.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.learners`.
+
+        Returns
+        -------
+        Figure
+            Two panels with the candidates in the same order, lowest risk first. The
+            ensemble's own risk is not drawn.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> import numpy as np
+        >>> from sklearn.linear_model import LinearRegression, Ridge
+        >>> from cleverly.learners import SuperLearner
+        >>> rng = np.random.default_rng(0)
+        >>> x = rng.normal(size=(120, 2))
+        >>> y = x[:, 0] + rng.normal(size=120)
+        >>> ensemble = SuperLearner(
+        ...     library=[("ols", LinearRegression()), ("ridge", Ridge(alpha=5.0))],
+        ...     task="regression",
+        ...     n_folds=3,
+        ... ).fit(x, y)
+        >>> fig = ensemble.diagnostics_.plot()
+        >>> fig.axes[1].get_xlabel()
+        'Ensemble weight'
+        >>> plt.close(fig)
+        """
+        from ..plotting import learners
+
+        return learners(self, **kwargs)
+
     def summary(self, *, detail: Detail = "short") -> Summary:
         """A printable report of the ensemble, like a statsmodels summary.
 

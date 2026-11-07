@@ -1655,7 +1655,7 @@ class TMLEResult:
         ----------
         **kwargs
             Passed to :func:`cleverly.plotting.forest`: ``labels=``, ``title=``,
-            ``subtitle=``, ``units=`` and ``ax=``.
+            ``subtitle=``, ``outcome_label=``, ``units=``, ``truth=`` and ``ax=``.
 
         Returns
         -------

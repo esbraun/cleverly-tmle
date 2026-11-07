@@ -217,6 +217,7 @@ from ..interventions.learned import (
     LearnedRule,
     _learned_rule_regimes,
     check_fold_rules,
+    ep_rule_condition,
     frozen_level_refusal,
     in_sample_learner_condition,
     learned_rule_configuration_refusal,
@@ -2586,6 +2587,11 @@ class TMLE:
         learned = in_sample_learner_condition(self, data)
         if learned is not None:
             conditions.append(learned)
+        # A cross-fitted EP rule fit with a declared sieve or final learner (P1 part (c)) runs,
+        # and the registered study measured only the default sieve with least squares.
+        curve = ep_rule_condition(self)
+        if curve is not None:
+            conditions.append(curve)
         return Preflight(estimands, tuple(conditions))
 
     def _fold_policy_refusal(self) -> Refusal | None:
@@ -4366,6 +4372,7 @@ class TMLE:
                 fit_inner=partial(self._inner_rule_nuisances, scaler=estimates.scaler),
                 g_bounds=self._rule_g_bounds(data),
                 seed=0 if seed is None else int(seed),
+                alpha=self.alpha,
             )
             if fold_rules is not None:
                 # The diagonal at fit time, so a defect surfaces here and not at the bound.

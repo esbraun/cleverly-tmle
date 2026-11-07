@@ -47,6 +47,22 @@ pytestmark = [
     pytest.mark.usefixtures("exact_grid_law"),
 ]
 
+
+@pytest.fixture(autouse=True)
+def _close_figures() -> Any:
+    """Close every pyplot figure around each test.
+
+    This module runs on one worker, and its readers draw plots. Figures left open by earlier
+    tests on that worker pass matplotlib's limit of 20, whose ``RuntimeWarning`` the suite
+    raises as an error.
+    """
+    import matplotlib.pyplot as plt
+
+    plt.close("all")
+    yield
+    plt.close("all")
+
+
 #: What every one-column reader says at a vector treatment with a continuous component.
 ONE_COLUMN = "reads a treatment of one column. Such a treatment has no arms"
 
@@ -646,6 +662,10 @@ _DECLARED_DIFFERENTLY = {
         "each reading records the warnings its own fit raised, and F is a treatment "
         "component on one and a covariate on the other"
     ),
+    "result.plot": (
+        "each call draws a new figure, and matplotlib numbers its windows in order; the "
+        "drawn estimates are compared below"
+    ),
     "diagnostics.support": (
         "a cap holds the top dose of 'random' on the vector, a piece on D; the vector's "
         "min_density is the joint density of (D, F), the scalar's that of D given F"
@@ -704,6 +724,17 @@ def test_h1_every_reader_of_a_vector_result_equals_its_scalar_reading(
             estimate.influence_curve, reference.influence_curve, rtol=0, atol=1e-12
         )
         assert abs(float(np.mean(estimate.influence_curve))) < 1e-10
+    drawn = [
+        [
+            line.get_xdata()[0]
+            for ax in fig.axes
+            for line in ax.lines
+            if line.get_gid() == "cleverly-point"
+        ]
+        for fig in (vector.plot(), scalar.plot())
+    ]
+    np.testing.assert_allclose(drawn[0], drawn[1], rtol=0, atol=1e-12)
+    assert drawn[0]
     assert vector.provenance.n == scalar.provenance.n
     assert vector.provenance.fold_fingerprint == scalar.provenance.fold_fingerprint
     assert vector.provenance.data_fingerprint != scalar.provenance.data_fingerprint

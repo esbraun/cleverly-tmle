@@ -21,6 +21,7 @@ from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
     covers,
+    figure_title,
 )
 
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
@@ -369,6 +370,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert namespace["nuisance"].summary().reading == vocabulary.MODEL_READINGS["clear"]
     (propensity,) = (m for m in namespace["nuisance"].models if m.name == "propensity")
     assert abs(propensity.metrics["calibration_slope"] - 1.0) < 0.1
+    assert figure_title(namespace["overlap_fig"]) == "Predicted probability of treatment, by group"
     # "no unit sits at the truncation bound".
     support = namespace["support"]
     assert support.truncated["fraction"] == 0.0
@@ -434,6 +436,10 @@ def check_refits(namespace: dict[str, Any]) -> None:
     result = namespace["result"]
     robustness = namespace["robustness"]
     assert robustness == result.sensitivity.robustness_value()
+    assert (
+        figure_title(namespace["confounding_fig"])
+        == "How strong would hidden confounding need to be?"
+    )
     elements = result.sensitivity.elements(estimand="ate")
     at_rv = result.sensitivity.omitted_confounding(cf_y=robustness["rv"], cf_d=robustness["rv"])
     # "The residual outcome variance ... more than doubles", so the implied cf_y is a clip.

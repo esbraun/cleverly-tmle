@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import textwrap
+import weakref
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -51,6 +52,13 @@ GID_SUBTITLE: Final = "cleverly-subtitle"
 GID_NOTES: Final = "cleverly-notes"
 GID_SERIES_LABEL: Final = "cleverly-series-label"
 GID_SWATCH: Final = "cleverly-swatch"
+GID_TRUTH: Final = "cleverly-truth"
+#: The figure-level title and key that :func:`figure_header` writes.
+GID_TITLE: Final = "cleverly-title"
+GID_KEY: Final = "cleverly-key"
+
+#: The key entry of a known true value, which only simulated data have.
+TRUTH_LABEL: Final = "True value (simulated data only)"
 
 #: Point sizes of the text roles.
 TITLE_SIZE: Final = 12.0
@@ -269,7 +277,9 @@ def wrap(text: str, ax: Axes, size: float) -> str:
         figure = figure.figure
     width_inches = float(figure.get_figwidth()) * 0.94
     characters = max(30, int(width_inches * 72.0 / (size * 0.52)))
-    return "\n".join(textwrap.fill(part, characters) for part in text.split("\n"))
+    return "\n".join(
+        textwrap.fill(part, characters, break_on_hyphens=False) for part in text.split("\n")
+    )
 
 
 def header(
@@ -278,6 +288,7 @@ def header(
     subtitle: str | None = None,
     *,
     key_sources: Sequence[Axes] | None = None,
+    key_columns: int = 3,
 ) -> None:
     """Write the title (the question) and the subtitle (the estimand or headline number).
 
@@ -296,13 +307,16 @@ def header(
         One line, wrapped when long.
     key_sources : sequence of Axes or None, default=None
         The panels whose labelled artists the key lists; ``ax`` alone when omitted.
+    key_columns : int, default=3
+        The most columns the key may take, for a plot with text beside its axes.
     """
     if ax.get_legend() is None:
-        legend(ax, sources=key_sources)
+        legend(ax, sources=key_sources, max_columns=key_columns)
     key = ax.get_legend()
     key_height = 0.0
     if key is not None:
-        rows = math.ceil(len(key.get_texts()) / 3)
+        names = [text.get_text() for text in key.get_texts()]
+        rows = math.ceil(len(names) / _key_columns(ax, names, key_columns))
         key_height = rows * TICK_SIZE * 1.45 + 4.0
     sub_lines = 0
     if subtitle:
@@ -333,7 +347,9 @@ def header(
 
 
 def subtitle_text(ax: Axes) -> str | None:
-    """The subtitle :func:`header` wrote on ``ax``, as one line, or ``None``.
+    """The subtitle :func:`header` wrote on ``ax``, or :func:`figure_header` on its figure.
+
+    The subtitle is returned as one line, or ``None`` when there is none.
 
     Parameters
     ----------
@@ -345,7 +361,7 @@ def subtitle_text(ax: Axes) -> str | None:
     str or None
         The subtitle with its line breaks joined by spaces.
     """
-    for text in ax.texts:
+    for text in [*ax.texts, *_root(ax).texts]:
         if text.get_gid() == GID_SUBTITLE:
             return " ".join(text.get_text().split())
     return None
@@ -399,10 +415,217 @@ def note_text(fig: Figure) -> str:
     str
         The notes, or an empty string.
     """
-    parts = [
-        text.get_text() for axis in fig.axes for text in axis.texts if text.get_gid() == GID_NOTES
-    ]
+    texts = [*(text for axis in fig.axes for text in axis.texts), *fig.texts]
+    parts = [text.get_text() for text in texts if text.get_gid() == GID_NOTES]
     return " ".join(" ".join(parts).split())
+
+
+# ----------------------------------------------------------------------- figure-level text
+#
+# header() and notes() write on one axes, so the layout engine counts the text's width
+# against that axes' column. In a figure with several columns of panels a long title or
+# note then squeezes its column and pushes the next one off the page. The figure-level
+# pair below writes the same roles as figure texts anchored at the figure's left edge,
+# leaves them out of the layout, and reserves their height through the layout rect.
+
+#: Left edge of figure-level text, in figure fraction (the edge notes() uses too).
+_FIGURE_LEFT: Final = 0.015
+#: Space between the figure's edge and its text, and between text blocks, in points.
+_EDGE_PAD: Final = 6.0
+_GAP: Final = 4.0
+
+
+def _root(ax: Any) -> Any:
+    """The root figure of an axes or a subfigure."""
+    figure: Any = ax.figure if hasattr(ax, "figure") else ax
+    while not hasattr(figure, "get_figwidth"):
+        figure = figure.figure
+    return figure
+
+
+def _text_height(text: str, size: float) -> float:
+    """The height in points of ``text`` at ``size``, at matplotlib's 1.2 line spacing."""
+    lines = text.count("\n") + 1
+    return size * (1.0 + 1.2 * (lines - 1)) + 0.3 * size
+
+
+def _reserve(fig: Figure, *, top: float | None = None, bottom: float | None = None) -> None:
+    """Keep the top or bottom band of ``fig`` free of panels, in figure fraction.
+
+    The band of the side not named is kept as it is, so the header and the notes can be
+    written in either order.
+    """
+    engine: Any = fig.get_layout_engine()
+    settings = engine.get() if engine is not None else {}
+    rect = settings.get("rect")
+    if rect is not None and type(engine).__name__ == "ConstrainedLayoutEngine":
+        left, low, width, height = (float(value) for value in rect)
+        high = low + height
+        low = bottom if bottom is not None else low
+        high = 1.0 - top if top is not None else high
+        engine.set(rect=(left, low, width, high - low))
+    elif rect is not None:  # the tight layout engine reads (left, bottom, right, top)
+        left, low, right, high = (float(value) for value in rect)
+        low = bottom if bottom is not None else low
+        high = 1.0 - top if top is not None else high
+        engine.set(rect=(left, low, right, high))
+    else:
+        settings = {}
+        if top is not None:
+            settings["top"] = 1.0 - top
+        if bottom is not None:
+            settings["bottom"] = bottom
+        fig.subplots_adjust(**settings)
+
+
+def figure_header(
+    fig: Figure,
+    title: str,
+    subtitle: str | None = None,
+    *,
+    key_sources: Sequence[Axes] | None = None,
+) -> None:
+    """Write the title, subtitle and key of a figure with several columns of panels.
+
+    The figure-level counterpart of :func:`header`, with the same roles and inks. The title,
+    the subtitle and the key (the labelled artists of ``key_sources``, as :func:`legend`
+    collects them) are written at the figure's left edge, wrapped to the figure's width and
+    left out of the layout, and the layout engine's ``rect`` is lowered at the top by their
+    height, so no panel is squeezed by text wider than its column. Use it, with
+    :func:`figure_notes`, for a figure the plot created; :func:`header` stays the call for
+    one axes. Call it after every labelled artist is drawn.
+
+    Parameters
+    ----------
+    fig : Figure
+        The figure; a constrained-layout figure from :func:`new_figure`, or any figure.
+    title : str
+        The title (the question).
+    subtitle : str or None, default=None
+        The estimand or the headline number.
+    key_sources : sequence of Axes or None, default=None
+        The panels whose labelled artists the key lists; every axes of ``fig`` when omitted.
+    """
+    height = float(fig.get_figheight()) * 72.0
+    cursor = _EDGE_PAD
+
+    def place(text: str, size: float, **style: Any) -> float:
+        wrapped = wrap(text, fig, size)  # type: ignore[arg-type]  # a figure has .figure too
+        fig.text(
+            _FIGURE_LEFT,
+            1.0 - cursor / height,
+            wrapped,
+            ha="left",
+            va="top",
+            fontsize=size,
+            **style,
+        ).set_in_layout(False)
+        return _text_height(wrapped, size)
+
+    cursor += place(title, TITLE_SIZE, fontweight="bold", color=INK, gid=GID_TITLE) + _GAP
+    if subtitle:
+        cursor += place(subtitle, SUBTITLE_SIZE, color=SECONDARY_INK, gid=GID_SUBTITLE) + _GAP
+    handles, labels = _key_entries(key_sources if key_sources is not None else fig.axes)
+    if handles:
+        columns = min(len(handles), 3)
+        key = fig.legend(
+            handles,
+            labels,
+            handler_map=_key_handlers(handles),
+            loc="upper left",
+            bbox_to_anchor=(_FIGURE_LEFT, 1.0 - cursor / height),
+            bbox_transform=fig.transFigure,
+            ncol=columns,
+            frameon=False,
+            fontsize=TICK_SIZE,
+            labelcolor=INK,
+            borderaxespad=0.0,
+            borderpad=0.0,
+            handlelength=1.8,
+            columnspacing=1.4,
+        )
+        key.set_in_layout(False)
+        key.set_gid(GID_KEY)
+        cursor += math.ceil(len(handles) / columns) * TICK_SIZE * 1.45 + _GAP
+    _reserve(fig, top=(cursor + _GAP) / height)
+
+
+def figure_notes(fig: Figure, lines: Sequence[str]) -> None:
+    """Write the note lines at the bottom of a figure with several columns of panels.
+
+    The figure-level counterpart of :func:`notes`: the same roles and ink, written at the
+    figure's left edge, wrapped to the figure's width and left out of the layout, with the
+    layout engine's ``rect`` raised at the bottom by their height. :func:`note_text` reads
+    them.
+
+    Parameters
+    ----------
+    fig : Figure
+        The figure.
+    lines : sequence of str
+        The notes, in order. Duplicates are dropped.
+    """
+    distinct = list(dict.fromkeys(line for line in lines if line))
+    if not distinct:
+        return
+    height = float(fig.get_figheight()) * 72.0
+    characters = max(30, int(float(fig.get_figwidth()) * 0.94 * 72.0 / (NOTE_SIZE * 0.52)))
+    text = "\n".join(
+        "\n".join(
+            textwrap.fill(part, characters, break_on_hyphens=False) for part in line.split("\n")
+        )
+        for line in distinct
+    )
+    fig.text(
+        _FIGURE_LEFT,
+        _EDGE_PAD / height,
+        text,
+        ha="left",
+        va="bottom",
+        fontsize=NOTE_SIZE,
+        color=SECONDARY_INK,
+        gid=GID_NOTES,
+    ).set_in_layout(False)
+    _reserve(fig, bottom=(_EDGE_PAD + _text_height(text, NOTE_SIZE) + 2.0 * _GAP) / height)
+
+
+def title_text(fig: Figure) -> str:
+    """The title of a figure a plot drew, as one line.
+
+    Parameters
+    ----------
+    fig : Figure
+        The figure.
+
+    Returns
+    -------
+    str
+        The :func:`figure_header` title, else the first axes' left title, else ``""``.
+    """
+    for text in fig.texts:
+        if text.get_gid() == GID_TITLE:
+            return " ".join(text.get_text().split())
+    if fig.axes:
+        return " ".join(fig.axes[0].get_title(loc="left").split())
+    return ""
+
+
+def key_labels(fig: Figure) -> list[str]:
+    """Every key entry of a figure: the axes keys of :func:`legend`, then the figure key.
+
+    Parameters
+    ----------
+    fig : Figure
+        The figure.
+
+    Returns
+    -------
+    list of str
+        The entries in drawing order.
+    """
+    keys = [axis.get_legend() for axis in fig.axes]
+    found = [key for key in keys if key is not None] + list(fig.legends)
+    return [text.get_text() for key in found for text in key.get_texts()]
 
 
 def reference_line(
@@ -451,7 +674,78 @@ def reference_line(
     return line
 
 
-def legend(ax: Axes, *, sources: Sequence[Axes] | None = None) -> None:
+def truth_mark(ax: Axes, x: float, y: float, *, transform: Any = None) -> Any:
+    """A known true value at one point: an ink cross, in no series colour.
+
+    A true value exists only for simulated data. The cross differs from an estimate's
+    round marker and from the dashed reference line, and carries its own key entry,
+    :data:`TRUTH_LABEL`.
+
+    Parameters
+    ----------
+    ax : Axes
+        The axes.
+    x : float
+        The x position, in the coordinates of ``transform``.
+    y : float
+        The y position, in the coordinates of ``transform``.
+    transform : Transform or None, default=None
+        The transform of the estimate the mark sits beside, such as a sideways shift;
+        ``ax.transData`` when omitted.
+
+    Returns
+    -------
+    Line2D
+        The mark, with gid ``"cleverly-truth"``.
+    """
+    extra = {} if transform is None else {"transform": transform}
+    (line,) = ax.plot(
+        [x],
+        [y],
+        marker="x",
+        markersize=8.0,
+        markeredgewidth=2.0,
+        color=INK,
+        linestyle="none",
+        label=TRUTH_LABEL,
+        gid=GID_TRUTH,
+        zorder=4,
+        **extra,
+    )
+    return line
+
+
+def truth_line(ax: Axes, x: Sequence[float], y: Sequence[float]) -> Any:
+    """A known true curve: a thin ink dash-dot line, in no series colour.
+
+    Parameters
+    ----------
+    ax : Axes
+        The axes.
+    x : sequence of float
+        The x values.
+    y : sequence of float
+        The true value at each x.
+
+    Returns
+    -------
+    Line2D
+        The line, with gid ``"cleverly-truth"`` and the key entry :data:`TRUTH_LABEL`.
+    """
+    (line,) = ax.plot(
+        list(x),
+        list(y),
+        color=INK,
+        linewidth=1.4,
+        linestyle=(0, (6, 2, 1, 2)),
+        label=TRUTH_LABEL,
+        gid=GID_TRUTH,
+        zorder=2.5,
+    )
+    return line
+
+
+def legend(ax: Axes, *, sources: Sequence[Axes] | None = None, max_columns: int = 3) -> None:
     """The key of interval kinds and reference lines, in one row above ``ax``.
 
     Series are labelled directly, so the key holds only labelled artists, which the plots
@@ -464,22 +758,19 @@ def legend(ax: Axes, *, sources: Sequence[Axes] | None = None) -> None:
         The top axes.
     sources : sequence of Axes or None, default=None
         The axes whose labelled artists the key lists; ``ax`` alone when omitted.
+    max_columns : int, default=3
+        The most columns the key may take.
     """
-    handles: list[Any] = []
-    labels: list[str] = []
-    for axis in sources or [ax]:
-        found, names = axis.get_legend_handles_labels()
-        handles.extend(found)
-        labels.extend(names)
+    handles, labels = _key_entries(sources or [ax])
     if not handles:
         return
-    unique = dict(zip(labels, handles, strict=True))
     ax.legend(
-        list(unique.values()),
-        list(unique.keys()),
+        handles,
+        labels,
+        handler_map=_key_handlers(handles),
         loc="lower left",
         bbox_to_anchor=(0.0, 1.0),
-        ncol=min(len(unique), 3),
+        ncol=_key_columns(ax, labels, max_columns),
         frameon=False,
         fontsize=TICK_SIZE,
         labelcolor=INK,
@@ -488,6 +779,47 @@ def legend(ax: Axes, *, sources: Sequence[Axes] | None = None) -> None:
         handlelength=1.8,
         columnspacing=1.4,
     )
+
+
+#: How much wider an axes is after the layout engine runs than the default subplot it
+#: starts as (0.775 of the figure), which is the width :func:`_key_columns` reads.
+_LAYOUT_GROWTH: Final = 1.1
+
+
+def _key_columns(ax: Axes, labels: Sequence[str], most: int = 3) -> int:
+    """The most key columns, up to ``most``, whose widest row fits over the axes.
+
+    A key wider than its axes runs past the figure. The label widths are measured at the
+    key's font size, in points, and compared with the axes width in points.
+    """
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.textpath import TextToPath
+
+    fig = ax.get_figure(root=True)
+    inches = float(fig.get_size_inches()[0]) if fig is not None else FIGSIZE[0]
+    width = ax.get_position().width * inches * 72.0 * _LAYOUT_GROWTH
+    font = FontProperties(size=TICK_SIZE)
+    measure = TextToPath()
+    text = [measure.get_text_width_height_descent(label, font, ismath=False)[0] for label in labels]
+    handle = TICK_SIZE * (1.8 + 0.8)
+    gap = TICK_SIZE * 1.4
+    for columns in range(min(len(labels), most), 1, -1):
+        widths = [
+            max(text[i] for i in range(c, len(labels), columns)) + handle for c in range(columns)
+        ]
+        if sum(widths) + gap * (columns - 1) <= width:
+            return columns
+    return 1
+
+
+def _key_entries(sources: Sequence[Axes]) -> tuple[list[Any], list[str]]:
+    """The labelled artists of ``sources``, one handle per distinct label, in order."""
+    unique: dict[str, Any] = {}
+    for axis in sources:
+        found, names = axis.get_legend_handles_labels()
+        for handle, name in zip(found, names, strict=True):
+            unique[name] = handle  # first position, last handle, as dict(zip()) gave
+    return list(unique.values()), list(unique.keys())
 
 
 def end_label(ax: Axes, x: float, y: float, text: str, color: str) -> None:
@@ -617,6 +949,11 @@ def ribbon(
     over a discrete-time curve that reports every node (honesty rule 2). Over a finite grid
     use :func:`brackets`.
 
+    A step ribbon holds each node's limits until the next node, so the last node's limits
+    would span no width and draw nothing. They are marked at the last node with
+    :func:`brackets` instead, which claims nothing past the last node; a plot that draws a
+    step ribbon says so in its notes.
+
     Parameters
     ----------
     ax : Axes
@@ -653,6 +990,12 @@ def ribbon(
         zorder=1.0 if band else 1.2,
     )
     collection.set_gid(GID_BAND if band else GID_INTERVAL)
+    if step:
+        last = [list(x)[-1], list(lower)[-1], list(upper)[-1]]
+        if all(finite(value) for value in last):
+            brackets(
+                ax, [last[0]], [last[1]], [last[2]], color=color, label="_nolegend_", band=band
+            )
     return collection
 
 
@@ -704,20 +1047,111 @@ def brackets(
             zorder=2.5,
         )
         line.set_gid(GID_BAND)
+        _BRACKET_GLYPHS[line] = True
         return line
     collection = ax.vlines(
         list(x), list(lower), list(upper), color=color, linewidth=2.0, label=label
     )
     collection.set_gid(GID_INTERVAL)
+    _BRACKET_GLYPHS[collection] = False
     return collection
+
+
+#: The artists :func:`brackets` drew, with whether each is a band. The key draws their glyphs
+#: as the marks look on the axes: matplotlib's default would draw both a band's caps and an
+#: interval's bar as one short horizontal dash. Weak keys let a closed figure's artists go.
+_BRACKET_GLYPHS: weakref.WeakKeyDictionary[Any, bool] = weakref.WeakKeyDictionary()
+#: The ``gid`` of the key glyphs of :func:`brackets`' marks.
+GID_KEY_BAND: Final = "cleverly-key-band"
+GID_KEY_INTERVAL: Final = "cleverly-key-interval"
+
+
+def _key_handlers(handles: Sequence[Any]) -> dict[Any, Any]:
+    """A legend handler map that draws each bracket handle as the mark it stands for.
+
+    A band's key glyph is its two caps, one above the other with nothing between them; an
+    interval's is one vertical bar of the same height. They differ by shape, so the two
+    entries of one colour read apart at a glance. The map lives in this module's own
+    legend calls; a caller who draws the key again with ``ax.legend()`` gets matplotlib's
+    dashes.
+    """
+    found: dict[Any, Any] = {}
+    for handle in handles:
+        band = _BRACKET_GLYPHS.get(handle)
+        if band is not None:
+            found[handle] = _BracketGlyph(band)
+    return found
+
+
+class _BracketGlyph:
+    """The legend handler of a bracket handle: a band's two caps or an interval's bar.
+
+    It keeps to matplotlib's handler protocol (``legend_artist``) without subclassing
+    ``HandlerBase``, so it sits at module level, a figure that holds it pickles, and this
+    module still imports no matplotlib until a plot runs.
+    """
+
+    def __init__(self, band: bool) -> None:
+        self.band = band
+
+    def legend_artist(self, legend: Any, orig_handle: Any, fontsize: float, handlebox: Any) -> Any:
+        """Add the glyph's lines to ``handlebox`` and return the first."""
+        pieces = _glyph_artists(
+            self.band,
+            orig_handle,
+            handlebox.xdescent,
+            handlebox.ydescent,
+            handlebox.width,
+            handlebox.height,
+            handlebox.get_transform(),
+        )
+        for piece in pieces:
+            handlebox.add_artist(piece)
+        return pieces[0]
+
+
+def _glyph_artists(
+    band: bool,
+    orig_handle: Any,
+    xdescent: float,
+    ydescent: float,
+    width: float,
+    height: float,
+    trans: Any,
+) -> list[Any]:
+    """The lines of one bracket glyph, in the handle's colour."""
+    from matplotlib.colors import to_rgba_array
+    from matplotlib.lines import Line2D
+
+    # a band's Line2D gives its colour as given (a name, a hex or a tuple); an interval's
+    # line collection gives one row per segment, and brackets() gives them all one colour
+    color = tuple(to_rgba_array(orig_handle.get_color())[0])
+    middle = width / 2.0 - xdescent
+    low, high = -ydescent - 0.25 * height, -ydescent + 1.25 * height
+    if band:
+        half = 0.3 * width
+        pieces = [
+            Line2D([middle - half, middle + half], [y, y], color=color, linewidth=1.6)
+            for y in (low, high)
+        ]
+        gid = GID_KEY_BAND
+    else:
+        pieces = [Line2D([middle, middle], [low, high], color=color, linewidth=2.0)]
+        gid = GID_KEY_INTERVAL
+    for piece in pieces:
+        piece.set_transform(trans)
+        piece.set_gid(gid)
+    return pieces
 
 
 def log_axis(ax: Axes, which: str) -> None:
     """A log scale whose tick labels are plain numbers (``0.5``, ``1``, ``2``).
 
     Call it after the data are drawn: an axis that spans less than a factor of ten gets
-    evenly spaced round ticks, and a wider one gets ticks at 1, 2 and 5 times each power of
-    ten.
+    evenly spaced round ticks. A wider one gets ticks at 1, 2 and 5 times each power of ten,
+    unless at least four powers of ten fall inside its limits: then it ticks at powers of
+    ten alone, at most seven of them, so a span of many powers keeps a few readable labels.
+    :func:`log_tick_text` writes the labels.
 
     Parameters
     ----------
@@ -730,14 +1164,56 @@ def log_axis(ax: Axes, which: str) -> None:
 
     axis = ax.xaxis if which == "x" else ax.yaxis
     (ax.set_xscale if which == "x" else ax.set_yscale)("log")
-    low, high = ax.get_xlim() if which == "x" else ax.get_ylim()
-    narrow = low > 0 and high > 0 and math.log10(max(high, low) / min(high, low)) < 1.0
-    if narrow:
+    low, high = sorted(ax.get_xlim() if which == "x" else ax.get_ylim())
+    positive = low > 0 and high > 0
+    if positive and math.log10(high / low) < 1.0:
         axis.set_major_locator(MaxNLocator(nbins=6, steps=[1, 2, 2.5, 5, 10]))
-    else:
+    elif positive and _powers_inside(low, high) < _LOG_POWERS_ONLY:
         axis.set_major_locator(LogLocator(base=10.0, subs=(1.0, 2.0, 5.0)))
-    axis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:g}"))
+    else:
+        axis.set_major_locator(LogLocator(base=10.0, subs=(1.0,), numticks=_LOG_MOST_TICKS))
+    axis.set_major_formatter(FuncFormatter(lambda value, _: log_tick_text(value)))
     axis.set_minor_formatter(NullFormatter())
+
+
+#: How many powers of ten inside its limits make a log axis tick at powers of ten alone.
+_LOG_POWERS_ONLY: Final = 4
+#: The most ticks such an axis carries.
+_LOG_MOST_TICKS: Final = 7
+
+
+def _powers_inside(low: float, high: float) -> int:
+    """How many powers of ten lie in ``[low, high]``, both positive."""
+    return max(0, math.floor(math.log10(high) + 1e-9) - math.ceil(math.log10(low) - 1e-9) + 1)
+
+
+def log_tick_text(value: float) -> str:
+    """A log axis tick label: the number from 0.001 to 9999, a power of ten beyond.
+
+    Outside that range every label is written against a power of ten, so one axis keeps
+    one style: ``$10^{-6}$``, ``$2\\times10^{-6}$``.
+
+    Parameters
+    ----------
+    value : float
+        The tick's value.
+
+    Returns
+    -------
+    str
+        ``"0.5"`` or ``"20"`` as written from 0.001 to 9999; a power of ten outside that
+        range as ``"$10^{-6}$"``, and another value as its leading digits times the power,
+        ``"$2\\times10^{-6}$"``.
+    """
+    if value <= 0.0 or not math.isfinite(value):
+        return f"{value:g}"
+    if 1e-3 <= value < 1e4:
+        return f"{value:g}"
+    power = math.floor(math.log10(value) + 1e-9)
+    mantissa = value / 10.0**power
+    if abs(mantissa - 1.0) < 1e-9:
+        return f"$10^{{{power}}}$"
+    return f"${mantissa:.3g}\\times10^{{{power}}}$"
 
 
 # ----------------------------------------------------------------------- interval words
@@ -990,6 +1466,9 @@ __all__ = [
     "FIGSIZE",
     "GID_BAND",
     "GID_INTERVAL",
+    "GID_KEY",
+    "GID_KEY_BAND",
+    "GID_KEY_INTERVAL",
     "GID_MARKER",
     "GID_NOTES",
     "GID_POINT",
@@ -998,6 +1477,8 @@ __all__ = [
     "GID_SERIES_LABEL",
     "GID_SUBTITLE",
     "GID_SWATCH",
+    "GID_TITLE",
+    "GID_TRUTH",
     "GRID",
     "INK",
     "INSTALL_HINT",
@@ -1006,6 +1487,7 @@ __all__ = [
     "PALETTE",
     "REFERENCE",
     "SECONDARY_INK",
+    "TRUTH_LABEL",
     "Interval",
     "band_label",
     "brackets",
@@ -1014,13 +1496,17 @@ __all__ = [
     "estimand_words",
     "estimate_interval",
     "figure_for",
+    "figure_header",
+    "figure_notes",
     "finite",
     "format_values",
     "header",
     "interval_label",
+    "key_labels",
     "legend",
     "level_text",
     "log_axis",
+    "log_tick_text",
     "new_figure",
     "note_text",
     "notes",
@@ -1033,5 +1519,8 @@ __all__ = [
     "style",
     "style_axes",
     "subtitle_text",
+    "title_text",
+    "truth_line",
+    "truth_mark",
     "wrap",
 ]

@@ -51,6 +51,7 @@ categorized API tables.
    cleverly.IncrementalEffect
    cleverly.MSMProjection
    cleverly.msm.MSM
+   cleverly.msm.working_model_means
    cleverly.ConditionalContrast
    cleverly.bases.Modifiers
    cleverly.bases.Constant
@@ -197,6 +198,11 @@ categorized API tables.
    cleverly.sensitivity.EValue
    cleverly.sensitivity.positivity_report
    cleverly.sensitivity.truncation_curve
+   cleverly.sensitivity.covariate_balance
+   cleverly.sensitivity.CovariateBalance
+   cleverly.sensitivity.BalanceRow
+   cleverly.longitudinal.node_weights
+   cleverly.longitudinal.NodeWeights
    cleverly.sensitivity.omitted_variable_bounds
    cleverly.sensitivity.robustness_value
    cleverly.sensitivity.benchmark
@@ -301,7 +307,17 @@ categorized API tables.
    cleverly.datasets.weekly_orders_protocol
    cleverly.datasets.offer_after_no_order
    cleverly.plotting.forest
+   cleverly.plotting.curve
    cleverly.plotting.sensitivity
+   cleverly.plotting.confounding
    cleverly.plotting.overlap
    cleverly.plotting.targeting
+   cleverly.plotting.weights
+   cleverly.plotting.balance
+   cleverly.plotting.zipper
+   cleverly.plotting.calibration
+   cleverly.plotting.learners
+   cleverly.plotting.repeats
+   cleverly.plotting.bootstrap
+   cleverly.plotting.influence
    cleverly.plotting.style

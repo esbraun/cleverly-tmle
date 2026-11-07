@@ -1943,7 +1943,7 @@ whose rows `T49` and `T50` label the projection fits it measured `supported`. Th
 external-score check and a pooled outcome regression on this axis read experimental.
 
 Part (b) has shipped the EP learner of the CATE and the log conditional risk ratio (`method="ep"`, with
-the sieve size fixed, scheduled or chosen by cross-validation with inner refits) and the declared
+the sieve size fixed, scheduled or chosen by cross-validation with inner refits) and the
 registered [`ep-cate`](technical-reference/method-evidence/ep-cate.md),
 [`ep-crr`](technical-reference/method-evidence/ep-crr.md) and
 [`ep-assessment`](technical-reference/method-evidence/ep-assessment.md) studies, whose hte3
@@ -1953,9 +1953,21 @@ arms, an estimated mechanism and no weights, clusters or missing outcomes reads 
 declared final learner, a pooled outcome regression and every unmeasured composition read
 experimental.
 
-| part | what ships |
-| --- | --- |
-| (c) | the EP curve as the declared rule learner of the shipped [learned-rule value](technical-reference/point-treatment-tmle.md#learned-rules), whose condition C3 then reads on the EP curve |
+Part (c) has shipped the EP curve as the rule learner of the learned-rule value
+(`LearnedRule(loss="ep", modifiers=...)`,
+[the EP rule learner](technical-reference/point-treatment-tmle.md#learned-rules)) and the
+registered [`learned-rule-ep` study](technical-reference/method-evidence/learned-rule-ep.md).
+Its rows `T51` and `T51.optimal` label `supported` the default sieve with least squares on
+unweighted rows with pooled targeting and one split, and the value of the optimal rule with the
+treatment mechanism supplied. The interval is calibrated at n = 16,000, after a pilot at 4,000
+read an SE ratio of 0.970, and it under-covers at the exceptional law (coverage 0.901 at
+n = 2,000). A declared sieve or final learner, an estimated mechanism for the optimal value and
+every unmeasured composition read experimental.
+
+What stays here is the compositions the shipped refusals name with this item: missing
+treatments, an intermediate, a continuous or vector treatment, `strata=`, `repeats` above 1 and
+the full-refit bootstrap for `ConditionalContrast`; sensitivity analyses and refutations of a
+curve; a declared final learner on the log-ratio scale; and scalar aggregates of an EP curve.
 
 The sieve can be any basis the caller declares. The package ships no HAL learner, and none is
 planned.
@@ -2019,11 +2031,15 @@ The row ships in parts, one pull request each:
 | part | plots | state |
 | --- | --- | --- |
 | 1 | the style, palette and honesty helpers; estimates with intervals (`forest`); the estimate across a truncation bound, the marginal sensitivity parameter and the missingness tilt (`sensitivity`); propensity overlap (`overlap`) | shipped |
-| 2 | survival, risk and mean curves over time with their bands; restricted mean survival over the horizon; the working-model line over treatment levels; the effect over a policy parameter; the conditional effect over a modifier | open |
+| 2 | survival, risk and mean curves over time with their bands; restricted mean survival over the horizon; the working-model line over treatment levels; the effect over a policy parameter; the conditional effect over a modifier | shipped |
 | 3 | calibration of predicted effects and of nuisance predictions; learner risks and weights; per-repeat estimates and bootstrap draws; concentration of the influence curve; weights over time; covariate balance; sorted simulation intervals | open |
 | 4 | the omitted-variable contour and the simulated-confounding map | open |
 | 5 | targeting curves for a priority score: the TOC and cumulative gain over the treated fraction, their areas (AUTOC and the Qini coefficient), and the paired comparison of two scores, with a registered study | implemented; its study is declared and has not run, so every curve reads experimental |
 | 6 | a "Plot results" tutorial notebook, then the plots in the notebooks whose questions they answer | open |
+
+Two views stay open after these parts, and the plots refuse them by name: the truncation curve
+of a longitudinal fit, whose limits bound a cumulative probability, and the overlap of a
+longitudinal fit's treatment probabilities, one per time point.
 
 Part 5 is the only one with new statistics. The area estimates with half-sample bootstrap
 standard errors are covered by Yadlowsky, Fleming, Shah, Brunskill and Wager (arXiv:2111.07966,

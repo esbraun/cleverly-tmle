@@ -453,6 +453,57 @@ def test_marginal_plot_draws_the_range_and_its_interval(binary_fit: Any) -> None
     assert "descriptive" in _core.note_text(fig)
 
 
+def _odds_bounds(rows: list[tuple[float, float, float, float, float]]) -> Any:
+    """Bounds of a difference over ``(gamma, lower, upper, lower_limit, upper_limit)`` rows."""
+    from cleverly.sensitivity.marginal import MarginalSensitivityBounds, MarginalSensitivityRow
+
+    return MarginalSensitivityBounds(
+        rows=tuple(
+            MarginalSensitivityRow(g, "ate", lo, hi, 0.01, 0.01, lo_lim, hi_lim)
+            for g, lo, hi, lo_lim, hi_lim in rows
+        ),
+        estimand="ate",
+        level=0.95,
+        null=0.0,
+        outcome_kind="binary",
+    )
+
+
+def test_marginal_subtitle_names_where_the_range_and_where_its_interval_include_zero() -> None:
+    """The point-treatment page's case: the range never includes zero, the interval does."""
+    bounds = _odds_bounds(
+        [
+            (1.0, 0.10, 0.10, 0.06, 0.14),
+            (2.0, 0.06, 0.14, 0.03, 0.17),
+            (3.0, 0.04, 0.16, 0.01, 0.19),
+            (4.0, 0.03, 0.17, -0.01, 0.20),
+        ]
+    )
+    assert bounds.breakdown is None
+    assert bounds.limit_breakdown == 4.0
+    subtitle = _core.subtitle_text(bounds.plot().axes[0]) or ""
+    flat = " ".join(subtitle.split())
+    assert "the range excludes no effect at every gamma up to 4" in flat
+    assert "its 95% interval first includes it at gamma = 4" in flat
+    assert "no gamma on this grid reaches no effect" not in flat
+    # Control: when the range itself includes zero, both breakdowns are named with their gamma.
+    reached = _odds_bounds(
+        [
+            (1.0, 0.10, 0.10, 0.06, 0.14),
+            (2.0, 0.02, 0.18, -0.01, 0.21),
+            (3.0, -0.02, 0.22, -0.05, 0.25),
+        ]
+    )
+    flat = " ".join((_core.subtitle_text(reached.plot().axes[0]) or "").split())
+    assert (
+        "the range first includes no effect at gamma = 3, and its 95% interval at gamma = 2" in flat
+    )
+    # Control: neither reaches zero.
+    never = _odds_bounds([(1.0, 0.10, 0.10, 0.06, 0.14), (2.0, 0.06, 0.14, 0.03, 0.17)])
+    flat = " ".join((_core.subtitle_text(never.plot().axes[0]) or "").split())
+    assert "neither the range nor its 95% interval includes no effect at any gamma up to 2" in flat
+
+
 def test_marginal_plot_control_fails_without_the_warnings(
     binary_fit: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -713,3 +764,192 @@ def test_notes_sit_inside_the_figure_after_drawing(binary_fit: Any) -> None:
             assert extent.x0 >= fig.bbox.x0 - 1
             assert extent.x1 <= fig.bbox.x1 + 1
             assert extent.y0 >= fig.bbox.y0 - 1
+
+
+def _nearest_row_reason(qualifiers: str) -> Support:
+    """An experimental support whose nearest validated row differs on ``qualifiers``.
+
+    The text is the one :func:`cleverly._support.support_for` writes.
+    """
+    return Support(
+        "experimental",
+        "No registered study covers this configuration. Nearest row: G46.tmle.categorical_k3 "
+        f"(long-horizon-categorical-ltmle), differing on qualifiers ({qualifiers}).",
+    )
+
+
+def test_forest_note_names_known_mechanisms_in_words_not_column_ids(binary_fit: Any) -> None:
+    """A longitudinal fit's qualifiers are column names; ids such as A1 must not leave gaps."""
+    support = _nearest_row_reason("A1 and A2 and A3 and C1 and C2 and offer@1 and offer@2")
+    note = _core.note_text(forest(dataclasses.replace(binary_fit["ate"], support=support)))
+    assert "and and" not in note
+    assert "in and" not in note
+    assert "offer@1" not in note
+    assert "differs in which treatment and censoring mechanisms are declared known." in note
+    # Control: the qualifiers of a point-treatment fit keep their own words.
+    support = _nearest_row_reason("known_mechanism and strata")
+    note = _core.note_text(forest(dataclasses.replace(binary_fit["ate"], support=support)))
+    assert "differs in a known treatment mechanism and baseline strata." in note
+
+
+def test_forest_subtitle_keeps_a_column_name_as_written() -> None:
+    """The summary's question can open with the outcome column, which is not capitalised."""
+    from cleverly.datasets import make_longitudinal
+    from cleverly.longitudinal import LTMLE
+
+    frame, _ = make_longitudinal(n=200, seed=0)
+    frame = frame.rename(columns={"Y": "full_price"})
+    fit = LTMLE(
+        {"always": 1, "never": 0},
+        n_folds=1,
+        random_state=0,
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=500),
+        censoring_learner=LogisticRegression(max_iter=500),
+    ).fit(
+        frame,
+        outcome="full_price",
+        treatment=["A1", "A2"],
+        baseline=["W1", "W2"],
+        time_varying=[[], ["L2"]],
+        censoring=["C1", "C2"],
+    )
+    assert fit.summary().facts["Question"].startswith("full_price ")
+    assert _core.subtitle_text(forest(fit).axes[0]) == "full_price under each plan"
+    # Control: a question that opens with an English word still starts with a capital.
+    from tests.unit._capability_sweep_support import fit_multi_arm
+
+    multi = fit_multi_arm()
+    question = multi.summary().facts["Question"]
+    assert question[:1].islower()
+    subtitle = _core.subtitle_text(forest(multi).axes[0]) or ""
+    assert subtitle[:1].isupper()
+
+
+# ----------------------------------------------------------------------- truth=
+
+
+def _truth_marks(ax: Any) -> list[tuple[float, float]]:
+    return [tuple(line.get_xydata()[0]) for line in _lines(ax, _core.GID_TRUTH)]
+
+
+def test_forest_truth_draws_a_cross_on_each_row_and_names_it_in_the_key(binary_fit: Any) -> None:
+    names = list(binary_fit.estimates)
+    truth = {name: 0.1 * (i + 1) for i, name in enumerate(names)}
+    fig = forest(binary_fit, truth=truth)
+    marks = [mark for ax in fig.axes for mark in _truth_marks(ax)]
+    rows = {
+        text.get_text(): position
+        for ax in fig.axes
+        for text, position in zip(ax.get_yticklabels(), ax.get_yticks(), strict=True)
+    }
+    assert sorted(marks) == sorted((truth[name], rows[name]) for name in names)
+    assert _core.TRUTH_LABEL in _core.key_labels(fig)
+    # Its own style: an ink cross, not the grey dashed no-effect line and not a palette colour.
+    (mark, *_) = [line for ax in fig.axes for line in _lines(ax, _core.GID_TRUTH)]
+    (null, *_) = [line for ax in fig.axes for line in _lines(ax, _core.GID_REFERENCE)]
+    assert mark.get_marker() == "x" and mark.get_linestyle() == "None"
+    assert to_hex(mark.get_color()) == _core.INK != to_hex(null.get_color())
+    assert to_hex(mark.get_color()) not in PALETTE
+    _style_checks(fig)
+
+
+def test_forest_key_lists_the_true_value_only_when_truth_is_given(binary_fit: Any) -> None:
+    """Control: the entry and the crosses come from truth=, not from every forest."""
+    fig = forest(binary_fit)
+    assert _core.TRUTH_LABEL not in _core.key_labels(fig)
+    assert not any(_lines(ax, _core.GID_TRUTH) for ax in fig.axes)
+    fig = forest(binary_fit["ate"], truth=0.2)
+    assert _core.TRUTH_LABEL in _core.key_labels(fig)
+    assert _truth_marks(fig.axes[0]) == [(0.2, 0.0)]
+
+
+def test_forest_scalar_truth_needs_one_estimand_and_a_mapping_its_names(binary_fit: Any) -> None:
+    from cleverly._refusal import RefusalReason
+    from cleverly.exceptions import CapabilityError
+
+    with pytest.raises(CapabilityError, match="one number") as refused:
+        forest(binary_fit, truth=0.2)
+    assert refused.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+    with pytest.raises(CapabilityError, match="no row of this plot"):
+        forest(binary_fit, truth={"atee": 0.2})
+    with pytest.raises(CapabilityError, match="not a finite number"):
+        forest(binary_fit["ate"], truth=float("nan"))
+    # Two fits of one estimand share the scalar; a mapping leaves unnamed rows bare.
+    fig = forest(binary_fit["ate"], binary_fit["ate"], labels=["a", "b"], truth=0.2)
+    assert len(_truth_marks(fig.axes[0])) == 2
+    fig = forest(binary_fit, truth={"ate": 0.2})
+    assert sum(len(_truth_marks(ax)) for ax in fig.axes) == 1
+
+
+@pytest.mark.parametrize(
+    ("treated", "untreated"), [("offered", "not offered"), ("an offer", "no offer")]
+)
+def test_overlap_arm_labels_stand_alone(binary_fit: Any, treated: str, untreated: str) -> None:
+    """A plain label ("offered") and a noun phrase ("an offer") both read as written."""
+    fig = overlap(binary_fit, labels={1: treated, 0: untreated})
+    ax = fig.axes[0]
+    groups = [t.get_text() for t in ax.texts if t.get_gid() == _core.GID_SERIES_LABEL]
+    assert groups == [treated, untreated]
+    assert ax.get_xlabel() == f"Predicted probability of the arm: {treated}"
+    assert not any("Units with" in text for text in [*groups, ax.get_xlabel()])
+    # Control: without labels the arm is named by its column and level.
+    plain = overlap(binary_fit).axes[0]
+    groups = [t.get_text() for t in plain.texts if t.get_gid() == _core.GID_SERIES_LABEL]
+    assert groups == ["Units with A = 1", "Units with A = 0"]
+    assert plain.get_xlabel() == "Predicted probability of A = 1"
+
+
+def _key_column_count(fig: Any, ax: Any) -> int:
+    """How many columns the drawn key has, read from where its texts sit."""
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    key = ax.get_legend()
+    return len({round(text.get_window_extent(renderer).x0) for text in key.get_texts()})
+
+
+def test_the_key_takes_as_many_columns_as_fit_over_its_axes() -> None:
+    from cleverly.plotting import curve
+    from tests.unit.test_plotting_curves import full
+
+    fig = curve(full())
+    top = fig.axes[0]
+    assert len(_key(top)) == 3
+    assert _key_column_count(fig, top) == 3
+    # Control: the same labels over a narrow axes drop to fewer columns.
+    _, ax = plt.subplots(figsize=(1.5, 2.0))
+    labels = _key(top)
+    assert _core._key_columns(ax, labels) == 1
+    _, ax = plt.subplots(figsize=(12.0, 2.0))
+    assert _core._key_columns(ax, labels) == 3
+
+
+def test_the_forest_key_keeps_clear_of_its_number_column(binary_fit: Any) -> None:
+    fig = forest(binary_fit["ate"], truth=0.2)
+    ax = fig.axes[0]
+    assert len(_key(ax)) == 3
+    assert _key_column_count(fig, ax) == 2
+
+
+def test_forest_truth_refuses_an_empty_mapping_and_a_boolean(binary_fit: Any) -> None:
+    from cleverly.exceptions import CapabilityError
+
+    with pytest.raises(CapabilityError, match="empty mapping"):
+        forest(binary_fit, truth={})
+    with pytest.raises(CapabilityError, match="boolean"):
+        forest(binary_fit["ate"], truth=True)
+    with pytest.raises(CapabilityError, match="boolean"):
+        forest(binary_fit, truth={"ate": np.bool_(False)})
+    # Control: the number 1 is a true value.
+    assert _truth_marks(forest(binary_fit["ate"], truth=1).axes[0]) == [(1.0, 0.0)]
+
+
+def test_forest_names_the_outcome_in_the_words_given(binary_fit: Any) -> None:
+    fig = forest(binary_fit, outcome_label="orders in month 3", units="orders")
+    difference, ratio, level = fig.axes
+    assert difference.get_xlabel() == "Difference in mean orders in month 3 (orders)"
+    assert level.get_xlabel() == "Mean orders in month 3 (orders)"
+    assert ratio.get_xlabel() == "Ratio (log scale)"
+    # the control: without the words the axis names the outcome column
+    plain = forest(binary_fit).axes[0].get_xlabel()
+    assert plain == f"Difference in mean {binary_fit.data.outcome_name}"
