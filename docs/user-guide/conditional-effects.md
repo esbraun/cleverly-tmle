@@ -215,6 +215,45 @@ treatments. `score_kind="external"` states that, and no code can check it. A col
 matches a curve fitted from this effect, or that carries the `effect_curve:` prefix of
 `curve.to_frame()`, is refused.
 
+## Check how well a score ranks who to treat first
+
+When a score decides who is treated first, the useful question is how much more the treated
+rows gain than a random choice of the same number would. `targeting_curve` answers it from the
+study's outcomes, for a score column fitted on other data:
+
+```python
+gain = effect.targeting_curve(
+    "risk_score",
+    computed_from=["age", "W2"],
+    score_kind="external",
+    outcome_learner=LogisticRegression(max_iter=1000),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    random_state=0,
+)
+gain.summary()
+gain.plot()
+```
+
+The rows are sorted by the score, highest first. For each treated fraction $q$ (10%, 20%, up to
+100%), the TOC column is the average effect among the top $q$ of rows minus the average effect
+over everyone. A TOC above 0 means the score puts rows with larger effects first. AUTOC
+averages the TOC over every fraction, and the Qini coefficient does the same with more weight
+on large fractions. Each carries an interval, and the TOC column also carries a band that holds
+at all the listed fractions at once. `gain.plot(view="gain")` draws the cumulative effect
+against the straight line of treating at random.
+
+A second column passed as `compare=`, with its own `compare_computed_from=`, is scored on the
+same rows, and `gain.summary(detail="full")` shows the difference between the two scores
+with its interval.
+Every quantity is a difference of outcome means, whatever the scale of the score itself.
+
+The intervals hold only for a score that was not fitted on this study's outcomes or
+treatments, as for `assess_score`. To check a curve fitted on this study, use
+`curve.diagnostics.targeting_curve(split=0.5)`. It refits the curve on half of the rows and
+scores the other half, so the result describes that refit, not the curve fitted on every row.
+A fraction with fewer than 50 rows in its top group reports its point without an interval.
+Every result reads experimental until the validation study of these curves has run.
+
 ## What is not supported yet
 
 An interval for the EP curve, a learner of your own as its last step on the log-ratio scale,

@@ -533,6 +533,19 @@ computation, and each row names the instruments that check it.
 | C-TMLE logistic plug-in diagnostic: `logistic_plugin` | a selector `CTMLE` fit | `tests/unit/test_ctmle_logistic_plugin.py`: a numpy transcription of `calc_varIC`, and R `ctmle`'s own `calc_varIC` on one fit's inputs in `tests/canonical/ctmle_logistic_plugin` | the term at a constant-outcome fit against the complex-step derivative; a flipped sign, a dropped inverse and a dropped intercept | a coverage claim. The status stays `working_mechanism_plugin` |
 | `LTMLE` full-refit bootstrap: `n_bootstrap=` | a full refit of the estimator per resample | `tests/unit/test_ltmle_bootstrap.py`: the subset round trip by field name, a replicate as a plain fit on its resample, a committed `canonical-ltmle` row refitted at `n_bootstrap=0` and 2, the per-kind licence, and the replicate draws of `ratio`, `rmst` and `contrast`; the bootstrap cells of the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md). The BCa rows and the sup-t band of the three [long-horizon studies](method-evidence/index.md) cover three to five decisions | a refit-count witness that fails when a replicate reuses the fit's mechanism; a shrunken percentile interval that the study's control must fail | a data-adaptive nuisance, and any law or size the study does not run |
 
+## Targeting curves of a priority score
+
+`targeting_curve` estimates the TOC, the cumulative gain, the AUTOC and the Qini of a score
+([targeting curves](conditional-effects.md#targeting-curves)). None is a `Target`, so none
+enters the registry-gated table.
+
+| instrument | what it checks | what it cannot see |
+| --- | --- | --- |
+| `tests/unit/test_targeting_curves.py`, exact law | on a 400-row frame whose empirical law is the law, with saturated nuisances, every quantity equals its hand-computed truth; ascending ranks, the `S >= cut` tie rule, $H_k$ for $H_{k-1}$ and an uncentred Qini weight each fail it; the weights equal the double sums of (2.9) and the average over all 720 orderings of a six-row block | the fixed-$q$ limit theory, which an exact law cannot test |
+| `tests/unit/test_targeting_curves.py`, targeting | each substitution estimate equals its targeted-score form on a misspecified law, where the one-step differs; dropping the AUTOC column or using an untruncated $g$ fails it; skipping the span reduction raises `singular_hessian`; a binary top-fraction mean stays in $[-1, 1]$ where the one-step leaves it; integer weights equal a duplicated frame | the solver tolerance in production, which bounds the identity gap |
+| `tests/unit/test_targeting_curves.py`, inference | all 70 half-samples of eight rows, whole clusters, seeded draws, the fast draw path against the general one; a fixed full-sample cut changes the SE; the band's critical value equals `studentized_critical_value`; unpaired draws change a difference's SE | coverage |
+| the declared `targeting-curves` study (`tests/studies/targeting_curves.py`) | calibration of 34 rows over eight cells, the band's joint coverage, size and power, and seven controls | not yet run: every curve reads `experimental` until it registers |
+
 ## A simulated law is an instrument too, and it can be wrong the same way
 
 A coverage study is only evidence if the number it calls the truth is the number an adjusted

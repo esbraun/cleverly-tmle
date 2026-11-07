@@ -229,6 +229,91 @@ projection onto it has a remainder the interval ignores. `score_kind="external"`
 declaration the interval rests on. A column equal to an in-sample curve of the same identified
 effect, or named with the `effect_curve:` prefix, is refused, and that detection is best effort.
 
+## Targeting curves
+
+`IdentifiedEffect.targeting_curve(column, computed_from=..., score_kind="external")` asks how
+much treating by a priority score $S = s(W)$ first gains over treating at random. With $u$ the
+rank position by decreasing $S$ (ties broken by an independent uniform, so $u \sim U(0, 1)$),
+it estimates, on the difference scale whatever the scale of $S$:
+
+| quantity | definition | reference |
+| --- | --- | --- |
+| $\mathrm{TOC}(q)$ | $E[\tau \mid u \le q] - \mathrm{ATE}$ at each grid point; $\mathrm{TOC}(1) = 0$ | 0 |
+| $G(q)$ | $q\,E[\tau \mid u \le q]$, so $G(q) - q\,\mathrm{ATE} = q\,\mathrm{TOC}(q)$ | $q\,\mathrm{ATE}$ |
+| AUTOC | $\int_0^1 \mathrm{TOC}(q)\,dq$ | 0 |
+| Qini | $\int_0^1 q\,\mathrm{TOC}(q)\,dq$ | 0 |
+| group effect | $(G(q_k) - G(q_{k-1})) / (q_k - q_{k-1})$ for group edges on the grid | the ATE |
+
+These are Yadlowsky et al. (2025), Definition 2 and Examples 2 and 3 (arXiv:2111.07966v2). In
+the $n$ evaluation rows each is a weighted mean $n^{-1}\sum_i c(i)\Gamma_i$ of doubly robust
+scores: $m_q(i)/q - 1$ for the TOC, with $m_q$ the row's fractional membership of the top
+fraction ($\sum_i m_q(i) = nq$ exactly); $H_n - H_{k-1} - 1$ for the AUTOC and
+$(n + 1 - 2k)/(2n)$ for the Qini at rank $k$, which `tests/unit/test_targeting_curves.py`
+checks against the double sums of (2.9). A tied block takes the mean of its weights, which is
+the average over all orderings within it (the 720 orderings of a six-row example are checked).
+
+**The TMLE.** The weight columns of every score, with the ATE column, are reduced to an
+orthonormal basis of their span by a thin SVD (singular values above $10^{-10}$ times the
+largest are kept), so a score with few distinct values does not make the Newton Hessian
+singular. One pooled fluctuation of the ATE fit's cross-fitted outcome regression runs along
+that basis, with clever covariate $b(W)(1\{A = t\} - 1\{A = r\})/(g\Pi)$ and the fit's own
+truncated $g$. Every reported value is the substitution estimate
+$n^{-1}\sum_i c(i)(\bar Q^*_t - \bar Q^*_r)(W_i)$, and solving the score equations makes it equal
+$n^{-1}\sum_i c(i)\Gamma^*_i$, with $\Gamma^*$ the AIPW score built from $\bar Q^*$; the unit test
+checks the equality to $10^{-10}$ under a tight targeting tolerance, and the shipped stopping
+rule bounds the gap by its own tolerance. On a binary outcome the substitution estimate keeps
+the top-fraction mean in $[-1, 1]$, which the one-step score form can leave. `TargetingCurve.ate`
+is the fluctuation's own ATE column, so $\mathrm{TOC}(q)$ is the top-fraction mean minus it
+exactly.
+
+**Inference.** The standard error is the SD of $B$ half-sample draws (2,000 by default) of
+$\lfloor n/2 \rfloor$ rows, or whole clusters, without replacement and with no rescaling; the
+interval is $\hat\theta \pm z_{1-\alpha/2}\,\sigma^*$ (Lemma 4, Corollary 5). Each draw keeps
+$\Gamma^*$ fixed and recomputes the ranks, cuts, tie blocks and weights on its rows; the
+nuisances are not refit. The areas are the published results (Theorem 3, Corollary 7 for the
+Qini, Proposition 8 for the AUTOC). The rest rests on four natural extensions
+([verdicts](natural-extension-verdicts.md)):
+
+- D1, the TOC at a fixed $q$: asymptotically linear with influence function
+  $1\{S \ge s_q\}\Gamma/q - E[\tau \mid S \ge s_q] - \mu(s_q)(1\{S \ge s_q\} - q)/q - (\Gamma - \mathrm{ATE})$,
+  $\mu(s) = E[\tau \mid S = s]$, when $S$ has no atom at its $1 - q$ quantile $s_q$, that
+  quantile is unique, $\mu$ is continuous at $s_q$ and Theorem 3's Assumption C holds. Only
+  the first condition can be checked in the sample (the `tied_cut` column), approximately.
+- D2, the sup-t band over the grid points below 1: simultaneous coverage at the grid points,
+  not over continuous $q$, with the critical value of `studentized_critical_value`. It is
+  withheld when any point's SE is 0 or withheld.
+- D3, ties: a cut strictly inside an atom is the delta method on five sample means, and a cut
+  at an atom's edge has a non-normal limit the data cannot detect, so a tied cut reads
+  `experimental`. Areas on a score with finitely many values are smooth functions of block
+  masses and sums. Areas on a continuous score with atoms (a block holding at least 1% of the
+  rows, and more than $n/10$ distinct values) rest on the source's unproved statement and read `experimental`.
+- D4, bootstrapping $\Gamma^*$: the targeting update is a fixed-dimension nuisance. With an
+  inconsistent $\bar Q$ this holds only under a known mechanism (`treatment_probabilities=`),
+  where the TMLE and the one-step have different influence functions and the draws carry the
+  TMLE's.
+
+The remainder is not of the linear-remainder form: $S$ is fixed given the evaluation rows, and
+the cut's first-order term is part of $\psi$ and is redrawn with each draw.
+
+**Routes.** Route 1 takes a study column fitted on other rows, with the three checks of
+`assess_score` on it and on a `compare=` column. Route 2,
+`curve.diagnostics.targeting_curve(split=0.5)`, refits the producing estimator on a share of
+the units, scores the other rows with that refit (kept as `TargetingCurve.score_curve`) and
+fits the ATE on them only; the curve is that of the refit, not of the curve fitted on all rows.
+A paired `compare=` column shares the draws, and the SE of a difference is the SD of the
+per-draw differences.
+
+**Guards.** A grid point with fewer than 50 rows in its top fraction (`TARGETING_MIN_TOP_ROWS`,
+a declared guard with no source) keeps its point and withholds its interval and the band; 50 to
+99 rows read `experimental`. Weights, clusters, missing outcomes and a multi-arm pair are
+computed and read `experimental`; fewer than 40 clusters withhold the intervals.
+
+**Status.** The `targeting-curves` study is declared in `tests/studies/targeting_curves.py`
+and has not run, so every curve reads `experimental` with that reason until it registers. The
+study's cells are the measured configurations: a continuous and a binary outcome, an atomic
+score, a known mechanism with a misspecified outcome regression, a declared split, a paired
+second score, and null laws for the band's size.
+
 ## Weights, clusters and missing outcomes
 
 Weights define the weighted law, as for every point target. With `PointTreatment(cluster=...)` the cluster is the unit:
@@ -284,6 +369,10 @@ each reading against its formula.
 | `final_learner=` on the log-ratio scale | the weighted logistic final stage with a declared learner is not built | `implementation_gap`, roadmap P1 |
 | `EPMethod` with `cross_fit=False`, `repeats` above 1, `cv_evaluation=True`, a non-default targeting scheme, or a fluctuation setting | the debiasing pools every row with its own out-of-fold nuisances and fits no fluctuation | `invalid_declaration` |
 | `assess_score` without `score_kind="external"`, with `computed_from` outside the adjustment set, or on an in-sample curve | the interval needs a fixed function of adjustment columns | `invalid_declaration` |
+| `targeting_curve` under the same three conditions, for the score or the `compare=` column | as `assess_score` | `invalid_declaration` |
+| `curve.diagnostics.targeting_curve(split=...)` with a split that is not a fraction in $(0, 1)$ | a fold average of fold-specific curves is a property of the learning algorithm; its only source (Imai and Li 2023, Section 4) covers difference-in-means scores in a randomized experiment | `invalid_declaration` |
+| a targeting curve with `repeats` above 1, `target_weights=True` or a scaled-variance stopping rule | a median over splits of a whole curve has no reviewed joint law; every row loads several weight columns, which the weighted submodel cannot carry | `implementation_gap`, roadmap X92 |
+| `compare=` on route 2 of an engine fit | the column is read from the producing study, which an engine fit does not keep | `invalid_declaration` |
 
 Each one is raised before any learner is fitted, and `tests/unit/test_conditional_contrast.py`
 pins its text.

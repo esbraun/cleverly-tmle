@@ -2022,7 +2022,7 @@ The row ships in parts, one pull request each:
 | 2 | survival, risk and mean curves over time with their bands; restricted mean survival over the horizon; the working-model line over treatment levels; the effect over a policy parameter; the conditional effect over a modifier | open |
 | 3 | calibration of predicted effects and of nuisance predictions; learner risks and weights; per-repeat estimates and bootstrap draws; concentration of the influence curve; weights over time; covariate balance; sorted simulation intervals | open |
 | 4 | the omitted-variable contour and the simulated-confounding map | open |
-| 5 | targeting curves for a priority score: the TOC and cumulative gain over the treated fraction, their areas (AUTOC and the Qini coefficient), and the paired comparison of two scores, with a registered study | open; a new estimated quantity, gated on its own plan and study |
+| 5 | targeting curves for a priority score: the TOC and cumulative gain over the treated fraction, their areas (AUTOC and the Qini coefficient), and the paired comparison of two scores, with a registered study | implemented; its study is declared and has not run, so every curve reads experimental |
 | 6 | a "Plot results" tutorial notebook, then the plots in the notebooks whose questions they answer | open |
 
 Part 5 is the only one with new statistics. The area estimates with half-sample bootstrap
