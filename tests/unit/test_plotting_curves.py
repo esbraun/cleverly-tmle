@@ -2009,3 +2009,35 @@ class TestTheKeyGlyphs:
         assert ribbons(top, _core.GID_BAND)
         assert not self._glyphs(top, _core.GID_KEY_BAND)
         assert not self._glyphs(top, _core.GID_KEY_INTERVAL)
+
+    def test_a_figure_with_bracket_glyphs_pickles(self) -> None:
+        import pickle
+
+        fig = curve(subset())
+        again = pickle.loads(pickle.dumps(fig))
+        assert self._glyphs(again.axes[0], _core.GID_KEY_BAND)
+        plt.close(again)
+
+    def test_a_tuple_colour_is_read_for_the_glyph(self) -> None:
+        fig, ax = plt.subplots()
+        _core.brackets(ax, [1.0], [0.1], [0.9], color=(0.1, 0.2, 0.3), label="band", band=True)
+        _core.brackets(ax, [1.0], [0.3], [0.7], color=(0.1, 0.2, 0.3), label="bar")
+        _core.legend(ax)
+        fig.canvas.draw()
+        (cap, _) = self._glyphs(ax, _core.GID_KEY_BAND)
+        (bar,) = self._glyphs(ax, _core.GID_KEY_INTERVAL)
+        for glyph in (cap, bar):
+            assert matplotlib.colors.to_hex(glyph.get_color()) == "#1a334c"
+
+    def test_the_figure_level_key_draws_the_glyphs_too(self) -> None:
+        # figure_header puts the key on the figure, through fig.legend
+        fig, (left, right) = plt.subplots(1, 2)
+        _core.brackets(left, [1.0], [0.1], [0.9], color=_core.PALETTE[0], label="band", band=True)
+        _core.brackets(right, [1.0], [0.3], [0.7], color=_core.PALETTE[0], label="bar")
+        _core.figure_header(fig, "Title", key_sources=[left, right])
+        (key,) = fig.legends
+        assert key.get_gid() == _core.GID_KEY
+        from matplotlib.lines import Line2D
+
+        gids = [line.get_gid() for line in key.findobj(Line2D)]
+        assert gids.count(_core.GID_KEY_BAND) == 2 and gids.count(_core.GID_KEY_INTERVAL) == 1

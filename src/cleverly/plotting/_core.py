@@ -1071,66 +1071,87 @@ def _key_handlers(handles: Sequence[Any]) -> dict[Any, Any]:
 
     A band's key glyph is its two caps, one above the other with nothing between them; an
     interval's is one vertical bar of the same height. They differ by shape, so the two
-    entries of one colour read apart at a glance.
+    entries of one colour read apart at a glance. The map lives in this module's own
+    legend calls; a caller who draws the key again with ``ax.legend()`` gets matplotlib's
+    dashes.
     """
-    from matplotlib.legend_handler import HandlerBase
-    from matplotlib.lines import Line2D
-
-    class _Glyph(HandlerBase):
-        def __init__(self, band: bool) -> None:
-            super().__init__()
-            self.band = band
-
-        def create_artists(
-            self,
-            legend: Any,
-            orig_handle: Any,
-            xdescent: float,
-            ydescent: float,
-            width: float,
-            height: float,
-            fontsize: float,
-            trans: Any,
-        ) -> list[Any]:
-            from matplotlib.colors import to_hex
-
-            color = orig_handle.get_color()
-            if not isinstance(color, str):
-                # a line collection holds one colour per segment; brackets() gives one
-                color = to_hex(next(iter(color)), keep_alpha=True)
-            middle = width / 2.0 - xdescent
-            low, high = -ydescent - 0.25 * height, -ydescent + 1.25 * height
-            if self.band:
-                half = 0.3 * width
-                pieces = [
-                    Line2D([middle - half, middle + half], [y, y], color=color, linewidth=1.6)
-                    for y in (low, high)
-                ]
-                gid = GID_KEY_BAND
-            else:
-                pieces = [Line2D([middle, middle], [low, high], color=color, linewidth=2.0)]
-                gid = GID_KEY_INTERVAL
-            for piece in pieces:
-                piece.set_transform(trans)
-                piece.set_gid(gid)
-            return pieces
-
     found: dict[Any, Any] = {}
     for handle in handles:
         band = _BRACKET_GLYPHS.get(handle)
         if band is not None:
-            found[handle] = _Glyph(band)
+            found[handle] = _BracketGlyph(band)
     return found
+
+
+class _BracketGlyph:
+    """The legend handler of a bracket handle: a band's two caps or an interval's bar.
+
+    It keeps to matplotlib's handler protocol (``legend_artist``) without subclassing
+    ``HandlerBase``, so it sits at module level, a figure that holds it pickles, and this
+    module still imports no matplotlib until a plot runs.
+    """
+
+    def __init__(self, band: bool) -> None:
+        self.band = band
+
+    def legend_artist(self, legend: Any, orig_handle: Any, fontsize: float, handlebox: Any) -> Any:
+        """Add the glyph's lines to ``handlebox`` and return the first."""
+        pieces = _glyph_artists(
+            self.band,
+            orig_handle,
+            handlebox.xdescent,
+            handlebox.ydescent,
+            handlebox.width,
+            handlebox.height,
+            handlebox.get_transform(),
+        )
+        for piece in pieces:
+            handlebox.add_artist(piece)
+        return pieces[0]
+
+
+def _glyph_artists(
+    band: bool,
+    orig_handle: Any,
+    xdescent: float,
+    ydescent: float,
+    width: float,
+    height: float,
+    trans: Any,
+) -> list[Any]:
+    """The lines of one bracket glyph, in the handle's colour."""
+    from matplotlib.colors import to_rgba_array
+    from matplotlib.lines import Line2D
+
+    # a band's Line2D gives its colour as given (a name, a hex or a tuple); an interval's
+    # line collection gives one row per segment, and brackets() gives them all one colour
+    color = tuple(to_rgba_array(orig_handle.get_color())[0])
+    middle = width / 2.0 - xdescent
+    low, high = -ydescent - 0.25 * height, -ydescent + 1.25 * height
+    if band:
+        half = 0.3 * width
+        pieces = [
+            Line2D([middle - half, middle + half], [y, y], color=color, linewidth=1.6)
+            for y in (low, high)
+        ]
+        gid = GID_KEY_BAND
+    else:
+        pieces = [Line2D([middle, middle], [low, high], color=color, linewidth=2.0)]
+        gid = GID_KEY_INTERVAL
+    for piece in pieces:
+        piece.set_transform(trans)
+        piece.set_gid(gid)
+    return pieces
 
 
 def log_axis(ax: Axes, which: str) -> None:
     """A log scale whose tick labels are plain numbers (``0.5``, ``1``, ``2``).
 
     Call it after the data are drawn: an axis that spans less than a factor of ten gets
-    evenly spaced round ticks, one that spans up to :data:`_LOG_DENSE_DECADES` powers of ten
-    gets ticks at 1, 2 and 5 times each power, and a wider one ticks at powers of ten alone,
-    at most :data:`_LOG_MOST_TICKS` of them. A number from 0.001 to 9999 is printed as
-    it is, a smaller or larger power of ten as ``10`` with an exponent.
+    evenly spaced round ticks. A wider one gets ticks at 1, 2 and 5 times each power of ten,
+    unless at least four powers of ten fall inside its limits: then it ticks at powers of
+    ten alone, at most seven of them, so a span of many powers keeps a few readable labels.
+    :func:`log_tick_text` writes the labels.
 
     Parameters
     ----------
@@ -1143,11 +1164,11 @@ def log_axis(ax: Axes, which: str) -> None:
 
     axis = ax.xaxis if which == "x" else ax.yaxis
     (ax.set_xscale if which == "x" else ax.set_yscale)("log")
-    low, high = ax.get_xlim() if which == "x" else ax.get_ylim()
-    decades = math.log10(max(high, low) / min(high, low)) if low > 0 and high > 0 else math.inf
-    if decades < 1.0:
+    low, high = sorted(ax.get_xlim() if which == "x" else ax.get_ylim())
+    positive = low > 0 and high > 0
+    if positive and math.log10(high / low) < 1.0:
         axis.set_major_locator(MaxNLocator(nbins=6, steps=[1, 2, 2.5, 5, 10]))
-    elif decades <= _LOG_DENSE_DECADES:
+    elif positive and _powers_inside(low, high) < _LOG_POWERS_ONLY:
         axis.set_major_locator(LogLocator(base=10.0, subs=(1.0, 2.0, 5.0)))
     else:
         axis.set_major_locator(LogLocator(base=10.0, subs=(1.0,), numticks=_LOG_MOST_TICKS))
@@ -1155,14 +1176,22 @@ def log_axis(ax: Axes, which: str) -> None:
     axis.set_minor_formatter(NullFormatter())
 
 
-#: The widest span, in powers of ten, that a log axis ticks at 1, 2 and 5 times each power.
-_LOG_DENSE_DECADES: Final = 2.0
-#: The most ticks a log axis wider than that carries.
+#: How many powers of ten inside its limits make a log axis tick at powers of ten alone.
+_LOG_POWERS_ONLY: Final = 4
+#: The most ticks such an axis carries.
 _LOG_MOST_TICKS: Final = 7
+
+
+def _powers_inside(low: float, high: float) -> int:
+    """How many powers of ten lie in ``[low, high]``, both positive."""
+    return max(0, math.floor(math.log10(high) + 1e-9) - math.ceil(math.log10(low) - 1e-9) + 1)
 
 
 def log_tick_text(value: float) -> str:
     """A log axis tick label: the number from 0.001 to 9999, a power of ten beyond.
+
+    Outside that range every label is written against a power of ten, so one axis keeps
+    one style: ``$10^{-6}$``, ``$2\\times10^{-6}$``.
 
     Parameters
     ----------
@@ -1172,17 +1201,19 @@ def log_tick_text(value: float) -> str:
     Returns
     -------
     str
-        ``"0.5"`` or ``"20"`` as written, ``"$10^{-6}$"`` for a power of ten outside that
-        range, and the number in ``g`` form for any other value outside it.
+        ``"0.5"`` or ``"20"`` as written from 0.001 to 9999; a power of ten outside that
+        range as ``"$10^{-6}$"``, and another value as its leading digits times the power,
+        ``"$2\\times10^{-6}$"``.
     """
     if value <= 0.0 or not math.isfinite(value):
         return f"{value:g}"
     if 1e-3 <= value < 1e4:
         return f"{value:g}"
-    power = math.log10(value)
-    if abs(power - round(power)) < 1e-9:
-        return f"$10^{{{round(power)}}}$"
-    return f"{value:g}"
+    power = math.floor(math.log10(value) + 1e-9)
+    mantissa = value / 10.0**power
+    if abs(mantissa - 1.0) < 1e-9:
+        return f"$10^{{{power}}}$"
+    return f"${mantissa:.3g}\\times10^{{{power}}}$"
 
 
 # ----------------------------------------------------------------------- interval words
