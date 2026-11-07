@@ -144,7 +144,6 @@ not change the package version.
 | after beta | Missing-outcome CV-TMLE variants | [natural extension](technical-reference/hard-stop-review.md); pending source read for the incremental and tilt axes of part (d) | the shipped stacked missing-outcome contracts | [X53](#x53-missing-outcome-cv-tmle-variants) |
 | after beta | Small-sample evidence for clustered intervals and boundary nodes | [no new theory](technical-reference/hard-stop-review.md) | the shipped clustered intervals and `constant_node_plugin` status | [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
 | after beta | Bootstrap extensions | [published support](technical-reference/hard-stop-review.md); the book chapter of part (c) is not read | the shipped full-refit bootstrap; a HAL learner for part (b) | [X55](#x55-bootstrap-extensions) |
-| after beta | Competing-event intervention targets | [published support](technical-reference/hard-stop-review.md) for part (a); source audit for parts (b) and (c) | the shipped censored `LTMLE` | [X56](#x56-competing-event-intervention-targets) |
 | after beta | Joint intervention axes and tilt compositions | [natural extension](technical-reference/hard-stop-review.md) | the shipped single-axis fits and the MNAR tilt | [X57](#x57-joint-intervention-axes-and-tilt-compositions) |
 | after beta | Settings of the stacked and natural-course contracts | no new theory for part (a); natural extension for parts (b) to (d) | the shipped stacked and natural-course contracts; the shipped controlled direct effect for part (d) | [X60](#x60-settings-of-the-stacked-and-natural-course-contracts) |
 | after beta | Fold targeting and fold evaluation | natural extension for parts (a) to (c) | the shipped fold-specific update and fold-evaluated report | [X61](#x61-fold-targeting-and-fold-evaluation) |
@@ -165,7 +164,7 @@ not change the package version.
 | after beta | Marginal sensitivity model bounds that need a second sensitivity parameter | new theory | X82 part H | [X87](#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter) |
 | after beta | EP learner | preprint support, read first-hand | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | after beta | Adaptive TMLE for a trial augmented with external data | preprint support, read first-hand | the shipped point-treatment TMLE, its known treatment mechanism and the shipped lasso | [X90](#x90-adaptive-tmle-for-a-trial-augmented-with-external-data) |
-| after beta | Survival targets across the estimators | published support for parts (a) and (b); source audit for the other parts | the shipped survival and competing-risk paths of `LTMLE`; X56 | [X91](#x91-survival-targets-across-the-estimators) |
+| after beta | Survival targets across the estimators | published support for part (b); natural extension for parts (c) and (d); audit first for part (f); part (e) refused | the shipped survival and competing-risk paths of `LTMLE` | [X91](#x91-survival-targets-across-the-estimators) |
 | after beta | Plots and visualizations | no new theory for the plots; preprint and published support for the targeting curves of part 5, read first-hand | the shipped results, diagnostics and sensitivity analyses; `matplotlib` through the `plot` extra | [X92](#x92-plots-and-visualizations) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -1335,18 +1334,6 @@ its run.
 [F2](#f2-targeted-bootstrap-inference) keeps bootstrap consistency with data-adaptive or
 cross-fitted nuisances. Acceptance: a registered coverage study for each part.
 
-### X56. Competing-event intervention targets
-
-| part | target | base | readiness |
-| --- | --- | --- | --- |
-| (a) | the risk under eliminated competing events | Young, Stensrud, Tchetgen Tchetgen and Hernán (2020), arXiv:1806.06136v3, Sections 5, 6.1 (Equation 23) and 8.1. The competing event is a censoring event. The shipped censored `LTMLE` fits a composite censoring indicator $1\{C_t = 1, D_t = 0\}$ placed after $D_t$ in the node order, with $C_t = 1$ meaning that the unit remains under observation | published support |
-| (b) | separable effects with baseline covariates | Stensrud et al. (2022), arXiv:1901.09472v2, Section 5.2, formula (5), with the estimator of Wang et al. (2025), arXiv:2304.04904v1, under $Z_t := D_t$ | source audit |
-| (c) | separable effects with time-varying common causes | Stensrud, Hernán, Tchetgen Tchetgen, Robins, Didelez and Young (2021), *Lifetime Data Analysis* 27(4):588-631, Section 6.2, Equation (19), with the Wang et al. (2025) estimator under $Z_t := (L_{A_D,t}, D_t)$ | source audit |
-
-The source audit of parts (b) and (c) checks the node order, the user-declared partition of
-$L_t$, and the efficient influence curve. No data check can verify the dismissible-component
-conditions. Acceptance: oracle and evidence gates for each target in both directions.
-
 ### X57. Joint intervention axes and tilt compositions
 
 | part | request | step |
@@ -1999,19 +1986,22 @@ trial-only TMLE.
 ### X91. Survival targets across the estimators
 
 `LTMLE` (both survival models), `SDR`, `IPSI`, `SequentialGComputation`, `SequentialIPW` and
-`ParametricGFormula` fit survival and competing-risk outcomes. `CTMLE`, `DRTMLE` and
-`AdaptiveIPTW` have no longitudinal or `TimeToEvent` path, and `StructuralNestedMean` refuses a
-survival outcome. This item carries the survival targets to as many shipped estimators as the
-sources allow.
+`ParametricGFormula` fit survival and competing-risk outcomes, and the risk under
+[eliminated competing events](technical-reference/longitudinal-tmle.md#eliminated-competing-events).
+This item carries further survival targets to the TMLE engines as far as the sources allow.
 
 | part | request | base | readiness |
 | --- | --- | --- | --- |
-| (a) | the risk under eliminated competing events on every longitudinal engine | [X56](#x56-competing-event-intervention-targets) part (a): the competing event becomes a censoring event | published support |
-| (b) | collaborative TMLE for a time-to-event outcome with a baseline treatment | Stitelman and van der Laan (2010), *The International Journal of Biostatistics* 6(1) | published support; pending source read |
-| (c) | `DRTMLE` and `AdaptiveIPTW` on a `TimeToEvent` design | no source read here | source audit |
-| (d) | simulated confounding and sensitivity bounds on censored and survival fits | the [simulated common-cause surface](technical-reference/validation-methods.md#simulated-common-cause-stress-surface) refuses these fits; [F16](#f16-longitudinal-sensitivity-bound-estimation) keeps the bounds | natural extension for the replay |
-| (e) | separable effects | X56 parts (b) and (c) | source audit |
-| (f) | a structural nested failure-time model | no source read here | source audit |
+| (b) | collaborative TMLE for a time-to-event outcome with a baseline treatment | Stitelman and van der Laan (2010), *The International Journal of Biostatistics* 6(1): a greedy selection of main terms for the treatment and censoring mechanisms with the hazard fluctuation held fixed, scored by a variance-penalized likelihood; no theorem, so points only | published support |
+| (c) | the simulated common-cause replay on censored and survival fits | the [simulated common-cause surface](technical-reference/validation-methods.md#simulated-common-cause-stress-surface) refuses these fits ([F13](#f13-longitudinal-simulated-confounding-replay)); a design note chooses which identity the replay keeps exact | natural extension |
+| (d) | separable effects with baseline covariates | Stensrud, Young, Didelez, Robins and Hernán (2022), Section 5.2, formula (5); a TMLE on the hazard path by the chain rule through the identified hazard | natural extension |
+| (e) | separable effects with time-varying common causes | Stensrud et al. (2021), Section 6.2, Equation (19) | refused: no source gives an efficient influence curve |
+| (f) | doubly robust inference for the survival curve | Díaz (2019), *Statistics in Medicine* 38(15), a drift-corrected TMLE; its auxiliary regressions on estimated indices need the linear-remainder audit first | audit first |
+
+`AdaptiveIPTW` on a survival outcome and a structural nested failure-time model are not planned:
+no source extends either, and both refusals name `LTMLE`. The longitudinal sensitivity bounds stay
+with [F16](#f16-longitudinal-sensitivity-bound-estimation). The continuous-time TMLE is
+[X6](#x6-continuous-time-survival-and-competing-risks).
 
 Acceptance: each part that ships needs exact-law checks with a nonzero witness of each new term,
 a mutation control, and a registered study. Each request that stays refused needs a pre-fit

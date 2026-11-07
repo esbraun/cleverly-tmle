@@ -571,6 +571,24 @@ der Laan (2022) treat such covariates. Neither source was read for this contract
 
 [X70](../roadmap.md#x70-hazard-targeting-beyond-a-held-baseline-treatment) tracks H1, H2, H5, H7 and H11. Each message names the supported route. The roadmap carries no row for H4.
 
+### Eliminated competing events
+
+[Eliminated competing events](longitudinal-tmle.md#eliminated-competing-events) states the
+estimand. Each refusal below raises before any learner, and
+`tests/unit/test_eliminated_competing_law.py` pins each one.
+
+| trigger | type and code | message, or what is missing |
+| --- | --- | --- |
+| `eliminate=` on a longitudinal estimator constructor | `CapabilityError`, `api_redirection` | "the competing causes to prevent are declared with the data, not on the estimator, because they change which events count and what the censoring factor is." The alternative names `fit(eliminate=...)`, `LongitudinalData.from_frame` and the three designs |
+| `eliminate=` on data with no competing causes | `DataError` | "eliminate= prevents competing causes, and this fit declares none." |
+| an unknown cause, a cause named twice, or every cause | `DataError` | the unknown names and the declared causes; or "names every cause, which leaves no event to estimate the risk of" |
+| eliminating a second time, or a design given a container that already eliminates | `DataError` | "already eliminates ...": every cause to prevent goes in one `eliminate=` on the original data, or on the design |
+| `with_events()` and `to_long_panel()` on eliminated data | `DataError` | both read observed events, and the prevented events are recoded as censoring. Use the data built without `eliminate=` |
+| the E-value | `implementation_gap`, [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) | the identification also needs no unmeasured common cause of the prevented events and the outcome, which the E-value does not bound |
+| `simulated_confounding` | `implementation_gap`, [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) | the replay has no step that generates a prevented event or the competing factor |
+| `refute` with `dummy_outcome`, `simulated_outcome` or `plasmode` | `implementation_gap`, [X91](../roadmap.md#x91-survival-targets-across-the-estimators) | the generated processes declare no hazard for the prevented causes, so the truth is undefined. The stability tests run |
+| `StructuralNestedMean.fit(eliminate=...)` | `api_redirection` | the survival refusal of structural nested means: fit `LTMLE` |
+
 ### A different question
 
 These are well-posed parameters, but the selected estimator does not target them. No setting turns
@@ -579,7 +597,6 @@ row where the raise site names a different remedy.
 
 | refused | code | the question it would answer instead |
 | --- | --- | --- |
-| `eliminate=` on a competing-risks fit | `different_estimand` | the incidence of a cause if the competing events were *removed*. That intervenes on them rather than conditioning on the history. It needs a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions for the competing event. What is reported instead is the incidence with the competing causes left alone |
 | `CTMLE` on data that declares its treatment mechanism | `api_redirection` | C-TMLE selects or fits a treatment mechanism, and the declaration leaves nothing to select or fit. The question does not change. Fit `TMLE` or `DRTMLE` on the declared data |
 | a declared known treatment mechanism beside `treatment_delta=` | `invalid_declaration` | a missing treatment needs $P(A=a\mid\Delta_A=1,W)$, the mechanism among the recorded rows. It equals the design mechanism only when recording is independent of treatment given $W$, which the fit cannot check |
 | `ratio_trim=` on a point-treatment fit | `api_redirection` | a trim of the per-node density ratios of a longitudinal fit, as `lmtp`'s `.trim` does. A point-treatment fit bounds its mechanism with `g_bounds=`. Declare the point treatment as a one-node `LongitudinalTreatment` to trim its ratio. `TMLEMethod.estimator_kwargs` raises `MethodConfigurationError` before any learner |

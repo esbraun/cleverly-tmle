@@ -314,6 +314,65 @@ only happen at the last node reproduces the end-of-study fit **bit for bit**. A 
 single cause reproduces a single-event survival fit **bit for bit**. Stitelman, De Gruttola and van
 der Laan (2012) is the survival implementation reference.
 
+### Eliminated competing events
+
+A competing-risk fit reports each cause's incidence with the other causes left as they are. The
+risk under elimination asks a different question: the risk of cause $j$ by node $k$ had the
+competing causes been prevented. Young, Stensrud, Tchetgen Tchetgen and Hernán (2020) define it,
+their Equation (5), as a controlled direct effect on the cause-specific incidence. Declare the
+causes to prevent with the data, `eliminate=["death"]`, on `LongitudinalData.from_frame`,
+`from_long_panel`, `from_time_to_event`, `LTMLE.fit`, or the `TimeToEvent`,
+`LongitudinalTreatment` and `LongPanel` designs. The estimator keyword `eliminate=` redirects to
+these, because the elimination changes what the data's censoring is.
+
+Their Section 5 identifies the risk by treating a prevented event as censoring, and Section 6.1,
+Equations (20) to (23), gives the conditions and the g-formula. Within a node the order is
+censoring $C_t$, then the prevented cause $D_t$, then the remaining causes $Y_t$, then the
+covariates $L_t$. The identified hazard of $Y_t$ is $\lambda_Y/(1 - \lambda_D)$ among units free of
+both. Two conditions beyond the competing-risk fit's are needed: no unmeasured common cause of
+$D$ and $Y$ given the history, and positivity of remaining free of $D$,
+$P(D_t = 0 \mid \bar L_{t-1}, \bar A_t, C_t = 1) > 0$ under each regimen.
+
+The node retention is the product of two factors,
+
+$$
+P(C_t = 1 \mid H_t)\;P(D_t = 0 \mid H_t, C_t = 1),
+$$
+
+each fitted as its own model. The censoring factor is fitted on the units at risk with target
+`retained`, the censoring record alone. The competing factor is fitted on the units that passed
+censoring at the node, with target `uncensored`, which is now the composite $1\{C_t = 1, D_t = 0\}$
+that every mask reads. `competing_learner=` sets its learner on every engine; the default is the
+censoring learner. Two separate models show which factor is extreme, where one composite model
+would mix two mechanisms. The product enters the clever covariate's cumulative denominator, the
+hazard path's censoring product, the truncation replay and `ratio_trim=`. `SequentialIPW` with
+GLM factors stacks a third projected score block for the competing factor.
+
+After the recode the prevented causes leave `cause_labels`. With one remaining cause the fit is a
+single-cause survival fit, so `curve(scale="survival")`, `ratio()` and `rmst()` read it as one.
+The summary names the prevented cause and its model, reports the share of prevented events apart
+from the share censored, and words each row as "probability of relapse by time 3 if every unit
+followed plan a1, had death been prevented". The support key marks these fits apart from
+censoring alone, and they carry the experimental status until their study is registered.
+
+| check | what it shows |
+| --- | --- |
+| exact law, six engines (iterated-mean and hazard `LTMLE`, `SDR`, both `SequentialIPW` normalizations, `SequentialGComputation`) and `ParametricGFormula` | the estimate is Young et al.'s g-formula (23), and each reported influence curve is its Gateaux derivative |
+| witness | the eliminated risk differs from the total-effect incidence by more than 0.01 on that law |
+| mutations | dropping the competing factor, counting $D$ twice (the composite as the censoring target), dropping the IPW block, and the other within-node order each move the influence curve or the estimate off the truth |
+| reductions | with no prevented event the fit is the relapse-only fit; a hand-built composite censoring column gives the same estimate |
+
+The exact law realises its probabilities, so a saturated outcome fit is the oracle and the point
+estimate cannot see the mechanism. The competing factor is therefore checked through the
+influence curve. `tests/unit/test_eliminated_competing_law.py` holds these checks.
+
+The E-value, the simulated common-cause replay, the generated-outcome and plasmode refutations,
+and structural nested means refuse an eliminated fit; [scope and
+refusals](scope-and-refusals.md#eliminated-competing-events) gives each reason. A learned regimen
+refuses it through its survival refusal. `IPSI` composes through the shared mechanism, but no
+exact check covers it, because `IPSI` refuses a held baseline treatment and the two-cause exact law
+holds one.
+
 ### Repeated outcomes
 
 A repeated outcome is measured at every node and is not absorbing. A unit with $Y_1 = 1$ can have
@@ -1644,13 +1703,13 @@ construction and its evidence. The score report has one `solver` row per node an
 `LTMLE` refuses each point-treatment keyword in `_REFUSED` in
 [`longitudinal/estimator.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/estimator.py)
 by name, with its own reason. Some keywords redirect to the argument that does the work.
-`interventions=` redirects to `regimens=`. `incremental=` redirects to
+`interventions=` redirects to `regimens=`. `eliminate=` redirects to the data or to `fit()`
+([eliminated competing events](#eliminated-competing-events)). `incremental=` redirects to
 [`IPSI`](#incremental-interventions-over-time), which fits the odds tilt over time. The table gives the
 refusals that are statements about the question, the construction, or coverage.
 
 | refused | code | what it would need |
 | --- | --- | --- |
-| eliminating the competing events | `different_estimand` | what is reported is the cause-specific cumulative incidence with the competing causes *left alone*, so a competing event is part of the history. Removing it makes it an intervened node: a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions |
 | `intermediate=` | `different_estimand` | a controlled direct effect fixes a mediator at one time point. Over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
 | a `truncation_curve()` pair that truncates a declared cumulative product | `invalid_declaration` | the fit refuses the same pair as `g_bounds`, because truncating a known product moves the estimate with no variance reason. A curve row at that pair would show a movement that no admitted fit has. Remove the pair from the grid. A pair `(lower, 1)` with `lower` below the smallest declared product is admitted |
 | `mechanism=True` on `truncation_curve()` | `invalid_declaration` | a longitudinal fit holds one cumulative treatment-and-censoring bound, and it fits no separate observation mechanism to sweep. The option names a point-treatment axis, so the call raises `CapabilityError` rather than sweeping the cumulative bound under another name |
@@ -2484,7 +2543,8 @@ under refinement.
 Competing-risk correctness also rests on the independent finite law, the Gateaux comparison, the
 all-cause-versus-cause-specific mutation, and the one-cause reduction. The two competing-risk rows
 add the R `lmtp` comparison. Both rows keep the competing event natural and supply the mechanisms.
-Neither row covers weights, clustering, or an eliminated competing event.
+Neither row covers weights, clustering, or an eliminated competing event; the
+[eliminated competing events](#eliminated-competing-events) section lists that fit's checks.
 
 ### Three to five decisions
 
