@@ -2,7 +2,7 @@
 
 It draws no declared sample: every draw takes ``stream_seed(STUDY, "pilot", label, r)``, a
 stream no declared cell reads.  It writes one row per fit and estimand to
-``eliminated_competing_events_pilot.csv`` beside this module, with the fit's refusal when it
+``eliminated_competing_events_pilot.csv.gz`` beside this module, with the fit's refusal when it
 had one.  Run it as ``python -m tests.studies.eliminated_competing_events_pilot --jobs N``.
 
 =====================  ======================================================================
@@ -14,8 +14,12 @@ label                  what it sizes
                        calibration cell, n = 16,000, 1,000 draws
 ``crossfit_16k``       the cross-fitted primary scenario, n = 16,000, 1,000 draws
 ``dr_*_16k``           the two positive robustness cells, n = 16,000, 300 draws each
+``calibration_*_16k``  the two calibration cells' estimands alone, n = 16,000, 8,000 draws
+                       each (:data:`~tests.studies.repeated_sizing.CALIBRATION_PILOT_DRAWS`):
+                       1,000 draws pin an SE ratio only to a relative SD of 0.022, too loose
+                       for the calibration band
 ``*_4k``               the first declaration's time-varying scenarios at n = 4,000, 400 draws:
-                       coverage 0.915 to 0.93 and SE ratios 0.91 to 0.93 at ``t = 2`` (one
+                       coverage 0.915 to 0.940 and SE ratios 0.91 to 0.98 at ``t = 2`` (one
                        fold), and a standardized bias up to 0.23 with SE ratios up to 1.21
                        (two folds), which moved every scenario to 16,000
 =====================  ======================================================================
@@ -36,7 +40,7 @@ from tests.studies import eliminated_competing_events_properties as properties
 from tests.studies import eliminated_competing_law as law
 from tests.studies.evidence.seeds import stream_seed
 
-OUTPUT = Path(__file__).with_name("eliminated_competing_events_pilot.csv")
+OUTPUT = Path(__file__).with_name("eliminated_competing_events_pilot.csv.gz")
 
 #: ``label -> (scenario, n, draws, robustness cell or "")``.  The 4,000 labels measured the
 #: first declaration's size and are kept as the record of why the sizes moved to 16,000.
@@ -48,6 +52,13 @@ PILOTS: dict[str, tuple[str, int, int, str]] = {
     "crossfit_16k": (study.CROSSFIT_TV, 16_000, 1_000, ""),
     "dr_tv_rule_16k": (study.LTMLE_TV, 16_000, 300, "tv_rule_t2__mechanism_correct"),
     "dr_hb_a1_16k": (study.HAZARD_HB, 16_000, 300, "hb_a1_t2__mechanism_correct"),
+    "calibration_ltmle_16k": (study.LTMLE_TV, 16_000, 8_000, ""),
+    "calibration_hazard_16k": (study.HAZARD_HB, 16_000, 8_000, ""),
+}
+#: The calibration labels write only the estimand their calibration cell reads.
+ROWS_OF: dict[str, tuple[str, ...]] = {
+    "calibration_ltmle_16k": ("ate_regimen[always vs never @ t=2]",),
+    "calibration_hazard_16k": ("ate_regimen[a1 vs a0 @ t=3]",),
 }
 
 
@@ -62,7 +73,7 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
             warnings.simplefilter("ignore")
             result = properties.robustness_fit(frame, cell) if cell else study.fit(frame, scenario)
             rows = []
-            for name in study.ESTIMANDS[scenario]:
+            for name in ROWS_OF.get(label, study.ESTIMANDS[scenario]):
                 estimate = result[name]
                 low, high = estimate.ci
                 truth = study.TRUTH[scenario][name]

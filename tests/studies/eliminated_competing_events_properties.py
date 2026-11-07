@@ -14,7 +14,7 @@ cell                                               role      n     what it witne
                                                                    1.9 efficient SEs off
 ``tv_never_t2__outcome_wrong_competing_wrong``     control   16k   the death factor in the
                                                                    clever covariate: its limit
-                                                                   sits -0.0199 (1.38 SEs) off
+                                                                   sits -0.0199 (1.39 SEs) off
 ``hb_a1_t2__mechanism_correct``                    positive  16k   the hazard targeting step;
                                                                    the initial hazards' plug-in
                                                                    sits 9.4 SEs off
@@ -28,10 +28,15 @@ law.  On a saturated law several other configurations coincide with these to rou
 outcome-correct fits whatever the death factor, ``SequentialIPW``, ``SDR``); those identities
 are unit assertions in ``tests/unit/test_eliminated_competing_events_design.py``, not cells.
 
-**Calibration** (n = 16,000, R = 4,000).  Two positive cells with the two controls derived from
+**Calibration** (n = 16,000, R = 4,800).  Two positive cells with the two controls derived from
 each: ``ltmle_always_t2`` reads ``ate_regimen[always vs never @ t=2]`` on the time-varying law and
 ``hazard_a1_t3`` reads ``ate_regimen[a1 vs a0 @ t=3]`` on the held-baseline law.  The efficiency
 ratios read the exact EIF spread against :data:`EFFICIENCY_RATIO_BAND`.
+:data:`CALIBRATION_REPLICATES` is the smallest multiple of 400 at which the family-wise pass
+probability of the two cells reaches ``SIZED_SHARE`` (0.984) under the pooled reading of
+:mod:`tests.studies.repeated_sizing`, each cell its own group because the two sit on different
+laws.  The pilot's 8,000 draws per cell read SE ratios 1.014 and 0.999 and efficiency ratios
+0.98 to 1.00, which give 0.981 at 4,400 and 0.987 at 4,800.
 
 A replication that raises is never redrawn.
 """
@@ -66,7 +71,7 @@ CALIBRATION = "interval_calibration"
 
 ROBUSTNESS_REPLICATES = 1_000
 CALIBRATION_N = 16_000
-CALIBRATION_REPLICATES = 4_000
+CALIBRATION_REPLICATES = 4_800
 
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70

@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.stats import binom
+from scipy.stats import norm
 from sklearn.dummy import DummyClassifier
 
 from cleverly.longitudinal import SDR, SequentialIPW
@@ -196,14 +196,12 @@ class TestTheRobustnessCells:
                 > 0.99
             )
 
-    def test_each_positive_cell_is_equivalent_at_a_small_bias(self) -> None:
-        probability = sizing.bias_equivalent_probability(
-            MARGINS, 0.1, properties.ROBUSTNESS_REPLICATES
-        )
-        assert probability >= 0.98
-
 
 PILOT = pd.read_csv(pilot.OUTPUT) if pilot.OUTPUT.exists() else pd.DataFrame()
+CALIBRATION_PILOTS = {
+    "ltmle_always_t2": "calibration_ltmle_16k",
+    "hazard_a1_t3": "calibration_hazard_16k",
+}
 
 
 @pytest.mark.skipif(PILOT.empty, reason="the pilot has not been committed")
@@ -211,82 +209,145 @@ class TestTheSizes:
     def test_the_pilot_lost_no_fit(self) -> None:
         assert PILOT["refusal"].fillna("").eq("").all()
 
-    def test_the_primary_replicates_follow_the_pooled_rule(self) -> None:
-        """The pooled reading of :mod:`tests.studies.repeated_sizing`, one group per scenario.
+    def test_the_primary_replicates_follow_the_shared_rule(self) -> None:
+        """:func:`~tests.studies.repeated_sizing.primary_replicates` at the X32b shares.
 
-        A scenario's estimands share each fit, so their pilot coverages and biases form one
-        group whose noise covariance is read from the pilot draws.  A per-row product at the
-        pilot point values would price the pilot noise once for every row.
+        One implementation (no comparator), clauses (a) to (c) on the pilot's covered counts
+        and clause (d) on its standardized biases, one group per scenario whose noise
+        covariance is read from the pilot draws; both shares are
+        :data:`~tests.studies.repeated_sizing.PRIMARY_CLAUSE_SHARE`.
         """
         labels = {study.LTMLE_TV: "ltmle_16k", study.CROSSFIT_TV: "crossfit_16k"}
         labels[study.HAZARD_HB] = "hazard_16k"
-        coverage_groups, bias_groups = [], []
+        covered: dict[str, int] = {}
+        bias_groups = []
+        draws = set()
         for scenario, label in labels.items():
             rows = PILOT.loc[PILOT["label"] == label]
             assert int(rows["n"].iloc[0]) == study.STUDY.n_of(scenario)
             names = list(study.ESTIMANDS[scenario])
-            covered = rows.pivot(index="replicate", columns="estimand", values="covered")[names]
+            hits = rows.pivot(index="replicate", columns="estimand", values="covered")[names]
+            covered.update({f"{scenario}/{name}": int(hits[name].sum()) for name in names})
             error = rows.assign(error=rows["estimate"] - rows["truth"]).pivot(
                 index="replicate", columns="estimand", values="error"
             )[names]
             standardized = error / error.std(ddof=1)
-            draws = len(covered)
-            coverage_groups.append(
-                sizing.PilotGroup(covered.mean().to_numpy(), covered.cov().to_numpy() / draws)
-            )
+            draws.add(len(hits))
             bias_groups.append(
                 sizing.PilotGroup(
-                    standardized.mean().to_numpy(), standardized.cov().to_numpy() / draws
+                    standardized.mean().to_numpy(), standardized.cov().to_numpy() / len(hits)
                 )
             )
-        coverage_tau = sizing.heterogeneity_bound(coverage_groups)
-        bias_tau = sizing.heterogeneity_bound(bias_groups)
+        (pilot_draws,) = draws
+        share = sizing.PRIMARY_CLAUSE_SHARE
+        assert (
+            sizing.primary_replicates(
+                MARGINS,
+                covered,
+                pilot_draws,
+                implementations=1,
+                coverage_pass=share,
+                bias_groups=bias_groups,
+                bias_pass=share,
+            )
+            == study.PRIMARY_REPLICATES
+        )
+
+    @staticmethod
+    def _calibration_pilot(cell: str) -> pd.DataFrame:
+        _, _, name = properties.CALIBRATION_CELLS[cell]
+        label = CALIBRATION_PILOTS[cell]
+        rows = PILOT.loc[(PILOT["label"] == label) & (PILOT["estimand"] == name)]
+        assert int(rows["n"].iloc[0]) == properties.CALIBRATION_N
+        assert len(rows) == sizing.CALIBRATION_PILOT_DRAWS
+        return rows
+
+    def test_the_calibration_replicates_follow_the_pooled_rule(self) -> None:
+        """The smallest multiple of 400 whose family-wise calibration pass reaches the share.
+
+        The two cells sit on different laws, so each is its own group and the spread between
+        cells does not enter (:func:`~tests.studies.repeated_sizing.heterogeneity_bound` reads
+        no group of one cell).  Each cell's true SE ratio is its pilot ratio with the pilot's
+        sampling noise.  The family-wise target is
+        :data:`~tests.studies.repeated_sizing.SIZED_SHARE`.
+        """
+        groups = []
+        for cell in properties.CALIBRATION_LABELS:
+            rows = self._calibration_pilot(cell)
+            ratio = float(rows["std_error"].mean() / rows["estimate"].std(ddof=1))
+            noise = ratio**2 / (2.0 * (len(rows) - 1))
+            groups.append(sizing.PilotGroup(np.array([ratio]), np.array([[noise]])))
+        tau = sizing.heterogeneity_bound(groups)
+        assert tau == 0.0
 
         def family_pass(replicates: int) -> float:
-            first = sizing._first_passing_count(MARGINS, replicates)
-            assert first is not None
+            return sizing.calibration_family_pass_probability(MARGINS, replicates, groups, tau)
 
-            def coverage_pass(coverage: np.ndarray) -> np.ndarray:
-                return binom.sf(first - 1, replicates, np.clip(coverage, 0.0, 1.0))
+        declared = properties.CALIBRATION_REPLICATES
+        assert declared % sizing.BUDGET_STEP == 0
+        assert family_pass(declared) >= sizing.SIZED_SHARE
+        assert family_pass(declared - sizing.BUDGET_STEP) < sizing.SIZED_SHARE
 
-            def bias_pass(bias: np.ndarray) -> np.ndarray:
-                return np.asarray(sizing.bias_equivalent_probability(MARGINS, bias, replicates))
-
-            return sizing.pooled_pass_probability(
-                coverage_groups, coverage_tau, coverage_pass
-            ) * sizing.pooled_pass_probability(bias_groups, bias_tau, bias_pass)
-
-        # The smallest multiple of 400, from 1,000 up, whose family-wise pass reaches 0.95.
-        declared = study.PRIMARY_REPLICATES
-        assert declared % 400 == 0
-        assert family_pass(declared) >= sizing.FAMILY_WISE_PASS
-        assert declared - 400 < 1_000 or family_pass(declared - 400) < sizing.FAMILY_WISE_PASS
-
-    def test_each_calibration_cell_passes_at_the_pilot_ratio(self) -> None:
-        labels = {"ltmle_always_t2": "ltmle_16k", "hazard_a1_t3": "hazard_16k"}
-        for cell, label in labels.items():
-            _, _, name = properties.CALIBRATION_CELLS[cell]
-            rows = PILOT.loc[(PILOT["label"] == label) & (PILOT["estimand"] == name)]
-            assert int(rows["n"].iloc[0]) == properties.CALIBRATION_N
-            ratio = float(rows["std_error"].mean() / rows["estimate"].std(ddof=1))
-            probability = float(
-                sizing.calibration_pass(
-                    MARGINS, properties.CALIBRATION_REPLICATES, np.array([ratio])
-                )[0]
-            )
-            assert probability >= 0.90, (cell, ratio, probability)
+    def test_the_calibration_efficiency_ratios_sit_inside_the_band(self) -> None:
+        """The efficiency conjunct of each positive cell passes at the declared replicates."""
+        low, high = properties.EFFICIENCY_RATIO_BAND
+        z = float(norm.ppf(0.5 + MARGINS.confidence_level / 2.0))
+        replicates = properties.CALIBRATION_REPLICATES
+        for cell in properties.CALIBRATION_LABELS:
+            rows = self._calibration_pilot(cell)
+            bound = properties.EFFICIENCY_SD[cell] / np.sqrt(properties.CALIBRATION_N)
+            for ratio in (
+                float(rows["estimate"].std(ddof=1)) / bound,
+                float(rows["std_error"].mean()) / bound,
+            ):
+                spread = ratio / np.sqrt(2.0 * (replicates - 1))
+                passing = norm.cdf((high - z * spread - ratio) / spread) - norm.cdf(
+                    (low + z * spread - ratio) / spread
+                )
+                assert passing > 0.999, (cell, ratio, passing)
 
     def test_the_derived_controls_leave_the_band(self) -> None:
-        for ratio in (properties.SHRUNKEN_SE_FACTOR, 1 / np.sqrt(2.0)):
-            assert (
-                sizing.calibration_control_probability(
-                    MARGINS, properties.CALIBRATION_REPLICATES, ratio
-                )
-                > 0.999
+        """The shrunken-SE arm leaves the SE-ratio band and the noise arm the efficiency band."""
+        replicates = properties.CALIBRATION_REPLICATES
+        assert (
+            sizing.calibration_control_probability(
+                MARGINS, replicates, properties.SHRUNKEN_SE_FACTOR
             )
+            > 0.999
+        )
+        z = float(norm.ppf(0.5 + MARGINS.confidence_level / 2.0))
+        noise = np.sqrt(2.0)
+        spread = noise / np.sqrt(2.0 * (replicates - 1))
+        upper = properties.EFFICIENCY_RATIO_BAND[1]
+        assert norm.cdf((noise - z * spread - upper) / spread) > 0.999
+
+    def test_the_positive_robustness_cells_pass_at_their_pilot_bias(self) -> None:
+        """The pilot of each positive cell, at its one-sided 80% upper bias bound."""
+        labels = {
+            "tv_rule_t2__mechanism_correct": "dr_tv_rule_16k",
+            "hb_a1_t2__mechanism_correct": "dr_hb_a1_16k",
+        }
+        for cell, label in labels.items():
+            _, n, name, _, role = properties.ROBUSTNESS_CELLS[cell]
+            assert role == "positive"
+            rows = PILOT.loc[(PILOT["label"] == label) & (PILOT["estimand"] == name)]
+            assert int(rows["n"].iloc[0]) == n
+            error = rows["estimate"] - rows["truth"]
+            bias = abs(float(error.mean() / error.std(ddof=1)))
+            upper = bias + float(norm.ppf(sizing.PILOT_LEVEL)) / np.sqrt(len(rows))
+            assert (
+                sizing.bias_equivalent_probability(MARGINS, upper, properties.ROBUSTNESS_REPLICATES)
+                > 0.98
+            ), (cell, upper)
 
 
 class TestTheCells:
+    def test_the_record_lists_every_study_specific_module(self) -> None:
+        from tests.unit.test_study_provenance import _required_from
+
+        required = _required_from(study.STUDY.runner_module, study.STUDY.properties_module)
+        assert required <= set(study.STUDY.modules)
+
     def test_the_record_declares_every_cell_the_module_writes(self) -> None:
         written = {(family, cell) for family, cell, _, _ in properties.declared_truths()}
         declared = {

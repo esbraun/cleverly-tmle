@@ -33,17 +33,17 @@ other engines rest on the exact-law checks of ``tests/unit/test_eliminated_compe
 
 **Size** (declared before any run, from the pilot in
 ``tests/studies/eliminated_competing_events_pilot.py``).  Every scenario runs at 16,000.  The
-first declaration ran the time-varying scenarios at 4,000; the pilot's 400 draws there read
-coverage 0.915 to 0.93 and SE ratios 0.91 to 0.93 at ``t = 2`` with one fold, and a
-standardized bias up to 0.23 with SE ratios up to 1.21 with two folds.  At 4,000 the hazard
-scenario's ``t = 3`` cells rest on Kish sizes of 29 to 60, its coverage there read 0.89 to 0.92
-in 400 draws, and 0.75% of its fits met a node regression with a constant target, against a 1%
+first declaration ran the time-varying scenarios at 4,000, where the pilot's 400 draws
+(``ltmle_4k``, ``crossfit_4k``) read coverage 0.915 to 0.940 and SE ratios 0.91 to 0.98 at
+``t = 2`` with one fold, and a standardized bias up to 0.23 with SE ratios up to 1.21 with two
+folds.  At 4,000 the hazard scenario's ``t = 3`` cells rest on Kish sizes of 29 to 60; 400 draws
+of the first design review, which the pilot file does not hold, read coverage 0.89 to 0.92
+there, and 0.75% of those fits met a node regression with a constant target, against a 1%
 failure bound.  At 16,000 the pilot's 1,000 draws per scenario read coverage 0.935 to 0.963 and
-lost no fit.  :data:`PRIMARY_REPLICATES` is the smallest multiple of 400, from 1,000 up, whose
-family-wise pass probability reaches 0.95 under the pooled reading of
-:mod:`tests.studies.repeated_sizing` (one group per scenario, noise read from the pilot draws):
-0.89 at 1,000 and 0.975 at 1,200.
-``tests/unit/test_eliminated_competing_events_design.py`` recomputes it.
+lost no fit.  :data:`PRIMARY_REPLICATES` is the shared rule
+:func:`~tests.studies.repeated_sizing.primary_replicates` on that pilot, with one
+implementation and X32b's clause shares (``PRIMARY_CLAUSE_SHARE`` for coverage and for bias):
+2,800.  ``tests/unit/test_eliminated_competing_events_design.py`` recomputes it.
 
 **Properties.** :mod:`tests.studies.eliminated_competing_events_properties` declares the
 double-robustness family, which witnesses the prevented-cause factor and the targeting step,
@@ -74,7 +74,7 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
-PRIMARY_REPLICATES = 1_200
+PRIMARY_REPLICATES = 2_800
 PRIMARY_N = 16_000
 #: The declared share of replicates one cell may lose to recordable fitting failures.
 FAILURE_BOUND = 0.01
@@ -145,7 +145,10 @@ STUDY = StudyRecord(
         "tests/discrete_law_longitudinal.py",
         "tests/discrete_law_longitudinal_multivalue.py",
         "tests/studies/canonical_ltmle.py",
+        "tests/studies/canonical_point_survival.py",
         "tests/studies/canonical_point_survival_hazard.py",
+        "tests/studies/fractional_glm.py",
+        "tests/studies/point_survival_common.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",
         "tests/studies/evidence/properties.py",
@@ -175,8 +178,10 @@ CONFIGURATION = {
         HAZARD_HB: "CellMeans, passed",
     },
     "initial_estimate": (
-        "the untargeted plug-in: SequentialGComputation with the same learners and folds on "
-        "the iterated scenarios, the initial hazards' plug-in on the hazard scenario"
+        "the untargeted plug-in: SequentialGComputation with the same learners, fitted in "
+        "sample, on the iterated scenarios (on the cross-fitted scenario the displacement "
+        "also holds the gap between in-sample and two-fold fits, so it is not a targeting "
+        "displacement there); the initial hazards' plug-in on the hazard scenario"
     ),
     "g_bounds": list(G_BOUNDS),
     "simultaneous_intervals": False,

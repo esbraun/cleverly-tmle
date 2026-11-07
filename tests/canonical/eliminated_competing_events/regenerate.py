@@ -9,18 +9,20 @@ properties module, fixed before any run from the committed pilot.
 Red-cell readings (declared before any run).  The record is ``gated``, so any red verdict fails
 the run.  A red that the diagnosis finds is not a defect follows the route of
 ``docs/development/method-benchmarking.md``: the record moves to ``reporting`` with the owner
-row X91 and the reading below, the committed rows are summarized again with no new fit, and
-the claim the cell carries stays experimental.  No cell is re-sized, re-drawn or downgraded
-after a verdict is seen.
+row X91 and the reading below, the run is repeated under the new commit, which refits the same
+deterministic seeds and so reproduces the same rows, and the claim the cell carries stays
+experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is seen.
 
 * A red primary row is a defect suspect of the eliminated recursion, its two-factor retention or
   its influence curve: the truths are exact g-formulas and the fits are saturated.  Diagnose it
   against ``tests/unit/test_eliminated_competing_law.py``, fix a defect, and re-run under a
-  fresh declaration.  A red coverage row of ``hazard_held_baseline`` at ``t = 3`` whose fits
-  warned ``SparseInfluenceWarning`` and whose SE ratio sits below one reads as the
-  finite-sample variance limit of a sparse cell (the pilot at n = 4,000 showed it): with no
-  defect found it takes the route above, and the hazard path's Wald claim at ``t = 3`` stays
-  experimental with the measured coverage.
+  fresh declaration.  A red coverage row of ``hazard_held_baseline`` at ``t = 3`` reads as the
+  finite-sample variance limit of a sparse cell only when all of these hold in
+  ``performance-tests.csv``: the 99% interval of its SE ratio (``se_ratio_ci_upper``) lies
+  below 1, its bias is equivalent (``bias_equivalent``), and its coverage interval's upper end
+  (``coverage_ci_upper``) reaches 0.90.  With no defect found it takes the route above, and
+  the hazard path's Wald claim at ``t = 3`` stays experimental with the measured coverage.  Any
+  other red primary row of that scenario is a defect suspect.
 * A red positive ``double_robustness`` cell is a defect suspect: its exact-law limit is the
   truth (``test_every_positive_limit_is_the_truth``).
 * A ``double_robustness`` control that does not clear the margin is read against its exact-law
