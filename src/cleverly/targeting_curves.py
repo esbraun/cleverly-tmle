@@ -1178,7 +1178,7 @@ def targeting_fit(
         cross_fitted=bool(getattr(fit.config, "cross_fit", True)),
     )
     z = float(stats.norm.ppf(1.0 - float(alpha) / 2.0))
-    builder = _Rows(
+    builder = _TargetingRows(
         z=z,
         alpha=float(alpha),
         config_codes=config_codes,
@@ -1310,7 +1310,7 @@ def _has_atoms(layout: _Layout, n: int) -> bool:
     return bool(counts.max() >= TARGETING_ATOM_SHARE * n and layout.n_blocks > n / 10.0)
 
 
-class _Rows:
+class _TargetingRows:
     """The estimates table, built row by row."""
 
     def __init__(
