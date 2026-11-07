@@ -370,6 +370,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert namespace["nuisance"].summary().reading == vocabulary.MODEL_READINGS["clear"]
     (propensity,) = (m for m in namespace["nuisance"].models if m.name == "propensity")
     assert abs(propensity.metrics["calibration_slope"] - 1.0) < 0.1
+    assert figure_title(namespace["wrong_model_fig"]) == "Which intervals contain the true effect?"
     assert figure_title(namespace["overlap_fig"]) == "Predicted probability of treatment, by group"
     # "no unit sits at the truncation bound".
     support = namespace["support"]

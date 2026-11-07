@@ -28,6 +28,7 @@ from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
     covers,
+    figure_title,
     stored_output,
 )
 
@@ -109,6 +110,9 @@ def _check_design(namespace: dict[str, Any]) -> None:
 
 def _check_fits(namespace: dict[str, Any]) -> None:
     result, truth = namespace["result"], namespace["truth"]
+    assert (
+        figure_title(namespace["ltmle_fig"]) == "How does the effect of each plan change by week?"
+    )
     assert set(result.estimates) == {_key(plan, week) for plan in PLANS for week in WEEKS}
     psi = {key: estimate.psi for key, estimate in result.estimates.items()}
     assert [round(psi[_key("always", week)], 3) for week in WEEKS] == [0.168, 0.111, 0.076]

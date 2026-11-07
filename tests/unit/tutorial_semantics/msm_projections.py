@@ -26,6 +26,7 @@ from tests.unit.tutorial_semantics import (
     assert_protocol_recorded,
     changed_fields,
     covers,
+    figure_title,
     stored_output,
 )
 
@@ -242,6 +243,10 @@ def check(namespace: dict[str, Any]) -> None:
     # The miss at medium is a fixed contrast of the three arm means, read through ``contrast``.
     # "The interval excludes zero" and "the interval contains the population miss".
     medium_misfit = namespace["medium_misfit"]
+    assert (
+        figure_title(namespace["trend_fig"])
+        == "How does the average score change with assigned contacts?"
+    )
     means = np.array([fitted[f"ey[{arm}]"].psi for arm in namespace["ARMS"]])
     hat = design @ np.linalg.pinv(design)
     assert medium_misfit.psi == pytest.approx((hat @ means - means)[1], rel=1e-10, abs=1e-12)
