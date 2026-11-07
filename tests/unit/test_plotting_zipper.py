@@ -13,12 +13,18 @@ from scipy import stats
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import plotting
+from cleverly._support import Support
+from cleverly.datasets import nonlinear_dgp
+from cleverly.estimators import TMLE
 from cleverly.exceptions import DataError
 from cleverly.inference import make_estimate
 from cleverly.plotting import _core
+from cleverly.plotting._strips import strip_figure
 from cleverly.validation import CoverageStudy
+from tests.unit._plotting_checks import assert_style, assert_text_inside
 
 N_ROWS = 40
 
@@ -107,10 +113,35 @@ class TestIntervalLimitsOnTheRecords:
         assert wide.upper - wide.lower == pytest.approx(2 * half)
         assert wide.upper - wide.lower > normal.upper - normal.lower
 
-    def test_a_mutated_limit_breaks_the_agreement(self, study: Any) -> None:
-        record = next(r for r in study.replications if r.estimand == "rd" and r.covered)
-        moved = dataclasses.replace(record, lower=record.truth + 1.0, upper=record.truth + 2.0)
-        assert (moved.lower <= moved.truth <= moved.upper) != moved.covered
+    def test_a_real_study_with_a_bootstrap_fit_records_the_wald_limits(self) -> None:
+        # CoverageStudy measures the interval the estimate reports through plugin_interval,
+        # the Wald body, also on a fit that ran a bootstrap: a bootstrap percentile interval
+        # never reaches a record, so the records' limits are the Wald ones in every case.
+        real = CoverageStudy(
+            dgp=nonlinear_dgp(),
+            estimator=lambda: TMLE(
+                outcome_learner=LinearRegression(),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                cross_fit=False,
+                n_bootstrap=20,
+                random_state=0,
+            ),
+            n=150,
+            n_replicates=4,
+            estimands=("ate",),
+            seed=1,
+        ).run()
+        assert len(real.replications) == 4
+        for record in real.replications:
+            assert (record.lower <= record.truth <= record.upper) == record.covered
+            half = stats.norm.ppf(1 - record.alpha / 2) * record.std_error
+            assert record.lower == pytest.approx(record.estimate - half)
+            assert record.upper == pytest.approx(record.estimate + half)
+            assert record.support == "supported" and record.support_reason == ""
+        fig = plotting.zipper(real)
+        assert fig.axes[1].get_xlabel().splitlines()[0] == "Average effect (ate)"
+        assert "experimental" not in _core.note_text(fig)
+        _close(fig)
 
 
 class TestTheZipper:
@@ -196,7 +227,8 @@ class TestTheZipper:
         records = [r for r in study.replications if r.estimand == "rd"]
         below = sum(r.upper < r.truth for r in records)
         above = sum(r.lower > r.truth for r in records)
-        assert f"{below} intervals fall wholly below the true value, {above} above" in (
+        assert below == 1  # the singular, which the note words as such
+        assert f"rd: 1 interval falls wholly below the true value, {above} above" in (
             _core.note_text(fig)
         )
         _close(fig)
@@ -264,8 +296,109 @@ class TestTheHonestyRules:
         assert "not confidence intervals" not in _core.note_text(fig)
         _close(fig)
 
-    def test_the_experimental_label_is_noted(self, study: Any) -> None:
-        fig = plotting.zipper(study, estimand="rd")
+    def test_the_experimental_note_names_the_estimands_and_the_reason(self, study: Any) -> None:
+        fig = plotting.zipper(study, estimand=["rd", "rr"])
         assert study.summaries["rd"].support == "experimental"
-        assert "experimental" in _core.note_text(fig)
+        notes = _core.note_text(fig)
+        assert (
+            "rd, rr: experimental estimates. This estimate was built outside a classified fit. "
+            "The study measures how often their intervals cover the true value."
+        ) in notes
+        _close(fig)
+
+    def test_a_supported_study_has_no_experimental_note(self) -> None:
+        # the control for the test above: the same mock, its estimates labelled supported
+        supported = Support("supported", "A registered study covers it.", ("x",))
+
+        class _Supported(_Estimator):
+            def fit(self, frame: Any, **kwargs: Any) -> _Result:
+                result = super().fit(frame)
+                result.estimates = {
+                    name: dataclasses.replace(estimate, support=supported)
+                    for name, estimate in result.estimates.items()
+                }
+                return result
+
+        study = CoverageStudy(
+            dgp=lambda n, seed: (SimpleNamespace(seed=seed), {"rd": 0.1}),
+            estimator=_Supported,
+            n=N_ROWS,
+            n_replicates=6,
+            estimands=("rd",),
+            seed=2,
+        ).run()
+        assert study.summaries["rd"].support == "supported"
+        fig = plotting.zipper(study)
+        assert "experimental" not in _core.note_text(fig)
+        _close(fig)
+
+
+class TestTheLayout:
+    def test_the_y_label_is_short_and_the_sorting_rule_is_in_the_note(self, study: Any) -> None:
+        fig = plotting.zipper(study)
+        assert fig.axes[1].get_ylabel() == "Replications (sorted)"
+        assert "sorted from bottom to top by the interval's centre" in _core.note_text(fig)
+        _close(fig)
+
+    def test_many_replications_draw_thinner_lines(self, study: Any) -> None:
+        def widths(source: Any) -> list[float]:
+            fig = plotting.zipper(source, estimand="rd")
+            found = [float(c.get_linewidth()[0]) for c in fig.axes[1].collections if c.get_gid()]
+            _close(fig)
+            return found
+
+        assert widths(study) == [1.2, 1.2]
+        assert widths(_study(n_replicates=400)) == pytest.approx([180 / 400] * 2)
+
+    def test_the_figures_pass_the_style_and_layout_checks(self, study: Any) -> None:
+        for fig in (plotting.zipper(study), plotting.zipper(study, estimand="rd")):
+            assert_style(fig)
+            assert_text_inside(fig)
+            _close(fig)
+
+    def test_the_header_and_notes_strips_are_sized_from_their_text(self, study: Any) -> None:
+        one = plotting.zipper(study, estimand="rd")
+        three = plotting.zipper(study, labels={"rd": "A risk difference " * 12})
+        heights = []
+        for fig in (one, three):
+            fig.canvas.draw()
+            renderer = fig.canvas.get_renderer()
+            heights.append(fig.axes[1].get_window_extent().height / fig.dpi)
+            # no empty band: the notes end, and the title starts, near the figure's edges
+            notes = [t for t in fig.axes[-1].texts if t.get_gid() == _core.GID_NOTES]
+            bottom = notes[0].get_window_extent(renderer).y0 / fig.dpi
+            top = fig.get_figheight() - fig.axes[0].title.get_window_extent(renderer).y1 / fig.dpi
+            assert 0.0 <= bottom < 0.25
+            assert 0.0 <= top < 0.25
+        # the panels keep their height; longer notes make the figure taller, not the panels
+        assert heights[0] == pytest.approx(heights[1], abs=0.05)
+        assert three.get_figheight() > one.get_figheight() + 0.3
+        _close(one)
+        _close(three)
+
+
+class TestTheChecksThemselves:
+    def test_the_style_check_rejects_an_off_palette_unlabelled_figure(self) -> None:
+        fig, head, (panel,), _ = strip_figure(1, 1, panel=(3.0, 2.0))
+        head.set_title("A title", loc="left")
+        panel.set_xlabel("x")
+        panel.set_yticks([])
+        for index in range(8):
+            panel.plot([0, 1], [index, index + 1], color=f"C{index}")
+        with pytest.raises(AssertionError):
+            assert_style(fig)
+        _close(fig)
+
+    def test_the_inside_check_rejects_a_note_off_the_page(self, study: Any) -> None:
+        fig = plotting.zipper(study, estimand="rd")
+        assert_text_inside(fig)
+        stray = fig.axes[-1].annotate(
+            "a note that runs off the right edge",
+            xy=(0.98, 0.02),
+            xycoords="figure fraction",
+            gid=_core.GID_NOTES,
+        )
+        stray.set_in_layout(False)
+        with pytest.raises(AssertionError, match="runs off"):
+            assert_text_inside(fig)
         _close(fig)

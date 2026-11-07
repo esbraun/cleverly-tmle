@@ -112,6 +112,9 @@ class ReplicationRecord:
         plug-in diagnostic instead.
     support : {"supported", "experimental"}
         The support label of the replicate's estimate.
+    support_reason : str
+        Why an experimental estimate is experimental, from its support record; empty for a
+        supported one.
     """
 
     replicate: int
@@ -128,6 +131,7 @@ class ReplicationRecord:
     alpha: float
     inference: InferenceStatus = "influence_curve"
     support: str = "experimental"
+    support_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -647,7 +651,7 @@ class StudyResult:
         ... ).run()
         >>> fig = study.plot()
         >>> fig.axes[1].get_xlabel().splitlines()[0]
-        'ate'
+        'Average effect (ate)'
         >>> plt.close(fig)
         """
         from ..plotting import zipper
@@ -925,6 +929,11 @@ class CoverageStudy:
                         alpha=float(estimate.alpha),
                         inference=estimate.inference,
                         support=estimate.support.label,
+                        support_reason=(
+                            str(estimate.support.reason)
+                            if estimate.support.label == "experimental"
+                            else ""
+                        ),
                     )
                 )
             return tuple(out)

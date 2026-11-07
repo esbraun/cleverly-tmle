@@ -56,9 +56,11 @@ def summarize(rows: pd.DataFrame, *, truth_varies: bool = False) -> pd.DataFrame
                     truth=float(row.truth),
                     estimate=float(row.estimate),
                     std_error=float(row.std_error),
-                    # The artifact rows keep the verdict, not the limits.
-                    lower=float("nan"),
-                    upper=float("nan"),
+                    # Most artifact rows keep the limits as ci_lower and ci_upper; a row
+                    # without them has none to give, and summarize_replications reads only
+                    # the verdict.
+                    lower=float(getattr(row, "ci_lower", float("nan"))),
+                    upper=float(getattr(row, "ci_upper", float("nan"))),
                     covered=bool(row.covered),
                     rejected=False,
                     inference_estimate=float(row.inference_estimate),

@@ -16,17 +16,20 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from . import _core
-from ._zipper import strip_figure
+from ._strips import fit_height, strip_figure
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
 #: Nodes whose weight is the data's weight over the cumulative probability alone, so the
 #: bound on that probability caps it. A policy or modified-treatment node divides a varying
 #: numerator by it, and a tilt node's factor is never bounded.
 _CAPPED_KINDS = ("label", "rule")
-#: Series at one axes: the palette's three slots.
+#: The width one time point's boxes share.
 _BOX_WIDTH = 0.7
+#: The least vertical distance between two end labels, in points.
+_LABEL_GAP = 11.0
 
 # ---------------------------------------------------------------------------- V10
 
@@ -52,11 +55,46 @@ def _percent_text(share: float) -> str:
     return f"{100.0 * share:.0f}%"
 
 
+def _capped(kinds: Sequence[str], node: int) -> bool:
+    """Whether the limit caps the weight at ``node``: every node up to it is a label or rule.
+
+    The weight at a node is a product over the nodes before it, so a policy or tilt factor
+    at an earlier node carries into it, and ``1 / bound`` is no longer its largest value.
+    """
+    return all(kind in _CAPPED_KINDS for kind in kinds[: node + 1])
+
+
+def _end_labels(ax: Axes, x: float, items: list[tuple[float, str, str]]) -> None:
+    """End labels at ``x``, moved apart vertically so no two overlap.
+
+    ``items`` holds each series' last value, its label and its colour. Labels closer than
+    :data:`_LABEL_GAP` points are spread around their mean; the axes' size after layout
+    sets the conversion, so call this after everything else on the figure is drawn.
+    """
+    if not items:
+        return
+    fig: Any = ax.get_figure(root=True)
+    fig.draw_without_rendering()
+    low, high = ax.get_ylim()
+    points = ax.bbox.height * 72.0 / fig.dpi
+    gap = _LABEL_GAP * (high - low) / max(points, 1.0)
+    ordered = sorted(items, key=lambda item: item[0])
+    placed = [ordered[0][0]]
+    for value, _, _ in ordered[1:]:
+        placed.append(max(value, placed[-1] + gap))
+    # Centre the moved block on the values it labels, so it does not drift upward.
+    shift = float(np.mean([item[0] for item in ordered]) - np.mean(placed))
+    shift = max(shift, low - placed[0])
+    for (_, text, color), y in zip(ordered, placed, strict=True):
+        _core.end_label(ax, x, y + shift, text, color)
+
+
 def weights(
     result: Any,
     *,
     regimen: str | None = None,
     horizon: int | None = None,
+    cause: str | None = None,
     repeat: int = 1,
     labels: dict[str, str] | None = None,
     time_label: str = "Time point",
@@ -69,13 +107,15 @@ def weights(
     middle half, the whiskers the 1st to 99th percentile, the cross is the largest. The
     dotted line marks the largest weight the fit's limit on the cumulative probability
     allows, with the share of units the limit moved printed above. The bottom panel shows
-    the effective sample size, the number of equally weighted units that would carry the
-    same information, against the number still followed. A gap that widens at a time point
-    is where the regimen loses its support.
+    the effective sample size (solid), the number of equally weighted units that would
+    carry the same information, against the number still followed (dashed). A gap that
+    widens at a time point is where the regimen loses its support.
 
     A fit with several horizons draws the largest, a fit with several cross-fitting repeats
-    the first, and the note says which. A time point whose weights the limit does not cap
-    (an incremental or modified policy, or data weights other than one) has no dotted line.
+    the first, and the note says which. A time point whose weight the limit does not cap
+    has no dotted line: one with an incremental or modified policy at it or at an earlier
+    time point, whose factor the weight carries, or any time point when the data's weights
+    are not all one.
 
     Parameters
     ----------
@@ -85,6 +125,8 @@ def weights(
         One regimen's label; every regimen of the result, up to three, when omitted.
     horizon : int or None, default=None
         The horizon of a curve fit; the largest when omitted.
+    cause : str or None, default=None
+        The cause, under competing events; the first when omitted.
     repeat : int, default=1
         The cross-fitting repeat, counted from one.
     labels : dict or None, default=None
@@ -105,7 +147,7 @@ def weights(
         When the result is a g-computation or parametric g-formula fit, which has no weights.
     DataError
         When the result holds more than three regimens and none is named, or the regimen,
-        horizon or repeat is not in the result.
+        cause, horizon or repeat is not in the result.
 
     See Also
     --------
@@ -144,7 +186,10 @@ def weights(
     from ..exceptions import DataError
     from ..longitudinal.weights import node_weights
 
-    fits = result.repeats[repeat - 1].fits if 1 <= repeat <= len(result.repeats) else {}
+    repeats = result.repeats
+    if isinstance(repeat, bool) or not isinstance(repeat, int) or not 1 <= repeat <= len(repeats):
+        raise DataError(f"repeat must be an integer from 1 to {len(repeats)}; got {repeat!r}")
+    fits = repeats[repeat - 1].fits
     names = (
         [regimen]
         if regimen is not None
@@ -155,19 +200,24 @@ def weights(
             f"the result holds {len(names)} regimens and one panel draws at most "
             f"{_core.MAX_SERIES}; name one with regimen="
         )
-    series = [node_weights(result, regimen=name, horizon=horizon, repeat=repeat) for name in names]
+    series = [
+        node_weights(result, regimen=name, horizon=horizon, cause=cause, repeat=repeat)
+        for name in names
+    ]
     first = series[0]
     times = first.times
     fig, (top, bottom) = _core.new_figure(
-        2, figsize=(7.0, 6.2), sharex=True, height_ratios=[3.0, 2.0]
+        2, figsize=(7.0, 6.4), sharex=True, height_ratios=[3.0, 2.0]
     )
     count = len(series)
     step = _BOX_WIDTH / count
     capped_somewhere = False
-    unit = all(item.unit_weights for item in series)
+    limits = {round(1.0 / item.bounds[0], 12) for item in series if item.bounds[0] > 0.0}
+    shown_names = [(labels or {}).get(item.regimen, item.regimen) for item in series]
+    ends: list[tuple[float, str, str]] = []
     for index, item in enumerate(series):
-        color = _core.PALETTE[index]
-        shown = (labels or {}).get(item.regimen, item.regimen)
+        color = _core.series_color(index)
+        shown = shown_names[index]
         offset = (index - (count - 1) / 2.0) * step
         stats, positions, peaks = [], [], []
         for node, time in enumerate(times):
@@ -201,28 +251,45 @@ def weights(
                 zorder=3,
                 gid="cleverly-weight-max",
             )
+            if count > 1:
+                # Identity never rests on colour alone: each box carries its regimen's name.
+                for position, box in zip(positions, stats, strict=True):
+                    top.annotate(
+                        shown,
+                        xy=(position, box["whislo"]),
+                        xytext=(0.0, -3.0),
+                        textcoords="offset points",
+                        ha="center",
+                        va="top",
+                        fontsize=_core.TICK_SIZE - 1.0,
+                        color=_core.INK,
+                        gid=_core.GID_SERIES_LABEL,
+                    )
         for node, time in enumerate(times):
-            kind = item.node_kinds[node]
-            if kind not in _CAPPED_KINDS or not item.unit_weights or item.bounds[0] <= 0.0:
+            share = float(item.share_beyond_bounds[node])
+            if (
+                not _capped(item.node_kinds, node)
+                or not item.unit_weights
+                or item.bounds[0] <= 0.0
+                or not np.isfinite(share)
+            ):
                 continue
             capped_somewhere = True
             limit = 1.0 / item.bounds[0]
-            line = top.plot(
+            top.plot(
                 [time + offset - step * 0.5, time + offset + step * 0.5],
                 [limit, limit],
                 color=_core.SECONDARY_INK,
                 linestyle=(0, (1, 2)),
                 linewidth=1.4,
                 zorder=2.5,
-                label=f"Largest weight the limit allows ({limit:g})"
-                if len({item.bounds for item in series}) == 1
+                label=f"Largest weight the limit allows ({limit:.3g})"
+                if len(limits) == 1
                 else "Largest weight the limit allows",
-                gid="cleverly-marker",
-            )[0]
-            del line
-            share = item.share_beyond_bounds[node]
+                gid=_core.GID_MARKER,
+            )
             top.annotate(
-                _percent_text(float(share)),
+                _percent_text(share),
                 xy=(time + offset, limit),
                 xytext=(0.0, 3.0),
                 textcoords="offset points",
@@ -238,11 +305,12 @@ def weights(
             times,
             followers,
             marker="o",
+            markersize=4,
             markerfacecolor=_core.FACE,
-            markeredgecolor=_core.CONTEXT,
-            color=_core.CONTEXT,
+            markeredgecolor=color,
+            color=color,
+            linestyle=(0, (4, 2)),
             linewidth=1.0,
-            label="Units still followed",
             gid="cleverly-followed",
         )
         bottom.plot(
@@ -254,49 +322,63 @@ def weights(
             gid="cleverly-effective-n",
         )
         if count > 1:
-            _core.end_label(bottom, times[-1], float(effective[-1]), shown, color)
+            ends.append((float(followers[-1]), f"{shown}: units still followed", color))
+            ends.append((float(effective[-1]), f"{shown}: effective sample size", color))
+        else:
+            ends.append((float(followers[-1]), "Units still followed", color))
+            ends.append((float(effective[-1]), "Effective sample size", color))
     _core.log_axis(top, "y")
     top.set_ylabel("Weight each unit carried (log scale)")
     ceiling = max(
         [top.get_ylim()[1]]
         + [1.0 / item.bounds[0] * 1.6 for item in series if capped_somewhere and item.bounds[0] > 0]
     )
-    top.set_ylim(top.get_ylim()[0], ceiling)
-    bottom.set_ylabel("Effective sample size")
+    top.set_ylim(top.get_ylim()[0] / (1.25 if count > 1 else 1.0), ceiling)
+    bottom.set_ylabel("Units")
     bottom.set_xlabel(time_label)
     bottom.set_xticks(list(times))
     bottom.set_xlim(times[0] - 0.7, times[-1] + 0.7)
     bottom.set_ylim(0.0, max(float(item.followed.sum(axis=0).max()) for item in series) * 1.1)
-    _core.legend(top, sources=[top, bottom])
-    only = series[0]
-    cause = f", cause {only.cause}" if only.cause is not None else ""
-    shown_names = ", ".join((labels or {}).get(item.regimen, item.regimen) for item in series)
+    cause_words = f", cause {first.cause}" if first.cause is not None else ""
     _core.header(
         top,
         title or "Where do the weights grow too large?",
-        f"Weights used at each {time_label.lower()} by units still followed, regimen {shown_names}",
+        f"Weights used at each {time_label.lower()} by units still followed, regimen "
+        + ", ".join(shown_names),
+        key_sources=[top],
     )
+    where = "Horizon" if first.reports_curve else "Final time point"
+    if first.n_repeats > 1:
+        source = f", cross-fitting repeat {first.repeat} of {first.n_repeats}"
+    elif first.cross_fitted:
+        source = ", out-of-fold probabilities"
+    else:
+        source = ", in-sample probabilities (the fit was not cross-fitted)"
     found = [
-        f"Horizon {only.horizon}{cause}, cross-fitting repeat {only.repeat} of {only.n_repeats}.",
+        f"{where} {first.horizon}{cause_words}{source}.",
         "Boxes span the middle half of the weights, whiskers the 1st to 99th percentile, "
-        "crosses the largest weight.",
+        "crosses the largest weight. In the lower panel, solid lines are the effective "
+        "sample size and dashed lines the units still followed.",
     ]
     if capped_somewhere:
         found.append(
-            "The percentage above each box is the share of units whose cumulative probability "
-            "the limit replaced."
+            "The percentage above each dotted line is the share of units whose cumulative "
+            "probability the limit replaced."
         )
-    skipped = sorted({kind for item in series for kind in item.node_kinds} - set(_CAPPED_KINDS))
-    if skipped:
+    uncapped = sorted(
+        {kind for item in series for kind in item.node_kinds if kind not in _CAPPED_KINDS}
+    )
+    if uncapped and all(item.unit_weights for item in series):
         found.append(
             "No limit line is drawn at a time point of kind "
-            + ", ".join(skipped)
-            + ", whose weight the limit does not cap."
+            + ", ".join(uncapped)
+            + ", or after one, because the weight carries a factor the limit does not cap."
         )
-    if not unit:
+    if not all(item.unit_weights for item in series):
         found.append("The data's weights multiply the limit, so no limit line is drawn.")
     found.append("Descriptive: the weights are read from the fit, with no interval.")
     _core.notes(bottom, found)
+    _end_labels(bottom, float(times[-1]), ends)
     return fig
 
 
@@ -307,6 +389,42 @@ def _balance_object(source: Any) -> Any:
     from ..sensitivity.balance import CovariateBalance, covariate_balance
 
     return source if isinstance(source, CovariateBalance) else covariate_balance(source)
+
+
+def _shown_covariates(summary: Any, max_covariates: int) -> tuple[list[str], int]:
+    """The covariates to draw, in drawing order from the top, and how many are left out.
+
+    Every covariate whose difference after weighting is above the threshold in some panel
+    is kept, and so is the largest after weighting; the rest of the room goes to the
+    covariates with the largest difference before or after weighting. Drawn rows are sorted
+    by their largest difference before weighting.
+    """
+    covariates = list(dict.fromkeys(row.covariate for row in summary.rows))
+
+    def largest(name: str, attribute: str) -> float:
+        values = [
+            abs(getattr(row, attribute))
+            for row in summary.rows
+            if row.covariate == name and np.isfinite(getattr(row, attribute))
+        ]
+        return max(values, default=0.0)
+
+    before = {name: largest(name, "smd_unweighted") for name in covariates}
+    after = {name: largest(name, "smd_weighted") for name in covariates}
+    kept = [name for name in covariates if after[name] > summary.threshold]
+    if covariates:
+        kept.append(max(covariates, key=lambda name: after[name]))
+    ranked = sorted(covariates, key=lambda name: -max(before[name], after[name]))
+    for name in ranked:
+        if len(set(kept)) >= max_covariates:
+            break
+        kept.append(name)
+    chosen = set(kept)
+    order = sorted(
+        (name for name in covariates if name in chosen),
+        key=lambda name: (-before[name], covariates.index(name)),
+    )
+    return order, len(covariates) - len(order)
 
 
 def balance(
@@ -321,22 +439,27 @@ def balance(
 
     Use it to check the treatment model on the covariates you know. Each row is a
     covariate: the hollow marker is the absolute difference in its mean between the two
-    treatment groups, in pooled standard deviations, and the filled marker is the same
-    difference after weighting each unit by the inverse of the probability its own arm was
-    given. Weighting has worked on a covariate when the filled marker sits left of the
-    dashed line, at 0.1, the usual threshold for a small difference. Covariates are sorted
-    by their difference before weighting.
+    groups before weighting, in standard deviations, and the filled marker is the same
+    difference after weighting each unit with the fit's own weights. Weighting has worked
+    on a covariate when the filled marker sits left of the dashed line, at 0.1, the usual
+    threshold for a small difference. Covariates are sorted by their difference before
+    weighting.
 
-    With more than two arms each arm is compared with all the others, one panel per arm.
-    A categorical covariate has a row per level. The figure is descriptive: it carries no
-    interval or test.
+    The weights and the standard deviation follow the estimand, as
+    :func:`~cleverly.sensitivity.covariate_balance` describes: for the ATE, each unit
+    weighted by the inverse of the probability of its own arm, and for the ATT or ATC, the
+    group the effect is among left as it is. With more than two arms and the ATE, each arm
+    is compared with all the others, one panel per arm. A categorical covariate has a row
+    per level. The figure is descriptive: it carries no interval or test.
 
     Parameters
     ----------
     source : CovariateBalance or TMLEResult
-        The balance, or a fitted point-treatment result to compute it from.
+        The balance, or a fitted point-treatment result to compute it from with the default
+        estimand.
     max_covariates : int, default=30
-        The most covariates to draw, the ones with the largest difference before weighting.
+        The most covariates to draw. Every covariate above the threshold after weighting is
+        drawn, then those with the largest difference before or after weighting.
     treatment_label : str or None, default=None
         Words for the treatment in the subtitle; its column name when omitted.
     labels : dict or None, default=None
@@ -355,6 +478,8 @@ def balance(
         When the fit estimated no treatment mechanism.
     DataError
         When the treatment is continuous.
+    ValueError
+        When ``max_covariates`` is less than one.
 
     See Also
     --------
@@ -385,29 +510,25 @@ def balance(
     'Covariate balance before and after weighting'
     >>> plt.close(fig)
     """
+    from .._summary import vocabulary
+    from .._summary._balance import descriptive_text, rest_text, source_text, weights_text
+    from .._summary._render import number_text
+
+    if isinstance(max_covariates, bool) or not isinstance(max_covariates, int):
+        raise ValueError(f"max_covariates must be an integer of at least 1; got {max_covariates!r}")
+    if max_covariates < 1:
+        raise ValueError(f"max_covariates must be at least 1; got {max_covariates!r}")
     summary = _balance_object(source)
     contrasts = summary.contrasts
-    covariates = list(dict.fromkeys(row.covariate for row in summary.rows))
-    largest = {
-        name: max(
-            (
-                abs(row.smd_unweighted)
-                for row in summary.rows
-                if row.covariate == name and np.isfinite(row.smd_unweighted)
-            ),
-            default=0.0,
-        )
-        for name in covariates
-    }
-    order = sorted(covariates, key=lambda name: (-largest[name], covariates.index(name)))
-    shown = order[:max_covariates]
-    hidden = len(order) - len(shown)
+    shown, hidden = _shown_covariates(summary, max_covariates)
     columns = min(len(contrasts), 3)
+    panel_height = 0.27 * len(shown) + 0.45
+    longest = max(len((labels or {}).get(name, name)) for name in shown)
     fig, head, axes, foot = strip_figure(
         len(contrasts),
         columns,
-        panel=(3.6, 0.27 * len(shown) + 1.1),
-        extra_height=1.5,
+        panel=(3.6, panel_height),
+        left=longest * _core.TICK_SIZE * 0.55 / 72.0,
         sharey=True,
     )
     ceiling = max(
@@ -421,7 +542,6 @@ def balance(
         ]
     )
     heights = np.arange(len(shown))[::-1] + 0.0
-    flat_ink = _core.INK
     for axis, contrast in zip(axes, contrasts, strict=True):
         rows = {row.covariate: row for row in summary.rows_of(contrast)}
         before = np.asarray([abs(rows[name].smd_unweighted) for name in shown])
@@ -459,7 +579,7 @@ def balance(
         axis.set_yticklabels(
             [(labels or {}).get(name, name) for name in shown],
             fontsize=_core.TICK_SIZE,
-            color=flat_ink,
+            color=_core.INK,
         )
         axis.set_ylim(-0.7, len(shown) + 0.75)
         if axis is not axes[0]:
@@ -468,12 +588,7 @@ def balance(
         axis.grid(True, axis="x", color=_core.GRID, linewidth=0.8)
         axis.set_xlabel("Absolute standardized mean difference")
         if len(contrasts) > 1:
-            axis.set_title(
-                contrast.replace(" vs the other arms", ""),
-                loc="left",
-                fontsize=_core.SUBTITLE_SIZE,
-                color=_core.INK,
-            )
+            axis.set_title(contrast, loc="left", fontsize=_core.SUBTITLE_SIZE, color=_core.INK)
     # Direct labels of the two markers above the top row of the first panel, each over its own
     # marker and on its own line, so they never meet.
     top_row = {row.covariate: row for row in summary.rows_of(contrasts[0])}[shown[0]]
@@ -497,44 +612,36 @@ def balance(
             fontsize=_core.TICK_SIZE,
             color=_core.INK,
             bbox={"boxstyle": "square,pad=0.15", "facecolor": _core.FACE, "edgecolor": "none"},
-            gid="cleverly-series-label",
+            gid=_core.GID_SERIES_LABEL,
         )
     axes[0].set_ylabel("")
-    _core.legend(head, sources=axes[:1])
     name = treatment_label or summary.treatment
     finite = [row for row in summary.rows if np.isfinite(row.smd_weighted)]
     worst = max(finite, key=lambda row: abs(row.smd_weighted)) if finite else None
-    pieces = [f"Treatment {name}" if len(contrasts) > 1 else contrasts[0]]
+    pieces = [
+        (f"Treatment {name}" if len(contrasts) > 1 else contrasts[0])
+        + ", weights for "
+        + vocabulary.BALANCE_ESTIMAND_WORDS[summary.estimand]
+    ]
     if worst is not None:
         pieces.append(
             f"largest after weighting {(labels or {}).get(worst.covariate, worst.covariate)} "
-            f"{abs(worst.smd_weighted):.3f}"
+            f"{number_text(abs(worst.smd_weighted), 3)}"
         )
     _core.header(
         head,
         title or "Covariate balance before and after weighting",
         "; ".join(pieces),
+        key_sources=axes[:1],
     )
-    found = [
-        "Descriptive: these differences carry no interval or test. Each is a difference in "
-        "group means over the standard deviation of the two groups together.",
-        "After weighting, each unit counts as the inverse of the probability the fit gave its own "
-        "arm"
-        + (
-            ""
-            if summary.limits is None
-            else f", within [{summary.limits[0]:g}, {summary.limits[1]:g}]"
-        )
-        + (
-            ""
-            if summary.n_repeats == 1
-            else f", from the first of {summary.n_repeats} repeats' out-of-fold predictions"
-        )
-        + ".",
-    ]
+    found = [descriptive_text(summary), f"{weights_text(summary)} {source_text(summary)}"]
+    rest = rest_text(summary, "panel")
+    if rest is not None:
+        found.append(rest)
     if hidden:
         found.append(
-            f"{hidden} covariates with the smallest differences before weighting are not drawn."
+            f"{hidden} covariates are not drawn. Every covariate above the threshold after "
+            "weighting is drawn, then those with the largest difference before or after."
         )
     undefined = sorted(
         {row.covariate for row in summary.rows if not np.isfinite(row.smd_unweighted)}
@@ -542,6 +649,7 @@ def balance(
     if undefined:
         found.append(f"No difference is drawn for {', '.join(undefined)}, which does not vary.")
     _core.notes(foot, found)
+    fit_height(fig, axes, columns, panel_height)
     return fig
 
 

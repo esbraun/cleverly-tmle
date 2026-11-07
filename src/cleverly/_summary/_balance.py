@@ -1,4 +1,8 @@
-"""The printed summary of a :class:`~cleverly.sensitivity.CovariateBalance` (X92 V11)."""
+"""The printed summary of a :class:`~cleverly.sensitivity.CovariateBalance` (X92 V11).
+
+The sentences that say what a difference divides by, how a unit counts after weighting and
+where the probabilities come from are built here once; the love plot prints the same ones.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +15,13 @@ from ._render import count_text, number_text
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..sensitivity.balance import CovariateBalance
 
-__all__ = ["balance_summary"]
+__all__ = [
+    "balance_summary",
+    "descriptive_text",
+    "rest_text",
+    "source_text",
+    "weights_text",
+]
 
 #: Decimals of a difference.
 _DECIMALS = 3
@@ -19,6 +29,92 @@ _DECIMALS = 3
 
 def _size(value: float) -> bool:
     return math.isfinite(value)
+
+
+def descriptive_text(balance: CovariateBalance) -> str:
+    """That the differences are descriptive, and what each one is divided by.
+
+    Parameters
+    ----------
+    balance : CovariateBalance
+        The balance.
+
+    Returns
+    -------
+    str
+        The sentence.
+    """
+    spreads = vocabulary.BALANCE_SPREAD_TEXTS
+    if balance.estimand in ("att", "atc"):
+        spread = spreads[balance.estimand]
+    elif balance.n_arms > 2:
+        spread = spreads["pooled_arms"].format(arms=balance.n_arms)
+    else:
+        spread = spreads["pooled_two"]
+    return vocabulary.NOTE_TEXTS["balance_descriptive"].format(spread=spread)
+
+
+def source_text(balance: CovariateBalance) -> str:
+    """Where the propensities come from: in-sample, out-of-fold, or the first repeat.
+
+    Parameters
+    ----------
+    balance : CovariateBalance
+        The balance.
+
+    Returns
+    -------
+    str
+        The sentence.
+    """
+    sources = vocabulary.BALANCE_SOURCE_TEXTS
+    if not balance.cross_fitted:
+        return sources["in_sample"]
+    if balance.n_repeats > 1:
+        return sources["repeats"].format(repeats=balance.n_repeats)
+    return sources["out_of_fold"]
+
+
+def weights_text(balance: CovariateBalance) -> str:
+    """How a unit counts after weighting, within which limits, and before weighting.
+
+    Parameters
+    ----------
+    balance : CovariateBalance
+        The balance.
+
+    Returns
+    -------
+    str
+        The sentences.
+    """
+    limits = (
+        ""
+        if balance.limits is None
+        else f", kept within [{balance.limits[0]:.3g}, {balance.limits[1]:.3g}]"
+    )
+    text = vocabulary.BALANCE_WEIGHT_TEXTS[(balance.estimand, balance.weighted_data)]
+    return text.format(limits=limits)
+
+
+def rest_text(balance: CovariateBalance, part: str) -> str | None:
+    """That each comparison is one arm against the rest, or ``None`` when none is.
+
+    Parameters
+    ----------
+    balance : CovariateBalance
+        The balance.
+    part : {"table", "panel"}
+        What holds one comparison.
+
+    Returns
+    -------
+    str or None
+        The sentence.
+    """
+    if balance.estimand != "ate" or balance.n_arms <= 2:
+        return None
+    return vocabulary.NOTE_TEXTS["balance_rest"].format(part=part)
 
 
 def balance_summary(balance: CovariateBalance, detail: str) -> Summary:
@@ -50,6 +146,7 @@ def balance_summary(balance: CovariateBalance, detail: str) -> Summary:
     worst = max(finite, key=lambda row: abs(row.smd_weighted)) if finite else None
     header = [
         (vocabulary.BALANCE_TREATMENT, balance.treatment),
+        (vocabulary.BALANCE_WEIGHTS_FOR, vocabulary.BALANCE_ESTIMAND_WORDS[balance.estimand]),
         (vocabulary.BALANCE_COVARIATES, count_text(len(covariates))),
         (vocabulary.BALANCE_HELD_AGAINST, f"{threshold:g}"),
         (vocabulary.ROWS, count_text(balance.n)),
@@ -95,26 +192,19 @@ def balance_summary(balance: CovariateBalance, detail: str) -> Summary:
         reading = readings["balanced"].format(
             before=before, after=after, total=len(balance.rows), threshold=f"{threshold:g}"
         )
-    limits = (
-        ""
-        if balance.limits is None
-        else f", kept within [{balance.limits[0]:g}, {balance.limits[1]:g}]"
-    )
     notes = [
-        note("balance_descriptive", vocabulary.NOTE_TEXTS["balance_descriptive"]),
+        note("balance_descriptive", descriptive_text(balance)),
         note(
             "balance_weights",
             vocabulary.NOTE_TEXTS["balance_weights"].format(
-                limits=limits,
-                origin=(
-                    "the out-of-fold predictions"
-                    if balance.n_repeats == 1
-                    else f"the first of {balance.n_repeats} repeats' out-of-fold predictions"
-                ),
+                weights=weights_text(balance), source=source_text(balance)
             ),
         ),
-        note("balance_unlisted", vocabulary.NOTE_TEXTS["balance_unlisted"]),
     ]
+    rest = rest_text(balance, "table")
+    if rest is not None:
+        notes.append(note("balance_rest", rest))
+    notes.append(note("balance_unlisted", vocabulary.NOTE_TEXTS["balance_unlisted"]))
     sections: tuple[SummarySection, ...] = ()
     if detail == "full":
         sections = tuple(

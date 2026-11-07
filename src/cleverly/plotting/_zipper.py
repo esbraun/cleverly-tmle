@@ -10,20 +10,21 @@ interval).
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from . import _core
+from ._strips import fit_height, strip_figure
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
 #: Panels per row.
 _COLUMNS = 3
+#: One panel's width and plotting-area height, in inches.
+_PANEL = (3.3, 2.6)
 
 
 def _on_log_scale(summary: Any) -> bool:
@@ -71,65 +72,6 @@ def _positions(records: Sequence[Any], *, ratio: bool) -> dict[str, Any]:
 
 def _percent(value: float) -> str:
     return f"{100.0 * value:.1f}%"
-
-
-def strip_figure(
-    panels: int,
-    columns: int,
-    *,
-    panel: tuple[float, float],
-    extra_height: float,
-    sharey: bool = False,
-) -> tuple[Figure, Axes, list[Axes], Axes]:
-    """A grid of panels with a full-width strip above for the header and one below for notes.
-
-    The title, subtitle and key sit on the top strip and the notes on the bottom one, so a
-    long line never widens the first panel. Shared with the other multi-panel plots of this
-    package that have more than one panel across.
-
-    Parameters
-    ----------
-    panels : int
-        Panels to draw.
-    columns : int
-        Panels per row.
-    panel : tuple of float
-        One panel's width and height in inches.
-    extra_height : float
-        Inches added for the header and notes.
-    sharey : bool, default=False
-        Whether the panels share their y axis.
-
-    Returns
-    -------
-    tuple of Figure, Axes, list of Axes and Axes
-        The figure, the header strip, the panels in reading order and the notes strip.
-    """
-    rows = math.ceil(panels / columns)
-    fig, grid = _core.new_figure(
-        rows + 2,
-        ncols=columns,
-        figsize=(max(5.5, panel[0] * columns + 0.8), extra_height + panel[1] * rows),
-        height_ratios=[0.02] + [panel[1]] * rows + [0.02],
-    )
-    spec: Any = grid[0].get_gridspec()
-    for axis in grid:
-        axis.remove()
-    head = fig.add_subplot(spec[0, :])
-    axes: list[Axes] = []
-    for index in range(panels):
-        share = axes[0] if sharey and axes else None
-        axes.append(fig.add_subplot(spec[1 + index // columns, index % columns], sharey=share))
-    foot = fig.add_subplot(spec[rows + 1, :])
-    for axis in axes:
-        _core.style_axes(axis)
-    for strip in (head, foot):
-        strip.set_xticks([])
-        strip.set_yticks([])
-        strip.patch.set_visible(False)
-        for spine in strip.spines.values():
-            spine.set_visible(False)
-    return fig, head, axes, foot
 
 
 def zipper(
@@ -206,6 +148,8 @@ def zipper(
     'Do the intervals cover the true value?'
     >>> plt.close(fig)
     """
+    from .._summary._estimates import plain_support_reason
+
     names = (
         list(study.summaries)
         if estimand is None
@@ -215,9 +159,10 @@ def zipper(
         if name not in study.summaries:
             raise KeyError(f"the study did not measure {name!r}; it did {list(study.summaries)}")
     columns = min(len(names), _COLUMNS)
-    fig, head, axes, foot = strip_figure(len(names), columns, panel=(3.3, 3.0), extra_height=1.2)
+    fig, head, axes, foot = strip_figure(len(names), columns, panel=_PANEL)
     coverage: list[str] = []
     found: list[str] = []
+    experimental: dict[str, list[str]] = {}
     for axis, name in zip(axes, names, strict=False):
         records = [record for record in study.replications if record.estimand == name]
         ratio = _on_log_scale(study.summaries[name])
@@ -225,6 +170,9 @@ def zipper(
         order = np.argsort(place["centre"], kind="stable")
         height = np.arange(1, len(order) + 1)
         low, high, hit = place["low"][order], place["high"][order], place["covered"][order]
+        # Thin lines once there are more replications than the panel has room for, so
+        # neighbouring intervals stay apart rather than merging into a block.
+        width = min(1.2, 180.0 / max(len(order), 1))
         for mask, color, text, gid in (
             (hit, _core.PALETTE[0], "Covers the true value", "cleverly-zipper-covered"),
             (~hit, _core.PALETTE[1], "Misses the true value", "cleverly-zipper-missed"),
@@ -235,7 +183,7 @@ def zipper(
                     low[mask],
                     high[mask],
                     colors=color,
-                    linewidth=1.2,
+                    linewidth=width,
                     alpha=0.6 if text.startswith("Covers") else 1.0,
                     label=text,
                     gid=gid,
@@ -245,35 +193,60 @@ def zipper(
         _core.reference_line(axis, reference, orientation="vertical", label="True value")
         axis.set_ylim(0.0, len(order) + 1.0)
         axis.set_yticks([])
-        axis.set_ylabel("Replications, sorted by interval centre" if axis is axes[0] else "")
-        shown = (labels or {}).get(name, name)
+        axis.set_ylabel("Replications (sorted)" if axis is axes[0] else "")
+        shown = (labels or {}).get(name, _core.estimand_words(name))
         if ratio:
             _core.log_axis(axis, "x")
-            axis.set_xlabel(f"{shown}\n(limit as a multiple of the true value)")
+            axis.set_xlabel(f"{shown}\nlimit as a multiple of the true value")
         else:
-            axis.set_xlabel(f"{shown}\n(limit minus the true value)")
-        coverage.append(f"{shown} {_percent(float(np.mean(place['covered'])))}")
+            axis.set_xlabel(f"{shown}\nlimit minus the true value")
+        coverage.append(
+            f"{(labels or {}).get(name, name)} {_percent(float(np.mean(place['covered'])))}"
+        )
         below = int(np.sum(place["high"] < reference))
         above = int(np.sum(place["low"] > reference))
-        found.append(f"{shown}: {below} intervals fall wholly below the true value, {above} above.")
-    _core.legend(head, sources=axes[:1])
+        found.append(
+            f"{(labels or {}).get(name, name)}: {below} "
+            + ("interval falls" if below == 1 else "intervals fall")
+            + f" wholly below the true value, {above} above."
+        )
+        if study.summaries[name].support == "experimental":
+            reasons = " ".join(
+                dict.fromkeys(
+                    plain_support_reason(record.support_reason)
+                    for record in records
+                    if record.support == "experimental" and record.support_reason
+                )
+            )
+            experimental.setdefault(reasons, []).append((labels or {}).get(name, name))
     _core.header(
         head,
         title or "Do the intervals cover the true value?",
         f"Coverage over {study.n_replicates} replications of n = {study.n}: "
         + ", ".join(coverage)
         + f" (aimed at {_percent(1.0 - float(study.alpha))})",
+        key_sources=axes[:1],
+    )
+    found.insert(
+        0,
+        "Each line is one replication's interval, measured from the true value; the lines are "
+        "sorted from bottom to top by the interval's centre.",
     )
     if study._diagnostic:
         found.append(
             f"These intervals are {study._diagnostic_noun}s, not confidence intervals; "
             "the figure shows what the study measured."
         )
-    if any(study.summaries[name].support == "experimental" for name in names):
-        found.append("Some estimates in this study are experimental.")
+    for reasons, shown_names in experimental.items():
+        found.append(
+            f"{', '.join(shown_names)}: experimental estimates. "
+            + (f"{reasons} " if reasons else "")
+            + "The study measures how often their intervals cover the true value."
+        )
     if study.n_failed:
         found.append(f"{study.n_failed} replications failed and are not drawn.")
     _core.notes(foot, found)
+    fit_height(fig, axes, columns, _PANEL[1])
     return fig
 
 

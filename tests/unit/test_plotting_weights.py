@@ -17,14 +17,16 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from cleverly import ATE, CausalStudy, PointTreatment, plotting
+from cleverly import ATC, ATE, ATT, CausalStudy, PointTreatment, plotting
 from cleverly.data.weighting import effective_sample_size
 from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.longitudinal import LTMLE, NodeWeights, gcomp, node_weights
-from cleverly.plotting import _core
+from cleverly.plotting import _core, _weights
 from cleverly.sensitivity import CovariateBalance, covariate_balance
+from cleverly.sensitivity.balance import BalanceRow
 from tests.unit._capability_sweep_support import fit_ipsi
+from tests.unit._plotting_checks import assert_style, assert_text_inside
 
 LONGITUDINAL_COLUMNS: dict[str, Any] = {
     "outcome": "Y",
@@ -70,6 +72,11 @@ def repeated() -> Any:
 
 def _close(fig: Any) -> None:
     plt.close(fig)
+
+
+def _assert_descriptive(fig: Any) -> None:
+    """The honesty check of the love plot: its notes say the differences are descriptive."""
+    assert "carry no interval or test" in _core.note_text(fig)
 
 
 def _stage_rows(result: Any) -> dict[tuple[str, int], Any]:
@@ -223,7 +230,7 @@ class TestTheWeightsPlot:
         expected = [f"{100 * share:.0f}%" for share in weights.share_beyond_bounds]
         assert texts == expected
         key = [text.get_text() for text in top.get_legend().get_texts()]
-        assert any(text.startswith("Largest weight the limit allows (3.33333)") for text in key)
+        assert key == ["Largest weight the limit allows (3.33)"]
         _close(fig)
 
     def test_a_tilt_node_has_no_limit_line(self) -> None:
@@ -253,7 +260,7 @@ class TestTheWeightsPlot:
 
     def test_the_note_names_the_horizon_and_repeat(self, repeated: Any) -> None:
         fig = plotting.weights(repeated)
-        assert "Horizon 2, cross-fitting repeat 1 of 2" in _core.note_text(fig)
+        assert "Final time point 2, cross-fitting repeat 1 of 2." in _core.note_text(fig)
         _close(fig)
         fig = plotting.weights(repeated, repeat=2)
         assert "cross-fitting repeat 2 of 2" in _core.note_text(fig)
@@ -265,8 +272,34 @@ class TestTheWeightsPlot:
         bottom = fig.axes[1]
         lines = [line for line in bottom.lines if line.get_gid() == "cleverly-effective-n"]
         assert [line.get_color() for line in lines] == list(_core.PALETTE[:2])
-        labels = [t.get_text() for t in bottom.texts if t.get_gid() == "cleverly-series-label"]
-        assert labels == ["always", "never"]
+        followed = [line for line in bottom.lines if line.get_gid() == "cleverly-followed"]
+        # each regimen's follower count wears its own colour and a dash, so the two kinds of
+        # line differ by style and the regimens by colour and by their end labels
+        assert [line.get_color() for line in followed] == list(_core.PALETTE[:2])
+        assert all(line.get_linestyle() == "--" for line in followed)
+        assert all(line.get_linestyle() == "-" for line in lines)
+        labels = sorted(t.get_text() for t in bottom.texts if t.get_gid() == _core.GID_SERIES_LABEL)
+        assert labels == [
+            "always: effective sample size",
+            "always: units still followed",
+            "never: effective sample size",
+            "never: units still followed",
+        ]
+        # the top panel names the regimen under every box, not by colour alone
+        names = [t.get_text() for t in fig.axes[0].texts if t.get_gid() == _core.GID_SERIES_LABEL]
+        assert names == ["always", "always", "never", "never"]
+        # the key holds no series
+        key = [text.get_text() for text in fig.axes[0].get_legend().get_texts()]
+        assert all(text.startswith("Largest weight") for text in key)
+        _close(fig)
+
+    def test_one_regimen_labels_both_lines_and_no_box(self, longitudinal: Any) -> None:
+        fig = plotting.weights(longitudinal, regimen="always")
+        labels = sorted(
+            t.get_text() for t in fig.axes[1].texts if t.get_gid() == _core.GID_SERIES_LABEL
+        )
+        assert labels == ["Effective sample size", "Units still followed"]
+        assert [t for t in fig.axes[0].texts if t.get_gid() == _core.GID_SERIES_LABEL] == []
         _close(fig)
 
     def test_render_smoke(self, longitudinal: Any, tmp_path: Any) -> None:
@@ -276,19 +309,24 @@ class TestTheWeightsPlot:
         _close(fig)
 
 
-def _point_result(frame: Any, **design: Any) -> Any:
+def _point_result(
+    frame: Any,
+    estimand: Any = None,
+    adjustment: tuple[str, ...] = ("W1", "W2", "W3", "W4"),
+    **design: Any,
+) -> Any:
     study = CausalStudy(
         frame,
-        design=PointTreatment(
-            outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4"), **design
-        ),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=adjustment, **design),
     )
-    return study.identify(ATE()).estimate(
-        outcome_learner=LinearRegression(),
-        treatment_learner=LogisticRegression(max_iter=1000),
-        cross_fit=False,
-        random_state=0,
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return study.identify(estimand or ATE()).estimate(
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            cross_fit=False,
+            random_state=0,
+        )
 
 
 @pytest.fixture(scope="module")
@@ -426,13 +464,13 @@ class TestCovariateBalance:
             )
         balance = covariate_balance(result)
         assert len(balance.contrasts) == 3
-        assert all(contrast.endswith("vs the other arms") for contrast in balance.contrasts)
+        assert all(contrast.endswith("vs the rest") for contrast in balance.contrasts)
         names = [row.covariate for row in balance.rows_of(balance.contrasts[0])]
         # every level of G has a row, the left-out reference level among them
-        assert sorted(name for name in names if name.startswith("G__")) == [
-            "G__u",
-            "G__v",
-            "G__w",
+        assert sorted(name for name in names if name.startswith("G = ")) == [
+            "G = u",
+            "G = v",
+            "G = w",
         ]
         # hand check of one arm against the rest
         data = result.data
@@ -446,10 +484,16 @@ class TestCovariateBalance:
         inside = data.treatment == arm
         column = list(data.covariate_names).index("W1")
         x = data.covariates[:, column]
-        spread = np.sqrt((np.var(x[inside], ddof=1) + np.var(x[~inside], ddof=1)) / 2.0)
+        # one spread per covariate: the root of the average of all three arms' variances
+        spread = np.sqrt(np.mean([np.var(x[data.treatment == a], ddof=1) for a in propensity.arms]))
         expected = _hand_smd(x, inside, 1.0 / own, float(spread))
         row = next(r for r in balance.rows_of(balance.contrasts[1]) if r.covariate == "W1")
         assert row.smd_weighted == pytest.approx(expected, abs=1e-12)
+        spreads = {r.spread for r in balance.rows if r.covariate == "W1"}
+        assert len(spreads) == 1, "every panel divides a covariate by the same spread"
+        # the control: the arm-against-the-rest spread, a mixture's, is another number
+        rest = np.sqrt((np.var(x[inside], ddof=1) + np.var(x[~inside], ddof=1)) / 2.0)
+        assert abs(float(rest) - row.spread) > 1e-3
 
     def test_to_frame_and_summary(self, point: Any) -> None:
         balance = covariate_balance(point)
@@ -506,7 +550,8 @@ class TestTheLovePlot:
         labels = [t.get_text() for t in axis.texts if t.get_gid() == "cleverly-series-label"]
         assert sorted(labels) == ["After weighting", "Before weighting"]
         notes = _core.note_text(fig)
-        assert "Descriptive" in notes and "no interval or test" in notes
+        assert "no interval or test" in notes
+        assert "the square root of the average of the two groups' variances" in notes
         _close(fig)
 
     def test_markers_differ_by_fill_and_colour(self, point: Any) -> None:
@@ -519,14 +564,20 @@ class TestTheLovePlot:
         assert matplotlib.colors.to_hex(before.get_facecolor()[0]) == _core.FACE
         _close(fig)
 
-    def test_a_plot_without_its_descriptive_note_would_fail(self, point: Any) -> None:
-        fig = plotting.balance(point)
-        assert "Descriptive" in _core.note_text(fig)
-        for text in fig.axes[-1].texts:
-            if text.get_gid() == "cleverly-notes":
-                text.set_text(text.get_text().replace("Descriptive", "Computed"))
-        assert "Descriptive" not in _core.note_text(fig)
-        _close(fig)
+    def test_a_plot_without_its_descriptive_note_fails_the_check(
+        self, point: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _assert_descriptive(plotting.balance(point))
+        original = _core.notes
+
+        def dropped(ax: Any, lines: Any) -> None:
+            original(ax, list(lines)[1:])
+
+        # the mutation control: the producer loses its first note, and the check fails
+        monkeypatch.setattr(_core, "notes", dropped)
+        mutated = plotting.balance(point)
+        with pytest.raises(AssertionError):
+            _assert_descriptive(mutated)
 
     def test_flipped_weights_change_the_drawn_markers(
         self, point: Any, monkeypatch: pytest.MonkeyPatch
@@ -571,7 +622,11 @@ class TestTheLovePlot:
         ]
         assert len(panels) == 3
         titles = [a.get_title(loc="left") for a in panels]
-        assert all(title.startswith("A = ") for title in titles)
+        assert all(title.startswith("A = ") and title.endswith(" vs the rest") for title in titles)
+        assert "Each panel compares one arm with all the other arms together" in (
+            _core.note_text(fig)
+        )
+        assert "all 3 arms' variances" in _core.note_text(fig)
         _close(fig)
 
     def test_max_covariates_truncates_and_says_so(self, point: Any) -> None:
@@ -579,7 +634,7 @@ class TestTheLovePlot:
         axis = fig.axes[1]
         after = next(c for c in axis.collections if c.get_gid() == "cleverly-balance-after")
         assert len(after.get_offsets()) == 2
-        assert "2 covariates with the smallest differences" in _core.note_text(fig)
+        assert "2 covariates are not drawn" in _core.note_text(fig)
         _close(fig)
 
     def test_render_smoke(self, point: Any, tmp_path: Any) -> None:
@@ -595,3 +650,321 @@ def test_the_kish_helper_agrees_with_the_accessor(longitudinal: Any) -> None:
     assert weights.effective_n[1] == pytest.approx(
         effective_sample_size(weights.used[mask, 1], on_degenerate=0.0)
     )
+
+
+# ---------------------------------------------------------------------------- review fixes
+
+
+class TestTheWeightsPlotRefusalsAndNotes:
+    def test_an_out_of_range_repeat_is_a_data_error(self, longitudinal: Any) -> None:
+        with pytest.raises(DataError, match="repeat must be an integer from 1 to 1"):
+            plotting.weights(longitudinal, repeat=5)
+
+    def test_cause_is_passed_to_the_accessor(self, longitudinal: Any) -> None:
+        with pytest.raises(DataError, match="no cause 'nope'"):
+            plotting.weights(longitudinal, regimen="always", cause="nope")
+
+    def test_an_uncrossfitted_fit_says_in_sample_and_names_the_final_time_point(
+        self, longitudinal: Any
+    ) -> None:
+        fig = plotting.weights(longitudinal)
+        notes = _core.note_text(fig)
+        assert "Final time point 2, in-sample probabilities (the fit was not cross-fitted)." in (
+            notes
+        )
+        assert "repeat" not in notes and "Horizon" not in notes
+        _close(fig)
+
+    def test_a_policy_before_a_label_node_removes_the_later_limit_line(
+        self, longitudinal: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def marks() -> list[float]:
+            fig = plotting.weights(longitudinal, regimen="always")
+            found = [
+                float(np.mean(line.get_xdata()))
+                for line in fig.axes[0].lines
+                if line.get_gid() == _core.GID_MARKER
+            ]
+            _close(fig)
+            return found
+
+        # a policy at time 1 carries its factor into time 2, so neither node is capped
+        monkeypatch.setattr(
+            "cleverly.validation.longitudinal._node_kind",
+            lambda fit, time: "policy" if time == 1 else "label",
+        )
+        assert marks() == []
+        # the control: the policy at time 2 leaves time 1 capped
+        monkeypatch.setattr(
+            "cleverly.validation.longitudinal._node_kind",
+            lambda fit, time: "label" if time == 1 else "policy",
+        )
+        assert marks() == [pytest.approx(1.0)]
+
+    def test_a_node_without_followers_prints_no_share(
+        self, bounded: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            NodeWeights, "share_beyond_bounds", property(lambda self: np.array([0.25, np.nan]))
+        )
+        fig = plotting.weights(bounded, regimen="never")
+        texts = [t.get_text() for t in fig.axes[0].texts if t.get_gid() == "cleverly-tail-share"]
+        assert texts == ["25%"]
+        _close(fig)
+
+    def test_the_figures_pass_the_style_and_layout_checks(
+        self, longitudinal: Any, bounded: Any
+    ) -> None:
+        for fig in (plotting.weights(longitudinal), plotting.weights(bounded, regimen="never")):
+            assert_style(fig)
+            assert_text_inside(fig)
+            _close(fig)
+
+
+@pytest.fixture(scope="module")
+def att_fit() -> Any:
+    frame, _ = make_linear_ate(n=300, seed=1)
+    return _point_result(frame, ATT())
+
+
+def _conditional_hand(result: Any, focal: float) -> dict[str, tuple[float, float, float]]:
+    """ATT (focal 1) or ATC (focal 0) balance written out: weights, bounds and spread."""
+    data = result.data
+    propensity = result.repeats[0].nuisance.propensity
+    low, high = result.config.g_bounds_conditional
+    g1 = np.clip(propensity.values[:, propensity.column_for(1.0)], low, high)
+    treated = data.treatment == 1.0
+    focal_probability = g1 if focal == 1.0 else 1.0 - g1
+    own = np.where(treated, g1, 1.0 - g1)
+    in_focal = data.treatment == focal
+    weight = np.where(in_focal, 1.0, focal_probability / own)
+    out = {}
+    for index, name in enumerate(data.covariate_names):
+        x = data.covariates[:, index]
+        spread = float(np.std(x[in_focal], ddof=1))
+        out[name] = (
+            spread,
+            _hand_smd(x, treated, np.ones(len(x)), spread),
+            _hand_smd(x, treated, weight, spread),
+        )
+    return out
+
+
+class TestTheEstimandsWeights:
+    def test_an_att_fit_uses_its_own_weights_bounds_and_the_treated_spread(
+        self, att_fit: Any
+    ) -> None:
+        balance = covariate_balance(att_fit)
+        assert balance.estimand == "att"
+        assert balance.limits == att_fit.config.g_bounds_conditional
+        assert balance.limits != att_fit.config.g_bounds
+        hand = _conditional_hand(att_fit, focal=1.0)
+        for row in balance.rows:
+            spread, raw, weighted = hand[row.covariate]
+            assert row.spread == pytest.approx(spread, abs=1e-12)
+            assert row.smd_unweighted == pytest.approx(raw, abs=1e-12)
+            assert row.smd_weighted == pytest.approx(weighted, abs=1e-12)
+            # the treated group is the target population, so its mean does not move
+            assert row.mean_group_weighted == pytest.approx(row.mean_group, abs=1e-12)
+        # the control: the ATE's weights and pooled spread give other numbers on this fit
+        ate = _hand_balance(att_fit)
+        moved = [
+            abs(row.smd_weighted - ate[row.covariate][1]) > 1e-3
+            for row in balance.rows
+            if abs(row.smd_unweighted) > 0.2
+        ]
+        assert moved and all(moved)
+
+    def test_an_atc_fit_uses_the_untreated_spread(self) -> None:
+        frame, _ = make_linear_ate(n=300, seed=1)
+        result = _point_result(frame, ATC())
+        balance = covariate_balance(result)
+        assert balance.estimand == "atc"
+        hand = _conditional_hand(result, focal=0.0)
+        treated_hand = _conditional_hand(result, focal=1.0)
+        for row in balance.rows:
+            spread, raw, weighted = hand[row.covariate]
+            assert row.spread == pytest.approx(spread, abs=1e-12)
+            assert row.smd_unweighted == pytest.approx(raw, abs=1e-12)
+            assert row.smd_weighted == pytest.approx(weighted, abs=1e-12)
+            assert row.mean_rest_weighted == pytest.approx(row.mean_rest, abs=1e-12)
+            # the control: the treated group's spread is another number
+            assert abs(row.spread - treated_hand[row.covariate][0]) > 1e-4
+
+    def test_the_subtitle_and_notes_name_the_estimand(self, att_fit: Any) -> None:
+        fig = plotting.balance(att_fit)
+        subtitle = _core.subtitle_text(fig.axes[0])
+        assert "weights for the effect among the treated (att)" in subtitle
+        notes = _core.note_text(fig)
+        assert "standard deviation in the first group, the one the effect is among" in notes
+        assert "kept within [0.025, 0.975]" in notes
+        _close(fig)
+        facts = covariate_balance(att_fit).summary().facts
+        assert facts["Weights for"] == "the effect among the treated (att)"
+
+    def test_an_estimand_the_fit_did_not_report_is_refused(self, point: Any) -> None:
+        with pytest.raises(DataError, match="reports no att estimate"):
+            covariate_balance(point, estimand="att")
+        with pytest.raises(ValueError, match="estimand must be"):
+            covariate_balance(point, estimand="ato")  # type: ignore[arg-type]
+
+    def test_three_arm_att_compares_each_arm_with_the_reference(self) -> None:
+        frame, _ = make_multi_arm(n=400, seed=2)
+        result = _point_result(frame, ATT(), adjustment=("W1", "W2", "W3"))
+        balance = covariate_balance(result)
+        data = result.data
+        reference = data.arm_label(result.config.reference_arm)
+        assert all(c.endswith(f"vs A = {reference}") for c in balance.contrasts)
+        assert len(balance.contrasts) == 2
+        # each contrast divides by its own focal arm's spread
+        arm = float(sorted(set(data.treatment) - {result.config.reference_arm})[0])
+        x = data.covariates[:, 0]
+        row = balance.rows_of(balance.contrasts[0])[0]
+        assert row.spread == pytest.approx(float(np.std(x[data.treatment == arm], ddof=1)))
+
+
+class TestTheBalanceNotes:
+    def test_in_sample_and_out_of_fold_are_named_from_the_fit(self, point: Any) -> None:
+        in_sample = covariate_balance(point)
+        assert not in_sample.cross_fitted
+        text = "in-sample predictions; the fit was not cross-fitted"
+        assert any(text in note.text for note in in_sample.summary().notes)
+        fig = plotting.balance(in_sample)
+        assert "the fit was not cross-fitted" in _core.note_text(fig)
+        assert "out-of-fold" not in _core.note_text(fig)
+        _close(fig)
+        frame, _ = make_linear_ate(n=300, seed=1)
+        frame["Y"] = (frame["Y"] > frame["Y"].median()).astype(int)
+        study = CausalStudy(
+            frame,
+            design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")),
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            crossed = study.identify(ATE()).estimate(
+                outcome_learner=LogisticRegression(max_iter=1000),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                cross_fit=True,
+                random_state=0,
+            )
+        balance = covariate_balance(crossed)
+        assert balance.cross_fitted
+        fig = plotting.balance(balance)
+        assert "fold predictions" in _core.note_text(fig)
+        assert "in-sample" not in _core.note_text(fig)
+        assert not any("in-sample" in note.text for note in balance.summary().notes)
+        assert any("out-of-fold" in note.text for note in balance.summary().notes)
+        _close(fig)
+
+    def test_weighted_data_say_data_weight_over_probability(self, point: Any) -> None:
+        frame, _ = make_linear_ate(n=300, seed=1)
+        frame["w"] = np.random.default_rng(4).uniform(0.4, 2.5, len(frame))
+        fig = plotting.balance(_point_result(frame, weights="w"))
+        notes = _core.note_text(fig)
+        assert "its data weight divided by the probability the fit gave its own arm" in notes
+        assert "Before weighting, units count as the data's weights say." in notes
+        _close(fig)
+        # the control: unweighted data say the inverse and count every unit once
+        fig = plotting.balance(point)
+        notes = _core.note_text(fig)
+        assert "data weight" not in notes
+        assert "the inverse of the probability the fit gave its own arm" in notes
+        assert "every unit counts once" in notes
+        _close(fig)
+
+    def test_a_binary_comparison_has_no_rest_note(self, point: Any) -> None:
+        fig = plotting.balance(point)
+        assert "other arms together" not in _core.note_text(fig)
+        _close(fig)
+
+    def test_a_two_level_string_covariate_gets_one_row(self) -> None:
+        frame, _ = make_linear_ate(n=300, seed=1)
+        frame["sex"] = np.random.default_rng(1).choice(["f", "m"], size=len(frame))
+        frame["G"] = np.random.default_rng(2).choice(["u", "v", "w"], size=len(frame))
+        result = _point_result(frame, adjustment=("W1", "W2", "sex", "G"))
+        names = [row.covariate for row in covariate_balance(result).rows]
+        assert [name for name in names if name.startswith("sex")] == ["sex = m"]
+        assert sorted(name for name in names if name.startswith("G")) == [
+            "G = u",
+            "G = v",
+            "G = w",
+        ]
+
+
+def _synthetic_balance() -> CovariateBalance:
+    """Ten covariates weighting fixed, and one it made worse from a small start."""
+    rows = [
+        BalanceRow("A = 1 vs A = 0", f"big{i}", 0, 0, 0, 0, 1.0, 0.5 - 0.02 * i, 0.03)
+        for i in range(10)
+    ]
+    rows.append(BalanceRow("A = 1 vs A = 0", "worse", 0, 0, 0, 0, 1.0, 0.01, 0.3))
+    return CovariateBalance(
+        rows=tuple(rows),
+        treatment="A",
+        contrasts=("A = 1 vs A = 0",),
+        n=100,
+        n_repeats=1,
+        limits=(0.05, 0.95),
+        weighted_data=False,
+    )
+
+
+class TestMaxCovariates:
+    @staticmethod
+    def _drawn(balance: CovariateBalance, count: int) -> list[str]:
+        fig = plotting.balance(balance, max_covariates=count)
+        names = [t.get_text() for t in fig.axes[1].get_yticklabels()]
+        _close(fig)
+        return names
+
+    def test_a_covariate_weighting_made_worse_is_always_drawn(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        balance = _synthetic_balance()
+        drawn = self._drawn(balance, 3)
+        assert "worse" in drawn and len(drawn) == 3
+        fig = plotting.balance(balance, max_covariates=3)
+        assert "largest after weighting worse 0.300" in _core.subtitle_text(fig.axes[0])
+        assert "8 covariates are not drawn" in _core.note_text(fig)
+        _close(fig)
+
+        # the mutation control: keeping the largest differences before weighting drops it
+        def before_only(summary: Any, count: int) -> tuple[list[str], int]:
+            rows = sorted(summary.rows, key=lambda row: -abs(row.smd_unweighted))
+            names = [row.covariate for row in rows[:count]]
+            return names, len(summary.rows) - len(names)
+
+        monkeypatch.setattr(_weights, "_shown_covariates", before_only)
+        assert "worse" not in self._drawn(balance, 3)
+
+    def test_max_covariates_below_one_is_refused(self, point: Any) -> None:
+        with pytest.raises(ValueError, match="max_covariates"):
+            plotting.balance(point, max_covariates=0)
+
+
+class TestTheBalanceLayout:
+    def test_the_figures_pass_the_style_and_layout_checks(self, point: Any, att_fit: Any) -> None:
+        frame, _ = make_multi_arm(n=300, seed=5)
+        three = _point_result(frame, adjustment=("W1", "W2", "W3"))
+        long_names = {name: f"{name} measured at the first clinic visit" for name in ("W1", "W2")}
+        figures = [
+            plotting.balance(point),
+            plotting.balance(att_fit),
+            plotting.balance(three),
+            plotting.balance(point, labels=long_names),
+        ]
+        for fig in figures:
+            assert_style(fig)
+            assert_text_inside(fig)
+            _close(fig)
+
+    def test_long_row_labels_leave_the_panel_its_width(self, point: Any) -> None:
+        def width(labels: dict[str, str] | None) -> float:
+            fig = plotting.balance(point, labels=labels)
+            fig.draw_without_rendering()
+            inches = fig.axes[1].get_window_extent().width / fig.dpi
+            _close(fig)
+            return float(inches)
+
+        # each panel is laid out 3.6 inches wide; long labels widen the figure instead
+        assert width({"W1": "W1 measured at the first clinic visit, in years"}) > 3.3

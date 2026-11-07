@@ -4312,6 +4312,7 @@ NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **EFFECT_CURVE_NOTE_TEXTS})
 
 BALANCE_TITLE: Final = "Covariate balance before and after weighting"
 BALANCE_TREATMENT: Final = "Treatment"
+BALANCE_WEIGHTS_FOR: Final = "Weights for"
 BALANCE_COVARIATES: Final = "Covariates"
 BALANCE_HELD_AGAINST: Final = "Held against"
 BALANCE_LARGEST: Final = "Largest after weighting"
@@ -4322,8 +4323,84 @@ BALANCE_COLUMNS: Final[tuple[str, ...]] = (
 )
 BALANCE_MEANS_TITLE: Final = "Group means and spread"
 BALANCE_MEANS_LINE: Final = (
-    "{covariate}: mean {group} in the group and {rest} in the rest; {group_weighted} and "
-    "{rest_weighted} after weighting; spread {spread}"
+    "{covariate}: mean {group} in the first group and {rest} in the second; {group_weighted} "
+    "and {rest_weighted} after weighting; spread {spread}"
+)
+#: Whose weights a balance uses, in words, keyed by its estimand.
+BALANCE_ESTIMAND_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "ate": "the average effect (ate)",
+        "att": "the effect among the treated (att)",
+        "atc": "the effect among the untreated (atc)",
+    }
+)
+#: What each difference is divided by: two arms, more arms, or the arm the effect is among.
+BALANCE_SPREAD_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "pooled_two": (
+            "a standard deviation common to both groups: the square root of the average of "
+            "the two groups' variances, before weighting"
+        ),
+        "pooled_arms": (
+            "one standard deviation per covariate, the same in every comparison: the square "
+            "root of the average of all {arms} arms' variances, before weighting"
+        ),
+        "att": (
+            "the standard deviation in the first group, the one the effect is among, before "
+            "weighting"
+        ),
+        "atc": (
+            "the standard deviation in the second group, the one the effect is among, "
+            "before weighting"
+        ),
+    }
+)
+#: How a unit counts after weighting, by estimand and by whether the data carry weights.
+BALANCE_WEIGHT_TEXTS: Final[Mapping[tuple[str, bool], str]] = MappingProxyType(
+    {
+        ("ate", False): (
+            "After weighting, each unit counts as the inverse of the probability the fit "
+            "gave its own arm{limits}. Before weighting, every unit counts once."
+        ),
+        ("ate", True): (
+            "After weighting, each unit counts as its data weight divided by the probability "
+            "the fit gave its own arm{limits}. Before weighting, units count as the data's "
+            "weights say."
+        ),
+        ("att", False): (
+            "After weighting, units of the first group count once and units of the second "
+            "as the fit's probability of the first group's arm over that of their own"
+            "{limits}. Before weighting, every unit counts once."
+        ),
+        ("att", True): (
+            "After weighting, units of the first group count as their data weight and units "
+            "of the second as their data weight times the fit's probability of the first "
+            "group's arm over that of their own{limits}. Before weighting, units count as "
+            "the data's weights say."
+        ),
+        ("atc", False): (
+            "After weighting, units of the second group count once and units of the first "
+            "as the fit's probability of the second group's arm over that of their own"
+            "{limits}. Before weighting, every unit counts once."
+        ),
+        ("atc", True): (
+            "After weighting, units of the second group count as their data weight and units "
+            "of the first as their data weight times the fit's probability of the second "
+            "group's arm over that of their own{limits}. Before weighting, units count as "
+            "the data's weights say."
+        ),
+    }
+)
+#: Where the probabilities come from.
+BALANCE_SOURCE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "in_sample": "The probabilities are in-sample predictions; the fit was not cross-fitted.",
+        "out_of_fold": "The probabilities are out-of-fold predictions.",
+        "repeats": (
+            "The probabilities are the first of {repeats} cross-fitting repeats' out-of-fold "
+            "predictions."
+        ),
+    }
 )
 
 #: The notes a balance summary can print.
@@ -4331,6 +4408,7 @@ BALANCE_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
     {
         "balance_descriptive": "note",
         "balance_weights": "note",
+        "balance_rest": "note",
         "balance_unlisted": "note",
     }
 )
@@ -4339,14 +4417,14 @@ NOTE_CODES = MappingProxyType({**NOTE_CODES, **BALANCE_NOTE_CODES})
 BALANCE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "balance_descriptive": (
-            "These differences describe the data and the fitted weights. They carry no "
-            "interval or test, and each is the mean in the first group minus the mean in the "
-            "other, divided by the standard deviation of the two groups together."
+            "These differences describe the data and the fitted weights and carry no "
+            "interval or test. Each is the mean in the first group minus the mean in the "
+            "second, divided by {spread}."
         ),
-        "balance_weights": (
-            "After weighting, each unit counts as its weight divided by the probability the "
-            "fit gave its own arm{limits}, from {origin}. Before weighting, units count as "
-            "the data's weights say."
+        "balance_weights": "{weights} {source}",
+        "balance_rest": (
+            "Each {part} compares one arm with all the other arms together, so imbalances of "
+            "opposite sign in two other arms can cancel."
         ),
         "balance_unlisted": (
             "Balance on covariates that were not adjusted for is not shown, and small "

@@ -58,6 +58,11 @@ class NodeWeights:
     unit_weights : bool
         Whether every observation weight was one, so that ``1 / bounds[0]`` is the largest
         weight a node can carry at a static or rule node.
+    cross_fitted : bool
+        Whether the probabilities are out-of-fold predictions; in-sample otherwise.
+    reports_curve : bool
+        Whether the fit reports a curve over horizons, so that :attr:`horizon` is one of
+        several; otherwise it is the final time point of an end-of-study outcome.
     """
 
     regimen: str
@@ -73,6 +78,8 @@ class NodeWeights:
     cumulative: FloatArray
     bounds: tuple[float, float]
     unit_weights: bool
+    cross_fitted: bool = False
+    reports_curve: bool = False
 
     @property
     def effective_n(self) -> FloatArray:
@@ -272,6 +279,8 @@ def node_weights(
         cumulative=bounded,
         bounds=(float(result.config.g_bounds[0]), float(result.config.g_bounds[1])),
         unit_weights=bool(np.all(fit.obs_weights == 1.0)),
+        cross_fitted=int(getattr(result.config, "n_folds", 1)) > 1,
+        reports_curve=bool(result.data.reports_curve),
     )
 
 
