@@ -29,7 +29,7 @@ def test_the_calibration_sizing_is_the_plan_s(design: dict) -> None:
     assert calibration["rows"] == 34
     assert calibration["pass_at_1"] > calibration["pass_at_1_r3200"]
     assert calibration["family"] >= 0.96
-    assert calibration["pass_at_0.97"] == pytest.approx(0.92, abs=0.01)
+    assert calibration["pass_at_0.97"] == pytest.approx(0.971, abs=0.01)
 
 
 def test_every_control_is_detected(design: dict) -> None:
@@ -161,10 +161,58 @@ def test_the_oracle_covers_every_calibration_positive_at_its_size() -> None:
     assert measured == positives
 
 
+PILOT = study.pilot_rows()
+needs_pilot = pytest.mark.skipif(not PILOT, reason="the targeting-curves pilot has not run")
+
+
 @needs_oracle
-def test_the_reporting_cells_are_the_oracle_s() -> None:
-    """A row the bootstrap alone makes more likely red than green reports; no other row does."""
-    assert study.oracle_reporting_cells() == study.REPORTING_CELLS
+def test_the_declared_replicates_and_reporting_set_are_the_rules_own() -> None:
+    """R and the reporting set equal :func:`declare_design` at the design ratios.
+
+    Before the pilot the ratios are the oracle CSV's; once it has run, each is shifted by its
+    cell's paired gap, and the same rules recompute both.  The declaration must then follow.
+    """
+    design = study.declare_design(study.design_ratios())
+    if design.replicates is None:
+        gaps = study.pilot_gaps()
+        lowest = min(gaps, key=gaps.__getitem__) if gaps else None
+        pytest.fail(
+            f"no R up to {study.R_CAP} qualifies: suspects {design.suspects}; the cell with the "
+            f"lowest paired gap ({lowest}) is a defect suspect, diagnosed before the run"
+        )
+    assert design.replicates == study.R_MAIN
+    assert design.reporting == study.REPORTING_CELLS
+
+
+@needs_oracle
+def test_every_reporting_row_errs_on_the_safe_side() -> None:
+    ratios = study.design_ratios()
+    for cell in study.REPORTING_CELLS:
+        ratio, coverage = ratios[cell]
+        assert ratio > 1.0 and coverage >= 0.95, cell
+
+
+def test_an_anti_conservative_row_is_a_suspect_not_a_reporting_row() -> None:
+    """The mutation control of the one-sided rule: a row at 0.94 never moves to reporting."""
+    ratios = {"low": (0.94, 0.94), "fine": (1.0, 0.95)}
+    design = study.declare_design(ratios)
+    assert design.replicates is None
+    assert design.suspects == ("low",) and not design.reporting
+    high = study.declare_design({"high": (1.065, 0.96), "fine": (1.0, 0.95)})
+    assert high.reporting == frozenset({"high"}) and high.replicates is not None
+
+
+def test_the_replicate_rule_steps_in_four_hundreds_to_the_floor() -> None:
+    ratios = {f"row{k}": (1.0, 0.95) for k in range(10)}
+    assert study.declare_design(ratios).replicates == study.R_START
+    shifted = dict.fromkeys(ratios, (0.98, 0.945))
+    replicates = study.declare_design(shifted).replicates
+    assert replicates is not None and (replicates - study.R_START) % study.R_STEP == 0
+    assert study.family_pass(shifted, replicates, frozenset()) >= study.ORACLE_FAMILY_FLOOR
+    assert (
+        study.family_pass(shifted, replicates - study.R_STEP, frozenset())
+        < study.ORACLE_FAMILY_FLOOR
+    )
 
 
 @needs_oracle
@@ -176,35 +224,39 @@ def test_the_reporting_row_s_departure_shrinks_with_n() -> None:
     assert ratios[2] < ratios[0]
 
 
-@needs_oracle
-def test_the_declared_replicates_are_the_smallest_the_oracle_ratios_allow() -> None:
-    """R is the smallest multiple of 1,200 from 3,600 whose family-wise pass is at least 0.80."""
-    assert study.oracle_family_pass(study.R_MAIN) >= study.ORACLE_FAMILY_FLOOR
-    assert study.R_MAIN == 3_600 or (
-        study.oracle_family_pass(study.R_MAIN - 1_200) < study.ORACLE_FAMILY_FLOOR
-    )
+def test_the_reporting_rows_hold_their_one_sided_gate() -> None:
+    """The committed table's reporting rows: lower ends of SE ratio and coverage at the floors.
+
+    Without committed tables there is nothing to read.
+    """
+    from tests.studies.evidence import red_cells
+
+    if not study.STUDY.artifact(red_cells.FRAMES["properties"]).exists():
+        return
+    table = red_cells.frames(study.STUDY)["properties"]
+    rows = table[
+        (table["property"] == study.CALIBRATION) & table["cell"].isin(study.REPORTING_CELLS)
+    ]
+    assert set(rows["cell"]) == set(study.REPORTING_CELLS)
+    for column, floor in study.REPORTING_GATE.items():
+        assert (rows[column] >= floor).all(), column
 
 
-PILOT = study.pilot_rows()
-needs_pilot = pytest.mark.skipif(not PILOT, reason="the targeting-curves pilot has not run")
-
-#: A pilot ratio departs from its oracle ratio beyond noise at a Bonferroni z over the
-#: positives: the pilot then sees a nuisance effect the oracle cannot, and the declaration is
-#: reviewed before the run.  Under no departure every row stays inside with probability 0.99.
+#: A row's paired gap departs from its cell's pooled gap beyond noise at a Bonferroni z over the
+#: positives.  Such a row is a defect suspect, diagnosed before the run, and no row of its cell
+#: moves to reporting.  Under no departure every row stays inside with probability 0.99.
 PILOT_DEPARTURE_Z = float(stats.norm.ppf(1.0 - 0.01 / (2 * 34)))
 
 
 @needs_pilot
-@needs_oracle
-def test_the_pilot_ratios_agree_with_the_oracle_s() -> None:
+def test_no_pilot_row_departs_from_its_cell_s_paired_gap() -> None:
+    gaps = study.pilot_gaps()
     far = []
     for (label, kind, name), row in PILOT.items():
         if kind not in study.POSITIVE_KINDS:
             continue
-        oracle = ORACLE[(label, study.GROUP_BY_LABEL[label].n, name)]
-        gap = float(row["se_ratio"]) - float(oracle["se_ratio"])
-        scale = math.hypot(float(row["se_ratio_se"]), float(oracle["se_ratio_se"]))
-        if abs(gap) > PILOT_DEPARTURE_Z * scale:
+        gap = float(row["se_ratio"]) - float(row["oracle_se_ratio"])
+        if abs(gap - gaps[label]) > PILOT_DEPARTURE_Z * float(row["gap_se"]):
             far.append((label, name, round(gap, 3)))
     assert far == []
 
@@ -218,7 +270,7 @@ def test_the_pilot_kurtosis_keeps_the_declared_replicates() -> None:
     positives = [
         cell for cell in study.PROPERTY_CELLS[study.CALIBRATION] if study.is_positive(cell)
     ]
-    assert per_row ** len(positives) >= 0.90
+    assert per_row ** len(positives) >= study.ORACLE_FAMILY_FLOOR
 
 
 def test_the_untargeted_control_reads_the_side_its_ratio_is_on(design: dict) -> None:

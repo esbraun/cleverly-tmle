@@ -14,7 +14,8 @@ Red-cell reading (declared before any run; X92 PR-5 plan, section 10).
   :data:`~tests.studies.targeting_curves.REPORTING_CELLS` gates the merge
   (``targeting_curves_properties.GATING_CELLS``, read by the design test). The reporting row,
   ``H``'s paired difference at TOC(0.1), was declared before the pilot from the oracle
-  computation: the half-sample SE is conservative there at n = 2,000.
+  computation: the half-sample SE is conservative there at n = 2,000. It keeps a one-sided
+  gate (``REPORTING_GATE``): a lower end below the floors is a defect suspect.
 * A red calibration row is finite-sample only when its 99% SE-ratio interval contains 1, its
   coverage interval is consistent with 0.95 and the diagnosis finds no defect. It then goes
   to ``reporting`` with an owner. Every other red is a defect suspect, and the diagnosis

@@ -110,8 +110,9 @@ TARGETING_MIN_CLUSTERS: Final = 40
 #: The relative singular-value tolerance of the span basis the fluctuation runs along.
 TARGETING_SPAN_RTOL: Final = 1e-10
 
-#: Below this absolute size a standard error counts as zero (``TOC(1)`` and a degenerate draw).
-_ZERO_SPREAD: Final = 1e-12
+#: Below this size relative to the largest targeted score a standard error counts as zero
+#: (``TOC(1)`` and a degenerate draw): rounding in a mean of the scores is of that order.
+_ZERO_SPREAD: Final = 1e-10
 
 #: The configurations the ``targeting-curves`` study measures, each with the cell that measures
 #: it, keyed by ``(route, outcome, mechanism)``.  A configuration outside this table, or any
@@ -1177,7 +1178,13 @@ def targeting_fit(
         cross_fitted=bool(getattr(fit.config, "cross_fit", True)),
     )
     z = float(stats.norm.ppf(1.0 - float(alpha) / 2.0))
-    builder = _Rows(z=z, alpha=float(alpha), config_codes=config_codes, few_clusters=few_clusters)
+    builder = _Rows(
+        z=z,
+        alpha=float(alpha),
+        config_codes=config_codes,
+        few_clusters=few_clusters,
+        scale=float(np.max(np.abs(targeted.targeted))) if targeted.targeted.size else 1.0,
+    )
     names = list(arrays)
     plug_ins: dict[str, dict[tuple[str, float], float]] = {}
     critical = float("nan")
@@ -1260,15 +1267,40 @@ def _cut_facts(layout: _Layout, mass: FloatArray, grid: Sequence[float]) -> dict
         rows = float(np.sum(counts * share))
         inside = np.flatnonzero((share > 0.0) & (share < 1.0))
         if inside.size:
-            tied = bool(counts[inside[0]] > 1)
-            out[q] = _CutFact(rows, tied, float(share[inside[0]]) if tied else float("nan"))
+            block = int(inside[0])
+            if counts[block] > 1:
+                out[q] = _CutFact(rows, True, float(share[block]))
+                continue
+            # A cut a fraction of a row inside a single row beside a tied block: the sample
+            # quantile is that block's edge to within one row, an atom of the score at the cut.
+            edge = any(counts[j] > 1 for j in _weighted_neighbours(m, block - 1, block + 1))
+            out[q] = _CutFact(rows, edge, float("nan"))
             continue
-        # The cut sits on the boundary between the last block wholly above it and the first
-        # wholly below; a tied block on either side is an atom of the score at the cut.
-        last = int(np.sum(share >= 1.0)) - 1
-        neighbours = [j for j in (last, last + 1) if 0 <= j < counts.size]
-        edge = q < 1.0 and any(counts[j] > 1 for j in neighbours)
+        # The cut sits on the boundary between the last weighted block wholly above it and the
+        # first weighted block wholly below; a tied block on either side is an atom at the cut.
+        above = np.flatnonzero((share >= 1.0) & (m > 0.0))
+        last = int(above[-1]) if above.size else -1
+        edge = q < 1.0 and any(counts[j] > 1 for j in _weighted_neighbours(m, last, last + 1))
         out[q] = _CutFact(rows, edge, float("nan"))
+    return out
+
+
+def _weighted_neighbours(m: FloatArray, before: int, after: int) -> list[int]:
+    """The nearest block with positive mass at or before ``before``, and at or after ``after``.
+
+    A block of zero-weight rows carries no mass, so it is not a neighbour of the cut.
+    """
+    out = []
+    j = before
+    while j >= 0 and m[j] <= 0.0:
+        j -= 1
+    if j >= 0:
+        out.append(j)
+    j = after
+    while j < m.size and m[j] <= 0.0:
+        j += 1
+    if j < m.size:
+        out.append(j)
     return out
 
 
@@ -1282,8 +1314,16 @@ class _Rows:
     """The estimates table, built row by row."""
 
     def __init__(
-        self, *, z: float, alpha: float, config_codes: tuple[str, ...], few_clusters: bool
+        self,
+        *,
+        z: float,
+        alpha: float,
+        config_codes: tuple[str, ...],
+        few_clusters: bool,
+        scale: float = 1.0,
     ) -> None:
+        # A spread at or below this is rounding in means of scores of size ``scale``.
+        self.zero_spread = _ZERO_SPREAD * max(float(scale), np.finfo(float).tiny)
         self.z = z
         self.alpha = alpha
         self.config_codes = config_codes
@@ -1312,7 +1352,7 @@ class _Rows:
         se = float("nan") if draws is None or withheld else _spread(draws)
         if withheld is None and self.few_clusters and draws is not None:
             withheld = WITHHELD["few_clusters"].format(guard=TARGETING_MIN_CLUSTERS)
-        if withheld is None and math.isfinite(se) and se <= _ZERO_SPREAD:
+        if withheld is None and math.isfinite(se) and se <= self.zero_spread:
             # A score that ties every row draws one value up to rounding: an interval of
             # width 1e-16 would claim a precision nothing measured.
             withheld = WITHHELD["degenerate"]
@@ -1322,7 +1362,7 @@ class _Rows:
         high = estimate + self.z * se if math.isfinite(se) else float("nan")
         p = (
             float(2.0 * stats.norm.sf(abs(estimate) / se))
-            if p_value and math.isfinite(se) and se > _ZERO_SPREAD
+            if p_value and math.isfinite(se) and se > self.zero_spread
             else float("nan")
         )
         row_codes = list(dict.fromkeys(codes))
@@ -1397,7 +1437,7 @@ class _Rows:
             self.few_clusters
             or any(point_state[q][1] for q in below)
             or not np.all(np.isfinite(se))
-            or bool(np.any(se <= _ZERO_SPREAD))
+            or bool(np.any(se <= self.zero_spread))
         )
         critical = float("nan")
         if below and not band_withheld:

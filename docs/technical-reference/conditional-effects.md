@@ -304,7 +304,10 @@ study gates at $n = 2{,}000$, on 6,000 to 30,000 replicates per cell
 (`tests/studies/targeting_curves_oracle.csv`). The AUTOC of cell H reads 1.002 (SE 0.004).
 The exception is the paired difference of two correlated scores at TOC(0.1): 1.063 at
 $n = 2{,}000$, 1.051 at 4,000 and 1.024 at 8,000. That interval is conservative by a
-finite-sample amount that shrinks with $n$, so the study reports the row and does not gate it.
+finite-sample amount that shrinks with $n$. The study reports the row with a one-sided gate:
+the lower ends of its 99% SE-ratio and coverage intervals must still reach 0.93 and 0.92, so
+an interval that became too narrow would fail. Only a row that errs on the safe side can be
+reported this way.
 
 **Routes.** Route 1 takes a study column fitted on other rows, with the three checks of
 `assess_score` on it and on a `compare=` column. Route 2,
@@ -326,8 +329,10 @@ not checked against the study's cells, and an area row carries no size guard of 
 
 **Status.** The `targeting-curves` study is declared in `tests/studies/targeting_curves.py`
 and has not run, so every curve reads `experimental` with that reason until it registers. It
-runs 4,800 replicates per cell, the smallest multiple of 1,200 at which every gated row passes
-together with probability 0.80 at its measured bootstrap ratio. The
+runs 6,000 replicates per cell, the smallest multiple of 400 from 3,600 at which every gated
+row passes together with probability 0.95 at its measured bootstrap ratio. The pilot adds
+each cell's gap between the fitted and the oracle ratio on the same draws, and the same rule
+then recomputes the count, capped at 9,600. The
 study's cells are the measured configurations: a continuous and a binary outcome, an atomic
 score, a known mechanism with a misspecified outcome regression, a declared split, a paired
 second score, and null laws for the band's size.

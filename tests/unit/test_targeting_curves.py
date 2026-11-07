@@ -236,6 +236,48 @@ def test_reading_only_cuts_inside_a_block_misses_the_edges(
     assert not _edges_read_tied(_exact_curve())
 
 
+def _facts(score: np.ndarray, mass: np.ndarray | None = None) -> dict[float, Any]:
+    weights = np.ones(score.size) if mass is None else mass
+    return tc._cut_facts(tc._layout(score), weights, (0.3,))
+
+
+@pytest.mark.parametrize(
+    ("score", "where"),
+    [
+        # n = 999: 300 single rows above a tied block of 699; the cut 299.7 falls 0.3 of a row
+        # inside the last single row, beside the atom.
+        (np.r_[np.arange(300, 0, -1.0), np.zeros(699)], "above the block"),
+        # n = 1,237: a tied block of 371 rows, then single rows; the cut 371.1 falls in the
+        # first single row below the atom.
+        (np.r_[np.full(371, 1_000.0), np.arange(866, 0, -1.0)], "below the block"),
+    ],
+)
+def test_a_cut_inside_a_single_row_beside_a_tied_block_reads_tied(
+    score: np.ndarray, where: str
+) -> None:
+    fact = _facts(score)[0.3]
+    assert fact.tied and math.isnan(fact.share) and fact.code == "tied_edge", where
+
+
+def test_a_cut_inside_a_single_row_away_from_ties_reads_untied() -> None:
+    """The witness: the neighbour rule does not flag a cut among single rows."""
+    score = np.r_[np.arange(999, 0, -1.0)]
+    assert not _facts(score)[0.3].tied
+
+
+def test_a_zero_weight_block_above_the_cut_does_not_hide_its_edge() -> None:
+    """A zero-mass row at the top shifts a count of the blocks above the cut by one.
+
+    The 20 weighted single rows above the cut at q = 0.2 sit on the edge of an 80-row block;
+    counting the zero-mass row's block would put the edge between two single rows instead.
+    """
+    score = np.r_[100.0, np.arange(50.0, 30.0, -1.0), np.zeros(80)]
+    mass = np.r_[0.0, np.ones(100)]
+    mass = mass / mass.mean()
+    fact = tc._cut_facts(tc._layout(score), mass, (0.2,))[0.2]
+    assert fact.tied and fact.code == "tied_edge"
+
+
 @pytest.mark.parametrize("mutation", ["ascending", "at_or_above", "h_k", "uncentred_qini"])
 @_quiet
 def test_each_rank_rule_mutation_moves_a_truth(
@@ -825,6 +867,46 @@ def test_route_one_refuses_its_fluctuation_settings_before_any_learner(
 ) -> None:
     with pytest.raises(CapabilityError, match=words):
         _route_one(**{**change, "outcome_learner": _NeverFitted()})
+
+
+@pytest.mark.parametrize(
+    ("change", "words"),
+    [({"target_weights": True}, "target_weights"), ({"stopping": "scaled_var"}, "stopping")],
+)
+def test_route_two_refuses_its_fluctuation_settings_before_any_learner(
+    change: dict[str, Any], words: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    curve = _split_curve_fit()
+    spec = TMLE.targeting_spec
+    monkeypatch.setattr(TMLE, "targeting_spec", lambda self: replace(spec(self), **change))
+
+    def never(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("a learner was fitted before the refusal")
+
+    monkeypatch.setattr(LinearRegression, "fit", never)
+    monkeypatch.setattr(LogisticRegression, "fit", never)
+    with pytest.raises(CapabilityError, match=words):
+        curve.diagnostics.targeting_curve(n_half_samples=10, random_state=0)
+
+
+@_quiet
+def test_an_outcome_on_a_tiny_scale_keeps_its_intervals() -> None:
+    """The zero-spread guard is relative: the same law with Y in units of 1e-13 keeps every
+    interval, at 1e-13 times the SEs of the unscaled fit (an absolute 1e-12 would withhold
+    them all)."""
+    frame = _study_frame()
+    small = frame.assign(Y=frame["Y"] * 1e-13)
+    arguments = {"computed_from": ["W1"], "score_kind": "external", "n_half_samples": 20}
+    plain = _effect(frame).targeting_curve("S", **arguments, random_state=0, **LEARNERS)
+    learners = {**LEARNERS, "q_bounds": (-5e-13, 6e-13)}
+    scaled = _effect(small).targeting_curve("S", **arguments, random_state=0, **learners)
+    for one, other in zip(plain.rows("toc"), scaled.rows("toc"), strict=True):
+        if one["q"] < 1.0:
+            assert other["std_error"] < 1e-12
+            assert other["std_error"] == pytest.approx(1e-13 * one["std_error"], rel=1e-4)
+    assert np.isfinite(scaled.critical_value)
 
 
 @_quiet

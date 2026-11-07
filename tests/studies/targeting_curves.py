@@ -42,7 +42,7 @@ import itertools
 import math
 import warnings
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -439,13 +439,19 @@ KNOWN_MECHANISM = "known_mechanism"
 #: The kinds of a calibration positive.
 POSITIVE_KINDS = (POSITIVE, KNOWN_MECHANISM)
 
-#: The family-wise pass probability, at the oracle SE ratios, that sets :data:`R_MAIN`.
-ORACLE_FAMILY_FLOOR = 0.80
+#: The family-wise pass probability of the gated calibration positives that sets
+#: :data:`R_MAIN`: the project's floor.
+ORACLE_FAMILY_FLOOR = 0.95
+#: ``R`` steps from :data:`R_START` in multiples of :data:`R_STEP`, up to :data:`R_CAP`.
+R_START = 3_600
+R_STEP = 400
+R_CAP = 9_600
 
-#: Replications of every group but ``P``: the smallest multiple of 1,200 from the plan's 3,600
-#: whose family-wise pass at the oracle ratios reaches :data:`ORACLE_FAMILY_FLOOR`
-#: (:func:`oracle_family_pass`; the design test recomputes it).
-R_MAIN = 4_800
+#: Replications of every group but ``P``: :func:`declare_design` at the oracle ratios, the
+#: smallest ``R`` from :data:`R_START` in steps of :data:`R_STEP` whose family-wise pass
+#: reaches :data:`ORACLE_FAMILY_FLOOR`.  The design test recomputes it, from the ratios the
+#: pilot adjusts once it has run (:func:`design_ratios`).
+R_MAIN = 6_000
 #: Replications of the band-power group.
 R_POWER = 800
 
@@ -778,13 +784,75 @@ def _parse(name: str) -> tuple[str, float]:
     return quantity, float(q)
 
 
+#: Half-sample draws of the pilot's same-draw oracle SE (as the oracle computation's), and
+#: its single-thread seconds per replication, for the pilot's cost.
+ORACLE_PILOT_DRAWS = 250
+ORACLE_PILOT_SECONDS = 0.09
+
+
+def oracle_score(law: Law, frame: pd.DataFrame) -> np.ndarray:
+    """The doubly robust score of each row from the law's true outcome regression and mechanism."""
+    w = frame[["W1", "W2", "W3"]].to_numpy(dtype=float)
+    a = frame["A"].to_numpy(dtype=float)
+    y = frame["Y"].to_numpy(dtype=float)
+    g = propensity(w)
+    if law.binary:
+        q1, q0 = binary_mean(w, 1), binary_mean(w, 0)
+    else:
+        q0 = law.base(w)
+        q1 = q0 + law.tau(w)
+    return np.asarray(q1 - q0 + a / g * (y - q1) - (1 - a) / (1 - g) * (y - q0), dtype=float)
+
+
+def _same_draw_oracle(
+    curve: Any, law: Law, rows: pd.DataFrame, names: tuple[str, ...], random_state: int
+) -> dict[str, tuple[float, float]]:
+    """Each named row's point and half-sample SE from the oracle score on the curve's own rows.
+
+    The ranking, mass, units, grid and edges are the fitted curve's; only the scores averaged
+    are the true nuisances' (:func:`oracle_score`).  The pilot's paired gap reads it.
+    """
+    evaluation = curve.evaluation
+    covariates = np.asarray(curve.fit.data.covariates, dtype=float)
+    if not np.allclose(rows[["W1", "W2", "W3"]].to_numpy(dtype=float), covariates):
+        raise RuntimeError("the oracle rows are not the curve's evaluation rows")
+    gamma = oracle_score(law, rows)
+    oracle = replace(evaluation, targeted=gamma, one_step=gamma)
+    draws = tc.half_sample_draws(
+        oracle, n_half_samples=ORACLE_PILOT_DRAWS, random_state=random_state
+    )
+    points = {
+        score: tc._point_values(
+            oracle.layout(score), gamma, evaluation.mass, evaluation.grid, evaluation.edges
+        )
+        for score in evaluation.scores
+    }
+    out = {}
+    for name in names:
+        key = _parse(name)
+        if name.startswith(f"{DIFFERENCE}:"):
+            point = points[curve.score][key] - points[curve.compare][key]
+            spread = draws[curve.score][key] - draws[curve.compare][key]
+        else:
+            point, spread = points[curve.score][key], draws[curve.score][key]
+        out[name] = (float(point), float(np.std(spread, ddof=1)))
+    return out
+
+
 def fit_group(
-    group: Group, frame: pd.DataFrame, *, random_state: int, core: bool = False
+    group: Group,
+    frame: pd.DataFrame,
+    *,
+    random_state: int,
+    core: bool = False,
+    oracle: bool = False,
 ) -> dict[str, Any]:
     """Fit one replication of ``group`` and return what each of its cells reads.
 
     ``core=True`` fits the score alone and reads its rows only: no second score, band or
-    controls.  The primary phase reads that.
+    controls.  The primary phase reads that.  ``oracle=True`` adds ``"oracle"``, each
+    calibration row's same-draw oracle point and SE (:func:`_same_draw_oracle`), which the
+    pilot records.
 
     Returns
     -------
@@ -811,6 +879,8 @@ def fit_group(
             out["rows"] = _rows_of(curve, curve.score)
             out["curve_status"] = curve.status
             evaluation = frame.loc[_evaluation_rows(curve, frame)].reset_index(drop=True)
+            if oracle:
+                out["oracle"] = _same_draw_oracle(curve, law, evaluation, group.rows, random_state)
             out["controls"]["in_sample"] = _in_sample(group, evaluation, random_state)
             return out
         effect = _study(group, frame).identify(ConditionalContrast(Modifiers(["W1"])))
@@ -828,6 +898,8 @@ def fit_group(
         )
     out["rows"] = _rows_of(curve, "S")
     out["curve_status"] = curve.status
+    if oracle:
+        out["oracle"] = _same_draw_oracle(curve, law, frame, group.rows, random_state)
     if core:
         return out
     if group.label == "H":
@@ -1332,7 +1404,9 @@ def design_numbers() -> dict[str, Any]:
     power = band_power(P_SLOPE, GROUP_BY_LABEL["P"].n)
     cpu = sum(group.replicates * group.seconds for group in GROUPS) / 3600.0
     cpu += PRIMARY_REPLICATES * PRIMARY_SECONDS / 3600.0
-    pilot = PILOT_REPLICATES * sum(group.seconds for group in GROUPS) / 3600.0
+    pilot = (
+        PILOT_REPLICATES * sum(group.seconds + ORACLE_PILOT_SECONDS for group in GROUPS) / 3600.0
+    )
     return {
         "calibration": {
             "rows": len(positives),
@@ -1362,20 +1436,27 @@ PILOT_REPLICATES = 800
 #: for every calibration row, from the true nuisances, on its own seed stream.
 ORACLE_CSV = ROOT / "tests" / "studies" / "targeting_curves_oracle.csv"
 
-#: The rule that sends a calibration row to ``reporting`` before the pilot: its oracle SE
-#: ratio gives it a pass probability below one half at :data:`R_MAIN`
-#: (:func:`calibration_row_pass`), so the bootstrap alone makes it more likely red than
-#: green, whatever the fits do.
+#: The rule that sends a calibration row to ``reporting``: its SE ratio gives it a pass
+#: probability below one half at the declared ``R`` (:func:`calibration_row_pass`), so the
+#: bootstrap alone makes it more likely red than green whatever the fits do, *and* it errs on
+#: the safe side: SE ratio above 1 and coverage at least 0.95.  A row below the pass floor that
+#: is not conservative is a defect suspect, which no rule moves to reporting
+#: (:func:`declare_design`).
 REPORTING_PASS_FLOOR = 0.5
 
 #: The calibration cells declared ``reporting`` by that rule (the design test recomputes the
-#: set from :data:`ORACLE_CSV`).  ``H``'s paired difference at TOC(0.1): the half-sample SE
-#: is conservative, by a finite-sample amount that shrinks with ``n`` (oracle ratios in the
-#: CSV at 2,000, 4,000 and 8,000).  Owner: the targeting-curves inference paragraph of
-#: ``docs/technical-reference/conditional-effects.md``, which states the readings.
+#: set).  ``H``'s paired difference at TOC(0.1): the half-sample SE is conservative, by a
+#: finite-sample amount that shrinks with ``n`` (oracle ratios in the CSV at 2,000, 4,000 and
+#: 8,000).  A reporting row keeps a one-sided gate (:data:`REPORTING_GATE`).
 REPORTING_CELLS: frozenset[str] = frozenset(
     {calibration_cell("H", row_key("toc", 0.1, DIFFERENCE))}
 )
+
+#: The one-sided gate of a reporting row, as ``conservative_coverage`` in
+#: ``learned_rule_arms_properties``: the lower ends of its 99% SE-ratio and coverage intervals
+#: must reach the band floors, so an anti-conservative defect cannot publish unseen.  The
+#: upper side is not read.
+REPORTING_GATE = {"se_ratio_ci_lower": 0.93, "coverage_ci_lower": 0.92}
 
 
 def oracle_rows() -> dict[tuple[str, int, str], dict[str, float]]:
@@ -1389,32 +1470,103 @@ def oracle_rows() -> dict[tuple[str, int, str], dict[str, float]]:
     }
 
 
-def oracle_reporting_cells() -> frozenset[str]:
-    """The calibration positives :data:`REPORTING_PASS_FLOOR` sends to ``reporting``."""
-    out = set()
+def pilot_gaps() -> dict[str, float]:
+    """Each cell's paired gap: its pilot SE ratios minus the same draws' oracle ratios, pooled.
+
+    The pilot records, on every replicate, the half-sample SE of the oracle score from the true
+    nuisances on the same rows and ranking (``oracle_se_ratio`` in :data:`PILOT_CSV`).  The
+    difference of the two ratios is what the nuisance fits add, with far less noise than either
+    ratio alone; the mean over a cell's positives is its gap.  Empty before the pilot runs.
+    """
+    gaps: dict[str, list[float]] = {}
+    for (label, kind, _), row in pilot_rows().items():
+        if kind in POSITIVE_KINDS:
+            gaps.setdefault(label, []).append(
+                float(row["se_ratio"]) - float(row["oracle_se_ratio"])
+            )
+    return {label: float(np.mean(values)) for label, values in gaps.items()}
+
+
+def design_ratios() -> dict[str, tuple[float, float]]:
+    """``(SE ratio, coverage)`` of every calibration positive the design reads, by cell.
+
+    The oracle CSV's ratio at the cell's declared ``n``, plus the cell's paired gap once the
+    pilot has run (:func:`pilot_gaps`).
+    """
+    gaps = pilot_gaps()
+    out = {}
     for (label, n, name), row in oracle_rows().items():
         group = GROUP_BY_LABEL[label]
         if n != group.n:
             continue
-        if calibration_row_pass(group.replicates, float(row["se_ratio"])) < REPORTING_PASS_FLOOR:
-            out.add(calibration_cell(label, name, group.positive))
-    return frozenset(out)
+        ratio = float(row["se_ratio"]) + gaps.get(label, 0.0)
+        out[calibration_cell(label, name, group.positive)] = (ratio, float(row["coverage"]))
+    return out
+
+
+@dataclass(frozen=True)
+class Design:
+    """What :func:`declare_design` fixes.
+
+    Parameters
+    ----------
+    replicates : int or None
+        ``R``; ``None`` when no ``R`` up to :data:`R_CAP` qualifies, or a suspect stops it.
+    reporting : frozenset of str
+        The calibration cells that report.
+    suspects : tuple of str
+        Defect suspects, diagnosed before the run: anti-conservative rows below the pass
+        floor, or ``"cap"`` when no ``R`` reaches the floor.
+    """
+
+    replicates: int | None
+    reporting: frozenset[str]
+    suspects: tuple[str, ...]
+
+
+def family_pass(
+    ratios: Mapping[str, tuple[float, float]], replicates: int, reporting: frozenset[str]
+) -> float:
+    """P(every gated calibration positive passes) at ``replicates``, rows independent."""
+    probability = 1.0
+    for cell, (ratio, _) in ratios.items():
+        if cell not in reporting:
+            probability *= calibration_row_pass(replicates, ratio)
+    return probability
+
+
+def declare_design(ratios: Mapping[str, tuple[float, float]]) -> Design:
+    """``R`` and the reporting set, by the declared rules, from ``(ratio, coverage)`` by cell.
+
+    For each ``R`` from :data:`R_START` in steps of :data:`R_STEP` to :data:`R_CAP`, a row
+    below :data:`REPORTING_PASS_FLOOR` reports if it is conservative; the first ``R`` at which
+    the other rows pass together with probability :data:`ORACLE_FAMILY_FLOOR` is the design.
+    If none qualifies, the rows still below the pass floor at the cap that are not
+    conservative are the suspects, or ``"cap"`` when there are none.
+    """
+
+    def split(replicates: int) -> tuple[frozenset[str], frozenset[str]]:
+        low = {
+            cell
+            for cell, (ratio, _) in ratios.items()
+            if calibration_row_pass(replicates, ratio) < REPORTING_PASS_FLOOR
+        }
+        reporting = frozenset(
+            cell for cell in low if ratios[cell][0] > 1.0 and ratios[cell][1] >= 0.95
+        )
+        return reporting, frozenset(low - reporting)
+
+    for replicates in range(R_START, R_CAP + 1, R_STEP):
+        reporting, _ = split(replicates)
+        if family_pass(ratios, replicates, reporting) >= ORACLE_FAMILY_FLOOR:
+            return Design(replicates, reporting, ())
+    reporting, suspects = split(R_CAP)
+    return Design(None, reporting, tuple(sorted(suspects)) or ("cap",))
 
 
 def oracle_family_pass(replicates: int) -> float:
-    """P(every gated calibration positive passes) at ``replicates``, at its oracle ratio.
-
-    The rows are treated as independent; each reads :func:`calibration_row_pass` at its oracle
-    SE ratio with the default SE spread and kurtosis 3.  Each oracle ratio carries its own Monte
-    Carlo error (0.004 to 0.009), which spreads the ratios and makes this conservative.
-    """
-    probability = 1.0
-    for (label, n, name), row in oracle_rows().items():
-        group = GROUP_BY_LABEL[label]
-        if n != group.n or calibration_cell(label, name, group.positive) in REPORTING_CELLS:
-            continue
-        probability *= calibration_row_pass(replicates, float(row["se_ratio"]))
-    return probability
+    """:func:`family_pass` at the design ratios and the declared reporting set."""
+    return family_pass(design_ratios(), replicates, REPORTING_CELLS)
 
 
 #: The pilot's committed summary (:mod:`tests.studies.targeting_curves_pilot`): a pilot on its
@@ -1425,8 +1577,8 @@ PILOT_CSV = ROOT / "tests" / "studies" / "targeting_curves_pilot.csv"
 def pilot_rows() -> dict[tuple[str, str, str], dict[str, float]]:
     """The pilot's summary row of each ``(group, kind, quantity)``; empty before the pilot runs.
 
-    ``kind`` is ``correctly_specified`` for a calibration row, the control's name for a
-    control, and ``band`` for the band's rates.
+    ``kind`` is the positive kind for a calibration row, the control's name for a control,
+    and ``band`` for the band's rates.
     """
     if not PILOT_CSV.exists():
         return {}

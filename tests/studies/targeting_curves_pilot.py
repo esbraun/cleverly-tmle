@@ -15,11 +15,16 @@ consequences are declared now:
 
 - the in-sample control's displacement on cell ``S``: below detection 0.90 the curve moves to
   :data:`~tests.studies.targeting_curves.SPLIT_FALLBACK_BASIS`, on record;
-- each calibration ratio against its oracle ratio
-  (:data:`~tests.studies.targeting_curves.ORACLE_CSV`): a gap beyond a Bonferroni z over the
-  34 positives shows a nuisance effect the oracle cannot see, and the declaration is reviewed
-  before the run.  An 800-replicate ratio has an SE near 0.025, so the pilot does not size
-  ``R``; the oracle computation does;
+- each calibration row's paired gap: on every replicate the pilot also reads the half-sample
+  SE of the oracle score (true nuisances) on the same rows and ranking
+  (:func:`~tests.studies.targeting_curves._same_draw_oracle`, about 0.09 s), and the gap is the
+  fitted ratio minus that same-draw oracle ratio.  Each cell's gap, pooled over its positives,
+  shifts its rows' oracle ratios (:func:`~tests.studies.targeting_curves.design_ratios`), and
+  ``R_MAIN`` and ``REPORTING_CELLS`` are recomputed from the shifted ratios by the declared
+  rules (:func:`~tests.studies.targeting_curves.declare_design`, capped at ``R_CAP``).  If
+  the cap does not reach the floor, the cell with the lowest gap is a defect suspect,
+  diagnosed before the run, and none of its rows moves to reporting.  A row whose gap departs
+  from its cell's by a Bonferroni z over the 34 positives is a defect suspect the same way;
 - the kurtosis: above 4, ``R`` moves to the smallest multiple of 400 meeting both floors at
   that kurtosis.
 
@@ -74,6 +79,8 @@ COLUMNS = (
     "mean_se",
     "se_ratio",
     "se_ratio_se",
+    "oracle_se_ratio",
+    "gap_se",
     "se_cv",
     "kurtosis",
     "coverage",
@@ -92,7 +99,7 @@ def _one(key: tuple[str, int]) -> dict[str, Any]:
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            fitted = study.fit_group(group, frame, random_state=replicate)
+            fitted = study.fit_group(group, frame, random_state=replicate, oracle=True)
     except Exception as error:
         return {"replicate": replicate, "error": repr(error)[:300]}
     truths = {**truths, **fitted.get("truths", {})}
@@ -102,6 +109,8 @@ def _one(key: tuple[str, int]) -> dict[str, Any]:
         "truth": {name: float(truths[name]) for name in group.rows},
         "estimate": {name: float(fitted["rows"][name]["estimate"]) for name in group.rows},
         "se": {name: float(fitted["rows"][name]["std_error"]) for name in group.rows},
+        "oracle_estimate": {name: fitted["oracle"][name][0] for name in group.rows},
+        "oracle_se": {name: fitted["oracle"][name][1] for name in group.rows},
         "controls": fitted["controls"],
         "control_truth": {
             name: float(truths[name])
@@ -137,6 +146,25 @@ def _ratio(se: np.ndarray, errors: np.ndarray, rng: np.random.Generator) -> tupl
     return ratio, float(np.nanstd(draws, ddof=1))
 
 
+def _paired_gap(
+    se: np.ndarray,
+    errors: np.ndarray,
+    oracle_se: np.ndarray,
+    oracle_errors: np.ndarray,
+    rng: np.random.Generator,
+) -> tuple[float, float]:
+    """The same-draw oracle ratio, and the bootstrap SE of the gap between the two ratios."""
+    oracle = float(np.mean(oracle_se) / np.std(oracle_errors, ddof=1))
+    gaps = []
+    for _ in range(BOOTSTRAP):
+        index = rng.integers(0, len(errors), len(errors))
+        gaps.append(
+            np.mean(se[index]) / np.std(errors[index], ddof=1)
+            - np.mean(oracle_se[index]) / np.std(oracle_errors[index], ddof=1)
+        )
+    return oracle, float(np.nanstd(gaps, ddof=1))
+
+
 def summarize(raw: Path) -> pd.DataFrame:
     """One row per calibration quantity, SE control and point control of every group."""
     rng = np.random.default_rng(study.SEED)
@@ -159,6 +187,9 @@ def summarize(raw: Path) -> pd.DataFrame:
             se = np.array([record["se"][name] for record in kept])
             errors = estimate - truth
             ratio, ratio_se = _ratio(se, errors, rng)
+            oracle_se = np.array([record["oracle_se"][name] for record in kept])
+            oracle_errors = np.array([record["oracle_estimate"][name] for record in kept]) - truth
+            oracle_ratio, gap_se = _paired_gap(se, errors, oracle_se, oracle_errors, rng)
             out.append(
                 {
                     **common,
@@ -167,6 +198,8 @@ def summarize(raw: Path) -> pd.DataFrame:
                     "mean_se": float(np.mean(se)),
                     "se_ratio": ratio,
                     "se_ratio_se": ratio_se,
+                    "oracle_se_ratio": oracle_ratio,
+                    "gap_se": gap_se,
                     "se_cv": float(np.std(se, ddof=1) / np.mean(se)),
                     "kurtosis": float(stats.kurtosis(errors, fisher=False)),
                     "coverage": float(np.mean(np.abs(errors) <= study.CRITICAL * se)),
