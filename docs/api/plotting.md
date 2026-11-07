@@ -15,9 +15,11 @@ matplotlib is optional. Install it with `pip install "cleverly[plot]"`.
    cleverly.plotting.forest
    cleverly.plotting.sensitivity
    cleverly.plotting.overlap
+   cleverly.plotting.targeting
    cleverly.plotting.style
 ```
 
 The results that have one natural figure also draw it with `plot()`:
 `TMLEResult.plot()` and `TMLEResultSet.plot()` call `forest`, and `TruncationCurve.plot()`,
 `MarginalSensitivityBounds.plot()` and `MissingnessTilt.plot()` call `sensitivity`.
+`TargetingCurve.plot()` calls `targeting`.

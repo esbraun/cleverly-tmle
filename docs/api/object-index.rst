@@ -68,6 +68,7 @@ categorized API tables.
    cleverly.effect_curves.CurveBand
    cleverly.effect_curves.HeterogeneityTest
    cleverly.effect_curves.ScoreAssessment
+   cleverly.targeting_curves.TargetingCurve
    cleverly.ControlledDirectEffect
    cleverly.EstimationMethod
    cleverly.TMLEMethod
@@ -302,4 +303,5 @@ categorized API tables.
    cleverly.plotting.forest
    cleverly.plotting.sensitivity
    cleverly.plotting.overlap
+   cleverly.plotting.targeting
    cleverly.plotting.style

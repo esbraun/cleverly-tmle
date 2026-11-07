@@ -625,6 +625,186 @@ class CurveDiagnostics:
             risks[name] = self._risk(predictions, scale, pseudo)
         return ModifierStability(risks=risks, random_state=seed, backend=self.curve.backend)
 
+    def targeting_curve(
+        self,
+        *,
+        split: float = 0.5,
+        compare: str | None = None,
+        compare_computed_from: Any = None,
+        score_kind: str | None = None,
+        grid: Any = None,
+        groups: Any = 5,
+        n_half_samples: int = 2000,
+        alpha: float = 0.05,
+        random_state: int | None = None,
+    ) -> Any:
+        """How much treating by the curve first gains over treating at random, on held-out rows.
+
+        A declared split: the units (whole clusters on a clustered fit) go to a training part
+        of share ``split`` by ``random_state``, the producing estimator is refit there, and its
+        curve scores the other rows.  The curve of
+        :meth:`cleverly.study.IdentifiedEffect.targeting_curve` is then estimated on those
+        evaluation rows from an ATE fit on them alone, with the producing fit's learners.  It
+        reads the curve fitted on the training part, not the curve fitted on all rows.
+
+        Parameters
+        ----------
+        split : float
+            The training share, in ``(0, 1)``.
+        compare : str or None
+            An external score column of the producing study to compare on the same rows.
+        compare_computed_from : sequence of str or None
+            The adjustment columns ``compare`` was computed from.
+        score_kind : {"external"} or None
+            The declaration that ``compare`` was fitted on other rows.
+        grid : sequence of float or None
+            Treated fractions in ``(0, 1]``, increasing; ``0.1, ..., 1.0`` when omitted.
+        groups : int, sequence of float or None
+            Group effects: a number of equal groups, or their upper edges on the grid.
+        n_half_samples : int
+            Half-sample bootstrap draws.
+        alpha : float
+            The intervals hold at ``1 - alpha``, and the band jointly over the grid.
+        random_state : int or None
+            Seed of the split, the refits and the draws; ``None`` uses 0.
+
+        Returns
+        -------
+        TargetingCurve
+            The curve, with ``route="split"``.
+
+        Raises
+        ------
+        CapabilityError
+            If ``split`` is not a fraction (a fold average is refused), the producing fit
+            repeats its cross-fitting split, or ``compare`` is asked of an engine fit.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import pandas as pd
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import CausalStudy, ConditionalContrast, PointTreatment
+        >>> from cleverly.bases import Linear, Modifiers
+        >>> rng = np.random.default_rng(0)
+        >>> n = 1000
+        >>> W = rng.uniform(-1, 1, n)
+        >>> A = rng.binomial(1, 0.5, n)
+        >>> Y = A * (1 + W) + rng.normal(0, 0.5, n)
+        >>> frame = pd.DataFrame({"Y": Y, "A": A, "W": W})
+        >>> study = CausalStudy(
+        ...     frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+        ... )
+        >>> effect = study.identify(ConditionalContrast(Modifiers(["W"]), model=Linear(["W"])))
+        >>> fit = effect.estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(),
+        ...     outcome_by_arm=True,
+        ...     q_bounds=(-4.0, 6.0),
+        ...     random_state=0,
+        ... )
+        >>> targeting = fit.effect_curve().diagnostics.targeting_curve(
+        ...     n_half_samples=200, random_state=0
+        ... )
+        >>> targeting.route, targeting.n_train, targeting.n_eval
+        ('split', 500, 500)
+        >>> bool(targeting.area("autoc")["estimate"] > 0)
+        True
+        """
+        from .estimators import TMLE
+        from .targeting_curves import (
+            TARGETING_REPEATS_REFUSAL,
+            TARGETING_SPLIT_REFUSAL,
+            targeting_fit,
+        )
+
+        if (
+            isinstance(split, bool)
+            or not isinstance(split, (float, np.floating))
+            or not 0.0 < float(split) < 1.0
+        ):
+            raise CapabilityError(refusal=TARGETING_SPLIT_REFUSAL)
+        seed = self._seed(random_state)
+        fit, data, spec, _ = self._pieces()
+        estimator = self._estimator(fit)
+        kwargs = _ate_kwargs(estimator, reference=float(spec.pair[1]), seed=seed)
+        if int(kwargs.get("repeats", 1)) > 1:
+            raise CapabilityError(refusal=TARGETING_REPEATS_REFUSAL)
+        other = None
+        if compare is not None:
+            effect = getattr(self.curve, "identified_effect", None)
+            if effect is None:
+                raise _refuse(
+                    "compare= reads an external score column of the producing study, and this "
+                    "curve was fitted by the engine, with no study",
+                    "Fit the curve through CausalStudy.identify(...).estimate(...).",
+                )
+            other = np.asarray(
+                effect._external_score(compare, compare_computed_from, score_kind), dtype=float
+            )
+            if len(other) != data.n:
+                raise _refuse(
+                    f"the study holds {len(other)} rows and the producing fit {data.n}",
+                    "Compare on the study whose rows the curve was fitted on.",
+                )
+        units = np.arange(data.n) if data.cluster is None else np.asarray(data.cluster)
+        labels, inverse = np.unique(units, return_inverse=True)
+        n_units = len(labels)
+        n_train_units = int(np.floor(float(split) * n_units))
+        if not 2 <= n_train_units <= n_units - 2:
+            raise _refuse(
+                f"a split of {split} leaves {n_train_units} of {n_units} units to train on",
+                "Pass a split that leaves at least two units in each part.",
+            )
+        order = np.random.default_rng(seed).permutation(n_units)
+        in_train = np.zeros(n_units, dtype=bool)
+        in_train[order[:n_train_units]] = True
+        train = np.flatnonzero(in_train[inverse])
+        evaluation = np.flatnonzero(~in_train[inverse])
+        frame = self._frame(data)
+        refit = estimator.refit(data.subset(train), random_state=seed)
+        score = np.asarray(refit.effect_curve().predict(frame.iloc[evaluation]), dtype=float)
+        ate = TMLE(**kwargs).fit(data.subset(evaluation)).single()
+        scores = {self.curve.prediction_column: score}
+        if other is not None and compare is not None:
+            scores[compare] = other[evaluation]
+        return targeting_fit(
+            ate,
+            ate.data,
+            scores,
+            pair=(float(spec.pair[0]), float(spec.pair[1])),
+            grid=grid,
+            groups=groups,
+            n_half_samples=n_half_samples,
+            alpha=alpha,
+            random_state=seed,
+            route="split",
+            n_train=len(train),
+        )
+
+
+def _ate_kwargs(estimator: Any, *, reference: float, seed: int) -> dict[str, Any]:
+    """The producing estimator's settings for a plain ATE fit, with its learners."""
+    import inspect
+
+    from .estimators import TMLE
+
+    if hasattr(estimator, "tmle_kwargs"):
+        kwargs = dict(estimator.tmle_kwargs)
+    else:
+        names = [name for name in inspect.signature(TMLE.__init__).parameters if name != "self"]
+        kwargs = {name: getattr(estimator, name) for name in names if hasattr(estimator, name)}
+    kwargs.update(
+        {
+            "estimands": ("ate",),
+            "reference": reference,
+            "effect_modification": None,
+            "split_plan": None,
+            "random_state": seed,
+        }
+    )
+    return kwargs
+
 
 def _without(basis: Any, name: str) -> Any:
     """``basis`` without the modifier ``name``: its columns and domains, or its components.

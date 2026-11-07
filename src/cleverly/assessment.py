@@ -689,10 +689,31 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
             ("modifier_stability", "change in out-of-fold risk without each modifier"),
         )
     ),
+    # X92 PR-5: the targeting curve of the curve refit on a declared split.  Its draws are
+    # seeded by ``random_state``, so one seed gives one frame.
+    _capability(
+        "targeting_curve",
+        "effect_modification",
+        artifacts=("the producing estimator", "analysis data", "a refit on a declared split"),
+        execution="refit",
+        deterministic=True,
+        cost="expensive",
+        accepts_random_state=True,
+        interpretation=(
+            "TOC, cumulative gain, AUTOC and Qini of the curve refit on a training split, "
+            "evaluated on the other rows with half-sample bootstrap intervals"
+        ),
+    ),
 )
 
 #: The operations only an effect curve declares.
-CURVE_OPERATIONS = ("calibration", "risk_comparison", "stability", "modifier_stability")
+CURVE_OPERATIONS = (
+    "calibration",
+    "risk_comparison",
+    "stability",
+    "modifier_stability",
+    "targeting_curve",
+)
 
 
 @dataclass(frozen=True)
@@ -4213,6 +4234,22 @@ def _modifier_stability_item(
     return AssessmentItem("modifier_stability", AssessmentStatus.COMPLETED, detail)
 
 
+def _targeting_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
+    area = report.area("autoc")
+    interval = (
+        "interval withheld"
+        if not np.isfinite(float(area["lower"]))
+        else f"interval [{area['lower']:.3g}, {area['upper']:.3g}]"
+    )
+    detail = (
+        f"AUTOC {area['estimate']:.3g} ({interval}) of the curve refit on {report.n_train} "
+        f"rows and evaluated on {report.n_eval}; {report.status}"
+    )
+    return AssessmentItem("targeting_curve", AssessmentStatus.COMPLETED, detail)
+
+
 #: How each operation's own report becomes one report row.
 #:
 #: The third argument is what the caller supplied for that operation.  An interpreter that
@@ -4243,6 +4280,7 @@ INTERPRETERS: dict[str, Callable[[Any, Any, Mapping[str, Any]], AssessmentItem]]
     "risk_comparison": _curve_risk_item,
     "stability": _curve_stability_item,
     "modifier_stability": _modifier_stability_item,
+    "targeting_curve": _targeting_item,
 }
 
 
