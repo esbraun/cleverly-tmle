@@ -21,6 +21,7 @@ from tests.unit.tutorial_semantics import (
     assert_protocol_recorded,
     changed_fields,
     covers,
+    figure_title,
 )
 
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
@@ -112,6 +113,7 @@ def _check_first_fit(namespace: dict[str, Any]) -> None:
         support = result[name].support
         assert support.label == "supported" and support.row == "G14.continuous_time"
     assert result.data.n_times == 4 and result.data.treatment_held
+    assert figure_title(namespace["risk_fig"]) == "Risk over time"
 
     differences, rows = namespace["differences"], namespace["rows"]
     previous = 0.0
