@@ -629,6 +629,15 @@ def test_v17_experimental_estimate_says_so(result: Any) -> None:
     assert "experimental" in _core.note_text(fig)
 
 
+def test_v17_repeats_names_the_outcome_in_words(result: Any) -> None:
+    column = result.data.outcome_name
+    plain = repeats(result).axes[0].get_xlabel()
+    assert plain == f"Difference in mean {column}"
+    worded = repeats(result, outcome_label="transition score", units="points").axes[0]
+    assert worded.get_xlabel() == "Difference in mean transition score (points)"
+    assert column not in worded.get_xlabel()
+
+
 def test_v17_one_repeat_refuses(single: Any) -> None:
     with pytest.raises(ValueError, match="one cross-fitting repeat"):
         repeats(single)

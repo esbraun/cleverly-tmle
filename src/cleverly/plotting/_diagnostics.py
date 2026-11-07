@@ -822,6 +822,7 @@ def repeats(
     result: Any,
     *,
     name: str | None = None,
+    outcome_label: str | None = None,
     units: str | None = None,
     title: str | None = None,
     ax: Axes | None = None,
@@ -841,6 +842,9 @@ def repeats(
         A fit with at least two cross-fitting repeats.
     name : str or None, default=None
         The estimand to draw; the first one when omitted.
+    outcome_label : str or None, default=None
+        Words for the outcome in the axis label, such as ``"transition score"``; the
+        outcome column's name when omitted.
     units : str or None, default=None
         Units of the outcome, for the axis label.
     title : str or None, default=None
@@ -939,7 +943,8 @@ def repeats(
     axis.set_ylim(len(values) + 0.7, 0.3)
     _core.style_axes(axis, grid="x")
     scale = str(estimate.scale)
-    axis.set_xlabel(_axis_label(scale, getattr(result.data, "outcome_name", None), units))
+    outcome = outcome_label or getattr(result.data, "outcome_name", None)
+    axis.set_xlabel(_axis_label(scale, outcome, units))
     if scale == "ratio" and np.all(values > 0):
         _core.log_axis(axis, "x")
     spread = float(result.repeat_spread()[label])
