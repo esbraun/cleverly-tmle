@@ -809,6 +809,135 @@ def test_the_fluctuation_settings_it_cannot_carry_are_refused() -> None:
         assert caught.value.refusal.roadmap == "X92"
 
 
+class _NeverFitted(LinearRegression):
+    """A learner that fails the test if anything fits it."""
+
+    def fit(self, *args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("a learner was fitted before the refusal")
+
+
+@pytest.mark.parametrize(
+    ("change", "words"),
+    [({"target_weights": True}, "target_weights"), ({"stopping": "scaled_var"}, "stopping")],
+)
+def test_route_one_refuses_its_fluctuation_settings_before_any_learner(
+    change: dict[str, Any], words: str
+) -> None:
+    with pytest.raises(CapabilityError, match=words):
+        _route_one(**{**change, "outcome_learner": _NeverFitted()})
+
+
+@_quiet
+def test_a_constant_score_withholds_the_intervals_its_rounding_would_give(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every TOC of a score that ties every row is 0, and its draws differ only by rounding.
+
+    The mutation control removes the zero-spread guard: the same rows then carry finite
+    intervals of width near 1e-16.
+    """
+    fit, data, _ = _misspecified()
+    score = np.zeros(data.n)
+    curve = tc.targeting_fit(fit, data, {"S": score}, pair=(1.0, 0.0), n_half_samples=20)
+    rows = [row for row in curve.rows("toc") if row["q"] < 1.0]
+    assert all(math.isnan(row["std_error"]) for row in rows)
+    assert all("do not vary" in row["status_reason"] for row in rows)
+    assert math.isnan(curve.critical_value)
+    monkeypatch.setattr(tc, "_ZERO_SPREAD", 0.0)
+    mutated = tc.targeting_fit(fit, data, {"S": score}, pair=(1.0, 0.0), n_half_samples=20)
+    widths = [row["upper"] - row["lower"] for row in mutated.rows("toc") if row["q"] < 1.0]
+    assert any(math.isfinite(width) and width < 1e-10 for width in widths)
+
+
+def _clustered_curve(n_clusters: int) -> Any:
+    frame = _study_frame(800, seed=4)
+    frame["C"] = np.arange(800) % n_clusters
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2"), cluster="C"),
+    )
+    effect = study.identify(ConditionalContrast(Modifiers(["W1"])))
+    return effect.targeting_curve(
+        "S",
+        computed_from=["W1"],
+        score_kind="external",
+        n_half_samples=20,
+        random_state=0,
+        **LEARNERS,
+    )
+
+
+@_quiet
+def test_fewer_than_forty_clusters_withhold_every_interval_and_the_band() -> None:
+    few = _clustered_curve(20)
+    estimates = few.to_frame()
+    shown = estimates[~((estimates["quantity"] == "toc") & (estimates["q"] == 1.0))]
+    assert shown["std_error"].isna().all()
+    assert shown["status_reason"].str.contains("fewer than 40 clusters").all()
+    assert math.isnan(few.critical_value)
+    # The witness: at 50 clusters the same fit carries its intervals and band.
+    enough = _clustered_curve(50)
+    assert np.isfinite(enough.area("autoc")["std_error"])
+    assert np.isfinite(enough.critical_value)
+
+
+@_quiet
+def test_a_known_mechanism_is_read_from_the_data_and_divides_the_clever_covariate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame = _study_frame(1200, seed=5)
+    known = 0.3 + 0.4 * (frame["W2"] > 0)
+    frame["A"] = np.random.default_rng(6).binomial(1, known)
+    frame["p1"], frame["p0"] = known, 1.0 - known
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2"),
+            treatment_probabilities={0: "p0", 1: "p1"},
+        ),
+    )
+    effect = study.identify(ConditionalContrast(Modifiers(["W1"])))
+    seen: list[np.ndarray] = []
+    clever = tc._clever_propensity
+
+    def spy(nuisance: Any, g_bounds: tuple[float, float]) -> Any:
+        seen.append(clever(nuisance, g_bounds))
+        return seen[-1]
+
+    monkeypatch.setattr(tc, "_clever_propensity", spy)
+    status = tc.targeting_status
+    declared: list[bool] = []
+
+    def status_spy(**kwargs: Any) -> Any:
+        declared.append(kwargs["known_mechanism"])
+        return status(**kwargs)
+
+    monkeypatch.setattr(tc, "targeting_status", status_spy)
+    monkeypatch.setattr(tc, "TARGETING_STUDY_RUN", True)
+    arguments = {
+        "outcome_learner": LinearRegression(),
+        "outcome_by_arm": True,
+        "q_bounds": (-5.0, 6.0),
+    }
+    curve = effect.targeting_curve(
+        "S",
+        computed_from=["W1"],
+        score_kind="external",
+        n_half_samples=20,
+        random_state=0,
+        **arguments,
+    )
+    (g,) = seen
+    assert g.shape == (1200, 2)
+    assert np.allclose(g[:, 1], known.to_numpy(), atol=1e-12)
+    assert np.allclose(g[:, 0], 1.0 - known.to_numpy(), atol=1e-12)
+    # The configuration reads cell K's: a known mechanism, measured once the study runs.
+    assert declared == [True]
+    assert curve.status == "supported", curve.status_reason
+
+
 @_quiet
 def test_few_top_rows_withhold_the_interval_and_band_without_refusing() -> None:
     rng = np.random.default_rng(0)

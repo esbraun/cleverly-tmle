@@ -4814,7 +4814,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         [0.1, 0.2, 0.3]
         """
         from .effect_modification import _resolve_pair
-        from .targeting_curves import TARGETING_REPEATS_REFUSAL, targeting_fit
+        from .targeting_curves import (
+            TARGETING_REPEATS_REFUSAL,
+            check_targeting_spec,
+            targeting_fit,
+        )
 
         estimand = self.estimand
         if not isinstance(estimand, ConditionalContrast) or self._study is None:
@@ -4847,7 +4851,9 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         kwargs.update({"estimands": ("ate",), "reference": pair[1]})
         if random_state is not None:
             kwargs["random_state"] = random_state
-        fit = TMLE(**kwargs).fit(data).single()
+        estimator = TMLE(**kwargs)
+        check_targeting_spec(estimator.targeting_spec())
+        fit = estimator.fit(data).single()
         return targeting_fit(
             fit,
             data,

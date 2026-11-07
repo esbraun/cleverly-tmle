@@ -63,6 +63,7 @@ __all__ = [
     "TargetingCurve",
     "TargetingEvaluation",
     "block_weights",
+    "check_targeting_spec",
     "half_sample_draws",
     "targeting_fit",
     "targeting_status",
@@ -164,6 +165,7 @@ WITHHELD: Final[Mapping[str, str]] = {
     "top_rows": "no interval: fewer than {guard} rows in the top fraction",
     "few_clusters": "no interval: fewer than {guard} clusters for the half-sample bootstrap",
     "anchor": "no interval: TOC(1) is 0 by definition",
+    "degenerate": "no interval: the half-sample draws do not vary, so the spread is rounding",
 }
 
 
@@ -1039,6 +1041,40 @@ def _spread(draws: FloatArray) -> float:
     return float(np.std(values, ddof=1)) if values.size > 1 else float("nan")
 
 
+def check_targeting_spec(spec: Any) -> None:
+    """Refuse an ATE fit's targeting settings that no targeting curve can solve under.
+
+    Both routes call it on the ATE estimator before it fits, and :func:`targeting_fit` again
+    on the fit it receives.
+
+    Parameters
+    ----------
+    spec : TargetingSpec
+        The estimator's ``targeting_spec()``.
+
+    Raises
+    ------
+    CapabilityError
+        For ``target_weights=True`` or a declared stopping rule.
+    """
+    if spec.target_weights:
+        raise CapabilityError(
+            "a targeting curve fluctuates along several weight columns at once, and every row "
+            "loads several of them, which the weighted form of the fluctuation cannot carry.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit with target_weights=False.",
+            roadmap="X92",
+        )
+    if spec.stopping != "relative":
+        raise CapabilityError(
+            "a targeting curve solves its fluctuation under the shipped relative stopping test; "
+            "a declared stopping rule needs a stopping context no targeting curve builds.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit with stopping='relative'.",
+            roadmap="X92",
+        )
+
+
 def targeting_fit(
     fit: Any,
     data: Any,
@@ -1096,23 +1132,7 @@ def targeting_fit(
         For a score with a non-finite value, a grid or group declaration off its rules, or a
         targeting step that does not converge.
     """
-    spec = fit.config.targeting_spec
-    if spec.target_weights:
-        raise CapabilityError(
-            "a targeting curve fluctuates along several weight columns at once, and every row "
-            "loads several of them, which the weighted form of the fluctuation cannot carry.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative="Fit with target_weights=False.",
-            roadmap="X92",
-        )
-    if spec.stopping != "relative":
-        raise CapabilityError(
-            "a targeting curve solves its fluctuation under the shipped relative stopping test; "
-            "a declared stopping rule needs a stopping context no targeting curve builds.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative="Fit with stopping='relative'.",
-            roadmap="X92",
-        )
+    check_targeting_spec(fit.config.targeting_spec)
     if int(n_half_samples) < 2:
         raise DataError(f"n_half_samples must be at least 2; got {n_half_samples}")
     if not 0.0 < float(alpha) < 1.0:
@@ -1292,6 +1312,10 @@ class _Rows:
         se = float("nan") if draws is None or withheld else _spread(draws)
         if withheld is None and self.few_clusters and draws is not None:
             withheld = WITHHELD["few_clusters"].format(guard=TARGETING_MIN_CLUSTERS)
+        if withheld is None and math.isfinite(se) and se <= _ZERO_SPREAD:
+            # A score that ties every row draws one value up to rounding: an interval of
+            # width 1e-16 would claim a precision nothing measured.
+            withheld = WITHHELD["degenerate"]
         if withheld is not None:
             se = float("nan")
         low = estimate - self.z * se if math.isfinite(se) else float("nan")

@@ -3,10 +3,11 @@
 Every group of :data:`tests.studies.targeting_curves.GROUPS` is one fit per replication, and its
 rows fill the cells :func:`~tests.studies.targeting_curves.group_cells` names:
 
-- ``interval_calibration``: each reported quantity's ``__correctly_specified`` row, the
-  curve's Wald interval ``estimate +- z SE`` read against the truth (on cell ``S`` the truth of
-  that replicate's fitted curve), and each SE control's row, the same estimate with the
-  mutated draws' SE, which must leave the SE-ratio band on its declared side;
+- ``interval_calibration``: each reported quantity's positive row (``__correctly_specified``,
+  or ``__known_mechanism`` on cell ``K``), the curve's Wald interval ``estimate +- z SE`` read
+  against the truth (on cell ``S`` the truth of that replicate's fitted curve), and each SE
+  control's row, the same estimate with the mutated draws' SE, which must leave the SE-ratio
+  band on its declared side;
 - ``bias``: the two point controls (cell ``D``'s whole tied block, cell ``S``'s in-sample
   curve), each wholly outside +-0.25 of its own SD;
 - ``simultaneous_coverage``: cell ``H``'s band covering every grid truth at once, and the
@@ -15,7 +16,8 @@ rows fill the cells :func:`~tests.studies.targeting_curves.group_cells` names:
   ``U`` and ``N`` (TOC identically 0) and on cell ``P``.
 
 A point control is a number, not a fit with an interval, so its row carries a unit standard
-error and only its bias is read, as in ``conditional_projection_properties``.
+error and only its bias is read
+(:func:`~tests.studies.evidence.property_verdicts.bias_role_verdicts`).
 """
 
 from __future__ import annotations
@@ -26,12 +28,12 @@ import pandas as pd
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import targeting_curves as study
-from tests.studies.conditional_projection_properties import PROPERTY_RULES as _BIAS_RULES
-from tests.studies.conditional_projection_properties import bias_verdicts
 from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, control_row
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
+    bias_role_rule,
+    bias_role_verdicts,
     calibration_verdicts,
     finish,
     simultaneous_coverage_verdicts,
@@ -48,10 +50,8 @@ FAILURE_BOUND = 0.01
 #: The draw-level statistic the accounting reports for each lost replicate.
 PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
-#: The families whose rows each answer to their own standardized-bias interval.  The verdict
-#: and its rule are the conditional-projection study's (:func:`bias_verdicts`), which reads the
-#: same family name: a control row passes on its discrimination endpoint.  Every bias row here
-#: is a control.
+#: The families whose rows each answer to their own standardized-bias interval: a control row
+#: passes on its discrimination endpoint.  Every bias row here is a control.
 BIAS_FAMILIES = (study.BIAS,)
 
 
@@ -123,7 +123,7 @@ def _replicate(label: str, replicate: int, drawn: Any) -> list[dict[str, Any]]:
                 group,
                 replicate,
                 family=study.CALIBRATION,
-                cell=study.calibration_cell(group.label, name),
+                cell=study.calibration_cell(group.label, name, group.positive),
                 truth=truths[name],
                 estimate=estimates[name]["estimate"],
                 standard_error=estimates[name]["std_error"],
@@ -274,21 +274,22 @@ def generate_property_rows(
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The shared verdicts, the calibration kinds, the band's joint coverage and the controls."""
     summary, rates = apply_shared_verdicts(rows, STUDY, rate_labels=())
-    calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=None)
+    calibration_verdicts(
+        summary, margins=STUDY.margins, efficiency_band=None, positive_suffix=study.POSITIVE_KINDS
+    )
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
-    bias_verdicts(summary)
+    bias_role_verdicts(summary, families=BIAS_FAMILIES)
     return finish(summary, rates)
 
 
 #: The failure accounting's declared rules.  The calibration, joint-coverage, type-I and power
 #: families read the shared rules (:data:`~tests.studies.evidence.property_verdicts.FAMILY_RULES`).
-PROPERTY_RULES = _BIAS_RULES
+PROPERTY_RULES = (bias_role_rule(BIAS_FAMILIES),)
 
 __all__ = [
     "FAILURE_BOUND",
     "PROPERTY_RULES",
     "PROPERTY_WITNESS",
-    "bias_verdicts",
     "generate_property_rows",
     "summarize_properties",
 ]

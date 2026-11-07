@@ -22,9 +22,9 @@ fail.  Everything a run reads is fixed here before it starts:
 
 The run is ``python -m tests.canonical.targeting_curves.regenerate`` (the declared form of
 :mod:`tests.canonical.declared_run`); its docstring holds the red-cell reading.  The pilot
-(:mod:`tests.studies.targeting_curves_pilot`) runs before the declaration is final and fixes
-the two numbers the design cannot compute in closed form: the side of cell ``K``'s
-untargeted-draws control and the in-sample control's displacement.
+(:mod:`tests.studies.targeting_curves_pilot`) runs before the declaration is final and checks
+what the design cannot compute in closed form: the in-sample control's displacement, the
+seconds per fit, and the kurtosis and SE spread the sizing assumes.
 
 Deviations from the plan's table, recorded here so the run reads them:
 
@@ -433,17 +433,22 @@ TYPE_I = "type_i_error"
 POWER = "power"
 
 POSITIVE = "correctly_specified"
+#: Cell ``K``'s positive kind: its outcome regression is misspecified on purpose and its
+#: mechanism is known, so ``correctly_specified`` would be a false claim.
+KNOWN_MECHANISM = "known_mechanism"
+#: The kinds of a calibration positive.
+POSITIVE_KINDS = (POSITIVE, KNOWN_MECHANISM)
 
 #: Replications of every group but ``P`` (plan section 10, sizing).
 R_MAIN = 3_600
 #: Replications of the band-power group.
 R_POWER = 800
 
-#: The side of cell ``K``'s untargeted-draws control: ``"inflated"`` when the one-step draws'
-#: SD exceeds the targeted draws', ``"shrunken"`` when it falls short.  The pilot measures
-#: the ratio (``K_untargeted_ratio`` in :data:`PILOT_CSV`) and the declaration sets this from
-#: it before the run; ``None`` leaves the control out of the cells until then.
-K_UNTARGETED_SIDE: str | None = None
+#: The side of cell ``K``'s untargeted-draws control on AUTOC: the one-step draws' SD falls
+#: 20 to 25% short of the targeted draws' (:func:`k_untargeted_ratio`, which the design test
+#: recomputes).  The control reads AUTOC only: at TOC(0.5) and Qini the ratio is 1 to within
+#: 2%, inside the band, so no control row there could leave it.
+K_UNTARGETED_SIDE = "shrunken"
 
 
 @dataclass(frozen=True)
@@ -470,6 +475,9 @@ class Group:
         Single-thread seconds per replication, for the cost: measured on the smoke run with
         its controls (cell ``S`` includes its per-replicate Sobol truth and the in-sample
         refit); the pilot remeasures them.
+    positive : str
+        The kind of its calibration positives: :data:`POSITIVE`, or :data:`KNOWN_MECHANISM`
+        for cell ``K``.
     """
 
     label: str
@@ -480,6 +488,7 @@ class Group:
     controls: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     band: str | None = None
     seconds: float = 0.6
+    positive: str = POSITIVE
 
 
 #: The quantities of the TOC at three fractions and the two areas.
@@ -509,8 +518,9 @@ GROUPS: tuple[Group, ...] = (
         2_000,
         R_MAIN,
         (row_key("toc", 0.5), "autoc", "qini"),
-        controls={"untargeted": (row_key("toc", 0.5), "autoc")},
+        controls={"untargeted": ("autoc",)},
         seconds=1.0,
+        positive=KNOWN_MECHANISM,
     ),
     Group("P", "P", 1_000, R_POWER, (), band="power", seconds=0.4),
     Group(
@@ -556,7 +566,7 @@ CONTROL_CLAIMS: Mapping[str, str] = {
     "unpaired": "the second score drawn from its own stream: the SE-ratio interval of the "
     "difference must lie above the band",
     "untargeted": "the draws average the one-step scores while the TMLE is reported: the "
-    "SE-ratio interval must lie outside the band on the side the pilot fixes",
+    "SE-ratio interval must lie below the band (k_untargeted_ratio computes the side)",
     "whole_block": "the rule S >= cut puts the whole tied block in the top fraction: the bias "
     "must lie wholly outside +-0.25 of its own SD",
     "in_sample": "the curve fitted on the evaluation rows themselves: the bias must lie wholly "
@@ -573,6 +583,11 @@ def calibration_cell(group: str, name: str, kind: str = POSITIVE) -> str:
     return f"{group}_{_label(name)}__{kind}"
 
 
+def is_positive(cell: str) -> bool:
+    """Whether a calibration cell is a positive (of either :data:`POSITIVE_KINDS`)."""
+    return cell.rsplit("__", 1)[-1] in POSITIVE_KINDS
+
+
 def se_control_kind(control: str) -> str | None:
     """The calibration-control kind a SE control's rows answer to, or ``None`` before the pilot."""
     if control in ("fixed_cut", "unpaired"):
@@ -580,7 +595,7 @@ def se_control_kind(control: str) -> str | None:
     if control == "fixed_ranks":
         return FIXED_RANKS_KIND
     if control == "untargeted":
-        return None if K_UNTARGETED_SIDE is None else f"{K_UNTARGETED_SIDE}_se_control"
+        return f"{K_UNTARGETED_SIDE}_se_control"
     return None
 
 
@@ -593,7 +608,9 @@ FIXED_RANKS_KIND = "inflated_se_control"
 def group_cells(group: Group) -> dict[str, tuple[str, ...]]:
     """The property cells ``group``'s fits fill, by family."""
     cells: dict[str, list[str]] = {CALIBRATION: [], BIAS: [], JOINT: [], TYPE_I: [], POWER: []}
-    cells[CALIBRATION] += [calibration_cell(group.label, name) for name in group.rows]
+    cells[CALIBRATION] += [
+        calibration_cell(group.label, name, group.positive) for name in group.rows
+    ]
     for control, names in group.controls.items():
         if control in ("whole_block", "in_sample"):
             cells[BIAS] += [f"{group.label}_{_label(name)}__{control}" for name in names]
@@ -655,6 +672,9 @@ SPLIT_MODIFIERS = Modifiers(
     ["W1", "W2", "W3"], domains={"W1": (-1.0, 1.0), "W2": (-1.0, 1.0), "W3": (-1.0, 1.0)}
 )
 SPLIT_BASIS = BSpline(["W1", "W2", "W3"], n_interior_knots=5)
+#: The basis cell ``S`` moves to, on record and before the run, if the pilot's in-sample
+#: displacement falls short of detection 0.90 on :data:`SPLIT_BASIS`.  It has 34 terms.
+SPLIT_FALLBACK_BASIS = BSpline(["W1", "W2", "W3"], n_interior_knots=8)
 
 
 def law_of(group: Group, slope: float | None = None) -> Law:
@@ -720,7 +740,9 @@ SE_MUTATIONS: Mapping[str, Mapping[str, Any]] = {
 }
 
 
-def _control_ses(curve: Any, control: str, names: tuple[str, ...]) -> dict[str, float]:
+def _control_ses(
+    curve: Any, control: str, names: tuple[str, ...], random_state: int
+) -> dict[str, float]:
     """Each named quantity's SE under one control's mutation, from one set of draws.
 
     A name of the paired difference (``S - S_B:...``) reads the SD of the per-draw differences
@@ -729,7 +751,7 @@ def _control_ses(curve: Any, control: str, names: tuple[str, ...]) -> dict[str, 
     draws = tc.half_sample_draws(
         curve.evaluation,
         n_half_samples=CONTROL_HALF_SAMPLES,
-        random_state=0,
+        random_state=random_state,
         **SE_MUTATIONS[control],
     )
     out = {}
@@ -751,8 +773,13 @@ def _parse(name: str) -> tuple[str, float]:
     return quantity, float(q)
 
 
-def fit_group(group: Group, frame: pd.DataFrame, *, random_state: int) -> dict[str, Any]:
+def fit_group(
+    group: Group, frame: pd.DataFrame, *, random_state: int, core: bool = False
+) -> dict[str, Any]:
     """Fit one replication of ``group`` and return what each of its cells reads.
+
+    ``core=True`` fits the score alone and reads its rows only: no second score, band or
+    controls.  The primary phase reads that.
 
     Returns
     -------
@@ -783,7 +810,7 @@ def fit_group(group: Group, frame: pd.DataFrame, *, random_state: int) -> dict[s
             return out
         effect = _study(group, frame).identify(ConditionalContrast(Modifiers(["W1"])))
         extra: dict[str, Any] = {}
-        if group.label == "H":
+        if group.label == "H" and not core:
             extra = {"compare": "S_B", "compare_computed_from": ["W1", "W3"]}
         curve = effect.targeting_curve(
             "S",
@@ -795,14 +822,16 @@ def fit_group(group: Group, frame: pd.DataFrame, *, random_state: int) -> dict[s
             **settings,
         )
     out["rows"] = _rows_of(curve, "S")
+    out["curve_status"] = curve.status
+    if core:
+        return out
     if group.label == "H":
         out["rows"].update(_rows_of(curve, DIFFERENCE))
-    out["curve_status"] = curve.status
     if group.band is not None:
         out["band"] = _band(curve, truth(law), "S")
     for control, names in group.controls.items():
         if control in SE_MUTATIONS:
-            out["controls"][control] = _control_ses(curve, control, names)
+            out["controls"][control] = _control_ses(curve, control, names, random_state)
         elif control == "whole_block":
             points = tc.control_values(curve, n_half_samples=2, tie_rule="at_or_above")
             out["controls"][control] = {name: points["S"][_parse(name)][0] for name in names}
@@ -852,10 +881,12 @@ def _ate_fit(group: Group, law: Law, data: Any, random_state: int) -> Any:
 
 # ------------------------------------------------------------ the primary phase
 
-#: The primary phase is cell ``H``'s five core rows.
+#: The primary phase is cell ``H``'s five core rows, from a fit of the score alone.
 PRIMARY_GROUP = "H"
 PRIMARY_REPLICATES = R_MAIN
 PRIMARY_N = 2_000
+#: Single-thread seconds of one primary fit (the core-only fit of :func:`fit_group`).
+PRIMARY_SECONDS = 0.6
 SCENARIOS = {PRIMARY_GROUP: CORE}
 
 STUDY = StudyRecord(
@@ -876,6 +907,7 @@ STUDY = StudyRecord(
     modules=(
         "tests/studies/targeting_curves.py",
         "tests/studies/targeting_curves_properties.py",
+        "tests/studies/conditional_projection.py",
         "tests/studies/evidence/properties.py",
         "tests/studies/evidence/property_verdicts.py",
         "tests/studies/evidence/schema.py",
@@ -923,7 +955,7 @@ def primary_rows(
 ) -> list[dict[str, Any]]:
     """One primary row per core quantity of cell ``H``."""
     group = GROUP_BY_LABEL[scenario]
-    fitted = fit_group(group, frame, random_state=replicate)["rows"]
+    fitted = fit_group(group, frame, random_state=replicate, core=True)["rows"]
     rows = []
     for name in SCENARIOS[scenario]:
         estimate, se = fitted[name]["estimate"], fitted[name]["std_error"]
@@ -1148,6 +1180,64 @@ def type_i_pass_probability(size: float, replicates: int) -> float:
     return shared(size, replicates)
 
 
+def pointwise_joint_coverage(*, draws: int = 400_000, seed: int = 11) -> float:
+    """The exact-law joint coverage of cell ``H``'s pointwise 95% intervals over the grid.
+
+    The TOC estimates at the grid points below 1 are normal with the covariance of their
+    influence functions (:func:`_covariance`); the pointwise intervals cover jointly when every
+    ``|Z_j|`` is at most :data:`CRITICAL`.  The Monte Carlo SE is about 0.0007.
+    """
+    grid = law_grid(LAWS["H"])
+    cov = _covariance(grid, [("toc", q) for q in GRID if q < 1.0])
+    sd = np.sqrt(np.diag(cov))
+    z = np.random.default_rng(seed).multivariate_normal(
+        np.zeros(len(sd)), cov / np.outer(sd, sd), size=draws
+    )
+    return float(np.mean(np.max(np.abs(z), axis=1) <= CRITICAL))
+
+
+def joint_control_detection(coverage: float, replicates: int) -> float:
+    """P(the pointwise control's 99% joint-coverage interval lies wholly below 0.95)."""
+    z = float(stats.norm.ppf(0.995))
+    sd = math.sqrt(coverage * (1.0 - coverage) / replicates)
+    return float(stats.norm.cdf((0.95 - z * sd - coverage) / sd))
+
+
+#: The size and seed of :func:`k_untargeted_ratio`'s one fit.
+K_RATIO_N = 20_000
+K_RATIO_SEED = 20261111
+
+
+@functools.cache
+def k_untargeted_ratio() -> dict[str, float]:
+    """The SD ratio of cell ``K``'s one-step draws to its targeted draws, by quantity.
+
+    One fit of cell ``K``'s law at :data:`K_RATIO_N` with its learners (a main-terms outcome
+    regression and the known mechanism), 1,000 half-samples of each.  A ratio has no closed
+    form: it is the shrinkage of the fluctuation, which depends on how the main-terms fit is
+    wrong.  At this size its Monte Carlo SE is about 0.02.
+    """
+    group = GROUP_BY_LABEL["K"]
+    law = law_of(group)
+    frame = sample(law, K_RATIO_N, np.random.default_rng(K_RATIO_SEED))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        effect = _study(group, frame).identify(ConditionalContrast(Modifiers(["W1"])))
+        curve = effect.targeting_curve(
+            "S",
+            computed_from=["W1", "W3"],
+            score_kind="external",
+            n_half_samples=1_000,
+            random_state=0,
+            **learners(group, law),
+        )
+    targeted = tc.control_values(curve, n_half_samples=1_000, random_state=0)["S"]
+    one_step = tc.control_values(curve, n_half_samples=1_000, random_state=0, scores="one_step")[
+        "S"
+    ]
+    return {name: one_step[_parse(name)][1] / targeted[_parse(name)][1] for name in group.rows}
+
+
 def whole_block_shift() -> tuple[float, float]:
     """``(shift, SD)`` of cell ``D``'s whole-tied-block control at ``q = 0.2``.
 
@@ -1174,13 +1264,16 @@ def design_numbers() -> dict[str, Any]:
     dict
         ``calibration``: the per-row pass probability at ratio 1 and 0.97 and the family-wise
         rate; ``controls``: each SE control's ratio and each bias control's standardized shift,
-        with its detection probability; ``reported``: the fixed-cut ratio at ``q = 0.1``, which
-        carries no control row (it is close to 1); ``power``: cell ``P``'s exact-law band power at the
-        declared slope and its pass probability at 0.90 and 0.87; ``type_i_pass``; ``cost``.
+        with its detection probability, and the pointwise control's joint coverage;
+        ``reported``: the ratios that carry no control row because they are close to 1 (the
+        fixed-cut ratio at ``q = 0.1``, and cell ``K``'s untargeted ratio at TOC(0.5) and
+        Qini); ``power``: cell ``P``'s exact-law band power at the declared slope and its pass
+        probability at 0.90 and 0.87; ``type_i_pass``; ``cost``: single-thread hours of the
+        declared run (the property groups and the primary phase) and of the pilot.
     """
     from tests.studies.evidence.property_verdicts import power_cell_pass_probability
 
-    positives = [cell for cell in PROPERTY_CELLS[CALIBRATION] if cell.endswith(POSITIVE)]
+    positives = [cell for cell in PROPERTY_CELLS[CALIBRATION] if is_positive(cell)]
     per_row = calibration_row_pass(R_MAIN, 1.0)
     h = law_grid(LAWS["H"])
     controls: dict[str, dict[str, float]] = {}
@@ -1211,6 +1304,18 @@ def design_numbers() -> dict[str, Any]:
             "ratio": unpaired / paired,
             "detection": se_control_detection(unpaired / paired, R_MAIN),
         }
+    joint = pointwise_joint_coverage()
+    controls["H_band__pointwise_joint"] = {
+        "coverage": joint,
+        "detection": joint_control_detection(joint, R_MAIN),
+    }
+    untargeted = k_untargeted_ratio()
+    controls["K_autoc__untargeted"] = {
+        "ratio": untargeted["autoc"],
+        "detection": se_control_detection(untargeted["autoc"], R_MAIN),
+    }
+    for name in (row_key("toc", 0.5), "qini"):
+        reported[f"K_{_label(name)}__untargeted_ratio"] = untargeted[name]
     shift, sd = whole_block_shift()
     standardized = shift / (sd / math.sqrt(GROUP_BY_LABEL["D"].n))
     controls["D_toc_0.2__whole_block"] = {
@@ -1219,7 +1324,8 @@ def design_numbers() -> dict[str, Any]:
     }
     power = band_power(P_SLOPE, GROUP_BY_LABEL["P"].n)
     cpu = sum(group.replicates * group.seconds for group in GROUPS) / 3600.0
-    cpu += PRIMARY_REPLICATES * GROUP_BY_LABEL[PRIMARY_GROUP].seconds / 3600.0
+    cpu += PRIMARY_REPLICATES * PRIMARY_SECONDS / 3600.0
+    pilot = PILOT_REPLICATES * sum(group.seconds for group in GROUPS) / 3600.0
     return {
         "calibration": {
             "rows": len(positives),
@@ -1237,9 +1343,12 @@ def design_numbers() -> dict[str, Any]:
             "pass_at_0.87": power_cell_pass_probability(0.87, R_POWER),
         },
         "type_i_pass": type_i_pass_probability(0.05, R_MAIN),
-        "cost": {"cpu_hours": cpu, "wall_hours_4": cpu / 4.0},
+        "cost": {"cpu_hours": cpu, "wall_hours_4": cpu / 4.0, "pilot_cpu_hours": pilot},
     }
 
+
+#: Replications of each group in the pilot.
+PILOT_REPLICATES = 800
 
 #: The pilot's committed summary (:mod:`tests.studies.targeting_curves_pilot`): a pilot on its
 #: own seed stream, read by the design test, not a result of the run.

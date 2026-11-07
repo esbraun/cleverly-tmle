@@ -260,7 +260,7 @@ that basis, with clever covariate $b(W)(1\{A = t\} - 1\{A = r\})/(g\Pi)$ and the
 truncated $g$. Every reported value is the substitution estimate
 $n^{-1}\sum_i c(i)(\bar Q^*_t - \bar Q^*_r)(W_i)$, and solving the score equations makes it equal
 $n^{-1}\sum_i c(i)\Gamma^*_i$, with $\Gamma^*$ the AIPW score built from $\bar Q^*$; the unit test
-checks the equality to $10^{-10}$ under a tight targeting tolerance, and the shipped stopping
+checks the equality to $10^{-8}$ under a tight targeting tolerance, and the shipped stopping
 rule bounds the gap by its own tolerance. On a binary outcome the substitution estimate keeps
 the top-fraction mean in $[-1, 1]$, which the one-step score form can leave. `TargetingCurve.ate`
 is the fluctuation's own ATE column, so $\mathrm{TOC}(q)$ is the top-fraction mean minus it
@@ -283,14 +283,17 @@ Qini, Proposition 8 for the AUTOC). The rest rests on four natural extensions
   not over continuous $q$, with the critical value of `studentized_critical_value`. It is
   withheld when any point's SE is 0 or withheld.
 - D3, ties: a cut strictly inside an atom is the delta method on five sample means, and a cut
-  at an atom's edge has a non-normal limit the data cannot detect, so a tied cut reads
-  `experimental`. Areas on a score with finitely many values are smooth functions of block
+  at an atom's edge has a non-normal limit. A cut inside a sample tied block, or exactly on the
+  boundary next to one (`tie_share` is then NaN), sets `tied_cut` and reads `experimental`; an
+  atom edge the sample does not show cannot be detected. Areas on a score with finitely many values are smooth functions of block
   masses and sums. Areas on a continuous score with atoms (a block holding at least 1% of the
   rows, and more than $n/10$ distinct values) rest on the source's unproved statement and read `experimental`.
 - D4, bootstrapping $\Gamma^*$: the targeting update is a fixed-dimension nuisance. With an
   inconsistent $\bar Q$ this holds only under a known mechanism (`treatment_probabilities=`),
   where the TMLE and the one-step have different influence functions and the draws carry the
-  TMLE's.
+  TMLE's. On the study's cell K (a main-terms outcome regression with the known mechanism) the
+  TMLE's AUTOC draws are 1.25 to 1.3 times as wide as the one-step's, while at TOC(0.5) and the
+  Qini the two agree to 2% (`k_untargeted_ratio` in `tests/studies/targeting_curves.py`).
 
 The remainder is not of the linear-remainder form: $S$ is fixed given the evaluation rows, and
 the cut's first-order term is part of $\psi$ and is redrawn with each draw.
@@ -306,7 +309,12 @@ per-draw differences.
 **Guards.** A grid point with fewer than 50 rows in its top fraction (`TARGETING_MIN_TOP_ROWS`,
 a declared guard with no source) keeps its point and withholds its interval and the band; 50 to
 99 rows read `experimental`. Weights, clusters, missing outcomes and a multi-arm pair are
-computed and read `experimental`; fewer than 40 clusters withhold the intervals.
+computed and read `experimental`; fewer than 40 clusters withhold the intervals. A row whose
+half-sample draws do not vary (SE at most $10^{-12}$, as for every TOC of a score that ties all
+rows) withholds its interval rather than report a width of rounding. With weights, every rank
+weight reads the row mass normalised to mean one, so the weighted AUTOC is defined in those
+units. The status reads the configuration only: the learners, the number of folds and $n$ are
+not checked against the study's cells, and an area row carries no size guard of its own.
 
 **Status.** The `targeting-curves` study is declared in `tests/studies/targeting_curves.py`
 and has not run, so every curve reads `experimental` with that reason until it registers. The
@@ -371,7 +379,8 @@ each reading against its formula.
 | `assess_score` without `score_kind="external"`, with `computed_from` outside the adjustment set, or on an in-sample curve | the interval needs a fixed function of adjustment columns | `invalid_declaration` |
 | `targeting_curve` under the same three conditions, for the score or the `compare=` column | as `assess_score` | `invalid_declaration` |
 | `curve.diagnostics.targeting_curve(split=...)` with a split that is not a fraction in $(0, 1)$ | a fold average of fold-specific curves is a property of the learning algorithm; its only source (Imai and Li 2023, Section 4) covers difference-in-means scores in a randomized experiment | `invalid_declaration` |
-| a targeting curve with `repeats` above 1, `target_weights=True` or a scaled-variance stopping rule | a median over splits of a whole curve has no reviewed joint law; every row loads several weight columns, which the weighted submodel cannot carry | `implementation_gap`, roadmap X92 |
+| a targeting curve with `repeats` above 1 | a median over splits of a whole curve has no reviewed joint law | `inference_gap` |
+| a targeting curve with `target_weights=True` or a declared stopping rule | every row loads several weight columns, which the weighted submodel cannot carry; a declared stopping rule needs a stopping context no curve builds | `implementation_gap`, roadmap X92 |
 | `compare=` on route 2 of an engine fit | the column is read from the producing study, which an engine fit does not keep | `invalid_declaration` |
 
 Each one is raised before any learner is fitted, and `tests/unit/test_conditional_contrast.py`

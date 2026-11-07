@@ -715,6 +715,7 @@ class CurveDiagnostics:
         from .targeting_curves import (
             TARGETING_REPEATS_REFUSAL,
             TARGETING_SPLIT_REFUSAL,
+            check_targeting_spec,
             targeting_fit,
         )
 
@@ -730,6 +731,8 @@ class CurveDiagnostics:
         kwargs = _ate_kwargs(estimator, reference=float(spec.pair[1]), seed=seed)
         if int(kwargs.get("repeats", 1)) > 1:
             raise CapabilityError(refusal=TARGETING_REPEATS_REFUSAL)
+        ate_estimator = TMLE(**kwargs)
+        check_targeting_spec(ate_estimator.targeting_spec())
         other = None
         if compare is not None:
             effect = getattr(self.curve, "identified_effect", None)
@@ -765,7 +768,7 @@ class CurveDiagnostics:
         refit = estimator.refit(data.subset(train), random_state=seed)
         refit_curve = refit.effect_curve()
         score = np.asarray(refit_curve.predict(frame.iloc[evaluation]), dtype=float)
-        ate = TMLE(**kwargs).fit(data.subset(evaluation)).single()
+        ate = ate_estimator.fit(data.subset(evaluation)).single()
         scores = {self.curve.prediction_column: score}
         if other is not None and compare is not None:
             scores[compare] = other[evaluation]

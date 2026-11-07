@@ -141,6 +141,18 @@ def test_a_reference_at_the_wrong_convention_fails(
     assert not _reference_is_random_targeting(ax, "gain", curve.ate)
 
 
+def test_a_toc_reference_off_zero_fails(curve: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation control: the TOC view's random-targeting line drawn at the ATE, not at 0."""
+    original = _core.reference_line
+
+    def at_ate(ax: Any, value: float, **kwargs: Any) -> Any:
+        return original(ax, curve.ate, **kwargs)
+
+    monkeypatch.setattr(_core, "reference_line", at_ate)
+    ax = targeting(curve, view="toc").axes[0]
+    assert not _reference_is_random_targeting(ax, "toc", curve.ate)
+
+
 def test_band_marks_sit_at_grid_points_only(curve: Any) -> None:
     ax = targeting(curve, view="toc").axes[0]
     rows = {row["q"]: row for row in curve.rows("toc")}

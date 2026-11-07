@@ -53,7 +53,7 @@ from tests.studies.evidence.seeds import stream_seed
 STREAM = "targeting_pilot"
 
 #: Replications of each group.
-REPLICATES = 800
+REPLICATES = study.PILOT_REPLICATES
 
 #: Bootstrap resamples of each ratio's standard error.
 BOOTSTRAP = 400
@@ -158,7 +158,7 @@ def summarize(raw: Path) -> pd.DataFrame:
                 {
                     **common,
                     "name": name,
-                    "kind": study.POSITIVE,
+                    "kind": group.positive,
                     "mean_se": float(np.mean(se)),
                     "se_ratio": ratio,
                     "se_ratio_se": ratio_se,
@@ -212,6 +212,8 @@ def summarize(raw: Path) -> pd.DataFrame:
 #: Replicates and points of cell ``S``'s truth-accuracy check (plan section 10).
 SOBOL_CHECK_REPLICATES = 20
 SOBOL_CHECK_POINTS = 2**22
+#: Seed of the check's Sobol set, apart from the truth set and the design's.
+SOBOL_CHECK_SEED = 20261112
 
 
 def sobol_check(replicates: int = SOBOL_CHECK_REPLICATES) -> pd.DataFrame:
@@ -225,10 +227,7 @@ def sobol_check(replicates: int = SOBOL_CHECK_REPLICATES) -> pd.DataFrame:
 
     group = study.GROUP_BY_LABEL["S"]
     law = study.law_of(group)
-    fine = (
-        2.0 * qmc.Sobol(3, scramble=True, seed=study.SOBOL_SEED + 1).random(SOBOL_CHECK_POINTS)
-        - 1.0
-    )
+    fine = 2.0 * qmc.Sobol(3, scramble=True, seed=SOBOL_CHECK_SEED).random(SOBOL_CHECK_POINTS) - 1.0
     worst = dict.fromkeys(group.rows, 0.0)
     for replicate in range(replicates):
         seed = stream_seed(study.STUDY, STREAM, "S", replicate)

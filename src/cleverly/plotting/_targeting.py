@@ -255,6 +255,8 @@ def targeting(
             axis, 0.0, label="Treating at random" if view == "toc" else "No difference"
         )
         _points(axis, q, toc, lower, upper, hollow, _core.pointwise_label(level))
+        if any(xi >= 1.0 for xi in q):
+            lines.append("TOC(1) is 0 by definition, so its point has no interval.")
         if view == "toc":
             band_lower = [float(row["band_lower"]) for row in rows]
             band_upper = [float(row["band_upper"]) for row in rows]

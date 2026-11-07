@@ -115,7 +115,7 @@ def test_the_atomic_law_cuts_every_grid_point_inside_an_atom() -> None:
 
 def test_the_declared_cells_are_the_plan_s() -> None:
     cells = study.PROPERTY_CELLS
-    positives = [cell for cell in cells[study.CALIBRATION] if cell.endswith(study.POSITIVE)]
+    positives = [cell for cell in cells[study.CALIBRATION] if study.is_positive(cell)]
     assert len(positives) == 34
     assert set(cells[study.BIAS]) == {
         "D_toc_0.2__whole_block",
@@ -143,21 +143,44 @@ def test_the_pilot_ratios_keep_the_declared_replicates() -> None:
 
 @needs_pilot
 def test_the_pilot_kurtosis_keeps_the_declared_replicates() -> None:
-    worst = max(float(row["kurtosis"]) for key, row in PILOT.items() if key[1] == study.POSITIVE)
+    worst = max(
+        float(row["kurtosis"]) for key, row in PILOT.items() if key[1] in study.POSITIVE_KINDS
+    )
     per_row = study.calibration_row_pass(study.R_MAIN, 1.0, kurtosis=max(3.0, worst))
     positives = [
-        cell for cell in study.PROPERTY_CELLS[study.CALIBRATION] if cell.endswith(study.POSITIVE)
+        cell for cell in study.PROPERTY_CELLS[study.CALIBRATION] if study.is_positive(cell)
     ]
     assert per_row ** len(positives) >= 0.90
 
 
-@needs_pilot
-def test_the_known_mechanism_control_is_declared_and_detected() -> None:
-    assert study.K_UNTARGETED_SIDE is not None
-    for name in study.GROUP_BY_LABEL["K"].controls["untargeted"]:
-        ratio = float(PILOT[("K", "untargeted", name)]["se_ratio"])
-        assert (ratio > 1.0) == (study.K_UNTARGETED_SIDE == "inflated")
-        assert study.se_control_detection(ratio, study.R_MAIN) >= 0.90, name
+def test_the_untargeted_control_reads_the_side_its_ratio_is_on(design: dict) -> None:
+    """Cell K's one-step draws are narrower than its targeted draws on AUTOC only.
+
+    At TOC(0.5) and Qini the ratio is 1 to within the band, so those rows carry no control:
+    a control row there could not leave the band.
+    """
+    ratio = design["controls"]["K_autoc__untargeted"]["ratio"]
+    assert ratio == pytest.approx(0.80, abs=0.05)
+    assert ("inflated" if ratio > 1.0 else "shrunken") == study.K_UNTARGETED_SIDE
+    assert study.GROUP_BY_LABEL["K"].controls["untargeted"] == ("autoc",)
+    low, high = study.STUDY.margins.calibration_se_ratio
+    for name in ("K_toc_0.5__untargeted_ratio", "K_qini__untargeted_ratio"):
+        assert low < design["reported"][name] < high, name
+
+
+def test_the_pointwise_joint_coverage_is_the_exact_law_s(design: dict) -> None:
+    """p0 = 0.754 from the TOC covariance on cell H (the review's computation)."""
+    control = design["controls"]["H_band__pointwise_joint"]
+    assert control["coverage"] == pytest.approx(0.754, abs=0.01)
+
+
+def test_cell_k_s_positives_do_not_claim_a_correct_specification() -> None:
+    cells = study.PROPERTY_CELLS[study.CALIBRATION]
+    k_cells = [cell for cell in cells if cell.startswith("K_")]
+    assert k_cells
+    assert not [cell for cell in k_cells if cell.endswith(f"__{study.POSITIVE}")]
+    assert "K_autoc__known_mechanism" in k_cells
+    assert "K_untargeted_autoc__shrunken_se_control" in k_cells
 
 
 @needs_pilot
