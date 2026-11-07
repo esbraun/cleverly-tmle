@@ -824,3 +824,59 @@ def test_forest_subtitle_keeps_a_column_name_as_written() -> None:
     assert question[:1].islower()
     subtitle = _core.subtitle_text(forest(multi).axes[0]) or ""
     assert subtitle[:1].isupper()
+
+
+# ----------------------------------------------------------------------- truth=
+
+
+def _truth_marks(ax: Any) -> list[tuple[float, float]]:
+    return [tuple(line.get_xydata()[0]) for line in _lines(ax, _core.GID_TRUTH)]
+
+
+def test_forest_truth_draws_a_cross_on_each_row_and_names_it_in_the_key(binary_fit: Any) -> None:
+    names = list(binary_fit.estimates)
+    truth = {name: 0.1 * (i + 1) for i, name in enumerate(names)}
+    fig = forest(binary_fit, truth=truth)
+    marks = [mark for ax in fig.axes for mark in _truth_marks(ax)]
+    rows = {
+        text.get_text(): position
+        for ax in fig.axes
+        for text, position in zip(ax.get_yticklabels(), ax.get_yticks(), strict=True)
+    }
+    assert sorted(marks) == sorted((truth[name], rows[name]) for name in names)
+    assert _core.TRUTH_LABEL in _core.key_labels(fig)
+    # Its own style: an ink cross, not the grey dashed no-effect line and not a palette colour.
+    (mark, *_) = [line for ax in fig.axes for line in _lines(ax, _core.GID_TRUTH)]
+    (null, *_) = [line for ax in fig.axes for line in _lines(ax, _core.GID_REFERENCE)]
+    assert mark.get_marker() == "x" and mark.get_linestyle() == "None"
+    assert to_hex(mark.get_color()) == _core.INK != to_hex(null.get_color())
+    assert to_hex(mark.get_color()) not in PALETTE
+    _style_checks(fig)
+
+
+def test_forest_key_lists_the_true_value_only_when_truth_is_given(binary_fit: Any) -> None:
+    """Control: the entry and the crosses come from truth=, not from every forest."""
+    fig = forest(binary_fit)
+    assert _core.TRUTH_LABEL not in _core.key_labels(fig)
+    assert not any(_lines(ax, _core.GID_TRUTH) for ax in fig.axes)
+    fig = forest(binary_fit["ate"], truth=0.2)
+    assert _core.TRUTH_LABEL in _core.key_labels(fig)
+    assert _truth_marks(fig.axes[0]) == [(0.2, 0.0)]
+
+
+def test_forest_scalar_truth_needs_one_estimand_and_a_mapping_its_names(binary_fit: Any) -> None:
+    from cleverly._refusal import RefusalReason
+    from cleverly.exceptions import CapabilityError
+
+    with pytest.raises(CapabilityError, match="one number") as refused:
+        forest(binary_fit, truth=0.2)
+    assert refused.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+    with pytest.raises(CapabilityError, match="no row of this plot"):
+        forest(binary_fit, truth={"atee": 0.2})
+    with pytest.raises(CapabilityError, match="not a finite number"):
+        forest(binary_fit["ate"], truth=float("nan"))
+    # Two fits of one estimand share the scalar; a mapping leaves unnamed rows bare.
+    fig = forest(binary_fit["ate"], binary_fit["ate"], labels=["a", "b"], truth=0.2)
+    assert len(_truth_marks(fig.axes[0])) == 2
+    fig = forest(binary_fit, truth={"ate": 0.2})
+    assert sum(len(_truth_marks(ax)) for ax in fig.axes) == 1

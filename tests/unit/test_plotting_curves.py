@@ -1785,3 +1785,130 @@ def test_plot_of_a_fit_of_several_repeats_draws_its_reported_curve() -> None:
             np.allclose(line.get_xydata()[:, 1], expected) for line in lines(top, "cleverly-curve")
         )
     assert "one of the 2 repeats" in _core.note_text(fig)
+
+
+# ---------------------------------------------------------------------------- truth=
+
+
+def truth_marks(ax: Any) -> list[tuple[float, float]]:
+    """Each truth cross at its data position, read back through its own transform."""
+    found = []
+    for line in lines(ax, _core.GID_TRUTH):
+        screen = line.get_transform().transform(line.get_xydata())
+        found.append(tuple(ax.transData.inverted().transform(screen)[0]))
+    return found
+
+
+def point_screen(ax: Any) -> list[tuple[float, float]]:
+    return [
+        tuple(line.get_transform().transform(line.get_xydata())[0])
+        for line in lines(ax, _core.GID_POINT)
+    ]
+
+
+class TestTruth:
+    def test_a_mapping_by_name_puts_a_cross_beside_each_named_estimate(self) -> None:
+        result = full()
+        rows = result.curve(scale="risk")
+        named = dict(zip(rows["parameter"], rows["psi"], strict=True))
+        truth = {name: value + 0.01 for name, value in named.items()}
+        fig = curve(result, truth=truth)
+        top, diff, _ = fig.axes
+        fig.canvas.draw()
+        for ax in (top, diff):
+            # Each cross sits at its estimate's screen x (the same sideways shift) and at the
+            # true value; none is left out and none is drawn twice.
+            points = point_screen(ax)
+            for line in lines(ax, _core.GID_TRUTH):
+                screen = line.get_transform().transform(line.get_xydata())[0]
+                assert any(np.isclose(screen[0], x) for x, _ in points)
+        drawn = sorted(v for ax in (top, diff) for _, v in truth_marks(ax))
+        assert drawn == pytest.approx(sorted(truth.values()))
+        assert _core.TRUTH_LABEL in key_texts(top)
+        assert_style(fig)
+        assert_text_inside(fig)
+
+    def test_the_key_entry_and_the_crosses_appear_only_with_truth(self) -> None:
+        """Control: a figure without truth= has neither."""
+        for fig in (curve(full()), curve(shifts()), curve(level_means())):
+            assert _core.TRUTH_LABEL not in _core.key_labels(fig)
+            assert not any(lines(ax, _core.GID_TRUTH) for ax in fig.axes)
+
+    def test_the_cross_check_rejects_a_mark_off_its_value(self, monkeypatch: Any) -> None:
+        """Mutation control: a cross drawn away from the given value fails the same read."""
+        result = shifts()
+        values = [0.1, 0.2, 0.3]
+        ax = curve(result, truth=values).axes[0]
+        assert sorted(v for _, v in truth_marks(ax)) == pytest.approx(values)
+        original = _core.truth_mark
+
+        def shifted(ax: Any, x: float, y: float, **kwargs: Any) -> Any:
+            return original(ax, x, y + 0.05, **kwargs)
+
+        monkeypatch.setattr(_core, "truth_mark", shifted)
+        ax = curve(result, truth=values).axes[0]
+        assert sorted(v for _, v in truth_marks(ax)) != pytest.approx(values)
+
+    def test_one_series_takes_values_over_its_x_levels(self) -> None:
+        # The reference shift 0 is not an estimate, so the levels are the other three.
+        ax = curve(shifts(), truth=[0.1, 0.2, 0.3]).axes[0]
+        np.testing.assert_allclose(
+            sorted(truth_marks(ax)), [(0.25, 0.1), (0.5, 0.2), (0.75, 0.3)], atol=1e-9
+        )
+        ax = curve(level_means(), truth={0: 1.0, 2: 3.0}).axes[0]
+        np.testing.assert_allclose(sorted(truth_marks(ax)), [(0.0, 1.0), (2.0, 3.0)], atol=1e-9)
+        # The working model is not a series of true values: the crosses sit with the means.
+        ax = curve(level_means(), msm=msm_fit(), truth=[1.0, 2.0, 3.0]).axes[0]
+        assert len(truth_marks(ax)) == 3
+
+    def test_a_mismatched_truth_is_refused_with_its_reason(self) -> None:
+        cases = [
+            (shifts(), [0.1, 0.2], "has 2 values"),
+            (level_means(), {5: 1.0}, "not an x level"),
+            (full(), [0.1, 0.2, 0.3, 0.4], "one series"),
+            (full(), {"risk_regimen[nope]": 0.1}, "does not report"),
+            (shifts(), [0.1, math_nan(), 0.3], "not a finite number"),
+            (shifts(), "0.1", "mapping or a sequence"),
+            (cate(), [0.1, 0.2], "function of the modifier"),
+        ]
+        for result, truth, words in cases:
+            extra = {"modifier": "W", "at": {"Z": 0.0}} if result is cate() else {}
+            with pytest.raises(CapabilityError, match=words) as refused:
+                curve(result, truth=truth, **extra)
+            assert refused.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+
+    def test_a_name_the_fit_reports_but_the_plot_leaves_out_is_passed_over(self) -> None:
+        result = full()
+        contrast = next(n for n, e in result.estimates.items() if e.scale != "level")
+        level = next(n for n, e in result.estimates.items() if e.scale == "level")
+        regimen = result.parameter_index[level][0]
+        fig = curve(result, regimens=[regimen], truth={contrast: 0.0, level: 0.2})
+        assert [v for _, v in truth_marks(fig.axes[0])] == pytest.approx([0.2])
+
+    def test_a_conditional_effect_curve_draws_the_true_function_as_a_line(self) -> None:
+        fig = curve(cate(), modifier="W", at={"Z": 0.0}, truth=lambda w: 0.5 * w)
+        ax = fig.axes[0]
+        (line,) = lines(ax, _core.GID_TRUTH)
+        x, y = line.get_xydata().T
+        np.testing.assert_allclose(y, 0.5 * x)
+        assert line.get_marker() in ("None", None, "")
+        assert _core.TRUTH_LABEL in key_texts(ax)
+        assert_style(fig)
+        with pytest.raises(CapabilityError, match="one panel per level"):
+            curve(cate_by(), modifier="W", by="G", truth=lambda w: w)
+
+    def test_restricted_means_take_values_for_one_regimen(self) -> None:
+        result = full()
+        regimen = _regimen_order_of(result)[0]
+        fig = curve(result, measure="rmst", regimens=[regimen], truth=[1.5, 2.0, 2.5])
+        assert len(truth_marks(fig.axes[0])) == 3
+
+
+def math_nan() -> float:
+    return float("nan")
+
+
+def _regimen_order_of(result: Any) -> list[str]:
+    from cleverly.plotting._curves import _regimen_order
+
+    return _regimen_order(result)

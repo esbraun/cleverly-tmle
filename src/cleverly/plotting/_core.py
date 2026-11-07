@@ -51,9 +51,13 @@ GID_SUBTITLE: Final = "cleverly-subtitle"
 GID_NOTES: Final = "cleverly-notes"
 GID_SERIES_LABEL: Final = "cleverly-series-label"
 GID_SWATCH: Final = "cleverly-swatch"
+GID_TRUTH: Final = "cleverly-truth"
 #: The figure-level title and key that :func:`figure_header` writes.
 GID_TITLE: Final = "cleverly-title"
 GID_KEY: Final = "cleverly-key"
+
+#: The key entry of a known true value, which only simulated data have.
+TRUTH_LABEL: Final = "True value (simulated data only)"
 
 #: Point sizes of the text roles.
 TITLE_SIZE: Final = 12.0
@@ -307,7 +311,7 @@ def header(
     key = ax.get_legend()
     key_height = 0.0
     if key is not None:
-        rows = math.ceil(len(key.get_texts()) / 3)
+        rows = math.ceil(len(key.get_texts()) / max(1, int(getattr(key, "_ncols", 3))))
         key_height = rows * TICK_SIZE * 1.45 + 4.0
     sub_lines = 0
     if subtitle:
@@ -664,6 +668,77 @@ def reference_line(
     return line
 
 
+def truth_mark(ax: Axes, x: float, y: float, *, transform: Any = None) -> Any:
+    """A known true value at one point: an ink cross, in no series colour.
+
+    A true value exists only for simulated data. The cross differs from an estimate's
+    round marker and from the dashed reference line, and carries its own key entry,
+    :data:`TRUTH_LABEL`.
+
+    Parameters
+    ----------
+    ax : Axes
+        The axes.
+    x : float
+        The x position, in the coordinates of ``transform``.
+    y : float
+        The y position, in the coordinates of ``transform``.
+    transform : Transform or None, default=None
+        The transform of the estimate the mark sits beside, such as a sideways shift;
+        ``ax.transData`` when omitted.
+
+    Returns
+    -------
+    Line2D
+        The mark, with gid ``"cleverly-truth"``.
+    """
+    extra = {} if transform is None else {"transform": transform}
+    (line,) = ax.plot(
+        [x],
+        [y],
+        marker="x",
+        markersize=8.0,
+        markeredgewidth=2.0,
+        color=INK,
+        linestyle="none",
+        label=TRUTH_LABEL,
+        gid=GID_TRUTH,
+        zorder=4,
+        **extra,
+    )
+    return line
+
+
+def truth_line(ax: Axes, x: Sequence[float], y: Sequence[float]) -> Any:
+    """A known true curve: a thin ink dash-dot line, in no series colour.
+
+    Parameters
+    ----------
+    ax : Axes
+        The axes.
+    x : sequence of float
+        The x values.
+    y : sequence of float
+        The true value at each x.
+
+    Returns
+    -------
+    Line2D
+        The line, with gid ``"cleverly-truth"`` and the key entry :data:`TRUTH_LABEL`.
+    """
+    (line,) = ax.plot(
+        list(x),
+        list(y),
+        color=INK,
+        linewidth=1.4,
+        linestyle=(0, (6, 2, 1, 2)),
+        label=TRUTH_LABEL,
+        gid=GID_TRUTH,
+        zorder=2.5,
+    )
+    return line
+
+
 def legend(ax: Axes, *, sources: Sequence[Axes] | None = None) -> None:
     """The key of interval kinds and reference lines, in one row above ``ax``.
 
@@ -686,7 +761,7 @@ def legend(ax: Axes, *, sources: Sequence[Axes] | None = None) -> None:
         labels,
         loc="lower left",
         bbox_to_anchor=(0.0, 1.0),
-        ncol=min(len(handles), 3),
+        ncol=_key_columns(ax, labels),
         frameon=False,
         fontsize=TICK_SIZE,
         labelcolor=INK,
@@ -695,6 +770,28 @@ def legend(ax: Axes, *, sources: Sequence[Axes] | None = None) -> None:
         handlelength=1.8,
         columnspacing=1.4,
     )
+
+
+def _key_columns(ax: Axes, labels: Sequence[str]) -> int:
+    """The most key columns, up to three, whose widest row fits over the axes.
+
+    A key wider than its axes runs into the text beside it, such as a forest plot's number
+    column. Widths are estimated from the label lengths at the key's font size.
+    """
+    fig = ax.figure
+    width = ax.get_position().width * fig.get_figwidth() * 72.0
+    per_char = TICK_SIZE * 0.55
+    handle = TICK_SIZE * (1.8 + 0.8)
+    gap = TICK_SIZE * 1.4
+    for columns in range(min(len(labels), 3), 1, -1):
+        rows = [labels[i : i + columns] for i in range(0, len(labels), columns)]
+        widths = [
+            max(len(row[c]) for row in rows if c < len(row)) * per_char + handle
+            for c in range(columns)
+        ]
+        if sum(widths) + gap * (columns - 1) <= width:
+            return columns
+    return 1
 
 
 def _key_entries(sources: Sequence[Axes]) -> tuple[list[Any], list[str]]:
@@ -1228,6 +1325,7 @@ __all__ = [
     "GID_SUBTITLE",
     "GID_SWATCH",
     "GID_TITLE",
+    "GID_TRUTH",
     "GRID",
     "INK",
     "INSTALL_HINT",
@@ -1236,6 +1334,7 @@ __all__ = [
     "PALETTE",
     "REFERENCE",
     "SECONDARY_INK",
+    "TRUTH_LABEL",
     "Interval",
     "band_label",
     "brackets",
@@ -1267,5 +1366,7 @@ __all__ = [
     "style_axes",
     "subtitle_text",
     "title_text",
+    "truth_line",
+    "truth_mark",
     "wrap",
 ]
