@@ -57,7 +57,8 @@ from cleverly.inference.influence import minimum_reference_df
 from cleverly.interventions import Incremental, Scale, Shift, Static
 from cleverly.longitudinal import LTMLE, LongitudinalData, Repeated, SequentialGComputation
 from cleverly.msm import MSM, working_model_means
-from cleverly.plotting import _core, curve
+from cleverly.plotting import _core, _curves, curve
+from cleverly.plotting import _forest as forest_module
 from cleverly.plotting._curves import _Point, _select
 from cleverly.validation.longitudinal import _longitudinal_stagewise
 
@@ -1181,7 +1182,7 @@ class TestOverTime:
         fig = full().plot()
         assert fig.axes[0].get_title(loc="left") == "Risk over time"
         forest = end_of_study().plot()
-        assert forest.axes[0].get_title(loc="left") == "Estimated effects"
+        assert forest.axes[0].get_title(loc="left") == forest_module.TITLE
 
     def test_nothing_is_cached_on_the_result(self) -> None:
         result = full()
@@ -1380,7 +1381,9 @@ class TestLevelMeans:
         for x, _lo, hi in model:
             assert hi == pytest.approx(fitted.upper[int(x)])
         assert ax.get_xlabel() == "Dose level"
-        assert ax.get_title(loc="left") == "How does the mean outcome change with the dose?"
+        assert ax.get_title(loc="left") == (
+            "How does the mean outcome change with the treatment level?"
+        )
         # Plan 4.2: the interval kind is "pointwise" beside a band, and the series are
         # named by direct labels at their ends, not by a second key.
         assert key_texts(ax) == ["95% pointwise interval", "95% simultaneous band (multiplier)"]
@@ -1607,7 +1610,7 @@ class TestPolicies:
 
     def test_a_mixed_family_falls_back_to_the_forest_and_says_why(self) -> None:
         fig = curve(mixed_family())
-        assert fig.axes[0].get_title(loc="left") == "Estimated effects"
+        assert fig.axes[0].get_title(loc="left") == forest_module.TITLE
         assert "No single parameter orders these policies" in _subtitle(fig)
         titled = curve(mixed_family(), title="Two policies")
         assert titled.axes[0].get_title(loc="left") == "Two policies"
@@ -1872,13 +1875,17 @@ class TestTruth:
         fig = curve(result, truth=truth)
         top, diff, _ = fig.axes
         fig.canvas.draw()
+        beside = _curves._TRUTH_NUDGE * fig.dpi / 72.0
         for ax in (top, diff):
-            # Each cross sits at its estimate's screen x (the same sideways shift) and at the
-            # true value; none is left out and none is drawn twice.
+            # Each cross sits at its estimate's screen x (the same sideways shift), or beside
+            # it where the estimate carries a bar, and at the true value; none is left out and
+            # none is drawn twice.
             points = point_screen(ax)
             for line in lines(ax, _core.GID_TRUTH):
                 screen = line.get_transform().transform(line.get_xydata())[0]
-                assert any(np.isclose(screen[0], x) for x, _ in points)
+                assert any(
+                    np.isclose(screen[0], x) or np.isclose(screen[0], x + beside) for x, _ in points
+                )
         drawn = sorted(v for ax in (top, diff) for _, v in truth_marks(ax))
         assert drawn == pytest.approx(sorted(truth.values()))
         assert _core.TRUTH_LABEL in key_texts(top)
@@ -2041,3 +2048,225 @@ class TestTheKeyGlyphs:
 
         gids = [line.get_gid() for line in key.findobj(Line2D)]
         assert gids.count(_core.GID_KEY_BAND) == 2 and gids.count(_core.GID_KEY_INTERVAL) == 1
+
+
+# ---------------------------------------------------------------------------- X92 batch 3
+
+
+def _mark_screen_x(ax: Any) -> list[float]:
+    """The screen x of every interval bar and band cap an axes draws."""
+    from matplotlib.collections import LineCollection
+
+    found: list[float] = []
+    for artist in ax.collections:
+        if isinstance(artist, LineCollection) and artist.get_gid() == _core.GID_INTERVAL:
+            for segment in artist.get_segments():
+                found.append(float(artist.get_transform().transform(segment)[0, 0]))
+    for line in lines(ax, _core.GID_BAND):
+        found.extend(float(x) for x in line.get_transform().transform(line.get_xydata())[:, 0])
+    return found
+
+
+def _truth_clearance(fig: Any) -> float:
+    """The least screen distance, in points, from a cross to any bar or bracket."""
+    fig.canvas.draw()
+    gaps = []
+    for ax in fig.axes:
+        marks = _mark_screen_x(ax)
+        for line in lines(ax, _core.GID_TRUTH):
+            x = float(line.get_transform().transform(line.get_xydata())[0, 0])
+            if marks:
+                gaps.append(min(abs(x - mark) for mark in marks) * 72.0 / fig.dpi)
+    return min(gaps)
+
+
+class TestTruthBesideTheBars:
+    """A cross sits beside a bar and its brackets, not on them, at the estimate's own x."""
+
+    #: A bracket cap's half width (12-point marker) and a cross's (8-point marker).
+    CLEAR = 6.0 + 4.0
+
+    @staticmethod
+    def _truth(result: Any) -> dict[str, float]:
+        rows = result.curve(scale="risk")
+        return {name: psi + 0.01 for name, psi in zip(rows["parameter"], rows["psi"], strict=True)}
+
+    def test_a_cross_clears_the_bars_and_brackets_of_every_series(self) -> None:
+        for result in (full(), subset()):
+            fig = curve(result, truth=self._truth(result))
+            assert _truth_clearance(fig) >= self.CLEAR
+            assert_text_inside(fig)
+
+    def test_the_cross_keeps_the_estimates_x_in_its_data(self) -> None:
+        result = subset()
+        fig = curve(result, truth=self._truth(result))
+        estimates = {float(x) for x in result.curve(scale="risk")["time"]}
+        drawn = {
+            float(line.get_xdata()[0]) for ax in fig.axes for line in lines(ax, _core.GID_TRUTH)
+        }
+        assert drawn <= estimates and drawn
+
+    def test_mutation_controls_put_the_cross_back_on_a_bar(self, monkeypatch: Any) -> None:
+        result = subset()
+        # No nudge: the cross sits on its own bar.
+        monkeypatch.setattr(_curves, "_TRUTH_NUDGE", 0.0)
+        assert _truth_clearance(curve(result, truth=self._truth(result))) < 1.0
+        # The nudge without the wider dodge: the cross lands on the next series' bar.
+        monkeypatch.setattr(_curves, "_TRUTH_NUDGE", 11.0)
+        monkeypatch.setattr(_curves, "_TRUTH_DODGE", _curves._DODGE)
+        assert _truth_clearance(curve(result, truth=self._truth(result))) < self.CLEAR
+
+
+class TestContrastsAloneTakeTheirPlansColours:
+    def test_each_difference_has_a_palette_colour_and_the_null_stays_grey(self) -> None:
+        fig = curve(regime_contrast())
+        diff = fig.axes[0]
+        colours = [
+            matplotlib.colors.to_hex(line.get_color()) for line in lines(diff, "cleverly-curve")
+        ]
+        assert len(colours) == 2 and len(set(colours)) == 2
+        assert all(colour in _core.PALETTE for colour in colours)
+        (null,) = lines(diff, _core.GID_REFERENCE)
+        assert matplotlib.colors.to_hex(null.get_color()) == _core.REFERENCE
+        assert _core.REFERENCE not in colours
+        # Each plan keeps its slot in the fit's regimen order (never, always, first).
+        labels = _label_colours(diff)
+        assert labels == {"always vs never": _core.PALETTE[1], "first vs never": _core.PALETTE[2]}
+        assert_style(fig)
+
+    def test_beside_the_regimens_curves_a_difference_takes_its_plans_colour(self) -> None:
+        fig = curve(full())
+        top, diff, _ = fig.axes
+        curves, differences = _label_colours(top), _label_colours(diff)
+        assert set(differences.values()) <= set(_core.PALETTE)
+        for contrast, colour in differences.items():
+            # The difference wears the colour of the plan it compares with the reference.
+            assert colour == curves[contrast.split(" vs ")[0]]
+        (null,) = lines(diff, _core.GID_REFERENCE)
+        assert matplotlib.colors.to_hex(null.get_color()) not in differences.values()
+        assert_style(fig)
+
+    def test_differences_that_share_a_drawn_plan_stay_grey(self) -> None:
+        assert _curves._drawn_plan_slots(["a vs b", "a vs c"], {"a": 0, "b": 1, "c": 2}) is None
+        # A plan not drawn as a curve has no colour to lend either.
+        assert _curves._drawn_plan_slots(["d vs b"], {"a": 0, "b": 1}) is None
+        # Control: distinct drawn plans lend their curves' slots.
+        assert _curves._drawn_plan_slots(["c vs a", "b vs a"], {"a": 0, "b": 1, "c": 2}) == {
+            "c vs a": 2,
+            "b vs a": 1,
+        }
+
+    def test_differences_that_share_a_plan_are_numbered_in_turn(self) -> None:
+        slots = _curves._plan_slots(["a vs b", "a vs c"], ["a", "b", "c"])
+        assert slots == {"a vs b": 0, "a vs c": 1}
+        # Control: distinct plans keep their places in the fit's order.
+        assert _curves._plan_slots(["b vs a", "c vs a"], ["a", "b", "c"]) == {
+            "b vs a": 1,
+            "c vs a": 2,
+        }
+
+
+class TestOutcomeWords:
+    def test_outcome_label_names_the_quantity_without_mean(self) -> None:
+        diff = curve(regime_contrast(), outcome_label="order share").axes[0]
+        assert diff.get_ylabel() == "Difference in order share"
+        diff = curve(regime_contrast(), outcome_label="Customers who order").axes[0]
+        assert diff.get_ylabel() == "Difference in customers who order"
+        # Control: without it the label is the mean of the outcome.
+        assert curve(regime_contrast()).axes[0].get_ylabel() == "Difference in mean outcome"
+
+    def test_a_short_difference_panel_breaks_before_the_phrase_only(self) -> None:
+        fig = curve(repeated(), outcome_label="customers who order")
+        top, diff = fig.axes[0], fig.axes[1]
+        assert top.get_ylabel() == "customers who order"
+        assert diff.get_ylabel() == "Difference in\ncustomers who order"
+
+    def test_the_wrap_splits_a_phrase_only_when_it_cannot_fit(self) -> None:
+        assert _curves._wrap_axis_label("Difference in", "order share", 20) == (
+            "Difference in\norder share"
+        )
+        assert _curves._wrap_axis_label("Difference in", "order share", 26) == (
+            "Difference in order share"
+        )
+        # Control: a phrase longer than a line is wrapped like any text.
+        long = _curves._wrap_axis_label("Difference in", "share of customers who order", 20)
+        assert "order" in long.split("\n")[-1] and long.count("\n") >= 2
+
+    def test_only_a_capitalised_english_word_is_lowered(self) -> None:
+        assert _core.mid_phrase("Customers who order") == "customers who order"
+        for kept in ("HbA1c level", "Y", "BMI", "order share"):
+            assert _core.mid_phrase(kept) == kept
+
+
+class TestLevelWords:
+    def test_per_level_means_are_asked_about_the_treatment_level(self) -> None:
+        for fig in (curve(level_means()), curve(arm_means(), levels=CONTACTS)):
+            title = fig.axes[0].get_title(loc="left")
+            assert title == "How does the mean outcome change with the treatment level?"
+            assert "dose" not in title
+
+    def test_a_declared_continuous_treatment_is_a_dose(self) -> None:
+        from types import SimpleNamespace
+
+        dose = SimpleNamespace(data=SimpleNamespace(is_continuous_treatment=True))
+        arms = SimpleNamespace(data=SimpleNamespace(is_continuous_treatment=False))
+        assert _curves._level_title(arms, dose).endswith("with the dose?")
+        # Control: neither fit declares a dose.
+        assert _curves._level_title(arms, None).endswith("with the treatment level?")
+        assert not level_means().data.is_continuous_treatment
+
+
+class TestBandOnLevelMeans:
+    def test_band_none_or_false_draws_no_band(self) -> None:
+        drawn = curve(msm_fit(), means=level_means())
+        assert band_marks(drawn.axes[0]).size
+        assert any("simultaneous band" in text for text in key_texts(drawn.axes[0]))
+        for off in ("none", False):
+            ax = curve(msm_fit(), means=level_means(), band=off).axes[0]
+            assert not band_marks(ax).size
+            assert not any("simultaneous band" in text for text in key_texts(ax))
+            # The pointwise intervals stay.
+            assert bars(ax).size
+
+    def test_a_band_the_fit_does_not_hold_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="no bootstrap band"):
+            curve(level_means(), band="bootstrap")
+        with pytest.raises(ValueError, match="band must be"):
+            curve(level_means(), band="sup")
+        # Control: the band it holds is drawn when named.
+        assert band_marks(curve(level_means(), band="multiplier").axes[0]).size
+
+
+class TestEffectCurveBand:
+    def test_band_none_or_false_turns_the_curves_band_off(self) -> None:
+        settings = {"modifier": "W", "at": {"Z": 0.0}}
+        drawn = curve(cate(), **settings).axes[0]
+        assert band_marks(drawn).size
+        for off in ("none", False):
+            ax = curve(cate(), band=off, **settings).axes[0]
+            assert not band_marks(ax).size
+            assert not any("simultaneous band" in text for text in key_texts(ax))
+        # Control: naming the band it holds draws it.
+        assert band_marks(curve(cate(), band="multiplier", **settings).axes[0]).size
+
+    def test_a_band_the_curve_cannot_draw_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="no bootstrap band"):
+            curve(cate(), band="bootstrap", modifier="W", at={"Z": 0.0})
+        assert cate_by().band is None
+        with pytest.raises(ValueError, match="no multiplier band"):
+            curve(cate_by(), band="multiplier", modifier="W", by="G")
+        with pytest.raises(ValueError, match="band must be"):
+            curve(cate(), band="sup", modifier="W", at={"Z": 0.0})
+        # Control: "none" on a curve without a band has nothing to turn off, and draws.
+        assert curve(cate_by(), band="none", modifier="W", by="G")
+
+
+def test_an_effect_curve_puts_the_callers_words_mid_phrase() -> None:
+    settings = {"modifier": "W", "at": {"Z": 0.0}}
+    worded = curve(cate(), outcome_label="Customers who order", **settings).axes[0]
+    assert worded.get_ylabel() == "Effect on customers who order"
+    # Control: a name or symbol stays as written, and the column name is untouched.
+    assert curve(cate(), outcome_label="HbA1c", **settings).axes[0].get_ylabel() == (
+        "Effect on HbA1c"
+    )
+    assert curve(cate(), **settings).axes[0].get_ylabel() == "Effect on Y"

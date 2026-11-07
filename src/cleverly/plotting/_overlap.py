@@ -129,7 +129,9 @@ def overlap(
     result : TMLEResult
         A fitted point-treatment result with an estimated treatment mechanism.
     treatment_label : str or None, default=None
-        Words for the treatment; its column name when omitted.
+        Words for the treatment in the axis label: ``"Predicted probability of smoking =
+        1"``, or with ``labels=`` ``"Predicted probability of smoking: smoking mothers"``.
+        The column name when omitted, or ``"being in the group"`` beside ``labels=``.
     labels : dict or None, default=None
         Words for each arm, keyed by the arm's level as in the data, such as
         ``{1: "offered", 0: "not offered"}``. Each names its group of units on its own.
@@ -213,9 +215,12 @@ def overlap(
         return own if own is not None else f"Units with {name} = {data.arm_label(code)}"
 
     def axis_words(code: float) -> str:
+        # A caller's label names a group of units, so the axis names the group after a
+        # colon: the treatment's words lead when given, being in the group otherwise.
         own = labelled(code)
         if own is not None:
-            return f"Predicted probability of the arm: {own}"
+            lead = treatment_label or "being in the group"
+            return f"Predicted probability of {lead}: {_core.mid_phrase(own)}"
         return f"Predicted probability of {name} = {data.arm_label(code)}"
 
     binary = len(arms) == 2
@@ -288,20 +293,29 @@ def _limits(result: Any) -> list[tuple[tuple[float, float], str]]:
     conditional = stems & {"att", "atc"}
     marginal = stems - {"att", "atc"}
     found: list[tuple[tuple[float, float], str]] = []
-    pair = getattr(config, "g_bounds", None)
-    if marginal and pair is not None:
-        found.append(((float(pair[0]), float(pair[1])), "Limits for the average effect"))
-    pair = getattr(config, "g_bounds_conditional", None)
-    if conditional and pair is not None:
-        pair = (float(pair[0]), float(pair[1]))
-        if not found or found[0][0] != pair:
-            words = " and ".join(
-                {"att": "the treated", "atc": "the untreated"}[stem]
-                for stem in sorted(conditional, reverse=True)
-            )
-            found.append((pair, f"Limits for the effect among {words}"))
-        else:
-            found[0] = (pair, "Limits the fit used")
+    words = " and ".join(
+        {"att": "the treated", "atc": "the untreated"}[stem]
+        for stem in sorted(conditional, reverse=True)
+    )
+    marginal_pair = getattr(config, "g_bounds", None)
+    conditional_pair = getattr(config, "g_bounds_conditional", None)
+    if conditional_pair is not None and conditional:
+        conditional_pair = (float(conditional_pair[0]), float(conditional_pair[1]))
+    else:
+        conditional_pair = None
+    if marginal and marginal_pair is not None:
+        marginal_pair = (float(marginal_pair[0]), float(marginal_pair[1]))
+        # The marginal pair serves every estimate but the ATT and ATC (arm means, ratios,
+        # the average effect); it is named as the rest only when those are drawn too.
+        own = conditional_pair is not None and conditional_pair != marginal_pair
+        text = (
+            f"Probability limits used for every estimate but the effect among {words}"
+            if own
+            else "Probability limits the fit used"
+        )
+        found.append((marginal_pair, text))
+    if conditional_pair is not None and (not found or found[0][0] != conditional_pair):
+        found.append((conditional_pair, f"Probability limits used for the effect among {words}"))
     return found
 
 

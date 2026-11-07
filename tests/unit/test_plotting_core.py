@@ -38,6 +38,7 @@ from cleverly.plotting import (
     sensitivity,
     style,
 )
+from cleverly.plotting import _forest as forest_module
 from cleverly.sensitivity import marginal_sensitivity_bounds
 
 pytestmark = pytest.mark.xdist_group("plotting_core")
@@ -262,7 +263,7 @@ def test_forest_draws_each_estimate_and_its_interval(binary_fit: Any) -> None:
             assert ax.get_xscale() == "log"
         nulls = [line.get_xdata()[0] for line in _lines(ax, "cleverly-reference")]
         assert nulls == ({"difference": [0.0], "ratio": [1.0], "level": []}[scale])
-    assert _title(fig) == "Estimated effects"
+    assert _title(fig) == forest_module.TITLE
     assert _key(fig.axes[0]) == ["95% confidence interval", "No effect"]
 
 
@@ -588,8 +589,9 @@ def test_overlap_mirrors_the_unbounded_propensity_by_arm(binary_fit: Any) -> Non
     markers = sorted(line.get_xdata()[0] for line in _lines(ax, "cleverly-marker"))
     assert markers == pytest.approx(sorted([*bounds, *conditional]))
     assert _key(ax)[-2:] == [
-        "Limits for the average effect",
-        "Limits for the effect among the treated and the untreated",
+        "Probability limits used for every estimate but the effect among the treated and "
+        "the untreated",
+        "Probability limits used for the effect among the treated and the untreated",
     ]
     shares = [text.get_text() for text in ax.texts if text.get_gid() == "cleverly-tail-share"]
     below_share = float(np.mean(raw < bounds[0]))
@@ -742,10 +744,11 @@ def test_forest_skips_the_null_a_transform_cannot_reach(binary_fit: Any) -> None
 
     estimate = binary_fit["ey1"]
     logged = dataclasses.replace(estimate, scale="difference", transform=LogOnly())
-    assert _lines(forest(logged).axes[0], "cleverly-reference") == []
-    # Control: without the transform the difference null is drawn.
+    assert _lines(forest(logged, include_null=True).axes[0], "cleverly-reference") == []
+    # Control: without the transform the difference null is drawn. A mean near 0.65 lies far
+    # from 0, so the axis reaches the null only when asked to.
     plain = dataclasses.replace(estimate, scale="difference")
-    assert len(_lines(forest(plain).axes[0], "cleverly-reference")) == 1
+    assert len(_lines(forest(plain, include_null=True).axes[0], "cleverly-reference")) == 1
 
 
 def test_notes_sit_inside_the_figure_after_drawing(binary_fit: Any) -> None:
@@ -891,7 +894,7 @@ def test_overlap_arm_labels_stand_alone(binary_fit: Any, treated: str, untreated
     ax = fig.axes[0]
     groups = [t.get_text() for t in ax.texts if t.get_gid() == _core.GID_SERIES_LABEL]
     assert groups == [treated, untreated]
-    assert ax.get_xlabel() == f"Predicted probability of the arm: {treated}"
+    assert ax.get_xlabel() == f"Predicted probability of being in the group: {treated}"
     assert not any("Units with" in text for text in [*groups, ax.get_xlabel()])
     # Control: without labels the arm is named by its column and level.
     plain = overlap(binary_fit).axes[0]
@@ -947,9 +950,189 @@ def test_forest_truth_refuses_an_empty_mapping_and_a_boolean(binary_fit: Any) ->
 def test_forest_names_the_outcome_in_the_words_given(binary_fit: Any) -> None:
     fig = forest(binary_fit, outcome_label="orders in month 3", units="orders")
     difference, ratio, level = fig.axes
-    assert difference.get_xlabel() == "Difference in mean orders in month 3 (orders)"
-    assert level.get_xlabel() == "Mean orders in month 3 (orders)"
+    # The words name the whole quantity: no "mean" is inserted before them.
+    assert difference.get_xlabel() == "Difference in orders in month 3 (orders)"
+    assert level.get_xlabel() == "orders in month 3 (orders)"
     assert ratio.get_xlabel() == "Ratio (log scale)"
     # the control: without the words the axis names the outcome column
     plain = forest(binary_fit).axes[0].get_xlabel()
     assert plain == f"Difference in mean {binary_fit.data.outcome_name}"
+
+
+# ----------------------------------------------------------------------- forest, the null's reach
+
+
+def _narrow(estimate: Any, psi: float, *, shrink: float = 0.04) -> Any:
+    """``estimate`` moved to ``psi`` with a narrower interval."""
+    moved = dataclasses.replace(estimate, psi=psi, variance=estimate.variance * shrink)
+    if estimate.scale == "ratio":
+        moved = dataclasses.replace(moved, log_psi=float(np.log(psi)))
+    return moved
+
+
+def _xlim(fig: Any) -> tuple[float, float]:
+    low, high = fig.axes[0].get_xlim()
+    return float(low), float(high)
+
+
+def test_forest_leaves_a_far_null_off_the_axis_and_says_where(binary_fit: Any) -> None:
+    ate = binary_fit["ate"]
+    near = [_narrow(ate, psi) for psi in (0.13, 0.15, 0.16, 0.18)]
+    fig = forest(*near, labels=["a", "b", "c", "d"])
+    ax = fig.axes[0]
+    assert _lines(ax, "cleverly-reference") == []
+    assert "No effect" not in _key(ax)
+    assert _xlim(fig)[0] > 0.0
+    note = _core.note_text(fig)
+    assert "No effect (0) lies off the axis to the left" in note
+    # The mirror image lies off to the right.
+    far = forest(*[_narrow(ate, -psi) for psi in (0.13, 0.15)], labels=["a", "b"])
+    assert _xlim(far)[1] < 0.0
+    assert "off the axis to the right" in _core.note_text(far)
+
+
+def test_forest_draws_a_null_near_the_intervals(binary_fit: Any) -> None:
+    """Control: intervals near 0 keep the line, and say nothing about an axis."""
+    fig = forest(_narrow(binary_fit["ate"], 0.05), binary_fit["att"], labels=["a", "b"])
+    ax = fig.axes[0]
+    assert [line.get_xdata()[0] for line in _lines(ax, "cleverly-reference")] == [0.0]
+    low, high = _xlim(fig)
+    assert low <= 0.0 <= high
+    assert "off the axis" not in _core.note_text(fig)
+
+
+def test_include_null_overrides_the_automatic_rule(binary_fit: Any) -> None:
+    near = [_narrow(binary_fit["ate"], psi) for psi in (0.13, 0.18)]
+    shown = forest(*near, labels=["a", "b"], include_null=True)
+    assert len(_lines(shown.axes[0], "cleverly-reference")) == 1
+    assert _xlim(shown)[0] <= 0.0
+    assert "off the axis" not in _core.note_text(shown)
+    # include_null=False drops a null the automatic rule would keep, and still says so.
+    kept = forest(binary_fit["ate"], include_null=False)
+    assert _lines(kept.axes[0], "cleverly-reference") == []
+    assert "No effect (0) lies off the axis to the left" in _core.note_text(kept)
+    # A null inside the intervals is always drawn: no axis can leave it out.
+    across = dataclasses.replace(binary_fit["ate"], psi=0.0)
+    assert len(_lines(forest(across, include_null=False).axes[0], "cleverly-reference")) == 1
+
+
+def test_a_far_ratio_null_is_measured_on_the_log_axis(binary_fit: Any) -> None:
+    ratio = _narrow(binary_fit["rr"], 3.0, shrink=0.25)
+    fig = forest(ratio)
+    assert _lines(fig.axes[0], "cleverly-reference") == []
+    assert "No effect (1) lies off the axis to the left" in _core.note_text(fig)
+    # Control: the fit's own risk ratio, near 1 on the log axis, keeps the line at 1.
+    own = forest(binary_fit["rr"])
+    assert [line.get_xdata()[0] for line in _lines(own.axes[0], "cleverly-reference")] == [1.0]
+
+
+def test_the_off_axis_note_names_its_panel_when_there_are_several(binary_fit: Any) -> None:
+    fig = forest(_narrow(binary_fit["ate"], 0.15), _narrow(binary_fit["rr"], 3.0, shrink=0.25))
+    note = _core.note_text(fig)
+    assert "On the difference panel, no effect (0) lies off the axis to the left" in note
+    assert "On the ratio panel, no effect (1) lies off the axis to the left" in note
+
+
+def test_a_true_value_near_the_null_brings_it_back(binary_fit: Any) -> None:
+    """The truth counts as drawn data, so a cross near 0 keeps the line in reach."""
+    near = _narrow(binary_fit["ate"], 0.15)
+    assert _lines(forest(near).axes[0], "cleverly-reference") == []
+    fig = forest(near, truth=0.02)
+    assert len(_lines(fig.axes[0], "cleverly-reference")) == 1
+
+
+def test_forest_title_is_a_question() -> None:
+    assert forest_module.TITLE.endswith("?")
+    from cleverly import plotting
+
+    assert forest_module.TITLE[:1].lower() + forest_module.TITLE[1:] in (plotting.__doc__ or "")
+
+
+def test_overlap_reads_the_treatment_words_beside_arm_labels(binary_fit: Any) -> None:
+    labels = {1: "Smoking mothers", 0: "Non-smoking mothers"}
+    worded = overlap(binary_fit, labels=labels, treatment_label="smoking").axes[0]
+    assert worded.get_xlabel() == "Predicted probability of smoking: smoking mothers"
+    plain = overlap(binary_fit, labels=labels).axes[0]
+    assert plain.get_xlabel() == "Predicted probability of being in the group: smoking mothers"
+    # The group names in the figure keep the caller's capitals.
+    names = [t.get_text() for t in plain.texts if t.get_gid() == _core.GID_SERIES_LABEL]
+    assert names == ["Smoking mothers", "Non-smoking mothers"]
+    # Control: without labels the treatment words take the column's place.
+    unlabelled = overlap(binary_fit, treatment_label="smoking").axes[0]
+    assert unlabelled.get_xlabel() == "Predicted probability of smoking = 1"
+
+
+def test_overlap_key_names_the_limits_as_probability_limits(binary_fit: Any) -> None:
+    keys = _key(overlap(binary_fit).axes[0])
+    limits = [key for key in keys if "limits" in key.lower()]
+    assert limits and all(key.startswith("Probability limits") for key in limits)
+    # The estimand each pair belongs to stays named: the ATT and ATC use their own pair.
+    assert "Probability limits used for the effect among the treated and the untreated" in keys
+
+
+def test_overlap_key_names_the_marginal_pair_by_what_it_serves(
+    binary_fit: Any, missing_fit: Any
+) -> None:
+    # The marginal pair serves the arm means and ratios too, not the average effect alone.
+    assert {"ey1", "ey0", "rr", "or"} <= set(binary_fit.estimates)
+    keys = _key(overlap(binary_fit).axes[0])
+    assert not any("for the average effect" in key for key in keys)
+    # Control: a fit with no ATT or ATC has one pair, which every estimate used.
+    assert not {"att", "atc"} & set(missing_fit.estimates)
+    assert [key for key in _key(overlap(missing_fit).axes[0]) if "limits" in key] == [
+        "Probability limits the fit used"
+    ]
+
+
+# ----------------------------------------------------------------------- forest, rows with no interval
+
+
+def test_forest_keeps_the_null_beside_a_row_with_no_interval(binary_fit: Any) -> None:
+    withheld = dataclasses.replace(binary_fit["ate"], psi=0.01, inference=WITHHELD)
+    unknown = dataclasses.replace(binary_fit["ate"], psi=0.5, variance=float("inf"))
+    assert not all(np.isfinite(unknown.ci))
+    for row in (withheld, unknown):
+        fig = forest(row)
+        assert len(_lines(fig.axes[0], "cleverly-reference")) == 1
+        assert "off the axis" not in _core.note_text(fig)
+    # Beside a drawn narrow interval far from 0 the row without one still keeps the null.
+    near = _narrow(binary_fit["ate"], 0.15)
+    assert len(_lines(forest(near, withheld, labels=["a", "b"]).axes[0], "cleverly-reference"))
+    # Control: the drawn narrow interval alone drops it.
+    assert _lines(forest(near).axes[0], "cleverly-reference") == []
+
+
+def test_a_null_left_off_by_hand_never_claims_an_interval_that_is_missing(
+    binary_fit: Any,
+) -> None:
+    withheld = dataclasses.replace(binary_fit["ate"], psi=0.15, inference=WITHHELD)
+    note = _core.note_text(forest(withheld, include_null=False))
+    assert "lies off the axis to the left, so its line is not drawn." in note
+    assert "no interval here reaches it" not in note
+    # Control: rows that all have an interval say none reaches the null.
+    drawn = _core.note_text(forest(_narrow(binary_fit["ate"], 0.15), include_null=False))
+    assert "no interval here reaches it" in drawn
+
+
+def test_a_null_left_off_by_hand_is_really_off_the_axis(
+    binary_fit: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ate = binary_fit["ate"]
+    # An interval close to 0, about (0.003, 0.188): the autoscale margin would reach 0.
+    close = dataclasses.replace(
+        ate, psi=0.0955, variance=ate.variance * (0.0473 / ate.std_error) ** 2
+    )
+    low, high = close.ci
+    assert 0.0 < low < 0.01 and high == pytest.approx(0.188, abs=0.002)
+    fig = forest(close, include_null=False)
+    assert "off the axis to the left" in _core.note_text(fig)
+    assert 0.0 < fig.axes[0].get_xlim()[0] < low
+    # On a ratio the limit is kept off 1 on the log axis.
+    ratio = binary_fit["rr"]
+    near_one = _narrow(ratio, 1.15, shrink=0.25)
+    assert near_one.ci[0] > 1.0
+    fig = forest(near_one, include_null=False)
+    assert 1.0 < fig.axes[0].get_xlim()[0] < near_one.ci[0]
+    # Mutation control: without the clamp the autoscale margin puts the null back on.
+    monkeypatch.setattr(forest_module, "_keep_off", lambda *args, **kwargs: None)
+    assert forest(close, include_null=False).axes[0].get_xlim()[0] <= 0.0
