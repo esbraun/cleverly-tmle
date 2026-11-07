@@ -512,6 +512,10 @@ BACKEND_ROUTES: dict[str, str] = {
     "SimultaneousBands": "argument",
     # The truncation curve (X89 T3) wraps the frame the diagnostics built.
     "TruncationCurve": "wrapped",
+    # Balance and per-node weight readings (X92 part 3b): built from a fit's weights,
+    # so the caller names the backend.
+    "CovariateBalance": "argument",
+    "NodeWeights": "argument",
     # A projection's effect curve, its readings, and the external-score check (P1 plan).
     "EffectCurveResult": "field",
     "CurveCalibration": "field",
