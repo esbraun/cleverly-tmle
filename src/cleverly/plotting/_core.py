@@ -822,7 +822,7 @@ def _key_entries(sources: Sequence[Axes]) -> tuple[list[Any], list[str]]:
     return list(unique.values()), list(unique.keys())
 
 
-def end_label(ax: Axes, x: float, y: float, text: str, color: str) -> None:
+def end_label(ax: Axes, x: float, y: float, text: str, color: str, *, pad: float = 0.0) -> None:
     """A direct label at the end of a series: a swatch in the series colour, text in ink.
 
     Parameters
@@ -837,11 +837,14 @@ def end_label(ax: Axes, x: float, y: float, text: str, color: str) -> None:
         The series name.
     color : str
         The series colour, used for the swatch only.
+    pad : float, default=0.0
+        Further points right of ``x`` at which the label starts, to clear marks beside the
+        series' end.
     """
     ax.annotate(
         "\u25a0",
         xy=(x, y),
-        xytext=(6.0, 0.0),
+        xytext=(6.0 + pad, 0.0),
         textcoords="offset points",
         va="center",
         ha="left",
@@ -853,7 +856,7 @@ def end_label(ax: Axes, x: float, y: float, text: str, color: str) -> None:
     ax.annotate(
         text,
         xy=(x, y),
-        xytext=(17.0, 0.0),
+        xytext=(17.0 + pad, 0.0),
         textcoords="offset points",
         va="center",
         ha="left",
