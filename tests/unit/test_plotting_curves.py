@@ -2134,13 +2134,27 @@ class TestContrastsAloneTakeTheirPlansColours:
         assert labels == {"always vs never": _core.PALETTE[1], "first vs never": _core.PALETTE[2]}
         assert_style(fig)
 
-    def test_control_beside_the_regimens_curves_a_difference_stays_grey(self) -> None:
-        _, diff, _ = curve(full()).axes
-        colours = {
-            matplotlib.colors.to_hex(line.get_color()) for line in lines(diff, "cleverly-curve")
+    def test_beside_the_regimens_curves_a_difference_takes_its_plans_colour(self) -> None:
+        fig = curve(full())
+        top, diff, _ = fig.axes
+        curves, differences = _label_colours(top), _label_colours(diff)
+        assert set(differences.values()) <= set(_core.PALETTE)
+        for contrast, colour in differences.items():
+            # The difference wears the colour of the plan it compares with the reference.
+            assert colour == curves[contrast.split(" vs ")[0]]
+        (null,) = lines(diff, _core.GID_REFERENCE)
+        assert matplotlib.colors.to_hex(null.get_color()) not in differences.values()
+        assert_style(fig)
+
+    def test_differences_that_share_a_drawn_plan_stay_grey(self) -> None:
+        assert _curves._drawn_plan_slots(["a vs b", "a vs c"], {"a": 0, "b": 1, "c": 2}) is None
+        # A plan not drawn as a curve has no colour to lend either.
+        assert _curves._drawn_plan_slots(["d vs b"], {"a": 0, "b": 1}) is None
+        # Control: distinct drawn plans lend their curves' slots.
+        assert _curves._drawn_plan_slots(["c vs a", "b vs a"], {"a": 0, "b": 1, "c": 2}) == {
+            "c vs a": 2,
+            "b vs a": 1,
         }
-        assert colours == {_core.SECONDARY_INK}
-        assert not colours & set(_core.PALETTE)
 
     def test_differences_that_share_a_plan_are_numbered_in_turn(self) -> None:
         slots = _curves._plan_slots(["a vs b", "a vs c"], ["a", "b", "c"])
@@ -2179,9 +2193,9 @@ class TestOutcomeWords:
         assert "order" in long.split("\n")[-1] and long.count("\n") >= 2
 
     def test_only_a_capitalised_english_word_is_lowered(self) -> None:
-        assert _curves._lower_first("Customers who order") == "customers who order"
+        assert _core.mid_phrase("Customers who order") == "customers who order"
         for kept in ("HbA1c level", "Y", "BMI", "order share"):
-            assert _curves._lower_first(kept) == kept
+            assert _core.mid_phrase(kept) == kept
 
 
 class TestLevelWords:
@@ -2221,3 +2235,27 @@ class TestBandOnLevelMeans:
             curve(level_means(), band="sup")
         # Control: the band it holds is drawn when named.
         assert band_marks(curve(level_means(), band="multiplier").axes[0]).size
+
+
+class TestEffectCurveBand:
+    def test_band_none_or_false_turns_the_curves_band_off(self) -> None:
+        settings = {"modifier": "W", "at": {"Z": 0.0}}
+        drawn = curve(cate(), **settings).axes[0]
+        assert band_marks(drawn).size
+        for off in ("none", False):
+            ax = curve(cate(), band=off, **settings).axes[0]
+            assert not band_marks(ax).size
+            assert not any("simultaneous band" in text for text in key_texts(ax))
+        # Control: naming the band it holds draws it.
+        assert band_marks(curve(cate(), band="multiplier", **settings).axes[0]).size
+
+    def test_a_band_the_curve_cannot_draw_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="no bootstrap band"):
+            curve(cate(), band="bootstrap", modifier="W", at={"Z": 0.0})
+        assert cate_by().band is None
+        with pytest.raises(ValueError, match="no multiplier band"):
+            curve(cate_by(), band="multiplier", modifier="W", by="G")
+        with pytest.raises(ValueError, match="band must be"):
+            curve(cate(), band="sup", modifier="W", at={"Z": 0.0})
+        # Control: "none" on a curve without a band has nothing to turn off, and draws.
+        assert curve(cate_by(), band="none", modifier="W", by="G")

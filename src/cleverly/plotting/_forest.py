@@ -124,15 +124,24 @@ def _expand(item: Any, label: str | None, several: bool) -> list[_Row]:
     )
 
 
-def _axis_label(scale: str, outcome: str | None, units: str | None) -> str:
+def _axis_label(
+    scale: str, outcome_label: str | None, outcome: str | None, units: str | None
+) -> str:
+    """The x label of one scale's panel.
+
+    ``outcome_label=`` names the whole quantity (``"Difference in orders in month 3"``), as
+    in :func:`cleverly.plotting.curve`; the outcome column follows ``"mean"`` without it.
+    """
     unit = f" ({units})" if units else ""
     if scale == "ratio":
         return "Ratio (log scale)"
-    if scale == "difference":
-        return f"Difference in mean {outcome}{unit}" if outcome else f"Difference{unit}"
     if scale == "fraction":
         return "Share of the mean outcome"
-    return f"Mean {outcome}{unit}" if outcome else f"Mean outcome{unit}"
+    difference = scale == "difference"
+    if outcome_label or outcome:
+        words = _core.quantity(outcome_label, str(outcome), units, difference=difference)
+        return " ".join(words).strip()
+    return f"Difference{unit}" if difference else f"Mean outcome{unit}"
 
 
 def _question(items: Sequence[Any]) -> str | None:
@@ -211,9 +220,10 @@ def forest(
     subtitle : str or None, default=None
         The line under the title; the printed summary's question for a single result.
     outcome_label : str or None, default=None
-        Words for the outcome in the axis label of differences and means, such as
-        ``"orders in the third month"``; the outcome column's name when every row shares
-        one, and no name otherwise.
+        Words for the quantity on the axis of differences and means, such as ``"orders in
+        the third month"``: the labels read ``"Difference in orders in the third month"``
+        and ``"orders in the third month"``. Without it they read ``"Difference in mean"``
+        and ``"Mean"`` the outcome column's name when every row shares one.
     units : str or None, default=None
         Units of the outcome, added to the axis label of differences and means.
     truth : float, mapping of str to float, or None, default=None
@@ -500,7 +510,7 @@ def _panel(
     ax.spines["left"].set_visible(False)
     outcomes = {row.outcome for row in rows}
     outcome = outcomes.pop() if len(outcomes) == 1 else None
-    ax.set_xlabel(_axis_label(scale, outcome_label or outcome, units))
+    ax.set_xlabel(_axis_label(scale, outcome_label, outcome, units))
     _numbers(ax, rows, positions, texts)
     return off_axis
 

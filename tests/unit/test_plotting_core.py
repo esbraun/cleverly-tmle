@@ -949,8 +949,9 @@ def test_forest_truth_refuses_an_empty_mapping_and_a_boolean(binary_fit: Any) ->
 def test_forest_names_the_outcome_in_the_words_given(binary_fit: Any) -> None:
     fig = forest(binary_fit, outcome_label="orders in month 3", units="orders")
     difference, ratio, level = fig.axes
-    assert difference.get_xlabel() == "Difference in mean orders in month 3 (orders)"
-    assert level.get_xlabel() == "Mean orders in month 3 (orders)"
+    # The words name the whole quantity: no "mean" is inserted before them.
+    assert difference.get_xlabel() == "Difference in orders in month 3 (orders)"
+    assert level.get_xlabel() == "orders in month 3 (orders)"
     assert ratio.get_xlabel() == "Ratio (log scale)"
     # the control: without the words the axis names the outcome column
     plain = forest(binary_fit).axes[0].get_xlabel()
@@ -1044,3 +1045,4 @@ def test_forest_title_is_a_question() -> None:
     from cleverly import plotting
 
     assert forest_module.TITLE[:1].lower() + forest_module.TITLE[1:] in (plotting.__doc__ or "")
+
