@@ -231,10 +231,47 @@ the study measured ten only.
 
 With four or more options, or with three and any other setting on this page (the default
 `CrossFitting()`, the in-sample fit, weights, clusters, strata, several splits or a comparison
-with a fixed policy), cleverly marks the estimate experimental. The two rule learners described
+with a fixed policy), cleverly marks the estimate experimental. The three rule learners described
 in [Learned rules](../technical-reference/point-treatment-tmle.md#learned-rules),
-`loss="blip"` and `loss="weighted_classification"`, compare two options only, so with more than
+`loss="blip"`, `loss="weighted_classification"` and `loss="ep"`, compare two options only, so with more than
 two they raise `CapabilityError` and name the default rule as the way out.
+
+A rule can also read only the covariates you choose, which makes it easier to apply and to
+explain. Pass `LearnedRule(loss="ep", modifiers=...)` as the rule. Each fold then fits a curve of
+the treatment effect against those covariates, with the EP learner of
+[effects that differ between people](conditional-effects.md), and treats where the curve is
+above zero. The curve corrects the outcome model's predictions with the treatment model. So
+when the treatment model is right, the curve still approaches the closest curve that the
+default shapes can draw, even if the outcome model is wrong. The default shapes are up to six
+smooth waves for each numeric covariate and one step for each level of a categorical one,
+added together, so with several covariates the curve is a sum of one curve per covariate.
+
+```python
+from cleverly.bases import Modifiers
+from cleverly.interventions import LearnedRule
+
+by_w1 = LearnedRule(loss="ep", modifiers=Modifiers(["W1"], domains={"W1": (-5, 5)}))
+targeted = study.estimate(LearnedRuleValue(rule=by_w1), method=fold_evaluated, random_state=3)
+```
+
+The covariates must be ones the study adjusts for, and each continuous one needs a range that
+holds every value. `OptimalRuleValue` with this rule needs all of the adjustment covariates,
+because the best rule may use any of them. The curve also picks its own flexibility inside each
+fold, so a fit takes about 25 times as long as the default rule.
+
+A [study](../technical-reference/method-evidence/learned-rule-ep.md) measured this rule with the
+default shapes on two simulated datasets. With 16,000 rows its 95% interval covered the target
+95% of the time, and with 2,000 rows 94% to 95% of the time. With 1,000 rows, on the dataset
+where the outcome model was wrong, it covered 92% of the time, because the reported standard
+error was about 9% too small. When the treatment has no effect for anyone, the curve has no
+fixed sign, so the folds disagree on whom to treat, and the interval covered only 90% of the
+time. cleverly cannot detect that case.
+
+With the default shapes, two options, each fold scored on its own (`fold_evaluation=True`, as
+above), no weights, no groups and one split, cleverly marks the estimate supported. With your own
+`sieve=` or `learner=`, or with weights, groups, several splits or a comparison with a fixed
+policy, it marks the estimate experimental. `OptimalRuleValue` below, with this rule, is
+supported only when you pass the known treatment probabilities.
 
 The reported value is a data-adaptive target. It depends on the realized split and on the fitted
 rules. It is not the value of one rule fitted on all rows (the in-sample fit below), and it is not

@@ -711,6 +711,13 @@ def measured(row: Any) -> str:
             f"{render(float(row.mean_regret))}, coverage of the realized rule value "
             f"{render(float(row.rule_value_coverage))}"
         )
+    if family == "exceptional_law_report" and not hasattr(row, "mean_regret"):
+        # P1 part (c): the learned-rule value's report at the exceptional law, with no verdict
+        # and no regret columns. Its declared reading is printed beside the coverage.
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}, reading: {row.reading}"
+        )
     if family in {"estimated_g_report", "exceptional_law_report"}:
         # X11 PR I: the two reports of the optimal value, with no verdict. Their rows carry no
         # bootstrap SE-ratio interval, so the point ratio is printed.

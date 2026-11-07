@@ -453,6 +453,8 @@ def _other_x11_sample_seeds() -> set[int]:
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_boundary as boundary
     from tests.studies import learned_rule_cvtmle_properties as gated_properties
+    from tests.studies import learned_rule_ep as ep_rule
+    from tests.studies import learned_rule_ep_properties as ep_rule_properties
     from tests.studies import learned_rule_in_sample as f2
     from tests.studies import learned_rule_in_sample_properties as f2_properties
     from tests.studies import learned_rule_intermediate as j
@@ -474,6 +476,7 @@ def _other_x11_sample_seeds() -> set[int]:
         (compositions, compositions.PRIMARY_REPLICATES, composition_properties),
         (split_mean, split_mean.PRIMARY_REPLICATES, split_mean_properties),
         (learners, learners.PRIMARY_REPLICATES, learner_properties),
+        (ep_rule, ep_rule.PRIMARY_REPLICATES, ep_rule_properties),
         (e2, e2.PRIMARY_REPLICATES, e2_properties),
         (f1, f1.PRIMARY_REPLICATES, f1_properties),
         (f2, f2.PRIMARY_REPLICATES, f2_properties),

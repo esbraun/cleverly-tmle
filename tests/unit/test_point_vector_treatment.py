@@ -47,6 +47,22 @@ pytestmark = [
     pytest.mark.usefixtures("exact_grid_law"),
 ]
 
+
+@pytest.fixture(autouse=True)
+def _close_figures() -> Any:
+    """Close every pyplot figure around each test.
+
+    This module runs on one worker, and its readers draw plots. Figures left open by earlier
+    tests on that worker pass matplotlib's limit of 20, whose ``RuntimeWarning`` the suite
+    raises as an error.
+    """
+    import matplotlib.pyplot as plt
+
+    plt.close("all")
+    yield
+    plt.close("all")
+
+
 #: What every one-column reader says at a vector treatment with a continuous component.
 ONE_COLUMN = "reads a treatment of one column. Such a treatment has no arms"
 

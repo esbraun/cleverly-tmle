@@ -13,6 +13,7 @@ The plots:
 function                question
 ======================  ===========================================================
 :func:`forest`          the estimates of one or several fits, with their intervals
+:func:`curve`           how a result changes over time, dose, policy or modifier
 :func:`sensitivity`     does the estimate depend on a declared sensitivity parameter?
 :func:`confounding`     how strong would hidden confounding need to be?
 :func:`overlap`         did every kind of unit have a chance of each treatment?
@@ -23,8 +24,9 @@ from __future__ import annotations
 
 from ._confounding import confounding
 from ._core import PALETTE, style
+from ._curves import curve
 from ._forest import forest
 from ._overlap import overlap
 from ._sensitivity import sensitivity
 
-__all__ = ["PALETTE", "confounding", "forest", "overlap", "sensitivity", "style"]
+__all__ = ["PALETTE", "confounding", "curve", "forest", "overlap", "sensitivity", "style"]

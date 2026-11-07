@@ -30,6 +30,7 @@ that reading adds.
    cleverly.IncrementalEffect
    cleverly.MSMProjection
    cleverly.msm.MSM
+   cleverly.msm.working_model_means
    cleverly.ConditionalContrast
    cleverly.ControlledDirectEffect
 ```

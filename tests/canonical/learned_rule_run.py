@@ -63,10 +63,10 @@ def declared_sample_seeds() -> set[int]:
     That is every learned-rule study, ``learned-rule-strata`` (X11 PR E2),
     ``learned-rule-stacked`` (X11 PR F1), ``learned-rule-in-sample`` (X11 PR F2),
     ``learned-rule-contrast`` (X11 PR G), ``learned-rule-arms`` (X11 PR H),
-    ``learned-rule-optimal-value`` (X11 PR I), ``learned-rule-intermediate`` (X11 PR J) and
-    ``learned-regimen-ltmle`` (X11 PR K) among them, and ``fold-evaluated-strata``, whose target
-    is not a learned rule: a smoke run of any of them must avoid the declared seeds of all of
-    them.
+    ``learned-rule-optimal-value`` (X11 PR I), ``learned-rule-intermediate`` (X11 PR J),
+    ``learned-regimen-ltmle`` (X11 PR K) and ``learned-rule-ep`` (P1 PR-c) among them, and
+    ``fold-evaluated-strata``, whose target is not a learned rule: a smoke run of any of them
+    must avoid the declared seeds of all of them.
     """
     from tests.studies import fold_evaluated_strata as strata
     from tests.studies import fold_evaluated_strata_properties as strata_properties
@@ -81,6 +81,8 @@ def declared_sample_seeds() -> set[int]:
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_boundary as boundary
     from tests.studies import learned_rule_cvtmle_properties as properties
+    from tests.studies import learned_rule_ep as ep
+    from tests.studies import learned_rule_ep_properties as ep_properties
     from tests.studies import learned_rule_in_sample as in_sample
     from tests.studies import learned_rule_in_sample_properties as in_sample_properties
     from tests.studies import learned_rule_intermediate as intermediate
@@ -173,6 +175,12 @@ def declared_sample_seeds() -> set[int]:
         regimen.PRIMARY_REPLICATES,
         regimen_properties.PROPERTY_DRAWS,
         regimen_properties.suffixes(regimen.STUDY),
+    )
+    seeds |= law.declared_sample_seeds(
+        ep.STUDY,
+        ep.PRIMARY_REPLICATES,
+        ep_properties.PROPERTY_DRAWS,
+        ep_properties.suffixes(ep.STUDY),
     )
     return seeds
 

@@ -1412,8 +1412,11 @@ least-squares learner over a fixed class converges to the $L^2(P_0)$ projection 
 that class, whatever the outcome regression's limit. Under `weights=` it is the weighted
 projection in the tilted law. So a blip learner can improve on the plug-in rule of a misspecified
 outcome regression. At an exceptional law a consistent learner has no fixed limit, as for the
-plug-in rule. Each outer fold adds 5 inner outcome fits, 5 inner treatment fits and one
-rule-learner fit, so a fit makes about six times the nuisance fits of the plug-in fit.
+plug-in rule.
+
+The EP rule learner subsection below states C3 on the EP curve. Each outer fold adds 5 inner
+outcome fits, 5 inner treatment fits and one rule-learner fit, so a fit makes about six times the
+nuisance fits of the plug-in fit.
 
 `LearnedRule` refuses a learner that does not suit its loss when it is built. It refuses a learner
 beside `loss="plug_in"` and a missing learner beside another loss. It also refuses a classifier
@@ -1422,10 +1425,12 @@ classifier whose `fit` takes no `sample_weight` refuses too, because it would le
 sign, and so does a `SuperLearner` with a library member whose `fit` takes none. A weighted blip
 fit applies the same check to its regressor (row 12).
 
-The key of a rule-learner fit carries the qualifier `rule_learner_blip` or
-`rule_learner_weighted_classification`, so the plug-in rule's row never covers it. The
-[rule-learner study](method-evidence/learned-rule-learners.md) measures an unweighted fit on rows
-with pooled targeting, `repeats=1` and no `id=`, and that fit reads supported. A fit with weights,
+The key of a rule-learner fit carries the qualifier `rule_learner_blip`,
+`rule_learner_weighted_classification` or `rule_learner_ep`, so the plug-in rule's row never
+covers it. The
+[rule-learner study](method-evidence/learned-rule-learners.md) measures an unweighted fit of the
+blip and classification losses on rows with pooled targeting, `repeats=1` and no `id=`, and that
+fit reads supported. The EP rule has its own study, in the subsection below. A fit with weights,
 clusters, fold targeting or `repeats` above 1 reads experimental, because no cell measures it.
 
 The reading has a size. The interval is calibrated at n = 4,000, with SE ratios of 1.0080 for the
@@ -1456,6 +1461,101 @@ $(2A - 1)\Delta Y / \ell$, and on a continuous outcome with `q_bounds=(a, b)` it
 $(2A - 1)\Delta Y / \{(b - a) g\}$. Under `weights=` a spy confirms that every inner outcome and
 treatment fit receives its rows' weights. A fold whose positive-weight rows carry one label gives
 that label's constant rule, and a score exactly at its threshold assigns control.
+
+#### The EP rule learner
+
+`LearnedRule(loss="ep", modifiers=Modifiers(...))` sets each fold's rule to the sign of the EP
+curve of the effect given the declared modifiers $V$, a subset of the adjustment columns $W$ (van
+der Laan, Carone and Luedtke, [arXiv:2402.01972v2](https://arxiv.org/html/2402.01972v2), a
+preprint; [conditional effects](conditional-effects.md) states the curve). Inside $T_v$ the inner
+nuisances are those of the rule learners above. The curve then reads them:
+
+| step, inside $T_v$ | what the fit computes |
+| --- | --- |
+| debiasing | the pooled offset-logistic regression of $Y$ on $(2A - 1)\varphi_k(V)$ with offset $\operatorname{logit} \bar Q$, weighted by $w / g(A \mid W)$ with $g$ truncated at the fit's `g_bounds` and $\bar Q$ shrunk by the fit's `alpha` (EPL Algorithm 2, Method 1) |
+| final stage | weighted least squares of the debiased contrast $\bar Q^*(1, W) - \bar Q^*(0, W)$ on $\varphi_k(V)$, or a declared regressor `learner=` on the modifier columns, fitted with the observation weights; predictions clipped to $[-(b - a), b - a]$ |
+| size $k$ | a fixed size or a schedule `Sieve(basis, size=...)` read at $T_v$'s size. By default (`sieve=None`, `Sieve.default(modifiers)` with `size="cv"`), $k$ minimises the weighted one-step risk against $\tilde D$ over the 5 inner folds, with the nuisances refitted in 5 folds of each inner training fold (EPL Algorithm 4), and the curve is refitted at $k$ on all of $T_v$ |
+| rule | $d_{nv}(w) = \mathbb 1\{\hat\theta_v(v) > 0\}$, which reads the modifiers only |
+
+The size step is fold-local at both levels. The curve scored on inner fold $j$ comes from
+nuisances fitted without fold $j$, and $\tilde D$ at fold $j$'s rows comes from the inner
+cross-fit, whose models did not train on those rows. The outer construction does not move.
+
+C3 reads on the EP limit $\theta_1$, and asks that $\theta_1(V) = 0$ only on a set of
+probability zero. At a declared fixed size, least squares on the sieve converges to the
+projection of the blip $\bar Q_0(1, W) - \bar Q_0(0, W)$ onto the span of that member. The EP
+risk is doubly robust, so this holds when either the inner outcome fit or the inner treatment
+fit is consistent. The default sieve chooses its size by cross-validation among 6 members, and
+then $\theta_1$ is the projection onto the largest member's span: 6 cosines of each continuous
+modifier and the indicators of each categorical one. That step is the package's own argument
+over a finite family, not a theorem of the EP paper.
+
+A schedule reads the closure of the family, under the EP paper's conditions, which the user
+judges. A declared final learner carries no limit claim.
+
+The value of the optimal rule (`OptimalRuleValue`, `ey_optimal_rule`) needs the modifiers to be
+the whole adjustment set, and narrower modifiers refuse with `DIFFERENT_ESTIMAND` (R12). Even
+then the limit rule is the sign of the class's projection, which equals $d_0$ only when the sign
+of the blip is that of a function in the class (C3f). At RM30's `non_exceptional` law the
+limit rule differs from $d_0$ on 0.98% of the population near the threshold, and its regret is
+$2.4 \times 10^{-5}$, 0.005 SE at n = 16,000 (`tests/studies/_learned_rule_ep_law.py`).
+
+`LearnedRule` refuses `modifiers=` or `sieve=` beside another loss, a missing `Modifiers`, a
+classifier as the final learner and a `SuperLearner` that clips. At the fit, before any learner,
+it refuses a modifier outside the adjustment set (R6), more than two arms (X11 (d2)), an
+intermediate (X11 (j2)), a basis that reads an undeclared domain or level, a row outside a
+declared domain, a sieve member that is collinear on the rows, a declared size above the
+family's largest, and under `weights=` a final learner whose `fit` takes no `sample_weight`.
+
+The key carries `rule_learner_ep`. The registered, gated
+[EP rule-learner study](method-evidence/learned-rule-ep.md) measures the default sieve with
+least squares, on unweighted rows with pooled targeting, `repeats=1` and no `id=`, at both RM30
+laws. Rows `T51` (the learned-rule value) and `T51.optimal` (the value of the optimal rule with
+the treatment mechanism supplied, `treatment_probabilities=`) label those fits supported. A
+declared sieve, fixed size, schedule or final learner reads experimental through its own
+condition, because the key holds neither choice. Weights, clusters, fold targeting, `repeats`
+above 1, known regimes, a continuous outcome and, for the optimal value, an estimated $g$ read
+experimental too.
+
+The interval is calibrated at n = 16,000, with SE ratios of 0.9987 at `non_exceptional` and
+1.0079 at `misspecified_limit` and coverage of 0.9506 and 0.9539 (7,200 draws each). The value
+of the optimal rule with $g_0$ supplied reads 0.9852 and 0.9468 against $\Psi_{d_0}$. At
+n = 2,000 the SE ratios are 0.9938 and 0.9827 with coverage 0.9505 and 0.9440. At n = 1,000 they
+are 0.9872 and 0.9111 with coverage 0.9480 and 0.9180, so at the law whose outcome regression is
+wrong the SE is about 9% small. The calibration size was moved from 4,000 to 16,000 before any
+declared draw, after a pilot at 4,000 read an SE ratio of 0.970 at `non_exceptional`, and every
+`T51` row states that move.
+
+The reported SE is the fixed-rule SE of the realized rules, and rule learning adds a covariance
+between folds whose curves are fitted on each other's validation rows. The pilots read it as
+about 13% (SD 9%) of the error variance at n = 2,000 and 6.5% (SD 3%) at 4,000. In the
+declared run each calibration draw also fits the fit whose rule is fixed at the EP limit rule,
+on the same draws. Its error variance is within about 1% of the learned fit's at both laws and
+about 2% for the optimal value, and its own SE ratios are 1.004, 1.011 and 0.996.
+
+At the RM30 `exceptional` law the effect is zero everywhere, so C3 fails, and the interval
+under-covers: coverage 0.901 (99% interval 0.885 to 0.916) and SE ratio 0.833 at n = 2,000. No
+check detects such a law, and the support rows make no claim there. With the size chosen by
+cross-validation, each outer fold fits 5 inner and 25 inner-inner nuisance pairs, so a fit at
+n = 4,000 takes about 5 CPU-seconds against 0.2 for the plug-in rule.
+
+Only the optimal-value cell sees whether the EP rule is a good rule. The learned-value target
+moves with the learned rule, so a rule learner that never treats still covers its own value
+there, and the optimal cell is the study's one witness of rule quality. At `non_exceptional`
+the main-terms outcome regression is correct, so the debiasing's $1/g$ weight multiplies a zero
+residual and no study cell sees it. The unit witness W-c1 does, with an outcome regression that
+is wrong in the blip.
+
+`tests/unit/test_learned_rule_ep.py` holds the witnesses. On a finite population whose training
+folds are whole copies of it, with $g$ known and an outcome regression that is wrong in the
+blip, every fold curve equals the effect given $V$ to $10^{-10}$, while the plug-in rule of the
+same regression has the wrong sign at $V = 0$. Skipping the debiasing, unit $1/g$ weights,
+dropping the row weights, an unweighted final stage or dropping the $(2A - 1)$ factor each
+breaks it. Flipping fold $v$'s validation outcomes leaves fold $v$'s curve unchanged bit for
+bit, and a curve fitted from the outer nuisances at $T_v$ moves. Flipping the outcomes of inner
+fold $j$ leaves the size step's curves on fold $j$ unchanged, and a size step that fits on all
+of $T_v$ moves them. Under `weights=` a spy confirms that every inner, inner-inner and final
+fit receives its rows' weights.
 
 #### Baseline strata of a learned rule
 
