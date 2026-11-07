@@ -82,6 +82,7 @@ from tests.notebooks import (
     notebook_execution_stamp,
 )
 from tests.unit.tutorial_semantics import (
+    _FIGURE_REPRS,
     NOT_TUTORIALS,
     STATIC_ONLY,
     RefitNamespace,
@@ -512,8 +513,6 @@ def test_every_static_only_notebook_keeps_its_pinned_outputs(stem: str) -> None:
 
 
 #: The ``text/plain`` reprs of a figure or an axes object, which carry no values to compare.
-_FIGURE_REPRS = ("<Figure", "Figure(", "<Axes", "<matplotlib.")
-
 #: A matplotlib object repr with its memory address, which moves on every run.
 _MEMORY_ADDRESS_REPR = re.compile(r"<matplotlib\..* at 0x")
 

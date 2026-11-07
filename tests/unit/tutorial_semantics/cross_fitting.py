@@ -266,6 +266,10 @@ def check(namespace: dict[str, Any]) -> None:
         atol=1e-15,
     )
     assert mutation_witness.variance != draw_estimates[0].variance
+    assert (
+        figure_title(namespace["repeats_fig"])
+        == "Does the estimate depend on how the data were split?"
+    )
     spread = namespace["repeated_nuisance"].repeat_spread
     assert [row.n_repeats for row in spread] == [3]
     assert np.isclose(spread[0].standard_deviation, np.std(points, ddof=1))
@@ -366,10 +370,6 @@ def check_refits(namespace: dict[str, Any]) -> None:
     cross_fitted = namespace["cross_fitted"]
     original = cross_fitted["ate"].psi
     se = cross_fitted["ate"].std_error
-    assert (
-        figure_title(namespace["repeats_fig"])
-        == "Does the estimate depend on how the data were split?"
-    )
     tests = {test.name: test for test in namespace["fold_check"].tests}
     assert list(tests) == ["random_common_cause", "subset"]
     # "no simulation study backs ... subset for boosted models and 5 refits": the nearest
