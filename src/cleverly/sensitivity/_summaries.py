@@ -796,6 +796,8 @@ def contour_summary(contour: SensitivityContour, detail: Detail) -> Summary:
             ),
         )
     ]
+    if contour.assumption is not None:
+        notes.append(note("consistent_mechanism", TEXTS["consistent_mechanism"]))
     if len(rows_shown) < len(y_values) or len(columns_shown) < len(d_values):
         notes.append(
             note(
@@ -811,7 +813,13 @@ def contour_summary(contour: SensitivityContour, detail: Detail) -> Summary:
     sections: list[SummarySection] = []
     if detail == "full":
         sections = [
-            SummarySection(V.SECTION_ASSUMPTIONS, (_BOUND_ASSUMPTION,)),
+            SummarySection(
+                V.SECTION_ASSUMPTIONS,
+                (
+                    _BOUND_ASSUMPTION,
+                    *(() if contour.assumption is None else (_formal(contour.assumption),)),
+                ),
+            ),
             SummarySection(
                 V.SECTION_SETTINGS,
                 (f"Grid: {len(y_values)} cf_y values by {len(d_values)} cf_d values.",),

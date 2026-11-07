@@ -301,5 +301,6 @@ categorized API tables.
    cleverly.datasets.offer_after_no_order
    cleverly.plotting.forest
    cleverly.plotting.sensitivity
+   cleverly.plotting.confounding
    cleverly.plotting.overlap
    cleverly.plotting.style
