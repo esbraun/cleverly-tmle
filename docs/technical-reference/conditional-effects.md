@@ -299,8 +299,8 @@ The remainder is not of the linear-remainder form: $S$ is fixed given the evalua
 the cut's first-order term is part of $\psi$ and is redrawn with each draw.
 
 **The bootstrap at the study's sizes.** With the true nuisances, so that only the half-sample
-SE is measured, its ratio to the estimator's SD lies between 0.978 and 1.027 for every row the
-study gates at $n = 2{,}000$, on 6,000 to 30,000 replicates per cell
+SE is measured, its ratio to the estimator's SD lies between 0.987 and 1.027 for every row the
+study gates at $n = 2{,}000$, on 18,000 to 30,000 replicates per cell
 (`tests/studies/targeting_curves_oracle.csv`). The AUTOC of cell H reads 1.002 (SE 0.004).
 The exception is the paired difference of two correlated scores at TOC(0.1): 1.063 at
 $n = 2{,}000$, 1.051 at 4,000 and 1.024 at 8,000. That interval is conservative by a

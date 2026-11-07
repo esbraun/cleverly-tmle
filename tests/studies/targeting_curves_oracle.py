@@ -16,9 +16,13 @@ off a red row: the summary sets
 :data:`~tests.studies.targeting_curves.REPORTING_CELLS` and
 :data:`~tests.studies.targeting_curves.R_MAIN`, which the design test recomputes from it.
 
-The first 6,000 replicates of cell ``H`` read every row within 0.03 of 1 but the paired
-difference at TOC(0.1), at 1.067, and did not reproduce the review's AUTOC of 0.970 (0.999);
-the declared counts below were set after that block, and the CSV holds every replicate.
+The replicate counts were set after looking.  A first pass of 6,000 replicates per cell read
+cell ``H``'s AUTOC at 0.999 +- 0.009 against the first review's 0.970 +- 0.011 on its own
+seeds, a gap of about 2.7 SE whose cause is not identified (the review's same-draw oracle at
+R = 1,000 read 0.988), and cell ``B``'s TOC(0.9) at 1.038.  ``H`` and ``B`` were then extended,
+and after the second review every other cell too (:data:`CELL_REPLICATES`), so that no cell's
+count depends on which way it read.  Every replicate of a cell enters its summary row; the CSV
+holds one row per quantity.
 
 Cell ``S`` ranks by ``W1``, the limit of its training refit on ``H``'s law (the projection of
 ``tau = 1 + W1`` on an additive basis), whose truths are closed form: ``TOC(q) = 1 - q``,
@@ -56,12 +60,14 @@ STREAM = "targeting_oracle"
 REPLICATES = 6_000
 DRAWS = 250
 
-#: Cells measured on more replicates than :data:`REPLICATES`, each a run of the same stream
-#: (replicates ``0`` to ``R - 1``).  Cell ``H``: the review's own 4,000 replicates read the
-#: AUTOC at 0.970 +- 0.011, and the first 6,000 here at 0.999 +- 0.009, so 24,000 more settle
-#: it.  Cell ``B``: its first 6,000 read TOC(0.9) at 1.038, so 12,000 more.  Every replicate of
-#: a cell enters its row; none is dropped.
-CELL_REPLICATES: Mapping[tuple[str, int], int] = {("H", 2_000): 30_000, ("B", 2_000): 18_000}
+#: Each cell at its declared size is measured on more replicates than :data:`REPLICATES`, as
+#: a run of the same stream (replicates ``0`` to ``R - 1``): ``H`` on 30,000, every other cell
+#: on 18,000.  The module docstring records the order in which these were set.  The larger
+#: sizes of cell ``H`` keep :data:`REPLICATES`.
+CELL_REPLICATES: Mapping[tuple[str, int], int] = {
+    ("H", 2_000): 30_000,
+    **{(label, 2_000): 18_000 for label in ("B", "K", "U", "N", "D", "S")},
+}
 
 #: The sizes beyond its declared ``n`` at which cell ``H``'s rows are remeasured, to see
 #: whether a departure from 1 closes with ``n``.  ``H`` stands for every continuous-score cell: the
