@@ -283,6 +283,10 @@ def check_stored() -> None:
     assert len(rows) == 18, rows
     assert rows[0][0] == "birth_order", rows[0]
     assert max(rows, key=lambda row: float(row[2]))[0] == "alcohol"
+    # The contour's grid_bounds=(0.25, 0.1) must hold the robustness diamond and both benchmarks.
+    assert _number(sensitivity, r"robustness value: (\S+);") < 0.1
+    assert max(float(row[2]) for row in rows) < 0.25
+    assert max(float(row[1]) for row in rows) < 0.1
     limits = re.search(r"one-sided 95% limits: \[(\S+), (\S+)\] g", sensitivity)
     assert limits and float(limits[2]) < 0, "the bound at the strongest benchmarks reaches zero"
     tipping = re.search(r"pulls the upper limit to zero: (\S+), (\S+) times", sensitivity)
