@@ -24,8 +24,10 @@ from scipy.stats import norm
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import (
+    ATE,
     CausalStudy,
     ConditionalContrast,
+    CounterfactualMean,
     CrossFitting,
     EPMethod,
     IncrementalMean,
@@ -39,6 +41,7 @@ from cleverly import (
     Runtime,
     TMLEMethod,
 )
+from cleverly._refusal import RefusalReason
 from cleverly._support import Support
 from cleverly.bases import Additive, Cosine, Indicators, Linear, Modifiers, Sieve
 from cleverly.datasets import (
@@ -255,6 +258,35 @@ def level_means() -> Any:
 @cache
 def msm_fit() -> Any:
     return _quiet(_multi().identify(MSMProjection(MSM.linear())).estimate, **_ESTIMATE)
+
+
+#: The number each labelled arm stands for, as a notebook declares it.
+CONTACTS = {"low": 1.0, "medium": 2.0, "high": 6.0}
+
+
+@cache
+def _labelled() -> Any:
+    """Three arms labelled by name, not by number."""
+    frame, _ = make_multi_arm(n=400, seed=0)
+    return CausalStudy(
+        frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3"))
+    )
+
+
+@cache
+def arm_means() -> Any:
+    """A fit of per-arm means: keys on the ``"arm"`` axis, ``ey[low]`` and so on."""
+    return _quiet(_labelled().identify(CounterfactualMean()).estimate, **_ESTIMATE)
+
+
+def _contacts_design(arm: Any, data: Any) -> np.ndarray:
+    return np.column_stack([np.ones(len(data)), np.full(len(data), CONTACTS[arm])])
+
+
+@cache
+def labelled_msm() -> Any:
+    model = MSM(design=_contacts_design, terms=("(intercept)", "contacts"), design_kind="known")
+    return _quiet(_labelled().identify(MSMProjection(model)).estimate, **_ESTIMATE)
 
 
 @cache
@@ -1362,6 +1394,62 @@ class TestLevelMeans:
         fit = msm_binary("identity", modifiers=("W",))
         with pytest.raises(CapabilityError):
             curve(level_means(), msm=fit)
+
+    def test_a_fit_of_per_arm_means_draws_against_its_working_model(self) -> None:
+        """CounterfactualMean keys its means by arm; levels= places means and model alike."""
+        means, msm = arm_means(), labelled_msm()
+        assert {key.axis for key in means.parameter_keys.values()} == {"arm"}
+        fitted = working_model_means(msm)
+        for fig in (
+            curve(means, msm=msm, levels=CONTACTS),
+            curve(msm, means=means, levels=CONTACTS),
+        ):
+            ax = fig.axes[0]
+            xy = sorted(
+                (float(ln.get_xdata()[0]), float(ln.get_ydata()[0]))
+                for ln in lines(ax, _core.GID_POINT)
+            )
+            expected = sorted(
+                [(CONTACTS[arm], means.estimates[f"ey[{arm}]"].psi) for arm in CONTACTS]
+                + [
+                    (CONTACTS[str(label)], float(value))
+                    for label, value in zip(fitted.levels, fitted.estimate, strict=True)
+                ]
+            )
+            np.testing.assert_allclose(xy, expected)
+            assert list(ax.get_xticks()) == [1.0, 2.0, 6.0]
+            assert_style(fig)
+        # Mutation control: another mapping moves both series, so the model's places are
+        # read from levels= and not from its labels' order.
+        moved = {"low": 1.0, "medium": 2.0, "high": 3.0}
+        ax = curve(means, msm=msm, levels=moved).axes[0]
+        assert max(float(ln.get_xdata()[0]) for ln in lines(ax, _core.GID_POINT)) == 3.0
+
+    def test_labelled_arms_without_levels_are_refused_in_words(self) -> None:
+        with pytest.raises(CapabilityError, match="is not a number") as refused:
+            curve(arm_means(), msm=labelled_msm())
+        assert refused.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        assert "levels=" in str(refused.value)
+        # A mapping that misses an arm is refused, not drawn at a guessed place.
+        with pytest.raises(CapabilityError, match="'high' is not a number"):
+            curve(labelled_msm(), means=arm_means(), levels={"low": 1, "medium": 2, "top": 6})
+
+    def test_numeric_arms_need_no_levels_and_an_effect_on_the_arm_axis_is_not_a_mean(
+        self,
+    ) -> None:
+        frame, _ = make_linear_ate(n=200, seed=0)
+        study = CausalStudy(
+            frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1",))
+        )
+        means = _quiet(study.identify(CounterfactualMean()).estimate, **_ESTIMATE)
+        ax = curve(means).axes[0]
+        assert sorted(float(ln.get_xdata()[0]) for ln in lines(ax, _core.GID_POINT)) == [0.0, 1.0]
+        # Control: an average effect also sits on the arm axis, and curve() does not take it
+        # for per-level means.
+        effect = _quiet(study.identify(ATE()).estimate, **_ESTIMATE)
+        assert {key.axis for key in effect.parameter_keys.values()} == {"arm"}
+        with pytest.raises(TypeError, match="per-level means"):
+            curve(effect)
 
     def test_levels_without_a_number_are_refused(self) -> None:
         with pytest.raises(ValueError, match="levels="):

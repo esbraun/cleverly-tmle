@@ -198,12 +198,14 @@ def curve(
     labels : mapping of str to str or None, default=None
         Display names for regimens.
     msm : TMLEResult or None, default=None
-        Per-level means: the point-treatment fit of a working model to draw beside them.
+        Per-level means (a fit of ``RegimeMean`` or ``CounterfactualMean``): the
+        point-treatment fit of a working model to draw beside them.
     means : TMLEResult or None, default=None
         Working model fit: the fit of per-level means to draw beside it.
     levels : mapping or None, default=None
-        Per-level means: the treatment level of each regime name, when the regime names are
-        not the levels themselves.
+        Per-level means: the numeric treatment level of each regime name or arm label, when
+        the names are not the levels themselves. The working model's levels are mapped the
+        same way, so labelled arms such as ``"low"`` and ``"high"`` need it once.
     modifier : str or None, default=None
         Conditional effect curve: the modifier on the x axis; the only continuous modifier
         the curve reads when omitted.
@@ -345,7 +347,7 @@ def curve(
                 title=title,
                 ax=ax,
             )
-        if axes == {"regime"}:
+        if axes == {"regime"} or (axes == {"arm"} and _level_means(keys.values())):
             return _dose(
                 obj,
                 msm,
@@ -1317,7 +1319,7 @@ def _numeric(value: Any, what: str) -> float:
         raise CapabilityError(
             f"{what} {value!r} is not a number, so it has no place on a numeric axis",
             reason=RefusalReason.INVALID_DECLARATION,
-            alternative="pass levels= to give each regime its numeric treatment level",
+            alternative="pass levels= to give each regime or arm its numeric treatment level",
         ) from None
 
 
@@ -1398,6 +1400,22 @@ def _points_at(
 # ----------------------------------------------------------------------- V4: means by level
 
 
+def _level_means(keys: Any) -> bool:
+    """Whether the keys of a fit on the treatment-arm axis are each a per-level mean.
+
+    A fit of ``CounterfactualMean`` reports ``ey[level]`` on the ``"arm"`` axis; an average
+    effect on the same axis is a contrast against a reference and is not a mean.
+    """
+    found = list(keys)
+    return bool(found) and all(
+        key.estimand == "ey"
+        and key.reference is None
+        and key.stratum is None
+        and key.value is not None
+        for key in found
+    )
+
+
 def _regime_levels(means: Any, levels: Mapping[str, Any] | None) -> dict[str, Any]:
     found: dict[str, Any] = {}
     estimand: Any = getattr(getattr(means, "identified_effect", None), "estimand", None)
@@ -1409,12 +1427,31 @@ def _regime_levels(means: Any, levels: Mapping[str, Any] | None) -> dict[str, An
     return found
 
 
+def _model_levels(labels: Sequence[Any], levels: Mapping[str, Any] | None) -> list[float]:
+    """The working model's levels on the numeric axis.
+
+    ``levels=`` maps a level the way it maps the per-level means, so a model fitted at
+    labelled arms (``"low"``, ``"high"``) lands at the same places as their means.
+    """
+    mapped = {str(key): value for key, value in (levels or {}).items()}
+    return [
+        _numeric(mapped.get(str(label), label), "the working model's level") for label in labels
+    ]
+
+
 def _same_data(first: Any, second: Any) -> bool:
     """Whether two point-treatment fits read the same outcome and treatment columns."""
     for name in ("outcome", "treatment"):
-        left = np.asarray(getattr(first, name), dtype=float)
-        right = np.asarray(getattr(second, name), dtype=float)
-        if left.shape != right.shape or not np.array_equal(left, right, equal_nan=True):
+        left = np.asarray(getattr(first, name))
+        right = np.asarray(getattr(second, name))
+        if left.shape != right.shape:
+            return False
+        try:
+            same = np.array_equal(left.astype(float), right.astype(float), equal_nan=True)
+        except (TypeError, ValueError):
+            # Labelled arms: compared as they are.
+            same = bool(np.all(left == right))
+        if not same:
             return False
     return True
 
@@ -1436,6 +1473,9 @@ def _dose(
     entries = []
     for alias, key in means.parameter_keys.items():
         name = str(key.value)
+        if name not in level_of and key.axis == "arm":
+            # A per-level mean is keyed by the treatment value itself.
+            level_of[name] = key.value
         if name not in level_of:
             raise ValueError(
                 f"the treatment level of regime {name!r} is not known; pass "
@@ -1450,7 +1490,7 @@ def _dose(
     fitted = None
     if msm_fit is not None:
         fitted = working_model_means(msm_fit)
-        mx = [_numeric(label, "the working model's level") for label in fitted.levels]
+        mx = _model_levels(fitted.levels, levels)
         missing = [x for x in mx if not any(math.isclose(x, level) for level in xs)]
         if missing:
             raise ValueError(
@@ -1499,7 +1539,6 @@ def _dose(
     subtitle = "Mean outcome if everyone were given each level"
     if fitted is not None:
         model_color = _core.series_color(1)
-        mx = [_numeric(label, "the working model's level") for label in fitted.levels]
         pairs: list[tuple[float | None, float | None]] = (
             [(None, None)] * len(mx)
             if fitted.lower is None or fitted.upper is None
