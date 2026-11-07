@@ -1052,10 +1052,6 @@ class TruncationCurve:
         One row per limits pair and estimand. A point-treatment curve carries the estimate,
         its spread, the share of units capped and the fitted reference; a longitudinal curve
         carries the estimate, the fitted reference and the capped score-cell counts.
-    scales : mapping of str to str, default={}
-        The scale of each estimand the curve holds (``"difference"``, ``"ratio"``,
-        ``"level"`` or ``"fraction"``), which :meth:`plot` reads for its null line. Empty for
-        a curve read back from a combined report.
 
     See Also
     --------
@@ -1064,7 +1060,6 @@ class TruncationCurve:
     """
 
     frame: Any
-    scales: Mapping[str, str] = field(default_factory=dict)
 
     def to_frame(self) -> Any:
         """Return the curve's frame.
@@ -1082,7 +1077,7 @@ class TruncationCurve:
         Parameters
         ----------
         **kwargs
-            Passed to :func:`cleverly.plotting.sensitivity`: ``estimand=``, ``scale=``,
+            Passed to :func:`cleverly.plotting.sensitivity`: ``estimand=``,
             ``outcome_label=`` and ``title=``.
 
         Returns
@@ -1113,7 +1108,7 @@ class TruncationCurve:
         ... )
         >>> fig = result.diagnostics.truncation_curve().plot()
         >>> fig.axes[0].get_ylabel()
-        'Estimate of ate'
+        'Average effect (ate)'
         >>> plt.close(fig)
         """
         from .plotting import sensitivity
@@ -3323,11 +3318,7 @@ class DiagnosticsFacade(_CapabilityFacade):
                 (bounds,),
                 {"estimands": estimands, "mechanism": mechanism},
                 compute,
-            ),
-            scales={
-                str(name): str(estimate.scale)
-                for name, estimate in getattr(self._result, "estimates", {}).items()
-            },
+            )
         )
 
     def refute(self, **kwargs: Any) -> Any:
