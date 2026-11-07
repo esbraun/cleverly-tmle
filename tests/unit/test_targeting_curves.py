@@ -997,7 +997,6 @@ def test_a_known_mechanism_is_read_from_the_data_and_divides_the_clever_covariat
         return status(**kwargs)
 
     monkeypatch.setattr(tc, "targeting_status", status_spy)
-    monkeypatch.setattr(tc, "TARGETING_STUDY_RUN", True)
     arguments = {
         "outcome_learner": LinearRegression(),
         "outcome_by_arm": True,
@@ -1015,9 +1014,21 @@ def test_a_known_mechanism_is_read_from_the_data_and_divides_the_clever_covariat
     assert g.shape == (1200, 2)
     assert np.allclose(g[:, 1], known.to_numpy(), atol=1e-12)
     assert np.allclose(g[:, 0], 1.0 - known.to_numpy(), atol=1e-12)
-    # The configuration reads cell K's: a known mechanism, measured once the study runs.
+    # The configuration reads cell K's: a known mechanism, which the registered study measures.
     assert declared == [True]
-    assert curve.status == "supported", curve.status_reason
+    assert tc.targeting_status(
+        route="external",
+        outcome="continuous",
+        known_mechanism=True,
+        weighted=False,
+        clustered=False,
+        missing=False,
+        arms=2,
+        cross_fitted=True,
+    ) == ("supported", ())
+    # 1,200 rows put 120 in the top tenth, below the 200 the study calibrates at.
+    first = curve.rows("toc")[0]
+    assert first["status"] == "experimental" and "fewer than 200 rows" in first["status_reason"]
 
 
 @_quiet
@@ -1034,7 +1045,7 @@ def test_few_top_rows_withhold_the_interval_and_band_without_refusing() -> None:
     assert "fewer than 50 rows" in first["status_reason"]
     assert math.isnan(curve.critical_value)
     assert second["rows_in_top"] == 60 and np.isfinite(second["std_error"])
-    assert "fewer than 100 rows" in second["status_reason"]
+    assert "fewer than 200 rows" in second["status_reason"]
     assert second["status"] == "experimental"
     text = str(curve.summary())
     assert "0.1*" in text
@@ -1064,10 +1075,7 @@ def test_an_area_on_a_continuous_score_with_atoms_is_experimental() -> None:
         ({"known_mechanism": True, "outcome": "binary"}, "unmeasured"),
     ],
 )
-def test_each_departure_reads_experimental(
-    changes: dict[str, Any], code: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(tc, "TARGETING_STUDY_RUN", True)
+def test_each_departure_reads_experimental(changes: dict[str, Any], code: str) -> None:
     base = {
         "route": "external",
         "outcome": "continuous",
@@ -1083,27 +1091,131 @@ def test_each_departure_reads_experimental(
     assert status == "experimental" and code in codes
 
 
-def test_cell_k_reads_supported_once_the_study_runs(monkeypatch: pytest.MonkeyPatch) -> None:
-    arguments = {
-        "route": "external",
-        "outcome": "continuous",
-        "known_mechanism": True,
-        "weighted": False,
-        "clustered": False,
-        "missing": False,
-        "arms": 2,
-        "cross_fitted": True,
+_MEASURED_BASE: dict[str, Any] = {
+    "known_mechanism": False,
+    "weighted": False,
+    "clustered": False,
+    "missing": False,
+    "arms": 2,
+    "cross_fitted": True,
+}
+
+
+@pytest.mark.parametrize(
+    ("route", "outcome", "known"),
+    [
+        ("external", "continuous", False),
+        ("external", "binary", False),
+        ("external", "continuous", True),
+        ("split", "continuous", False),
+    ],
+)
+def test_each_configuration_the_study_measures_reads_supported(
+    route: str, outcome: str, known: bool
+) -> None:
+    """Cells H, B, K and S of the registered study, each with the composition it measured."""
+    arguments = {**_MEASURED_BASE, "known_mechanism": known}
+    assert tc.targeting_status(route=route, outcome=outcome, **arguments) == ("supported", ())
+
+
+@pytest.mark.parametrize(
+    ("route", "outcome", "known"),
+    [
+        ("split", "binary", False),
+        ("split", "continuous", True),
+        ("external", "binary", True),
+        ("split", "binary", True),
+    ],
+)
+def test_every_configuration_outside_the_study_reads_unmeasured(
+    route: str, outcome: str, known: bool
+) -> None:
+    """The control: the four (route, outcome, mechanism) keys no cell measures."""
+    arguments = {**_MEASURED_BASE, "known_mechanism": known}
+    assert (route, outcome, "known" if known else "estimated") not in tc.TARGETING_MEASURED
+    assert tc.targeting_status(route=route, outcome=outcome, **arguments) == (
+        "experimental",
+        ("unmeasured",),
+    )
+
+
+def _in_scope_curve(*, n: int, binary: bool = False) -> Any:
+    """An external pair of scores on a cross-fitted ATE fit, as cell H (or B) measures them."""
+    rng = np.random.default_rng(11)
+    w = rng.uniform(-1, 1, (n, 2))
+    a = rng.binomial(1, expit(0.5 * w[:, 0]))
+    if binary:
+        y = rng.binomial(1, expit(-0.2 + 0.4 * w[:, 1] + a * (0.3 + 1.2 * w[:, 0]))).astype(float)
+    else:
+        y = w[:, 1] + a * (1 + w[:, 0]) + 0.5 * rng.normal(size=n)
+    frame = pd.DataFrame({"Y": y, "A": a, "W1": w[:, 0], "W2": w[:, 1]})
+    frame["S"] = frame["W1"] + 0.5 * frame["W2"]
+    frame["R"] = frame["W1"] + 1.5 * frame["W2"]
+    study = CausalStudy(
+        frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2"))
+    )
+    effect = study.identify(ConditionalContrast(Modifiers(["W1"])))
+    learners = {
+        "outcome_learner": LogisticRegression() if binary else LinearRegression(),
+        "treatment_learner": LogisticRegression(),
+        "outcome_by_arm": True,
     }
-    assert tc.targeting_status(**arguments) == ("experimental", ("study_pending",))
-    monkeypatch.setattr(tc, "TARGETING_STUDY_RUN", True)
-    assert tc.targeting_status(**arguments) == ("supported", ())
+    if not binary:
+        learners["q_bounds"] = (-8.0, 8.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return effect.targeting_curve(
+            "S",
+            computed_from=["W1", "W2"],
+            score_kind="external",
+            compare="R",
+            compare_computed_from=["W1", "W2"],
+            n_half_samples=20,
+            random_state=0,
+            **learners,
+        )
+
+
+def test_a_measured_curve_reads_supported_where_its_rows_are_measured() -> None:
+    """At n = 2,000 every row of cell H's configuration, the paired rows included, reads
+    supported: the top tenth holds the 200 rows the study calibrates at."""
+    curve = _in_scope_curve(n=2_000)
+    frame = curve.estimates
+    assert curve.status == "supported", curve.status_reason
+    assert set(frame["status"]) == {"supported"}
+    assert {"S", "R", "S - R"} <= set(frame["score"])
+
+
+def test_a_grid_point_below_the_measured_top_rows_reads_experimental() -> None:
+    """The control in size: at n = 1,500 the top tenth holds 150 rows, so TOC(0.1) and every
+    row that reads it is experimental while TOC(0.2) stays supported."""
+    curve = _in_scope_curve(n=1_500)
+    first, second = curve.rows("toc")[:2]
+    assert first["rows_in_top"] == 150 and first["status"] == "experimental"
+    assert "fewer than 200 rows" in first["status_reason"]
+    assert second["status"] == "supported"
+    assert curve.status == "experimental"
+
+
+def test_a_paired_difference_outside_cell_c_reads_experimental() -> None:
+    """The control in configuration: a binary outcome is measured (cells B, U, D) for one score,
+    but the paired difference only on cell H's configuration."""
+    curve = _in_scope_curve(n=2_000, binary=True)
+    frame = curve.estimates
+    rows = list(zip(frame["score"], frame["status"], frame["status_reason"], strict=True))
+    single = [(status, reason) for score, status, reason in rows if score != "S - R"]
+    paired = [(status, reason) for score, status, reason in rows if score == "S - R"]
+    assert {status for status, _ in single} == {"supported"}, {reason for _, reason in single}
+    assert paired and {status for status, _ in paired} == {"experimental"}
+    assert all("paired difference" in reason for _, reason in paired)
 
 
 def test_the_curve_status_is_the_worst_row_status() -> None:
     curve = _paired_curve()
     statuses = set(curve.estimates["status"])
     assert curve.status == ("experimental" if "experimental" in statuses else "supported")
-    assert "has not run" in curve.status_reason
+    # A 1,000-row fit puts 100 rows in the top tenth, below the 200 the study measures.
+    assert curve.status == "experimental" and "fewer than 200 rows" in curve.status_reason
 
 
 # ----------------------------------------------------------------- summary and frame

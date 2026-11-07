@@ -56,10 +56,10 @@ __all__ = [
     "TARGETING_MEASURED_TOP_ROWS",
     "TARGETING_MIN_CLUSTERS",
     "TARGETING_MIN_TOP_ROWS",
+    "TARGETING_PAIRED_MEASURED",
     "TARGETING_REPEATS_REFUSAL",
     "TARGETING_SPAN_RTOL",
     "TARGETING_SPLIT_REFUSAL",
-    "TARGETING_STUDY_RUN",
     "TargetingCurve",
     "TargetingEvaluation",
     "block_weights",
@@ -94,9 +94,11 @@ DEFAULT_GRID: Final[tuple[float, ...]] = tuple(round(0.1 * k, 1) for k in range(
 #: band.  A declared guard with no source: a half-sample of 50 top rows holds about 25.
 TARGETING_MIN_TOP_ROWS: Final = 50
 
-#: The fewest top rows a cell of the ``targeting-curves`` study measures (``q = 0.1`` at
-#: ``n = 1,000``); a grid point with fewer reads experimental.
-TARGETING_MEASURED_TOP_ROWS: Final = 100
+#: The fewest top rows at which the ``targeting-curves`` study calibrates an interval
+#: (``q = 0.1`` at ``n = 2,000``, cells H, B, U and S); a grid point with fewer reads
+#: experimental.  Cell P's ``n = 1,000`` measures the band's power only, which says nothing
+#: about an interval's coverage.
+TARGETING_MEASURED_TOP_ROWS: Final = 200
 
 #: A score has atoms when one tie block holds at least this share of the evaluation rows.  A
 #: declared guard with no source.
@@ -114,10 +116,10 @@ TARGETING_SPAN_RTOL: Final = 1e-10
 #: (``TOC(1)`` and a degenerate draw): rounding in a mean of the scores is of that order.
 _ZERO_SPREAD: Final = 1e-10
 
-#: The configurations the ``targeting-curves`` study measures, each with the cell that measures
-#: it, keyed by ``(route, outcome, mechanism)``.  A configuration outside this table, or any
-#: departure from binary treatment, iid unweighted rows, complete outcomes, one split and
-#: cross-fitted nuisances, reads experimental.
+#: The configurations the registered ``targeting-curves`` study measures, each with the cell
+#: that measures it, keyed by ``(route, outcome, mechanism)``.  A configuration outside this
+#: table, or any departure from binary treatment, iid unweighted rows, complete outcomes, one
+#: split and cross-fitted nuisances, reads experimental.
 TARGETING_MEASURED: Final[Mapping[tuple[str, str, str], str]] = {
     ("external", "continuous", "estimated"): "H, C, N, P",
     ("external", "binary", "estimated"): "B, U, D",
@@ -125,9 +127,9 @@ TARGETING_MEASURED: Final[Mapping[tuple[str, str, str], str]] = {
     ("split", "continuous", "estimated"): "S",
 }
 
-#: Whether the declared ``targeting-curves`` study has run and passed.  Until its registration
-#: sets this, no configuration of :data:`TARGETING_MEASURED` reads supported.
-TARGETING_STUDY_RUN: bool = False
+#: The one configuration whose paired difference of two scores the study measures (cell C, on
+#: cell H's fits).  A difference row of any other configuration reads experimental.
+TARGETING_PAIRED_MEASURED: Final[tuple[str, str, str]] = ("external", "continuous", "estimated")
 
 Quantity = Literal["toc", "gain", "group_effect", "autoc", "qini"]
 TieRule = Literal["average", "at_or_above"]
@@ -136,11 +138,11 @@ _ORDER: Final[dict[str, int]] = {"supported": 0, "experimental": 1}
 
 #: The reasons a row or a curve reads experimental, in the order they are listed.
 REASONS: Final[Mapping[str, str]] = {
-    "study_pending": (
-        "the validation study of these curves is declared and has not run, so no configuration is "
-        "measured yet"
-    ),
     "unmeasured": "no validation study of these curves measures this configuration",
+    "unmeasured_pair": (
+        "the paired difference of two scores is measured on an external score of a continuous "
+        "outcome with an estimated mechanism only"
+    ),
     "weights": "observation weights: the weighted rank positions follow grf's code, with no study",
     "clusters": "clustered rows: the half-samples draw whole clusters, with no study",
     "missing": "missing outcomes: the scores divide by the response mechanism, with no study",
@@ -570,9 +572,8 @@ def targeting_status(
     """The configuration's support label and its reasons.
 
     A curve's configuration reads ``supported`` when it is one of :data:`TARGETING_MEASURED`
-    and departs from the measured composition in nothing, after the study has run
-    (:data:`TARGETING_STUDY_RUN`).  Otherwise it reads ``experimental``, with every reason
-    that applies.
+    and departs from the measured composition in nothing.  Otherwise it reads
+    ``experimental``, with every reason that applies.
 
     Parameters
     ----------
@@ -600,8 +601,7 @@ def targeting_status(
         :data:`REASONS`).
     """
     reasons: list[str] = []
-    key = (route, outcome, "known" if known_mechanism else "estimated")
-    if key not in TARGETING_MEASURED:
+    if _configuration(route, outcome, known_mechanism) not in TARGETING_MEASURED:
         reasons.append("unmeasured")
     for flag, code in (
         (weighted, "weights"),
@@ -612,9 +612,11 @@ def targeting_status(
     ):
         if flag:
             reasons.append(code)
-    if not TARGETING_STUDY_RUN:
-        reasons.insert(0, "study_pending")
     return ("experimental" if reasons else "supported"), tuple(reasons)
+
+
+def _configuration(route: str, outcome: str, known_mechanism: bool) -> tuple[str, str, str]:
+    return (route, outcome, "known" if known_mechanism else "estimated")
 
 
 def _reason_text(code: str) -> str:
@@ -1167,10 +1169,12 @@ def targeting_fit(
     n_units = int(np.unique(units).size)
     clustered = data.cluster is not None
     few_clusters = clustered and n_units < TARGETING_MIN_CLUSTERS
+    outcome = "binary" if getattr(data, "family", "") == "binomial" else "continuous"
+    known_mechanism = getattr(data, "known_treatment", None) is not None
     config_status, config_codes = targeting_status(
         route=route,
-        outcome="binary" if getattr(data, "family", "") == "binomial" else "continuous",
-        known_mechanism=getattr(data, "known_treatment", None) is not None,
+        outcome=outcome,
+        known_mechanism=known_mechanism,
         weighted=bool(np.any(np.abs(mass - 1.0) > 1e-12)),
         clustered=clustered,
         missing=bool(not np.all(np.asarray(data.observed, dtype=bool))),
@@ -1208,7 +1212,10 @@ def targeting_fit(
         if name == names[0]:
             critical = critical_name
     if len(names) == 2:
-        builder.difference_rows(names, plug_ins, draws, grid_)
+        paired = _configuration(route, outcome, known_mechanism) == TARGETING_PAIRED_MEASURED
+        builder.difference_rows(
+            names, plug_ins, draws, grid_, pair_codes=() if paired else ("unmeasured_pair",)
+        )
     ate = plug_ins[names[0]][("ate", 1.0)]
     statuses = list(builder.columns["status"])
     status = _worst([*statuses, config_status])
@@ -1557,6 +1564,8 @@ class _TargetingRows:
         values: Mapping[str, Mapping[tuple[str, float], float]],
         draws: Mapping[str, Mapping[tuple[str, float], FloatArray]],
         grid: Sequence[float],
+        *,
+        pair_codes: tuple[str, ...] = (),
     ) -> None:
         first, second = names
         label = f"{first} - {second}"
@@ -1592,7 +1601,7 @@ class _TargetingRows:
                 q=q,
                 estimate=values[first][("toc", q)] - values[second][("toc", q)],
                 draws=draws[first][("toc", q)] - draws[second][("toc", q)],
-                codes=codes,
+                codes=[*codes, *pair_codes],
                 withheld=withheld,
                 p_value=True,
             )
@@ -1612,7 +1621,7 @@ class _TargetingRows:
                 q=1.0,
                 estimate=values[first][(quantity, 1.0)] - values[second][(quantity, 1.0)],
                 draws=draws[first][(quantity, 1.0)] - draws[second][(quantity, 1.0)],
-                codes=codes,
+                codes=[*codes, *pair_codes],
                 p_value=True,
             )
 
