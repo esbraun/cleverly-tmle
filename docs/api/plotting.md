@@ -13,6 +13,7 @@ matplotlib is optional. Install it with `pip install "cleverly[plot]"`.
    :nosignatures:
 
    cleverly.plotting.forest
+   cleverly.plotting.curve
    cleverly.plotting.sensitivity
    cleverly.plotting.overlap
    cleverly.plotting.style
@@ -21,3 +22,6 @@ matplotlib is optional. Install it with `pip install "cleverly[plot]"`.
 The results that have one natural figure also draw it with `plot()`:
 `TMLEResult.plot()` and `TMLEResultSet.plot()` call `forest`, and `TruncationCurve.plot()`,
 `MarginalSensitivityBounds.plot()` and `MissingnessTilt.plot()` call `sensitivity`.
+`LongitudinalResult.plot()` draws its curve over time with `curve`, or the estimates with
+`forest` when the fit has no curve, and `EffectCurveResult.plot()` draws the conditional effect
+over a modifier with `curve`.

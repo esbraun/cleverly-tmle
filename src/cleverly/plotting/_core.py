@@ -617,6 +617,11 @@ def ribbon(
     over a discrete-time curve that reports every node (honesty rule 2). Over a finite grid
     use :func:`brackets`.
 
+    A step ribbon holds each node's limits until the next node, so the last node's limits
+    would span no width and draw nothing. They are marked at the last node with
+    :func:`brackets` instead, which claims nothing past the last node; a plot that draws a
+    step ribbon says so in its notes.
+
     Parameters
     ----------
     ax : Axes
@@ -653,6 +658,12 @@ def ribbon(
         zorder=1.0 if band else 1.2,
     )
     collection.set_gid(GID_BAND if band else GID_INTERVAL)
+    if step:
+        last = [list(x)[-1], list(lower)[-1], list(upper)[-1]]
+        if all(finite(value) for value in last):
+            brackets(
+                ax, [last[0]], [last[1]], [last[2]], color=color, label="_nolegend_", band=band
+            )
     return collection
 
 
