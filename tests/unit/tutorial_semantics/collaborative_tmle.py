@@ -24,6 +24,7 @@ from tests.unit.tutorial_semantics import (
     assert_protocol_recorded,
     changed_fields,
     covers,
+    figure_title,
     stored_output,
 )
 
@@ -182,6 +183,7 @@ def check(namespace: dict[str, Any]) -> None:
     # "about 14% of patients get a predicted offer probability below 0.1 or above 0.9".
     tails = ordinary_support.tail_mass[0.1]
     assert round(tails["below"] + tails["above"], 2) == 0.14
+    assert figure_title(namespace["overlap_fig"]) == "Predicted probability of treatment, by group"
 
     # "Check the fit": the working mechanisms read the outcome prediction only, so they discriminate
     # the offer weakly.  The ordinary g, which holds staffing, discriminates it well.

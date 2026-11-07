@@ -28,6 +28,7 @@ from tests.unit.tutorial_semantics import (
     assert_protocol_recorded,
     changed_fields,
     covers,
+    figure_title,
 )
 
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
@@ -325,6 +326,10 @@ def check(namespace: dict[str, Any]) -> None:
     expected_drop = (full.psi - curve["psi"].to_numpy()) / nonresponse
     assert np.allclose(printed["mean drop"].to_numpy(), expected_drop)
     assert float(printed["mean drop"].iloc[-1]) < namespace["mar_mean"]
+    assert (
+        figure_title(namespace["missingness_fig"])
+        == "Does the estimate depend on why outcomes are missing?"
+    )
 
 
 def check_refits(namespace: dict[str, Any]) -> None:

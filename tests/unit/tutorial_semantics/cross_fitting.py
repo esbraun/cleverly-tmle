@@ -24,6 +24,7 @@ from tests.unit.tutorial_semantics import (
     assert_protocol_recorded,
     changed_fields,
     covers,
+    figure_title,
     stored_output,
 )
 
@@ -365,6 +366,10 @@ def check_refits(namespace: dict[str, Any]) -> None:
     cross_fitted = namespace["cross_fitted"]
     original = cross_fitted["ate"].psi
     se = cross_fitted["ate"].std_error
+    assert (
+        figure_title(namespace["repeats_fig"])
+        == "Does the estimate depend on how the data were split?"
+    )
     tests = {test.name: test for test in namespace["fold_check"].tests}
     assert list(tests) == ["random_common_cause", "subset"]
     # "no simulation study backs ... subset for boosted models and 5 refits": the nearest
