@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ._objects import MissingnessTilt, RobustnessValue, SensitivityContour
+from .balance import BalanceRow, CovariateBalance, covariate_balance
 from .evalue import EValue, evalue, evalue_from_rr
 from .marginal import (
     MarginalSensitivityBounds,
@@ -33,8 +34,10 @@ from .simulated_confounding import (
 __all__ = [
     "DEFAULT_GAMMA_GRID",
     "LINEAR_ESTIMANDS",
+    "BalanceRow",
     "BenchmarkResult",
     "ConfounderStrengthGrid",
+    "CovariateBalance",
     "EValue",
     "MarginalSensitivityBounds",
     "MarginalSensitivityRow",
@@ -49,6 +52,7 @@ __all__ = [
     "SimulatedConfoundingResult",
     "benchmark",
     "contour_data",
+    "covariate_balance",
     "evalue",
     "evalue_from_rr",
     "marginal_sensitivity_bounds",
