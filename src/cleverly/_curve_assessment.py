@@ -97,6 +97,58 @@ class CurveCalibration:
             backend=self.backend,
         )
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot each bin's measured effect against its mean predicted effect.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.calibration`: ``title=`` and ``ax=``.
+
+        Returns
+        -------
+        Figure
+            One panel with the bins, the 45-degree line of perfect calibration, and the
+            calibration slope and intercept in the subtitle.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> import numpy as np
+        >>> import pandas as pd
+        >>> from sklearn.linear_model import LogisticRegression
+        >>> from cleverly import CausalStudy, ConditionalContrast, PointTreatment
+        >>> from cleverly.bases import Linear, Modifiers
+        >>> rng = np.random.default_rng(5)
+        >>> w = rng.uniform(-1, 1, (300, 2))
+        >>> a = rng.binomial(1, 1 / (1 + np.exp(-0.5 * w[:, 0])))
+        >>> y = rng.binomial(1, 0.3 + 0.1 * w[:, 1] + a * (0.15 + 0.1 * w[:, 0]))
+        >>> frame = pd.DataFrame({"Y": y, "A": a, "W1": w[:, 0], "W2": w[:, 1]})
+        >>> study = CausalStudy(
+        ...     frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2"))
+        ... )
+        >>> contrast = ConditionalContrast(Modifiers(["W1", "W2"]), model=Linear(["W1", "W2"]))
+        >>> curve = (
+        ...     study.identify(contrast)
+        ...     .estimate(
+        ...         outcome_learner=LogisticRegression(),
+        ...         treatment_learner=LogisticRegression(),
+        ...         n_folds=2,
+        ...         random_state=0,
+        ...     )
+        ...     .effect_curve()
+        ... )
+        >>> fig = curve.diagnostics.calibration(n_folds=2, bins=4, random_state=0).plot()
+        >>> fig.axes[0].get_xlabel()
+        'Mean predicted effect in the bin'
+        >>> plt.close(fig)
+        """
+        from .plotting import calibration
+
+        return calibration(self, **kwargs)
+
     def __repr__(self) -> str:
         return _readable(
             f"CurveCalibration(slope={self.slope:.3g}, intercept={self.intercept:.3g}, "
