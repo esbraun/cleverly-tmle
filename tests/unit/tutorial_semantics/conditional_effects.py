@@ -134,6 +134,21 @@ def _check_score(namespace: dict[str, Any]) -> None:
     assert rise["support"] == "experimental"
 
 
+def _check_ranking(namespace: dict[str, Any]) -> None:
+    """On held-out rows the curve's ranking gains more than random and the interval excludes 0."""
+    ranking = namespace["ranking"]
+    assert ranking.route == "external"
+    assert ranking.status == "supported"
+    assert ranking.n_eval == len(namespace["second"]) == 4_000
+    at_40 = {row["q"]: row for row in ranking.rows("gain")}[0.4]
+    assert abs(at_40["estimate"] - 0.102) < 0.002
+    assert abs(0.4 * ranking.ate - 0.056) < 0.002
+    autoc = ranking.area("autoc")
+    assert abs(autoc["estimate"] - 0.089) < 0.002
+    assert autoc["lower"] > 0, "the ranking beats random"
+    assert 0.055 < autoc["lower"] < 0.057 and 0.121 < autoc["upper"] < 0.123
+
+
 def check(namespace: dict[str, Any]) -> None:
     """The conditional-effects tutorial's claims hold at the displayed sample size."""
     _check_confounding(namespace)
@@ -142,6 +157,11 @@ def check(namespace: dict[str, Any]) -> None:
     _check_assessment(namespace)
     _check_targeting(namespace)
     _check_score(namespace)
+    _check_ranking(namespace)
+    assert (
+        figure_title(namespace["ranking_fig"])
+        == "How much does treating by priority first gain over treating at random?"
+    )
     _check_trial(namespace)
 
 
