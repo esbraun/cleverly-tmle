@@ -128,12 +128,14 @@ __all__ = [
     "MSMSet",
     "MSMWeightsKind",
     "ProjectionFit",
+    "WorkingModelMeans",
     "check_projection_rank",
     "link_for",
     "refuse_msm_functions",
     "refuse_unsupported",
     "register_link",
     "solve_projection",
+    "working_model_means",
 ]
 
 #: The links a working model may declare.  ``"identity"`` alone keeps ``dm/dbeta`` free of
@@ -1421,3 +1423,197 @@ def _check_support(link: Link, data: CausalData) -> None:
             "which is solved on the outcome's own scale so that its coefficients are "
             "reported in the units they were declared in."
         )
+
+
+# ------------------------------------------------------------- the working model's fitted means
+
+
+@dataclass(frozen=True)
+class WorkingModelMeans:
+    r"""The working model's fitted counterfactual mean at each declared level.
+
+    Parameters
+    ----------
+    levels : tuple
+        The treatment levels, in the user's own labels, in arm order.
+    terms : tuple of str
+        The working-model terms.
+    link : str
+        The link the mean passes through: ``"identity"``, ``"log"`` or ``"logit"``.
+    estimate : ndarray
+        :math:`m(a) = g^{-1}(\varphi(a)^\top\hat\beta)` at each level.
+    lower : ndarray or None
+        The lower limit of the pointwise interval of :math:`m(a)`, built on the link scale
+        from :math:`\varphi(a)^\top\hat\beta \pm z\sqrt{\varphi(a)^\top\hat\Sigma\varphi(a)}`
+        and mapped through the inverse link. ``None`` when the fit withholds inference.
+    upper : ndarray or None
+        The upper limit of that interval, ``None`` when the fit withholds inference.
+    link_std_error : ndarray
+        :math:`\sqrt{\varphi(a)^\top\hat\Sigma\varphi(a)}`, the standard error of the linear
+        predictor.
+    alpha : float
+        The interval holds at ``1 - alpha``.
+    reference_df : int or None
+        Degrees of freedom of the t reference the coefficients' own intervals read, or
+        ``None`` for the normal reference.
+    inference : str
+        The inference status of the coefficients.
+    """
+
+    levels: tuple[Any, ...]
+    terms: tuple[str, ...]
+    link: str
+    estimate: FloatArray
+    lower: FloatArray | None
+    upper: FloatArray | None
+    link_std_error: FloatArray
+    alpha: float
+    reference_df: int | None
+    inference: str
+
+    def to_frame(self, backend: str | None = None) -> Any:
+        """One row per level: the fitted mean and its pointwise interval.
+
+        Parameters
+        ----------
+        backend : str or None, default=None
+            The dataframe library to return; ``None`` uses the default one.
+
+        Returns
+        -------
+        dataframe
+            The columns ``level``, ``estimate``, ``ci_lower`` and ``ci_upper``; the interval
+            columns hold NaN when the fit withholds inference.
+        """
+        from .utils.frames import frame_from_dict
+
+        nan = np.full(len(self.levels), np.nan)
+        return frame_from_dict(
+            {
+                "level": list(self.levels),
+                "estimate": self.estimate,
+                "ci_lower": nan if self.lower is None else self.lower,
+                "ci_upper": nan if self.upper is None else self.upper,
+            },
+            backend=backend,
+        )
+
+
+def working_model_means(result: Any, *, alpha: float | None = None) -> WorkingModelMeans:
+    r"""The working model's fitted mean at each level, with a pointwise interval.
+
+    A point-treatment marginal structural model fit reports the coefficients
+    :math:`\hat\beta` of the working model :math:`m(a) = g^{-1}(\varphi(a)^\top\beta)`. This
+    accessor reads the fitted model back at each declared treatment level, so a plot can set
+    the model against the per-level counterfactual means. The interval is built on the link
+    scale: the linear predictor :math:`\varphi(a)^\top\hat\beta` has variance
+    :math:`\varphi(a)^\top\hat\Sigma\varphi(a)`, with :math:`\hat\Sigma` the covariance of the
+    coefficients from their influence curves (summed within clusters on a clustered fit,
+    with the t reference of a few-cluster fit), and both limits are mapped through the
+    inverse link. Nothing is refitted.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A point-treatment fit of :class:`~cleverly.MSMProjection` on a treatment with a
+        finite set of levels.
+    alpha : float or None, default=None
+        Two-sided level of the interval; the coefficients' own level when omitted.
+
+    Returns
+    -------
+    WorkingModelMeans
+        The fitted means and their intervals at each level.
+
+    Raises
+    ------
+    CapabilityError
+        When the fit has no working model, the treatment is continuous, or the design
+        depends on covariates (a model with modifier terms has one curve per modifier value,
+        which the fit does not store).
+
+    See Also
+    --------
+    cleverly.estimators.TMLEResult.coefficients : The coefficients this reads back as means.
+    cleverly.plotting.curve : Draws these means beside the per-level means.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly import CausalStudy, MSMProjection, PointTreatment
+    >>> from cleverly.msm import MSM, working_model_means
+    >>> rng = np.random.default_rng(0)
+    >>> a = rng.integers(0, 3, 300).astype(float)
+    >>> frame = pd.DataFrame({"A": a, "W": rng.normal(size=300)})
+    >>> frame["Y"] = 0.5 * a + 0.3 * frame["W"] + rng.normal(size=300)
+    >>> study = CausalStudy(
+    ...     frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+    ... )
+    >>> fit = study.identify(MSMProjection(MSM.linear())).estimate(
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     cross_fit=False,
+    ...     random_state=0,
+    ... )
+    >>> fitted = working_model_means(fit)
+    >>> fitted.levels, fitted.estimate.shape
+    ((0.0, 1.0, 2.0), (3,))
+    """
+    from .inference.delta import reference_quantile
+    from .targets import parameter_name
+
+    msm = getattr(getattr(result, "nuisance", None), "msm", None)
+    if msm is None:
+        raise CapabilityError(
+            "this fit has no working model, so there is no fitted model mean to read back.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative="Declare MSMProjection(model=...) so the fit reports a working model.",
+        )
+    if msm.continuous:
+        raise CapabilityError(
+            "this fit projects onto a working model of a continuous treatment, whose fitted "
+            "mean is a curve over the dose and not a value at each declared level.",
+            reason=RefusalReason.DIFFERENT_ESTIMAND,
+            alternative="Read the coefficients with result.coefficients().",
+        )
+    design = np.asarray(msm.design, dtype=float)
+    if design.shape[0] > 1 and not np.allclose(design, design[:1], rtol=0.0, atol=1e-12):
+        raise CapabilityError(
+            "the working model's design depends on covariates (it has modifier terms), so it "
+            "has one fitted mean per level and per modifier value; the fit does not store the "
+            "modifier values to read it at.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=(
+                "Declare a working model in the treatment level alone, or read the "
+                "coefficients with result.coefficients()."
+            ),
+        )
+    names = [parameter_name("msm", arm=term) for term in msm.terms]
+    estimates = [result.estimates[name] for name in names]
+    beta = np.array([float(estimate.psi) for estimate in estimates])
+    covariance = np.asarray(result.covariance(names), dtype=float)
+    phi = design[0]
+    link = link_for(str(msm.link))
+    linear = phi @ beta
+    link_se = np.sqrt(np.einsum("jp,pq,jq->j", phi, covariance, phi))
+    level = float(estimates[0].alpha) if alpha is None else float(alpha)
+    df = estimates[0].reference_df
+    lower = upper = None
+    if all(estimate.supplies_inference for estimate in estimates):
+        z = reference_quantile(level, df)
+        lower = np.asarray(link.inverse(linear - z * link_se), dtype=float)
+        upper = np.asarray(link.inverse(linear + z * link_se), dtype=float)
+    return WorkingModelMeans(
+        levels=tuple(result.data.arm_label(code) for code in msm.arms),
+        terms=tuple(msm.terms),
+        link=str(msm.link),
+        estimate=np.asarray(link.inverse(linear), dtype=float),
+        lower=lower,
+        upper=upper,
+        link_std_error=np.asarray(link_se, dtype=float),
+        alpha=level,
+        reference_df=df,
+        inference=str(estimates[0].inference),
+    )

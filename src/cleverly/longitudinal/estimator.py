@@ -3031,6 +3031,66 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 rows.append(row)
         return self.data.frame_like({key: [row[key] for row in rows] for key in rows[0]})
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the fit: its curve over time, or its estimates when it has no curve.
+
+        A fit with a report at each time point draws the survival, risk or mean-outcome
+        curve of each regimen, the difference between regimens below it, and the number of
+        units still following each regimen. A fit with one end-of-study outcome, or one that
+        reports the coefficients of a working model, has no curve and draws the forest plot
+        of its estimates.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.curve` (``scale=``, ``measure=``, ``band=``,
+            ``cause=``, ``regimens=``, ``labels=``, ``units=``, ``time_label=`` and
+            ``title=``), or to :func:`cleverly.plotting.forest` when the fit has no curve.
+
+        Returns
+        -------
+        Figure
+            The curve in two or three panels, or the forest plot.
+
+        Raises
+        ------
+        CapabilityError
+            When the fit refuses the requested view, with the fit's own reason.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly.datasets import make_longitudinal_survival
+        >>> from cleverly.longitudinal import LTMLE
+        >>> frame, _ = make_longitudinal_survival(n=300, seed=0)
+        >>> result = LTMLE(
+        ...     {"always": 1, "never": 0},
+        ...     n_folds=1,
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     censoring_learner=LogisticRegression(max_iter=1000),
+        ... ).fit(
+        ...     frame,
+        ...     outcome=["Y1", "Y2"],
+        ...     treatment=["A1", "A2"],
+        ...     baseline=["W1", "W2"],
+        ...     time_varying=[[], ["L2"]],
+        ...     censoring=["C1", "C2"],
+        ... )
+        >>> fig = result.plot()
+        >>> fig.axes[0].get_title(loc="left")
+        'Risk over time'
+        >>> plt.close(fig)
+        """
+        from ..plotting import curve, forest
+
+        if self.data.reports_curve and self.msm is None:
+            return curve(self, **kwargs)
+        return forest(self, **kwargs)
+
     def to_frame(self) -> Any:
         """One row per reported parameter, in the backend the data came from.
 

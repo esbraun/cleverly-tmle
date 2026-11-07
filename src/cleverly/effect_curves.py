@@ -528,6 +528,66 @@ class EffectCurveResult:
             backend=backend,
         )
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the conditional effect over one modifier.
+
+        The curve is drawn over the modifier with its pointwise interval (a projection fit
+        only; an EP curve carries none), the average of the curve over the fitted rows as a
+        reference line, a rug of the modifier's values, and the band at the grid points the
+        fit declared. A curve that reads other modifiers is drawn with each held at a value
+        you give in ``at=``.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.curve`: ``modifier=``, ``by=``, ``at=``,
+            ``alpha=``, ``outcome_label=``, ``units=`` and ``title=``.
+
+        Returns
+        -------
+        Figure
+            One panel, or one panel per level of ``by``.
+
+        Raises
+        ------
+        ValueError
+            When the curve reads modifiers that ``modifier=``, ``by=`` and ``at=`` leave
+            undeclared.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> import numpy as np
+        >>> import pandas as pd
+        >>> from sklearn.linear_model import LogisticRegression
+        >>> from cleverly import CausalStudy, ConditionalContrast, PointTreatment
+        >>> from cleverly.bases import Linear, Modifiers
+        >>> rng = np.random.default_rng(0)
+        >>> W = rng.uniform(-1, 1, 400)
+        >>> A = rng.binomial(1, 0.5, 400)
+        >>> Y = rng.binomial(1, 0.3 + 0.2 * A * (W > 0))
+        >>> frame = pd.DataFrame({"Y": Y, "A": A, "W": W})
+        >>> study = CausalStudy(
+        ...     frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+        ... )
+        >>> effect = study.identify(ConditionalContrast(Modifiers(["W"]), model=Linear(["W"])))
+        >>> curve = effect.estimate(
+        ...     outcome_learner=LogisticRegression(),
+        ...     treatment_learner=LogisticRegression(),
+        ...     cross_fit=False,
+        ...     random_state=0,
+        ... ).effect_curve()
+        >>> fig = curve.plot()
+        >>> fig.axes[0].get_title(loc="left")
+        'Conditional effect by W'
+        >>> plt.close(fig)
+        """
+        from .plotting import curve
+
+        return curve(self, **kwargs)
+
     def to_frame(self) -> Any:
         """The in-sample predictions, one row per fit row, in the fit's backend.
 
