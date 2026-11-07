@@ -929,3 +929,16 @@ def test_the_forest_key_keeps_clear_of_its_number_column(binary_fit: Any) -> Non
     ax = fig.axes[0]
     assert len(_key(ax)) == 3
     assert _key_column_count(fig, ax) == 2
+
+
+def test_forest_truth_refuses_an_empty_mapping_and_a_boolean(binary_fit: Any) -> None:
+    from cleverly.exceptions import CapabilityError
+
+    with pytest.raises(CapabilityError, match="empty mapping"):
+        forest(binary_fit, truth={})
+    with pytest.raises(CapabilityError, match="boolean"):
+        forest(binary_fit["ate"], truth=True)
+    with pytest.raises(CapabilityError, match="boolean"):
+        forest(binary_fit, truth={"ate": np.bool_(False)})
+    # Control: the number 1 is a true value.
+    assert _truth_marks(forest(binary_fit["ate"], truth=1).axes[0]) == [(1.0, 0.0)]

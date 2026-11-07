@@ -5,8 +5,8 @@ already holds and returns the matplotlib `Figure`, so you can save it, restyle i
 The title of each figure states the question it answers, and the note under it says what an
 interval is, why one is missing, or that a quantity is descriptive. A plot never draws an
 interval or band the fit did not compute. On simulated data, pass the known true values as
-`truth=` to `forest` or `curve` to mark each one with a cross beside its estimate; the key
-names the cross "True value (simulated data only)".
+`truth=` to `forest` or `curve`. Each is drawn as a cross beside its estimate, or as a line
+along a conditional effect curve, and the key names it "True value (simulated data only)".
 
 matplotlib is optional. Install it with `pip install "cleverly[plot]"`.
 

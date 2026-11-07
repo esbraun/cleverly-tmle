@@ -33,7 +33,15 @@ def refuse(message: str, alternative: str) -> Exception:
 
 
 def number(value: Any, what: str) -> float:
-    """``value`` as a finite float, or a refusal that names ``what``."""
+    """``value`` as a finite float, or a refusal that names ``what``.
+
+    A boolean is refused: ``True`` would draw as 1 without saying so.
+    """
+    if isinstance(value, (bool, np.bool_)):
+        raise refuse(
+            f"truth= gives {value!r} for {what}, which is a boolean and not a number",
+            "pass a number for each true value",
+        )
     try:
         found = float(value)
     except (TypeError, ValueError):
@@ -84,6 +92,11 @@ def place(
     figure of one series: a sequence in the order of the levels, or a mapping of level to
     value. A name the fit reports but the figure does not draw (``known``) is passed over.
     """
+    if isinstance(truth, Mapping) and not truth:
+        raise refuse(
+            "truth= is an empty mapping, so it gives no true value to draw",
+            "pass the true values, or leave truth= out",
+        )
     if _named(truth):
         drawn = {spot.name: spot for spot in spots if spot.name is not None}
         if not drawn:

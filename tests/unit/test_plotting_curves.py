@@ -1927,6 +1927,9 @@ class TestTruth:
             (shifts(), [0.1, math_nan(), 0.3], "not a finite number"),
             (shifts(), "0.1", "mapping or a sequence"),
             (cate(), [0.1, 0.2], "function of the modifier"),
+            (full(), {}, "empty mapping"),
+            (shifts(), {}, "empty mapping"),
+            (shifts(), [0.1, True, 0.3], "boolean"),
         ]
         for result, truth, words in cases:
             extra = {"modifier": "W", "at": {"Z": 0.0}} if result is cate() else {}

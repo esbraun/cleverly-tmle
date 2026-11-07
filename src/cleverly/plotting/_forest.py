@@ -207,7 +207,8 @@ def forest(
         none. A number is the true value of every row, and needs rows that all estimate
         one quantity (one estimate, or one estimate from each of several fits). A mapping
         gives the value of each estimate by the name the fit reports (``"ate"``) or by the
-        row's label; a row it does not name gets no cross.
+        row's label; a row it does not name gets no cross. A forest draws every estimate
+        of each fit it is given, so a name that matches no row is refused.
     ax : Axes or None, default=None
         Axes to draw on. Only a plot with one scale can draw on a caller's axes.
 
@@ -307,6 +308,11 @@ def forest(
 def _truth_values(truth: Any, rows: Sequence[_Row]) -> list[float | None]:
     """The true value of each row, in order, or ``None`` where ``truth`` gives none."""
     if isinstance(truth, Mapping):
+        if not truth:
+            raise _truth.refuse(
+                "truth= is an empty mapping, so it gives no true value to draw",
+                "pass the true values, or leave truth= out",
+            )
         known = {name for row in rows for name in (row.estimand, row.label)}
         unknown = [str(key) for key in truth if str(key) not in known]
         if unknown:
