@@ -1,12 +1,13 @@
 """V8, V15, V16, V17 and V19: diagnostics that read only what a fit already holds.
 
 * :func:`calibration`: do the predicted effects (a fitted effect curve) or probabilities
-  (the cross-fitted treatment and outcome models) match what was measured, bin by bin?
+  (the treatment, outcome and other probability models) match what was measured, bin by bin?
 * :func:`learners`: which candidate learners carry a Super Learner, and how sharp was a
   collaborative fit's choice of treatment model?
 * :func:`repeats`: does the estimate depend on how the cross-fitting split was drawn?
-* :func:`bootstrap`: is the bootstrap distribution close to normal?
-* :func:`influence`: how few units carry the sum of squared influence values?
+* :func:`bootstrap`: is the bootstrap distribution close to normal on the scale the Wald
+  interval is built on?
+* :func:`influence`: how few units carry the variance of the influence values?
 
 Every quantity is descriptive and none carries an interval the object does not hold; each
 note says so. Nothing is refitted and nothing is drawn at random.
@@ -15,8 +16,9 @@ note says so. Nothing is refitted and nothing is drawn at random.
 from __future__ import annotations
 
 import math
-import textwrap
-from collections.abc import Sequence
+import re
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -36,8 +38,9 @@ _LOSS_WORDS = {
     "loglik": "negative log-likelihood",
 }
 
-#: What the nuisance model names read as on a figure.
-_MODEL_WORDS = {"propensity": "Treatment model", "outcome": "Outcome model"}
+#: The treatment roles whose propensity panel is not a fitted estimate of the treatment law.
+_WORKING = "collaborative_working_model"
+_DECLARED = "declared_treatment_law"
 
 
 def _loss_text(loss: str) -> str:
@@ -50,81 +53,10 @@ def _percent(share: float) -> str:
     return f"{value:.1f}%" if value < 10.0 else f"{value:.0f}%"
 
 
-def _notes(ax: Axes, lines: Sequence[str], *, share: float = 0.72) -> None:
-    """Note lines wrapped to ``share`` of the figure width, so none runs off the right edge.
-
-    The core wraps to the whole figure width, but the notes start at the axes' left edge,
-    which sits to the right of the figure edge by the width of the y labels.
-    """
-    figure: Any = ax.figure
-    while not hasattr(figure, "get_figwidth"):
-        figure = figure.figure
-    characters = max(
-        30, int(float(figure.get_figwidth()) * share * 72.0 / (_core.NOTE_SIZE * 0.52))
-    )
-    _core.notes(
-        ax,
-        ["\n".join(textwrap.fill(part, characters) for part in line.split("\n")) for line in lines],
-    )
-
-
-def _figure_layout(fig: Figure, top: Axes, lines: Sequence[str]) -> None:
-    """Title, subtitle and notes of a figure with several columns of panels.
-
-    Text anchored to one panel counts toward that panel's width in the layout, so a title
-    or note wider than the panel squeezes it and pushes the next column away. Here the
-    title, the subtitle and the notes sit outside the layout, and the layout area is
-    shrunk to leave room for them above and below. Call after :func:`_header`. The notes
-    belong to ``top`` so :func:`~cleverly.plotting._core.note_text` finds them.
-    """
-    width, height = (float(value) for value in fig.get_size_inches())
-    axes_any: Any = top
-    left_title = axes_any._left_title  # the title _core.header wrote
-    left_title.set_in_layout(False)
-    for text in top.texts:
-        if text.get_gid() == "cleverly-subtitle":
-            text.set_in_layout(False)
-    # The layout still reserves the title's height; only its width is left out.
-    distinct = list(dict.fromkeys(line for line in lines if line))
-    bottom_points = 0.0
-    if distinct:
-        characters = max(30, int(width * 0.94 * 72.0 / (_core.NOTE_SIZE * 0.52)))
-        words = "\n".join(textwrap.fill(line, characters) for line in distinct)
-        bottom_points = (words.count("\n") + 1) * _core.NOTE_SIZE * 1.4 + 10.0
-        note = top.text(
-            0.012,
-            0.006,
-            words,
-            transform=fig.transFigure,
-            ha="left",
-            va="bottom",
-            fontsize=_core.NOTE_SIZE,
-            color=_core.SECONDARY_INK,
-            gid="cleverly-notes",
-        )
-        note.set_in_layout(False)
-    low = bottom_points / 72.0 / height
-    engine: Any = fig.get_layout_engine()
-    engine.set(rect=(0.0, low, 1.0, 1.0 - low))
-
-
-def _header(ax: Axes, title: str, subtitle: str | None = None) -> None:
-    """The core header with the subtitle wrapped narrower than the figure."""
-    if subtitle:
-        figure: Any = ax.figure
-        while not hasattr(figure, "get_figwidth"):
-            figure = figure.figure
-        width = max(
-            30, int(float(figure.get_figwidth()) * 0.8 * 72.0 / (_core.SUBTITLE_SIZE * 0.52))
-        )
-        subtitle = textwrap.fill(subtitle, width)
-    _core.header(ax, title, subtitle)
-
-
 def _square(ax: Axes) -> None:
-    """Equal axis scales, so the 45-degree line is at 45 degrees, anchored at the left."""
+    """Equal axis scales, so the 45-degree line is at 45 degrees, centred in its cell."""
     ax.set_aspect("equal", adjustable="box")
-    ax.set_anchor("NW")
+    ax.set_anchor("C")
 
 
 def _square_limits(values: Any) -> tuple[float, float]:
@@ -133,8 +65,8 @@ def _square_limits(values: Any) -> tuple[float, float]:
     return low - pad, high + pad
 
 
-def _diagonal(ax: Axes, low: float, high: float) -> Any:
-    """The 45-degree line of perfect calibration, in the reference style."""
+def _diagonal(ax: Axes, low: float, high: float, label: str = "Perfect calibration") -> Any:
+    """The 45-degree line, in the reference style."""
     (line,) = ax.plot(
         [low, high],
         [low, high],
@@ -142,74 +74,175 @@ def _diagonal(ax: Axes, low: float, high: float) -> Any:
         linestyle=(0, (4, 3)),
         linewidth=1.2,
         zorder=1.5,
-        label="Perfect calibration",
-        gid="cleverly-reference",
+        label=label,
+        gid=_core.GID_REFERENCE,
     )
     return line
+
+
+def _bins(ax: Axes, x: Any, y: Any, rows: Any, color: str) -> None:
+    """Unjoined bin points whose area grows with the rows in the bin."""
+    counts = np.asarray(rows, dtype=float)
+    top = float(np.nanmax(counts)) if counts.size and np.nanmax(counts) > 0 else 1.0
+    ax.scatter(
+        x,
+        y,
+        s=30.0 + 170.0 * counts / top,
+        color=color,
+        edgecolor=_core.FACE,
+        linewidth=0.8,
+        zorder=3,
+        gid="cleverly-calibration-points",
+    )
+
+
+def _finish(
+    fig: Figure,
+    axes: Sequence[Axes],
+    title: str,
+    subtitle: str | None,
+    found: Sequence[str],
+    *,
+    owned: bool,
+) -> None:
+    """The title, subtitle, key and notes: at the figure's edge on a figure the plot made.
+
+    A figure the plot created takes the figure-level header and notes, anchored at the
+    figure's left edge and wrapped to its width, so a square panel or a column of panels
+    never pushes them past the edge. On the caller's axes they go on that axes.
+    """
+    if owned:
+        _core.figure_header(fig, title, subtitle, key_sources=axes)
+        _core.figure_notes(fig, found)
+    else:
+        _core.header(axes[0], title, subtitle, key_sources=axes)
+        _core.notes(axes[-1], found)
 
 
 # ------------------------------------------------------------------------- calibration
 
 
-def _curve_panel(ax: Axes, calibration: Any) -> list[str]:
+def _curve(calibration: Any, title: str | None, ax: Axes | None) -> Figure:
     bins = calibration.bins
     x = np.asarray(bins["mean_prediction"], dtype=float)
     y = np.asarray(bins["pseudo_outcome_contrast"], dtype=float)
-    low, high = _square_limits(np.concatenate([x, y]))
-    ax.set_xlim(low, high)
-    ax.set_ylim(low, high)
-    _diagonal(ax, low, high)
-    (line,) = ax.plot(
-        x,
-        y,
-        color=_core.PALETTE[0],
-        marker="o",
-        markersize=7,
-        linewidth=1.2,
-        markeredgecolor=_core.FACE,
-        markeredgewidth=0.8,
-        zorder=3,
-        gid="cleverly-calibration-points",
-    )
+    rows = np.asarray(bins["rows"], dtype=float) if "rows" in bins else np.ones_like(x)
     ratio = str(calibration.scale) != "difference"
-    _square(ax)
-    ax.grid(True, axis="both", color=_core.GRID, linewidth=0.8)
-    ax.set_xlabel(
+    kept = np.isfinite(x) & np.isfinite(y)
+    gap = (
+        "no log ratio (a mean doubly robust pseudo-outcome that is not positive)"
+        if ratio
+        else "no finite contrast"
+    )
+    if not kept.any():
+        raise ValueError(f"no bin of this calibration can be drawn: every bin has {gap}")
+    fig, axis = _core.figure_for(ax, figsize=(5.2, 5.6))
+    low, high = _square_limits(np.concatenate([x[kept], y[kept]]))
+    axis.set_xlim(low, high)
+    axis.set_ylim(low, high)
+    _diagonal(axis, low, high)
+    _bins(axis, x[kept], y[kept], rows[kept], _core.PALETTE[0])
+    _square(axis)
+    axis.grid(True, axis="both", color=_core.GRID, linewidth=0.8)
+    axis.set_xlabel(
         "Mean predicted log ratio in the bin" if ratio else "Mean predicted effect in the bin"
     )
-    ax.set_ylabel(
+    axis.set_ylabel(
         "Measured log ratio (doubly robust contrast)"
         if ratio
         else "Measured effect (doubly robust contrast)"
     )
-    line.set_label("_nolegend_")
-    return [
-        "Descriptive: bins of out-of-fold refits "
-        f"({int(calibration.n_folds)} folds); no interval is drawn.",
-        "The slope and intercept come from projecting the doubly robust pseudo-outcome on "
-        "(1, prediction); they are not the slope of the drawn bins.",
+    numbers = f"{float(calibration.slope):.2f} and intercept {float(calibration.intercept):.2f}"
+    subtitle = (
+        f"Calibration slope {numbers} from the one-step log-ratio loss "
+        "(1 and 0 for a calibrated curve)"
+        if ratio
+        else f"Linear calibration slope {numbers} (1 and 0 for a calibrated curve)"
+    )
+    found = [
+        f"Descriptive: bins of out-of-fold refits ({int(calibration.n_folds)} folds); point "
+        "area shows the rows in the bin; no interval is drawn.",
+        "The slope and intercept minimise the one-step log-ratio loss on (1, prediction), and "
+        "each bin is the log of the ratio of its mean doubly robust pseudo-outcomes; the "
+        "slope is not the slope of the drawn bins."
+        if ratio
+        else "The slope and intercept come from the least-squares projection of the doubly "
+        "robust pseudo-outcome on (1, prediction); they are not the slope of the drawn bins.",
     ]
+    dropped = int((~kept).sum())
+    if dropped:
+        found.append(
+            f"{dropped} bin{' has' if dropped == 1 else 's have'} {gap} and "
+            f"{'is' if dropped == 1 else 'are'} not drawn."
+        )
+    _finish(
+        fig,
+        [axis],
+        title or "Do the predicted effects match the measured ones?",
+        subtitle,
+        found,
+        owned=ax is None,
+    )
+    return fig
 
 
-def _model_words(name: str) -> str:
-    return _MODEL_WORDS.get(str(name), str(name))
+@dataclass(frozen=True)
+class _Context:
+    """What the source says about the reports beyond the reports themselves."""
+
+    evaluation: str | None = None
+    role: str | None = None
+    n_repeats: int = 1
+    reported_repeat: int = 1
+    #: ``True`` or ``False`` when the data are known, ``None`` for a bare report.
+    weighted: bool | None = None
 
 
-def _probability_models(source: Any) -> tuple[list[Any], str | None]:
-    """The reports to draw and the evaluation basis, when the source states one."""
-    if hasattr(source, "models"):
-        models = list(source.models)
-        basis = getattr(source, "evaluation", None)
-    elif hasattr(source, "diagnostics") and hasattr(source.diagnostics, "nuisance_models"):
-        found = source.diagnostics.nuisance_models()
-        if not hasattr(found, "models"):
+def _is_propensity(name: str) -> bool:
+    return name == "propensity" or name.startswith("propensity[")
+
+
+def _model_words(name: str, role: str | None = None) -> str:
+    """A nuisance report's name in words, with the propensity's role where it changes it."""
+    arm = re.fullmatch(r"propensity\[(.*)\]", str(name))
+    if _is_propensity(str(name)):
+        stem = {
+            _WORKING: "Collaborative working treatment model",
+            _DECLARED: "Declared treatment probabilities",
+        }.get(str(role), "Treatment model")
+        return f"{stem}, arm {arm[1]} (one vs rest)" if arm else stem
+    return {
+        "outcome": "Outcome model",
+        "missingness": "Missingness model (outcome observed)",
+        "intermediate": "Intermediate model",
+    }.get(str(name), str(name))
+
+
+def _probability_models(source: Any) -> tuple[list[Any], _Context]:
+    """The reports to draw and what the source states about them."""
+    weighted: bool | None = None
+    if hasattr(source, "diagnostics") and hasattr(source.diagnostics, "nuisance_models"):
+        weights = getattr(getattr(source, "data", None), "weights", None)
+        if weights is not None:
+            values = np.asarray(weights, dtype=float)
+            weighted = bool(values.size and not np.allclose(values, values[0]))
+        source = source.diagnostics.nuisance_models()
+        if not hasattr(source, "models"):
             raise ValueError(
                 "calibration() draws the point-treatment nuisance reports; this result "
                 "reports its nuisance models another way"
             )
-        models, basis = list(found.models), getattr(found, "evaluation", None)
+    if hasattr(source, "models"):
+        models = list(source.models)
+        context = _Context(
+            evaluation=getattr(source, "evaluation", None),
+            role=getattr(source, "treatment_role", None),
+            n_repeats=int(getattr(source, "n_repeats", 1)),
+            reported_repeat=int(getattr(source, "reported_repeat", 1)),
+            weighted=weighted,
+        )
     else:
-        models, basis = [source], None
+        models, context = [source], _Context(evaluation=getattr(source, "evaluation", None))
     drawn = [
         model
         for model in models
@@ -220,7 +253,7 @@ def _probability_models(source: Any) -> tuple[list[Any], str | None]:
             "no probability model with a calibration table to draw: a conditional-mean "
             "(continuous outcome) model has no probability to calibrate"
         )
-    return drawn, basis
+    return drawn, context
 
 
 def _slope_text(model: Any) -> str:
@@ -231,31 +264,80 @@ def _slope_text(model: Any) -> str:
     return f"not available ({omission})" if omission else "not available"
 
 
-def _probability_panel(
-    ax: Axes, model: Any, color: str, low: float, high: float, *, square: bool
-) -> None:
+def _probability_panel(ax: Axes, model: Any, color: str, low: float, high: float) -> None:
     table = model.calibration
-    x = np.asarray(table["mean_predicted"], dtype=float)
-    y = np.asarray(table["mean_observed"], dtype=float)
-    rows = np.asarray(table["n"], dtype=float)
     ax.set_xlim(low, high)
     ax.set_ylim(low, high)
     _diagonal(ax, low, high)
-    ax.scatter(
-        x,
-        y,
-        s=30.0 + 170.0 * rows / float(rows.max()),
-        color=color,
-        edgecolor=_core.FACE,
-        linewidth=0.8,
-        zorder=3,
-        gid="cleverly-calibration-points",
-    )
-    if square:
-        _square(ax)
+    _bins(ax, table["mean_predicted"], table["mean_observed"], table["n"], color)
+    _square(ax)
     ax.grid(True, axis="both", color=_core.GRID, linewidth=0.8)
-    ax.set_xlabel(f"{_model_words(model.name)}: mean predicted probability")
+    ax.set_xlabel("Mean predicted probability")
     ax.set_ylabel("Observed rate")
+
+
+def _probability_text(models: list[Any], context: _Context) -> tuple[str, list[str]]:
+    """The subtitle and the notes of the probability calibration figure."""
+    bases = {getattr(model, "evaluation", None) or context.evaluation for model in models}
+    basis = bases.pop() if len(bases) == 1 else None
+    role = context.role
+    sloped = [
+        model
+        for model in models
+        if not (_is_propensity(model.name) and role in (_WORKING, _DECLARED))
+    ]
+    slopes = "; ".join(f"{_model_words(model.name, role)} {_slope_text(model)}" for model in sloped)
+    if basis == "in_sample":
+        subtitle = "In-sample predictions (the fit used one fold): no calibration slope is shown"
+    elif not slopes:
+        subtitle = "No calibration slope is shown for these models"
+    elif basis == "out_of_fold":
+        subtitle = (
+            f"Logistic calibration slope of the out-of-fold predictions (1 = calibrated): {slopes}"
+        )
+    else:
+        subtitle = f"Logistic calibration slope (1 = calibrated): {slopes}"
+    where = {
+        "out_of_fold": "cross-fitted (out-of-fold) predictions",
+        "in_sample": "in-sample predictions (the fit used one fold)",
+    }.get(str(basis), "predictions whose evaluation basis the report does not record")
+    found = [
+        f"Descriptive: bins of {where}; no interval is drawn. Point area shows the rows in the bin."
+    ]
+    if basis == "in_sample":
+        found.append(
+            "In sample, an unpenalized logistic model with an intercept has a calibration "
+            "slope of 1 by construction, so no slope is shown and the bins are not evidence "
+            "of calibration on new data."
+        )
+    elif basis is None:
+        found.append(
+            "Whether the slope is out of fold is not recorded here; plot the fit, or its "
+            "diagnostics.nuisance_models(), to see."
+        )
+    if any(_is_propensity(model.name) for model in models):
+        if role == _WORKING:
+            found.append(
+                "The collaborative search chose this treatment model for targeting; it is not "
+                "an estimate of the treatment law, so its calibration is not a finding and no "
+                "slope is shown."
+            )
+        elif role == _DECLARED:
+            found.append(
+                "The treatment probabilities are the ones the design declares, not a fitted "
+                "model: the panel compares that declaration with the treatment observed, and "
+                "no slope is shown."
+            )
+    if context.weighted is None:
+        found.append("The observed rate is weighted when the data carry weights.")
+    elif context.weighted:
+        found.append("The observed rate and the bins are weighted by the data's weights.")
+    if context.n_repeats > 1:
+        found.append(
+            f"The fit combined {context.n_repeats} cross-fitting draws; the bins describe "
+            f"draw {context.reported_repeat}."
+        )
+    return subtitle, found
 
 
 def calibration(
@@ -269,17 +351,22 @@ def calibration(
     Use it to see where along the range of predictions a model over- or understates, which
     a single slope hides. Two kinds of source are drawn.
 
-    A ``CurveCalibration`` (from ``curve.diagnostics.calibration()``) plots
-    each bin's measured effect, a doubly robust contrast, against the bin's mean predicted
-    effect. The linear calibration slope and intercept are in the subtitle; they come from
-    projecting the doubly robust pseudo-outcome on the prediction, so they are not the
-    slope of the drawn bins.
+    A ``CurveCalibration`` (from ``curve.diagnostics.calibration()``) plots each bin's
+    measured effect, a doubly robust contrast, against the bin's mean predicted effect. The
+    calibration slope and intercept are in the subtitle. On the difference scale they come
+    from the least-squares projection of the doubly robust pseudo-outcome on the prediction,
+    and on the log-ratio scale they minimise the one-step log-ratio loss; either way they are
+    not the slope of the drawn bins.
 
     A :class:`~cleverly.validation.NuisanceModelReport`, a fit's
-    ``result.diagnostics.nuisance_models()`` or the result itself plots the weighted mean
-    observed rate against the mean predicted probability of each cross-fitted probability
-    model (the treatment model and a binary outcome model), with point area showing the
-    rows in the bin. The logistic calibration slope is in the subtitle.
+    ``result.diagnostics.nuisance_models()`` or the result itself plots the observed rate
+    against the mean predicted probability of each probability model (the treatment model,
+    a binary outcome model, and the missingness and intermediate models a fit has), with
+    point area showing the rows in the bin. The logistic calibration slope of out-of-fold
+    predictions is in the subtitle. An in-sample fit shows no slope, because an unpenalized
+    logistic model with an intercept has an in-sample slope of 1 by construction, and a
+    collaborative working treatment model or a declared treatment law shows none either,
+    because neither is an estimate of the treatment law.
 
     Bins are descriptive: no interval is drawn, and the note says so.
 
@@ -300,8 +387,8 @@ def calibration(
     Raises
     ------
     ValueError
-        When the source holds no probability model with a calibration table, or ``ax`` is
-        given for more than one panel.
+        When the source holds no probability model with a calibration table, a curve
+        calibration has no finite bin, or ``ax`` is given for more than one panel.
 
     See Also
     --------
@@ -332,149 +419,185 @@ def calibration(
     ...     random_state=0,
     ... )
     >>> fig = calibration(result)
-    >>> fig.axes[0].get_title(loc="left")
+    >>> fig.texts[0].get_text()
     'Are the predicted probabilities calibrated?'
     >>> plt.close(fig)
     """
     if hasattr(source, "bins") and hasattr(source, "slope") and hasattr(source, "intercept"):
-        fig, axis = _core.figure_for(ax, figsize=(5.8, 5.4))
-        found = _curve_panel(axis, source)
-        _core.legend(axis)
-        _header(
-            axis,
-            title or "Do the predicted effects match the measured ones?",
-            "Linear calibration slope "
-            f"{float(source.slope):.2f} and intercept {float(source.intercept):.2f} "
-            "(1 and 0 for a calibrated curve)",
-        )
-        _notes(axis, found)
-        return fig
-    models, basis = _probability_models(source)
+        return _curve(source, title, ax)
+    models, context = _probability_models(source)
     count = len(models)
-    ncols = min(count, 3)
-    nrows = math.ceil(count / ncols)
-    if ax is not None:
-        if count > 1:
-            raise ValueError(
-                "ax= takes one panel, but this source has several probability models; "
-                "pass one NuisanceModelReport"
-            )
-        fig, axes = ax.figure, [ax]  # type: ignore[assignment]
-        _core.style_axes(ax)
+    if ax is not None and count > 1:
+        raise ValueError(
+            "ax= takes one panel, but this source has several probability models; "
+            "pass one NuisanceModelReport"
+        )
+    if count == 1:
+        fig, axis = _core.figure_for(ax, figsize=(5.2, 5.6))
+        axes = [axis]
     else:
-        size = (5.8, 5.4) if count == 1 else (3.3 * ncols + 0.9, 3.3 * nrows + 2.0)
-        fig, axes = _core.new_figure(nrows, ncols=ncols, figsize=size)
+        ncols = min(count, 3)
+        nrows = math.ceil(count / ncols)
+        fig, axes = _core.new_figure(
+            nrows, ncols=ncols, figsize=(3.4 * ncols + 0.4, 3.1 * nrows + 2.1)
+        )
         for extra in axes[count:]:
             fig.delaxes(extra)
         axes = axes[:count]
-    lows, highs = [], []
-    for model in models:
-        values = np.concatenate(
-            [
-                np.asarray(model.calibration["mean_predicted"], dtype=float),
-                np.asarray(model.calibration["mean_observed"], dtype=float),
-            ]
-        )
-        low, high = _square_limits(values)
-        lows.append(low)
-        highs.append(high)
-    low, high = min(lows), max(highs)
-    for index, (axis, model) in enumerate(zip(axes, models, strict=True)):
-        color = _core.PALETTE[index if count <= _core.MAX_SERIES else 0]
-        _probability_panel(axis, model, color, low, high, square=count == 1)
-        _core.corner_label(axis, 0.97, _model_words(model.name), color)
-    _core.legend(axes[0], sources=axes)
-    slopes = "; ".join(f"{_model_words(model.name)} {_slope_text(model)}" for model in models)
-    _header(
-        axes[0],
-        title or "Are the predicted probabilities calibrated?",
-        f"Logistic calibration slope (1 = calibrated): {slopes}",
+    values = np.concatenate(
+        [
+            np.asarray(model.calibration[column], dtype=float)
+            for model in models
+            for column in ("mean_predicted", "mean_observed")
+        ]
     )
-    where = (
-        "bins of in-sample predictions (the fit used one fold)"
-        if basis == "in_sample"
-        else "bins of cross-fitted (out-of-fold) predictions"
-    )
-    found = [
-        f"Descriptive: {where}; no interval is drawn. Point area shows the rows in the "
-        "bin; the observed rate is weighted by the data's weights."
-    ]
-    if count > 1:
-        _figure_layout(fig, axes[0], found)
-    else:
-        _notes(axes[0], found)
+    low, high = _square_limits(values)
+    for axis, model in zip(axes, models, strict=True):
+        # One model per panel: the panel title names it, and one colour serves every panel.
+        _probability_panel(axis, model, _core.PALETTE[0], low, high)
+        words = _model_words(model.name, context.role)
+        if ax is None:
+            axis.set_title(words, loc="left", fontsize=_core.LABEL_SIZE, color=_core.INK, pad=4.0)
+        else:
+            _core.corner_label(axis, 0.97, words, _core.PALETTE[0])
+    subtitle, found = _probability_text(models, context)
+    heading = title or "Are the predicted probabilities calibrated?"
+    _finish(fig, axes, heading, subtitle, found, owned=ax is None)
     return fig
 
 
 # --------------------------------------------------------------------------- learners
 
 
-def _super_learner(diagnostics: Any, ax: Axes | None) -> Figure:
-    if ax is not None:
-        raise ValueError("learners() draws two panels for a Super Learner; ax= is not accepted")
-    names = [str(name) for name in diagnostics.names]
-    risk = np.asarray(diagnostics.cv_risk, dtype=float)
-    weights = np.asarray(diagnostics.weights, dtype=float)
-    order = np.argsort(risk, kind="stable")
-    count = len(names)
-    fig, axes = _core.new_figure(1, ncols=2, figsize=(7.0, 2.4 + 0.42 * count), sharex=False)
-    left, right = axes
-    right.sharey(left)
-    positions = np.arange(count)
-    for axis, values, gid in (
-        (left, risk[order], "cleverly-learner-risk"),
-        (right, weights[order], "cleverly-learner-weight"),
-    ):
-        bars = axis.barh(
-            positions,
-            values,
-            height=0.62,
-            color=_core.PALETTE[0],
-            edgecolor=_core.FACE,
-            linewidth=0.6,
-        )
-        for bar in bars:
-            bar.set_gid(gid)
-        top = float(np.nanmax(values)) if len(values) else 1.0
-        axis.set_xlim(0.0, top * 1.22 if top > 0 else 1.0)
-        for position, value in zip(positions, values, strict=True):
-            axis.annotate(
-                f"{value:.2f}" if gid.endswith("weight") else f"{value:.3g}",
-                xy=(value, position),
-                xytext=(4.0, 0.0),
-                textcoords="offset points",
-                ha="left",
-                va="center",
-                fontsize=_core.TICK_SIZE,
-                color=_core.INK,
-                gid="cleverly-value-label",
+@dataclass(frozen=True)
+class _Library:
+    """One Super Learner library to draw: the candidates' risks and weights."""
+
+    label: str | None
+    names: tuple[str, ...]
+    risks: np.ndarray
+    weights: np.ndarray
+    loss: str | None
+
+
+def _library_rows(fig: Figure, axes: list[Axes], libraries: list[_Library]) -> None:
+    for row, library in enumerate(libraries):
+        left, right = axes[2 * row], axes[2 * row + 1]
+        right.sharey(left)
+        order = np.argsort(library.risks, kind="stable")
+        count = len(library.names)
+        positions = np.arange(count)
+        for axis, values, gid in (
+            (left, library.risks[order], "cleverly-learner-risk"),
+            (right, library.weights[order], "cleverly-learner-weight"),
+        ):
+            bars = axis.barh(
+                positions,
+                np.nan_to_num(values, nan=0.0),
+                height=0.62,
+                color=_core.PALETTE[0],
+                edgecolor=_core.FACE,
+                linewidth=0.6,
             )
-        _core.style_axes(axis, grid="x")
-    left.set_yticks(positions)
-    left.set_yticklabels([names[index] for index in order])
-    left.set_ylim(count - 0.4, -0.6)
-    left.set_ylabel("Candidate learner")
-    right.tick_params(labelleft=False)
-    right.set_xlim(0.0, 1.18)
-    right.set_xticks([0.0, 0.25, 0.5, 0.75, 1.0])
-    loss = _loss_text(diagnostics.loss)
-    left.set_xlabel(f"Cross-validated risk ({loss})")
-    right.set_xlabel("Ensemble weight")
-    _header(
-        left,
-        "Which learners carry the fit?",
-        f"Lower risk is better. Lowest cross-validated risk: {diagnostics.best}. "
-        f"Largest weight: {names[int(np.argmax(weights))]}",
+            for bar in bars:
+                bar.set_gid(gid)
+            finite = values[np.isfinite(values)]
+            top = float(finite.max()) if finite.size else 1.0
+            axis.set_xlim(0.0, top * 1.25 if top > 0 else 1.0)
+            for position, value in zip(positions, values, strict=True):
+                axis.annotate(
+                    "not scored"
+                    if not math.isfinite(float(value))
+                    else f"{value:.2f}"
+                    if gid.endswith("weight")
+                    else f"{value:.3g}",
+                    xy=(float(np.nan_to_num(value, nan=0.0)), position),
+                    xytext=(4.0, 0.0),
+                    textcoords="offset points",
+                    ha="left",
+                    va="center",
+                    fontsize=_core.TICK_SIZE,
+                    color=_core.INK,
+                    gid="cleverly-value-label",
+                )
+            _core.style_axes(axis, grid="x")
+        left.set_yticks(positions)
+        left.set_yticklabels([library.names[index] for index in order])
+        left.set_ylim(count - 0.4, -0.6)
+        left.set_ylabel(library.label or "Candidate learner")
+        right.tick_params(labelleft=False)
+        right.set_xlim(0.0, 1.18)
+        right.set_xticks([0.0, 0.25, 0.5, 0.75, 1.0])
+        loss = f" ({_loss_text(library.loss)})" if library.loss else ""
+        left.set_xlabel(f"Cross-validated risk{loss}")
+        right.set_xlabel("Ensemble weight")
+
+
+def _libraries(libraries: list[_Library], title: str | None, extra: Sequence[str] = ()) -> Figure:
+    counts = [len(library.names) for library in libraries]
+    height = 1.9 + sum(0.42 * count + 0.9 for count in counts)
+    fig, axes = _core.new_figure(
+        len(libraries), ncols=2, figsize=(7.0, height), height_ratios=[c + 1.5 for c in counts]
     )
+    _library_rows(fig, axes, libraries)
+
+    def lead(library: _Library) -> tuple[str, str]:
+        best = library.names[int(np.nanargmin(library.risks))]
+        heavy = library.names[int(np.nanargmax(library.weights))]
+        return best, heavy
+
+    if len(libraries) == 1:
+        best, heavy = lead(libraries[0])
+        subtitle = (
+            f"Lower risk is better. Lowest cross-validated risk: {best}. Largest weight: {heavy}"
+        )
+    else:
+        subtitle = "Lower risk is better. " + "; ".join(
+            f"{library.label}: lowest risk {lead(library)[0]}, largest weight {lead(library)[1]}"
+            for library in libraries
+        )
     found = [
         "Descriptive: cross-validated risk of each candidate. The ensemble's own risk is not "
         "drawn, because it is scored on the predictions its weights were fitted to and so "
-        "flatters it."
+        "flatters it.",
+        *extra,
     ]
-    if diagnostics.failed:
-        found.append("Dropped because fitting failed: " + ", ".join(map(str, diagnostics.failed)))
-    _figure_layout(fig, left, found)
+    _finish(fig, axes, title or "Which learners carry the fit?", subtitle, found, owned=True)
     return fig
+
+
+def _from_reports(models: Sequence[Any], role: str | None) -> Figure:
+    libraries = [
+        _Library(
+            label=_model_words(model.name, role),
+            names=tuple(str(name) for name in model.learner_risks),
+            risks=np.asarray(list(model.learner_risks.values()), dtype=float),
+            weights=np.asarray(
+                [
+                    float(model.learner_weights.get(name, float("nan")))
+                    for name in model.learner_risks
+                ],
+                dtype=float,
+            ),
+            loss=getattr(model, "learner_loss", None),
+        )
+        for model in models
+        if getattr(model, "learner_risks", None)
+    ]
+    if not libraries:
+        raise ValueError(
+            "no nuisance model here was fitted by a Super Learner, so there are no candidate "
+            "risks or weights to draw; pass a SuperLearner as a learner, or a "
+            "SuperLearnerDiagnostics (a fitted SuperLearner's diagnostics_)"
+        )
+    return _libraries(
+        libraries,
+        None,
+        [
+            "Each risk and weight is the mean over the model's Super Learner fits, one per "
+            "cross-fitting fold."
+        ],
+    )
 
 
 def _ctmle(selection: Any, ax: Axes | None) -> Figure:
@@ -498,10 +621,10 @@ def _ctmle(selection: Any, ax: Axes | None) -> Figure:
     axis.scatter(
         [steps[chosen]],
         [risk[chosen]],
-        s=120,
-        facecolor=_core.FACE,
-        edgecolor=_core.PALETTE[0],
-        linewidth=2.0,
+        s=150,
+        color=_core.PALETTE[0],
+        edgecolor=_core.INK,
+        linewidth=1.2,
         zorder=4,
         gid="cleverly-ctmle-chosen",
     )
@@ -516,33 +639,54 @@ def _ctmle(selection: Any, ax: Axes | None) -> Figure:
         float(np.nanmin(risk)) - 0.15 * (spread or 1.0),
         float(np.nanmax(risk)) + 0.15 * (spread or 1.0),
     )
+    loss = _loss_text(selection.loss)
+    penalized = bool(getattr(selection, "penalized", False))
     axis.set_xlabel("Candidate along the search path (0 = first)")
-    axis.set_ylabel(f"Cross-validated risk ({_loss_text(selection.loss)})")
-    labels = getattr(selection, "labels", ())
-    covariates = len(selection.path[chosen]) if chosen < len(selection.path) else None
+    axis.set_ylabel(
+        f"Cross-validated criterion\n({loss} + penalty)"
+        if penalized
+        else f"Cross-validated risk ({loss})"
+    )
+    labels = tuple(getattr(selection, "labels", ()))
     pieces = [f"The search chose candidate {chosen}"]
-    if covariates is not None:
+    if str(getattr(selection, "strategy", "")) == "learners" and chosen < len(labels):
+        pieces.append(f"({labels[chosen]})")
+    elif chosen < len(selection.path):
+        covariates = len(selection.path[chosen])
         pieces.append(
             f"with {covariates} covariate{'s' if covariates != 1 else ''} in the treatment model"
         )
-    _core.legend(axis)
-    _header(
-        axis,
-        "How sharp was the choice of treatment model?",
-        " ".join(pieces) + ". Lower is better",
-    )
-    found = ["Descriptive: cross-validated risk of each candidate; no interval is drawn."]
-    if getattr(selection, "penalized", False):
-        found.append("The criterion includes the selection's variance and bias penalty.")
+    subtitle = " ".join(pieces) + ". Lower is better"
+    found = [
+        "Descriptive: the cross-validated "
+        + ("criterion" if penalized else "risk")
+        + " of each candidate; no interval is drawn."
+    ]
+    if penalized:
+        found.append("The criterion adds the selection's variance and bias penalty to the loss.")
     if chosen < len(labels):
         found.append(f"Chosen candidate: {labels[chosen]}")
+    stopped = getattr(selection, "stopped_at", None)
+    if stopped is not None:
+        patience = getattr(selection, "patience", None)
+        found.append(
+            f"The search stopped early at candidate {int(stopped)} (patience={patience}), so "
+            "later candidates were not scored."
+        )
     final = getattr(selection, "final", None)
     if final is not None and int(final) != chosen:
         found.append(
             f"The final step then reported candidate {int(final)}, not the one the "
             "cross-validated risk chose."
         )
-    _notes(axis, found)
+    _finish(
+        fig,
+        [axis],
+        "How sharp was the choice of treatment model?",
+        subtitle,
+        found,
+        owned=ax is None,
+    )
     return fig
 
 
@@ -555,26 +699,35 @@ def learners(source: Any, *, ax: Axes | None = None) -> Figure:
     ones fail. The ensemble's own risk is not drawn, because the stored value is scored on
     the predictions its weights were fitted to, so it flatters the ensemble.
 
+    A fitted result, its ``result.diagnostics.nuisance_models()`` or one
+    :class:`~cleverly.validation.NuisanceModelReport` draws the same two panels for every
+    nuisance model a Super Learner fitted, one row of panels per model, from the risks and
+    weights the reports hold (each the mean over the model's cross-fitting folds).
+
     A :class:`~cleverly.estimators.CTMLESelection` (or a collaborative result that holds
     one) draws the cross-validated risk along the candidate sequence with the chosen
     candidate marked, which shows whether the choice was sharp.
 
     Parameters
     ----------
-    source : SuperLearnerDiagnostics or CTMLESelection or TMLEResult
-        What to plot. A fitted ``SuperLearner`` holds the first as ``diagnostics_``.
+    source : SuperLearnerDiagnostics or CTMLESelection or NuisanceModelReport or TMLEResult
+        What to plot. A fitted ``SuperLearner`` holds the first as ``diagnostics_``. A fit's
+        ``NuisanceDiagnostics`` is accepted too.
     ax : Axes or None, default=None
         Axes to draw on. Only for a collaborative selection, which is one panel.
 
     Returns
     -------
     Figure
-        Two panels for a Super Learner, one for a collaborative selection.
+        Two panels per Super Learner, one for a collaborative selection.
 
     Raises
     ------
     ValueError
-        When the source holds nothing to draw, or ``ax`` is given for the two-panel plot.
+        When the source holds nothing to draw (no nuisance model was fitted by a Super
+        Learner), or ``ax`` is given for the two-panel plot.
+    TypeError
+        When the source is none of the above.
 
     See Also
     --------
@@ -598,25 +751,44 @@ def learners(source: Any, *, ax: Axes | None = None) -> Figure:
     ...     n_folds=3,
     ... ).fit(x, y)
     >>> fig = learners(ensemble.diagnostics_)
-    >>> fig.axes[0].get_title(loc="left")
+    >>> fig.texts[0].get_text()
     'Which learners carry the fit?'
     >>> plt.close(fig)
     """
-    if hasattr(source, "ctmle_selection"):
-        selection = source.ctmle_selection
-        if selection is None or not hasattr(selection, "cv_risk"):
-            raise ValueError(
-                "this result holds no candidate sequence with cross-validated risks; pass a "
-                "SuperLearnerDiagnostics (a fitted SuperLearner's diagnostics_) instead"
+    role = None
+    if hasattr(source, "ctmle_selection") or hasattr(source, "diagnostics"):
+        selection = getattr(source, "ctmle_selection", None)
+        if selection is not None and hasattr(selection, "cv_risk") and hasattr(selection, "path"):
+            return _ctmle(selection, ax)
+        if not hasattr(getattr(source, "diagnostics", None), "nuisance_models"):
+            raise TypeError(
+                f"learners() cannot read the nuisance models of {type(source).__name__}"
             )
-        source = selection
+        source = source.diagnostics.nuisance_models()
     if hasattr(source, "selected") and hasattr(source, "cv_risk") and hasattr(source, "path"):
         return _ctmle(source, ax)
+    if ax is not None:
+        raise ValueError("learners() draws two panels per Super Learner; ax= is not accepted")
     if hasattr(source, "names") and hasattr(source, "cv_risk") and hasattr(source, "weights"):
-        return _super_learner(source, ax)
+        library = _Library(
+            None,
+            tuple(str(name) for name in source.names),
+            np.asarray(source.cv_risk, dtype=float),
+            np.asarray(source.weights, dtype=float),
+            str(source.loss),
+        )
+        extra = []
+        if source.failed:
+            extra.append("Dropped because fitting failed: " + ", ".join(map(str, source.failed)))
+        return _libraries([library], None, extra)
+    if hasattr(source, "models"):
+        role = getattr(source, "treatment_role", None)
+        return _from_reports(list(source.models), role)
+    if hasattr(source, "learner_risks") and hasattr(source, "learner_weights"):
+        return _from_reports([source], role)
     raise TypeError(
-        "learners() takes SuperLearnerDiagnostics, a CTMLESelection or a collaborative "
-        f"result; got {type(source).__name__}"
+        "learners() takes SuperLearnerDiagnostics, a CTMLESelection, a NuisanceModelReport, "
+        f"a fit's nuisance_models() or a fitted result; got {type(source).__name__}"
     )
 
 
@@ -630,6 +802,17 @@ def _estimate_of(result: Any, name: str | None) -> tuple[str, Any]:
     if name not in estimates:
         raise ValueError(f"estimand {name!r} is not in this result; it holds {list(estimates)}")
     return str(name), estimates[name]
+
+
+def _spread_word(estimate: Any) -> str:
+    """The name the summary prints the estimate's spread under: never "standard error"
+    for an estimate whose inference is withheld."""
+    if estimate.supplies_inference:
+        return "standard error"
+    from .._summary.vocabulary import SPREAD_LABELS
+    from ..inference.influence import spread_name
+
+    return SPREAD_LABELS[spread_name("std_err", estimate.inference)]
 
 
 def repeats(
@@ -646,7 +829,8 @@ def repeats(
     combined estimate. Use the plot to see whether the answer depends on how the data were
     split: each repeat is a point, the reported estimate is a line and its confidence
     interval is a shaded span. The repeats are descriptive points; none carries an
-    interval of its own.
+    interval of its own. When the fit withholds the interval, no span is drawn and the
+    subtitle names the plug-in spread as the summary does, not as a standard error.
 
     Parameters
     ----------
@@ -699,7 +883,7 @@ def repeats(
     ...     random_state=0,
     ... )
     >>> fig = repeats(result)
-    >>> fig.axes[0].get_title(loc="left")
+    >>> fig.texts[0].get_text()
     'Does the estimate depend on how the data were split?'
     >>> plt.close(fig)
     """
@@ -756,22 +940,21 @@ def repeats(
     if scale == "ratio" and np.all(values > 0):
         _core.log_axis(axis, "x")
     spread = float(result.repeat_spread()[label])
-    spread_text = f"{spread:.3g}" + (" on the log scale" if scale == "ratio" else "")
     error = float(estimate.std_error if estimate.supplies_inference else estimate.plugin_std_error)
-    _core.legend(axis)
-    _header(
-        axis,
+    both = ", both on the log scale" if scale == "ratio" else ""
+    _finish(
+        fig,
+        [axis],
         title or "Does the estimate depend on how the data were split?",
-        f"{label}: {len(values)} cross-fitting repeats. The spread across repeats (SD) is "
-        f"{spread_text}, against a standard error of {error:.3g}",
-    )
-    _notes(
-        axis,
+        f"{_core.estimand_words(label)}: {len(values)} cross-fitting repeats. The spread "
+        f"across repeats (SD) is {spread:.3g}, against a {_spread_word(estimate)} of "
+        f"{error:.3g}{both}",
         [
             "Descriptive: each point is the estimate from one fold split; no interval is "
             "drawn for a single repeat.",
             *shown.notes,
         ],
+        owned=ax is None,
     )
     return fig
 
@@ -779,10 +962,98 @@ def repeats(
 # --------------------------------------------------------------------------- bootstrap
 
 
+@dataclass(frozen=True)
+class _Replicates:
+    """What the bootstrap plot draws, read from the fit's summary or the bare draws."""
+
+    draws: np.ndarray
+    low: float
+    high: float
+    level: float
+    spread: float
+    spread_word: str
+    limits_word: str
+    notes: tuple[str, ...]
+
+
+def _from_summary(name: str, estimate: Any) -> _Replicates:
+    """The fit's own bootstrap summary, under the names its printed summary uses."""
+    from .._inference_status import MINIMUM_INTERVAL_CLUSTERS
+    from .._summary._estimates import plain_support_reason
+    from .._summary.vocabulary import BOOTSTRAP_DIAGNOSTIC
+    from ..inference.influence import BOOTSTRAP_INTERVAL_LABELS, bootstrap_is_diagnostic
+
+    summary = estimate.bootstrap
+    kind = BOOTSTRAP_INTERVAL_LABELS[summary.interval]
+    level = 1.0 - float(estimate.alpha)
+    low, high = (float(value) for value in summary.ci)
+    found: list[str] = []
+    if bootstrap_is_diagnostic(estimate):
+        if not estimate.supplies_inference:
+            reason = "withheld"
+        elif summary.below_floor:
+            reason = "below_floor"
+        else:
+            reason = "declared"
+        floor = summary.cluster_floor or MINIMUM_INTERVAL_CLUSTERS
+        found.append(BOOTSTRAP_DIAGNOSTIC[reason].format(names=name, clusters=floor))
+        spread_word, limits_word = "bootstrap SD", f"{kind} range (diagnostic)"
+    else:
+        spread_word, limits_word = "bootstrap SE", f"{_core.level_text(level)} {kind} interval"
+        if summary.support.label == "experimental":
+            found.append(
+                f"{name}: the bootstrap interval is experimental. "
+                f"{plain_support_reason(summary.support.reason)}"
+            )
+    shown = _core.estimate_interval(estimate, name)
+    if shown.experimental:
+        found.append(shown.notes[0])
+    return _Replicates(
+        np.asarray(summary.draws, dtype=float),
+        low,
+        high,
+        level,
+        float(summary.std_error),
+        spread_word,
+        limits_word,
+        tuple(found),
+    )
+
+
+def _scale_maps(estimate: Any) -> tuple[Callable[[Any], Any], Callable[[Any], Any], str | None]:
+    """The map to the scale the Wald interval is built on, its inverse, and its words."""
+    transform = getattr(estimate, "transform", None) if estimate is not None else None
+    if transform is not None:
+        return transform.forward, transform.inverse, f"the {transform.name} scale"
+    if estimate is not None and str(estimate.scale) == "ratio":
+        return np.log, np.exp, "the log scale"
+    return (lambda value: value), (lambda value: value), None
+
+
+def _inverse_ticks(
+    axis: Axes, inverse: Callable[[Any], Any], forward: Callable[[Any], Any]
+) -> None:
+    """Ticks at round values of the reported scale on an axis drawn on another scale."""
+    from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator
+
+    low, high = axis.get_xlim()
+    reported = np.sort(np.asarray(inverse(np.asarray([low, high])), dtype=float))
+    ticks = MaxNLocator(nbins=6, steps=[1, 2, 2.5, 5, 10]).tick_values(*reported)
+    ticks = ticks[(ticks >= reported[0]) & (ticks <= reported[1])]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        placed = np.asarray(forward(ticks), dtype=float)
+    keep = np.isfinite(placed)
+    axis.xaxis.set_major_locator(FixedLocator(placed[keep].tolist()))
+    labels = dict(zip(np.round(placed[keep], 12), ticks[keep], strict=True))
+    axis.xaxis.set_major_formatter(
+        FuncFormatter(lambda value, _: f"{labels.get(round(value, 12), inverse(value)):g}")
+    )
+
+
 def bootstrap(
     source: Any,
-    name: str | None = None,
     *,
+    name: str | None = None,
     level: float = 0.95,
     units: str | None = None,
     title: str | None = None,
@@ -790,11 +1061,18 @@ def bootstrap(
 ) -> Figure:
     """Plot the bootstrap replicates with a normal curve for comparison.
 
-    Use it to see whether the bootstrap distribution is symmetric and bell-shaped. When it
-    is skewed or heavy-tailed, a Wald interval (the estimate plus or minus 1.96 standard
-    errors) can mislead. The histogram shows the replicates, the curve is a normal density
-    with their mean and standard deviation, and the vertical lines mark the percentile
-    limits. Nothing is resampled here.
+    Use it to see whether the bootstrap distribution is symmetric and bell-shaped on the
+    scale the Wald interval is built on: the log scale for a ratio, the transform's scale
+    for a transformed estimate. When it is skewed or heavy-tailed there, the Wald interval
+    can mislead. The histogram shows the replicates, the curve is a normal density with
+    their mean and standard deviation, and the vertical lines mark the limits. Nothing is
+    resampled here.
+
+    From a fit the limits, the spread and their names are the fit's own, as its summary
+    prints them: the percentile or BCa interval, or a range marked diagnostic when the fit
+    withholds the interval, declares its bootstrap a diagnostic or has too few clusters,
+    and the experimental label when no validation study covers the interval. A bare
+    ``BootstrapResult`` draws the percentile limits of its replicates.
 
     Parameters
     ----------
@@ -802,7 +1080,7 @@ def bootstrap(
         The replicates, or a fit that holds them. A fit also marks its reported estimate
         and takes its confidence level.
     name : str or None, default=None
-        The estimand to draw. Needed when the replicates hold several.
+        The estimand to draw; the first one with replicates when omitted.
     level : float, default=0.95
         Coverage of the percentile limits, for a bare ``BootstrapResult``.
     units : str or None, default=None
@@ -820,8 +1098,8 @@ def bootstrap(
     Raises
     ------
     ValueError
-        When a fit holds no bootstrap, several estimands are held and none is named, or
-        fewer than two replicates are finite.
+        When a fit holds no bootstrap, the estimand has no replicates, fewer than two
+        replicates are finite, or every replicate is equal.
 
     See Also
     --------
@@ -848,40 +1126,59 @@ def bootstrap(
     ...     random_state=0,
     ... )
     >>> fig = result.bootstrap.plot("ate")
-    >>> fig.axes[0].get_title(loc="left")
+    >>> fig.texts[0].get_text()
     'Is the bootstrap distribution close to normal?'
     >>> plt.close(fig)
     """
-    estimate = None
-    outcome = None
-    if hasattr(source, "estimates"):
-        if getattr(source, "bootstrap", None) is None:
+    result = source if hasattr(source, "estimates") else None
+    if result is not None:
+        if getattr(result, "bootstrap", None) is None:
             raise ValueError("this fit holds no bootstrap replicates; fit with n_bootstrap > 0")
-        result = source
-        source = result.bootstrap
-        level = 1.0 - float(result.config.alpha_sig)
-        outcome = getattr(result.data, "outcome_name", None)
+        replicates = result.bootstrap
     else:
-        result = None
-    held = list(source.draws)
+        replicates = source
+    held = list(replicates.draws)
     if name is None:
-        if len(held) != 1:
-            raise ValueError(f"name the estimand to draw; the replicates hold {held}")
-        name = held[0]
-    if name not in source.draws:
+        ordered = [alias for alias in (result.estimates if result else ()) if alias in held]
+        name = (ordered or held)[0]
+    if name not in replicates.draws:
         raise ValueError(f"estimand {name!r} has no replicates; they hold {held}")
-    if result is not None and name in result.estimates:
-        estimate = result.estimates[name]
-    summary = source.interval(name, 1.0 - level)
-    draws = np.asarray(summary.draws, dtype=float)
-    if draws.size < 2:
+    estimate = result.estimates.get(name) if result is not None else None
+    if estimate is not None and estimate.bootstrap is not None:
+        read = _from_summary(name, estimate)
+    else:
+        if result is not None:
+            level = 1.0 - float(result.config.alpha_sig)
+        bare = replicates.interval(name, 1.0 - level)
+        low, high = (float(value) for value in bare.ci)
+        read = _Replicates(
+            np.asarray(bare.draws, dtype=float),
+            low,
+            high,
+            level,
+            float(bare.std_error),
+            "SD of the replicates",
+            f"{_core.level_text(level)} percentile limits",
+            (),
+        )
+    forward, inverse, scale_words = _scale_maps(estimate)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        values = np.asarray(forward(read.draws), dtype=float)
+    values = values[np.isfinite(values)]
+    if values.size < 2:
         raise ValueError(f"fewer than two finite replicates of {name!r}; there is nothing to plot")
-    mean, spread = float(np.mean(draws)), float(np.std(draws, ddof=1))
+    mean, spread = float(np.mean(values)), float(np.std(values, ddof=1))
+    if not spread > 1e-12 * max(1.0, abs(mean)):
+        raise ValueError(
+            f"every replicate of {name!r} is equal, so there is no distribution to compare "
+            "with a normal curve"
+        )
     fig, axis = _core.figure_for(ax)
-    bins = int(min(max(10, round(math.sqrt(draws.size))), 40))
+    axis.grid(False)  # a density is read by shape, and a grid line would strike the labels
+    bins = int(min(max(10, round(math.sqrt(values.size))), 40))
     patches: Any
     _, _, patches = axis.hist(
-        draws,
+        values,
         bins=bins,
         density=True,
         color=_core.PALETTE[0],
@@ -893,8 +1190,8 @@ def bootstrap(
     for patch in patches:
         patch.set_gid("cleverly-bootstrap-histogram")
     grid = np.linspace(
-        min(float(draws.min()), mean - 3.5 * spread),
-        max(float(draws.max()), mean + 3.5 * spread),
+        min(float(values.min()), mean - 3.5 * spread),
+        max(float(values.max()), mean + 3.5 * spread),
         240,
     )
     density = np.exp(-0.5 * ((grid - mean) / spread) ** 2) / (spread * math.sqrt(2.0 * math.pi))
@@ -907,79 +1204,82 @@ def bootstrap(
         gid="cleverly-bootstrap-normal",
     )
     curve.set_label("_nolegend_")
-    low, high = summary.ci
-    for limit in (low, high):
-        _core.reference_line(
+    top = max(float(np.max(density)), max(patch.get_height() for patch in patches))
+    axis.set_ylim(0.0, top * 1.45)
+    # Vertical lines stop below the two series labels at the top of the panel.
+    reach = 1.12 / 1.45
+    for limit in (read.low, read.high):
+        line = _core.reference_line(
             axis,
-            float(limit),
+            float(forward(limit)),
             orientation="vertical",
-            label=f"{_core.level_text(level)} percentile limits",
+            label=read.limits_word,
             kind="marker",
         )
+        line.set_ydata([0.0, reach])
     if estimate is not None:
-        _core.reference_line(
-            axis, float(estimate.psi), orientation="vertical", label="Reported estimate"
+        line = _core.reference_line(
+            axis, float(forward(estimate.psi)), orientation="vertical", label="Reported estimate"
         )
-    top = max(float(np.max(density)), max(patch.get_height() for patch in patches))
-    axis.set_ylim(0.0, top * 1.3)
+        line.set_ydata([0.0, reach])
     _core.corner_label(axis, 0.97, "Bootstrap replicates", _core.PALETTE[0])
-    _core.corner_label(axis, 0.88, "Normal approximation (same mean and SD)", _core.PALETTE[1])
-    scale = str(estimate.scale) if estimate is not None else "level"
+    _core.corner_label(axis, 0.86, "Normal approximation (same mean and SD)", _core.PALETTE[1])
+    outcome = getattr(result.data, "outcome_name", None) if result is not None else None
     if estimate is None:
         axis.set_xlabel("Estimate in each bootstrap replicate")
     else:
-        axis.set_xlabel(_axis_label(scale, outcome, units).replace(" (log scale)", ""))
+        label = _axis_label(str(estimate.scale), outcome, units)
+        if scale_words is not None and "log scale" not in label:
+            label = f"{label} (on {scale_words})"
+        axis.set_xlabel(label)
+    if scale_words is not None:
+        _inverse_ticks(axis, inverse, forward)
     axis.set_ylabel("Density of replicates")
-    _core.legend(axis)
-    _header(
-        axis,
-        title or "Is the bootstrap distribution close to normal?",
-        f"{name}: {draws.size} replicates, bootstrap standard error {spread:.3g}; "
-        f"{_core.level_text(level)} percentile limits {low:.3g} to {high:.3g}",
-    )
     found = [
         "Descriptive: the histogram shows the bootstrap replicates, and the curve is a normal "
         "density with their mean and standard deviation, drawn for comparison only.",
-        f"Resampling by {source.resampling}.",
+        *read.notes,
+        "Whole clusters resampled."
+        if str(replicates.resampling) == "cluster"
+        else "Rows resampled independently.",
     ]
-    if source.n_failed:
+    if scale_words is not None:
         found.append(
-            f"{source.n_failed} of {source.n_requested} replicates failed and are left out."
+            f"Drawn on {scale_words}, where the reported Wald interval is built; the "
+            "ticks read on the reported scale."
         )
-    _notes(axis, found)
+    if replicates.n_failed:
+        found.append(
+            f"{replicates.n_failed} of {replicates.n_requested} replicates failed and are left out."
+        )
+    words = _core.estimand_words(name) if estimate is not None else name
+    reported = " on the reported scale" if scale_words is not None else ""
+    _finish(
+        fig,
+        [axis],
+        title or "Is the bootstrap distribution close to normal?",
+        f"{words}: {values.size} replicates, {read.spread_word} {read.spread:.3g}{reported}; "
+        f"{read.limits_word} {read.low:.3g} to {read.high:.3g}",
+        found,
+        owned=ax is None,
+    )
     return fig
 
 
 # --------------------------------------------------------------------------- influence
 
 
-def concentration(influence_curve: Any, cluster: Any = None) -> tuple[np.ndarray, np.ndarray, str]:
-    """The cumulative share of squared influence carried by the top units.
+def _concentration(influence_curve: Any, cluster: Any = None) -> tuple[np.ndarray, np.ndarray, str]:
+    """The cumulative share of the centred sum of squares carried by the top units.
 
     Units are the rows, or the clusters when ``cluster`` is given, in which case the
     influence values are summed within each cluster first (the unit that carries the
-    variance on a clustered fit).
+    variance on a clustered fit). The values are centred at their mean, as
+    :func:`~cleverly.inference.influence_variance` centres them, so the shares partition
+    the numerator of the reported variance.
 
-    Parameters
-    ----------
-    influence_curve : array-like
-        The per-row influence values.
-    cluster : array-like or None, default=None
-        Cluster codes, one per row.
-
-    Returns
-    -------
-    fraction : ndarray
-        The fraction of units taken, ``0, 1/m, ..., 1``, largest squared value first.
-    share : ndarray
-        The share of the sum of squared values those units carry, from 0 to 1.
-    units : str
-        ``"rows"`` or ``"clusters"``.
-
-    Raises
-    ------
-    ValueError
-        When fewer than two units, a non-finite value, or all values zero.
+    Returns the fraction of units taken (``0, 1/m, ..., 1``, largest squared value first),
+    the share of the sum of squares those units carry, and ``"rows"`` or ``"clusters"``.
     """
     from ..inference.bootstrap import cluster_sums
 
@@ -991,14 +1291,25 @@ def concentration(influence_curve: Any, cluster: Any = None) -> tuple[np.ndarray
     values = cluster_sums(curve, None if cluster is None else np.asarray(cluster))
     if values.size < 2:
         raise ValueError("need at least two units to show how the influence is spread")
-    squares = np.sort(values**2)[::-1]
+    squares = np.sort((values - values.mean()) ** 2)[::-1]
     total = float(squares.sum())
     if total <= 0.0:
-        raise ValueError("the influence values are all zero, so there is no spread to show")
+        raise ValueError("the influence values are all equal, so there is no spread to show")
     count = squares.size
     fraction = np.concatenate([[0.0], np.arange(1, count + 1) / count])
     share = np.concatenate([[0.0], np.cumsum(squares) / total])
     return fraction, share, "rows" if cluster is None else "clusters"
+
+
+def _top_words(top: int, count: int, unit: str) -> tuple[str, str]:
+    """The headline and the point label of the top units, naming the share actually taken."""
+    plural = f"{unit}s"
+    if count % 100 == 0:
+        return f"the top 1% of {plural} ({top} of {count}) carry", "Top 1%"
+    taken = _percent(top / count)
+    if top == 1:
+        return f"the largest {unit} ({taken} of {count}) carries", f"Largest {unit}"
+    return f"the top {top} of {count} {plural} ({taken}) carry", f"Top {top} {plural}"
 
 
 def influence(
@@ -1011,16 +1322,19 @@ def influence(
 ) -> Figure:
     """Plot how concentrated the uncertainty is in a few rows or clusters.
 
-    Rank the units by their squared influence value, largest first, and plot the share of
-    the sum of squared values that the top ``k`` percent carry against ``k``. A curve on
-    the dashed diagonal means every unit contributes equally; a curve that rises steeply
-    means a few units carry the standard error, which is how a Wald interval misleads even
-    without a bootstrap. On a clustered fit the influence values are summed within
-    clusters and the unit is the cluster.
+    Rank the units by their squared centred influence value, largest first, and plot the
+    share of the sum of squares that the top ``k`` percent carry against ``k``. The sum is
+    the numerator of the influence-curve variance. A curve on the dashed diagonal means
+    every unit contributes equally; a curve that rises steeply means a few units carry the
+    standard error, which is how a Wald interval misleads even without a bootstrap. On a
+    clustered fit the influence values are summed within clusters and the unit is the
+    cluster. The subtitle names the top 1% of units, or the smallest whole number of units
+    above it when the count is not a multiple of 100.
 
     The curve describes the stored influence values. On a fit with several cross-fitting
-    repeats, or one evaluated within folds, the reported variance is not computed from this
-    curve, and the note says so.
+    repeats the stored curve is the median draw's (the mean of the two central draws for
+    an even count), and on a fit evaluated within folds the reported variance is not
+    computed from this curve; the note says so.
 
     Parameters
     ----------
@@ -1044,13 +1358,13 @@ def influence(
     Raises
     ------
     ValueError
-        When the estimate's inference is not from the influence curve (the reason is
-        given), when a clustered estimate comes without cluster codes, or when the values
-        cannot be ranked.
+        When the estimate's interval is withheld (the reason is given), when a clustered
+        estimate comes without cluster codes, or when the values cannot be ranked.
 
     See Also
     --------
-    cleverly.assessment.DiagnosticsFacade.influence : The same concentration as numbers.
+    cleverly.assessment.DiagnosticsFacade.influence : The Kish effective count, skewness and
+        kurtosis of the same curve.
 
     Examples
     --------
@@ -1073,7 +1387,7 @@ def influence(
     ...     random_state=0,
     ... )
     >>> fig = influence(result)
-    >>> fig.axes[0].get_title(loc="left")
+    >>> fig.texts[0].get_text()
     'How concentrated is the uncertainty?'
     >>> plt.close(fig)
     """
@@ -1092,29 +1406,23 @@ def influence(
         from .._inference_status import status_record
 
         raise ValueError(
-            f"{label}: the interval is not computed from the influence curve, so there is "
-            f"nothing to show. {status_record(str(estimate.inference)).plain_reason}"
+            f"{label}: this estimate's interval is withheld, so its influence curve does not "
+            "carry a reported uncertainty. "
+            f"{status_record(str(estimate.inference)).plain_reason}"
         )
     if cluster is None and int(estimate.n_clusters) < int(estimate.n):
         raise ValueError(
             f"{label} comes from a clustered fit ({estimate.n_clusters} clusters in "
             f"{estimate.n} rows); pass the fitted result, or cluster= with one code per row"
         )
-    fraction, share, units = concentration(estimate.influence_curve, cluster)
+    fraction, share, units = _concentration(estimate.influence_curve, cluster)
     count = fraction.size - 1
     top = max(1, math.ceil(0.01 * count - 1e-12))
     top_share = float(share[top])
-    fig, axis = _core.figure_for(ax, figsize=(5.8, 5.4))
-    axis.plot(
-        [0.0, 1.0],
-        [0.0, 1.0],
-        color=_core.REFERENCE,
-        linestyle=(0, (4, 3)),
-        linewidth=1.2,
-        zorder=1.5,
-        label="Even spread",
-        gid="cleverly-reference",
-    )
+    unit = "cluster" if units == "clusters" else "row"
+    headline, point_label = _top_words(top, count, unit)
+    fig, axis = _core.figure_for(ax, figsize=(5.2, 5.6))
+    _diagonal(axis, 0.0, 1.0, label="Even spread")
     (curve,) = axis.plot(
         fraction,
         share,
@@ -1135,7 +1443,7 @@ def influence(
         gid="cleverly-influence-top",
     )
     axis.annotate(
-        f"Top 1%: {_percent(top_share)}",
+        f"{point_label}: {_percent(top_share)}",
         xy=(fraction[top], top_share),
         xytext=(12.0, 0.0),
         textcoords="offset points",
@@ -1154,28 +1462,38 @@ def influence(
     axis.xaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
     axis.yaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
     axis.grid(True, axis="both", color=_core.GRID, linewidth=0.8)
-    plural = "clusters" if units == "clusters" else "rows"
-    axis.set_xlabel(f"Top share of {plural}, largest squared influence first")
+    axis.set_xlabel(f"Top share of {units}, largest squared influence first")
     axis.set_ylabel("Share of the sum of squared influence values")
-    _core.legend(axis)
-    _header(
-        axis,
-        title or "How concentrated is the uncertainty?",
-        f"{label}: the top 1% of {plural} ({top} of {count}) carry {_percent(top_share)} "
-        "of the sum of squared influence values",
+    subtitle = (
+        f"{_core.estimand_words(label)}: {headline} {_percent(top_share)} of the sum of "
+        "squared influence values"
     )
+    from ..inference.sparse import influence_row
+
+    kish = influence_row(
+        label, np.asarray(estimate.influence_curve, dtype=float), cluster=cluster
+    ).kish
     found = [
         "Descriptive: a measure of how the stored influence values are spread; "
-        "no interval is drawn."
+        "no interval is drawn. Values are centred at their mean, as the variance centres them.",
+        f"Kish effective count: {kish:.0f} of {count} {units}.",
     ]
     if units == "clusters":
         found.append("Share of clusters: influence values are summed within each cluster first.")
     if result is not None:
         draws = len(getattr(result, "repeats", ()))
         if draws > 1:
+            learned = getattr(result.config, "parameter_axis", None) == "learned_rule"
+            whose = (
+                "the mean of the repeats' curves"
+                if learned
+                else "the median draw's curve"
+                + (" (the mean of the two central draws)" if draws % 2 == 0 else "")
+            )
             found.append(
-                f"This fit combines {draws} cross-fitting repeats, so this curve is not the "
-                "reported variance."
+                f"This fit combines {draws} cross-fitting repeats: the curve is {whose}, and "
+                "the reported variance also counts the spread between repeats, so this curve "
+                "is not the reported variance."
             )
         if getattr(getattr(result, "config", None), "cv_evaluation", False):
             found.append(
@@ -1184,8 +1502,16 @@ def influence(
             )
     if str(estimate.scale) == "ratio":
         found.append("Influence values are on the log scale.")
-    _notes(axis, found)
+    found.extend(_core.estimate_interval(estimate, label).notes)
+    _finish(
+        fig,
+        [axis],
+        title or "How concentrated is the uncertainty?",
+        subtitle,
+        found,
+        owned=ax is None,
+    )
     return fig
 
 
-__all__ = ["bootstrap", "calibration", "concentration", "influence", "learners", "repeats"]
+__all__ = ["bootstrap", "calibration", "influence", "learners", "repeats"]

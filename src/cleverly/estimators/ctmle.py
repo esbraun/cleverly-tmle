@@ -1356,7 +1356,7 @@ class CTMLESelection:
         ...     random_state=0,
         ... ).fit(frame, outcome="Y", treatment="A").single()
         >>> fig = result.ctmle_selection.plot()
-        >>> fig.axes[0].get_title(loc="left")
+        >>> fig.texts[0].get_text()
         'How sharp was the choice of treatment model?'
         >>> plt.close(fig)
         """

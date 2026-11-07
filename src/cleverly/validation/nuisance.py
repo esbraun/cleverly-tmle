@@ -46,7 +46,7 @@ average, so the adjustment is doing very little.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
@@ -176,6 +176,14 @@ class NuisanceModelReport:
         Why a probability report has no ``calibration_slope``, for example
         :data:`CALIBRATION_CONSTANT_WITHIN_FOLDS`. ``None`` when the slope is available or the
         report is not a probability model.
+    evaluation : {"out_of_fold", "in_sample"} or None, default=None
+        Whether the predictions this report reads were made out of fold, as
+        :attr:`NuisanceDiagnostics.evaluation` records for the whole fit. ``None`` when the
+        report was built outside a point-treatment fit's diagnostics.
+    learner_loss : str or None, default=None
+        The loss the Super Learner scored ``learner_risks`` under (``"mse"`` or
+        ``"neg_log_likelihood"``), or ``None`` without a Super Learner or when its fits
+        disagree.
     """
 
     name: str
@@ -185,6 +193,8 @@ class NuisanceModelReport:
     learner_weights: dict[str, float]
     learner_risks: dict[str, float]
     calibration_omission: str | None = None
+    evaluation: EvaluationBasis | None = None
+    learner_loss: str | None = None
 
     def row(self) -> list[str]:
         """Return this model's metrics as one row of the diagnostics table.
@@ -214,8 +224,9 @@ class NuisanceModelReport:
         Returns
         -------
         Figure
-            One panel with the bins sized by their row count, the 45-degree line of perfect
-            calibration, and the logistic calibration slope in the subtitle.
+            One panel with the bins sized by their row count and the 45-degree line of
+            perfect calibration. The subtitle gives the logistic calibration slope of
+            out-of-fold predictions; an in-sample report shows none.
 
         Raises
         ------
@@ -245,8 +256,8 @@ class NuisanceModelReport:
         ... )
         >>> report = result.diagnostics.nuisance_models().models[0]
         >>> fig = report.plot()
-        >>> fig.axes[0].get_xlabel()
-        'Treatment model: mean predicted probability'
+        >>> fig.axes[0].get_title(loc="left")
+        'Treatment model'
         >>> plt.close(fig)
         """
         from ..plotting import calibration
@@ -1040,9 +1051,10 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
             )
         )
     spread_rows, spread_omission = _spread_rows(result)
+    evaluation: EvaluationBasis = "in_sample" if nuisance.folds.is_single else "out_of_fold"
     return NuisanceDiagnostics(
-        models=tuple(models),
-        evaluation="in_sample" if nuisance.folds.is_single else "out_of_fold",
+        models=tuple(replace(model, evaluation=evaluation) for model in models),
+        evaluation=evaluation,
         n_repeats=result.n_repeats,
         backend=result.data.backend,
         selection=selection,
@@ -1164,6 +1176,13 @@ def _aggregate_learner_info(
     )
 
 
+def _learner_loss(diagnostics: Any) -> str | None:
+    """The one loss every Super Learner fit behind a report scored its risks under."""
+    entries = diagnostics if isinstance(diagnostics, (list, tuple)) else [diagnostics]
+    losses = {str(entry.loss) for entry in entries if getattr(entry, "names", None) is not None}
+    return losses.pop() if len(losses) == 1 else None
+
+
 def _binary_report(
     name: str,
     predicted: FloatArray,
@@ -1222,6 +1241,7 @@ def _binary_report(
         learner_weights=learner_weights,
         learner_risks=learner_risks,
         calibration_omission=omission,
+        learner_loss=_learner_loss(diagnostics),
     )
 
 
@@ -1257,6 +1277,7 @@ def _continuous_report(
         calibration=_calibration_table(p, y, w),
         learner_weights=learner_weights,
         learner_risks=learner_risks,
+        learner_loss=_learner_loss(diagnostics),
     )
 
 

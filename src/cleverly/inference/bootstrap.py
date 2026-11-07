@@ -201,7 +201,7 @@ class BootstrapResult:
         Parameters
         ----------
         name : str or None, default=None
-            The estimand alias; needed when the replicates hold several.
+            The estimand alias; the first one when omitted.
         **kwargs
             Passed to :func:`cleverly.plotting.bootstrap`: ``level=``, ``units=``,
             ``title=`` and ``ax=``.
@@ -241,7 +241,7 @@ class BootstrapResult:
         """
         from ..plotting import bootstrap
 
-        return bootstrap(self, name, **kwargs)
+        return bootstrap(self, name=name, **kwargs)
 
     def summary(self, *, detail: Detail = "short") -> Summary:
         """A printable report of the replicates, laid out like a statsmodels summary.
