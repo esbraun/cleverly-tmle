@@ -13,6 +13,7 @@ The plots:
 function                question
 ======================  ===========================================================
 :func:`forest`          the estimates of one or several fits, with their intervals
+:func:`curve`           how a result changes over time, dose, policy or modifier
 :func:`sensitivity`     does the estimate depend on a declared sensitivity parameter?
 :func:`overlap`         did every kind of unit have a chance of each treatment?
 :func:`calibration`     do predicted effects or probabilities match what was measured?
@@ -26,6 +27,7 @@ function                question
 from __future__ import annotations
 
 from ._core import PALETTE, style
+from ._curves import curve
 from ._diagnostics import bootstrap, calibration, influence, learners, repeats
 from ._forest import forest
 from ._overlap import overlap
@@ -35,6 +37,7 @@ __all__ = [
     "PALETTE",
     "bootstrap",
     "calibration",
+    "curve",
     "forest",
     "influence",
     "learners",

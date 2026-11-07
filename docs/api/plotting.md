@@ -13,6 +13,7 @@ matplotlib is optional. Install it with `pip install "cleverly[plot]"`.
    :nosignatures:
 
    cleverly.plotting.forest
+   cleverly.plotting.curve
    cleverly.plotting.sensitivity
    cleverly.plotting.overlap
    cleverly.plotting.calibration
@@ -29,3 +30,6 @@ The results that have one natural figure also draw it with `plot()`:
 `CurveCalibration.plot()` and `NuisanceModelReport.plot()` call `calibration`,
 `SuperLearnerDiagnostics.plot()` and `CTMLESelection.plot()` call `learners`, and
 `BootstrapResult.plot()` calls `bootstrap`.
+`LongitudinalResult.plot()` draws its curve over time with `curve`, or the estimates with
+`forest` when the fit has no curve, and `EffectCurveResult.plot()` draws the conditional effect
+over a modifier with `curve`.

@@ -42,13 +42,14 @@ from __future__ import annotations
 
 import copy
 import warnings
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
 from scipy.special import expit, logit
 
-from .._typing import FloatArray
+from .._typing import FloatArray, IntArray
 from .._warnings import attach
 from ..bases import Constant, Modifiers, Sieve, resolve
 from ..data.causal_data import CausalData
@@ -67,11 +68,17 @@ __all__ = [
     "EPEstimator",
     "EPFit",
     "SieveRecord",
+    "cross_validated_risks",
+    "curve_from_pieces",
     "debias",
     "debias_features",
     "ep_status",
     "final_stage",
+    "nuisance_pieces",
     "one_step_risk",
+    "refit_seed",
+    "sieve_member",
+    "size_refusal",
 ]
 
 #: Inner folds of the cross-fit that refits the nuisances inside each training fold of the
@@ -429,6 +436,68 @@ def one_step_risk(
     return float(np.sum(w * loss) / np.sum(w))
 
 
+#: One training fold's curves at a size, predicted at the fold's held-out modifier rows.
+FoldPredictor = Callable[[int, dict[str, Any]], FloatArray]
+
+
+def cross_validated_risks(
+    splits: Sequence[tuple[int, IntArray, IntArray]],
+    sizes: Sequence[int],
+    fit_fold: Callable[[int, IntArray], FoldPredictor],
+    frame: Mapping[str, Any],
+    d_t: FloatArray,
+    d_r: FloatArray,
+    scale: str,
+    weights: FloatArray,
+) -> tuple[float, ...]:
+    """The weighted cross-validated one-step risk of each sieve size (EPL Algorithm 4).
+
+    Each split ``(key, train, test)`` refits its curves through ``fit_fold(key, train)``,
+    which sees the training rows only, and scores each size's curve on ``test`` against the
+    pseudo-outcomes there.  A size's risk is the weight-pooled mean of its held-out losses.
+    Both the EP learner's size step and the EP rule learner's read this one loop.
+
+    Parameters
+    ----------
+    splits : sequence of tuple
+        ``(key, train, test)`` per training fold, with integer row indices.
+    sizes : sequence of int
+        The sieve sizes compared.
+    fit_fold : callable
+        ``fit_fold(key, train)`` returns ``predict(size, held)``, the curve of that size at the
+        held-out modifier columns ``held``, on the scale the pseudo-outcomes are on.
+    frame : mapping
+        The modifier columns of every row.
+    d_t : ndarray
+        Pseudo-outcome of arm ``t`` at every row.
+    d_r : ndarray
+        Pseudo-outcome of arm ``r`` at every row.
+    scale : {"difference", "log_ratio"}
+        The contrast's scale.
+    weights : ndarray
+        The row weights.
+
+    Returns
+    -------
+    tuple of float
+        The risk of each size, in the order of ``sizes``.
+    """
+    totals = np.zeros(len(sizes))
+    mass = 0.0
+    for key, train, test in splits:
+        predict = fit_fold(key, train)
+        held = {name: np.asarray(column)[test] for name, column in frame.items()}
+        held_weights = weights[test]
+        total = float(np.sum(held_weights))
+        for position, size in enumerate(sizes):
+            totals[position] += (
+                one_step_risk(predict(size, held), d_t[test], d_r[test], scale, held_weights)
+                * total
+            )
+        mass += total
+    return tuple(float(value / mass) for value in totals)
+
+
 # ---------------------------------------------------------------- records and status
 
 
@@ -585,6 +654,63 @@ def ep_status(
     return "supported", claim
 
 
+def sieve_member(family: Any, size: int, modifiers: Modifiers) -> Any:
+    """The member of ``size`` terms per component of the sieve family ``family``.
+
+    Parameters
+    ----------
+    family : Basis
+        The sieve family's largest member.
+    size : int
+        The size; 0 is the constant.
+    modifiers : Modifiers
+        The schema the member's level sets are read from.
+
+    Returns
+    -------
+    Basis
+        The truncated, resolved basis.
+    """
+    if size == 0:
+        basis: Any = Constant()
+    elif int(size) == int(family.max_size):
+        basis = family
+    else:
+        basis = family.truncate(int(size))
+    return resolve(basis, modifiers)
+
+
+def size_refusal(size: int, family: Any, n: int) -> CapabilityError | None:
+    """The refusal of a declared sieve size above the family's largest member, or ``None``.
+
+    Parameters
+    ----------
+    size : int
+        The declared size at ``n`` rows.
+    family : Basis
+        The sieve family's largest member.
+    n : int
+        The rows the size is declared for.
+
+    Returns
+    -------
+    CapabilityError or None
+        The refusal, which names the size and the family.
+    """
+    largest = int(family.max_size)
+    if size <= largest:
+        return None
+    return _refuse(
+        f"The sieve declares {size} terms per component at n = {n}, and its family "
+        f"{family!r} has at most {largest}. Fitting the {largest}-term member would replace the "
+        "declared size, which is the size the EP learner's rate claims name.",
+        alternative=(
+            f"Declare a size of at most {largest}, or a larger family "
+            "(Sieve.default(..., max_size=...))."
+        ),
+    )
+
+
 # ---------------------------------------------------------------- the estimator
 
 
@@ -607,19 +733,51 @@ class _Pieces:
     pair: tuple[float, float]
 
 
-def _pieces(fit: Any) -> _Pieces:
-    """Read the debiasing inputs off a projection TMLE's nuisances and resolved bounds."""
-    data = fit.data
-    nuisance = fit.nuisance
-    config = fit.config
-    pair = tuple(nuisance.effect_modification.pair)
-    shrunk = nuisance.outcome.shrunk(config.alpha)
+def nuisance_pieces(
+    data: CausalData,
+    nuisance: Any,
+    *,
+    pair: tuple[float, float],
+    g_bounds: tuple[float, float],
+    alpha: float,
+    missingness_bound: float | None = None,
+) -> _Pieces:
+    """Read the debiasing inputs of one EP fit off cross-fitted nuisances.
+
+    The part (b) curve reads the nuisances of its projection TMLE, and the ``loss="ep"`` rule
+    learner of part (c) reads the inner cross-fit of each outer training fold; both go through
+    this function, so the two cannot diverge.
+
+    Parameters
+    ----------
+    data : CausalData
+        The rows the nuisances were fitted on.
+    nuisance : NuisanceEstimates
+        Cross-fitted nuisances of those rows, one out-of-fold prediction per row.
+    pair : tuple of float
+        The arm codes ``(t, r)``.
+    g_bounds : tuple of float
+        The truncation bounds of the treatment mechanism.
+    alpha : float
+        The outcome shrinkage of the logit fluctuation (``TMLE(alpha=...)``), which keeps the
+        offset finite.
+    missingness_bound : float or None
+        The lower bound of the observation mechanism, read when the nuisances carry one.
+
+    Returns
+    -------
+    _Pieces
+        The arrays of the debiasing regression, on the scaled outcome.
+    """
+    shrunk = nuisance.outcome.shrunk(alpha)
     treatment = np.asarray(data.treatment, dtype=float)
     observed = np.asarray(data.observed, dtype=float)
     scaled = nuisance.scaler.scale(np.where(observed > 0.5, np.asarray(data.outcome), 0.0))
     y = np.clip(np.where(observed > 0.5, scaled, 0.0), 0.0, 1.0)
-    g = np.asarray(nuisance.propensity.bounded(tuple(config.g_bounds)), dtype=float)
-    missingness = nuisance.bounded_missingness(float(config.missingness_bound))
+    g = np.asarray(nuisance.propensity.bounded(tuple(g_bounds)), dtype=float)
+    missingness = (
+        None if missingness_bound is None else nuisance.bounded_missingness(missingness_bound)
+    )
     weight = np.zeros(data.n)
     for arm in pair:
         column = nuisance.propensity.column_for(arm)
@@ -641,6 +799,92 @@ def _pieces(fit: Any) -> _Pieces:
         rows=rows,
         pair=(float(pair[0]), float(pair[1])),
     )
+
+
+def _pieces(fit: Any) -> _Pieces:
+    """Read the debiasing inputs off a projection TMLE's nuisances and resolved bounds."""
+    config = fit.config
+    return nuisance_pieces(
+        fit.data,
+        fit.nuisance,
+        pair=tuple(fit.nuisance.effect_modification.pair),
+        g_bounds=tuple(config.g_bounds),
+        alpha=config.alpha,
+        missingness_bound=float(config.missingness_bound),
+    )
+
+
+def curve_from_pieces(
+    pieces: _Pieces,
+    design: FloatArray,
+    *,
+    basis: Any,
+    modifiers: Modifiers,
+    scale: str,
+    width: float,
+    clip: bool,
+    final_learner: Any = None,
+    values: dict[str, np.ndarray] | None = None,
+) -> tuple[EPCurve, Debiasing]:
+    """Debias and fit the final stage at one sieve member (EPL Algorithms 2 and 3).
+
+    Parameters
+    ----------
+    pieces : _Pieces
+        The debiasing inputs (:func:`nuisance_pieces`).
+    design : ndarray
+        ``(n, k)`` the member's basis at the rows.
+    basis : Basis
+        The member, which the curve evaluates at new rows.
+    modifiers : Modifiers
+        The modifier schema.
+    scale : {"difference", "log_ratio"}
+        The contrast's scale.
+    width : float
+        ``b - a``, the outcome range.
+    clip : bool
+        Whether the curve clips its predictions to ``[-(b - a), b - a]``.
+    final_learner : Any
+        A declared final regressor, or ``None`` for least squares on the basis.
+    values : dict of str to ndarray or None
+        The modifier columns a declared final learner reads.
+
+    Returns
+    -------
+    tuple
+        The curve and its debiasing regression.
+    """
+    debiased = debias(
+        y=pieces.y,
+        treatment=pieces.treatment,
+        observed=pieces.observed,
+        initial_observed=pieces.initial_observed,
+        initial_t=pieces.initial_t,
+        initial_r=pieces.initial_r,
+        weight=pieces.weight,
+        design=design,
+        pair=pieces.pair,
+        scale=scale,
+    )
+    beta, learner = final_stage(
+        debiased,
+        design,
+        pieces.rows,
+        scale,
+        learner=final_learner,
+        values=values if final_learner is not None else None,
+    )
+    curve = EPCurve(
+        basis=basis,
+        modifiers=modifiers,
+        scale=scale,
+        terms=tuple(basis.terms),
+        beta=beta,
+        learner=learner,
+        width=float(width),
+        clip=clip,
+    )
+    return curve, debiased
 
 
 @dataclass(frozen=True)
@@ -831,14 +1075,9 @@ class EPEstimator:
         Basis
             The truncated basis.
         """
-        family = self.effect_modification.basis
-        if size == 0:
-            basis: Any = Constant()
-        elif int(size) == int(family.max_size):
-            basis = family
-        else:
-            basis = family.truncate(int(size))
-        return resolve(basis, self.effect_modification.modifiers)
+        return sieve_member(
+            self.effect_modification.basis, size, self.effect_modification.modifiers
+        )
 
     def sizes(self, n: int) -> tuple[int, ...]:
         """The sizes the fit tries at ``n`` rows.
@@ -893,19 +1132,10 @@ class EPEstimator:
             If a row breaks the modifier schema, or a member is collinear on the rows.
         """
         frame = modifier_frame(data, tuple(self.effect_modification.modifiers.columns))
-        largest = int(self.effect_modification.basis.max_size)
         for size in self.sizes(data.n):
-            if size > largest:
-                raise _refuse(
-                    f"The sieve declares {size} terms per component at n = {data.n}, and its "
-                    f"family {self.effect_modification.basis!r} has at most {largest}. Fitting "
-                    f"the {largest}-term member would replace the declared size, which is the "
-                    "size the EP learner's rate claims name.",
-                    alternative=(
-                        f"Declare a size of at most {largest}, or a larger family "
-                        "(Sieve.default(..., max_size=...))."
-                    ),
-                )
+            refusal = size_refusal(size, self.effect_modification.basis, data.n)
+            if refusal is not None:
+                raise refusal
             design = np.asarray(
                 self.member(size).evaluate(frame, self.effect_modification.modifiers), dtype=float
             )
@@ -927,37 +1157,17 @@ class EPEstimator:
         basis = self.member(size)
         values = modifier_frame(data, tuple(spec.modifiers.columns))
         design = np.asarray(basis.evaluate(values, spec.modifiers), dtype=float)
-        pieces = _pieces(nuisance_fit)
-        debiased = debias(
-            y=pieces.y,
-            treatment=pieces.treatment,
-            observed=pieces.observed,
-            initial_observed=pieces.initial_observed,
-            initial_t=pieces.initial_t,
-            initial_r=pieces.initial_r,
-            weight=pieces.weight,
-            design=design,
-            pair=pieces.pair,
-            scale=spec.scale,
-        )
-        beta, learner = final_stage(
-            debiased,
-            design,
-            pieces.rows,
-            spec.scale,
-            learner=self.final_learner,
-            values=values if self.final_learner is not None else None,
-        )
         lower, upper = nuisance_fit.nuisance.scaler.unscale_levels(np.array([0.0, 1.0]))
-        curve = EPCurve(
+        curve, debiased = curve_from_pieces(
+            _pieces(nuisance_fit),
+            design,
             basis=basis,
             modifiers=spec.modifiers,
             scale=spec.scale,
-            terms=tuple(basis.terms),
-            beta=beta,
-            learner=learner,
             width=float(upper - lower),
             clip=self.target == "curve" and spec.scale == "difference",
+            final_learner=self.final_learner,
+            values=values,
         )
         return curve, debiased
 
@@ -980,15 +1190,16 @@ class EPEstimator:
         assignment = np.asarray(outer.nuisance.folds.assignment)
         weights = np.asarray(data.weights, dtype=float)
         frame = modifier_frame(data, tuple(spec.modifiers.columns))
-        totals = np.zeros(len(sizes))
-        mass = 0.0
         seeds: list[int] = []
         messages: list[str] = []
         base = self.tmle_kwargs.get("random_state")
-        for fold in np.unique(assignment):
-            held = assignment == fold
-            train = np.flatnonzero(~held)
-            seed = _inner_seed(base, int(fold))
+        splits = [
+            (int(fold), np.flatnonzero(assignment != fold), np.flatnonzero(assignment == fold))
+            for fold in np.unique(assignment)
+        ]
+
+        def fit_fold(fold: int, train: Any) -> FoldPredictor:
+            seed = refit_seed(base, fold)
             seeds.append(seed)
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
@@ -996,15 +1207,9 @@ class EPEstimator:
                     data.subset(train), n_folds=INNER_FOLDS, random_state=seed, split_plan=None
                 )
             messages.extend(str(item.message) for item in caught)
-            test_frame = {name: np.asarray(column)[held] for name, column in frame.items()}
-            for index, size in enumerate(sizes):
-                curve, _ = self._curve_at(inner, size)
-                prediction = curve.predict(test_frame)
-                totals[index] += one_step_risk(
-                    prediction, d_t[held], d_r[held], spec.scale, weights[held]
-                ) * float(np.sum(weights[held]))
-            mass += float(np.sum(weights[held]))
-        risks = tuple(float(value / mass) for value in totals)
+            return lambda size, held: self._curve_at(inner, size)[0].predict(held)
+
+        risks = cross_validated_risks(splits, sizes, fit_fold, frame, d_t, d_r, spec.scale, weights)
         chosen = sizes[int(np.argmin(risks))]
         return chosen, risks, tuple(seeds), tuple(dict.fromkeys(messages))
 
@@ -1157,7 +1362,20 @@ class EPEstimator:
         return result
 
 
-def _inner_seed(base: int | None, fold: int) -> int:
-    """The seed of fold ``fold``'s inner refit, derived from the fit's own seed."""
+def refit_seed(base: int | None, fold: int) -> int:
+    """The seed of fold ``fold``'s inner refit in the sieve-size cross-validation.
+
+    Parameters
+    ----------
+    base : int or None
+        The seed of the fit whose folds are cross-validated.
+    fold : int
+        The cross-validation fold, counted from 0.
+
+    Returns
+    -------
+    int
+        A seed in ``[0, 2**32 - 1]``.
+    """
     entropy = [0 if base is None else int(base), 1_000_003, fold]
     return int(np.random.SeedSequence(entropy).generate_state(1)[0])

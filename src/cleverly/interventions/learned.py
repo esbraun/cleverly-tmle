@@ -22,8 +22,10 @@ assigned to the lowest arm code (polle, Nordland and Holst 2026).  At two arms i
 (X11 (d)) it is the argmax over all of them.  ``LearnedRule(loss="blip")`` and
 ``LearnedRule(loss="weighted_classification")`` learn it with a declared learner from a doubly
 robust pseudo-outcome instead (Luedtke and van der Laan 2016, *International Journal of
-Biostatistics*, Sections 4.1 to 4.3), which :mod:`cleverly.interventions._rule_learners` fits.
-Both losses are binary, so they refuse a treatment with more than two arms (X11 (d2)).  Van der
+Biostatistics*, Sections 4.1 to 4.3), and ``LearnedRule(loss="ep", modifiers=...)`` from the EP
+curve of the conditional effect given the declared modifiers (van der Laan, Carone and Luedtke,
+arXiv:2402.01972v2; P1 part (c)), which :mod:`cleverly.interventions._rule_learners` fits.
+The three losses are binary, so they refuse a treatment with more than two arms (X11 (d2)).  Van der
 Laan and Luedtke (2015), Section 7 and Appendix B, define the target and its cross-validated
 TMLE for any rule learned on the training rows, and polle's Algorithm 4 (Nordland and Holst
 2026) gives the stacked weighting :math:`n_v / n`.  The estimator reuses the
@@ -62,6 +64,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 __all__ = [
     "BLIP_QUANTILE_LEVELS",
     "CONTRAST_TARGETS",
+    "EP_OPTIMAL_MODIFIERS_REFUSAL",
+    "EP_RULE_MODIFIER_REFUSAL",
     "LEARNED_RULE_ARM_REMEDY",
     "LEARNED_RULE_BENCHMARK_REFUSAL",
     "LEARNED_RULE_CONFIGURATION",
@@ -82,7 +86,10 @@ __all__ = [
     "LearnedRule",
     "LearnedRuleRecord",
     "LearnedRuleSplit",
+    "adjustment_columns",
+    "check_ep_rule_sieve",
     "check_fold_rules",
+    "ep_rule_condition",
     "fold_rules",
     "freeze_learned_rule",
     "frozen_level_refusal",
@@ -105,7 +112,7 @@ __all__ = [
 ]
 
 #: The loss of each rule learner, the ``loss=`` of :class:`LearnedRule`.
-LOSSES: tuple[str, ...] = ("plug_in", "blip", "weighted_classification")
+LOSSES: tuple[str, ...] = ("plug_in", "blip", "weighted_classification", "ep")
 
 #: The rule class of each loss, in words.  The record quotes the one of its fit.  For the
 #: pseudo-outcome losses, which read two arms only, ``1`` and ``0`` stand for the higher and
@@ -138,6 +145,19 @@ RULE_CLASS: dict[str, str] = {
         "the rule 1{P_v(D > 0 | W) > 1/2} of the declared classifier P_v of the sign of "
         f"{_PSEUDO}, fitted on the training rows of each outer fold with sample weights |D|, "
         f"{_TIE}. {_WEIGHTED}"
+    ),
+    "ep": (
+        "the rule 1{theta_v(V) > 0} of the EP curve theta_v of the blip given the declared "
+        "modifiers V (van der Laan, Carone and Luedtke, arXiv:2402.01972v2, a preprint), fitted "
+        f"on the training rows of each outer fold, {_TIE}. The curve is the offset-logistic "
+        "debiasing of the outcome regression along (2A - 1) phi_k(V), weighted by 1 / g(A | W), "
+        "then least squares of the debiased blip on phi_k(V), with Qbar and g from a 5-fold "
+        "cross-fit inside the training rows (one fold per cluster when they hold fewer than 5 "
+        "clusters) and g truncated at the fit's resolved g_bounds. Under the default sieve, "
+        "additive cosines of the continuous modifiers and indicators of the categorical ones, "
+        "the size k is chosen by cross-validation of the one-step risk over the inner folds, "
+        "with the nuisances refitted inside each inner training fold; a declared size or "
+        f"schedule is read instead. {_WEIGHTED}"
     ),
 }
 
@@ -344,10 +364,17 @@ class LearnedRule:
     - ``"weighted_classification"``: ``learner`` classifies the sign of the same
       pseudo-outcome with its absolute value as the sample weight, and the rule treats where
       the fitted probability of a positive sign exceeds one half.
+    - ``"ep"``: the EP learner (van der Laan, Carone and Luedtke, arXiv:2402.01972v2, a
+      preprint) fits the curve of the conditional effect given the declared ``modifiers``
+      from the same inner nuisances, and the rule treats where the curve is positive.
+      ``sieve`` sets its basis and size, by default additive cosines of the continuous
+      modifiers and indicators of the categorical ones with the size chosen by
+      cross-validation; ``learner`` is an optional final regressor in place of least squares
+      on the sieve.  The rule reads the modifiers only.
 
-    The two pseudo-outcome losses read a binary treatment: ``1`` and ``0`` stand for the
-    higher and the lower of the two sorted arm codes, a tie assigns the lower one, and a
-    treatment with more than two arms refuses them (X11 (d2)).
+    The three losses that learn from the pseudo-outcome's nuisances read a binary treatment:
+    ``1`` and ``0`` stand for the higher and the lower of the two sorted arm codes, a tie
+    assigns the lower one, and a treatment with more than two arms refuses them (X11 (d2)).
 
     The pseudo-outcome of a training row is
     ``(2A - 1) / g(A | W) (Y - Qbar(A, W)) + Qbar(1, W) - Qbar(0, W)``, with ``Qbar`` and
@@ -366,23 +393,34 @@ class LearnedRule:
     name : str
         The label that the reported parameter carries, as in
         ``ey_learned_rule[learned rule]``.
-    loss : {"plug_in", "blip", "weighted_classification"}
+    loss : {"plug_in", "blip", "weighted_classification", "ep"}
         How the rule is learned.
     learner : object or None
         The rule learner of ``loss="blip"``, a regressor, or of
         ``loss="weighted_classification"``, a classifier whose ``fit`` takes
-        ``sample_weight``.  It is a template, cloned for each fold.  ``None`` for
-        ``loss="plug_in"``, which refuses a learner.
+        ``sample_weight``.  For ``loss="ep"``, an optional final regressor of the EP curve.
+        It is a template, cloned for each fold.  ``None`` for ``loss="plug_in"``, which
+        refuses a learner.
+    modifiers : Modifiers or None
+        For ``loss="ep"``, required: the declared modifiers
+        (:class:`cleverly.bases.Modifiers`), adjustment columns with declared domains and
+        levels, that the curve and the rule read.  Every other loss refuses it.
+    sieve : Sieve or None
+        For ``loss="ep"``, the declared sieve (:class:`cleverly.bases.Sieve`), or ``None``
+        for ``Sieve.default(modifiers)``, whose size is chosen by cross-validation.  Every
+        other loss refuses it.
 
     Raises
     ------
     DataError
-        If ``name`` is empty or ``loss`` is not one of the three.
+        If ``name`` is empty or ``loss`` is not one of the four.
     CapabilityError
         If ``learner`` does not suit ``loss``: a learner for the plug-in rule, no learner
-        for a pseudo-outcome loss, a classifier for the blip, a regressor for weighted
-        classification, a classifier without ``sample_weight``, or a ``SuperLearner`` whose
-        task or clip contradicts the loss.
+        for the blip or weighted classification, a classifier for the blip or the EP curve, a
+        regressor for weighted classification, a classifier without ``sample_weight``, or a
+        ``SuperLearner`` whose task or clip contradicts the loss; or if ``modifiers`` or
+        ``sieve`` is missing where ``loss="ep"`` needs it or given where another loss reads
+        none.
 
     See Also
     --------
@@ -400,20 +438,68 @@ class LearnedRule:
     >>> from sklearn.linear_model import LinearRegression
     >>> LearnedRule(loss="blip", learner=LinearRegression()).loss
     'blip'
+
+    A rule learned from the EP curve of the effect given one modifier with a declared domain:
+
+    >>> from cleverly.bases import Modifiers
+    >>> rule = LearnedRule(loss="ep", modifiers=Modifiers(["age"], domains={"age": (18, 90)}))
+    >>> rule.modifiers.columns
+    ('age',)
     """
 
     name: str = "learned rule"
     loss: str = field(default="plug_in", kw_only=True)
     learner: Any = field(default=None, kw_only=True)
+    modifiers: Any = field(default=None, kw_only=True)
+    sieve: Any = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not self.name:
             raise DataError(f"LearnedRule name= must be a non-empty string; got {self.name!r}")
         if self.loss not in LOSSES:
             raise DataError(f"LearnedRule loss= must be one of {list(LOSSES)}; got {self.loss!r}")
-        refusal = _learner_refusal(self.loss, self.learner)
+        refusal = _ep_declaration_refusal(self.loss, self.modifiers, self.sieve)
+        if refusal is None:
+            refusal = _learner_refusal(self.loss, self.learner)
         if refusal is not None:
             raise CapabilityError.from_refusal(refusal)
+
+
+def _ep_declaration_refusal(loss: str, modifiers: Any, sieve: Any) -> Refusal | None:
+    """The refusal of ``modifiers=`` or ``sieve=`` that does not suit ``loss``, or ``None``."""
+    from ..bases import Modifiers, Sieve
+
+    def invalid(condition: str, alternative: str) -> Refusal:
+        return Refusal(RefusalReason.INVALID_DECLARATION, condition, alternative=alternative)
+
+    if loss != "ep":
+        named = [
+            name
+            for name, value in (("modifiers=", modifiers), ("sieve=", sieve))
+            if value is not None
+        ]
+        if not named:
+            return None
+        return invalid(
+            f"LearnedRule(loss={loss!r}) takes no {' or '.join(named)}. Only the EP rule "
+            "learner (loss='ep') reads declared modifiers and a sieve; this loss reads every "
+            "covariate.",
+            f"Drop {' and '.join(named)}, or pass loss='ep' to learn the rule from the EP "
+            "curve given the modifiers.",
+        )
+    if not isinstance(modifiers, Modifiers):
+        return invalid(
+            "LearnedRule(loss='ep') needs modifiers=, a cleverly.bases.Modifiers that declares "
+            "the columns the EP curve and the rule read, with a domain for each continuous "
+            f"column and the levels of each categorical one; got {modifiers!r}.",
+            "Pass modifiers=Modifiers([...], domains={...}, levels={...}).",
+        )
+    if sieve is not None and not isinstance(sieve, Sieve):
+        return invalid(
+            f"LearnedRule(loss='ep') sieve= takes a cleverly.bases.Sieve; got {sieve!r}.",
+            "Pass sieve=Sieve(basis, size=...), or drop it for Sieve.default(modifiers).",
+        )
+    return None
 
 
 def _learner_refusal(loss: str, learner: Any) -> Refusal | None:
@@ -435,6 +521,25 @@ def _learner_refusal(loss: str, learner: Any) -> Refusal | None:
             "Drop learner=, or pass loss='blip' or loss='weighted_classification' to learn "
             "the rule with it.",
         )
+    if loss == "ep":
+        if learner is None:
+            return None
+        _validate_learner(learner, "LearnedRule learner=", optional=False)
+        super_task = learner.task if isinstance(learner, SuperLearner) else None
+        if is_classifier(learner) or super_task == "classification":
+            return invalid(
+                "LearnedRule(loss='ep') takes an optional final regressor of the EP curve, a "
+                f"real-valued conditional effect, and {type(learner).__name__} is a classifier.",
+                "Drop learner= for least squares on the sieve, or pass a regressor.",
+            )
+        if isinstance(learner, SuperLearner) and learner.clip is not None:
+            return invalid(
+                "LearnedRule(loss='ep') fits a conditional effect that takes both signs, and "
+                f"this SuperLearner clips its predictions to {learner.clip}, which would move "
+                "the sign of the curve.",
+                "Pass a SuperLearner with clip=None, or drop learner=.",
+            )
+        return None
     if learner is None:
         return invalid(
             f"LearnedRule(loss={loss!r}) needs learner=, the model that learns the rule from "
@@ -642,6 +747,8 @@ def freeze_learned_rule(result: Any) -> FrozenLearnedRule:
         None if level is None else float(level),
         loss=rule.loss,
         learner=rule.learner,
+        modifiers=rule.modifiers,
+        sieve=rule.sieve,
     )
 
 
@@ -719,6 +826,7 @@ def learned_rule_treat(
     fit_inner: InnerFit,
     g_bounds: tuple[float, float],
     seed: int,
+    alpha: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
     """Return the rule of every row of a learned-rule fit, its margin, and every fold's rule.
 
@@ -750,6 +858,8 @@ def learned_rule_treat(
         The fit's truncation bounds of the treatment mechanism.
     seed : int
         The split's seed.
+    alpha : float or None
+        The fit's outcome shrinkage, which ``loss="ep"`` reads for its debiasing offset.
 
     Returns
     -------
@@ -758,7 +868,8 @@ def learned_rule_treat(
         arm that the rule of the row's fold assigns.
     margin : numpy.ndarray or None
         For a pseudo-outcome loss, the score of the row's fold rule minus its threshold,
-        :math:`\\hat b_v(W_i)` or :math:`\\hat P_v(\\tilde D > 0 \\mid W_i) - 1/2`.
+        :math:`\\hat b_v(W_i)`, :math:`\\hat P_v(\\tilde D > 0 \\mid W_i) - 1/2` or the EP
+        curve :math:`\\hat\\theta_v(V_i)`.
         ``None`` for the plug-in rule, whose score is the top-two gap, and for a frozen
         rule.
     fold_rules : numpy.ndarray or None
@@ -811,6 +922,9 @@ def learned_rule_treat(
         scaler=nuisance.scaler,
         g_bounds=g_bounds,
         seed=seed,
+        modifiers=rule.modifiers,
+        sieve=rule.sieve,
+        alpha=alpha,
     )
 
 
@@ -860,9 +974,14 @@ class LearnedRuleSplit:
     score_quantiles : tuple of tuple of float
         For a pseudo-outcome loss, for each fold, quantiles of the rule learner's score
         minus its threshold on the fold's validation rows, at :data:`BLIP_QUANTILE_LEVELS`:
-        :math:`\hat b_v(w)` for ``loss="blip"`` and :math:`\hat P_v(\tilde D > 0 \mid w) - 1/2`
-        for ``loss="weighted_classification"``.  The rule treats where this is positive, so
-        its mass at 0 speaks to C3.  Empty for the plug-in rule and for a frozen rule.
+        :math:`\hat b_v(w)` for ``loss="blip"``, :math:`\hat P_v(\tilde D > 0 \mid w) - 1/2`
+        for ``loss="weighted_classification"``, and the EP curve :math:`\hat\theta_v(v)` of
+        the declared modifiers for ``loss="ep"``, on the outcome's own scale (not the scaled
+        blip).  The rule treats where this is positive, so its mass at 0 speaks to C3.  Empty
+        for the plug-in rule and for a frozen rule.  An EP fold's chosen sieve size and its
+        cross-validated risks are not recorded here; a refit of the fold through
+        :func:`~cleverly.interventions._rule_learners.fit_fold_rule` with its
+        :attr:`inner_seeds` entry returns them in ``FoldRule.ep``.
     inner_seeds : tuple of int
         For a pseudo-outcome loss, the seed of each fold's inner cross-fit and rule learner
         (:func:`~cleverly.interventions._rule_learners.inner_seed`), so that a refit of one
@@ -1060,6 +1179,10 @@ class LearnedRuleRecord:
                 "robust blip pseudo-outcome weighted by its size "
                 "(loss='weighted_classification')."
             ),
+            "ep": (
+                "Each rule treats where the fold's EP curve of the effect given the declared "
+                "modifiers is positive (loss='ep')."
+            ),
         }[self.loss]
         if self.loss != "plug_in":
             learned += (
@@ -1200,6 +1323,10 @@ class LearnedRuleRecord:
                 f"The rule is learned on every row by {self.learner}, a classifier of the sign "
                 "of a doubly robust blip pseudo-outcome weighted by its size "
                 "(loss='weighted_classification')."
+            ),
+            "ep": (
+                "The rule treats where the EP curve of the effect given the declared modifiers, "
+                "fitted on every row, is positive (loss='ep')."
             ),
         }[self.loss]
         return (
@@ -2036,6 +2163,22 @@ def _data_refusal(
         )
     if (
         rule is not None
+        and rule.loss == "ep"
+        and not isinstance(rule, FrozenLearnedRule)
+        and not data.is_binary_treatment
+    ):
+        return _gap(
+            f"LearnedRule(loss='ep') over a treatment with {data.n_arms} arms is refused. "
+            "loss='ep' learns one curve, the outcome-regression contrast of two arms projected "
+            "onto the modifiers, and a rule over more arms needs a curve for each pair and a "
+            f"rule that compares them, which is not built ({_X11.format(part='d2')}).",
+            "LearnedRule() (loss='plug_in') learns the argmax rule over every arm from the "
+            f"fit's own outcome regression, and {_FIXED_RULE} estimates a fixed rule on a "
+            "categorical treatment.",
+            "X11",
+        )
+    if (
+        rule is not None
         and rule.loss != "plug_in"
         and not isinstance(rule, FrozenLearnedRule)
         and not data.is_binary_treatment
@@ -2063,6 +2206,22 @@ def _data_refusal(
     if (
         data.has_intermediate
         and rule is not None
+        and rule.loss == "ep"
+        and not isinstance(rule, FrozenLearnedRule)
+    ):
+        return _gap(
+            "LearnedRule(loss='ep') with intermediate= is refused. loss='ep' builds its curve "
+            "from the outcome regression given the treatment and the adjustment columns, and a "
+            "rule's value with an intermediate also needs the regression given the "
+            f"intermediate, which the EP fit does not build ({_X11.format(part='j2')}).",
+            "LearnedRule() (loss='plug_in') learns the rule at each level z from the fit's own "
+            "outcome regression at (a, z), and "
+            f"{_FIXED_RULE} takes intermediate= for a fixed rule.",
+            "X11",
+        )
+    if (
+        data.has_intermediate
+        and rule is not None
         and rule.loss != "plug_in"
         and not isinstance(rule, FrozenLearnedRule)
     ):
@@ -2078,6 +2237,9 @@ def _data_refusal(
             f"{_FIXED_RULE} takes intermediate= for a fixed rule.",
             "X11",
         )
+    ep_refusal = _ep_modifier_refusal(data, rule, optimal=optimal)
+    if ep_refusal is not None:
+        return ep_refusal
     if data.has_intermediate and optimal:
         return _gap(
             "the value of the optimal rule with intermediate= is refused. At each level z its "
@@ -2132,6 +2294,182 @@ def _data_refusal(
             "X11",
         )
     return None
+
+
+#: R6 for the EP rule learner: a modifier outside the adjustment columns.
+EP_RULE_MODIFIER_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "Each modifier of LearnedRule(loss='ep') must be an adjustment column: the conditional "
+    "effect given V is identified from the outcome regression given W only when V is part "
+    "of W, and adding a column to W can break no unmeasured confounding.",
+    alternative=(
+        "Add the column to the adjustment set (covariates=, or PointTreatment(adjustment=...)) "
+        "after checking that it is a baseline covariate, or drop it from the modifiers."
+    ),
+)
+
+#: R12: the value of the optimal rule from an EP rule given fewer modifiers than ``W``.
+EP_OPTIMAL_MODIFIERS_REFUSAL = Refusal(
+    RefusalReason.DIFFERENT_ESTIMAND,
+    "The EP rule learns the best rule given the modifiers, and the optimal value is defined "
+    "over every adjustment column, so the two agree only when the modifiers are the whole "
+    "adjustment set.",
+    alternative=(
+        "Declare modifiers equal to the adjustment columns, or request "
+        "LearnedRuleValue(rule=LearnedRule(loss='ep', ...)) for the value of the learned rule."
+    ),
+)
+
+
+def adjustment_columns(data: CausalData) -> tuple[str, ...]:
+    """The adjustment columns of ``data`` as the caller named them.
+
+    A categorical column that the data layer expanded into indicators is named once, by its
+    own name, in place of its indicators.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+
+    Returns
+    -------
+    tuple of str
+        The columns, in the order of the covariate matrix.
+    """
+    generated = {
+        name: encoding.column for encoding in data.encodings for name in encoding.generated
+    }
+    out: list[str] = []
+    for name in data.covariate_names:
+        column = generated.get(name, name)
+        if column not in out:
+            out.append(column)
+    return tuple(out)
+
+
+def _ep_modifier_refusal(
+    data: CausalData, rule: LearnedRule | None, *, optimal: bool
+) -> Refusal | None:
+    """R6 and R12 of the EP rule learner, or ``None`` (P1 plan section 1.4)."""
+    if rule is None or rule.loss != "ep" or isinstance(rule, FrozenLearnedRule):
+        return None
+    adjustment = adjustment_columns(data)
+    columns = tuple(rule.modifiers.columns)
+    outside = [column for column in columns if column not in adjustment]
+    if outside:
+        return replace(
+            EP_RULE_MODIFIER_REFUSAL,
+            condition=f"{outside} are not adjustment columns. {EP_RULE_MODIFIER_REFUSAL.condition}",
+        )
+    if optimal and set(columns) != set(adjustment):
+        missing = [column for column in adjustment if column not in columns]
+        return replace(
+            EP_OPTIMAL_MODIFIERS_REFUSAL,
+            condition=(
+                f"The modifiers leave out the adjustment columns {missing}. "
+                f"{EP_OPTIMAL_MODIFIERS_REFUSAL.condition}"
+            ),
+        )
+    return None
+
+
+def outer_training_sizes(data: CausalData, estimator: Any) -> tuple[int, ...]:
+    """Every size an outer training fold of ``estimator`` can have on ``data``, before the split.
+
+    One fold (``cross_fit=False``, or no estimator) trains on every row.  Row folds of a
+    ``V``-fold split hold ``floor(n / V)`` or ``ceil(n / V)`` rows.  Cluster folds hold whole
+    clusters, so a held-out fold lies between the ``floor(C / V)`` smallest and the
+    ``ceil(C / V)`` largest clusters.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    estimator : object or None
+        The estimator, which carries ``cross_fit`` and ``n_folds``.
+
+    Returns
+    -------
+    tuple of int
+        The training sizes, ascending.
+    """
+    n = int(data.n)
+    if estimator is None or not getattr(estimator, "cross_fit", True):
+        return (n,)
+    folds = int(getattr(estimator, "n_folds", 1) or 1)
+    if folds <= 1:
+        return (n,)
+    if data.cluster is None:
+        largest, smallest = -(-n // folds), n // folds
+    else:
+        _, counts = np.unique(np.asarray(data.cluster), return_counts=True)
+        ordered = np.sort(counts)
+        clusters = ordered.size
+        largest = int(np.sum(ordered[::-1][: -(-clusters // folds)]))
+        smallest = int(np.sum(ordered[: clusters // folds]))
+    return tuple(range(max(n - largest, 1), n - smallest + 1))
+
+
+def check_ep_rule_sieve(
+    data: CausalData, rule: LearnedRule | None, training_sizes: tuple[int, ...] | None = None
+) -> None:
+    """Evaluate every member of an EP rule's sieve on the rows, before any learner.
+
+    The check reads the modifier columns and the declared domains and levels, so a row
+    outside a declared domain, an undeclared level, a basis that reads an undeclared domain
+    (R3), a collinear member, or a declared size above the family's largest member refuses
+    here rather than inside a fold.  A schedule is read at every size an outer training fold
+    can have (:func:`outer_training_sizes`), since each fold's curve reads ``size_at`` of its
+    own rows.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    rule : LearnedRule or None
+        The declared rule; anything but an EP rule passes.
+    training_sizes : tuple of int or None
+        The outer training sizes, or ``None`` for ``data.n`` alone.
+
+    Raises
+    ------
+    CapabilityError
+        If a basis reads an undeclared domain or level, or a declared size exceeds the
+        family's largest member at ``n`` or at an outer training size.
+    DataError
+        If a row breaks the modifier schema, or a member is collinear on the rows.
+    """
+    if rule is None or rule.loss != "ep" or isinstance(rule, FrozenLearnedRule):
+        return
+    from ..bases import Sieve
+    from ..effect_modification import modifier_frame
+    from ..estimators.ep import sieve_member, size_refusal
+
+    modifiers = rule.modifiers
+    sieve = rule.sieve if rule.sieve is not None else Sieve.default(modifiers)
+    family = sieve.basis
+    if sieve.chosen_by_cv:
+        sizes: tuple[int, ...] = tuple(range(1, int(family.max_size) + 1))
+    else:
+        rows = (int(data.n),) if training_sizes is None else training_sizes
+        declared: dict[int, int] = {}
+        for m in rows:
+            declared.setdefault(int(sieve.size_at(m)), m)
+        for size, m in sorted(declared.items()):
+            refusal = size_refusal(size, family, m)
+            if refusal is not None:
+                raise refusal
+        sizes = tuple(sorted(declared))
+    frame = modifier_frame(data, tuple(modifiers.columns))
+    for size in sizes:
+        design = np.asarray(sieve_member(family, size, modifiers).evaluate(frame, modifiers))
+        rank = int(np.linalg.matrix_rank(design))
+        if rank < design.shape[1]:
+            raise DataError(
+                f"the sieve member of size {size} of LearnedRule(loss='ep') is collinear on the "
+                f"rows of the modifiers ({design.shape[1]} terms, rank {rank})"
+            )
 
 
 def learned_rule_scheme_refusal(estimator: Any, data: CausalData | None = None) -> Refusal | None:
@@ -2269,6 +2607,54 @@ def in_sample_learner_condition(estimator: Any, data: CausalData) -> Refusal | N
     )
 
 
+def ep_rule_condition(estimator: Any) -> Refusal | None:
+    """Return the support condition of a cross-fitted EP rule fit that no study measured.
+
+    The registered ``learned-rule-ep`` study fits ``LearnedRule(loss="ep", modifiers=...)``
+    with ``sieve=None``, which reads ``Sieve.default(modifiers)`` with its size chosen by
+    cross-validation, and ``learner=None``, the least-squares final stage.  A declared sieve
+    (another basis, a fixed size or a schedule) or a declared final learner changes the curve
+    each fold's rule reads, and no study measured it.  Such a fit runs, labelled
+    experimental.  The support key holds neither choice, so the rows ``T51`` and
+    ``T51.optimal`` would otherwise cover it.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator.
+
+    Returns
+    -------
+    Refusal or None
+        An ``INFERENCE_GAP`` condition that names the declared choices, or ``None`` for a fit
+        that is not a cross-fitted EP rule fit or that uses the measured curve.
+    """
+    rule = getattr(estimator, "learned_rule", None)
+    if rule is None or rule.loss != "ep" or not estimator.cross_fit:
+        return None
+    from ..bases import Sieve
+
+    declared = []
+    if rule.sieve is not None and rule.sieve != Sieve.default(rule.modifiers):
+        declared.append("a declared sieve=")
+    if rule.learner is not None:
+        declared.append("a declared final learner (learner=)")
+    if not declared:
+        return None
+    return Refusal(
+        RefusalReason.INFERENCE_GAP,
+        f"This EP rule fit uses {' and '.join(declared)}. The registered learned-rule-ep "
+        "study measures the default sieve, Sieve.default(modifiers) with its size chosen by "
+        "cross-validation, with the least-squares final stage, and no study measures another "
+        "curve.",
+        alternative=(
+            "LearnedRule(loss='ep', modifiers=...) with sieve=None and learner=None is the "
+            "measured fit."
+        ),
+        roadmap="P1",
+    )
+
+
 def refuse_learned_rule_composition(
     data: CausalData,
     estimator: Any = None,
@@ -2293,11 +2679,14 @@ def refuse_learned_rule_composition(
             ``ey_optimal_rule`` beside a known regime            X11 (f3)
             ``ey_optimal_rule`` beside another estimand          none, a declaration
     3       a continuous treatment                               F27
-    4       a rule learner (``loss="blip"`` or                   X11 (d2)
-            ``"weighted_classification"``) on more than two
-            arms
+    4       a rule learner (``loss="blip"``,                     X11 (d2)
+            ``"weighted_classification"`` or ``"ep"``) on more
+            than two arms
     5       missing outcomes, ``delta=``                         F27
     6       a rule learner with ``intermediate=``                X11 (j2)
+            ``loss="ep"`` with a modifier outside ``W`` (R6)     none, a declaration
+            ``ey_optimal_rule`` with ``loss="ep"`` and           none, another estimand
+            modifiers narrower than ``W`` (R12)
             ``ey_optimal_rule`` with ``intermediate=``           X11 (f3)
     7       estimated weights, ``weights_estimated=True``        X11 (k2)
     8       ``strata=`` with clusters, ``id=``                   X28
@@ -2306,9 +2695,13 @@ def refuse_learned_rule_composition(
     11      ``repeats`` above 1 with clusters, ``id=``           X11 (i2)
     12      ``n_bootstrap`` above 0                              F27
     13      ``ey_optimal_rule`` with ``cross_fit=False``         X11 (f3)
-    14      ``loss="blip"`` with ``weights=`` and a learner      none, a declaration
-            whose ``fit`` takes no ``sample_weight``
+    14      ``loss="blip"`` or ``"ep"`` with ``weights=`` and    none, a declaration
+            a learner whose ``fit`` takes no ``sample_weight``
     ======  ===================================================  ===================
+
+    After the table, an EP rule's sieve is evaluated on the rows
+    (:func:`check_ep_rule_sieve`), which refuses a row outside a declared domain, an
+    undeclared level or a collinear member before any learner.
 
     The simultaneous band is no row. A fit with known regimes skips the band over their
     values and contrasts, and ``summary()`` says why;
@@ -2358,6 +2751,7 @@ def refuse_learned_rule_composition(
         refusal = _weighted_learner_refusal(estimator.learned_rule, data)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)
+    check_ep_rule_sieve(data, rule, outer_training_sizes(data, estimator))
 
 
 def _weighted_learner_refusal(rule: LearnedRule, data: CausalData) -> Refusal | None:
@@ -2368,11 +2762,23 @@ def _weighted_learner_refusal(rule: LearnedRule, data: CausalData) -> Refusal | 
     unweighted, and its rule would be the rule of the unweighted population.  Weighted
     classification refuses such a learner whatever the data, when the rule is declared.
     """
-    if rule.loss != "blip" or not data.is_weighted:
+    if rule.loss not in ("blip", "ep") or rule.learner is None or not data.is_weighted:
         return None
     unweighted = _unweighted_member(rule.learner)
     if unweighted is None:
         return None
+    if rule.loss == "ep":
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "LearnedRule(loss='ep') with weights= fits a weighted final stage of the EP curve, "
+            f"so that the rule is the rule of the weighted population, and {unweighted} takes "
+            "no sample_weight. Fitted without the weights, it would learn the curve of the "
+            "unweighted population.",
+            alternative=(
+                "Drop learner= for weighted least squares on the sieve, or pass a regressor "
+                "whose fit takes sample_weight."
+            ),
+        )
     return Refusal(
         RefusalReason.INVALID_DECLARATION,
         "LearnedRule(loss='blip') with weights= fits a weighted blip regression, so that "

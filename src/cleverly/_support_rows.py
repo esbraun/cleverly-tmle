@@ -1432,6 +1432,102 @@ def _t_rows() -> tuple[SupportRow, ...]:
             ],
         )
     )
+    # P1 (c): the learned-rule value when the EP curve sets each fold's rule
+    # (``LearnedRule(loss="ep", modifiers=...)``), keyed ``rule_learner_ep``. The plan named these
+    # rows T49; the conditional-projection rows took T49 and T50 first. Two rows, for the
+    # fold-evaluated report on rows, because every declared verdict of ``learned-rule-ep``
+    # passed: the primary bias leg, coverage floor and SE sanity at both laws, every
+    # ``interval_calibration`` positive at n = 16,000, the shrunken-SE and noise controls, and the
+    # fold-locality control. The sizing reading admitted the rows (``T49_ADMITTED`` of
+    # ``tests/studies/learned_rule_ep_properties.py``), and every row carries its ``T49_LIMITS``
+    # sentence. The support key holds neither the sieve nor the final learner, so
+    # ``ep_rule_condition`` of ``cleverly.interventions.learned`` labels a declared one
+    # experimental. Weights, clusters, fold targeting, repeats above 1, known regimes, a
+    # continuous outcome and an estimated g for the optimal value key other axes or qualifiers,
+    # and three or more arms, an intermediate and strata refuse. The numbers are the committed
+    # results (``tests/canonical/learned_rule_ep``).
+    ep_limits = [
+        "The study measures LearnedRule(loss='ep', modifiers=Modifiers(['W1', 'W2'], ...)) with "
+        "sieve=None, the default sieve of six cosines of W1 plus the indicator of W2 with its "
+        "size chosen by cross-validation over the inner folds, and the least-squares final "
+        "stage, on unweighted rows with ten folds, pooled targeting, repeats=1 and no id, at "
+        "two RM30 laws with the main-terms logistic outcome learner and a correct logistic "
+        "treatment learner. A declared sieve or final learner reads experimental. The key holds "
+        "neither the modifiers, the law, the learners nor n, so another modifier set, law, "
+        "learner or n reads supported and rests on the theory alone.",
+        "Calibrated at n = 16,000 at these laws; at n = 4,000 the sizing pilot read an SE ratio "
+        "of 0.970 and coverage 0.9365, about 6.5% excess error variance from learning the "
+        "rule. The size moved from 4,000 to 16,000 after that pilot and before any declared "
+        "draw.",
+        "The exceptional law, where the effect is zero everywhere, under-covers: at n = 2,000 "
+        "the coverage is 0.901 (99% interval 0.885 to 0.916) and the SE ratio 0.833. The fold "
+        "curves have no fixed sign there, so condition C3 fails, and no check in the package "
+        "detects such a law. The row makes no claim there.",
+        "The fold-locality control, each fold's EP curve fitted on its own validation rows, "
+        "covers 0.008 with a bias of 4.6 error SDs, so the instrument resolves a gross leak. "
+        "The subtle leaks, the outer nuisances at the training rows and a size step that sees "
+        "its inner fold, rest on the unit witnesses W-c2 and W-c3. No comparator: no maintained "
+        "package fits a cross-validated TMLE of the value of an EP rule.",
+    ]
+    rows.append(
+        point_row(
+            "T51",
+            ["learned-rule-ep"],
+            families=("P11",),
+            splitting=("fold_evaluated",),
+            qualifiers=["rule_learner_ep"],
+            cells=[
+                "non_exceptional",
+                "misspecified_limit",
+                "non_exceptional__declared",
+                "misspecified_limit__declared",
+            ],
+            # Roadmap: P1.
+            limits=[
+                "The target is the fold average of the value of the rules the fit learned, not "
+                "the value of the optimal rule. Only the T51.optimal cell sees whether the EP "
+                "rule is a good rule: a learner that treats nobody still covers its own value.",
+                *ep_limits[:2],
+                "At n = 16,000 the SE ratio is 0.999 (99% interval 0.978 to 1.020) at "
+                "non_exceptional and 1.008 (0.988 to 1.030) at misspecified_limit, with "
+                "coverage 0.951 and 0.954 (7,200 draws each). At n = 2,000 it is 0.994 and "
+                "0.983 with coverage 0.951 and 0.944, and at n = 1,000 it is 0.987 and 0.911 "
+                "with coverage 0.948 and 0.918 (2,000 draws each), so at n = 1,000 at the "
+                "misspecified law the SE is about 9% small. The key holds no sample size, so a "
+                "smaller fit also reads supported.",
+                *ep_limits[2:],
+                "The value gain over the plug-in rule is descriptive and carries no test.",
+            ],
+        )
+    )
+    rows.append(
+        point_row(
+            "T51.optimal",
+            ["learned-rule-ep"],
+            families=("P12",),
+            splitting=("fold_evaluated",),
+            qualifiers=["known_mechanism", "rule_learner_ep"],
+            cells=["optimal_known_g__declared"],
+            # Roadmap: P1.
+            limits=[
+                "The study measures the value of the optimal rule (estimands=['ey_optimal_rule']) "
+                "with the EP rule given both adjustment columns and the treatment mechanism "
+                "known (treatment_probabilities=), at the non_exceptional law only, at "
+                "n = 16,000. An estimated g drops known_mechanism and reads experimental.",
+                *ep_limits[:2],
+                "The interval covers the optimal value only up to the regret of the EP limit "
+                "rule, the sign of the projection of the effect on the largest default member, "
+                "which differs from the optimal rule on 0.98% of the population and gives up "
+                "2.4e-5 of value, 0.005 SE at n = 16,000. The cell reads SE ratio 0.985 (99% "
+                "interval 0.965 to 1.007), coverage 0.947 and standardized bias -0.070 (7,200 "
+                "draws); the bias interval, -0.00053 to -0.00021, excludes zero and lies inside "
+                "the margin. On a law where the sign of the effect is not that of a function in "
+                "the sieve, the regret does not vanish and the interval covers the value of the "
+                "limit rule instead.",
+                *ep_limits[2:],
+            ],
+        )
+    )
     rows.append(
         point_row(
             "T25",

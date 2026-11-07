@@ -71,8 +71,9 @@ genuinely the scientific question.
 
 Graph identification, front-door adjustment, instrumental-variable effects, mediation
 decompositions, transport, and direct Riesz learning are proposals or outside the current scope.
-The EP learner of a conditional effect curve ships for `ConditionalContrast` without intervals,
-and EP learning of any other target is not implemented. The [roadmap](../roadmap.md) states the evidence required before a proposed method
+The EP learner of a conditional effect curve ships for `ConditionalContrast` without intervals.
+It also sets the rule of a learned treatment rule (`LearnedRule(loss="ep")`), whose value keeps
+its interval. EP learning of any other target is not implemented. The [roadmap](../roadmap.md) states the evidence required before a proposed method
 can become a release claim.
 
 ## Extending the package

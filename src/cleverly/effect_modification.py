@@ -46,6 +46,7 @@ __all__ = [
     "SCALES",
     "EffectModification",
     "EffectModificationSet",
+    "ModifierReader",
     "effect_modification_data_refusal",
     "effect_modification_gap",
     "log_ratio_scale_refusal",
@@ -272,28 +273,93 @@ def modifier_frame(data: CausalData, columns: tuple[str, ...]) -> dict[str, np.n
     DataError
         If a modifier is not an adjustment column of ``data``.
     """
-    names = tuple(data.covariate_names)
-    encodings = {encoding.column: encoding for encoding in data.encodings}
-    out: dict[str, np.ndarray] = {}
-    for column in columns:
-        if column in names:
-            out[column] = np.asarray(data.covariates[:, names.index(column)])
-            continue
-        encoding = encodings.get(column)
-        if encoding is None:
-            raise DataError(
-                f"the modifier {column!r} is not an adjustment column of this fit; the "
-                "conditional effect given V is identified from the outcome regression given W "
-                "only when V is part of W"
-            )
-        values = np.empty(data.n, dtype=object)
-        values[:] = encoding.dropped_level
-        kept = [level for level in encoding.levels if level != encoding.dropped_level]
-        for level, generated in zip(kept, encoding.generated, strict=False):
-            indicator = data.covariates[:, names.index(generated)] > 0.5
-            values[indicator] = level
-        out[column] = values
-    return out
+    return ModifierReader.of(data, columns)(np.asarray(data.covariates))
+
+
+@dataclass(frozen=True)
+class ModifierReader:
+    """Read the modifier columns off a covariate matrix laid out as one fit's covariates.
+
+    A learned rule scores rows given as the fit's covariate matrix
+    (:meth:`cleverly.interventions._rule_learners.FoldRule.score`), and an EP curve reads
+    the modifiers by name; this record holds the layout that maps one to the other.
+
+    Parameters
+    ----------
+    names : tuple of str
+        The covariate names of the fit, in matrix column order.
+    encodings : tuple
+        The fit's categorical encodings (:class:`~cleverly.data.CategoricalEncoding`).
+    columns : tuple of str
+        The modifier columns to read.
+    """
+
+    names: tuple[str, ...]
+    encodings: tuple[Any, ...]
+    columns: tuple[str, ...]
+
+    @classmethod
+    def of(cls, data: CausalData, columns: tuple[str, ...]) -> ModifierReader:
+        """The reader of ``columns`` in the covariate layout of ``data``.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+        columns : tuple of str
+            The modifier columns.
+
+        Returns
+        -------
+        ModifierReader
+            The reader.
+
+        Raises
+        ------
+        DataError
+            If a modifier is not an adjustment column of ``data``.
+        """
+        names = tuple(data.covariate_names)
+        encodings = tuple(data.encodings)
+        encoded = {encoding.column for encoding in encodings}
+        for column in columns:
+            if column not in names and column not in encoded:
+                raise DataError(
+                    f"the modifier {column!r} is not an adjustment column of this fit; the "
+                    "conditional effect given V is identified from the outcome regression "
+                    "given W only when V is part of W"
+                )
+        return cls(names, encodings, tuple(columns))
+
+    def __call__(self, matrix: np.ndarray) -> dict[str, np.ndarray]:
+        """The modifier values of every row of ``matrix``, keyed by name.
+
+        Parameters
+        ----------
+        matrix : ndarray
+            ``(m, p)`` rows in the fit's covariate layout.
+
+        Returns
+        -------
+        dict of str to ndarray
+            One array per modifier.
+        """
+        covariates = np.asarray(matrix)
+        encodings = {encoding.column: encoding for encoding in self.encodings}
+        out: dict[str, np.ndarray] = {}
+        for column in self.columns:
+            if column in self.names:
+                out[column] = np.asarray(covariates[:, self.names.index(column)])
+                continue
+            encoding = encodings[column]
+            values = np.empty(covariates.shape[0], dtype=object)
+            values[:] = encoding.dropped_level
+            kept = [level for level in encoding.levels if level != encoding.dropped_level]
+            for level, generated in zip(kept, encoding.generated, strict=False):
+                indicator = covariates[:, self.names.index(generated)] > 0.5
+                values[indicator] = level
+            out[column] = values
+        return out
 
 
 @dataclass(frozen=True)
