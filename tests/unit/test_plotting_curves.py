@@ -1469,9 +1469,27 @@ class TestLevelMeans:
             curve(arm_means(), msm=labelled_msm())
         assert refused.value.refusal.reason is RefusalReason.INVALID_DECLARATION
         assert "levels=" in str(refused.value)
-        # A mapping that misses an arm is refused, not drawn at a guessed place.
-        with pytest.raises(CapabilityError, match="'high' is not a number"):
-            curve(labelled_msm(), means=arm_means(), levels={"low": 1, "medium": 2, "top": 6})
+
+    def test_levels_that_name_other_arms_or_only_some_are_refused(self) -> None:
+        """A key that matches nothing, or a partial mapping, is refused, not drawn half-mapped."""
+        cases = [
+            ({"low": 1, "medium": 2, "top": 6}, r"names \['top'\].*leaves out \['high'\]"),
+            ({"low": 1, "medium": 2}, r"leaves out \['high'\]"),
+            ({**CONTACTS, "extra": 9}, r"names \['extra'\], which this fit does not report"),
+        ]
+        for levels, words in cases:
+            for call in (
+                lambda levels=levels: curve(labelled_msm(), means=arm_means(), levels=levels),
+                lambda levels=levels: curve(arm_means(), levels=levels),
+            ):
+                with pytest.raises(CapabilityError, match=words) as refused:
+                    call()
+                assert refused.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        # A regime fit: the regimes' names are the keys.
+        with pytest.raises(CapabilityError, match=r"names \['a9'\]"):
+            curve(level_means(), levels={"a0": 0, "a1": 1, "a2": 2, "a9": 9})
+        # Control: the full mapping draws.
+        assert curve(arm_means(), levels=CONTACTS).axes[0].get_title(loc="left")
 
     def test_numeric_arms_need_no_levels_and_an_effect_on_the_arm_axis_is_not_a_mean(
         self,

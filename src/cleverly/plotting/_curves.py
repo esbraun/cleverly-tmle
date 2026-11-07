@@ -206,8 +206,9 @@ def curve(
         Working model fit: the fit of per-level means to draw beside it.
     levels : mapping or None, default=None
         Per-level means: the numeric treatment level of each regime name or arm label, when
-        the names are not the levels themselves. The working model's levels are mapped the
-        same way, so labelled arms such as ``"low"`` and ``"high"`` need it once.
+        the names are not the levels themselves. It names every regime or arm the fit
+        reports and no other. The working model's levels are mapped the same way, so
+        labelled arms such as ``"low"`` and ``"high"`` need it once.
     modifier : str or None, default=None
         Conditional effect curve: the modifier on the x axis; the only continuous modifier
         the curve reads when omitted.
@@ -1475,6 +1476,30 @@ def _regime_levels(means: Any, levels: Mapping[str, Any] | None) -> dict[str, An
     return found
 
 
+def _check_levels(means: Any, levels: Mapping[str, Any] | None) -> None:
+    """Refuse a ``levels=`` that names other regimes or arms, or only some of them.
+
+    A key that matches nothing would be passed over in silence, and a partial mapping would
+    draw some means at mapped places and the rest at their own labels.
+    """
+    if levels is None:
+        return
+    names = list(dict.fromkeys(str(key.value) for key in means.parameter_keys.values()))
+    given = [str(key) for key in levels]
+    unknown = [name for name in given if name not in names]
+    missing = [name for name in names if name not in given]
+    if unknown or missing:
+        problem = []
+        if unknown:
+            problem.append(f"names {unknown}, which this fit does not report")
+        if missing:
+            problem.append(f"leaves out {missing}")
+        raise _truth.refuse(
+            f"levels= {' and '.join(problem)}; the fit reports {names}",
+            "pass levels= with one numeric level for each of them",
+        )
+
+
 def _model_levels(labels: Sequence[Any], levels: Mapping[str, Any] | None) -> list[float]:
     """The working model's levels on the numeric axis.
 
@@ -1518,6 +1543,7 @@ def _dose(
 ) -> Figure:
     from ..msm import working_model_means
 
+    _check_levels(means, levels)
     level_of = _regime_levels(means, levels)
     entries = []
     for alias, key in means.parameter_keys.items():
