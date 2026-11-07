@@ -205,12 +205,33 @@ class SensitivityContour(_Rows):
         Which end of the range each cell holds.
     rho : float
         The alignment every cell assumes.
+    scale : {"difference", "level"}
+        The scale of the estimate, as the fit reports it.  A difference has a no-effect value
+        of zero, and a level (a counterfactual mean) has none.
+    max_bias : float
+        The bias scale ``sqrt(sigma^2 nu^2)`` every cell multiplies, the median over the
+        fit's draws.
+    nu2 : float
+        The Riesz second moment ``nu^2`` behind it, the median over the fit's draws.
+    nu2_estimator : {"doubly_robust", "plugin"}
+        The estimator of ``nu^2`` the cells use.
+    n_repeats : int
+        The fit's cross-fitting draws.  Each cell is the median over them.
+    assumption : str or None
+        The sentence a point bound under ``assume_consistent_mechanism=True`` carries,
+        else ``None``.
     """
 
     estimand: str = ""
     psi: float = float("nan")
     bound: str = "lower"
     rho: float = 1.0
+    scale: str = "level"
+    max_bias: float = float("nan")
+    nu2: float = float("nan")
+    nu2_estimator: str = "doubly_robust"
+    n_repeats: int = 1
+    assumption: str | None = None
 
     @classmethod
     def build(
@@ -222,6 +243,12 @@ class SensitivityContour(_Rows):
         psi: float,
         bound: str,
         rho: float,
+        scale: str,
+        max_bias: float,
+        nu2: float,
+        nu2_estimator: str,
+        n_repeats: int,
+        assumption: str | None,
     ) -> SensitivityContour:
         """Build the grid from its columns.
 
@@ -239,13 +266,38 @@ class SensitivityContour(_Rows):
             Which end of the range each cell holds.
         rho : float
             The alignment every cell assumes.
+        scale : str
+            The scale of the estimate.
+        max_bias : float
+            The bias scale every cell multiplies.
+        nu2 : float
+            The Riesz second moment behind it.
+        nu2_estimator : str
+            The estimator of ``nu^2``.
+        n_repeats : int
+            The fit's cross-fitting draws.
+        assumption : str or None
+            The consistent-mechanism sentence, or ``None``.
 
         Returns
         -------
         SensitivityContour
             The grid.
         """
-        return cls(_columns(payload), backend, estimand, float(psi), bound, float(rho))
+        return cls(
+            _columns(payload),
+            backend,
+            estimand,
+            float(psi),
+            bound,
+            float(rho),
+            str(scale),
+            float(max_bias),
+            float(nu2),
+            str(nu2_estimator),
+            int(n_repeats),
+            assumption,
+        )
 
     def summary(self, *, detail: Detail = "short") -> Summary:
         """Return the printed summary.
