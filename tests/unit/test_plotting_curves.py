@@ -24,15 +24,24 @@ from scipy.stats import norm
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import (
+    ATE,
     CausalStudy,
     ConditionalContrast,
+    CounterfactualMean,
+    CrossFitting,
     EPMethod,
     IncrementalMean,
+    LongitudinalTreatment,
+    ModelSpec,
     ModifiedTreatmentPolicyEffect,
     MSMProjection,
     PointTreatment,
+    RegimeContrast,
     RegimeMean,
+    Runtime,
+    TMLEMethod,
 )
+from cleverly._refusal import RefusalReason
 from cleverly._support import Support
 from cleverly.bases import Additive, Cosine, Indicators, Linear, Modifiers, Sieve
 from cleverly.datasets import (
@@ -175,6 +184,33 @@ def repeated() -> Any:
 
 
 @cache
+def regime_contrast() -> Any:
+    """A repeated outcome fitted as a regime contrast: differences at each week, no levels."""
+    frame, _ = make_longitudinal_repeated(n=300, seed=0)
+    design = LongitudinalTreatment(
+        outcome=Repeated(["Y1", "Y2", "Y3"]),
+        treatment=("A1", "A2", "A3"),
+        baseline=("W",),
+        time_varying=((), ("L2",), ("L3",)),
+        censoring=("C1", "C2", "C3"),
+    )
+    logistic = LogisticRegression(max_iter=500)
+    method = TMLEMethod(
+        models=ModelSpec(
+            outcome_learner=logistic,
+            pseudo_learner=LinearRegression(),
+            treatment_learner=logistic,
+            censoring_learner=logistic,
+        ),
+        cross_fitting=CrossFitting(enabled=False),
+        runtime=Runtime(random_state=0, n_jobs=1),
+    )
+    plans = {"never": (0, 0, 0), "always": (1, 1, 1), "first": (1, 0, 0)}
+    effect = CausalStudy(frame, design=design).identify(RegimeContrast(plans, reference="never"))
+    return _quiet(effect.estimate, method=method)
+
+
+@cache
 def end_of_study() -> Any:
     frame, _ = make_longitudinal(n=200, seed=0)
     estimator = LTMLE(
@@ -222,6 +258,35 @@ def level_means() -> Any:
 @cache
 def msm_fit() -> Any:
     return _quiet(_multi().identify(MSMProjection(MSM.linear())).estimate, **_ESTIMATE)
+
+
+#: The number each labelled arm stands for, as a notebook declares it.
+CONTACTS = {"low": 1.0, "medium": 2.0, "high": 6.0}
+
+
+@cache
+def _labelled() -> Any:
+    """Three arms labelled by name, not by number."""
+    frame, _ = make_multi_arm(n=400, seed=0)
+    return CausalStudy(
+        frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3"))
+    )
+
+
+@cache
+def arm_means() -> Any:
+    """A fit of per-arm means: keys on the ``"arm"`` axis, ``ey[low]`` and so on."""
+    return _quiet(_labelled().identify(CounterfactualMean()).estimate, **_ESTIMATE)
+
+
+def _contacts_design(arm: Any, data: Any) -> np.ndarray:
+    return np.column_stack([np.ones(len(data)), np.full(len(data), CONTACTS[arm])])
+
+
+@cache
+def labelled_msm() -> Any:
+    model = MSM(design=_contacts_design, terms=("(intercept)", "contacts"), design_kind="known")
+    return _quiet(_labelled().identify(MSMProjection(model)).estimate, **_ESTIMATE)
 
 
 @cache
@@ -585,6 +650,7 @@ def all_figures() -> list[Any]:
         curve(mixed_family()),
         curve(multi_arm_curve()),
         curve(repeated()),
+        curve(regime_contrast()),
     ]
 
 
@@ -1015,6 +1081,90 @@ class TestOverTime:
             for line in lines(top, "cleverly-curve")
         )
 
+    def test_a_fit_of_contrasts_alone_draws_its_difference_panel(self) -> None:
+        """A regime contrast reports no level, so the figure is the difference panel alone."""
+        result = regime_contrast()
+        assert not any(estimate.scale == "level" for estimate in result.estimates.values())
+        fig = curve(result)
+        diff, counts = fig.axes
+        assert diff.get_title(loc="left") == "Difference in mean outcome over time"
+        assert diff.get_ylabel() == "Difference in mean outcome"
+        for contrast in ("always vs never", "first vs never"):
+            expected = frame_rows(result, "mean", contrast, level=False)
+            drawn = [
+                line
+                for line in lines(diff, "cleverly-curve")
+                if np.allclose(line.get_xydata()[:, 1], expected["psi"].to_numpy())
+            ]
+            assert len(drawn) == 1
+            # The fit's own pointwise limits are drawn, as ribbons over its weekly steps.
+            low = expected["ci_lower"].to_numpy()
+            high = expected["ci_upper"].to_numpy()
+            assert _last_node_visible(diff, 3.0, low[-1], high[-1], _core.GID_INTERVAL)
+        assert len(lines(diff, "cleverly-curve")) == 2
+        assert [t.get_text() for t in counts.get_yticklabels()] == ["never", "always", "first"]
+        assert "only the differences between regimens" in _core.note_text(fig)
+        assert "No difference" in key_texts(diff)
+        assert_style(fig)
+        assert_text_inside(fig)
+
+    def test_a_fit_of_contrasts_alone_selects_regimens_in_pairs(self) -> None:
+        result = regime_contrast()
+        fig = curve(result, regimens=["always", "never"])
+        diff, counts = fig.axes
+        assert len(lines(diff, "cleverly-curve")) == 1
+        assert [t.get_text() for t in counts.get_yticklabels()] == ["always", "never"]
+        with pytest.raises(ValueError, match="selects no contrast of this fit"):
+            curve(result, regimens=["always", "first"])
+        with pytest.raises(ValueError, match="unknown regimen"):
+            curve(result, regimens=["sometimes"])
+
+    def test_a_fit_with_levels_keeps_its_level_panel_and_no_contrast_only_note(self) -> None:
+        """Control: the contrast-only layout is chosen by the fit, not applied to every fit."""
+        fig = curve(repeated())
+        assert len(fig.axes) == 3
+        assert fig.axes[0].get_title(loc="left") == "Mean outcome over time"
+        assert "only the differences" not in _core.note_text(fig)
+
+    def test_series_at_the_last_time_point_are_dodged_apart_but_keep_their_times(self) -> None:
+        """Several regimens' marks at one time point sit side by side, wider than a bracket.
+
+        The shift is a display transform only: the drawn data keep the fit's own times.
+        """
+        result = full()
+        fig = curve(result)
+        top = fig.axes[0]
+        fig.canvas.draw()
+        last = float(frame_rows(result, "risk", "treated")["time"].max())
+        points = [ln for ln in lines(top, _core.GID_POINT) if ln.get_xdata()[0] == last]
+        assert len(points) == 2
+        assert all(float(ln.get_xdata()[0]) == last for ln in points)
+        screen = sorted(float(ln.get_transform().transform(ln.get_xydata())[0][0]) for ln in points)
+        bracket = 12.0 * fig.dpi / 72.0
+        assert screen[1] - screen[0] > bracket
+        # The band brackets and the bars at that node are dodged with their series.
+        for gid in (_core.GID_BAND, _core.GID_INTERVAL):
+            xs = set()
+            marks = [
+                c
+                for c in collections(top, gid)
+                if isinstance(c, matplotlib.collections.LineCollection)
+            ]
+            for artist in [*lines(top, gid), *marks]:
+                data = (
+                    artist.get_xydata()
+                    if hasattr(artist, "get_xydata")
+                    else np.vstack(artist.get_segments())
+                )
+                at_last = data[np.isclose(data[:, 0], last)]
+                if at_last.size:
+                    shown = artist.get_transform().transform(at_last)
+                    xs.add(round(float(shown[0, 0]), 3))
+            assert len(xs) == 2, gid
+            assert max(xs) - min(xs) > bracket
+        # The fit's frame, which the plot reads, still reports the true time point.
+        assert last in set(result.curve(scale="risk")["time"])
+
     def test_too_many_series_for_one_axes_are_refused(self) -> None:
         rows = [
             _Point(f"p{i}", name, 1.0, 1, 0.1, None, None, True, None)
@@ -1283,6 +1433,80 @@ class TestLevelMeans:
         fit = msm_binary("identity", modifiers=("W",))
         with pytest.raises(CapabilityError):
             curve(level_means(), msm=fit)
+
+    def test_a_fit_of_per_arm_means_draws_against_its_working_model(self) -> None:
+        """CounterfactualMean keys its means by arm; levels= places means and model alike."""
+        means, msm = arm_means(), labelled_msm()
+        assert {key.axis for key in means.parameter_keys.values()} == {"arm"}
+        fitted = working_model_means(msm)
+        for fig in (
+            curve(means, msm=msm, levels=CONTACTS),
+            curve(msm, means=means, levels=CONTACTS),
+        ):
+            ax = fig.axes[0]
+            xy = sorted(
+                (float(ln.get_xdata()[0]), float(ln.get_ydata()[0]))
+                for ln in lines(ax, _core.GID_POINT)
+            )
+            expected = sorted(
+                [(CONTACTS[arm], means.estimates[f"ey[{arm}]"].psi) for arm in CONTACTS]
+                + [
+                    (CONTACTS[str(label)], float(value))
+                    for label, value in zip(fitted.levels, fitted.estimate, strict=True)
+                ]
+            )
+            np.testing.assert_allclose(xy, expected)
+            assert list(ax.get_xticks()) == [1.0, 2.0, 6.0]
+            assert_style(fig)
+        # Mutation control: another mapping moves both series, so the model's places are
+        # read from levels= and not from its labels' order.
+        moved = {"low": 1.0, "medium": 2.0, "high": 3.0}
+        ax = curve(means, msm=msm, levels=moved).axes[0]
+        assert max(float(ln.get_xdata()[0]) for ln in lines(ax, _core.GID_POINT)) == 3.0
+
+    def test_labelled_arms_without_levels_are_refused_in_words(self) -> None:
+        with pytest.raises(CapabilityError, match="is not a number") as refused:
+            curve(arm_means(), msm=labelled_msm())
+        assert refused.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        assert "levels=" in str(refused.value)
+
+    def test_levels_that_name_other_arms_or_only_some_are_refused(self) -> None:
+        """A key that matches nothing, or a partial mapping, is refused, not drawn half-mapped."""
+        cases = [
+            ({"low": 1, "medium": 2, "top": 6}, r"names \['top'\].*leaves out \['high'\]"),
+            ({"low": 1, "medium": 2}, r"leaves out \['high'\]"),
+            ({**CONTACTS, "extra": 9}, r"names \['extra'\], which this fit does not report"),
+        ]
+        for levels, words in cases:
+            for call in (
+                lambda levels=levels: curve(labelled_msm(), means=arm_means(), levels=levels),
+                lambda levels=levels: curve(arm_means(), levels=levels),
+            ):
+                with pytest.raises(CapabilityError, match=words) as refused:
+                    call()
+                assert refused.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        # A regime fit: the regimes' names are the keys.
+        with pytest.raises(CapabilityError, match=r"names \['a9'\]"):
+            curve(level_means(), levels={"a0": 0, "a1": 1, "a2": 2, "a9": 9})
+        # Control: the full mapping draws.
+        assert curve(arm_means(), levels=CONTACTS).axes[0].get_title(loc="left")
+
+    def test_numeric_arms_need_no_levels_and_an_effect_on_the_arm_axis_is_not_a_mean(
+        self,
+    ) -> None:
+        frame, _ = make_linear_ate(n=200, seed=0)
+        study = CausalStudy(
+            frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1",))
+        )
+        means = _quiet(study.identify(CounterfactualMean()).estimate, **_ESTIMATE)
+        ax = curve(means).axes[0]
+        assert sorted(float(ln.get_xdata()[0]) for ln in lines(ax, _core.GID_POINT)) == [0.0, 1.0]
+        # Control: an average effect also sits on the arm axis, and curve() does not take it
+        # for per-level means.
+        effect = _quiet(study.identify(ATE()).estimate, **_ESTIMATE)
+        assert {key.axis for key in effect.parameter_keys.values()} == {"arm"}
+        with pytest.raises(TypeError, match="per-level means"):
+            curve(effect)
 
     def test_levels_without_a_number_are_refused(self) -> None:
         with pytest.raises(ValueError, match="levels="):
@@ -1618,3 +1842,133 @@ def test_plot_of_a_fit_of_several_repeats_draws_its_reported_curve() -> None:
             np.allclose(line.get_xydata()[:, 1], expected) for line in lines(top, "cleverly-curve")
         )
     assert "one of the 2 repeats" in _core.note_text(fig)
+
+
+# ---------------------------------------------------------------------------- truth=
+
+
+def truth_marks(ax: Any) -> list[tuple[float, float]]:
+    """Each truth cross at its data position, read back through its own transform."""
+    found = []
+    for line in lines(ax, _core.GID_TRUTH):
+        screen = line.get_transform().transform(line.get_xydata())
+        found.append(tuple(ax.transData.inverted().transform(screen)[0]))
+    return found
+
+
+def point_screen(ax: Any) -> list[tuple[float, float]]:
+    return [
+        tuple(line.get_transform().transform(line.get_xydata())[0])
+        for line in lines(ax, _core.GID_POINT)
+    ]
+
+
+class TestTruth:
+    def test_a_mapping_by_name_puts_a_cross_beside_each_named_estimate(self) -> None:
+        result = full()
+        rows = result.curve(scale="risk")
+        named = dict(zip(rows["parameter"], rows["psi"], strict=True))
+        truth = {name: value + 0.01 for name, value in named.items()}
+        fig = curve(result, truth=truth)
+        top, diff, _ = fig.axes
+        fig.canvas.draw()
+        for ax in (top, diff):
+            # Each cross sits at its estimate's screen x (the same sideways shift) and at the
+            # true value; none is left out and none is drawn twice.
+            points = point_screen(ax)
+            for line in lines(ax, _core.GID_TRUTH):
+                screen = line.get_transform().transform(line.get_xydata())[0]
+                assert any(np.isclose(screen[0], x) for x, _ in points)
+        drawn = sorted(v for ax in (top, diff) for _, v in truth_marks(ax))
+        assert drawn == pytest.approx(sorted(truth.values()))
+        assert _core.TRUTH_LABEL in key_texts(top)
+        assert_style(fig)
+        assert_text_inside(fig)
+
+    def test_the_key_entry_and_the_crosses_appear_only_with_truth(self) -> None:
+        """Control: a figure without truth= has neither."""
+        for fig in (curve(full()), curve(shifts()), curve(level_means())):
+            assert _core.TRUTH_LABEL not in _core.key_labels(fig)
+            assert not any(lines(ax, _core.GID_TRUTH) for ax in fig.axes)
+
+    def test_the_cross_check_rejects_a_mark_off_its_value(self, monkeypatch: Any) -> None:
+        """Mutation control: a cross drawn away from the given value fails the same read."""
+        result = shifts()
+        values = [0.1, 0.2, 0.3]
+        ax = curve(result, truth=values).axes[0]
+        assert sorted(v for _, v in truth_marks(ax)) == pytest.approx(values)
+        original = _core.truth_mark
+
+        def shifted(ax: Any, x: float, y: float, **kwargs: Any) -> Any:
+            return original(ax, x, y + 0.05, **kwargs)
+
+        monkeypatch.setattr(_core, "truth_mark", shifted)
+        ax = curve(result, truth=values).axes[0]
+        assert sorted(v for _, v in truth_marks(ax)) != pytest.approx(values)
+
+    def test_one_series_takes_values_over_its_x_levels(self) -> None:
+        # The reference shift 0 is not an estimate, so the levels are the other three.
+        ax = curve(shifts(), truth=[0.1, 0.2, 0.3]).axes[0]
+        np.testing.assert_allclose(
+            sorted(truth_marks(ax)), [(0.25, 0.1), (0.5, 0.2), (0.75, 0.3)], atol=1e-9
+        )
+        ax = curve(level_means(), truth={0: 1.0, 2: 3.0}).axes[0]
+        np.testing.assert_allclose(sorted(truth_marks(ax)), [(0.0, 1.0), (2.0, 3.0)], atol=1e-9)
+        # The working model is not a series of true values: the crosses sit with the means.
+        ax = curve(level_means(), msm=msm_fit(), truth=[1.0, 2.0, 3.0]).axes[0]
+        assert len(truth_marks(ax)) == 3
+
+    def test_a_mismatched_truth_is_refused_with_its_reason(self) -> None:
+        cases = [
+            (shifts(), [0.1, 0.2], "has 2 values"),
+            (level_means(), {5: 1.0}, "not an x level"),
+            (full(), [0.1, 0.2, 0.3, 0.4], "one series"),
+            (full(), {"risk_regimen[nope]": 0.1}, "does not report"),
+            (shifts(), [0.1, math_nan(), 0.3], "not a finite number"),
+            (shifts(), "0.1", "mapping or a sequence"),
+            (cate(), [0.1, 0.2], "function of the modifier"),
+            (full(), {}, "empty mapping"),
+            (shifts(), {}, "empty mapping"),
+            (shifts(), [0.1, True, 0.3], "boolean"),
+        ]
+        for result, truth, words in cases:
+            extra = {"modifier": "W", "at": {"Z": 0.0}} if result is cate() else {}
+            with pytest.raises(CapabilityError, match=words) as refused:
+                curve(result, truth=truth, **extra)
+            assert refused.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+
+    def test_a_name_the_fit_reports_but_the_plot_leaves_out_is_passed_over(self) -> None:
+        result = full()
+        contrast = next(n for n, e in result.estimates.items() if e.scale != "level")
+        level = next(n for n, e in result.estimates.items() if e.scale == "level")
+        regimen = result.parameter_index[level][0]
+        fig = curve(result, regimens=[regimen], truth={contrast: 0.0, level: 0.2})
+        assert [v for _, v in truth_marks(fig.axes[0])] == pytest.approx([0.2])
+
+    def test_a_conditional_effect_curve_draws_the_true_function_as_a_line(self) -> None:
+        fig = curve(cate(), modifier="W", at={"Z": 0.0}, truth=lambda w: 0.5 * w)
+        ax = fig.axes[0]
+        (line,) = lines(ax, _core.GID_TRUTH)
+        x, y = line.get_xydata().T
+        np.testing.assert_allclose(y, 0.5 * x)
+        assert line.get_marker() in ("None", None, "")
+        assert _core.TRUTH_LABEL in key_texts(ax)
+        assert_style(fig)
+        with pytest.raises(CapabilityError, match="one panel per level"):
+            curve(cate_by(), modifier="W", by="G", truth=lambda w: w)
+
+    def test_restricted_means_take_values_for_one_regimen(self) -> None:
+        result = full()
+        regimen = _regimen_order_of(result)[0]
+        fig = curve(result, measure="rmst", regimens=[regimen], truth=[1.5, 2.0, 2.5])
+        assert len(truth_marks(fig.axes[0])) == 3
+
+
+def math_nan() -> float:
+    return float("nan")
+
+
+def _regimen_order_of(result: Any) -> list[str]:
+    from cleverly.plotting._curves import _regimen_order
+
+    return _regimen_order(result)

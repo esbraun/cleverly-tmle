@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from . import _core
+from . import _core, _truth
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from matplotlib.axes import Axes
@@ -34,8 +34,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: Marker and dash pattern of the first three series, so identity never rests on colour.
 _MARKERS = ("o", "s", "^")
 _DASHES: tuple[Any, ...] = ("-", (0, (5, 2)), (0, (1, 1.6)))
-#: Inches between neighbouring series at a shared x, so their error bars do not overlap.
-_DODGE = 0.07
+#: Inches between neighbouring series at a shared x, so their error bars and band brackets
+#: do not overlap: wider than a band bracket (:func:`_core.brackets`, 12 points).
+_DODGE = 0.19
 
 
 # ----------------------------------------------------------------------- frame helpers
@@ -156,6 +157,7 @@ def curve(
     treatment_label: str | None = None,
     units: str | None = None,
     time_label: str | None = None,
+    truth: Any = None,
     title: str | None = None,
     ax: Axes | None = None,
 ) -> Figure:
@@ -198,12 +200,15 @@ def curve(
     labels : mapping of str to str or None, default=None
         Display names for regimens.
     msm : TMLEResult or None, default=None
-        Per-level means: the point-treatment fit of a working model to draw beside them.
+        Per-level means (a fit of ``RegimeMean`` or ``CounterfactualMean``): the
+        point-treatment fit of a working model to draw beside them.
     means : TMLEResult or None, default=None
         Working model fit: the fit of per-level means to draw beside it.
     levels : mapping or None, default=None
-        Per-level means: the treatment level of each regime name, when the regime names are
-        not the levels themselves.
+        Per-level means: the numeric treatment level of each regime name or arm label, when
+        the names are not the levels themselves. It names every regime or arm the fit
+        reports and no other. The working model's levels are mapped the same way, so
+        labelled arms such as ``"low"`` and ``"high"`` need it once.
     modifier : str or None, default=None
         Conditional effect curve: the modifier on the x axis; the only continuous modifier
         the curve reads when omitted.
@@ -227,6 +232,15 @@ def curve(
     time_label : str or None, default=None
         Words for the time axis of a longitudinal fit, with its units, such as
         ``"Days since enrolment"``.
+    truth : mapping, sequence, callable or None, default=None
+        The known true values of simulated data, drawn as ink crosses beside the estimates
+        and named "True value (simulated data only)" in the key. Real data have none. A
+        mapping of estimate name to value (``{"ate_regimen[a vs b @ t=1]": 0.1}``) works
+        on every plot of named estimates; a name the fit reports but the plot does not
+        draw is passed over. A figure of one series also takes one value per x level, as
+        a sequence in increasing order of the level or a mapping of level to value. A
+        conditional effect curve takes a function of the modifier's values, drawn as a
+        dash-dot line. Values are on the scale the plot draws.
     title : str or None, default=None
         The title.
     ax : Axes or None, default=None
@@ -247,7 +261,8 @@ def curve(
         single parameter.
     CapabilityError
         When the fit refuses the view (for example the survival view of a fit with several
-        causes), with the fit's own reason.
+        causes), with the fit's own reason, or when ``truth`` does not match what the plot
+        draws.
 
     See Also
     --------
@@ -301,6 +316,7 @@ def curve(
                 outcome_label=outcome_label,
                 units=units,
                 time_label=time_label,
+                truth=truth,
                 title=title,
             )
         return _restricted(
@@ -311,6 +327,7 @@ def curve(
             labels=labels,
             units=units,
             time_label=time_label,
+            truth=truth,
             title=title,
         )
     if isinstance(obj, EffectCurveResult):
@@ -323,6 +340,7 @@ def curve(
             outcome_label=outcome_label,
             treatment_label=treatment_label,
             units=units,
+            truth=truth,
             title=title,
             ax=ax,
         )
@@ -342,10 +360,11 @@ def curve(
                 outcome_label=outcome_label,
                 treatment_label=treatment_label,
                 units=units,
+                truth=truth,
                 title=title,
                 ax=ax,
             )
-        if axes == {"regime"}:
+        if axes == {"regime"} or (axes == {"arm"} and _level_means(keys.values())):
             return _dose(
                 obj,
                 msm,
@@ -353,6 +372,7 @@ def curve(
                 outcome_label=outcome_label,
                 treatment_label=treatment_label,
                 units=units,
+                truth=truth,
                 title=title,
                 ax=ax,
             )
@@ -362,6 +382,7 @@ def curve(
                 outcome_label=outcome_label,
                 treatment_label=treatment_label,
                 units=units,
+                truth=truth,
                 title=title,
                 ax=ax,
             )
@@ -435,20 +456,29 @@ def _read_curve(result: Any, view: str, cause: str | None) -> tuple[list[_Point]
 
 
 def _select(
-    rows: list[_Point], regimens: Sequence[str] | None, *, order: Sequence[str] | None = None
+    rows: list[_Point],
+    regimens: Sequence[str] | None,
+    *,
+    order: Sequence[str] | None = None,
+    sides: Sequence[str] = (),
 ) -> tuple[list[str], list[str]]:
-    """The level regimens to draw and the contrast labels that go with them.
+    """The regimens to draw and the contrast labels that go with them.
 
     The regimens follow ``order`` (the fit's own, :func:`_regimen_order`) when given, so
-    every plot of one result lists and colours them alike.
+    every plot of one result lists and colours them alike. A fit that reports contrasts
+    and no level of any regimen (a regime contrast) chooses among ``sides``, the regimens
+    its contrasts compare; those regimens get a row of counts and no curve of their own.
     """
     reported = list(dict.fromkeys(row.regimen for row in rows if row.level))
+    contrast_only = not reported
+    if contrast_only:
+        reported = list(sides)
     found = [name for name in order or () if name in reported] or reported
     chosen = found if regimens is None else list(regimens)
     unknown = [name for name in chosen if name not in found]
     if unknown:
         raise ValueError(f"unknown regimen {unknown}; this fit reports {found}")
-    if len(chosen) > _core.MAX_SERIES:
+    if not contrast_only and len(chosen) > _core.MAX_SERIES:
         raise ValueError(
             f"this fit has {len(chosen)} regimens and one axes holds at most "
             f"{_core.MAX_SERIES} coloured series; pass regimens= to draw up to "
@@ -458,6 +488,11 @@ def _select(
     if regimens is not None:
         wanted = {f"{a} vs {b}" for a in chosen for b in chosen if a != b}
         contrasts = [name for name in contrasts if name in wanted]
+    if contrast_only and not contrasts:
+        raise ValueError(
+            f"regimens={chosen} selects no contrast of this fit, because none of its "
+            f"contrasts is between those regimens; pass at least two of {found}"
+        )
     if len(contrasts) > _core.MAX_SERIES:
         raise ValueError(
             f"this fit has {len(contrasts)} contrasts and one axes holds at most "
@@ -521,9 +556,27 @@ def _view_band(
 
 
 def _nodes_reported(result: Any, rows: list[_Point]) -> bool:
-    """Whether the fit reports every node (rule 2's exception for step ribbons)."""
-    reported = {row.node for row in rows if row.level}
+    """Whether the fit reports every node (rule 2's exception for step ribbons).
+
+    The levels decide, or the contrasts of a fit that reports no level.
+    """
+    reported = {row.node for row in rows if row.level} or {row.node for row in rows}
     return reported == set(range(1, int(result.data.n_times) + 1))
+
+
+def _contrast_sides(result: Any, rows: list[_Point]) -> list[str]:
+    """The regimens the fit's contrasts compare, in the fit's own regimen order."""
+    labels = [str(regimen.label) for regimen in result.config.regimens]
+    named = {row.regimen for row in rows if not row.level}
+    return [
+        name
+        for name in labels
+        if any(
+            contrast in named
+            for other in labels
+            for contrast in (f"{name} vs {other}", f"{other} vs {name}")
+        )
+    ]
 
 
 def _counts(
@@ -653,6 +706,7 @@ def _draw_line(
     level: float,
     band_text: str | None,
     first: dict[str, bool],
+    spots: list[_truth.Spot],
 ) -> None:
     """One series: the curve, its pointwise interval and its band.
 
@@ -728,8 +782,14 @@ def _draw_line(
             transform=ends,
             size=5.5,
         )
+        last = len(points) - 1
+        spots.extend(
+            _truth.Spot(ax, p.parameter, p.x, ends if i == last else ax.transData, p.regimen)
+            for i, p in enumerate(points)
+        )
         return
     transform = _offset(ax, *dodge)
+    spots.extend(_truth.Spot(ax, p.parameter, p.x, transform, p.regimen) for p in points)
     if box is not None:
         _dodged_brackets(
             ax,
@@ -804,13 +864,18 @@ def _over_time(
     outcome_label: str | None,
     units: str | None,
     time_label: str | None,
+    truth: Any,
     title: str | None,
 ) -> Figure:
     view = scale or ("mean" if result.data.is_repeated else "risk")
     rows, chosen_cause = _read_curve(result, view, cause)
     order = _regimen_order(result)
-    chosen, contrasts = _select(rows, regimens, order=order)
-    slot = _slots(chosen, order)
+    has_levels = any(row.level for row in rows)
+    sides = [] if has_levels else _contrast_sides(result, rows)
+    chosen, contrasts = _select(rows, regimens, order=order or sides, sides=sides)
+    # The regimens drawn as curves; a fit of contrasts alone draws its difference panel only.
+    drawn = chosen if has_levels else []
+    slot = _slots(drawn, order)
     name_of = (lambda s: str(labels.get(s, s))) if labels else str
     step = _nodes_reported(result, rows)
     level = 1.0 - float(rows[0].estimate.alpha)
@@ -836,7 +901,11 @@ def _over_time(
         None if band_obj is None else _core.band_label(1.0 - float(band_obj.alpha), band_kind or "")
     )
 
-    tall = [3.4] + ([1.7] if contrasts else []) + [0.45 + 0.3 * len(chosen)]
+    tall = (
+        ([3.4] if has_levels else [])
+        + ([1.7 if has_levels else 3.4] if contrasts else [])
+        + [0.45 + 0.3 * len(chosen)]
+    )
     fig, panels = _core.new_figure(
         len(tall), figsize=(7.2, 1.2 + sum(tall)), height_ratios=tall, sharex=True
     )
@@ -844,8 +913,9 @@ def _over_time(
     count_ax = panels[-1]
     count_ax.grid(False)
     first = {"band": True, "pointwise": True}
+    spots: list[_truth.Spot] = []
     ends: list[tuple[float, float, str, str]] = []
-    for i, regimen in enumerate(chosen):
+    for i, regimen in enumerate(drawn):
         points = _series(rows, regimen, level=True)
         color = _core.series_color(slot[regimen])
         _draw_line(
@@ -853,19 +923,24 @@ def _over_time(
             points,
             color=color,
             index=slot[regimen],
-            dodge=(i, len(chosen)),
+            dodge=(i, len(drawn)),
             step=step,
             limits=limits,
             level=level,
             band_text=band_text,
             first=first,
+            spots=spots,
         )
         ends.append((points[-1].x, points[-1].psi, name_of(regimen), color))
-    marked = _mark_isotonic(top, result, rows, chosen, slot, view, psi_risk, chosen_cause)
-    _pad(top, _extent(rows, chosen, limits, level_rows=True))
+    marked = _mark_isotonic(top, result, rows, drawn, slot, view, psi_risk, chosen_cause)
+    if has_levels:
+        _pad(top, _extent(rows, chosen, limits, level_rows=True))
+        top.set_ylabel(
+            _wrap_axis_label(_measure_word(view, outcome_label, units, difference=False))
+        )
     diff_ends: list[tuple[float, float, str, str]] = []
+    diff = panels[1] if has_levels else panels[0]
     if contrasts:
-        diff = panels[1]
         for i, contrast in enumerate(contrasts):
             points = _series(rows, contrast, level=False)
             _draw_line(
@@ -879,6 +954,7 @@ def _over_time(
                 level=level,
                 band_text=band_text,
                 first=first,
+                spots=spots,
             )
             diff_ends.append((points[-1].x, points[-1].psi, name_of(contrast), _core.SECONDARY_INK))
         _core.reference_line(diff, 0.0, label="No difference")
@@ -886,30 +962,43 @@ def _over_time(
         diff.set_ylabel(
             _wrap_axis_label(_measure_word(view, outcome_label, units, difference=True))
         )
-    top.set_ylabel(_wrap_axis_label(_measure_word(view, outcome_label, units, difference=False)))
     xs = sorted({r.x for r in in_play})
     span = (xs[-1] - xs[0]) or 1.0
     left, right = xs[0] - 0.06 * span, xs[-1] + (0.24 if span else 0.4) * span
     for axis in panels:
         axis.set_xlim(left, right)
     nudge = 0.03 * span
-    _label_ends(top, [(x + nudge, y, text, color) for x, y, text, color in ends])
+    if has_levels:
+        _label_ends(top, [(x + nudge, y, text, color) for x, y, text, color in ends])
     if contrasts:
-        _label_ends(panels[1], [(x + nudge, y, t, c) for x, y, t, c in diff_ends])
+        _label_ends(diff, [(x + nudge, y, t, c) for x, y, t, c in diff_ends])
     _count_row(count_ax, result, rows, chosen, name_of, time_label)
     heading = {
         "risk": "Risk over time",
         "survival": "Survival over time",
         "mean": "Mean outcome over time",
     }[view]
+    _truth.draw(truth, spots, known=list(result.estimates))
+    if not has_levels:
+        heading = {
+            "risk": "Difference in risk over time",
+            "survival": "Difference in survival over time",
+            "mean": "Difference in mean outcome over time",
+        }[view]
     suffix = f" ({chosen_cause})" if chosen_cause else ""
     _core.header(
         top,
         title or heading,
-        _over_time_subtitle(view, suffix, contrasts),
+        _over_time_subtitle(view, suffix, contrasts, levels=has_levels),
         key_sources=panels[:-1],
     )
-    note_list = list(band_notes)
+    note_list = []
+    if not has_levels:
+        note_list.append(
+            "The fit estimates only the differences between regimens, so no regimen's own "
+            "curve is drawn."
+        )
+    note_list += band_notes
     note_list += _withheld_notes([r.estimate for r in in_play])
     gaps = sorted({r.x for r in in_play if r.estimate.supplies_inference and r.lower is None})
     if gaps:
@@ -928,7 +1017,7 @@ def _over_time(
     if step:
         note_list.append(_step_note(any(r.lower is not None for r in in_play), limits is not None))
     else:
-        horizons = ", ".join(f"{r.x:g}" for r in _series(rows, chosen[0], level=True))
+        horizons = ", ".join(f"{x:g}" for x in sorted({r.x for r in in_play}))
         note_list.append(
             f"This fit reports only the horizons {horizons}, so the curve is drawn at those "
             "horizons and nothing is drawn between them."
@@ -959,7 +1048,16 @@ def _step_note(interval: bool, band: bool) -> str:
     return text
 
 
-def _over_time_subtitle(view: str, suffix: str, contrasts: list[str]) -> str:
+def _over_time_subtitle(
+    view: str, suffix: str, contrasts: list[str], *, levels: bool = True
+) -> str:
+    if not levels:
+        base = {
+            "risk": "Difference in cumulative risk between regimens",
+            "survival": "Difference in the chance of staying event-free between regimens",
+            "mean": "Difference in mean outcome between regimens",
+        }[view]
+        return f"{base}{suffix}"
     base = {
         "risk": "Cumulative risk under each regimen",
         "survival": "Chance of staying event-free under each regimen",
@@ -1039,10 +1137,16 @@ def _count_row(
     name_of: Any,
     time_label: str | None,
 ) -> None:
-    """The number following each regimen and still observed, under the time axis."""
+    """The number following each regimen and still observed, under the time axis.
+
+    The time points are those of the levels, or of the contrasts of a fit that reports no
+    level.
+    """
+    has_levels = any(row.level for row in rows)
+    timed = [row for row in rows if row.level == has_levels]
     nodes: dict[int, float] = {}
-    for row in rows:
-        if row.level and row.regimen in chosen:
+    for row in timed:
+        if not has_levels or row.regimen in chosen:
             nodes[row.node] = row.x
     counts = _counts(result, chosen, nodes)
     ax.set_ylim(len(chosen) - 0.4, -0.6)
@@ -1076,7 +1180,7 @@ def _count_row(
     grid = result.data.time_grid
     default = "Follow-up time" if grid is not None else "Follow-up time point"
     ax.set_xlabel(time_label or default)
-    ticks = sorted({row.x for row in rows if row.level})
+    ticks = sorted({row.x for row in timed})
     if len(ticks) <= 12:
         ax.set_xticks(ticks)
     else:
@@ -1097,6 +1201,7 @@ def _restricted(
     labels: Mapping[str, str] | None,
     units: str | None,
     time_label: str | None,
+    truth: Any,
     title: str | None,
 ) -> Figure:
     grid = result.data.time_grid
@@ -1137,12 +1242,21 @@ def _restricted(
     all_estimates: list[Any] = []
     spans: dict[Any, list[float]] = {panel: [] for panel in panels}
     keyed = {"pointwise": False}
+    spots: list[_truth.Spot] = []
 
-    def draw(ax: Axes, series: list[Any], color: str, style: int, dodge: tuple[int, int]) -> None:
+    def draw(
+        ax: Axes,
+        series: list[Any],
+        color: str,
+        style: int,
+        dodge: tuple[int, int],
+        name: str,
+    ) -> None:
         xs = [float(h) for h in horizons]
         intervals = [_core.estimate_interval(e) for e in series]
         ys = [i.psi for i in intervals]
         shift = _offset(ax, *dodge)
+        spots.extend(_truth.Spot(ax, None, x, shift, name) for x in xs)
         ax.plot(
             xs,
             ys,
@@ -1181,7 +1295,7 @@ def _restricted(
 
     for i, name in enumerate(chosen):
         color = _core.series_color(slot[name])
-        draw(top, levels[name], color, slot[name], (i, len(chosen)))
+        draw(top, levels[name], color, slot[name], (i, len(chosen)), name)
         all_estimates.extend(levels[name])
         ends.append((float(horizons[-1]), levels[name][-1].psi, name_of(name), color))
     top.set_ylabel(_wrap_axis_label(f"Restricted mean {word}{unit}"))
@@ -1189,7 +1303,7 @@ def _restricted(
     if contrasts:
         diff = panels[1]
         for i, name in enumerate(versus):
-            draw(diff, contrasts[name], _core.SECONDARY_INK, i, (i, len(versus)))
+            draw(diff, contrasts[name], _core.SECONDARY_INK, i, (i, len(versus)), f"{name} vs")
             all_estimates.extend(contrasts[name])
             diff_ends.append(
                 (
@@ -1212,6 +1326,7 @@ def _restricted(
         _label_ends(panels[1], [(x + nudge, y, t, c) for x, y, t, c in diff_ends])
     panels[-1].set_xlabel(time_label or "Restriction time (up to this time point)")
     panels[-1].set_xticks([float(h) for h in horizons])
+    _truth.draw(truth, spots)
     heading = (
         "Restricted mean survival up to each horizon"
         if measure == "rmst"
@@ -1246,7 +1361,7 @@ def _numeric(value: Any, what: str) -> float:
         raise CapabilityError(
             f"{what} {value!r} is not a number, so it has no place on a numeric axis",
             reason=RefusalReason.INVALID_DECLARATION,
-            alternative="pass levels= to give each regime its numeric treatment level",
+            alternative="pass levels= to give each regime or arm its numeric treatment level",
         ) from None
 
 
@@ -1266,6 +1381,8 @@ def _points_at(
     band_text: str | None = None,
     extent: list[float] | None = None,
     guide_through: Sequence[tuple[float, float]] = (),
+    spots: list[_truth.Spot] | None = None,
+    names: Sequence[str | None] | None = None,
 ) -> list[str]:
     """Points with pointwise error bars and, where given, band brackets; returns the notes.
 
@@ -1321,10 +1438,31 @@ def _points_at(
             transform=shift,
         )
     _draw_points(ax, xs, ys, has, color=color, marker=marker, transform=shift)
+    if spots is not None:
+        named = list(names) if names is not None else [None] * len(xs)
+        spots.extend(
+            _truth.Spot(ax, name, x, shift, marker) for name, x in zip(named, xs, strict=True)
+        )
     return found
 
 
 # ----------------------------------------------------------------------- V4: means by level
+
+
+def _level_means(keys: Any) -> bool:
+    """Whether the keys of a fit on the treatment-arm axis are each a per-level mean.
+
+    A fit of ``CounterfactualMean`` reports ``ey[level]`` on the ``"arm"`` axis; an average
+    effect on the same axis is a contrast against a reference and is not a mean.
+    """
+    found = list(keys)
+    return bool(found) and all(
+        key.estimand == "ey"
+        and key.reference is None
+        and key.stratum is None
+        and key.value is not None
+        for key in found
+    )
 
 
 def _regime_levels(means: Any, levels: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -1338,12 +1476,55 @@ def _regime_levels(means: Any, levels: Mapping[str, Any] | None) -> dict[str, An
     return found
 
 
+def _check_levels(means: Any, levels: Mapping[str, Any] | None) -> None:
+    """Refuse a ``levels=`` that names other regimes or arms, or only some of them.
+
+    A key that matches nothing would be passed over in silence, and a partial mapping would
+    draw some means at mapped places and the rest at their own labels.
+    """
+    if levels is None:
+        return
+    names = list(dict.fromkeys(str(key.value) for key in means.parameter_keys.values()))
+    given = [str(key) for key in levels]
+    unknown = [name for name in given if name not in names]
+    missing = [name for name in names if name not in given]
+    if unknown or missing:
+        problem = []
+        if unknown:
+            problem.append(f"names {unknown}, which this fit does not report")
+        if missing:
+            problem.append(f"leaves out {missing}")
+        raise _truth.refuse(
+            f"levels= {' and '.join(problem)}; the fit reports {names}",
+            "pass levels= with one numeric level for each of them",
+        )
+
+
+def _model_levels(labels: Sequence[Any], levels: Mapping[str, Any] | None) -> list[float]:
+    """The working model's levels on the numeric axis.
+
+    ``levels=`` maps a level the way it maps the per-level means, so a model fitted at
+    labelled arms (``"low"``, ``"high"``) lands at the same places as their means.
+    """
+    mapped = {str(key): value for key, value in (levels or {}).items()}
+    return [
+        _numeric(mapped.get(str(label), label), "the working model's level") for label in labels
+    ]
+
+
 def _same_data(first: Any, second: Any) -> bool:
     """Whether two point-treatment fits read the same outcome and treatment columns."""
     for name in ("outcome", "treatment"):
-        left = np.asarray(getattr(first, name), dtype=float)
-        right = np.asarray(getattr(second, name), dtype=float)
-        if left.shape != right.shape or not np.array_equal(left, right, equal_nan=True):
+        left = np.asarray(getattr(first, name))
+        right = np.asarray(getattr(second, name))
+        if left.shape != right.shape:
+            return False
+        try:
+            same = np.array_equal(left.astype(float), right.astype(float), equal_nan=True)
+        except (TypeError, ValueError):
+            # Labelled arms: compared as they are.
+            same = bool(np.all(left == right))
+        if not same:
             return False
     return True
 
@@ -1356,15 +1537,20 @@ def _dose(
     outcome_label: str | None,
     treatment_label: str | None,
     units: str | None,
+    truth: Any,
     title: str | None,
     ax: Axes | None,
 ) -> Figure:
     from ..msm import working_model_means
 
+    _check_levels(means, levels)
     level_of = _regime_levels(means, levels)
     entries = []
     for alias, key in means.parameter_keys.items():
         name = str(key.value)
+        if name not in level_of and key.axis == "arm":
+            # A per-level mean is keyed by the treatment value itself.
+            level_of[name] = key.value
         if name not in level_of:
             raise ValueError(
                 f"the treatment level of regime {name!r} is not known; pass "
@@ -1379,7 +1565,7 @@ def _dose(
     fitted = None
     if msm_fit is not None:
         fitted = working_model_means(msm_fit)
-        mx = [_numeric(label, "the working model's level") for label in fitted.levels]
+        mx = _model_levels(fitted.levels, levels)
         missing = [x for x in mx if not any(math.isclose(x, level) for level in xs)]
         if missing:
             raise ValueError(
@@ -1403,6 +1589,7 @@ def _dose(
     count = 2 if fitted is not None else 1
     extent: list[float] = []
     means_color = _core.series_color(0)
+    spots: list[_truth.Spot] = []
     notes = _points_at(
         axis,
         xs,
@@ -1421,6 +1608,8 @@ def _dose(
         if bands is None
         else _core.band_label(1.0 - float(bands.alpha), "multiplier"),
         extent=extent,
+        spots=spots,
+        names=[e[2] for e in entries],
     )
     ends = [(xs[-1], float(estimates[-1].psi), "Mean at each level", means_color)]
     if bands is not None:
@@ -1428,7 +1617,6 @@ def _dose(
     subtitle = "Mean outcome if everyone were given each level"
     if fitted is not None:
         model_color = _core.series_color(1)
-        mx = [_numeric(label, "the working model's level") for label in fitted.levels]
         pairs: list[tuple[float | None, float | None]] = (
             [(None, None)] * len(mx)
             if fitted.lower is None or fitted.upper is None
@@ -1471,6 +1659,7 @@ def _dose(
     _label_ends(axis, [(x + 0.05 * span, y, t, c) for x, y, t, c in ends])
     axis.set_xlabel(f"{treatment}")
     axis.set_ylabel(f"Mean {outcome}{unit}")
+    _truth.draw(truth, spots, known=list(means.estimates))
     _core.header(axis, title or "How does the mean outcome change with the dose?", subtitle)
     _core.notes(axis, notes)
     return fig
@@ -1518,6 +1707,7 @@ def _policies(
     outcome_label: str | None,
     treatment_label: str | None,
     units: str | None,
+    truth: Any,
     title: str | None,
     ax: Axes | None,
 ) -> Figure:
@@ -1533,6 +1723,7 @@ def _policies(
             title=title,
             subtitle="No single parameter orders these policies, so each is drawn alone",
             units=units,
+            truth=truth,
             ax=ax,
         )
     values, axis_words, log, cap_note = axis_spec
@@ -1553,6 +1744,7 @@ def _policies(
     box = None if bands is None else [bands.bands.get(e[2]) for e in entries]
     extent: list[float] = [0.0] if contrast else []
     color = _core.series_color(0)
+    spots: list[_truth.Spot] = []
     # The effect form reports each policy against the reference, whose own effect is zero
     # by definition and is not an estimate: it is drawn on the null line with no interval,
     # and the guide runs through it.
@@ -1576,6 +1768,8 @@ def _policies(
         else _core.band_label(1.0 - float(bands.alpha), "multiplier"),
         extent=extent,
         guide_through=() if anchor is None else (anchor,),
+        spots=spots,
+        names=[e[2] for e in entries],
     )
     if anchor is not None:
         axis.plot(
@@ -1642,6 +1836,7 @@ def _policies(
     else:
         axis.set_xticks(ticks)
     axis.set_xlabel(f"{axis_words} ({treatment})" if not log else axis_words)
+    _truth.draw(truth, spots, known=list(result.estimates))
     _core.header(axis, title or heading, subtitle)
     _core.notes(axis, notes)
     return fig
@@ -1689,6 +1884,7 @@ def _effect_curve(
     outcome_label: str | None,
     treatment_label: str | None,
     units: str | None,
+    truth: Any,
     title: str | None,
     ax: Axes | None,
 ) -> Figure:
@@ -1716,6 +1912,18 @@ def _effect_curve(
             raise ValueError(
                 f"the curve does not read {by!r}, so its panels would all be the same curve"
             )
+    if truth is not None and not callable(truth):
+        raise _truth.refuse(
+            "truth= for a conditional effect curve is a function of the modifier, because "
+            "the curve is drawn over a grid of its values and not at a set of levels",
+            "pass truth=lambda x: <the true effect at modifier values x>",
+        )
+    if truth is not None and by is not None:
+        raise _truth.refuse(
+            "truth= draws one true curve, and by= draws one panel per level, each with its "
+            "own true curve",
+            f"draw one level at a time with at={{{by!r}: <level>}}",
+        )
     held = dict(at or {})
     unknown = [name for name in held if name not in mods.columns]
     if unknown:
@@ -1829,6 +2037,23 @@ def _effect_curve(
             panel.set_ylabel(f"Effect on {outcome}{unit}")
         if ratio:
             _core.log_axis(panel, "y")
+    if truth is not None:
+        try:
+            true_values = np.asarray(truth(grid.copy()), dtype=float).reshape(-1)
+        except (TypeError, ValueError) as error:
+            raise _truth.refuse(
+                f"truth= could not be evaluated at the modifier's values: {error}",
+                "pass a function that takes an array of modifier values and returns one "
+                "number per value",
+            ) from None
+        if true_values.size != grid.size or not np.all(np.isfinite(true_values)):
+            raise _truth.refuse(
+                f"truth= returned {true_values.size} values for {grid.size} modifier values, "
+                "or a value that is not finite",
+                "pass a function that returns one finite number per modifier value",
+            )
+        _truth.check_log(panels[0], true_values.tolist())
+        _core.truth_line(panels[0], grid.tolist(), true_values.tolist())
     if len(panels) > 1:
         shared = [panel.get_ylim() for panel in panels]
         for panel in panels:

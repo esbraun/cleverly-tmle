@@ -459,6 +459,10 @@ SUPPORT_QUALIFIERS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 
+#: Plain words for the qualifiers of a longitudinal fit, which name the treatment and
+#: censoring columns whose mechanism the data declares known.
+SUPPORT_KNOWN_FACTORS: Final = "which treatment and censoring mechanisms are declared known"
+
 #: Fit-time warnings a note already states, by that note's code: when the note prints, a
 #: recorded warning whose message holds one of these phrases is left out of the Warnings
 #: block, and the note prints among the warnings in its place. The phrases are filled with
