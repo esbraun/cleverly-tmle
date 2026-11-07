@@ -129,7 +129,9 @@ def overlap(
     result : TMLEResult
         A fitted point-treatment result with an estimated treatment mechanism.
     treatment_label : str or None, default=None
-        Words for the treatment; its column name when omitted.
+        Words for the treatment in the axis label: ``"Predicted probability of smoking =
+        1"``, or with ``labels=`` ``"Predicted probability of smoking: smoking mothers"``.
+        The column name when omitted, or ``"being in the group"`` beside ``labels=``.
     labels : dict or None, default=None
         Words for each arm, keyed by the arm's level as in the data, such as
         ``{1: "offered", 0: "not offered"}``. Each names its group of units on its own.
@@ -213,9 +215,12 @@ def overlap(
         return own if own is not None else f"Units with {name} = {data.arm_label(code)}"
 
     def axis_words(code: float) -> str:
+        # A caller's label names a group of units, so the axis names the group after a
+        # colon: the treatment's words lead when given, being in the group otherwise.
         own = labelled(code)
         if own is not None:
-            return f"Predicted probability of the arm: {own}"
+            lead = treatment_label or "being in the group"
+            return f"Predicted probability of {lead}: {_core.mid_phrase(own)}"
         return f"Predicted probability of {name} = {data.arm_label(code)}"
 
     binary = len(arms) == 2
@@ -290,7 +295,9 @@ def _limits(result: Any) -> list[tuple[tuple[float, float], str]]:
     found: list[tuple[tuple[float, float], str]] = []
     pair = getattr(config, "g_bounds", None)
     if marginal and pair is not None:
-        found.append(((float(pair[0]), float(pair[1])), "Limits for the average effect"))
+        found.append(
+            ((float(pair[0]), float(pair[1])), "Probability limits used for the average effect")
+        )
     pair = getattr(config, "g_bounds_conditional", None)
     if conditional and pair is not None:
         pair = (float(pair[0]), float(pair[1]))
@@ -299,9 +306,9 @@ def _limits(result: Any) -> list[tuple[tuple[float, float], str]]:
                 {"att": "the treated", "atc": "the untreated"}[stem]
                 for stem in sorted(conditional, reverse=True)
             )
-            found.append((pair, f"Limits for the effect among {words}"))
+            found.append((pair, f"Probability limits used for the effect among {words}"))
         else:
-            found[0] = (pair, "Limits the fit used")
+            found[0] = (pair, "Probability limits the fit used")
     return found
 
 

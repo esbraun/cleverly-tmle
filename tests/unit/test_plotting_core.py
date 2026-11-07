@@ -589,8 +589,8 @@ def test_overlap_mirrors_the_unbounded_propensity_by_arm(binary_fit: Any) -> Non
     markers = sorted(line.get_xdata()[0] for line in _lines(ax, "cleverly-marker"))
     assert markers == pytest.approx(sorted([*bounds, *conditional]))
     assert _key(ax)[-2:] == [
-        "Limits for the average effect",
-        "Limits for the effect among the treated and the untreated",
+        "Probability limits used for the average effect",
+        "Probability limits used for the effect among the treated and the untreated",
     ]
     shares = [text.get_text() for text in ax.texts if text.get_gid() == "cleverly-tail-share"]
     below_share = float(np.mean(raw < bounds[0]))
@@ -893,7 +893,7 @@ def test_overlap_arm_labels_stand_alone(binary_fit: Any, treated: str, untreated
     ax = fig.axes[0]
     groups = [t.get_text() for t in ax.texts if t.get_gid() == _core.GID_SERIES_LABEL]
     assert groups == [treated, untreated]
-    assert ax.get_xlabel() == f"Predicted probability of the arm: {treated}"
+    assert ax.get_xlabel() == f"Predicted probability of being in the group: {treated}"
     assert not any("Units with" in text for text in [*groups, ax.get_xlabel()])
     # Control: without labels the arm is named by its column and level.
     plain = overlap(binary_fit).axes[0]
@@ -1046,3 +1046,24 @@ def test_forest_title_is_a_question() -> None:
 
     assert forest_module.TITLE[:1].lower() + forest_module.TITLE[1:] in (plotting.__doc__ or "")
 
+
+def test_overlap_reads_the_treatment_words_beside_arm_labels(binary_fit: Any) -> None:
+    labels = {1: "Smoking mothers", 0: "Non-smoking mothers"}
+    worded = overlap(binary_fit, labels=labels, treatment_label="smoking").axes[0]
+    assert worded.get_xlabel() == "Predicted probability of smoking: smoking mothers"
+    plain = overlap(binary_fit, labels=labels).axes[0]
+    assert plain.get_xlabel() == "Predicted probability of being in the group: smoking mothers"
+    # The group names in the figure keep the caller's capitals.
+    names = [t.get_text() for t in plain.texts if t.get_gid() == _core.GID_SERIES_LABEL]
+    assert names == ["Smoking mothers", "Non-smoking mothers"]
+    # Control: without labels the treatment words take the column's place.
+    unlabelled = overlap(binary_fit, treatment_label="smoking").axes[0]
+    assert unlabelled.get_xlabel() == "Predicted probability of smoking = 1"
+
+
+def test_overlap_key_names_the_limits_as_probability_limits(binary_fit: Any) -> None:
+    keys = _key(overlap(binary_fit).axes[0])
+    limits = [key for key in keys if "limits" in key.lower()]
+    assert limits and all(key.startswith("Probability limits") for key in limits)
+    # The estimand each pair belongs to stays named: the ATT and ATC use their own pair.
+    assert "Probability limits used for the effect among the treated and the untreated" in keys

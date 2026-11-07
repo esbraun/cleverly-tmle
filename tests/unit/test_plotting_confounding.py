@@ -901,3 +901,66 @@ class TestAxisWords:
         assert {axis.get_xlabel() for axis in panels} <= {"Weight side", ""}
         assert any(axis.get_xlabel() == "Weight side" for axis in panels)
         assert panels[0].get_ylabel() == "Score side"
+
+
+# ----------------------------------------------------------------------- benchmarks on the map
+
+
+def _level_labels(ax: Any) -> list[Any]:
+    """The contour level labels: the texts no gid names."""
+    return [text for text in ax.texts if text.get_gid() is None and text.get_text().strip()]
+
+
+def _overlaps(fig: Any) -> list[str]:
+    """Each level label whose box overlaps a benchmark's name or triangle."""
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    ax = fig.axes[0]
+    names = [t.get_window_extent(renderer) for t in _by_gid(ax, "cleverly-benchmark-label")]
+    marks = [
+        line.get_transform().transform(line.get_xydata())[0]
+        for line in _by_gid(ax, "cleverly-benchmark")
+    ]
+    found = []
+    for text in _level_labels(ax):
+        box = text.get_window_extent(renderer)
+        if any(box.overlaps(name) for name in names) or any(
+            box.x0 - 5 <= x <= box.x1 + 5 and box.y0 - 5 <= y <= box.y1 + 5 for x, y in marks
+        ):
+            found.append(text.get_text())
+    return found
+
+
+class TestBenchmarksOnTheMap:
+    def test_a_benchmark_on_the_bottom_edge_keeps_its_whole_triangle(
+        self, w2: Any, grid_data: Any
+    ) -> None:
+        edge = replace(w2, covariates=("no outcome gain",), cf_d=0.3, cf_y=0.0)
+        ax = grid_data.plot(benchmarks=[edge, w2]).axes[0]
+        triangles = {
+            tuple(line.get_xydata()[0]): line for line in _by_gid(ax, "cleverly-benchmark")
+        }
+        on_edge = triangles[(0.3, 0.0)]
+        # The triangle sits on the axis's lower limit, where clipping would cut it in half.
+        assert ax.get_ylim()[0] == pytest.approx(0.0)
+        assert on_edge.get_clip_on() is False
+        # Control: every triangle is drawn the same way, not only the one on the edge.
+        assert all(line.get_clip_on() is False for line in triangles.values())
+
+    def test_a_level_label_keeps_off_a_benchmark_and_its_name(
+        self, w2: Any, grid_data: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Put a benchmark where a level label would go on the bare map.
+        bare = grid_data.plot().axes[0]
+        x, y = _level_labels(bare)[0].get_position()
+        onto = replace(w2, covariates=("W2, W3, W4",), cf_d=float(x), cf_y=float(y))
+        fig = grid_data.plot(benchmarks=[onto])
+        assert [
+            tuple(line.get_xydata()[0]) for line in _by_gid(fig.axes[0], "cleverly-benchmark")
+        ] == [pytest.approx((x, y))]
+        assert _overlaps(fig) == []
+        # Every level is still labelled.
+        assert len(_level_labels(fig.axes[0])) == len(_level_labels(bare))
+        # Mutation control: with no zone around the marks the label lands on the benchmark.
+        monkeypatch.setattr(module, "_MARK_ZONE", (0.0, 0.0))
+        assert _overlaps(grid_data.plot(benchmarks=[onto]))

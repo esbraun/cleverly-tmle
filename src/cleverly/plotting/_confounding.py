@@ -382,9 +382,24 @@ def _header(ax: Axes, title: str, subtitle: str, share: float) -> None:
     _core.header(ax, title, _narrow(subtitle, ax, _core.SUBTITLE_SIZE, share))
 
 
-def _label_points(lines: Any, d_max: float, y_max: float) -> list[tuple[float, float]]:
-    """One vertex per level, nearest the middle of the map and clear of its edges."""
+#: Half the width and height, in fractions of the map, of the zone around a marked point
+#: (a benchmark or the robustness value, and its name beside it) that a contour level's label
+#: keeps out of.
+_MARK_ZONE = (0.22, 0.1)
+
+
+def _label_points(
+    lines: Any, d_max: float, y_max: float, avoid: Sequence[tuple[float, float]] = ()
+) -> list[tuple[float, float]]:
+    """One vertex per level, nearest the middle of the map and clear of its edges.
+
+    A vertex inside the zone of a marked point in ``avoid`` is passed over, so a level's
+    label does not sit on a benchmark or its name. A level whose every vertex is in a zone
+    takes the vertex farthest from the marks.
+    """
     target = np.array([0.6 * d_max, 0.6 * y_max])
+    scale = np.array([d_max, y_max])
+    marks = np.asarray(avoid, dtype=float).reshape(-1, 2) / scale
     chosen = []
     for level_segments in lines.allsegs:
         segments = [seg for seg in level_segments if len(seg)]
@@ -400,6 +415,15 @@ def _label_points(lines: Any, d_max: float, y_max: float) -> list[tuple[float, f
         inside = points[clear]
         if not len(inside):
             continue
+        if len(marks):
+            gap = np.abs(inside[:, None, :] / scale - marks[None, :, :])
+            covered = ((gap[..., 0] < _MARK_ZONE[0]) & (gap[..., 1] < _MARK_ZONE[1])).any(axis=1)
+            if covered.all():
+                nearest = np.hypot(*(gap / np.array(_MARK_ZONE)).transpose(2, 0, 1)).min(axis=1)
+                best = inside[int(np.argmax(nearest))]
+                chosen.append((float(best[0]), float(best[1])))
+                continue
+            inside = inside[~covered]
         best = inside[int(np.argmin(np.hypot(*(inside - target).T)))]
         chosen.append((float(best[0]), float(best[1])))
     return chosen
@@ -530,7 +554,11 @@ def contour(
     lines = axis.contour(xs, ys, grid, levels=thin, colors=_core.FACE, linewidths=0.6, alpha=0.9)
     _tag(lines, GID_CONTOUR_LINES)
     d_max, y_max = d_values[-1], y_values[-1]
-    label_at = _label_points(lines, d_max, y_max)
+    drawn, off, invalid = _benchmark_marks(data, marks, multiples, d_max, y_max)
+    avoid = [(at_d, at_y) for _, at_d, at_y in drawn]
+    if rv is not None and rv <= min(d_max, y_max):
+        avoid.append((rv, rv))
+    label_at = _label_points(lines, d_max, y_max, avoid)
     if label_at:
         try:
             for text in axis.clabel(
@@ -605,12 +633,13 @@ def contour(
             f"No equal strength below one brings the {data.bound} bound to {null_value:g}."
         )
 
-    drawn, off, invalid = _benchmark_marks(data, marks, multiples, d_max, y_max)
     for mark, at_d, at_y in drawn:
+        # A benchmark with no gain on one side sits on the map's edge; clip_on=False keeps
+        # its triangle whole there.
         axis.plot(
             [at_d], [at_y], marker="^", markersize=7, color=_core.INK,
             markeredgecolor=_core.FACE, markeredgewidth=1.0, linestyle="none",
-            gid=GID_BENCHMARK, zorder=5,
+            gid=GID_BENCHMARK, zorder=5, clip_on=False,
         )  # fmt: skip
         fx, fy = fraction(at_d, at_y)
         crowded = any(abs(fx - px) < 0.12 and abs(fy - py) < 0.08 for px, py in placed)
