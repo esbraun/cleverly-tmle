@@ -264,6 +264,49 @@ class SensitivityContour(_Rows):
 
         return contour_summary(self, detail)
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the bias-adjusted bound over the two confounder strengths.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.confounding`: ``robustness=``, ``benchmarks=``,
+            ``multiples=``, ``null=``, ``title=`` and ``ax=``.
+
+        Returns
+        -------
+        Figure
+            A filled contour of the cells with the no-effect contour in bold.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> from cleverly.sensitivity import contour_data, robustness_value
+        >>> frame, _ = make_linear_ate(n=200, seed=0)
+        >>> design = PointTreatment(
+        ...     outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ... )
+        >>> result = CausalStudy(frame, design=design).identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     random_state=0,
+        ... )
+        >>> contour = contour_data(result, "ate", grid_size=8)
+        >>> fig = contour.plot(robustness=robustness_value(result, "ate"))
+        >>> fig.axes[-1].get_ylabel()
+        'Bias-adjusted lower bound, no sampling error'
+        >>> plt.close(fig)
+        """
+        from ..plotting import confounding
+
+        return confounding(self, **kwargs)
+
     def __repr__(self) -> str:
         from ._summaries import contour_repr
 

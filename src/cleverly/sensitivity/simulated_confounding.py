@@ -644,6 +644,51 @@ class SimulatedConfoundingResult:
         )
         return emit_frame(payload, backend=self.backend)
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the refitted estimate over the declared strengths of the simulated cause.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.confounding`: ``at=``, ``null=``, ``title=``
+            and ``ax=``.
+
+        Returns
+        -------
+        Figure
+            A heat map of the estimate over two strength axes in their own units, with the
+            null crossing outlined; extra axes become small multiples.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
+        >>> frame, _ = make_linear_ate(n=200, seed=0)
+        >>> design = PointTreatment(
+        ...     outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ... )
+        >>> result = CausalStudy(frame, design=design).identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     random_state=0,
+        ... )
+        >>> grid = ConfounderStrengthGrid(treatment=(0.0, 0.1, 0.2), outcome=(0.0, 0.5, 1.0))
+        >>> surface = simulated_confounding(result, "ate", grid=grid, random_state=0)
+        >>> fig = surface.plot()
+        >>> fig.axes[0].get_title(loc="left").replace("\\n", " ")
+        'How far does the estimate move under a simulated common cause?'
+        >>> plt.close(fig)
+        """
+        from ..plotting import confounding
+
+        return confounding(self, **kwargs)
+
     def calibration_frame(self) -> Any:
         """Return model-dependent observed-covariate comparisons.
 
