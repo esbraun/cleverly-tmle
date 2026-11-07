@@ -426,6 +426,11 @@ For a categorical treatment, `log_loss` is the observed-class multinomial negati
 The nested report uses `kind="multinomial probability"` and retains no binary calibration table.
 Armwise calibration requires a separate report design because no treatment arm is privileged.
 
+On a fit with `eliminate=`, each node has two retention rows. The `censoring` row scores the
+censoring factor alone, $P(C_t = 1 \mid H_t)$, against the censoring indicator. The `competing`
+row scores the prevented-cause factor, $P(D_t = 0 \mid H_t, C_t = 1)$, on the units that passed
+the censoring node, against the composite retention.
+
 `LongitudinalNuisanceDiagnostics.omissions` holds typed `LongitudinalNuisanceOmission` records. Each
 record names `role`, `time`, and `reason`. An outcome or pseudo-outcome record also names
 `regimen`, `cause`, and `horizon`, and a fold-level record names its `folds`. The reasons are in
@@ -436,6 +441,8 @@ the table.
 | `LONGITUDINAL_CENSORING_NOT_FITTED` | `censoring`, no time | the design has no censoring columns, so the fit made no censoring fit |
 | `LONGITUDINAL_NO_CENSORING` | `censoring` at one node | no eligible unit was censored at the node, so its factor is exactly one and no learner ran |
 | `LONGITUDINAL_NO_CENSORING_IN_FOLD` | `censoring` at one node | one training fold had no censored unit and predicts one. Its held-out fold holds every censored unit at the node. The node's model row stays |
+| `LONGITUDINAL_NO_PREVENTED` | `competing` at one node | on a fit with `eliminate=`, no unit that passed the censoring node had a prevented event there, so the prevented-cause factor is exactly one and no learner ran |
+| `LONGITUDINAL_NO_PREVENTED_IN_FOLD` | `competing` at one node | one training fold had no prevented event and predicts one. The node's model row stays |
 | `LONGITUDINAL_HELD_DECISION` | `treatment` at a later node | the node holds the baseline decision, so its factor is exactly one and no model ran |
 | `LONGITUDINAL_CLASSIFIER_RATIO` | `treatment` at a continuous node | the classifier ratio route fits no density |
 | `LONGITUDINAL_KNOWN_MECHANISM` | `treatment` or `censoring` at one node | the data declares the node's factor known, so the fit read the declaration and no learner ran |

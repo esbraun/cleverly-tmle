@@ -120,12 +120,24 @@ def _learners(result: LongitudinalResult) -> dict[str, Any] | None:
     if key not in ("gcomp", "parametric_gformula"):
         if not set(data.treatment_names) <= known:
             roles["treatment"] = getattr(estimator, "treatment_learner", None)
-        if data.censoring_names and not set(data.censoring_names) <= known:
+        if _reports_censoring(data) and not set(data.censoring_names) <= known:
             roles["censoring"] = getattr(estimator, "censoring_learner", None)
         if data.eliminated:
             competing = getattr(estimator, "competing_learner", None)
             roles["competing"] = roles.get("censoring") if competing is None else competing
     return roles
+
+
+def _reports_censoring(data: Any) -> bool:
+    """Whether the summary states a censoring fact and a censoring model.
+
+    A fit that eliminates a cause on data with no censoring carries generated censoring
+    names, one per node, whose censoring factor is one: nothing is fitted there, so only the
+    prevented-event line is stated.
+    """
+    if not data.censoring_names:
+        return False
+    return not (data.eliminated and data.retained is not None and bool(data.retained.all()))
 
 
 def _model_fact(result: LongitudinalResult, role: str, learners: Mapping[str, Any]) -> str | None:
@@ -139,7 +151,7 @@ def _model_fact(result: LongitudinalResult, role: str, learners: Mapping[str, An
             return None
         return learner_name(learners[role])
     if role == "censoring":
-        if not data.censoring_names:
+        if not _reports_censoring(data):
             return None
         if set(data.censoring_names) <= known:
             return vocabulary.KNOWN_MECHANISM
@@ -606,7 +618,7 @@ def _header(result: LongitudinalResult) -> tuple[list[tuple[str, str]], int]:
     covariates = _covariates(result)
     if covariates is not None:
         left.append((vocabulary.ADJUSTED_FOR, covariates))
-    if data.censoring_names:
+    if _reports_censoring(data):
         left.append(
             (
                 vocabulary.CENSORING,

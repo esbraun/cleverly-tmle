@@ -404,6 +404,11 @@ class Mechanism:
     #: The competing factor at the observed history, one per node, as
     #: :attr:`censoring_observed`.
     competing_observed: tuple[FloatArray, ...] = ()
+    #: The censoring factor alone at the observed history, one per node, before the product
+    #: with the competing factor.  The mechanism diagnostics score it against
+    #: :attr:`~cleverly.longitudinal.data.LongitudinalData.censoring_target`.  Empty on
+    #: every fit that eliminates no cause, where :attr:`censoring_observed` is that factor.
+    censoring_factor_observed: tuple[FloatArray, ...] = ()
     #: Super Learner diagnostics of the competing factor's fits.
     competing_diagnostics: tuple[tuple[SuperLearnerDiagnostics, ...], ...] = ()
     #: By node, the in-sample fitted competing-factor model, as ``censoring_models``.
@@ -1370,6 +1375,7 @@ def fit_mechanism(
     censoring_models: list[Any] = []
     competing: list[dict[str, FloatArray]] = []
     competing_observed: list[FloatArray] = []
+    censoring_factor_observed: list[FloatArray] = []
     competing_diagnostics: list[tuple[SuperLearnerDiagnostics, ...]] = []
     competing_models: list[Any] = []
     no_competing_nodes: list[int] = []
@@ -1559,6 +1565,7 @@ def fit_mechanism(
                 no_competing_folds[time] = factor.constant_folds
         competing.append(by_plan)
         competing_observed.append(observed)
+        censoring_factor_observed.append(censoring_observed[-1])
         censoring[-1] = {label: censoring[-1][label] * by_plan[label] for label in censoring[-1]}
         censoring_observed[-1] = censoring_observed[-1] * observed
     return Mechanism(
@@ -1578,6 +1585,7 @@ def fit_mechanism(
         censoring_models=tuple(censoring_models) if keep_models else (),
         competing=tuple(competing),
         competing_observed=tuple(competing_observed),
+        censoring_factor_observed=tuple(censoring_factor_observed),
         competing_diagnostics=tuple(competing_diagnostics),
         competing_models=tuple(competing_models) if keep_models else (),
         no_competing_nodes=tuple(no_competing_nodes),
@@ -1820,7 +1828,10 @@ def preflight_known_mechanisms(
                     f"censoring_probabilities at {name!r} is missing "
                     f"on {int(np.count_nonzero(missing))} row(s) at risk there"
                 )
-            stayed = observed & data.uncensored[:, time - 1] & (np.nan_to_num(values) <= 0.0)
+            # The censoring factor alone: a unit that passed censoring and then had a
+            # prevented event still contradicts a declared retention of zero.
+            passed = data.censoring_target[:, time - 1]
+            stayed = observed & passed & (np.nan_to_num(values) <= 0.0)
             if np.any(stayed):
                 raise DataError(
                     f"censoring_probabilities at {name!r} gives retention probability 0 to "

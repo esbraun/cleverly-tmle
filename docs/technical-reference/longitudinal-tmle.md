@@ -360,18 +360,22 @@ censoring alone, and they carry the experimental status until their study is reg
 | exact law, six engines (iterated-mean and hazard `LTMLE`, `SDR`, both `SequentialIPW` normalizations, `SequentialGComputation`) and `ParametricGFormula` | the estimate is Young et al.'s g-formula (23), and each reported influence curve is its Gateaux derivative |
 | witness | the eliminated risk differs from the total-effect incidence by more than 0.01 on that law |
 | mutations | dropping the competing factor, counting $D$ twice (the composite as the censoring target), dropping the IPW block, and the other within-node order each move the influence curve or the estimate off the truth |
-| reductions | with no prevented event the fit is the relapse-only fit; a hand-built composite censoring column gives the same estimate |
+| exact law with a treatment at each node (iterated-mean `LTMLE`, a dynamic plan) | the estimate is the eliminated g-formula and the influence curve is its Gateaux derivative |
+| pooled factors | with `hazard_pooling="pooled"` the iterated-mean and hazard curves are still the Gateaux derivative |
+| reductions | with no prevented event the fit is the relapse-only fit; a hand-built composite censoring column gives the same estimate, for `LTMLE` and for `IPSI` |
 
 The exact law realises its probabilities, so a saturated outcome fit is the oracle and the point
 estimate cannot see the mechanism. The competing factor is therefore checked through the
-influence curve. `tests/unit/test_eliminated_competing_law.py` holds these checks.
+influence curve. The mechanism diagnostics report it as its own `competing` row at each node,
+scored on the units that passed censoring, beside a `censoring` row that scores the censoring
+factor alone. `tests/unit/test_eliminated_competing_law.py` holds these checks.
 
 The E-value, the simulated common-cause replay, the generated-outcome and plasmode refutations,
 and structural nested means refuse an eliminated fit; [scope and
 refusals](scope-and-refusals.md#eliminated-competing-events) gives each reason. A learned regimen
-refuses it through its survival refusal. `IPSI` composes through the shared mechanism, but no
-exact check covers it, because `IPSI` refuses a held baseline treatment and the two-cause exact law
-holds one.
+refuses it through its survival refusal. `IPSI` composes through the shared mechanism: on the
+two-cause law with a treatment at each node, its estimates and influence curves equal those of a
+fit with death folded into censoring by hand.
 
 ### Repeated outcomes
 

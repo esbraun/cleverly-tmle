@@ -55,6 +55,8 @@ __all__ = [
     "LONGITUDINAL_NO_CENSORING",
     "LONGITUDINAL_NO_CENSORING_IN_FOLD",
     "LONGITUDINAL_NO_OUTCOME_REGRESSION",
+    "LONGITUDINAL_NO_PREVENTED",
+    "LONGITUDINAL_NO_PREVENTED_IN_FOLD",
     "LONGITUDINAL_SIMULATED_MODELS",
     "LongitudinalDiagnostics",
     "LongitudinalNuisanceDiagnostics",
@@ -115,6 +117,13 @@ LONGITUDINAL_NO_CENSORING = "no unit censored at this node, retention factor one
 #: holds every censored unit at the node.  The node's model row stays, from the folds that
 #: did fit.
 LONGITUDINAL_NO_CENSORING_IN_FOLD = "a training fold had no censored unit, that fold predicts one"
+
+#: On a fit that eliminates competing causes, no unit that passed the censoring node had a
+#: prevented event, so the prevented-cause factor is exactly one and no learner is fitted.
+LONGITUDINAL_NO_PREVENTED = "no unit had a prevented event at this node, factor one, no learner"
+
+#: A training fold held no prevented event at the node, so that fold predicts one.
+LONGITUDINAL_NO_PREVENTED_IN_FOLD = "a training fold had no prevented event, that fold predicts one"
 
 
 @dataclass(frozen=True)
@@ -1229,6 +1238,112 @@ def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelR
     )
 
 
+def _censoring_row(
+    result: Any,
+    time: int,
+    at_risk: Any,
+    rows: list[LongitudinalNuisanceRow],
+    omissions: list[LongitudinalNuisanceOmission],
+    evaluation: EvaluationBasis,
+) -> None:
+    """The censoring factor's row at ``time``, or the omission that replaces it."""
+    mechanism = result.mechanism
+    if not result.data.censoring_names:
+        return
+    if time in mechanism.no_censoring_nodes:
+        omissions.append(LongitudinalNuisanceOmission("censoring", time, LONGITUDINAL_NO_CENSORING))
+        return
+    if time in mechanism.known_censoring_nodes:
+        omissions.append(
+            LongitudinalNuisanceOmission("censoring", time, LONGITUDINAL_KNOWN_MECHANISM)
+        )
+        return
+    if time in mechanism.no_censoring_folds:
+        omissions.append(
+            LongitudinalNuisanceOmission("censoring", time, LONGITUDINAL_NO_CENSORING_IN_FOLD)
+        )
+    diagnostics = (
+        mechanism.censoring_diagnostics[time - 1]
+        if time <= len(mechanism.censoring_diagnostics)
+        else ()
+    )
+    # On a fit that eliminates causes, ``censoring_observed`` is the product of the two
+    # retention factors; the censoring row scores the censoring factor alone.
+    alone = mechanism.censoring_factor_observed
+    report = _binary_report(
+        f"censoring[t={time}]",
+        alone[time - 1] if alone else mechanism.censoring_observed[time - 1],
+        result.data.censoring_target[:, time - 1],
+        result.data.weights,
+        diagnostics,
+        mask=at_risk,
+        folds=result.folds.assignment,
+        cluster=result.data.cluster,
+    )
+    rows.append(
+        _nuisance_row(
+            role="censoring",
+            time=time,
+            report=report,
+            loss_name="log_loss",
+            evaluation=evaluation,
+            n=int(at_risk.sum()),
+        )
+    )
+
+
+def _competing_row(
+    result: Any,
+    time: int,
+    at_risk: Any,
+    rows: list[LongitudinalNuisanceRow],
+    omissions: list[LongitudinalNuisanceOmission],
+    evaluation: EvaluationBasis,
+) -> None:
+    r"""The prevented-cause factor's row at ``time``, on a fit that eliminates causes.
+
+    The factor :math:`P(D_t = 0 \mid H_t, C_t = 1)` is fitted on the rows that passed the
+    censoring node, against the composite retention, so it is scored there.
+    """
+    data = result.data
+    mechanism = result.mechanism
+    if not data.eliminated or data.retained is None:
+        return
+    if time in mechanism.no_competing_nodes:
+        omissions.append(LongitudinalNuisanceOmission("competing", time, LONGITUDINAL_NO_PREVENTED))
+        return
+    if time in mechanism.no_competing_folds:
+        omissions.append(
+            LongitudinalNuisanceOmission("competing", time, LONGITUDINAL_NO_PREVENTED_IN_FOLD)
+        )
+    passed = at_risk & data.retained[:, time - 1]
+    diagnostics = (
+        mechanism.competing_diagnostics[time - 1]
+        if time <= len(mechanism.competing_diagnostics)
+        else ()
+    )
+    report = _binary_report(
+        f"competing[t={time}]",
+        mechanism.competing_observed[time - 1],
+        data.uncensored[:, time - 1],
+        data.weights,
+        diagnostics,
+        mask=passed,
+        folds=result.folds.assignment,
+        cluster=data.cluster,
+    )
+    rows.append(
+        _nuisance_row(
+            role="competing",
+            time=time,
+            report=report,
+            loss_name="log_loss",
+            evaluation=evaluation,
+            n=int(passed.sum()),
+        )
+    )
+
+
 def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
     rows: list[LongitudinalNuisanceRow] = []
     omissions: list[LongitudinalNuisanceOmission] = []
@@ -1264,47 +1379,8 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
                 )
             )
 
-        if not result.data.censoring_names:
-            continue
-        if time in mechanism.no_censoring_nodes:
-            omissions.append(
-                LongitudinalNuisanceOmission("censoring", time, LONGITUDINAL_NO_CENSORING)
-            )
-            continue
-        if time in mechanism.known_censoring_nodes:
-            omissions.append(
-                LongitudinalNuisanceOmission("censoring", time, LONGITUDINAL_KNOWN_MECHANISM)
-            )
-            continue
-        if time in mechanism.no_censoring_folds:
-            omissions.append(
-                LongitudinalNuisanceOmission("censoring", time, LONGITUDINAL_NO_CENSORING_IN_FOLD)
-            )
-        diagnostics = (
-            mechanism.censoring_diagnostics[time - 1]
-            if time <= len(mechanism.censoring_diagnostics)
-            else ()
-        )
-        report = _binary_report(
-            f"censoring[t={time}]",
-            mechanism.censoring_observed[time - 1],
-            result.data.uncensored[:, time - 1],
-            result.data.weights,
-            diagnostics,
-            mask=at_risk,
-            folds=result.folds.assignment,
-            cluster=result.data.cluster,
-        )
-        rows.append(
-            _nuisance_row(
-                role="censoring",
-                time=time,
-                report=report,
-                loss_name="log_loss",
-                evaluation=evaluation,
-                n=int(at_risk.sum()),
-            )
-        )
+        _censoring_row(result, time, at_risk, rows, omissions, evaluation)
+        _competing_row(result, time, at_risk, rows, omissions, evaluation)
 
     if not result.data.censoring_names:
         omissions.append(

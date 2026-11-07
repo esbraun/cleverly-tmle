@@ -178,15 +178,32 @@ def test_the_eliminated_risk_is_not_the_total_effect_incidence(l2: bool) -> None
             assert eliminated - total > 1e-2
 
 
-def test_the_competing_factor_is_fitted_on_the_rows_that_passed_censoring() -> None:
+def test_the_competing_factor_is_fitted_on_the_rows_that_passed_censoring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     data = _data(_law(False))
     assert data.retained is not None
-    left = data.retained & ~data.uncensored
-    assert left.any(), "the law must hold prevented deaths"
+    assert (data.retained & ~data.uncensored).any(), "the law must hold prevented deaths"
+    original = sequential_module._retention_factor
+    seen: dict[tuple[str, int], np.ndarray] = {}
+
+    def recording(data: Any, plans: Any, time: int, fit_at: Any, **kwargs: Any) -> Any:
+        seen[(kwargs["key"], time)] = np.asarray(fit_at).copy()
+        return original(data, plans, time, fit_at, **kwargs)
+
+    monkeypatch.setattr(sequential_module, "_retention_factor", recording)
     result = _fit("ltmle", _law(False))
-    mechanism = result.mechanism
-    assert len(mechanism.competing) == data.n_times
-    assert mechanism.no_competing_nodes == ()
+    masks = data.regimen_masks(data.treatment)
+    for time in range(1, data.n_times + 1):
+        censoring = seen[("observed_censoring", time)]
+        competing = seen[("observed_competing", time)]
+        at_risk = masks.uncensored[:, time - 1] & masks.event_free[:, time - 1]
+        np.testing.assert_array_equal(censoring, at_risk)
+        np.testing.assert_array_equal(competing, at_risk & data.retained[:, time - 1])
+        # Witness: some unit at risk was censored, so the two row sets differ.
+        assert competing.sum() < censoring.sum()
+    assert len(result.mechanism.competing) == data.n_times
+    assert result.mechanism.no_competing_nodes == ()
 
 
 # ---------------------------------------------------------------- mutation controls
@@ -680,3 +697,126 @@ def test_the_parametric_g_formula_returns_the_g_formula(eliminate: bool) -> None
                 truth = law.functional(law.probs, static(arm), horizon, RELAPSE)
                 name = f"cif_regimen[{label}, relapse @ t={horizon}]"
             assert result[name].psi == pytest.approx(truth, abs=1e-9)
+
+
+# ------------------------------------------------------------------ review follow-ups
+
+
+def test_the_diagnostics_score_each_retention_factor_on_its_own_rows() -> None:
+    from cleverly.validation.longitudinal import _longitudinal_nuisances
+
+    law = _law(False)
+    data = _data(law)
+    result = _fit("ltmle", law)
+    frame = _longitudinal_nuisances(result).to_frame()
+    masks = data.regimen_masks(data.treatment)
+    assert data.retained is not None
+    for time in range(1, data.n_times + 1):
+        at_risk = masks.uncensored[:, time - 1] & masks.event_free[:, time - 1]
+        rows = frame.loc[frame["time"] == time].set_index("role")
+        assert int(rows.loc["censoring", "n"]) == int(at_risk.sum())
+        assert int(rows.loc["competing", "n"]) == int((at_risk & data.retained[:, time - 1]).sum())
+
+
+def test_without_censoring_only_the_prevented_factor_is_reported() -> None:
+    from cleverly._summary import vocabulary
+    from cleverly.validation.longitudinal import (
+        LONGITUDINAL_NO_CENSORING,
+        _longitudinal_nuisances,
+    )
+
+    law = _law(False)
+    frame = law.frame()
+    frame = frame[(frame[[f"C{k}" for k in (1, 2, 3)]].fillna(1) == 1).all(axis=1)]
+    columns = {key: value for key, value in law.fit_columns().items() if key != "censoring"}
+    data = LongitudinalData.from_frame(frame, eliminate=["death"], **columns)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = _engines()["ltmle"]().fit(data)
+    diagnostics = _longitudinal_nuisances(result)
+    roles = set(diagnostics.to_frame()["role"])
+    assert "competing" in roles and "censoring" not in roles
+    reasons = {(o.role, o.time, o.reason) for o in diagnostics.omissions}
+    assert all(("censoring", t, LONGITUDINAL_NO_CENSORING) in reasons for t in (1, 2, 3))
+    header = dict(result.summary().header)
+    assert vocabulary.CENSORING not in header and vocabulary.CENSORING_MODEL not in header
+    assert header[vocabulary.PREVENTED].startswith("death;")
+
+
+def test_a_declared_zero_retention_is_checked_on_the_censoring_factor() -> None:
+    """A unit that passed censoring and then died still contradicts P(C = 1) = 0."""
+    law = _law(False)
+    frame = law.frame()
+    died = (frame["C1"] == 1) & (frame["D1"] == 1)
+    retention = np.full((len(frame), 3), 0.75)
+    retention[died.to_numpy(), 0] = 0.0
+    with pytest.raises(DataError, match="retention probability 0"):
+        LTMLE(REGIMENS, n_folds=1, g_bounds=NO_TRUNCATION, **_cells()).fit(
+            frame, eliminate=["death"], censoring_probabilities=retention, **law.fit_columns()
+        )
+
+
+@pytest.mark.parametrize("engine", ["ltmle", "ltmle_hazard"])
+def test_the_pooled_competing_factor_gives_the_eliminated_curve(engine: str) -> None:
+    law = _law(False)
+    survival_model = "hazard" if engine == "ltmle_hazard" else "iterated_mean"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = LTMLE(
+            REGIMENS,
+            n_folds=1,
+            survival_model=survival_model,
+            hazard_pooling="pooled",
+            g_bounds=NO_TRUNCATION,
+            **_cells(),
+        ).fit(_data(law))
+    assert _worst_curve_gap(law, result) < 1e-9
+
+
+def test_a_decision_at_each_node_reads_the_eliminated_curve() -> None:
+    """The two-cause law with a treatment at each node: estimate and curve are exact."""
+    from tests import discrete_law_competing as competing
+    from tests.studies import eliminated_competing_law as tv
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = LTMLE(
+            tv.TV_REGIMENS, reference=tv.TV_REFERENCE, n_folds=1, g_bounds=NO_TRUNCATION, **_cells()
+        ).fit(tv.tv_exact_frame(), eliminate=["death"], **tv.TV_FIT_COLUMNS)
+    rows = competing.first_row_of()
+    for name in tv.TV_MEANS:
+        assert result[name].psi == pytest.approx(tv.TV_TRUTH[name], abs=1e-10)
+        curve = np.asarray(result[name].influence_curve)[rows]
+        assert np.max(np.abs(curve - tv.tv_eif(name))) < 1e-9
+
+
+def test_ipsi_on_an_eliminated_fit_is_the_hand_built_composite_fit() -> None:
+    """IPSI composes: the same estimate and curve as death folded into censoring by hand."""
+    from tests import discrete_law_competing as competing
+    from tests import discrete_law_longitudinal_ipsi as ipsi_law
+    from tests.unit.test_ipsi_exact_laws import EVENT_COLUMNS, fit_ipsi
+
+    frame = competing.frame()
+    columns = {"outcome": competing.outcome_columns(), **EVENT_COLUMNS}
+    declared = fit_ipsi(
+        frame,
+        ipsi_law.EVENT_PLANS,
+        columns,
+        horizons=list(competing.HORIZONS),
+        declared={"eliminate": ["death"]},
+    )
+    by_hand = frame.copy()
+    for node in (1, 2):
+        dead = by_hand[f"D{node}"] == 1
+        by_hand.loc[dead, f"C{node}"] = 0.0
+        later = [f"R{node}", f"D{node}"] + (["L2", "A2", "C2", "R2", "D2"] if node == 1 else [])
+        by_hand.loc[dead, later] = np.nan
+    single = {**columns, "outcome": competing.outcome_columns()["relapse"]}
+    composite = fit_ipsi(by_hand, ipsi_law.EVENT_PLANS, single, horizons=list(competing.HORIZONS))
+    names = [name for name in declared.estimates if name in composite.estimates]
+    assert names, "the two fits must report the same parameters"
+    for name in names:
+        assert declared[name].psi == pytest.approx(composite[name].psi, abs=1e-12)
+        np.testing.assert_allclose(
+            declared[name].influence_curve, composite[name].influence_curve, atol=1e-12
+        )

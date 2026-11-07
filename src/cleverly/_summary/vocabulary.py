@@ -1939,6 +1939,7 @@ LONGITUDINAL_ROLES: Final[Mapping[str, str]] = MappingProxyType(
     {
         "treatment": "treatment",
         "censoring": "censoring",
+        "competing": "prevented event",
         "outcome": "outcome",
         "pseudo_outcome": "iterated outcome",
         "hazard": "event hazard",
