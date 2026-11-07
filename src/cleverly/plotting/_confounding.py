@@ -451,6 +451,8 @@ def contour(
     benchmarks: Sequence[Any] | Any = (),
     multiples: Sequence[float] = (1.0,),
     null: float | None = None,
+    x_label: str | None = None,
+    y_label: str | None = None,
     title: str | None = None,
     ax: Axes | None = None,
 ) -> Figure:
@@ -477,6 +479,12 @@ def contour(
         The value the bold contour marks. The robustness value's own null when ``robustness``
         is given, else the no-effect value of the estimate's scale. A level (a mean outcome)
         has none, so it needs ``null`` or ``robustness``.
+    x_label : str or None, default=None
+        Words for the x axis, the treatment-side strength ``cf_d``;
+        ``"Treatment-side strength, cf_d"`` when omitted.
+    y_label : str or None, default=None
+        Words for the y axis, the outcome-side strength ``cf_y``;
+        ``"Outcome-side strength, cf_y"`` when omitted.
     title : str or None, default=None
         The title.
     ax : Axes or None, default=None
@@ -643,8 +651,8 @@ def contour(
 
     axis.set_xlim(d_values[0], d_max)
     axis.set_ylim(y_values[0], y_max)
-    axis.set_xlabel("Treatment-side strength, cf_d")
-    axis.set_ylabel("Outcome-side strength, cf_y")
+    axis.set_xlabel(x_label if x_label is not None else "Treatment-side strength, cf_d")
+    axis.set_ylabel(y_label if y_label is not None else "Outcome-side strength, cf_y")
     words = _lower_first(_core.estimand_words(str(data.estimand)))
     estimate = _core.format_values([data.psi], [abs(vmax - vmin) / 20.0])[0]
     subtitle = (
@@ -849,6 +857,8 @@ def surface(
     *,
     at: Mapping[str, Any] | None = None,
     null: float | None = None,
+    x_label: str | None = None,
+    y_label: str | None = None,
     title: str | None = None,
     ax: Axes | None = None,
 ) -> Figure:
@@ -866,6 +876,12 @@ def surface(
     null : float or None, default=None
         The value outlined where the estimate crosses it. The no-effect value of the
         estimate's scale when omitted; a level (a counterfactual mean) has none.
+    x_label : str or None, default=None
+        Words for the x axis of every panel, the first strength axis; the words of its
+        perturbation law when omitted.
+    y_label : str or None, default=None
+        Words for the y axis of every panel, the outcome strength; the words of the outcome's
+        perturbation law when omitted.
     title : str or None, default=None
         The title.
     ax : Axes or None, default=None
@@ -1035,16 +1051,16 @@ def surface(
         if index == 0:
             placed, outside = got
     for index, axis_i in enumerate(axes_list):
+        x_words = x_label if x_label is not None else (x_dim.label if panels == 1 else x_dim.short)
+        y_words = (
+            y_label
+            if y_label is not None
+            else (_outcome_label(result) if panels == 1 else _outcome_short(result))
+        )
         axis_i.set_xlabel(
-            textwrap.fill(x_dim.label if panels == 1 else x_dim.short, 52 if panels == 1 else 26)
-            if index + ncols >= panels
-            else ""
+            textwrap.fill(x_words, 52 if panels == 1 else 26) if index + ncols >= panels else ""
         )
-        axis_i.set_ylabel(
-            textwrap.fill(_outcome_label(result) if panels == 1 else _outcome_short(result), 34)
-            if index % ncols == 0
-            else ""
-        )
+        axis_i.set_ylabel(textwrap.fill(y_words, 34) if index % ncols == 0 else "")
 
     assert mesh is not None
     bar = fig.colorbar(mesh, ax=axes_list)
@@ -1232,8 +1248,11 @@ def confounding(obj: Any, **kwargs: Any) -> Figure:
     obj : SensitivityContour or SimulatedConfoundingResult
         The analysis to draw.
     **kwargs
-        For a contour: ``robustness=``, ``benchmarks=``, ``multiples=``, ``null=``, ``title=``
-        and ``ax=``. For a surface: ``at=``, ``null=``, ``title=`` and ``ax=``.
+        For a contour: ``robustness=``, ``benchmarks=``, ``multiples=``, ``null=``,
+        ``x_label=``, ``y_label=``, ``title=`` and ``ax=``. For a surface: ``at=``, ``null=``,
+        ``x_label=``, ``y_label=``, ``title=`` and ``ax=``. ``x_label=`` and ``y_label=``
+        replace the words on the two strength axes, such as ``"Weight side"`` and
+        ``"Score side"`` for a page that names the two strengths that way.
 
     Returns
     -------

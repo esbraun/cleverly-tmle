@@ -875,3 +875,29 @@ class TestSmallMultiples:
         )
         with pytest.raises(ValueError, match="no cell"):
             replace(surface_result, cells=cells).plot()
+
+
+class TestAxisWords:
+    """x_label= and y_label= name the two strengths in a page's own words."""
+
+    def test_the_contour_takes_its_axis_words(self, grid_data: Any) -> None:
+        ax = confounding(grid_data, x_label="Weight side", y_label="Score side").axes[0]
+        assert ax.get_xlabel() == "Weight side" and ax.get_ylabel() == "Score side"
+        # the control: the defaults stay when the words are omitted
+        plain = confounding(grid_data).axes[0]
+        assert plain.get_xlabel() == "Treatment-side strength, cf_d"
+        assert plain.get_ylabel() == "Outcome-side strength, cf_y"
+
+    def test_the_surface_takes_its_axis_words(self, surface_result: Any) -> None:
+        ax = confounding(surface_result, x_label="Weight side", y_label="Score side").axes[0]
+        assert ax.get_xlabel() == "Weight side" and ax.get_ylabel() == "Score side"
+        plain = confounding(surface_result).axes[0]
+        assert plain.get_xlabel() != "Weight side" and plain.get_ylabel() != "Score side"
+
+    def test_every_panel_of_small_multiples_takes_them(self, surface_result: Any) -> None:
+        fig = _vector(surface_result).plot(x_label="Weight side", y_label="Score side")
+        panels = [axis for axis in fig.axes if _by_gid(axis, "cleverly-heatmap")]
+        assert len(panels) == 3
+        assert {axis.get_xlabel() for axis in panels} <= {"Weight side", ""}
+        assert any(axis.get_xlabel() == "Weight side" for axis in panels)
+        assert panels[0].get_ylabel() == "Score side"
