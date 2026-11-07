@@ -49,6 +49,14 @@ _IPSI_REFUSAL = Refusal(
     alternative=NO_ALTERNATIVE,
     roadmap="F13",
 )
+_ELIMINATED_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "simulated_confounding has no replay for a fit that eliminates competing causes. Its "
+    "estimand prevents those causes, and the replay has no step that generates a prevented "
+    "event or the competing factor it needs. docs/roadmap.md F13 tracks it.",
+    alternative=NO_ALTERNATIVE,
+    roadmap="F13",
+)
 _OUTCOME_KIND_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding holds the time-fixed latent for an end-of-study outcome. A survival, "
@@ -126,6 +134,10 @@ def _refuse_estimator(result: Any) -> Refusal | None:
     )
 
 
+def _refuse_eliminated(result: Any) -> Refusal | None:
+    return _ELIMINATED_REFUSAL if getattr(result.data, "eliminated", ()) else None
+
+
 def _refuse_outcome_kind(result: Any) -> Refusal | None:
     data = result.data
     if data.is_survival or data.is_competing or data.is_repeated:
@@ -171,6 +183,7 @@ def _refuse_known_later_node(result: Any) -> Refusal | None:
 LONGITUDINAL_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("result_type", _refuse_type),
     ("estimator", _refuse_estimator),
+    ("eliminated", _refuse_eliminated),
     ("outcome_kind", _refuse_outcome_kind),
     ("censoring", _refuse_censoring),
     ("later_covariates", _refuse_later_covariates),

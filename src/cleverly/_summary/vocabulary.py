@@ -2298,6 +2298,8 @@ BASELINE: Final = "Baseline"
 FOLLOWED: Final = "Observed to the end"
 EFFECTIVE_SAMPLE_SIZE: Final = "Effective sample size"
 CENSORED_BEFORE_END: Final = "Censored before the end"
+#: The share of units whose eliminated competing event the analysis treats as prevented.
+PREVENTED_BEFORE_END: Final = "Treated as prevented"
 HELD_FIXED: Final = "Held fixed"
 PROTOCOL: Final = "Study protocol"
 ANSWERED_BY: Final = "Answered by"
@@ -2316,6 +2318,7 @@ HEADER_LABELS = HEADER_LABELS | {
     FOLLOWED,
     EFFECTIVE_SAMPLE_SIZE,
     CENSORED_BEFORE_END,
+    PREVENTED_BEFORE_END,
     HELD_FIXED,
     PROTOCOL,
     ANSWERED_BY,

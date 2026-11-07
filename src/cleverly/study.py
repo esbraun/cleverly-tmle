@@ -942,6 +942,11 @@ class LongitudinalTreatment:
     dose_atoms : mapping of str to sequence of float, or None
         The doses of each continuous node with a recorded point mass, as
         :meth:`cleverly.longitudinal.LTMLE.fit` takes them.
+    eliminate : sequence of str
+        The competing causes to prevent, by label.  The estimand is then the risk of each
+        remaining cause had the named causes been prevented (Young et al. 2020): their events
+        are treated as censoring, and the fit models them beside the censoring.  Needs
+        competing causes.
     treatment_probabilities : mapping or None
         The known treatment mechanism (a tuple of pairs, the form the design stores, is also
         accepted) of a sequentially randomized design: each treatment
@@ -1001,8 +1006,10 @@ class LongitudinalTreatment:
     censoring_probabilities: Any = None
     markov_order: int | None = None
     dose_atoms: Mapping[str, Sequence[float]] | None = None
+    eliminate: Sequence[str] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "eliminate", tuple(str(cause) for cause in self.eliminate))
         check_markov_order(self.markov_order)
         continuous = self.continuous_treatment
         object.__setattr__(
@@ -1058,11 +1065,17 @@ class LongitudinalTreatment:
         LongitudinalData
             Validated time-ordered representation.
         """
+        if isinstance(data, LongitudinalData) and data.eliminated:
+            raise DataError(
+                "the supplied LongitudinalData already eliminates "
+                f"{list(data.eliminated)}; pass the container built without eliminate= and "
+                "declare eliminate= on the design"
+            )
         if isinstance(data, LongitudinalData):
             if self.markov_order is not None and data.markov_order is None:
                 data = data.with_markov_order(self.markov_order)
             self._check_prepared(data)
-            return data
+            return data.eliminating(self.eliminate)
         prepared = LongitudinalData.from_frame(
             data,
             outcome=self.outcome,
@@ -1085,6 +1098,7 @@ class LongitudinalTreatment:
                 None if self.censoring_probabilities is None else dict(self.censoring_probabilities)
             ),
             dose_atoms=None if self.dose_atoms is None else dict(self.dose_atoms),
+            eliminate=self.eliminate,
         )
         if self.markov_order is None:
             return prepared
@@ -1253,6 +1267,11 @@ class TimeToEvent:
         The declared conditional support of a continuous treatment.
     dose_atoms : sequence of float
         The doses of a continuous treatment with a recorded point mass.
+    eliminate : sequence of str
+        The competing causes to prevent, by the labels of ``causes``.  The estimand is
+        then the risk of each remaining cause had the named causes been prevented (Young
+        et al. 2020): their events are treated as censoring, and the fit models them beside
+        the censoring.  Needs competing causes.
 
     Attributes
     ----------
@@ -1289,9 +1308,11 @@ class TimeToEvent:
     treatment_probabilities: Any = None
     treatment_support: Any = None
     dose_atoms: Sequence[float] = ()
+    eliminate: Sequence[str] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "dose_atoms", tuple(float(atom) for atom in self.dose_atoms))
+        object.__setattr__(self, "eliminate", tuple(str(cause) for cause in self.eliminate))
         if self.treatment_probabilities is not None:
             columns = probability_columns(_stored_pairs(self.treatment_probabilities))
             if columns is None:
@@ -1340,9 +1361,15 @@ class TimeToEvent:
         LongitudinalData
             The held container with its time grid.
         """
+        if isinstance(data, LongitudinalData) and data.eliminated:
+            raise DataError(
+                "the supplied LongitudinalData already eliminates "
+                f"{list(data.eliminated)}; pass the container built without eliminate= and "
+                "declare eliminate= on the design"
+            )
         if isinstance(data, LongitudinalData):
             self._check_prepared(data)
-            return data
+            return data.eliminating(self.eliminate)
         built = LongitudinalData.from_time_to_event(
             data,
             time=self.time,
@@ -1359,6 +1386,7 @@ class TimeToEvent:
             treatment_probabilities=(
                 None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
             ),
+            eliminate=self.eliminate,
         )
         return _declare_every_node(built, self.treatment_support, self.dose_atoms)
 
@@ -1469,6 +1497,11 @@ class LongPanel:
         the design stores, is also accepted.
     censoring_probabilities : str or None
         The column that holds ``P(C_t = 1 | past)`` on each row.
+    eliminate : sequence of str
+        The competing causes to prevent, by label.  The estimand is then the risk of each
+        remaining cause had the named causes been prevented (Young et al. 2020): their events
+        are treated as censoring, and the fit models them beside the censoring.  Needs the
+        mapping form of ``event=``.
 
     See Also
     --------
@@ -1511,9 +1544,11 @@ class LongPanel:
     censoring_probabilities: str | None = None
     treatment_support: Any = None
     dose_atoms: Sequence[float] = ()
+    eliminate: Sequence[str] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "dose_atoms", tuple(float(atom) for atom in self.dose_atoms))
+        object.__setattr__(self, "eliminate", tuple(str(cause) for cause in self.eliminate))
         if (self.outcome is None) == (self.event is None):
             raise DataError(
                 "LongPanel declares exactly one of outcome= (one end-of-study value per unit) "
@@ -1551,9 +1586,15 @@ class LongPanel:
         LongitudinalData
             Validated time-ordered representation.
         """
+        if isinstance(data, LongitudinalData) and data.eliminated:
+            raise DataError(
+                "the supplied LongitudinalData already eliminates "
+                f"{list(data.eliminated)}; pass the container built without eliminate= and "
+                "declare eliminate= on the design"
+            )
         if isinstance(data, LongitudinalData):
             self._check_prepared(data)
-            return data
+            return data.eliminating(self.eliminate)
         built = LongitudinalData.from_long_panel(
             data,
             unit=self.unit,
@@ -1575,6 +1616,7 @@ class LongPanel:
                 None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
             ),
             censoring_probabilities=self.censoring_probabilities,
+            eliminate=self.eliminate,
         )
         return _declare_every_node(built, self.treatment_support, self.dose_atoms)
 

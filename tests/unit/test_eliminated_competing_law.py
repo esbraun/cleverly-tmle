@@ -210,7 +210,7 @@ def test_dropping_the_competing_factor_breaks_the_curve(
         ones = np.ones_like(factor.observed)
         return replace(
             factor,
-            by_plan={label: ones for label in factor.by_plan},
+            by_plan=dict.fromkeys(factor.by_plan, ones),
             observed=ones,
         )
 
@@ -354,3 +354,92 @@ def test_the_recode_is_carried_by_subset_and_separates_rows() -> None:
     assert half.retained is not None
     assert np.array_equal(half.retained, data.retained[: data.n // 2])
     assert half.eliminated == ("death",)
+
+
+# ------------------------------------------------------------------ study path
+
+
+def test_the_study_path_fits_an_eliminated_time_to_event_design() -> None:
+    from cleverly import CausalStudy, RegimeContrast, TimeToEvent
+
+    law = survival_law(causes=2, censor_first=False)
+    grid = (1.0, 2.0, 3.0)
+    frame = law.long_frame(grid, offset=0.5)
+    design = TimeToEvent(
+        time="time",
+        event="event",
+        treatment="A",
+        baseline=["W"],
+        grid=grid,
+        causes={1: "relapse", 2: "death"},
+        eliminate=["death"],
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = CausalStudy(frame, design=design).estimate(
+            RegimeContrast(regimens={"a1": 1, "a0": 0}, reference="a0", horizons=[3.0]),
+            outcome_learner=CellMeans(),
+            treatment_learner=CellProbabilities(),
+            censoring_learner=CellMeans(),
+            cross_fit=False,
+        )
+    truth = law.functional(law.probs, static(1), 3, RELAPSE, eliminate=DEATH) - law.functional(
+        law.probs, static(0), 3, RELAPSE, eliminate=DEATH
+    )
+    assert result["ate_regimen[a1 vs a0 @ t=3]"].psi == pytest.approx(truth, abs=1e-10)
+
+
+def test_a_design_refuses_a_container_that_already_eliminates() -> None:
+    from cleverly import CausalStudy, LongitudinalTreatment
+
+    law = _law(False)
+    columns = law.fit_columns()
+    design = LongitudinalTreatment(eliminate=["death"], **columns)
+    with pytest.raises(DataError, match="already eliminates"):
+        CausalStudy(_data(law), design=design)
+
+
+# ------------------------------------------------------------------- refute
+
+
+@pytest.mark.parametrize("name", ["dummy_outcome", "simulated_outcome", "plasmode"])
+def test_refute_refuses_a_generated_outcome_on_an_eliminated_fit(name: str) -> None:
+    from cleverly.validation.outcome_processes import MultinomialHazardOutcome
+    from cleverly.validation.refute import refute_refusal
+
+    process = MultinomialHazardOutcome(intercepts=(-1.5,), effects=(0.8,))
+    keyword = {"plasmode": "simulated_outcome"}.get(name, name)
+    refusal = refute_refusal(
+        _fit("ltmle", _law(False)),
+        estimand="ate_regimen[a1 vs a0 @ t=3]",
+        tests=(name,),
+        n_replicates=400,
+        **{keyword: process},
+    )
+    assert refusal is not None
+    assert "eliminates death" in refusal.condition
+    assert refusal.roadmap == "X91"
+
+
+# ------------------------------------------------------------------- summary
+
+
+def test_the_setup_summary_reports_prevented_events_apart_from_censoring() -> None:
+    from cleverly import CausalStudy, LongitudinalTreatment
+    from cleverly._summary import vocabulary
+
+    law = _law(False)
+    frame = law.frame()
+    design = LongitudinalTreatment(eliminate=["death"], **law.fit_columns())
+    header = dict(CausalStudy(frame, design=design).summary().header)
+    data = _data(law)
+    times, codes = data.to_time_to_event()
+    lost = (codes == 0) & (times < data.n_times)
+    assert data.retained is not None
+    kept = np.cumprod(data.retained, axis=1, dtype=bool)
+    observed = np.cumprod(data.uncensored, axis=1, dtype=bool)
+    prevented = lost & (kept & ~observed).any(axis=1)
+    # The witness: the law has deaths, so the two shares differ from the pooled one.
+    assert prevented.mean() > 0.05
+    assert header[vocabulary.PREVENTED_BEFORE_END] == f"{prevented.mean():.3f}"
+    assert header[vocabulary.CENSORED_BEFORE_END] == f"{(lost & ~prevented).mean():.3f}"

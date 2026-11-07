@@ -2428,6 +2428,15 @@ def _longitudinal_generated_target(
 ) -> _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode:
     """Refuse a generated outcome a longitudinal fit cannot read, else build its target."""
     data = result.data
+    if data.eliminated:
+        raise CapabilityError(
+            f"{name} has no generated survival process for a fit that eliminates "
+            f"{', '.join(data.eliminated)}; its truth would need the eliminated causes' "
+            "hazards, which the generated processes do not declare.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X91",
+        )
     if data.is_survival:
         if name == "plasmode":
             _validate_hazard_process(data, process, name)

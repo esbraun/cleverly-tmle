@@ -788,17 +788,17 @@ _REFUSED: dict[str, Refusal] = {
             "a cumulative incidence per cause at every horizon."
         ),
     ),
+    # A key for the reason ``competing`` is: the estimand is declared where the data are
+    # read, and a constructor keyword would otherwise read as a misspelling.
     "eliminate": Refusal(
-        RefusalReason.DIFFERENT_ESTIMAND,
-        "eliminating the competing events is a different estimand, not a setting on this "
-        "one. What is reported here is the cause-specific cumulative incidence with the "
-        "competing causes left alone, so a competing event is part of the history and "
-        "enters the clever covariate's indicator. Removing it would make it an intervened "
-        "node: a further factor per node in the denominator, and its own no-unmeasured-"
-        "confounding and positivity assumptions to state.",
+        RefusalReason.API_REDIRECTION,
+        "the competing causes to prevent are declared with the data, not on the "
+        "estimator, because they change which events count and what the censoring factor "
+        "is.",
         alternative=(
-            "Declare outcome={cause: [...]} to estimate the cause-specific cumulative "
-            "incidence with the competing causes left alone."
+            "Pass eliminate=['death'] to fit(), to LongitudinalData.from_frame, or to the "
+            "design (TimeToEvent, LongitudinalTreatment, LongPanel). The fit then reports "
+            "the risk of each remaining cause had the named causes been prevented."
         ),
     ),
     "cross_fit": Refusal(
@@ -4630,6 +4630,7 @@ class _SequentialEstimator:
         treatment_probabilities: Any = None,
         censoring_probabilities: Any = None,
         dose_atoms: Mapping[str, Sequence[float]] | None = None,
+        eliminate: Sequence[str] = (),
         **refused: Any,
     ) -> LongitudinalResult:
         """Fit on a wide dataframe, or on an already-built :class:`LongitudinalData`.
@@ -4706,6 +4707,11 @@ class _SequentialEstimator:
         dose_atoms : mapping of str to sequence of float, or None
             The declared atoms of each continuous dose, as for
             :meth:`LongitudinalData.from_frame`: the doses with a recorded point mass.
+        eliminate : sequence of str
+            The competing causes to prevent, by label.  The fit then reports the risk of
+            each remaining cause had the named causes been prevented, and fits a factor for
+            the prevented causes beside the censoring factor
+            (:meth:`LongitudinalData.eliminating`).  It applies to a container too.
         **refused : Any
             A point-treatment keyword.  Each one raises :class:`CapabilityError` with the
             reason that a longitudinal fit does not support it.
@@ -4748,7 +4754,7 @@ class _SequentialEstimator:
             treatment_probabilities=treatment_probabilities,
             censoring_probabilities=censoring_probabilities,
             dose_atoms=dose_atoms,
-        )
+        ).eliminating(eliminate)
         if learned is not None:
             refuse_learned_regimen_data(prepared)
         if prepared.is_repeated:
