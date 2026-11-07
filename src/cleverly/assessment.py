@@ -1052,13 +1052,19 @@ class TruncationCurve:
         One row per limits pair and estimand. A point-treatment curve carries the estimate,
         its spread, the share of units capped and the fitted reference; a longitudinal curve
         carries the estimate, the fitted reference and the capped score-cell counts.
+    scales : mapping of str to str, default={}
+        The scale of each estimand the curve holds (``"difference"``, ``"ratio"``,
+        ``"level"`` or ``"fraction"``), which :meth:`plot` reads for its null line. Empty for
+        a curve read back from a combined report.
 
     See Also
     --------
     cleverly.sensitivity.positivity.truncation_curve : The frame of a point-treatment fit.
+    cleverly.plotting.sensitivity : The plot :meth:`plot` draws.
     """
 
     frame: Any
+    scales: Mapping[str, str] = field(default_factory=dict)
 
     def to_frame(self) -> Any:
         """Return the curve's frame.
@@ -1069,6 +1075,50 @@ class TruncationCurve:
             The frame, in the fit's backend.
         """
         return self.frame
+
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the estimate against the probability limits, with the share of units capped.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.sensitivity`: ``estimand=``, ``scale=``,
+            ``outcome_label=`` and ``title=``.
+
+        Returns
+        -------
+        Figure
+            Two panels with a shared x axis.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=200, seed=0)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> result = study.identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     random_state=0,
+        ... )
+        >>> fig = result.diagnostics.truncation_curve().plot()
+        >>> fig.axes[0].get_ylabel()
+        'Estimate of ate'
+        >>> plt.close(fig)
+        """
+        from .plotting import sensitivity
+
+        return sensitivity(self, **kwargs)
 
     def summary(self, detail: Detail = "short") -> Summary:
         """Return the printed summary of the curve.
@@ -3273,7 +3323,11 @@ class DiagnosticsFacade(_CapabilityFacade):
                 (bounds,),
                 {"estimands": estimands, "mechanism": mechanism},
                 compute,
-            )
+            ),
+            scales={
+                str(name): str(estimate.scale)
+                for name, estimate in getattr(self._result, "estimates", {}).items()
+            },
         )
 
     def refute(self, **kwargs: Any) -> Any:

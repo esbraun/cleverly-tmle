@@ -368,6 +368,47 @@ class MissingnessTilt(_Rows):
         """The estimands the tilt reports, in order."""
         return tuple(dict.fromkeys(self.column("estimand")))
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot one estimate against the tilt γ, with its interval where one is reported.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.sensitivity`: ``estimand=``,
+            ``outcome_label=`` and ``title=``.
+
+        Returns
+        -------
+        Figure
+            One panel over the grid of γ.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_missing_outcome
+        >>> frame, _ = make_missing_outcome(n=300, seed=61)
+        >>> design = PointTreatment(
+        ...     outcome="Y", treatment="A", adjustment=["W1", "W2", "W3"], missingness="Delta"
+        ... )
+        >>> result = CausalStudy(frame, design=design).identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     random_state=4,
+        ... )
+        >>> fig = result.sensitivity.missingness(gamma=[-1.0, 0.0, 1.0]).plot()
+        >>> fig.axes[0].get_ylabel()
+        'Estimate of ate'
+        >>> plt.close(fig)
+        """
+        from ..plotting import sensitivity
+
+        return sensitivity(self, **kwargs)
+
     def summary(self, *, detail: Detail = "short") -> Summary:
         """Return the printed summary.
 
