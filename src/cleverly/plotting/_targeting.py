@@ -28,9 +28,6 @@ __all__ = ["targeting"]
 
 _VIEWS = ("toc", "gain", "difference")
 
-#: Half the width of a band bracket, in units of the x axis (treated fractions).
-_BRACKET = 0.012
-
 
 def _finite(value: Any) -> bool:
     return value is not None and math.isfinite(float(value))
@@ -63,7 +60,7 @@ def _points(
     ax.plot(guide_x, guide_y, color=color, linewidth=1.0, alpha=0.6, gid="cleverly-guide", zorder=2)
     for xi, yi, lo, hi, empty in zip(q, y, lower, upper, hollow, strict=True):
         if _finite(lo) and _finite(hi):
-            ax.vlines(xi, lo, hi, color=color, linewidth=2.0, label=label, gid="cleverly-interval")
+            ax.vlines(xi, lo, hi, color=color, linewidth=2.0, label=label, gid=_core.GID_INTERVAL)
             label = "_nolegend_"
         ax.plot(
             [xi],
@@ -74,38 +71,8 @@ def _points(
             markerfacecolor=_core.FACE if empty else color,
             markeredgewidth=1.5,
             linestyle="none",
-            gid="cleverly-point",
+            gid=_core.GID_POINT,
             zorder=3,
-        )
-
-
-def _brackets(
-    ax: Axes, q: Sequence[float], lower: Sequence[float], upper: Sequence[float], label: str
-) -> None:
-    """The band as a bracket at each grid point: two short ticks joined by a thin line."""
-    for xi, lo, hi in zip(q, lower, upper, strict=True):
-        if not (_finite(lo) and _finite(hi)):
-            continue
-        for edge in (lo, hi):
-            ax.hlines(
-                edge,
-                xi - _BRACKET,
-                xi + _BRACKET,
-                color=_core.SECONDARY_INK,
-                linewidth=1.2,
-                label=label,
-                gid="cleverly-band",
-                zorder=2.5,
-            )
-            label = "_nolegend_"
-        ax.vlines(
-            xi,
-            lo,
-            hi,
-            color=_core.SECONDARY_INK,
-            linewidth=0.6,
-            gid="cleverly-band",
-            zorder=2.4,
         )
 
 
@@ -152,7 +119,7 @@ def _random_line(ax: Axes, ate: float) -> None:
         zorder=1.5,
         label="Treating at random",
     )
-    line.set_gid("cleverly-reference")
+    line.set_gid(_core.GID_REFERENCE)
 
 
 def _subtitle(curve: Any, name: str) -> str:
@@ -291,9 +258,20 @@ def targeting(
         if view == "toc":
             band_lower = [float(row["band_lower"]) for row in rows]
             band_upper = [float(row["band_upper"]) for row in rows]
-            if any(_finite(value) for value in band_lower):
-                _brackets(
-                    axis, q, band_lower, band_upper, _core.band_label(level, "bootstrap sup-t")
+            drawn = [
+                (xi, lo, hi)
+                for xi, lo, hi in zip(q, band_lower, band_upper, strict=True)
+                if _finite(lo) and _finite(hi)
+            ]
+            if drawn:
+                _core.brackets(
+                    axis,
+                    [xi for xi, _, _ in drawn],
+                    [lo for _, lo, _ in drawn],
+                    [hi for _, _, hi in drawn],
+                    color=_core.SECONDARY_INK,
+                    label=_core.band_label(level, "bootstrap sup-t"),
+                    band=True,
                 )
                 lines.append("The band holds jointly at the grid points only.")
             axis.set_ylabel("TOC: effect in the top fraction minus the average")

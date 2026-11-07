@@ -101,6 +101,11 @@ def _segments(ax: Any, gid: str) -> list[np.ndarray]:
     return out
 
 
+def _band_marks(ax: Any) -> list[Any]:
+    """Every artist that draws the band, a line or a collection."""
+    return _by_gid(ax, _core.GID_BAND)
+
+
 def _gain_view_is_scaled_toc(ax: Any, curve: Any) -> bool:
     toc = {row["q"]: row for row in curve.rows("toc")}
     gain = {row["q"]: row["estimate"] for row in curve.rows("gain")}
@@ -139,13 +144,17 @@ def test_a_reference_at_the_wrong_convention_fails(
 def test_band_marks_sit_at_grid_points_only(curve: Any) -> None:
     ax = targeting(curve, view="toc").axes[0]
     rows = {row["q"]: row for row in curve.rows("toc")}
-    segments = _segments(ax, "cleverly-band")
-    assert segments
-    for segment in segments:
-        centre = float(segment[:, 0].mean())
-        q = min(rows, key=lambda point: abs(point - centre))
-        assert abs(centre - q) < 1e-9 and q < 1.0
-        assert {round(v, 12) for v in segment[:, 1]} <= {
+    marks = [
+        (float(x), float(y))
+        for line in ax.get_lines()
+        if line.get_gid() == _core.GID_BAND
+        for x, y in zip(line.get_xdata(), line.get_ydata(), strict=True)
+    ]
+    assert marks
+    for x, y in marks:
+        q = min(rows, key=lambda point: abs(point - x))
+        assert abs(x - q) < 1e-9 and q < 1.0
+        assert round(y, 12) in {
             round(rows[q]["band_lower"], 12),
             round(rows[q]["band_upper"], 12),
         }
@@ -177,7 +186,7 @@ def test_drawing_the_gain_interval_instead_fails(
 
 def test_the_difference_view_has_no_band(curve: Any) -> None:
     ax = targeting(curve, view="difference").axes[0]
-    assert not _segments(ax, "cleverly-band")
+    assert not _band_marks(ax)
     assert _segments(ax, "cleverly-interval")
     rows = curve.rows("toc", "S - R")
     points = [line for line in ax.get_lines() if line.get_gid() == "cleverly-point"]
@@ -195,7 +204,7 @@ def test_withheld_rows_draw_hollow_points_and_say_why(small: Any) -> None:
     text = _core.note_text(ax.figure)
     assert "Hollow points have no interval: fewer than 50 rows" in text
     assert "Experimental:" in text
-    assert not _segments(ax, "cleverly-band")
+    assert not _band_marks(ax)
 
 
 def test_the_views_and_scores_it_refuses(small: Any) -> None:
