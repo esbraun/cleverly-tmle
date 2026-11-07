@@ -252,7 +252,16 @@ treatments, as for `assess_score`. To check a curve fitted on this study, use
 `curve.diagnostics.targeting_curve(split=0.5)`. It refits the curve on half of the rows and
 scores the other half, so the result describes that refit, not the curve fitted on every row.
 A fraction with fewer than 50 rows in its top group reports its point without an interval.
-Every result reads experimental until the validation study of these curves has run.
+
+Each row of the result is labelled `supported` or `experimental`, and the `status_reason` column
+of `gain.to_frame()` says why. A row reads `supported` when a
+[simulation study](../technical-reference/method-evidence/targeting-curves.md) checked its
+setting and its intervals covered at close to 95%. That setting is a two-arm treatment, the default
+cross-fitting, rows without weights, clusters or missing outcomes, and at least 200 rows in the
+top group. The score comes from other data for a continuous or a binary outcome, or from the
+half-and-half split for a continuous outcome. Known treatment probabilities
+(`treatment_probabilities=`) were checked with a score from other data and a continuous outcome. The difference between two scores was checked for a continuous outcome
+only, and its interval at 10% came out a little wide: it covered 96% of the time.
 
 ## What is not supported yet
 

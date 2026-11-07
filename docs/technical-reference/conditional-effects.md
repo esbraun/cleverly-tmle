@@ -319,23 +319,41 @@ per-draw differences.
 
 **Guards.** A grid point with fewer than 50 rows in its top fraction (`TARGETING_MIN_TOP_ROWS`,
 a declared guard with no source) keeps its point and withholds its interval and the band; 50 to
-99 rows read `experimental`. Weights, clusters, missing outcomes and a multi-arm pair are
+199 rows read `experimental`, because the study calibrates no interval with fewer than 200 top
+rows. Weights, clusters, missing outcomes and a multi-arm pair are
 computed and read `experimental`; fewer than 40 clusters withhold the intervals. A row whose
 half-sample draws do not vary (SE at most $10^{-12}$, as for every TOC of a score that ties all
 rows) withholds its interval rather than report a width of rounding. With weights, every rank
 weight reads the row mass normalised to mean one, so the weighted AUTOC is defined in those
-units. The status reads the configuration only: the learners, the number of folds and $n$ are
-not checked against the study's cells, and an area row carries no size guard of its own.
+units. The status reads the configuration and the top-fraction rows only: the learners, the
+number of folds and $n$ are not checked against the study's cells, and an area row carries no
+size guard of its own.
 
-**Status.** The `targeting-curves` study is declared in `tests/studies/targeting_curves.py`
-and has not run, so every curve reads `experimental` with that reason until it registers. It
-runs 6,000 replicates per cell, the smallest multiple of 400 from 3,600 at which every gated
-row passes together with probability 0.95 at its measured bootstrap ratio. The pilot adds
-each cell's gap between the fitted and the oracle ratio on the same draws, and the same rule
-then recomputes the count, capped at 9,600. The
-study's cells are the measured configurations: a continuous and a binary outcome, an atomic
-score, a known mechanism with a misspecified outcome regression, a declared split, a paired
-second score, and null laws for the band's size.
+**Status.** The registered [targeting-curves study](method-evidence/targeting-curves.md)
+ran 6,000 replicates per cell at $n = 2{,}000$ (800 at $n = 1{,}000$ for the band's power), the
+count its declaration fixed from the oracle and pilot ratios. Every gated cell passed, and no
+fit failed. The 33 gated calibration rows have SE-ratio intervals inside 0.93 to 1.07 and
+coverage intervals inside 0.92 to 0.98. The band covers the grid jointly in 0.956 of the
+replications, with size 0.041 and 0.042 on the two null laws and power 0.874 at its declared
+slope. The one red cell is the reporting row, the paired TOC(0.1) difference: SE ratio 1.060
+(99% interval 1.035 to 1.086) and coverage 0.963 (0.956 to 0.969). It is conservative, as the
+oracle computation predicted, and both lower ends clear its one-sided gate.
+
+A curve reads `supported` when its configuration is one a cell measured, with a binary
+treatment, iid unweighted rows, complete outcomes, one split and cross-fitted nuisances
+(`TARGETING_MEASURED` in `cleverly.targeting_curves`):
+
+| configuration | cells |
+| --- | --- |
+| an external score, a continuous outcome, an estimated mechanism | `H`, `N`, `P`, and the paired difference `C` |
+| an external score, a binary outcome, an estimated mechanism | `B`, `U`, `D` |
+| an external score, a continuous outcome, a known mechanism | `K` |
+| a declared split, a continuous outcome, an estimated mechanism | `S` |
+
+A paired difference reads `supported` in the first configuration only. Any other configuration,
+a grid point with fewer than 200 top rows, a cut in a tied block and an area on a continuous
+score with atoms read `experimental`. No comparator is registered; the `grf` comparison is
+pending, and a missing comparator does not block the row.
 
 ## Weights, clusters and missing outcomes
 

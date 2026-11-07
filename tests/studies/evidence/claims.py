@@ -684,7 +684,10 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
     )
     if has_noise_control or (has_shrunken_se_control and not record.calibration_efficiency_ratio):
         properties = record.properties()
-        declared["margin:shrunken_se_factor"] = properties.SHRUNKEN_SE_FACTOR
+        # ``None`` declares a shrunken-SE control that mutates the estimator rather than
+        # scaling its SE by a factor (``targeting_curves_properties``): no factor to publish.
+        if properties.SHRUNKEN_SE_FACTOR is not None:
+            declared["margin:shrunken_se_factor"] = properties.SHRUNKEN_SE_FACTOR
         if record.calibration_efficiency_ratio and has_noise_control:
             low, high = properties.EFFICIENCY_RATIO_BAND
             declared.update(

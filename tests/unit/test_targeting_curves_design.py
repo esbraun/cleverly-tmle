@@ -315,3 +315,34 @@ def test_the_split_truth_is_accurate_to_a_hundredth_of_an_se() -> None:
     for name in study.GROUP_BY_LABEL["S"].rows:
         error = float(PILOT[("S", "sobol_error", name)]["sobol_error"])
         assert error <= 0.01 * float(PILOT[("S", study.POSITIVE, name)]["mean_se"]), name
+
+
+def test_the_evidence_descriptions_mirror_the_declared_groups() -> None:
+    """``tests.studies.evidence.descriptions`` restates the groups' rows and controls, since it
+    cannot import the study; the two must name the same cells."""
+    from tests.studies.evidence import descriptions
+
+    declared_rows = {
+        group.label: tuple(study._label(name) for name in group.rows)
+        for group in study.GROUPS
+        if group.rows
+    }
+    assert declared_rows == dict(descriptions._TARGETING_ROWS)
+    se_controls = {
+        (group.label, control): tuple(study._label(name) for name in names)
+        for group in study.GROUPS
+        for control, names in group.controls.items()
+        if control in study.SE_MUTATIONS
+    }
+    assert se_controls == dict(descriptions._TARGETING_SE_CONTROLS)
+    bias_controls = {
+        (group.label, control): tuple(study._label(name) for name in names)
+        for group in study.GROUPS
+        for control, names in group.controls.items()
+        if control in ("whole_block", "in_sample")
+    }
+    assert bias_controls == dict(descriptions._TARGETING_BIAS_CONTROLS)
+    bands = {group.label for group in study.GROUPS if group.band is not None}
+    assert bands == {arm.split("_")[0] for arm in descriptions.ARMS if arm.endswith("_band")} & {
+        group.label for group in study.GROUPS
+    }

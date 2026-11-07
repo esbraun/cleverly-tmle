@@ -748,6 +748,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.refuter_calibration_point import STUDY as REFUTER_CALIBRATION_POINT
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
+    from tests.studies.targeting_curves import STUDY as TARGETING_CURVES
 
     return (
         CANONICAL_TMLE,
@@ -806,6 +807,7 @@ def registered() -> tuple[StudyRecord, ...]:
         EP_CRR,
         EP_ASSESSMENT,
         LEARNED_RULE_EP,
+        TARGETING_CURVES,
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,

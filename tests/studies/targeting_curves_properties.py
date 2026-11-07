@@ -50,6 +50,11 @@ FAILURE_BOUND = 0.01
 #: The draw-level statistic the accounting reports for each lost replicate.
 PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
+#: No declared factor: cell K's shrunken-SE control reads the SE of the untargeted one-step
+#: draws, a mutation of the estimator, so ``tests.studies.evidence.claims`` publishes no
+#: ``margin:shrunken_se_factor`` for this study.
+SHRUNKEN_SE_FACTOR: float | None = None
+
 #: The families whose rows each answer to their own standardized-bias interval: a control row
 #: passes on its discrimination endpoint.  Every bias row here is a control.
 BIAS_FAMILIES = (study.BIAS,)
@@ -304,6 +309,7 @@ __all__ = [
     "GATING_TRUTH",
     "PROPERTY_RULES",
     "PROPERTY_WITNESS",
+    "SHRUNKEN_SE_FACTOR",
     "generate_property_rows",
     "summarize_properties",
 ]
