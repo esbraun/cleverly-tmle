@@ -11,6 +11,7 @@ covariates the reader knows.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -28,9 +29,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 _CAPPED_KINDS = ("label", "rule")
 #: Plain words for each node kind whose weight the limit does not cap, as the note names it.
 _UNCAPPED_WORDS = {
-    "policy": "a policy that assigns the treatment at random",
+    "policy": "a policy that gives each treatment a set probability",
     "tilt": "an incremental policy that scales the odds of treatment",
-    "mtp": "a modified treatment policy, which shifts the treatment each unit received",
+    "mtp": "a modified treatment policy that shifts each unit's treatment",
 }
 #: The width one time point's boxes share.
 _BOX_WIDTH = 0.7
@@ -121,9 +122,10 @@ def weights(
     the first, and the note says which. A time point whose weight the limit does not cap
     has no dotted line: one with an incremental or modified policy at it or at an earlier
     time point, whose factor the weight carries, or any time point when the data's weights
-    are not all one. A log axis cannot show a weight of zero, which a policy gives a unit
-    whose treatment it would never assign; the note counts those units at each time point,
-    and the boxes describe the other weights.
+    are not all one. A log axis cannot show a weight of zero, which a modified treatment
+    policy at that or an earlier time point gives a unit when the shifted treatment cannot
+    produce the one it received; the note counts the units still followed with a weight of
+    zero at each time point, and the boxes describe the other weights.
 
     Parameters
     ----------
@@ -225,7 +227,7 @@ def weights(
     limits = {round(1.0 / item.bounds[0], 12) for item in series if item.bounds[0] > 0.0}
     shown_names = [(labels or {}).get(item.regimen, item.regimen) for item in series]
     ends: list[tuple[float, str, str]] = []
-    zeros: list[tuple[str, int, int, int]] = []
+    zeros: list[_Zeros] = []
     for index, item in enumerate(series):
         color = _core.series_color(index)
         shown = shown_names[index]
@@ -235,7 +237,16 @@ def weights(
             used = item.used[item.followed[:, node], node]
             zero = int(np.sum(used == 0.0))
             if zero:
-                zeros.append((shown, time, zero, int(used.size)))
+                zeros.append(
+                    _Zeros(
+                        shown,
+                        time,
+                        zero,
+                        int(used.size),
+                        shifted="mtp" in item.node_kinds[: node + 1],
+                        unit_weights=item.unit_weights,
+                    )
+                )
             used = used[np.isfinite(used) & (used > 0)]
             if not used.size:
                 continue
@@ -380,14 +391,7 @@ def weights(
             "probability the limit replaced."
         )
     if zeros:
-        found.append(
-            _zero_text(
-                zeros,
-                time_label,
-                named=count > 1,
-                unit_weights=all(item.unit_weights for item in series),
-            )
-        )
+        found.append(_zero_text(zeros, time_label, named=count > 1))
     uncapped = list(
         dict.fromkeys(
             kind for item in series for kind in item.node_kinds if kind not in _CAPPED_KINDS
@@ -396,9 +400,10 @@ def weights(
     if uncapped and all(item.unit_weights for item in series):
         words = [_UNCAPPED_WORDS.get(kind, kind) for kind in uncapped]
         joined = words[0] if len(words) == 1 else ", ".join(words[:-1]) + " or " + words[-1]
+        point = time_label.lower()
         found.append(
-            f"No limit line is drawn at a {time_label.lower()} under {joined}, or at a later "
-            "one, because the weight carries the policy's factor, which the limit does not cap."
+            f"No limit line is drawn where {joined} acts at that {point} or an earlier one: "
+            "the weight carries the policy's factor, which the limit does not cap."
         )
     if not all(item.unit_weights for item in series):
         found.append("The data's weights multiply the limit, so no limit line is drawn.")
@@ -435,29 +440,55 @@ def _chosen_regimens(regimens: Sequence[str], held: Sequence[str]) -> list[str]:
     return names
 
 
-def _zero_text(
-    zeros: Sequence[tuple[str, int, int, int]], time_label: str, *, named: bool, unit_weights: bool
-) -> str:
+@dataclass(frozen=True)
+class _Zeros:
+    """The units still followed with a weight of zero at one time point of one regimen."""
+
+    name: str
+    time: int
+    count: int
+    followed: int
+    #: Whether a modified treatment policy acts at this or an earlier time point.
+    shifted: bool
+    unit_weights: bool
+
+
+def _zero_text(zeros: Sequence[_Zeros], time_label: str, *, named: bool) -> str:
     """The note that counts the followed units whose weight is zero, which a log axis drops.
 
-    ``zeros`` holds each regimen's shown name, the time point, the count of zero weights and
-    the units still followed there. With unit data weights a zero can only come from the
-    regimen's own probability of the treatment the unit received.
+    A follower's weight is zero only where a modified treatment policy at this or an
+    earlier time point gives its treatment a ratio of zero, or where its data weight is
+    zero (``Plan.support`` in ``cleverly.longitudinal.regimen`` keeps no other follower whose
+    factor is zero). The note names that cause only for a time point where such a policy
+    acts, and names none elsewhere.
     """
-    parts = [
-        (f"{name}, " if named else "") + f"{time_label.lower()} {time}: {zero} of {followed}"
-        for name, time, zero, followed in zeros
-    ]
-    why = (
-        "the regimen gives the treatment they received no chance"
-        if unit_weights
-        else "the regimen gives the treatment they received no chance, or their data weight is zero"
-    )
-    return (
+    point = time_label.lower()
+
+    def where(item: _Zeros) -> str:
+        return (f"{item.name}, " if named else "") + f"{point} {item.time}"
+
+    text = (
         "Units still followed with a weight of zero, which a log axis cannot show: "
-        + "; ".join(parts)
-        + f". Their weight is zero because {why}. The boxes and crosses describe the other "
-        "weights; the lower panel counts these units among those still followed."
+        + "; ".join(f"{where(item)}: {item.count} of {item.followed}" for item in zeros)
+        + "."
+    )
+    shifted = [item for item in zeros if item.shifted]
+    if shifted:
+        at = "" if len(shifted) == len(zeros) else f" ({', '.join(map(where, shifted))})"
+        text += (
+            f" A modified treatment policy acts at this or an earlier {point}{at}; it gives a "
+            "unit a weight of zero when the shifted treatment cannot produce the one the unit "
+            "received"
+            + (
+                ""
+                if all(item.unit_weights for item in shifted)
+                else ", and so does a data weight of zero"
+            )
+            + "."
+        )
+    return (
+        text + " The boxes and crosses describe the other weights; the lower panel counts these "
+        "units among those still followed."
     )
 
 
