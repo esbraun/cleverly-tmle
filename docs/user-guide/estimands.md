@@ -257,8 +257,21 @@ targeted = study.estimate(LearnedRuleValue(rule=by_w1), method=fold_evaluated, r
 The covariates must be ones the study adjusts for, and each continuous one needs a range that
 holds every value. `OptimalRuleValue` with this rule needs all of the adjustment covariates,
 because the best rule may use any of them. The curve also picks its own flexibility inside each
-fold, so a fit takes about 25 times as long as the default rule. No study has measured this
-rule yet, so cleverly marks its estimate experimental.
+fold, so a fit takes about 25 times as long as the default rule.
+
+A [study](../technical-reference/method-evidence/learned-rule-ep.md) measured this rule with the
+default shapes on two simulated datasets. With 16,000 rows its 95% interval covered the target
+95% of the time, and with 2,000 rows 94% to 95% of the time. With 1,000 rows, on the dataset
+where the outcome model was wrong, it covered 92% of the time, because the reported standard
+error was about 9% too small. When the treatment has no effect for anyone, the curve has no
+fixed sign, so the folds disagree on whom to treat, and the interval covered only 90% of the
+time. cleverly cannot detect that case.
+
+With the default shapes, two options, each fold scored on its own (`fold_evaluation=True`, as
+above), no weights, no groups and one split, cleverly marks the estimate supported. With your own
+`sieve=` or `learner=`, or with weights, groups, several splits or a comparison with a fixed
+policy, it marks the estimate experimental. `OptimalRuleValue` below, with this rule, is
+supported only when you pass the known treatment probabilities.
 
 The reported value is a data-adaptive target. It depends on the realized split and on the fitted
 rules. It is not the value of one rule fitted on all rows (the in-sample fit below), and it is not

@@ -727,6 +727,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.learned_rule_contrast import STUDY as LEARNED_RULE_CONTRAST
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
     from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
+    from tests.studies.learned_rule_ep import STUDY as LEARNED_RULE_EP
     from tests.studies.learned_rule_in_sample import STUDY as LEARNED_RULE_IN_SAMPLE
     from tests.studies.learned_rule_intermediate import STUDY as LEARNED_RULE_INTERMEDIATE
     from tests.studies.learned_rule_learners import STUDY as LEARNED_RULE_LEARNERS
@@ -804,6 +805,7 @@ def registered() -> tuple[StudyRecord, ...]:
         EP_CATE,
         EP_CRR,
         EP_ASSESSMENT,
+        LEARNED_RULE_EP,
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,

@@ -89,6 +89,7 @@ __all__ = [
     "adjustment_columns",
     "check_ep_rule_sieve",
     "check_fold_rules",
+    "ep_rule_condition",
     "fold_rules",
     "freeze_learned_rule",
     "frozen_level_refusal",
@@ -2603,6 +2604,54 @@ def in_sample_learner_condition(estimator: Any, data: CausalData) -> Refusal | N
             "GLM, or a fixed-dimension class that declares cleverly_learner_family = "
             "'parametric'."
         ),
+    )
+
+
+def ep_rule_condition(estimator: Any) -> Refusal | None:
+    """Return the support condition of a cross-fitted EP rule fit that no study measured.
+
+    The registered ``learned-rule-ep`` study fits ``LearnedRule(loss="ep", modifiers=...)``
+    with ``sieve=None``, which reads ``Sieve.default(modifiers)`` with its size chosen by
+    cross-validation, and ``learner=None``, the least-squares final stage.  A declared sieve
+    (another basis, a fixed size or a schedule) or a declared final learner changes the curve
+    each fold's rule reads, and no study measured it.  Such a fit runs, labelled
+    experimental.  The support key holds neither choice, so the rows ``T51`` and
+    ``T51.optimal`` would otherwise cover it.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator.
+
+    Returns
+    -------
+    Refusal or None
+        An ``INFERENCE_GAP`` condition that names the declared choices, or ``None`` for a fit
+        that is not a cross-fitted EP rule fit or that uses the measured curve.
+    """
+    rule = getattr(estimator, "learned_rule", None)
+    if rule is None or rule.loss != "ep" or not estimator.cross_fit:
+        return None
+    from ..bases import Sieve
+
+    declared = []
+    if rule.sieve is not None and rule.sieve != Sieve.default(rule.modifiers):
+        declared.append("a declared sieve=")
+    if rule.learner is not None:
+        declared.append("a declared final learner (learner=)")
+    if not declared:
+        return None
+    return Refusal(
+        RefusalReason.INFERENCE_GAP,
+        f"This EP rule fit uses {' and '.join(declared)}. The registered learned-rule-ep "
+        "study measures the default sieve, Sieve.default(modifiers) with its size chosen by "
+        "cross-validation, with the least-squares final stage, and no study measures another "
+        "curve.",
+        alternative=(
+            "LearnedRule(loss='ep', modifiers=...) with sieve=None and learner=None is the "
+            "measured fit."
+        ),
+        roadmap="P1",
     )
 
 

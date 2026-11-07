@@ -23,8 +23,11 @@ repository, section 5.5 and its amendments) declares every quantity here before 
 the sizing pilots (:mod:`tests.studies.learned_rule_ep_pilot` and
 :mod:`tests.studies.learned_rule_ep_size_pilot`) ran on streams no declared draw reads.
 
-The study is declared, not registered: no support row cites it, and every ``loss="ep"`` fit
-reads experimental until its declared run lands.
+The study is registered in :func:`tests.studies.evidence.registry.registered` with the artifacts
+of its declared run, which the fast tier reads.  Its support rows are ``T51`` and
+``T51.optimal``: the plan's ``T49`` rows, renumbered because the ``conditional-projection``
+rows took ``T49`` and ``T50`` first.  Every name ``T49`` in this study's modules and in the
+declared run's README means those rows.
 """
 
 from __future__ import annotations
@@ -93,8 +96,8 @@ STUDY = StudyRecord(
     name="Learned-rule value, EP rule learner",
     slug="learned-rule-ep",
     artifacts=ROOT / "tests" / "canonical" / "learned_rule_ep",
-    document="docs/technical-reference/point-treatment-tmle.md",
-    anchor="learned-rules",
+    document="docs/technical-reference/method-evidence/learned-rule-ep.md",
+    anchor="learned-rule-value-ep-rule-learner",
     scenarios=SCENARIOS,
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

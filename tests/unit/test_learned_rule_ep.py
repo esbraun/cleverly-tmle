@@ -54,6 +54,7 @@ from cleverly.interventions.learned import (
     EP_OPTIMAL_MODIFIERS_REFUSAL,
     OPTIMAL_RULE_TARGET,
     RULE_CLASS,
+    ep_rule_condition,
     freeze_learned_rule,
 )
 from cleverly.learners import crossfit
@@ -551,11 +552,48 @@ class TestTheRecord:
         assert (frozen.loss, frozen.modifiers, frozen.sieve) == ("ep", MODIFIERS, None)
         np.testing.assert_array_equal(frozen.treat, law.rule_of(result))
 
-    def test_an_ep_rule_fit_reads_experimental(self) -> None:
-        """No study has run for ``loss="ep"``, so no support row covers the fit."""
+    def test_the_default_ep_rule_fit_reads_its_registered_row(self) -> None:
+        """The ``learned-rule-ep`` study measures the default sieve, so row ``T51`` covers it."""
         label = _ep_fit().estimates[support.NAME].support
+        assert label.label == "supported"
+        assert label.row == "T51"
+
+    @pytest.mark.parametrize(
+        ("changes", "named"),
+        [
+            ({"sieve": FIXED}, "a declared sieve="),
+            ({"learner": LinearRegression()}, "a declared final learner (learner=)"),
+        ],
+        ids=["fixed_size", "final_learner"],
+    )
+    def test_a_declared_curve_keeps_the_row_and_reads_experimental(
+        self, changes: dict[str, Any], named: str
+    ) -> None:
+        """The key holds neither choice, so a condition, not the row, labels the fit."""
+        fitted = (
+            _fixed_fit() if "sieve" in changes else support.fit(learned_rule=ep_rule(**changes))
+        )
+        label = fitted.estimates[support.NAME].support
         assert label.label == "experimental"
-        assert label.row is None
+        assert "P1" in label.evidence
+        (condition,) = fitted.config.support_conditions
+        assert condition == ep_rule_condition(fitted.estimator)
+        assert named in condition.condition
+        assert "learned-rule-ep" in label.reason
+
+    def test_the_explicit_default_sieve_is_the_measured_curve(self) -> None:
+        """Mutation control: the condition reads the sieve itself, not whether one was passed."""
+        explicit = ep_rule(sieve=Sieve.default(MODIFIERS))
+        estimator = support.learned_tmle(learned_rule=explicit)
+        assert ep_rule_condition(estimator) is None
+        smaller = support.learned_tmle(
+            learned_rule=ep_rule(sieve=Sieve.default(MODIFIERS, max_size=5))
+        )
+        assert ep_rule_condition(smaller) is not None
+        in_sample = support.learned_tmle(
+            learned_rule=ep_rule(sieve=FIXED), cross_fit=False, cv_evaluation=False
+        )
+        assert ep_rule_condition(in_sample) is None
 
     def test_the_c3_text_reads_the_ep_limit(self) -> None:
         from cleverly import CausalStudy, LearnedRuleValue, PointTreatment

@@ -456,9 +456,20 @@ def test_the_manifest_configuration_names_the_declared_sizes() -> None:
     assert f"small_sample_diagnostic n = {properties.DIAGNOSTIC_N}" in fit
 
 
-def test_the_study_is_declared_not_registered() -> None:
-    """No support row cites it, so every EP-rule fit reads experimental until the run lands."""
-    assert study.STUDY.slug not in {record.slug for record in registered()}
+def test_the_study_is_registered_and_its_rows_carry_the_declared_limits() -> None:
+    """The run landed, so rows ``T51`` and ``T51.optimal`` (the plan's ``T49``) cite it.
+
+    Each carries :data:`T49_LIMITS` whatever the run showed (plan rev 2.7, S5).
+    """
+    from cleverly._support_rows import POINT_ROWS
+
+    assert study.STUDY.slug in {record.slug for record in registered()}
+    assert properties.T49_ADMITTED
+    rows = {row.id: row for row in POINT_ROWS if study.STUDY.slug in row.evidence}
+    assert set(rows) == {"T51", "T51.optimal"}
+    sentence = properties.T49_LIMITS[0].upper() + properties.T49_LIMITS[1:]
+    for row in rows.values():
+        assert any(limit.startswith(sentence) for limit in row.limits), row.id
     for module in (
         "src/cleverly/estimators/ep.py",
         "src/cleverly/interventions/_rule_learners.py",

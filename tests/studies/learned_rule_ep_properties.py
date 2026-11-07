@@ -480,7 +480,9 @@ def exceptional(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
     Every other row's reading is empty.  A run whose exceptional cell holds other than
     :data:`EXCEPTIONAL_REPLICATES` draws writes :data:`SMOKE` (rule L9).
     """
-    summary["reading"] = pd.Series(pd.NA, index=summary.index, dtype=object)
+    # None, not pd.NA: an empty reading must compare equal to the empty cell that
+    # ``properties.csv`` reads back as, whatever the pandas string dtype.
+    summary["reading"] = pd.Series(None, index=summary.index, dtype=object)
     group = rows.loc[(rows["property"] == EXCEPTIONAL_FAMILY) & (rows["cell"] == EXCEPTIONAL_CELL)]
     if group.empty:
         return

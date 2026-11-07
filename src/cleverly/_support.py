@@ -289,7 +289,8 @@ class SupportKey:
     qualifiers : frozenset of str
         ``strata``, ``known_mechanism`` and, on a learned-rule fit with clusters of unequal
         sizes, ``unequal_clusters``. A learned-rule fit with a rule learner adds
-        ``rule_learner_blip`` or ``rule_learner_weighted_classification``, and one with known
+        ``rule_learner_blip``, ``rule_learner_weighted_classification`` or
+        ``rule_learner_ep``, and one with known
         regimes beside the rule (``interventions=``) adds ``known_regimes``. A longitudinal key
         holds the known factors.
     options : tuple of tuple
@@ -721,8 +722,9 @@ def point_key(
         qualifiers.add("known_regimes")
     loss = getattr(getattr(estimator, "learned_rule", None), "loss", "plug_in")
     if loss != "plug_in":
-        # No study has measured a rule learner yet (X11 (g)), so a learned-rule row of the
-        # plug-in rule never covers a fit whose rule a blip or classification learner sets.
+        # A learned-rule row of the plug-in rule never covers a fit whose rule a blip, a
+        # classification learner or the EP curve sets (X11 (g), P1 (c)): each loss has its own
+        # rows, T39.<loss> and T51.
         qualifiers.add(f"rule_learner_{loss}")
 
     options: dict[str, Any] = {
