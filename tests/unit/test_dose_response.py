@@ -1,0 +1,355 @@
+"""The kernel-smoothed dose-response curve: weights, quadrature, influence curve and fit.
+
+The exact law has a three-level covariate, a dose whose conditional density is linear on
+``[-1, 6]``, and a binary outcome with a nonlinear regression.  Every expectation below is an
+exact sum over ``W`` and ``Y`` and a high-order Gauss-Legendre integral over the dose, computed
+apart from the package's composite rule.
+"""
+
+from __future__ import annotations
+
+import itertools
+
+import numpy as np
+import pandas as pd
+import pytest
+from scipy.special import expit
+from sklearn.linear_model import LogisticRegression
+
+from cleverly.dose_response import (
+    DoseResponse,
+    equivalent_kernel,
+    influence_curve,
+    kernel,
+    pair_name,
+)
+from cleverly.estimators.dose_response import DoseResponseTMLE
+from cleverly.estimators.serialize import dumps, loads
+from cleverly.exceptions import CapabilityError, DataError
+
+SUPPORT = (0.0, 5.0)
+A_RANGE = (-1.0, 6.0)
+P_W = np.array([0.3, 0.45, 0.25])
+SLOPES = np.array([-0.08, 0.02, 0.1])
+PAIRS = ((0.8, 0.0), (0.8, 0.3), (0.8, 2.5), (0.8, 5.0), (1.5, 1.2))
+
+
+def _g(a: np.ndarray, w: int, slopes: np.ndarray = SLOPES) -> np.ndarray:
+    width = A_RANGE[1] - A_RANGE[0]
+    return (1.0 + slopes[w] * (a - 2.5)) / width
+
+
+def _q(a: np.ndarray, w: int, shift: float | np.ndarray = 0.0) -> np.ndarray:
+    return expit(-1.0 + 0.45 * a - 0.08 * a * a + 0.3 * w + shift)
+
+
+def _grid(low: float, high: float, breaks: tuple[float, ...] = ()) -> tuple[np.ndarray, np.ndarray]:
+    """An independent composite rule: 40 Gauss-Legendre nodes per piece."""
+    points = np.unique(np.array([low, high, *[b for b in breaks if low < b < high]]))
+    x, wq = np.polynomial.legendre.leggauss(40)
+    nodes, mass = [], []
+    for left, right in itertools.pairwise(points):
+        nodes.append(0.5 * (right - left) * x + 0.5 * (right + left))
+        mass.append(0.5 * (right - left) * wq)
+    return np.concatenate(nodes), np.concatenate(mass)
+
+
+def _breaks(h: float, a0: float) -> tuple[float, ...]:
+    return (a0 - h, a0 + h, *SUPPORT)
+
+
+def _theta(curve: DoseResponse, h: float, a0: float, q=_q, p_w=P_W) -> float:  # type: ignore[no-untyped-def]
+    """The parameter by the package's composite rule."""
+    rule = curve.quadrature()
+    index = curve.pairs.index((h, a0))
+    return float(sum(p_w[w] * rule.weights[index] @ q(rule.nodes, w) for w in range(3)))
+
+
+def _expect_d_times(  # type: ignore[no-untyped-def]
+    curve: DoseResponse, h: float, a0: float, score, *, q=_q, g=_g, mutate=None
+) -> float:
+    """E_P[D(P_nuisance) s] by the independent rule, with D from the package's function."""
+    psi = _theta(curve, h, a0, q=q)
+    rule = curve.quadrature()
+    index = curve.pairs.index((h, a0))
+    nodes, mass = _grid(*A_RANGE, _breaks(h, a0))
+    total = 0.0
+    for w in range(3):
+        weight = equivalent_kernel(nodes, a0, h, curve.support, curve.kernel)
+        density = g(nodes, w)
+        h_obs = weight / density
+        if mutate == "drop_inverse_density":
+            h_obs = weight
+        if mutate == "density_at_dose":
+            h_obs = weight / g(np.full_like(nodes, a0), w)
+        integral = float(rule.weights[index] @ q(rule.nodes, w))
+        if mutate == "omit_integral":
+            integral = psi
+        for y in (0.0, 1.0):
+            prob_y = np.where(y == 1.0, _q(nodes, w), 1.0 - _q(nodes, w))
+            d = influence_curve(
+                np.full_like(nodes, y), q(nodes, w), h_obs, np.full_like(nodes, integral), psi
+            )
+            s = score(np.full_like(nodes, y), nodes, w)
+            total += P_W[w] * float(np.sum(mass * _g(nodes, w) * prob_y * d * s))
+    return total
+
+
+CURVE = DoseResponse(
+    doses=(0.0, 0.3, 1.2, 2.5, 5.0), bandwidths=(0.8, 1.5), support=SUPPORT, nodes_per_piece=8
+)
+
+
+def _outcome_score(y: np.ndarray, a: np.ndarray, w: int) -> np.ndarray:
+    return (y - _q(a, w)) * (np.sin(a) + 0.5 * w)
+
+
+def _outcome_derivative(h: float, a0: float) -> float:
+    def tilted(a: np.ndarray, w: int, eps: float) -> np.ndarray:
+        q = _q(a, w)
+        return q + eps * q * (1.0 - q) * (np.sin(a) + 0.5 * w)
+
+    step = 1e-4
+    up = _theta(CURVE, h, a0, q=lambda a, w: tilted(a, w, step))
+    down = _theta(CURVE, h, a0, q=lambda a, w: tilted(a, w, -step))
+    return (up - down) / (2.0 * step)
+
+
+S_W = np.array([1.0, -0.4, 0.0])
+S_W = S_W - (P_W @ S_W)
+
+
+def _covariate_score(y: np.ndarray, a: np.ndarray, w: int) -> np.ndarray:
+    del y
+    return np.full_like(a, S_W[w])
+
+
+def _dose_score(y: np.ndarray, a: np.ndarray, w: int) -> np.ndarray:
+    """A mean-zero score of A | W: the centred dose."""
+    del y
+    nodes, mass = _grid(*A_RANGE)
+    mean = float(np.sum(mass * _g(nodes, w) * nodes))
+    return a - mean
+
+
+@pytest.mark.parametrize(("h", "a0"), PAIRS)
+def test_outcome_score_derivative_equals_the_influence_curve(h: float, a0: float) -> None:
+    lhs = _outcome_derivative(h, a0)
+    rhs = _expect_d_times(CURVE, h, a0, _outcome_score)
+    assert abs(lhs) > 1e-3
+    assert rhs == pytest.approx(lhs, rel=1e-6, abs=1e-9)
+
+
+@pytest.mark.parametrize(("h", "a0"), PAIRS)
+def test_covariate_score_derivative_equals_the_influence_curve(h: float, a0: float) -> None:
+    lhs = sum(
+        S_W[w] * _theta(CURVE, h, a0, q=lambda a, v, w=w: _q(a, v) * (v == w)) for w in range(3)
+    )
+    rhs = _expect_d_times(CURVE, h, a0, _covariate_score)
+    assert abs(lhs) > 1e-3
+    assert rhs == pytest.approx(lhs, rel=1e-6, abs=1e-9)
+
+
+@pytest.mark.parametrize(("h", "a0"), PAIRS)
+def test_a_score_of_the_dose_law_has_zero_derivative_and_zero_inner_product(
+    h: float, a0: float
+) -> None:
+    # The parameter reads (P_W, Qbar) only, so a score of A | W leaves it unchanged; the
+    # influence curve must be orthogonal to that score (the canonical-gradient claim).
+    rhs = _expect_d_times(CURVE, h, a0, _dose_score)
+    assert abs(rhs) < 1e-10
+
+
+@pytest.mark.parametrize("mutation", ["drop_inverse_density", "density_at_dose", "omit_integral"])
+def test_each_mutation_breaks_a_derivative_check(mutation: str) -> None:
+    failures = 0
+    for h, a0 in PAIRS:
+        outcome = _expect_d_times(CURVE, h, a0, _outcome_score, mutate=mutation)
+        covariate = _expect_d_times(CURVE, h, a0, _covariate_score, mutate=mutation)
+        covariate_lhs = sum(
+            S_W[w] * _theta(CURVE, h, a0, q=lambda a, v, w=w: _q(a, v) * (v == w)) for w in range(3)
+        )
+        bad_outcome = abs(outcome - _outcome_derivative(h, a0)) > 1e-4
+        bad_covariate = abs(covariate - covariate_lhs) > 1e-4
+        failures += int(bad_outcome or bad_covariate)
+    assert failures >= 3
+
+
+def _remainder(h: float, a0: float, q, g) -> float:  # type: ignore[no-untyped-def]
+    """theta(P~) - theta(P0) + P0 D(P~) by the package's functions."""
+    return (
+        _theta(CURVE, h, a0, q=q)
+        - _theta(CURVE, h, a0)
+        + _expect_d_times(CURVE, h, a0, lambda y, a, w: np.ones_like(a), q=q, g=g)
+    )
+
+
+def _product(h: float, a0: float, q, g) -> float:  # type: ignore[no-untyped-def]
+    nodes, mass = _grid(*SUPPORT, _breaks(h, a0))
+    weight = equivalent_kernel(nodes, a0, h, CURVE.support, CURVE.kernel)
+    return float(
+        sum(
+            P_W[w]
+            * np.sum(
+                mass
+                * weight
+                * (g(nodes, w) - _g(nodes, w))
+                / g(nodes, w)
+                * (q(nodes, w) - _q(nodes, w))
+            )
+            for w in range(3)
+        )
+    )
+
+
+WRONG_SLOPES = np.array([0.09, -0.05, 0.0])
+
+
+def _wrong_g(a: np.ndarray, w: int) -> np.ndarray:
+    return _g(a, w, WRONG_SLOPES)
+
+
+def _wrong_q(a: np.ndarray, w: int) -> np.ndarray:
+    return _q(a, w, shift=0.4 * np.cos(a))
+
+
+@pytest.mark.parametrize(("h", "a0"), PAIRS)
+def test_the_exact_remainder_is_the_product_and_vanishes_with_one_correct_nuisance(
+    h: float, a0: float
+) -> None:
+    both = _remainder(h, a0, _wrong_q, _wrong_g)
+    assert abs(both) > 1e-6
+    assert both == pytest.approx(_product(h, a0, _wrong_q, _wrong_g), rel=1e-6, abs=1e-11)
+    assert abs(_remainder(h, a0, _q, _wrong_g)) < 1e-11
+    assert abs(_remainder(h, a0, _wrong_q, _g)) < 1e-11
+
+
+@pytest.mark.parametrize("name", ["epanechnikov", "triweight", "uniform"])
+@pytest.mark.parametrize("a0", [0.0, 0.3, 2.5, 4.9, 5.0])
+def test_equivalent_kernel_moments_and_sign(name: str, a0: float) -> None:
+    h = 1.0
+    nodes, mass = _grid(*SUPPORT, (a0 - h, a0 + h))
+    w = equivalent_kernel(nodes, a0, h, SUPPORT, name)  # type: ignore[arg-type]
+    assert float(np.sum(mass * w)) == pytest.approx(1.0, abs=1e-12)
+    assert float(np.sum(mass * w * (nodes - a0))) == pytest.approx(0.0, abs=1e-12)
+    interior = SUPPORT[0] + h <= a0 <= SUPPORT[1] - h
+    if interior:
+        assert np.all(w >= 0.0)
+        np.testing.assert_allclose(w, kernel(name, (nodes - a0) / h) / h, atol=1e-12)  # type: ignore[arg-type]
+    else:
+        assert w.min() < 0.0
+        # The plain kernel average, the mutation, misses the first-moment identity.
+        plain = kernel(name, (nodes - a0) / h) * (nodes >= 0) / h  # type: ignore[arg-type]
+        plain = plain / np.sum(mass * plain)
+        assert abs(float(np.sum(mass * plain * (nodes - a0)))) > 1e-2
+
+
+def test_the_composite_rule_is_exact_on_a_piecewise_polynomial_and_needs_its_breaks() -> None:
+    curve = DoseResponse(doses=(1.0, 3.7), bandwidths=(0.9,), support=SUPPORT)
+    breaks = (0.7, 2.2, 4.1)
+
+    def f(a: np.ndarray) -> np.ndarray:
+        # A jump at each break: what 1 / g of a binned density looks like.
+        return 1.0 + a * a / 10.0 + np.searchsorted(np.array(breaks), a)
+
+    for p, (h, a0) in enumerate(curve.pairs):
+        nodes, mass = _grid(*SUPPORT, (*breaks, a0 - h, a0 + h))
+        exact = float(np.sum(mass * equivalent_kernel(nodes, a0, h, SUPPORT) * f(nodes)))
+        with_breaks = curve.quadrature(breaks)
+        without = curve.quadrature()
+        assert float(with_breaks.weights[p] @ f(with_breaks.nodes)) == pytest.approx(
+            exact, abs=1e-12
+        )
+        if any(a0 - h < b < a0 + h for b in breaks):
+            assert abs(float(without.weights[p] @ f(without.nodes)) - exact) > 1e-4
+
+
+def test_declaration_refuses_bad_values() -> None:
+    with pytest.raises(DataError, match="inside the support"):
+        DoseResponse(doses=(6.0,), bandwidths=(1.0,), support=SUPPORT)
+    with pytest.raises(DataError, match="positive"):
+        DoseResponse(doses=(1.0,), bandwidths=(0.0,), support=SUPPORT)
+    with pytest.raises(DataError, match="distinct"):
+        DoseResponse(doses=(1.0,), bandwidths=(1.0, 1.0), support=SUPPORT)
+    with pytest.raises(DataError, match="at most 200"):
+        DoseResponse(doses=tuple(np.linspace(0, 5, 101)), bandwidths=(0.5, 1.0), support=SUPPORT)
+    with pytest.raises(DataError, match="10 significant digits"):
+        DoseResponse(doses=(1.0, 1.0 + 1e-12), bandwidths=(1.0,), support=SUPPORT)
+    with pytest.raises(DataError, match="unknown kernel"):
+        DoseResponse(doses=(1.0,), bandwidths=(1.0,), support=SUPPORT, kernel="gaussian")  # type: ignore[arg-type]
+
+
+def test_names_and_spanning_read_the_declaration_only() -> None:
+    curve = DoseResponse.spanning((0.0, 4.0), 3, fractions=(0.25,))
+    assert curve.doses == (0.0, 2.0, 4.0)
+    assert curve.bandwidths == (1.0,)
+    assert curve.names[1] == pair_name(1.0, 2.0) == "dose_response[h=1,a=2]"
+
+
+def _sample(n: int, seed: int) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    w = rng.normal(size=n)
+    a = rng.normal(2.5 + 0.6 * w, 1.2)
+    y = rng.binomial(1, expit(-1.0 + 0.5 * a - 0.08 * a * a + 0.4 * w))
+    return pd.DataFrame({"Y": y, "A": a, "W": w})
+
+
+def _fit(frame: pd.DataFrame, curve: DoseResponse, **kwargs: object):  # type: ignore[no-untyped-def]
+    return DoseResponseTMLE(
+        curve,
+        outcome_learner=LogisticRegression(max_iter=1000),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        random_state=0,
+        n_folds=3,
+        **kwargs,  # type: ignore[arg-type]
+    ).fit(frame, outcome="Y", treatment="A", covariates=["W"])
+
+
+FIT_CURVE = DoseResponse(doses=(1.0, 2.5, 4.0), bandwidths=(0.6, 1.0), support=(0.5, 4.5))
+
+
+@pytest.fixture(scope="module")
+def fitted():  # type: ignore[no-untyped-def]
+    return _fit(_sample(1200, 3), FIT_CURVE)
+
+
+def test_every_pair_solves_its_score_and_reports_a_band(fitted) -> None:  # type: ignore[no-untyped-def]
+    assert set(fitted.estimates) == set(FIT_CURVE.names)
+    assert max(abs(score) for score in fitted.scores.values()) < 1e-9
+    for name, estimate in fitted.estimates.items():
+        lower, upper = fitted.band.bands[name]
+        assert lower <= estimate.ci[0] <= estimate.psi <= estimate.ci[1] <= upper
+    assert fitted.quadrature_shift < 0.05
+    frame = fitted.to_frame()
+    assert list(frame["bandwidth"]) == [h for h, _ in FIT_CURVE.pairs]
+
+
+def test_round_trip_keeps_the_estimates(fitted) -> None:  # type: ignore[no-untyped-def]
+    back = loads(dumps(fitted))
+    for name in FIT_CURVE.names:
+        assert back[name].psi == fitted[name].psi
+
+
+def test_linear_fluctuation_solves_its_score() -> None:
+    result = _fit(_sample(800, 5), FIT_CURVE, fluctuation="linear")
+    assert max(abs(score) for score in result.scores.values()) < 1e-9
+
+
+def test_low_support_pairs_carry_the_label() -> None:
+    curve = DoseResponse(doses=(1.0, 2.5), bandwidths=(0.6,), support=(0.5, 4.5), support_floor=1e9)
+    result = _fit(_sample(600, 7), curve)
+    assert all(s.below_floor for s in result.support)
+    assert all(e.inference == "low_dose_support_plugin" for e in result.estimates.values())
+    assert result.warnings
+
+
+def test_an_interval_outside_the_observed_doses_is_refused() -> None:
+    curve = DoseResponse(doses=(1.0,), bandwidths=(0.6,), support=(-20.0, 4.5))
+    with pytest.raises(DataError, match="inside the observed dose"):
+        _fit(_sample(300, 1), curve)
+
+
+def test_a_discrete_treatment_is_refused() -> None:
+    frame = _sample(200, 2).assign(A=lambda d: (d["A"] > 2.5).astype(int))
+    with pytest.raises((CapabilityError, DataError)):
+        DoseResponseTMLE(FIT_CURVE).fit(frame, outcome="Y", treatment="A", covariates=["W"])

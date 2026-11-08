@@ -2107,6 +2107,7 @@ def fit_nuisances(
     outcome_by_arm: bool = False,
     fit_outcome: bool = True,
     fold_plug_in_rules: bool = False,
+    dose_nodes: Sequence[float] | None = None,
 ) -> NuisanceEstimates:
     """Fit every nuisance model this estimator needs.
 
@@ -2551,6 +2552,10 @@ def fit_nuisances(
             counterfactual = {
                 code: float(dose) for code, dose in zip(msm.arms, msm.dose_values, strict=True)
             }
+        elif dose_nodes is not None:
+            # A dose-response curve (cleverly.estimators.dose_response) reads the outcome
+            # regression at every quadrature dose, keyed by the node's index.
+            counterfactual = {float(k): float(dose) for k, dose in enumerate(dose_nodes)}
         elif policy_set is None:
             counterfactual = {arm: arm for arm in arms}
         else:
