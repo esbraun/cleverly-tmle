@@ -176,6 +176,7 @@ def fit_pooled_censoring(
     learner: Learner,
     folds: Folds,
     n_jobs: int = 1,
+    target: BoolArray | None = None,
 ) -> PooledCensoring:
     """Fit one retention model over the at-risk rows of ``nodes``, out of fold.
 
@@ -195,6 +196,11 @@ def fit_pooled_censoring(
         The unit-level split.  Each unit keeps its fold at every node.
     n_jobs : int
         Parallel jobs.
+    target : BoolArray or None
+        The ``(n, T)`` retention indicator the model fits, ``None`` for
+        :attr:`~cleverly.longitudinal.data.LongitudinalData.uncensored`.  A fit that
+        eliminates competing causes passes the censoring-only indicator for the censoring
+        factor and the composite for the competing factor.
 
     Returns
     -------
@@ -203,8 +209,9 @@ def fit_pooled_censoring(
     """
     nodes = tuple(nodes)
     count = len(nodes)
+    kept = data.uncensored if target is None else target
     stayed = np.concatenate(
-        [np.where(at_risk[t], data.uncensored[:, t - 1].astype(float), 0.0) for t in nodes]
+        [np.where(at_risk[t], kept[:, t - 1].astype(float), 0.0) for t in nodes]
     )
     fit_mask = np.concatenate([at_risk[t] for t in nodes])
     stacked_folds = Folds(np.tile(folds.assignment, count), folds.n_folds)

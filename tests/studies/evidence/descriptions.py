@@ -1278,6 +1278,37 @@ ARMS.update(
     }
 )
 
+#: The labels of ``eliminated-competing-events`` (X91 part A).  Mirrored from
+#: ``tests.studies.eliminated_competing_events_properties``, which this module cannot import.
+ARMS.update(
+    {
+        "tv_rule_t2": (
+            "the time-varying eliminated-competing-events law, the risk by t = 2 under the plan "
+            "treat first, then continue if L2 equals one, n = 16,000"
+        ),
+        "tv_never_t2": (
+            "the time-varying eliminated-competing-events law, the risk by t = 2 under the plan "
+            "treat at neither time, n = 16,000"
+        ),
+        "hb_a1_t2": (
+            "the held-baseline eliminated-competing-events law, the risk by t = 2 under arm 1, "
+            "n = 16,000"
+        ),
+        "hb_a2_t1": (
+            "the held-baseline eliminated-competing-events law, the risk by t = 1 under arm 2, "
+            "n = 16,000"
+        ),
+        "ltmle_always_t2": (
+            "the time-varying eliminated-competing-events law, the risk difference by t = 2 "
+            "between treating at both times and at neither, one-fold iterated LTMLE, n = 16,000"
+        ),
+        "hazard_a1_t3": (
+            "the held-baseline eliminated-competing-events law, the risk difference by t = 3 "
+            "between arms 1 and 0, hazard LTMLE, n = 16,000"
+        ),
+    }
+)
+
 #: The arms of ``targeting-curves`` (X92 part 5): each group's law and each quantity of its
 #: targeting curve, ``<group>_<quantity>``, and each group's band, ``<group>_band``.  They sit
 #: here because the cell-name pattern below is built from :data:`ARMS` at import.  Mirrored from
@@ -7603,6 +7634,92 @@ CELLS.update(
     }
 )
 
+
+#: ``eliminated-competing-events`` (X91 part A): the risk of relapse had death been prevented,
+#: Young et al. (2020) g-formula (23).  The scenario, estimand and cell names are those of
+#: ``tests/studies/eliminated_competing_events.py`` and its properties module.
+_ELIMINATED_SLUG = "eliminated-competing-events"
+IMPLEMENTATIONS["cleverly-eliminated-ltmle"] = (
+    "`cleverly` LTMLE with eliminate=['death']: the relapse risk had death been prevented, "
+    "with retention fitted as a censoring factor and a prevented-cause factor"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_ELIMINATED_SLUG, "ltmle_time_varying"): (
+            "two-node law with a time-varying covariate, censoring, death and relapse, "
+            "iterated-mean LTMLE with saturated cell means, one fold, n = 16,000"
+        ),
+        (_ELIMINATED_SLUG, "ltmle_time_varying_crossfit"): (
+            "the same two-node law, two outer folds, the death factor fitted by a clone of the "
+            "censoring learner, n = 16,000"
+        ),
+        (_ELIMINATED_SLUG, "hazard_held_baseline"): (
+            "three-node law with a three-level baseline treatment held over time, censoring, "
+            "death and relapse, hazard LTMLE with saturated cell means, one fold, n = 16,000"
+        ),
+    }
+)
+_ELIMINATED_PLANS = {
+    "never": "treat at neither time",
+    "always": "treat at both times",
+    "continue_if_l2": "treat first, then continue if L2 equals one",
+    "a0": "arm 0",
+    "a1": "arm 1",
+    "a2": "arm 2",
+}
+STUDY_ESTIMANDS.update(
+    {
+        **{
+            (_ELIMINATED_SLUG, f"risk_regimen[{plan} @ t={t}]"): (
+                f"risk of relapse by t = {t} under {words}, had death been prevented"
+            )
+            for plan, words in _ELIMINATED_PLANS.items()
+            for t in (1, 2, 3)
+        },
+        **{
+            (_ELIMINATED_SLUG, f"ate_regimen[{plan} vs {base} @ t={t}]"): (
+                f"difference in the risk of relapse by t = {t}, had death been prevented, "
+                f"between {_ELIMINATED_PLANS[plan]} and {_ELIMINATED_PLANS[base]}"
+            )
+            for plan, base in (
+                ("always", "never"),
+                ("continue_if_l2", "never"),
+                ("a1", "a0"),
+                ("a2", "a0"),
+            )
+            for t in (1, 2, 3)
+        },
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_ELIMINATED_SLUG, "double_robustness", arm, "mechanism_correct"): (
+                "a prior-only outcome model, with the treatment, censoring and prevented-cause "
+                "factors correct, so the targeting step does the adjusting",
+                "bias interval inside the equivalence margin, with the reported standard error "
+                "on the scale of the empirical spread",
+            )
+            for arm in ("tv_rule_t2", "hb_a1_t2")
+        },
+        **{
+            (_ELIMINATED_SLUG, "double_robustness", arm, "outcome_wrong_competing_wrong"): (
+                "a prior-only outcome model and a prior-only prevented-cause factor, with the "
+                "treatment and censoring factors correct",
+                "bias interval must fall entirely outside the margin",
+            )
+            for arm in ("tv_never_t2", "hb_a2_t1")
+        },
+        **{
+            (_ELIMINATED_SLUG, "interval_calibration", arm, "correctly_specified"): (
+                "every nuisance (outcome, treatment, censoring and prevented-cause factor) is a "
+                "saturated cell mean",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for arm in ("ltmle_always_t2", "hazard_a1_t3")
+        },
+    }
+)
 
 #: ``targeting-curves`` (X92 part 5): the TMLE-targeted targeting curve of
 #: ``IdentifiedEffect.targeting_curve`` and of ``curve.diagnostics.targeting_curve()``.  The

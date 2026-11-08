@@ -438,6 +438,7 @@ def fit_fold_mechanisms(
     *,
     treatment_learner: Learner,
     censoring_learner: Learner,
+    competing_learner: Learner | None = None,
     folds: Folds,
     density_bins: int | None = None,
     ratio: str = "density",
@@ -460,6 +461,8 @@ def fit_fold_mechanisms(
         The treatment mechanism learner.
     censoring_learner : Learner
         The censoring mechanism learner.
+    competing_learner : Learner or None
+        The learner of an eliminated competing event; ``None`` uses the censoring learner.
     folds : Folds
         The realized outer split, with at least two folds.
     density_bins : int or None
@@ -490,6 +493,7 @@ def fit_fold_mechanisms(
                 own,
                 treatment_learner=treatment_learner,
                 censoring_learner=censoring_learner,
+                competing_learner=competing_learner,
                 folds=Folds.single(data.n),
                 density_bins=density_bins,
                 ratio=ratio,

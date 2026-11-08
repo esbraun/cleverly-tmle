@@ -120,9 +120,36 @@ def _learners(result: LongitudinalResult) -> dict[str, Any] | None:
     if key not in ("gcomp", "parametric_gformula"):
         if not set(data.treatment_names) <= known:
             roles["treatment"] = getattr(estimator, "treatment_learner", None)
-        if data.censoring_names and not set(data.censoring_names) <= known:
+        if _reports_censoring(data) and not set(data.censoring_names) <= known:
             roles["censoring"] = getattr(estimator, "censoring_learner", None)
+        if data.eliminated:
+            # The engine's own fallback: the competing learner, else the censoring learner,
+            # else the treatment learner.  It applies when no censoring model is reported too.
+            roles["competing"] = next(
+                (
+                    learner
+                    for learner in (
+                        getattr(estimator, "competing_learner", None),
+                        getattr(estimator, "censoring_learner", None),
+                        getattr(estimator, "treatment_learner", None),
+                    )
+                    if learner is not None
+                ),
+                None,
+            )
     return roles
+
+
+def _reports_censoring(data: Any) -> bool:
+    """Whether the summary states a censoring fact and a censoring model.
+
+    A fit that eliminates a cause on data with no censoring carries generated censoring
+    names, one per node, whose censoring factor is one: nothing is fitted there, so only the
+    prevented-event line is stated.
+    """
+    if not data.censoring_names:
+        return False
+    return not (data.eliminated and data.retained is not None and bool(data.retained.all()))
 
 
 def _model_fact(result: LongitudinalResult, role: str, learners: Mapping[str, Any]) -> str | None:
@@ -136,13 +163,16 @@ def _model_fact(result: LongitudinalResult, role: str, learners: Mapping[str, An
             return None
         return learner_name(learners[role])
     if role == "censoring":
-        if not data.censoring_names:
+        if not _reports_censoring(data):
             return None
         if set(data.censoring_names) <= known:
             return vocabulary.KNOWN_MECHANISM
         if role not in learners:
             return None
         return learner_name(learners[role])
+    if role == "competing":
+        competing = learners.get("competing")
+        return None if competing is None else learner_name(competing)
     if role not in learners:
         return None
     text = learner_name(learners["outcome"])
@@ -264,6 +294,11 @@ def meaning(result: LongitudinalResult, name: str, *, question: bool = False) ->
         key = "cif_ate" if cause is not None else "risk_ate"
     if prefix in ("ey", "risk") and survival:
         key = "cif" if cause is not None else "risk"
+    eliminated = tuple(result.data.eliminated)
+    if eliminated and key in ("risk", "risk_ate"):
+        # The one remaining cause is named: "the event" would read as any event.
+        key = "cif" if key == "risk" else "cif_ate"
+        cause = result.data.outcome_name
     template = templates.get(key)
     contrast = reference is not None
     if template is None or contrast != (key in ("ate", "risk_ate", "cif_ate")):
@@ -271,7 +306,7 @@ def meaning(result: LongitudinalResult, name: str, *, question: bool = False) ->
     if survival and time is None:
         return name
     outcome, at = _outcome_word(result, time)
-    return template.format(
+    text = template.format(
         Y=outcome,
         at=at,
         d=plan,
@@ -279,6 +314,9 @@ def meaning(result: LongitudinalResult, name: str, *, question: bool = False) ->
         t="" if time is None else f"{time:g}",
         cause=cause or "",
     )
+    if not eliminated:
+        return text
+    return vocabulary.ELIMINATED_MEANING.format(text=text, causes=" and ".join(eliminated))
 
 
 def _question(result: LongitudinalResult) -> str:
@@ -288,6 +326,10 @@ def _question(result: LongitudinalResult) -> str:
     if len(result.estimates) == 1:
         (name,) = result.estimates
         return meaning(result, name, question=True)
+    eliminated = tuple(data.eliminated)
+    if eliminated:
+        risk = f"the risk of {data.outcome_name} with {' and '.join(eliminated)} prevented"
+        return vocabulary.LONGITUDINAL_SEVERAL_ROWS.format(Y=risk)
     if result.config.outcome_kind in ("survival", "competing"):
         return vocabulary.LONGITUDINAL_SEVERAL_ROWS.format(Y="the event risk")
     if result.config.outcome_kind == "repeated":
@@ -504,7 +546,8 @@ def _outcome_fact(result: LongitudinalResult) -> str:
     if kind == "survival":
         if data.time_name is not None and data.event_name is not None:
             return f"{data.event_name} by {data.time_name}"
-        return f"event at {', '.join(config.outcome_names)}"
+        event = data.outcome_name if data.eliminated else "event"
+        return f"{event} at {', '.join(config.outcome_names)}"
     if kind == "repeated":
         return f"{', '.join(config.outcome_names)}, measured at each time point"
     observed = np.asarray(data.observed_outcomes(), dtype=float)
@@ -587,11 +630,18 @@ def _header(result: LongitudinalResult) -> tuple[list[tuple[str, str]], int]:
     covariates = _covariates(result)
     if covariates is not None:
         left.append((vocabulary.ADJUSTED_FOR, covariates))
-    if data.censoring_names:
+    if _reports_censoring(data):
         left.append(
             (
                 vocabulary.CENSORING,
                 vocabulary.CENSORING_FACT.format(names=", ".join(data.censoring_names)),
+            )
+        )
+    if data.eliminated:
+        left.append(
+            (
+                vocabulary.PREVENTED,
+                vocabulary.PREVENTED_FACT.format(causes=", ".join(data.eliminated)),
             )
         )
     left.append((vocabulary.METHOD, _method(result)))
@@ -610,6 +660,7 @@ def _header(result: LongitudinalResult) -> tuple[list[tuple[str, str]], int]:
                 (vocabulary.OUTCOME_MODEL, "outcome"),
                 (vocabulary.TREATMENT_MODEL, "treatment"),
                 (vocabulary.CENSORING_MODEL, "censoring"),
+                (vocabulary.PREVENTED_MODEL, "competing"),
             ):
                 fact = _model_fact(result, role, learners)
                 if fact is not None:

@@ -120,11 +120,13 @@ def mechanism_reads_parametric(mechanism: Mechanism) -> bool:
     Returns
     -------
     bool
-        ``True`` when every kept treatment and censoring model is one the stacked equations
-        read.
+        ``True`` when every kept treatment, censoring and competing model is one the stacked
+        equations read.
     """
-    return all(reads_parametric(model) for model in mechanism.treatment_models) and all(
-        reads_parametric(model) for model in mechanism.censoring_models
+    return (
+        all(reads_parametric(model) for model in mechanism.treatment_models)
+        and all(reads_parametric(model) for model in mechanism.censoring_models)
+        and all(reads_parametric(model) for model in mechanism.competing_models)
     )
 
 
@@ -460,10 +462,25 @@ def _mechanism_factors(data: LongitudinalData, mechanism: Mechanism) -> list[_Fa
         if isinstance(model, GLM):
             design = data.history_design(time, include_current=True)
             stayed = as_target(
-                np.where(at_risk, data.uncensored[:, time - 1].astype(float), 0.0),
+                np.where(at_risk, data.censoring_target[:, time - 1].astype(float), 0.0),
                 "classification",
             )
             factors.append(_factor(time, model, design, stayed, fit_weights, ones, n))
+        # The competing factor of data that eliminates competing causes, fitted on the rows
+        # at risk that passed the censoring node, with the composite as its label.
+        competing = mechanism.competing_models
+        model = competing[time - 1] if competing else None
+        if isinstance(model, GLM):
+            assert data.retained is not None
+            passed = at_risk & data.retained[:, time - 1]
+            design = data.history_design(time, include_current=True)
+            free = as_target(
+                np.where(passed, data.uncensored[:, time - 1].astype(float), 0.0),
+                "classification",
+            )
+            factors.append(
+                _factor(time, model, design, free, np.where(passed, weights, 0.0), ones, n)
+            )
     return factors
 
 

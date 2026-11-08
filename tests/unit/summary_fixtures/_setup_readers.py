@@ -194,7 +194,17 @@ def read_study(study: Any, text: str) -> None:
         if data.event is not None and data.repeated is None:
             times, codes = data.to_time_to_event()
             end = data.time_grid[-1] if data.time_grid else data.n_times
-            share = float(np.mean((codes == 0) & (times < end)))
+            lost = (codes == 0) & (times < end)
+            prevented = np.zeros_like(lost)
+            if data.retained is not None:
+                kept = np.cumprod(data.retained, axis=1, dtype=bool)
+                observed = np.cumprod(data.uncensored, axis=1, dtype=bool)
+                prevented = lost & (kept & ~observed).any(axis=1)
+                held = float(np.mean(prevented))
+                shown = header_value(text, vocabulary.PREVENTED_BEFORE_END)
+                assert shown is not None and _close(shown, held), (shown, held)
+                expected.append(held)
+            share = float(np.mean(lost & ~prevented))
             shown = header_value(text, vocabulary.CENSORED_BEFORE_END)
             assert shown is not None and _close(shown, share), (shown, share)
             expected.append(share)

@@ -1834,8 +1834,8 @@ sizes only the cluster sum is the delta-method variance of the row mean
   *Statistics in Medicine* 39(8):1199-1236, DOI 10.1002/sim.8471. The paper defines the total
   and controlled direct effects on a cause-specific cumulative incidence, and their identifying
   conditions. Cited by the [time-to-event tutorial](examples/longitudinal-survival.ipynb).
-  Roadmap item [X56](roadmap.md#x56-competing-event-intervention-targets) part (a) reads
-  arXiv:1806.06136v3. Section 4.1, Equations (5) and (6), defines the risk under elimination of
+  [Eliminated competing events](technical-reference/longitudinal-tmle.md#eliminated-competing-events)
+  reads arXiv:1806.06136v3. Section 4.1, Equations (5) and (6), defines the risk under elimination of
   competing events. Section 5 treats the competing event as a censoring event for that risk.
   Section 6.1, Equations (20) to (23), gives the identifying conditions and the g-formula. Section
   8.1, Equations (36) and (37), gives the g-formula and IPW estimators of the direct effect.
@@ -2656,15 +2656,16 @@ not a shipped claim.
 - Stensrud, Young, Didelez, Robins & Hernán (2022), [*Separable effects for causal inference in
   the presence of competing events*](https://arxiv.org/abs/1901.09472v2), *Journal of the American
   Statistical Association* 117(537):175-183. Read in arXiv:1901.09472v2. Section 5.2, formula (5),
-  identifies the separable effects with baseline covariates. Cited by roadmap item
-  [X56](roadmap.md#x56-competing-event-intervention-targets) part (b).
+  identifies the separable effects with baseline covariates. In arXiv v3 the same results are
+  the estimand (5), identification (8) in Section 5.2, and the censoring form (10) in Section 5.4.
+  Cited by roadmap item [X91](roadmap.md#x91-survival-targets-across-the-estimators) part (d).
 - Stensrud, Hernán, Tchetgen Tchetgen, Robins, Didelez & Young (2021), [*A generalized theory of
   separable effects in competing event settings*](https://doi.org/10.1007/s10985-021-09530-8),
   *Lifetime Data Analysis* 27(4):588-631, DOI 10.1007/s10985-021-09530-8. Read first-hand in
   [PMC8536652](https://pmc.ncbi.nlm.nih.gov/articles/PMC8536652/), the published version of
   arXiv:2004.14824. Section 6.2, Equation (19), identifies the separable effects with time-varying
   common causes. It is Section 7.2 of the arXiv version. Section 6.3 treats censoring. Cited by
-  roadmap item [X56](roadmap.md#x56-competing-event-intervention-targets) part (c).
+  roadmap item [X91](roadmap.md#x91-survival-targets-across-the-estimators) part (e).
 - Wang, van der Laan, Petersen, Gerds, Kvist & van der Laan (2025), [*Targeted maximum likelihood
   based estimation for longitudinal mediation analysis*](https://arxiv.org/abs/2304.04904v1),
   *Journal of Causal Inference* 13(1), DOI 10.1515/jci-2023-0013. Read in arXiv:2304.04904v1, the
@@ -2672,9 +2673,9 @@ not a shipped claim.
   mediator to follow its law under the control intervention. Theorem 3.1, Equation (2), gives the
   identified g-formula. Section 2.3 puts competing risks inside $L_t$. Theorem 3.2, in Section
   3.4, gives the efficient influence curve. Section 5.3 gives the TMLE and its conditions (B1) to
-  (B3). Cited by roadmap item
-  [X56](roadmap.md#x56-competing-event-intervention-targets) parts (b) and (c) as the estimator.
-  The source audit of those parts is pending.
+  (B3). It is a TMLE for longitudinal natural direct and indirect effects under random
+  interventions on the mediator, and it does not estimate separable effects. Recorded here
+  because earlier versions of these pages cited it as the separable-effects estimator.
 - Hejazi, Rudolph, van der Laan & Díaz (2023), [*Nonparametric causal mediation analysis for
   stochastic interventional (in)direct effects*](https://arxiv.org/abs/2009.06203v4),
   *Biostatistics*, DOI 10.1093/biostatistics/kxac002. Read in arXiv:2009.06203v4. Lemma 3 and

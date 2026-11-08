@@ -45,6 +45,11 @@ WEIGHTS: Final = "Weights"
 TIME_POINTS: Final = "Time points"
 HORIZON: Final = "Horizon"
 CENSORING_MODEL: Final = "Censoring model"
+#: The header fact that names the eliminated causes and how the fit reads them.
+PREVENTED: Final = "Prevented"
+PREVENTED_FACT: Final = "{causes}; each plan also prevents it, so its events count as censoring"
+#: The model of an eliminated competing cause, beside the censoring model.
+PREVENTED_MODEL: Final = "Prevented-event model"
 #: The censoring indicators of a longitudinal fit, and what every plan does with them.
 CENSORING: Final = "Censoring"
 ANALYSIS: Final = "Analysis"
@@ -95,6 +100,8 @@ HEADER_LABELS: frozenset[str] = frozenset(
         TIME_POINTS,
         HORIZON,
         CENSORING_MODEL,
+        PREVENTED_MODEL,
+        PREVENTED,
         ANALYSIS,
         DESIGN,
         TREATMENT,
@@ -1932,6 +1939,7 @@ LONGITUDINAL_ROLES: Final[Mapping[str, str]] = MappingProxyType(
     {
         "treatment": "treatment",
         "censoring": "censoring",
+        "competing": "prevented event",
         "outcome": "outcome",
         "pseudo_outcome": "iterated outcome",
         "hazard": "event hazard",
@@ -2303,6 +2311,8 @@ BASELINE: Final = "Baseline"
 FOLLOWED: Final = "Observed to the end"
 EFFECTIVE_SAMPLE_SIZE: Final = "Effective sample size"
 CENSORED_BEFORE_END: Final = "Censored before the end"
+#: The share of units whose eliminated competing event the analysis treats as prevented.
+PREVENTED_BEFORE_END: Final = "Treated as prevented"
 HELD_FIXED: Final = "Held fixed"
 PROTOCOL: Final = "Study protocol"
 ANSWERED_BY: Final = "Answered by"
@@ -2321,6 +2331,7 @@ HEADER_LABELS = HEADER_LABELS | {
     FOLLOWED,
     EFFECTIVE_SAMPLE_SIZE,
     CENSORED_BEFORE_END,
+    PREVENTED_BEFORE_END,
     HELD_FIXED,
     PROTOCOL,
     ANSWERED_BY,
@@ -3184,6 +3195,8 @@ LONGITUDINAL_MEANINGS: Final[Mapping[str, str]] = MappingProxyType(
 
 #: A competing-risks working-model coefficient names its cause.
 MSM_CAUSE: Final = "{text}, for {cause}"
+#: A row of a fit that eliminates competing causes: the risk had those causes been prevented.
+ELIMINATED_MEANING: Final = "{text}, had {causes} been prevented"
 
 #: The Censoring header fact: the indicators, and that every plan keeps each unit observed,
 #: so a row is its value had no unit been censored.

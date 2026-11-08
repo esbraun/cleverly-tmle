@@ -438,6 +438,9 @@ class ModelSpec:
         Sequential pseudo-outcome learner.
     censoring_learner : estimator or None
         Longitudinal observation-mechanism learner.
+    competing_learner : estimator or None
+        Learner of the prevented-cause factor of a design that declares ``eliminate=``.
+        ``None`` uses the censoring learner.
     density_bins : int or None
         Number of bins for a continuous-treatment conditional density.  ``None`` grows the
         count with the sample, ``max(20, ceil(2 n^(1/3)))``.  A growing count is necessary for
@@ -497,6 +500,7 @@ class ModelSpec:
     intermediate_learner: Any = None
     pseudo_learner: Any = None
     censoring_learner: Any = None
+    competing_learner: Any = None
     density_bins: int | None = None
     ratio: Literal["density", "classifier"] = "density"
     screen_treatment: bool = False
@@ -515,6 +519,7 @@ class ModelSpec:
             "intermediate_learner",
             "pseudo_learner",
             "censoring_learner",
+            "competing_learner",
         ):
             _validate_learner(getattr(self, name), name)
         if self.ratio not in ("density", "classifier"):
@@ -924,6 +929,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "intermediate_learner": "intermediate_learner",
         "pseudo_learner": "pseudo_learner",
         "censoring_learner": "censoring_learner",
+        "competing_learner": "competing_learner",
         "density_bins": "density_bins",
         "ratio": "ratio",
         "screen_treatment": "screen_treatment",
@@ -1250,6 +1256,7 @@ class TMLEMethod:
                     "pseudo_learner": models.pseudo_learner,
                     "treatment_learner": models.treatment_learner,
                     "censoring_learner": models.censoring_learner,
+                    "competing_learner": models.competing_learner,
                     "n_bootstrap": inference.n_bootstrap,
                     "bootstrap_resampling": inference.bootstrap_resampling,
                     "repeats": cross.repeats,

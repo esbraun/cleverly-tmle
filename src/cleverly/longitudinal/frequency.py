@@ -164,6 +164,10 @@ def distinct_rows(data: LongitudinalData) -> tuple[LongitudinalData, IntArray]:
             columns.append(np.asarray(optional, dtype=float).reshape(data.n, -1))
     if data.cause_event is not None:
         columns.append(np.asarray(data.cause_event, dtype=float).reshape(data.n, -1))
+    if data.retained is not None:
+        # On a fit that eliminates competing causes, a censored exit and a prevented one
+        # share the composite retention and differ here only.
+        columns.append(np.asarray(data.retained, dtype=float).reshape(data.n, -1))
     for values in data.component_values:
         if values is not None:
             columns.append(np.asarray(values, dtype=float).reshape(data.n, -1))

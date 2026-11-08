@@ -876,7 +876,15 @@ def longitudinal_key(
             )
         ),
         outcome=_outcome(data, estimator.q_bounds),
-        missing=("censoring",) if data.has_censoring else ("complete",),
+        # An eliminated competing event is censoring with a second factor of its own, which
+        # no study of censoring alone covers.
+        missing=(
+            ("censoring", "eliminated")
+            if getattr(data, "eliminated", ())
+            else ("censoring",)
+            if data.has_censoring
+            else ("complete",)
+        ),
         treatment=("held", *levels) if data.treatment_held else levels,
         weighting=_weighting(data),
         splitting=(
@@ -910,6 +918,12 @@ def longitudinal_key(
         "treatment": _learner_type(estimator.treatment_learner),
         "censoring": _learner_type(estimator.censoring_learner),
     }
+    if getattr(data, "eliminated", ()):
+        # The censoring learner fits the prevented cause unless a competing learner is set.
+        competing = estimator.competing_learner
+        learners["competing"] = (
+            learners["censoring"] if competing is None else _learner_type(competing)
+        )
     return key, learners
 
 

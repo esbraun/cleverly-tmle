@@ -854,6 +854,12 @@ def to_long_panel(data: LongitudinalData) -> Any:
             "to_long_panel needs a container built by LongitudinalData.from_long_panel; this "
             "one was built from a wide frame"
         )
+    if data.eliminated:
+        raise DataError(
+            f"to_long_panel exports observed rows, and this container eliminates "
+            f"{list(data.eliminated)}: their events are recoded as censoring. Export the "
+            "container built without eliminate=, which holds the observed events"
+        )
     n_times = data.n_times
     units: list[int] = []
     nodes: list[int] = []
