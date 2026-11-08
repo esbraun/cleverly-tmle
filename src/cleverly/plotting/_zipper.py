@@ -27,6 +27,11 @@ _COLUMNS = 3
 _PANEL = (3.3, 2.6)
 
 
+#: Opacity of the intervals that cover. A light blue against a full orange differs in lightness
+#: as well as hue, so the misses stand out in grey scale.
+_COVER_ALPHA = 0.4
+
+
 def _on_log_scale(summary: Any) -> bool:
     """Whether the study measured this estimand on the log scale, which is a ratio."""
     shifted = summary.inference_estimates
@@ -184,7 +189,7 @@ def zipper(
                     high[mask],
                     colors=color,
                     linewidth=width,
-                    alpha=0.6 if text.startswith("Covers") else 1.0,
+                    alpha=_COVER_ALPHA if text.startswith("Covers") else 1.0,
                     label=text,
                     gid=gid,
                     zorder=2.0,
@@ -197,9 +202,9 @@ def zipper(
         shown = (labels or {}).get(name, _core.estimand_words(name))
         if ratio:
             _core.log_axis(axis, "x")
-            axis.set_xlabel(f"{shown}\nlimit as a multiple of the true value")
+            axis.set_xlabel(f"{shown}\ninterval limit as a multiple of the true value")
         else:
-            axis.set_xlabel(f"{shown}\nlimit minus the true value")
+            axis.set_xlabel(f"{shown}\ninterval limit minus the true value")
         coverage.append(
             f"{(labels or {}).get(name, name)} {_percent(float(np.mean(place['covered'])))}"
         )

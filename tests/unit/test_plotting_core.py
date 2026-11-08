@@ -515,6 +515,48 @@ def test_marginal_plot_control_fails_without_the_warnings(
     assert "descriptive" not in _core.note_text(bounds.plot())
 
 
+def test_outcome_label_names_the_effect_on_the_sensitivity_axes(
+    binary_fit: Any, missing_fit: Any
+) -> None:
+    sweep = binary_fit.diagnostics.truncation_curve().plot(outcome_label="Readmission")
+    assert sweep.axes[0].get_ylabel() == "Average effect on readmission"
+    ratio = binary_fit.diagnostics.truncation_curve().plot(estimand="rr", outcome_label="Y")
+    assert ratio.axes[0].get_ylabel() == "Risk ratio of Y"
+    bounds = marginal_sensitivity_bounds(binary_fit, gamma=(1.0, 2.0))
+    assert bounds.plot(outcome_label="Readmission").axes[0].get_ylabel() == (
+        "Range of the average effect on readmission"
+    )
+    tilt = missing_fit.sensitivity.missingness(gamma=[-1.0, 0.0, 1.0])
+    assert tilt.plot(outcome_label="Score").axes[0].get_ylabel().endswith(" on score")
+    assert _core.estimand_axis_label("ey1", "Order share") == "Order share treated"
+    assert _core.estimand_axis_label("ate", None) == "Average effect (ate)"
+
+
+def test_units_are_added_to_the_sensitivity_axes(binary_fit: Any, missing_fit: Any) -> None:
+    sweep = binary_fit.diagnostics.truncation_curve().plot(outcome_label="Readmission", units="%")
+    assert sweep.axes[0].get_ylabel() == "Average effect on readmission (%)"
+    bounds = marginal_sensitivity_bounds(binary_fit, gamma=(1.0, 2.0))
+    assert bounds.plot(units="points").axes[0].get_ylabel().endswith(" (points)")
+    tilt = missing_fit.sensitivity.missingness(gamma=[-1.0, 0.0, 1.0])
+    assert tilt.plot(units="points").axes[0].get_ylabel().endswith(" (points)")
+    # Control: without units nothing is appended.
+    assert tilt.plot().axes[0].get_ylabel() == "Average effect (ate)"
+
+
+def test_the_marginal_null_line_sits_clear_of_the_bottom_edge() -> None:
+    bounds = _odds_bounds([(1.0, 0.4, 0.4, 0.3, 0.5), (2.0, 0.05, 0.9, 0.0, 1.0)])
+    ax = bounds.plot().axes[0]
+    low, high = ax.get_ylim()
+    assert low < 0.0 < high
+    assert 0.0 - low > 0.02 * (high - low), "the null line is not on the spine"
+
+
+def test_the_truncation_subtitle_keeps_its_limit_interval_on_one_line(binary_fit: Any) -> None:
+    fig = binary_fit.diagnostics.truncation_curve().plot()
+    (raw,) = [t.get_text() for t in fig.axes[0].texts if t.get_gid() == _core.GID_SUBTITLE]
+    assert "[limit,\u00a01\u00a0-\u00a0limit]" in raw, "no breaking space inside the interval"
+
+
 def test_missingness_plot_marks_the_main_analysis(missing_fit: Any) -> None:
     tilt = missing_fit.sensitivity.missingness(gamma=[-1.0, 0.0, 1.0])
     fig = tilt.plot()

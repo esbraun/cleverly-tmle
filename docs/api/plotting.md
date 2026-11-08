@@ -10,6 +10,8 @@ along a conditional effect curve, and the key names it "True value (simulated da
 
 matplotlib is optional. Install it with `pip install "cleverly[plot]"`.
 
+The [plot results](../examples/plots.ipynb) tutorial shows the main figures on simulated data.
+
 ```{eval-rst}
 .. autosummary::
    :nosignatures:

@@ -76,6 +76,17 @@ def _offset(ax: Axes, index: int, count: int, gap: float = _DODGE) -> Any:
     return ax.transData + ScaledTranslation(shift, 0.0, ax.figure.dpi_scale_trans)
 
 
+#: Points the pointwise bar and the band's caps sit either side of their estimate.
+_BAND_SPLIT = 6.0
+
+
+def _nudged(ax: Axes, transform: Any, points: float) -> Any:
+    """``transform`` moved ``points`` to the right, for a mark drawn beside its estimate."""
+    from matplotlib.transforms import ScaledTranslation
+
+    return transform + ScaledTranslation(points / 72.0, 0.0, ax.figure.dpi_scale_trans)
+
+
 def _beside(ax: Axes, transform: Any) -> Any:
     """``transform`` moved :data:`_TRUTH_NUDGE` points right, for a cross beside a bar.
 
@@ -1546,11 +1557,15 @@ def _points_at(
     low = [math.nan if lo is None else float(lo) for lo, _ in pairs]
     high = [math.nan if hi is None else float(hi) for _, hi in pairs]
     has = [_finite_pair(lo, hi) for lo, hi in zip(low, high, strict=True)]
+    banded = box is not None and any(pair is not None for pair in box)
     if any(has):
+        # Beside a band's caps the pointwise bar moves left, so neither hides the other nor
+        # the marker between them.
+        bar_shift = _nudged(ax, shift, -_BAND_SPLIT) if banded else shift
         _dodged_brackets(
-            ax, xs, low, high, color=color, label=interval_text, band=False, transform=shift
+            ax, xs, low, high, color=color, label=interval_text, band=False, transform=bar_shift
         )
-    if box is not None and any(pair is not None for pair in box):
+    if banded and box is not None:
         _dodged_brackets(
             ax,
             xs,
@@ -1559,7 +1574,7 @@ def _points_at(
             color=color,
             label=band_text or "_nolegend_",
             band=True,
-            transform=shift,
+            transform=_nudged(ax, shift, _BAND_SPLIT) if any(has) else shift,
         )
     _draw_points(ax, xs, ys, has, color=color, marker=marker, transform=shift)
     if spots is not None:
@@ -1976,6 +1991,8 @@ def _policies(
         axis.xaxis.set_minor_formatter(_null_formatter())
     else:
         axis.set_xticks(ticks)
+    if log:
+        axis_words = axis_words.replace("odds of treatment", f"odds of {treatment}")
     axis.set_xlabel(f"{axis_words} ({treatment})" if not log else axis_words)
     _truth.draw(truth, spots, known=list(result.estimates))
     _core.header(axis, title or heading, subtitle)

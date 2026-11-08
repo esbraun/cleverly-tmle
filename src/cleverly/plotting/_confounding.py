@@ -1144,10 +1144,7 @@ def surface(
     )
 
     found = [
-        QUALITATIVE_NOTE
-        + " It shows how far the refitted estimate moves when a simulated common cause of the "
-        "declared strengths is added; no strength is a statement about the confounding in "
-        "these data.",
+        QUALITATIVE_NOTE + " No strength is a statement about the confounding in these data.",
         laws,
     ]
     spacing = [np.diff(values) for values in (x_values, y_values) if len(values) > 2]
@@ -1173,13 +1170,13 @@ def surface(
         found.append(f"One panel per declared value of {' and '.join(dim.short for dim in extra)}.")
     if placed:
         found.append(
-            "Triangles on the axes mark observed covariates on an axis's scale: "
+            "Triangles mark observed covariates on the axis scale: "
             + "; ".join(f"{name} at {_number(value)}" for name, value in placed)
             + "."
         )
     if outside:
         found.append(
-            "Observed covariates beyond the axes: "
+            "Beyond the axes: "
             + "; ".join(f"{name} at {_number(value)}" for name, value in outside)
             + "."
         )
@@ -1228,6 +1225,19 @@ def _outline_null(
     return len(segments)
 
 
+def _label_sides(wheres: list[float | None]) -> list[int]:
+    """Push the labels of marks closer than one cell apart to opposite sides so they do not collide.
+
+    Returns ``-1`` (before the mark), ``1`` (after it) or ``0`` (centred) for each mark.
+    """
+    sides = [0] * len(wheres)
+    drawn = sorted((w, i) for i, w in enumerate(wheres) if w is not None)
+    for (left, i), (right, j) in itertools.pairwise(drawn):
+        if right - left < 1.0:
+            sides[i], sides[j] = -1, 1
+    return sides
+
+
 def _mark_calibrations(
     axis: Axes,
     x_marks: list[tuple[str, float]],
@@ -1243,7 +1253,8 @@ def _mark_calibrations(
     placed: list[tuple[str, float]] = []
     outside: list[tuple[str, float]] = []
     reversed_note = " (sign reversed)" if reversed_y else ""
-    for name, value in x_marks:
+    x_sides = _label_sides([_position(value, x_values) for _, value in x_marks])
+    for (name, value), side in zip(x_marks, x_sides, strict=True):
         where = _position(value, x_values)
         if where is None:
             outside.append((f"{name}, treatment", value))
@@ -1256,12 +1267,14 @@ def _mark_calibrations(
         if name_x:
             axis.annotate(
                 name, xy=(where, 0.0), xycoords=axis.get_xaxis_transform(),
-                xytext=(0.0, 6.0), textcoords="offset points", ha="center", va="bottom",
+                xytext=(side * 2.0, 6.0), textcoords="offset points",
+                ha={-1: "right", 0: "center", 1: "left"}[side], va="bottom",
                 fontsize=_core.TICK_SIZE - 1, color=_core.INK, bbox=_LABEL_BOX,
                 gid=GID_CALIBRATION_LABEL, zorder=7,
             )  # fmt: skip
         placed.append((f"{name}, treatment", value))
-    for name, value in y_marks:
+    y_sides = _label_sides([_position(value, y_values) for _, value in y_marks])
+    for (name, value), side in zip(y_marks, y_sides, strict=True):
         where = _position(value, y_values)
         if where is None:
             outside.append((f"{name}, outcome{reversed_note}", value))
@@ -1274,8 +1287,9 @@ def _mark_calibrations(
         if name_y:
             axis.annotate(
                 name, xy=(0.0, where),
-                xycoords=axis.get_yaxis_transform(), xytext=(7.0, 0.0),
-                textcoords="offset points", ha="left", va="center",
+                xycoords=axis.get_yaxis_transform(), xytext=(7.0, side * 2.0),
+                textcoords="offset points", ha="left",
+                va={-1: "top", 0: "center", 1: "bottom"}[side],
                 fontsize=_core.TICK_SIZE - 1, color=_core.INK, bbox=_LABEL_BOX,
                 gid=GID_CALIBRATION_LABEL, zorder=7,
             )  # fmt: skip

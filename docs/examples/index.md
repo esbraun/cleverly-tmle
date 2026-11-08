@@ -4,8 +4,8 @@
 
 Each example is a complete analysis that you can run and adapt. It loads a dataset, estimates what
 a treatment, offer, or policy did, tests whether the result holds up, and says what you can tell a
-manager. Seventeen examples use simulated data, so each page can compare its estimate with the
-true answer. The eighteenth uses real birth records. If you are new to causal inference, read
+manager. Eighteen examples use simulated data, so each page can compare its estimate with the
+true answer. The nineteenth uses real birth records. If you are new to causal inference, read
 [one treatment, one outcome](point-treatment-tmle.ipynb) first. It explains each step that the
 other pages reuse.
 
@@ -36,6 +36,7 @@ treatment was unlikely.
 | an outcome recorded every week, such as whether a customer ordered, while the treatment repeats | [weekly orders under repeated offers](weekly-outcomes.ipynb) | fitting each week without the earlier orders leaves out what drove later offers, and adding the weekly variances as if the weeks were independent makes the interval for the total slightly too narrow |
 | repeated treatments where you can model how the whole process unfolds | [three offers after discharge](model-based-over-time.ipynb) | a model of the process that is too simple gives a confident wrong answer; comparing two methods that rest on different models shows the problem |
 | a price or dose that varies continuously and is set again each month | [monthly prices](sequential-pricing.ipynb) | one regression that holds later behavior and later prices fixed misses part of the effect of a price rise |
+| a fitted result that you want to look at, check, and explain with figures | [plot results](plots.ipynb) | a table of estimates hides which patients had almost no chance of an offer, how the estimate moves when a setting changes, and a method whose intervals all miss on one side |
 | a full analysis of real records, where no true answer is known | [smoking and twins' birth weight](twins-causal-inference.ipynb) | adjusting for a variable that the treatment itself changes, here gestational age, removes part of the effect |
 
 ## The health program
@@ -190,6 +191,13 @@ simulation studies that check it.
 :maxdepth: 1
 
 point-treatment-tmle
+```
+
+```{toctree}
+:caption: Look at a result
+:maxdepth: 1
+
+plots
 ```
 
 ```{toctree}

@@ -621,7 +621,7 @@ class TestSurface:
             [module._position(value, [0.0, 0.5, 1.0]) for value in inside.values()]
         )
         text = note_text(fig)
-        assert "(sign reversed)" in text and "beyond the axes" in text
+        assert "(sign reversed)" in text and "Beyond the axes" in text
 
     def test_an_unsigned_block_strength_is_not_marked(self, surface_result: Any) -> None:
         # mutation control: the same rows as unsigned block strengths have no signed position
@@ -1000,3 +1000,27 @@ class TestLabelsAvoidTheMarks:
         assert np.hypot(both[0] - 0.2, both[1] - 0.2) > 0.2
         # Control: without marks the label takes the middle of the line.
         assert middle == pytest.approx((0.5, 0.6))
+
+
+def test_calibration_labels_of_close_marks_go_to_opposite_sides() -> None:
+    fig, axis = plt.subplots()
+    placed, _ = module._mark_calibrations(
+        axis,
+        [("first", 0.19), ("second", 0.2)],
+        [],
+        [0.0, 0.1, 0.2, 0.4],
+        [0.0, 1.0],
+        name_x=True,
+        name_y=False,
+        reversed_y=False,
+    )
+    labels = {
+        text.get_text(): text.get_horizontalalignment()
+        for text in axis.texts
+        if text.get_gid() == module.GID_CALIBRATION_LABEL
+    }
+    assert len(placed) == 2
+    assert labels == {"first": "right", "second": "left"}
+    far = module._label_sides([0.0, 2.0, None])
+    assert far == [0, 0, 0]
+    plt.close(fig)
