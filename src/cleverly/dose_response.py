@@ -339,7 +339,13 @@ class DoseResponse:
         return equivalent_kernel(a, a0, h, self.support, self.kernel)
 
     def breaks(self) -> FloatArray:
-        """The break points the declaration puts into the quadrature partition."""
+        """The break points the declaration puts into the quadrature partition.
+
+        Returns
+        -------
+        ndarray
+            The interval's endpoints and every :math:`a_0 \\pm h` inside it, sorted.
+        """
         lower, upper = self.support
         points = [lower, upper]
         for h, a0 in self.pairs:
