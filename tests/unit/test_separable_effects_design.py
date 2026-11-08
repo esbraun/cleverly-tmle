@@ -14,7 +14,9 @@ import pytest
 
 from tests.studies import separable_effects as study
 from tests.studies import separable_effects_law as law
+from tests.studies import separable_effects_pilot as pilot
 from tests.studies import separable_effects_properties as properties
+from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
 #: The robustness cells' size, in efficient standard errors of one fit.
 SCALE = study.EFFICIENCY_SD[properties.ROBUSTNESS_ESTIMAND] / np.sqrt(properties.ROBUSTNESS_N)
@@ -77,9 +79,34 @@ class TestTheRobustnessCells:
         self, limits: dict[str, float]
     ) -> None:
         truth = law.TRUTH[properties.ROBUSTNESS_ESTIMAND]
-        for cell, role in properties.ROBUSTNESS_ROLES.items():
-            if role == "positive":
+        for cell, spec in properties.ROBUSTNESS_CELLS.items():
+            if spec is not None and spec[2] == "positive":
                 assert limits[cell] == pytest.approx(truth, abs=1e-8), cell
+
+    def test_the_wrong_mechanism_cell_lands_near_the_truth(self, limits: dict[str, float]) -> None:
+        """Cross-fitted on the exact sample, so only a small miss is checked (see the truths)."""
+        miss = (
+            limits["sep10_relapse_t3__mechanism_wrong"] - law.TRUTH[properties.ROBUSTNESS_ESTIMAND]
+        )
+        assert abs(miss) < 0.25 * SCALE
+
+    def test_in_sample_the_wrong_mechanism_changes_no_estimate(self) -> None:
+        """Saturated in-sample hazards already solve every score, so the cell is cross-fitted."""
+        from sklearn.dummy import DummyClassifier
+
+        frame = law.sample(4_000, 11)
+        wrong = _quiet(study.fit, frame, study.IN_SAMPLE, treatment_learner=DummyClassifier())
+        right = _quiet(study.fit, frame, study.IN_SAMPLE)
+        name = properties.ROBUSTNESS_ESTIMAND
+        assert wrong[name].psi == pytest.approx(right[name].psi, abs=1e-12)
+
+    def test_cross_fitted_the_wrong_mechanism_moves_the_estimate(self) -> None:
+        """The nonzero witness: out of fold the treatment model changes the targeting."""
+        frame = law.sample(4_000, 11)
+        wrong = _quiet(properties.robustness_fit, frame, "sep10_relapse_t3__mechanism_wrong")
+        right = _quiet(study.fit, frame, study.CROSS_FITTED)
+        name = properties.ROBUSTNESS_ESTIMAND
+        assert abs(wrong[name].psi - right[name].psi) > 1e-6
 
     def test_both_factors_wrong_misses_by_more_than_one_and_a_half_ses(
         self, limits: dict[str, float]
@@ -116,12 +143,63 @@ class TestTheRobustnessCells:
         np.testing.assert_allclose(inputs.inverse, law.exact_inverse(frame))
 
 
+class TestTheFailures:
+    def test_a_converged_fit_passes_and_a_stalled_one_is_recorded(self) -> None:
+        from cleverly.validation._failures import recordable
+
+        result = _quiet(study.fit, law.sample(4_000, 3), study.IN_SAMPLE)
+        assert study.require_converged(result) is result
+        stalled = _quiet(properties.engine_fit, law.sample(4_000, 3), True, True)
+        object.__setattr__(stalled.record, "converged", False)
+        object.__setattr__(stalled.record, "failure", "newton_stalled")
+        with pytest.raises(Exception, match="newton_stalled") as caught:
+            study.require_converged(stalled)
+        assert recordable(caught.value)
+
+
 class TestTheCells:
     def test_every_published_cell_is_declared(self) -> None:
         assert set(study.PROPERTY_CELLS["double_robustness"]) == set(properties.ROBUSTNESS_CELLS)
         declared = {cell for _, cell, _, _ in properties.declared_truths()}
         for family in study.PROPERTY_CELLS.values():
             assert set(family) <= declared
+
+    def test_the_record_lists_every_study_specific_module(self) -> None:
+        from tests.unit.test_study_provenance import _required_from
+
+        required = _required_from(study.STUDY.runner_module, study.STUDY.properties_module)
+        assert required <= set(study.STUDY.modules)
+
+    def test_the_record_declares_every_cell_the_module_writes(self) -> None:
+        written = {(family, cell) for family, cell, _, _ in properties.declared_truths()}
+        declared = {
+            (family, cell) for family, cells in study.STUDY.property_cells.items() for cell in cells
+        }
+        assert written == declared
+
+    def test_each_key_names_the_cells_it_fills(self) -> None:
+        names = {name for key in properties._keys(2) for name in properties._cells_of(key)}
+        assert names == {
+            f"{family}/{cell}"
+            for family, cells in study.STUDY.property_cells.items()
+            for cell in cells
+        }
+
+    def test_the_sample_seeds_are_distinct(self) -> None:
+        seeds = [
+            replicate_seed(study.STUDY, scenario, r)
+            for scenario in study.SCENARIOS
+            for r in range(50)
+        ]
+        seeds += [
+            stream_seed(study.STUDY, "property_sample", family, label, r)
+            for family, label in {(k[0], k[1]) for k in properties._keys(1)}
+            for r in range(50)
+        ]
+        seeds += [
+            stream_seed(study.STUDY, "pilot", label, r) for label in pilot.PILOTS for r in range(50)
+        ]
+        assert len(set(seeds)) == len(seeds)
 
     def test_the_seed_streams_are_this_studys_own(self) -> None:
         from tests.studies.evidence.registry import registered

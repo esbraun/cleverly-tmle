@@ -2,7 +2,9 @@
 
 It draws no declared sample: every draw takes ``stream_seed(STUDY, "pilot", label, r)``, a
 stream no declared cell reads.  It writes one row per fit and estimand to
-``separable_effects_pilot.csv.gz`` beside this module, with the fit's refusal when it had one.
+``separable_effects_pilot.csv.gz`` beside this module, with the fit's refusal when it had one.  Every row also carries the targeting's convergence
+(``converged``, ``failure``, ``relative_score``), which the study counts as a failure when it
+is 0, so the pilot measures the failure rate as well as the spread.
 Run it as ``python -m tests.studies.separable_effects_pilot --jobs N``.
 
 =====================  ======================================================================
@@ -44,13 +46,13 @@ PILOTS: dict[str, tuple[str, int, int, str]] = {
         300,
         "sep10_relapse_t3__competing_hazard_wrong",
     ),
-    "dr_mechanism_16k": (study.IN_SAMPLE, 16_000, 300, "sep10_relapse_t3__mechanism_wrong"),
+    "dr_mechanism_16k": (study.CROSS_FITTED, 16_000, 300, "sep10_relapse_t3__mechanism_wrong"),
     "calibration_in_sample_16k": (study.IN_SAMPLE, 16_000, 8_000, ""),
     "calibration_cross_fitted_16k": (study.CROSS_FITTED, 16_000, 8_000, ""),
 }
-#: The calibration and robustness labels write only the estimand their cell reads.
+#: The cross-fitted calibration and robustness labels write only the estimand their cell reads.
+#: ``calibration_in_sample_16k`` writes every estimand, which costs nothing more per fit.
 ROWS_OF: dict[str, tuple[str, ...]] = {
-    "calibration_in_sample_16k": (properties.CALIBRATION_CELLS["in_sample_sde_relapse_t3"][1],),
     "calibration_cross_fitted_16k": (
         properties.CALIBRATION_CELLS["cross_fitted_sep01_death_t3"][1],
     ),
@@ -71,6 +73,7 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             result = properties.robustness_fit(frame, cell) if cell else study.fit(frame, scenario)
+            converged, failure, score = study.convergence(result)
             rows = []
             for name in ROWS_OF.get(label, study.ESTIMANDS[scenario]):
                 estimate = result[name]
@@ -86,6 +89,9 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
                         "estimate": float(estimate.psi),
                         "std_error": float(estimate.std_error),
                         "covered": int(low <= truth <= high),
+                        "converged": int(converged),
+                        "failure": failure,
+                        "relative_score": score,
                         "refusal": "",
                     }
                 )

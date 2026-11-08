@@ -10,17 +10,19 @@ exact-law limit.
 cell                                             role      what it witnesses
 ===============================================  ========  ==================================
 ``sep10_relapse_t3__event_hazard_wrong``         positive  the event-hazard factor's targeting:
-                                                           :math:`h_Y` wrong at every level,
-                                                           :math:`\lambda_D` and the mechanism
-                                                           right
+                                                           :math:`h_Y` wrong at the level the
+                                                           target reads, :math:`\lambda_D` and
+                                                           the mechanism right
 ``sep10_relapse_t3__competing_hazard_wrong``     positive  the competing factor's targeting:
-                                                           :math:`\lambda_D` wrong,
-                                                           :math:`h_Y` and the mechanism right
+                                                           :math:`\lambda_D` wrong at the level
+                                                           the target reads, :math:`h_Y` and
+                                                           the mechanism right
 ``sep10_relapse_t3__both_hazards_wrong``         control   both factors wrong with the exact
                                                            mechanism: the remainder holds their
                                                            product, so the limit misses
-``sep10_relapse_t3__mechanism_wrong``            positive  saturated hazards with a treatment
-                                                           model that reads no covariate
+``sep10_relapse_t3__mechanism_wrong``            positive  cross-fitted saturated hazards with
+                                                           a treatment model that reads no
+                                                           covariate
 ===============================================  ========  ==================================
 
 The first three run the factor-wise engine (:func:`cleverly.longitudinal.separable.walk_separable`)
@@ -30,9 +32,14 @@ cell hazards shifted on the logit scale in one factor or both
 :data:`~tests.studies.separable_effects_law.SHIFT_Y`).  ``LTMLE`` takes one hazard learner for
 both causes, so a wrong factor alone cannot be declared through it; the engine is the code the
 fit runs, and the primary scenarios measure the wiring.  One target keeps the factor's six
-``(W, node)`` cells at each level from being pinned by the scores (design R2).  The fourth cell
-runs the study's own in-sample ``LTMLE`` fit with ``DummyClassifier(strategy="prior")`` as the
-treatment learner.
+``(W, node)`` cells at each level from being pinned by the scores (design R2).  The target reads
+:math:`\lambda_D` at level 0 and :math:`h_Y` at level 1 only, so only those entries of the
+shifts reach it.  The fourth cell runs the study's cross-fitted ``LTMLE`` fit with
+``DummyClassifier(strategy="prior")`` as the treatment learner.  In sample it would witness
+nothing: saturated hazards fitted on the same rows already solve every score that depends on
+``(W, A, node)``, so the estimate equals the correct-mechanism one whatever the treatment model
+(the design test pins that identity).  Out of fold the hazards miss the fold's cell means and
+the wrong mechanism changes the targeting.
 
 **Calibration** (n = 16,000).  ``in_sample_sde_relapse_t3`` reads
 ``ate_regimen[sep10 vs a0, relapse @ t=3]``, the separable direct effect, in sample, and
@@ -41,7 +48,8 @@ efficiency ratios read the exact EIF spread against :data:`EFFICIENCY_RATIO_BAND
 :data:`CALIBRATION_REPLICATES` is a placeholder until the pilot sizes it by the pooled rule of
 :mod:`tests.studies.repeated_sizing`.
 
-A replication that raises is never redrawn.
+A replication that raises is never redrawn.  A fit that does not converge raises through
+:func:`tests.studies.separable_effects.require_converged` and is recorded as a failure.
 """
 
 from __future__ import annotations
@@ -154,7 +162,7 @@ def robustness_fit(frame: pd.DataFrame, cell: str) -> Any:
     spec = ROBUSTNESS_CELLS[cell]
     if spec is None:
         return study.fit(
-            frame, study.IN_SAMPLE, treatment_learner=DummyClassifier(strategy="prior")
+            frame, study.CROSS_FITTED, treatment_learner=DummyClassifier(strategy="prior")
         )
     shift_d, shift_y, _ = spec
     return engine_fit(frame, shift_d, shift_y)
@@ -198,7 +206,7 @@ def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
                 n=ROBUSTNESS_N,
                 requested=requested,
                 truth=law.TRUTH[ROBUSTNESS_ESTIMAND],
-                estimate=robustness_fit(frame, label)[ROBUSTNESS_ESTIMAND],
+                estimate=study.require_converged(robustness_fit(frame, label))[ROBUSTNESS_ESTIMAND],
                 alpha=alpha,
             )
         ]
@@ -212,7 +220,7 @@ def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
             n=CALIBRATION_N,
             requested=requested,
             truth=CALIBRATION_TRUTH[label],
-            estimate=study.fit(frame, scenario)[name],
+            estimate=study.require_converged(study.fit(frame, scenario))[name],
             alpha=alpha,
         )
     ]

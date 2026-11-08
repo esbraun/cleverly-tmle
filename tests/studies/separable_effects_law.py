@@ -16,7 +16,9 @@ regimen            arms
 =================  =======================================================================
 ``a0``, ``a1``     the static arms ``A = 0`` and ``A = 1``; ``a0`` is the reference
 ``sep10``          relapse component at 1, death component at 0: the separable direct
-                   effect against ``a0`` and the separable indirect effect against ``a1``
+                   effect is the reported contrast against ``a0``; the separable indirect
+                   effect, ``a1`` against ``sep10``, is the difference of two reported risks
+                   and has no row of its own
 ``sep01``          relapse component at 0, death component at 1
 =================  =======================================================================
 

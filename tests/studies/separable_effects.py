@@ -34,6 +34,13 @@ properties module on the engine with the exact mechanism.
 ``tests/studies/separable_effects_pilot.py`` runs; the design review sets it by the shared rule
 :func:`~tests.studies.repeated_sizing.primary_replicates`.
 
+**Failures** (declared before any run).  A fit whose targeting record is not converged (its
+``failure`` is ``newton_stalled``, ``line_search_exhausted`` or ``max_iter_reached``) raises a
+recordable :class:`~cleverly.exceptions.LongitudinalError` here and counts against
+:data:`FAILURE_BOUND`, although the shipped fit only warns and still reports estimates.  A
+dropped horizon would raise ``KeyError`` and stop the run; on this law at n = 16,000 every
+horizon keeps units at risk.
+
 **Comparator.** None.  No separable-effects TMLE implementation was located; the evidence is
 the exact-law truth.
 """
@@ -45,6 +52,7 @@ from typing import Any
 
 import pandas as pd
 
+from cleverly.exceptions import LongitudinalError
 from cleverly.longitudinal import LTMLE
 from tests.discrete_law_point_survival import CellMeans, CellProbabilities
 from tests.parallel import STUDY_JOBS
@@ -113,6 +121,10 @@ STUDY = StudyRecord(
         "tests/discrete_law_longitudinal.py",
         "tests/discrete_law_longitudinal_multivalue.py",
         "tests/studies/canonical_point_survival_hazard.py",
+        "tests/studies/canonical_point_survival.py",
+        "tests/studies/canonical_ltmle.py",
+        "tests/studies/fractional_glm.py",
+        "tests/studies/point_survival_common.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",
         "tests/studies/evidence/properties.py",
@@ -163,6 +175,30 @@ def fit(frame: pd.DataFrame, scenario: str, **learners: Any) -> Any:
         **learners,
     }
     return LTMLE(law.REGIMENS, reference=law.REFERENCE, **settings).fit(frame, **law.fit_columns())
+
+
+def convergence(result: Any) -> tuple[bool, str, float]:
+    """``(converged, failure, largest final relative score)`` over a fit's targeting records.
+
+    ``result`` is an ``LTMLE`` result, or anything with a ``record`` (a robustness engine fit).
+    """
+    fits = getattr(result, "fits", None)
+    records = (
+        [result.record] if fits is None else [fit_record.hazard for fit_record in fits.values()]
+    )
+    failures = [str(record.failure) for record in records if not record.converged]
+    score = max(float(record.trace[-1]) for record in records)
+    return not failures, ",".join(failures), score
+
+
+def require_converged(result: Any) -> Any:
+    """``result``, or a recordable error when any targeting record did not converge."""
+    converged, failure, score = convergence(result)
+    if not converged:
+        raise LongitudinalError(
+            f"the separable targeting did not converge ({failure}; relative score {score:.3g})"
+        )
+    return result
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -217,7 +253,7 @@ def _replicate(
 ) -> list[dict[str, Any]]:
     scenario, replicate, _ = key
     frame, truth = drawn
-    result = fit(frame, scenario)
+    result = require_converged(fit(frame, scenario))
     plug_in = initial_estimates(result, ESTIMANDS[scenario])
     return result_rows(result, truth, scenario, replicate, plug_in)
 
