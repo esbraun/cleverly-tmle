@@ -561,6 +561,30 @@ def test_each_targeting_mutation_misses_the_truth(
         assert abs(estimates[pair_name(h, a0)].psi - _exact_truth(h, a0)) > 1e-6, (h, a0)
 
 
+def test_an_unsolved_fluctuation_is_a_data_error_a_study_records(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pair whose Newton steps run out raises ``DataError``, which a study records as a draw.
+
+    A plain ``RuntimeError`` raised in ``cleverly`` stops a repeated-sampling run, and a resumed
+    run reaches the same seed and stops again.
+    """
+    from dataclasses import replace
+
+    import cleverly.estimators.dose_response as module
+    from cleverly.validation._failures import recordable
+
+    original = module.target_pair
+
+    def unsolved(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return replace(original(*args, **kwargs), converged=False)
+
+    monkeypatch.setattr(module, "target_pair", unsolved)
+    with pytest.raises(DataError, match="did not solve its score") as raised:
+        _exact_target()
+    assert recordable(raised.value)
+
+
 # ------------------------------------------------------------------ refusals and reports
 
 

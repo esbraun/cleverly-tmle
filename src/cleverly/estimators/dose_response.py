@@ -608,7 +608,13 @@ class DoseResponseTMLE:
                 fluctuation=self.fluctuation,
             )
             if not fitted.converged:
-                raise RuntimeError(f"{name}: the fluctuation did not solve its score")
+                # A data error, not a programming one: the Newton steps ran out on this sample,
+                # and a repeated-sampling study records the draw (cleverly.validation._failures).
+                raise DataError(
+                    f"{name}: the fluctuation did not solve its score on this sample "
+                    f"(score {fitted.score:.3g}); the pair's clever covariate is too large for "
+                    "the submodel, so widen the bandwidth or narrow the dose interval"
+                )
             inside = mask > 0.0
             report = pair_support(
                 h_obs[inside], g_obs[inside], g_nodes[inside], weight_obs[inside], weights
