@@ -124,7 +124,8 @@ def truncation(
     estimand : str or None, default=None
         Which estimate to draw; the first the curve holds when omitted.
     outcome_label : str or None, default=None
-        Words for the y axis; the estimand's plain name when omitted.
+        The outcome's quantity in your words, such as ``"order share"``; the y axis then
+        reads "Average effect on order share". The estimand's plain name when omitted.
     title : str or None, default=None
         The title.
 
@@ -199,7 +200,7 @@ def truncation(
             kind="marker",
         )
     _null_axis(top, _core.null_for(scale), scale == "ratio")
-    top.set_ylabel(outcome_label or _core.estimand_words(chosen))
+    top.set_ylabel(_core.estimand_axis_label(chosen, outcome_label))
     bottom.plot(
         bound,
         [100.0 * value for value in capped],
@@ -272,7 +273,8 @@ def marginal(
     bounds : MarginalSensitivityBounds
         From ``result.sensitivity.marginal_bounds()``.
     outcome_label : str or None, default=None
-        Words for the y axis.
+        The outcome's quantity in your words, such as ``"order share"``, named with the
+        estimand on the y axis.
     title : str or None, default=None
         The title.
     ax : Axes or None, default=None
@@ -323,7 +325,11 @@ def marginal(
     if bounds.null is not None:
         subtitle += "; " + _breakdowns(bounds, level)
     ax.set_xlabel("gamma, the largest factor by which hidden confounding may change treatment odds")
-    ax.set_ylabel(outcome_label or f"Range of {words}")
+    if outcome_label:
+        named = _core.estimand_axis_label(str(bounds.estimand), outcome_label)
+        ax.set_ylabel(f"Range of the {_core.mid_phrase(named)}")
+    else:
+        ax.set_ylabel(f"Range of {words}")
     _core.header(ax, title or "Does the conclusion survive hidden confounding?", subtitle)
     _core.notes(ax, _warnings(bounds))
     return fig
@@ -374,7 +380,8 @@ def missingness(
     estimand : str or None, default=None
         Which estimate to draw; the first the tilt holds when omitted.
     outcome_label : str or None, default=None
-        Words for the y axis.
+        The outcome's quantity in your words, such as ``"order share"``, named with the
+        estimand on the y axis.
     title : str or None, default=None
         The title.
     ax : Axes or None, default=None
@@ -422,7 +429,7 @@ def missingness(
         kind="marker",
     )
     axis.set_xlabel("gamma, how far missing outcomes differ from recorded ones (log-odds scale)")
-    axis.set_ylabel(outcome_label or _core.estimand_words(chosen))
+    axis.set_ylabel(_core.estimand_axis_label(chosen, outcome_label))
     direction = (
         f"positive gamma means the missing {tilt.outcome} values were higher"
         if tilt.arm_gamma is None

@@ -515,6 +515,23 @@ def test_marginal_plot_control_fails_without_the_warnings(
     assert "descriptive" not in _core.note_text(bounds.plot())
 
 
+def test_outcome_label_names_the_effect_on_the_sensitivity_axes(
+    binary_fit: Any, missing_fit: Any
+) -> None:
+    sweep = binary_fit.diagnostics.truncation_curve().plot(outcome_label="Readmission")
+    assert sweep.axes[0].get_ylabel() == "Average effect on readmission"
+    ratio = binary_fit.diagnostics.truncation_curve().plot(estimand="rr", outcome_label="Y")
+    assert ratio.axes[0].get_ylabel() == "Risk ratio of Y"
+    bounds = marginal_sensitivity_bounds(binary_fit, gamma=(1.0, 2.0))
+    assert bounds.plot(outcome_label="Readmission").axes[0].get_ylabel() == (
+        "Range of the average effect on readmission"
+    )
+    tilt = missing_fit.sensitivity.missingness(gamma=[-1.0, 0.0, 1.0])
+    assert tilt.plot(outcome_label="Score").axes[0].get_ylabel().endswith(" on score")
+    assert _core.estimand_axis_label("ey1", "Order share") == "Order share treated"
+    assert _core.estimand_axis_label("ate", None) == "Average effect (ate)"
+
+
 def test_missingness_plot_marks_the_main_analysis(missing_fit: Any) -> None:
     tilt = missing_fit.sensitivity.missingness(gamma=[-1.0, 0.0, 1.0])
     fig = tilt.plot()

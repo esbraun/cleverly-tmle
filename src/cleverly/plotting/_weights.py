@@ -571,7 +571,8 @@ def balance(
         The most covariates to draw. Every covariate above the threshold after weighting is
         drawn, then those with the largest difference before or after weighting.
     treatment_label : str or None, default=None
-        Words for the treatment in the subtitle; its column name when omitted.
+        Words for the treatment in the subtitle and the panel titles, such as ``"Offer"``
+        (read ``"Offer = 1 vs Offer = 0"``); its column name when omitted.
     labels : dict or None, default=None
         Words for each covariate, keyed by its name.
     title : str or None, default=None
@@ -630,6 +631,13 @@ def balance(
         raise ValueError(f"max_covariates must be at least 1; got {max_covariates!r}")
     summary = _balance_object(source)
     contrasts = summary.contrasts
+
+    def said(contrast: str) -> str:
+        # Each arm reads "<treatment column> = <arm>"; treatment_label= names the column.
+        if not treatment_label:
+            return contrast
+        return contrast.replace(f"{summary.treatment} = ", f"{treatment_label} = ")
+
     shown, hidden = _shown_covariates(summary, max_covariates)
     columns = min(len(contrasts), 3)
     panel_height = 0.27 * len(shown) + 0.45
@@ -698,7 +706,9 @@ def balance(
         axis.grid(True, axis="x", color=_core.GRID, linewidth=0.8)
         axis.set_xlabel("Absolute standardized mean difference")
         if len(contrasts) > 1:
-            axis.set_title(contrast, loc="left", fontsize=_core.SUBTITLE_SIZE, color=_core.INK)
+            axis.set_title(
+                said(contrast), loc="left", fontsize=_core.SUBTITLE_SIZE, color=_core.INK
+            )
     # Direct labels of the two markers above the top row of the first panel, each over its own
     # marker and on its own line, so they never meet.
     top_row = {row.covariate: row for row in summary.rows_of(contrasts[0])}[shown[0]]
@@ -729,7 +739,7 @@ def balance(
     finite = [row for row in summary.rows if np.isfinite(row.smd_weighted)]
     worst = max(finite, key=lambda row: abs(row.smd_weighted)) if finite else None
     pieces = [
-        (f"Treatment {name}" if len(contrasts) > 1 else contrasts[0])
+        (f"Treatment {name}" if len(contrasts) > 1 else said(contrasts[0]))
         + ", weights for "
         + vocabulary.BALANCE_ESTIMAND_WORDS[summary.estimand]
     ]

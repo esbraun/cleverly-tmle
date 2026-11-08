@@ -1422,6 +1422,41 @@ def estimand_words(name: str) -> str:
     return f"{words} ({name})" if words else name
 
 
+def estimand_axis_label(name: str, outcome_label: str | None) -> str:
+    """The y label of a plot of one estimand, in the reader's words where they gave some.
+
+    Without ``outcome_label=`` it is :func:`estimand_words`. With it, the label names the
+    estimand on that outcome, as :func:`quantity` does on the other plots: ``"Average effect
+    on order share"``, ``"Risk ratio of readmission"``, and the words alone on a mean's axis
+    (``"Order share untreated"``). An alias with no known words takes the words alone.
+
+    Parameters
+    ----------
+    name : str
+        The alias a result reports, such as ``"ate"``.
+    outcome_label : str or None
+        The caller's words for the outcome's quantity.
+
+    Returns
+    -------
+    str
+        The axis label.
+    """
+    if not outcome_label:
+        return estimand_words(name)
+    import re
+
+    stem = re.split(r"[\[_]", name, maxsplit=1)[0]
+    words = _ESTIMAND_WORDS.get(name) or _ESTIMAND_WORDS.get(stem)
+    if words is None:
+        return outcome_label
+    if words.startswith("Mean outcome"):
+        return outcome_label + words[len("Mean outcome") :]
+    if words.endswith("ratio") or words.endswith("fraction"):
+        return f"{words} of {mid_phrase(outcome_label)}"
+    return f"{words} on {mid_phrase(outcome_label)}"
+
+
 def mid_phrase(words: str) -> str:
     """``words`` to go mid-phrase: a capitalised English first word in lower case.
 
