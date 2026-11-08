@@ -419,7 +419,9 @@ fixed $a_D$ and the separable indirect effect varies $a_D$ at a fixed $a_Y$. Wit
 treatment they sum to the total effect, which `contrast` computes from the reported parameters.
 
 **Influence curve.** No source gives the discrete-time curve. Martinussen and Stensrud (2023)
-derive the continuous-time influence function and a one-step estimator. The discrete functional
+derive the continuous-time influence function and a one-step estimator, and Breum, Munch, Gerds
+and Martinussen (2024) extend it to an illness-death model. Neither treats ties within a time
+step, so neither settles the order. The discrete functional
 is a smooth map of the hazards at two levels, so its curve follows from the hazard engine's by the
 chain rule through $(\lambda_D, h_Y)$, a natural extension. With
 $c_l(k) = 1\{l = j\} - (\tilde F_j(t) - \tilde F_j(k))/\tilde S(k)$ for target cause $j$, the
@@ -446,8 +448,10 @@ of the same static parameter. The initial hazards are fitted in the declared ord
 **Robustness.** With the treatment and censoring mechanisms right, the estimate is consistent when
 $\lambda_D$ is right at both levels or $h_Y$ is right at both levels, the counterparts of
 Stensrud's IPW forms (11) and (12); with both hazards right it is consistent under any mechanism.
-It is not consistent with both $\lambda_D$ and $h_Y$ wrong, even under the exact mechanism,
-because the remainder holds their cross product. A fluctuation shared by the two factors, as in
+These are sufficient conditions, the discrete-time counterpart of Martinussen and Stensrud (2023),
+Section 3.1. With both hazards wrong, consistency is not guaranteed even under the exact
+mechanism: the remainder holds the product of the two hazard errors, so the estimate is biased in
+general, and the exact-law control shows one such case. A fluctuation shared by the two factors, as in
 the softmax submodel of a competing-risk fit, loses the first two cases. Many targets on few
 covariate cells can pin a factor at its cell means, so a check of robustness fits one target.
 
