@@ -50,26 +50,35 @@ over the :math:`2M` factor scores.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 from scipy.special import expit, xlogy
 
 from .._typing import BoolArray, FloatArray, IntArray
 from .._warnings import warn as _warn
-from ..exceptions import ConvergenceWarning
+from ..exceptions import CapabilityError, ConvergenceWarning, DataError, RefusalReason
 from ..fluctuation._score import relative_score
-from .hazard import SIGMA_FLOOR, HazardFit
+from .data import LongitudinalData
+from .hazard import SIGMA_FLOOR, HazardFit, event_indicators
+from .regimen import Plan, Separable
+from .sequential import RegimenFit
 
 __all__ = [
     "FACTORS",
+    "Separable",
     "SeparableInputs",
+    "SeparablePlan",
     "SeparableState",
     "SeparableTarget",
     "influence",
+    "resolve_separable",
     "scores",
     "separable_direction",
+    "split_separable",
+    "target_separable",
     "walk_loss",
     "walk_separable",
 ]
@@ -106,6 +115,123 @@ class SeparableTarget:
     role: str
     cause: str
     horizon: int
+
+
+@dataclass(frozen=True)
+class SeparablePlan:
+    """A resolved separable intervention.
+
+    Parameters
+    ----------
+    label : str
+        The regimen's label.
+    first : int
+        The cause index counted first.
+    levels : tuple of int
+        ``(a_D, a_Y)``: the level codes of the first and the second cause.
+    declared : Separable
+        The declaration.
+    """
+
+    label: str
+    first: int
+    levels: tuple[int, int]
+    declared: Separable
+
+
+def split_separable(spec: Any) -> tuple[Any, tuple[tuple[str, Separable], ...]]:
+    """Separate the ``Separable`` entries of a ``regimens=`` mapping from the rest.
+
+    Parameters
+    ----------
+    spec : Any
+        The ``regimens=`` argument.
+
+    Returns
+    -------
+    tuple
+        The remaining specification, and ``(label, Separable)`` of each separable entry in
+        order.  A specification without one comes back unchanged with an empty tuple.
+    """
+    if not isinstance(spec, Mapping) or not any(isinstance(v, Separable) for v in spec.values()):
+        if isinstance(spec, Separable):
+            raise DataError(
+                "a Separable needs a label and a static reference arm: pass "
+                "regimens={'a0': 0, 'separable': Separable(...)}"
+            )
+        return spec, ()
+    rest = {label: plan for label, plan in spec.items() if not isinstance(plan, Separable)}
+    found = tuple((str(label), plan) for label, plan in spec.items() if isinstance(plan, Separable))
+    if not rest:
+        raise DataError(
+            "a fit with a Separable regimen needs at least one static arm in regimens=, "
+            "which is the reference of the separable direct and indirect contrasts; add, "
+            "for example, 'a0': 0"
+        )
+    return rest, found
+
+
+def resolve_separable(
+    data: LongitudinalData, separables: Sequence[tuple[str, Separable]]
+) -> tuple[SeparablePlan, ...]:
+    """Resolve each separable intervention against the panel's causes and levels.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    separables : sequence of tuple
+        ``(label, Separable)`` of each entry.
+
+    Returns
+    -------
+    tuple of SeparablePlan
+        One plan per entry, in order.
+
+    Raises
+    ------
+    DataError
+        If the panel does not hold exactly two causes, an arm names an unknown cause or
+        level, or two entries declare different first causes.
+    """
+    causes = tuple(data.cause_labels)
+    if len(causes) != 2:
+        raise DataError(
+            "a Separable regimen needs exactly two causes, the event of interest and one "
+            f"competing event; this panel holds {len(causes) or 1}. Stensrud et al. (2022) "
+            "state the separable effects for one competing event"
+        )
+    levels = tuple(data.treatment_levels[0])
+    out = []
+    firsts = set()
+    for label, declared in separables:
+        keys = {str(key) for key in declared.arms}
+        if keys != set(causes):
+            raise DataError(
+                f"Separable {label!r} names causes {sorted(keys)}, but the panel's causes "
+                f"are {sorted(causes)}"
+            )
+        codes = {}
+        for cause, level in declared.arms.items():
+            matches = [code for code, value in enumerate(levels) if value == level]
+            if not matches:
+                raise DataError(
+                    f"Separable {label!r} gives cause {cause!r} the level {level!r}, which "
+                    f"the treatment does not take; its levels are {list(levels)}"
+                )
+            codes[str(cause)] = matches[0]
+        first = causes.index(str(declared.first))
+        firsts.add(first)
+        second = causes[1 - first]
+        out.append(SeparablePlan(label, first, (codes[causes[first]], codes[second]), declared))
+    if len(firsts) > 1:
+        raise CapabilityError(
+            "every Separable regimen of one fit must declare the same first cause: the "
+            "initial hazards are fitted once, in that order.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit the two orders in two fits.",
+        )
+    return tuple(out)
 
 
 def _per(value: FloatArray, denominator: FloatArray) -> FloatArray:
@@ -547,3 +673,194 @@ def walk_separable(
         else "line_search_exhausted",
         tol=tol,
     )
+
+
+def _held_cells(
+    data: LongitudinalData,
+    at_risk: BoolArray,
+    event_d: FloatArray,
+    event_y: FloatArray,
+    n_levels: int,
+) -> tuple[BoolArray, BoolArray, BoolArray, BoolArray]:
+    """``(T, L)`` cells whose factor is held: empty and full :math:`D`, then empty and full
+    :math:`Y` among the :math:`D`-free, each among the rows of positive weight at that level."""
+    observed = np.asarray(np.nan_to_num(data.treatment[:, 0], nan=0.0), dtype=np.int64)
+    positive = (np.asarray(data.weights, dtype=float) > 0.0)[:, None, None]
+    at_level = observed[:, None, None] == np.arange(n_levels)[None, None, :]
+    rows_d = at_risk[:, :, None] & positive & at_level
+    rows_y = rows_d & (event_d == 0.0)[:, :, None]
+    d = (event_d > 0.0)[:, :, None]
+    y = (event_y > 0.0)[:, :, None]
+    present_d = rows_d.any(axis=0)
+    present_y = rows_y.any(axis=0)
+    empty_d = present_d & ~(rows_d & d).any(axis=0)
+    full_d = present_d & ~(rows_d & ~d).any(axis=0)
+    empty_y = present_y & ~(rows_y & y).any(axis=0)
+    full_y = present_y & ~(rows_y & ~y).any(axis=0)
+    return empty_d, full_d, empty_y, full_y
+
+
+def target_separable(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    separables: Sequence[SeparablePlan],
+    hazards: FloatArray,
+    cumulative: Sequence[FloatArray],
+    observed_cumulative: tuple[FloatArray, FloatArray],
+    *,
+    horizons: Sequence[int],
+    alpha: float,
+    tol: float,
+    step_size: float,
+) -> dict[tuple[str, str | None, int], RegimenFit]:
+    """Target every regimen of a separable fit and report one fit per regimen, cause and horizon.
+
+    The static arms are targeted as separable interventions with equal levels, in the same
+    walk, so one set of factors carries every reported curve.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        A two-cause survival panel of a held design.
+    plans : sequence of Plan
+        The static arms' plans, in report order.
+    separables : sequence of SeparablePlan
+        The separable interventions, in report order after the static arms.
+    hazards : FloatArray
+        ``(n, T, L, 2)`` initial cause-specific hazards fitted in the declared order.
+    cumulative : sequence of FloatArray
+        One ``(n, T)`` bounded :math:`g G_k` per level.
+    observed_cumulative : tuple of FloatArray
+        The unbounded and bounded ``(n, T)`` :math:`g G_k` at each unit's observed level.
+    horizons : sequence of int
+        The reported horizons, counted from one.
+    alpha : float
+        The probability bound of each factor.
+    tol : float
+        Relative-score tolerance.
+    step_size : float
+        The first step of the walk.
+
+    Returns
+    -------
+    dict
+        One :class:`~cleverly.longitudinal.sequential.RegimenFit` per
+        ``(regimen, cause, horizon)``.
+
+    Raises
+    ------
+    CapabilityError
+        If a level whose component acts on the second cause holds a node where every event
+        was the first cause, so the second cause's hazard there is not identified.
+    """
+    causes = tuple(data.cause_labels)
+    first = separables[0].first
+    second = 1 - first
+    at_risk, events = event_indicators(data)
+    inverse = np.stack([1.0 / np.asarray(c, dtype=float) for c in cumulative], axis=2)
+    observed = np.asarray(np.nan_to_num(data.treatment[:, 0], nan=0.0), dtype=np.int64)
+    weights = np.asarray(data.weights, dtype=float)
+    inputs = SeparableInputs(
+        at_risk=at_risk,
+        event_d=events[:, :, first],
+        event_y=events[:, :, second],
+        observed=observed,
+        inverse=inverse,
+        weights=weights,
+        alpha=alpha,
+    )
+    held = _held_cells(data, at_risk, inputs.event_d, inputs.event_y, inverse.shape[2])
+    regimens: list[tuple[str, tuple[int, int], Any]] = [
+        (plan.label, (int(plan.values[0, 0]),) * 2, plan) for plan in plans
+    ]
+    regimens += [(sep.label, sep.levels, sep) for sep in separables]
+    horizons = tuple(horizons)
+    last = max(horizons)
+    full_d, full_y = held[1], held[3]
+    targets: list[SeparableTarget] = []
+    for label, levels, _ in regimens:
+        a_d, a_y = levels
+        if a_d != a_y:
+            blocked = np.flatnonzero(full_d[:last, a_y])
+            if blocked.size:
+                raise CapabilityError(
+                    f"Separable {label!r} reads the hazard of {causes[second]!r} among those "
+                    f"free of {causes[first]!r} at level code {a_y}, but every unit at risk "
+                    f"there had {causes[first]!r} at node {int(blocked[0]) + 1}, so that "
+                    "hazard is not identified (positivity (7) of Stensrud et al. 2022).",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative="Fit fewer horizons, or coarsen the time grid.",
+                )
+            dropped = np.flatnonzero(full_y[:last, a_d])
+            if dropped.size:
+                node = int(dropped[0]) + 1
+                kept = tuple(t for t in horizons if t <= node)
+                _warn(
+                    f"Separable {label!r}: no unit at level code {a_d} stays event-free past "
+                    f"node {node}, so the horizons after it are not reported for this regimen "
+                    f"({[t for t in horizons if t > node]}).",
+                    stacklevel=3,
+                )
+            else:
+                kept = horizons
+        else:
+            kept = horizons
+        for j, cause in ((first, causes[first]), (second, causes[second])):
+            role = FACTORS[0] if j == first else FACTORS[1]
+            targets.extend(SeparableTarget(label, levels, role, cause, t) for t in kept)
+    start = SeparableState.from_hazards(hazards, first, inputs.bounds, held)
+    state, record = walk_separable(start, inputs, targets, step_size=step_size, tol=tol)
+    levels_out, curves = influence(state, inputs, targets)
+    by_label = {label: spec for label, _, spec in regimens}
+    out: dict[tuple[str, str | None, int], RegimenFit] = {}
+    for m, target in enumerate(targets):
+        a_d, a_y = target.levels
+        _, before, _ = state.composed(target.levels)
+        factual = np.concatenate(
+            [np.ones_like(state.survival[:, :1]), state.survival[:, :-1]], axis=1
+        )
+        reads = (observed == a_d) | (observed == a_y)
+        weight = _per(
+            before * inputs.inverse[inputs.rows, :, observed],
+            factual[inputs.rows, :, observed],
+        )
+        clever = np.where(at_risk & reads[:, None] & (before > 0.0), weight, 0.0)
+        clever[:, target.horizon :] = 0.0
+        spec = by_label[target.label]
+        regimen = spec.regimen if isinstance(spec, Plan) else spec
+        out[(target.label, target.cause, target.horizon)] = RegimenFit(
+            regimen=regimen,
+            psi_scaled=float(levels_out[m]),
+            influence_curve_scaled=np.asarray(curves[m], dtype=float),
+            horizon=target.horizon,
+            cause=target.cause,
+            steps=(),
+            cumulative_unbounded=observed_cumulative[0],
+            cumulative=observed_cumulative[1],
+            assignment=np.repeat(observed[:, None].astype(float), data.n_times, axis=1),
+            obs_weights=weights,
+            policy=(),
+            hazard=record,
+            hazard_clever=clever,
+            hazard_constant_nodes=_constant_nodes(held, target),
+        )
+    return out
+
+
+def _constant_nodes(
+    held: tuple[BoolArray, BoolArray, BoolArray, BoolArray], target: SeparableTarget
+) -> tuple[int, ...]:
+    """The nodes up to the horizon with a held cell the target reads: :math:`h_Y` at
+    :math:`a_Y`, :math:`\\lambda_D` at :math:`a_D`, and the full cells of both levels."""
+    empty_d, full_d, empty_y, full_y = held
+    a_d, a_y = target.levels
+    t = target.horizon
+    flagged = (
+        empty_y[:t, a_y]
+        | full_y[:t, a_y]
+        | empty_d[:t, a_d]
+        | full_d[:t, a_d]
+        | full_d[:t, a_y]
+        | full_y[:t, a_d]
+    )
+    return tuple(int(k) + 1 for k in np.flatnonzero(flagged))
