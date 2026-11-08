@@ -1,7 +1,8 @@
 """The ``separable-effects`` declaration: truths, limits, witnesses and cells.
 
 The truths are checked against a fit on the law's exact sample, and each robustness cell's
-limit against the same exact sample.  Nothing here reads a study run or the pilot.
+limit against the same exact sample.  The sizes read the committed pilot; nothing reads a
+study run.
 """
 
 from __future__ import annotations
@@ -10,13 +11,18 @@ import warnings
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
+from scipy.stats import norm
 
+from tests.studies import repeated_sizing as sizing
 from tests.studies import separable_effects as study
 from tests.studies import separable_effects_law as law
 from tests.studies import separable_effects_pilot as pilot
 from tests.studies import separable_effects_properties as properties
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
+
+MARGINS = study.STUDY.margins
 
 #: The robustness cells' size, in efficient standard errors of one fit.
 SCALE = study.EFFICIENCY_SD[properties.ROBUSTNESS_ESTIMAND] / np.sqrt(properties.ROBUSTNESS_N)
@@ -108,12 +114,17 @@ class TestTheRobustnessCells:
         name = properties.ROBUSTNESS_ESTIMAND
         assert abs(wrong[name].psi - right[name].psi) > 1e-6
 
-    def test_both_factors_wrong_misses_by_more_than_one_and_a_half_ses(
-        self, limits: dict[str, float]
-    ) -> None:
+    def test_the_control_is_discriminated(self, limits: dict[str, float]) -> None:
+        """Read at the efficient spread and at 1.5 times it, since a wrong fit's own spread
+        can exceed the bound."""
         truth = law.TRUTH[properties.ROBUSTNESS_ESTIMAND]
-        miss = limits["sep10_relapse_t3__both_hazards_wrong"] - truth
-        assert abs(miss) > 1.5 * SCALE
+        gap = limits["sep10_relapse_t3__both_hazards_wrong"] - truth
+        controls = [role for role in properties.ROBUSTNESS_ROLES.values() if role == "control"]
+        for spread in (SCALE, 1.5 * SCALE):
+            probability = sizing.bias_discriminated_probability(
+                MARGINS, gap / spread, properties.ROBUSTNESS_REPLICATES
+            )
+            assert probability >= sizing.discrimination_floor(len(controls))
 
     @pytest.mark.parametrize(
         "cell",
@@ -143,18 +154,14 @@ class TestTheRobustnessCells:
         np.testing.assert_allclose(inputs.inverse, law.exact_inverse(frame))
 
 
-class TestTheFailures:
-    def test_a_converged_fit_passes_and_a_stalled_one_is_recorded(self) -> None:
-        from cleverly.validation._failures import recordable
-
-        result = _quiet(study.fit, law.sample(4_000, 3), study.IN_SAMPLE)
-        assert study.require_converged(result) is result
+class TestTheConvergence:
+    def test_the_pilot_reads_each_fits_convergence(self) -> None:
+        converged = _quiet(study.fit, law.sample(4_000, 3), study.IN_SAMPLE)
+        assert study.convergence(converged)[:2] == (True, "")
         stalled = _quiet(properties.engine_fit, law.sample(4_000, 3), True, True)
         object.__setattr__(stalled.record, "converged", False)
         object.__setattr__(stalled.record, "failure", "newton_stalled")
-        with pytest.raises(Exception, match="newton_stalled") as caught:
-            study.require_converged(stalled)
-        assert recordable(caught.value)
+        assert study.convergence(stalled)[:2] == (False, "newton_stalled")
 
 
 class TestTheCells:
@@ -207,3 +214,153 @@ class TestTheCells:
         others = [record for record in registered() if record.slug != study.STUDY.slug]
         assert study.SEED not in {record.seed for record in others}
         assert study.RESAMPLING_SEED not in {record.resampling_seed for record in others}
+
+
+PILOT = pd.read_csv(pilot.OUTPUT, low_memory=False) if pilot.OUTPUT.exists() else pd.DataFrame()
+PRIMARY_PILOTS = {study.IN_SAMPLE: "in_sample_16k", study.CROSS_FITTED: "cross_fitted_16k"}
+CALIBRATION_PILOTS = {
+    "in_sample_sde_relapse_t3": "calibration_in_sample_16k",
+    "cross_fitted_sep01_death_t3": "calibration_cross_fitted_16k",
+}
+ROBUSTNESS_PILOTS = {
+    "sep10_relapse_t3__event_hazard_wrong": "dr_event_16k",
+    "sep10_relapse_t3__competing_hazard_wrong": "dr_competing_16k",
+    "sep10_relapse_t3__mechanism_wrong": "dr_mechanism_16k",
+}
+
+
+@pytest.mark.skipif(PILOT.empty, reason="the pilot has not been committed")
+class TestTheSizes:
+    """The declared sizes read the pilot by the shared rules.
+
+    The pilot's unconverged fits (2.6% of the cross-fitted draws) are read as drawn, as the
+    declared run keeps them.
+    """
+
+    def test_the_pilot_lost_no_fit(self) -> None:
+        assert PILOT["refusal"].fillna("").eq("").all()
+
+    def test_the_primary_replicates_follow_the_shared_rule(self) -> None:
+        """:func:`~tests.studies.repeated_sizing.primary_replicates`, one implementation.
+
+        Clauses (a) to (c) read the pilot's covered counts and clause (d) its standardized
+        biases, one group per scenario; both shares are
+        :data:`~tests.studies.repeated_sizing.PRIMARY_CLAUSE_SHARE`.
+        """
+        covered: dict[str, int] = {}
+        bias_groups = []
+        draws = set()
+        for scenario, label in PRIMARY_PILOTS.items():
+            rows = PILOT.loc[PILOT["label"] == label]
+            assert int(rows["n"].iloc[0]) == study.STUDY.n_of(scenario)
+            names = list(study.ESTIMANDS[scenario])
+            hits = rows.pivot(index="replicate", columns="estimand", values="covered")[names]
+            covered.update({f"{scenario}/{name}": int(hits[name].sum()) for name in names})
+            error = rows.assign(error=rows["estimate"] - rows["truth"]).pivot(
+                index="replicate", columns="estimand", values="error"
+            )[names]
+            standardized = error / error.std(ddof=1)
+            draws.add(len(hits))
+            bias_groups.append(
+                sizing.PilotGroup(
+                    standardized.mean().to_numpy(), standardized.cov().to_numpy() / len(hits)
+                )
+            )
+        (pilot_draws,) = draws
+        share = sizing.PRIMARY_CLAUSE_SHARE
+        assert (
+            sizing.primary_replicates(
+                MARGINS,
+                covered,
+                pilot_draws,
+                implementations=1,
+                coverage_pass=share,
+                bias_groups=bias_groups,
+                bias_pass=share,
+            )
+            == study.PRIMARY_REPLICATES
+        )
+
+    @staticmethod
+    def _calibration_pilot(cell: str) -> pd.DataFrame:
+        _, name = properties.CALIBRATION_CELLS[cell]
+        label = CALIBRATION_PILOTS[cell]
+        rows = PILOT.loc[(PILOT["label"] == label) & (PILOT["estimand"] == name)]
+        assert int(rows["n"].iloc[0]) == properties.CALIBRATION_N
+        assert len(rows) == sizing.CALIBRATION_PILOT_DRAWS
+        return rows
+
+    def test_the_calibration_replicates_follow_the_pooled_rule(self) -> None:
+        """The smallest multiple of 400 whose family-wise calibration pass reaches the share."""
+        groups = []
+        for cell in properties.CALIBRATION_LABELS:
+            rows = self._calibration_pilot(cell)
+            ratio = float(rows["std_error"].mean() / rows["estimate"].std(ddof=1))
+            noise = ratio**2 / (2.0 * (len(rows) - 1))
+            groups.append(sizing.PilotGroup(np.array([ratio]), np.array([[noise]])))
+        tau = sizing.heterogeneity_bound(groups)
+
+        def family_pass(replicates: int) -> float:
+            return sizing.calibration_family_pass_probability(MARGINS, replicates, groups, tau)
+
+        declared = properties.CALIBRATION_REPLICATES
+        assert declared % sizing.BUDGET_STEP == 0
+        assert family_pass(declared) >= sizing.SIZED_SHARE
+        assert family_pass(declared - sizing.BUDGET_STEP) < sizing.SIZED_SHARE
+
+    def test_the_calibration_efficiency_ratios_sit_inside_the_band(self) -> None:
+        """The efficiency conjunct of each positive cell passes at the declared replicates."""
+        low, high = properties.EFFICIENCY_RATIO_BAND
+        z = float(norm.ppf(0.5 + MARGINS.confidence_level / 2.0))
+        replicates = properties.CALIBRATION_REPLICATES
+        for cell in properties.CALIBRATION_LABELS:
+            rows = self._calibration_pilot(cell)
+            bound = properties.EFFICIENCY_SD[cell] / np.sqrt(properties.CALIBRATION_N)
+            for ratio in (
+                float(rows["estimate"].std(ddof=1)) / bound,
+                float(rows["std_error"].mean()) / bound,
+            ):
+                spread = ratio / np.sqrt(2.0 * (replicates - 1))
+                passing = norm.cdf((high - z * spread - ratio) / spread) - norm.cdf(
+                    (low + z * spread - ratio) / spread
+                )
+                assert passing > 0.999, (cell, ratio, passing)
+
+    def test_the_derived_controls_leave_the_band(self) -> None:
+        """The shrunken-SE arm leaves the SE-ratio band and the noise arm the efficiency band."""
+        replicates = properties.CALIBRATION_REPLICATES
+        assert (
+            sizing.calibration_control_probability(
+                MARGINS, replicates, properties.SHRUNKEN_SE_FACTOR
+            )
+            > 0.999
+        )
+        z = float(norm.ppf(0.5 + MARGINS.confidence_level / 2.0))
+        noise = np.sqrt(2.0)
+        spread = noise / np.sqrt(2.0 * (replicates - 1))
+        upper = properties.EFFICIENCY_RATIO_BAND[1]
+        assert norm.cdf((noise - z * spread - upper) / spread) > 0.999
+
+    def test_the_positive_robustness_cells_pass_at_their_pilot_bias(self) -> None:
+        """Each positive cell at its one-sided 80% upper pilot bias, and no fewer replicates."""
+        for cell, label in ROBUSTNESS_PILOTS.items():
+            assert properties.ROBUSTNESS_ROLES[cell] == "positive"
+            rows = PILOT.loc[PILOT["label"] == label]
+            assert int(rows["n"].iloc[0]) == properties.ROBUSTNESS_N
+            error = rows["estimate"] - rows["truth"]
+            bias = abs(float(error.mean() / error.std(ddof=1)))
+            upper = bias + float(norm.ppf(sizing.PILOT_LEVEL)) / np.sqrt(len(rows))
+            replicates = properties.ROBUSTNESS_REPLICATES
+            assert sizing.bias_equivalent_probability(MARGINS, upper, replicates) > 0.98, cell
+        smaller = properties.ROBUSTNESS_REPLICATES - sizing.PROPERTY_STEP
+        uppers = []
+        for label in ROBUSTNESS_PILOTS.values():
+            error = (
+                PILOT.loc[PILOT["label"] == label, "estimate"]
+                - law.TRUTH[properties.ROBUSTNESS_ESTIMAND]
+            )
+            uppers.append(
+                abs(float(error.mean() / error.std(ddof=1)))
+                + float(norm.ppf(sizing.PILOT_LEVEL)) / np.sqrt(len(error))
+            )
+        assert sizing.bias_equivalent_probability(MARGINS, max(uppers), smaller) <= 0.98

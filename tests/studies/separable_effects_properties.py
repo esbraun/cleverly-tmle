@@ -45,11 +45,12 @@ the wrong mechanism changes the targeting.
 ``ate_regimen[sep10 vs a0, relapse @ t=3]``, the separable direct effect, in sample, and
 ``cross_fitted_sep01_death_t3`` reads ``cif_regimen[sep01, death @ t=3]`` with two folds.  The
 efficiency ratios read the exact EIF spread against :data:`EFFICIENCY_RATIO_BAND`.
-:data:`CALIBRATION_REPLICATES` is a placeholder until the pilot sizes it by the pooled rule of
-:mod:`tests.studies.repeated_sizing`.
+:data:`CALIBRATION_REPLICATES` is the pooled rule of :mod:`tests.studies.repeated_sizing` on the
+pilot, and :data:`ROBUSTNESS_REPLICATES` the count at which each positive cell passes at its
+pilot's 80% upper bias; the design test reads both.
 
-A replication that raises is never redrawn.  A fit that does not converge raises through
-:func:`tests.studies.separable_effects.require_converged` and is recorded as a failure.
+A replication that raises is never redrawn.  A fit that stops short of ``tol`` is kept, as in
+the primary scenarios.
 """
 
 from __future__ import annotations
@@ -89,10 +90,11 @@ ROBUSTNESS = "double_robustness"
 CALIBRATION = "interval_calibration"
 
 ROBUSTNESS_N = 16_000
-ROBUSTNESS_REPLICATES = 1_000
+#: The smallest count at which each positive cell passes at its pilot's 80% upper bias.
+ROBUSTNESS_REPLICATES = 2_000
 CALIBRATION_N = 16_000
-#: Set by the design review from the pilot (see the module docstring).
-CALIBRATION_REPLICATES = 4_800
+#: The pooled calibration rule on the pilot (design test).
+CALIBRATION_REPLICATES = 4_400
 
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
@@ -206,7 +208,7 @@ def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
                 n=ROBUSTNESS_N,
                 requested=requested,
                 truth=law.TRUTH[ROBUSTNESS_ESTIMAND],
-                estimate=study.require_converged(robustness_fit(frame, label))[ROBUSTNESS_ESTIMAND],
+                estimate=robustness_fit(frame, label)[ROBUSTNESS_ESTIMAND],
                 alpha=alpha,
             )
         ]
@@ -220,7 +222,7 @@ def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
             n=CALIBRATION_N,
             requested=requested,
             truth=CALIBRATION_TRUTH[label],
-            estimate=study.require_converged(study.fit(frame, scenario))[name],
+            estimate=study.fit(frame, scenario)[name],
             alpha=alpha,
         )
     ]

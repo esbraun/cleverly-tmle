@@ -3,8 +3,8 @@
 It draws no declared sample: every draw takes ``stream_seed(STUDY, "pilot", label, r)``, a
 stream no declared cell reads.  It writes one row per fit and estimand to
 ``separable_effects_pilot.csv.gz`` beside this module, with the fit's refusal when it had one.  Every row also carries the targeting's convergence
-(``converged``, ``failure``, ``relative_score``), which the study counts as a failure when it
-is 0, so the pilot measures the failure rate as well as the spread.
+(``converged``, ``failure``, ``relative_score``), so the pilot measures how often a fit stops
+short of ``tol`` as well as the spread.
 Run it as ``python -m tests.studies.separable_effects_pilot --jobs N``.
 
 =====================  ======================================================================

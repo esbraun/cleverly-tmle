@@ -444,10 +444,17 @@ $\lambda_D$ and of $h_Y$, with one coefficient per factor and per target, along 
 of the hazard engine. When the walk's relative score stops halving over 50 steps, the fit
 continues with Newton steps on the same factor-wise submodel at the current covariates, the
 classical iterative TMLE, and reports the state with the smallest relative score. Both phases
-solve the same factor scores, so the robustness below holds for either. The static arms of the same fit go through the same walk as separable
-interventions with equal levels, so one pair of factors carries every reported curve. At the
-truth this is the shipped static estimate and curve. From a fitted start it is a different TMLE
-of the same static parameter. The initial hazards are fitted in the declared order.
+solve the same factor scores, so the robustness below holds for either.
+
+The static arms of the same fit go through the same walk as separable interventions with equal levels, so one pair of
+factors carries every reported curve. At the truth this is the shipped static estimate and curve.
+From a fitted start it is a different TMLE of the same static parameter. The initial hazards are
+fitted in the declared order.
+
+With cross-fitted initial hazards, a separable fit can stop short of `tol` and warn. When targets
+outnumber the free cells of a factor at a level, part of the score lies along nearly redundant
+target directions, and no nearby state solves it. In the `separable-effects` pilot this happened
+in 2.6% of two-fold fits at n = 16,000, at relative scores near $10^{-3}$, and never in sample.
 
 **Robustness.** With the treatment and censoring mechanisms right, the estimate is consistent when
 $\lambda_D$ is right at both levels or $h_Y$ is right at both levels, the counterparts of
