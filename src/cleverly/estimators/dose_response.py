@@ -111,8 +111,9 @@ class DoseResponseResult:
     alpha : float
         The significance level of the intervals and of the band.
     warnings : tuple of str
-        The fit's notes: a quadrature-doubling shift above tolerance, and pairs below the
-        support floor.
+        The fit's notes: a quadrature-doubling shift above tolerance, an accepted
+        composition no registered study measures (an in-sample fit, observation weights,
+        clusters), and pairs below the support floor.
     """
 
     curve: DoseResponse
@@ -250,6 +251,22 @@ def _refuse_unsupported(data: CausalData) -> None:
             "a dose-response curve on a treatment with declared dose atoms is not supported",
             reason=RefusalReason.IMPLEMENTATION_GAP,
         )
+
+
+def _experimental_notes(data: CausalData, *, cross_fit: bool) -> list[str]:
+    """Name the accepted compositions that no registered study has measured."""
+    notes = []
+    if not cross_fit:
+        notes.append(
+            "experimental: an in-sample fit; the registered study measures cross-fitted fits only"
+        )
+    if not np.allclose(data.weights, data.weights[0]):
+        notes.append(
+            "experimental: observation weights; no registered study measures a weighted curve"
+        )
+    if data.cluster is not None:
+        notes.append("experimental: clustered rows; no registered study measures a clustered curve")
+    return notes
 
 
 class DoseResponseTMLE:
@@ -454,6 +471,7 @@ class DoseResponseTMLE:
                 f"doubling the quadrature nodes moves an estimate by {shift:.3f} standard errors; "
                 "raise nodes_per_piece"
             )
+        notes.extend(_experimental_notes(data, cross_fit=self.cross_fit))
         low = [s.name for s in supports if s.below_floor]
         if low:
             notes.append(
