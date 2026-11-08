@@ -405,10 +405,9 @@ The replication count of each study is set by the repeated-sampling sizing rule 
 rule reads only gated cells. Study A uses an 800-replicate pilot of its 16 gated scenarios (0 lost
 replicates, every control passed, the efficiency RMSE ratio on `a0` 0.703 with interval
 [0.654, 0.754]), which gives 2,800 replications of each scenario. At 143.24 core-seconds per
-replicate set that is about 111 core-hours. Study S6 uses a 400-replicate pilot (388 and 371
-covered for the two forms), which gives 7,600 replications at 546.07 core-seconds per set, about
-72 hours on 16 cores. A pilot of 1,200 replicates at the same coverage would give about 3,600, and
-one is planned before the declared run of S6. The declared red-cell reading is the one in the
+replicate set that is about 111 core-hours. Study S6 uses a 1,200-replicate pilot (1,159 and
+1,126 covered for the two forms, 0 lost), which gives 2,400 replications at 545.46 core-seconds per
+set, about 364 core-hours. The declared red-cell reading is the one in the
 [benchmarking strategy](../development/method-benchmarking.md#red-cells).
 
 | item | result |

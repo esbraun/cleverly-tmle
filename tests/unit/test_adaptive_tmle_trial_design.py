@@ -603,11 +603,11 @@ def test_the_replicate_count_is_the_primary_rule_at_the_pilot() -> None:
     )
 
 
-#: The selective study's pilot, in the same form: 400 replicates per scenario. The rule prices
-#: them at 7,600 (about 72 hours on 16 cores at 546 core-seconds per replicate set). A pilot of
-#: 1,200 replicates at the same coverage would give 3,600.
-SELECTIVE_PILOT_REPLICATES = 400
-SELECTIVE_PILOT_COVERED = {"s6_cv": 388, "s6_pooled": 371}
+#: The selective study's pilot, in the same form: 1,200 replicates per scenario at commit 4486fc95
+#: on the 16-core local queue (2026-11-07, 0 lost replicates, 545.46 core-seconds per replicate
+#: set). The rule prices them at 2,400, its floor.
+SELECTIVE_PILOT_REPLICATES = 1200
+SELECTIVE_PILOT_COVERED = {"s6_cv": 1159, "s6_pooled": 1126}
 
 
 def test_the_selective_replicate_count_is_the_primary_rule_at_its_pilot() -> None:
