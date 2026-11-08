@@ -58,10 +58,11 @@ runs at :data:`STRATA_N`.  The design test recomputes the size.
 (``simultaneous_coverage``), the calibration family (``interval_calibration``) and the
 union-model family (``double_robustness``).
 
-**Comparator.** Pending: npcausal ``ctseff`` (Kennedy, Ma, McHugh and Small 2017) estimates a
+**Comparator.** None in this record.  npcausal ``ctseff`` (Kennedy, Ma, McHugh and Small 2017) estimates a
 related target, a curve smoothed against the marginal dose density rather than Lebesgue
 measure, which agrees with this one only where the curve is linear on each kernel's support.
-X93 part S2 owns its runs on the local R queue.  The method merges on its Python evidence.
+Its runner and its runs come in a later change on the local R queue (X93 part S2), which
+declares it.  The method merges on its Python evidence.
 
 **Initial estimate.** The ``initial_estimate`` column is each pair's untargeted plug-in
 :math:`n^{-1}\sum_i \int_D w(a)\hat{\bar Q}(a, W_i)\,da` from the same cross-fitted regression on
@@ -306,13 +307,6 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-dose-response",
     reference=None,
-    pending_reference="npcausal ctseff",
-    pending_reason=(
-        "X93 part S2: npcausal ctseff estimates a related target (a curve smoothed against the "
-        "marginal dose density), compared at a law that is linear on each kernel's support; "
-        "its runs are queued on the local R machine"
-    ),
-    comparison="related target",
     failure_bound={"cleverly-dose-response": FAILURE_BOUND},
     modules=(
         "tests/studies/dose_response.py",

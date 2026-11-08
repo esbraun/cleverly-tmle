@@ -9,11 +9,8 @@ max-$t$ band over every declared pair.
 [Smoothed dose-response curve](../dose-response.md) gives the estimand, the estimator and its
 conditions.
 
-The evidence label is **Python property evidence, with comparator runs pending**. The study
-declares npcausal `ctseff` as its comparator. Its runs have not registered, so this page
-publishes no paired verdict.
-[Comparator runs pending](../../development/method-benchmarking.md#comparator-runs-pending) states
-the rule.
+The study has no comparator. npcausal `ctseff` estimates a related target, and a later change
+(roadmap X93, part S2) declares it with its runs, so this page publishes no paired verdict.
 
 **The study is declared and has not run.** Every number below that is not a declaration or a
 pilot reading is filled by `python -m tests.studies.evidence.document --slug dose-response` from
@@ -50,15 +47,10 @@ the truths, the tail dose, the robustness limits, the band design numbers and th
 
 ## Agreement with the canonical implementation
 
-**Python property evidence, with comparator runs pending.** This section holds no paired table,
-because the comparator study has not run.
-
-| item | state |
-| --- | --- |
-| comparator | npcausal `ctseff` (Kennedy, Ma, McHugh and Small 2017) |
-| what it estimates | a related target: a curve smoothed against the marginal dose density rather than the Lebesgue kernel weight of `DoseResponse`, so a paired comparison needs a matched target |
-| reason pending | roadmap item X93, part S2, builds the R runner and the matched target |
-| paired cell of the grid | 0/0 external comparisons, with the pending label |
+None claimed, so a zero-row equivalence artifact records the absence. npcausal `ctseff` (Kennedy,
+Ma, McHugh and Small 2017) smooths against the marginal dose density rather than the Lebesgue
+kernel weight of `DoseResponse`, so a paired comparison needs a matched target. Roadmap item X93,
+part S2, builds the R runner and that target.
 
 The owner's rule applies: a method merges on its Python evidence, and the comparator study
 follows ([Theory and comparators](../../architecture-invariants.md#theory-and-comparators)).
@@ -182,7 +174,7 @@ from the committed results, and reads `pending` until the declared run registers
 
 | limit | what it means for use |
 | --- | --- |
-| the npcausal comparison is pending | the page publishes no paired verdict |
+| no comparator | the npcausal `ctseff` runs come later (X93 part S2), so the study has no paired verdict |
 | one law family | a normal location model for the dose, with an outcome that reads $W$ through one linear index, on $D = [0, 5]$ |
 | declared sieve learners | the outcome sieve holds the $W$ part of the law exactly. The default learner library is not measured |
 | one sample size per scenario | n = 4,000, n = 8,000 for the stratified scenario and n = 1,000 for the tail pair. Smaller sizes are not claimed |
@@ -194,4 +186,4 @@ from the committed results, and reads `pending` until the declared run registers
 
 The declared run is `python tests/canonical/dose_response/regenerate.py --output <empty
 directory>`, whose docstring gives the run form and the red-cell readings. It starts no
-reference process while the comparator is pending.
+reference process, because the study has no comparator.

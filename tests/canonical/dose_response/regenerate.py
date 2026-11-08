@@ -2,8 +2,8 @@
 
 A declared run passes ``--output`` (an empty scratch directory outside the repository) and
 optionally ``--jobs`` and ``--fresh``, and nothing else (:mod:`tests.canonical.declared_run`).
-The comparator, npcausal ``ctseff``, is pending (X93 part S2) and has no runner yet, so the run
-passes no ``Reference`` and starts no container.  Laws, learners, sizes, margins and replicate
+The record has no comparator (npcausal ``ctseff`` comes with X93 part S2), so the run starts no
+container.  Laws, learners, sizes, margins and replicate
 counts are those of :mod:`tests.studies.dose_response` and its properties module, fixed before
 any run from the committed pilot (:mod:`tests.studies.dose_response_pilot`).
 
