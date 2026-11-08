@@ -135,13 +135,12 @@ PART_ENV = "PROPERTY_DIFFERENTIAL_PART"
 
 
 @functools.cache
-def estimated_kinds(subject: str) -> int:
-    """About how many perturbations a subject runs, read without its numeric values.
+def kind_count(subject: str) -> int:
+    """How many perturbations a subject runs, the length of :func:`kinds`.
 
-    :data:`KINDS`, and three kinds per numeric extra column and per cell.  Read off the row
-    file's schema and its ``property`` and ``cell`` columns, so that collection stays cheap.
-    The count is an upper bound of :func:`kinds`, which drops a cell whose column has no finite
-    value.  It sizes the groups and the parts, and nothing else reads it.
+    Read from the row file's numeric columns and its ``property`` and ``cell`` columns only,
+    and dropped once counted, so that collection holds no subject's rows.  It sizes the groups
+    and the parts, and nothing else reads it.
 
     Parameters
     ----------
@@ -153,29 +152,21 @@ def estimated_kinds(subject: str) -> int:
     int
         At least ``len(KINDS)``.
     """
-    from tests.studies.evidence.properties import REPLICATE_COLUMNS
-
     if subject in SYNTHETIC_MODULES:
         return len(KINDS)
     path = _STUDIES[subject].artifact("property-replicates.parquet")
-    schema = pq.read_schema(path)
-    extra = [
+    numeric = [
         field.name
-        for field in schema
-        if field.name not in REPLICATE_COLUMNS
-        and (pa.types.is_integer(field.type) or pa.types.is_floating(field.type))
+        for field in pq.read_schema(path)
+        if pa.types.is_integer(field.type) or pa.types.is_floating(field.type)
     ]
-    if not extra:
-        return len(KINDS)
-    cells = pq.read_table(path, columns=["property", "cell"]).group_by(["property", "cell"])
-    return (
-        len(KINDS) + len(property_failures.EXTRA_KINDS) * len(extra) * cells.aggregate([]).num_rows
-    )
+    rows = read_rows(path, columns=["property", "cell", *numeric])
+    return len(KINDS) + len(property_failures.extra_perturbations(rows))
 
 
 @functools.cache
 def estimated_cost(subject: str) -> int:
-    """A subject's estimated work, in committed rows times :func:`estimated_kinds`.
+    """A subject's estimated work, in committed rows times :func:`kind_count`.
 
     Parameters
     ----------
@@ -190,7 +181,7 @@ def estimated_cost(subject: str) -> int:
     if subject in SYNTHETIC_MODULES:
         return len(KINDS)
     path = _STUDIES[subject].artifact("property-replicates.parquet")
-    return max(1, pq.read_metadata(path).num_rows * estimated_kinds(subject))
+    return max(1, pq.read_metadata(path).num_rows * kind_count(subject))
 
 
 @functools.cache
@@ -570,6 +561,11 @@ def _implied_reasons(subject: str) -> tuple[tuple[str, str, str], ...]:
     for name, family, clause, why in read_reasons().itertuples(index=False, name=None):
         code, _, argument = why.partition(": ")
         if name == subject and code == "implied by":
+            module, _ = subject_of(subject)
+            rule = property_failures.rule_for(family, module)
+            assert rule is not None, f"{REASONS.name}: {subject} has no rule for {family}"
+            rule.clause(clause)
+            rule.clause(argument)
             out.append((family, clause, argument))
     return tuple(out)
 
@@ -837,6 +833,11 @@ def implied_by(
     list of str
         The refuting rows, as ``kind cell``.  Empty when the reason holds.
     """
+    if (family, clause_name, argument) not in _implied_reasons(subject):
+        raise ValueError(
+            f"{subject}: ({family}, {clause_name}, implied by {argument}) is not a reason of "
+            f"{REASONS.name}; judge() reads only the stated reasons"
+        )
     problems: list[str] = []
     for kind in implied_sweep(subject, family, clause_name, argument):
         if shard is not None and shard_of(subject, kind) != shard:
@@ -1067,7 +1068,11 @@ def test_each_binding_witness_decides_its_clause(witness: tuple[str, ...] | None
     ("reason", "shard"),
     _reasons(),
     ids=lambda value: (
-        "missing" if value is None else "/".join(value[:3]) if isinstance(value, tuple) else None
+        "/".join(value[:3])
+        if isinstance(value, tuple)
+        else f"shard{value}"
+        if isinstance(value, int)
+        else "all"
     ),
 )
 def test_each_stated_reason_holds(reason: tuple[str, ...] | None, shard: int | None) -> None:
