@@ -1413,6 +1413,25 @@ ARMS.update(
     }
 )
 
+#: The labels of ``dose-response`` (X93 S1).  Mirrored from
+#: ``tests.studies.dose_response_properties``, which this module cannot import.
+ARMS.update(
+    {
+        "binary_curve": (
+            "the binary dose-response law, the smoothed curve at doses 0.25, 1.5, 2.5, 3.5 and "
+            "4.75 and bandwidths 0.5, 1.0 and 1.5 (15 pairs), n = 4,000"
+        ),
+        "interior_h1_a2_5": (
+            "the binary dose-response law, the smoothed curve at dose 2.5 and bandwidth 1.0, an "
+            "interior pair, n = 4,000"
+        ),
+        "h1_a3_5": (
+            "the binary dose-response law, the smoothed curve at dose 3.5 and bandwidth 1.0, "
+            "n = 4,000"
+        ),
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -7837,6 +7856,84 @@ STUDY_ARM_CELLS.update(
         (_TARGETING_SLUG, "power", "P_band", "slope"): (
             "whether the band excludes 0 at some grid point, at the slope where its power is 0.90",
             "the rejection rate's lower end at least 0.80",
+        ),
+    }
+)
+
+
+#: ``dose-response`` (X93 S1): CV-TMLE of the kernel-smoothed dose-response curve.  The scenario,
+#: estimand and cell names are those of ``tests/studies/dose_response.py`` and its properties
+#: module.
+_DOSE_SLUG = "dose-response"
+IMPLEMENTATIONS["cleverly-dose-response"] = (
+    "`cleverly` DoseResponseTMLE: CV-TMLE of the kernel-smoothed dose-response curve, one pooled "
+    "fluctuation per (bandwidth, dose) pair"
+)
+_DOSE_LAW = (
+    "a dose with a normal location model nonlinear in three normal covariates, and an outcome "
+    "whose logit is nonlinear in the dose with a dose-varying covariate slope"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_DOSE_SLUG, "binary"): (
+            f"{_DOSE_LAW}, binary outcome, 15 (bandwidth, dose) pairs, n = 4,000"
+        ),
+        (_DOSE_SLUG, "strata"): (
+            f"{_DOSE_LAW}, binary outcome, the curve in each stratum of V = 1{{W1 > 0}} at three "
+            "doses and bandwidth 1.0, n = 4,000"
+        ),
+        (_DOSE_SLUG, "gaussian"): (
+            f"{_DOSE_LAW}, Gaussian outcome with the linear fluctuation, five doses at bandwidth "
+            "1.0, n = 4,000"
+        ),
+        (_DOSE_SLUG, "tail"): (
+            f"{_DOSE_LAW}, binary outcome, bandwidth 0.5 at dose 0.4, where the expected Kish "
+            "size is 62 just above the support floor of 50, n = 1,000"
+        ),
+    }
+)
+
+
+def _dose_words(h: float, a0: float) -> str:
+    return (
+        f"the counterfactual outcome mean averaged over doses near {a0:g} by the local-linear "
+        f"kernel weight of bandwidth {h:g}"
+    )
+
+
+STUDY_ESTIMANDS.update(
+    {
+        **{
+            (_DOSE_SLUG, f"dose_response[h={h:.10g},a={a0:.10g}]"): _dose_words(h, a0)
+            for h in (0.5, 1.0, 1.5)
+            for a0 in (0.25, 0.4, 1.5, 2.5, 3.5, 4.75)
+        },
+        **{
+            (_DOSE_SLUG, f"dose_response[h=1,a={a0:.10g}][V={v}]"): (
+                f"{_dose_words(1.0, a0)}, in stratum V = {v}"
+            )
+            for a0 in (0.25, 2.5, 4.75)
+            for v in (0, 1)
+        },
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_DOSE_SLUG, "double_robustness", "h1_a3_5", "outcome_correct_density_wrong"): (
+            "the declared outcome sieve, with the dose density replaced by the binned marginal "
+            "density, which ignores the covariates",
+            "bias interval inside the equivalence margin, with the reported standard error "
+            "on the scale of the empirical spread",
+        ),
+        (_DOSE_SLUG, "double_robustness", "h1_a3_5", "both_wrong"): (
+            "an outcome spline in the dose alone and the binned marginal density, so neither "
+            "nuisance reads the confounder",
+            "bias interval must fall entirely outside the margin",
+        ),
+        (_DOSE_SLUG, "interval_calibration", "interior_h1_a2_5", "correctly_specified"): (
+            "the declared outcome sieve and pooled-hazard density, the configuration of the "
+            "primary scenarios",
+            "SE ratio and coverage intervals both inside their calibration bands",
         ),
     }
 )

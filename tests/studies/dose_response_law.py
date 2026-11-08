@@ -103,7 +103,9 @@ def sample(n: int, seed: int, *, gaussian: bool = False) -> pd.DataFrame:
     )
 
 
-def curve(a: np.ndarray, *, gaussian: bool = False, stratum: int | None = None) -> np.ndarray:
+def curve(
+    a: np.ndarray | float, *, gaussian: bool = False, stratum: int | None = None
+) -> np.ndarray:
     """:math:`\\theta(a)`, or :math:`E\\{\\bar Q_0(a, W) \\mid V = v\\}` for ``stratum=v``."""
     a = np.atleast_1d(np.asarray(a, dtype=float))
     nodes, weights = _HERMITE
@@ -194,46 +196,65 @@ def _w_rule() -> tuple[np.ndarray, np.ndarray]:
     return grid, mass
 
 
-def _dose_rule(h: float, a0: float) -> tuple[np.ndarray, np.ndarray]:
-    """Gauss-Legendre doses and weights on the pieces of :math:`D` that :math:`w_{h,a_0}` sees."""
+def _dose_rule(*pairs: tuple[float, float]) -> tuple[np.ndarray, np.ndarray]:
+    """Gauss-Legendre doses and weights on the pieces of :math:`D` that every pair's weight sees.
+
+    The pieces break at :math:`D`'s endpoints and at each :math:`a_0 \\pm h` inside it, so each
+    weight is a polynomial on every piece.
+    """
     nodes, weights = _LEGENDRE
+    breaks = sorted({float(edge) for h, a0 in pairs for edge in _pieces(h, a0)})
     points, masses = [], []
-    for left, right in itertools.pairwise(_pieces(h, a0)):
+    for left, right in itertools.pairwise(breaks):
         half = 0.5 * (right - left)
         points.append(left + half * (nodes + 1.0))
         masses.append(half * weights)
     return np.concatenate(points), np.concatenate(masses)
 
 
-def efficiency_sd(
-    h: float, a0: float, *, kernel: str = "epanechnikov", gaussian: bool = False
-) -> float:
-    r""":math:`\operatorname{sd} D_{h,a_0}(P_0)(O)`, the efficient influence curve's spread.
+def efficiency_covariance(
+    pairs: tuple[tuple[float, float], ...],
+    *,
+    kernel: str = "epanechnikov",
+    gaussian: bool = False,
+) -> np.ndarray:
+    r"""The covariance of the efficient influence curves of ``pairs``, ``(h, a0)`` each.
 
     .. math::
 
-        \operatorname{Var} D = E_W \int_D \frac{w(a)^2 \sigma^2(a, W)}{g_0(a \mid W)}\,da
-        + \operatorname{Var}_W \int_D w(a) \bar Q_0(a, W)\,da,
+        \operatorname{Cov}(D_j, D_k) = E_W \int_D \frac{w_j(a) w_k(a) \sigma^2(a, W)}
+        {g_0(a \mid W)}\,da + \operatorname{Cov}_W\Bigl(\int_D w_j \bar Q_0(\cdot, W),
+        \int_D w_k \bar Q_0(\cdot, W)\Bigr),
 
     with :math:`\sigma^2 = \bar Q_0(1 - \bar Q_0)` for the binary outcome and 1 for the
-    Gaussian one.  The first term is the residual part of :math:`D` (its conditional variance
-    given :math:`(A, W)`, integrated against :math:`g_0`), the second the plug-in part; they are
-    uncorrelated.  Both are tensor Gauss-Hermite rules over :math:`W` against Gauss-Legendre
-    rules over the pieces of :math:`D`, exact to rounding on this smooth law.
+    Gaussian one.  The first term is the residual part of :math:`D` (its conditional covariance
+    given :math:`(A, W)`, integrated against :math:`g_0`), the second the plug-in part; the two
+    parts are uncorrelated.  Both are tensor Gauss-Hermite rules over :math:`W` against one
+    Gauss-Legendre rule over the pieces of :math:`D`, exact to rounding on this smooth law.
     """
     w_nodes, w_mass = _w_rule()
-    a, a_mass = _dose_rule(h, a0)
-    weight = equivalent_kernel(a, a0, h, SUPPORT, kernel)  # type: ignore[arg-type]
+    a, a_mass = _dose_rule(*pairs)
+    weights = np.stack(
+        [equivalent_kernel(a, a0, h, SUPPORT, kernel) for h, a0 in pairs]  # type: ignore[arg-type]
+    )
     linear = f(a)[None, :] + c(a)[None, :] * index(w_nodes)[:, None]
     mean = linear if gaussian else expit(linear)
     variance = np.ones_like(mean) if gaussian else mean * (1.0 - mean)
     z = (a[None, :] - dose_mean(w_nodes)[:, None]) / SIGMA
     g0 = np.exp(-0.5 * z * z) / (SIGMA * np.sqrt(2.0 * np.pi))
-    residual = float(w_mass @ ((weight**2 * variance / g0) @ a_mass))
-    integral = (mean * weight[None, :]) @ a_mass
-    centre = float(w_mass @ integral)
-    plug_in = float(w_mass @ (integral - centre) ** 2)
-    return float(np.sqrt(residual + plug_in))
+    residual_density = w_mass @ (variance / g0)
+    residual = (weights * (residual_density * a_mass)[None, :]) @ weights.T
+    integrals = mean @ (weights * a_mass[None, :]).T
+    centred = integrals - w_mass @ integrals
+    plug_in = centred.T @ (centred * w_mass[:, None])
+    return np.asarray(residual + plug_in, dtype=float)
+
+
+def efficiency_sd(
+    h: float, a0: float, *, kernel: str = "epanechnikov", gaussian: bool = False
+) -> float:
+    """:math:`\\operatorname{sd} D_{h,a_0}(P_0)(O)` (:func:`efficiency_covariance` of one pair)."""
+    return float(np.sqrt(efficiency_covariance(((h, a0),), kernel=kernel, gaussian=gaussian)[0, 0]))
 
 
 def expected_kish(h: float, a0: float, n: int, *, kernel: str = "epanechnikov") -> float:
@@ -245,7 +266,7 @@ def expected_kish(h: float, a0: float, n: int, *, kernel: str = "epanechnikov") 
     fit reports the same quantity with its own binned density in place of :math:`g_0`.
     """
     w_nodes, w_mass = _w_rule()
-    a, a_mass = _dose_rule(h, a0)
+    a, a_mass = _dose_rule((h, a0))
     weight = equivalent_kernel(a, a0, h, SUPPORT, kernel)  # type: ignore[arg-type]
     z = (a[None, :] - dose_mean(w_nodes)[:, None]) / SIGMA
     inverse = SIGMA * np.sqrt(2.0 * np.pi) * np.exp(0.5 * z * z)
