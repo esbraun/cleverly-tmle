@@ -1232,7 +1232,7 @@ def _label_sides(wheres: list[float | None]) -> list[int]:
     """
     sides = [0] * len(wheres)
     drawn = sorted((w, i) for i, w in enumerate(wheres) if w is not None)
-    for (left, i), (right, j) in zip(drawn, drawn[1:], strict=False):
+    for (left, i), (right, j) in itertools.pairwise(drawn):
         if right - left < 1.0:
             sides[i], sides[j] = -1, 1
     return sides

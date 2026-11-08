@@ -134,8 +134,12 @@ def _check_survey(namespace: dict[str, Any]) -> None:
     frame = namespace["tilt"].to_frame()
     assert frame["psi"].is_monotonic_decreasing
     assert abs(frame["psi"].iloc[0] - result["ate"].psi) < 1e-9, "gamma 0 is the main analysis"
-    assert frame["psi"].iloc[-1] > 0.0 and frame["ci_lower"].iloc[-1] > 0.0
-    assert 2.0 < namespace["tipping"] < 3.0
+    # The grid reaches 3.0, so the estimate crosses zero at the tipping value between 2.0 and 3.0.
+    assert frame["gamma"].iloc[-1] == 3.0 and frame["psi"].iloc[-1] < 0.0
+    tipping = namespace["tipping"]
+    assert 2.0 < tipping < 3.0
+    assert (frame["psi"][frame["gamma"] < tipping] > 0.0).all()
+    assert (frame["psi"][frame["gamma"] > tipping] < 0.0).all()
     assert (
         figure_title(namespace["tilt_fig"])
         == "Does the estimate depend on why outcomes are missing?"
