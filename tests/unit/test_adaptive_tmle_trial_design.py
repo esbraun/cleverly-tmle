@@ -452,6 +452,8 @@ def test_the_declared_seeds_meet_no_other_study_and_no_pilot() -> None:
     """The record's sample seeds equal no registered study's, and the pilot's differ."""
     mine = {replicate_seed(study.STUDY, s, r) for s in study.STUDY.scenarios for r in range(50)}
     for other in registered():
+        if other.slug == study.STUDY.slug:
+            continue
         theirs = {replicate_seed(other, s, r) for s in other.scenarios for r in range(50)}
         assert not mine & theirs, other.slug
         assert other.seed != study.SEED and other.resampling_seed != study.RESAMPLING_SEED
@@ -461,7 +463,10 @@ def test_the_declared_seeds_meet_no_other_study_and_no_pilot() -> None:
     declared = {study.SEED, study.RESAMPLING_SEED, selective.SEED, selective.RESAMPLING_SEED}
     assert not pilots & declared
     assert not pilots & {
-        seed for other in registered() for seed in (other.seed, other.resampling_seed)
+        seed
+        for other in registered()
+        if other.slug != study.STUDY.slug
+        for seed in (other.seed, other.resampling_seed)
     }
     assert len(
         {stream_seed(study.STUDY, "fold_partition", s, 0) for s in study.STUDY.scenarios}

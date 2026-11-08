@@ -76,8 +76,18 @@ SELECTION_SUMMARY = "r_selection_summary"
 #: key's bound, and whether the key carries a verdict.
 AGREEMENT_FILE = "agreement.csv"
 AGREEMENT = "agreement"
+
+#: The controls and the reported readings of ``adaptive-tmle-trial``: one row per control and
+#: scenario (``controls[efficiency/a0]:value``) and one row per scenario with the coverage of
+#: each of the three targets (``reported[b1y]:psi_coverage``).
+CONTROLS_FILE = "controls.csv"
+CONTROLS = "controls"
+REPORTED_FILE = "reported.csv"
+REPORTED = "reported"
 OPTIONAL_ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
     DESIGN_GAP: (DESIGN_GAP_FILE, ("scenario", "estimand")),
+    CONTROLS: (CONTROLS_FILE, ("control", "scenario")),
+    REPORTED: (REPORTED_FILE, ("scenario",)),
     SELECTION_SUMMARY: (SELECTION_SUMMARY_FILE, ("scenario",)),
     AGREEMENT: (AGREEMENT_FILE, ("scenario", "estimand")),
 }

@@ -28,7 +28,8 @@ doubly_robust = effect.estimate(
 external outcomes differ from the trial's with a lasso (a regression that drops unneeded terms) over covariate terms, and it removes that
 difference. `form="cv"` (the default) selects those terms on the other folds. `form="pooled"`
 selects them on every row and runs faster. Its interval is for the effect within the selected
-model, so every result is labelled experimental. [A small trial with external data](trial-with-external-data.md)
+model, so every result is labelled experimental, although a [simulation
+study](../technical-reference/method-evidence/adaptive-tmle-trial.md) checks it. [A small trial with external data](trial-with-external-data.md)
 walks through a fit, and the [technical page](../technical-reference/adaptive-tmle.md) states what
 the interval covers.
 

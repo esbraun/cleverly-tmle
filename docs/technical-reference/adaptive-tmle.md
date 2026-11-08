@@ -339,10 +339,12 @@ The comparison is declared and not run. It never blocks the method.
 
 ## Evidence
 
-The method is validated by two declared studies and by exact-law unit tests. No study result is
-committed yet, and this section records what is declared, not what was found.
+The method is validated by two studies and by exact-law unit tests. Study A, `adaptive-tmle-trial`,
+has a committed result, recorded in the [method-evidence page](method-evidence/adaptive-tmle-trial.md).
+Study S6, `adaptive-tmle-selective`, is declared and has not run. The label of every fit stays
+experimental, because no support row covers the method (see Inference status).
 
-### Declared studies
+### Studies
 
 `adaptive-tmle-trial` (`tests/studies/adaptive_tmle_trial.py`) draws $n = 4{,}000$ pooled rows (a
 trial of 1,000 and 3,000 external rows, the paper's "3x") and fits `AdaptiveTMLEMethod` with
@@ -377,6 +379,8 @@ of the post-selection results of Leeb and Pötscher and of Armstrong and Kolesar
 intervals. A coverage shortfall on $\Psi$ under `b1y` is therefore the price of the narrower
 interval where the bias is zero, not evidence of a defect. In the sizing pilot, `b1y` covered
 $\Psi$ in 708 of 800 replicates, so a gate on it would have no replication budget that meets it.
+The declared run covered $\Psi$ in 0.890 of 2,800 replicates and the projection in 0.940, with a
+standardized bias of -0.44 and an SE ratio of 0.885.
 
 The projection truth $\Psi_w(P_0)$ is computed per replicate by quadrature on each fold's stored
 transformer and selected columns, so the record declares a truth that varies by replicate.
@@ -388,7 +392,7 @@ Controls ride on the same draws and must fail where they should:
 | efficiency contrast on `a0` | RMSE(A-TMLE) / RMSE(trial-only TMLE), upper bootstrap bound below one | gates. `a1a` and `a1b` report the ratio, because the gain needs the lasso to drop every arm-shift column |
 | K1, naive pooled TMLE on `a1b` | treating external rows as exchangeable | $\Psi$ coverage below the floor |
 | K2, unpenalized main-terms working model on `e1` | the status label | projection coverage passes, $\Psi$ coverage fails |
-| K3, no $\Pi$ fluctuation on `a3_pi` | the targeting step | the SE-ratio rule rejects |
+| K3, no $\Pi$ fluctuation on `a3_pi` | the targeting step | the targeted fit passes the coverage floor and the fit without the step falls wholly below it |
 | K4, a ladder on `e1` at three sample sizes | the bias-to-SE ratio of $\Psi$ grows like $\sqrt{n}$ while the projection's stays bounded | reporting row |
 | K5, $S/p$ replaced by one on `h2_pooled` | the $\Psi_2$ weights | $\Psi_2$ coverage fails |
 
@@ -410,16 +414,24 @@ replicate set that is about 111 core-hours. Study S6 uses a 1,200-replicate pilo
 set, about 364 core-hours. The declared red-cell reading is the one in the
 [benchmarking strategy](../development/method-benchmarking.md#red-cells).
 
+Study A ran as declared: 2,800 replications of each of 17 scenarios at 4486fc95, no lost replicate.
+All 16 gated tests passed, with coverage of the gated target from 0.934 to 0.960 and SE ratios from
+0.947 to 1.043. Every control behaved as declared.
+
 | item | result |
 | --- | --- |
-| study A coverage, bias and SE ratio per scenario | pending the declared run |
-| controls K1 to K5 | pending the declared run |
+| study A, gated scenarios | 16 of 16 tests pass. Coverage 0.9336 to 0.9600, SE ratio 0.947 to 1.043, largest standardized bias 0.165 (the n = 1,000 ladder rung) |
+| study A, reported row `b1y` | coverage of $\Psi$ 0.890, of the projection 0.940, standardized bias -0.44, SE ratio 0.885. Reported, not gated |
+| efficiency contrast | RMSE ratio 0.682 on `a0` (99% interval 0.655 to 0.708), gated. 1.018 on `a1a` and 1.048 on `a1b`, reported |
+| K1 to K3, K5 | naive pooled $\Psi$ coverage 0.846 on `a1b`; main-terms $\Psi$ coverage 0.0146 beside projection coverage 0.956 on `e1`; coverage 0.935 with the $\Pi$ step and 0.537 without it on `a3_pi`; pooled fit against $\Psi_2$ 0.0246 |
+| K4 ladder on `e1` | bias over SE of $\Psi$ 1.67, 2.70 and 4.01 at n = 1,000, 2,000 and 4,000, as expected for a fixed projection offset, with projection coverage 0.949, 0.948 and 0.956 |
 | study S6 | pending the declared run |
 | R `atmle` pairing | pending; declared, not blocking |
 
-Neither study appears in the [implementation validation grid](method-evidence/validation-grid.md)
-yet, because the grid lists registered studies with committed results. The registration adds a
-grid row and a study page under [method evidence](method-evidence/index.md).
+The [study page](method-evidence/adaptive-tmle-trial.md) lists every row. The study declares no
+property cell and no registered comparator, so the
+[implementation validation grid](method-evidence/validation-grid.md) does not list it. Study S6
+registers on its own run, as one more entry of the registry.
 
 ### Unit tests
 

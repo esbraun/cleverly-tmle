@@ -27,7 +27,9 @@ A randomized trial pooled with external rows has its own design, `TrialWithExter
 estimand, `TrialATE`, and one method, `AdaptiveTMLEMethod`. The method estimates the trial's
 effect for a two-valued treatment on the difference scale. It reports an interval for the effect
 within the simple descriptions of the effect and of the external rows' difference that the fit
-selected, and labels every result experimental. A treatment with three or more levels, a ratio and a dose are refused, and so
+selected, and labels every result experimental, although a
+[simulation study](../technical-reference/method-evidence/adaptive-tmle-trial.md) of 17 simulated settings checks
+the interval (a second study, on selective enrollment, has not run). A treatment with three or more levels, a ratio and a dose are refused, and so
 is every other estimator on that design. [A small trial with external data](trial-with-external-data.md)
 shows the workflow, and the [technical page](../technical-reference/adaptive-tmle.md) states the contract.
 

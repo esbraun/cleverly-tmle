@@ -153,8 +153,10 @@ unit-test instruments and what each one cannot see.
 
 `AdaptiveTMLE` estimates the trial's effect from a trial pooled with external rows and has no row
 in the target registry, because the registry is the point engine's compute table. The [contract
-page](adaptive-tmle.md#unit-tests) lists its instruments, and its two gated studies are declared
-and not yet run. The table gives the exact-law instruments and what each one cannot see.
+page](adaptive-tmle.md#unit-tests) lists its instruments. Its gated [trial study](method-evidence/adaptive-tmle-trial.md)
+has a committed result: 16 of 16 gated scenario tests pass at n = 4,000 and every control behaves as
+declared. Its selective-enrollment study is declared and not yet run. The table gives the
+exact-law instruments and what each one cannot see.
 
 | instrument | what it checks | what it cannot see |
 | --- | --- | --- |

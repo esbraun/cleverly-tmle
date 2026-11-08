@@ -3065,15 +3065,13 @@ class TestThePublishedTestTables:
     ) -> None:
         """A study with no property cell and no reference has no grid row.
 
-        Such a study still registers, publishes its verdicts under ``reporting`` and carries its
-        own page.  A comparator-backed study with no property cell has a row, which
-        ``test_a_comparator_backed_study_with_no_property_cells_has_a_row`` exercises.
+        Such a study still registers and carries its own page.  It publishes under ``reporting``,
+        or under ``gated`` when its own hooks (``adaptive-tmle-trial``'s controls) gate the
+        rows and every gate passed.  A comparator-backed study with no property cell has a row,
+        which ``test_a_comparator_backed_study_with_no_property_cells_has_a_row`` exercises.
         """
         if study.property_cells or study.reference is not None:
             pytest.skip("study is on the grid")
-        assert study.publication_policy == "reporting", (
-            f"{study.slug} declares no property cell, so it cannot gate a validation claim"
-        )
         assert study.name not in _grid(), (
             f"{study.slug} declares no property cell and is not a validation row, but the grid "
             f"lists it"

@@ -358,7 +358,7 @@ def test_a_failed_probe_row_is_reported(slug: str) -> None:
     """The witness for the check above: one failed probe row must show up."""
     record = BY_SLUG[slug]
     extra = _extra(record)
-    (name,) = record.extra_artifacts
+    name = next(artifact for artifact, frame in extra.items() if "passed" in frame.columns)
     extra[name].loc[extra[name].index[0], "passed"] = False
     assert sum(_hook_rows(record, extra).values()) == 1
 
