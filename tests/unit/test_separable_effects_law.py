@@ -20,7 +20,8 @@ import numpy as np
 import pytest
 
 from cleverly.exceptions import CapabilityError, DataError
-from cleverly.longitudinal import LTMLE, SDR, LongitudinalData, Separable
+from cleverly.fluctuation._score import relative_score
+from cleverly.longitudinal import LTMLE, SDR, DynamicRegimen, LongitudinalData, Separable
 from cleverly.longitudinal.separable import (
     SeparableInputs,
     SeparableState,
@@ -74,10 +75,10 @@ def _ltmle(**kwargs: Any) -> LTMLE:
     return LTMLE(regimens, **settings)
 
 
-def _fit(**kwargs: Any) -> Any:
+def _fit(data: LongitudinalData | None = None, **kwargs: Any) -> Any:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return _ltmle(**kwargs).fit(_data())
+        return _ltmle(**kwargs).fit(_data() if data is None else data)
 
 
 @pytest.fixture(scope="module")
@@ -382,3 +383,149 @@ def test_eliminate_is_refused() -> None:
 def test_options_without_a_factor_wise_form_are_refused(setting: dict[str, Any]) -> None:
     with pytest.raises(CapabilityError, match="not built for a fit with a Separable"):
         _fit(**setting)
+
+
+def test_a_rule_beside_a_separable_regimen_is_refused() -> None:
+    rule = DynamicRegimen("rule", (lambda h: (h["W"] > 0).astype(int),), rule_kind="known")
+    with pytest.raises(CapabilityError, match="'rule' is not a static arm"):
+        _fit(regimens={"a0": 0, "rule": rule, "sep": SEPARABLE})
+
+
+def test_covariates_after_baseline_are_refused_for_want_of_an_influence_curve() -> None:
+    law = survival_law(causes=2, with_l2=True)
+    with (
+        warnings.catch_warnings(),
+        pytest.raises(CapabilityError, match="Equation \\(19\\)") as caught,
+    ):
+        warnings.simplefilter("ignore")
+        _ltmle().fit(law.frame(), **law.fit_columns())
+    assert caught.value.refusal.reason == "inference_gap"
+
+
+# --------------------------------------------------------------- positivity
+
+
+def _blocked(frame: Any, level: int, node: int, code: str) -> Any:
+    """Give every unit at risk at ``node`` on ``level`` an event: ``code`` names it."""
+    out = frame.copy()
+    risk = (out["A"] == level) & (out[f"C{node}"] == 1) & out[f"R{node}"].notna()
+    if code == "death":
+        out.loc[risk, [f"R{node}", f"D{node}"]] = (0.0, 1.0)
+    else:
+        free = risk & (out[f"R{node}"] == 0) & (out[f"D{node}"] == 0)
+        out.loc[free, f"D{node}"] = 1.0
+    for later in range(node + 1, 4):
+        out.loc[risk, [f"A{later}", f"C{later}", f"R{later}", f"D{later}"]] = np.nan
+    return out
+
+
+def test_a_node_where_every_event_is_death_at_the_relapse_level_is_refused() -> None:
+    """``h_Y`` at :math:`a_Y` is 0/0 there, so the separable risk is not identified."""
+    law = _law()
+    frame = _blocked(law.frame(), level=1, node=2, code="death")
+    with (
+        warnings.catch_warnings(),
+        pytest.raises(CapabilityError, match="positivity \\(7\\)"),
+    ):
+        warnings.simplefilter("ignore")
+        _ltmle(regimens={"a2": 2, "sep": SEPARABLE}).fit(frame, **law.fit_columns())
+
+
+def test_horizons_past_a_node_nobody_survives_at_the_death_level_are_dropped() -> None:
+    law = _law()
+    frame = _blocked(law.frame(), level=0, node=2, code="any")
+    with pytest.warns(UserWarning, match="horizons after it are not reported") as caught:
+        result = _ltmle(regimens={"a2": 2, "sep": SEPARABLE}).fit(frame, **law.fit_columns())
+    assert "node 2" in str(caught[0].message)
+    names = set(result.estimates)
+    assert _name("sep", "relapse", 2) in names
+    assert _name("sep", "relapse", 3) not in names
+    assert _name("a2", "relapse", 3) in names
+
+
+# ------------------------------------------------------------- compositions
+
+
+def test_clusters_widen_the_interval_and_keep_the_estimate(fit: Any) -> None:
+    law = _law()
+    frame = law.frame()
+    frame = frame.assign(cl=np.arange(len(frame)) // 3)
+    data = LongitudinalData.from_frame(frame, id="cl", **law.fit_columns())
+    clustered = _fit(data=data)
+    for name in (_name("sep", "relapse", 3), _name("a1", "death", 2)):
+        assert clustered.estimates[name].psi == pytest.approx(fit.estimates[name].psi, abs=1e-12)
+        assert clustered.estimates[name].std_error != pytest.approx(
+            fit.estimates[name].std_error, rel=1e-3
+        )
+
+
+def test_pooled_hazards_and_isotonic_compose(fit: Any) -> None:
+    for setting in ({"hazard_pooling": "pooled"}, {"isotonic": True}):
+        other = _fit(**setting)
+        for name, estimate in fit.estimates.items():
+            assert other.estimates[name].psi == pytest.approx(estimate.psi, abs=1e-10), setting
+
+
+def test_the_restricted_mean_reads_the_separable_curves(fit: Any) -> None:
+    """RMST is ``tau`` minus the summed incidence of both causes before ``tau``."""
+    rmst = fit.rmst("sep", 3)
+    total = sum(
+        fit.estimates[_name("sep", cause, t)].psi for cause in ("relapse", "death") for t in (1, 2)
+    )
+    assert rmst.psi == pytest.approx(3 - total, abs=1e-12)
+
+
+# ------------------------------------------------------------- reporting
+
+
+def test_the_support_key_marks_a_separable_fit(fit: Any) -> None:
+    """Its static arms come from the factor-wise engine, so no static-arm row may cover them."""
+    assert "separable" in fit.config.support_key.family
+    assert "separable" not in _fit(regimens={"a0": 0, "a1": 1}).config.support_key.family
+
+
+def test_the_summary_names_both_components_and_the_order(fit: Any) -> None:
+    text = " ".join(str(fit.summary()).split())
+    assert "the part acting on death at 0, the part acting on relapse at 1" in text
+    assert "death counted first within a time step" in text
+
+
+def test_a_cross_fitted_separable_fit_solves_every_factor_score() -> None:
+    """From a cross-fitted start the walk hands over to Newton steps and still converges."""
+    result = _fit(n_folds=2)
+    record = result.fits[next(iter(result.fits))].hazard
+    assert record.converged
+    assert record.tol == pytest.approx(1e-10)
+    assert relative_score(record.score, record.score_scale) <= record.tol
+
+
+def test_a_study_reports_the_separable_parameters() -> None:
+    from sklearn.linear_model import LogisticRegression
+
+    from cleverly import CausalStudy, RegimeMean, TimeToEvent
+    from cleverly.datasets import make_point_survival
+
+    frame, _ = make_point_survival(n=1_000, seed=4, n_times=4, causes=2)
+    design = TimeToEvent(
+        time="time",
+        event="event",
+        treatment="A",
+        baseline=("W1", "W2"),
+        grid=(1, 2, 3, 4),
+        causes={1: "relapse", 2: "death"},
+    )
+    learner = LogisticRegression(max_iter=1000)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = CausalStudy(frame, design=design).estimate(
+            RegimeMean(
+                {"arm0": 0, "split": Separable(arms={"relapse": 1, "death": 0}, first="death")}
+            ),
+            survival_model="hazard",
+            targeting="one_step",
+            outcome_learner=learner,
+            treatment_learner=learner,
+            censoring_learner=learner,
+            cross_fit=False,
+        )
+    assert "cif_regimen[split, relapse @ t=4]" in result.estimates

@@ -283,7 +283,13 @@ from .regimen import (
     tilt_mix_refusal,
 )
 from .sdr import FoldMechanism, SDRCell, fit_cells_sdr, fit_fold_mechanisms
-from .separable import SeparablePlan, resolve_separable, split_separable, target_separable
+from .separable import (
+    SeparablePlan,
+    refuse_separable_companions,
+    resolve_separable,
+    split_separable,
+    target_separable,
+)
 from .sequential import (
     Mechanism,
     NodeBound,
@@ -1411,6 +1417,9 @@ class LongitudinalConfig:
     q_bounds: tuple[float, float] | None
     alpha_sig: float
     random_state: int | None = None
+    #: The separable interventions reported beside :attr:`regimens`, empty on a fit
+    #: without one.
+    separable: tuple[SeparablePlan, ...] = ()
     #: ``(label, digest)`` per regimen, digesting the ``(n, T)`` arms it assigned *this*
     #: sample.  A static plan is already stated in full by its ``1/0``; a rule is not, and
     #: two different rules would otherwise report identically and carry an identical
@@ -4551,6 +4560,16 @@ class _SequentialEstimator:
                 "Fit the separable regimens without eliminate=.",
                 RefusalReason.DIFFERENT_ESTIMAND,
             )
+        later = [name for block in data.time_varying_names for name in block]
+        if later:
+            refuse(
+                "a Separable regimen is identified with baseline covariates only here. With "
+                f"covariates measured after baseline ({', '.join(later)}), Stensrud et al. "
+                "(2021), Equation (19), identify the separable effects, but no source gives "
+                "the efficient influence curve of that formula.",
+                "Fit the separable regimens with baseline covariates only.",
+                RefusalReason.INFERENCE_GAP,
+            )
         settings = (
             (getattr(self, "node_bounds", None) is not None, "node_bounds="),
             (getattr(self, "stopping", "relative") != "relative", "stopping="),
@@ -4955,6 +4974,8 @@ class _SequentialEstimator:
                 held_nodes=prepared.n_times if prepared.treatment_held else None,
             )
         )
+        if separable:
+            refuse_separable_companions(regimens)
         if prepared.reports_curve:
             infixes = (HORIZON_INFIX,) + ((CAUSE_INFIX,) if prepared.is_competing else ())
             for infix in infixes:
@@ -5072,7 +5093,7 @@ class _SequentialEstimator:
                 cross_fitted=not draws[0][0].is_single,
                 known_factors=_known_factors(prepared),
                 has_msm=self.msm is not None,
-                regimen_kinds=regimen_kinds(plans),
+                regimen_kinds=regimen_kinds(plans) | ({"separable"} if separable else set()),
                 conditions=stopping_conditions(getattr(self, "stopping", "relative")),
                 tuned_cap=tuned_folds is not None,
             )
@@ -5130,6 +5151,7 @@ class _SequentialEstimator:
             causes=prepared.cause_labels,
             regimens=regimens,
             reference=reference.label,
+            separable=separable,
             n_folds=repeats[0].folds.n_folds,
             g_bounds=bounds,
             q_bounds=self.q_bounds,

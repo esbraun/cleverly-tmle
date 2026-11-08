@@ -589,6 +589,27 @@ estimand. Each refusal below raises before any learner, and
 | `refute` with `dummy_outcome`, `simulated_outcome` or `plasmode` | `implementation_gap`, [X91](../roadmap.md#x91-survival-targets-across-the-estimators) | the generated processes declare no hazard for the prevented causes, so the truth is undefined. The stability tests run |
 | `StructuralNestedMean.fit(eliminate=...)` | `api_redirection` | the survival refusal of structural nested means: fit `LTMLE` |
 
+### Separable effects
+
+[Separable effects](longitudinal-tmle.md#separable-effects) states the estimand.
+`tests/unit/test_separable_effects_law.py` pins each refusal below. All but the positivity
+refusal raise before any learner.
+
+| trigger | type and code | message, or what is missing |
+| --- | --- | --- |
+| a `Separable` on `SDR`, `IPSI`, the sequential estimators, or `LTMLE(survival_model="iterated_mean")` | `CapabilityError`, `api_redirection` | the separable target needs the cause-specific hazards at two levels, which only `LTMLE(survival_model="hazard")` fits |
+| `targeting="iterative"` | `api_redirection` | the per-horizon algorithm has no factor-wise form; set `targeting="one_step"` |
+| `stopping=` other than `"relative"`, `iterate="best"`, `n_bootstrap=`, `node_bounds=` | `implementation_gap`, [X91](../roadmap.md#x91-survival-targets-across-the-estimators) | the factor-wise targeting has no form of these yet |
+| a learned regimen or a marginal structural model in the same fit | `implementation_gap` | fit the separable regimens in their own fit |
+| a rule, a stochastic policy, a shift or a tilt beside a `Separable` | `implementation_gap` | the factor-wise targeting reads every arm as one level of the baseline treatment |
+| two `Separable`s with different `first=` | `implementation_gap` | the initial hazards are fitted once, in one order; fit the two orders apart |
+| `eliminate=` | `different_estimand` | elimination removes the competing cause, so no component of the treatment acts on it |
+| covariates measured after baseline | `inference_gap`, [X91](../roadmap.md#x91-survival-targets-across-the-estimators) (e) | Stensrud et al. (2021), Equation (19), identify this case, but no source gives its influence curve |
+| a panel with one cause or more than two | `DataError` | Stensrud et al. (2022) state the separable effects for one competing event |
+| `arms` keys that are not the panel's causes, a level the treatment does not take, or `first=` not one of the causes | `DataError` | the unknown names or levels |
+| no static arm in `regimens=` | `DataError` | the static arm is the reference of the separable contrasts |
+| a node where every unit at risk at the `Y`-component level had `D` | `invalid_declaration` | the hazard of `Y` among the `D`-free is not identified there, positivity (7); raised after the initial fit |
+
 ### A different question
 
 These are well-posed parameters, but the selected estimator does not target them. No setting turns

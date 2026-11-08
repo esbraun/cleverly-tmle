@@ -63,7 +63,7 @@ from ..exceptions import CapabilityError, ConvergenceWarning, DataError, Refusal
 from ..fluctuation._score import relative_score
 from .data import LongitudinalData
 from .hazard import SIGMA_FLOOR, HazardFit, event_indicators
-from .regimen import Plan, Separable
+from .regimen import Plan, Regimen, Separable
 from .sequential import RegimenFit
 
 __all__ = [
@@ -88,6 +88,11 @@ FACTORS = ("competing", "event")
 
 #: The shortest step before the walk gives up, as in the shipped hazard walk.
 _MIN_STEP = 1e-14
+#: Accepted walk steps over which the relative score must halve; otherwise the walk hands
+#: over to Newton steps on the factor-wise submodel.
+_STALL = 50
+#: Newton steps without a new lowest relative score before the walk stops.
+_NEWTON_PATIENCE = 6
 
 
 @dataclass(frozen=True)
@@ -137,6 +142,26 @@ class SeparablePlan:
     first: int
     levels: tuple[int, int]
     declared: Separable
+
+
+def separable_words(declared: Separable) -> str:
+    """The separable intervention in plain words, for a summary.
+
+    Parameters
+    ----------
+    declared : Separable
+        The declaration.
+
+    Returns
+    -------
+    str
+        For example ``"the part acting on relapse at 1, the part acting on death at 0;
+        death counted first within a time step"``.
+    """
+    parts = ", ".join(
+        f"the part acting on {cause} at {level}" for cause, level in declared.arms.items()
+    )
+    return f"{parts}; {declared.first} counted first within a time step"
 
 
 def split_separable(spec: Any) -> tuple[Any, tuple[tuple[str, Separable], ...]]:
@@ -234,6 +259,33 @@ def resolve_separable(
     return tuple(out)
 
 
+def refuse_separable_companions(regimens: Sequence[Any]) -> None:
+    """Refuse a regimen beside a ``Separable`` that is not one static level.
+
+    Parameters
+    ----------
+    regimens : sequence
+        The resolved regimens declared beside the separable entries.
+
+    Raises
+    ------
+    CapabilityError
+        If a regimen holds a rule, a policy, a shift or a tilt.
+    """
+    for regimen in regimens:
+        if not isinstance(regimen, Regimen):
+            label = getattr(regimen, "label", repr(regimen))
+            raise CapabilityError(
+                f"regimen {label!r} is not a static arm. Beside a Separable regimen, the "
+                "factor-wise targeting reads every arm as one level of the baseline "
+                "treatment; a rule, a policy, a shift or a tilt mixes levels across units, "
+                "and its factor-wise form is not built.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap="X91",
+                alternative="Fit that regimen in its own fit, without the Separable.",
+            )
+
+
 def _per(value: FloatArray, denominator: FloatArray) -> FloatArray:
     """``value / denominator``, and zero where the denominator is zero."""
     return np.asarray(
@@ -265,12 +317,16 @@ class SeparableState:
     lam_d: FloatArray = field(init=False, repr=False)
     h_y: FloatArray = field(init=False, repr=False)
     survival: FloatArray = field(init=False, repr=False)
+    #: Per-state memo of the covariates, keyed by the inputs and the target, so the
+    #: scores and the walk direction at one state compute them once.
+    cache: dict[Any, Any] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         lam_d = expit(np.asarray(self.beta_d, dtype=float))
         h_y = expit(np.asarray(self.beta_y, dtype=float))
         object.__setattr__(self, "lam_d", lam_d)
         object.__setattr__(self, "h_y", h_y)
+        object.__setattr__(self, "cache", {})
         object.__setattr__(self, "survival", np.cumprod((1.0 - lam_d) * (1.0 - h_y), axis=1))
 
     @classmethod
@@ -385,6 +441,29 @@ class SeparableInputs:
         return self.at_risk & (self.event_d == 0.0)
 
 
+def _level_block(
+    state: SeparableState, inputs: SeparableInputs, levels: tuple[int, int]
+) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray]:
+    """``(n, T)`` composed survival, ``(n, T, 2)`` composed incidence, and the ``(n, T)``
+    weights of :math:`H_Y` at :math:`a_Y` and of :math:`H_D` at :math:`a_D`, shared by every
+    target with these levels."""
+    key = (id(inputs), "levels", levels)
+    if key not in state.cache:
+        a_d, a_y = levels
+        survival, before, incidence = state.composed(levels)
+        factual = np.concatenate(
+            [np.ones_like(state.survival[:, :1]), state.survival[:, :-1]], axis=1
+        )  # (n, T, L): S(k - 1 | a)
+        lam_d = state.lam_d
+        weight_y = _per(
+            before * (1.0 - lam_d[:, :, a_d]) * inputs.inverse[:, :, a_y],
+            factual[:, :, a_y] * (1.0 - lam_d[:, :, a_y]),
+        )
+        weight_d = _per(before * inputs.inverse[:, :, a_d], factual[:, :, a_d])
+        state.cache[key] = (survival, incidence, weight_y, weight_d)
+    return state.cache[key]
+
+
 def _covariates(
     state: SeparableState, inputs: SeparableInputs, target: SeparableTarget
 ) -> tuple[FloatArray, FloatArray, FloatArray]:
@@ -393,28 +472,22 @@ def _covariates(
 
     Both covariates are zero after the horizon.
     """
-    a_d, a_y = target.levels
-    survival, before, incidence = state.composed(target.levels)
+    key = (id(inputs), "target", target)
+    if key in state.cache:
+        return state.cache[key]
+    survival, incidence, weight_y, weight_d = _level_block(state, inputs, target.levels)
     t = target.horizon
     j = 0 if target.role == FACTORS[0] else 1
     remaining = _per(incidence[:, t - 1, j][:, None] - incidence[:, :, j], survival)
     c_d = (1.0 if j == 0 else 0.0) - remaining
     c_y = (1.0 if j == 1 else 0.0) - remaining
-    factual = np.concatenate(
-        [np.ones_like(state.survival[:, :1]), state.survival[:, :-1]], axis=1
-    )  # (n, T, L): S(k - 1 | a)
-    lam_d = state.lam_d
-    h_y = state.h_y
-    weight_y = _per(
-        before * (1.0 - lam_d[:, :, a_d]) * inputs.inverse[:, :, a_y],
-        factual[:, :, a_y] * (1.0 - lam_d[:, :, a_y]),
-    )
-    weight_d = _per(before * inputs.inverse[:, :, a_d], factual[:, :, a_d])
     h_event = weight_y * c_y
-    h_competing = weight_d * (c_d - h_y[:, :, a_y] * c_y)
+    h_competing = weight_d * (c_d - state.h_y[:, :, target.levels[1]] * c_y)
     h_event[:, t:] = 0.0
     h_competing[:, t:] = 0.0
-    return h_competing, h_event, incidence[:, t - 1, j]
+    out = (h_competing, h_event, incidence[:, t - 1, j])
+    state.cache[key] = out
+    return out
 
 
 def _residuals(state: SeparableState, inputs: SeparableInputs) -> tuple[FloatArray, FloatArray]:
@@ -567,6 +640,48 @@ def walk_loss(state: SeparableState, inputs: SeparableInputs) -> float:
     return -float(total)
 
 
+def _newton_direction(
+    state: SeparableState,
+    inputs: SeparableInputs,
+    targets: Sequence[SeparableTarget],
+    score: FloatArray,
+) -> tuple[FloatArray, FloatArray]:
+    """The Newton increments of both factor logits on the factor-wise logistic submodel at
+    fixed covariates.
+
+    With the covariates of ``state`` held fixed, each factor's coefficients enter its
+    log-likelihood as a logistic regression offset by the current logits, so the step is
+    the least-squares solution of ``I c = s`` for that factor's information matrix ``I`` and
+    scores ``s``.  The two factors' blocks are separate, because a coefficient of one factor
+    does not move the other factor's likelihood.  The covariates move with the state, so the
+    caller halves the step until the score norm falls.
+    """
+    rows, observed = inputs.rows, inputs.observed
+    weight = inputs.weights[:, None]
+    blocks = (
+        (0, inputs.rows_d(), state.lam_d[rows, :, observed]),
+        (1, inputs.rows_y(), state.h_y[rows, :, observed]),
+    )
+    covariates = [_covariates(state, inputs, target) for target in targets]
+    delta_d = np.zeros_like(state.lam_d)
+    delta_y = np.zeros_like(state.h_y)
+    for j, factor_rows, p in blocks:
+        curvature = np.where(factor_rows, weight * p * (1.0 - p), 0.0)
+        design = np.stack(
+            [
+                np.where((observed == target.levels[j])[:, None], covariates[m][j], 0.0)
+                for m, target in enumerate(targets)
+            ]
+        )  # (M, n, T)
+        flat = design.reshape(len(targets), -1)
+        information = (flat * curvature.reshape(-1)) @ flat.T / inputs.n
+        coefficients = np.linalg.lstsq(information, score[j::2], rcond=1e-12)[0]
+        delta = delta_d if j == 0 else delta_y
+        for m, target in enumerate(targets):
+            delta[:, :, target.levels[j]] += coefficients[m] * covariates[m][j]
+    return delta_d, delta_y
+
+
 def walk_separable(
     initial: SeparableState,
     inputs: SeparableInputs,
@@ -638,6 +753,28 @@ def walk_separable(
         trace.append(relative_score(score, scale))
         norms.append(norm)
         losses.append(walk_loss(state, inputs))
+        if steps >= _STALL and trace[-1] > 0.5 * trace[-1 - _STALL]:
+            break
+    # Iterated Newton steps on the factor-wise submodel at the current covariates, the
+    # classical iterative TMLE.  The covariates move with the state, so one step can raise
+    # the score while two lower it; the walk keeps the best state and stops when the best
+    # has not improved for a few steps.
+    best = (trace[-1], state, score, scale, norm)
+    since = 0
+    while trace[-1] > tol and steps < max_steps and norm > 0.0 and since < _NEWTON_PATIENCE:
+        delta_d, delta_y = _newton_direction(state, inputs, targets, score)
+        state = state.moved(delta_d, delta_y, bounds)
+        score, scale = scores(state, inputs, targets)
+        norm = float(np.sqrt(np.sum(score**2 / sigma)))
+        steps += 1
+        trace.append(relative_score(score, scale))
+        norms.append(norm)
+        losses.append(walk_loss(state, inputs))
+        if trace[-1] < best[0]:
+            best, since = (trace[-1], state, score, scale, norm), 0
+        else:
+            since += 1
+    _, state, score, scale, norm = best
     relative = relative_score(score, scale)
     converged = bool(relative <= tol)
     if not converged and warn:
@@ -655,7 +792,7 @@ def walk_separable(
     )
     return state, HazardFit(
         algorithm="one_step",
-        targets=record_targets,  # type: ignore[arg-type]
+        targets=record_targets,
         converged=converged,
         n_iter=steps,
         score_initial=first,

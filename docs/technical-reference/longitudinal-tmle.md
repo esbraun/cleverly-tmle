@@ -381,6 +381,99 @@ refuses it through its survival refusal. `IPSI` composes through the shared mech
 two-cause law with a treatment at each node, its estimates and influence curves equal those of a
 fit with death folded into censoring by hand.
 
+### Separable effects
+
+A competing-risk fit compares arms of the whole treatment. The separable effects of Stensrud,
+Young, Didelez, Robins and Hernán (2022) split the treatment into a component $A_Y$ that acts on
+the event of interest $Y$ and a component $A_D$ that acts on the competing event $D$, and set the
+two to different levels. In the observed data the two components always agree. Declare the split
+as a regimen, `Separable(arms={"relapse": 1, "death": 0}, first="death")`, beside at least one
+static arm, and fit `LTMLE(survival_model="hazard", targeting="one_step")` on a design with one
+baseline treatment and exactly two causes. The fit reports `cif_regimen[sep, relapse @ t=h]` and
+`cif_regimen[sep, death @ t=h]`, the incidence of each cause under the joint intervention.
+
+The estimand is their estimand (5). Identification (8), with censoring (10), needs exchangeability,
+consistency, positivity (6) and (7), and the dismissible-component conditions $\Delta 1$ and
+$\Delta 2$ of their Section 5.1. Within a node the declared first cause comes first. Write
+$\lambda_l(k \mid a, W)$ for the cause-specific hazard of the hazard engine and
+$h_Y(k \mid a) = \lambda_Y(k \mid a)/(1 - \lambda_D(k \mid a))$ for the hazard of $Y$ among units
+also free of $D$ at node $k$. With $W$ suppressed, the composed hazards are
+
+$$
+\tilde\lambda_D(k) = \lambda_D(k \mid a_D), \qquad
+\tilde\lambda_Y(k) = h_Y(k \mid a_Y)\,\bigl(1 - \lambda_D(k \mid a_D)\bigr),
+$$
+
+and $\psi_j(t; a_Y, a_D) = E_W \sum_{k \le t} \tilde\lambda_j(k)\,\tilde S(k-1)$ with
+$\tilde S(k) = \prod_{s \le k} (1 - h_Y(s \mid a_Y))(1 - \lambda_D(s \mid a_D))$. Their argument,
+node by node, identifies the joint law of both causes under $(a_Y, a_D)$, so the incidence of $D$
+is identified with that of $Y$. At $a_Y = a_D$ both reduce to the static arm's cumulative
+incidence.
+
+The declared order is part of the estimand. With $a_Y \ne a_D$, counting $Y$ before $D$ in a node
+gives a different functional, and the data cannot settle which is meant, so `first=` is required.
+The order matters little on a fine time grid and can matter on a coarse one. $\Delta 1$ and
+$\Delta 2$ fail when an unmeasured common cause of $D$ and $Y$ exists, and no data check verifies
+them unless $A_Y$ and $A_D$ were randomized apart. The separable direct effect varies $a_Y$ at a
+fixed $a_D$ and the separable indirect effect varies $a_D$ at a fixed $a_Y$. With a binary
+treatment they sum to the total effect, which `contrast` computes from the reported parameters.
+
+**Influence curve.** No source gives the discrete-time curve. Martinussen and Stensrud (2023)
+derive the continuous-time influence function and a one-step estimator. The discrete functional
+is a smooth map of the hazards at two levels, so its curve follows from the hazard engine's by the
+chain rule through $(\lambda_D, h_Y)$, a natural extension. With
+$c_l(k) = 1\{l = j\} - (\tilde F_j(t) - \tilde F_j(k))/\tilde S(k)$ for target cause $j$, the
+target has a clever covariate for each factor at each level it reads:
+
+$$
+H_Y(k, a_Y) = \frac{\tilde S(k-1)\,(1 - \lambda_D(k \mid a_D))\,c_Y(k)}
+{g(a_Y)\,G_k(a_Y)\,S(k-1 \mid a_Y)\,(1 - \lambda_D(k \mid a_Y))}, \qquad
+H_D(k, a_D) = \frac{\tilde S(k-1)\,\bigl(c_D(k) - h_Y(k \mid a_Y)\,c_Y(k)\bigr)}
+{g(a_D)\,G_k(a_D)\,S(k-1 \mid a_D)},
+$$
+
+for $k \le t$. $H_Y$ multiplies the residual of $Y$ among units at risk and free of $D$, and
+$H_D$ the residual of $D$ among units at risk. Unlike the static case,
+$\tilde S(k-1)/S(k-1 \mid a)$ does not cancel, and `g_bounds=` does not bound that ratio.
+
+**Targeting.** `cleverly.longitudinal.separable` targets each factor apart, on the logit scale of
+$\lambda_D$ and of $h_Y$, with one coefficient per factor and per target, along the one-step walk
+of the hazard engine. The static arms of the same fit go through the same walk as separable
+interventions with equal levels, so one pair of factors carries every reported curve. At the
+truth this is the shipped static estimate and curve. From a fitted start it is a different TMLE
+of the same static parameter. The initial hazards are fitted in the declared order.
+
+**Robustness.** With the treatment and censoring mechanisms right, the estimate is consistent when
+$\lambda_D$ is right at both levels or $h_Y$ is right at both levels, the counterparts of
+Stensrud's IPW forms (11) and (12); with both hazards right it is consistent under any mechanism.
+It is not consistent with both $\lambda_D$ and $h_Y$ wrong, even under the exact mechanism,
+because the remainder holds their cross product. A fluctuation shared by the two factors, as in
+the softmax submodel of a competing-risk fit, loses the first two cases. Many targets on few
+covariate cells can pin a factor at its cell means, so a check of robustness fits one target.
+
+**Positivity.** The target reads the hazards at both levels. If every unit at risk at $a_Y$ in a
+node had $D$, $h_Y$ is not identified there and the fit raises. If no unit at $a_D$ stays
+event-free past a node where $\tilde S$ is still positive, the fit warns, names the node, and
+drops the later horizons from that regimen.
+
+| check | what it shows |
+| --- | --- |
+| exact law, two causes, every horizon and cause | the estimate is identification (8) in the declared order and the influence curve is its Gateaux derivative |
+| static arms in a separable fit | each is the static cumulative incidence and its curve |
+| reduction | a `Separable` with equal levels gives the static estimate |
+| order | the other `first=` gives the other functional, which differs |
+| witness | at $a_Y \ne a_D$ the separable risk differs from both static risks |
+| robustness from a wrong start | a wrong $h_Y$ or a wrong $\lambda_D$ is corrected; both wrong miss the truth |
+| mutation | one coefficient shared by both factors misses the truth |
+| loss derivative | the walk loss falls at the rate of the factor scores |
+
+`tests/unit/test_separable_effects_law.py` holds these checks. Every separable fit reads
+experimental until the study `separable-effects` is registered. No package implements a
+separable-effects TMLE, so comparator runs are pending; the evidence is the exact-law truth.
+[Scope and refusals](scope-and-refusals.md#separable-effects) lists what a separable fit refuses,
+including time-varying common causes: Stensrud et al. (2021), Equation (19), identify that case
+but no source gives its influence curve.
+
 ### Repeated outcomes
 
 A repeated outcome is measured at every node and is not absorbing. A unit with $Y_1 = 1$ can have

@@ -586,7 +586,9 @@ class HazardFit:
     algorithm : {"per_horizon", "one_step"}
         The targeting algorithm.
     targets : tuple of tuple
-        ``(regimen, cause, horizon)`` of every target, in score order.
+        ``(regimen, cause, horizon)`` of every target, in score order.  A separable-effects
+        fit targets each hazard factor apart and appends the factor,
+        ``(regimen, cause, horizon, factor)``.
     converged : bool
         Whether every target's relative score reached ``tol`` at the reported hazards.  Under
         a declared stopping rule, whether the rule ratio is at most one there.
@@ -631,7 +633,7 @@ class HazardFit:
     """
 
     algorithm: HazardAlgorithm
-    targets: tuple[tuple[str, str | None, int], ...]
+    targets: tuple[tuple[str, str | None, int] | tuple[str, str | None, int, str], ...]
     converged: bool
     n_iter: int
     score_initial: FloatArray

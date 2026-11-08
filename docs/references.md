@@ -2659,6 +2659,12 @@ not a shipped claim.
   identifies the separable effects with baseline covariates. In arXiv v3 the same results are
   the estimand (5), identification (8) in Section 5.2, and the censoring form (10) in Section 5.4.
   Cited by roadmap item [X91](roadmap.md#x91-survival-targets-across-the-estimators) part (d).
+- Martinussen & Stensrud (2023), [*Estimation of separable direct and indirect effects in
+  continuous time*](https://arxiv.org/abs/2008.13126), *Biometrics* 79(1):127-139. Derives the
+  continuous-time influence function of the separable effects and a one-step estimator. Cited
+  for that derivation and its robustness; a first-hand reading is pending, and the discrete-time
+  curve `cleverly` ships rests on the chain rule and its exact-law check, not on this paper.
+  Cited by roadmap item [X91](roadmap.md#x91-survival-targets-across-the-estimators) part (d).
 - Stensrud, Hernán, Tchetgen Tchetgen, Robins, Didelez & Young (2021), [*A generalized theory of
   separable effects in competing event settings*](https://doi.org/10.1007/s10985-021-09530-8),
   *Lifetime Data Analysis* 27(4):588-631, DOI 10.1007/s10985-021-09530-8. Read first-hand in
