@@ -202,9 +202,9 @@ def zipper(
         shown = (labels or {}).get(name, _core.estimand_words(name))
         if ratio:
             _core.log_axis(axis, "x")
-            axis.set_xlabel(f"{shown}\nlimit as a multiple of the true value")
+            axis.set_xlabel(f"{shown}\ninterval limit as a multiple of the true value")
         else:
-            axis.set_xlabel(f"{shown}\nlimit minus the true value")
+            axis.set_xlabel(f"{shown}\ninterval limit minus the true value")
         coverage.append(
             f"{(labels or {}).get(name, name)} {_percent(float(np.mean(place['covered'])))}"
         )
