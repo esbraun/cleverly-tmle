@@ -125,16 +125,23 @@ jobs:
 
   # The all-study property differential and its clause binding (RM39b2 rev 3 section 8). Every
   # committed study's property rows are perturbed and summarized by the study's own code, and
-  # the declared failure-accounting rules must give the same verdicts. Measured at 5,892 cases,
-  # about 7,600 CPU-seconds and about 35 minutes on four workers, far over the fast tier's
-  # budget, so it runs here (the R3-2 fallback) and never as a sample. Later study additions
-  # brought main to 91% at the former 105-minute timeout. Allow 180 minutes for the complete
-  # check. The fast tier checks that its parametrization lists every committed study. The
-  # job always reports, so it can be a required check: on a pull request that touches none of
-  # the paths below its steps are skipped.
+  # the declared failure-accounting rules must give the same verdicts. It runs here (the R3-2
+  # fallback) and never as a sample. On one four-core runner it reached 2 hours 8 minutes
+  # (about 30,700 CPU-seconds, 9,858 cases, November 2026), so it is split into four parts on
+  # four runners. `PROPERTY_DIFFERENTIAL_PART` selects a part, and `property_differential.parts`
+  # assigns each worker group to exactly one part, balanced by estimated work, so the four
+  # parts run every case between them. Each part has 90 minutes. The fast tier checks that the
+  # parametrization lists every committed study. The job always reports, so it can be a required
+  # check: on a pull request that touches none of the paths below its steps are skipped, and
+  # `property-differential-verdict` reports the parts as one check named `property-differential`.
   property-differential:
+    name: property-differential (part ${{ matrix.part }} of 4)
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -163,8 +170,20 @@ jobs:
       - name: Size the worker pool from the cores this job may actually use
         if: steps.scope.outputs.run == 'true'
         run: echo "PYTEST_XDIST_AUTO_NUM_WORKERS=$(python -m tests.parallel --workers)" >> "$GITHUB_ENV"
+      # `--durations` names the slowest cases, so a part that grows shows where.
       - if: steps.scope.outputs.run == 'true'
-        run: pytest -q -n auto --dist loadgroup tests/canonical/property_differential.py
+        env:
+          PROPERTY_DIFFERENTIAL_PART: ${{ matrix.part }}/${{ strategy.job-total }}
+        run: pytest -q -n auto --dist loadgroup --durations=20 tests/canonical/property_differential.py
+  # One check for branch protection: green only when every part of the differential succeeded.
+  property-differential-verdict:
+    name: property-differential
+    if: always()
+    needs: property-differential
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every part of the differential passed
+        run: test "${{ needs.property-differential.result }}" = success
 
   # One backend at a time, which the `tests` job above cannot check: it installs `.[dev]`,
   # which pulls pandas *and* polars, so the single-backend and neither-installed branches of

@@ -31,18 +31,23 @@ threshold of another.  :data:`BINDINGS` names one perturbation for each subject 
 :data:`REASONS` instead, with a reason in :data:`REASON_CHECKS` that this module verifies.
 ``--bindings`` searches the subjects, and ``--write`` rewrites the witness table.
 
-The RM39b2 remediation measured the pass at 5,797 cases, about 6,400 CPU-seconds and about 30 minutes on four workers, against a
-fast-tier budget of about 120 seconds.  So it runs as the ``property-differential`` job of
-``.github/workflows/ci.yml`` on every pull request that touches ``tests/studies/``,
-``tests/canonical/``, ``src/cleverly/``, ``pyproject.toml``, ``uv.lock`` or the workflow.  Its file name is not a test file name, so the fast tier does not collect
-it.  The cases of a subject run in :func:`shards` worker groups, each kind in the group
-that :func:`shard_of` names, so that a large subject's thousand kinds do not queue on one
-worker.  ``tests/unit/test_method_evidence.py`` checks that :data:`SUBJECTS` lists every committed
+The RM39b2 remediation measured the pass at 5,797 cases, about 6,400 CPU-seconds and about 30
+minutes on four workers, against a fast-tier budget of about 120 seconds.  So it runs as the
+``property-differential`` job of ``.github/workflows/ci.yml`` on every pull request that touches
+``tests/studies/``, ``tests/canonical/``, ``src/cleverly/``, ``pyproject.toml``, ``uv.lock`` or
+the workflow.  Its file name is not a test file name, so the fast tier does not collect it.  By
+November 2026 it held 9,858 cases and about 30,700 CPU-seconds, over two hours on one runner, so
+the job runs in parts on several runners: :data:`PART_ENV` selects a part, and :func:`parts`
+gives each worker group to exactly one part.  The cases of a subject run in :func:`shards`
+worker groups of about :data:`SHARD_COST` work each, each kind in the group that
+:func:`shard_of` names, so that a large subject's thousand kinds do not queue on one worker.
+``tests/unit/test_method_evidence.py`` checks that :data:`SUBJECTS` lists every committed
 study, and that :data:`BINDINGS` names only subjects, perturbations and clauses that exist.
 
 Usage::
 
     pytest -q -n auto --dist loadgroup tests/canonical/property_differential.py
+    PROPERTY_DIFFERENTIAL_PART=1/4 pytest -q -n auto --dist loadgroup tests/canonical/property_differential.py
     python -m tests.canonical.property_differential --bindings DIR --subjects SLUG ...
     python -m tests.canonical.property_differential --write DIR
 """
@@ -56,6 +61,7 @@ import functools
 import importlib
 import json
 import math
+import os
 import sys
 import time
 import zlib
@@ -66,6 +72,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from scipy.stats import norm
@@ -113,18 +120,73 @@ SUBJECTS = (
 #: The perturbations every subject runs, before its extra-column kinds.
 KINDS = (*property_failures.PERTURBATIONS, *property_failures.binding_perturbations())
 
-#: The committed rows per worker group of a subject.  A case's cost grows with its subject's
-#: rows, and the cases of one ``xdist_group`` run on one worker, so a subject of a million rows
-#: and a thousand kinds held in one group would run for hours on one core.  Its kinds are
+#: The estimated work per worker group of a subject, in committed rows times perturbations.
+#: A case's cost grows with its subject's rows, every perturbation of a subject summarizes all
+#: of them, and the cases of one ``xdist_group`` run on one worker.  A subject of a million rows
+#: and a thousand kinds held in one group would run for hours on one core, so its kinds are
 #: split into :func:`shards` groups instead, each kind in the group :func:`shard_of` names.
-SHARD_ROWS = 100_000
+#: One group of this size takes about two minutes on a CI core.
+SHARD_COST = 25_000_000
+
+#: The CI job splits the worker groups into parts, one runner each: ``i/N`` runs part ``i`` of
+#: ``N``, counted from one.  Unset, a run holds every group.  :func:`part_of` assigns each
+#: group to exactly one part, so the parts of one ``N`` hold every case between them.
+PART_ENV = "PROPERTY_DIFFERENTIAL_PART"
+
+
+@functools.cache
+def kind_count(subject: str) -> int:
+    """How many perturbations a subject runs, the length of :func:`kinds`.
+
+    Read from the row file's numeric columns and its ``property`` and ``cell`` columns only,
+    and dropped once counted, so that collection holds no subject's rows.  It sizes the groups
+    and the parts, and nothing else reads it.
+
+    Parameters
+    ----------
+    subject : str
+        A :data:`SUBJECTS` entry.
+
+    Returns
+    -------
+    int
+        At least ``len(KINDS)``.
+    """
+    if subject in SYNTHETIC_MODULES:
+        return len(KINDS)
+    path = _STUDIES[subject].artifact("property-replicates.parquet")
+    numeric = [
+        field.name
+        for field in pq.read_schema(path)
+        if pa.types.is_integer(field.type) or pa.types.is_floating(field.type)
+    ]
+    rows = read_rows(path, columns=["property", "cell", *numeric])
+    return len(KINDS) + len(property_failures.extra_perturbations(rows))
+
+
+@functools.cache
+def estimated_cost(subject: str) -> int:
+    """A subject's estimated work, in committed rows times :func:`kind_count`.
+
+    Parameters
+    ----------
+    subject : str
+        A :data:`SUBJECTS` entry.
+
+    Returns
+    -------
+    int
+        At least one.
+    """
+    if subject in SYNTHETIC_MODULES:
+        return len(KINDS)
+    path = _STUDIES[subject].artifact("property-replicates.parquet")
+    return max(1, pq.read_metadata(path).num_rows * kind_count(subject))
 
 
 @functools.cache
 def shards(subject: str) -> int:
-    """How many worker groups a subject's kinds are split into: one per :data:`SHARD_ROWS`.
-
-    Read off the row file's metadata, so that collection reads no rows.
+    """How many worker groups a subject's kinds are split into: one per :data:`SHARD_COST`.
 
     Parameters
     ----------
@@ -136,10 +198,7 @@ def shards(subject: str) -> int:
     int
         At least one, and one for a :data:`SYNTHETIC_MODULES` subject.
     """
-    if subject in SYNTHETIC_MODULES:
-        return 1
-    path = _STUDIES[subject].artifact("property-replicates.parquet")
-    return max(1, math.ceil(pq.read_metadata(path).num_rows / SHARD_ROWS))
+    return max(1, math.ceil(estimated_cost(subject) / SHARD_COST))
 
 
 def shard_of(subject: str, kind: str) -> int:
@@ -158,6 +217,85 @@ def shard_of(subject: str, kind: str) -> int:
         From zero to ``shards(subject) - 1``.
     """
     return zlib.crc32(kind.encode()) % shards(subject)
+
+
+def group_name(subject: str, shard: int) -> str:
+    """The ``xdist_group`` of one shard of a subject.
+
+    Parameters
+    ----------
+    subject : str
+        A :data:`SUBJECTS` entry.
+    shard : int
+        From zero to ``shards(subject) - 1``.
+
+    Returns
+    -------
+    str
+        ``subject#shard``.
+    """
+    return f"{subject}#{shard}"
+
+
+@functools.cache
+def parts(count: int) -> dict[str, int]:
+    """Assign every worker group to one of ``count`` parts of about equal estimated work.
+
+    The groups are placed largest first, each on the part with the least work so far, and
+    ties go by name, so every process computes the same assignment.
+
+    Parameters
+    ----------
+    count : int
+        The number of parts, at least one.
+
+    Returns
+    -------
+    dict
+        Each :func:`group_name` and its part, from one to ``count``.
+    """
+    if count < 1:
+        raise ValueError(f"{PART_ENV} needs at least one part, not {count}")
+    groups = sorted(
+        (
+            (-estimated_cost(subject) / shards(subject), group_name(subject, shard))
+            for subject in SUBJECTS
+            for shard in range(shards(subject))
+        ),
+    )
+    load = [0.0] * count
+    out: dict[str, int] = {}
+    for negative, group in groups:
+        part = min(range(count), key=lambda index: (load[index], index))
+        load[part] -= negative
+        out[group] = part + 1
+    return out
+
+
+def part_of(group: str) -> bool:
+    """Whether this run holds a worker group, under :data:`PART_ENV`.
+
+    Parameters
+    ----------
+    group : str
+        A :func:`group_name`.
+
+    Returns
+    -------
+    bool
+        True when :data:`PART_ENV` is unset or names the group's part.
+    """
+    value = os.environ.get(PART_ENV, "").strip()
+    if not value:
+        return True
+    index, _, count = value.partition("/")
+    try:
+        part, total = int(index), int(count)
+    except ValueError as error:
+        raise ValueError(f"{PART_ENV}={value!r} is not of the form i/N") from error
+    if not 1 <= part <= total:
+        raise ValueError(f"{PART_ENV}={value!r} names no part of {total}")
+    return parts(total)[group] == part
 
 
 def subject_of(subject: str) -> tuple[ModuleType, StudyRecord]:
@@ -367,12 +505,19 @@ class Judgement:
         The pairs that alone decide a verdict.
     moved : bool
         Whether some verdict is red, so the perturbation reached a threshold.
+    implied : frozenset of tuple
+        For each ``implied by`` reason of the subject, as ``(property, clause, other)``, the
+        rows where the clause applies: ``(property, clause, other, role, cell, problem)``.
+        ``problem`` is empty when the row agrees with the reason, ``"refuted"`` when the
+        clause fails and the other passes, and ``"other does not apply"`` when only the clause
+        applies.  :func:`implied_by` reads it.
     """
 
     wrong: pd.DataFrame
     used: frozenset[tuple[str, str]]
     decisive: frozenset[tuple[str, str]]
     moved: bool
+    implied: frozenset[tuple[str, str, str, str, str, str]] = frozenset()
 
 
 @functools.cache
@@ -402,8 +547,50 @@ def judge(subject: str, kind: str) -> Judgement:
         ctx = property_failures.module_context(cheap, moved, summary, {}, module)
         wrong = property_failures.differential(summary, ctx, module=module)
         used, decisive = property_failures.clause_binding(summary, ctx, module=module)
+        implied = _implied_rows(subject, module, summary, ctx)
     red = ~(summary["passed"].astype(bool) & summary["property_passed"].astype(bool))
-    return Judgement(wrong, frozenset(used), frozenset(decisive), bool(red.any()))
+    return Judgement(wrong, frozenset(used), frozenset(decisive), bool(red.any()), implied)
+
+
+@functools.cache
+def _implied_reasons(subject: str) -> tuple[tuple[str, str, str], ...]:
+    """The ``(property, clause, other)`` of each ``implied by`` reason of a subject."""
+    if not REASONS.exists():
+        return ()
+    out = []
+    for name, family, clause, why in read_reasons().itertuples(index=False, name=None):
+        code, _, argument = why.partition(": ")
+        if name == subject and code == "implied by":
+            module, _ = subject_of(subject)
+            rule = property_failures.rule_for(family, module)
+            assert rule is not None, f"{REASONS.name}: {subject} has no rule for {family}"
+            rule.clause(clause)
+            rule.clause(argument)
+            out.append((family, clause, argument))
+    return tuple(out)
+
+
+def _implied_rows(
+    subject: str, module: ModuleType, summary: pd.DataFrame, ctx: Any
+) -> frozenset[tuple[str, str, str, str, str, str]]:
+    """Read each ``implied by`` reason of a subject on one summary (see :class:`Judgement`)."""
+    out: set[tuple[str, str, str, str, str, str]] = set()
+    for family, clause_name, argument in _implied_reasons(subject):
+        rule = property_failures.rule_for(family, module)
+        assert rule is not None, (subject, family)
+        clause, other = rule.clause(clause_name), rule.clause(argument)
+        for _, row in summary.loc[summary["property"] == family].iterrows():
+            if not clause.applies(ctx, row):
+                continue
+            if not other.applies(ctx, row):
+                problem = "other does not apply"
+            elif not clause.read(ctx, row).passed and other.read(ctx, row).passed:
+                problem = "refuted"
+            else:
+                problem = ""
+            key = (family, clause_name, argument, str(row["role"]), str(row["cell"]), problem)
+            out.add(key)
+    return frozenset(out)
 
 
 def read_bindings(path: Path = BINDINGS) -> pd.DataFrame:
@@ -577,17 +764,12 @@ def same_module(subject: str, family: str, clause_name: str, argument: str) -> l
 IMPLIED_SWEEP = tuple(float(value) for value in np.linspace(-3.0, 3.0, 41))
 
 
-def implied_by(subject: str, family: str, clause_name: str, argument: str) -> list[str]:
-    """Check that another clause of the same rows fails wherever this one fails.
+def implied_sweep(subject: str, family: str, clause_name: str, argument: str) -> tuple[str, ...]:
+    """The kinds that :func:`implied_by` reads: :data:`KINDS`, then the role sweeps.
 
-    Two bias clauses of one row can read the same centre against two thresholds, such as a
-    discrimination margin and a both-wrong floor, or a margin from the truth and an
-    equivalence to an alternative truth.  When the other clause's threshold is the stricter
-    one in this module, this clause never fails alone, so no perturbation makes it decide.
-    The check sweeps each applying role's mean error over :data:`IMPLIED_SWEEP` with
-    ``centre/<role>/<c>``, and its spread with ``spread_role/<role>/<g>``.  It reads every
-    :data:`KINDS` perturbation as well.  A row where
-    this clause fails and the other passes refutes the reason.
+    The sweeps move each role where the clause applies on the committed rows: its mean error
+    over :data:`IMPLIED_SWEEP` with ``centre/<role>/<c>``, and its spread with
+    ``spread_role/<role>/<g>``.
 
     Parameters
     ----------
@@ -602,38 +784,71 @@ def implied_by(subject: str, family: str, clause_name: str, argument: str) -> li
 
     Returns
     -------
+    tuple of str
+        The :func:`judge` kinds.
+    """
+    roles = sorted(
+        {
+            role
+            for name, clause, other, role, _, _ in judge(subject, "none").implied
+            if (name, clause, other) == (family, clause_name, argument)
+        }
+    )
+    return (
+        *KINDS,
+        *(f"centre/{role}/{c:g}" for role in roles for c in IMPLIED_SWEEP),
+        *(f"spread_role/{role}/{g:g}" for role in roles for g in property_failures.ROLE_SPREADS),
+    )
+
+
+def implied_by(
+    subject: str, family: str, clause_name: str, argument: str, shard: int | None = None
+) -> list[str]:
+    """Check that another clause of the same rows fails wherever this one fails.
+
+    Two bias clauses of one row can read the same centre against two thresholds, such as a
+    discrimination margin and a both-wrong floor, or a margin from the truth and an
+    equivalence to an alternative truth.  When the other clause's threshold is the stricter
+    one in this module, this clause never fails alone, so no perturbation makes it decide.
+    The check reads every :func:`implied_sweep` kind.  A row where this clause fails and the
+    other passes refutes the reason.  Each kind is read through :func:`judge`, so the CI job
+    spreads the sweep over the subject's worker groups and reuses the judgements that the
+    differential already made.
+
+    Parameters
+    ----------
+    subject : str
+        A :data:`SUBJECTS` entry.
+    family : str
+        The property.
+    clause_name : str
+        The clause.
+    argument : str
+        The other clause, of the same family.
+    shard : int or None
+        Read only the kinds that :func:`shard_of` gives this shard.  None reads every kind.
+
+    Returns
+    -------
     list of str
         The refuting rows, as ``kind cell``.  Empty when the reason holds.
     """
-    module, record = subject_of(subject)
-    rows = subject_rows(subject)
-    rule = property_failures.rule_for(family, module)
-    assert rule is not None, (subject, family)
-    with reduced(record) as cheap:
-        summary = module.summarize_properties(rows)
-        ctx = property_failures.module_context(cheap, rows, summary, {}, module)
-        clause, other = rule.clause(clause_name), rule.clause(argument)
-        applying = summary.loc[summary["property"] == family]
-        roles = sorted(
-            {str(row["role"]) for _, row in applying.iterrows() if clause.applies(ctx, row)}
+    if (family, clause_name, argument) not in _implied_reasons(subject):
+        raise ValueError(
+            f"{subject}: ({family}, {clause_name}, implied by {argument}) is not a reason of "
+            f"{REASONS.name}; judge() reads only the stated reasons"
         )
     problems: list[str] = []
-    sweep = [
-        *(f"centre/{role}/{c:g}" for role in roles for c in IMPLIED_SWEEP),
-        *(f"spread_role/{role}/{g:g}" for role in roles for g in property_failures.ROLE_SPREADS),
-    ]
-    for kind in (*KINDS, *sweep):
-        with reduced(record) as cheap:
-            moved = property_failures.perturbed(rows, kind, alpha=cheap.margins.alpha)
-            summary = module.summarize_properties(moved)
-            ctx = property_failures.module_context(cheap, moved, summary, {}, module)
-            for _, row in summary.loc[summary["property"] == family].iterrows():
-                if not clause.applies(ctx, row):
-                    continue
-                if not other.applies(ctx, row):
-                    problems.append(f"{kind} {row['cell']}: {argument} does not apply")
-                elif not clause.read(ctx, row).passed and other.read(ctx, row).passed:
-                    problems.append(f"{kind} {row['cell']}")
+    for kind in implied_sweep(subject, family, clause_name, argument):
+        if shard is not None and shard_of(subject, kind) != shard:
+            continue
+        for name, clause, other, _, cell, problem in sorted(judge(subject, kind).implied):
+            if (name, clause, other) != (family, clause_name, argument) or not problem:
+                continue
+            if problem == "refuted":
+                problems.append(f"{kind} {cell}")
+            else:
+                problems.append(f"{kind} {cell}: {argument} does not apply")
     return problems
 
 
@@ -715,30 +930,36 @@ def candidates_at_no_loss(subject: str) -> tuple[int, int, list[tuple[Any, ...]]
 # ---- the CI job ------------------------------------------------------------------------------
 
 
-def _group(subject: str, kind: str = "none") -> Any:
-    """The worker group that judges a kind of a subject, so that its judgement is reused."""
-    return pytest.mark.xdist_group(f"{subject}#{shard_of(subject, kind)}")
+def _param(*values: Any, group: str) -> list[Any]:
+    """One case on a worker group, or none when :data:`PART_ENV` gives the group to another run."""
+    return [pytest.param(*values, marks=pytest.mark.xdist_group(group))] if part_of(group) else []
 
 
-def _by_subject(subject: str, *values: Any) -> Any:
-    """One case of a subject, on the group that judges ``none``."""
-    return pytest.param(subject, *values, marks=_group(subject))
+def _by_kind(subject: str, *values: Any, kind: str = "none") -> list[Any]:
+    """One case of a subject, on the group that judges ``kind``, so that its judgement is reused."""
+    return _param(subject, *values, group=group_name(subject, shard_of(subject, kind)))
 
 
 def _subject_kinds() -> list[Any]:
     return [
-        pytest.param(subject, kind, marks=_group(subject, kind))
+        case
         for subject in SUBJECTS
         for kind in KINDS
+        for case in _by_kind(subject, kind, kind=kind)
     ]
 
 
 def _subject_shards() -> list[Any]:
     return [
-        pytest.param(subject, shard, marks=pytest.mark.xdist_group(f"{subject}#{shard}"))
+        case
         for subject in SUBJECTS
         for shard in range(shards(subject))
+        for case in _param(subject, shard, group=group_name(subject, shard))
     ]
+
+
+def _by_subject() -> list[Any]:
+    return [case for subject in SUBJECTS for case in _by_kind(subject)]
 
 
 @pytest.mark.parametrize(("subject", "kind"), _subject_kinds())
@@ -761,7 +982,7 @@ def test_the_rules_agree_with_the_study_on_each_extra_column(subject: str, shard
     assert disagreeing == {}
 
 
-@pytest.mark.parametrize("subject", [_by_subject(subject) for subject in SUBJECTS])
+@pytest.mark.parametrize("subject", _by_subject())
 def test_the_perturbations_reach_a_threshold(subject: str) -> None:
     """A perturbation set that moved no verdict of a subject would test no clause of it."""
     if subject_rows(subject).empty:
@@ -774,7 +995,7 @@ def test_the_perturbations_reach_a_threshold(subject: str) -> None:
     assert any(judge(subject, kind).moved for kind in KINDS if kind != "none")
 
 
-@pytest.mark.parametrize("subject", [_by_subject(subject) for subject in SUBJECTS])
+@pytest.mark.parametrize("subject", _by_subject())
 def test_each_clause_a_subject_uses_has_its_own_binding_witness(subject: str) -> None:
     """Rev 3 section 8, per subject: a witness of the subject, or a verified reason."""
     if subject_rows(subject).empty:
@@ -784,7 +1005,7 @@ def test_each_clause_a_subject_uses_has_its_own_binding_witness(subject: str) ->
     assert sorted(used - covered) == [], "unbound clauses: no witness of this subject"
 
 
-@pytest.mark.parametrize("subject", [_by_subject(subject) for subject in SUBJECTS])
+@pytest.mark.parametrize("subject", _by_subject())
 def test_each_candidate_at_no_loss_reproduces_the_complete_case(subject: str) -> None:
     """F18 for every statistic type: at ``k = 0`` each candidate is the complete case."""
     read, accountable, wrong = candidates_at_no_loss(subject)
@@ -793,21 +1014,45 @@ def test_each_candidate_at_no_loss_reproduces_the_complete_case(subject: str) ->
         assert read > 0
 
 
-def _rows(path: Path, columns: tuple[str, ...]) -> list[Any]:
+def _table(path: Path, columns: tuple[str, ...]) -> list[tuple[str, ...]] | None:
     if not path.exists():
-        return [None]
+        return None
     table = pd.read_csv(path, dtype=str, keep_default_na=False).loc[:, list(columns)]
-    # A witness runs on the group that judges its kind; a reason, which judges ``none``, on
-    # the group that judges ``none``.
-    return [
-        pytest.param(row, marks=_group(row[0], row[3] if columns == BINDING_COLUMNS else "none"))
-        for row in table.itertuples(index=False, name=None)
-    ]
+    return list(table.itertuples(index=False, name=None))
+
+
+def _witnesses() -> list[Any]:
+    # A witness runs on the group that judges its kind.
+    rows = _table(BINDINGS, BINDING_COLUMNS)
+    if rows is None:
+        return [None]
+    return [case for row in rows for case in _param(row, group=_witness_group(row))]
+
+
+def _witness_group(row: tuple[str, ...]) -> str:
+    return group_name(row[0], shard_of(row[0], row[3]))
+
+
+def _reasons() -> list[Any]:
+    # A reason judges ``none`` on the group that judges ``none``.  An ``implied by`` reason
+    # reads a sweep of kinds besides, and each shard of its subject reads the kinds it judges.
+    rows = _table(REASONS, REASON_COLUMNS)
+    if rows is None:
+        return [pytest.param(None, None)]
+    cases: list[Any] = []
+    for row in rows:
+        subject = row[0]
+        if row[3].partition(": ")[0] == "implied by":
+            for shard in range(shards(subject)):
+                cases.extend(_param(row, shard, group=group_name(subject, shard)))
+        else:
+            cases.extend(_param(row, None, group=group_name(subject, shard_of(subject, "none"))))
+    return cases
 
 
 @pytest.mark.parametrize(
     "witness",
-    _rows(BINDINGS, BINDING_COLUMNS),
+    _witnesses(),
     ids=lambda witness: "missing" if witness is None else "/".join(witness[:3]),
 )
 def test_each_binding_witness_decides_its_clause(witness: tuple[str, ...] | None) -> None:
@@ -820,17 +1065,30 @@ def test_each_binding_witness_decides_its_clause(witness: tuple[str, ...] | None
 
 
 @pytest.mark.parametrize(
-    "reason",
-    _rows(REASONS, REASON_COLUMNS),
-    ids=lambda reason: "missing" if reason is None else "/".join(reason[:3]),
+    ("reason", "shard"),
+    _reasons(),
+    ids=lambda value: (
+        "/".join(value[:3])
+        if isinstance(value, tuple)
+        else f"shard{value}"
+        if isinstance(value, int)
+        else "all"
+    ),
 )
-def test_each_stated_reason_holds(reason: tuple[str, ...] | None) -> None:
-    """A pair without a witness of its subject carries a reason, and the reason is checked."""
+def test_each_stated_reason_holds(reason: tuple[str, ...] | None, shard: int | None) -> None:
+    """A pair without a witness of its subject carries a reason, and the reason is checked.
+
+    An ``implied by`` reason runs once per shard of its subject, each case reading the sweep
+    kinds of its shard, so that the shards read every kind between them.
+    """
     assert reason is not None, f"{REASONS} does not exist"
     subject, family, clause, why = reason
     code, _, argument = why.partition(": ")
     assert (family, clause) not in judge(subject, "none").decisive
-    assert REASON_CHECKS[code](subject, family, clause, argument) == []
+    if code == "implied by":
+        assert implied_by(subject, family, clause, argument, shard=shard) == []
+    else:
+        assert REASON_CHECKS[code](subject, family, clause, argument) == []
 
 
 # ---- the binding search ------------------------------------------------------------------------
