@@ -2033,10 +2033,10 @@ The row ships in parts, one pull request each:
 | --- | --- | --- |
 | 1 | the style, palette and honesty helpers; estimates with intervals (`forest`); the estimate across a truncation bound, the marginal sensitivity parameter and the missingness tilt (`sensitivity`); propensity overlap (`overlap`) | shipped |
 | 2 | survival, risk and mean curves over time with their bands; restricted mean survival over the horizon; the working-model line over treatment levels; the effect over a policy parameter; the conditional effect over a modifier | shipped |
-| 3 | calibration of predicted effects and of nuisance predictions; learner risks and weights; per-repeat estimates and bootstrap draws; concentration of the influence curve; weights over time; covariate balance; sorted simulation intervals | open |
-| 4 | the omitted-variable contour and the simulated-confounding map | open |
+| 3 | calibration of predicted effects and of nuisance predictions; learner risks and weights; per-repeat estimates and bootstrap draws; concentration of the influence curve; weights over time; covariate balance; sorted simulation intervals | shipped |
+| 4 | the omitted-variable contour and the simulated-confounding map | shipped |
 | 5 | targeting curves for a priority score: the TOC and cumulative gain over the treated fraction, their areas (AUTOC and the Qini coefficient), and the paired comparison of two scores, with a registered study | implemented; its study is registered (47 of 48 cells pass, and the red cell is the conservative paired TOC(0.1) row that `X92-paired-conservative` owns), so a curve in a measured configuration reads supported. The `grf` comparator is pending |
-| 6 | a "Plot results" tutorial notebook, then the plots in the notebooks whose questions they answer | open |
+| 6 | a "Plot results" tutorial notebook, then the plots in the notebooks whose questions they answer | the tutorial notebook has shipped; the plots in the other notebooks are in progress |
 
 Two views stay open after these parts, and the plots refuse them by name: the truncation curve
 of a longitudinal fit, whose limits bound a cumulative probability, and the overlap of a
