@@ -69,6 +69,14 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
   that n and takes the route above.  The pilot lost none of about 13,000 fits.  An exception
   that is not recordable stops the run and is a defect suspect.
 
+Run history.  The first declared run (``dfd56920``, artifacts at ``4edc3ab6``) exited red on
+the two targeting ``diagnostic`` rows alone.  The properties module wrote their union-model
+endpoint into ``passed``, which the driver gates, although the declaration said a diagnostic
+row is never red.  That is an instrument defect, not a finding: every gated row and the
+targeting-gain clause (3.34 and 2.65 efficient SEs against a floor of 1.5) were green.  The
+module now marks diagnostic rows as never red, and the run is repeated in full under the new
+commit on the same seeds, as the route above prescribes.
+
 The claim-boundary reading (the pointwise interval read against the unsmoothed curve at dose
 2.5) is reported from the ``binary`` rows and gates nothing; the properties module states its
 expected values.

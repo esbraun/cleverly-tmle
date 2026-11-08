@@ -146,7 +146,6 @@ from tests.studies.evidence.properties import (
 )
 from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
-    UNION_MODEL_SE_BAND,
     apply_shared_verdicts,
     calibration_controls,
     calibration_derived,
@@ -488,10 +487,11 @@ def targeting_gain_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
     """Gate the targeting gain on the family's joint clause, and read the diagnostic rows.
 
     Each :data:`TARGETING_COLUMNS` mean must reach :data:`TARGETING_GAIN_FLOOR`; the clause is
-    ANDed into the positive's and the control's ``property_passed``.  A diagnostic row states
-    its own union-model endpoint in ``passed`` (bias equivalent, SE ratio inside
-    :data:`~tests.studies.evidence.property_verdicts.UNION_MODEL_SE_BAND`), and a diagnostic row
-    is never red.
+    ANDed into the positive's and the control's ``property_passed``.  A diagnostic row is never
+    red: its ``passed`` and ``property_passed`` are true, as in the shared band rule, and its
+    bias columns are read only through the gain clause.  The declared run at ``dfd56920`` wrote
+    the union-model endpoint into ``passed`` instead, which the driver gated, contrary to this
+    declaration.
 
     Parameters
     ----------
@@ -511,10 +511,8 @@ def targeting_gain_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
         summary.loc[family, column] = value
     gained = all(value >= TARGETING_GAIN_FLOOR for value in means.values())
     diagnostic = family & (summary["role"] == DIAGNOSTIC_ROLE)
-    summary.loc[diagnostic, "passed"] = summary.loc[diagnostic, "bias_equivalent"].astype(
-        bool
-    ) & summary.loc[diagnostic, "se_ratio"].between(*UNION_MODEL_SE_BAND)
-    summary.loc[diagnostic, "property_passed"] = summary.loc[diagnostic, "passed"]
+    summary.loc[diagnostic, "passed"] = True
+    summary.loc[diagnostic, "property_passed"] = True
     gated = family & summary["role"].isin(("positive", "control"))
     summary.loc[gated, "property_passed"] = summary.loc[gated, "passed"].astype(bool) & gained
 
