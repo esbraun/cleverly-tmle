@@ -1,6 +1,6 @@
 # Adaptive TMLE with external data
 
-This study validates `AdaptiveTMLEMethod` on a randomized trial pooled with external rows
+This study measures `AdaptiveTMLEMethod` on a randomized trial pooled with external rows
 (`TrialWithExternalData`, `TrialATE`). [Adaptive TMLE](../adaptive-tmle.md) gives the estimand, the
 estimator and its conditions. The interval of a fit covers the working-model projection
 $\Psi_w$ of the dictionary the fit selected. It covers the trial effect $\Psi$ only under the
@@ -10,9 +10,10 @@ targets ($\Psi$, $\Psi_2$ and $\Psi_w$) beside it.
 
 The study declares no property cell and no reference, so it is not a validation row, as
 [adding a method row](../../development/method-benchmarking.md#adding-a-method-row) states, and
-the [validation grid](validation-grid.md) does not list it. It keeps the `gated` policy of its
-declaration: its own hooks read the primary rows, the controls and the failure accounting, and the
-run publishes only if every gate passes. The declared run passed all of them.
+the [validation grid](validation-grid.md) does not list it. The method therefore has no grid row.
+The study keeps the `gated` policy of its declaration, as a named exception: its own hooks read the
+primary rows, the controls and the failure accounting, and the run publishes only if every gate
+passes. The declared run passed all of them.
 
 **No canonical implementation is compared.** The R `atmle` comparator is declared and pending, as
 a separate pairing record on constant truths, because a record whose truth varies by replicate
@@ -209,7 +210,7 @@ from the committed results and checked at the precision printed.
 
 | limitation | what it means for use |
 | --- | --- |
-| No grid row | The study declares no property cell and no reference, so the validation grid does not list it. The fast tier recomputes every verdict and every control from the committed rows |
+| No grid row | The study declares no property cell and no reference, so the validation grid does not list it and the method has no validation row. The fast tier recomputes every verdict and every control from the committed rows |
 | There is no cross-implementation evidence | The R `atmle` pairing is declared, pending, and not run. The efficiency contrast compares against the trial-only TMLE, a different estimator |
 | The interval covers the projection | The coverage of $\Psi$ is read only on laws where the dictionary spans the external bias. `b1y` shows the cost where it does not, and no data check tells the two cases apart |
 | One size and one learner class | Every primary scenario draws n = 4,000 with additive spline learners that are close to correct on each law. The ladder adds n = 1,000 and 2,000 for one law. A flexible learner library is not measured here |

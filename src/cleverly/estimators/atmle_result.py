@@ -759,12 +759,19 @@ class AdaptiveTMLEResult:
 
 
 def _support() -> Support:
-    """The support of every adaptive TMLE estimate: experimental, with the shown reason."""
+    """The support of every adaptive TMLE estimate: experimental, with the shown reason.
+
+    No support row reads an adaptive TMLE fit, so the label does not depend on the
+    configuration. A row would not change it: the ``working_model_projection`` status is a
+    shown status, and :func:`cleverly._support.support_for` keeps an estimate with a shown
+    status experimental inside any row.
+    """
     shown = STATUS_RECORDS[WORKING_MODEL_STATUS].shown_reason
     assert shown is not None
     return Support(
         "experimental",
-        f"No registered study covers this configuration. {shown}",
+        "No support row covers an adaptive TMLE fit. The registered study adaptive-tmle-trial "
+        f"measured its intervals at its own simulated laws and settings only. {shown}",
         evidence=("F39",),
     )
 

@@ -74,6 +74,21 @@ def _on_the_grid(study: StudyRecord) -> bool:
 #: The studies the validation grid lists.
 VALIDATION_STUDIES = tuple(study for study in STUDIES if _on_the_grid(study))
 
+#: Off-grid studies that keep the ``gated`` policy their manifest records, each with the reason
+#: and what would put the method on the grid.  An off-grid study is otherwise ``reporting``: a
+#: gated verdict that no grid row carries validates no method, so each entry names a method with
+#: no validation row.  The manifest records the policy of the run, so the entry leaves only when
+#: the study is regenerated as ``reporting`` or with property cells, or a comparator-backed record
+#: puts the method on the grid.
+GATED_OFF_GRID: dict[str, str] = {
+    "adaptive-tmle-trial": (
+        "its primary coverage tests and its controls (controls.csv, through its own "
+        "scientific_failures hook) gated the declared run of 99eb159e, but it declared no "
+        "property cell, and the R atmle pairing record is declared and not run, so "
+        "AdaptiveTMLEMethod has no grid row"
+    ),
+}
+
 #: Mutation controls only need a verdict to flip, not a published endpoint, so they run the
 #: resampling at a fraction of the published budget.
 CONTROL_BOOTSTRAP = 2_000
@@ -3065,13 +3080,18 @@ class TestThePublishedTestTables:
     ) -> None:
         """A study with no property cell and no reference has no grid row.
 
-        Such a study still registers and carries its own page.  It publishes under ``reporting``,
-        or under ``gated`` when its own hooks (``adaptive-tmle-trial``'s controls) gate the
-        rows and every gate passed.  A comparator-backed study with no property cell has a row,
-        which ``test_a_comparator_backed_study_with_no_property_cells_has_a_row`` exercises.
+        Such a study still registers, publishes its verdicts under ``reporting`` and carries its
+        own page.  :data:`GATED_OFF_GRID` names the exceptions, each with its reason.  A
+        comparator-backed study with no property cell has a row, which
+        ``test_a_comparator_backed_study_with_no_property_cells_has_a_row`` exercises.
         """
         if study.property_cells or study.reference is not None:
             pytest.skip("study is on the grid")
+        expected = "gated" if study.slug in GATED_OFF_GRID else "reporting"
+        assert study.publication_policy == expected, (
+            f"{study.slug} declares no property cell, so it cannot gate a validation claim; "
+            f"an exception is named in GATED_OFF_GRID with its reason"
+        )
         assert study.name not in _grid(), (
             f"{study.slug} declares no property cell and is not a validation row, but the grid "
             f"lists it"
@@ -3082,6 +3102,19 @@ class TestThePublishedTestTables:
         assert _OPEN.format(name="properties") not in section, (
             f"{study.slug} declares no property cell but its section carries a properties block"
         )
+
+    def test_a_gated_off_grid_exception_is_still_one(self) -> None:
+        """Each entry of :data:`GATED_OFF_GRID` is registered, off the grid, and gated.
+
+        The list can only shrink: an entry whose study left the registry, reached the grid or
+        became ``reporting`` fails until it is removed.
+        """
+        for slug, reason in GATED_OFF_GRID.items():
+            study = STUDY_BY_SLUG.get(slug)
+            assert study is not None, f"{slug} is not a registered study"
+            assert not _on_the_grid(study), f"{slug} is on the grid; remove its entry"
+            assert study.publication_policy == "gated", f"{slug} is reporting; remove its entry"
+            assert reason.strip(), slug
 
     @pytest.mark.parametrize(
         ("name", "columns", "artifact", "keys"),

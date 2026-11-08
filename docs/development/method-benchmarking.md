@@ -707,9 +707,15 @@ Each such study declares `comparison` and, where one equivalence row differs, `c
 with the key `scenario:estimand` or `scenario:*`. The kind is one of three: matching implementation,
 different estimator, or related target. The agreement block of the page prints the kind of each row.
 
-A study with no property cells and no reference can still register. It declares an empty
-`property_cells`, keeps its own page with no properties block, and the red-cell ledger reads its
-verdicts. The validation grid does not list it. `tests/unit/test_method_evidence.py` checks each of
-these facts. It usually declares `publication_policy="reporting"`, as the learned-rule boundary
-study does. A study whose own hooks gate its controls on the primary rows may declare `gated`
-instead and publish only when every gate passes, as `adaptive-tmle-trial` does.
+A study with no property cells and no reference can still register as a reporting study. It
+declares `publication_policy="reporting"` and an empty `property_cells`. It keeps its own page,
+with no properties block, and the red-cell ledger reads its verdicts. The validation grid does not
+list it. `tests/unit/test_method_evidence.py` checks each of these facts. The learned-rule boundary
+study is the example.
+
+A gated study off the grid validates no method, because no grid row carries its verdicts. Declare
+a property cell for each claim the study gates, before the run, so that its method earns a row.
+`GATED_OFF_GRID` in that test names each exception with its reason. `adaptive-tmle-trial` is the
+one entry: it gated its controls through its own hook and declared no property cell. The manifest
+records the policy of the run, so an entry leaves only at a regeneration or when a
+comparator-backed record puts the method on the grid.

@@ -4865,13 +4865,15 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
 # ------------------------------------------------------------------ exemptions and anchors
 
 #: The registered studies that no row names, each with the reason. A study that measures no
-#: estimate cannot license a configuration, so it is not the evidence of a row.
+#: estimate cannot license a configuration, so it is not the evidence of a row. A study of an
+#: engine that no support key reads is the other case: its reason names what a row would need.
 EXEMPT_STUDIES: Final[Mapping[str, str]] = {
     "adaptive-tmle-trial": (
         "It measures the intervals of AdaptiveTMLEMethod on a trial pooled with external data. "
-        "That engine is no point-treatment row: every estimate carries the "
-        "working_model_projection status, whose open condition F39 holds, and no support row "
-        "was declared before the run, so the fit keeps the experimental label."
+        "No support key reads a TrialWithExternalData fit, so no row can name the "
+        "configurations the study covers. A row would not change the label: every estimate "
+        "carries the shown status working_model_projection, which keeps an estimate "
+        "experimental inside any row until F39 closes."
     ),
     "omitted-variable-bound-se": (
         "It measures the standard error of a sensitivity bound. The bound carries its own "

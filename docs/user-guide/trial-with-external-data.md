@@ -13,8 +13,8 @@ effect varies, and the data cannot confirm that. The fit labels every result exp
 study](../technical-reference/method-evidence/adaptive-tmle-trial.md) of 17 simulated settings found
 that the 95% interval covered its target 93 to 96 times in 100 in 16 of them, and that it covered the trial's
 effect only 89 times in 100 in a stress setting where the outside patients differ in a way the
-fit's model cannot describe. The label stays because that study used its own simple models and
-sample sizes, and the interval carries the condition above.
+fit's model cannot describe. The label stays because of the condition above, which no data check
+confirms, whatever models and sample size a fit uses.
 
 ## What the data must look like
 
