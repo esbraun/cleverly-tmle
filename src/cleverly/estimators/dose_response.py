@@ -17,6 +17,7 @@ See ``docs/technical-reference/dose-response.md``.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
@@ -32,7 +33,7 @@ from ..dose_response import (
     pair_support,
     target_pair,
 )
-from ..exceptions import CapabilityError, DataError, RefusalReason
+from ..exceptions import CapabilityError, DataError, DataWarning, RefusalReason
 from ..inference.influence import ParameterEstimate, make_estimate
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
 from ..learners.density import ConditionalDensity, bin_edges, default_density_bins
@@ -98,7 +99,7 @@ class DoseResponseResult:
         One :class:`~cleverly.inference.ParameterEstimate` per pair, keyed by name.
     band : SimultaneousBands
         The simultaneous band over every declared pair.
-    support : tuple of PairSupport
+    pair_support : tuple of PairSupport
         One entry per reported estimate, in report order: every pair, and within a fit with
         baseline strata every pair in every stratum.
     quadrature_shift : float
@@ -112,14 +113,14 @@ class DoseResponseResult:
         The significance level of the intervals and of the band.
     warnings : tuple of str
         The fit's notes: a quadrature-doubling shift above tolerance, an accepted
-        composition no registered study measures (an in-sample fit, observation weights,
-        clusters), and pairs below the support floor.
+        composition no registered study measures (an in-sample fit, observation weights),
+        and pairs below the support floor.
     """
 
     curve: DoseResponse
     estimates: dict[str, ParameterEstimate]
     band: SimultaneousBands
-    support: tuple[PairSupport, ...]
+    pair_support: tuple[PairSupport, ...]
     quadrature_shift: float
     scores: dict[str, float]
     n_nodes: int
@@ -146,7 +147,7 @@ class DoseResponseResult:
         ParameterEstimate
             The estimate.
         """
-        for cell in self.support:
+        for cell in self.pair_support:
             same = np.isclose(cell.bandwidth, h) and np.isclose(cell.dose, a0)
             if same and cell.stratum == stratum:
                 return self.estimates[cell.name]
@@ -185,10 +186,10 @@ class DoseResponseResult:
                 "low_support",
             )
         }
-        stratified = any(cell.stratum is not None for cell in self.support)
+        stratified = any(cell.stratum is not None for cell in self.pair_support)
         if stratified:
             columns = {"bandwidth": [], "dose": [], "stratum": [], **columns}
-        for support in self.support:
+        for support in self.pair_support:
             estimate = self.estimates[support.name]
             lower, upper = estimate.ci
             band_lower, band_upper = self.band.bands[support.name]
@@ -231,6 +232,10 @@ class DoseResponseResult:
         )
 
 
+#: A dose with fewer distinct values than this is refused as discrete.
+MIN_DISTINCT_DOSES: Final[int] = 20
+
+
 def _refuse_unsupported(data: CausalData) -> None:
     if not data.is_continuous_treatment or data.treatment_kind == "vector":
         raise CapabilityError(
@@ -238,18 +243,43 @@ def _refuse_unsupported(data: CausalData) -> None:
             'treatment_kind="continuous"',
             reason=RefusalReason.INVALID_DECLARATION,
         )
+    distinct = np.unique(np.asarray(data.treatment, dtype=float)).size
+    if distinct < MIN_DISTINCT_DOSES:
+        raise CapabilityError(
+            f"the dose takes only {distinct} distinct values: a smoothed curve integrates the "
+            "outcome regression over every dose in the interval, and a discrete dose has no "
+            "density between its values. Fit the levels as arms with TMLE instead.",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    if data.cluster is not None:
+        raise CapabilityError(
+            "a dose-response curve does not yet support clustered rows: its intervals and "
+            "band would need the package's few-cluster rule (roadmap X95).",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit without id= only if the rows are independent.",
+            roadmap="X95",
+        )
+    if data.known_treatment is not None:
+        raise CapabilityError(
+            "a dose-response curve fits its own dose density; a declared treatment mechanism "
+            "is not supported",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit without the declared mechanism.",
+        )
     if data.has_missing_outcome or data.has_intermediate or data.has_missing_treatment:
         raise CapabilityError(
             "a dose-response curve does not yet support a missing outcome, a missing "
             "treatment or an intermediate variable: the second mechanism would have to be "
             "evaluated at every quadrature dose.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit the complete cases only if missingness is ignorable.",
             roadmap="X10",
         )
     if data.dose_atoms:
         raise CapabilityError(
             "a dose-response curve on a treatment with declared dose atoms is not supported",
             reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Declare the dose without atoms.",
         )
 
 
@@ -264,8 +294,6 @@ def _experimental_notes(data: CausalData, *, cross_fit: bool) -> list[str]:
         notes.append(
             "experimental: observation weights; no registered study measures a weighted curve"
         )
-    if data.cluster is not None:
-        notes.append("experimental: clustered rows; no registered study measures a clustered curve")
     return notes
 
 
@@ -299,6 +327,7 @@ class DoseResponseTMLE:
         The submodel on the scaled outcome.
     q_bounds : tuple of float or None
         The assumed outcome range of a continuous outcome, or ``None`` for the sample range.
+        A cross-fitted fit of a continuous outcome needs it, as every cross-fitted fit does.
     alpha : float
         The level of the intervals and of the band.
     n_replicates : int
@@ -411,6 +440,8 @@ class DoseResponseTMLE:
             treatment_kind=None if isinstance(data, CausalData) else "continuous",
         )
         _refuse_unsupported(prepared)
+        if self.cross_fit:
+            engine._refuse_unbounded_cross_fitted_scale(prepared)
         return self._fit_prepared(engine, prepared)
 
     def _fit_prepared(self, engine: Any, data: CausalData) -> DoseResponseResult:
@@ -455,7 +486,8 @@ class DoseResponseTMLE:
         refined = self._target(data, nuisance, fine, rule.n_nodes)
         estimates, supports, scores = coarse
         shift = max(
-            abs(estimates[name].psi - refined[0][name].psi) / estimates[name].std_error
+            abs(estimates[name].psi - refined[0][name].psi)
+            / max(estimates[name].std_error, np.finfo(float).tiny)
             for name in estimates
         )
         band = simultaneous_bands(
@@ -471,6 +503,7 @@ class DoseResponseTMLE:
                 f"doubling the quadrature nodes moves an estimate by {shift:.3f} standard errors; "
                 "raise nodes_per_piece"
             )
+            warnings.warn(notes[-1], DataWarning, stacklevel=3)
         notes.extend(_experimental_notes(data, cross_fit=self.cross_fit))
         low = [s.name for s in supports if s.below_floor]
         if low:
@@ -478,11 +511,12 @@ class DoseResponseTMLE:
                 f"{len(low)} pair(s) have a Kish effective size below {curve.support_floor:g}; "
                 "their intervals are labelled low_dose_support_plugin"
             )
+            warnings.warn(notes[-1], DataWarning, stacklevel=3)
         return DoseResponseResult(
             curve=curve,
             estimates=estimates,
             band=band,
-            support=supports,
+            pair_support=supports,
             quadrature_shift=float(shift),
             scores=scores,
             n_nodes=rule.n_nodes,
@@ -491,8 +525,11 @@ class DoseResponseTMLE:
         )
 
     def _preflight_memory(self, data: CausalData, n_nodes: int) -> None:
+        # Every node's counterfactual design, its prediction and its density, in the parent
+        # and again in each parallel worker that receives the designs.
         columns = data.covariates.shape[1] + 1
-        needed = int(n_nodes) * data.n * 8 * (columns + 2)
+        copies = 1 if self.n_jobs == 1 else 1 + max(int(self.n_jobs), 1)
+        needed = int(n_nodes) * data.n * 8 * (columns + 2) * copies
         if needed > NODE_MEMORY_BUDGET:
             raise DataError(
                 f"the quadrature nodes need about {needed / 1024**3:.1f} GB "
@@ -586,7 +623,7 @@ class DoseResponseTMLE:
                     report.rows,
                     report.kish,
                     report.min_density,
-                    report.max_covariate * scaler.range,
+                    report.max_covariate,
                     below,
                 )
             )

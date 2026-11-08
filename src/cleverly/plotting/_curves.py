@@ -1849,7 +1849,7 @@ def _dose_response(
     ax: Axes | None,
 ) -> Figure:
     """The smoothed dose-response curve: one series per bandwidth, the band as brackets."""
-    strata = sorted({cell.stratum for cell in result.support if cell.stratum is not None})
+    strata = sorted({cell.stratum for cell in result.pair_support if cell.stratum is not None})
     if strata and by is None:
         raise ValueError(f"this fit has baseline strata; pass by= one of {strata}")
     if by is not None and by not in strata:
@@ -1871,7 +1871,7 @@ def _dose_response(
     ends = []
     xs_all: list[float] = []
     for index, h in enumerate(bandwidths):
-        cells = [c for c in result.support if c.bandwidth == h and c.stratum == by]
+        cells = [c for c in result.pair_support if c.bandwidth == h and c.stratum == by]
         xs = [c.dose for c in cells]
         xs_all.extend(xs)
         estimates = [result.estimates[c.name] for c in cells]
@@ -1903,10 +1903,11 @@ def _dose_response(
     axis.set_ylabel(
         " ".join(_core.quantity(outcome_label, "outcome", units, difference=False)).strip()
     )
-    low = [c.name for c in result.support if c.below_floor and c.stratum == by]
+    low = [c.name for c in result.pair_support if c.below_floor and c.stratum == by]
     if low:
         notes.append(
-            f"{len(low)} point(s) rest on few nearby rows; their intervals are experimental."
+            f"{len(low)} point(s) rest on few nearby rows; their intervals carry the "
+            "low-support label."
         )
     notes.append(
         "Each point is the curve averaged over a window of doses around it (a kernel of the "

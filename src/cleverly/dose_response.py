@@ -227,7 +227,7 @@ class DoseResponse:
     bandwidths: tuple[float, ...]
     support: tuple[float, float]
     kernel: KernelName = "epanechnikov"
-    nodes_per_piece: int = 4
+    nodes_per_piece: int = 8
     support_floor: float = DEFAULT_SUPPORT_FLOOR
 
     def __post_init__(self) -> None:
@@ -564,7 +564,11 @@ def target_pair(
     omega = omega / omega.mean()
     epsilon = 0.0
     converged = False
-    score = float(np.mean(omega * h_obs * (y - _fluctuate(q_obs, h_obs, 0.0, fluctuation, bound))))
+    initial = h_obs * (y - _fluctuate(q_obs, h_obs, 0.0, fluctuation, bound))
+    score = float(np.mean(omega * initial))
+    # The score need only be small next to its own standard error; an absolute tolerance
+    # alone can sit below float precision when the clever covariate is large (a small h).
+    tol = max(tol, 1e-6 * float(np.sqrt(np.mean(omega * initial * initial) / y.size)))
     if fluctuation == "linear":
         denominator = float(np.mean(omega * h_obs * h_obs))
         epsilon = score / denominator if denominator > 0.0 else 0.0

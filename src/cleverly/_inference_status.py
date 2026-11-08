@@ -539,9 +539,9 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             reason=(
                 "A smoothed dose-response estimate whose clever covariate has a Kish effective "
                 "size below the declaration's support_floor reports its interval with the "
-                "experimental label. The registered dose-response study measures intervals from "
-                "the floor upward and none below it. The estimate stays in the simultaneous "
-                "band. X95 in docs/roadmap.md holds the measurements below the floor."
+                "experimental label. The floor of 50 is provisional until a registered study "
+                "measures the intervals near it. The estimate stays in the simultaneous band. "
+                "X95 in docs/roadmap.md holds the measurements below the floor."
             ),
             assessment_note=(
                 "the reported interval is experimental: the effective number of rows behind this "

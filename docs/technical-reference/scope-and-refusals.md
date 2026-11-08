@@ -272,8 +272,10 @@ other refusal in the table before any learner fits, except the zero-density rule
 | refused | class and code | where |
 | --- | --- | --- |
 | a dose interval that is not finite with lower below upper, a dose outside it, doses that are not strictly increasing, bandwidths that are not positive and distinct, more than 200 pairs, two pairs whose names collide, an unknown kernel | `DataError` | fix the declaration |
-| a binary, categorical or vector treatment | `CapabilityError`, `invalid_declaration` | pass one continuous dose |
-| a missing outcome, a missing treatment or an intermediate variable | `CapabilityError`, `implementation_gap` | [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism). The second mechanism would have to be evaluated at every node |
+| a binary, categorical or vector treatment, or a dose with fewer than 20 distinct values | `CapabilityError`, `invalid_declaration` | fit the levels as arms with `TMLE` |
+| clustered rows (`id=`) | `CapabilityError`, `implementation_gap` | [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) part (b) |
+| a cross-fitted continuous outcome with no `q_bounds=` | `CapabilityError`, the shared [outcome-scale refusal](cv-tmle.md#fold-and-outcome-scale-rules) | declare the outcome's range |
+| a missing outcome, a missing treatment or an intermediate variable, declared on a prepared `CausalData` | `CapabilityError`, `implementation_gap` | [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism). The second mechanism would have to be evaluated at every node |
 | a treatment with declared dose atoms | `CapabilityError`, `implementation_gap` | no roadmap row yet |
 | a dose interval that leaves the observed dose range | `DataError` | the binned density is zero outside that range. Declare the interval with a margin inside it |
 | quadrature nodes that need more than 4 GB | `DataError` | declare fewer pairs, fewer `nodes_per_piece` or fewer density bins |

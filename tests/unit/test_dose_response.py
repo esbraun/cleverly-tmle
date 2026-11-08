@@ -169,10 +169,10 @@ def test_each_mutation_breaks_a_derivative_check(mutation: str) -> None:
         covariate_lhs = sum(
             S_W[w] * _theta(CURVE, h, a0, q=lambda a, v, w=w: _q(a, v) * (v == w)) for w in range(3)
         )
-        bad_outcome = abs(outcome - _outcome_derivative(h, a0)) > 1e-4
-        bad_covariate = abs(covariate - covariate_lhs) > 1e-4
+        bad_outcome = abs(outcome - _outcome_derivative(h, a0)) > 1e-8
+        bad_covariate = abs(covariate - covariate_lhs) > 1e-8
         failures += int(bad_outcome or bad_covariate)
-    assert failures >= 3
+    assert failures == len(PAIRS)
 
 
 def _remainder(h: float, a0: float, q, g) -> float:  # type: ignore[no-untyped-def]
@@ -315,7 +315,8 @@ def fitted():  # type: ignore[no-untyped-def]
 
 def test_every_pair_solves_its_score_and_reports_a_band(fitted) -> None:  # type: ignore[no-untyped-def]
     assert set(fitted.estimates) == set(FIT_CURVE.names)
-    assert max(abs(score) for score in fitted.scores.values()) < 1e-9
+    for name, score in fitted.scores.items():
+        assert abs(score) <= 1e-5 * fitted[name].std_error
     for name, estimate in fitted.estimates.items():
         lower, upper = fitted.band.bands[name]
         assert lower <= estimate.ci[0] <= estimate.psi <= estimate.ci[1] <= upper
@@ -338,7 +339,7 @@ def test_linear_fluctuation_solves_its_score() -> None:
 def test_low_support_pairs_carry_the_label() -> None:
     curve = DoseResponse(doses=(1.0, 2.5), bandwidths=(0.6,), support=(0.5, 4.5), support_floor=1e9)
     result = _fit(_sample(600, 7), curve)
-    assert all(s.below_floor for s in result.support)
+    assert all(s.below_floor for s in result.pair_support)
     assert all(e.inference == "low_dose_support_plugin" for e in result.estimates.values())
     assert result.warnings
 
@@ -351,7 +352,7 @@ def test_an_interval_outside_the_observed_doses_is_refused() -> None:
 
 def test_a_discrete_treatment_is_refused() -> None:
     frame = _sample(200, 2).assign(A=lambda d: (d["A"] > 2.5).astype(int))
-    with pytest.raises((CapabilityError, DataError)):
+    with pytest.raises(CapabilityError, match="distinct values"):
         DoseResponseTMLE(FIT_CURVE).fit(frame, outcome="Y", treatment="A", covariates=["W"])
 
 
@@ -378,7 +379,7 @@ def test_baseline_strata_get_their_own_curves_from_one_nuisance_fit() -> None:
     }
     # The nonzero witness: V modifies the dose response.
     assert slope[1] - slope[0] > 0.1
-    for cell in result.support:
+    for cell in result.pair_support:
         curve_values = result.estimates[cell.name].influence_curve
         outside = frame["V"].to_numpy() != int(cell.stratum.split("=")[1])  # type: ignore[union-attr]
         assert np.all(curve_values[outside] == 0.0)
@@ -399,3 +400,248 @@ def test_the_curve_plot_draws_one_series_per_bandwidth(fitted) -> None:  # type:
     guides = [line for line in fig.axes[0].get_lines() if line.get_gid() == "cleverly-guide"]
     assert len(guides) == len(FIT_CURVE.bandwidths)
     plt.close(fig)
+
+
+# ------------------------------------------------- the estimator's own targeting, exactly
+
+#: A dose density constant on each bin, so the fitted density's form holds exactly.
+EXACT_EDGES = np.array([-1.0, 0.5, 1.5, 2.5, 3.5, 4.5, 6.0])
+EXACT_MASS = np.array(
+    [
+        [0.10, 0.15, 0.25, 0.25, 0.15, 0.10],
+        [0.20, 0.20, 0.20, 0.15, 0.15, 0.10],
+        [0.05, 0.10, 0.20, 0.25, 0.20, 0.20],
+    ]
+)
+EXACT_CURVE = DoseResponse(doses=(0.0, 0.4, 2.5, 4.6, 5.0), bandwidths=(0.7, 1.3), support=SUPPORT)
+
+
+def _g_exact(a: np.ndarray, w: np.ndarray) -> np.ndarray:
+    widths = np.diff(EXACT_EDGES)
+    index = np.clip(np.searchsorted(EXACT_EDGES, a, side="right") - 1, 0, widths.size - 1)
+    return EXACT_MASS[w.astype(int), index] / widths[index]
+
+
+def _q_exact(a: np.ndarray, w: np.ndarray) -> np.ndarray:
+    return 0.2 + 0.08 * a - 0.006 * a * a + 0.05 * w
+
+
+def _q_wrong(a: np.ndarray, w: np.ndarray) -> np.ndarray:
+    return _q_exact(a, w) + 0.04 - 0.02 * a + 0.01 * w * a
+
+
+def _exact_rows() -> pd.DataFrame:
+    """The law's support as weighted rows: P_n is then the law's expectation, exactly."""
+    breaks = {*EXACT_EDGES.tolist(), *SUPPORT}
+    for h, a0 in EXACT_CURVE.pairs:
+        breaks |= {a0 - h, a0 + h}
+    points = np.array(sorted(b for b in breaks if A_RANGE[0] <= b <= A_RANGE[1]))
+    x, wq = np.polynomial.legendre.leggauss(8)
+    records = []
+    for w in range(3):
+        for left, right in itertools.pairwise(points):
+            a = 0.5 * (right - left) * x + 0.5 * (right + left)
+            mass = 0.5 * (right - left) * wq * P_W[w] * _g_exact(a, np.full(a.size, w))
+            q = _q_exact(a, np.full(a.size, w))
+            for y, p in ((1.0, q), (0.0, 1.0 - q)):
+                records.append(pd.DataFrame({"A": a, "W": float(w), "Y": y, "p": mass * p}))
+    return pd.concat(records, ignore_index=True)
+
+
+class _Density:
+    def __init__(self, w: np.ndarray) -> None:
+        self.w = w
+
+    def density_at(self, a: np.ndarray) -> np.ndarray:
+        return _g_exact(np.asarray(a, dtype=float), self.w)
+
+
+class _Outcome:
+    def __init__(self, observed: np.ndarray, arms: dict[float, np.ndarray]) -> None:
+        self.observed = observed
+        self.arms = arms
+
+
+class _Nuisance:
+    def __init__(self, data, rule) -> None:  # type: ignore[no-untyped-def]
+        w = data.covariates[:, 0]
+        a = data.treatment
+        self.density = _Density(w)
+        self.outcome = _Outcome(
+            _q_wrong(a, w),
+            {float(k): _q_wrong(np.full(a.size, dose), w) for k, dose in enumerate(rule.nodes)}
+            | {float(rule.n_nodes): _q_wrong(np.full(a.size, rule.nodes[-1]), w)},
+        )
+        from cleverly.estimators.tmle import TMLE
+
+        self.scaler = TMLE(cross_fit=False)._scaler(data)
+
+
+def _exact_truth(h: float, a0: float) -> float:
+    nodes, mass = _grid(*SUPPORT, (*_breaks(h, a0), *EXACT_EDGES))
+    weight = equivalent_kernel(nodes, a0, h, SUPPORT, EXACT_CURVE.kernel)
+    return float(
+        sum(
+            P_W[w] * np.sum(mass * weight * _q_exact(nodes, np.full(nodes.size, w)))
+            for w in range(3)
+        )
+    )
+
+
+def _exact_target(offset: int = 0):  # type: ignore[no-untyped-def]
+    estimator = DoseResponseTMLE(EXACT_CURVE, cross_fit=False, fluctuation="linear")
+    data = estimator._engine()._prepare(
+        _exact_rows(),
+        outcome="Y",
+        treatment="A",
+        covariates=["W"],
+        delta=None,
+        weights="p",
+        id=None,
+        intermediate=None,
+        strata=None,
+        treatment_kind="continuous",
+    )
+    rule = EXACT_CURVE.quadrature(EXACT_EDGES)
+    return estimator._target(data, _Nuisance(data, rule), rule, offset)  # type: ignore[arg-type]
+
+
+def test_the_estimators_targeting_recovers_the_truth_from_a_wrong_outcome_regression() -> None:
+    """With the true density, the targeted plug-in is the truth exactly, however wrong Q is.
+
+    The remainder is a product with the density error, so it is zero; the score equation then
+    makes the plug-in exact.  The untargeted plug-in misses, so the fluctuation is a nonzero
+    witness, and this runs through ``DoseResponseTMLE._target`` and ``target_pair``.
+    """
+    estimates, _, scores = _exact_target()
+    for h, a0 in EXACT_CURVE.pairs:
+        name = pair_name(h, a0)
+        truth = _exact_truth(h, a0)
+        assert abs(estimates[name].psi - truth) < 1e-10
+        untargeted = sum(
+            P_W[w]
+            * float(
+                np.sum(
+                    (rule := EXACT_CURVE.quadrature(EXACT_EDGES)).weights[
+                        EXACT_CURVE.pairs.index((h, a0))
+                    ]
+                    * _q_wrong(rule.nodes, np.full(rule.n_nodes, w))
+                )
+            )
+            for w in range(3)
+        )
+        assert abs(untargeted - truth) > 1e-3
+        assert abs(scores[name]) < 1e-10
+
+
+def _mutated(monkeypatch: pytest.MonkeyPatch, mutation: str) -> None:
+    import cleverly.estimators.dose_response as module
+
+    original = module.target_pair
+
+    def wrapped(y, q_obs, q_nodes, h_obs, h_nodes, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if mutation == "drop_inverse_density":
+            h_obs = np.sign(h_obs) * np.minimum(np.abs(h_obs), 1.0)
+            h_nodes = np.sign(h_nodes) * np.minimum(np.abs(h_nodes), 1.0)
+        elif mutation == "untargeted_nodes":
+            h_nodes = np.zeros_like(h_nodes)
+        return original(y, q_obs, q_nodes, h_obs, h_nodes, *args, **kwargs)
+
+    monkeypatch.setattr(module, "target_pair", wrapped)
+
+
+@pytest.mark.parametrize("mutation", ["drop_inverse_density", "untargeted_nodes", "node_offset"])
+def test_each_targeting_mutation_misses_the_truth(
+    monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    if mutation != "node_offset":
+        _mutated(monkeypatch, mutation)
+    estimates, _, _ = _exact_target(offset=1 if mutation == "node_offset" else 0)
+    for h, a0 in EXACT_CURVE.pairs:
+        assert abs(estimates[pair_name(h, a0)].psi - _exact_truth(h, a0)) > 1e-6, (h, a0)
+
+
+# ------------------------------------------------------------------ refusals and reports
+
+
+class _Refusing(LogisticRegression):
+    """A learner whose fit raises, so a refusal that fires first is a pre-fit refusal."""
+
+    def fit(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("a learner was fitted before the refusal")
+
+
+def _refusing(curve: DoseResponse = FIT_CURVE, **kwargs: object) -> DoseResponseTMLE:
+    return DoseResponseTMLE(
+        curve,
+        outcome_learner=_Refusing(),
+        treatment_learner=_Refusing(),
+        **kwargs,  # type: ignore[arg-type]
+    )
+
+
+@pytest.mark.parametrize(
+    ("change", "fit_kwargs", "error", "match"),
+    [
+        ("missing_outcome", {}, DataError, "missing value"),
+        ("discrete", {}, CapabilityError, "distinct values"),
+        ("cluster", {"id": "cluster"}, CapabilityError, "clustered rows"),
+        ("gaussian", {}, CapabilityError, ""),
+    ],
+)
+def test_refusals_raise_before_any_learner_fits(
+    change: str, fit_kwargs: dict[str, str], error: type[Exception], match: str
+) -> None:
+    frame = _sample(400, 4).assign(cluster=lambda d: np.arange(len(d)) % 20)
+    if change == "missing_outcome":
+        frame.loc[frame.index[:10], "Y"] = np.nan
+    if change == "discrete":
+        frame["A"] = np.round(frame["A"]).clip(0, 6)
+    if change == "gaussian":
+        frame["Y"] = frame["A"] + np.random.default_rng(0).normal(size=len(frame))
+    with pytest.raises(error, match=match):
+        _refusing().fit(frame, outcome="Y", treatment="A", covariates=["W"], **fit_kwargs)
+
+
+def test_the_memory_preflight_refuses_before_any_learner_fits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import cleverly.estimators.dose_response as module
+
+    monkeypatch.setattr(module, "NODE_MEMORY_BUDGET", 1024)
+    with pytest.raises(DataError, match="GB"):
+        _refusing().fit(_sample(400, 4), outcome="Y", treatment="A", covariates=["W"])
+
+
+def test_the_support_report_reads_the_clever_covariate(fitted) -> None:  # type: ignore[no-untyped-def]
+    """Kish size and largest covariate from H = w/g, recomputed from the fit's own rows."""
+    frame = _sample(1200, 3)
+    for cell in fitted.pair_support:
+        weight = FIT_CURVE.weight(cell.bandwidth, cell.dose, frame["A"].to_numpy())
+        assert cell.rows == int(np.count_nonzero(weight))
+        assert cell.min_density > 0.0
+        # |H| = |w| / g, so the largest covariate is at least the largest weight over the
+        # largest density and does not scale with the outcome.
+        assert cell.max_covariate >= np.abs(weight).max() / 1.0
+        assert 1.0 <= cell.kish <= cell.rows
+
+
+def test_a_quadrature_or_support_note_is_also_a_warning() -> None:
+    from cleverly.exceptions import DataWarning
+
+    curve = DoseResponse(doses=(1.0, 2.5), bandwidths=(0.6,), support=(0.5, 4.5), support_floor=1e9)
+    with pytest.warns(DataWarning, match="Kish"):
+        _fit(_sample(600, 7), curve)
+
+
+def test_a_two_hundred_pair_declaration_solves_every_score() -> None:
+    curve = DoseResponse(
+        doses=tuple(np.linspace(0.6, 4.4, 40)),
+        bandwidths=(0.5, 0.7, 0.9, 1.1, 1.3),
+        support=(0.5, 4.5),
+        nodes_per_piece=2,
+    )
+    result = _fit(_sample(400, 9), curve, density_bins=10)
+    assert len(result.estimates) == 200
+    for name, score in result.scores.items():
+        assert abs(score) <= 1e-5 * result[name].std_error

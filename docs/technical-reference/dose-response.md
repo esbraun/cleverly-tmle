@@ -46,7 +46,8 @@ result = estimator.fit(frame, outcome="Y", treatment="A", covariates=["W"])
 print(result.to_frame()[["bandwidth", "dose", "estimate", "band_lower", "band_upper"]])
 ```
 
-`cleverly.plotting.curve(result)` draws one series per bandwidth, with the band.
+`cleverly.plotting.curve(result)` draws one series per bandwidth, with the band. The
+[dose-response tutorial](../examples/dose-response.ipynb) walks through one analysis.
 
 ## Estimand
 
@@ -72,7 +73,7 @@ $$
 | --- | --- |
 | $w$ depends on $(K, h, a_0, D)$ only | $\theta_h$ is a known linear functional of $\theta$ |
 | $\int_D w = 1$ and $\int_D w(a)(a - a_0)\,da = 0$ | $\theta_h(a_0) = \theta(a_0)$ wherever $\theta$ is linear on the support of $w$, at interior and boundary doses |
-| interior pair, symmetric $K$: $w = K_h(\cdot - a_0) \ge 0$ | the target is the kernel average of Bibaut and van der Laan (2017), Section 1.3, and the estimate lies in the outcome's range |
+| interior pair, symmetric $K$: $w = K_h(\cdot - a_0) \ge 0$ | the target is the kernel average of Bibaut and van der Laan (2017), Section 1.3. Under `fluctuation="logistic"` the estimate lies in the outcome's range; the linear submodel can leave it |
 | boundary pair: $w$ is signed | for Epanechnikov at $a_0 = a_\mathrm{lo}$, $\min w \approx -0.92/h$, $\int \lvert w \rvert \approx 1.57$ and $\int w^2$ is about 7.5 times its interior value. The estimate can leave the outcome's range, and its variance is larger |
 | $\theta \in C^2$ near $a_0$ | $\lvert \theta_h(a_0) - \theta(a_0) \rvert \le \tfrac12 \sup \lvert\theta''\rvert\, h^2 \int \lvert w \rvert$, so the smoothing bias is $O(h^2)$ uniformly over $D$ |
 
@@ -152,39 +153,43 @@ inputs are the canonical gradient and the second-order remainder above.
 
 The fit repeats steps 4 and 5 with twice the nodes and records the largest change relative to a
 pair's standard error as `result.quadrature_shift`. It adds a note to `result.warnings` when that
-exceeds 0.05. A tree-based $\bar Q$ puts its own jumps inside pieces, where the rule converges more
+exceeds 0.05, and warns with `DataWarning`. A tree-based $\bar Q$ puts its own jumps inside pieces, where the rule converges more
 slowly.
 
 The fit refuses before any learner runs when $D$ leaves the observed dose range, since the binned
 density is zero outside it, and when the nodes would need more than 4 GB. It refuses after the
 nuisance fit, naming the pair, when the fitted density is zero where a weight is nonzero. Declare
-$D$ with a margin inside the expected dose range. Moving an endpoint toward the sample minimum or
-maximum after a refusal changes the target by $O_P(1/n)$; moving it to a sample quantile does not.
+$D$ with a margin inside the expected dose range, and choose it without reading the sample: an
+endpoint set from the sample changes the target.
 
 ## Support
 
-`result.support` holds one entry per reported estimate, and `result.to_frame()` repeats its main
+`result.pair_support` holds one entry per reported estimate, and `result.to_frame()` repeats its main
 columns.
 
 | field | meaning |
 | --- | --- |
 | `rows` | rows whose observed dose gets a nonzero weight |
-| `kish` | the Kish effective size of the clever covariate, $(\sum_i \lvert H_i \rvert)^2 / \sum_i H_i^2$ |
+| `kish` | the Kish effective size of the clever covariate, $(\sum_i \lvert H_i \rvert)^2 / \sum_i H_i^2$, without observation weights |
 | `min_density` | the smallest fitted density over the loaded observed doses and the pair's nodes |
 | `max_covariate` | the largest $\lvert H_i \rvert$ |
 | `below_floor` | whether `kish` is below `DoseResponse.support_floor` (default 50) |
 
 A pair below the floor keeps its interval and its place in the band, and its estimate carries the
-inference status `low_dose_support_plugin`. The label says that the normal approximation behind the
-interval rests on few effective rows. [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor)
+inference status `low_dose_support_plugin`, and the fit warns with `DataWarning`. The label says
+that the normal approximation behind the interval rests on few effective rows. The default floor
+is provisional until the registered study measures intervals near it. [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor)
 records what would remove it.
 
 ## Compositions
 
 | composition | status |
 | --- | --- |
-| cross-fitted fit, bounded or unbounded $Y$, with or without baseline strata | accepted |
-| in-sample fit (`cross_fit=False`), observation weights, clustered rows | accepted, with an `experimental:` note in `result.warnings`. No registered study measures them |
+| cross-fitted fit, with or without baseline strata | accepted. A continuous $Y$ needs `q_bounds=`, its declared range, as every cross-fitted fit does ([fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules)) |
+| in-sample fit (`cross_fit=False`), observation weights | accepted, with an `experimental:` note in `result.warnings`. No registered study measures them |
+| clustered rows (`id=`) | refused, `implementation_gap`, [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) part (b). The intervals would need the few-cluster rule |
+| a dose with fewer than 20 distinct values | refused, `invalid_declaration`. A discrete dose has no density between its values. Fit its levels as arms with `TMLE` |
+| `one_step` targeting | not offered. Each pair takes its own one-dimensional fluctuation |
 | baseline strata | each stratum $v$ gets its own curve, $E\{\int_D w(a) \bar Q(a, W)\,da \mid V = v\}$, from one nuisance fit, named with a `[V=v]` suffix |
 | a binary, categorical or vector treatment | refused, `invalid_declaration` |
 | missing outcome, missing treatment, intermediate variable | refused, `implementation_gap`, roadmap X10. The second mechanism would have to be evaluated at every node |
@@ -196,12 +201,14 @@ records what would remove it.
 | check | test |
 | --- | --- |
 | the pathwise derivative along outcome and covariate scores equals $E[D s]$ on an exact law with three covariate levels and a piecewise-linear dose density, at interior and boundary pairs | `tests/unit/test_dose_response.py::test_outcome_score_derivative_equals_the_influence_curve`, `::test_covariate_score_derivative_equals_the_influence_curve` |
-| the derivative along a score of the dose law is zero, and so is its inner product with $D$ | `::test_a_score_of_the_dose_law_has_zero_derivative_and_zero_inner_product` |
+| the derivative along a score of the dose law is zero, and so is its inner product with $D$. This is a structural identity: it holds for any $D$ of the form $f(A, W)\{Y - \bar Q_0\} + c(W)$, so it cannot fail for a wrong clever covariate, which the rows above and below catch | `::test_a_score_of_the_dose_law_has_zero_derivative_and_zero_inner_product` |
 | deliberate mutations (drop $1/g$, read $g$ at $a_0$, omit the integral term) each fail a derivative check | `::test_each_mutation_breaks_a_derivative_check` |
 | the exact remainder equals the product form, is nonzero with both nuisances wrong, and vanishes with either one right | `::test_the_exact_remainder_is_the_product_and_vanishes_with_one_correct_nuisance` |
 | the equivalent kernel's moments and sign, interior and boundary | `::test_equivalent_kernel_moments_and_sign` |
 | the composite rule is exact on a piecewise polynomial and fails without its breaks | `::test_the_composite_rule_is_exact_on_a_piecewise_polynomial_and_needs_its_breaks` |
-| every pair solves its score; round trip; strata; support label; refusals | the fit tests in the same file |
+| the estimator's own targeting (`DoseResponseTMLE._target` and `target_pair`), given the true density and a wrong outcome regression on the law's support as weighted rows, returns the truth exactly at every pair, where the untargeted plug-in misses | `::test_the_estimators_targeting_recovers_the_truth_from_a_wrong_outcome_regression` |
+| dropping $1/g$, leaving the plug-in untargeted, or reading the regression at the wrong node each miss the truth at every pair | `::test_each_targeting_mutation_misses_the_truth` |
+| every pair solves its score, including a 200-pair declaration; round trip; strata; support report; refusals before any learner fits | the fit tests in the same file |
 
 The registered Python property study and the R comparator against npcausal `ctseff` are pending.
 Until they land, the evidence for this method is the fast-tier checks above.

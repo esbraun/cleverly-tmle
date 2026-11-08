@@ -567,7 +567,8 @@ raises `CapabilityError` when an outcome is missing. The refused table of
 ## A curve over a continuous dose
 
 `DoseResponseTMLE` estimates how the mean outcome changes with a continuous dose, such as a price
-or a number of contacts. A curve at one exact dose has no reliable interval, so the estimator
+or a discount. A curve at one exact dose has no interval that narrows at the usual rate as the
+data grow, so the estimator
 reports a smoothed curve: at each declared dose it averages the curve over nearby doses, within a
 declared bandwidth. You choose the doses, the bandwidths and the dose range before looking at the
 results. The fit gives an interval at each dose and bandwidth, and one band that covers all of them
@@ -602,13 +603,16 @@ table = dose_fit.to_frame()
 
 Each row of `table` is one dose and bandwidth. `lower` and `upper` are the interval for that row
 alone. `band_lower` and `band_upper` hold for every row together, so read the band when you compare
-bandwidths or pick one after seeing the results. A wider bandwidth gives a narrower interval and
-more smoothing. The smoothing bias grows with the square of the bandwidth where the curve bends, so
+bandwidths or pick one after seeing the results. A wider bandwidth usually gives a narrower interval
+and more smoothing, unless it reaches doses with few observations. The smoothing bias grows with the square of the bandwidth where the curve bends, so
 prefer the narrower bandwidth when its interval is usable.
 
-The dose range must lie inside the doses you observed, with a margin: the fit refuses a range that
+The intervals need both models to be good: the outcome model, and the model of which dose each
+customer received given their characteristics. The dose range must lie inside the doses you
+observed, with a margin: the fit refuses a range that
 reaches past them. A row whose dose has few nearby observations is flagged in the `low_support`
-column, and its interval is labelled experimental. `cleverly.plotting.curve(dose_fit)` draws one
+column, and its estimate's `inference` reads `low_dose_support_plugin`: its interval rests on few
+effective rows. `cleverly.plotting.curve(dose_fit)` draws one
 line per bandwidth with the band.
 [Smoothed dose-response curve](../technical-reference/dose-response.md) states the estimand, the
 conditions and the refusals.

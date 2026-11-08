@@ -165,7 +165,7 @@ not change the package version.
 | after beta | EP learner | preprint support, read first-hand | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | after beta | Adaptive TMLE for a trial augmented with external data | preprint support, read first-hand | the shipped point-treatment TMLE, its known treatment mechanism and the shipped lasso | [X90](#x90-adaptive-tmle-for-a-trial-augmented-with-external-data) |
 | after beta | Survival targets across the estimators | published support for part (b); natural extension for parts (c) and (d); audit first for part (f); part (e) refused | the shipped survival and competing-risk paths of `LTMLE` | [X91](#x91-survival-targets-across-the-estimators) |
-| after beta | Dose-response intervals below the support floor | no new theory; a registered study at small bandwidths and tail doses | the shipped `DoseResponseTMLE` and its support report | [X95](#x95-dose-response-intervals-below-the-support-floor) |
+| after beta | Dose-response intervals below the support floor | no new theory for part (a), a registered study at small bandwidths and tail doses; part (b), clustered rows, needs a few-cluster rule for the multiplier band | the shipped `DoseResponseTMLE` and its support report | [X95](#x95-dose-response-intervals-below-the-support-floor) |
 | after beta | Plots and visualizations | no new theory for the plots; preprint and published support for the targeting curves of part 5, read first-hand | the shipped results, diagnostics and sensitivity analyses; `matplotlib` through the `plot` extra | [X92](#x92-plots-and-visualizations) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -2015,9 +2015,14 @@ refusal test.
 
 `DoseResponseTMLE` labels a pair whose clever covariate has a Kish effective size below the
 declaration's `support_floor` with the `low_dose_support_plugin` status: its interval is shown and
-experimental. The registered dose-response study measures intervals from the floor upward. This
-item measures the interval below the floor, at small bandwidths and at tail doses, in a
-registered study, and either lowers the default floor or keeps the label.
+experimental. The default floor of 50 is provisional until the registered dose-response study
+measures intervals near it. This item has two parts.
+
+- (a) Measure the interval below the floor, at small bandwidths and at tail doses, in a registered
+  study, and either lower the default floor or keep the label.
+- (b) Clustered rows. `DoseResponseTMLE` refuses `id=`. Its intervals and band would need the
+  package's few-cluster rule: the status `few_cluster_plugin` and a $t$ reference below 40
+  clusters, which the multiplier band does not take.
 
 ### X92. Plots and visualizations
 
