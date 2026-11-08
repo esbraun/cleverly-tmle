@@ -350,6 +350,20 @@ class TestTheLayout:
         assert widths(study) == [1.2, 1.2]
         assert widths(_study(n_replicates=400)) == pytest.approx([180 / 400] * 2)
 
+    def test_the_misses_differ_from_the_covers_in_grey_scale(self, study: Any) -> None:
+        def grey(artist: Any) -> float:
+            """The luminance of the line as drawn on white, from 0 (black) to 255."""
+            red, green, blue, _ = matplotlib.colors.to_rgba(artist.get_color()[0])
+            alpha = artist.get_alpha()
+            mixed = [alpha * value + (1.0 - alpha) for value in (red, green, blue)]
+            return 255.0 * (0.299 * mixed[0] + 0.587 * mixed[1] + 0.114 * mixed[2])
+
+        fig = plotting.zipper(study, estimand="rd")
+        by_gid = {c.get_gid(): c for c in fig.axes[1].collections if c.get_gid()}
+        covered, missed = by_gid["cleverly-zipper-covered"], by_gid["cleverly-zipper-missed"]
+        assert grey(covered) - grey(missed) > 40
+        _close(fig)
+
     def test_the_figures_pass_the_style_and_layout_checks(self, study: Any) -> None:
         for fig in (plotting.zipper(study), plotting.zipper(study, estimand="rd")):
             assert_style(fig)

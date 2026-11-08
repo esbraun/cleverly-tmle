@@ -282,8 +282,8 @@ class MarginalSensitivityBounds:
         Parameters
         ----------
         **kwargs
-            Passed to :func:`cleverly.plotting.sensitivity`: ``outcome_label=`` and
-            ``title=``.
+            Passed to :func:`cleverly.plotting.sensitivity`: ``outcome_label=``, ``units=``
+            and ``title=``.
 
         Returns
         -------

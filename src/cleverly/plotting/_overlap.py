@@ -118,7 +118,7 @@ def overlap(
     Use it to check overlap: whether every kind of unit had a real chance of each
     treatment. Where one group's histogram has mass and the other's has none, the
     comparison rests on extrapolation, and units near 0 or 1 get large weights. The limits
-    the fit put on the probabilities are drawn as dashed lines, with the share of units
+    the fit put on the probabilities are drawn as dotted lines, with the share of units
     beyond each. Bars are shares of all units, weighted by the data's weights.
 
     The probabilities are the out-of-fold predictions before the limits were applied. A fit

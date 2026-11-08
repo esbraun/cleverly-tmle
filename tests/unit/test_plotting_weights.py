@@ -637,6 +637,12 @@ class TestTheLovePlot:
         assert "all 3 arms' variances" in _core.note_text(fig)
         _close(fig)
 
+    def test_treatment_label_names_the_arms_of_one_contrast(self, point: Any) -> None:
+        fig = plotting.balance(point, treatment_label="Offer")
+        subtitle = _core.subtitle_text(fig.axes[0])
+        assert "Offer = 1 vs Offer = 0" in subtitle and "A = " not in subtitle
+        _close(fig)
+
     def test_max_covariates_truncates_and_says_so(self, point: Any) -> None:
         fig = plotting.balance(point, max_covariates=2)
         axis = fig.axes[1]

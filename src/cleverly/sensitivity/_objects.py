@@ -478,7 +478,7 @@ class MissingnessTilt(_Rows):
         ----------
         **kwargs
             Passed to :func:`cleverly.plotting.sensitivity`: ``estimand=``,
-            ``outcome_label=`` and ``title=``.
+            ``outcome_label=``, ``units=`` and ``title=``.
 
         Returns
         -------

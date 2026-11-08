@@ -63,6 +63,10 @@ raw `value` and the printed `text`. `summary.facts` maps each header label to it
 The rest of this page uses the same layout for the assessment, the sensitivity analyses, and the
 checks of the fit.
 
+To see a result instead of reading its table, draw it with `cleverly.plotting`: the
+[plot results](../examples/plots.ipynb) tutorial draws the estimate, the overlap and balance checks,
+and the sensitivity analyses.
+
 ## Run the assessment battery
 
 Call `assess()` to collect validation, diagnostics, and sensitivity in one report.
