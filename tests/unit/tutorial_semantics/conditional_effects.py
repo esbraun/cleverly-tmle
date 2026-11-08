@@ -160,7 +160,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_ranking(namespace)
     assert (
         figure_title(namespace["ranking_fig"])
-        == "How much does treating by priority first gain over treating at random?"
+        == "How much does treating by predicted effect first gain over treating at random?"
     )
     _check_trial(namespace)
 
