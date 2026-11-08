@@ -15,7 +15,7 @@ ordinary Markdown that is readable on GitHub.
 
 ## The examples contract
 
-[Examples](examples/index.md) carries sixteen tutorials and the TWINS notebook. Every method entry
+[Examples](examples/index.md) carries nineteen tutorials and the TWINS notebook. Every method entry
 in the technical reference has at least one tutorial, and each entry and its tutorials link to each
 other in both directions. A new method entry needs a new tutorial, or a new section in a tutorial
 that fits its question.
@@ -32,15 +32,16 @@ that fits its question.
 | [structural dynamic effects](technical-reference/structural-dynamic-effects.md) | model-based-over-time |
 | [DR-TMLE](technical-reference/dr-tmle/index.md) | randomized-pilot |
 | [adaptive-propensity IPTW](technical-reference/adaptive-iptw.md) | randomized-pilot |
+| [smoothed dose-response curve](technical-reference/dose-response.md) | dose-response |
 
 The tutorials share two narratives. Thirteen follow one health program: a health plan's hospital
 network evaluates care-transition navigation. A new tutorial for a method joins that program rather
 than inventing a scenario, unless the method needs a law that the program lacks. The pricing
-tutorial is that case, because the health program has no continuous price. Three tutorials follow a
-second program, a subscription retailer that sends weekly offers, counts weekly orders, and sets
-monthly renewal prices. The weekly-orders tutorial uses the retailer's weekly orders, an outcome
-recorded every week that the health program lacks, and the offers tutorial draws each week's offer
-with a logged chance.
+tutorial is that case, because the health program has no continuous price. Four tutorials follow a
+second program, a subscription retailer that sends weekly offers, counts weekly orders, sets
+monthly renewal prices, and gives renewal discounts. The weekly-orders tutorial uses the retailer's
+weekly orders, an outcome recorded every week that the health program lacks, and the offers
+tutorial draws each week's offer with a logged chance.
 
 [Worked examples by method family](development/example-notebooks.md#worked-examples-by-method-family)
 maps each family of the implementation matrix to the tutorials that show it, and names the
