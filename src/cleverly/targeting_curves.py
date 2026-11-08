@@ -42,11 +42,11 @@ from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
 import numpy as np
-from scipy import stats
 from scipy.special import digamma
 
 from ._typing import FloatArray, IntArray
 from .exceptions import CapabilityError, DataError, Refusal, RefusalReason
+from .inference.delta import reference_quantile, two_sided_pvalue
 from .utils.frames import frame_from_dict
 
 __all__ = [
@@ -1181,7 +1181,7 @@ def targeting_fit(
         arms=len(tuple(fit.nuisance.arms)),
         cross_fitted=bool(getattr(fit.config, "cross_fit", True)),
     )
-    z = float(stats.norm.ppf(1.0 - float(alpha) / 2.0))
+    z = reference_quantile(float(alpha))
     builder = _TargetingRows(
         z=z,
         alpha=float(alpha),
@@ -1368,7 +1368,7 @@ class _TargetingRows:
         low = estimate - self.z * se if math.isfinite(se) else float("nan")
         high = estimate + self.z * se if math.isfinite(se) else float("nan")
         p = (
-            float(2.0 * stats.norm.sf(abs(estimate) / se))
+            two_sided_pvalue(estimate, se)
             if p_value and math.isfinite(se) and se > self.zero_spread
             else float("nan")
         )
