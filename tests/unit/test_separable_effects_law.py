@@ -17,8 +17,10 @@ import warnings
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 
+import cleverly.longitudinal.separable as separable_module
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.fluctuation._score import relative_score
 from cleverly.longitudinal import LTMLE, SDR, DynamicRegimen, LongitudinalData, Separable
@@ -242,27 +244,60 @@ def _shifts() -> tuple[np.ndarray, np.ndarray]:
     return _shift(w, 3, (1.0, -1.0, 0.5)), _shift(w, 3, (0.8, 1.0, -1.0))
 
 
-def test_a_wrong_event_hazard_is_corrected_by_the_targeting() -> None:
+#: The two phases of the targeting: the walk alone, and Newton steps from the start (the
+#: handover forced at once), so each robustness witness checks both.
+PHASES = pytest.mark.parametrize("phase", ["walk", "newton"])
+
+
+def _phase(monkeypatch: pytest.MonkeyPatch, phase: str) -> None:
+    if phase == "newton":
+        monkeypatch.setattr(separable_module, "_STALL", 0)
+
+
+@PHASES
+def test_a_wrong_event_hazard_is_corrected_by_the_targeting(
+    monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
     """lambda_D right, h_Y wrong at every level, exact mechanism: the targeted risk is true."""
+    _phase(monkeypatch, phase)
     _, shift_y = _shifts()
     start_bias, bias, _ = _targeted(0.0, shift_y)
     assert abs(start_bias) > 5 * FLOOR
     assert abs(bias) < 1e-10
 
 
-def test_a_wrong_competing_hazard_is_corrected_by_the_targeting() -> None:
+@PHASES
+def test_a_wrong_competing_hazard_is_corrected_by_the_targeting(
+    monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
     """h_Y right, lambda_D wrong at every level, exact mechanism: the targeted risk is true."""
+    _phase(monkeypatch, phase)
     shift_d, _ = _shifts()
     start_bias, bias, _ = _targeted(shift_d, 0.0)
     assert abs(start_bias) > 5 * FLOOR
     assert abs(bias) < 1e-10
 
 
-def test_both_hazards_wrong_miss_the_truth() -> None:
+@PHASES
+def test_both_hazards_wrong_miss_the_truth(monkeypatch: pytest.MonkeyPatch, phase: str) -> None:
     """The control: with both factors wrong the remainder is not zero (design section 2a)."""
+    _phase(monkeypatch, phase)
     shift_d, shift_y = _shifts()
     _, bias, _ = _targeted(shift_d, shift_y)
     assert abs(bias) > FLOOR
+
+
+def test_the_newton_record_describes_the_reported_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """After Newton steps the trace ends at the reported state and counts its steps."""
+    monkeypatch.setattr(separable_module, "_STALL", 0)
+    _, inputs, exact = _engine()
+    shift_d, _ = _shifts()
+    start = SeparableState(exact.beta_d + shift_d, exact.beta_y)
+    targeted, record = walk_separable(start, inputs, TARGET, step_size=0.05, tol=1e-12)
+    score, scale = scores(targeted, inputs, TARGET)
+    assert record.trace[-1] == pytest.approx(relative_score(score, scale), rel=1e-12)
+    assert len(record.trace) == record.n_iter + 1
+    assert record.converged and record.failure is None
 
 
 def test_one_coefficient_shared_by_both_factors_loses_the_robustness() -> None:
@@ -441,6 +476,7 @@ def test_horizons_past_a_node_nobody_survives_at_the_death_level_are_dropped() -
     assert _name("sep", "relapse", 2) in names
     assert _name("sep", "relapse", 3) not in names
     assert _name("a2", "relapse", 3) in names
+    assert result.estimates[_name("sep", "relapse", 2)].std_error is not None
 
 
 # ------------------------------------------------------------- compositions
@@ -529,3 +565,45 @@ def test_a_study_reports_the_separable_parameters() -> None:
             cross_fit=False,
         )
     assert "cif_regimen[split, relapse @ t=4]" in result.estimates
+
+
+def test_the_score_check_reads_both_factor_scores(fit: Any) -> None:
+    """The solver row of a separable target reports the larger of its two factor scores."""
+    frame = fit.diagnostics.score_equations().to_frame()
+    rows = frame[frame["regimen"] == "sep"]
+    assert len(rows) == 2 * len(HORIZONS)
+    assert rows["passed"].all()
+    record = fit.fits[next(iter(fit.fits))].hazard
+    relapse = [i for i, entry in enumerate(record.targets) if entry[:3] == ("sep", "relapse", 3)]
+    assert len(relapse) == 2
+    largest = max(abs(record.score[i]) / record.score_scale[i] for i in relapse)
+    row = rows[(rows["cause"] == "relapse") & (rows["horizon"] == 3)]
+    assert float(row["relative_score"].iloc[0]) == pytest.approx(largest, rel=1e-12)
+    fit.validate()
+
+
+def test_a_stochastic_policy_beside_a_separable_regimen_is_refused() -> None:
+    from cleverly.interventions import Stochastic
+
+    def half(frame: Any) -> np.ndarray:
+        return np.full((len(frame), 3), 1.0 / 3.0)
+
+    mix = DynamicRegimen("mix", (Stochastic(half, "third", density_kind="known"),))
+    with pytest.raises(CapabilityError, match="'mix' is not a static arm"):
+        _fit(regimens={"a0": 0, "mix": mix, "sep": SEPARABLE})
+
+
+def test_observation_weights_equal_duplicated_rows() -> None:
+    """A weight of two on a unit gives the fit on the panel with that unit twice."""
+    law = _law()
+    frame = law.frame()
+    doubled = (frame["W"] == 1) & (frame["A"] == 2)
+    weighted = LongitudinalData.from_frame(
+        frame.assign(wt=np.where(doubled, 2.0, 1.0)), weights="wt", **law.fit_columns()
+    )
+    duplicated = LongitudinalData.from_frame(
+        pd.concat([frame, frame[doubled]], ignore_index=True), **law.fit_columns()
+    )
+    one, two = _fit(data=weighted), _fit(data=duplicated)
+    for name in (_name("sep", "relapse", 3), _name("sep", "death", 2), _name("a1", "relapse", 3)):
+        assert one.estimates[name].psi == pytest.approx(two.estimates[name].psi, abs=1e-10)

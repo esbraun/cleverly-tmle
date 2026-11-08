@@ -343,7 +343,7 @@ class InitialHazards:
         ``(node, cause index)`` pairs whose training rows held no event, so the fit
         predicts zero there and fits no learner.
     diagnostics : tuple
-        Super Learner diagnostics per node and cause, in fit order.
+        Super Learner diagnostics per node and cause, in cause order.
     """
 
     hazards: FloatArray

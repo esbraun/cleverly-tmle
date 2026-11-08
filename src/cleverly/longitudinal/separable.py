@@ -45,7 +45,9 @@ hazards are (design section 2a).  The shipped softmax fluctuation of
 :mod:`cleverly.longitudinal.hazard` solves the same scores but loses that robustness, which is
 why separable fits target here.  The targeting is the one-step walk of
 :func:`~cleverly.longitudinal.hazard.walk_curve` (Rytgaard and van der Laan 2024, Section 3.4)
-over the :math:`2M` factor scores.
+over the :math:`2M` factor scores.  When the walk's relative score stops halving over
+``_STALL`` steps, Newton steps on the same factor-wise submodel at the current covariates
+finish it, and the state with the smallest relative score is reported.
 """
 
 from __future__ import annotations
@@ -317,8 +319,9 @@ class SeparableState:
     lam_d: FloatArray = field(init=False, repr=False)
     h_y: FloatArray = field(init=False, repr=False)
     survival: FloatArray = field(init=False, repr=False)
-    #: Per-state memo of the covariates, keyed by the inputs and the target, so the
-    #: scores and the walk direction at one state compute them once.
+    #: Per-state memo of the covariates for one inputs object (held under ``"inputs"`` and
+    #: checked by identity), so the scores and the walk direction at one state compute
+    #: them once.
     cache: dict[Any, Any] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -343,6 +346,22 @@ class SeparableState:
         :math:`1 - \\lambda_D` is :math:`h_Y`.  ``held`` holds the ``(T, L)`` cells whose
         factor is held: empty and full :math:`D`, then empty and full :math:`Y` among the
         :math:`D`-free.
+
+        Parameters
+        ----------
+        hazards : FloatArray
+            ``(n, T, L, 2)`` cause-specific hazards by unit, node, level and cause.
+        first : int
+            The index of the cause counted first within a node.
+        bounds : tuple of float
+            The clip interval of every factor logit.
+        held : tuple of BoolArray
+            The ``(T, L)`` held cells, in the order above.
+
+        Returns
+        -------
+        SeparableState
+            The factors, with held cells at :math:`\\pm\\infty`.
         """
         lam = np.asarray(hazards, dtype=float)
         lam_d = lam[..., first]
@@ -358,7 +377,22 @@ class SeparableState:
     def moved(
         self, delta_d: FloatArray, delta_y: FloatArray, bounds: tuple[float, float]
     ) -> SeparableState:
-        """The state after adding each factor's increment, then clipping; held cells stay."""
+        """The state after adding each factor's increment, then clipping; held cells stay.
+
+        Parameters
+        ----------
+        delta_d : FloatArray
+            ``(n, T, L)`` increment of :math:`\\beta_D`.
+        delta_y : FloatArray
+            ``(n, T, L)`` increment of :math:`\\beta_Y`.
+        bounds : tuple of float
+            The clip interval of every factor logit.
+
+        Returns
+        -------
+        SeparableState
+            The moved state, with an empty cache.
+        """
 
         def step(beta: FloatArray, delta: FloatArray) -> FloatArray:
             return np.where(np.isinf(beta), beta, np.clip(beta + delta, *bounds))
@@ -371,6 +405,16 @@ class SeparableState:
 
         Each incidence is a running sum of non-negative products, so it is non-decreasing over
         the nodes in floating point.
+
+        Parameters
+        ----------
+        levels : tuple of int
+            The level codes ``(a_D, a_Y)``.
+
+        Returns
+        -------
+        tuple of FloatArray
+            The composed survival, the survival before each node, and the incidence by role.
         """
         a_d, a_y = levels
         lam_d = self.lam_d[:, :, a_d]
@@ -420,6 +464,7 @@ class SeparableInputs:
 
     @property
     def n(self) -> int:
+        """The number of units."""
         return int(self.at_risk.shape[0])
 
     @property
@@ -430,6 +475,7 @@ class SeparableInputs:
 
     @property
     def rows(self) -> IntArray:
+        """``(n,)`` the unit index, for reading each unit's observed level."""
         return np.arange(self.n)
 
     def rows_d(self) -> BoolArray:
@@ -447,7 +493,10 @@ def _level_block(
     """``(n, T)`` composed survival, ``(n, T, 2)`` composed incidence, and the ``(n, T)``
     weights of :math:`H_Y` at :math:`a_Y` and of :math:`H_D` at :math:`a_D`, shared by every
     target with these levels."""
-    key = (id(inputs), "levels", levels)
+    key = ("levels", levels)
+    if state.cache.get("inputs") is not inputs:
+        state.cache.clear()
+        state.cache["inputs"] = inputs
     if key not in state.cache:
         a_d, a_y = levels
         survival, before, incidence = state.composed(levels)
@@ -472,7 +521,10 @@ def _covariates(
 
     Both covariates are zero after the horizon.
     """
-    key = (id(inputs), "target", target)
+    if state.cache.get("inputs") is not inputs:
+        state.cache.clear()
+        state.cache["inputs"] = inputs
+    key = ("target", target)
     if key in state.cache:
         return state.cache[key]
     survival, incidence, weight_y, weight_d = _level_block(state, inputs, target.levels)
@@ -653,8 +705,9 @@ def _newton_direction(
     log-likelihood as a logistic regression offset by the current logits, so the step is
     the least-squares solution of ``I c = s`` for that factor's information matrix ``I`` and
     scores ``s``.  The two factors' blocks are separate, because a coefficient of one factor
-    does not move the other factor's likelihood.  The covariates move with the state, so the
-    caller halves the step until the score norm falls.
+    does not move the other factor's likelihood.  The covariates move with the state, so a
+    full step can raise the score while the next lowers it; the caller takes full steps and
+    keeps the best state.
     """
     rows, observed = inputs.rows, inputs.observed
     weight = inputs.weights[:, None]
@@ -760,8 +813,11 @@ def walk_separable(
     # the score while two lower it; the walk keeps the best state and stops when the best
     # has not improved for a few steps.
     best = (trace[-1], state, score, scale, norm)
+    best_steps = steps
     since = 0
+    newton = False
     while trace[-1] > tol and steps < max_steps and norm > 0.0 and since < _NEWTON_PATIENCE:
+        newton = True
         delta_d, delta_y = _newton_direction(state, inputs, targets, score)
         state = state.moved(delta_d, delta_y, bounds)
         score, scale = scores(state, inputs, targets)
@@ -771,10 +827,13 @@ def walk_separable(
         norms.append(norm)
         losses.append(walk_loss(state, inputs))
         if trace[-1] < best[0]:
-            best, since = (trace[-1], state, score, scale, norm), 0
+            best, best_steps, since = (trace[-1], state, score, scale, norm), steps, 0
         else:
             since += 1
+    # The record describes the reported (best) state: steps after it are dropped.
     _, state, score, scale, norm = best
+    steps = best_steps
+    del trace[steps + 1 :], norms[steps + 1 :], losses[steps + 1 :]
     relative = relative_score(score, scale)
     converged = bool(relative <= tol)
     if not converged and warn:
@@ -807,6 +866,8 @@ def walk_separable(
         if converged
         else "max_iter_reached"
         if steps >= max_steps
+        else "newton_stalled"
+        if newton
         else "line_search_exhausted",
         tol=tol,
     )
@@ -988,16 +1049,14 @@ def _constant_nodes(
     held: tuple[BoolArray, BoolArray, BoolArray, BoolArray], target: SeparableTarget
 ) -> tuple[int, ...]:
     """The nodes up to the horizon with a held cell the target reads: :math:`h_Y` at
-    :math:`a_Y`, :math:`\\lambda_D` at :math:`a_D`, and the full cells of both levels."""
+    :math:`a_Y`, :math:`\\lambda_D` at :math:`a_D`, and a full :math:`D` cell at :math:`a_Y`.
+
+    A full cell of :math:`h_Y` at :math:`a_D` is not flagged: the horizons after it are
+    dropped, and at its own node :math:`h_Y(k \\mid a_D)` enters no kept target."""
     empty_d, full_d, empty_y, full_y = held
     a_d, a_y = target.levels
     t = target.horizon
     flagged = (
-        empty_y[:t, a_y]
-        | full_y[:t, a_y]
-        | empty_d[:t, a_d]
-        | full_d[:t, a_d]
-        | full_d[:t, a_y]
-        | full_y[:t, a_d]
+        empty_y[:t, a_y] | full_y[:t, a_y] | empty_d[:t, a_d] | full_d[:t, a_d] | full_d[:t, a_y]
     )
     return tuple(int(k) + 1 for k in np.flatnonzero(flagged))

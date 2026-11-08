@@ -2656,7 +2656,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         status = self.inference_status
         column = spread_name("std_err", status)
         totals: list[tuple[str, float, float, float, InferenceStatus, str]] = []
-        for regimen in self.config.regimens:
+        for regimen in (*self.config.regimens, *self.config.separable):
             for horizon in self.config.horizons:
                 names = [
                     f"cif_regimen[{_index(regimen.label, cause, horizon, True)}]"
@@ -4979,7 +4979,7 @@ class _SequentialEstimator:
         if prepared.reports_curve:
             infixes = (HORIZON_INFIX,) + ((CAUSE_INFIX,) if prepared.is_competing else ())
             for infix in infixes:
-                clashing = sorted(r.label for r in regimens if infix in r.label)
+                clashing = sorted(r.label for r in (*regimens, *separable) if infix in r.label)
                 if clashing:
                     raise ValueError(
                         f"regimen label(s) {clashing} contain {infix!r}, which is what "

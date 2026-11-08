@@ -416,7 +416,8 @@ The order matters little on a fine time grid and can matter on a coarse one. $\D
 $\Delta 2$ fail when an unmeasured common cause of $D$ and $Y$ exists, and no data check verifies
 them unless $A_Y$ and $A_D$ were randomized apart. The separable direct effect varies $a_Y$ at a
 fixed $a_D$ and the separable indirect effect varies $a_D$ at a fixed $a_Y$. With a binary
-treatment they sum to the total effect, which `contrast` computes from the reported parameters.
+treatment, the direct effect at $a_D = 0$ and the indirect effect at $a_Y = 1$ sum to the total
+effect; `contrast` computes each from the reported parameters.
 
 **Influence curve.** No source gives the discrete-time curve. Martinussen and Stensrud (2023)
 derive the continuous-time influence function and a one-step estimator, and Breum, Munch, Gerds
@@ -440,14 +441,18 @@ $\tilde S(k-1)/S(k-1 \mid a)$ does not cancel, and `g_bounds=` does not bound th
 
 **Targeting.** `cleverly.longitudinal.separable` targets each factor apart, on the logit scale of
 $\lambda_D$ and of $h_Y$, with one coefficient per factor and per target, along the one-step walk
-of the hazard engine. The static arms of the same fit go through the same walk as separable
+of the hazard engine. When the walk's relative score stops halving over 50 steps, the fit
+continues with Newton steps on the same factor-wise submodel at the current covariates, the
+classical iterative TMLE, and reports the state with the smallest relative score. Both phases
+solve the same factor scores, so the robustness below holds for either. The static arms of the same fit go through the same walk as separable
 interventions with equal levels, so one pair of factors carries every reported curve. At the
 truth this is the shipped static estimate and curve. From a fitted start it is a different TMLE
 of the same static parameter. The initial hazards are fitted in the declared order.
 
 **Robustness.** With the treatment and censoring mechanisms right, the estimate is consistent when
 $\lambda_D$ is right at both levels or $h_Y$ is right at both levels, the counterparts of
-Stensrud's IPW forms (11) and (12); with both hazards right it is consistent under any mechanism.
+Stensrud's IPW forms (11) and (12); with both hazards right it is consistent under any mechanism that keeps
+positivity and bounded weights.
 These are sufficient conditions, the discrete-time counterpart of Martinussen and Stensrud (2023),
 Section 3.1. With both hazards wrong, consistency is not guaranteed even under the exact
 mechanism: the remainder holds the product of the two hazard errors, so the estimate is biased in
@@ -457,8 +462,8 @@ covariate cells can pin a factor at its cell means, so a check of robustness fit
 
 **Positivity.** The target reads the hazards at both levels. If every unit at risk at $a_Y$ in a
 node had $D$, $h_Y$ is not identified there and the fit raises. If no unit at $a_D$ stays
-event-free past a node where $\tilde S$ is still positive, the fit warns, names the node, and
-drops the later horizons from that regimen.
+event-free past a node, the fit warns, names the node, and drops the later horizons from that
+regimen.
 
 | check | what it shows |
 | --- | --- |
@@ -472,8 +477,8 @@ drops the later horizons from that regimen.
 | loss derivative | the walk loss falls at the rate of the factor scores |
 
 `tests/unit/test_separable_effects_law.py` holds these checks. Every separable fit reads
-experimental until the study `separable-effects` is registered. No package implements a
-separable-effects TMLE, so comparator runs are pending; the evidence is the exact-law truth.
+experimental until the study `separable-effects` is registered. No separable-effects TMLE
+implementation was located to compare against, so comparator runs are pending; the evidence is the exact-law truth.
 [Scope and refusals](scope-and-refusals.md#separable-effects) lists what a separable fit refuses,
 including time-varying common causes: Stensrud et al. (2021), Equation (19), identify that case
 but no source gives its influence curve.

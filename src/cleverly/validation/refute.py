@@ -2437,6 +2437,15 @@ def _longitudinal_generated_target(
             alternative=_STABILITY_ALTERNATIVE,
             roadmap="X91",
         )
+    if getattr(result.config, "separable", ()):
+        raise CapabilityError(
+            f"{name} has no generated process for a fit with a Separable regimen; its truth "
+            "would need each cause's hazard under the two treatment components, which the "
+            "generated processes do not declare.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X91",
+        )
     if data.is_survival:
         if name == "plasmode":
             _validate_hazard_process(data, process, name)

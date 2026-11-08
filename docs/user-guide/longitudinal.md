@@ -637,7 +637,7 @@ print(result["cif_regimen[split, relapse @ t=4]"].ci)
 ```
 
 `first="death"` says that, within one time step, a death is counted before a relapse. On a coarse
-time grid this choice changes the answer, so it is part of the question you ask. The estimate
+time grid this choice can change the answer, so it is part of the question you ask. The estimate
 also needs two conditions no data can check unless the two parts were given apart in a trial:
 each part reaches the other event only through the event it acts on, and no unmeasured cause of
 both events exists beyond the covariates you adjust for. [Separable effects](../technical-reference/longitudinal-tmle.md#separable-effects)

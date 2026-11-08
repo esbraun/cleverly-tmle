@@ -592,7 +592,7 @@ estimand. Each refusal below raises before any learner, and
 ### Separable effects
 
 [Separable effects](longitudinal-tmle.md#separable-effects) states the estimand.
-`tests/unit/test_separable_effects_law.py` pins each refusal below. All but the positivity
+`tests/unit/test_separable_effects_law.py` pins these refusals. All but the positivity
 refusal raise before any learner.
 
 | trigger | type and code | message, or what is missing |
