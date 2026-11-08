@@ -4887,7 +4887,7 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``), the
 #: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
 #: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``) and the learned two-node
-#: regimen (``G47``).
+#: regimen (``G47``) and the eliminated competing event (``G48``).
 #:
 def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
@@ -4944,6 +4944,75 @@ def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _eliminated_rows() -> tuple[SupportRow, ...]:
+    """The eliminated competing event of ``eliminated-competing-events`` (X91 part A): ``G48``.
+
+    A fit with ``eliminate=`` keys the missing axis ``("censoring", "eliminated")``. The rows
+    were added because every declared verdict passed: 31 of 31 primary tests and all ten
+    property cells (``double_robustness`` and ``interval_calibration`` with its controls), with
+    no failed fit. The numbers are the committed results
+    (``tests/canonical/eliminated_competing_events``).
+    """
+    slug = ["eliminated-competing-events"]
+    shared = (
+        "Every nuisance in the study is a saturated cell mean on a discrete law, n = 16,000, so "
+        "a flexible learner, a continuous covariate and another n rest on the theory alone. "
+        "One prevented cause and one remaining cause; no weights, clusters or comparator (R "
+        "lmtp with a composite censoring column is the matching implementation, and its runs "
+        "are pending)."
+    )
+    return (
+        long_row(
+            "G48.in_sample",
+            slug,
+            outcome_kind="survival",
+            missing=("censoring", "eliminated"),
+            cells=["ltmle_time_varying", "tv_rule_t2", "tv_never_t2", "ltmle_always_t2"],
+            limits=[
+                "Two binary treatment nodes with a time-varying covariate, two static plans "
+                "and a dynamic one, horizons 1 and 2. The primary rows read coverage 0.945 to "
+                "0.951 over 2,800 draws; the calibration cell reads SE ratio 0.990 and coverage "
+                "0.947 over 4,800 draws.",
+                shared,
+            ],
+        ),
+        long_row(
+            "G48.cross_fitted",
+            slug,
+            outcome_kind="survival",
+            missing=("censoring", "eliminated"),
+            splitting=("cross_fitted",),
+            cells=["ltmle_time_varying_crossfit"],
+            limits=[
+                "Two outer folds, with the prevented-cause factor fitted by the censoring "
+                "learner's clone. The same law and estimands as G48.in_sample, coverage 0.945 to "
+                "0.956 over 2,800 draws. No property cell reads the cross-fitted fit; at "
+                "n = 16,000 its spread sits up to 1.32 times the efficient one while its "
+                "reported SE tracks it (SE ratio 0.949 to 1.033).",
+                shared,
+            ],
+        ),
+        long_row(
+            "G48.hazard",
+            slug,
+            outcome_kind="survival",
+            missing=("censoring", "eliminated"),
+            held=True,
+            treatment=("3",) * 3,
+            survival_model="hazard",
+            cells=["hazard_held_baseline", "hb_a1_t2", "hb_a2_t1", "hazard_a1_t3"],
+            limits=[
+                "A three-level baseline treatment held over three nodes, horizons 1 to 3. At "
+                "t = 3 the influence curve rests on Kish sizes near 30 to 60 and the fit warns "
+                "SparseInfluenceWarning. The primary rows read coverage 0.938 to 0.953 over 2,800 "
+                "draws, and the calibration cell at t = 3 reads SE ratio 0.992 and "
+                "coverage 0.945 over 4,800 draws.",
+                shared,
+            ],
+        ),
+    )
+
+
 #: A learned two-node regimen (``LearnedRegimen``, X11 (b)) keys the regimen kind ``learned``.
 #: The row ``G47`` of the ``learned-regimen-ltmle`` study covers the cross-fitted censored
 #: two-node fit with every option at its default; every other composition of that kind matches
@@ -4954,6 +5023,7 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_categorical_long_rows(),
         *_long_horizon_rows(),
         *_learned_regimen_rows(),
+        *_eliminated_rows(),
     )
 )
 

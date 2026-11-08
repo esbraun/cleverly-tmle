@@ -101,6 +101,7 @@ stochastic-categorical-longitudinal-tmle
 longitudinal-modified-treatment-policies
 longitudinal-incremental-interventions
 longitudinal-incremental-interventions-dropout
+eliminated-competing-events
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries

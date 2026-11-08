@@ -353,7 +353,11 @@ single-cause survival fit, so `curve(scale="survival")`, `ratio()` and `rmst()` 
 The summary names the prevented cause and its model, reports the share of prevented events apart
 from the share censored, and words each row as "probability of relapse by time 3 if every unit
 followed plan a1, had death been prevented". The support key marks these fits apart from
-censoring alone, and they carry the experimental status until their study is registered.
+censoring alone. The registered study [eliminated competing
+events](method-evidence/eliminated-competing-events.md) measures iterated-mean `LTMLE` with one
+and two folds on two binary nodes and hazard `LTMLE` on a held three-level baseline treatment, at
+n = 16,000 with saturated learners. Those fits read supported from rows `G48`; every other
+composition with `eliminate=` reads experimental.
 
 | check | what it shows |
 | --- | --- |

@@ -2595,6 +2595,31 @@ def _learned_regimen_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _eliminated_cases() -> tuple[RowCase, ...]:
+    """The cases of ``eliminated-competing-events`` (X91 part A): ``G48``.
+
+    Each runs the study's own fit of one scenario, on a draw of its law, up to the classifier.
+    """
+    module, slug = "eliminated_competing_events", "eliminated-competing-events"
+
+    def case(row: str, scenario: str, held: bool) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            scenario,
+            f"{module}.py:203",
+            module,
+            lambda study: (study.law.hb_sample if held else study.law.tv_sample)(4_000, 0),
+            lambda study, frame: study.fit(frame, scenario),
+        )
+
+    return (
+        case("G48.in_sample", "ltmle_time_varying", False),
+        case("G48.cross_fitted", "ltmle_time_varying_crossfit", False),
+        case("G48.hazard", "hazard_held_baseline", True),
+    )
+
+
 def _projection_cases() -> tuple[RowCase, ...]:
     """The cases of ``conditional-projection`` (P1 part (a)): ``T49`` and ``T50``.
 
@@ -2955,6 +2980,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_optimal_value_cases(),
     *_learned_rule_intermediate_cases(),
     *_learned_regimen_cases(),
+    *_eliminated_cases(),
     *_projection_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),

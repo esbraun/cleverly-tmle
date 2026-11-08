@@ -713,6 +713,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
     from tests.studies.drtmle_foldwise import STUDY as DRTMLE_FOLDWISE
     from tests.studies.drtmle_one_wrong import STUDY as DRTMLE_ONE_WRONG
+    from tests.studies.eliminated_competing_events import STUDY as ELIMINATED_COMPETING_EVENTS
     from tests.studies.ep_assessment import STUDY as EP_ASSESSMENT
     from tests.studies.ep_cate import STUDY as EP_CATE
     from tests.studies.ep_crr import STUDY as EP_CRR
@@ -806,6 +807,7 @@ def registered() -> tuple[StudyRecord, ...]:
         EP_CRR,
         EP_ASSESSMENT,
         LEARNED_RULE_EP,
+        ELIMINATED_COMPETING_EVENTS,
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,

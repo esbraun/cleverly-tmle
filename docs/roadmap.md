@@ -1987,8 +1987,9 @@ trial-only TMLE.
 
 `LTMLE` (both survival models), `SDR`, `IPSI`, `SequentialGComputation`, `SequentialIPW` and
 `ParametricGFormula` fit survival and competing-risk outcomes, and the risk under
-[eliminated competing events](technical-reference/longitudinal-tmle.md#eliminated-competing-events).
-This item carries further survival targets to the TMLE engines as far as the sources allow.
+[eliminated competing events](technical-reference/longitudinal-tmle.md#eliminated-competing-events),
+which the registered study [eliminated competing events](technical-reference/method-evidence/eliminated-competing-events.md)
+measures; its R `lmtp` comparator runs are pending. This item carries further survival targets to the TMLE engines as far as the sources allow.
 
 | part | request | base | readiness |
 | --- | --- | --- | --- |
