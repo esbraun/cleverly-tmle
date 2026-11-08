@@ -24,33 +24,50 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
   variance limit of a boundary weight at n = 4,000.  With no defect found it takes the
   route above, and the boundary pairs' Wald claim stays experimental with the measured coverage.
   Any other red row is a defect suspect.
-* A red ``tail`` row is the declared measurement of the support floor, not a defect suspect.
-  The route is a scope change written into a fresh declaration commit: raise the default
-  ``DoseResponse.support_floor``, or the smallest default bandwidth fraction of
-  ``DoseResponse.spanning``, so the defaults no longer admit the measured pair without the
-  ``low_dose_support_plugin`` label, and re-run under that declaration.  The gate never moves.
+* A red ``tail`` row is a finding about the support diagnostic, not a defect suspect and not a
+  reason to raise the floor.  The pilot read coverage 0.938 below the floor and 0.934 above it,
+  coverage fell as the fitted Kish size rose, and the stratified pair at dose 0.25 in ``V = 1``
+  at n = 4,000 under-covered (0.908) at a mean Kish size of 69 with 2.9% of its fits labelled.
+  A floor raised on the Kish size would label more of the fits that cover and few of those that
+  do not.  The route is the one above, with the measured coverage split by the label
+  (``pair-support.csv``) stated in the owner row, and roadmap X95 takes the relabelling: a
+  diagnostic that tracks the interval's error, not the floor's value.  The gate never moves.
 * A red ``simultaneous_band`` cell whose 99% joint-coverage interval lies below 0.92 while every
   ``binary`` primary row passes reads as the finite-sample limit of the multiplier band over 15
   near-collinear curves: the route above, with the measured joint coverage stated in the owner
-  row.  A red band cell above 0.98 is a critical-value defect suspect.  A
-  ``pointwise_joint_control`` that does not fall below 0.95 is an instrument defect, and the run
-  is void: its exact-law ``p0`` and power are in ``tests/unit/test_dose_response_design.py``.
-* A calibration cell red on its SE ratio while its coverage is green and its efficiency ratios
-  sit inside the band reads as a finite-sample variance finding at n = 4,000: the route above,
-  with the measured ratio stated.  Red on coverage, or with an efficiency ratio outside the
-  band, is a variance defect suspect.
+  row.  A red band cell above 0.98 is a critical-value defect suspect.  The band is measured
+  conditional on one multiplier draw (``random_state=0``), whose critical value sits within 0.02
+  of the oracle's.  A ``pointwise_joint_control`` that does not fall below 0.95 is an instrument
+  defect, and the run is void: its exact-law ``p0`` and power are in
+  ``tests/unit/test_dose_response_design.py``.
+* A calibration cell red on the upper end of its SE ratio alone (``se_ratio_ci_upper`` above
+  1.07 with ``se_ratio_ci_lower`` at or above 0.93), while its coverage is green and both
+  efficiency ratios sit inside the band, reads as a conservative reported SE at n = 4,000: the
+  route above, with the measured ratio stated.  The pilot's reasons for expecting it (the
+  reported SE runs 2% to 6% above the efficient SD at interior pairs) support the upper side
+  only.  A red on the lower end (``se_ratio_ci_lower`` below 0.93), a red coverage interval, or
+  an efficiency ratio outside the band is an anti-conservative variance defect suspect.
 * A derived control (``shrunken_se_control``, ``noise_control``) that does not leave the band is
   an instrument defect, and the run is void.
-* A red positive ``double_robustness`` cell is a defect suspect of the targeting step: its
-  population limit sits 0.017 efficient SEs off the truth
-  (``test_the_robustness_limits``).  A control that does not clear the margin is read against its
-  population limit, 3.03 efficient SEs off; with no defect found it takes the route above, and the
-  cell's claim to witness the density in the clever covariate is withheld, leaving the exact
-  remainder tests to carry it.
-* A replication that raises is never redrawn.  The pilot lost no fit.  A ``DataError`` naming a
-  zero fitted density inside a kernel's support, or a dose interval outside the observed range,
-  is a defect of the declaration at that n and voids the run.  Any other exception in the
-  dose-response path is a defect suspect.
+* A red positive ``double_robustness`` cell says the outcome regression no longer carries the
+  fit when the density is wrong: a defect suspect of the outcome-side fit or the influence curve,
+  read against its population limit 0.017 efficient SEs off the truth
+  (``test_the_robustness_limits``).  It is not a targeting witness: with the outcome right the
+  fluctuation is near zero.  A red joint clause on the targeting gain (``targeting_gain`` or
+  ``targeting_gain_past_truth`` below 1.5 efficient SEs) is a defect suspect of the targeting
+  step, the clever covariate or its inverse density: diagnose it against the mutation tests of
+  ``tests/unit/test_dose_response.py``.  A control that does not clear the margin is read
+  against its population limit, 3.03 efficient SEs off; with no defect found it takes the
+  route above, and the cell's claim to witness the density in the clever covariate is
+  withheld, leaving the exact remainder tests to carry it.
+* A replication that raises is never redrawn, and the failure record governs.  A recordable
+  error (:func:`cleverly.validation._failures.recordable`) costs its cell one replicate: a
+  ``DataError`` naming a zero fitted density inside a kernel's support, a dose interval outside
+  the observed range, or a fluctuation that did not solve its score.  The failure accounting
+  then reads the cell within the declared 1% bound, and a cell that loses more, or whose
+  verdict a lost replicate could flip, is red; such a red is a finding about the declaration at
+  that n and takes the route above.  The pilot lost none of about 13,000 fits.  An exception
+  that is not recordable stops the run and is a defect suspect.
 
 The claim-boundary reading (the pointwise interval read against the unsmoothed curve at dose
 2.5) is reported from the ``binary`` rows and gates nothing; the properties module states its

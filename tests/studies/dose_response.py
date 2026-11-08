@@ -21,7 +21,9 @@ scenario      n       declaration and estimands
 ``tail``      1,000   one pair, bandwidth 0.5 at :data:`TAIL_DOSE` = 0.4, whose expected Kish size
                       under the true density is 62.3 at n = 1,000, just above the default floor
                       of 50 (``tests/unit/test_dose_response_design.py`` recomputes it).  It
-                      measures the interval at the floor the defaults allow
+                      measures this one pair's interval near the floor, labelled or not; it
+                      does not validate the floor, because the pilot's coverage did not track
+                      the fitted Kish size (see the support artifact below)
 ============  ======  ==============================================================================
 
 Every fit is cross-fitted with the defaults: five folds, the default density bins
@@ -64,6 +66,16 @@ measure, which agrees with this one only where the curve is linear on each kerne
 Its runner and its runs come in a later change on the local R queue (X93 part S2), which
 declares it.  The method merges on its Python evidence.
 
+**Support artifact.**  Each primary row carries its pair's fitted Kish size and its
+``below_floor`` label to :func:`extra_artifacts`, which publishes ``pair-support.csv``: every
+estimand's coverage, SE ratio and bias split by the label.  It is descriptive and gates nothing.
+In the pilot the tail pair covered 0.938 in its 208 labelled fits and 0.934 in its 792 unlabelled
+ones, its coverage fell from 0.944 to 0.924 across the quartiles of the fitted Kish size, and the
+stratified pair at dose 0.25 in ``V = 1`` at n = 4,000 covered 0.908 at a mean Kish size of 69
+with 2.9% of its fits labelled.  Across the tail pair's fits a larger Kish size came with a
+smaller reported SE (correlation -0.57) and no smaller error, so the label, which reads the Kish
+size, misses the fits that under-cover (roadmap X95).
+
 **Initial estimate.** The ``initial_estimate`` column is each pair's untargeted plug-in
 :math:`n^{-1}\sum_i \int_D w(a)\hat{\bar Q}(a, W_i)\,da` from the same cross-fitted regression on
 the same quadrature rule.  :func:`fit_with_initials` reads it by observing each call to
@@ -96,6 +108,7 @@ from cleverly.estimators import DoseResponseTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import dose_response_law as law
 from tests.studies.evidence import replication
+from tests.studies.evidence.inference import clopper_pearson
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS, reported_inference
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
@@ -109,6 +122,10 @@ TAIL_N = 1_000
 STRATA_N = 8_000
 #: The declared share of replicates one cell may lose to recordable fitting failures.
 FAILURE_BOUND = 0.01
+#: The per-row support columns the primary rows carry to :func:`extra_artifacts`.
+SUPPORT_COLUMNS = ("kish", "below_floor")
+#: The descriptive support artifact: each primary estimand's coverage by its support label.
+PAIR_SUPPORT = "pair-support.csv"
 SEED = 2026119301
 RESAMPLING_SEED = 2026119302
 
@@ -289,6 +306,8 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "double_robustness": (
         "h1_a3_5__outcome_correct_density_wrong",
         "h1_a3_5__both_wrong",
+        "h1_a3_5__outcome_wrong_density_declared",
+        "h1_a3_5__outcome_wrong_density_declared_plug_in",
     ),
 }
 
@@ -323,6 +342,7 @@ STUDY = StudyRecord(
     runner_module="tests.studies.dose_response",
     properties_module="tests.studies.dose_response_properties",
     property_cells=PROPERTY_CELLS,
+    extra_artifacts=(PAIR_SUPPORT,),
 )
 
 CONFIGURATION = {
@@ -438,7 +458,8 @@ def result_rows(
     initial: Mapping[str, float],
     n: int,
 ) -> list[dict[str, Any]]:
-    """One row per estimand on the identity scale."""
+    """One row per estimand on the identity scale, with its pair's support beside it."""
+    support = {cell.name: cell for cell in result.pair_support}
     rows = []
     for name in ESTIMANDS[scenario]:
         estimate = result[name]
@@ -460,6 +481,8 @@ def result_rows(
                 "inference_scale": "identity",
                 "covered": int(low <= reference <= high),
                 "initial_estimate": float(initial[name]),
+                "kish": float(support[name].kish),
+                "below_floor": int(support[name].below_floor),
             }
         )
     return rows
@@ -496,4 +519,42 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
         seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
     )
     rows = pd.DataFrame([row for result in outcomes.kept for row in result])
-    return replication.result(outcomes, rows.loc[:, list(REPLICATE_COLUMNS)])
+    # The support columns ride along for :func:`extra_artifacts`; the driver drops them after it.
+    return replication.result(outcomes, rows.loc[:, [*REPLICATE_COLUMNS, *SUPPORT_COLUMNS]])
+
+
+def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """``pair-support.csv``: each primary estimand's coverage split by the support label.
+
+    One row per scenario, estimand and ``below_floor`` value: the replications, the coverage
+    with its 99% Clopper-Pearson interval, the mean Kish size, the mean reported SE over the
+    empirical SD of the estimates, and the mean error over that SD.  Descriptive: it gates
+    nothing.  It shows whether the ``low_dose_support_plugin`` label separates the intervals
+    that under-cover from those that do not, which the tail verdict alone cannot (the
+    pilot's tail coverage was 0.938 below the floor and 0.934 above it, and fell as the Kish
+    size rose).
+    """
+    out = []
+    for (scenario, estimand, below), group in rows.groupby(
+        ["scenario", "estimand", "below_floor"], sort=True
+    ):
+        hits = int(group["covered"].sum())
+        trials = len(group)
+        interval = clopper_pearson(hits, trials, confidence_level=STUDY.margins.confidence_level)
+        error = group["estimate"] - group["truth"]
+        spread = float(error.std(ddof=1)) if trials > 1 else float("nan")
+        out.append(
+            {
+                "scenario": scenario,
+                "estimand": estimand,
+                "below_floor": int(below),
+                "replicates": trials,
+                "coverage": hits / trials,
+                "coverage_ci_lower": interval.low,
+                "coverage_ci_upper": interval.high,
+                "mean_kish": float(group["kish"].mean()),
+                "se_ratio": float(group["std_error"].mean()) / spread,
+                "standardized_bias": float(error.mean()) / spread,
+            }
+        )
+    return {PAIR_SUPPORT: pd.DataFrame(out)}

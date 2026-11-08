@@ -7880,7 +7880,7 @@ STUDY_SCENARIOS.update(
         ),
         (_DOSE_SLUG, "strata"): (
             f"{_DOSE_LAW}, binary outcome, the curve in each stratum of V = 1{{W1 > 0}} at three "
-            "doses and bandwidth 1.0, n = 4,000"
+            "doses and bandwidth 1.0, n = 8,000"
         ),
         (_DOSE_SLUG, "gaussian"): (
             f"{_DOSE_LAW}, Gaussian outcome with the linear fluctuation, five doses at bandwidth "
@@ -7930,10 +7930,23 @@ STUDY_ARM_CELLS.update(
             "nuisance reads the confounder",
             "bias interval must fall entirely outside the margin",
         ),
+        (_DOSE_SLUG, "double_robustness", "h1_a3_5", "outcome_wrong_density_declared"): (
+            "an outcome spline in the dose alone with the declared pooled-hazard density, on the "
+            "draws of the other robustness cells: the targeted estimate",
+            "reported: its bias and the plug-in's give the targeting gain, which the family's "
+            "joint clause requires to put the estimate at least 1.5 efficient SEs closer to the "
+            "truth than the plug-in",
+        ),
+        (_DOSE_SLUG, "double_robustness", "h1_a3_5", "outcome_wrong_density_declared_plug_in"): (
+            "the untargeted plug-in of the same fit, carrying the targeted fit's standard error",
+            "reported: the bias the targeting step has to remove",
+        ),
         (_DOSE_SLUG, "interval_calibration", "interior_h1_a2_5", "correctly_specified"): (
-            "the declared outcome sieve and pooled-hazard density, the configuration of the "
-            "primary scenarios",
-            "SE ratio and coverage intervals both inside their calibration bands",
+            "the declared outcome sieve and pooled-hazard density, read at this pair from each "
+            "band fit of the 15-pair declaration",
+            "SE ratio and coverage intervals both inside their calibration bands, and the "
+            "empirical SD and the mean reported SE each within 0.90 to 1.10 of the exact "
+            "efficient SD",
         ),
     }
 )

@@ -30,9 +30,9 @@ the committed artifacts of the declared run.
 | truth | composite Gauss-Legendre quadrature on the pieces between the ends of $D$ and $a_0 \pm h$, over a Gauss-Hermite integral in the outcome index; a stratified truth is a two-dimensional Gauss-Hermite integral. The design test recomputes every truth with adaptive quadrature to $10^{-10}$ |
 | primary budget | 4,000 replications of each scenario |
 | primary verdicts | the framework defaults: the 99% Student bias interval inside 0.25 SD, the lower end of the 99% Clopper-Pearson coverage interval at or above 0.90, and the SE-ratio interval inside 0.80 to 1.20 |
-| property budget | 7,600 replications of the band family, 6,000 of the calibration family and 800 of each robustness cell, all at n = 4,000 on the binary law |
+| property budget | 8,000 fits of the 15-pair binary declaration, which give the band cells and the calibration cell, and 800 replications of each of the three robustness fits, all at n = 4,000 on the binary law |
 | failed fits | at most 1% of the replications of any cell |
-| seeds | `seed=2026119301` and `resampling_seed=2026119302`. Every property family and the pilot draw from their own labelled streams |
+| seeds | `seed=2026119301` and `resampling_seed=2026119302`. The band fits draw from one labelled stream, the three robustness fits share a second, and the pilot draws from its own |
 | policy | `gated`: any red verdict fails the run |
 
 The laws, scenarios, learners, budgets, controls, seeds and red-cell readings were fixed before
@@ -60,19 +60,43 @@ follows ([Theory and comparators](../../architecture-invariants.md#theory-and-co
 | family | what it asks | how it fails |
 | --- | --- | --- |
 | `simultaneous_coverage` | does the band over the 15 binary pairs cover every truth at once, with its 99% joint-coverage interval inside 0.92 to 0.98 | the pointwise intervals read jointly must cover below 0.95. Their exact joint coverage under the efficient influence correlation is 0.676 |
-| `interval_calibration` | at $h = 1.0$, $a_0 = 2.5$, does the SE-ratio interval lie inside 0.93 to 1.07 and the coverage interval inside 0.92 to 0.98, with the empirical SD and the mean reported SE each within 0.90 to 1.10 of the exact efficient SD | the reported SE times 0.70, and one efficient SD of independent noise added to each estimate, must each leave the band |
-| `double_robustness` | at $h = 1.0$, $a_0 = 3.5$, with a density that ignores $W$ and the declared outcome sieve, is the 99% bias interval inside $\pm 0.25$ SD | with the dose-only spline outcome as well, the bias interval must lie wholly outside $\pm 0.25$ SD |
+| `interval_calibration` | at $h = 1.0$, $a_0 = 2.5$, read from each band fit, does the SE-ratio interval lie inside 0.93 to 1.07 and the coverage interval inside 0.92 to 0.98, with the empirical SD and the mean reported SE each within 0.90 to 1.10 of the exact efficient SD | the reported SE times 0.70, and one efficient SD of independent noise added to each estimate, must each leave the band |
+| `double_robustness` | at $h = 1.0$, $a_0 = 3.5$, with a density that ignores $W$ and the declared outcome sieve, is the 99% bias interval inside $\pm 0.25$ SD. With the dose-only spline outcome and the declared density, does targeting bring the estimate at least 1.5 efficient SEs closer to the truth than its plug-in | with the dose-only spline outcome and the density that ignores $W$, the bias interval must lie wholly outside $\pm 0.25$ SD. An untargeted fit reads a gain of 0 |
+
+The band fits seed their multiplier draws with `random_state=0`, so every replication reads the
+same 1,000 draws, and the band cell measures coverage conditional on that one draw. Its critical
+value sits within 0.02 of the oracle value 2.751, which moves the joint coverage by about 0.003.
+The calibration cell reads the pair $(1.0, 2.5)$ of the same fits. Fitted alone on 20 shared
+pilot draws, the pair gave the same estimate to within $10^{-6}$ of its SE.
 
 The wrong density is the hazard classifier on the bin indicators alone: the binned marginal
 density of the dose. In the population the positive cell's limit is 0.017 efficient SEs off the
 truth at n = 4,000, and the control's is 3.03, the unadjusted kernel regression of $Y$ on $A$.
 A main-terms logistic outcome on $[A, W]$ was the first control design. It was rejected before
-any run, because its limit is 0.40 efficient SEs off the truth at this pair.
+any run, because its limit is 0.40 efficient SEs off the truth at this pair. The three
+robustness fits share their draws.
 
-No cell measures an outcome regression that is wrong with a density that is right. The binned
-density is consistent but at no known rate, so the remainder is first order in its error, and a
-bias interval at one $n$ cannot separate a slowly vanishing bias from a defect. The exact
-remainder tests in `tests/unit/test_dose_response.py` carry that direction.
+The positive shows that the outcome regression carries the fit when the density is wrong. It is
+not a witness of targeting: with the outcome right the fluctuation is near zero, so an
+untargeted plug-in, a dropped $1/g$ or $g$ read at $a_0$ would each pass it.
+
+The targeting witness is the fit with the dose-only outcome and the declared density. Its targeted estimate
+and its plug-in are published as reported rows, and the family's joint clause gates the gain
+between them. With $b_\text{plug-in}$ and $b_\text{targeted}$ their mean errors in efficient SEs
+at n = 4,000, both $b_\text{plug-in} - b_\text{targeted}$ (`targeting_gain`) and
+$b_\text{plug-in} + b_\text{targeted}$ (`targeting_gain_past_truth`) must reach 1.5. Together they
+say $\lvert b_\text{targeted} \rvert \le b_\text{plug-in} - 1.5$: the targeted estimate sits at
+least 1.5 SEs closer to the truth than its plug-in, on either side of it. The pilot reads 3.32 and 2.49 from
+a plug-in bias of 2.90. A red gain turns the positive and the control red through their
+`property_passed`.
+
+The gain is gated rather than a bias interval around the truth because the declared density is
+misspecified. Its hazard classifier is a fixed logistic model in the bin indicators, $W$, $W^2$
+and their products with the bin index, and the true hazard of a normal location model with a
+$\tanh$ mean is not in that model. The fitted density therefore converges to a projection, not
+to $g_0$, and the outcome-wrong fit keeps a remainder that does not vanish: the pilot's targeted
+bias is $-0.42$ efficient SEs. The exact remainder tests in `tests/unit/test_dose_response.py`
+carry the population statement with the true density.
 
 <!-- generated: properties -->
 <!-- /generated -->
@@ -92,37 +116,45 @@ The sizes were fixed from a pilot on its own seed stream,
 `tests/studies/dose_response_pilot.py`, whose rows are `tests/studies/dose_response_pilot.csv.gz`.
 
 Each sized term draws on the study's failure allowance through the shared
-`repeated_sizing` rules. The pilot drew 1,000 samples of each primary scenario and of the
-calibration pair, and 300 of each robustness cell. No pilot fit failed.
+`repeated_sizing` rules. The pilot drew 1,000 samples of each primary scenario, 7,000 of the
+calibration pair fitted alone, 300 of the positive and control robustness fits, 400 of the
+targeting fit, and 20 samples fitted both ways to compare the calibration pair alone with the
+15-pair fit. No pilot fit failed.
 
 | sizing input | value | source |
 | --- | --- | --- |
 | primary replications | 4,000, from the shared primary rule on the 1,000 pilot draws of each scenario, one bias group per scenario | `tests/studies/dose_response.py` |
 | lowest pilot coverage | 0.931, dose 0.25 in stratum $V = 1$ at n = 8,000 (Kish size 141). At n = 4,000 the same cell read 0.908 (Kish size 69, SE ratio 0.94), whose one-sided 80% lower bound lies below the 0.90 floor, so no budget sized it and the scenario moved to n = 8,000 before any run | `tests/studies/dose_response_pilot.csv.gz` |
 | boundary pairs | the upper boundary dose 4.75 reads SE ratios 1.10 to 1.12 on the binary outcome, a conservative interval; the lower boundary dose 0.25 reads 0.98 to 0.99 and coverage 0.933 to 0.935 | the same |
-| tail pair | coverage 0.935, SE ratio 1.06, mean Kish size 58; 21% of the fits fall below the floor and carry the `low_dose_support_plugin` label | the same |
-| band replications | 7,600. The pilot band covers jointly in 942 of 1,000 draws; the rule reads its one-sided 80% lower bound, 0.935 | `tests/studies/dose_response_properties.py` |
+| tail pair | coverage 0.935, SE ratio 1.06, mean Kish size 58. The 21% of fits below the floor, which carry the `low_dose_support_plugin` label, covered 0.938, and the rest 0.934. Coverage fell from 0.944 to 0.924 across the quartiles of the fitted Kish size | the same |
+| band and calibration fits | 8,000, from the shared X32b calibration rule with the band as its joint-coverage term, at the whole calibration share. It reads the pooled SE ratio 1.023 of the calibration pair over 8,000 pilot fits, the pair's pilot bias, and the one-sided 80% lower bound, 0.935, of the pilot's joint band coverage of 942 in 1,000. The predictive failure probability is 0.0160 at 8,000 and 0.0205 at 7,600, against a budget of 0.0163 | `tests/studies/dose_response_properties.py` |
+| calibration cost | reading the calibration cell from the band fits costs no fit. Separate single-pair fits, 3.75 s each, would add 8.3 CPU-hours and change no row | the same |
 | band control | the pointwise intervals cover jointly with exact probability 0.676 under the efficient influence correlation (the pilot reads 0.698); the oracle critical value is 2.751 against the pilot's mean 2.733 | `tests/unit/test_dose_response_design.py` |
-| calibration replications | 6,000, at the pooled pilot SE ratio 1.023 of the calibration pair (1.052 from the single-pair pilot, 0.996 from the same pair in the 15-pair pilot). Read with that ratio's pilot noise, the pass probability is 0.89 | the same |
-| efficiency ratios | the single-pair pilot's empirical SD is 0.973 of the exact efficient SD and its mean reported SE 1.023 | the same |
-| robustness replications | 800. The positive's pilot standardized bias is 0.010 (one-sided 80% upper bound 0.059); the control's is 2.87 | the same |
+| efficiency ratios | the pooled pilot's empirical SD is 1.000 of the exact efficient SD and its mean reported SE 1.023 | the same |
+| robustness replications | 800. The positive's pilot standardized bias is 0.010 (one-sided 80% upper bound 0.059); the control's is 2.87. The targeting gain's two means are 3.32 and 2.49 efficient SEs, against a floor of 1.5 | the same |
 
 The reported standard error is conservative by a few percent at most interior pairs at
-n = 4,000 (mean reported SE 1.02 to 1.06 times the exact efficient SD). The calibration cell
-can therefore turn red on its upper SE-ratio end, and the red-cell route below declares the
-reading for that event.
+n = 4,000 (mean reported SE 1.02 to 1.06 times the exact efficient SD). The shared rule prices
+the pilot noise of the calibration ratio for that reason, and the red-cell route below reads a
+red on the upper SE-ratio end alone.
+
+The declared run fits 26,400 samples. At the pilot's seconds per fit it costs about 52
+CPU-hours: 33.7 for the primary scenarios (21.2 of them for `strata` at n = 8,000), 16.2 for
+the 8,000 band fits and 1.7 for the 2,400 robustness fits.
 
 ## Red-cell route
 
 | event | route, declared before any run |
 | --- | --- |
 | a red primary row of `binary`, `strata` or `gaussian` | a defect suspect of the quadrature, the fluctuation or the influence curve. A red boundary row (dose 0.25 or 4.75) with an equivalent bias and an SE-ratio interval below 1 reads as the variance limit of a boundary weight at n = 4,000, and moves to `reporting` with an owner row if no defect is found |
-| a red `tail` row | the measurement of the support floor. The route is a scope change: raise the default support floor or the smallest default bandwidth fraction, and re-run under that declaration |
+| a red `tail` row | a finding about the support label, not a reason to raise the floor: in the pilot, coverage did not rise with the fitted Kish size. It moves to `reporting` with the coverage split by the label (`pair-support.csv`) in the owner row, and roadmap X95 takes the relabelling |
 | a red band cell below 0.92 while every `binary` row passes | the finite-sample limit of the band over 15 near-collinear curves, moved to `reporting` with the measured coverage. Above 0.98 it is a critical-value defect suspect |
 | a control that does not leave its band | an instrument defect, and the run is void |
-| a red calibration SE ratio with green coverage and efficiency ratios | a finite-sample variance finding, moved to `reporting`. Red on coverage or an efficiency ratio is a defect suspect |
-| a red robustness positive | a defect suspect of the targeting step |
-| a replication that raises | is never redrawn. A `DataError` naming a zero fitted density inside a kernel's support voids the run |
+| a red calibration cell on the upper end of its SE ratio alone, with green coverage and efficiency ratios | a conservative reported SE at n = 4,000, moved to `reporting` with the measured ratio |
+| a red calibration cell on the lower end of its SE ratio, on coverage, or on an efficiency ratio | an anti-conservative variance defect suspect |
+| a red robustness positive | the outcome regression no longer carries the fit when the density is wrong: a defect suspect of the outcome-side fit or the influence curve |
+| a red targeting gain | a defect suspect of the targeting step, the clever covariate or its inverse density |
+| a replication that raises | is never redrawn, and the failure record governs. A recordable `DataError` (a zero fitted density inside a kernel's support, or a fluctuation that did not solve its score) costs its cell one replicate, read within the 1% bound by the failure accounting. Any other exception stops the run |
 | any verdict | moves no budget, margin, law, learner, fold count or seed |
 
 ## Measured values and declared margins
@@ -174,16 +206,19 @@ from the committed results, and reads `pending` until the declared run registers
 
 | limit | what it means for use |
 | --- | --- |
-| no comparator | the npcausal `ctseff` runs come later (X93 part S2), so the study has no paired verdict |
+| no comparator | the record names no reference implementation, so the study has no paired verdict |
 | one law family | a normal location model for the dose, with an outcome that reads $W$ through one linear index, on $D = [0, 5]$ |
 | declared sieve learners | the outcome sieve holds the $W$ part of the law exactly. The default learner library is not measured |
 | one sample size per scenario | n = 4,000, n = 8,000 for the stratified scenario and n = 1,000 for the tail pair. Smaller sizes are not claimed |
-| the band covers 15 declared pairs | a band over other doses or bandwidths reads `experimental` |
-| no cell measures a wrong outcome with a right density | the exact remainder tests carry that direction |
+| the band covers 15 declared pairs, with one multiplier draw | a band over other doses or bandwidths reads `experimental`, and the band cell measures coverage conditional on the single multiplier draw that `random_state=0` fixes |
+| the support label is not validated | the pilot's coverage did not rise with the fitted Kish size. The unlabelled stratified pair at dose 0.25 in $V = 1$ covered 0.908 at n = 4,000 with a mean Kish size of 69 and 2.9% of its fits labelled, so an interval above the floor of 50 can under-cover (roadmap X95). The `tail` cell measures one pair near the floor |
+| a wrong outcome is measured as a targeting gain | the declared density is misspecified, so with a wrong outcome the study gates how far targeting moves the estimate, not a bias equivalence |
 | no weights, clusters or missing outcomes | the study measures none of them |
 
 ## Reproduction
 
-The declared run is `python tests/canonical/dose_response/regenerate.py --output <empty
-directory>`, whose docstring gives the run form and the red-cell readings. It starts no
-reference process, because the study has no comparator.
+The declared run is `python -m tests.canonical.dose_response.regenerate --output <empty
+directory> --jobs <workers>`, whose docstring gives the run form and the red-cell readings. It
+starts no reference process, because the study has no comparator. Besides the shared artifacts
+it publishes `pair-support.csv`, each primary estimand's coverage, SE ratio and bias split by
+the `below_floor` label, which gates nothing.

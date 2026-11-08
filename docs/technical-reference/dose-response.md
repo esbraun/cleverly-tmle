@@ -158,7 +158,8 @@ slowly.
 
 The fit refuses before any learner runs when $D$ leaves the observed dose range, since the binned
 density is zero outside it, and when the nodes would need more than 4 GB. It refuses after the
-nuisance fit, naming the pair, when the fitted density is zero where a weight is nonzero. Declare
+nuisance fit, naming the pair, when the fitted density is zero where a weight is nonzero, and when
+a pair's fluctuation does not solve its score. Both raise `DataError`. Declare
 $D$ with a margin inside the expected dose range, and choose it without reading the sample: an
 endpoint set from the sample changes the target.
 
@@ -178,8 +179,14 @@ columns.
 A pair below the floor keeps its interval and its place in the band, and its estimate carries the
 inference status `low_dose_support_plugin`, and the fit warns with `DataWarning`. The label says
 that the normal approximation behind the interval rests on few effective rows. The default floor
-is provisional until the registered study measures intervals near it. [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor)
-records what would remove it.
+is provisional, and the label is not a validated screen. In the
+[dose-response pilot](method-evidence/dose-response.md#sizing) the Kish size did not separate the
+intervals that under-cover: an unlabelled stratified pair with a mean Kish size of 69 covered
+0.908 at n = 4,000, and at the tail pair a larger Kish size came with a smaller reported SE and no
+smaller error. The registered study's `tail` scenario measures one pair near the floor, so its
+verdict does not validate the floor at other doses, bandwidths or laws.
+[X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) records what would remove
+the label.
 
 ## Compositions
 
@@ -209,6 +216,8 @@ records what would remove it.
 | the estimator's own targeting (`DoseResponseTMLE._target` and `target_pair`), given the true density and a wrong outcome regression on the law's support as weighted rows, returns the truth exactly at every pair, where the untargeted plug-in misses | `::test_the_estimators_targeting_recovers_the_truth_from_a_wrong_outcome_regression` |
 | dropping $1/g$, leaving the plug-in untargeted, or reading the regression at the wrong node each miss the truth at every pair | `::test_each_targeting_mutation_misses_the_truth` |
 | every pair solves its score, including a 200-pair declaration; round trip; strata; support report; refusals before any learner fits | the fit tests in the same file |
+| a pair whose fluctuation does not solve its score raises `DataError`, which a repeated-sampling study records as one lost replicate | `::test_an_unsolved_fluctuation_is_a_data_error_a_study_records` |
 
-The registered Python property study and the R comparator against npcausal `ctseff` are pending.
-Until they land, the evidence for this method is the fast-tier checks above.
+The [registered study](method-evidence/dose-response.md) is declared and has not run. It has no
+comparator: roadmap X93, part S2, declares the npcausal `ctseff` runs on a matched target. Until
+the study runs, the evidence for this method is the fast-tier checks above.
