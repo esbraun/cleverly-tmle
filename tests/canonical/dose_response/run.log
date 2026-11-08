@@ -1,0 +1,22 @@
+=== dose-response declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/dose_response/regenerate.py --output /tmp/x93run/out1 --jobs 4
+commit: dfd56920d6539cb4fc748459dd26fd1c6d59c9db; upstream dfd56920d6539cb4fc748459dd26fd1c6d59c9db
+clean tree: True
+cleverly 0.2.0 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.18; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 118, sha256 1a74c5b05d11b15a20df95fbc8ddf3b00a63e81a2a1f0c3b04b7302a095c7560
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-08T12:33:21+00:00
+finished: 2026-11-08T23:50:54+00:00
+wall seconds: 40652.9
+exit code: 1
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 9db2adefa2370b0190dc86034a638f42a321949dc63fbf3eabce25628e7d9f0a
+sha256 pair-support.csv: 8dc5fc92bc4c0eb74e9b89d60e1c0b811180768018ad5c4ec5710661b2043f7b
+sha256 performance-tests.csv: 4e8426bcf37c12ec93a0d9f10f8a8357d32e20b3dc51898dda0501c44821ff3c
+sha256 properties.csv: ef8aa4d3b8e59c53ea95fddc835a5985f21696f2aaba13d10fa1f91b229fad31
+sha256 property-replicates.parquet: b5718c84eb70f9c0c05b9fd404660950cd79fdcbe0ab1685167e532ecb81a777
+sha256 replicates.parquet: 0c635cf5b60eaead2ef5cdcb6221f3a45d7fb9663772e6eeace694430b01881f
+sha256 summary.csv: 23fed34d25bbc8473bd56802ef45a802e4a3d7273da858d585ca70ef515de56a
+
