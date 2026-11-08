@@ -26,6 +26,7 @@ from tests.unit.tutorial_semantics import (
     assert_protocol_recorded,
     changed_fields,
     covers,
+    figure_title,
     stored_output,
 )
 
@@ -239,6 +240,12 @@ def check(namespace: dict[str, Any]) -> None:
     residual = line - population
     assert abs(residual[1]) > 0.15, "the contact mapping no longer witnesses misspecification"
     assert 0.17 < abs(residual[1]) < 0.21, "the prose says the line misses medium by about 0.19"
+    assert (
+        figure_title(namespace["trend_fig"])
+        == "How does the average score change with assigned contacts?"
+    )
+    line_minus_mean = namespace["in_fits"]["line minus mean"]
+    assert line_minus_mean.iloc[0] > 0 > line_minus_mean.iloc[1]
     # The miss at medium is a fixed contrast of the three arm means, read through ``contrast``.
     # "The interval excludes zero" and "the interval contains the population miss".
     medium_misfit = namespace["medium_misfit"]

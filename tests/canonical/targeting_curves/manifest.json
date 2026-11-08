@@ -1,0 +1,93 @@
+{
+  "schema_version": 2,
+  "study": "Targeting curves (TOC, cumulative gain, AUTOC, Qini)",
+  "slug": "targeting-curves",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-targeting-curves",
+      "cleverly_version": "0.2.0",
+      "cleverly_commit": "95676c8e8c7e81f7710d5594c5465a2fc389f62c",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.18",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 6000,
+    "n": 2000,
+    "seed": 20261107,
+    "resampling_seed": 20261108,
+    "publication_policy": "reporting",
+    "truth_varies_by_replicate": true,
+    "failure_bound": {
+      "cleverly-targeting-curves": 0.01
+    },
+    "scenarios": {
+      "H": [
+        "toc[0.1]",
+        "toc[0.5]",
+        "toc[0.9]",
+        "autoc",
+        "qini"
+      ]
+    },
+    "H": "law H, n=2000, R=6000",
+    "B": "law B, n=2000, R=6000",
+    "K": "law K, n=2000, R=6000",
+    "P": "law P, n=1000, R=800",
+    "U": "law U, n=2000, R=6000",
+    "N": "law N, n=2000, R=6000",
+    "D": "law D, n=2000, R=6000",
+    "S": "law H, n=2000, R=6000",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/targeting_curves.py": "c9f146996a97b803a8c6f31ed5628c42d2f1693d746cce044b349dcce0862540",
+    "tests/studies/targeting_curves_properties.py": "f78ece644e126b3ad9afec3831ce1187b300f05f3bd43d53c94feedfe2fcfd9c",
+    "tests/studies/conditional_projection.py": "1a144ff826cc69afb1b8ab92979a7de0ee6c06fb98df7baf0709f4d99688364f",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "36d494f7ca114cf955e4fcd6fe6b460a5b5f88ecf538cf2285b3dfff595bfd84",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "0d80e8136c4a18004b8aa0f006ab1dc946288df5da4baa4500a9589fa3a241ff",
+    "summary.csv": "72f831999ba973ffca99345e555ba2107dc4928b4f3d4a8850e86d8236a1bfa3",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "6511f030f731a68cf08da226a11c2d6228f5022d833eeb7eaee0855e86559e3b",
+    "property-replicates.parquet": "636b868f8fb3043b763ed080e3a93551b91683d9493621719e45f779314a2489",
+    "properties.csv": "6459ccc31e9edd2ce57a500ea65e5b6e8797fb6b132733979804aff7d3fec737"
+  }
+}

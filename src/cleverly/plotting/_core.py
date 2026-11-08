@@ -822,7 +822,7 @@ def _key_entries(sources: Sequence[Axes]) -> tuple[list[Any], list[str]]:
     return list(unique.values()), list(unique.keys())
 
 
-def end_label(ax: Axes, x: float, y: float, text: str, color: str) -> None:
+def end_label(ax: Axes, x: float, y: float, text: str, color: str, *, pad: float = 0.0) -> None:
     """A direct label at the end of a series: a swatch in the series colour, text in ink.
 
     Parameters
@@ -837,11 +837,14 @@ def end_label(ax: Axes, x: float, y: float, text: str, color: str) -> None:
         The series name.
     color : str
         The series colour, used for the swatch only.
+    pad : float, default=0.0
+        Further points right of ``x`` at which the label starts, to clear marks beside the
+        series' end.
     """
     ax.annotate(
         "\u25a0",
         xy=(x, y),
-        xytext=(6.0, 0.0),
+        xytext=(6.0 + pad, 0.0),
         textcoords="offset points",
         va="center",
         ha="left",
@@ -853,7 +856,7 @@ def end_label(ax: Axes, x: float, y: float, text: str, color: str) -> None:
     ax.annotate(
         text,
         xy=(x, y),
-        xytext=(17.0, 0.0),
+        xytext=(17.0 + pad, 0.0),
         textcoords="offset points",
         va="center",
         ha="left",
@@ -1417,6 +1420,62 @@ def estimand_words(name: str) -> str:
     stem = re.split(r"[\[_]", name, maxsplit=1)[0]
     words = _ESTIMAND_WORDS.get(name) or _ESTIMAND_WORDS.get(stem)
     return f"{words} ({name})" if words else name
+
+
+def mid_phrase(words: str) -> str:
+    """``words`` to go mid-phrase: a capitalised English first word in lower case.
+
+    A first word that is a name or a symbol (``"HbA1c"``, ``"Y"``) stays as written.
+
+    Parameters
+    ----------
+    words : str
+        The caller's words, such as an ``outcome_label=``.
+
+    Returns
+    -------
+    str
+        The words with the first letter lowered where it is safe.
+    """
+    first = words.split(" ", 1)[0]
+    if len(first) > 1 and first.isalpha() and first[0].isupper() and first[1:].islower():
+        return words[:1].lower() + words[1:]
+    return words
+
+
+def quantity(
+    outcome_label: str | None, outcome: str, units: str | None, *, difference: bool
+) -> tuple[str, str]:
+    """The label of a mean or a difference in means, as its prefix and its quantity.
+
+    ``outcome_label=`` names the quantity on the axis in the caller's words, so it takes no
+    ``"mean"``: ``("Difference in", "order share")``. Without it the outcome column's name
+    follows ``"mean"``: ``("Difference in", "mean Y")`` and ``("", "Mean Y")``.
+
+    Parameters
+    ----------
+    outcome_label : str or None
+        The caller's words for the quantity.
+    outcome : str
+        The outcome column's name, used when ``outcome_label`` is ``None``.
+    units : str or None
+        Units, added in parentheses.
+    difference : bool
+        Whether the axis is a difference rather than a mean.
+
+    Returns
+    -------
+    tuple of str
+        The prefix (``"Difference in"`` or empty) and the quantity.
+    """
+    unit = f" ({units})" if units else ""
+    if outcome_label:
+        if difference:
+            return "Difference in", f"{mid_phrase(outcome_label)}{unit}"
+        return "", f"{outcome_label}{unit}"
+    if difference:
+        return "Difference in", f"mean {outcome}{unit}"
+    return "", f"Mean {outcome}{unit}"
 
 
 def null_for(scale: str) -> float | None:

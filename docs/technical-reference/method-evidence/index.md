@@ -90,6 +90,7 @@ ep-cate
 ep-crr
 ep-assessment
 learned-rule-ep
+targeting-curves
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 point-modified-treatment-policies

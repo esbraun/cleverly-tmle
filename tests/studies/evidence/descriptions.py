@@ -1309,6 +1309,110 @@ ARMS.update(
     }
 )
 
+#: The arms of ``targeting-curves`` (X92 part 5): each group's law and each quantity of its
+#: targeting curve, ``<group>_<quantity>``, and each group's band, ``<group>_band``.  They sit
+#: here because the cell-name pattern below is built from :data:`ARMS` at import.  Mirrored from
+#: ``tests.studies.targeting_curves``, which this module cannot import;
+#: ``tests/unit/test_targeting_curves_design.py`` pins the two equal.
+_TARGETING_GROUPS = {
+    "H": (
+        "law H (a continuous outcome with effect 1 + W1 and the external score S = W1 + 0.5 W3), "
+        "n = 2,000"
+    ),
+    "B": (
+        "law B (a binary outcome with a logistic effect in W1 and the external score "
+        "S = W1 + 0.5 W3), n = 2,000"
+    ),
+    "K": (
+        "law K (a continuous outcome with effect 1 + W1 + W1 W3, a main-terms outcome regression "
+        "that is wrong for it, and the treatment mechanism known), n = 2,000"
+    ),
+    "U": (
+        "law U (a binary outcome whose effect does not vary with the external score S = W3, so "
+        "every TOC is 0), n = 2,000"
+    ),
+    "N": "law N (a continuous outcome with a constant effect, so every TOC is 0), n = 2,000",
+    "D": (
+        "law D (a binary outcome and the atomic score round(2 W1) / 2, five tied blocks), n = 2,000"
+    ),
+    "S": (
+        "law H with the score refit on 2,000 training rows as a B-spline effect curve in "
+        "(W1, W2, W3) and evaluated on 2,000 other rows (route 2)"
+    ),
+    "P": "law P (a continuous outcome with effect 1 + 0.46 W1 and noise SD 1), n = 1,000",
+}
+_TARGETING_QUANTITIES = {
+    "toc_0.1": "the TOC at q = 0.1",
+    "toc_0.2": "the TOC at q = 0.2",
+    "toc_0.5": "the TOC at q = 0.5",
+    "toc_0.9": "the TOC at q = 0.9",
+    "autoc": "the AUTOC",
+    "qini": "the Qini coefficient",
+    "group_effect_0.2": "the mean effect of the top fifth of the score",
+    "group_effect_1": "the mean effect of the bottom fifth of the score",
+    **{
+        f"S_minus_S_B_{name}": f"{words} of S minus that of S_B = W1 + 1.5 W3, on the same draws"
+        for name, words in (
+            ("toc_0.1", "the TOC at q = 0.1"),
+            ("toc_0.5", "the TOC at q = 0.5"),
+            ("autoc", "the AUTOC"),
+            ("qini", "the Qini coefficient"),
+        )
+    },
+}
+#: Each group's calibration rows, its SE controls and its band, as ``group_cells`` names them.
+_TARGETING_CORE = ("toc_0.1", "toc_0.5", "toc_0.9", "autoc", "qini")
+_TARGETING_ROWS = {
+    "H": (
+        *_TARGETING_CORE,
+        "group_effect_0.2",
+        "group_effect_1",
+        "S_minus_S_B_toc_0.1",
+        "S_minus_S_B_toc_0.5",
+        "S_minus_S_B_autoc",
+        "S_minus_S_B_qini",
+    ),
+    "B": _TARGETING_CORE,
+    "K": ("toc_0.5", "autoc", "qini"),
+    "U": ("toc_0.1", "toc_0.5", "autoc", "qini"),
+    "N": ("autoc", "qini"),
+    "D": ("toc_0.2", "toc_0.5", "autoc", "qini"),
+    "S": _TARGETING_CORE,
+}
+_TARGETING_SE_CONTROLS = {
+    ("H", "fixed_cut"): ("toc_0.5", "toc_0.9"),
+    ("H", "fixed_ranks"): ("autoc",),
+    ("H", "unpaired"): ("S_minus_S_B_toc_0.1", "S_minus_S_B_autoc"),
+    ("K", "untargeted"): ("autoc",),
+}
+_TARGETING_BIAS_CONTROLS = {
+    ("D", "whole_block"): ("toc_0.2",),
+    ("S", "in_sample"): ("toc_0.1", "autoc"),
+}
+ARMS.update(
+    {
+        **{
+            f"{group}_{name}": f"{_TARGETING_GROUPS[group]}: {_TARGETING_QUANTITIES[name]}"
+            for group, names in _TARGETING_ROWS.items()
+            for name in names
+        },
+        **{
+            f"{group}_{control}_{name}": (
+                f"{_TARGETING_GROUPS[group]}: {_TARGETING_QUANTITIES[name]}"
+            )
+            for (group, control), names in _TARGETING_SE_CONTROLS.items()
+            for name in names
+        },
+        **{
+            f"{group}_band": (
+                f"{_TARGETING_GROUPS[group]}: the sup-t band of the TOC over the nine grid points "
+                "0.1 to 0.9"
+            )
+            for group in ("H", "U", "N", "P")
+        },
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -7614,5 +7718,125 @@ STUDY_ARM_CELLS.update(
             )
             for arm in ("ltmle_always_t2", "hazard_a1_t3")
         },
+    }
+)
+
+#: ``targeting-curves`` (X92 part 5): the TMLE-targeted targeting curve of
+#: ``IdentifiedEffect.targeting_curve`` and of ``curve.diagnostics.targeting_curve()``.  The
+#: groups, quantities and cells are those of ``tests/studies/targeting_curves.py``.
+_TARGETING_SLUG = "targeting-curves"
+IMPLEMENTATIONS["cleverly-targeting-curves"] = (
+    "`cleverly` targeting curve of an external score: one pooled TMLE fluctuation of the "
+    "cross-fitted ATE fit along the span of the rank weights, with a Wald interval from 2,000 "
+    "half-sample draws"
+)
+STUDY_SCENARIOS[(_TARGETING_SLUG, "H")] = (
+    "law H, a continuous outcome with effect 1 + W1 and the external score S = W1 + 0.5 W3, "
+    "a spline GLM per arm and a logistic treatment model, n = 2,000"
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_TARGETING_SLUG, "toc[0.1]"): "the TOC at q = 0.1: the mean effect of the top tenth of S "
+        "minus the ATE",
+        (_TARGETING_SLUG, "toc[0.5]"): "the TOC at q = 0.5: the mean effect of the top half of S "
+        "minus the ATE",
+        (_TARGETING_SLUG, "toc[0.9]"): "the TOC at q = 0.9: the mean effect of the top nine "
+        "tenths of S minus the ATE",
+        (_TARGETING_SLUG, "autoc"): "the AUTOC, the integral of the TOC over q",
+        (_TARGETING_SLUG, "qini"): "the Qini coefficient, the integral of q times the TOC over q",
+    }
+)
+_TARGETING_CALIBRATED = (
+    "the curve's Wald interval, estimate +- 1.96 times the SD of its 2,000 half-sample draws"
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_TARGETING_SLUG, "interval_calibration", f"{group}_{name}", "correctly_specified"): (
+                f"{_TARGETING_CALIBRATED}, with a spline GLM per arm and a logistic treatment "
+                "model",
+                (
+                    "SE ratio and coverage intervals both inside their calibration bands; a "
+                    "reporting row, whose one-sided gate needs the lower ends of its SE-ratio "
+                    "and coverage intervals at or above 0.93 and 0.92"
+                )
+                if (group, name) == ("H", "S_minus_S_B_toc_0.1")
+                else "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for group, names in _TARGETING_ROWS.items()
+            if group != "K"
+            for name in names
+        },
+        **{
+            (_TARGETING_SLUG, "interval_calibration", f"K_{name}", "known_mechanism"): (
+                f"{_TARGETING_CALIBRATED}, with the main-terms outcome regression and the known "
+                "treatment mechanism",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for name in _TARGETING_ROWS["K"]
+        },
+        **{
+            (
+                _TARGETING_SLUG,
+                "interval_calibration",
+                f"H_fixed_cut_{name}",
+                "inflated_se_control",
+            ): (
+                "the same estimate with the SE of draws that keep the full-sample cut",
+                "the SE-ratio interval must lie above the calibration band",
+            )
+            for name in _TARGETING_SE_CONTROLS[("H", "fixed_cut")]
+        },
+        (_TARGETING_SLUG, "interval_calibration", "H_fixed_ranks_autoc", "inflated_se_control"): (
+            "the same estimate with the SE of draws that keep the full-sample rank weights",
+            "the SE-ratio interval must lie above the calibration band",
+        ),
+        **{
+            (
+                _TARGETING_SLUG,
+                "interval_calibration",
+                f"H_unpaired_{name}",
+                "inflated_se_control",
+            ): (
+                "the same estimate with the SE of draws that resample the two scores separately",
+                "the SE-ratio interval must lie above the calibration band",
+            )
+            for name in _TARGETING_SE_CONTROLS[("H", "unpaired")]
+        },
+        (_TARGETING_SLUG, "interval_calibration", "K_untargeted_autoc", "shrunken_se_control"): (
+            "the same TMLE estimate with the SE of draws of the untargeted one-step scores",
+            "the SE-ratio interval must lie below the calibration band",
+        ),
+        (_TARGETING_SLUG, "bias", "D_toc_0.2", "whole_block"): (
+            "the rule S >= cut, which puts the whole tied block at the cut in the top fraction",
+            "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+        ),
+        **{
+            (_TARGETING_SLUG, "bias", f"S_{name}", "in_sample"): (
+                "the effect curve fitted on the evaluation rows themselves ranks those rows, read "
+                "against the truth of that curve",
+                "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+            )
+            for name in _TARGETING_BIAS_CONTROLS[("S", "in_sample")]
+        },
+        (_TARGETING_SLUG, "simultaneous_coverage", "H_band", "correctly_specified"): (
+            "whether the band covers the TOC at every grid point at once",
+            "the joint coverage interval inside the calibration coverage band 0.92 to 0.98",
+        ),
+        (_TARGETING_SLUG, "simultaneous_coverage", "H_band", "pointwise_joint"): (
+            "whether the pointwise 95% intervals cover the TOC at every grid point at once",
+            "the joint coverage interval must lie below 0.95",
+        ),
+        **{
+            (_TARGETING_SLUG, "type_i_error", f"{group}_band", "null"): (
+                "whether the band excludes 0 at some grid point",
+                "the 99% upper end of the rejection rate at most 0.10",
+            )
+            for group in ("U", "N")
+        },
+        (_TARGETING_SLUG, "power", "P_band", "slope"): (
+            "whether the band excludes 0 at some grid point, at the slope where its power is 0.90",
+            "the rejection rate's lower end at least 0.80",
+        ),
     }
 )

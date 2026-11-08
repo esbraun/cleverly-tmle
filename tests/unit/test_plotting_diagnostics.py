@@ -634,7 +634,7 @@ def test_v17_repeats_names_the_outcome_in_words(result: Any) -> None:
     plain = repeats(result).axes[0].get_xlabel()
     assert plain == f"Difference in mean {column}"
     worded = repeats(result, outcome_label="transition score", units="points").axes[0]
-    assert worded.get_xlabel() == "Difference in mean transition score (points)"
+    assert worded.get_xlabel() == "Difference in transition score (points)"
     assert column not in worded.get_xlabel()
 
 

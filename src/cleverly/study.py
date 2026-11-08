@@ -4624,6 +4624,42 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         key = self._study_fingerprint()
         return [] if key is None else list(_FITTED_CURVES.get(key, ()))
 
+    def _external_score(
+        self, column: str, computed_from: Sequence[str] | None, score_kind: str | None
+    ) -> FloatArray:
+        """A study column declared as an external score, after the three R13 checks.
+
+        The column must be declared ``score_kind="external"`` (R13 (iii)), computed from
+        adjustment columns (R13 (ii)), and match no curve fitted on these rows, nor carry the
+        ``effect_curve:`` prefix (R13 (i)).  :meth:`assess_score` and
+        :meth:`targeting_curve` read every score through here.
+        """
+        from .effect_curves import PREDICTION_PREFIX
+
+        assert self._study is not None
+        if score_kind != "external":
+            raise CapabilityError.from_refusal(SCORE_KIND_REFUSAL)
+        adjustment = tuple(getattr(self._study.design, "adjustment", ()))
+        if (
+            computed_from is None
+            or isinstance(computed_from, str)
+            or not set(computed_from) <= set(adjustment)
+        ):
+            raise CapabilityError.from_refusal(SCORE_INPUTS_REFUSAL)
+        source = as_frame(self._study._source)
+        if column not in source.columns:
+            raise DataError(f"the score column {column!r} is not in the study's data")
+        score = source[column].to_numpy().astype(float)
+        data = self._study.data
+        assert isinstance(data, CausalData)
+        if score.shape[0] != data.n or not np.all(np.isfinite(score)):
+            raise DataError(f"the score column {column!r} must hold one finite value per study row")
+        if column.startswith(PREDICTION_PREFIX) or any(
+            np.allclose(score, curve) for curve in self._curves if curve.shape == score.shape
+        ):
+            raise CapabilityError.from_refusal(SCORE_IN_SAMPLE_REFUSAL)
+        return np.asarray(score, dtype=float)
+
     def assess_score(
         self,
         column: str,
@@ -4678,7 +4714,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             If the estimand is not a :class:`ConditionalContrast`, or the score is not
             declared external (R13).
         """
-        from .effect_curves import PREDICTION_PREFIX, score_assessment
+        from .effect_curves import score_assessment
         from .effect_modification import _resolve_pair, log_ratio_scale_refusal
 
         estimand = self.estimand
@@ -4689,27 +4725,9 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 reason=RefusalReason.INVALID_DECLARATION,
                 alternative="Identify ConditionalContrast(modifiers=...) on a CausalStudy.",
             )
-        if score_kind != "external":
-            raise CapabilityError.from_refusal(SCORE_KIND_REFUSAL)
-        adjustment = tuple(getattr(self._study.design, "adjustment", ()))
-        if (
-            computed_from is None
-            or isinstance(computed_from, str)
-            or not set(computed_from) <= set(adjustment)
-        ):
-            raise CapabilityError.from_refusal(SCORE_INPUTS_REFUSAL)
-        source = as_frame(self._study._source)
-        if column not in source.columns:
-            raise DataError(f"the score column {column!r} is not in the study's data")
-        score = source[column].to_numpy().astype(float)
+        score = self._external_score(column, computed_from, score_kind)
         data = self._study.data
         assert isinstance(data, CausalData)
-        if score.shape[0] != data.n or not np.all(np.isfinite(score)):
-            raise DataError(f"the score column {column!r} must hold one finite value per study row")
-        if column.startswith(PREDICTION_PREFIX) or any(
-            np.allclose(score, curve) for curve in self._curves if curve.shape == score.shape
-        ):
-            raise CapabilityError.from_refusal(SCORE_IN_SAMPLE_REFUSAL)
         chosen = estimand.scale if scale is None else scale
         if chosen not in ("difference", "log_ratio"):
             raise DataError(f"scale must be 'difference' or 'log_ratio'; got {chosen!r}")
@@ -4739,6 +4757,157 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             alpha=alpha,
             g_bounds=(float(fit.config.g_bounds[0]), float(fit.config.g_bounds[1])),
             missingness_bound=float(fit.config.missingness_bound),
+        )
+
+    def targeting_curve(
+        self,
+        column: str,
+        *,
+        computed_from: Sequence[str] | None = None,
+        score_kind: str | None = None,
+        compare: str | None = None,
+        compare_computed_from: Sequence[str] | None = None,
+        grid: Sequence[float] | None = None,
+        groups: int | Sequence[float] | None = 5,
+        n_half_samples: int = 2000,
+        alpha: float = 0.05,
+        random_state: int | None = None,
+        **overrides: Any,
+    ) -> Any:
+        """How much treating by an external priority score first gains over treating at random.
+
+        The score is a column of the study's data computed from adjustment columns by a rule
+        fitted on other rows, as :meth:`assess_score` takes it.  The curve ranks the rows by
+        the score and estimates, at each treated fraction ``q`` of the grid, the targeting
+        operator characteristic ``TOC(q)`` (the mean effect among the top fraction minus the
+        average effect) and the cumulative gain ``G(q) = q * (TOC(q) + ATE)``, with the two
+        areas AUTOC and Qini and the effect within each group of ranks.  Every estimate is a
+        TMLE from the cross-fitted nuisances of one ATE fit, on the difference scale whatever
+        the score's scale, with a half-sample bootstrap interval and a sup-t band over the grid
+        (``docs/technical-reference/conditional-effects.md``).
+
+        Parameters
+        ----------
+        column : str
+            The score column; higher values are treated first.
+        computed_from : sequence of str
+            The adjustment columns the score was computed from.
+        score_kind : {"external"}
+            The declaration that the score was fitted on other rows.
+        compare : str or None
+            A second external score to compare on the same rows and the same draws.
+        compare_computed_from : sequence of str or None
+            The adjustment columns ``compare`` was computed from.
+        grid : sequence of float or None
+            Treated fractions in ``(0, 1]``, increasing; ``0.1, 0.2, ..., 1.0`` when omitted.
+        groups : int, sequence of float or None
+            Group effects: a number of equal groups, or their upper edges, which must lie on
+            the grid; ``None`` for none.
+        n_half_samples : int
+            Half-sample bootstrap draws.
+        alpha : float
+            The intervals hold at ``1 - alpha``, and the band jointly over the grid.
+        random_state : int or None
+            Seed of the ATE fit's folds and of the draws.
+        **overrides : Any
+            Settings of the ATE fit, as :meth:`estimate` takes them.
+
+        Returns
+        -------
+        TargetingCurve
+            The curve.
+
+        Raises
+        ------
+        CapabilityError
+            If the estimand is not a :class:`ConditionalContrast` bound to a study, a score is
+            not declared external (R13), or the fit repeats its cross-fitting split.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import pandas as pd
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import CausalStudy, ConditionalContrast, PointTreatment
+        >>> from cleverly.bases import Modifiers
+        >>> rng = np.random.default_rng(0)
+        >>> n = 500
+        >>> w1, w2 = rng.uniform(-1, 1, n), rng.uniform(-1, 1, n)
+        >>> a = rng.binomial(1, 0.5, n)
+        >>> y = w2 + a * (1 + w1) + rng.normal(0, 0.5, n)
+        >>> frame = pd.DataFrame({"Y": y, "A": a, "W1": w1, "W2": w2, "S": w1})
+        >>> study = CausalStudy(
+        ...     frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2"))
+        ... )
+        >>> effect = study.identify(ConditionalContrast(Modifiers(["W1"])))
+        >>> curve = effect.targeting_curve(
+        ...     "S",
+        ...     computed_from=["W1"],
+        ...     score_kind="external",
+        ...     n_half_samples=200,
+        ...     random_state=0,
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(),
+        ...     outcome_by_arm=True,
+        ...     q_bounds=(-5.0, 6.0),
+        ... )
+        >>> bool(curve.area("autoc")["estimate"] > 0)
+        True
+        >>> [round(q, 1) for q in curve.grid][:3]
+        [0.1, 0.2, 0.3]
+        """
+        from .effect_modification import _resolve_pair
+        from .targeting_curves import (
+            TARGETING_REPEATS_REFUSAL,
+            check_targeting_spec,
+            targeting_fit,
+        )
+
+        estimand = self.estimand
+        if not isinstance(estimand, ConditionalContrast) or self._study is None:
+            raise CapabilityError(
+                "targeting_curve ranks the rows by a score of the modifiers of a "
+                "ConditionalContrast bound to a study.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Identify ConditionalContrast(modifiers=...) on a CausalStudy.",
+            )
+        scores = {column: self._external_score(column, computed_from, score_kind)}
+        if compare is not None:
+            if compare == column:
+                raise DataError("compare= names the same column as the score")
+            scores[compare] = self._external_score(compare, compare_computed_from, score_kind)
+        data = self._study.data
+        assert isinstance(data, CausalData)
+        pair = _resolve_pair(
+            EffectModification(
+                Constant(),
+                estimand.modifiers,
+                "difference",
+                treatment=estimand.treatment,
+                reference=estimand.reference,
+            ),
+            data,
+        )
+        kwargs = TMLEMethod().with_overrides(**overrides).estimator_kwargs()
+        if int(kwargs.get("repeats", 1)) > 1:
+            raise CapabilityError(refusal=TARGETING_REPEATS_REFUSAL)
+        kwargs.update({"estimands": ("ate",), "reference": pair[1]})
+        if random_state is not None:
+            kwargs["random_state"] = random_state
+        estimator = TMLE(**kwargs)
+        check_targeting_spec(estimator.targeting_spec())
+        fit = estimator.fit(data).single()
+        return targeting_fit(
+            fit,
+            data,
+            scores,
+            pair=pair,
+            grid=grid,
+            groups=groups,
+            n_half_samples=n_half_samples,
+            alpha=alpha,
+            random_state=random_state,
+            route="external",
         )
 
     def available_methods(self) -> MethodAvailabilities:

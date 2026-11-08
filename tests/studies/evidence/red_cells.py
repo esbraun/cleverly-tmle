@@ -514,6 +514,15 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "cleverly-refute-band/point/ate",
         ),
     ),
+    # X92 part 5. The paired TOC(0.1) difference of two correlated scores, the one declared
+    # reporting row of ``targeting-curves``: the oracle computation read its bootstrap SE ratio
+    # at 1.063 before the run, so it is conservative and keeps a one-sided gate
+    # (``REPORTING_GATE`` in ``tests/studies/targeting_curves.py``).
+    "X92-paired-conservative": _keys(
+        "targeting-curves",
+        "property",
+        "interval_calibration/H_S_minus_S_B_toc_0.1__correctly_specified",
+    ),
     # The smallest-composite arm of the composite study, red in both implementations alike.
     "composite-high-arm": _keys(
         "composite-missing-drtmle",

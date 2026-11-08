@@ -843,8 +843,9 @@ def repeats(
     name : str or None, default=None
         The estimand to draw; the first one when omitted.
     outcome_label : str or None, default=None
-        Words for the outcome in the axis label, such as ``"transition score"``; the
-        outcome column's name when omitted.
+        Words for the quantity in the axis label, such as ``"transition score"``, read as
+        ``"Difference in transition score"``; ``"Difference in mean"`` the outcome column's
+        name when omitted.
     units : str or None, default=None
         Units of the outcome, for the axis label.
     title : str or None, default=None
@@ -943,8 +944,8 @@ def repeats(
     axis.set_ylim(len(values) + 0.7, 0.3)
     _core.style_axes(axis, grid="x")
     scale = str(estimate.scale)
-    outcome = outcome_label or getattr(result.data, "outcome_name", None)
-    axis.set_xlabel(_axis_label(scale, outcome, units))
+    outcome = getattr(result.data, "outcome_name", None)
+    axis.set_xlabel(_axis_label(scale, outcome_label, outcome, units))
     if scale == "ratio" and np.all(values > 0):
         _core.log_axis(axis, "x")
     spread = float(result.repeat_spread()[label])
@@ -1239,7 +1240,7 @@ def bootstrap(
     if estimate is None:
         axis.set_xlabel("Estimate in each bootstrap replicate")
     else:
-        label = _axis_label(str(estimate.scale), outcome, units)
+        label = _axis_label(str(estimate.scale), None, outcome, units)
         if scale_words is not None and "log scale" not in label:
             label = f"{label} (on {scale_words})"
         axis.set_xlabel(label)

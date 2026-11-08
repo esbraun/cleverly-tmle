@@ -37,6 +37,12 @@ _DASHES: tuple[Any, ...] = ("-", (0, (5, 2)), (0, (1, 1.6)))
 #: Inches between neighbouring series at a shared x, so their error bars and band brackets
 #: do not overlap: wider than a band bracket (:func:`_core.brackets`, 12 points).
 _DODGE = 0.19
+#: Points right of its estimate at which a true value's cross is drawn where the estimate
+#: carries a bar and brackets, so the cross does not sit on them: the bracket's half width
+#: (6 points), the cross's half width (4) and a gap.
+_TRUTH_NUDGE = 11.0
+#: The dodge between series when crosses are drawn: room for a cross between neighbours.
+_TRUTH_DODGE = 0.33
 
 
 # ----------------------------------------------------------------------- frame helpers
@@ -62,12 +68,22 @@ def _finite_pair(low: Any, high: Any) -> bool:
     return _core.finite(low) and _core.finite(high)
 
 
-def _offset(ax: Axes, index: int, count: int) -> Any:
+def _offset(ax: Axes, index: int, count: int, gap: float = _DODGE) -> Any:
     """``ax.transData`` shifted sideways by the series' place, in inches."""
     from matplotlib.transforms import ScaledTranslation
 
-    shift = (index - (count - 1) / 2.0) * _DODGE
+    shift = (index - (count - 1) / 2.0) * gap
     return ax.transData + ScaledTranslation(shift, 0.0, ax.figure.dpi_scale_trans)
+
+
+def _beside(ax: Axes, transform: Any) -> Any:
+    """``transform`` moved :data:`_TRUTH_NUDGE` points right, for a cross beside a bar.
+
+    Only the drawing moves: the cross's data stay at the estimate's x.
+    """
+    from matplotlib.transforms import ScaledTranslation
+
+    return transform + ScaledTranslation(_TRUTH_NUDGE / 72.0, 0.0, ax.figure.dpi_scale_trans)
 
 
 def _pad(ax: Axes, values: Sequence[float]) -> None:
@@ -84,10 +100,20 @@ def _pad(ax: Axes, values: Sequence[float]) -> None:
     ax.set_ylim(low - margin, high + margin)
 
 
-def _wrap_axis_label(text: str, width: int = 26) -> str:
-    """Break a long axis label so it fits the height of its panel."""
+def _wrap_axis_label(prefix: str, phrase: str, width: int = 26) -> str:
+    """An axis label that fits the height of its panel, breaking only where it must.
+
+    The label is ``prefix`` and then ``phrase`` (the quantity, such as ``"order share"``).
+    A label that fits stays on one line; otherwise the break goes between the two, so the
+    phrase is never split while it fits a line of its own.
+    """
     import textwrap
 
+    text = f"{prefix} {phrase}".strip()
+    if len(text) <= width:
+        return text
+    if prefix and len(phrase) <= width:
+        return f"{prefix}\n{phrase}"
     return "\n".join(textwrap.wrap(text, width)) or text
 
 
@@ -190,9 +216,12 @@ def curve(
     measure : {"curve", "rmst", "rmtl"}, default="curve"
         Longitudinal fits: the curve over time, or the restricted mean survival time or time
         lost up to each horizon (points joined by a thin line, pointwise intervals only).
-    band : {"multiplier", "bootstrap", "none"} or None, default=None
-        Longitudinal fits: which simultaneous band to draw. ``None`` draws the multiplier
-        band when the fit holds one, else the bootstrap band; the other is named in the note.
+    band : {"multiplier", "bootstrap", "none"}, False or None, default=None
+        Which simultaneous band to draw. ``None`` draws the multiplier band when the fit
+        holds one, else the bootstrap band; the other is named in the note. ``"none"`` (or
+        ``False``) draws no band, so a figure need not show a band its page does not discuss.
+        A point-treatment fit of per-level means or of policies, and a conditional effect
+        curve, hold a multiplier band at most.
     cause : str or None, default=None
         Longitudinal fits with several causes: the cause to draw.
     regimens : sequence of str or None, default=None
@@ -222,7 +251,11 @@ def curve(
         uses the level of the curve's band when it has one, so the two are read at one
         level, and the level of the fit's coefficients otherwise.
     outcome_label : str or None, default=None
-        Words for the outcome on the y axis.
+        Words for the quantity on the y axis of a mean or a difference in means, such as
+        ``"order share"``: the label reads ``"order share"`` and ``"Difference in order
+        share"``. Without it the label is the mean of the outcome column, ``"Mean Y"`` and
+        ``"Difference in mean Y"``. A conditional effect curve reads ``"Effect on"`` the
+        words.
     treatment_label : str or None, default=None
         Words for the treatment on the x axis.
     units : str or None, default=None
@@ -302,6 +335,8 @@ def curve(
     from ..effect_curves import EffectCurveResult
     from ..longitudinal.estimator import LongitudinalResult
 
+    if band is False:
+        band = "none"
     if isinstance(obj, LongitudinalResult):
         if measure not in ("curve", "rmst", "rmtl"):
             raise ValueError(f"measure must be 'curve', 'rmst' or 'rmtl'; got {measure!r}")
@@ -333,6 +368,7 @@ def curve(
     if isinstance(obj, EffectCurveResult):
         return _effect_curve(
             obj,
+            band_choice=band,
             modifier=modifier,
             by=by,
             at=at,
@@ -356,6 +392,7 @@ def curve(
             return _dose(
                 means,
                 obj,
+                band=band,
                 levels=levels,
                 outcome_label=outcome_label,
                 treatment_label=treatment_label,
@@ -368,6 +405,7 @@ def curve(
             return _dose(
                 obj,
                 msm,
+                band=band,
                 levels=levels,
                 outcome_label=outcome_label,
                 treatment_label=treatment_label,
@@ -379,6 +417,7 @@ def curve(
         if axes <= {"policy", "ipsi"}:
             return _policies(
                 obj,
+                band=band,
                 outcome_label=outcome_label,
                 treatment_label=treatment_label,
                 units=units,
@@ -503,6 +542,21 @@ def _select(
 
 def _series(rows: list[_Point], regimen: str, *, level: bool) -> list[_Point]:
     return sorted((r for r in rows if r.regimen == regimen and r.level == level), key=lambda r: r.x)
+
+
+def _point_band(held: Any, band: str | None) -> Any:
+    """The multiplier band ``held`` by a fit to draw, or ``None`` for ``"none"``.
+
+    A point-treatment fit and a conditional effect curve hold a multiplier band at most, so
+    ``"bootstrap"`` is refused, as is ``"multiplier"`` when the fit holds none.
+    """
+    if band not in (None, "multiplier", "bootstrap", "none"):
+        raise ValueError(f"band must be 'multiplier', 'bootstrap' or 'none'; got {band!r}")
+    if band == "bootstrap":
+        raise ValueError("this fit holds no bootstrap band; its band is the multiplier band")
+    if band == "multiplier" and held is None:
+        raise ValueError("this fit holds no multiplier band")
+    return None if band == "none" else held
 
 
 def _band_choice(result: Any, band: str | None) -> tuple[Any, str | None, list[str]]:
@@ -707,11 +761,13 @@ def _draw_line(
     band_text: str | None,
     first: dict[str, bool],
     spots: list[_truth.Spot],
+    gap: float = _DODGE,
 ) -> None:
     """One series: the curve, its pointwise interval and its band.
 
     A node without an interval leaves a gap in the ribbon (or no bar) and a hollow marker;
-    the other nodes keep theirs.
+    the other nodes keep theirs. A true value's cross sits beside each node drawn with a bar
+    and brackets (every node of a point curve, the last of a step curve), not on them.
     """
     x = [p.x for p in points]
     y = [p.psi for p in points]
@@ -755,7 +811,7 @@ def _draw_line(
                 label=tag("pointwise", _core.pointwise_label(level)),
                 step=True,
             )
-        ends = _offset(ax, *dodge)
+        ends = _offset(ax, *dodge, gap=gap)
         for artist in [*ax.lines[before[0] :], *ax.collections[before[1] :]]:
             if not isinstance(artist, PolyCollection):
                 artist.set_transform(ends)
@@ -784,12 +840,15 @@ def _draw_line(
         )
         last = len(points) - 1
         spots.extend(
-            _truth.Spot(ax, p.parameter, p.x, ends if i == last else ax.transData, p.regimen)
+            _truth.Spot(
+                ax, p.parameter, p.x, _beside(ax, ends) if i == last else ax.transData, p.regimen
+            )
             for i, p in enumerate(points)
         )
         return
-    transform = _offset(ax, *dodge)
-    spots.extend(_truth.Spot(ax, p.parameter, p.x, transform, p.regimen) for p in points)
+    transform = _offset(ax, *dodge, gap=gap)
+    beside = _beside(ax, transform)
+    spots.extend(_truth.Spot(ax, p.parameter, p.x, beside, p.regimen) for p in points)
     if box is not None:
         _dodged_brackets(
             ax,
@@ -845,12 +904,15 @@ def _extent(
     return found
 
 
-def _label_ends(ax: Axes, ends: list[tuple[float, float, str, str]]) -> None:
-    """Direct labels at the right end of each series, moved apart where they would touch."""
+def _label_ends(ax: Axes, ends: list[tuple[float, float, str, str]], *, pad: float = 0.0) -> None:
+    """Direct labels at the right end of each series, moved apart where they would touch.
+
+    ``pad`` moves them a further number of points right, past the crosses of true values.
+    """
     low, high = ax.get_ylim()
     heights = _spread([y for _, y, _, _ in ends], 0.075 * (high - low))
     for (x, _, text, color), y in zip(ends, heights, strict=True):
-        _core.end_label(ax, x, y, text, color)
+        _core.end_label(ax, x, y, text, color, pad=pad)
 
 
 def _over_time(
@@ -915,6 +977,8 @@ def _over_time(
     first = {"band": True, "pointwise": True}
     spots: list[_truth.Spot] = []
     ends: list[tuple[float, float, str, str]] = []
+    # Crosses of true values sit right of their estimates' bars, so neighbours move apart.
+    gap = _DODGE if truth is None else _TRUTH_DODGE
     for i, regimen in enumerate(drawn):
         points = _series(rows, regimen, level=True)
         color = _core.series_color(slot[regimen])
@@ -930,24 +994,35 @@ def _over_time(
             band_text=band_text,
             first=first,
             spots=spots,
+            gap=gap,
         )
         ends.append((points[-1].x, points[-1].psi, name_of(regimen), color))
     marked = _mark_isotonic(top, result, rows, drawn, slot, view, psi_risk, chosen_cause)
     if has_levels:
         _pad(top, _extent(rows, chosen, limits, level_rows=True))
         top.set_ylabel(
-            _wrap_axis_label(_measure_word(view, outcome_label, units, difference=False))
+            _wrap_axis_label(*_measure_word(view, outcome_label, units, difference=False), 40)
         )
     diff_ends: list[tuple[float, float, str, str]] = []
     diff = panels[1] if has_levels else panels[0]
     if contrasts:
+        # Each difference takes the colour of its plan (the side compared with the
+        # reference), which keeps it apart from the grey no-difference line. Beside the
+        # regimens' curves it is the plan's own curve colour above; differences that share a
+        # plan there stay grey, since numbering them in turn would give one a curve's colour
+        # it does not belong to.
+        plan_slots = (
+            _plan_slots(contrasts, sides) if not has_levels else _drawn_plan_slots(contrasts, slot)
+        )
         for i, contrast in enumerate(contrasts):
             points = _series(rows, contrast, level=False)
+            index = i if plan_slots is None else plan_slots[contrast]
+            color = _core.SECONDARY_INK if plan_slots is None else _core.series_color(index)
             _draw_line(
                 diff,
                 points,
-                color=_core.SECONDARY_INK,
-                index=i,
+                color=color,
+                index=index,
                 dodge=(i, len(contrasts)),
                 step=step,
                 limits=limits,
@@ -955,12 +1030,18 @@ def _over_time(
                 band_text=band_text,
                 first=first,
                 spots=spots,
+                gap=gap,
             )
-            diff_ends.append((points[-1].x, points[-1].psi, name_of(contrast), _core.SECONDARY_INK))
+            diff_ends.append((points[-1].x, points[-1].psi, name_of(contrast), color))
         _core.reference_line(diff, 0.0, label="No difference")
         _pad(diff, [0.0, *_extent(rows, contrasts, limits, level_rows=False)])
+        # The difference panel is half the height of the curves above it, or the whole
+        # figure when the fit reports differences alone.
         diff.set_ylabel(
-            _wrap_axis_label(_measure_word(view, outcome_label, units, difference=True))
+            _wrap_axis_label(
+                *_measure_word(view, outcome_label, units, difference=True),
+                40 if not has_levels else 26,
+            )
         )
     xs = sorted({r.x for r in in_play})
     span = (xs[-1] - xs[0]) or 1.0
@@ -969,9 +1050,17 @@ def _over_time(
         axis.set_xlim(left, right)
     nudge = 0.03 * span
     if has_levels:
-        _label_ends(top, [(x + nudge, y, text, color) for x, y, text, color in ends])
+        _label_ends(
+            top,
+            [(x + nudge, y, text, color) for x, y, text, color in ends],
+            pad=_truth_pad(truth, len(drawn), gap),
+        )
     if contrasts:
-        _label_ends(diff, [(x + nudge, y, t, c) for x, y, t, c in diff_ends])
+        _label_ends(
+            diff,
+            [(x + nudge, y, t, c) for x, y, t, c in diff_ends],
+            pad=_truth_pad(truth, len(contrasts), gap),
+        )
     _count_row(count_ax, result, rows, chosen, name_of, time_label)
     heading = {
         "risk": "Risk over time",
@@ -1036,6 +1125,40 @@ def _over_time(
     return fig
 
 
+def _plan_slots(contrasts: Sequence[str], sides: Sequence[str]) -> dict[str, int]:
+    """The palette slot of each difference of a fit of differences alone: its plan's slot.
+
+    The plan is the side named first (``"always"`` in ``"always vs never"``) and keeps its
+    place in the fit's regimen order. Differences that share a plan, or more plans than
+    slots, are numbered in turn instead, so no two differences share a colour.
+    """
+    plans = [contrast.split(" vs ", 1)[0] for contrast in contrasts]
+    if len(set(plans)) == len(plans):
+        slots = _slots(plans, sides)
+        if len(set(slots.values())) == len(plans) and max(slots.values()) < _core.MAX_SERIES:
+            return {c: slots[p] for c, p in zip(contrasts, plans, strict=True)}
+    return {contrast: i for i, contrast in enumerate(contrasts)}
+
+
+def _drawn_plan_slots(contrasts: Sequence[str], slot: Mapping[str, int]) -> dict[str, int] | None:
+    """Each difference's plan's slot among the drawn curves, or ``None`` to draw them grey.
+
+    ``None`` when a plan is not drawn as a curve or two differences share one.
+    """
+    plans = [contrast.split(" vs ", 1)[0] for contrast in contrasts]
+    if len(set(plans)) != len(plans) or any(plan not in slot for plan in plans):
+        return None
+    return {c: slot[p] for c, p in zip(contrasts, plans, strict=True)}
+
+
+def _truth_pad(truth: Any, count: int, gap: float) -> float:
+    """Points the end labels move right so they clear the last node's crosses."""
+    if truth is None:
+        return 0.0
+    rightmost = (count - 1) / 2.0 * gap * 72.0
+    return rightmost + _TRUTH_NUDGE + 4.0
+
+
 def _step_note(interval: bool, band: bool) -> str:
     """What a step curve's last time point shows, where its ribbons have no width."""
     text = "Each estimate holds until the next time point."
@@ -1067,15 +1190,16 @@ def _over_time_subtitle(
     return f"{base}{suffix}{tail}"
 
 
-def _measure_word(view: str, outcome: str | None, units: str | None, *, difference: bool) -> str:
-    unit = f" ({units})" if units else ""
+def _measure_word(
+    view: str, outcome: str | None, units: str | None, *, difference: bool
+) -> tuple[str, str]:
+    """The y label of an over-time panel, as the prefix and the quantity it names."""
     if view == "mean":
-        name = outcome or "outcome"
-        return f"Difference in mean {name}{unit}" if difference else f"Mean {name}{unit}"
+        return _core.quantity(outcome, "outcome", units, difference=difference)
     word = "risk" if view == "risk" else "survival"
     if difference:
-        return f"Difference in {word}"
-    return "Cumulative risk" if view == "risk" else "Survival probability"
+        return "Difference in", word
+    return "", "Cumulative risk" if view == "risk" else "Survival probability"
 
 
 def _mark_isotonic(
@@ -1298,7 +1422,7 @@ def _restricted(
         draw(top, levels[name], color, slot[name], (i, len(chosen)), name)
         all_estimates.extend(levels[name])
         ends.append((float(horizons[-1]), levels[name][-1].psi, name_of(name), color))
-    top.set_ylabel(_wrap_axis_label(f"Restricted mean {word}{unit}"))
+    top.set_ylabel(_wrap_axis_label("", f"Restricted mean {word}{unit}"))
     diff_ends = []
     if contrasts:
         diff = panels[1]
@@ -1314,7 +1438,7 @@ def _restricted(
                 )
             )
         _core.reference_line(diff, 0.0, label="No difference")
-        diff.set_ylabel(_wrap_axis_label(f"Difference in restricted mean {word}{unit}"))
+        diff.set_ylabel(_wrap_axis_label("Difference in", f"restricted mean {word}{unit}"))
     span = float(horizons[-1]) - float(horizons[0]) or 1.0
     left, right = float(horizons[0]) - 0.06 * span, float(horizons[-1]) + 0.3 * span
     for axis in panels:
@@ -1529,10 +1653,24 @@ def _same_data(first: Any, second: Any) -> bool:
     return True
 
 
+def _level_title(means: Any, msm_fit: Any) -> str:
+    """The question of a per-level means plot, in dose words only for a declared dose.
+
+    Per-level means compare arms, contact counts or doses alike, so the words are neutral
+    unless a fit declares its treatment continuous.
+    """
+    fits = (means, msm_fit)
+    dose = any(
+        bool(getattr(getattr(fit, "data", None), "is_continuous_treatment", False)) for fit in fits
+    )
+    return f"How does the mean outcome change with the {'dose' if dose else 'treatment level'}?"
+
+
 def _dose(
     means: Any,
     msm_fit: Any,
     *,
+    band: str | None,
     levels: Mapping[str, Any] | None,
     outcome_label: str | None,
     treatment_label: str | None,
@@ -1578,11 +1716,10 @@ def _dose(
                 "(their outcome or treatment columns differ); fit both on the same data"
             )
     fig, axis = _core.figure_for(ax, figsize=(7.8, 4.8))
-    outcome = outcome_label or str(getattr(means.data, "outcome_name", "outcome"))
+    outcome = str(getattr(means.data, "outcome_name", "outcome"))
     treatment = treatment_label or str(getattr(means.data, "treatment_name", "treatment"))
-    unit = f" ({units})" if units else ""
     level = 1.0 - float(estimates[0].alpha)
-    bands = means.simultaneous
+    bands = _point_band(means.simultaneous, band)
     box = None
     if bands is not None:
         box = [bands.bands.get(e[2]) for e in entries]
@@ -1658,9 +1795,11 @@ def _dose(
     _pad(axis, extent)
     _label_ends(axis, [(x + 0.05 * span, y, t, c) for x, y, t, c in ends])
     axis.set_xlabel(f"{treatment}")
-    axis.set_ylabel(f"Mean {outcome}{unit}")
+    axis.set_ylabel(
+        " ".join(_core.quantity(outcome_label, outcome, units, difference=False)).strip()
+    )
     _truth.draw(truth, spots, known=list(means.estimates))
-    _core.header(axis, title or "How does the mean outcome change with the dose?", subtitle)
+    _core.header(axis, title or _level_title(means, msm_fit), subtitle)
     _core.notes(axis, notes)
     return fig
 
@@ -1704,6 +1843,7 @@ def _policy_axis(estimand: Any) -> tuple[dict[str, float], str, bool, str] | Non
 def _policies(
     result: Any,
     *,
+    band: str | None,
     outcome_label: str | None,
     treatment_label: str | None,
     units: str | None,
@@ -1736,11 +1876,10 @@ def _policies(
     contrast = estimates[0].scale == "difference"
     reference = entries[0][3].reference
     fig, axis = _core.figure_for(ax, figsize=(7.0, 4.4))
-    outcome = outcome_label or str(getattr(result.data, "outcome_name", "outcome"))
+    outcome = str(getattr(result.data, "outcome_name", "outcome"))
     treatment = treatment_label or str(getattr(result.data, "treatment_name", "treatment"))
-    unit = f" ({units})" if units else ""
     level = 1.0 - float(estimates[0].alpha)
-    bands = result.simultaneous
+    bands = _point_band(result.simultaneous, band)
     box = None if bands is None else [bands.bands.get(e[2]) for e in entries]
     extent: list[float] = [0.0] if contrast else []
     color = _core.series_color(0)
@@ -1821,11 +1960,13 @@ def _policies(
         )
     if contrast:
         _core.reference_line(axis, 0.0, label="No effect")
-        axis.set_ylabel(f"Difference in mean {outcome}{unit}")
+        axis.set_ylabel(" ".join(_core.quantity(outcome_label, outcome, units, difference=True)))
         subtitle = f"Each policy compared with {reference}{cap_note}"
         heading = "How does the effect change as the policy shifts?"
     else:
-        axis.set_ylabel(f"Mean {outcome}{unit}")
+        axis.set_ylabel(
+            " ".join(_core.quantity(outcome_label, outcome, units, difference=False)).strip()
+        )
         subtitle = f"Mean outcome under each policy{cap_note}"
         heading = "How does the mean outcome change as the policy shifts?"
     ticks = sorted(set(shown))
@@ -1877,6 +2018,7 @@ def _level_rows(result: Any, name: str, level: Any, reference: Any) -> np.ndarra
 def _effect_curve(
     result: Any,
     *,
+    band_choice: str | None,
     modifier: str | None,
     by: str | None,
     at: Mapping[str, Any] | None,
@@ -1948,7 +2090,7 @@ def _effect_curve(
     transform = np.exp if ratio else (lambda v: v)
     projection = result.fitted_method != "ep"
     drawn_interval = projection and supplies_inference(result.inference_status)
-    band = result.band
+    band = _point_band(result.band, band_choice)
     level_alpha = _curve_alpha(result) if alpha is None else float(alpha)
 
     def evaluate(level: Any) -> dict[str, np.ndarray]:
@@ -1977,8 +2119,11 @@ def _effect_curve(
     else:
         fig, only = _core.figure_for(ax)
         panels = [only]
-    outcome = outcome_label or str(
-        getattr(getattr(result.fit, "data", None), "outcome_name", "outcome")
+    # The caller's words go mid-phrase, after "Effect on"; a column name stays as written.
+    outcome = (
+        _core.mid_phrase(outcome_label)
+        if outcome_label
+        else str(getattr(getattr(result.fit, "data", None), "outcome_name", "outcome"))
     )
     unit = f" ({units})" if units else ""
     binary = _binary_outcome(result)

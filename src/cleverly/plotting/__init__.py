@@ -12,11 +12,12 @@ The plots:
 ======================  ============================================================================
 function                question
 ======================  ============================================================================
-:func:`forest`          the estimates of one or several fits, with their intervals
+:func:`forest`          how large is each estimate, and how sure is it?
 :func:`curve`           how a result changes over time, dose, policy or modifier
 :func:`sensitivity`     does the estimate depend on a declared sensitivity parameter?
 :func:`confounding`     how strong would hidden confounding need to be?
 :func:`overlap`         did every kind of unit have a chance of each treatment?
+:func:`targeting`       how much does treating by a score first gain over random?
 :func:`weights`         at which time point do a longitudinal fit's weights grow too large?
 :func:`balance`         did weighting make treated and untreated units alike on each covariate?
 :func:`zipper`          do a study's intervals cover the true value, and how do they miss?
@@ -38,6 +39,7 @@ from ._diagnostics import bootstrap, calibration, influence, learners, repeats
 from ._forest import forest
 from ._overlap import overlap
 from ._sensitivity import sensitivity
+from ._targeting import targeting
 from ._weights import balance, weights
 from ._zipper import zipper
 
@@ -55,6 +57,7 @@ __all__ = [
     "repeats",
     "sensitivity",
     "style",
+    "targeting",
     "weights",
     "zipper",
 ]

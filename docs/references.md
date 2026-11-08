@@ -2546,7 +2546,7 @@ The notebook also cites one source for its sensitivity analysis. Its entry is un
 
 The [conditional effects reference](technical-reference/conditional-effects.md) cites this source
 for the projection targets of `ConditionalContrast`, for the check of an external score and for
-the EP learner.
+the EP learner, and the next two for the targeting curves of a priority score.
 
 - van der Laan, Carone & Luedtke (2024; v2 2026), [*Combining T-learning and DR-learning: a framework for
   oracle-efficient estimation of causal contrasts*](https://arxiv.org/abs/2402.01972),
@@ -2561,6 +2561,21 @@ the EP learner.
   learner (`method="ep"`) follows Algorithms 2 to 4 and App C.1, Method 1. Theorems 4 and 5 give
   its rate and oracle efficiency for a declared size schedule under conditions C1 to C6, and
   Section 5.1 proves nothing for a size chosen by cross-validation.
+- Yadlowsky, Fleming, Shah, Brunskill & Wager (2025), [*Evaluating treatment prioritization
+  rules via rank-weighted average treatment effects*](https://arxiv.org/abs/2111.07966),
+  arXiv:2111.07966v2, published in the *Journal of the American Statistical Association*. The
+  locators here are the arXiv version's, and the journal numbering was not checked. Definition 2
+  and equation (2.2) define the TOC, Examples 2 and 3 the AUTOC and the Qini, and (2.8) and (2.9)
+  the estimators. Theorem 3, Lemma 4 and Corollaries 5 and 7 and Proposition 8 give the areas'
+  limit and the half-sample bootstrap, and Appendix A.2 the random tie-break.
+  `targeting_curve` uses them, and the fixed-$q$ points rest on the natural extensions of
+  [the verdicts](technical-reference/natural-extension-verdicts.md).
+- Imai & Li (2023), [*Experimental evaluation of individualized treatment
+  rules*](https://arxiv.org/abs/1905.05389), arXiv:1905.05389v6, published in the *Journal of
+  the American Statistical Association*. The locators are the arXiv version's, and the journal
+  numbering was not checked. Section 3 evaluates a rule fitted on other data, and Section 4
+  the average over folds of fold-specific rules in a completely randomized experiment, which is
+  why `targeting_curve` refuses a fold average.
 
 ## Proposed methods on the roadmap
 

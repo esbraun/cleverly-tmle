@@ -3047,7 +3047,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             ``cause=``, ``regimens=``, ``labels=``, ``units=``, ``time_label=`` and
             ``title=``), or to :func:`cleverly.plotting.forest` when the fit has no curve
             (``labels=``, ``title=``, ``subtitle=``, ``outcome_label=``, ``units=``,
-            ``truth=`` and ``ax=``).
+            ``truth=``, ``include_null=`` and ``ax=``).
 
         Returns
         -------
