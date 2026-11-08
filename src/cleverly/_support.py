@@ -919,7 +919,11 @@ def longitudinal_key(
         "censoring": _learner_type(estimator.censoring_learner),
     }
     if getattr(data, "eliminated", ()):
-        learners["competing"] = _learner_type(estimator.competing_learner)
+        # The censoring learner fits the prevented cause unless a competing learner is set.
+        competing = estimator.competing_learner
+        learners["competing"] = (
+            learners["censoring"] if competing is None else _learner_type(competing)
+        )
     return key, learners
 
 

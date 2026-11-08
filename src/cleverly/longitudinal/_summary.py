@@ -123,8 +123,20 @@ def _learners(result: LongitudinalResult) -> dict[str, Any] | None:
         if _reports_censoring(data) and not set(data.censoring_names) <= known:
             roles["censoring"] = getattr(estimator, "censoring_learner", None)
         if data.eliminated:
-            competing = getattr(estimator, "competing_learner", None)
-            roles["competing"] = roles.get("censoring") if competing is None else competing
+            # The engine's own fallback: the competing learner, else the censoring learner,
+            # else the treatment learner.  It applies when no censoring model is reported too.
+            roles["competing"] = next(
+                (
+                    learner
+                    for learner in (
+                        getattr(estimator, "competing_learner", None),
+                        getattr(estimator, "censoring_learner", None),
+                        getattr(estimator, "treatment_learner", None),
+                    )
+                    if learner is not None
+                ),
+                None,
+            )
     return roles
 
 

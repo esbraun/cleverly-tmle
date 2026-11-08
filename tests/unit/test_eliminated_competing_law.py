@@ -18,9 +18,10 @@ from dataclasses import replace
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 
-from cleverly.exceptions import DataError
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.learners import GLM
 from cleverly.longitudinal import (
     LTMLE,
@@ -334,6 +335,44 @@ def test_a_hand_built_composite_censoring_column_gives_the_same_estimate() -> No
             assert by_hand[name].psi == pytest.approx(declared[name].psi, abs=1e-10)
 
 
+def test_ratio_trim_reads_the_two_factor_product() -> None:
+    """With ratio_trim= binding, the eliminated fit equals the hand-built composite fit.
+
+    Saturated cells fit the product of the two factors exactly as one composite model, so the
+    trimmed ratios agree only if the trim reads the product.
+    """
+    law = _law(False)
+    frame = law.frame().copy()
+    for node in (1, 2, 3):
+        died = frame[f"D{node}"] == 1
+        frame.loc[died, f"C{node}"] = 0.0
+        frame.loc[died, [f"R{node}", f"D{node}"]] = np.nan
+    columns = law.fit_columns()
+    single = {**columns, "outcome": columns["outcome"]["relapse"]}
+
+    def engine(trim: float | None) -> Any:
+        return LTMLE(REGIMENS, n_folds=1, g_bounds=NO_TRUNCATION, ratio_trim=trim, **_cells())
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        by_hand = engine(0.95).fit(frame, **single)
+        declared = engine(0.95).fit(law.frame(), eliminate=["death"], **columns)
+        untrimmed = engine(None).fit(law.frame(), eliminate=["death"], **columns)
+    # The saturated outcome fit is the oracle, so the trim shows in the influence curve.
+    moved = 0.0
+    for label in REGIMENS:
+        for horizon in HORIZONS:
+            name = _name(label, horizon)
+            assert declared[name].psi == pytest.approx(by_hand[name].psi, abs=1e-10)
+            np.testing.assert_allclose(
+                declared[name].influence_curve, by_hand[name].influence_curve, atol=1e-10
+            )
+            gap = declared[name].influence_curve - untrimmed[name].influence_curve
+            moved = max(moved, float(np.abs(gap).max()))
+    # The witness: the trim binds, so the curve depends on the trimmed product.
+    assert moved > 1e-3
+
+
 # ------------------------------------------------------------------- refusals
 
 
@@ -404,6 +443,23 @@ def test_the_study_path_fits_an_eliminated_time_to_event_design() -> None:
         law.probs, static(0), 3, RELAPSE, eliminate=DEATH
     )
     assert result["ate_regimen[a1 vs a0 @ t=3]"].psi == pytest.approx(truth, abs=1e-10)
+
+
+def test_the_study_path_passes_the_competing_learner() -> None:
+    from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
+    from cleverly._summary import vocabulary
+
+    law = _law(False)
+    design = LongitudinalTreatment(eliminate=["death"], **law.fit_columns())
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = CausalStudy(law.frame(), design=design).estimate(
+            RegimeContrast(regimens=REGIMENS, reference="a0", horizons=[3]),
+            competing_learner=_MarkedCells(),
+            cross_fit=False,
+            **_cells(),
+        )
+    assert dict(result.summary().header)[vocabulary.PREVENTED_MODEL] == "_MarkedCells"
 
 
 def test_a_design_refuses_a_container_that_already_eliminates() -> None:
@@ -636,7 +692,6 @@ def test_the_bootstrap_refits_the_competing_factor_in_every_replicate(
 
 
 def test_a_learned_regimen_refuses_an_eliminated_fit() -> None:
-    from cleverly.exceptions import CapabilityError
     from cleverly.longitudinal import LearnedRegimen
 
     with pytest.raises(CapabilityError, match="survival"):
@@ -741,6 +796,8 @@ def test_without_censoring_only_the_prevented_factor_is_reported() -> None:
     header = dict(result.summary().header)
     assert vocabulary.CENSORING not in header and vocabulary.CENSORING_MODEL not in header
     assert header[vocabulary.PREVENTED].startswith("death;")
+    # No competing learner was passed, so the censoring learner fitted the prevented cause.
+    assert header[vocabulary.PREVENTED_MODEL] == "CellMeans"
 
 
 def test_a_declared_zero_retention_is_checked_on_the_censoring_factor() -> None:
@@ -820,3 +877,70 @@ def test_ipsi_on_an_eliminated_fit_is_the_hand_built_composite_fit() -> None:
         np.testing.assert_allclose(
             declared[name].influence_curve, composite[name].influence_curve, atol=1e-12
         )
+
+
+# ------------------------------------------------------------------ refusals
+
+
+@pytest.fixture(scope="module")
+def eliminated_fit() -> Any:
+    law = _law(False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return _engines()["ltmle"]().fit(_data(law))
+
+
+def test_with_events_refuses_eliminated_data(eliminated_fit: Any) -> None:
+    data = eliminated_fit.data
+    with pytest.raises(DataError, match="with_events draws observed events"):
+        data.with_events(np.zeros((data.n, data.n_times)), np.ones((data.n, data.n_times)))
+
+
+def test_to_long_panel_refuses_eliminated_data() -> None:
+    rng = np.random.default_rng(3)
+    rows = []
+    for unit in range(200):
+        for t in (1, 2):
+            relapse, death = (float(v) for v in rng.multinomial(1, (0.1, 0.1, 0.8))[:2])
+            rows.append(
+                {"id": unit, "t": t, "w": unit % 3, "a": t % 2, "relapse": relapse, "death": death}
+            )
+            if relapse or death:
+                break
+    data = LongitudinalData.from_long_panel(
+        pd.DataFrame(rows),
+        unit="id",
+        time="t",
+        treatment="a",
+        baseline=["w"],
+        event={"relapse": "relapse", "death": "death"},
+        eliminate=["death"],
+    )
+    with pytest.raises(DataError, match="to_long_panel exports observed rows"):
+        data.to_long_panel()
+
+
+def test_the_evalue_refuses_an_eliminated_fit(eliminated_fit: Any) -> None:
+    from cleverly.sensitivity import evalue
+
+    name = next(iter(eliminated_fit.estimates))
+    with pytest.raises(CapabilityError, match=r"this fit eliminates \['death'\]"):
+        evalue(eliminated_fit, name)
+
+
+def test_simulated_confounding_refuses_an_eliminated_fit(eliminated_fit: Any) -> None:
+    from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
+
+    name = next(iter(eliminated_fit.estimates))
+    treatments = eliminated_fit.data.treatment_names
+    grid = ConfounderStrengthGrid(treatment=dict.fromkeys(treatments, (0.0, 0.1)), outcome=(0.0,))
+    with pytest.raises(CapabilityError, match="eliminates competing causes"):
+        simulated_confounding(eliminated_fit, name, grid=grid, random_state=0)
+
+
+def test_structural_nested_means_refuse_eliminate() -> None:
+    from cleverly.longitudinal import StructuralNestedMean
+
+    law = _law(False)
+    with pytest.raises(CapabilityError):
+        StructuralNestedMean().fit(law.frame(), eliminate=["death"], **law.fit_columns())
