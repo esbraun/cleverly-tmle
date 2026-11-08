@@ -23,10 +23,12 @@ from typing import Any, Final, Literal
 
 import numpy as np
 
+from .._typing import FloatArray
 from ..data import CausalData
 from ..dose_response import (
     DoseResponse,
     QuadratureRule,
+    pair_name,
     pair_support,
     target_pair,
 )
@@ -55,6 +57,12 @@ class PairSupport:
     ----------
     name : str
         The pair's parameter name.
+    bandwidth : float
+        The declared bandwidth.
+    dose : float
+        The declared dose.
+    stratum : str or None
+        The baseline stratum's label, or ``None`` on a fit without strata.
     rows : int
         Rows whose observed dose gets a nonzero weight.
     kish : float
@@ -68,6 +76,9 @@ class PairSupport:
     """
 
     name: str
+    bandwidth: float
+    dose: float
+    stratum: str | None
     rows: int
     kish: float
     min_density: float
@@ -88,7 +99,8 @@ class DoseResponseResult:
     band : SimultaneousBands
         The simultaneous band over every declared pair.
     support : tuple of PairSupport
-        The support report, one entry per pair.
+        One entry per reported estimate, in report order: every pair, and within a fit with
+        baseline strata every pair in every stratum.
     quadrature_shift : float
         The largest change of an estimate, relative to its standard error, when the
         quadrature nodes are doubled.
@@ -98,6 +110,9 @@ class DoseResponseResult:
         The quadrature doses.
     alpha : float
         The significance level of the intervals and of the band.
+    warnings : tuple of str
+        The fit's notes: a quadrature-doubling shift above tolerance, and pairs below the
+        support floor.
     """
 
     curve: DoseResponse
@@ -113,7 +128,7 @@ class DoseResponseResult:
     def __getitem__(self, name: str) -> ParameterEstimate:
         return self.estimates[name]
 
-    def estimate(self, h: float, a0: float) -> ParameterEstimate:
+    def estimate(self, h: float, a0: float, stratum: str | None = None) -> ParameterEstimate:
         """The estimate at one declared pair.
 
         Parameters
@@ -122,16 +137,21 @@ class DoseResponseResult:
             A declared bandwidth.
         a0 : float
             A declared dose.
+        stratum : str or None
+            The stratum label, such as ``"V=1"``, on a fit with baseline strata.
 
         Returns
         -------
         ParameterEstimate
             The estimate.
         """
-        for (bandwidth, dose), name in zip(self.curve.pairs, self.curve.names, strict=True):
-            if np.isclose(bandwidth, h) and np.isclose(dose, a0):
-                return self.estimates[name]
-        raise KeyError(f"no declared pair with bandwidth {h!r} and dose {a0!r}")
+        for cell in self.support:
+            same = np.isclose(cell.bandwidth, h) and np.isclose(cell.dose, a0)
+            if same and cell.stratum == stratum:
+                return self.estimates[cell.name]
+        raise KeyError(
+            f"no declared pair with bandwidth {h!r}, dose {a0!r} and stratum {stratum!r}"
+        )
 
     def to_frame(self, backend: str | None = None) -> Any:
         """One row per pair: the estimate, its pointwise interval, the band and the support.
@@ -144,9 +164,9 @@ class DoseResponseResult:
         Returns
         -------
         DataFrame
-            Columns ``bandwidth``, ``dose``, ``estimate``, ``std_error``, ``lower``,
-            ``upper``, ``band_lower``, ``band_upper``, ``rows``, ``kish`` and
-            ``low_support``.
+            Columns ``bandwidth``, ``dose``, ``stratum`` (on a fit with strata),
+            ``estimate``, ``std_error``, ``lower``, ``upper``, ``band_lower``,
+            ``band_upper``, ``rows``, ``kish`` and ``low_support``.
         """
         columns: dict[str, list[Any]] = {
             key: []
@@ -164,14 +184,17 @@ class DoseResponseResult:
                 "low_support",
             )
         }
-        for (h, a0), name, support in zip(
-            self.curve.pairs, self.curve.names, self.support, strict=True
-        ):
-            estimate = self.estimates[name]
+        stratified = any(cell.stratum is not None for cell in self.support)
+        if stratified:
+            columns = {"bandwidth": [], "dose": [], "stratum": [], **columns}
+        for support in self.support:
+            estimate = self.estimates[support.name]
             lower, upper = estimate.ci
-            band_lower, band_upper = self.band.bands[name]
-            columns["bandwidth"].append(h)
-            columns["dose"].append(a0)
+            band_lower, band_upper = self.band.bands[support.name]
+            columns["bandwidth"].append(support.bandwidth)
+            columns["dose"].append(support.dose)
+            if stratified:
+                columns["stratum"].append(support.stratum)
             columns["estimate"].append(estimate.psi)
             columns["std_error"].append(estimate.std_error)
             columns["lower"].append(lower)
@@ -221,11 +244,6 @@ def _refuse_unsupported(data: CausalData) -> None:
             "evaluated at every quadrature dose.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             roadmap="X10",
-        )
-    if data.has_strata:
-        raise CapabilityError(
-            "a dose-response curve with baseline strata is not implemented yet",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
         )
     if data.dose_atoms:
         raise CapabilityError(
@@ -333,6 +351,7 @@ class DoseResponseTMLE:
         covariates: Sequence[str] | None = None,
         weights: str | None = None,
         id: str | None = None,
+        strata: Sequence[str] | None = None,
     ) -> DoseResponseResult:
         """Fit the curve.
 
@@ -351,6 +370,10 @@ class DoseResponseTMLE:
             The observation-weight column.
         id : str or None
             The cluster column.
+        strata : Sequence[str] or None
+            Baseline strata columns, which must also be covariates.  Each stratum gets its own
+            curve, :math:`E\\{\\int_D w(a)\\bar Q(a, W)\\,da \\mid V = v\\}`, from the same
+            nuisance fits.
 
         Returns
         -------
@@ -367,6 +390,7 @@ class DoseResponseTMLE:
             weights=weights,
             id=id,
             intermediate=None,
+            strata=strata,
             treatment_kind=None if isinstance(data, CausalData) else "continuous",
         )
         _refuse_unsupported(prepared)
@@ -415,7 +439,7 @@ class DoseResponseTMLE:
         estimates, supports, scores = coarse
         shift = max(
             abs(estimates[name].psi - refined[0][name].psi) / estimates[name].std_error
-            for name in curve.names
+            for name in estimates
         )
         band = simultaneous_bands(
             estimates,
@@ -481,7 +505,20 @@ class DoseResponseTMLE:
         estimates: dict[str, ParameterEstimate] = {}
         supports: list[PairSupport] = []
         scores: dict[str, float] = {}
-        for p, ((h, a0), name) in enumerate(zip(curve.pairs, curve.names, strict=True)):
+        strata: list[tuple[str | None, FloatArray]] = [(None, np.ones(data.n))]
+        if data.strata is not None:
+            strata = [
+                (data.stratum_label(code), (data.strata == code).astype(float))
+                for code in range(data.n_strata)
+            ]
+        cells = [
+            (p, h, a0, label, mask)
+            for label, mask in strata
+            for p, (h, a0) in enumerate(curve.pairs)
+        ]
+        for p, h, a0, label, mask in cells:
+            name = pair_name(h, a0) if label is None else f"{pair_name(h, a0)}[{label}]"
+            row_weights = data.weights * mask
             weights = rule.weights[p]
             weight_obs = curve.weight(h, a0, data.treatment)
             if np.any((g_obs <= 0.0) & (weight_obs != 0.0)):
@@ -512,16 +549,22 @@ class DoseResponseTMLE:
                 h_obs,
                 h_nodes,
                 weights,
-                data.weights,
+                row_weights,
                 fluctuation=self.fluctuation,
             )
             if not fitted.converged:
                 raise RuntimeError(f"{name}: the fluctuation did not solve its score")
-            report = pair_support(h_obs, g_obs, g_nodes, weight_obs, weights)
+            inside = mask > 0.0
+            report = pair_support(
+                h_obs[inside], g_obs[inside], g_nodes[inside], weight_obs[inside], weights
+            )
             below = report.kish < curve.support_floor
             supports.append(
                 PairSupport(
                     name,
+                    h,
+                    a0,
+                    label,
                     report.rows,
                     report.kish,
                     report.min_density,

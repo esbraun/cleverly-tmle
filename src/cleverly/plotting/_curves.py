@@ -207,7 +207,9 @@ def curve(
     scale factors or incremental odds multipliers) draws the effect against the policy's
     parameter. A point-treatment fit of per-level means draws the means against the
     treatment level, and the working model of a marginal structural model fit beside them.
-    A conditional effect curve draws the effect over one modifier.
+    A conditional effect curve draws the effect over one modifier. A smoothed dose-response
+    curve draws one series per declared bandwidth, at most three, with its pointwise
+    intervals and the band over every declared pair.
 
     A band is drawn only when the fit computed one. A fit that reports every time point
     gets step ribbons, because the curve is constant between time points, and the last time
@@ -218,7 +220,7 @@ def curve(
 
     Parameters
     ----------
-    obj : LongitudinalResult, TMLEResult or EffectCurveResult
+    obj : LongitudinalResult, TMLEResult, EffectCurveResult or DoseResponseResult
         What to draw.
     scale : {"risk", "survival", "mean"} or None, default=None
         Longitudinal fits: the view of the outcome. ``None`` is ``"risk"`` for a survival
@@ -254,6 +256,8 @@ def curve(
         the curve reads when omitted.
     by : str or None, default=None
         Conditional effect curve: a categorical modifier, drawn as one panel per level.
+        Dose-response curve with baseline strata: the stratum label to draw, such as
+        ``"V=1"``.
     at : mapping or None, default=None
         Conditional effect curve: the value at which each other modifier the curve reads is
         held.
@@ -344,10 +348,23 @@ def curve(
     >>> plt.close(fig)
     """
     from ..effect_curves import EffectCurveResult
+    from ..estimators.dose_response import DoseResponseResult
     from ..longitudinal.estimator import LongitudinalResult
 
     if band is False:
         band = "none"
+    if isinstance(obj, DoseResponseResult):
+        return _dose_response(
+            obj,
+            band=band,
+            by=by,
+            outcome_label=outcome_label,
+            treatment_label=treatment_label,
+            units=units,
+            truth=truth,
+            title=title,
+            ax=ax,
+        )
     if isinstance(obj, LongitudinalResult):
         if measure not in ("curve", "rmst", "rmtl"):
             raise ValueError(f"measure must be 'curve', 'rmst' or 'rmtl'; got {measure!r}")
@@ -1815,6 +1832,93 @@ def _dose(
     )
     _truth.draw(truth, spots, known=list(means.estimates))
     _core.header(axis, title or _level_title(means, msm_fit), subtitle)
+    _core.notes(axis, notes)
+    return fig
+
+
+def _dose_response(
+    result: Any,
+    *,
+    band: str | None,
+    by: str | None,
+    outcome_label: str | None,
+    treatment_label: str | None,
+    units: str | None,
+    truth: Any,
+    title: str | None,
+    ax: Axes | None,
+) -> Figure:
+    """The smoothed dose-response curve: one series per bandwidth, the band as brackets."""
+    strata = sorted({cell.stratum for cell in result.support if cell.stratum is not None})
+    if strata and by is None:
+        raise ValueError(f"this fit has baseline strata; pass by= one of {strata}")
+    if by is not None and by not in strata:
+        raise ValueError(f"by= must be one of the fit's strata {strata}; got {by!r}")
+    bandwidths = list(result.curve.bandwidths)
+    if len(bandwidths) > len(_MARKERS):
+        raise ValueError(
+            f"this fit declares {len(bandwidths)} bandwidths and one axes draws at most "
+            f"{len(_MARKERS)}; fit a declaration with fewer bandwidths to draw it"
+        )
+    if band not in (None, "multiplier", "none"):
+        raise ValueError(f"a dose-response curve holds a multiplier band at most; got {band!r}")
+    fig, axis = _core.figure_for(ax, figsize=(7.8, 4.8))
+    level = 1.0 - float(result.alpha)
+    draw_band = band != "none"
+    extent: list[float] = []
+    spots: list[_truth.Spot] = []
+    notes: list[str] = []
+    ends = []
+    xs_all: list[float] = []
+    for index, h in enumerate(bandwidths):
+        cells = [c for c in result.support if c.bandwidth == h and c.stratum == by]
+        xs = [c.dose for c in cells]
+        xs_all.extend(xs)
+        estimates = [result.estimates[c.name] for c in cells]
+        box = [result.band.bands[c.name] for c in cells] if draw_band else None
+        color = _core.series_color(index)
+        found = _points_at(
+            axis,
+            xs,
+            estimates,
+            color=color,
+            marker=_MARKERS[index],
+            index=index,
+            count=len(bandwidths),
+            interval_text=_core.pointwise_label(level) if index == 0 else "_nolegend_",
+            box=box,
+            band_text=_core.band_label(level, "multiplier") if index == 0 else None,
+            extent=extent,
+            spots=spots,
+            names=[c.name for c in cells],
+        )
+        notes += [note for note in found if note not in notes]
+        ends.append((xs[-1], float(estimates[-1].psi), f"bandwidth {h:g}", color))
+    span = (max(xs_all) - min(xs_all)) or 1.0
+    axis.set_xticks(sorted(set(xs_all)))
+    axis.set_xlim(min(xs_all) - 0.08 * span, max(xs_all) + 0.42 * span)
+    _pad(axis, extent)
+    _label_ends(axis, [(x + 0.05 * span, y, t, c) for x, y, t, c in ends])
+    axis.set_xlabel(treatment_label or "Dose")
+    axis.set_ylabel(
+        " ".join(_core.quantity(outcome_label, "outcome", units, difference=False)).strip()
+    )
+    low = [c.name for c in result.support if c.below_floor and c.stratum == by]
+    if low:
+        notes.append(
+            f"{len(low)} point(s) rest on few nearby rows; their intervals are experimental."
+        )
+    notes.append(
+        "Each point is the curve averaged over a window of doses around it (a kernel of the "
+        "named bandwidth), not the mean at that exact dose. The band holds for every drawn "
+        "point at once, so it also holds at a bandwidth chosen after looking at this figure; "
+        "a pointwise interval does not."
+    )
+    _truth.draw(truth, spots, known=list(result.estimates))
+    subtitle = "Mean outcome if everyone were given each dose, smoothed over nearby doses"
+    if by is not None:
+        subtitle += f", within {by}"
+    _core.header(axis, title or "Smoothed dose-response curve", subtitle)
     _core.notes(axis, notes)
     return fig
 

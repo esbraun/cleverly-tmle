@@ -353,3 +353,49 @@ def test_a_discrete_treatment_is_refused() -> None:
     frame = _sample(200, 2).assign(A=lambda d: (d["A"] > 2.5).astype(int))
     with pytest.raises((CapabilityError, DataError)):
         DoseResponseTMLE(FIT_CURVE).fit(frame, outcome="Y", treatment="A", covariates=["W"])
+
+
+def test_baseline_strata_get_their_own_curves_from_one_nuisance_fit() -> None:
+    rng = np.random.default_rng(11)
+    n = 1500
+    v = rng.binomial(1, 0.5, size=n)
+    w = rng.normal(size=n)
+    a = rng.normal(2.5 + 0.5 * w, 1.2)
+    y = rng.binomial(1, expit(-1.0 + (0.2 + 0.4 * v) * a - 0.05 * a * a + 0.3 * w))
+    frame = pd.DataFrame({"Y": y, "A": a, "W": w, "V": v})
+    curve = DoseResponse(doses=(1.5, 3.5), bandwidths=(1.0,), support=(0.5, 4.5))
+    result = DoseResponseTMLE(
+        curve,
+        outcome_learner=LogisticRegression(max_iter=1000),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        random_state=0,
+        n_folds=3,
+    ).fit(frame, outcome="Y", treatment="A", covariates=["W", "V"], strata=["V"])
+    assert len(result.estimates) == 4
+    slope = {
+        s: result.estimate(1.0, 3.5, f"V={s}").psi - result.estimate(1.0, 1.5, f"V={s}").psi
+        for s in (0, 1)
+    }
+    # The nonzero witness: V modifies the dose response.
+    assert slope[1] - slope[0] > 0.1
+    for cell in result.support:
+        curve_values = result.estimates[cell.name].influence_curve
+        outside = frame["V"].to_numpy() != int(cell.stratum.split("=")[1])  # type: ignore[union-attr]
+        assert np.all(curve_values[outside] == 0.0)
+        assert abs(float(curve_values.mean())) < 1e-8
+    assert set(result.to_frame()["stratum"]) == {"V=0", "V=1"}
+
+
+def test_the_curve_plot_draws_one_series_per_bandwidth(fitted) -> None:  # type: ignore[no-untyped-def]
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from cleverly.plotting import curve
+
+    fig = curve(fitted)
+    assert fig.axes[0].get_title(loc="left") == "Smoothed dose-response curve"
+    guides = [line for line in fig.axes[0].get_lines() if line.get_gid() == "cleverly-guide"]
+    assert len(guides) == len(FIT_CURVE.bandwidths)
+    plt.close(fig)
