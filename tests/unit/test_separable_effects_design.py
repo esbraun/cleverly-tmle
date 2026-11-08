@@ -155,6 +155,41 @@ class TestTheRobustnessCells:
 
 
 class TestTheConvergence:
+    def test_the_convergence_file_holds_one_row_per_fit(self) -> None:
+        frame = law.sample(4_000, 3)
+        result = _quiet(study.fit, frame, study.IN_SAMPLE)
+        names = study.ESTIMANDS[study.IN_SAMPLE]
+        plug_in = dict.fromkeys(names, 0.0)
+        rows = pd.DataFrame(
+            study.result_rows(result, study.TRUTH[study.IN_SAMPLE], study.IN_SAMPLE, 7, plug_in)
+        )
+        written = study.extra_artifacts(rows)
+        assert set(written) == set(study.STUDY.extra_artifacts)
+        (table,) = written.values()
+        assert list(table.columns) == ["scenario", "replicate", *study.CONVERGENCE_COLUMNS]
+        assert table.to_dict("records") == [
+            {
+                "scenario": study.IN_SAMPLE,
+                "replicate": 7,
+                "converged": 1,
+                "failure": "",
+                "relative_score": rows["relative_score"].iloc[0],
+            }
+        ]
+
+    def test_the_property_summary_counts_unconverged_fits(self) -> None:
+        rows = pd.DataFrame(
+            {
+                "property": ["p"] * 3,
+                "cell": ["c"] * 3,
+                "converged": [1, 0, 1],
+                "relative_score": [0.0, 1e-3, 0.0],
+            }
+        )
+        summary = pd.DataFrame({"property": ["p"], "cell": ["c"]})
+        out = properties.convergence_reading(summary, rows)
+        assert out["nonconverged_fits"].tolist() == [1.0]
+
     def test_the_pilot_reads_each_fits_convergence(self) -> None:
         converged = _quiet(study.fit, law.sample(4_000, 3), study.IN_SAMPLE)
         assert study.convergence(converged)[:2] == (True, "")
@@ -342,7 +377,9 @@ class TestTheSizes:
         assert norm.cdf((noise - z * spread - upper) / spread) > 0.999
 
     def test_the_positive_robustness_cells_pass_at_their_pilot_bias(self) -> None:
-        """Each positive cell at its one-sided 80% upper pilot bias, and no fewer replicates."""
+        """Each positive cell at its one-sided 80% upper pilot bias, the three together within
+        the sized failure share, and no fewer replicates."""
+        failing = 0.0
         for cell, label in ROBUSTNESS_PILOTS.items():
             assert properties.ROBUSTNESS_ROLES[cell] == "positive"
             rows = PILOT.loc[PILOT["label"] == label]
@@ -351,7 +388,10 @@ class TestTheSizes:
             bias = abs(float(error.mean() / error.std(ddof=1)))
             upper = bias + float(norm.ppf(sizing.PILOT_LEVEL)) / np.sqrt(len(rows))
             replicates = properties.ROBUSTNESS_REPLICATES
-            assert sizing.bias_equivalent_probability(MARGINS, upper, replicates) > 0.98, cell
+            passing = sizing.bias_equivalent_probability(MARGINS, upper, replicates)
+            assert passing > 0.98, cell
+            failing += 1.0 - passing
+        assert failing <= sizing.SIZED_FAIL
         smaller = properties.ROBUSTNESS_REPLICATES - sizing.PROPERTY_STEP
         uppers = []
         for label in ROBUSTNESS_PILOTS.values():

@@ -16,12 +16,16 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
 * A red primary row is a defect suspect of the factor-wise targeting or its influence curve: the
   truths are exact identification-(8) formulas and the fits are saturated.  Diagnose it against
   ``tests/unit/test_separable_effects_law.py``.  A red coverage row of ``cross_fitted`` reads
-  as the stopped-short fits only when the coverage among the converged fits of that cell is
-  green; the pilot's 2.6% of unconverged cross-fitted fits covered at 0.953.  With no defect
-  found it takes the route above with the count stated.
+  as the stopped-short fits only when the coverage among that cell's converged fits, joined
+  from ``convergence.csv``, reaches the coverage band; the pilot's 2.6% of unconverged
+  cross-fitted fits covered at 0.953.  With no defect found it takes the route above with the
+  count stated.
 * A red positive ``double_robustness`` cell is a defect suspect: its exact-law limit is the
   truth (``test_a_wrong_factor_with_the_exact_mechanism_has_the_truth_as_limit``,
-  ``test_the_wrong_mechanism_cell_lands_near_the_truth``).
+  ``test_the_wrong_mechanism_cell_lands_near_the_truth``).  The cross-fitted
+  ``mechanism_wrong`` cell stopped short in 3.3% of its pilot fits; its ``nonconverged_fits``
+  is reported and decides nothing, and a red verdict there is read against the converged rows
+  of ``property-replicates.parquet`` as for ``cross_fitted`` above.
 * The control ``both_hazards_wrong`` that does not clear the margin is read against its
   exact-law gap (``test_the_control_is_discriminated``).  With no defect found it takes the
   route above, and the cells' claim that both factors carry the robustness is withheld; the
@@ -29,7 +33,8 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
 * A calibration cell red on its SE ratio while its coverage is green and its efficiency ratios
   sit inside the band reads as a finite-sample variance finding at that n: the route above,
   with the measured ratio stated.  Red on coverage, or with an efficiency ratio outside the
-  band, is a variance defect suspect.
+  band, is a variance defect suspect.  ``cross_fitted_sep01_death_t3`` stopped short in 2.2% of
+  its pilot fits and is read against its converged rows in the same way.
 * A derived control (``shrunken_se_control``, ``noise_control``) that does not leave the band is
   an instrument defect, and the run is void.
 * A replication that raises is never redrawn.  The pilot lost no fit at the declared size, so

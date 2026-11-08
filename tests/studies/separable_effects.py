@@ -41,7 +41,10 @@ smallest relative score, and the study measures what it returns.  The pilot foun
 and 2.6% of cross-fitted fits, at relative scores of about 1e-3, with coverage 0.953 among them.
 They are the draws where a fold's out-of-fold start leaves a score along nearly redundant
 target directions (12 targets per factor and level against 6 saturated cells), so no nearby
-state solves every score to ``tol``; the residual is a product of two fold differences.  A
+state the solvers tried reaches ``tol``.  We read the residual as a product of two fold
+differences, a second-order term; the pilot does not establish that.  ``convergence.csv``
+records every primary fit's convergence, and the property summary reports the unconverged
+fits of each cell; neither decides a verdict.  A
 dropped horizon would raise ``KeyError`` and stop the run; on this law at n = 16,000 every
 horizon keeps units at risk.
 
@@ -112,6 +115,7 @@ STUDY = StudyRecord(
     seed=SEED,
     resampling_seed=RESAMPLING_SEED,
     margins=Margins(),
+    extra_artifacts=("convergence.csv",),
     implementation="cleverly-separable-ltmle",
     reference=None,
     failure_bound={"cleverly-separable-ltmle": FAILURE_BOUND},
@@ -180,6 +184,10 @@ def fit(frame: pd.DataFrame, scenario: str, **learners: Any) -> Any:
     return LTMLE(law.REGIMENS, reference=law.REFERENCE, **settings).fit(frame, **law.fit_columns())
 
 
+#: The per-fit convergence columns of the primary rows and of ``convergence.csv``.
+CONVERGENCE_COLUMNS = ("converged", "failure", "relative_score")
+
+
 def convergence(result: Any) -> tuple[bool, str, float]:
     """``(converged, failure, largest final relative score)`` over a fit's targeting records.
 
@@ -209,7 +217,8 @@ def result_rows(
     replicate: int,
     plug_in: Mapping[str, float],
 ) -> list[dict[str, Any]]:
-    """One row per estimand on the identity scale."""
+    """One row per estimand on the identity scale, with the fit's :data:`CONVERGENCE_COLUMNS`."""
+    converged, failure, score = convergence(result)
     rows = []
     for name in ESTIMANDS[scenario]:
         estimate = result[name]
@@ -231,6 +240,9 @@ def result_rows(
                 "inference_scale": "identity",
                 "covered": int(low <= reference <= high),
                 "initial_estimate": float(plug_in[name]),
+                "converged": int(converged),
+                "failure": failure,
+                "relative_score": score,
             }
         )
     return rows
@@ -268,4 +280,20 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
         seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
     )
     rows = pd.DataFrame([row for result in outcomes.kept for row in result])
-    return replication.result(outcomes, rows.loc[:, list(REPLICATE_COLUMNS)])
+    # The convergence columns ride along for :func:`extra_artifacts`; the driver drops them.
+    return replication.result(outcomes, rows.loc[:, [*REPLICATE_COLUMNS, *CONVERGENCE_COLUMNS]])
+
+
+def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """``convergence.csv``: whether each primary fit's targeting reached ``tol``, one row per fit.
+
+    The file decides no verdict.  It lets a reader split a cell's coverage by convergence, which
+    the red-cell reading of ``cross_fitted`` needs.
+    """
+    columns = ["scenario", "replicate", *CONVERGENCE_COLUMNS]
+    fits = rows.loc[rows["implementation"].eq(STUDY.implementation), columns]
+    return {
+        "convergence.csv": fits.drop_duplicates(["scenario", "replicate"]).sort_values(
+            ["scenario", "replicate"], ignore_index=True
+        )
+    }

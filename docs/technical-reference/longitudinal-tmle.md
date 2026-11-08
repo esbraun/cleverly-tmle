@@ -451,10 +451,12 @@ factors carries every reported curve. At the truth this is the shipped static es
 From a fitted start it is a different TMLE of the same static parameter. The initial hazards are
 fitted in the declared order.
 
-With cross-fitted initial hazards, a separable fit can stop short of `tol` and warn. When targets
-outnumber the free cells of a factor at a level, part of the score lies along nearly redundant
-target directions, and no nearby state solves it. In the `separable-effects` pilot this happened
-in 2.6% of two-fold fits at n = 16,000, at relative scores near $10^{-3}$, and never in sample.
+With cross-fitted initial hazards, a separable fit can stop short of `tol` and warn. An
+out-of-fold start does not solve the cell scores, and when targets outnumber the free cells of a
+factor at a level, part of the remaining score lies along nearly redundant target directions,
+which none of the solvers tried brings within `tol`. In the `separable-effects` pilot at
+n = 16,000 this happened in 2.6% of two-fold primary fits and 2.2% of 8,000 calibration fits, at
+relative scores between $10^{-3}$ and $2 \times 10^{-2}$, and never in sample.
 
 **Robustness.** With the treatment and censoring mechanisms right, the estimate is consistent when
 $\lambda_D$ is right at both levels or $h_Y$ is right at both levels, the counterparts of

@@ -195,10 +195,21 @@ def _draw(key: _Key) -> pd.DataFrame:
     return law.sample(ROBUSTNESS_N if family == ROBUSTNESS else CALIBRATION_N, seed)
 
 
+#: The per-row convergence columns, and the reported summary column they give.
+CONVERGENCE_COLUMNS = ("converged", "relative_score")
+CONVERGENCE_SUMMARY = ("nonconverged_fits",)
+
+
+def _converged(result: Any) -> dict[str, Any]:
+    converged, _, score = study.convergence(result)
+    return {"converged": int(converged), "relative_score": score}
+
+
 def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
     family, label, replicate, requested = key
     alpha = STUDY.margins.alpha
     if family == ROBUSTNESS:
+        fitted = robustness_fit(frame, label)
         return [
             replicate_row(
                 property_name=ROBUSTNESS,
@@ -208,11 +219,13 @@ def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
                 n=ROBUSTNESS_N,
                 requested=requested,
                 truth=law.TRUTH[ROBUSTNESS_ESTIMAND],
-                estimate=robustness_fit(frame, label)[ROBUSTNESS_ESTIMAND],
+                estimate=fitted[ROBUSTNESS_ESTIMAND],
                 alpha=alpha,
             )
+            | _converged(fitted)
         ]
     scenario, name = CALIBRATION_CELLS[label]
+    fitted = study.fit(frame, scenario)
     return [
         replicate_row(
             property_name=CALIBRATION,
@@ -222,9 +235,10 @@ def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
             n=CALIBRATION_N,
             requested=requested,
             truth=CALIBRATION_TRUTH[label],
-            estimate=study.fit(frame, scenario)[name],
+            estimate=fitted[name],
             alpha=alpha,
         )
+        | _converged(fitted)
     ]
 
 
@@ -296,7 +310,7 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     if budget is not None:
         # A capped smoke run requests what it runs, so the summary reads it as complete.
         rows["requested_replicates"] = rows["requested_replicates"].clip(upper=budget)
-    return rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
+    return rows.reindex(columns=[*REPLICATE_COLUMNS, *CONVERGENCE_COLUMNS]).sort_values(
         ["property", "cell", "replicate"], ignore_index=True
     )
 
@@ -307,7 +321,37 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         rows, STUDY, rate_labels=(), efficiency_bounds=EFFICIENCY_SD
     )
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    return finish(summary, rates)
+    return convergence_reading(finish(summary, rates), rows)
+
+
+def convergence_reading(summary: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
+    """Report each cell's unconverged fits; the column decides no verdict.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The cell summary.
+    rows : pandas.DataFrame
+        The replication rows.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``summary`` with :data:`CONVERGENCE_SUMMARY` filled where the rows carry it.
+    """
+    if not set(CONVERGENCE_COLUMNS) <= set(rows.columns):
+        return summary
+    out = summary.copy()
+    out["nonconverged_fits"] = np.nan
+    for index in out.index:
+        group = rows.loc[
+            (rows["property"] == out.loc[index, "property"])
+            & (rows["cell"] == out.loc[index, "cell"])
+        ]
+        kept = group.loc[group["converged"].notna()]
+        if not kept.empty:
+            out.loc[index, "nonconverged_fits"] = float((kept["converged"] == 0).sum())
+    return out
 
 
 #: The failure accounting's declared rules.  The union-model family reads the shared rule.
