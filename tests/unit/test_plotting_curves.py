@@ -1586,6 +1586,27 @@ class TestPolicies:
         assert xs == [0.5, 1.0, 2.0, 4.0]
         assert not [ln for ln in ax.lines if ln.get_gid() == "cleverly-reference"]
 
+    def test_the_odds_axis_names_the_treatment_in_the_callers_words(self) -> None:
+        ax = curve(ipsi(), treatment_label="the offer").axes[0]
+        assert ax.get_xlabel() == "Multiplier on the odds of the offer (log scale)"
+        assert "odds of treatment" not in ax.get_xlabel()
+        assert "odds of A" in curve(ipsi()).axes[0].get_xlabel()
+
+    def test_the_pointwise_bar_and_the_band_caps_sit_on_either_side_of_the_estimate(self) -> None:
+        ax = curve(shifts()).axes[0]
+        (bar_set,) = collections(ax, _core.GID_INTERVAL)
+        (cap_line,) = lines(ax, _core.GID_BAND)
+        point = lines(ax, _core.GID_POINT)[1]
+
+        def shown(artist: Any, x: float) -> float:
+            transform = artist.get_transform()
+            return float(transform.transform((x, 0.0))[0])
+
+        x = float(point.get_xdata()[0])
+        centre = shown(point, x)
+        assert shown(bar_set, x) < centre - 3.0, "the bar is drawn left of the marker"
+        assert shown(cap_line, x) > centre + 3.0, "the caps are drawn right of it"
+
     def test_the_reference_policy_is_drawn_on_the_null_line_and_the_guide_runs_through_it(
         self,
     ) -> None:

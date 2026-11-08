@@ -59,6 +59,11 @@ def _others(estimands: Sequence[str], chosen: str) -> str | None:
     return f"This figure shows {chosen}; pass estimand= to draw {', '.join(rest)}."
 
 
+def _with_units(label: str, units: str | None) -> str:
+    """``label`` with the outcome's units appended in parentheses, when given."""
+    return f"{label} ({units})" if units else label
+
+
 def _warnings(obj: Any) -> list[str]:
     """The warnings the object's printed summary carries, so the figure says the same."""
     summary = getattr(obj, "summary", None)
@@ -98,6 +103,18 @@ def _points(
         )
 
 
+def _keep_inside(ax: Axes, value: float, *, log: bool) -> None:
+    """Widen the y limits so ``value`` sits clear of both axes edges, not on a spine."""
+    low, high = ax.get_ylim()
+    if log:
+        lo, hi, v = math.log(low), math.log(high), math.log(value)
+    else:
+        lo, hi, v = low, high, value
+    margin = 0.05 * (hi - lo)
+    lo, hi = min(lo, v - margin), max(hi, v + margin)
+    ax.set_ylim(*((math.exp(lo), math.exp(hi)) if log else (lo, hi)))
+
+
 def _null_axis(ax: Axes, null: float | None, ratio: bool) -> None:
     if ratio:
         _core.log_axis(ax, "y")
@@ -113,6 +130,7 @@ def truncation(
     *,
     estimand: str | None = None,
     outcome_label: str | None = None,
+    units: str | None = None,
     title: str | None = None,
 ) -> Figure:
     """Plot the estimate against the probability limits that cap extreme weights.
@@ -126,6 +144,8 @@ def truncation(
     outcome_label : str or None, default=None
         The outcome's quantity in your words, such as ``"order share"``; the y axis then
         reads "Average effect on order share". The estimand's plain name when omitted.
+    units : str or None, default=None
+        Units of the outcome, added to the y axis in parentheses, such as ``"points"``.
     title : str or None, default=None
         The title.
 
@@ -200,7 +220,7 @@ def truncation(
             kind="marker",
         )
     _null_axis(top, _core.null_for(scale), scale == "ratio")
-    top.set_ylabel(_core.estimand_axis_label(chosen, outcome_label))
+    top.set_ylabel(_with_units(_core.estimand_axis_label(chosen, outcome_label), units))
     bottom.plot(
         bound,
         [100.0 * value for value in capped],
@@ -218,7 +238,8 @@ def truncation(
     low_text, high_text = _core.format_values([fitted_bound, fitted_upper], decimals * 2)
     if symmetric:
         bottom.set_xlabel("Lower limit on each arm's probability (log scale)")
-        how = "each arm's probability capped to [limit, 1 - limit]"
+        # Non-breaking spaces keep the interval on one line when the subtitle wraps.
+        how = "each arm's probability capped to [limit,\u00a01\u00a0-\u00a0limit]"
         used = f"the fit used [{low_text}, {high_text}]"
     elif one_sided:
         bottom.set_xlabel("Lower limit on the probability in the weight (log scale)")
@@ -263,6 +284,7 @@ def marginal(
     bounds: Any,
     *,
     outcome_label: str | None = None,
+    units: str | None = None,
     title: str | None = None,
     ax: Axes | None = None,
 ) -> Figure:
@@ -275,6 +297,8 @@ def marginal(
     outcome_label : str or None, default=None
         The outcome's quantity in your words, such as ``"order share"``, named with the
         estimand on the y axis.
+    units : str or None, default=None
+        Units of the outcome, added to the y axis in parentheses, such as ``"points"``.
     title : str or None, default=None
         The title.
     ax : Axes or None, default=None
@@ -318,6 +342,8 @@ def marginal(
         range_label = limit_label = "_nolegend_"
     ratio = bounds.scale == "log" or (bounds.null is not None and float(bounds.null) == 1.0)
     _null_axis(ax, bounds.null, ratio)
+    if bounds.null is not None:
+        _keep_inside(ax, float(bounds.null), log=ratio)
     words = _core.estimand_words(str(bounds.estimand))
     if words != str(bounds.estimand):
         words = "the " + words[:1].lower() + words[1:]
@@ -327,9 +353,9 @@ def marginal(
     ax.set_xlabel("gamma, the largest factor by which hidden confounding may change treatment odds")
     if outcome_label:
         named = _core.estimand_axis_label(str(bounds.estimand), outcome_label)
-        ax.set_ylabel(f"Range of the {_core.mid_phrase(named)}")
+        ax.set_ylabel(_with_units(f"Range of the {_core.mid_phrase(named)}", units))
     else:
-        ax.set_ylabel(f"Range of {words}")
+        ax.set_ylabel(_with_units(f"Range of {words}", units))
     _core.header(ax, title or "Does the conclusion survive hidden confounding?", subtitle)
     _core.notes(ax, _warnings(bounds))
     return fig
@@ -368,6 +394,7 @@ def missingness(
     *,
     estimand: str | None = None,
     outcome_label: str | None = None,
+    units: str | None = None,
     title: str | None = None,
     ax: Axes | None = None,
 ) -> Figure:
@@ -382,6 +409,8 @@ def missingness(
     outcome_label : str or None, default=None
         The outcome's quantity in your words, such as ``"order share"``, named with the
         estimand on the y axis.
+    units : str or None, default=None
+        Units of the outcome, added to the y axis in parentheses, such as ``"points"``.
     title : str or None, default=None
         The title.
     ax : Axes or None, default=None
@@ -429,7 +458,7 @@ def missingness(
         kind="marker",
     )
     axis.set_xlabel("gamma, how far missing outcomes differ from recorded ones (log-odds scale)")
-    axis.set_ylabel(_core.estimand_axis_label(chosen, outcome_label))
+    axis.set_ylabel(_with_units(_core.estimand_axis_label(chosen, outcome_label), units))
     direction = (
         f"positive gamma means the missing {tilt.outcome} values were higher"
         if tilt.arm_gamma is None
@@ -481,7 +510,7 @@ def sensitivity(obj: Any, **kwargs: Any) -> Figure:
     obj : TruncationCurve, MarginalSensitivityBounds or MissingnessTilt
         The analysis to draw.
     **kwargs
-        ``estimand=`` (truncation and missingness), ``outcome_label=`` and ``title=``.
+        ``estimand=`` (truncation and missingness), ``outcome_label=``, ``units=`` and ``title=``.
 
     Returns
     -------
