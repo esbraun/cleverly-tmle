@@ -613,6 +613,15 @@ drtmle-one-wrong,one_wrong_inference,se ratio above calibration band,se/0.05
 drtmle-one-wrong,one_wrong_inference,se ratio in union band,contract
 drtmle-one-wrong,one_wrong_inference,se ratio sanity,se_high
 drtmle-one-wrong,one_wrong_inference,standardized bias grows,pair_collapse
+eliminated-competing-events,double_robustness,bias discriminated,shift/1.5
+eliminated-competing-events,double_robustness,bias equivalent,bias
+eliminated-competing-events,double_robustness,se ratio in union band,se/0.05
+eliminated-competing-events,interval_calibration,coverage in calibration band,bias
+eliminated-competing-events,interval_calibration,efficiency above band,pair_collapse
+eliminated-competing-events,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+eliminated-competing-events,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+eliminated-competing-events,interval_calibration,se ratio below band,se_high
+eliminated-competing-events,interval_calibration,se ratio in calibration band,se/0.95
 ep-assessment,calibration,assessment reading,pair_collapse
 ep-assessment,risk_comparison,assessment reading,control_concentrated
 ep-cate,bias,bias equivalent,bias
