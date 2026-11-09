@@ -600,6 +600,18 @@ deterministic-regimes,targeting_necessity,bias equivalent,bias
 deterministic-regimes,targeting_necessity,least displacement over labels,control_concentrated
 deterministic-regimes,type_i_error,coverage floor,coverage/0.5
 deterministic-regimes,type_i_error,rejection ceiling,rejection/0.1
+dose-response,double_robustness,bias discriminated,pair_collapse
+dose-response,double_robustness,bias equivalent,bias
+dose-response,double_robustness,se ratio in union band,se/0.05
+dose-response,double_robustness,targeting gain past truth,centre/diagnostic/0.5
+dose-response,interval_calibration,coverage in calibration band,shift/0.7
+dose-response,interval_calibration,efficiency above band,pair_collapse
+dose-response,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/0.97
+dose-response,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+dose-response,interval_calibration,se ratio below band,se_high
+dose-response,interval_calibration,se ratio in calibration band,se/0.9
+dose-response,simultaneous_coverage,joint coverage below nominal,se_high
+dose-response,simultaneous_coverage,joint coverage in calibration band,se_low
 drtmle-foldwise,double_robustness,bias discriminated,pair_collapse
 drtmle-foldwise,double_robustness,bias equivalent,bias
 drtmle-foldwise,double_robustness,se ratio in union band,se/0.05

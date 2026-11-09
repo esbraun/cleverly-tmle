@@ -276,7 +276,7 @@ other refusal in the table before any learner fits, except the zero-density rule
 | clustered rows (`id=`) | `CapabilityError`, `implementation_gap` | [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) part (b) |
 | a cross-fitted continuous outcome with no `q_bounds=` | `CapabilityError`, the shared [outcome-scale refusal](cv-tmle.md#fold-and-outcome-scale-rules) | declare the outcome's range |
 | a missing outcome, a missing treatment or an intermediate variable, declared on a prepared `CausalData` | `CapabilityError`, `implementation_gap` | [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism). The second mechanism would have to be evaluated at every node |
-| a treatment with declared dose atoms | `CapabilityError`, `implementation_gap` | no roadmap row yet |
+| a treatment with declared dose atoms, or a declared known treatment mechanism | `CapabilityError`, `implementation_gap` | [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) part (c) |
 | a dose interval that leaves the observed dose range | `DataError` | the binned density is zero outside that range. Declare the interval with a margin inside it |
 | quadrature nodes that need more than 4 GB | `DataError` | declare fewer pairs, fewer `nodes_per_piece` or fewer density bins |
 | a fitted density of zero at an observed dose or a node where a weight is nonzero | `DataError`, raised after the nuisance fit | narrow the dose interval |

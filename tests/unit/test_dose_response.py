@@ -669,3 +669,12 @@ def test_a_two_hundred_pair_declaration_solves_every_score() -> None:
     assert len(result.estimates) == 200
     for name, score in result.scores.items():
         assert abs(score) <= 1e-5 * result[name].std_error
+
+
+def test_a_polars_fit_returns_its_frame_in_polars() -> None:
+    import polars as pl
+
+    result = _fit(pl.from_pandas(_sample(600, 5)), FIT_CURVE)
+    assert result.backend == "polars"
+    assert isinstance(result.to_frame(), pl.DataFrame)
+    assert isinstance(result.to_frame("pandas"), pd.DataFrame)

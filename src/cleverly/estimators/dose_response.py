@@ -17,7 +17,6 @@ See ``docs/technical-reference/dose-response.md``.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
@@ -25,6 +24,7 @@ from typing import Any, Final, Literal
 import numpy as np
 
 from .._typing import FloatArray
+from .._warnings import warn
 from ..data import CausalData
 from ..dose_response import (
     DoseResponse,
@@ -115,6 +115,9 @@ class DoseResponseResult:
         The fit's notes: a quadrature-doubling shift above tolerance, an accepted
         composition no registered study measures (an in-sample fit, observation weights),
         and pairs below the support floor.
+    backend : str or None
+        The dataframe library the fit's data arrived in, which :meth:`to_frame` returns by
+        default.
     """
 
     curve: DoseResponse
@@ -126,6 +129,7 @@ class DoseResponseResult:
     n_nodes: int
     alpha: float
     warnings: tuple[str, ...] = field(default=())
+    backend: str | None = None
 
     def __getitem__(self, name: str) -> ParameterEstimate:
         return self.estimates[name]
@@ -161,7 +165,7 @@ class DoseResponseResult:
         Parameters
         ----------
         backend : str or None
-            The dataframe library, or ``None`` for the default.
+            The dataframe library, or ``None`` for the library the fit's data arrived in.
 
         Returns
         -------
@@ -206,7 +210,7 @@ class DoseResponseResult:
             columns["rows"].append(support.rows)
             columns["kish"].append(support.kish)
             columns["low_support"].append(support.below_floor)
-        return frame_from_dict(columns, backend=backend)
+        return frame_from_dict(columns, backend=backend or self.backend)
 
     def save(self, path: Any) -> Any:
         """Write this result to a trusted joblib artifact; see :func:`cleverly.load`.
@@ -265,6 +269,7 @@ def _refuse_unsupported(data: CausalData) -> None:
             "is not supported",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Fit without the declared mechanism.",
+            roadmap="X95",
         )
     if data.has_missing_outcome or data.has_intermediate or data.has_missing_treatment:
         raise CapabilityError(
@@ -280,6 +285,7 @@ def _refuse_unsupported(data: CausalData) -> None:
             "a dose-response curve on a treatment with declared dose atoms is not supported",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Declare the dose without atoms.",
+            roadmap="X95",
         )
 
 
@@ -503,7 +509,7 @@ class DoseResponseTMLE:
                 f"doubling the quadrature nodes moves an estimate by {shift:.3f} standard errors; "
                 "raise nodes_per_piece"
             )
-            warnings.warn(notes[-1], DataWarning, stacklevel=3)
+            warn(notes[-1], DataWarning, stacklevel=3)
         notes.extend(_experimental_notes(data, cross_fit=self.cross_fit))
         low = [s.name for s in supports if s.below_floor]
         if low:
@@ -511,7 +517,7 @@ class DoseResponseTMLE:
                 f"{len(low)} pair(s) have a Kish effective size below {curve.support_floor:g}; "
                 "their intervals are labelled low_dose_support_plugin"
             )
-            warnings.warn(notes[-1], DataWarning, stacklevel=3)
+            warn(notes[-1], DataWarning, stacklevel=3)
         return DoseResponseResult(
             curve=curve,
             estimates=estimates,
@@ -522,6 +528,7 @@ class DoseResponseTMLE:
             n_nodes=rule.n_nodes,
             alpha=self.alpha,
             warnings=tuple(notes),
+            backend=data.backend,
         )
 
     def _preflight_memory(self, data: CausalData, n_nodes: int) -> None:

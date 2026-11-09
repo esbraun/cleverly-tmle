@@ -2035,6 +2035,9 @@ Kish size of 141 with an SE ratio of 0.93. This item has two parts.
 - (b) Clustered rows. `DoseResponseTMLE` refuses `id=`. Its intervals and band would need the
   package's few-cluster rule: the status `few_cluster_plugin` and a $t$ reference below 40
   clusters, which the multiplier band does not take.
+- (c) A declared treatment mechanism and declared dose atoms. `DoseResponseTMLE` fits its own
+  binned dose density and refuses both: a known density would replace the fitted one in the
+  clever covariate, and an atom would need a point mass in the quadrature and the band.
 
 ### X92. Plots and visualizations
 

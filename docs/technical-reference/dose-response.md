@@ -205,7 +205,7 @@ the label.
 | baseline strata | each stratum $v$ gets its own curve, $E\{\int_D w(a) \bar Q(a, W)\,da \mid V = v\}$, from one nuisance fit, named with a `[V=v]` suffix |
 | a binary, categorical or vector treatment | refused, `invalid_declaration` |
 | missing outcome, missing treatment, intermediate variable | refused, `implementation_gap`, roadmap X10. The second mechanism would have to be evaluated at every node |
-| a treatment with declared dose atoms | refused, `implementation_gap` |
+| a treatment with declared dose atoms, or a declared known treatment mechanism | refused, `implementation_gap`; [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) part (c) |
 | `CausalStudy` | not wired. Fit `DoseResponseTMLE` directly |
 
 ## Validation
