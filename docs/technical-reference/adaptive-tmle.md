@@ -11,8 +11,9 @@ doi:10.1515/jci-2024-0025; arXiv:2405.07186v2) learns that bias as a function of
 and removes it, so that the external rows add information about the effect.
 
 `TrialWithExternalData` declares the pooled frame, `TrialATE` names the effect, and
-`AdaptiveTMLEMethod` (`method="atmle"`) estimates it. The journal text has not been read against this
-page, so every locator below reads arXiv:2405.07186v2 and the journal numbering may differ.
+`AdaptiveTMLEMethod` (`method="atmle"`) estimates it. Every locator below reads arXiv:2405.07186v2.
+The journal text keeps v2's section, lemma, theorem and appendix numbering, so the locators hold
+for it.
 
 | piece | object | what it fixes |
 | --- | --- | --- |
@@ -136,7 +137,8 @@ objective from any start ([Tseng 2001](../references.md)). The solver checks the
 Karush-Kuhn-Tucker conditions and raises `CapabilityError` with a smaller-basis alternative if
 they still fail.
 
-The arm column $A$ of the bias dictionary is penalized. Forcing it in gives the external treated
+The arm column $A$ of the bias dictionary is penalized by default; `force_arm=True` leaves it
+unpenalized, as `atmle` does, and then `arm_hierarchy` has nothing to add. Forcing it in gives the external treated
 and control arms separate free mean shifts, so the external rows then carry no information on the
 level of the trial effect. On law `a0` (no bias, so the oracle bias selection is the constant), the exact-law
 standard deviation of $D_w$ is $0.48$ times the trial-only efficient standard deviation, and
@@ -320,22 +322,60 @@ few observations.
 stopping rule and refuses an explicit `tolerance=`. Replay is `summarize` and
 `rerun_configuration` only.
 
-## Differences from `atmle`
+## Differences from the published algorithm and the atmle package
 
-The comparator is the R package `atmle` at commit `845280889d2fb7d929adb494759b1588ab776f43`
-(`form="pooled"`, pins `target_method = "relaxed"`, `n_lambda = 1`, `force_A = FALSE`). Declared
-differences that move numbers at second order:
+The paper is van der Laan, Qiu, Tarp and van der Laan (arXiv:2405.07186v2; J. Causal Inference
+14(1):20240025). The journal text keeps v2's sections, lemmas, theorems, Algorithm 1 and
+appendices, and the locators here hold for both. The package is the R package `atmle` at commit
+`8452808` (`845280889d2fb7d929adb494759b1588ab776f43`, the head of `tq21/atmle` main); the
+functions `run`, `fit_cate`, `target_Pi`, `inference` and `get_tau_S_eic` are named below. A row is first order when it changes the estimand's projection, the limit of the estimator or
+the reported variance, and second order or numerical when it changes remainders or arithmetic only.
 
-| id | `atmle` | here |
-| --- | --- | --- |
-| D1 | two epsilons (one per arm) in a weighted $\Pi$ step | one epsilon, which spans the same combined score |
-| D2 | clips $\Pi$ at $[10^{-3}, 1 - 10^{-3}]$ and bounds $|A - g|$ and $|S - \Pi|$ because it divides | `g_bounds`; no division |
-| D3 | drops basis columns with support below $1/\sqrt{n}$ | the $k_{\min}$ screen above |
-| D4 | stops at $10^{-4}\,\mathrm{sd}/(\sqrt{n}\log n)$ | stops at $\mathrm{sd}/(\sqrt{n}\log n)$ |
-| D5 | predicts nuisances in sample with one learner | cross-fitted predictions |
-| D6 | no Appendix C form | `form="cv"` has no comparator |
+| topic | paper | `atmle` @8452808 | here | order |
+| --- | --- | --- | --- | --- |
+| CV form | Appendix C: select on the training fold, update on the validation fold, average the folds | none | `form="cv"`, App C option (b): one pooled step per direction and one pooled $\Pi$ fluctuation | none to compare |
+| bias-model arm column $A$ | Sec 7 allows "unpenalizing certain covariates or basis functions" | unpenalized by default (`fit_cate(force_A = TRUE)`, `penalty_factor[force_basis_idx] <- 0`) | penalized; `force_arm=True` reproduces `atmle`'s default and makes `arm_hierarchy` a no-op | first |
+| refit of the coefficients | relaxed refit, "eliminates the need to further target" $\tilde\Psi$ (Sec 7) | default `target_method = "tmle"`: one step from the lasso coefficients along $I^{-1}E[\phi]$; `"relaxed"` refits | relaxed refit, as in the paper | first, for `atmle`'s default |
+| dictionary | relaxed HAL on $W$ and on $(W, A)$ (Alg 1 lines 5, 11) | `hal9001::enumerate_basis`, degree 3, first-order splines, 20 knots, then `filter_hal_basis` at support $1/\sqrt{n}$ | linear terms, hinges at 5 quantile knots and pairwise linear products, with the $k_{\min}$ screen | first when the truth needs hinge-by-hinge interactions |
+| missing outcomes | App B: IPCW factor $\Delta/g^\Delta$ on both losses and the $Y$-parts of the influence functions | none: $\Delta$ fixed at 1 and unrecorded $Y$ set to 0 in `get_tau_S_eic` | AIPCW, which equals App B's IPCW when the outcome regression is zero | first, for efficiency and robustness |
+| $\Pi$ fluctuation | submodel and loss not stated; Lemma 8 gives the score along $C$ | two parameters, one per arm (`target_Pi`, covariates $\tau_S(W, a)\,1\{A = a\}$, weighted by $A/g + (1 - A)/g_0$ with `target_gwt = TRUE`) | one parameter along the paper's clever covariate $C$ | second |
+| pooled variance | Alg 1 line 18: $P_n D^2 / n$, uncentred | `var(eic_A - eic_S) / n`, centred (`inference`) | uncentred | numerical, $(P_n D)^2$ |
+| stopping rule | not stated | $10^{-4}\,\mathrm{sd}(D) / (\sqrt{n}\log n)$ or 50 passes (`run`) | $\mathrm{sd}(D) / (\sqrt{n}\log n)$ or 50 passes | numerical |
+| outer folds | not stated | stratified by $S$, and by $S \times Y$ for a binary outcome; 3 to 20 folds by $n$ | five folds, stratified by $S$ and by $S \times Y$ for a binary outcome; a supplied `split_plan` is kept as given | second |
 
-The comparison is declared and not run. It never blocks the method.
+Four more differences are second order or numerical and kept on purpose. First, with one learner
+`atmle` predicts its nuisances in sample, and with a stack the stack's predictions are out of fold;
+the paper cross-fits, and so does this package always. Second, `atmle` clips $\Pi$ at
+$[10^{-3}, 1 - 10^{-3}]$ and bounds the denominators of its pseudo-outcomes, because it divides by
+$A - g$ and $S - \Pi$; here `g_bounds` clips the probabilities and the R-loss never divides.
+Third, the information matrices are the empirical $E[(A - g)^2\phi\phi^\top]$ and
+$E[(S - \Pi)^2\psi\psi^\top]$ in place of the model-based $E[g(1 - g)\phi\phi^\top]$ of Lemmas 4
+and 7, which are equal in expectation given $W$ and make the score identity exact. Fourth, with
+external controls only `atmle` fits $\Pi$ on every row and bounds $\Pi(W, 1)$ at $1 - 10^{-3}$,
+where $\Pi(W, 1) = 1$ here.
+
+**Why the defaults differ.** Forcing $A$ gives each external arm a free mean shift, so the external
+rows carry no information on the effect's level and the efficiency bound is the trial-only one. On
+law `a0` the exact-law standard deviation of $D_w$ is 0.48 of the trial-only bound with $A$
+penalized and 1.00 with $A$ forced
+(`tests/unit/test_adaptive_tmle_trial_design.py`). The paper permits either choice, so
+`force_arm=False` is the default for the gain, and `force_arm=True` is the setting under which a
+fit is comparable with `atmle`'s default. With external controls only the bias dictionary has no
+arm column, and the setting has no effect.
+
+**The dictionary.** The projection parameter $\Psi_w$ depends on the dictionary. When the true
+conditional effect or bias needs hinge-by-hinge interactions that the linear, hinge and
+pairwise-linear columns cannot span, this package and `atmle` estimate different projections, and
+the oracle-approximation condition of Theorem 1 can fail here first. The default stays small for
+stability at the sizes of the registered study. A highly adaptive lasso basis is outside this
+library's scope. A user can pass a transformer of their own through `working_basis=` (the `basis=`
+argument of the engine), which goes through the same support screen and rank steps.
+
+**Reproducing `atmle`.** A comparison with the package must set `target_method = "relaxed"`,
+`n_lambda = 1` and `force_A` equal to `force_arm`, and it must use a multi-learner stack or accept
+that a single learner predicts in sample. Otherwise it measures `atmle`'s shrinkage or its
+in-sample nuisances and not the method. The comparison is declared and not run, and it never
+blocks the method.
 
 ## Evidence
 

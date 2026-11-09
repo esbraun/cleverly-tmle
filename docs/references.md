@@ -1141,8 +1141,10 @@ sizes only the cluster sum is the delta-method variance of the row mean
   F18, and not a result for the shipped collaborative selector. It is the source of
   [adaptive TMLE](technical-reference/adaptive-tmle.md): Sec 2.4 and Lemma 2 for the estimand and
   its decomposition, Algorithm 1 and Theorem 1 for the pooled form, and Appendix B and Appendix C
-  for missing outcomes and the cross-validated form. Read first-hand in arXiv:2405.07186v2. The
-  journal text has not been read, so the locators are arXiv's and the journal numbering may differ.
+  for missing outcomes and the cross-validated form. Read first-hand in arXiv:2405.07186v2 and
+  in the journal text, which keeps v2's section, lemma, theorem, algorithm and appendix numbering,
+  so the locators hold for both. The R package [`atmle`](https://github.com/tq21/atmle) at commit
+  8452808 was read for the [differences from the algorithm](technical-reference/adaptive-tmle.md#differences-from-the-published-algorithm-and-the-atmle-package).
   The paper does not derive the trial-population effect, the $\Pi$ fluctuation, or a lasso-specific
   theorem. Those are stated on the technical page as extensions or as open (F39).
 - Tseng (2001), [*Convergence of a block coordinate descent method for nondifferentiable

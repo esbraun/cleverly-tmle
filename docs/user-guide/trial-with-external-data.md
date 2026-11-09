@@ -129,6 +129,7 @@ the difference itself depends on the arm, the external rows add little.
 | the external rows are controls only | nothing. The fit notices and learns the difference on the control rows |
 | a binary outcome | `TrialWithExternalData(outcome_family="binomial")`, or leave `"auto"` |
 | a quick check | `AdaptiveTMLEMethod(form="pooled")` selects the working models on all rows at once and runs faster than the default cross-validated form |
+| the external arms may differ from the trial by a different amount each | `AdaptiveTMLEMethod(force_arm=True)` always lets the two external arms differ by a free shift. It matches the R package `atmle`, and the external rows then add no information on the effect's level, so the interval is no narrower than the trial's own |
 | your own list of candidate terms | `working_basis=` takes a scikit-learn transformer that maps covariates to the candidate terms |
 
 The default candidate terms are each covariate, five bent-line pieces of it (each is zero below
