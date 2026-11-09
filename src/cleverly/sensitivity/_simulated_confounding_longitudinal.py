@@ -6,11 +6,13 @@ upper latent tail, and a dose adds a signed multiple of the latent.  The outcome
 point-treatment outcome law.  Each cell refits the stored sequential estimator on the
 perturbed panel.
 
-The contract covers uncensored end-of-study fits whose panel has no time-varying covariate
-after the first treatment node.  A later node generated under the original earlier
-treatment depends on the latent given the perturbed one, so each cell reports, node by
-node, the induced association of the latent with the perturbed node.  That association
-includes the path through the earlier perturbed nodes by construction.
+The contract covers uncensored end-of-study fits and held survival or competing-risk fits,
+censored or not, whose panel has no time-varying covariate after the first treatment node.
+A later node generated under the original earlier treatment depends on the latent given the
+perturbed one, so each cell reports, node by node, the induced association of the latent
+with the perturbed node.  That association includes the path through the earlier perturbed
+nodes by construction.  A survival or competing-risk fit replays its follow-up through
+:mod:`._simulated_confounding_survival` (X91 part C).
 
 The fit-wide rules here answer for every longitudinal result, and the point-treatment rule
 table hands a longitudinal result to :func:`longitudinal_fit_refusal` before any of its
@@ -57,20 +59,47 @@ _ELIMINATED_REFUSAL = Refusal(
     alternative=NO_ALTERNATIVE,
     roadmap="F13",
 )
-_OUTCOME_KIND_REFUSAL = Refusal(
+_REPEATED_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding holds the time-fixed latent for an end-of-study outcome. A survival, "
-    "competing-risk or repeated outcome is an absorbing or time-indexed process, and an "
-    "additive shift or a flip of it is not a law on its support. docs/roadmap.md F13 tracks it.",
+    "simulated_confounding has no replay for a repeated outcome. Each node's outcome enters "
+    "the next node as a covariate, so it depends on the latent given the perturbed "
+    "treatment, as a time-varying covariate after the first node does. docs/roadmap.md F13 "
+    "tracks it.",
     alternative=NO_ALTERNATIVE,
+    roadmap="F13",
+)
+_SURVIVAL_NOT_HELD_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "simulated_confounding replays a survival or competing-risk fit whose treatment is one "
+    "baseline decision held over every node. The replay can keep a unit at risk past its "
+    "observed follow-up, and a later treatment node would then need a treatment generated "
+    "given a history the unit never had. docs/roadmap.md F13 tracks it.",
+    alternative="Declare the treatment as one baseline column, held over the nodes.",
     roadmap="F13",
 )
 _CENSORING_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding holds the time-fixed latent for an uncensored panel. A flip of a "
-    "treatment node breaks coarsening at random at each later censoring node that reads it. "
-    "docs/roadmap.md F13 tracks it.",
+    "simulated_confounding replays censoring on a survival or competing-risk fit only. On a "
+    "censored end-of-study fit, a unit whose censoring the replay removes has no outcome, and "
+    "no fitted outcome law is declared for it. docs/roadmap.md F13 tracks it.",
     alternative=NO_ALTERNATIVE,
+    roadmap="F13",
+)
+_SEPARABLE_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "simulated_confounding has no replay for a separable-effects fit. The latent shifts the "
+    "event of every cause, so it is a common cause of both events, which breaks the "
+    "dismissible-component conditions the separable estimand rests on. docs/roadmap.md X91 "
+    "tracks it.",
+    alternative=NO_ALTERNATIVE,
+    roadmap="X91",
+)
+_KNOWN_CENSORING_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "simulated_confounding redraws censoring at the perturbed treatment from a fitted "
+    "censoring model, so a declared censoring mechanism is false on the replayed panel. "
+    "docs/roadmap.md F13 tracks it.",
+    alternative="Fit without the declared censoring mechanism.",
     roadmap="F13",
 )
 _LATER_COVARIATE_REFUSAL = Refusal(
@@ -140,13 +169,29 @@ def _refuse_eliminated(result: Any) -> Refusal | None:
 
 def _refuse_outcome_kind(result: Any) -> Refusal | None:
     data = result.data
-    if data.is_survival or data.is_competing or data.is_repeated:
-        return _OUTCOME_KIND_REFUSAL
+    if data.is_repeated:
+        return _REPEATED_REFUSAL
+    if data.is_survival and not data.treatment_held:
+        return _SURVIVAL_NOT_HELD_REFUSAL
     return None
 
 
 def _refuse_censoring(result: Any) -> Refusal | None:
-    return _CENSORING_REFUSAL if result.data.has_censoring else None
+    data = result.data
+    return _CENSORING_REFUSAL if data.has_censoring and not data.is_survival else None
+
+
+def _refuse_separable(result: Any) -> Refusal | None:
+    return _SEPARABLE_REFUSAL if getattr(result.config, "separable", ()) else None
+
+
+def _refuse_known_censoring(result: Any) -> Refusal | None:
+    declared = result.data.known_mechanisms
+    if declared is None:
+        return None
+    if any(values is not None for values in declared.censoring):
+        return _KNOWN_CENSORING_REFUSAL
+    return None
 
 
 def _refuse_later_covariates(result: Any) -> Refusal | None:
@@ -186,6 +231,8 @@ LONGITUDINAL_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("eliminated", _refuse_eliminated),
     ("outcome_kind", _refuse_outcome_kind),
     ("censoring", _refuse_censoring),
+    ("separable", _refuse_separable),
+    ("known_censoring", _refuse_known_censoring),
     ("later_covariates", _refuse_later_covariates),
     ("node_law", _refuse_node_law),
     ("cluster", _refuse_cluster),
@@ -225,6 +272,8 @@ class LongitudinalRequest:
     movement_scale: Literal["estimate_difference", "log_ratio"]
     bounded_outcome_law: Literal["logit", "normal_score"] | None
     outcome_bounds: tuple[float, float] | None
+    survival: bool = False
+    outcome_cause: str | None = None
 
 
 def _node_kinds(data: Any) -> tuple[Literal["binary", "continuous"], ...]:
@@ -317,6 +366,7 @@ def validate_longitudinal_request(
     latent_rho: Any = None,
     observation_reads: Any = None,
     bounded_outcome_law: Any = None,
+    outcome_cause: Any = None,
 ) -> LongitudinalRequest:
     """Check a longitudinal request before any calibration, draw, or refit.
 
@@ -367,7 +417,29 @@ def validate_longitudinal_request(
         for kind, value in zip(kinds, point, strict=True):
             if kind == "binary" and not 0.0 <= value <= 0.5:
                 raise ValueError("binary treatment strengths must be between 0 and 0.5")
-    if data.family == "binomial" and any(value < 0.0 or value > 0.5 for value in grid.outcome):
+    survival = bool(data.is_survival)
+    if outcome_cause is not None:
+        if not data.is_competing:
+            raise ValueError(
+                "outcome_cause names the cause whose hazard the latent shifts on a "
+                "competing-risk fit, and this fit has one outcome"
+            )
+        if len(data.cause_labels) < 2:
+            raise ValueError(
+                "outcome_cause picks one of several competing causes, and this fit declares "
+                "one cause, whose hazard the default law already shifts; leave outcome_cause "
+                "unset"
+            )
+        if outcome_cause not in data.cause_labels:
+            raise ValueError(
+                f"outcome_cause {outcome_cause!r} is not a cause of this fit; its causes are "
+                f"{list(data.cause_labels)!r}"
+            )
+    if (
+        not survival
+        and data.family == "binomial"
+        and any(value < 0.0 or value > 0.5 for value in grid.outcome)
+    ):
         raise ValueError("binomial outcome strengths must be between 0 and 0.5")
     law, bounds = _bounded_law(result, bounded_outcome_law)
     names = _calibration_names(data, benchmark_covariates)
@@ -381,6 +453,8 @@ def validate_longitudinal_request(
         movement_scale="log_ratio" if scale == "ratio" else "estimate_difference",
         bounded_outcome_law=law,
         outcome_bounds=bounds,
+        survival=survival,
+        outcome_cause=None if outcome_cause is None else str(outcome_cause),
     )
 
 
@@ -477,12 +551,14 @@ def _outcome(
     return np.where(observed, moved, values)
 
 
-def _calibrate(data: Any, request: LongitudinalRequest) -> tuple[Any, ...]:
+def _calibrate(data: Any, request: LongitudinalRequest, models: Any = None) -> tuple[Any, ...]:
     """Calibrate each named baseline covariate against each moved node and the outcome.
 
     The design is the standardized baseline block, as the point surface uses the adjustment
     covariates.  A node row reads one node, so it describes that node's association with
-    the covariate given the other baseline covariates, not given the earlier nodes.
+    the covariate given the other baseline covariates, not given the earlier nodes.  On a
+    survival or competing-risk fit the outcome row is the covariate's coefficient in the
+    replay's own event model, on the log-odds scale the outcome strength shifts.
     """
     from sklearn.preprocessing import StandardScaler
 
@@ -529,6 +605,9 @@ def _calibrate(data: Any, request: LongitudinalRequest) -> tuple[Any, ...]:
     for name in request.calibration_names:
         for position, (node, kind) in enumerate(zip(request.nodes, request.kinds, strict=True)):
             rows.append(row(name, data.treatment[:, position], kind == "binary", "treatment", node))
+        if request.survival:
+            rows.append(_survival_outcome_row(data, name, models))
+            continue
         rows.append(
             row(
                 name,
@@ -539,6 +618,30 @@ def _calibrate(data: Any, request: LongitudinalRequest) -> tuple[Any, ...]:
             )
         )
     return tuple(rows)
+
+
+#: The calibration method of an outcome row when the replay models raised while fitting.
+_REPLAY_FIT_FAILED_METHOD = "the replay's event model could not be fitted; strength not defined"
+
+
+def _survival_outcome_row(data: Any, name: str, models: Any) -> Any:
+    """The outcome row of a survival fit: a coefficient of the replay's event model."""
+    from ._simulated_confounding_survival import calibration_strength
+    from .simulated_confounding import ObservedConfounderCalibration
+
+    index = list(data.baseline_names).index(name)
+    if models is None:
+        strength, method = float("nan"), _REPLAY_FIT_FAILED_METHOD
+    else:
+        strength, method = calibration_strength(models.event, index)
+    return ObservedConfounderCalibration(
+        covariate=name,
+        role="outcome",
+        family="binomial",
+        strength=strength,
+        method=method,
+        component=None,
+    )
 
 
 def _refit_folds(result: Any, frozen: list[int] | None) -> Literal["original", "redrawn", "none"]:
@@ -605,8 +708,9 @@ def longitudinal_surface(
     )
 
     data = result.data
-    calibrations = _calibrate(data, request)
     root_seed = resolve_assessment_seed(result, random_state)
+    replay_state = _survival_replay_state(data, request, root_seed)
+    calibrations = _calibrate(data, request, replay_state.models)
     refit_seed = root_seed
     frozen = _frozen_seeds(result, root_seed)
     latent_seed = _latent_child_seed(root_seed)
@@ -636,12 +740,21 @@ def longitudinal_surface(
         try:
             treatment = perturb_nodes(data, latent, point, request.kinds, request.held)
             association = _node_associations(latent, treatment, weights, width)
-            replacement = data.with_treatment(
-                treatment, known_mechanisms=_flipped_declaration(data, point[0])
-            )
-            replacement = replace(
-                replacement, outcome=_outcome(data, latent, outcome_strength, request)
-            )
+            shares: tuple[float | None, float | None, float | None] = (None, None, None)
+            if request.survival:
+                replacement, shares = replay_state.replay(
+                    data, latent, treatment[:, 0], outcome_strength
+                )
+                declaration = _flipped_declaration(data, point[0])
+                if not isinstance(declaration, str):
+                    replacement = replace(replacement, known_mechanisms=declaration)
+            else:
+                replacement = data.with_treatment(
+                    treatment, known_mechanisms=_flipped_declaration(data, point[0])
+                )
+                replacement = replace(
+                    replacement, outcome=_outcome(data, latent, outcome_strength, request)
+                )
             refitted = result.estimator.refit(
                 replacement, random_state=refit_seed, frozen_seeds=frozen
             )
@@ -654,6 +767,9 @@ def longitudinal_surface(
                     displacement=refitted_parameter.inference_value - original_inference,
                     induced_treatment_association=association,
                     target_population_fraction=1.0,
+                    censoring_redrawn_share=shares[0],
+                    extended_share=shares[1],
+                    new_event_share=shares[2],
                 )
             )
         except Exception as error:
@@ -696,7 +812,11 @@ def longitudinal_surface(
             "shared by every node and the outcome."
             + (" The identity nodes of the held design repeat node 1." if request.held else "")
         ),
-        outcome_law=_outcome_law_text(request.bounded_outcome_law, data.family),
+        outcome_law=(
+            _survival_outcome_law(data, request)
+            if request.survival
+            else _outcome_law_text(request.bounded_outcome_law, data.family)
+        ),
         weight_report=data.weight_report(),
         known_mechanism_carried=declared is not None and declared.treatment[0] is not None,
         treatment_components=request.nodes,
@@ -710,6 +830,9 @@ def longitudinal_surface(
         backend=data.backend,
         held_decision=request.held,
         refit_folds=_refit_folds(result, frozen),
+        replay_models=replay_state.describe(),
+        coupling_seed=replay_state.seed,
+        outcome_cause=request.outcome_cause,
     )
 
 
@@ -721,3 +844,90 @@ def _bounded_share(data: Any, request: LongitudinalRequest) -> float | None:
     observed = np.isfinite(values)
     at_bound = (values[observed] <= low) | (values[observed] >= high)
     return float(np.average(at_bound, weights=np.asarray(data.weights)[observed]))
+
+
+@dataclass(frozen=True)
+class _ReplayState:
+    """What every cell of a survival surface shares: the fitted models and the uniforms."""
+
+    observed: Any = None
+    models: Any = None
+    error: Exception | None = None
+    uniforms: Any = None
+    seed: int | None = None
+
+    def replay(
+        self, data: Any, latent: Any, treatment: Any, strength: float
+    ) -> tuple[Any, tuple[float | None, float | None, float | None]]:
+        """The replayed panel of one cell and its three shares."""
+        from ._simulated_confounding_survival import replay_followup
+
+        if self.error is not None:
+            raise self.error
+        replay = replay_followup(
+            data, self.observed, self.models, self.uniforms, latent, treatment, strength
+        )
+        replacement = data.with_replayed_followup(treatment, replay.censoring, replay.event)
+        return replacement, (
+            replay.censoring_redrawn_share,
+            replay.extended_share,
+            replay.new_event_share,
+        )
+
+    def describe(self) -> tuple[str, ...]:
+        """The replay models of the result, or ``()`` off a survival fit."""
+        if self.models is not None:
+            return tuple(self.models.describe())
+        if self.error is not None:
+            return (f"the replay models could not be fitted: {self.error}",)
+        return ()
+
+
+def _survival_replay_state(data: Any, request: LongitudinalRequest, root_seed: int) -> _ReplayState:
+    """Fit the replay models once and draw the coupling uniforms, on a survival fit."""
+    if not request.survival:
+        return _ReplayState()
+    from ._simulated_confounding_survival import (
+        coupling_seed,
+        coupling_uniforms,
+        fit_replay_models,
+        observed_followup,
+    )
+
+    observed = observed_followup(data)
+    seed = coupling_seed(root_seed)
+    uniforms = coupling_uniforms(data.n, data.n_times, seed)
+    try:
+        models = fit_replay_models(data, observed, request.outcome_cause)
+    except Exception as error:  # every nonzero cell then records it as its failure
+        return _ReplayState(observed=observed, error=error, uniforms=uniforms, seed=seed)
+    return _ReplayState(observed=observed, models=models, uniforms=uniforms, seed=seed)
+
+
+def _survival_outcome_law(data: Any, request: LongitudinalRequest) -> str:
+    """The outcome law of a survival or competing-risk surface."""
+    shift = (
+        "Each unit's per-node event log-odds is shifted by the outcome strength times its "
+        "latent value"
+    )
+    if request.outcome_cause is not None:
+        cause = (
+            f", for the hazard of {request.outcome_cause!r} among those free of every other "
+            "cause; every other cause-specific hazard is unchanged"
+        )
+    elif data.is_competing:
+        cause = (
+            " (the all-cause event); a kept event keeps its observed cause and a new event "
+            "draws its cause from the fitted shares"
+        )
+    else:
+        cause = ""
+    return (
+        shift
+        + cause
+        + ". The follow-up is replayed node by node, censoring first: each indicator is "
+        "coupled to the observed one through a uniform drawn conditional on it, so a zero "
+        "strength keeps the observed panel. Censoring is redrawn from the fitted censoring "
+        "model at the perturbed treatment, and the event model is read at the observed "
+        "treatment."
+    )
