@@ -6,7 +6,7 @@ compare: for example, the share of
 patients readmitted by day 30, 60 and 90 had everyone been offered a program, and had no one. It
 also reports differences, ratios, and the average event-free time up to a cut-off. The
 estimators are targeted maximum likelihood estimation (TMLE) for data over time: they fit
-prediction models, then correct the estimate so its confidence interval is valid.
+prediction models, then correct the estimate so its confidence interval is valid when those models are good enough.
 
 `TimeToEvent` takes one row per person with a follow-up time and an
 event code, and a treatment given once at the start. `LongitudinalTreatment` takes the wide
@@ -56,17 +56,16 @@ confidence interval. Only simulated data come with the true value. `cleverly` ca
 `outcome_learner` predicts the event. The method then
 works backward in time, regressing each step's predictions on what was known one step earlier,
 and `pseudo_learner` is that regression model, with a continuous target. `treatment_learner`
-predicts who got the treatment, and `censoring_learner`, left out here, predicts who stays in
-follow-up; it defaults to a built-in library of models.
+predicts who got the treatment. `censoring_learner`, left out here, predicts who stays in
+follow-up; when you leave it out, `cleverly` picks a default model, and the summary names it.
 Plain models keep the example fast; on real data use flexible learners, such as gradient
 boosting, or leave the learners out to use the slower built-in library, and
 keep the default `cross_fit=True`, which fits each prediction on rows other than its own.
 
 An event counts at the first grid time at or after it, so a readmission on day 45 counts by day
 60. A censoring time must sit on a grid time or after the last one. The fit refuses a censoring
-between two grid times, because both ways of rounding it bias the risk. Build the grid from the
-times at which follow-up was checked, such as scheduled calls; if people leave on arbitrary days,
-a finer grid keeps them on it, at a higher cost.
+between two grid times, because it cannot be ordered against that interval's events. Build the grid from the times at
+which follow-up was checked, such as scheduled calls; a finer grid costs more time.
 
 :::{dropdown} Details: all the input rules
 | rule | reason |
@@ -101,8 +100,8 @@ analysis with this design.
 
 A fitted risk curve also gives ratios and the restricted mean survival time (RMST), the average
 event-free time up to a cut-off. The fit below uses `RegimeMean`, which reports each plan's risk
-at every time; `RegimeContrast` above also reports differences from its reference plan. The
-`ratio` and `rmst` calls then refit nothing, and `.psi` is the point estimate.
+at the `horizons=` given; `RegimeContrast` above reports only differences. `ratio` and `rmst`
+refit nothing, and `.psi` is the point estimate.
 
 ```python
 from cleverly import RegimeMean
@@ -427,4 +426,5 @@ gives the replay and its checks.
 
 Both analyses, and the checks that generate new outcomes (`dummy_outcome`, `simulated_outcome`,
 `plasmode`), refuse a fit with `eliminate=` or a separable effect; the E-value reads only two ordinary arms. The
-other refutation checks of [Diagnostics](longitudinal.md#diagnostics) run on these fits.
+placebo, subset and random-common-cause checks of [Diagnostics](longitudinal.md#diagnostics) run
+on these fits.
