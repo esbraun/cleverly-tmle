@@ -2015,13 +2015,18 @@ refusal test.
 
 `DoseResponseTMLE` labels a pair whose clever covariate has a Kish effective size below the
 declaration's `support_floor` with the `low_dose_support_plugin` status: its interval is shown and
-experimental. The default floor of 50 is provisional. The X93 pilot found that the fitted Kish
+experimental. The default floor of 50 is provisional.
+
+The X93 pilot found that the fitted Kish
 size does not separate the intervals that under-cover from those that do not. At the tail pair
 (bandwidth 0.5, dose 0.4, n = 1,000), coverage was 0.938 below the floor and 0.934 above it, and
 it fell from 0.944 to 0.924 across the quartiles of the Kish size, because a fit with a larger
 Kish size reported a smaller SE without a smaller error. The stratified pair at dose 0.25 in
 $V = 1$ at n = 4,000 covered 0.908 at a mean Kish size of 69, with 2.9% of its fits labelled
-(`tests/studies/dose_response_pilot.csv.gz`). This item has two parts.
+(`tests/studies/dose_response_pilot.csv.gz`). The registered X93 run repeats both readings
+(`tests/canonical/dose_response/pair-support.csv`): at the tail pair the unlabelled fits covered
+0.929 and the labelled fits 0.944, and the stratified pair at n = 8,000 covered 0.921 at a mean
+Kish size of 141 with an SE ratio of 0.93. This item has two parts.
 
 - (a) Find a support diagnostic that tracks the interval's error, label by it, and measure the
   interval near the new threshold, at small bandwidths and at tail doses, in a registered study.

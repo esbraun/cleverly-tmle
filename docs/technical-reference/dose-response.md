@@ -179,12 +179,17 @@ columns.
 A pair below the floor keeps its interval and its place in the band, and its estimate carries the
 inference status `low_dose_support_plugin`, and the fit warns with `DataWarning`. The label says
 that the normal approximation behind the interval rests on few effective rows. The default floor
-is provisional, and the label is not a validated screen. In the
+is provisional, and the label is not a validated screen.
+
+In the
 [dose-response pilot](method-evidence/dose-response.md#sizing) the Kish size did not separate the
 intervals that under-cover: an unlabelled stratified pair with a mean Kish size of 69 covered
 0.908 at n = 4,000, and at the tail pair a larger Kish size came with a smaller reported SE and no
-smaller error. The registered study's `tail` scenario measures one pair near the floor, so its
-verdict does not validate the floor at other doses, bandwidths or laws.
+smaller error. The registered run repeats both readings. The stratified pair at n = 8,000 (mean
+Kish size 141, all but 2 of 4,000 fits unlabelled) covered 0.921 with an SE ratio of 0.93. At the
+`tail` pair the unlabelled fits covered 0.929 and the labelled ones 0.944. The `tail` scenario
+measures one pair near the floor, so its passing verdict does not validate the floor at other
+doses, bandwidths or laws.
 [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) records what would remove
 the label.
 
@@ -218,6 +223,7 @@ the label.
 | every pair solves its score, including a 200-pair declaration; round trip; strata; support report; refusals before any learner fits | the fit tests in the same file |
 | a pair whose fluctuation does not solve its score raises `DataError`, which a repeated-sampling study records as one lost replicate | `::test_an_unsolved_fluctuation_is_a_data_error_a_study_records` |
 
-The [registered study](method-evidence/dose-response.md) is declared and has not run. It has no
-comparator: roadmap X93, part S2, declares the npcausal `ctseff` runs on a matched target. Until
-the study runs, the evidence for this method is the fast-tier checks above.
+The [registered study](method-evidence/dose-response.md) passes every gate: 27 primary rows
+(lowest coverage 0.9215, worst standardized bias 0.031) and 7 property cells, including the band's
+joint coverage, exact-efficiency calibration and the targeting gain. It has no comparator:
+roadmap X93, part S2, declares the npcausal `ctseff` runs on a matched target.
