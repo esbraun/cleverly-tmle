@@ -4,8 +4,8 @@
 
 Each example is a complete analysis that you can run and adapt. It loads a dataset, estimates what
 a treatment, offer, or policy did, tests whether the result holds up, and says what you can tell a
-manager. Nineteen examples use simulated data, so each page can compare its estimate with the
-true answer. The twentieth uses real birth records. If you are new to causal inference, read
+manager. Twenty examples use simulated data, so each page can compare its estimate with the
+true answer. The twenty-first uses real birth records. If you are new to causal inference, read
 [one treatment, one outcome](point-treatment-tmle.ipynb) first. It explains each step that the
 other pages reuse.
 
@@ -39,6 +39,7 @@ treatment was unlikely.
 | a price or dose that varies continuously and is set again each month | [monthly prices](sequential-pricing.ipynb) | one regression that holds later behavior and later prices fixed misses part of the effect of a price rise |
 | a fitted result that you want to look at, check, and explain with figures | [plot results](plots.ipynb) | a table of estimates hides which patients had almost no chance of an offer, how the estimate moves when a setting changes, and a method whose intervals all miss on one side |
 | a full analysis of real records, where no true answer is known | [smoking and twins' birth weight](twins-causal-inference.ipynb) | adjusting for a variable that the treatment itself changes, here gestational age, removes part of the effect |
+| a treatment with two parts that act on two competing events, such as a medicine that lowers readmission through one part and raises the risk of death through another | [a medicine with two effects](separable-effects.ipynb) | the drop in readmission under the whole medicine includes patients who died before they could be readmitted, so reading it as the benefit of the part that acts on readmission overstates that benefit |
 
 ## The health program
 
@@ -193,6 +194,7 @@ simulation studies that check it.
 | [renewal discounts](dose-response.ipynb) | cross-fitted TMLE for a dose-response curve averaged over nearby doses, with one band over every reported dose | [smoothed dose-response curve](../technical-reference/dose-response.md) |
 | [monthly prices](sequential-pricing.ipynb) | TMLE for shifts of a continuous treatment over time | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
 | [smoking and twins' birth weight](twins-causal-inference.ipynb) | TMLE for the effect among the treated | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
+| [a medicine with two effects](separable-effects.ipynb) | TMLE for separable effects: the risk of each of two competing events when the part of a treatment that acts on one event and the part that acts on the other are set to different doses | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
 
 ```{toctree}
 :caption: First example
@@ -241,6 +243,7 @@ sequential-offers
 weekly-outcomes
 model-based-over-time
 sequential-pricing
+separable-effects
 ```
 
 ```{toctree}

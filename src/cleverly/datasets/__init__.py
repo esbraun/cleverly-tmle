@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .heart_failure import heart_failure_protocol, heart_failure_truth, make_heart_failure
 from .longitudinal import (
     REPEATED_RULE_LABEL,
     RULE_LABEL,
@@ -140,6 +141,8 @@ __all__ = [
     "clustered_dgp",
     "competing_truth",
     "contact_schedules_truth",
+    "heart_failure_protocol",
+    "heart_failure_truth",
     "heterogeneous_dgp",
     "instrument_dgp",
     "learned_rule_truth",
@@ -152,6 +155,7 @@ __all__ = [
     "make_cde",
     "make_clustered",
     "make_contact_schedules",
+    "make_heart_failure",
     "make_heterogeneous",
     "make_instrument",
     "make_linear_ate",
