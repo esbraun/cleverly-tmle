@@ -54,9 +54,6 @@ from ..utils.bounds import expit
 from ..utils.frames import frame_from_dict
 
 __all__ = [
-    "HEART_FAILURE_DAYS",
-    "HEART_FAILURE_EVENTS",
-    "dose_probabilities",
     "heart_failure_protocol",
     "heart_failure_truth",
     "make_heart_failure",
@@ -64,9 +61,6 @@ __all__ = [
 
 #: The days of the follow-up checks, which are the grid of the fit.
 HEART_FAILURE_DAYS: tuple[int, ...] = (30, 60, 90)
-
-#: The event codes of the ``event`` column.
-HEART_FAILURE_EVENTS: dict[int, str] = {1: "readmission", 2: "death"}
 
 _P_OLDER = 0.4
 _PRIOR = (0, 1, 2, 3)
@@ -231,7 +225,7 @@ def make_heart_failure(
     seed : int, Generator, or None
         Seed or NumPy random generator.
     backend : {"pandas", "polars", "pyarrow"} or None, default=None
-        Dataframe backend.
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
@@ -254,6 +248,8 @@ def make_heart_failure(
     >>> round(float(high["death"].iloc[0]), 4)
     0.361
     """
+    if n < 1:
+        raise ValueError("n must be positive")
     rng = np.random.default_rng(seed)
     older = rng.binomial(1, _P_OLDER, n)
     prior = rng.integers(0, len(_PRIOR), n)

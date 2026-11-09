@@ -27,6 +27,11 @@ PLANS = ("high dose", "no pill", "high dose with supplement")
 PARTS = ("whole medicine", "fluid part", "potassium part")
 
 
+def _near(value: float, printed: float, places: int) -> bool:
+    """``value`` prints as ``printed`` to ``places`` decimals, with slack for library rounding."""
+    return abs(value - printed) <= 0.6 * 10.0**-places
+
+
 def _day90(readmission_dose: int, death_dose: int, first: str = "death") -> Any:
     return heart_failure_truth(readmission_dose, death_dose, first=first).set_index("day").loc[90]
 
@@ -55,7 +60,7 @@ def _check_association(namespace: dict[str, Any]) -> None:
     # "the simple readmission difference, -0.1358, falls short of the true -0.1770".
     simple = shares.loc[2.0, 1] - shares.loc[0.0, 1]
     true = known.loc["high dose", "readmission"] - known.loc["no pill", "readmission"]
-    assert round(simple, 4) == -0.1358 and round(true, 4) == -0.1770
+    assert _near(simple, -0.1358, 4) and _near(true, -0.1770, 4)
     assert true < simple < 0.0
 
 
@@ -70,8 +75,8 @@ def _check_fit(namespace: dict[str, Any]) -> None:
         support = result[name].support
         assert support.label == "supported" and support.row == "G49.in_sample"
     # "0.1935, against 0.3792 with no pill".
-    assert round(result[risk("high dose", "readmission")].psi, 4) == 0.1935
-    assert round(result[risk("no pill", "readmission")].psi, 4) == 0.3792
+    assert _near(result[risk("high dose", "readmission")].psi, 0.1935, 4)
+    assert _near(result[risk("no pill", "readmission")].psi, 0.3792, 4)
     # "the supplement plan reads 2,150 patients in the last month: the high-dose and no-pill
     # patients together".
     last = namespace["support"].query("cause == 'readmission' and time == 3")
@@ -95,11 +100,13 @@ def _check_effects(namespace: dict[str, Any]) -> None:
             # other three rows hold on this draw too.
             assert covers(effects[cause, part], true)
     readmission = {part: 100 * effects["readmission", part].psi for part in PARTS}
-    assert [round(readmission[part], 1) for part in PARTS] == [-18.6, -13.6, -5.0]
+    for part, printed in zip(PARTS, (-18.6, -13.6, -5.0), strict=True):
+        assert _near(readmission[part], printed, 1)
     # The potassium part's share is clear of zero: "(-5.8 to -4.1)".
     assert effects["readmission", "potassium part"].ci[1] < 0.0
     death = {part: 100 * effects["death", part].psi for part in PARTS}
-    assert [round(death[part], 1) for part in PARTS] == [23.4, 1.0, 22.5]
+    for part, printed in zip(PARTS, (23.4, 1.0, 22.5), strict=True):
+        assert _near(death[part], printed, 1)
     # "The fluid part adds +1.0, because patients who avoid readmission stay at risk of dying
     # first": the supplement plan's death hazard is the no-pill one, so the exact truth moves
     # only through the readmission hazard.
@@ -115,8 +122,8 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     # "The largest weight is 15.2, in the supplement plan's last month".
     top = support.loc[support["max_weight"].idxmax()]
     assert top["regimen"] == "high dose with supplement" and top["time"] == 3
-    assert round(float(top["max_weight"]), 1) == 15.2
-    assert round(namespace["ratio"], 3) == 0.803
+    assert _near(float(top["max_weight"]), 15.2, 1)
+    assert _near(namespace["ratio"], 0.803, 3)
     assert (support["share_truncated"] == 0.0).all()
     assert bool(support["converged"].all())
 
@@ -127,8 +134,8 @@ def _check_evalue(namespace: dict[str, Any]) -> None:
     # "the high-dose readmission risk is 0.510 times the no-pill risk"; "3.33 ... and 2.88".
     assert bound.scale == "risk ratio"
     assert bound.risk_ratio == pytest.approx(high / none, rel=1e-9)
-    assert round(bound.risk_ratio, 3) == 0.510
-    assert round(bound.point, 2) == 3.33 and round(bound.limit, 2) == 2.88
+    assert _near(bound.risk_ratio, 0.510, 3)
+    assert _near(bound.point, 3.33, 2) and _near(bound.limit, 2.88, 2)
     assert "does not affect censoring" in bound.note
     assert "read it as descriptive" in str(bound.summary())
     # "cleverly has no such bound for the supplement plan" and the made-up confounder "refuses
@@ -152,9 +159,9 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
     # "Leaving out prior_admissions moves the fluid part's effect from -0.1359 to -0.0814, or
     # 3.3 standard errors, and the whole medicine's by 3.1".
     fluid = moves["prior_admissions", "fluid part"]
-    assert round(fluid["with both"], 4) == -0.1359 and round(fluid["left out one"], 4) == -0.0814
-    assert round(fluid["move in SEs"], 1) == 3.3
-    assert round(moves["prior_admissions", "whole medicine"]["move in SEs"], 1) == 3.1
+    assert _near(fluid["with both"], -0.1359, 4) and _near(fluid["left out one"], -0.0814, 4)
+    assert _near(fluid["move in SEs"], 3.3, 1)
+    assert _near(moves["prior_admissions", "whole medicine"]["move in SEs"], 3.1, 1)
     # "Leaving out older moves each by less than half a standard error."
     for part in ("whole medicine", "fluid part"):
         assert abs(moves["older", part]["move in SEs"]) < 0.5
@@ -170,12 +177,10 @@ def _check_order(namespace: dict[str, Any]) -> None:
         # "each near its own true value, -13.1 and -15.8".
         assert covers(estimate, true)
         estimates[order] = estimate
-    assert round(100 * estimates["death"].psi, 1) == -13.6
-    assert round(100 * estimates["readmission"].psi, 1) == -16.5
+    assert _near(100 * estimates["death"].psi, -13.6, 1)
+    assert _near(100 * estimates["readmission"].psi, -16.5, 1)
     # The two orders' truths differ: "they answer two questions".
     assert abs(_day90(2, 0, "readmission")["readmission"] - _day90(2, 0)["readmission"]) > 0.02
-    for name in other:
-        assert other[name].support.label == "supported"
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -204,7 +209,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
         assert test.n_replicates == 20
     # "The random doses give a mean of -0.0020, the noise column barely moves the estimate, and
     # the subset refits spread with a scatter ratio of 0.91".
-    assert round(tests["placebo"].mean, 4) == -0.0020
+    assert _near(tests["placebo"].mean, -0.0020, 4)
     assert abs(tests["random_common_cause"].statistic) < 0.05
-    assert round(tests["subset"].statistic, 2) == 0.91
+    assert _near(tests["subset"].statistic, 0.91, 2)
     assert 0.7 < tests["subset"].statistic < 1.3

@@ -27,17 +27,20 @@ MONTE_CARLO_N = 400_000
 PAIRS = ((0, 0), (2, 2), (2, 0), (0, 2), (1, 2))
 
 
-def _set_apart(readmission_dose: int, death_dose: int, n: int, seed: int) -> np.ndarray:
-    """``(n,)`` first-event codes by day 90 when every patient gets the two parts at two doses.
+def _set_apart(
+    readmission_dose: int, death_dose: int, n: int, seed: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """First-event codes and months when every patient gets the two parts at two doses.
 
     Nobody leaves follow-up.  Death is drawn first in each month, at the potassium part's dose;
     readmission among those alive, at the fluid part's dose.  This is the structural world of
-    the generator, simulated rather than summed.
+    the generator, simulated rather than summed.  The month is 0 for a patient with neither.
     """
     rng = np.random.default_rng(seed)
     older = rng.binomial(1, law._P_OLDER, n)
     prior = rng.integers(0, len(law._PRIOR), n)
     code = np.zeros(n, dtype=int)
+    when = np.zeros(n, dtype=int)
     for month in range(1, len(HEART_FAILURE_DAYS) + 1):
         at_risk = code == 0
         died = at_risk & (rng.uniform(size=n) < law._death(month, death_dose, older, prior))
@@ -48,23 +51,61 @@ def _set_apart(readmission_dose: int, death_dose: int, n: int, seed: int) -> np.
         )
         code[died] = 2
         code[readmitted] = 1
-    return code
+        when[died | readmitted] = month
+    return code, when
+
+
+def _shares_by_day(code: np.ndarray, when: np.ndarray, event: int) -> np.ndarray:
+    """The share with ``event`` first by each check day."""
+    return np.array([((code == event) & (when >= 1) & (when <= k)).mean() for k in range(1, 4)])
 
 
 @pytest.mark.parametrize("pair", PAIRS)
 def test_the_truth_matches_a_monte_carlo_draw_of_the_parts_set_apart(pair: tuple[int, int]) -> None:
-    codes = _set_apart(*pair, n=MONTE_CARLO_N, seed=sum(pair) + 10 * pair[0])
-    truth = heart_failure_truth(*pair).set_index("day").loc[90]
-    for code, cause in ((1, "readmission"), (2, "death")):
-        share = (codes == code).mean()
+    code, when = _set_apart(*pair, n=MONTE_CARLO_N, seed=sum(pair) + 10 * pair[0])
+    truth = heart_failure_truth(*pair)
+    for event, cause in ((1, "readmission"), (2, "death")):
+        share = _shares_by_day(code, when, event)
         tolerance = 4.0 * np.sqrt(share * (1.0 - share) / MONTE_CARLO_N)
-        assert abs(share - truth[cause]) < tolerance
+        assert (np.abs(share - truth[cause].to_numpy()) < tolerance).all()
+
+
+@pytest.mark.parametrize("first", ["death", "readmission"])
+def test_the_truth_matches_the_library_separable_composition(first: str) -> None:
+    # An exact witness for both event orders, independent of `_cell_risks`: the true hazards of
+    # every cell go through the library's own separable composition, at unequal doses where a
+    # dose argument that vanishes at equal doses would show.
+    from cleverly.longitudinal.separable import SeparableState
+
+    cells = [(older, prior) for older in (0, 1) for prior in law._PRIOR]
+    mass = np.array([(law._P_OLDER if older else 1 - law._P_OLDER) / 4 for older, _ in cells])
+    # Cause-specific hazards (cells, months, doses, causes); cause 0 readmission, 1 death.
+    hazards = np.zeros((len(cells), 3, 3, 2))
+    for i, (older, prior) in enumerate(cells):
+        for k in range(3):
+            for dose in range(3):
+                lam_d = float(law._death(k + 1, dose, older, prior))
+                h_y = float(law._readmission(k + 1, dose, older, prior))
+                hazards[i, k, dose] = (h_y * (1 - lam_d), lam_d)
+    first_index = 1 if first == "death" else 0
+    held = tuple(np.zeros((3, 3), dtype=bool) for _ in range(4))
+    state = SeparableState.from_hazards(hazards, first_index, (-50, 50), held)
+    for readmission_dose, death_dose in ((2, 0), (0, 2), (1, 2), (2, 1)):
+        if first == "death":
+            _, _, incidence = state.composed((death_dose, readmission_dose))
+            readmission, death = incidence[..., 1], incidence[..., 0]
+        else:
+            _, _, incidence = state.composed((readmission_dose, death_dose))
+            readmission, death = incidence[..., 0], incidence[..., 1]
+        truth = heart_failure_truth(readmission_dose, death_dose, first=first)
+        np.testing.assert_allclose(mass @ readmission, truth["readmission"], atol=1e-12)
+        np.testing.assert_allclose(mass @ death, truth["death"], atol=1e-12)
 
 
 def test_a_truth_that_reads_both_parts_at_one_dose_fails_the_comparison() -> None:
     # Deliberate mutation: reading the potassium part at the fluid part's dose gives the static
     # risk of the high dose, which the draw with the parts set apart must reject.
-    codes = _set_apart(2, 0, n=MONTE_CARLO_N, seed=3)
+    codes, _ = _set_apart(2, 0, n=MONTE_CARLO_N, seed=3)
     wrong = heart_failure_truth(2, 2).set_index("day").loc[90]
     for code, cause in ((1, "readmission"), (2, "death")):
         share = (codes == code).mean()
@@ -148,6 +189,8 @@ def test_the_truth_refuses_an_unknown_dose_or_order() -> None:
         heart_failure_truth(3, 0)
     with pytest.raises(ValueError, match="first"):
         heart_failure_truth(0, 0, first="censoring")
+    with pytest.raises(ValueError, match="n must be positive"):
+        make_heart_failure(n=0)
 
 
 def test_the_protocol_names_the_three_strategies() -> None:
