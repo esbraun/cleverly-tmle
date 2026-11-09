@@ -4527,7 +4527,7 @@ class _SequentialEstimator:
             not implement.
         """
 
-        def refuse(text: str, alternative: str, reason: RefusalReason) -> None:
+        def refuse(text: str, alternative: str, *, reason: RefusalReason) -> None:
             raise CapabilityError(text, reason=reason, roadmap="X91", alternative=alternative)
 
         gap = RefusalReason.IMPLEMENTATION_GAP
@@ -4536,7 +4536,7 @@ class _SequentialEstimator:
                 "a Separable regimen needs the cause-specific hazards at two treatment "
                 "levels, which only LTMLE(survival_model='hazard') fits.",
                 "Fit LTMLE(survival_model='hazard', targeting='one_step').",
-                RefusalReason.API_REDIRECTION,
+                reason=RefusalReason.API_REDIRECTION,
             )
         if getattr(self, "targeting", None) != "one_step":
             refuse(
@@ -4544,21 +4544,21 @@ class _SequentialEstimator:
                 "factors; the per-horizon algorithm restarts at each horizon and has no "
                 "factor-wise form.",
                 "Set targeting='one_step'.",
-                RefusalReason.API_REDIRECTION,
+                reason=RefusalReason.API_REDIRECTION,
             )
         if learned is not None or self.msm is not None:
             refuse(
                 "a Separable regimen is not combined with a learned regimen or a marginal "
                 "structural model.",
                 "Fit the separable regimens in their own fit.",
-                gap,
+                reason=gap,
             )
         if data.eliminated:
             refuse(
                 "a Separable regimen is not combined with eliminate=: eliminating the "
                 "competing cause removes it, so no component of the treatment acts on it.",
                 "Fit the separable regimens without eliminate=.",
-                RefusalReason.DIFFERENT_ESTIMAND,
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
             )
         later = [name for block in data.time_varying_names for name in block]
         if later:
@@ -4568,7 +4568,7 @@ class _SequentialEstimator:
                 "(2021), Equation (19), identify the separable effects, but no source gives "
                 "the efficient influence curve of that formula.",
                 "Fit the separable regimens with baseline covariates only.",
-                RefusalReason.INFERENCE_GAP,
+                reason=RefusalReason.INFERENCE_GAP,
             )
         settings = (
             (getattr(self, "node_bounds", None) is not None, "node_bounds="),
@@ -4582,7 +4582,7 @@ class _SequentialEstimator:
                     f"{name} is not built for a fit with a Separable regimen: the factor-wise "
                     "targeting has no form of it yet.",
                     f"Fit without {name}.",
-                    gap,
+                    reason=gap,
                 )
 
     def _refuse_design(self, data: LongitudinalData, plans: tuple[Plan, ...]) -> None:

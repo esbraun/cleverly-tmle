@@ -228,7 +228,6 @@ def resolve_separable(
             f"competing event; this panel holds {len(causes) or 1}. Stensrud et al. (2022) "
             "state the separable effects for one competing event"
         )
-    levels = tuple(data.treatment_levels[0])
     out = []
     firsts = set()
     for label, declared in separables:
@@ -240,13 +239,15 @@ def resolve_separable(
             )
         codes = {}
         for cause, level in declared.arms.items():
-            matches = [code for code, value in enumerate(levels) if value == level]
-            if not matches:
+            # The panel's own encoding, so a level matches exactly as a static arm's does.
+            try:
+                encoded = data.encode_assignment((level,) * data.n_decisions, label)
+            except DataError as error:
                 raise DataError(
                     f"Separable {label!r} gives cause {cause!r} the level {level!r}, which "
-                    f"the treatment does not take; its levels are {list(levels)}"
-                )
-            codes[str(cause)] = matches[0]
+                    f"the treatment does not take: {error}"
+                ) from error
+            codes[str(cause)] = int(encoded[0, 0])
         first = causes.index(str(declared.first))
         firsts.add(first)
         second = causes[1 - first]
@@ -256,6 +257,7 @@ def resolve_separable(
             "every Separable regimen of one fit must declare the same first cause: the "
             "initial hazards are fitted once, in that order.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap="X91",
             alternative="Fit the two orders in two fits.",
         )
     return tuple(out)
@@ -882,7 +884,7 @@ def _held_cells(
 ) -> tuple[BoolArray, BoolArray, BoolArray, BoolArray]:
     """``(T, L)`` cells whose factor is held: empty and full :math:`D`, then empty and full
     :math:`Y` among the :math:`D`-free, each among the rows of positive weight at that level."""
-    observed = np.asarray(np.nan_to_num(data.treatment[:, 0], nan=0.0), dtype=np.int64)
+    observed = np.asarray(np.nan_to_num(data.node_codes(1), nan=0.0), dtype=np.int64)
     positive = (np.asarray(data.weights, dtype=float) > 0.0)[:, None, None]
     at_level = observed[:, None, None] == np.arange(n_levels)[None, None, :]
     rows_d = at_risk[:, :, None] & positive & at_level
@@ -956,7 +958,7 @@ def target_separable(
     second = 1 - first
     at_risk, events = event_indicators(data)
     inverse = np.stack([1.0 / np.asarray(c, dtype=float) for c in cumulative], axis=2)
-    observed = np.asarray(np.nan_to_num(data.treatment[:, 0], nan=0.0), dtype=np.int64)
+    observed = np.asarray(np.nan_to_num(data.node_codes(1), nan=0.0), dtype=np.int64)
     weights = np.asarray(data.weights, dtype=float)
     inputs = SeparableInputs(
         at_risk=at_risk,

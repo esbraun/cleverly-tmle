@@ -5286,7 +5286,7 @@ FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
         "tests/unit/test_influence_gateaux_ipsi.py",
     ),
     "separable": _anchor(
-        "separable effects ([separable effects](longitudinal-tmle.md#separable-effects))",
+        "separable effects on competing events",
         "tests/discrete_law_point_survival.py",
         "tests/unit/test_separable_effects_law.py",
     ),
