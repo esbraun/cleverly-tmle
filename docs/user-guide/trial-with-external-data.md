@@ -9,12 +9,13 @@ and give an interval for the trial's own effect that is often narrower than the 
 The interval answers a narrower question than the usual one. It is valid for the effect inside a
 simple model of how the external patients differ, which the fit chooses from your data. It is also valid
 for the trial's effect itself when that model is rich enough to describe the difference and how the
-effect varies, and the data cannot confirm that. The fit labels every result experimental. A [simulation
-study](../technical-reference/method-evidence/adaptive-tmle-trial.md) of 17 simulated settings found
-that the 95% interval covered its target 93 to 95 times in 100 in 16 of them, and that it covered the trial's
-effect only 88 times in 100 in a stress setting where the outside patients differ in a way the
-fit's model cannot describe. The label stays because of the condition above, which no data check
-confirms, whatever models and sample size a fit uses.
+effect varies, and the data cannot confirm that. The fit labels every result experimental.
+
+A [simulation
+study](../technical-reference/method-evidence/adaptive-tmle-trial.md) checks how often the 95%
+interval covers its target, including a stress setting where the outside patients differ in a way
+the fit's model cannot describe. The study page holds the numbers. The label stays because of the
+condition above, which no data check confirms, whatever models and sample size a fit uses.
 
 ## What the data must look like
 
@@ -141,8 +142,11 @@ that have enough rows in both groups to be estimated.
 It estimates a two-valued treatment on the difference scale, and it refuses a treatment with three
 or more levels, a ratio, and a continuous dose, each with a reason. It refuses every other
 estimator on a trial design, because they would treat the pooled rows as one population. It also
-refuses the sensitivity and refutation analyses of the ordinary workflow, which assume one
-population. [Scope and refusals](../technical-reference/scope-and-refusals.md) lists each one.
+refuses the sensitivity analyses of `cleverly.sensitivity` and the refutation and truncation curve
+of `cleverly.validation`. No bound is derived for this kind of fit, and each refit picks its own
+simple description of the difference, so the refits do not estimate the same thing. The checks that
+run are `result.diagnostics.support()`, `score_equations()`, `nuisance_models()` and
+`corrections()`. [Scope and refusals](../technical-reference/scope-and-refusals.md) lists each one.
 
 :::{dropdown} Details: what the interval covers
 The fit estimates a projection of the trial effect on a model that it selects with a lasso, a
@@ -158,4 +162,4 @@ conditions, and the evidence, and the method is from van der Laan, Qiu, Tarp and
 :::
 
 For a full worked analysis on simulated hospital data, with the known answer beside the estimates,
-see [a small pilot with external records](../examples/trial-with-external-data.ipynb).
+see [a small pilot with outside records: adaptive TMLE](../examples/trial-with-external-data.ipynb).
