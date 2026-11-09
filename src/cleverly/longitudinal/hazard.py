@@ -1196,7 +1196,7 @@ def _quasi_terms(events: FloatArray, logits: FloatArray, bounds: HazardBounds) -
     return np.asarray((xlogy(y, p) + xlogy(1.0 - y, 1.0 - p)).sum(axis=-1), dtype=float)
 
 
-def walk_loss(state: HazardState, inputs: HazardInputs) -> float:
+def walk_loss(state: HazardState, inputs: HazardInputs, *, last_node: int | None = None) -> float:
     """The walk loss of the observed events on the risk set.
 
     It is the negative weighted multinomial log-likelihood at every unbounded node, plus the
@@ -1209,6 +1209,10 @@ def walk_loss(state: HazardState, inputs: HazardInputs) -> float:
         The current hazards.
     inputs : HazardInputs
         The targeting inputs.
+    last_node : int or None, default=None
+        Count only the person-nodes ``k <= last_node``, counted from one.  The collaborative
+        survival selector scores a fluctuation at one horizon, which leaves the later nodes
+        unchanged.  ``None`` counts every node.
 
     Returns
     -------
@@ -1227,6 +1231,8 @@ def walk_loss(state: HazardState, inputs: HazardInputs) -> float:
             inputs.events, state.logits[rows, :, levels], bounds
         )
     counted = inputs.at_risk & (inputs.weights != 0.0)[:, None]
+    if last_node is not None:
+        counted = counted & (np.arange(inputs.n_times) < last_node)[None, :]
     return -float(np.sum(np.where(counted, inputs.weights[:, None] * terms, 0.0)))
 
 
