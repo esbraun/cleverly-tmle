@@ -454,8 +454,8 @@ of the post-selection results of Leeb and Pötscher and of Armstrong and Kolesar
 intervals. A coverage shortfall on $\Psi$ under `b1y` is therefore the price of the narrower
 interval where the bias is zero, not evidence of a defect. In the sizing pilot, `b1y` covered
 $\Psi$ in 708 of 800 replicates, so a gate on it would have no replication budget that meets it.
-The declared run covered $\Psi$ in 0.890 of 2,800 replicates and the projection in 0.940, with a
-standardized bias of -0.44 and an SE ratio of 0.885.
+The declared run covered $\Psi$ in 0.884 of 2,800 replicates and the projection in 0.942, with a
+standardized bias of -0.46 and an SE ratio of 0.896.
 
 The projection truth $\Psi_w(P_0)$ is computed per replicate by quadrature on each fold's stored
 transformer and selected columns, so the record declares a truth that varies by replicate.
@@ -489,17 +489,19 @@ replicate set that is about 111 core-hours. Study S6 uses a 1,200-replicate pilo
 set, about 364 core-hours. The declared red-cell reading is the one in the
 [benchmarking strategy](../development/method-benchmarking.md#red-cells).
 
-Study A ran as declared: 2,800 replications of each of 17 scenarios at 4486fc95, no lost replicate.
-All 16 gated tests passed, with coverage of the gated target from 0.934 to 0.960 and SE ratios from
-0.947 to 1.043. Every control behaved as declared.
+Study A ran as declared: 2,800 replications of each of 17 scenarios, no lost replicate. These are
+the numbers of the fresh run of 2026-11-09 at c6f9e51c, made after the fix to the cross-validated
+form's variance (the fixture README's "Declaration history" gives the reason).
+All 16 gated tests passed, with coverage of the gated target from 0.931 to 0.953 and SE ratios from
+0.946 to 1.023. Every control behaved as declared.
 
 | item | result |
 | --- | --- |
-| study A, gated scenarios | 16 of 16 tests pass. Coverage 0.9336 to 0.9600, SE ratio 0.947 to 1.043, largest standardized bias 0.165 (the n = 1,000 ladder rung) |
-| study A, reported row `b1y` | coverage of $\Psi$ 0.890, of the projection 0.940, standardized bias -0.44, SE ratio 0.885. Reported, not gated |
-| efficiency contrast | RMSE ratio 0.682 on `a0` (99% interval 0.655 to 0.708), gated. 1.018 on `a1a` and 1.048 on `a1b`, reported |
-| K1 to K3, K5 | naive pooled $\Psi$ coverage 0.846 on `a1b`; main-terms $\Psi$ coverage 0.0146 beside projection coverage 0.956 on `e1`; coverage 0.935 with the $\Pi$ step and 0.537 without it on `a3_pi`; pooled fit against $\Psi_2$ 0.0246 |
-| K4 ladder on `e1` | bias over SE of $\Psi$ 1.67, 2.70 and 4.01 at n = 1,000, 2,000 and 4,000, as expected for a fixed projection offset, with projection coverage 0.949, 0.948 and 0.956 |
+| study A, gated scenarios | 16 of 16 tests pass. Coverage 0.9314 to 0.9525, SE ratio 0.946 to 1.023, largest standardized bias 0.151 (the n = 1,000 ladder rung) |
+| study A, reported row `b1y` | coverage of $\Psi$ 0.884, of the projection 0.942, standardized bias -0.46, SE ratio 0.896. Reported, not gated |
+| efficiency contrast | RMSE ratio 0.677 on `a0` (99% interval 0.651 to 0.703), gated. 1.022 on `a1a` and 1.056 on `a1b`, reported |
+| K1 to K3, K5 | naive pooled $\Psi$ coverage 0.846 on `a1b`; main-terms $\Psi$ coverage 0.0146 beside projection coverage 0.948 on `e1`; coverage 0.931 with the $\Pi$ step and 0.529 without it on `a3_pi`; pooled fit against $\Psi_2$ 0.0221 |
+| K4 ladder on `e1` | bias over SE of $\Psi$ 1.80, 2.78 and 4.07 at n = 1,000, 2,000 and 4,000, as expected for a fixed projection offset, with projection coverage 0.935, 0.948 and 0.948 |
 | study S6 | pending the declared run |
 | R `atmle` pairing | pending; declared, not blocking |
 

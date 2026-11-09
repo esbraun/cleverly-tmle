@@ -11,8 +11,8 @@ simple model of how the external patients differ, which the fit chooses from you
 for the trial's effect itself when that model is rich enough to describe the difference and how the
 effect varies, and the data cannot confirm that. The fit labels every result experimental. A [simulation
 study](../technical-reference/method-evidence/adaptive-tmle-trial.md) of 17 simulated settings found
-that the 95% interval covered its target 93 to 96 times in 100 in 16 of them, and that it covered the trial's
-effect only 89 times in 100 in a stress setting where the outside patients differ in a way the
+that the 95% interval covered its target 93 to 95 times in 100 in 16 of them, and that it covered the trial's
+effect only 88 times in 100 in a stress setting where the outside patients differ in a way the
 fit's model cannot describe. The label stays because of the condition above, which no data check
 confirms, whatever models and sample size a fit uses.
 
