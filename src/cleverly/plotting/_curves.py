@@ -632,6 +632,7 @@ def _nodes_reported(result: Any, rows: list[_Point]) -> bool:
 def _contrast_sides(result: Any, rows: list[_Point]) -> list[str]:
     """The regimens the fit's contrasts compare, in the fit's own regimen order."""
     labels = [str(regimen.label) for regimen in result.config.regimens]
+    labels += [str(plan.label) for plan in getattr(result.config, "separable", ())]
     named = {row.regimen for row in rows if not row.level}
     return [
         name

@@ -92,6 +92,7 @@ TargetingFailure = Literal[
     "bounds_pinned",
     "max_iter_reached",
     "bound_excludes_data",
+    "newton_stalled",
 ]
 
 #: ``|epsilon|`` past which the fluctuation is treated as running away, which is what
@@ -132,6 +133,10 @@ _FAILURE_TEXT: dict[str, str] = {
         "a declared node bound excludes the weighted mean outcome of the node's followers, "
         "so no fluctuation inside the bound solves the score equation; widen node_bounds "
         "at that node"
+    ),
+    "newton_stalled": (
+        "the Newton steps of a separable hazard fit stopped lowering the relative score; "
+        "the reported state is the best one reached"
     ),
 }
 

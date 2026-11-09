@@ -5812,9 +5812,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         if result.parameter_index:
             reference = result.config.reference
             regimens: dict[str, tuple[str, str | None]] = {}
-            for item in result.config.regimens:
-                regimens[item.label] = (item.label, None)
-                regimens[f"{item.label} vs {reference}"] = (item.label, reference)
+            labels = [item.label for item in result.config.regimens]
+            labels += [item.label for item in result.config.separable]
+            for label in labels:
+                regimens[label] = (label, None)
+                regimens[f"{label} vs {reference}"] = (label, reference)
             for alias in result.estimates:
                 if alias not in result.parameter_index:
                     raise CleverlyError(

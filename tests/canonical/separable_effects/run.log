@@ -1,0 +1,23 @@
+=== separable-effects declared run
+command: /usr/local/bin/python /home/user/cleverly-tmle/tests/canonical/separable_effects/regenerate.py --jobs 4 --output /tmp/sep-run4
+commit: b29490dc3631660d2643d9046f725c441d385404; upstream b29490dc3631660d2643d9046f725c441d385404
+clean tree: True
+cleverly 0.2.0 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.18; numpy 2.5.3; scipy 1.18.1; pandas 3.0.5; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 194, sha256 e0b3799770c7db2e3618b43204b7e06d32e1a8b27bc8f8e116345f664d7bc274
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-09T04:08:10+00:00
+note: resumed from /root/.cache/cleverly/runs/separable-effects/f0a1749ae6fc, reused the Python phase
+finished: 2026-11-09T05:56:00+00:00
+wall seconds: 6470.6
+exit code: 0
+sha256 convergence.csv: 07e9320d30844b4c41151ca3d93048a78900b2d45e5c64325b8e15c1245c6c66
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 32515646c4d38c98a23c11ec3cb520e50ea4c8455c708201b5c0d271f4492d7d
+sha256 performance-tests.csv: fe6de10f36840062d97b1cb2d603726de246e11a864ac9e9881e73b9cebd7c9d
+sha256 properties.csv: 35f7aed4296d2c865271fc0fc4f5795af11346c9318f266332aee0adb82ea800
+sha256 property-replicates.parquet: f05058effdceda5e17896e6cb016135515338131bc8d0fc01b2f3db0b1738dda
+sha256 replicates.parquet: 0582954405156dd748be167abad4e6fd0e9f0af884c967045ea921c30e021e91
+sha256 summary.csv: 2149be2802b2f54bfee9d044da9e2189908208b70ca7521da04470a904b2b273
+

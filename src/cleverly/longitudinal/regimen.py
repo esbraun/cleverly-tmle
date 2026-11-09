@@ -116,6 +116,7 @@ __all__ = [
     "Plan",
     "Regimen",
     "RegimenSpec",
+    "Separable",
     "declares_mtp",
     "declares_policy",
     "declares_tilt",
@@ -130,6 +131,47 @@ __all__ = [
 #: unit's own treatment at the node, or an odds tilt of the node's treatment mechanism.
 TreatmentLabel: TypeAlias = "str | np.str_ | bool | int | float | np.number"
 RuleNode: TypeAlias = "TreatmentLabel | Callable[[Any], Any] | Stochastic | Policy | Incremental"
+
+
+@dataclass(frozen=True)
+class Separable:
+    """A separable intervention on a treatment whose components act on two competing causes.
+
+    The component of the baseline treatment that acts on each cause takes the arm ``arms``
+    names for that cause (Stensrud et al. 2022).  ``first`` names the cause counted first
+    within a time step; the order is part of the estimand when the arms differ.  Place it in
+    ``regimens=`` of ``LTMLE(survival_model="hazard", targeting="one_step")`` beside at least
+    one static arm, which is the reference of the contrasts.
+
+    Parameters
+    ----------
+    arms : mapping of str to object
+        The treatment level whose component acts on each of the two causes, by cause label.
+    first : str
+        The cause counted first within a time step.
+
+    Examples
+    --------
+    >>> from cleverly.longitudinal import Separable
+    >>> Separable(arms={"death": 0, "relapse": 1}, first="death").first
+    'death'
+    """
+
+    arms: Mapping[str, Any]
+    first: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.arms, Mapping) or len(self.arms) != 2:
+            raise DataError(
+                "Separable(arms=) maps each of the two causes to a treatment level, for "
+                f"example {{'death': 0, 'relapse': 1}}; got {self.arms!r}"
+            )
+        if self.first not in self.arms:
+            raise DataError(
+                f"Separable(first={self.first!r}) must name one of the causes in arms= "
+                f"({sorted(map(str, self.arms))})"
+            )
+        object.__setattr__(self, "arms", dict(self.arms))
 
 
 def _is_mtp(node: object) -> bool:
@@ -2205,6 +2247,15 @@ def resolve_regimens(
     if not items:
         raise DataError("regimens= is empty; a fit with no regimen reports no parameter")
 
+    separable = sorted(str(label) for label, plan in items if isinstance(plan, Separable))
+    if separable:
+        raise CapabilityError(
+            f"regimen(s) {separable} are Separable interventions, which only "
+            "LTMLE(survival_model='hazard', targeting='one_step') fits: a separable effect "
+            "needs the cause-specific hazards at two treatment levels.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative="Fit LTMLE(regimens=..., survival_model='hazard', targeting='one_step').",
+        )
     resolved: list[RegimenSpec] = []
     seen: set[str] = set()
     for label, plan in items:

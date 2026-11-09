@@ -398,6 +398,66 @@ class PointLaw:
         free = self._mass(probs, survived) / reached
         return fired + free * self._regression(probs, survived, node + 1, horizon, cause, eliminate)
 
+    def separable(
+        self,
+        probs: Any,
+        arms: dict[int, int],
+        first: int,
+        horizon: int,
+        cause: int,
+    ) -> Any:
+        r"""The risk of ``cause`` by ``horizon`` under a separable intervention.
+
+        ``arms`` maps each of the two event codes to the level of ``A`` whose component acts
+        on it, and ``first`` names the code counted first within a node.  This is Stensrud
+        et al. (2022) identification (8) (arXiv v3), with censoring (10): the first cause's
+        hazard is read at its own level, and the second cause's hazard among those free of the
+        first, :math:`\lambda_s / (1 - \lambda_f)`, at the second cause's level.  At equal
+        levels it is the cause incidence of that static arm.  Needs two causes and no ``L2``.
+        """
+        if self.causes != 2 or self.with_l2:
+            raise ValueError("a separable functional needs two causes and no L2")
+        second = 3 - first
+        total = self._mass(probs, {})
+        psi: Any = 0.0
+        for w in (0, 1):
+            share = self._mass(probs, {"W": w}) / total
+            survival: Any = 1.0
+            incidence: Any = 0.0
+            for node in range(1, horizon + 1):
+                lam_f = self._node_hazard(probs, w, arms[first], node, first)
+                at_second = arms[second]
+                h_s = self._node_hazard(probs, w, at_second, node, second) / (
+                    1.0 - self._node_hazard(probs, w, at_second, node, first)
+                )
+                composed = {first: lam_f, second: h_s * (1.0 - lam_f)}
+                incidence = incidence + survival * composed[cause]
+                survival = survival * (1.0 - h_s) * (1.0 - lam_f)
+            psi = psi + share * incidence
+        return psi
+
+    def _node_hazard(self, probs: Any, w: int, a: int, node: int, code: int) -> Any:
+        """``P(E_k = code | at risk at k, C_k = 1, W = w, A = a)``."""
+        kept: dict[str, int] = {"W": w, "A": a}
+        for k in range(1, node):
+            kept[f"C{k}"] = 1
+            kept[f"E{k}"] = 0
+        kept[f"C{node}"] = 1
+        return self._mass(probs, {**kept, f"E{node}": code}) / self._mass(probs, kept)
+
+    def separable_eif(
+        self, arms: dict[int, int], first: int, horizon: int, cause: int, *, step: float = 1e-30
+    ) -> np.ndarray:
+        """The EIF of :meth:`separable` at every support point, by complex-step derivatives."""
+        base = self.probs.astype(complex)
+        out = np.empty(len(self.support))
+        for i in range(len(self.support)):
+            mass = np.zeros_like(base)
+            mass[i] = 1.0
+            perturbed = (1.0 - 1j * step) * base + 1j * step * mass
+            out[i] = np.imag(self.separable(perturbed, arms, first, horizon, cause)) / step
+        return out
+
     def gateaux(
         self,
         assign: Callable[[Any, int], Sequence[Any]],

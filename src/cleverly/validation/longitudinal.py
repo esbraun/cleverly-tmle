@@ -1018,14 +1018,23 @@ def _hazard_score_row(result: Any, fit: Any, *, tolerance: float) -> Longitudina
     """The one solver row of a hazard fit's target.
 
     A hazard fit solves one score per regimen, cause and horizon, summed over the nodes up
-    to the horizon, so the row sits at the horizon node.  ``converged`` is the targeting
-    record's verdict over every target it solved together: a one-step walk and a
+    to the horizon, so the row sits at the horizon node.  A separable fit solves one per
+    hazard factor, and the row reports the larger relative score of the two.  ``converged``
+    is the targeting record's verdict over every target it solved together: a one-step walk and a
     per-horizon Newton solve stop on the largest relative score of their targets.
     """
     record = fit.hazard
-    index = record.targets.index((fit.regimen.label, fit.cause, fit.horizon))
-    score = abs(float(record.score[index]))
-    relative = score / max(float(record.score_scale[index]), 1e-300)
+    # A separable fit records one score per hazard factor, ``(label, cause, horizon, factor)``;
+    # the row reports the factor whose relative score is larger.
+    key = (fit.regimen.label, fit.cause, fit.horizon)
+    indices = [i for i, entry in enumerate(record.targets) if tuple(entry[:3]) == key]
+    scores = [abs(float(record.score[i])) for i in indices]
+    relatives = [
+        score / max(float(record.score_scale[i]), 1e-300)
+        for i, score in zip(indices, scores, strict=True)
+    ]
+    worst = int(np.argmax(relatives))
+    score, relative = scores[worst], relatives[worst]
     converged = bool(record.converged)
     return LongitudinalScoreRow(
         fit.regimen.label,

@@ -7,7 +7,8 @@ the test is about estimator machinery rather than flexible learning.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Sequence
+import sys
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,21 @@ from cleverly.estimators.ctmle import CTMLEStrategy
 from cleverly.learners import SuperLearner
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(autouse=True)
+def _close_figures() -> Iterator[None]:
+    """Close every pyplot figure a test leaves open.
+
+    pyplot keeps a figure until it is closed, and an executed docstring or document example
+    rarely closes its own. Left open, they build up across one xdist worker until matplotlib's
+    more-than-20-figures warning fires, which the warning filter turns into a failure of
+    whichever later test happens to open the next figure.
+    """
+    yield
+    pyplot = sys.modules.get("matplotlib.pyplot")
+    if pyplot is not None:
+        pyplot.close("all")
 
 
 def _check_source_matches_checkout() -> None:

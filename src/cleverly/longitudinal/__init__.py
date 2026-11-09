@@ -55,6 +55,7 @@ from .regimen import (
     Plan,
     Regimen,
     RegimenSpec,
+    Separable,
     resolve_plans,
     resolve_regimens,
 )
@@ -96,6 +97,7 @@ __all__ = [
     "RegimenFit",
     "RegimenSpec",
     "Repeated",
+    "Separable",
     "SequentialGComputation",
     "SequentialIPW",
     "SequentialStep",

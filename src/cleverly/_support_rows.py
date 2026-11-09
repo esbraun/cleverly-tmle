@@ -4887,7 +4887,7 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``), the
 #: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
 #: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``) and the learned two-node
-#: regimen (``G47``) and the eliminated competing event (``G48``).
+#: regimen (``G47``), the eliminated competing event (``G48``) and separable effects (``G49``).
 #:
 def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
@@ -5013,6 +5013,63 @@ def _eliminated_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _separable_rows() -> tuple[SupportRow, ...]:
+    """Separable effects on hazard ``LTMLE`` of ``separable-effects`` (X91 part D): ``G49``.
+
+    A fit with a ``Separable`` regimen keys the regimen kind ``separable``, beside its static
+    arms, which the factor-wise engine also targets.  The rows were added because every
+    declared verdict passed: 82 of 82 primary tests and all ten property cells
+    (``double_robustness`` and ``interval_calibration`` with its controls), with no failed fit.
+    The numbers are the committed results (``tests/canonical/separable_effects``).
+    """
+    slug = ["separable-effects"]
+    shared = (
+        "A binary baseline covariate, a three-level baseline treatment held over three nodes, "
+        "censoring, death counted first and relapse; horizons 1 to 3. Every nuisance is a "
+        "saturated cell mean, n = 16,000, so a flexible learner, a continuous covariate and "
+        "another n rest on the theory alone. Two causes, baseline covariates only; no weights, "
+        "clusters or comparator (none was located)."
+    )
+    common: dict[str, Any] = {
+        "outcome_kind": "competing",
+        "regimens": ("separable", "static"),
+        "held": True,
+        "treatment": ("3",) * 3,
+        "survival_model": "hazard",
+        "targeting": "one_step",
+    }
+    return (
+        long_row(
+            "G49.in_sample",
+            slug,
+            cells=["in_sample", "sep10_relapse_t3", "in_sample_sde_relapse_t3"],
+            limits=[
+                "Two static and two separable arms, 41 risks and contrasts. The primary rows "
+                "read coverage 0.945 to 0.954 over 8,400 draws; the separable direct effect's "
+                "calibration cell reads SE ratio 0.998 and coverage 0.952 over 4,400 draws. The "
+                "robustness cells measure the factor engine with the exact mechanism and one "
+                "wrong hazard at a time.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G49.cross_fitted",
+            slug,
+            splitting=("cross_fitted",),
+            cells=["cross_fitted", "cross_fitted_sep01_death_t3"],
+            limits=[
+                "Two outer folds. The primary rows read coverage 0.948 to 0.955 over 8,400 "
+                "draws, and the calibration cell reads SE ratio 0.990 and coverage 0.945 over "
+                "4,400 draws. In 2.0% of the fits the targeting stopped short of tol at a "
+                "relative score near 1e-3 and warned; those fits are kept in every row.",
+                shared,
+            ],
+            **common,
+        ),
+    )
+
+
 #: A learned two-node regimen (``LearnedRegimen``, X11 (b)) keys the regimen kind ``learned``.
 #: The row ``G47`` of the ``learned-regimen-ltmle`` study covers the cross-fitted censored
 #: two-node fit with every option at its default; every other composition of that kind matches
@@ -5024,6 +5081,7 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_long_horizon_rows(),
         *_learned_regimen_rows(),
         *_eliminated_rows(),
+        *_separable_rows(),
     )
 )
 
@@ -5226,6 +5284,11 @@ FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
         "",
         "tests/discrete_law_longitudinal_ipsi.py",
         "tests/unit/test_influence_gateaux_ipsi.py",
+    ),
+    "separable": _anchor(
+        "separable effects on competing events",
+        "tests/discrete_law_point_survival.py",
+        "tests/unit/test_separable_effects_law.py",
     ),
     # X11 (b): with each fold's rule pair held fixed the learned fit is the known
     # ``DynamicRegimen`` fit bit for bit, so the dynamic-rule oracle covers it fold by fold.
