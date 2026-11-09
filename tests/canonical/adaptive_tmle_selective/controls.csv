@@ -1,0 +1,3 @@
+control,scenario,role,statistic,value,lower,upper,passed
+k6_main_terms_cv,s6_cv,reporting,coverage,0.97875,0.969949470005275,0.9855854469177718,True
+k6_main_terms_pooled,s6_pooled,reporting,coverage,0.8645833333333334,0.84565737848853,0.8820425734662358,True

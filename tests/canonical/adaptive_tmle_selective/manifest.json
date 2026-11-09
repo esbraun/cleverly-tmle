@@ -1,0 +1,117 @@
+{
+  "schema_version": 2,
+  "study": "Adaptive TMLE under selective enrollment",
+  "slug": "adaptive-tmle-selective",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-adaptive-tmle-selective",
+      "cleverly_version": "0.2.0",
+      "cleverly_commit": "bd99bbd433d7c4b8f041df38eeeefbcc0572afbc",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2400,
+    "n": 3200,
+    "seed": 20290321,
+    "resampling_seed": 20290322,
+    "publication_policy": "gated",
+    "truth_varies_by_replicate": true,
+    "failure_bound": {
+      "cleverly-adaptive-tmle-selective": 0.01
+    },
+    "scenarios": {
+      "s6_cv": [
+        "psi"
+      ],
+      "s6_pooled": [
+        "psi"
+      ]
+    },
+    "fit": "CausalStudy(frame, TrialWithExternalData(outcome='Y', treatment='A', adjustment=W, source='S')).identify(TrialATE(population)).estimate(method=AdaptiveTMLEMethod(form, models=ModelSpec(Super Learner learners), cross_fitting=CrossFitting(n_folds=5, learner_folds=5), targeting=Targeting(g_bounds=(0.01, 0.99)))) at n = 4000; default linear-plus-hinge dictionary; only the constant of each working model is unpenalized; n = 3200",
+    "learners": "SuperLearner(spline GLM: SplineTransformer(5 knots, degree 3) + logistic or linear; HistGradientBoosting(max_depth=3, learning_rate=0.05, l2_regularization=1.0, early_stopping=False); lasso of default_library), meta_learner='nnloglik' with clip=(0.01, 0.99) for probabilities, NNLS for the outcome; K6: LinearRegression and LogisticRegression main terms",
+    "cells": {
+      "s6_cv": {
+        "law": "s6",
+        "estimand": "psi",
+        "form": "cv",
+        "population": "pooled",
+        "learners": "flexible",
+        "controls": [
+          "k6"
+        ],
+        "fit": "default"
+      },
+      "s6_pooled": {
+        "law": "s6",
+        "estimand": "psi",
+        "form": "pooled",
+        "population": "pooled",
+        "learners": "flexible",
+        "controls": [
+          "k6"
+        ],
+        "fit": "default"
+      }
+    },
+    "truth": "psi and psi_2: tensor Gauss-Legendre panels (5 nodes) broken at law thresholds; projection: the fold's stored transformer applied to nodes broken at its knots, weighted Gram systems with the true g, Pi, tau; the CV form averages folds",
+    "fold_seed": "stream_seed(record, 'fold_partition', scenario, replicate)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/adaptive_tmle_selective.py": "1f02afeee32a09ece072b6c502e18b8fa3ca3cab9b1b9fdc55b6316f5034d61c",
+    "tests/studies/adaptive_tmle_selective_properties.py": "b0b059a6e56fdb9eba9a0653e021ff9948f867732140280a8a3269eee9fd5f15",
+    "tests/studies/adaptive_tmle_trial.py": "b65375efe8c5a1993516a775b9afe723807ec7576c4e58c7f11c4fe0b1dd9537",
+    "tests/studies/_atmle_laws.py": "04311fe3a4871211e44652d5787283cbe5eb07a84122120e7c2b59fcb343140d",
+    "src/cleverly/estimators/atmle.py": "ab785853c316da5ba4b487ba7a2487279f96abd2fbb634b74c93d3d9c2a35527",
+    "src/cleverly/estimators/atmle_result.py": "8312167320a68094c2e6161207b2782c8cf85d1e325b9b8a94ade8e80e00e60c",
+    "src/cleverly/estimators/_working_basis.py": "0c4f7c990808a5af15057db1304a4b0d547bee378ca900e6114160b8a513d03d",
+    "tests/studies/evidence/performance.py": "1a4da928575bdbd0ba547b5edfbae19f85bc09e8bc9385952a08fcfd79ce5cdc",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "c23ec6ca777d6bd662b759bdf3e09bd98afef526ba9ef7f2b3527e8a83146fea",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "23f59f3ab6502cec9cf1b34adeb70dfa49fc8c5d9a81eb2df07d5056fb036990",
+    "summary.csv": "82d6f886c9531258db61a68b99c756e190be8e09fd2db5c4f2928cf4c6cd7c5d",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "b37f3b6b7e2bfb3fd673424649af793d55dbe86f5197e032ac24d6915fe6224e",
+    "property-replicates.parquet": "dd8a47681fd2920201f8b0d2016db74dbd4c45f019231350e31532ea17bde3d8",
+    "properties.csv": "f9941c012c9d4382c92fe56bb4f353058b90d77dd321c10ee9db895b180b293a",
+    "reported.csv": "a21904fe01ec0a39c8fc100ca0393dd0397365a6b4f0ed3017983c7386f2bd0f",
+    "controls.csv": "38ec434e46594130b6219221832b9562751600dd449d5208bd5dcbc84d44658b"
+  }
+}
