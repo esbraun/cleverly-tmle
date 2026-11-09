@@ -9,8 +9,10 @@ max-$t$ band over every declared pair.
 [Smoothed dose-response curve](../dose-response.md) gives the estimand, the estimator and its
 conditions.
 
-The study has no comparator. npcausal `ctseff` estimates a related target, and a later change
-(roadmap X93, part S2) declares it with its runs, so this page publishes no paired verdict.
+The study has no comparator, so this page publishes no paired verdict. npcausal `ctseff`
+estimates a related target, and the separate study
+[against npcausal `ctseff`](dose-response-npcausal.md) compares the two on a law where both
+targets equal the curve. That study is declared and waits for its local R run.
 
 The declared run at `7f9d5172` passed every gate: 27 of 27 primary rows and 7 of 7 property
 cells. An earlier run at `dfd56920` fitted the same seeds and wrote the same replicate rows. It
@@ -83,8 +85,9 @@ the truths, the tail dose, the robustness limits, the band design numbers and th
 None claimed, so no canonical implementation is compared, and a zero-row equivalence artifact
 records the absence. npcausal `ctseff` (Kennedy,
 Ma, McHugh and Small 2017) smooths against the marginal dose density rather than the Lebesgue
-kernel weight of `DoseResponse`, so a paired comparison needs a matched target. Roadmap item X93,
-part S2, builds the R runner and that target.
+kernel weight of `DoseResponse`, so a paired comparison needs a matched target. The
+[comparator study](dose-response-npcausal.md) supplies one: a law where the curve is a line, so
+both smoothed curves equal it. It is declared and waits for its local R run.
 
 The owner's rule applies: a method merges on its Python evidence, and the comparator study
 follows ([Theory and comparators](../../architecture-invariants.md#theory-and-comparators)).
@@ -252,7 +255,7 @@ from the committed results.
 
 | limit | what it means for use |
 | --- | --- |
-| no comparator | the record names no reference implementation, so the study has no paired verdict |
+| no comparator | the record names no reference implementation, so the study has no paired verdict. The [comparator study](dose-response-npcausal.md) pairs a triweight fit with npcausal `ctseff` on a linear curve, and its run is pending |
 | one law family | a normal location model for the dose, with an outcome that reads $W$ through one linear index, on $D = [0, 5]$ |
 | declared sieve learners | the outcome sieve holds the $W$ part of the law exactly. The default learner library is not measured |
 | one sample size per scenario | n = 4,000, n = 8,000 for the stratified scenario and n = 1,000 for the tail pair. Smaller sizes are not claimed |
