@@ -25,6 +25,7 @@ import cleverly
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.ctmle import CTMLEStrategy
 from cleverly.learners import SuperLearner
+from tests import sharding
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -81,7 +82,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 @pytest.hookimpl(tryfirst=True)
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Run one study's evidence checks together, on one xdist worker.
 
     The evidence module reads and summarizes the same immutable artifacts in several tests,
@@ -106,6 +107,25 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         items[position] = item
         if slug(item):
             item.add_marker(pytest.mark.xdist_group(slug(item)))
+    _keep_this_shard(config, items)
+
+
+def _keep_this_shard(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Deselect the tests that another CI shard runs (``CLEVERLY_TEST_SHARD=i/N``)."""
+    shard = sharding.parse()
+    if shard is None:
+        return
+    index, count = shard
+    kept: list[pytest.Item] = []
+    dropped: list[pytest.Item] = []
+    for item in items:
+        marker = item.get_closest_marker("xdist_group")
+        group = None if marker is None else (marker.args or [marker.kwargs.get("name")])[0]
+        unit = item.nodeid if group is None else str(group)
+        (kept if sharding.shard_of(unit, count) == index else dropped).append(item)
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+        items[:] = kept
 
 
 class _AdaptiveMean(BaseEstimator):
