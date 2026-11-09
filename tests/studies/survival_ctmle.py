@@ -65,7 +65,8 @@ misspecified cells, the share selecting :math:`W_4` into :math:`g_1` and :math:`
 them as ``selection-readings.csv``.  The study's censoring is about 4.7% per interval, so :math:`g_2` moves are rare
 here; ``tests/unit/test_survival_ctmle.py`` check 3 is the :math:`g_2` witness.
 
-**Size and seeds.** :data:`PILOT_REPLICATES` sizes the pilot.  The primary replicate count is
+**Size and seeds.** :data:`PILOT_REPLICATES` sizes the pilot, ``tests/studies/survival_ctmle_pilot.py``,
+which draws on its own seed streams.  The primary replicate count is
 the shared rule (the smallest multiple of 400 that reaches the pass share) on that pilot,
 declared before any declared draw.  :data:`SEED` and :data:`RESAMPLING_SEED` are used by no
 other study; replicate ``r`` of a scenario draws from ``replicate_seed(STUDY, scenario, r)``.
@@ -97,6 +98,10 @@ from tests.studies.stratified_incremental_msm_properties import Columns
 
 #: The pilot's replicate count per scenario; the primary count follows from it.
 PILOT_REPLICATES = 400
+#: The declared primary replicate count, set from the pilot
+#: (``tests/studies/survival_ctmle_pilot.py``) by the shared rule before any declared draw.
+#: ``None`` until the pilot is committed; the design test then requires the rule's value.
+PRIMARY_REPLICATES: int | None = None
 PRIMARY_N = 1_000
 #: The declared share of replicates one cell may lose to recordable fitting failures.
 FAILURE_BOUND = 0.01

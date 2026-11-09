@@ -7,12 +7,15 @@ its truth, its seeds and its sizes.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 from numpy.polynomial.hermite_e import hermegauss
 from scipy.special import expit
 
 from tests.studies import survival_ctmle as study
+from tests.studies import survival_ctmle_pilot as pilot
 from tests.studies.evidence.registry import registered
+from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
 
 def test_the_truth_is_the_source_s_table_1_value() -> None:
@@ -72,7 +75,6 @@ def test_no_coverage_or_se_ratio_gate_applies() -> None:
 
 
 def test_the_rows_carry_the_selection_readings() -> None:
-    import pandas as pd
 
     rows = pd.DataFrame(
         [
@@ -123,3 +125,37 @@ def test_the_sampler_follows_the_declared_law() -> None:
     censored = ((frame["event"] == 0) & (frame["time"] == 1.0)).sum()
     at_risk = (frame["time"] >= 1.0).sum() - (frame["event"] == 1)[frame["time"] == 1.0].sum()
     assert 0.03 < censored / at_risk < 0.07
+
+
+def test_the_pilot_draws_no_declared_sample() -> None:
+    """Every pilot draw takes its own stream, distinct from every declared replicate seed."""
+    declared = {replicate_seed(study.STUDY, name, r) for name in study.SCENARIOS for r in range(50)}
+    streams = [
+        stream_seed(study.STUDY, "pilot", label, r) for label in pilot.PILOTS for r in range(50)
+    ]
+    assert len(set(streams)) == len(streams)
+    assert not declared & set(streams)
+    assert set(pilot.PILOTS) == set(study.SCENARIOS)
+    for scenario, n, draws in pilot.PILOTS.values():
+        assert n == study.STUDY.n_of(scenario)
+        assert draws == study.PILOT_REPLICATES
+
+
+PILOT = pd.read_csv(pilot.OUTPUT, low_memory=False) if pilot.OUTPUT.exists() else pd.DataFrame()
+
+
+@pytest.mark.skipif(PILOT.empty, reason="the pilot has not been committed")
+class TestTheSizes:
+    """The declared size reads the committed pilot by the shared rule."""
+
+    def test_the_pilot_is_complete(self) -> None:
+        for label in pilot.PILOTS:
+            assert pilot._done(PILOT, label), label
+
+    def test_the_subject_lost_at_most_the_failure_bound(self) -> None:
+        subject = PILOT.loc[PILOT["implementation"] == study.CTMLE_ARM]
+        lost = subject.groupby("label")["refusal"].apply(lambda r: r.fillna("").ne("").mean())
+        assert (lost <= study.FAILURE_BOUND).all(), lost[lost > study.FAILURE_BOUND]
+
+    def test_the_primary_replicates_follow_the_shared_rule(self) -> None:
+        assert pilot.primary_replicates(PILOT) == study.PRIMARY_REPLICATES
