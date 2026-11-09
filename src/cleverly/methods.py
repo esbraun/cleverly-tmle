@@ -1652,20 +1652,50 @@ default="greedy"
         Parameters
         ----------
         longitudinal : bool
-            Must be false because no longitudinal collaborative score is supported.
+            Whether to translate for
+            :class:`~cleverly.longitudinal.SurvivalCTMLE`, the time-to-event engine.
 
         Returns
         -------
         dict of str to Any
-            CTMLE engine keyword arguments.
+            CTMLE or SurvivalCTMLE engine keyword arguments.
+
+        Notes
+        -----
+        The time-to-event engine fits hazards and reports no band, so the defaults
+        ``survival_model="iterated_mean"`` and ``simultaneous=True`` resolve to ``"hazard"``
+        and ``False`` there, and the default ``selection_estimand="ate"`` resolves to the
+        engine's per-arm selection. Every other value passes through, and the engine refuses
+        what it cannot fit.
         """
         if longitudinal:
-            raise MethodConfigurationError(
-                "collaborative TMLE has no longitudinal derivation.",
-                reason=RefusalReason.IMPLEMENTATION_GAP,
-                alternative="Fit a longitudinal design with method='tmle' (LTMLE) or 'sdr'.",
-                roadmap="F5",
-            )
+            defaults = CollaborativeTMLEMethod()
+            kwargs = TMLEMethod.estimator_kwargs(self, longitudinal=True)
+            if self.models.survival_model == defaults.models.survival_model:
+                kwargs["survival_model"] = "hazard"
+            if self.inference.simultaneous == defaults.inference.simultaneous:
+                kwargs["simultaneous"] = False
+            return {
+                **kwargs,
+                "strategy": self.strategy,
+                "preorder": self.preorder,
+                "ordering": self.ordering,
+                "candidates": self.candidates,
+                "selection_folds": self.selection_folds,
+                "selection_inner_folds": self.selection_inner_folds,
+                "loss": self.loss,
+                "penalty": self.penalty,
+                "selection_estimand": (
+                    None
+                    if self.selection_estimand == defaults.selection_estimand
+                    else self.selection_estimand
+                ),
+                "oat_design": self.oat_design,
+                "lambdas": self.lambdas,
+                "treatment_candidates": self.treatment_candidates,
+                "selection_split": self.selection_split,
+                "patience": self.patience,
+            }
         return {
             **super().estimator_kwargs(),
             "strategy": self.strategy,

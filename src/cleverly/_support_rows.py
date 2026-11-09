@@ -3093,7 +3093,7 @@ def long_row(
     splitting: tuple[str, ...] = ("in_sample",),
     dependence: str = "iid",
     qualifiers: Iterable[str] = (),
-    engine: str = "tmle",
+    engine: str | tuple[str, ...] = "tmle",
     normalization: str | None = None,
     survival_model: str = "iterated_mean",
     targeting: str = "iterative",
@@ -3138,8 +3138,9 @@ def long_row(
         The dependence axis.
     qualifiers : iterable of str, default ()
         The known treatment and censoring factors.
-    engine : str, default "tmle"
-        ``tmle``, ``sdr``, ``ipsi``, ``gcomp`` or ``ipw``.
+    engine : str or tuple of str, default "tmle"
+        ``tmle``, ``sdr``, ``ipsi``, ``gcomp`` or ``ipw``, or the whole engine tuple of a
+        class that records one, such as ``("collaborative_tmle", "greedy")``.
     normalization : str or None, default None
         The inverse-probability normalization of an ``ipw`` row.
     survival_model : {"iterated_mean", "hazard"}, default "iterated_mean"
@@ -3175,7 +3176,7 @@ def long_row(
     """
     key = SupportKey(
         kind="longitudinal",
-        engine=(engine,),
+        engine=(engine,) if isinstance(engine, str) else tuple(engine),
         family=frozenset(
             (
                 outcome_kind,

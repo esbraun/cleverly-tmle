@@ -876,7 +876,7 @@ def longitudinal_key(
     )
     key = SupportKey(
         kind="longitudinal",
-        engine=(str(estimator._estimator),),
+        engine=getattr(estimator, "_support_engine", None) or (str(estimator._estimator),),
         family=frozenset(
             (
                 outcome_kind,

@@ -75,6 +75,8 @@ _MODEL_BASED = {
 def method_key(result: LongitudinalResult) -> str:
     """The key of the fit's estimator in the vocabulary's method maps."""
     config = result.config
+    if result.selection is not None:
+        return "collaborative"
     if config.estimator == "tmle" and config.msm_terms is not None:
         return "msm"
     return config.estimator
@@ -157,6 +159,10 @@ def _model_fact(result: LongitudinalResult, role: str, learners: Mapping[str, An
     config = result.config
     data = result.data
     known = set(config.known_factors)
+    if result.selection is not None and role in ("treatment", "censoring"):
+        if role == "censoring" and not _reports_censoring(data):
+            return None
+        return vocabulary.SELECTED_MODEL.format(horizon=_selection_horizon(result))
     if role == "treatment":
         if set(data.treatment_names) <= known:
             return vocabulary.KNOWN_MECHANISM
@@ -910,9 +916,26 @@ def _bootstrap_band(
     return table, note("bootstrap_bands", " ".join(sentences))
 
 
+def _selection_horizon(result: LongitudinalResult) -> str:
+    """The time the assembled mechanism of a collaborative survival fit describes."""
+    assert result.selection is not None
+    horizon = next(iter(result.selection.values())).diagnostic_horizon
+    grid = result.data.time_grid
+    return f"{grid[horizon - 1]:g}" if grid is not None else str(horizon)
+
+
 def _fit_notes(result: LongitudinalResult, spread: str) -> list[Note]:
     config = result.config
     notes: list[Note] = []
+    if result.selection is not None:
+        notes.append(
+            note(
+                "survival_selection",
+                vocabulary.NOTE_TEXTS["survival_selection"].format(
+                    horizon=_selection_horizon(result)
+                ),
+            )
+        )
     flexible = _in_sample_note(result)
     if flexible is not None:
         notes.append(flexible)

@@ -393,6 +393,7 @@ NOTE_CODES: Mapping[str, NoteKind] = MappingProxyType(
         "bootstrap_experimental": "note",
         "score_unsolved": "warning",
         "stopping_rule": "note",
+        "survival_selection": "note",
         "folds_reduced": "note",
         "fit_warning_positivity": "warning",
         "fit_warning_convergence": "warning",
@@ -550,6 +551,11 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
         "no_inference": (
             "No confidence interval or p-value for {names}. {reason} The {label} column is "
             "a diagnostic, not a standard error."
+        ),
+        "survival_selection": (
+            "Each plan and time point has its own selected treatment and censoring models, so "
+            "the risk curve is not forced to rise over time. The model facts above describe "
+            "the selection at time {horizon}; result.selection holds every one."
         ),
         "no_inference_row": (
             "No confidence interval or p-value for {names}, marked *. {reason} Their "
@@ -2881,10 +2887,16 @@ PHASE_COLUMNS: Final[tuple[str, ...]] = (
 
 # ----------------------------------------------------------------- longitudinal (T2)
 
+#: The treatment and censoring model fact of a collaborative survival fit.
+SELECTED_MODEL: Final = (
+    "logistic regression, selected by the collaborative search (at time {horizon})"
+)
+
 #: The plain name of each longitudinal estimator, keyed by ``LongitudinalConfig.estimator``.
 LONGITUDINAL_METHOD_NAMES: Final[Mapping[str, str]] = MappingProxyType(
     {
         "tmle": "longitudinal targeted maximum likelihood (LTMLE)",
+        "collaborative": "collaborative targeted maximum likelihood of a risk curve (C-TMLE)",
         "msm": "longitudinal TMLE of a working model (MSM)",
         "sdr": "sequentially doubly robust estimator (SDR)",
         "ipsi": "incremental propensity score estimator (IPSI)",
@@ -2898,6 +2910,7 @@ LONGITUDINAL_METHOD_NAMES: Final[Mapping[str, str]] = MappingProxyType(
 LONGITUDINAL_SHORT_NAMES: Final[Mapping[str, str]] = MappingProxyType(
     {
         "tmle": "LTMLE",
+        "collaborative": "survival C-TMLE",
         "msm": "LTMLE, working model",
         "sdr": "SDR",
         "ipsi": "IPSI",

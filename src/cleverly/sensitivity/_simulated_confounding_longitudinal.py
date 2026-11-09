@@ -163,6 +163,14 @@ def _refuse_estimator(result: Any) -> Refusal | None:
     )
 
 
+def _refuse_collaborative(result: Any) -> Refusal | None:
+    if getattr(result, "selection", None) is None:
+        return None
+    from ..longitudinal.collaborative import SIMULATED_CONFOUNDING_REFUSAL
+
+    return SIMULATED_CONFOUNDING_REFUSAL
+
+
 def _refuse_eliminated(result: Any) -> Refusal | None:
     return _ELIMINATED_REFUSAL if getattr(result.data, "eliminated", ()) else None
 
@@ -228,6 +236,7 @@ def _refuse_known_later_node(result: Any) -> Refusal | None:
 LONGITUDINAL_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("result_type", _refuse_type),
     ("estimator", _refuse_estimator),
+    ("collaborative", _refuse_collaborative),
     ("eliminated", _refuse_eliminated),
     ("outcome_kind", _refuse_outcome_kind),
     ("censoring", _refuse_censoring),

@@ -9157,6 +9157,10 @@ def longitudinal_truncation_curve(
     refuse_learned_regimen_result(result, "the truncation curve")
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
+    if result.selection is not None:
+        from .collaborative import TRUNCATION_REFUSAL
+
+        raise CapabilityError(refusal=TRUNCATION_REFUSAL)
     if result.config.estimator == "gcomp":
         raise CapabilityError(refusal=GCOMP_TRUNCATION_REFUSAL)
     if result.config.estimator == "parametric_gformula":
