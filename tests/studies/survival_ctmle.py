@@ -19,12 +19,18 @@ mean 0, variance 1, covariance 0.2, each set to :math:`\pm 2` beyond :math:`\pm 
 :math:`\log 15` (source p. 29).
 
 **Truth.** :math:`\psi_a(2) = E_W\{1 - \operatorname{expit}(0.25 - a - 0.6 \Sigma)\}^2`,
-:math:`\Sigma = W_1 + W_2 + W_3`, by Gauss-Hermite quadrature over the clipped law
-(:func:`truth`); the reported risk is :math:`F_a(2) = 1 - \psi_a(2)`.  The quadrature is
-accurate to about :math:`10^{-5}`, since the clip makes the integrand non-smooth.  The clipped
-law gives :math:`\psi_1(2) = 0.46149`, which rounds to 0.461; the source's Table 1 prints
-0.462, which the unclipped law (0.46180) rounds to.  :func:`check_truth` asserts the value lies
-within :math:`10^{-3}` of 0.462.
+:math:`\Sigma = W_1 + W_2 + W_3`, over the clipped law (:func:`truth`); the reported risk is
+:math:`F_a(2) = 1 - \psi_a(2)`.  The clip puts a point mass at :math:`\pm 2` on each
+coordinate, so :func:`clipped_sum_law` splits the three coordinates into below, inside and
+above :math:`[-2, 2]`.  On each of the 27 patterns the inside coordinates are integrated by
+Gauss-Legendre quadrature against their normal density, the outside ones contribute their
+conditional normal orthant probability and :math:`\pm 2` to :math:`\Sigma`.  The integrand is
+smooth on every piece, so the result is accurate to about :math:`10^{-8}` (the total mass is one
+to :math:`10^{-9}`, and 20, 30 and 60 nodes agree to :math:`10^{-9}`).  The clipped law gives
+:math:`\psi_1(2) = 0.461490`, which rounds to 0.461; :math:`10^9` Monte Carlo draws give
+0.461502 with standard error :math:`8 \times 10^{-6}`.  The source's Table 1 prints 0.462, which
+the unclipped law (0.46180) rounds to.  :func:`check_truth` asserts the value lies within
+:math:`10^{-3}` of 0.462.
 
 **Arms.** ``SurvivalCTMLE``; hazard ``LTMLE`` with main-term logistic treatment and censoring
 models on every :math:`W` (the source's "TMLE given the true :math:`g` model"); and hazard
@@ -39,17 +45,24 @@ difference at 2 from both.
 in sample.  Secondary: scenario 2 at OR 10 and 15; :math:`n = 2{,}000` at OR 15; one
 cross-fitted cell (``n_folds=2``) at OR 10 with the outcome model correct.  Reported for the
 source comparison: :math:`n = 500` at each OR; OR 15 with tertile-binarized covariates passed
-as columns (without the source's FDR step); OR 15 with ``g_bounds`` lower bound
-:math:`10^{-8}`.
+as columns (``or15_binarized``, without the source's FDR step; the outcome model on the
+indicators is not the correct one); OR 15 with ``g_bounds`` lower bound :math:`10^{-8}`.
 
-**Gates** (declared, not yet measured).  (a) The bias of :math:`F_1(2)` and of the risk
-difference within a declared margin at the binding confidence bound in every cell with the
-outcome model correct.  (b) The RMSE of ``SurvivalCTMLE`` at most the full-:math:`g` hazard
-``LTMLE``'s at the binding bound, outcome model correct, OR 15 only.  (c) The fit-failure share
-under :data:`FAILURE_BOUND`.  Plug-in standard errors against the empirical SD, plug-in Wald
-coverage (F18), the misspecified cells, the share selecting :math:`W_4` into :math:`g_1` and
-:math:`A` into :math:`g_2`, the restart counts, clips, dropped terms and run time are reported
-and not gated.  The study's censoring is about 4.7% per interval, so :math:`g_2` moves are rare
+**Gates** (declared, not yet measured).  :data:`GATED_SCENARIOS` names every gated cell; every
+other cell is reported only.  (a) The bias of :math:`F_1(2)` within the standardized-bias
+margin at the binding confidence bound in each gated cell, and the bias of the risk difference
+in the gated cells at OR 1 and 10.  Whether the risk difference is gated at OR 15 is left to the
+pilot: a review probe read a bias of 0.018 against an SD of 0.035 there, twice the margin, so
+the pilot either measures it inside the margin or the declaration reports it only, before any
+declared draw.  (b) The RMSE of ``SurvivalCTMLE`` at most the full-:math:`g` hazard ``LTMLE``'s
+at the binding bound, outcome model correct, OR 15 only.  (c) The fit-failure share under
+:data:`FAILURE_BOUND`.  The study declares no coverage gate and no SE-ratio gate (F18): its
+:class:`Margins` set the coverage floor to zero and the SE-ratio band wide open, so plug-in
+standard errors against the empirical SD and plug-in Wald coverage are reported only.  The
+misspecified cells, the share selecting :math:`W_4` into :math:`g_1` and :math:`A` into
+:math:`g_2`, the restart counts, clips, dropped terms and run time are reported and not gated;
+:func:`draw_and_fit` carries them on the subject's rows and :func:`extra_artifacts` publishes
+them as ``selection-readings.csv``.  The study's censoring is about 4.7% per interval, so :math:`g_2` moves are rare
 here; ``tests/unit/test_survival_ctmle.py`` check 3 is the :math:`g_2` witness.
 
 **Size and seeds.** :data:`PILOT_REPLICATES` sizes the pilot.  The primary replicate count is
@@ -60,6 +73,7 @@ other study; replicate ``r`` of a scenario draws from ``replicate_seed(STUDY, sc
 
 from __future__ import annotations
 
+import itertools
 import time
 import warnings
 from collections.abc import Mapping
@@ -67,8 +81,9 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from numpy.polynomial.hermite_e import hermegauss
+from numpy.polynomial.legendre import leggauss
 from scipy.special import expit
+from scipy.stats import multivariate_normal, norm
 from sklearn.linear_model import LogisticRegression
 
 from cleverly.learners import GLM
@@ -99,6 +114,9 @@ ESTIMAND_NAMES = (
     "ate_regimen[a1 vs a0 @ t=2]",
 )
 
+#: The reported selection readings, one row per scenario and arm (:func:`extra_artifacts`).
+SELECTION_FILE = "selection-readings.csv"
+
 #: The three implementations each replicate fits.
 CTMLE_ARM = "cleverly-survival-ctmle"
 FULL_G_ARM = "cleverly-hazard-ltmle-full-g"
@@ -118,7 +136,7 @@ SCENARIOS: dict[str, tuple[float, int, str, int, dict[str, Any]]] = {
     "or15_qcorrect_n2000": (15.0, 1, "correct", 2_000, {}),
     "or10_qcorrect_crossfit": (10.0, 1, "correct", PRIMARY_N, {"n_folds": 2}),
     **{f"or{odds:g}_qcorrect_n500": (odds, 1, "correct", 500, {}) for odds in (1.0, 10.0, 15.0)},
-    "or15_qcorrect_binarized": (15.0, 1, "correct", PRIMARY_N, {"binarized": True}),
+    "or15_binarized": (15.0, 1, "correct", PRIMARY_N, {"binarized": True}),
     "or15_qcorrect_glower": (15.0, 1, "correct", PRIMARY_N, {"g_lower": 1e-8}),
 }
 PRIMARY_SCENARIOS = tuple(
@@ -128,24 +146,98 @@ PRIMARY_SCENARIOS = tuple(
 )
 #: The cell gate (b) reads.
 RMSE_GATE_SCENARIO = "or15_qcorrect"
+#: Every gated cell: the outcome model correct, at a declared size, on the source's
+#: covariates.  The ``n = 500``, binarized and ``g_lower`` cells are the source comparison and
+#: are reported only, and so is every cell with the outcome model misspecified.
+GATED_SCENARIOS = (
+    "or1_qcorrect",
+    "or10_qcorrect",
+    "or15_qcorrect",
+    "s2_or10_qcorrect",
+    "s2_or15_qcorrect",
+    "or15_qcorrect_n2000",
+    "or10_qcorrect_crossfit",
+)
+REPORTED_SCENARIOS = tuple(name for name in SCENARIOS if name not in GATED_SCENARIOS)
+#: The estimands gate (a) reads in each gated cell.  The risk difference at OR 15 waits on the
+#: pilot (the module docstring says why), so those cells gate the risk of arm 1 alone.
+GATED_ESTIMANDS = {
+    name: (
+        (ESTIMAND_NAMES[0],)
+        if SCENARIOS[name][0] == 15.0
+        else (ESTIMAND_NAMES[0], ESTIMAND_NAMES[2])
+    )
+    for name in GATED_SCENARIOS
+}
+#: No coverage or SE-ratio gate (F18): the plug-in interval is a diagnostic.  A floor of zero
+#: cannot fail, and the open SE-ratio band cannot bind; the bias and RMSE margins stand.
+MARGINS = Margins(coverage_floor=0.0, se_ratio_sanity=(0.0, 1e6))
 
 
-def truth(nodes: int = 80) -> dict[str, float]:
-    """The risk of each arm and their difference at ``t = 2``, by quadrature."""
+def clipped_sum_law(nodes: int = 30, eps: float = 1e-10) -> tuple[np.ndarray, np.ndarray]:
+    r"""Points and masses of :math:`\Sigma = \sum_{j \le 3} \operatorname{clip}(Z_j, -2, 2)`.
+
+    :math:`Z` is trivariate normal, unit variances, covariance 0.2.  Each coordinate is
+    below, inside or above :math:`[-2, 2]`.  On each of the 27 patterns the inside coordinates
+    take ``nodes`` Gauss-Legendre points per axis weighted by their normal density, and the
+    outside ones contribute :math:`\pm 2` each and their conditional orthant probability given
+    the inside ones (``norm.cdf`` for one, ``multivariate_normal.cdf`` at ``eps`` for more).
+    """
     covariance = np.full((3, 3), 0.2)
     np.fill_diagonal(covariance, 1.0)
-    factor = np.linalg.cholesky(covariance)
-    points, weights = hermegauss(nodes)
-    weights = weights / weights.sum()
-    grid = np.stack(np.meshgrid(points, points, points, indexing="ij"), axis=-1).reshape(-1, 3)
-    mass = np.prod(
-        np.stack(np.meshgrid(weights, weights, weights, indexing="ij"), axis=-1).reshape(-1, 3),
-        axis=1,
-    )
-    total = np.clip(grid @ factor.T, -2.0, 2.0).sum(axis=1)
+    unit, unit_weights = leggauss(nodes)
+    axis, axis_weights = 2.0 * unit, 2.0 * unit_weights
+    points, masses = [], []
+    for pattern in itertools.product((-1, 0, 1), repeat=3):
+        inside = [j for j, side in enumerate(pattern) if side == 0]
+        outside = [j for j, side in enumerate(pattern) if side != 0]
+        sign = np.array([pattern[j] for j in outside], dtype=float)
+        k = len(inside)
+        if k:
+            grid = np.stack(np.meshgrid(*([axis] * k), indexing="ij"), -1).reshape(-1, k)
+            weight = np.stack(np.meshgrid(*([axis_weights] * k), indexing="ij"), -1)
+            inner = covariance[np.ix_(inside, inside)]
+            mass = np.prod(weight.reshape(-1, k), axis=1) * np.atleast_1d(
+                multivariate_normal(np.zeros(k), inner).pdf(grid)
+            )
+        else:
+            grid, mass = np.zeros((1, 0)), np.ones(1)
+        if outside:
+            if k:
+                coef = covariance[np.ix_(outside, inside)] @ np.linalg.inv(inner)
+                mean = grid @ coef.T
+                spread = (
+                    covariance[np.ix_(outside, outside)]
+                    - coef @ covariance[np.ix_(inside, outside)]
+                )
+            else:
+                mean = np.zeros((1, len(outside)))
+                spread = covariance[np.ix_(outside, outside)]
+            # P(side * Z > 2) = P(-side * Z < -2), one orthant below -2 on every coordinate.
+            mean, spread = -sign * mean, spread * np.outer(sign, sign)
+            if len(outside) == 1:
+                orthant = norm.cdf(-2.0, loc=mean[:, 0], scale=np.sqrt(spread[0, 0]))
+            else:
+                corner = np.full(len(outside), -2.0)
+                orthant = np.array(
+                    [
+                        multivariate_normal.cdf(
+                            corner, mean=row, cov=spread, abseps=eps, releps=eps
+                        )
+                        for row in mean
+                    ]
+                )
+            mass = mass * orthant
+        points.append(grid.sum(axis=1) + 2.0 * sign.sum())
+        masses.append(mass)
+    return np.concatenate(points), np.concatenate(masses)
+
+
+def truth(nodes: int = 30, eps: float = 1e-10) -> dict[str, float]:
+    """The risk of each arm and their difference at ``t = 2``, over the clipped law."""
+    total, mass = clipped_sum_law(nodes, eps)
     survival = {
-        arm: float(np.sum(mass * (1.0 - expit(0.25 - arm - 0.6 * total)) ** HORIZON))
-        for arm in (0, 1)
+        arm: float(mass @ (1.0 - expit(0.25 - arm - 0.6 * total)) ** HORIZON) for arm in (0, 1)
     }
     return {
         "risk_regimen[a1 @ t=2]": 1.0 - survival[1],
@@ -175,10 +267,11 @@ STUDY = StudyRecord(
     n=PRIMARY_N,
     seed=SEED,
     resampling_seed=RESAMPLING_SEED,
-    margins=Margins(),
+    margins=MARGINS,
     implementation=CTMLE_ARM,
     reference=None,
     failure_bound={CTMLE_ARM: FAILURE_BOUND},
+    extra_artifacts=(SELECTION_FILE,),
     modules=(
         "tests/studies/survival_ctmle.py",
         "tests/studies/stratified_incremental_msm_properties.py",
@@ -204,7 +297,12 @@ CONFIGURATION = {
         "correct": "GLM on W, A and the grid time, hazard_pooling='pooled'",
         "wrong": "GLM on A and W5, hazard_pooling='pooled'",
     },
-    "truth": "Gauss-Hermite quadrature, 80 nodes per axis, over the clipped law",
+    "truth": (
+        "the clipped law with its point masses at -2 and 2 exact: Gauss-Legendre, 30 nodes "
+        "per inside axis, and conditional normal orthant probabilities at 1e-10"
+    ),
+    "gated_scenarios": list(GATED_SCENARIOS),
+    "gates": "bias and RMSE only; no coverage or SE-ratio gate (F18)",
     "variance_method": "plug-in influence curve (SurvivalCTMLE: working-mechanism diagnostic)",
 }
 
@@ -335,31 +433,93 @@ def result_rows(
     return rows
 
 
-def selection_rows(result: Any, scenario: str, replicate: int) -> list[dict[str, Any]]:
-    """The reported, ungated selection readings of one ``SurvivalCTMLE`` fit."""
-    rows = []
-    for (arm, horizon), record in result.selection.items():
+#: The reading of each arm's selection that a ``SurvivalCTMLE`` row carries, per arm label.
+SELECTION_READINGS = ("w4_in_g1", "a_in_g2", "n_steps", "clipped", "dropped_terms", "selected")
+#: The columns the subject's rows carry beside the published schema.
+EXTRA_COLUMNS = (
+    "seconds",
+    *(f"{reading}_{arm}" for arm in ARMS for reading in SELECTION_READINGS),
+)
+
+
+def selection_readings(result: Any) -> dict[str, float]:
+    """The reported, ungated selection readings of one ``SurvivalCTMLE`` fit at ``t = 2``."""
+    readings: dict[str, float] = {}
+    for arm in ARMS:
+        record = result.selection[(arm, HORIZON)]
         g1, g2 = record.selected_terms
-        rows.append(
-            {
-                "scenario": scenario,
-                "replicate": replicate,
-                "arm": arm,
-                "horizon": horizon,
-                "selected": record.selected,
-                "w4_in_g1": any(name.startswith("W4") for name in g1),
-                "a_in_g2": "A" in g2,
-                "n_steps": record.n_steps[record.selected],
-                "clipped": record.clipped[record.selected],
-                "dropped_terms": record.dropped_terms[record.selected],
-            }
-        )
-    return rows
+        values = {
+            "w4_in_g1": float(any(name.startswith("W4") for name in g1)),
+            "a_in_g2": float("A" in g2),
+            "n_steps": float(record.n_steps[record.selected]),
+            "clipped": float(record.clipped[record.selected]),
+            "dropped_terms": float(record.dropped_terms[record.selected]),
+            "selected": float(record.selected),
+        }
+        readings.update({f"{name}_{arm}": value for name, value in values.items()})
+    return readings
+
+
+def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """``selection-readings.csv``: per scenario and arm, the selection shares and run time.
+
+    The share of fits that select :math:`W_4` into :math:`g_1` and :math:`A` into :math:`g_2`,
+    the mean restart count, selected position, clips and dropped terms of the selected
+    candidate, and the mean seconds per fit of each implementation.  None is a verdict.
+    """
+    subject = rows.loc[rows["implementation"] == CTMLE_ARM].drop_duplicates(
+        ["scenario", "replicate"]
+    )
+    records = []
+    for scenario, group in subject.groupby("scenario", sort=True):
+        for arm in ARMS:
+            records.append(
+                {
+                    "scenario": scenario,
+                    "arm": arm,
+                    "fits": len(group),
+                    "share_w4_in_g1": float(group[f"w4_in_g1_{arm}"].mean()),
+                    "share_a_in_g2": float(group[f"a_in_g2_{arm}"].mean()),
+                    "mean_n_steps": float(group[f"n_steps_{arm}"].mean()),
+                    "mean_selected": float(group[f"selected_{arm}"].mean()),
+                    "total_clipped": int(group[f"clipped_{arm}"].sum()),
+                    "total_dropped_terms": int(group[f"dropped_terms_{arm}"].sum()),
+                }
+            )
+    readings = pd.DataFrame(records)
+    seconds = (
+        rows.drop_duplicates(["implementation", "scenario", "replicate"])
+        .groupby(["scenario", "implementation"])["seconds"]
+        .mean()
+        .unstack("implementation")
+        .rename(columns=lambda name: f"mean_seconds[{name}]")
+        .reset_index()
+    )
+    return {SELECTION_FILE: readings.merge(seconds, on="scenario", how="left")}
 
 
 def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
     scenario, replicate, n = key
     return draw_scenario(scenario, n, replicate)
+
+
+def _fit_rows(
+    frame: pd.DataFrame,
+    truth_: Mapping[str, float],
+    scenario: str,
+    replicate: int,
+    implementation: str,
+) -> list[dict[str, Any]]:
+    """One implementation's rows, with its run time and, for the subject, its readings."""
+    start = time.perf_counter()
+    result = fit(frame, scenario, implementation)
+    extra: dict[str, float] = {"seconds": time.perf_counter() - start}
+    extra.update(dict.fromkeys(EXTRA_COLUMNS[1:], np.nan))
+    if implementation == CTMLE_ARM:
+        extra.update(selection_readings(result))
+    return [
+        {**row, **extra} for row in result_rows(result, truth_, scenario, replicate, implementation)
+    ]
 
 
 def _replicate(
@@ -371,8 +531,7 @@ def _replicate(
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         for implementation in IMPLEMENTATIONS:
-            result = fit(frame, scenario, implementation)
-            rows.extend(result_rows(result, truth_, scenario, replicate, implementation))
+            rows.extend(_fit_rows(frame, truth_, scenario, replicate, implementation))
     return rows
 
 
@@ -400,7 +559,7 @@ def draw_and_fit(
         seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
     )
     rows = pd.DataFrame([row for result in outcomes.kept for row in result])
-    return replication.result(outcomes, rows.loc[:, list(REPLICATE_COLUMNS)])
+    return replication.result(outcomes, rows.loc[:, [*REPLICATE_COLUMNS, *EXTRA_COLUMNS]])
 
 
 def smoke(scenarios: tuple[str, ...] = ("or15_qcorrect", "or1_qwrong"), replicates: int = 2) -> Any:
@@ -413,18 +572,7 @@ def smoke(scenarios: tuple[str, ...] = ("or15_qcorrect", "or1_qwrong"), replicat
     for scenario in scenarios:
         n = STUDY.n_of(scenario)
         for replicate in range(replicates):
-            frame, truth_ = draw_scenario(scenario, n, replicate)
-            for implementation in IMPLEMENTATIONS:
-                start = time.perf_counter()
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    result = fit(frame, scenario, implementation)
-                seconds = time.perf_counter() - start
-                for row in result_rows(result, truth_, scenario, replicate, implementation):
-                    out.append({**row, "seconds": seconds})
-                if implementation == CTMLE_ARM:
-                    for row in selection_rows(result, scenario, replicate):
-                        print(row)
+            out.extend(_replicate((scenario, replicate, n), draw_scenario(scenario, n, replicate)))
     frame = pd.DataFrame(out)
     with pd.option_context("display.width", 200, "display.max_columns", 20):
         print(
@@ -442,6 +590,7 @@ def smoke(scenarios: tuple[str, ...] = ("or15_qcorrect", "or1_qwrong"), replicat
                 ]
             ]
         )
+        print(extra_artifacts(frame)[SELECTION_FILE])
     return frame
 
 
