@@ -502,7 +502,12 @@ cumulative mechanism, and $\hat S$, $\hat\lambda$ are the initial fit. The resul
   Ties go to the try order: $g_1$ terms in data order, then $A$, then the $W$ of $g_2$.
 
 The paper's $\hat Q_2$ sees the test rows of every selection fold, and the fit follows it, so
-`selection_inner_folds` is refused. A hazard clipped at $10^{-12}$ inside the loss is counted in
+`selection_inner_folds` is refused. `SurvivalCTMLE` fits $\hat Q_2$ in sample by default
+(`n_folds=1`), as the paper does. `CausalStudy` passes the `CrossFitting` default, so a study fit
+cross-fits $\hat Q_2$ over 10 folds; set `CrossFitting(enabled=False)` for the paper's fit. The
+`CollaborativeTMLEMethod` fields `survival_model` and `simultaneous` default to `None`, which
+resolves to `"hazard"` and `False` here. An explicit `"iterated_mean"` or `True` reaches the
+engine and is refused. A hazard clipped at $10^{-12}$ inside the loss is counted in
 `result.selection[...].clipped`. A held cell already keeps every validation hazard away from zero,
 so the clip is a backstop. The default cumulative bound `g_bounds=(0.01, 1.0)` applies, while the
 paper truncated nothing.
@@ -512,7 +517,9 @@ delta method. `ate_regimen[...]` is the risk difference, and `ratio(..., view="s
 paper's (6). The paper's printed (22) and (23) are not used. Each horizon is selected separately,
 so `curve()` is not forced to rise.
 
-**Refused.** Every refusal fires before any learner, with its roadmap item:
+**Refused.** Every refusal fires before any learner and raises `CapabilityError`, as point
+`CTMLE`'s do, whether it names a missing implementation or redirects to another estimator. Each
+carries its roadmap item:
 
 | request | reason | roadmap |
 | --- | --- | --- |

@@ -62,7 +62,7 @@ from .._inference_status import InferenceStatus, precedent_status
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._typing import BoolArray, FloatArray, Learner
 from .._warnings import warn as _warn
-from ..exceptions import CapabilityError, ConvergenceWarning, MethodConfigurationError
+from ..exceptions import CapabilityError, ConvergenceWarning, LongitudinalError
 from ..learners.crossfit import Folds, make_folds
 from ..learners.glm import _active_columns
 from ..utils.bounds import bound
@@ -120,6 +120,7 @@ ALL_CENSORED: Final = "all_censored"
 _GLM_MAX_ITER: Final = 100
 _GLM_TOL: Final = 1e-10
 _SEPARATION_ETA: Final = 30.0
+_GLM_HALVINGS: Final = 30
 #: The treatment column's name in the censoring pool.
 TREATMENT_TERM: Final = "A"
 
@@ -575,13 +576,22 @@ def _logistic(design: FloatArray, target: FloatArray, weights: FloatArray) -> _L
     with coefficient zero, Newton starts from zero, and it stops when the largest step is at
     most ``1e-10`` times one plus the largest coefficient.  Where ``GLM`` raises, at a
     non-converged or separated fit, this keeps the last iterate and reports
-    ``converged=False``, so the bounded cumulative product of the candidate is used.
+    ``converged=False``, so the bounded cumulative product of the candidate is used.  A
+    step that is not finite ends the iteration, and a step whose deviance is not finite is
+    halved, so the iterate kept is always finite.
     """
+    # Overflow is handled by the finiteness checks below, so numpy need not warn of it.
+    with np.errstate(over="ignore", invalid="ignore"):
+        return _newton(design, target, weights)
+
+
+def _newton(design: FloatArray, target: FloatArray, weights: FloatArray) -> _Logistic:
     full = np.column_stack([np.ones(design.shape[0]), design])
     active = _active_columns(full, weights)
     x = full[:, active]
     coef = np.zeros(x.shape[1])
     converged = False
+    deviance = _deviance(x, coef, target, weights)
     for _ in range(_GLM_MAX_ITER):
         mu = expit(x @ coef)
         score = x.T @ (weights * (target - mu))
@@ -590,14 +600,49 @@ def _logistic(design: FloatArray, target: FloatArray, weights: FloatArray) -> _L
             move = np.linalg.solve(information, score)
         except np.linalg.LinAlgError:
             move = np.linalg.lstsq(information, score, rcond=None)[0]
+        if not np.all(np.isfinite(move)):
+            break
+        # Halve a step whose deviance is not finite; a finite full step is taken as Newton
+        # takes it, so a well-posed fit follows the GLM iteration exactly.
+        for _ in range(_GLM_HALVINGS):
+            trial = _deviance(x, coef + move, target, weights)
+            if np.isfinite(trial):
+                break
+            move = move / 2.0
+        else:
+            break
         coef = coef + move
+        deviance = trial
         if np.max(np.abs(move)) <= _GLM_TOL * (1.0 + np.max(np.abs(coef))):
             converged = True
             break
+    if not np.isfinite(deviance):
+        converged = False
     eta = x @ coef
     if np.any(np.abs(eta[weights > 0]) > _SEPARATION_ETA):
         converged = False
     return _Logistic(np.asarray(coef, dtype=float), np.asarray(active, dtype=bool), converged)
+
+
+def _deviance(x: FloatArray, coef: FloatArray, target: FloatArray, weights: FloatArray) -> float:
+    """The weighted binomial deviance at ``coef``, ``inf`` where any term is not finite."""
+    with np.errstate(all="ignore"):
+        eta = x @ coef
+        terms = weights * (np.logaddexp(0.0, eta) - target * eta)
+        value = float(2.0 * np.sum(terms))
+    return value if np.isfinite(value) else np.inf
+
+
+def _finite_argmin(values: Sequence[float] | FloatArray) -> int:
+    """The first index of the least finite value; a non-finite value is never the least.
+
+    Returns ``-1`` when no value is finite.
+    """
+    array = np.asarray(values, dtype=float)
+    finite = np.isfinite(array)
+    if not finite.any():
+        return -1
+    return int(np.argmin(np.where(finite, array, np.inf)))
 
 
 def _predict(fit: _Logistic, design: FloatArray) -> FloatArray:
@@ -893,6 +938,14 @@ class _Position:
         return self.loss + self.penalty
 
 
+_Move = tuple[str, str]
+
+
+def _finite(value: float) -> float:
+    """``value``, or ``inf`` where it is not finite."""
+    return float(value) if np.isfinite(value) else np.inf
+
+
 def greedy_rule(
     pools: Sequence[Sequence[tuple[str, str]]],
     score: Callable[[tuple[tuple[str, str], ...], tuple[str, str] | None, int], float],
@@ -906,7 +959,10 @@ def greedy_rule(
     A move is accepted when its risk is strictly below the current candidate's.  Otherwise the
     search restarts once from the current targeted fit and accepts that pass's best move,
     whatever its risk.  Ties go to the first move in try order, where point ``CTMLE``'s
-    ``_forward_path`` reads its own tie rule.
+    ``_forward_path`` reads its own tie rule.  A non-finite risk counts as ``inf``: it never
+    beats a finite one, and it is forced in only when every remaining move is non-finite.
+    :meth:`_HazardSelector.path` runs this function with a ``score`` that builds and targets
+    each candidate, so the test of the rule is a test of the fit's path.
 
     Parameters
     ----------
@@ -923,11 +979,11 @@ def greedy_rule(
     remaining = [move for pool in pools for move in pool]
     accepted: list[tuple[str, str]] = []
     path: list[tuple[tuple[str, str] | None, int]] = [(None, 0)]
-    current = score((), None, 0)
+    current = _finite(score((), None, 0))
     steps = 0
     stepped = False
     while remaining:
-        risks = [score(tuple(accepted), move, steps) for move in remaining]
+        risks = [_finite(score(tuple(accepted), move, steps)) for move in remaining]
         best = int(np.argmin(risks))
         if not risks[best] < current and not stepped:
             steps += 1
@@ -1069,40 +1125,44 @@ class _HazardSelector:
     def path(
         self, plan: Plan, horizon: int, branch: str, train: BoolArray | None
     ) -> list[_Position]:
-        """The greedy sequence of ``plan`` at ``horizon`` on one branch's training rows."""
+        """The greedy sequence of ``plan`` at ``horizon`` on one branch's training rows.
+
+        :func:`greedy_rule` decides every move; this method supplies its ``score``, which
+        builds the candidate of the accepted moves plus one, targets it from the start of
+        the current pass, and caches the position.  A restart count the rule has not used
+        yet starts from the targeted fit of the candidate it has accepted so far.
+        """
         weights = self.data.weights * (1.0 if train is None else train.astype(float))
-        remaining = [move for pool in self.pools for move in pool]
-        chosen: tuple[set[str], set[str]] = (set(), set())
-        start = self.start
-        current = self.position(plan, branch, train, ((), ()), None, start, horizon, weights, 0)
-        out = [current]
-        steps, stepped = 0, False
-        while remaining:
-            tries = []
-            for move in remaining:
-                which = 0 if move[0] == "g1" else 1
-                terms = [set(chosen[0]), set(chosen[1])]
-                terms[which].add(move[1])
-                ordered = (self._ordered(0, terms[0]), self._ordered(1, terms[1]))
-                tries.append(
-                    self.position(
-                        plan, branch, train, ordered, move, start, horizon, weights, steps
-                    )
+        cache: dict[tuple[tuple[_Move, ...], _Move | None, int], _Position] = {}
+        accepted_at: dict[tuple[_Move, ...], _Position] = {}
+        starts: dict[int, HazardState] = {0: self.start}
+
+        def score(accepted: tuple[_Move, ...], move: _Move | None, n_steps: int) -> float:
+            if accepted and accepted not in accepted_at:
+                # The rule accepted its last move in the pass that scored it.
+                accepted_at[accepted] = cache[(accepted[:-1], accepted[-1], n_steps)]
+            if n_steps not in starts:
+                # No move lowered the risk: the current targeted fit becomes the initial
+                # fit, and the search runs again from it.
+                current = accepted_at[accepted] if accepted else cache[((), None, 0)]
+                starts[n_steps] = current.state
+            key = (accepted, move, n_steps)
+            if key not in cache:
+                chosen: tuple[set[str], set[str]] = (set(), set())
+                for mechanism, name in (*accepted, *(() if move is None else (move,))):
+                    chosen[0 if mechanism == "g1" else 1].add(name)
+                terms = (self._ordered(0, chosen[0]), self._ordered(1, chosen[1]))
+                cache[key] = self.position(
+                    plan, branch, train, terms, move, starts[n_steps], horizon, weights, n_steps
                 )
-            best = int(np.argmin([trial.risk for trial in tries]))
-            if not tries[best].risk < current.risk and not stepped:
-                # No move lowers the risk: the current targeted fit becomes the initial fit,
-                # and the search runs again from it.
-                start = current.state
-                steps += 1
-                stepped = True
-                continue
-            stepped = False
-            current = tries[best]
-            move = remaining.pop(best)
-            chosen[0 if move[0] == "g1" else 1].add(move[1])
-            out.append(current)
-        return out
+            return cache[key].risk
+
+        rule = greedy_rule(self.pools, score)
+        moves = [move for move, _ in rule[1:] if move is not None]
+        return [cache[((), None, 0)]] + [
+            cache[(tuple(moves[:index]), move, n_steps)]
+            for index, (move, n_steps) in enumerate(rule[1:])
+        ]
 
     def cross_validate(
         self, plan: Plan, horizon: int
@@ -1538,12 +1598,9 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         """Refuse every setting section 1 of the design refuses, then run the shared checks."""
         refusal = self._settings_refusal()
         if refusal is not None:
-            error = (
-                CapabilityError
-                if refusal.reason in (RefusalReason.IMPLEMENTATION_GAP, RefusalReason.INFERENCE_GAP)
-                else MethodConfigurationError
-            )
-            raise error.from_refusal(refusal)
+            # One convention with point CTMLE: every refusal is a CapabilityError, whether it
+            # names a missing implementation or redirects to another estimator.
+            raise CapabilityError.from_refusal(refusal)
         if isinstance(self.selection_folds, bool) or not (
             isinstance(self.selection_folds, (int, np.integer)) and self.selection_folds >= 2
         ):
@@ -1851,7 +1908,13 @@ def run_selection(
                 cv_risk, held = selector.cross_validate(plan, t)
                 by_arm[key] = (path, cv_risk, held)
             path, cv_risk, held = by_arm[key]
-            chosen = int(np.argmin(cv_risk))
+            chosen = _finite_argmin(cv_risk)
+            if chosen < 0:
+                raise LongitudinalError(
+                    f"every cross-validated risk of {plan.label} at horizon {t} is not finite, "
+                    "so no move count can be selected. Check the overlap of the arms and of "
+                    "censoring, or bind g_bounds further from zero"
+                )
             position = path[chosen]
             positions[(plan.label, int(t))] = position
             glm_unconverged += sum(not p.candidate.converged for p in path)

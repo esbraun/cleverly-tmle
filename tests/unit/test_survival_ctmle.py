@@ -26,8 +26,16 @@ from scipy.special import expit
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.linear_model import LogisticRegression
 
-from cleverly import CausalStudy, CollaborativeTMLEMethod, RegimeContrast, TimeToEvent
-from cleverly.exceptions import CapabilityError, MethodConfigurationError
+from cleverly import (
+    CausalStudy,
+    CollaborativeTMLEMethod,
+    Inference,
+    ModelSpec,
+    RegimeContrast,
+    TimeToEvent,
+    TMLEMethod,
+)
+from cleverly.exceptions import CapabilityError, LongitudinalError
 from cleverly.learners.crossfit import Folds, make_folds
 from cleverly.longitudinal import (
     LTMLE,
@@ -433,31 +441,73 @@ def test_check_5_the_penalty_is_the_printed_24() -> None:
         assert abs(wrong - value) > 1e-3, name
 
 
-def test_check_5_the_penalty_reads_the_initial_hazards(
-    instrument: LongitudinalData,
-) -> None:
-    selector = _selector(instrument, Pick((4,), 5))
+def _binding() -> LongitudinalData:
+    """A law where ``g_bounds`` binds: a strong instrument and heavy censoring by ``W2``."""
+    return _data(
+        _frame(
+            800,
+            14,
+            3,
+            lambda w: 2.5 * w[:, 2],
+            lambda w, a, k: -1.0 + 0.5 * w[:, 0] - 0.5 * a,
+            lambda w, a, k: -0.8 + 1.2 * w[:, 1],
+            n_times=3,
+        )
+    )
+
+
+def _vector_penalty(
+    inverse: np.ndarray, survival: np.ndarray, hazards: np.ndarray, w: np.ndarray, t: int
+) -> float:
+    """The printed (24), written over arrays, from inputs built outside the selector."""
+    ratio = survival[:, t - 1 : t] / survival[:, :t]
+    terms = inverse[:, :t] * ratio * hazards[:, :t] * (1.0 - hazards[:, :t])
+    return float(np.sum(w[:, None] * terms) / w.sum())
+
+
+def test_check_5_the_penalty_reads_the_bounded_product_and_the_initial_hazards() -> None:
+    """A witness where the cumulative bound binds, so each wrong bounding moves the penalty."""
+    data = _binding()
+    selector = _selector(data, LogisticRegression(max_iter=1000))
     plan = _plan(selector, "a1")
+    horizon = data.n_times
     position = selector.position(
-        plan, "full", None, _full_terms(selector), None, selector.start, 2, instrument.weights, 0
+        plan, "full", None, _full_terms(selector), None, selector.start, horizon, data.weights, 0
     )
     level = selector.arm(plan)
-    initial = module.source_penalty(
-        position.inputs.inverse[:, :, level],
-        selector.start.survival[:, :, level],
-        selector.start.hazards[:, :, level, 0],
-        instrument.weights,
-        2,
-    )
-    targeted = module.source_penalty(
-        position.inputs.inverse[:, :, level],
+    candidate = position.candidate
+    # Rebuild the cumulative mechanism from the two fitted models, not from the inputs.
+    g1 = candidate.treatment[:, level]
+    retention = np.cumprod(candidate.retention[:, :, level], axis=1)
+    raw = g1[:, None] * retention
+    lo, hi = BOUNDS
+    binding = raw < lo
+    assert binding.sum() >= 20, "the witness needs rows where g_bounds binds"
+    # The rows bind through the product, not through either factor alone.
+    assert np.any(binding & (g1[:, None] >= lo) & (retention >= lo))
+    initial = (selector.start.survival[:, :, level], selector.start.hazards[:, :, level, 0])
+
+    def penalty(inverse: np.ndarray, survival: np.ndarray, hazards: np.ndarray) -> float:
+        return _vector_penalty(inverse, survival, hazards, data.weights, horizon)
+
+    right = penalty(1.0 / np.clip(raw, lo, hi), *initial)
+    assert position.penalty == pytest.approx(right, rel=1e-12)
+    mutations = {
+        "g1 times bound(G)": 1.0 / (g1[:, None] * np.clip(retention, lo, hi)),
+        "bound(g1) times bound(G)": 1.0
+        / (np.clip(g1, lo, hi)[:, None] * np.clip(retention, lo, hi)),
+        "unbounded": 1.0 / raw,
+    }
+    for name, inverse in mutations.items():
+        wrong = penalty(inverse, *initial)
+        assert abs(wrong - right) > 1e-3 * right, name
+    # The penalty reads the initial hazards, not the targeted ones.
+    targeted = penalty(
+        1.0 / np.clip(raw, lo, hi),
         position.state.survival[:, :, level],
         position.state.hazards[:, :, level, 0],
-        instrument.weights,
-        2,
     )
-    assert position.penalty == initial
-    assert abs(targeted - initial) > 1e-6
+    assert abs(targeted - right) > 1e-6
 
 
 def test_check_5_a_cell_without_treated_rows_still_contributes() -> None:
@@ -752,36 +802,177 @@ def test_check_10_the_fit_is_deterministic_and_round_trips(instrument: Longitudi
     assert restored.selection[("a1", 1)].selected == one.selection[("a1", 1)].selected
 
 
-def test_check_10_the_greedy_rule_on_a_scripted_table() -> None:
-    """A tie, a restart and a forced addition, on a scripted risk table."""
-    x, y, a = ("g1", "x"), ("g1", "y"), ("g2", "A")
-    table = {
+_X, _Y, _A = ("g1", "x"), ("g1", "y"), ("g2", "A")
+
+
+def _scripted_table() -> dict[Any, float]:
+    return {
         ((), None, 0): 10.0,
         # Pass 1: x and A tie below 10, and the tie goes to the try order, so x.
-        ((), x, 0): 8.0,
-        ((), y, 0): 9.0,
-        ((), a, 0): 8.0,
+        ((), _X, 0): 8.0,
+        ((), _Y, 0): 9.0,
+        ((), _A, 0): 8.0,
         # Pass 2: A only equals the current 8.0, so the search restarts ...
-        ((x,), y, 0): 8.5,
-        ((x,), a, 0): 8.0,
+        ((_X,), _Y, 0): 8.5,
+        ((_X,), _A, 0): 8.0,
         # ... and forces the restarted pass's best move, A, although it is worse.
-        ((x,), y, 1): 9.5,
-        ((x,), a, 1): 9.0,
+        ((_X,), _Y, 1): 9.5,
+        ((_X,), _A, 1): 9.0,
         # y does not improve on 9.0 either: a second restart forces it.
-        ((x, a), y, 1): 9.2,
-        ((x, a), y, 2): 9.7,
+        ((_X, _A), _Y, 1): 9.2,
+        ((_X, _A), _Y, 2): 9.7,
     }
-    path = module.greedy_rule(((x, y), (a,)), lambda *key: table[key])
-    assert path == [(None, 0), (x, 0), (a, 1), (y, 2)]
+
+
+_SCRIPTED_PATH = [(None, 0), (_X, 0), (_A, 1), (_Y, 2)]
+
+
+def test_check_10_the_greedy_rule_on_a_scripted_table() -> None:
+    """A tie, a restart and a forced addition, on a scripted risk table."""
+    table = _scripted_table()
+    path = module.greedy_rule(((_X, _Y), (_A,)), lambda *key: table[key])
+    assert path == _SCRIPTED_PATH
     # A strict decrease is accepted with no restart.
-    table[((x,), a, 0)] = 7.9
-    table[((x, a), y, 0)] = 7.0
-    assert module.greedy_rule(((x, y), (a,)), lambda *key: table[key]) == [
+    table[((_X,), _A, 0)] = 7.9
+    table[((_X, _A), _Y, 0)] = 7.0
+    assert module.greedy_rule(((_X, _Y), (_A,)), lambda *key: table[key]) == [
         (None, 0),
-        (x, 0),
-        (a, 0),
-        (y, 0),
+        (_X, 0),
+        (_A, 0),
+        (_Y, 0),
     ]
+    # A non-finite risk never beats a finite one.
+    table = _scripted_table()
+    table[((), _X, 0)] = float("nan")
+    assert module.greedy_rule(((_X, _Y), (_A,)), lambda *key: table.get(key, 50.0))[1] == (_A, 0)
+
+
+def _mutant(old: str, new: str) -> Any:
+    """``greedy_rule`` with one edit to its source, compiled in the module's namespace."""
+    import inspect
+    import textwrap
+
+    source = textwrap.dedent(inspect.getsource(module.greedy_rule))
+    assert source.count(old) == 1, old
+    namespace = dict(vars(module))
+    exec(compile(source.replace(old, new), module.__file__, "exec"), namespace)
+    return namespace["greedy_rule"]
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        # A tie accepts the move instead of restarting.
+        (
+            "if not risks[best] < current and not stepped:",
+            "if not risks[best] <= current and not stepped:",
+        ),
+        # A pass that still finds no improvement stops instead of forcing its best move.
+        (
+            "        stepped = False\n        move = remaining.pop(best)",
+            "        if not risks[best] < current:\n            break\n"
+            "        stepped = False\n        move = remaining.pop(best)",
+        ),
+    ],
+    ids=["ties-accepted", "no-forced-addition"],
+)
+def test_check_10_a_mutated_rule_fails_the_scripted_table(old: str, new: str) -> None:
+    rule = _mutant(old, new)
+    table = _scripted_table()
+    assert rule(((_X, _Y), (_A,)), lambda *key: table.get(key, 50.0)) != _SCRIPTED_PATH
+    # The unmutated source compiled the same way passes, so the edit is what fails.
+    same = _mutant(old, old)
+    assert same(((_X, _Y), (_A,)), lambda *key: table[key]) == _SCRIPTED_PATH
+
+
+def test_check_10_the_fit_path_is_the_greedy_rule(
+    instrument: LongitudinalData, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The selector's path is the rule's: a spy sees every call, and a mutant changes it."""
+    selector = _selector(instrument, Pick((4,), 5))
+    plan = _plan(selector, "a1")
+    calls: list[list[Any]] = []
+    rule = module.greedy_rule
+    no_forced_addition = _mutant(
+        "        stepped = False\n        move = remaining.pop(best)",
+        "        if not risks[best] < current:\n            break\n"
+        "        stepped = False\n        move = remaining.pop(best)",
+    )
+
+    def spy(pools: Any, score: Any) -> Any:
+        path = rule(pools, score)
+        calls.append(path)
+        return path
+
+    monkeypatch.setattr(module, "greedy_rule", spy)
+    path = selector.path(plan, 2, "full", None)
+    assert len(calls) == 1
+    assert [(p.move, p.n_steps) for p in path] == calls[0]
+    assert any(p.n_steps > 0 for p in path), "the law needs a restart to witness the rule"
+    # The forced-addition mutant stops at the first pass with no improvement.
+    monkeypatch.setattr(module, "greedy_rule", no_forced_addition)
+    selector = _selector(instrument, Pick((4,), 5))
+    assert len(selector.path(plan, 2, "full", None)) < len(path)
+
+
+def test_a_non_finite_risk_is_never_selected(
+    instrument: LongitudinalData, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert module._finite_argmin([np.nan, 2.0, 1.0, np.inf, 1.0]) == 2
+    assert module._finite_argmin([np.nan, np.inf]) == -1
+    selector = _selector(instrument, Pick((4,), 5))
+    real = selector.cross_validate
+
+    def poisoned(plan: Any, horizon: int) -> Any:
+        risk, held = real(plan, horizon)
+        risk = risk.copy()
+        risk[int(np.argmin(risk))] = np.nan  # the old argmin would have picked this
+        risk[0] = -np.inf
+        return risk, held
+
+    monkeypatch.setattr(selector, "cross_validate", poisoned)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _, records, _ = module.run_selection(selector, [2])
+    for record in records.values():
+        assert np.isfinite(record.cv_risk[record.selected])
+        assert record.selected != 0
+    monkeypatch.setattr(selector, "cross_validate", lambda plan, horizon: (np.full(10, np.nan), ()))
+    with pytest.raises(LongitudinalError, match="not finite"):
+        module.run_selection(selector, [2])
+
+
+def test_a_non_finite_newton_step_keeps_the_last_finite_iterate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rng = np.random.default_rng(0)
+    design = rng.normal(size=(200, 2))
+    target = rng.binomial(1, expit(0.5 * design[:, 0])).astype(float)
+    weights = np.ones(200)
+    plain = module._logistic(design, target, weights)
+    assert plain.converged
+    solve = np.linalg.solve
+
+    def scripted(first: Any) -> Any:
+        calls = iter(range(10**6))
+
+        def fake(information: Any, score: Any) -> Any:
+            move = solve(information, score)
+            return first(move) if next(calls) == 0 else move
+
+        return fake
+
+    # A step that is not finite ends the fit at the last finite iterate.
+    monkeypatch.setattr(np.linalg, "solve", scripted(lambda move: move * np.nan))
+    fit = module._logistic(design, target, weights)
+    assert not fit.converged
+    assert np.array_equal(fit.coef, np.zeros(3))
+    # A step whose deviance overflows is halved until it is finite, and the fit goes on.
+    monkeypatch.setattr(np.linalg, "solve", scripted(lambda move: move + 1e308))
+    fit = module._logistic(design, target, weights)
+    assert np.all(np.isfinite(fit.coef))
+    x = np.column_stack([np.ones(3), [0.0, 1.0, 2.0]])
+    assert module._deviance(x, np.array([0.0, 1e308]), np.zeros(3), np.ones(3)) == np.inf
 
 
 # -------------------------------------------------------------------- refusals
@@ -840,11 +1031,18 @@ def test_every_refused_setting_raises_before_a_learner(
     settings: dict[str, Any], refusal: Any
 ) -> None:
     data = _data(_survival_frame())
-    with pytest.raises((CapabilityError, MethodConfigurationError)) as caught:
+    with pytest.raises(CapabilityError) as caught:
         SurvivalCTMLE(ARMS, outcome_learner=_Refuse(), **settings).fit(data)
     if refusal is not None:
         assert caught.value.refusal.reason == refusal.reason
         assert refusal.condition in str(caught.value)
+
+
+def test_repeated_splits_are_refused_before_a_learner() -> None:
+    """The repeat witness of ``result.selection``: no fit with ``repeats > 1`` exists."""
+    with pytest.raises(CapabilityError) as caught:
+        SurvivalCTMLE(ARMS, outcome_learner=_Refuse(), repeats=3).fit(_data(_survival_frame()))
+    assert caught.value.refusal is module.BOOTSTRAP_REFUSAL
 
 
 def _design_cases() -> list[tuple[str, Any, Any, Any]]:
@@ -898,7 +1096,7 @@ def test_every_refused_design_raises_before_a_learner(
         data = build()
     except Exception as error:  # a container that refuses first states its own reason
         pytest.skip(f"the container refuses {name} itself: {error}")
-    with pytest.raises((CapabilityError, MethodConfigurationError)) as caught:
+    with pytest.raises(CapabilityError) as caught:
         SurvivalCTMLE(regimens, outcome_learner=_Refuse()).fit(data)
     assert caught.value.refusal.reason == refusal.reason
     assert refusal.condition in str(caught.value)
@@ -1030,3 +1228,31 @@ def test_the_method_translation_resolves_the_defaults_the_engine_fixes() -> None
     assert kwargs["selection_folds"] == 3
     explicit = CollaborativeTMLEMethod(selection_estimand="ey1").estimator_kwargs(longitudinal=True)
     assert explicit["selection_estimand"] == "ey1"
+    # The unset defaults resolve per engine: the same method object fits a band and the
+    # iterated-mean model under every other engine.
+    assert CollaborativeTMLEMethod().estimator_kwargs()["simultaneous"] is True
+    assert TMLEMethod().estimator_kwargs(longitudinal=True)["survival_model"] == "iterated_mean"
+    assert TMLEMethod().estimator_kwargs(longitudinal=True)["simultaneous"] is True
+
+
+@pytest.mark.parametrize(
+    ("method", "refusal"),
+    [
+        (
+            CollaborativeTMLEMethod(models=ModelSpec(survival_model="iterated_mean")),
+            module.SURVIVAL_MODEL_REFUSAL,
+        ),
+        (CollaborativeTMLEMethod(inference=Inference(simultaneous=True)), module.BAND_REFUSAL),
+    ],
+    ids=["iterated_mean", "simultaneous"],
+)
+def test_an_explicit_value_the_engine_cannot_fit_is_refused_not_remapped(
+    method: CollaborativeTMLEMethod, refusal: Any
+) -> None:
+    kwargs = method.estimator_kwargs(longitudinal=True)
+    assert kwargs["survival_model"] == (method.models.survival_model or "hazard")
+    with pytest.raises(CapabilityError) as caught:
+        SurvivalCTMLE(ARMS, **{**kwargs, "outcome_learner": _Refuse()}).fit(
+            _data(_survival_frame())
+        )
+    assert caught.value.refusal is refusal
