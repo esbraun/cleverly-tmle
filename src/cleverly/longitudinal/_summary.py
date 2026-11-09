@@ -51,6 +51,7 @@ from ..estimators._point_summary import (
 from ..inference.cluster import fewest_clusters, positive_mass_clause
 from .estimator import HORIZON_INFIX
 from .regimen import DynamicRegimen, Regimen, _is_mtp, _is_tilt
+from .separable import SeparablePlan, separable_words
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .estimator import LongitudinalResult
@@ -423,6 +424,8 @@ def plan_words(result: LongitudinalResult, regimen: Any) -> str:
         nodes = regimen.plan
     elif getattr(regimen, "learned", False) is True:
         return vocabulary.PLAN_EVERY_TIME.format(words=vocabulary.PLAN_LEARNED)
+    elif isinstance(regimen, SeparablePlan):
+        return separable_words(regimen.declared)
     else:  # pragma: no cover - every resolved plan is one of the two
         return str(regimen)
     words = [_node_words(node) for node in nodes]

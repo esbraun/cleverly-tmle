@@ -1997,8 +1997,8 @@ measures; its R `lmtp` comparator runs are pending. This item carries further su
 | part | request | base | readiness |
 | --- | --- | --- | --- |
 | (b) | collaborative TMLE for a time-to-event outcome with a baseline treatment | Stitelman and van der Laan (2010), *The International Journal of Biostatistics* 6(1): a greedy selection of main terms for the treatment and censoring mechanisms with the hazard fluctuation held fixed, scored by a variance-penalized likelihood; no theorem, so points only | published support |
-| (c) | the simulated common-cause replay on censored and survival fits | the [simulated common-cause surface](technical-reference/validation-methods.md#simulated-common-cause-stress-surface) refuses these fits ([F13](#f13-longitudinal-simulated-confounding-replay)); a design note chooses which identity the replay keeps exact | natural extension |
-| (d) | separable effects with baseline covariates | Stensrud, Young, Didelez, Robins and Hernán (2022), Section 5.2, formula (5); a TMLE on the hazard path by the chain rule through the identified hazard | natural extension |
+| (c) | the simulated common-cause replay on censored and survival fits | the [survival replay](technical-reference/validation-methods.md#simulated-common-cause-stress-surface) couples each replayed indicator to the observed one, keeps the zero-strength identity exact, and keeps censoring at random given the replayed past up to the fitted censoring model | shipped for survival and competing-risk fits with a held treatment; the rest stays in [F13](#f13-longitudinal-simulated-confounding-replay) |
+| (d) | separable effects with baseline covariates | Stensrud, Young, Didelez, Robins and Hernán (2022), identification (8); `Separable` on hazard `LTMLE` ([separable effects](technical-reference/longitudinal-tmle.md#separable-effects)), a factor-wise TMLE by the chain rule | shipped: the registered study [separable effects](technical-reference/method-evidence/separable-effects.md) measures one and two folds; no comparator was located |
 | (e) | separable effects with time-varying common causes | Stensrud et al. (2021), Section 6.2, Equation (19) | refused: no source gives an efficient influence curve |
 | (f) | doubly robust inference for the survival curve | Díaz (2019), *Statistics in Medicine* 38(15), a drift-corrected TMLE; its auxiliary regressions on estimated indices need the linear-remainder audit first | audit first |
 
@@ -2271,7 +2271,11 @@ node. Each kept claim below is refused before any draw and names this item.
 
 | kept claim | kind | missing argument |
 | --- | --- | --- |
-| censoring, or a survival, competing-risk or repeated outcome | identification | the flip breaks coarsening at random at each censoring node, as in F12. An additive shift of an absorbing or time-indexed process is not a law on its support |
+| censoring on an end-of-study outcome | identification | a unit whose censoring the replay removes has no outcome, and no fitted outcome law is declared for it. [X91](#x91-survival-targets-across-the-estimators) part (c) replays censoring on survival and competing-risk fits with a held treatment |
+| a survival or competing-risk outcome whose treatment is not held | identification | a unit kept at risk past its observed follow-up needs a treatment generated given a history it never had |
+| eliminated competing causes | identification | an eliminated cause is a coarsening factor of its own, and the eliminated data has folded it into censoring, so which dropped cause fired is lost |
+| a repeated outcome | identification | each node's outcome enters the next node as a covariate, which depends on the latent given the perturbed treatment |
+| a declared censoring mechanism | identification | the replay redraws censoring at the perturbed treatment from a fitted model, so the declared factor is false on the replayed panel |
 | a time-varying covariate after the first treatment node | identification | a covariate generated under the original $A_t$ depends on the latent given $A'_t$, and the sequential regression conditions on it |
 | a declared treatment mechanism at a later node | identification | the declared factor reads the earlier treatment, so the factor of the perturbed node given the perturbed history is not a known function. X82 part F carries a declared first-node factor |
 | an `IPSI` fit | identification | the odds tilt multiplies a mechanism that reads the earlier perturbed nodes, and no contract names how the latent enters that tilt |

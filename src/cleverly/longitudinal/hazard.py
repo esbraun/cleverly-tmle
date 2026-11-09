@@ -343,7 +343,7 @@ class InitialHazards:
         ``(node, cause index)`` pairs whose training rows held no event, so the fit
         predicts zero there and fits no learner.
     diagnostics : tuple
-        Super Learner diagnostics per node and cause, in fit order.
+        Super Learner diagnostics per node and cause, in cause order.
     """
 
     hazards: FloatArray
@@ -586,7 +586,9 @@ class HazardFit:
     algorithm : {"per_horizon", "one_step"}
         The targeting algorithm.
     targets : tuple of tuple
-        ``(regimen, cause, horizon)`` of every target, in score order.
+        ``(regimen, cause, horizon)`` of every target, in score order.  A separable-effects
+        fit targets each hazard factor apart and appends the factor,
+        ``(regimen, cause, horizon, factor)``.
     converged : bool
         Whether every target's relative score reached ``tol`` at the reported hazards.  Under
         a declared stopping rule, whether the rule ratio is at most one there.
@@ -631,7 +633,7 @@ class HazardFit:
     """
 
     algorithm: HazardAlgorithm
-    targets: tuple[tuple[str, str | None, int], ...]
+    targets: tuple[tuple[str, str | None, int] | tuple[str, str | None, int, str], ...]
     converged: bool
     n_iter: int
     score_initial: FloatArray
@@ -756,6 +758,7 @@ def fit_hazards(
     folds: Folds,
     n_jobs: int = 1,
     hazard_pooling: str = "node",
+    cause_order: Sequence[int] | None = None,
 ) -> InitialHazards:
     """Fit the sequential pseudo-hazards at every node and cause, out of fold.
 
@@ -782,6 +785,10 @@ def fit_hazards(
         node, with the node's grid time as a numeric column, as ``survtmle``'s ``glm.ftime``
         reads ``t``.  A unit keeps its fold at every node.  A cause with no event at any node
         pools nothing and has zero hazard.
+    cause_order : sequence of int or None
+        The cause indices in fit order, ``None`` for code order.  A separable fit fits its
+        declared first cause first, so that :math:`\\rho` of the second cause is its hazard
+        among those free of the first.
 
     Returns
     -------
@@ -793,7 +800,14 @@ def fit_hazards(
     n_causes = events.shape[2]
     if hazard_pooling == "pooled":
         return _fit_pooled_hazards(
-            data, levels, at_risk, events, learner=learner, folds=folds, n_jobs=n_jobs
+            data,
+            levels,
+            at_risk,
+            events,
+            learner=learner,
+            folds=folds,
+            n_jobs=n_jobs,
+            cause_order=cause_order,
         )
     hazards = np.zeros((data.n, data.n_times, len(levels), n_causes))
     no_events: list[tuple[int, int]] = []
@@ -806,12 +820,15 @@ def fit_hazards(
         }
         earlier = np.zeros(data.n, dtype=bool)
         taken = np.zeros((data.n, len(levels)))
-        for cause in range(n_causes):
+        # Filed by cause index, so the nuisance report reads cause order whatever the fit
+        # order.
+        node_diagnostics: dict[int, tuple[object, ...]] = {}
+        for cause in range(n_causes) if cause_order is None else cause_order:
             rows = at_risk[:, time - 1] & ~earlier
             target = events[:, time - 1, cause]
             if not np.any(target[rows] * data.weights[rows] > 0):
                 no_events.append((time, cause))
-                diagnostics.append(())
+                node_diagnostics[cause] = ()
                 rho = np.zeros((data.n, len(levels)))
             else:
                 constant: list[int] = []
@@ -829,12 +846,13 @@ def fit_hazards(
                     n_jobs=n_jobs,
                     constant_folds=constant,
                 )
-                diagnostics.append(tuple(fold_diagnostics))
+                node_diagnostics[cause] = tuple(fold_diagnostics)
                 rho = np.column_stack([predictions[plan.label] for plan in levels])
             hazards[:, time - 1, :, cause] = rho * (1.0 - taken)
             taken = taken + hazards[:, time - 1, :, cause]
             earlier = earlier | (target > 0)
-    return InitialHazards(hazards, tuple(no_events), tuple(diagnostics))
+        diagnostics.extend(node_diagnostics[cause] for cause in range(n_causes))
+    return InitialHazards(hazards, tuple(sorted(no_events)), tuple(diagnostics))
 
 
 def _fit_pooled_hazards(
@@ -846,6 +864,7 @@ def _fit_pooled_hazards(
     learner: Learner,
     folds: Folds,
     n_jobs: int,
+    cause_order: Sequence[int] | None = None,
 ) -> InitialHazards:
     """One regression per cause over the eligible rows of every node."""
     n, n_times, n_causes = data.n, data.n_times, events.shape[2]
@@ -859,15 +878,15 @@ def _fit_pooled_hazards(
     designs[observed_key] = stacked_design(data, nodes)
     hazards = np.zeros((n, n_times, len(levels), n_causes))
     no_events: list[tuple[int, int]] = []
-    by_cause: list[tuple[object, ...]] = []
+    by_cause: dict[int, tuple[object, ...]] = {}
     earlier = np.zeros((n, n_times), dtype=bool)
     taken = np.zeros((n, n_times, len(levels)))
-    for cause in range(n_causes):
+    for cause in range(n_causes) if cause_order is None else cause_order:
         rows = at_risk & ~earlier
         target = events[:, :, cause]
         if not np.any((target * data.weights[:, None])[rows] > 0):
             no_events.extend((time, cause) for time in nodes)
-            by_cause.append(())
+            by_cause[cause] = ()
             rho = np.zeros((n, n_times, len(levels)))
         else:
             # Node-major stacking, as stacked_design orders its blocks.
@@ -884,7 +903,7 @@ def _fit_pooled_hazards(
                 clip=(0.0, 1.0),
                 n_jobs=n_jobs,
             )
-            by_cause.append(tuple(fold_diagnostics))
+            by_cause[cause] = tuple(fold_diagnostics)
             rho = np.stack(
                 [
                     np.asarray(predictions[plan.label], dtype=float).reshape(n_times, n).T

@@ -1165,6 +1165,7 @@ STEP_FAILURES: Final[Mapping[str, str]] = MappingProxyType(
             "covariates separate almost perfectly"
         ),
         "bound_excludes_data": "the outcome bound excludes some of the data",
+        "newton_stalled": "its last steps stopped reducing the error",
     }
 )
 

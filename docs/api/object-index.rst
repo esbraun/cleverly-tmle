@@ -159,6 +159,7 @@ categorized API tables.
    cleverly.longitudinal.LearnedRegimen
    cleverly.longitudinal.LearnedRegimenRecord
    cleverly.longitudinal.LearnedRegimenNode
+   cleverly.longitudinal.Separable
    cleverly.interventions.LearnedRule
    cleverly.interventions.LearnedRuleRecord
    cleverly.interventions.LearnedRuleSplit

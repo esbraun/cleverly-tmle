@@ -52,10 +52,13 @@ from cleverly.sensitivity._simulated_confounding_longitudinal import (
     _CENSORING_REFUSAL,
     _CLUSTERED_REFUSAL,
     _IPSI_REFUSAL,
+    _KNOWN_CENSORING_REFUSAL,
     _KNOWN_LATER_NODE_REFUSAL,
     _LATER_COVARIATE_REFUSAL,
     _NODE_LAW_REFUSAL,
-    _OUTCOME_KIND_REFUSAL,
+    _REPEATED_REFUSAL,
+    _SEPARABLE_REFUSAL,
+    _SURVIVAL_NOT_HELD_REFUSAL,
 )
 from cleverly.sensitivity._simulated_confounding_request import (
     _BINARY_PARAMETER_TARGETS,
@@ -2251,9 +2254,12 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
 #: emptying one, leaves every such assertion true.  These literals are the surviving witness
 #: the constants would otherwise have nowhere in the suite.
 _REFUSAL_WITNESSES: tuple[tuple[str, str], ...] = (
-    (_CENSORING_REFUSAL, "breaks coarsening at random at each later censoring node"),
+    (_CENSORING_REFUSAL, "censored end-of-study fit"),
     (_LATER_COVARIATE_REFUSAL, "no time-varying covariate after the first treatment node"),
-    (_OUTCOME_KIND_REFUSAL, "competing-risk or repeated outcome"),
+    (_REPEATED_REFUSAL, "no replay for a repeated outcome"),
+    (_SURVIVAL_NOT_HELD_REFUSAL, "baseline decision held over every node"),
+    (_SEPARABLE_REFUSAL, "dismissible-component conditions"),
+    (_KNOWN_CENSORING_REFUSAL, "a declared censoring mechanism is false"),
     (_KNOWN_LATER_NODE_REFUSAL, "declared mechanism at the first treatment node only"),
     (_IPSI_REFUSAL, "how the latent enters that tilt"),
     (_NODE_LAW_REFUSAL, "needs a declared arm pair at each node"),
@@ -2286,7 +2292,10 @@ def test_each_missing_science_refusal_says_its_own_thing() -> None:
 _REFUSAL_CITATIONS: tuple[tuple[Refusal, tuple[str, ...]], ...] = (
     (_CENSORING_REFUSAL, ("F13",)),
     (_LATER_COVARIATE_REFUSAL, ("F13",)),
-    (_OUTCOME_KIND_REFUSAL, ("F13",)),
+    (_REPEATED_REFUSAL, ("F13",)),
+    (_SURVIVAL_NOT_HELD_REFUSAL, ("F13",)),
+    (_SEPARABLE_REFUSAL, ("X91",)),
+    (_KNOWN_CENSORING_REFUSAL, ("F13",)),
     (_KNOWN_LATER_NODE_REFUSAL, ("F13",)),
     (_IPSI_REFUSAL, ("F13",)),
     (_NODE_LAW_REFUSAL, ("X66",)),

@@ -247,13 +247,16 @@ def initial_estimates(result: Any, names: Sequence[str]) -> dict[str, float]:
     """The plug-in of every reported level and contrast at the initial hazards.
 
     Each fit's targeting record holds the initial plug-in of every target it solved, in
-    ``targets`` order, so a per-horizon and a one-step fit read it the same way.
+    ``targets`` order, so a per-horizon and a one-step fit read it the same way.  A
+    separable fit records one score per hazard factor, ``(label, cause, horizon, factor)``,
+    and one initial level per target, so the targets are read once each, in order.
     """
     index = result.parameter_index or {}
     plug_in: dict[tuple[str, str | None, int], float] = {}
     for fit_record in result.fits.values():
         record = fit_record.hazard
-        for target, value in zip(record.targets, record.initial_levels, strict=True):
+        targets = list(dict.fromkeys(tuple(target[:3]) for target in record.targets))
+        for target, value in zip(targets, record.initial_levels, strict=True):
             plug_in[target] = float(value)
     out: dict[str, float] = {}
     for name in names:

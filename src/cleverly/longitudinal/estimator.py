@@ -283,6 +283,13 @@ from .regimen import (
     tilt_mix_refusal,
 )
 from .sdr import FoldMechanism, SDRCell, fit_cells_sdr, fit_fold_mechanisms
+from .separable import (
+    SeparablePlan,
+    refuse_separable_companions,
+    resolve_separable,
+    split_separable,
+    target_separable,
+)
 from .sequential import (
     Mechanism,
     NodeBound,
@@ -1215,6 +1222,8 @@ class _HazardReplay:
     alpha: float
     max_iter: int
     tol: float
+    #: The separable interventions of the fit, empty on a fit without one.
+    separable: tuple[SeparablePlan, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1408,6 +1417,9 @@ class LongitudinalConfig:
     q_bounds: tuple[float, float] | None
     alpha_sig: float
     random_state: int | None = None
+    #: The separable interventions reported beside :attr:`regimens`, empty on a fit
+    #: without one.
+    separable: tuple[SeparablePlan, ...] = ()
     #: ``(label, digest)`` per regimen, digesting the ``(n, T)`` arms it assigned *this*
     #: sample.  A static plan is already stated in full by its ``1/0``; a rule is not, and
     #: two different rules would otherwise report identically and carry an identical
@@ -2644,7 +2656,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         status = self.inference_status
         column = spread_name("std_err", status)
         totals: list[tuple[str, float, float, float, InferenceStatus, str]] = []
-        for regimen in self.config.regimens:
+        for regimen in (*self.config.regimens, *self.config.separable):
             for horizon in self.config.horizons:
                 names = [
                     f"cif_regimen[{_index(regimen.label, cause, horizon, True)}]"
@@ -3448,6 +3460,7 @@ def _run_hazard(
     step_bound: float | None = None,
     step_search: bool = True,
     iterate: str = "last",
+    separable: Sequence[SeparablePlan] = (),
 ) -> dict[str, RegimenFit]:
     """Target the initial hazards and file one fit per regimen, cause and horizon.
 
@@ -3492,6 +3505,10 @@ def _run_hazard(
         Whether a bounded step searches its length.
     iterate : {"last", "best"}
         Which iterate the targeting reports.
+    separable : sequence of SeparablePlan
+        The separable interventions.  When there is one, every regimen is targeted by
+        :func:`~cleverly.longitudinal.separable.target_separable`, on initial hazards
+        fitted in the declared order.
 
     Returns
     -------
@@ -3503,6 +3520,23 @@ def _run_hazard(
     observed = np.asarray(np.nan_to_num(data.treatment[:, 0], nan=0.0), dtype=np.int64)
     unbounded = np.stack([pair[0] for pair in pairs], axis=2)[rows, :, observed]
     bounded = np.stack([pair[1] for pair in pairs], axis=2)[rows, :, observed]
+    if separable:
+        targeted = target_separable(
+            data,
+            plans,
+            separable,
+            initial.hazards,
+            [pair[1] for pair in pairs],
+            (unbounded, bounded),
+            horizons=horizons,
+            alpha=alpha,
+            tol=tol,
+            step_size=step_size,
+        )
+        return {
+            _fit_key(label, cause, horizon, True): fit
+            for (label, cause, horizon), fit in targeted.items()
+        }
     fits = target_regimens(
         data,
         plans,
@@ -4476,6 +4510,81 @@ class _SequentialEstimator:
         """The IPW normalization, ``None`` on every other estimator."""
         return None
 
+    def _refuse_separable(self, data: LongitudinalData, learned: object) -> None:
+        """Refuse a fit with a ``Separable`` regimen that the factor engine does not cover.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        learned : object
+            The learned regimen, ``None`` when the fit declares none.
+
+        Raises
+        ------
+        CapabilityError
+            On an estimator, a targeting algorithm or an option the separable engine does
+            not implement.
+        """
+
+        def refuse(text: str, alternative: str, *, reason: RefusalReason) -> None:
+            raise CapabilityError(text, reason=reason, roadmap="X91", alternative=alternative)
+
+        gap = RefusalReason.IMPLEMENTATION_GAP
+        if self._estimator != "tmle" or getattr(self, "survival_model", None) != "hazard":
+            refuse(
+                "a Separable regimen needs the cause-specific hazards at two treatment "
+                "levels, which only LTMLE(survival_model='hazard') fits.",
+                "Fit LTMLE(survival_model='hazard', targeting='one_step').",
+                reason=RefusalReason.API_REDIRECTION,
+            )
+        if getattr(self, "targeting", None) != "one_step":
+            refuse(
+                "a Separable regimen is targeted by the one-step walk over the two hazard "
+                "factors; the per-horizon algorithm restarts at each horizon and has no "
+                "factor-wise form.",
+                "Set targeting='one_step'.",
+                reason=RefusalReason.API_REDIRECTION,
+            )
+        if learned is not None or self.msm is not None:
+            refuse(
+                "a Separable regimen is not combined with a learned regimen or a marginal "
+                "structural model.",
+                "Fit the separable regimens in their own fit.",
+                reason=gap,
+            )
+        if data.eliminated:
+            refuse(
+                "a Separable regimen is not combined with eliminate=: eliminating the "
+                "competing cause removes it, so no component of the treatment acts on it.",
+                "Fit the separable regimens without eliminate=.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+            )
+        later = [name for block in data.time_varying_names for name in block]
+        if later:
+            refuse(
+                "a Separable regimen is identified with baseline covariates only here. With "
+                f"covariates measured after baseline ({', '.join(later)}), Stensrud et al. "
+                "(2021), Equation (19), identify the separable effects, but no source gives "
+                "the efficient influence curve of that formula.",
+                "Fit the separable regimens with baseline covariates only.",
+                reason=RefusalReason.INFERENCE_GAP,
+            )
+        settings = (
+            (getattr(self, "node_bounds", None) is not None, "node_bounds="),
+            (getattr(self, "stopping", "relative") != "relative", "stopping="),
+            (getattr(self, "iterate", "last") != "last", "iterate='best'"),
+            (bool(self.n_bootstrap), "n_bootstrap="),
+        )
+        for declared, name in settings:
+            if declared:
+                refuse(
+                    f"{name} is not built for a fit with a Separable regimen: the factor-wise "
+                    "targeting has no form of it yet.",
+                    f"Fit without {name}.",
+                    reason=gap,
+                )
+
     def _refuse_design(self, data: LongitudinalData, plans: tuple[Plan, ...]) -> None:
         """Refuse a design this estimator cannot fit, before any learner runs.
 
@@ -4851,19 +4960,26 @@ class _SequentialEstimator:
             refuse_learned_regimen_data(prepared)
         if prepared.is_repeated:
             refuse_repeated_outcome(getattr(self, "_estimator", "tmle"), type(self).__name__)
+        declared, separable_specs = split_separable(self.regimens)
+        separable: tuple[SeparablePlan, ...] = ()
+        if separable_specs:
+            self._refuse_separable(prepared, learned)
+            separable = resolve_separable(prepared, separable_specs)
         regimens: tuple[Any, ...] = (
             (learned,)
             if learned is not None
             else resolve_regimens(
-                self.regimens,
+                declared,
                 prepared.n_decisions,
                 held_nodes=prepared.n_times if prepared.treatment_held else None,
             )
         )
+        if separable:
+            refuse_separable_companions(regimens)
         if prepared.reports_curve:
             infixes = (HORIZON_INFIX,) + ((CAUSE_INFIX,) if prepared.is_competing else ())
             for infix in infixes:
-                clashing = sorted(r.label for r in regimens if infix in r.label)
+                clashing = sorted(r.label for r in (*regimens, *separable) if infix in r.label)
                 if clashing:
                     raise ValueError(
                         f"regimen label(s) {clashing} contain {infix!r}, which is what "
@@ -4977,7 +5093,7 @@ class _SequentialEstimator:
                 cross_fitted=not draws[0][0].is_single,
                 known_factors=_known_factors(prepared),
                 has_msm=self.msm is not None,
-                regimen_kinds=regimen_kinds(plans),
+                regimen_kinds=regimen_kinds(plans) | ({"separable"} if separable else set()),
                 conditions=stopping_conditions(getattr(self, "stopping", "relative")),
                 tuned_cap=tuned_folds is not None,
             )
@@ -5009,6 +5125,7 @@ class _SequentialEstimator:
                 reference=reference,
                 classification=classification,
                 node_bounds=resolved_bounds,
+                separable=separable,
             )
             for folds, seed in draws
         ]
@@ -5034,6 +5151,7 @@ class _SequentialEstimator:
             causes=prepared.cause_labels,
             regimens=regimens,
             reference=reference.label,
+            separable=separable,
             n_folds=repeats[0].folds.n_folds,
             g_bounds=bounds,
             q_bounds=self.q_bounds,
@@ -5178,6 +5296,7 @@ class _SequentialEstimator:
         reference: RegimenSpec,
         classification: Classification | None = None,
         node_bounds: dict[str | None, dict[int, NodeBound]] | None = None,
+        separable: tuple[SeparablePlan, ...] = (),
     ) -> _DrawOutcome:
         """One complete single-draw fit at one fold assignment.
 
@@ -5339,6 +5458,11 @@ class _SequentialEstimator:
                 folds=folds,
                 n_jobs=self.n_jobs,
                 hazard_pooling=self.hazard_pooling,
+                # A separable fit fits its declared first cause first, so the second cause's
+                # pseudo-hazard is its hazard among those free of the first.
+                cause_order=(
+                    None if not separable else (separable[0].first, 1 - separable[0].first)
+                ),
             )
             # A hazard replay refits no learner, so the learner audit does not apply to it.
             replay_recipe = replace(
@@ -5351,6 +5475,7 @@ class _SequentialEstimator:
                     targeting["alpha"],
                     targeting["max_iter"],
                     targeting["tol"],
+                    separable,
                 ),
             )
             fits = _run_hazard(
@@ -5371,6 +5496,7 @@ class _SequentialEstimator:
                 step_bound=targeting["step_bound"],
                 step_search=targeting["step_search"],
                 iterate=targeting["iterate"],
+                separable=separable,
             )
             msm_fits = ()
         else:
@@ -8598,6 +8724,7 @@ def _refit_bound(
             step_bound=recipe.step_bound,
             step_search=recipe.step_search,
             iterate=recipe.iterate,
+            separable=recipe.hazard.separable,
         )
         msm_fits = ()
     else:

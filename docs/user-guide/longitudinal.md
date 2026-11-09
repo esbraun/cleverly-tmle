@@ -598,6 +598,51 @@ A mapping from cause labels to absorbing outcome sequences declares competing ri
 horizon, and regimen remain separate key fields. The engine uses a cause-specific recursion while
 keeping all prior competing events out of later risk sets.
 
+### Separating a treatment's effect on two events
+
+Some treatments act on the event you care about and on a competing event through different
+parts. A drug might lower relapse through one ingredient and raise the risk of death through
+another. A separable effect asks what the risk of each event would be if the part acting on
+relapse were given while the part acting on death were not. Declare it with `Separable`, beside
+an ordinary arm that serves as the reference, and fit the hazard model with
+`targeting="one_step"`.
+
+```python
+from sklearn.linear_model import LogisticRegression
+from cleverly import CausalStudy, RegimeMean, TimeToEvent
+from cleverly.datasets import make_point_survival
+from cleverly.longitudinal import Separable
+
+frame, _ = make_point_survival(n=1_000, seed=4, n_times=4, causes=2)
+design = TimeToEvent(
+    time="time",
+    event="event",
+    treatment="A",
+    baseline=("W1", "W2"),
+    grid=(1, 2, 3, 4),
+    causes={1: "relapse", 2: "death"},
+)
+split = Separable(arms={"relapse": 1, "death": 0}, first="death")
+learner = LogisticRegression(max_iter=1000)
+result = CausalStudy(frame, design=design).estimate(
+    RegimeMean({"arm0": 0, "split": split}),
+    survival_model="hazard",
+    targeting="one_step",
+    outcome_learner=learner,
+    treatment_learner=learner,
+    censoring_learner=learner,
+    cross_fit=False,
+)
+print(result["cif_regimen[split, relapse @ t=4]"].ci)
+```
+
+`first="death"` says that, within one time step, a death is counted before a relapse. On a coarse
+time grid this choice can change the answer, so it is part of the question you ask. The estimate
+also needs two conditions no data can check unless the two parts were given apart in a trial:
+each part reaches the other event only through the event it acts on, and no unmeasured cause of
+both events exists beyond the covariates you adjust for. [Separable effects](../technical-reference/longitudinal-tmle.md#separable-effects)
+gives the exact estimand and what a separable fit refuses.
+
 ## A baseline treatment and a time-to-event outcome
 
 Use `TimeToEvent` when each unit has one follow-up time, one event code and one treatment given at
@@ -1195,9 +1240,16 @@ The "Longitudinal refutation" part of
 [refutation operations](../technical-reference/validation-methods.md#refutation-operations) lists
 every test.
 
-`result.sensitivity.simulated_confounding()` covers an uncensored panel with an end-of-study
-outcome and no covariate measured after the first node, as
-[Sensitivity analysis](results-assessment.md#sensitivity-analysis) shows.
+`result.sensitivity.simulated_confounding()` covers panels with no covariate measured after
+the first node, as [Sensitivity analysis](results-assessment.md#sensitivity-analysis) shows. An
+end-of-study outcome must be uncensored, but a `TimeToEvent` fit with its one baseline treatment
+may be censored. On such a fit the simulated cause raises or lowers each person's chance of the
+event at every time point, and the follow-up is replayed: censoring is drawn again where the
+treatment changed, and a person whose event the cause removes stays in follow-up on fitted
+models. A grid cell with both strengths at zero gives the original estimate. Each cell reports
+which share of the replayed rows came from the fitted models
+([details](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)).
+
 `result.sensitivity.evalue()` reads the risk ratio of two static plans at one horizon of a
 `TimeToEvent` fit. The other sensitivity analyses, such as the omitted-variable bound, have no
 longitudinal estimator and report `unavailable`. Tan (2025) derives population bounds for binary,

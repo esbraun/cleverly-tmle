@@ -2620,6 +2620,27 @@ def _eliminated_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _separable_cases() -> tuple[RowCase, ...]:
+    """The cases of ``separable-effects`` (X91 part D): ``G49``.
+
+    Each runs the study's own fit of one scenario, on a draw of its law, up to the classifier.
+    """
+    module, slug = "separable_effects", "separable-effects"
+
+    def case(row: str, scenario: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            scenario,
+            f"{module}.py:170",
+            module,
+            lambda study: study.law.sample(4_000, 0),
+            lambda study, frame: study.fit(frame, scenario),
+        )
+
+    return (case("G49.in_sample", "in_sample"), case("G49.cross_fitted", "cross_fitted"))
+
+
 def _projection_cases() -> tuple[RowCase, ...]:
     """The cases of ``conditional-projection`` (P1 part (a)): ``T49`` and ``T50``.
 
@@ -2981,6 +3002,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_intermediate_cases(),
     *_learned_regimen_cases(),
     *_eliminated_cases(),
+    *_separable_cases(),
     *_projection_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),

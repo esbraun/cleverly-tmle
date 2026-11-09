@@ -199,6 +199,17 @@ class SimulatedConfoundingCell:
         outcome, on a fit whose estimator declares ``q_bounds``, else ``None``.  The bounded
         laws read the outcome strength on their own scale, so this is the quantity to
         compare across fits.
+    censoring_redrawn_share : float or None
+        On a survival or competing-risk fit with censoring, the weighted share of this
+        cell's replayed person-nodes whose observed censoring was redrawn from the fitted
+        censoring model because the treatment changed.  ``None`` elsewhere.
+    extended_share : float or None
+        On a survival or competing-risk fit, the weighted share of replayed person-nodes
+        past the unit's observed follow-up, drawn from the fitted models.  ``None`` elsewhere.
+    new_event_share : float or None
+        On a survival or competing-risk fit, the weighted share of replayed events at a node
+        where the unit had no observed event.  ``None`` elsewhere, and when the cell has no
+        event.
     """
 
     treatment_strength: float | tuple[float, ...]
@@ -211,6 +222,9 @@ class SimulatedConfoundingCell:
     intermediate_strength: float | None = None
     induced_intermediate_association: float | None = None
     induced_outcome_association: float | None = None
+    censoring_redrawn_share: float | None = None
+    extended_share: float | None = None
+    new_event_share: float | None = None
 
     def __repr__(self) -> str:
         strength = self.treatment_strength
@@ -355,6 +369,15 @@ class SimulatedConfoundingResult:
         learner seeds, redraws them under an explicit seed other than the fit's own, or
         the fit has no split.  Redrawn folds put fold noise into the movement of every
         cell near the anchor.  ``None`` on a point-treatment fit.
+    replay_models : tuple of str
+        On a survival or competing-risk fit, one line per fitted model of the follow-up
+        replay: what it fits, its settings, and whether it converged.  ``()`` elsewhere.
+    coupling_seed : int or None
+        On a survival or competing-risk fit, the tagged child seed of the uniforms that
+        couple each replayed indicator to the observed one.  ``None`` elsewhere.
+    outcome_cause : str or None
+        On a competing-risk fit, the cause whose hazard the latent shifts, or ``None`` when
+        it shifts the all-cause event.
 
     Attributes
     ----------
@@ -407,6 +430,9 @@ class SimulatedConfoundingResult:
     bounded_share: float | None = None
     held_decision: bool = False
     refit_folds: Literal["original", "redrawn", "none"] | None = None
+    replay_models: tuple[str, ...] = ()
+    coupling_seed: int | None = None
+    outcome_cause: str | None = None
 
     @property
     def target_measure(self) -> Literal["unweighted", "fixed_empirical_tilt"]:
@@ -644,6 +670,20 @@ class SimulatedConfoundingResult:
                 "target_population_fraction": [
                     cell.target_population_fraction for cell in self.cells
                 ],
+            }
+        )
+        if self.replay_models:
+            payload.update(
+                {
+                    "censoring_redrawn_share": [
+                        cell.censoring_redrawn_share for cell in self.cells
+                    ],
+                    "extended_share": [cell.extended_share for cell in self.cells],
+                    "new_event_share": [cell.new_event_share for cell in self.cells],
+                }
+            )
+        payload.update(
+            {
                 "error_type": [
                     None if cell.failure is None else cell.failure.error_type for cell in self.cells
                 ],
@@ -1013,7 +1053,9 @@ def _latent_child_seed(root_seed: int) -> int:
     The tag keeps this stream apart from every other child stream built on the same
     root. A plain ``SeedSequence(root_seed).spawn(...)`` reproduces the bootstrap
     replicate seeds in :mod:`cleverly.inference.bootstrap`, and the tagged form in
-    :func:`cleverly.validation.refute._generated_child_seeds` uses tags one and two.
+    :func:`cleverly.validation.refute._generated_child_seeds` uses tags one to four, whose
+    spawned children never equal this unspawned draw.  The survival replay's coupling
+    uniforms use their own tag (``COUPLING_SEED_TAG``).
 
     Parameters
     ----------
@@ -1648,6 +1690,7 @@ def simulated_confounding(
     latent_rho: float | None = None,
     observation_reads: tuple[str, ...] | None = None,
     bounded_outcome_law: Literal["logit", "normal_score"] | None = None,
+    outcome_cause: str | None = None,
 ) -> SimulatedConfoundingResult:
     """Refit a selected parameter across a simulated common-cause strength grid.
 
@@ -1700,6 +1743,10 @@ def simulated_confounding(
         quantile, so it depends on the sample, and clips the result to the bounds.  Every
         outcome either law moves lands inside the bounds.
         Any other fit takes ``None`` only.
+    outcome_cause : str or None
+        On a competing-risk longitudinal fit, the cause whose hazard the latent shifts,
+        holding every other cause-specific hazard fixed.  ``None`` shifts the all-cause
+        event and keeps the cause shares.  Any other fit takes ``None`` only.
 
     Returns
     -------
@@ -1814,8 +1861,14 @@ def simulated_confounding(
             latent_rho=latent_rho,
             observation_reads=observation_reads,
             bounded_outcome_law=bounded_outcome_law,
+            outcome_cause=outcome_cause,
         )
         return longitudinal_surface(result, estimand, grid, longitudinal, random_state)
+    if outcome_cause is not None:
+        raise ValueError(
+            "outcome_cause names a cause of a competing-risk longitudinal fit, and this is a "
+            "point-treatment fit"
+        )
     request = _validate_request(
         result,
         estimand,

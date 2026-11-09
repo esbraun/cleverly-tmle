@@ -2697,6 +2697,25 @@ not a shipped claim.
   identifies the separable effects with baseline covariates. In arXiv v3 the same results are
   the estimand (5), identification (8) in Section 5.2, and the censoring form (10) in Section 5.4.
   Cited by roadmap item [X91](roadmap.md#x91-survival-targets-across-the-estimators) part (d).
+- Martinussen & Stensrud (2023), [*Estimation of separable direct and indirect effects in
+  continuous time*](https://arxiv.org/abs/2008.13126), *Biometrics* 79(1):127-139, DOI
+  10.1111/biom.13559. Read in arXiv:2008.13126v1, the only arXiv version; the published text was
+  not available. Section 3 (p 5) and Section 3.1 with the Appendix (pp 6, 16-18) give the
+  efficient influence function of the separable effects and a one-step estimator, the plug-in
+  plus the mean estimated influence function. The estimator is consistent when both
+  cause-specific hazards are right at both treatment levels, or when either hazard is right at
+  both levels together with the treatment and censoring mechanisms. These are sufficient
+  conditions, stated for misspecified working models without rate conditions, and the variance
+  comes from the bootstrap. Continuous time with no ties, so the within-step order does not
+  arise. Cited by roadmap item [X91](roadmap.md#x91-survival-targets-across-the-estimators) part
+  (d).
+- Breum, Munch, Gerds & Martinussen (2024), [*Estimation of separable direct and indirect effects
+  in a continuous-time illness-death model*](https://doi.org/10.1007/s10985-023-09601-y),
+  *Lifetime Data Analysis* 30:143-180. Read in the published open-access version. Equation (11)
+  (pp 155-156) is the one-step estimator. Lemma 3 (p 154) shows the influence function has mean zero when the
+  treatment and censoring mechanisms and two of the three transition hazards are right, or when
+  all three hazards are right; their scenario with two hazards wrong is biased. Cited by roadmap
+  item [X91](roadmap.md#x91-survival-targets-across-the-estimators) part (d).
 - Stensrud, Hernán, Tchetgen Tchetgen, Robins, Didelez & Young (2021), [*A generalized theory of
   separable effects in competing event settings*](https://doi.org/10.1007/s10985-021-09530-8),
   *Lifetime Data Analysis* 27(4):588-631, DOI 10.1007/s10985-021-09530-8. Read first-hand in
