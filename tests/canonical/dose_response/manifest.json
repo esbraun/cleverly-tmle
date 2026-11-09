@@ -1,0 +1,221 @@
+{
+  "schema_version": 2,
+  "study": "kernel-smoothed dose-response CV-TMLE",
+  "slug": "dose-response",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-dose-response",
+      "cleverly_version": "0.2.0",
+      "cleverly_commit": "7f9d5172361d23aea342fdad2bb0f71e7c1209a4",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.18",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 4000,
+    "n": 4000,
+    "scenario_n": {
+      "strata": 8000,
+      "tail": 1000
+    },
+    "seed": 2026119301,
+    "resampling_seed": 2026119302,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-dose-response": 0.01
+    },
+    "scenarios": {
+      "binary": [
+        "dose_response[h=0.5,a=0.25]",
+        "dose_response[h=0.5,a=1.5]",
+        "dose_response[h=0.5,a=2.5]",
+        "dose_response[h=0.5,a=3.5]",
+        "dose_response[h=0.5,a=4.75]",
+        "dose_response[h=1,a=0.25]",
+        "dose_response[h=1,a=1.5]",
+        "dose_response[h=1,a=2.5]",
+        "dose_response[h=1,a=3.5]",
+        "dose_response[h=1,a=4.75]",
+        "dose_response[h=1.5,a=0.25]",
+        "dose_response[h=1.5,a=1.5]",
+        "dose_response[h=1.5,a=2.5]",
+        "dose_response[h=1.5,a=3.5]",
+        "dose_response[h=1.5,a=4.75]"
+      ],
+      "strata": [
+        "dose_response[h=1,a=0.25][V=0]",
+        "dose_response[h=1,a=2.5][V=0]",
+        "dose_response[h=1,a=4.75][V=0]",
+        "dose_response[h=1,a=0.25][V=1]",
+        "dose_response[h=1,a=2.5][V=1]",
+        "dose_response[h=1,a=4.75][V=1]"
+      ],
+      "gaussian": [
+        "dose_response[h=1,a=0.25]",
+        "dose_response[h=1,a=1.5]",
+        "dose_response[h=1,a=2.5]",
+        "dose_response[h=1,a=3.5]",
+        "dose_response[h=1,a=4.75]"
+      ],
+      "tail": [
+        "dose_response[h=0.5,a=0.4]"
+      ]
+    },
+    "construction": "CV-TMLE of the kernel-smoothed curve (one pooled fluctuation per pair)",
+    "support": [
+      0.0,
+      5.0
+    ],
+    "kernel": "epanechnikov",
+    "nodes_per_piece": 8,
+    "n_folds": 5,
+    "density_bins": "default: max(20, ceil(2 n^(1/3)))",
+    "declarations": {
+      "binary": {
+        "doses": [
+          0.25,
+          1.5,
+          2.5,
+          3.5,
+          4.75
+        ],
+        "bandwidths": [
+          0.5,
+          1.0,
+          1.5
+        ],
+        "n": 4000,
+        "covariates": [
+          "W1",
+          "W2",
+          "W3"
+        ],
+        "strata": []
+      },
+      "strata": {
+        "doses": [
+          0.25,
+          2.5,
+          4.75
+        ],
+        "bandwidths": [
+          1.0
+        ],
+        "n": 8000,
+        "covariates": [
+          "W1",
+          "W2",
+          "W3",
+          "V"
+        ],
+        "strata": [
+          "V"
+        ]
+      },
+      "gaussian": {
+        "doses": [
+          0.25,
+          1.5,
+          2.5,
+          3.5,
+          4.75
+        ],
+        "bandwidths": [
+          1.0
+        ],
+        "n": 4000,
+        "covariates": [
+          "W1",
+          "W2",
+          "W3"
+        ],
+        "strata": []
+      },
+      "tail": {
+        "doses": [
+          0.4
+        ],
+        "bandwidths": [
+          0.5
+        ],
+        "n": 1000,
+        "covariates": [
+          "W1",
+          "W2",
+          "W3"
+        ],
+        "strata": []
+      }
+    },
+    "fluctuation": {
+      "binary": "logistic",
+      "strata": "logistic",
+      "gaussian": "linear",
+      "tail": "logistic"
+    },
+    "q_bounds": {
+      "gaussian": [
+        -15.0,
+        15.0
+      ]
+    },
+    "learners": "outcome: DoseSieve (cubic B-spline of the dose, 8 knots, tensor (1, W)) with StandardScaler and LogisticRegression(C=100), or LinearRegression for the Gaussian outcome; density: pooled-hazard binned density with HazardDesign [indicators, W, W^2, bin*W, bin*W^2], StandardScaler, LogisticRegression(C=100)",
+    "initial_estimate": "the untargeted plug-in of the same cross-fitted regression",
+    "variance_method": "ic",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/dose_response.py": "c8588abd6af2597d66360851a3eaa0bde0a1b72680602fc27dd6bce2a4b06ad8",
+    "tests/studies/dose_response_properties.py": "1f8f445c3ed693df86dc25991f4e66e917df40ad94a2532f08aafaa0d7df0542",
+    "tests/studies/dose_response_law.py": "894e0c81cccf24ef2a86359c7ff07b8ec2fb509c63692e580c3c741a4e99c650",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "9240d2569b567fc10e0db520a062ef6ae8e3f31814facbbe6fecc818bfccbb50",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "36d494f7ca114cf955e4fcd6fe6b460a5b5f88ecf538cf2285b3dfff595bfd84",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/evidence/simultaneous.py": "7162dbce520449fbb29623932caf0de0571295f0881457fab0fc1e3dfcb194f9"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "0c635cf5b60eaead2ef5cdcb6221f3a45d7fb9663772e6eeace694430b01881f",
+    "summary.csv": "23fed34d25bbc8473bd56802ef45a802e4a3d7273da858d585ca70ef515de56a",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "4e8426bcf37c12ec93a0d9f10f8a8357d32e20b3dc51898dda0501c44821ff3c",
+    "property-replicates.parquet": "b5718c84eb70f9c0c05b9fd404660950cd79fdcbe0ab1685167e532ecb81a777",
+    "properties.csv": "6b97544ff6d4bc97472b03fc8b24dc503b3ec527a639ac1cecbb1be416f8fecd",
+    "pair-support.csv": "8dc5fc92bc4c0eb74e9b89d60e1c0b811180768018ad5c4ec5710661b2043f7b"
+  }
+}

@@ -3217,6 +3217,9 @@ def _composed() -> tuple[str, ...]:
     return (
         *(f"coverage_role/{role}/{p:g}" for p in COVERAGE_TARGETS for role in roles),
         *(f"centre/{role}/{c:g}" for c in CENTRE_FACTORS for role in roles),
+        # A joint clause can read only diagnostic rows (the dose-response targeting gain), so
+        # it binds only under a change confined to that role.
+        *(f"centre/diagnostic/{c:g}" for c in CENTRE_FACTORS),
         *(f"spread_role/{role}/{g:g}" for g in ROLE_SPREADS for role in roles),
         *(
             f"se/{f:g}+coverage/{p:g}"

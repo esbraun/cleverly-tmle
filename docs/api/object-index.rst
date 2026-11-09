@@ -24,6 +24,8 @@ categorized API tables.
    cleverly.IdentifiedEffect
    cleverly.CausalResult
    cleverly.estimators.TMLEResult
+   cleverly.estimators.DoseResponseResult
+   cleverly.estimators.PairSupport
    cleverly.longitudinal.LongitudinalResult
    cleverly.longitudinal.LongitudinalRepeat
    cleverly.fluctuation.Fluctuation
@@ -51,6 +53,8 @@ categorized API tables.
    cleverly.IncrementalEffect
    cleverly.MSMProjection
    cleverly.msm.MSM
+   cleverly.dose_response.DoseResponse
+   cleverly.estimators.DoseResponseTMLE
    cleverly.msm.working_model_means
    cleverly.ConditionalContrast
    cleverly.bases.Modifiers

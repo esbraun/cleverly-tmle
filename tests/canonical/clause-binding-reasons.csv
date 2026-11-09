@@ -9,6 +9,7 @@ canonical-ltmle,root_n_and_efficiency,coverage resolves,fixed at size
 cde-tmle,root_n_and_efficiency,coverage resolves,fixed at size
 composite-missing-drtmle,root_n_and_efficiency,coverage resolves,fixed at size
 deterministic-regimes,root_n_and_efficiency,coverage resolves,fixed at size
+dose-response,double_robustness,targeting gain,implied by: targeting gain past truth
 incremental-interventions,root_n_and_efficiency,coverage resolves,fixed at size
 known-treatment-mechanism,root_n_and_efficiency,coverage resolves,fixed at size
 learned-rule-cvtmle,root_n_and_efficiency,coverage resolves,fixed at size

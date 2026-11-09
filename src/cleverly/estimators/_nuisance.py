@@ -1056,6 +1056,10 @@ def cross_fit_predictions(
     return predictions, diagnostics
 
 
+#: Rows per stacked prediction call of :func:`cross_fit_companion` (``stack_predictions``).
+_STACKED_ROWS = 200_000
+
+
 def cross_fit_companion(
     learner: Learner,
     design: FloatArray,
@@ -1077,6 +1081,7 @@ def cross_fit_companion(
     mechanisms: list[MechanismFit] | None = None,
     only: Sequence[int] | None = None,
     companion_reduce: CompanionReduce | None = None,
+    stack_predictions: bool = False,
 ) -> tuple[dict[str, FloatArray], dict[str, np.ndarray], list[SuperLearnerDiagnostics]]:
     """:func:`cross_fit_predictions`, and each fold's model evaluated at further rows.
 
@@ -1151,6 +1156,32 @@ def cross_fit_companion(
             return _clip(predict_mean(model, matrix, task), clip)
         return _clip(predict_probabilities(model, matrix, classes), clip)
 
+    def predict_all(model: Learner, rows: IntArray | None) -> dict[str, FloatArray]:
+        if not stack_predictions:
+            return {
+                name: predict(model, matrix if rows is None else matrix[rows])
+                for name, matrix in predict_designs.items()
+            }
+        # Many designs of one shape (a dose-response curve's quadrature doses): one call per
+        # chunk of designs rather than one per design, since a learner's per-call cost then
+        # dominates.  Each row's prediction is the same either way.
+        names = list(predict_designs)
+        size = n if rows is None else rows.size
+        per_chunk = max(1, _STACKED_ROWS // max(size, 1))
+        out: dict[str, FloatArray] = {}
+        for start in range(0, len(names), per_chunk):
+            chunk = names[start : start + per_chunk]
+            stacked = np.vstack(
+                [
+                    predict_designs[name] if rows is None else predict_designs[name][rows]
+                    for name in chunk
+                ]
+            )
+            values = predict(model, stacked)
+            for k, name in enumerate(chunk):
+                out[name] = values[k * size : (k + 1) * size]
+        return out
+
     def companion_at(model: Learner, fold: int) -> dict[str, np.ndarray]:
         values = {
             name: predict(model, _companion_matrix(matrix, fold))
@@ -1167,7 +1198,7 @@ def cross_fit_companion(
             models.append(model)
         if mechanisms is not None:
             mechanisms.append(describe_mechanism(model))
-        predictions = {name: predict(model, matrix) for name, matrix in predict_designs.items()}
+        predictions = predict_all(model, None)
         companion = {name: values[None, ...] for name, values in companion_at(model, 0).items()}
         diagnostics = getattr(model, "diagnostics_", None)
         return predictions, companion, [diagnostics] if diagnostics is not None else []
@@ -1192,9 +1223,7 @@ def cross_fit_companion(
                 f"a cross-fitting fold has no trainable rows for a nuisance model. {remedy}"
             )
         model = fit(rows)
-        predictions = {
-            name: predict(model, matrix[test]) for name, matrix in predict_designs.items()
-        }
+        predictions = predict_all(model, test)
         return (
             fold,
             test,
@@ -2107,6 +2136,7 @@ def fit_nuisances(
     outcome_by_arm: bool = False,
     fit_outcome: bool = True,
     fold_plug_in_rules: bool = False,
+    dose_nodes: Sequence[float] | None = None,
 ) -> NuisanceEstimates:
     """Fit every nuisance model this estimator needs.
 
@@ -2551,6 +2581,10 @@ def fit_nuisances(
             counterfactual = {
                 code: float(dose) for code, dose in zip(msm.arms, msm.dose_values, strict=True)
             }
+        elif dose_nodes is not None:
+            # A dose-response curve (cleverly.estimators.dose_response) reads the outcome
+            # regression at every quadrature dose, keyed by the node's index.
+            counterfactual = {float(k): float(dose) for k, dose in enumerate(dose_nodes)}
         elif policy_set is None:
             counterfactual = {arm: arm for arm in arms}
         else:
@@ -2632,6 +2666,7 @@ def fit_nuisances(
                 clip=(0.0, 1.0),
                 n_jobs=n_jobs,
                 companion_reduce=pooled_reduce,
+                stack_predictions=dose_nodes is not None,
             )
         if outcome_diagnostics:
             diagnostics["outcome"] = outcome_diagnostics

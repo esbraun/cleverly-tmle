@@ -66,6 +66,7 @@ InferenceStatus = Literal[
     "few_cluster_plugin",
     "constant_node_plugin",
     "stack_failure_plugin",
+    "low_dose_support_plugin",
 ]
 
 # Below this many clusters with positive weight mass, in the fit or in the stratum an
@@ -526,6 +527,36 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 f"registered study measures a clustered interval below {MINIMUM_INTERVAL_CLUSTERS} "
                 f"clusters ({MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit). "
                 "X54 in docs/roadmap.md holds the measurements."
+            ),
+        ),
+        "low_dose_support_plugin": StatusRecord(
+            plain_reason=(
+                "Few rows have a dose near this point of the dose-response curve (the effective "
+                "number of rows behind it is below the declared floor), so the normal "
+                "approximation behind the interval is not measured there, and cleverly marks it "
+                "experimental."
+            ),
+            reason=(
+                "A smoothed dose-response estimate whose clever covariate has a Kish effective "
+                "size below the declaration's support_floor reports its interval with the "
+                "experimental label. The floor of 50 is provisional until a registered study "
+                "measures the intervals near it. The estimate stays in the simultaneous band. "
+                "X95 in docs/roadmap.md holds the measurements below the floor."
+            ),
+            assessment_note=(
+                "the reported interval is experimental: the effective number of rows behind this "
+                "dose-response point is below the declared floor, and X95 in the roadmap holds "
+                "the measurements below it"
+            ),
+            bootstrap_note="a diagnostic; no result validates it at low dose support",
+            diagnostic_noun="low-support dose-response interval",
+            reopened_by="X95",
+            alternative=NO_ALTERNATIVE,
+            interval="shown",
+            shown_reason=(
+                "The effective number of rows behind this dose-response point is below the "
+                "declared floor, where no registered study measures the interval. X95 in "
+                "docs/roadmap.md holds the measurements."
             ),
         ),
         "constant_node_plugin": StatusRecord(

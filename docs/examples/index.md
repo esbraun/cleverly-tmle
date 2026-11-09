@@ -4,8 +4,8 @@
 
 Each example is a complete analysis that you can run and adapt. It loads a dataset, estimates what
 a treatment, offer, or policy did, tests whether the result holds up, and says what you can tell a
-manager. Eighteen examples use simulated data, so each page can compare its estimate with the
-true answer. The nineteenth uses real birth records. If you are new to causal inference, read
+manager. Nineteen examples use simulated data, so each page can compare its estimate with the
+true answer. The twentieth uses real birth records. If you are new to causal inference, read
 [one treatment, one outcome](point-treatment-tmle.ipynb) first. It explains each step that the
 other pages reuse.
 
@@ -35,6 +35,7 @@ treatment was unlikely.
 | a treatment repeated weekly, where earlier offers change later behavior | [weekly offer policies](sequential-offers.ipynb) | treating two policies as if they had been tried on separate customers, when both are estimated from the same customers, overstates the uncertainty of their difference |
 | an outcome recorded every week, such as whether a customer ordered, while the treatment repeats | [weekly orders under repeated offers](weekly-outcomes.ipynb) | fitting each week without the earlier orders leaves out what drove later offers, and adding the weekly variances as if the weeks were independent makes the interval for the total slightly too narrow |
 | repeated treatments where you can model how the whole process unfolds | [three offers after discharge](model-based-over-time.ipynb) | a model of the process that is too simple gives a confident wrong answer; comparing two methods that rest on different models shows the problem |
+| a continuous dose, such as a discount from 0% to 40%, and how the outcome changes across its range | [renewal discounts](dose-response.ipynb) | subscribers who got bigger discounts renewed less, because the engine gave them to less active subscribers. The curve has no interval at one exact discount, so the page reads it averaged over nearby discounts, and the estimates where few comparable subscribers got a discount are flagged |
 | a price or dose that varies continuously and is set again each month | [monthly prices](sequential-pricing.ipynb) | one regression that holds later behavior and later prices fixed misses part of the effect of a price rise |
 | a fitted result that you want to look at, check, and explain with figures | [plot results](plots.ipynb) | a table of estimates hides which patients had almost no chance of an offer, how the estimate moves when a setting changes, and a method whose intervals all miss on one side |
 | a full analysis of real records, where no true answer is known | [smoking and twins' birth weight](twins-causal-inference.ipynb) | adjusting for a variable that the treatment itself changes, here gestational age, removes part of the effect |
@@ -128,7 +129,7 @@ correlated. Scores are in simulated units.
 
 ## The retailer program
 
-Three examples follow a subscription retailer. On the [weekly offer
+Four examples follow a subscription retailer. On the [weekly offer
 policies](sequential-offers.ipynb) page, the retailer sends each customer one offer in each of three
 weeks: nothing, a 15% discount code, or a free-shipping code. Its system draws each offer at random,
 with logged probabilities that depend on the customer's engagement that week, so the chance of each
@@ -150,8 +151,14 @@ customer ordered. Its scoring system draws who gets a code but does not log the 
 estimates it, and customers who withdraw tracking consent leave the data. `weekly_orders_protocol()`
 returns its study description.
 
-All three retailer datasets are simulated. The [datasets reference](../api/datasets.md) lists each
-generator and its true answers.
+On the [renewal discounts](dose-response.ipynb) page, the renewal engine gives each subscriber a
+discount of 0% to 40% off the renewal price, with bigger discounts for less active and newer
+subscribers. The page asks what share would renew if every subscriber got the same discount, for
+discounts from 5% to 30%. Its data are simulated in the notebook, and it has no study description
+object, because its estimator does not run inside `CausalStudy`.
+
+All four retailer datasets are simulated. The [datasets reference](../api/datasets.md) lists the
+generators of the first three and their true answers.
 
 ## A real-data example
 
@@ -183,6 +190,7 @@ simulation studies that check it.
 | [weekly offer policies](sequential-offers.ipynb) | TMLE for treatments over time, compared with week-by-week g-computation and a simple comparison | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) and [sequential g-computation and IPW](../technical-reference/sequential-baselines.md) |
 | [weekly orders under repeated offers](weekly-outcomes.ipynb) | TMLE for a weekly outcome curve under repeated treatments, with the sequentially doubly robust estimator and an odds-doubling policy over weeks | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
 | [three offers after discharge](model-based-over-time.ipynb) | the parametric g-formula, which simulates each plan forward, and a structural nested mean (blip) model of what each offer adds | [parametric g-formula](../technical-reference/parametric-gformula.md) and [structural dynamic effects](../technical-reference/structural-dynamic-effects.md) |
+| [renewal discounts](dose-response.ipynb) | cross-fitted TMLE for a dose-response curve averaged over nearby doses, with one band over every reported dose | [smoothed dose-response curve](../technical-reference/dose-response.md) |
 | [monthly prices](sequential-pricing.ipynb) | TMLE for shifts of a continuous treatment over time | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
 | [smoking and twins' birth weight](twins-causal-inference.ipynb) | TMLE for the effect among the treated | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
 
@@ -220,6 +228,7 @@ treatment-rules
 conditional-effects
 schedules-and-intensity
 msm-projections
+dose-response
 ```
 
 ```{toctree}

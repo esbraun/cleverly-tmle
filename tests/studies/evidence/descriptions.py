@@ -1413,6 +1413,25 @@ ARMS.update(
     }
 )
 
+#: The labels of ``dose-response`` (X93 S1).  Mirrored from
+#: ``tests.studies.dose_response_properties``, which this module cannot import.
+ARMS.update(
+    {
+        "binary_curve": (
+            "the binary dose-response law, the smoothed curve at doses 0.25, 1.5, 2.5, 3.5 and "
+            "4.75 and bandwidths 0.5, 1.0 and 1.5 (15 pairs), n = 4,000"
+        ),
+        "interior_h1_a2_5": (
+            "the binary dose-response law, the smoothed curve at dose 2.5 and bandwidth 1.0, an "
+            "interior pair, n = 4,000"
+        ),
+        "h1_a3_5": (
+            "the binary dose-response law, the smoothed curve at dose 3.5 and bandwidth 1.0, "
+            "n = 4,000"
+        ),
+    }
+)
+
 #: The labels of ``separable-effects`` (X91 part D).  Mirrored from
 #: ``tests.studies.separable_effects_properties``, which this module cannot import.
 ARMS.update(
@@ -7861,6 +7880,63 @@ STUDY_ARM_CELLS.update(
 )
 
 
+#: ``dose-response`` (X93 S1): CV-TMLE of the kernel-smoothed dose-response curve.  The scenario,
+#: estimand and cell names are those of ``tests/studies/dose_response.py`` and its properties
+#: module.
+_DOSE_SLUG = "dose-response"
+IMPLEMENTATIONS["cleverly-dose-response"] = (
+    "`cleverly` DoseResponseTMLE: CV-TMLE of the kernel-smoothed dose-response curve, one pooled "
+    "fluctuation per (bandwidth, dose) pair"
+)
+_DOSE_LAW = (
+    "a dose with a normal location model nonlinear in three normal covariates, and an outcome "
+    "whose logit is nonlinear in the dose with a dose-varying covariate slope"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_DOSE_SLUG, "binary"): (
+            f"{_DOSE_LAW}, binary outcome, 15 (bandwidth, dose) pairs, n = 4,000"
+        ),
+        (_DOSE_SLUG, "strata"): (
+            f"{_DOSE_LAW}, binary outcome, the curve in each stratum of V = 1{{W1 > 0}} at three "
+            "doses and bandwidth 1.0, n = 8,000"
+        ),
+        (_DOSE_SLUG, "gaussian"): (
+            f"{_DOSE_LAW}, Gaussian outcome with the linear fluctuation, five doses at bandwidth "
+            "1.0, n = 4,000"
+        ),
+        (_DOSE_SLUG, "tail"): (
+            f"{_DOSE_LAW}, binary outcome, bandwidth 0.5 at dose 0.4, where the expected Kish "
+            "size is 62 just above the support floor of 50, n = 1,000"
+        ),
+    }
+)
+
+
+def _dose_words(h: float, a0: float) -> str:
+    return (
+        f"the counterfactual outcome mean averaged over doses near {a0:g} by the local-linear "
+        f"kernel weight of bandwidth {h:g}"
+    )
+
+
+STUDY_ESTIMANDS.update(
+    {
+        **{
+            (_DOSE_SLUG, f"dose_response[h={h:.10g},a={a0:.10g}]"): _dose_words(h, a0)
+            for h in (0.5, 1.0, 1.5)
+            for a0 in (0.25, 0.4, 1.5, 2.5, 3.5, 4.75)
+        },
+        **{
+            (_DOSE_SLUG, f"dose_response[h=1,a={a0:.10g}][V={v}]"): (
+                f"{_dose_words(1.0, a0)}, in stratum V = {v}"
+            )
+            for a0 in (0.25, 2.5, 4.75)
+            for v in (0, 1)
+        },
+    }
+)
+
 #: ``separable-effects`` (X91 part D): the incidence of relapse and of death when the part of
 #: the treatment acting on each cause takes its own level, Stensrud et al. (2022)
 #: identification (8) with censoring (10).  The scenario, estimand and cell names are those of
@@ -7912,6 +7988,35 @@ STUDY_ESTIMANDS.update(
 )
 STUDY_ARM_CELLS.update(
     {
+        (_DOSE_SLUG, "double_robustness", "h1_a3_5", "outcome_correct_density_wrong"): (
+            "the declared outcome sieve, with the dose density replaced by the binned marginal "
+            "density, which ignores the covariates",
+            "bias interval inside the equivalence margin, with the reported standard error "
+            "on the scale of the empirical spread",
+        ),
+        (_DOSE_SLUG, "double_robustness", "h1_a3_5", "both_wrong"): (
+            "an outcome spline in the dose alone and the binned marginal density, so neither "
+            "nuisance reads the confounder",
+            "bias interval must fall entirely outside the margin",
+        ),
+        (_DOSE_SLUG, "double_robustness", "h1_a3_5", "outcome_wrong_density_declared"): (
+            "an outcome spline in the dose alone with the declared pooled-hazard density, on the "
+            "draws of the other robustness cells: the targeted estimate",
+            "reported: its bias and the plug-in's give the targeting gain, which the family's "
+            "joint clause requires to put the estimate at least 1.5 efficient SEs closer to the "
+            "truth than the plug-in",
+        ),
+        (_DOSE_SLUG, "double_robustness", "h1_a3_5", "outcome_wrong_density_declared_plug_in"): (
+            "the untargeted plug-in of the same fit, carrying the targeted fit's standard error",
+            "reported: the bias the targeting step has to remove",
+        ),
+        (_DOSE_SLUG, "interval_calibration", "interior_h1_a2_5", "correctly_specified"): (
+            "the declared outcome sieve and pooled-hazard density, read at this pair from each "
+            "band fit of the 15-pair declaration",
+            "SE ratio and coverage intervals both inside their calibration bands, and the "
+            "empirical SD and the mean reported SE each within 0.90 to 1.10 of the exact "
+            "efficient SD",
+        ),
         (_SEPARABLE_SLUG, "double_robustness", "sep10_relapse_t3", "event_hazard_wrong"): (
             "the relapse hazard among the death-free shifted on the logit scale at the level the "
             "target reads, with the death hazard and the treatment and censoring mechanisms "

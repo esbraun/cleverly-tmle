@@ -10,6 +10,8 @@ rows as a dataframe.
 
    cleverly.CausalResult
    cleverly.estimators.TMLEResult
+   cleverly.estimators.DoseResponseResult
+   cleverly.estimators.PairSupport
    cleverly.longitudinal.LongitudinalResult
    cleverly.longitudinal.LongitudinalRepeat
    cleverly.fluctuation.Fluctuation

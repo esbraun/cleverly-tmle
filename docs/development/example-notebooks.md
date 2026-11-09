@@ -323,6 +323,7 @@ change.
 | Incremental propensity-score interventions | interventions |
 | Incremental interventions over time | weekly-outcomes |
 | Categorical incremental interventions | schedules-and-intensity |
+| Smoothed dose-response curve | dose-response |
 | Point and longitudinal MSM projections | msm-projections (point). No tutorial fits a longitudinal projection: its supported rows need a two-decision binary law with dropout |
 | Longitudinal end-of-study TMLE | sequential-offers, sequential-pricing, discharge-to-readmission |
 | Sequentially doubly robust longitudinal estimation | weekly-outcomes (on a repeated outcome; no tutorial fits end-of-study SDR) |

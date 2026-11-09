@@ -93,6 +93,7 @@ learned-rule-ep
 targeting-curves
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
+dose-response
 point-modified-treatment-policies
 incremental-propensity-interventions
 ordinary-end-of-study-longitudinal-tmle

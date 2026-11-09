@@ -5109,6 +5109,12 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "of a point row. cleverly.targeting_curves.TARGETING_MEASURED, not a support row, "
         "records the configurations the study licenses."
     ),
+    "dose-response": (
+        "It measures the kernel-smoothed dose-response curve of DoseResponseTMLE, which is no "
+        "Target and no fit of a point row. Each pair's interval takes its status from the fit's "
+        "own support report (low_dose_support_plugin below the Kish floor), not from a support "
+        "row."
+    ),
     "omitted-variable-bound-se": (
         "It measures the standard error of a sensitivity bound. The bound carries its own "
         "status and is no fit of a row."
