@@ -1413,6 +1413,25 @@ ARMS.update(
     }
 )
 
+#: The labels of ``separable-effects`` (X91 part D).  Mirrored from
+#: ``tests.studies.separable_effects_properties``, which this module cannot import.
+ARMS.update(
+    {
+        "sep10_relapse_t3": (
+            "the separable-effects law, the risk of relapse by t = 3 with the part of the "
+            "treatment acting on relapse at 1 and the part acting on death at 0, n = 16,000"
+        ),
+        "in_sample_sde_relapse_t3": (
+            "the separable-effects law, the separable direct effect on relapse by t = 3 (relapse "
+            "component 1 and death component 0 against no treatment), one fold, n = 16,000"
+        ),
+        "cross_fitted_sep01_death_t3": (
+            "the separable-effects law, the risk of death by t = 3 with the relapse component at "
+            "0 and the death component at 1, two outer folds, n = 16,000"
+        ),
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -7838,5 +7857,89 @@ STUDY_ARM_CELLS.update(
             "whether the band excludes 0 at some grid point, at the slope where its power is 0.90",
             "the rejection rate's lower end at least 0.80",
         ),
+    }
+)
+
+
+#: ``separable-effects`` (X91 part D): the incidence of relapse and of death when the part of
+#: the treatment acting on each cause takes its own level, Stensrud et al. (2022)
+#: identification (8) with censoring (10).  The scenario, estimand and cell names are those of
+#: ``tests/studies/separable_effects.py`` and its properties module.
+_SEPARABLE_SLUG = "separable-effects"
+IMPLEMENTATIONS["cleverly-separable-ltmle"] = (
+    "`cleverly` hazard LTMLE with Separable regimens: the factor-wise one-step targeting of the "
+    "death hazard and of the relapse hazard among the death-free"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_SEPARABLE_SLUG, "in_sample"): (
+            "three-node law with a binary baseline covariate, a three-level baseline treatment "
+            "held over time, censoring, death and relapse; hazard LTMLE with saturated cell "
+            "means, one fold, n = 16,000"
+        ),
+        (_SEPARABLE_SLUG, "cross_fitted"): (
+            "the same law and fit with two outer folds, so the targeting starts away from the "
+            "truth, n = 16,000"
+        ),
+    }
+)
+_SEPARABLE_PLANS = {
+    "a0": "no treatment",
+    "a1": "treatment",
+    "sep10": "the relapse component of treatment alone",
+    "sep01": "the death component of treatment alone",
+}
+STUDY_ESTIMANDS.update(
+    {
+        **{
+            (_SEPARABLE_SLUG, f"cif_regimen[{plan}, {cause} @ t={t}]"): (
+                f"risk of {cause} by t = {t} under {words}"
+            )
+            for plan, words in _SEPARABLE_PLANS.items()
+            for cause in ("relapse", "death")
+            for t in (1, 2, 3)
+        },
+        **{
+            (_SEPARABLE_SLUG, f"ate_regimen[{plan} vs a0, {cause} @ t={t}]"): (
+                f"difference in the risk of {cause} by t = {t} between {words} and no treatment"
+            )
+            for plan, words in _SEPARABLE_PLANS.items()
+            if plan != "a0"
+            for cause in ("relapse", "death")
+            for t in (1, 2, 3)
+        },
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_SEPARABLE_SLUG, "double_robustness", "sep10_relapse_t3", "event_hazard_wrong"): (
+            "the relapse hazard among the death-free shifted on the logit scale at the level the "
+            "target reads, with the death hazard and the treatment and censoring mechanisms "
+            "exact, so the targeting step does the adjusting",
+            "bias interval inside the equivalence margin, with the reported standard error on the "
+            "scale of the empirical spread",
+        ),
+        (_SEPARABLE_SLUG, "double_robustness", "sep10_relapse_t3", "competing_hazard_wrong"): (
+            "the death hazard shifted on the logit scale at the level the target reads, with the "
+            "relapse hazard and the mechanisms exact",
+            "bias interval inside the equivalence margin, with the reported standard error on the "
+            "scale of the empirical spread",
+        ),
+        (_SEPARABLE_SLUG, "double_robustness", "sep10_relapse_t3", "both_hazards_wrong"): (
+            "both hazards shifted, with the mechanisms exact: no sufficient condition holds",
+            "bias interval must fall entirely outside the margin",
+        ),
+        (_SEPARABLE_SLUG, "double_robustness", "sep10_relapse_t3", "mechanism_wrong"): (
+            "saturated hazards fitted out of fold and a treatment model that reads no covariate",
+            "bias interval inside the equivalence margin, with the reported standard error on the "
+            "scale of the empirical spread",
+        ),
+        **{
+            (_SEPARABLE_SLUG, "interval_calibration", arm, "correctly_specified"): (
+                "every nuisance (both hazards, treatment and censoring) is a saturated cell mean",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for arm in ("in_sample_sde_relapse_t3", "cross_fitted_sep01_death_t3")
+        },
     }
 )

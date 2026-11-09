@@ -485,9 +485,11 @@ regimen.
 | mutation | one coefficient shared by both factors misses the truth |
 | loss derivative | the walk loss falls at the rate of the factor scores |
 
-`tests/unit/test_separable_effects_law.py` holds these checks. Every separable fit reads
-experimental until the study `separable-effects` is registered. No separable-effects TMLE
-implementation was located to compare against, so comparator runs are pending; the evidence is the exact-law truth.
+`tests/unit/test_separable_effects_law.py` holds these checks. The registered study [separable
+effects](method-evidence/separable-effects.md) measures the fit with one and two folds on a held
+three-level baseline treatment, at n = 16,000 with saturated learners. Those fits read supported
+from rows `G49`; every other composition with a `Separable` regimen reads experimental. No
+separable-effects TMLE implementation was located to compare against.
 [Scope and refusals](scope-and-refusals.md#separable-effects) lists what a separable fit refuses,
 including time-varying common causes: Stensrud et al. (2021), Equation (19), identify that case
 but no source gives its influence curve.

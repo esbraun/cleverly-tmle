@@ -103,6 +103,7 @@ longitudinal-modified-treatment-policies
 longitudinal-incremental-interventions
 longitudinal-incremental-interventions-dropout
 eliminated-competing-events
+separable-effects
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries
