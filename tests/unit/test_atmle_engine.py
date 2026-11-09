@@ -507,11 +507,17 @@ def test_no_validation_row_reaches_its_folds_nuisance_or_selection_fits(
     original_refit = atmle.relaxed_refit
     original_step = atmle.pooled_epsilon
     original_directions = atmle.target_directions
+    original_variance = atmle.variance_directions
     directions_ids: list[set[int]] = []
+    variance_ids: list[set[int]] = []
 
     def directions(unit, population):  # type: ignore[no-untyped-def]
         directions_ids.append(set(unit.phi[:, 1].astype(int).tolist()))
         return original_directions(unit, population)
+
+    def variance(unit, population):  # type: ignore[no-untyped-def]
+        variance_ids.append(set(unit.phi[:, 1].astype(int).tolist()))
+        return original_variance(unit, population)
 
     def recorded(basis, multiplier, response, n_unpenalized, inner):  # type: ignore[no-untyped-def]
         SELECTIONS.append(
@@ -543,6 +549,7 @@ def test_no_validation_row_reaches_its_folds_nuisance_or_selection_fits(
     monkeypatch.setattr(atmle, "relaxed_refit", refit)
     monkeypatch.setattr(atmle, "pooled_epsilon", step)
     monkeypatch.setattr(atmle, "target_directions", directions)
+    monkeypatch.setattr(atmle, "variance_directions", variance)
     n, folds = 240, 4
     data = trial_draw(4, n)
     fit = fit_adaptive_tmle(
@@ -614,6 +621,8 @@ def test_no_validation_row_reaches_its_folds_nuisance_or_selection_fits(
     assert directions_ids
     assert all(ids in training for ids in directions_ids)
     assert all(training[v] in directions_ids for v in range(folds))
+    # The variance's directions read every row, once per fold.
+    assert variance_ids == [set(range(n))] * folds
     # Each pooled step reads the validation folds alone, with nuisances fitted without them.
     assert len(STEPS) == 2 + fit.passes
     for index, units in enumerate(STEPS):
@@ -799,7 +808,7 @@ def test_a_fit_solves_its_scores_and_reports_its_standard_error(
     assert fit.scores.effect_model < 1e-10
     assert fit.scores.bias_model < 1e-10
     ic = fit.influence_curve
-    assert fit.scores.influence <= np.std(ic) / (np.sqrt(600) * np.log(600))
+    assert fit.scores.influence <= fit.scores.threshold
     estimates = [model.estimate for model in fit.working_models]
     assert fit.estimate == pytest.approx(np.mean(estimates), rel=1e-12)
     assert np.all(np.isfinite(ic))
@@ -831,6 +840,228 @@ def test_a_fit_with_missing_outcomes_runs_both_forms() -> None:
         )
         assert np.isfinite(fit.estimate) and fit.std_error > 0
         assert fit.scores.effect_model < 1e-10
+
+
+def _captured(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Record the targeted validation units that the fit's assembly reads."""
+    store: dict[str, Any] = {}
+    original = atmle._assemble
+
+    def assemble(data, targeted, *args, **kwargs):  # type: ignore[no-untyped-def]
+        store["targeted"] = targeted
+        return original(data, targeted, *args, **kwargs)
+
+    monkeypatch.setattr(atmle, "_assemble", assemble)
+    return store
+
+
+def _hand_directions(
+    fit: atmle.AdaptiveTMLEFit,
+    units: list[WorkingUnit],
+    model: atmle.WorkingModel,
+    data: dict[str, np.ndarray],
+    population: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """I^{-1} m summed row by row over every row, each with its own fold's targeted nuisances."""
+    n = data["outcome"].size
+    w, a, s = data["covariates"], data["treatment"], data["source"]
+    names = ("g", "source0", "source1", "pibar")
+    nu = {name: np.full(n, np.nan) for name in names}
+    for v, unit in enumerate(units):
+        rows = fit.folds.assignment == v
+        for name in names:
+            nu[name][rows] = getattr(unit.nuisances, name)
+    phi = model.dictionary.phi(w)[:, model.effect.selected]
+    psi = model.dictionary.psi(w, a)[:, model.bias.selected]
+    psi0 = model.dictionary.psi(w, 0.0)[:, model.bias.selected]
+    psi1 = model.dictionary.psi(w, 1.0)[:, model.bias.selected]
+    pi_own = np.where(a == 1.0, nu["source1"], nu["source0"])
+    weight = np.ones(n) if population == "pooled" else s / np.mean(s)
+    hessian_a = np.zeros((phi.shape[1],) * 2)
+    hessian_s = np.zeros((psi.shape[1],) * 2)
+    mean_a = np.zeros(phi.shape[1])
+    mean_s = np.zeros(psi.shape[1])
+    for i in range(n):
+        hessian_a += (a[i] - nu["g"][i]) ** 2 * np.outer(phi[i], phi[i]) / n
+        hessian_s += (s[i] - pi_own[i]) ** 2 * np.outer(psi[i], psi[i]) / n
+        mean_a += weight[i] * phi[i] / n
+        gap = psi0[i] * (1 - nu["source0"][i]) - psi1[i] * (1 - nu["source1"][i])
+        mean_s += weight[i] * gap / n
+    return np.linalg.solve(hessian_a, mean_a), np.linalg.solve(hessian_s, mean_s)
+
+
+def _hand_influence(
+    unit: WorkingUnit,
+    beta_a: np.ndarray,
+    beta_s: np.ndarray,
+    directions: tuple[np.ndarray, np.ndarray],
+    population: str,
+) -> np.ndarray:
+    """D on a validation fold's rows, written out, with the given directions."""
+    nu = unit.nuisances
+    rows = unit.outcome.size
+    a, s, y = unit.treatment, unit.source, unit.outcome
+    pi_own = np.where(a == 1.0, nu.source1, nu.source0)
+    share = float(np.mean(s))
+    weight = np.ones(rows) if population == "pooled" else s / share
+    factor = np.ones(rows) if population == "pooled" else nu.pibar / share
+    d_a, d_s = directions
+    bias0, bias1 = unit.psi0 @ beta_s, unit.psi1 @ beta_s
+    effect = unit.phi @ beta_a - ((1 - nu.source0) * bias0 - (1 - nu.source1) * bias1)
+    estimate = float(np.mean(weight * effect))
+    residual_a = y - nu.theta - (a - nu.g) * (unit.phi @ beta_a)
+    residual_s = y - nu.qt - (s - pi_own) * (unit.psi @ beta_s)
+    k1 = np.zeros(rows) if unit.controls_only else bias1 / nu.g
+    clever = np.where(a == 1.0, k1, -bias0 / (1 - nu.g))
+    return np.asarray(
+        weight * (effect - estimate)
+        + (a - nu.g) * residual_a * (unit.phi @ d_a)
+        - (s - pi_own) * residual_s * (unit.psi @ d_s)
+        - factor * (s - pi_own) * clever
+    )
+
+
+@pytest.mark.parametrize("population", ["pooled", "trial"])
+@pytest.mark.parametrize("controls_only", [False, True])
+def test_the_cv_variance_reads_every_row_for_the_directions_and_the_fold_for_d(
+    monkeypatch: pytest.MonkeyPatch, population: str, controls_only: bool
+) -> None:
+    """sigma^2_v of Theorem 2: d_0 = I^{-1} m on every row, D_v's variance on V_v."""
+    store = _captured(monkeypatch)
+    data = trial_draw(1, 600, controls_only=controls_only)
+    fit = _fit(data, n_folds=3, population=population)
+    units = store["targeted"].units
+    variances = []
+    for v, (unit, model) in enumerate(zip(units, fit.working_models, strict=True)):
+        assert model.variance_fallback == (False, False)
+        directions = _hand_directions(fit, units, model, data, population)
+        assert model.variance_directions is not None
+        for used, hand in zip(model.variance_directions, directions, strict=True):
+            np.testing.assert_allclose(used, hand, rtol=1e-8, atol=1e-10)
+        hand = _hand_influence(unit, model.beta_a, model.beta_s, directions, population)
+        rows = fit.folds.assignment == v
+        np.testing.assert_allclose(fit.influence_curve[rows], hand, rtol=1e-8, atol=1e-10)
+        assert model.variance == pytest.approx(np.var(hand), rel=1e-8)
+        variances.append(np.var(hand))
+    assert fit.std_error == pytest.approx(np.sqrt(np.mean(variances) / 600), rel=1e-8)
+
+
+def test_the_training_directions_change_the_cv_standard_error_and_not_the_estimate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutation: the training rows' directions in the variance, as before the change."""
+    data = trial_draw(3, 400)
+    store = _captured(monkeypatch)
+    fit = _fit(data, n_folds=3)
+    targeted = store["targeted"].evaluated
+    # The witness: the two measures' directions differ materially on this draw.
+    assert (
+        max(
+            float(np.max(np.abs(model.variance_directions[1] - model.directions[1])))
+            for model in fit.working_models
+        )
+        > 1.0
+    )
+    monkeypatch.setattr(atmle, "variance_directions", lambda unit, population: (None, None))
+    with pytest.warns(UserWarning, match="direction from the fold's training"):
+        mutant = _fit(data, n_folds=3)
+    assert mutant.estimate == fit.estimate
+    assert mutant.scores == fit.scores
+    assert mutant.converged == fit.converged
+    old = [np.var(parts.total) for _, parts in targeted]
+    assert mutant.std_error == pytest.approx(np.sqrt(np.mean(old) / 400), rel=1e-12)
+    assert abs(fit.std_error / mutant.std_error - 1.0) > 0.1
+
+
+@pytest.mark.parametrize("controls_only", [False, True])
+@pytest.mark.parametrize("population", ["pooled", "trial"])
+@pytest.mark.parametrize("seed", range(3))
+def test_the_cv_variance_leaves_the_estimate_and_the_scores_unchanged(
+    monkeypatch: pytest.MonkeyPatch, controls_only: bool, population: str, seed: int
+) -> None:
+    data = trial_draw(seed, 400, controls_only=controls_only)
+    fit = _fit(data, n_folds=3, population=population)
+    monkeypatch.setattr(atmle, "variance_directions", lambda unit, population: (None, None))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        mutant = _fit(data, n_folds=3, population=population)
+    assert mutant.estimate == fit.estimate
+    assert mutant.scores == fit.scores
+    assert [m.estimate for m in mutant.working_models] == [m.estimate for m in fit.working_models]
+    for model, other in zip(fit.working_models, mutant.working_models, strict=True):
+        np.testing.assert_array_equal(model.beta_a, other.beta_a)
+        np.testing.assert_array_equal(model.beta_s, other.beta_s)
+
+
+def test_the_variance_directions_refuse_a_hessian_the_validation_rows_cannot_estimate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _captured(monkeypatch)
+    _fit(trial_draw(2, 600), n_folds=3)
+    unit = store["targeted"].units[0]
+    direction_a, direction_s = atmle.variance_directions(unit, "pooled")
+    assert direction_a is not None and direction_s is not None
+    columns = unit.psi.shape[1]
+    # Fewer than ten rows per column: keep 10 K - 1 rows.
+    keep = np.arange(atmle.VARIANCE_ROWS_PER_COLUMN * columns - 1)
+    few = replace(
+        unit,
+        outcome=unit.outcome[keep],
+        treatment=unit.treatment[keep],
+        source=unit.source[keep],
+        phi=unit.phi[keep],
+        psi=unit.psi[keep],
+        psi0=unit.psi0[keep],
+        psi1=unit.psi1[keep],
+        nuisances=atmle._take(unit.nuisances, keep),
+        weights=np.full(keep.size, 1.0 / keep.size),
+    )
+    assert atmle.variance_directions(few, "pooled")[1] is None
+    # The rule itself, on columns in general position: ten rows per column are enough.
+    rng = np.random.default_rng(0)
+    basis = rng.normal(size=(60, 6))
+    multiplier = rng.uniform(0.2, 0.8, 60)
+    assert atmle._estimable(basis, multiplier, np.full(60, 1 / 60))
+    assert not atmle._estimable(basis[:59], multiplier[:59], np.full(59, 1 / 59))
+    # Rows with no weight or a zero multiplier do not count.
+    assert not atmle._estimable(
+        basis, np.where(np.arange(60) == 0, 0.0, multiplier), np.full(60, 1 / 60)
+    )
+    # Collinear columns on the rows: a duplicated effect column.
+    doubled = replace(unit, phi=np.column_stack([unit.phi, unit.phi[:, :1]]))
+    assert atmle.variance_directions(doubled, "pooled")[0] is None
+
+
+def test_a_model_too_large_for_its_rows_takes_the_training_direction_and_warns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guard path, reached by raising the floor to 40 rows per column on 200 rows."""
+    monkeypatch.setattr(atmle, "VARIANCE_ROWS_PER_COLUMN", 40)
+    data = trial_draw(0, 200)
+    with pytest.warns(UserWarning, match="fewer than 40 rows per selected column") as caught:
+        fit = _fit(data, n_folds=5)
+    assert len([w for w in caught if "rows per selected" in str(w.message)]) == 1
+    fell = 0
+    for model in fit.working_models:
+        rows = 200
+        assert model.directions is not None and model.variance_directions is not None
+        for k, (columns, used, training) in enumerate(
+            zip(
+                (model.beta_a.size, model.beta_s.size),
+                model.variance_directions,
+                model.directions,
+                strict=True,
+            )
+        ):
+            if model.variance_fallback[k]:
+                fell += 1
+                assert used is training
+            else:
+                assert atmle.VARIANCE_ROWS_PER_COLUMN * columns <= rows
+                assert not np.array_equal(used, training)
+    assert fell > 0
+    variances = [np.var(fit.influence_curve[fit.folds.assignment == v]) for v in range(5)]
+    assert fit.std_error == pytest.approx(np.sqrt(np.mean(variances) / 200), rel=1e-12)
 
 
 @pytest.mark.parametrize("group", ["external", "trial"])

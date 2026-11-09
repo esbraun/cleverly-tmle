@@ -562,15 +562,12 @@ class AdaptiveTMLEResult:
             The four score means and the threshold.
         """
         scores = self.fit.scores
-        curve = self.fit.influence_curve
-        n = curve.size
-        tolerance = float(np.std(curve)) / (np.sqrt(n) * np.log(n))
         return AdaptiveTMLEScoreReport(
             effect_model=scores.effect_model,
             bias_model=scores.bias_model,
             source=scores.source,
             influence=scores.influence,
-            tolerance=tolerance,
+            tolerance=scores.threshold,
             converged=self.fit.converged,
         )
 

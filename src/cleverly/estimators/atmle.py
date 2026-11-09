@@ -63,6 +63,7 @@ __all__ = [
     "KKT_TOLERANCE",
     "MAX_PASSES",
     "SOURCE_FLOOR",
+    "VARIANCE_ROWS_PER_COLUMN",
     "AdaptiveTMLEDiagnostics",
     "AdaptiveTMLEFit",
     "InfluenceParts",
@@ -90,6 +91,7 @@ __all__ = [
     "stratified_partition",
     "target_directions",
     "target_source",
+    "variance_directions",
 ]
 
 Form = Literal["cv", "pooled"]
@@ -105,6 +107,12 @@ MAX_PASSES = 50
 #: An external row's ``pi(W)`` below this value is reported as a trial-enrollment
 #: positivity concern (condition A3).
 SOURCE_FLOOR = 0.01
+
+#: The fewest rows per selected column at which the CV form's variance estimates a working
+#: model's ``I`` and ``m`` (:func:`variance_directions`). Below it the fold's variance uses
+#: the training rows' direction, which is consistent but adds that direction's estimation
+#: error to the variance.
+VARIANCE_ROWS_PER_COLUMN = 10
 
 
 def _warn(message: str, category: type[Warning]) -> None:
@@ -999,6 +1007,15 @@ def target_directions(unit: WorkingUnit, population: Population) -> tuple[FloatA
     tuple of ndarray
         The effect-model and bias-model directions.
     """
+    (hessian_a, mean_a), (hessian_s, mean_s) = _information(unit, population)
+    return np.linalg.solve(hessian_a, mean_a), np.linalg.solve(hessian_s, mean_s)
+
+
+def _information(
+    unit: WorkingUnit, population: Population
+) -> tuple[tuple[FloatArray, FloatArray], tuple[FloatArray, FloatArray]]:
+    """The Hessians ``I`` and the means ``m`` of :func:`target_directions`, effect model
+    first."""
     nu = unit.nuisances
     w = unit.weights
     weight, _ = _population_weights(unit, population)
@@ -1007,9 +1024,57 @@ def target_directions(unit: WorkingUnit, population: Population) -> tuple[FloatA
     hessian_a = (unit.phi * (w * multiplier_a**2)[:, None]).T @ unit.phi
     hessian_s = (unit.psi * (w * multiplier_s**2)[:, None]).T @ unit.psi
     gap = unit.psi0 * (1.0 - nu.source0)[:, None] - unit.psi1 * (1.0 - nu.source1)[:, None]
+    return (hessian_a, (w * weight) @ unit.phi), (hessian_s, (w * weight) @ gap)
+
+
+def _estimable(basis: FloatArray, multiplier: FloatArray, weights: FloatArray) -> bool:
+    """Whether a working model's Hessian ``E[m^2 phi phi']`` is estimable on a unit's rows.
+
+    It is when the rows that carry the model (positive weight, nonzero ``m phi``) number at
+    least :data:`VARIANCE_ROWS_PER_COLUMN` per selected column, and the columns are not
+    collinear on them by the refit's rank rule (:func:`relaxed_refit`).
+    """
+    x = multiplier[:, None] * basis
+    carried = int(np.sum((weights > 0.0) & np.any(x != 0.0, axis=1)))
+    if VARIANCE_ROWS_PER_COLUMN * x.shape[1] > carried:
+        return False
+    factor = np.linalg.qr(np.sqrt(weights)[:, None] * x, mode="r")
+    diagonal = np.abs(np.diag(factor))
+    return bool(diagonal.min() > _RANK_TOLERANCE * max(diagonal.max(), 1e-300))
+
+
+def variance_directions(
+    unit: WorkingUnit, population: Population
+) -> tuple[FloatArray | None, FloatArray | None]:
+    """The directions ``I^{-1} m`` of the CV form's variance under a unit's measure.
+
+    Theorem 2 of arXiv:2405.07186v2 (Appendix C) normalizes the adaptive CV-TMLE by
+    ``sigma^2_v = P_0 D_v^2``, the variance of the influence function of fold ``v``'s
+    working model at ``P_0``, whose coefficient terms carry ``d_0 = I_0^{-1} m_0``. The fit
+    estimates ``d_0`` on every row, with each row's targeted cross-fitted nuisances and the
+    fold's selected columns: the largest sample whose nuisances match the ones in ``D_v``'s
+    residuals. A direction is ``None`` when its Hessian is not estimable on the rows
+    (:data:`VARIANCE_ROWS_PER_COLUMN`, or collinear columns there).
+
+    Parameters
+    ----------
+    unit : WorkingUnit
+        The rows the direction is estimated on, under their measure.
+    population : {"pooled", "trial"}
+        The covariate population the effect is averaged over.
+
+    Returns
+    -------
+    tuple of (ndarray or None, ndarray or None)
+        The effect-model and bias-model directions.
+    """
+    nu = unit.nuisances
+    (hessian_a, mean_a), (hessian_s, mean_s) = _information(unit, population)
+    estimable_a = _estimable(unit.phi, unit.treatment - nu.g, unit.weights)
+    estimable_s = _estimable(unit.psi, unit.source - nu.source_at(unit.treatment), unit.weights)
     return (
-        np.linalg.solve(hessian_a, (w * weight) @ unit.phi),
-        np.linalg.solve(hessian_s, (w * weight) @ gap),
+        np.linalg.solve(hessian_a, mean_a) if estimable_a else None,
+        np.linalg.solve(hessian_s, mean_s) if estimable_s else None,
     )
 
 
@@ -1286,6 +1351,15 @@ class WorkingModel:
     directions : tuple of ndarray or None
         For ``form="cv"``, the target directions ``I_A^{-1} m_A`` and ``I_S^{-1} m_S`` of
         the last pass, taken on the training rows; ``None`` for ``form="pooled"``.
+    variance_directions : tuple of ndarray or None
+        For ``form="cv"``, the directions of the influence function whose variance is
+        ``variance``: estimated on every row with the targeted nuisances
+        (:func:`variance_directions`), or the training rows' direction where
+        ``variance_fallback`` is true; ``None`` for ``form="pooled"``, whose variance uses the
+        directions of its one measure.
+    variance_fallback : tuple of bool
+        For the effect and the bias model, whether ``variance`` used the training rows'
+        direction because the model's Hessian was not estimable on every row.
     inner : ndarray of int
         The inner fold of each selection row.
     selection_rows : int
@@ -1293,7 +1367,8 @@ class WorkingModel:
     estimate : float
         The estimate under this selection's measure.
     variance : float
-        The variance of the influence function under this selection's measure.
+        The variance of the influence function under this selection's measure: centred
+        for ``form="cv"``, ``P_n D^2`` for ``form="pooled"``.
     """
 
     fold: int | None
@@ -1307,6 +1382,8 @@ class WorkingModel:
     selection_rows: int
     estimate: float
     variance: float
+    variance_directions: tuple[FloatArray, FloatArray] | None
+    variance_fallback: tuple[bool, bool]
 
     @property
     def effect_columns(self) -> tuple[str, ...]:
@@ -1343,12 +1420,17 @@ class ScoreResiduals:
         ``|P_n f (S - Pi*) C|``.
     influence : float
         ``|P_n D|``.
+    threshold : float
+        The stopping rule's bound on ``influence``, ``sd(D) / (sqrt(n) log n)``. For
+        ``form="cv"`` the four scores and the bound read the targeting's ``D``, with the
+        training rows' directions, which differs from the reported influence curve.
     """
 
     effect_model: float
     bias_model: float
     source: float
     influence: float
+    threshold: float
 
 
 @dataclass(frozen=True)
@@ -1399,9 +1481,12 @@ class AdaptiveTMLEFit:
         The estimate of the working-model projection of the effect.
     std_error : float
         Its standard error: ``sqrt(P_n D^2 / n)`` for ``form="pooled"``, and
-        ``sqrt(mean_v var_v(D_v) / n)`` over the validation folds for ``form="cv"``.
+        ``sqrt(mean_v var_v(D_v) / n)`` over the validation folds for ``form="cv"``, with
+        ``D_v`` the fold's influence function on its validation rows, its ``I`` and ``m``
+        estimated on every row (:func:`variance_directions`).
     influence_curve : ndarray of float
-        ``D`` on each row; for ``form="cv"``, the row's validation fold's ``D_v``.
+        ``D`` on each row; for ``form="cv"``, the row's validation fold's ``D_v`` of
+        ``std_error``.
     population : {"pooled", "trial"}
         The covariate population the effect is averaged over.
     form : {"cv", "pooled"}
@@ -2168,13 +2253,33 @@ def _assemble(
     controls_only: bool,
     n_external_treated: int,
 ) -> AdaptiveTMLEFit:
-    """The estimate, its standard error and the record of the targeting."""
+    """The estimate, its standard error and the record of the targeting.
+
+    The CV form's variance re-evaluates each fold's influence function on its validation
+    rows with the directions of :func:`variance_directions`, estimated on every row with the
+    targeted nuisances stacked over the folds; the estimate, the scores and the stopping rule
+    keep the targeting's own evaluation.
+    """
     n = data.y.size
     units, evaluated = targeted.units, targeted.evaluated
+    every = np.arange(n, dtype=np.int64)
+    stacked = (
+        _stack(
+            [
+                (rows, u.nuisances)
+                for rows, u in zip(_evaluation_rows(split, form), units, strict=True)
+            ],
+            n,
+        )
+        if form == "cv"
+        else None
+    )
     influence = np.full(n, np.nan)
     working: list[WorkingModel] = []
     variances: list[float] = []
-    for (estimate, parts), ba, bs, d, model, fold_rows in zip(
+    fallbacks: list[int] = []
+    for unit, (estimate, parts), ba, bs, d, model, fold_rows in zip(
+        units,
         evaluated,
         targeted.beta_a,
         targeted.beta_s,
@@ -2184,20 +2289,59 @@ def _assemble(
         strict=True,
     ):
         fold, dictionary, effect, bias, inner, selection_rows = model
-        total = parts.total
+        chosen: tuple[FloatArray, FloatArray] | None = None
+        fallback = (False, False)
+        if d is None:
+            total = parts.total
+            variance = float(np.mean(total**2))
+        else:
+            assert stacked is not None
+            measure = _unit(data, every, stacked, dictionary, effect, bias, controls_only)
+            direction_a, direction_s = variance_directions(measure, population)
+            fallback = (direction_a is None, direction_s is None)
+            chosen = (
+                d[0] if direction_a is None else direction_a,
+                d[1] if direction_s is None else direction_s,
+            )
+            total = evaluate(unit, ba, bs, population, directions=chosen)[1].total
+            variance = float(np.var(total))
+            if any(fallback):
+                fallbacks.append(int(fold) if fold is not None else 0)
         influence[fold_rows] = total
-        variance = float(np.var(total)) if form == "cv" else float(np.mean(total**2))
         variances.append(variance)
         working.append(
             WorkingModel(
-                fold, dictionary, effect, bias, ba, bs, d, inner, selection_rows, estimate, variance
+                fold,
+                dictionary,
+                effect,
+                bias,
+                ba,
+                bs,
+                d,
+                inner,
+                selection_rows,
+                estimate,
+                variance,
+                chosen,
+                fallback,
             )
         )
+    if fallbacks:
+        _warn(
+            f"the working models of fold(s) {', '.join(str(v) for v in fallbacks)} have fewer "
+            f"than {VARIANCE_ROWS_PER_COLUMN} rows per selected column, or collinear columns, "
+            "so their variance takes the working model's direction from the fold's training "
+            "rows; that standard error is consistent but carries the training direction's "
+            "estimation error, so it can be too large",
+            UserWarning,
+        )
+    _, _, threshold = _stopped(units, evaluated, n)
     scores = ScoreResiduals(
         effect_model=abs(_pooled_mean(units, [parts.effect_model for _, parts in evaluated])),
         bias_model=abs(_pooled_mean(units, [parts.bias_model for _, parts in evaluated])),
         source=abs(_pooled_mean(units, [parts.source for _, parts in evaluated])),
         influence=abs(_pooled_mean(units, [parts.total for _, parts in evaluated])),
+        threshold=threshold,
     )
     return AdaptiveTMLEFit(
         estimate=float(np.mean([estimate for estimate, _ in evaluated])),

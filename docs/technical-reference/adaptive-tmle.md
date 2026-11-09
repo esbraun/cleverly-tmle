@@ -183,11 +183,43 @@ columns.
    alternates with it.
 5. The estimate is the mean of the validation-fold plug-ins, with standard error
    $\sqrt{\bar\sigma^2 / n}$, where $\bar\sigma^2$ is the mean of the validation-fold variances of
-   the influence function.
+   the influence function $D_v$ at the fold's targeted fit $P^*_{n,v}$.
 
 The direction is fixed before the validation rows are read. A full refit of the coefficients on the
 validation folds was dropped because it was unstable at $n = 2{,}000$ with five folds. A refit on
 $T_v$ whose selected columns are rank deficient raises `CapabilityError` naming the fold.
+
+The variance does not reuse the targeting's directions. Theorem 2 normalizes by
+$\sigma^2_{w,n,v} = P_0 D^2_{M_{w,n,v}, P_0}$, whose coefficient terms carry
+$d_0 = I_0^{-1} m_0$ for fold $v$'s working model, and App C gives no estimator for it. The fit
+estimates $d_0$ on every row, with each row's targeted cross-fitted nuisances (the ones in $D_v$'s
+residuals) and fold $v$'s selected columns (`atmle.variance_directions`). It then takes
+$\hat\sigma^2_v$ as the centred variance of $D_v$ over the validation rows. The estimate, the score
+equations and the stopping rule keep the $T_v$ directions, so the point estimate does not move.
+
+The $T_v$ direction $d_T$ is computed with the pair-excluded selection nuisances. Applied with
+coefficient 1 on $V_v$, it estimates the variance at $d_T$, which adds
+$(d_T - d_0)^\top \mathrm{Var}(G)\,(d_T - d_0)$ for the coefficient score $G$, plus a cross term
+that vanishes when the working model holds. The added term vanishes as $n$ grows, but with 37
+selected bias columns it put the selective study's `s6_cv` SE ratio at 1.16.
+
+Refits of 100 `s6_cv` draws with the study's seeds read SE ratios of 1.23 with $d_T$,
+1.04 with $I$ and $m$ on the validation rows alone (the literal plug-in at $P^*_{n,v}$), and 0.99
+on every row. The validation-row plug-in inflates the variance where the selected columns are nearly
+collinear: on the separating law `e1` its SE ratio was 1.12 against 1.05 for $d_T$ and 1.00 for
+every row (200 draws). Every row gives $n$ rather than $n / V$ rows to an estimate that reads no
+outcome; most of those rows also chose the working model, a second-order effect on $I$ and $m$. The
+covariate and $\Pi$ components hold no direction and are the same under each choice.
+
+A working model whose Hessian the rows cannot estimate falls back to the $T_v$ direction for that
+fold's variance, with a warning. It cannot be estimated when there are fewer than
+`VARIANCE_ROWS_PER_COLUMN` (10) rows with a nonzero $(A - g)\phi$ or $(S - \Pi)\psi$ per selected
+column, or when the columns are collinear by the refit's rank rule. With $K$ columns on $m$ rows the
+inverse of an estimated Hessian is inflated by about $m / (m - K)$, so the floor keeps that within
+about 11%. The fallback is consistent and leaves the estimate valid, so it is preferred to a
+refusal. A ridge-stabilized inverse has no rule for its penalty here and biases the variance in a
+direction that depends on the law. `WorkingModel.variance_fallback` records which component fell
+back, and `WorkingModel.variance_directions` the directions the variance used.
 
 ### Algorithm 1 (pooled)
 
@@ -339,6 +371,7 @@ the reported variance, and second order or numerical when it changes remainders 
 | dictionary | relaxed HAL on $W$ and on $(W, A)$ (Alg 1 lines 5, 11) | `hal9001::enumerate_basis`, degree 3, first-order splines, 20 knots, then `filter_hal_basis` at support $1/\sqrt{n}$ | linear terms, hinges at 5 quantile knots and pairwise linear products, with the $k_{\min}$ screen | first when the truth needs hinge-by-hinge interactions |
 | missing outcomes | App B: IPCW factor $\Delta/g^\Delta$ on both losses and the $Y$-parts of the influence functions | none: $\Delta$ fixed at 1 and unrecorded $Y$ set to 0 in `get_tau_S_eic` | AIPCW, which equals App B's IPCW when the outcome regression is zero | first, for efficiency and robustness |
 | $\Pi$ fluctuation | submodel and loss not stated; Lemma 8 gives the score along $C$ | two parameters, one per arm (`target_Pi`, covariates $\tau_S(W, a)\,1\{A = a\}$, weighted by $A/g + (1 - A)/g_0$ with `target_gwt = TRUE`) | one parameter along the paper's clever covariate $C$ | second |
+| CV variance | App C gives none; Theorem 2 normalizes by $P_0 D^2$ at each fold's working model | none | centred variance of $D_v$ over the validation rows, with $I^{-1}m$ estimated on every row from the targeted cross-fitted nuisances; the $T_v$ direction where the rows cannot estimate the Hessian | first, for the reported variance |
 | pooled variance | Alg 1 line 18: $P_n D^2 / n$, uncentred | `var(eic_A - eic_S) / n`, centred (`inference`) | uncentred | numerical, $(P_n D)^2$ |
 | stopping rule | not stated | $10^{-4}\,\mathrm{sd}(D) / (\sqrt{n}\log n)$ or 50 passes (`run`) | $\mathrm{sd}(D) / (\sqrt{n}\log n)$ or 50 passes | numerical |
 | outer folds | not stated | stratified by $S$, and by $S \times Y$ for a binary outcome; 3 to 20 folds by $n$ | five folds, stratified by $S$ and by $S \times Y$ for a binary outcome; a supplied `split_plan` is kept as given | second |
@@ -481,7 +514,7 @@ or the R `atmle` pairing record, would give the method a row.
 | test | what it checks | what it cannot see |
 | --- | --- | --- |
 | `tests/unit/test_atmle_exact.py` | on finite laws with the dictionary outside the truth's span: Lemma 2, the saturated dictionary projecting to the trial effect, the influence function as a Gateaux derivative, each influence component being needed, the remainder as a second-order product, first-order remainders for a trial treatment mechanism in the covariate and for an inverse-weighted residual, Lemma 1, and the $\Pi$ fluctuation solving the source score | the truth at a fitted learner |
-| `tests/unit/test_atmle_engine.py` | the lasso against its optimality conditions and an independent solver, the refit and fluctuation score equations, full rank and the support screen, the rows each fold reads, the penalized $A$ column with a nonzero witness, and the arm column kept beside a selected arm product with a mutation control | coverage |
+| `tests/unit/test_atmle_engine.py` | the lasso against its optimality conditions and an independent solver, the refit and fluctuation score equations, full rank and the support screen, the rows each fold reads, the penalized $A$ column with a nonzero witness, the arm column kept beside a selected arm product with a mutation control, the CV variance against a row-by-row computation of its directions and fold variances, with a mutation to the training directions that moves the standard error and not the estimate, and the guard's fallback | coverage |
 | `tests/unit/test_atmle_refusals.py` | every refusal text and code, with a spy that proves no engine call | none |
 | `tests/unit/test_atmle_workflow.py` | the fit through `CausalStudy` equals the engine on the same arrays, the status, the controls-only and few-treated cases, and `save` and `load` | none |
 | `tests/unit/test_adaptive_tmle_trial_design.py` | every declared constant of the studies: truths, separations, control powers and sizing, recomputed without a run | estimator behaviour |
