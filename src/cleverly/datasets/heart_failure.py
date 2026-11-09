@@ -43,15 +43,17 @@ the eight covariate cells.  At :math:`a_Y = a_D` it is the risk of that static d
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import pandas as pd
 
 from .._typing import Backend, FloatArray
 from ..protocol import StudyProtocol
 from ..utils.bounds import expit
 from ..utils.frames import frame_from_dict
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 __all__ = [
     "heart_failure_protocol",
@@ -200,6 +202,8 @@ def heart_failure_truth(
         for prior in _PRIOR:
             mass = (_P_OLDER if older else 1.0 - _P_OLDER) / len(_PRIOR)
             total += mass * _cell_risks(readmission_dose, death_dose, older, prior, first)
+    import pandas as pd  # the truth is a pandas frame; pandas is an optional dependency
+
     return pd.DataFrame(
         {"day": list(HEART_FAILURE_DAYS), "readmission": total[:, 0], "death": total[:, 1]}
     )
@@ -283,6 +287,8 @@ def make_heart_failure(
             risks.insert(0, "death_dose", death_dose)
             risks.insert(0, "readmission_dose", readmission_dose)
             rows.append(risks)
+    import pandas as pd  # the truth is a pandas frame; pandas is an optional dependency
+
     truth = pd.concat(rows, ignore_index=True)
     payload = {
         "older": older.astype(float),
