@@ -56,6 +56,7 @@ UNPRINTED_DECIMALS = {
     "4.83": f"the law's nu^2 = E[1/(g(1-g))], 4.8287 by Monte Carlo: {_PROBE}/truth.log",
     "4.50": f"mean doubly robust nu^2 over 200 draws, 4.504: {_PROBE}/summary.log",
     "0.409": f"RV of the shown draw at the law's nu^2, by summarize.py: {_PROBE}/summary.log",
+    "0.23": "weight-side strength that erases the estimate at cf_y=1; check asserts the sign change",
     "94.5": f"0.945 as a percent: stacked_cvtmle coverage, {_STUDY}, and the plasmode print",
     "0.9475": f"coverage of clustered_inference/cluster_robust: {_CLUSTERED}",
     "0.84125": f"coverage of clustered_inference/iid_control: {_CLUSTERED}",
@@ -306,6 +307,15 @@ def _check_robustness(namespace: dict[str, Any]) -> None:
         cf_y=robustness["rv"], cf_d=robustness["rv"], rho=1.0
     )
     assert abs(at_rv.lower) < 1e-3
+    # "Unequal strengths can: a confounder that explained all of the score's remaining variation
+    # would erase it with a weight-side strength of about 0.23": at cf_y = 1 the adjusted point
+    # estimate changes sign between 0.22 and 0.24, both below the robustness value.
+    at_full = [
+        first.sensitivity.omitted_confounding(cf_y=1.0, cf_d=strength, rho=1.0)
+        for strength in (0.22, 0.24)
+    ]
+    assert at_full[0].lower > 0 > at_full[1].lower
+    assert robustness["rv"] > 0.24
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
