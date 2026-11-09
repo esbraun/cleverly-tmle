@@ -65,7 +65,7 @@ jobs:
       - run: sphinx-build -W --keep-going -b html docs docs/_build/html
 
   #
-  # Each interpreter's run is split across runners (`tests/sharding.py`), because one runner took
+  # Each interpreter's run is split across runners (`tests/conftest.py`), because one runner took
   # 2 hours 1 minute on 3.12 (November 2026) and the repository's rule is a CI run under 1.5
   # hours. 3.12 also runs `test_method_evidence.py`, so it has four shards and the others two. A
   # shard holds whole `xdist_group`s. `tests-verdict` below reports them as one check.

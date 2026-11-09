@@ -83,7 +83,7 @@ cannot affect a fitted result.
 
 The study evidence checks run on 3.12 only. They recompute the published verdicts from committed
 files with test code, and they took about half of the 2-hour 3.12 run before it was sharded.
-A shard keeps each `xdist_group` whole (`tests/sharding.py`). Set `CLEVERLY_TEST_SHARD=i/N` to run one locally.
+A shard keeps each `xdist_group` whole (`tests/conftest.py`). Set `CLEVERLY_TEST_SHARD=i/N` to run one locally.
 
 `nox` with no argument runs the `lint`, `typecheck`, `docs`, `tests`, and `slow` sessions, which
 mirror the first five jobs. `minimal-install` has no session, because it installs one dataframe

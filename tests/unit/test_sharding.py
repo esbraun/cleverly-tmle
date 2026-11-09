@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from tests import sharding
+from tests import conftest as sharding
 
 
 def test_every_unit_lands_in_exactly_one_shard() -> None:
-    units = [f"tests/unit/test_x.py::test_{i}" for i in range(500)] + ["study-a", "study-b"]
+    units = [f"unit-{i}" for i in range(500)] + ["study-a", "study-b"]
     for count in (1, 2, 3, 4):
         seen = [sharding.shard_of(unit, count) for unit in units]
         assert set(seen) <= set(range(1, count + 1))
@@ -48,12 +48,12 @@ def test_the_hook_keeps_groups_whole_and_the_shards_partition_the_items(
 @pytest.mark.parametrize("value", ["0/3", "4/3", "x", "1/y", "1"])
 def test_a_malformed_shard_is_refused(value: str) -> None:
     with pytest.raises(ValueError, match="CLEVERLY_TEST_SHARD"):
-        sharding.parse(value)
+        sharding.parse_shard(value)
 
 
 def test_an_empty_value_means_no_sharding() -> None:
-    assert sharding.parse("") is None
-    assert sharding.parse("2/3") == (2, 3)
+    assert sharding.parse_shard("") is None
+    assert sharding.parse_shard("2/3") == (2, 3)
 
 
 def test_the_ci_job_shards_each_interpreter_and_keeps_the_old_check_names() -> None:

@@ -7,7 +7,9 @@ the test is about estimator machinery rather than flexible learning.
 from __future__ import annotations
 
 import inspect
+import os
 import sys
+import zlib
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -25,7 +27,6 @@ import cleverly
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.ctmle import CTMLEStrategy
 from cleverly.learners import SuperLearner
-from tests import sharding
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -110,9 +111,35 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     _keep_this_shard(config, items)
 
 
+# CI splits one pytest run across runners: `CLEVERLY_TEST_SHARD=i/N` keeps the i-th of N shards. A
+# shard is a set of scheduling units: an `xdist_group` stays whole (the group exists to put its
+# tests on one worker) and an ungrouped test is a unit of its own. A unit goes to the shard its
+# CRC-32 names, so the assignment depends on the unit alone and the N shards run every test once.
+SHARD_ENV = "CLEVERLY_TEST_SHARD"
+
+
+def shard_of(unit: str, count: int) -> int:
+    """The 1-based shard that runs ``unit``, out of ``count`` shards."""
+    return zlib.crc32(unit.encode()) % count + 1
+
+
+def parse_shard(value: str | None = None) -> tuple[int, int] | None:
+    """Read ``i/N`` from ``value`` (default: the environment), or None when unset."""
+    text = (os.environ.get(SHARD_ENV, "") if value is None else value).strip()
+    if not text:
+        return None
+    try:
+        index, count = (int(part) for part in text.split("/"))
+    except ValueError as error:
+        raise ValueError(f"{SHARD_ENV}={text!r} is not of the form i/N") from error
+    if not 1 <= index <= count:
+        raise ValueError(f"{SHARD_ENV}={text!r} names no shard of {count}")
+    return index, count
+
+
 def _keep_this_shard(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Deselect the tests that another CI shard runs (``CLEVERLY_TEST_SHARD=i/N``)."""
-    shard = sharding.parse()
+    shard = parse_shard()
     if shard is None:
         return
     index, count = shard
@@ -122,7 +149,7 @@ def _keep_this_shard(config: pytest.Config, items: list[pytest.Item]) -> None:
         marker = item.get_closest_marker("xdist_group")
         group = None if marker is None else (marker.args or [marker.kwargs.get("name")])[0]
         unit = item.nodeid if group is None else str(group)
-        (kept if sharding.shard_of(unit, count) == index else dropped).append(item)
+        (kept if shard_of(unit, count) == index else dropped).append(item)
     if dropped:
         config.hook.pytest_deselected(items=dropped)
         items[:] = kept
