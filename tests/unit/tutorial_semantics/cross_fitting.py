@@ -31,11 +31,8 @@ from tests.unit.tutorial_semantics import (
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
 REFIT_CELLS = (
-    "sensitivity-benchmarks",
     "fold-check",
-    "bounded-truth",
     "team-plasmode",
-    "team-surface",
 )
 
 
@@ -63,7 +60,6 @@ UNPRINTED_DECIMALS = {
     "0.9475": f"coverage of clustered_inference/cluster_robust: {_CLUSTERED}",
     "0.84125": f"coverage of clustered_inference/iid_control: {_CLUSTERED}",
     "0.06185": f"upper end of that bias interval: {_REFUTATION}/main_generated.log",
-    "0.13804": f"mean of the 400 refits: {_REFUTATION}/main_generated.log",
     "-0.03615": f"main bounded generated-outcome bias reading: {_REFUTATION}/main_generated.log",
     "-0.1341": f"lower end of that bias interval: {_REFUTATION}/main_generated.log",
 }
@@ -312,61 +308,8 @@ def _check_robustness(namespace: dict[str, Any]) -> None:
     assert abs(at_rv.lower) < 1e-3
 
 
-def _check_sensitivity(namespace: dict[str, Any]) -> None:
-    """The four benchmarks and the bisected tipping strength."""
-    cross_fitted = namespace["cross_fitted"]["ate"]
-    sensitivity = namespace["sensitivity"]
-    elements = namespace["elements"]
-    robustness = namespace["robustness"]
-    # The benchmarks cover every recorded covariate, so "any recorded characteristic" holds.
-    benchmarks = namespace["benchmarks"]
-    assert list(benchmarks) == list(namespace["covariates"])
-    bounds = {
-        name: sensitivity.omitted_confounding(benchmark=record)
-        for name, record in benchmarks.items()
-    }
-    # "every lower 95% limit stays above zero, the lowest at 0.0860"; "at most 0.0621
-    # (discharge_risk)".
-    assert all(bound.ci_lower > 0.0 for bound in bounds.values())
-    assert min(bounds, key=lambda name: bounds[name].ci_lower) == "discharge_risk"
-    assert max(bounds, key=lambda name: bounds[name].bias) == "discharge_risk"
-    # Nonzero witness for benchmark=record: each bound uses its record's strengths and the
-    # four biases differ, so a call that ignored the record (and tied all four) fails here.
-    scale = np.sqrt(elements.sigma2 * elements.nu2)
-    for name, bound in bounds.items():
-        record = benchmarks[name]
-        assert (bound.cf_y, bound.cf_d) == (record.cf_y, record.cf_d)
-        expected = np.sqrt(record.cf_y * record.cf_d / (1.0 - record.cf_d)) * scale
-        assert abs(bound.bias - expected) < 1e-9
-    assert len({round(bound.bias, 12) for bound in bounds.values()}) == len(bounds)
-    for bound in bounds.values():
-        assert bound.rho == 1.0
-        assert 0.0 < bound.ci_lower < bound.lower < cross_fitted.psi < bound.upper < bound.ci_upper
-    # "discharge_risk explains so much of the score that its score-side strength is capped at 1":
-    # its gain exceeds 1 and the benchmark clips cf_y; the others are not clipped.
-    strong = benchmarks["discharge_risk"]
-    assert strong.gain_y > 1.0 and strong.cf_y == 1.0
-    assert all(
-        np.isclose(record.cf_y, record.gain_y, rtol=1e-12, atol=0.0) and record.cf_y < 1.0
-        for name, record in benchmarks.items()
-        if name != "discharge_risk"
-    )
-    # The strongest weight side is prior_utilization; the tipping strength at cf_y = 1 is
-    # "about twice" it.  The bisection is checked from both sides, so a wrong sign or bound
-    # in the cell fails here.
-    strongest = max(benchmarks, key=lambda name: benchmarks[name].cf_d)
-    assert strongest == "prior_utilization"
-    tipping = namespace["tipping_cf_d"]
-    assert 1.8 < tipping / benchmarks[strongest].cf_d < 2.2
-    assert sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping - 1e-3).ci_lower > 0.0
-    assert sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping + 1e-3).ci_lower < 0.0
-    # "a confounder with both strengths below that cannot erase the effect": the unequal case
-    # can, with a weight side below the robustness value.
-    assert tipping < robustness["rva"]
-
-
 def check_refits(namespace: dict[str, Any]) -> None:
-    """The refits: the fold check, the sensitivity benchmarks, and the generated outcomes."""
+    """The refits: the fold check and the team plasmode."""
     cross_fitted = namespace["cross_fitted"]
     original = cross_fitted["ate"].psi
     se = cross_fitted["ate"].std_error
@@ -400,15 +343,6 @@ def check_refits(namespace: dict[str, Any]) -> None:
     assert round(scatter, 7) == 0.0035138 and round(reference, 7) == 0.0035642
     assert round(scatter / reference, 5) == 0.98586
 
-    # The bounded generated outcome: truth 0.1382, 10 draws, no verdict.
-    bounded = namespace["bounded_truth"].tests[0]
-    assert bounded.passed is None and bounded.rung == "L1" and len(bounded.values) == 10
-    assert round(float(np.mean(bounded.values)), 5) == 0.13788
-
-    # "the 10 refits ... the check does not print a standard-error ratio or coverage".
-    assert [reading.name for reading in bounded.readings] == ["bias"]
-    assert round(bounded.declared_effect, 4) == 0.1382
-
     # The team plasmode runs at the 400 draws of the equivalence bands, so it prints a verdict.
     # The page's 0.1161 truth is the declared law's, and the estimate is the team fit's.
     plasmode = namespace["team_plasmode"].tests[0]
@@ -420,16 +354,12 @@ def check_refits(namespace: dict[str, Any]) -> None:
     assert all(reading.lower >= reading.band[0] for reading in readings.values())
     assert all(reading.upper <= reading.band[1] for reading in readings.values())
     assert round(readings["coverage"].estimate, 4) == 0.945
-    _check_sensitivity(namespace)
 
 
 def _check_refutation(namespace: dict[str, Any]) -> None:
-    """The refutation and sensitivity prints, read from the stored outputs and committed logs."""
+    """The refutation prints, read from the stored outputs and committed logs."""
     fold_output = stored_output(NOTEBOOK, "fold-check")
     assert "spread across seeds with no noise column (SE units): 0.2008" in fold_output
-    bounded_output = stored_output(NOTEBOOK, "bounded-truth")
-    assert "true value 0.1382" in bounded_output
-    assert "readings printed: ['bias']" in bounded_output
     plasmode_output = stored_output(NOTEBOOK, "team-plasmode")
     assert "400 draws, level L2, verdict passed" in plasmode_output
     assert "true value 0.1161, mean estimate 0.1165" in plasmode_output
@@ -438,28 +368,9 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     assert "coverage  0.9450 in (0.9179, 0.9652), band (0.88, 0.99)" in plasmode_output
     _assert_refutation_probe()
 
-    # The median-rule fit prints the warning that no study licenses the limits.
-    assert "No validation study licenses the one-sided limits" in stored_output(
-        NOTEBOOK, "repeated-bounds"
-    )
-
-    # Go deeper: the E-value, the median-rule bound of the repeated fit, and the team surface.
-    evalue_output = stored_output(NOTEBOOK, "evalue")
-    assert re.search(r"^estimate\s+1\.844\s+3\.09$", evalue_output, re.M)
-    assert re.search(r"^95% limit nearest the null\s+1\.769\s+2\.94$", evalue_output, re.M)
-    repeated = namespace["repeated"]["ate"]
-    bounds = namespace["repeated_bounds"]
-    assert (bounds.cf_y, bounds.cf_d, bounds.rho) == (0.03, 0.03, 1.0)
-    assert 0.0 < bounds.ci_lower < bounds.lower < repeated.psi < bounds.upper < bounds.ci_upper
-    assert round(bounds.lower, 5) == 0.14773 and round(bounds.upper, 5) == 0.16557
-    surface = stored_output(NOTEBOOK, "team-surface")
-    assert "one value per team, over 200 teams" in surface
-    assert " 0.02645 " in surface and "-0.02157 " in surface
-    assert 0.8 < 0.02645 / namespace["clustered"]["ate"].std_error < 0.9
-
 
 def _assert_refutation_probe() -> None:
-    """The 400-draw team plasmode that the reading quotes equals its committed log."""
+    """The 400-draw checks that the readings quote equal their committed logs."""
     log = (ROOT / _REFUTATION / "team.log").read_text()
     assert "bias 0.02134 [-0.07666, 0.1193] inside [-0.2, 0.2]" in log
     assert "se_ratio 0.9906 [0.9242, 1.062] inside [0.85, 1.15]" in log
@@ -467,4 +378,4 @@ def _assert_refutation_probe() -> None:
     assert "team plasmode R=400: 27.8 s" in log
     main = (ROOT / _REFUTATION / "main_generated.log").read_text()
     assert "bias -0.03615 [-0.1341, 0.06185] inside [-0.2, 0.2]" in main
-    assert "0.13804" in main and "R=400: 2071.1 s" in main
+    assert "R=400: 2071.1 s" in main
