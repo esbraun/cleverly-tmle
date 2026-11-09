@@ -264,6 +264,7 @@ PRELUDES: dict[str, str] = {
     "docs/technical-reference/structural-dynamic-effects.md": "",
     "docs/technical-reference/validation-methods.md": "",
     "docs/user-guide/longitudinal.md": "",
+    "docs/user-guide/survival.md": "",
     "docs/user-guide/conditional-effects.md": _CONDITIONAL,
     "docs/user-guide/data-design.md": _FRAME,
     "docs/user-guide/estimands.md": _STUDY,

@@ -26,5 +26,6 @@ conditional-effects
 methods-learners
 results-assessment
 longitudinal
+survival
 capabilities
 ```
