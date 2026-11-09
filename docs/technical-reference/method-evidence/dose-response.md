@@ -80,7 +80,8 @@ the truths, the tail dose, the robustness limits, the band design numbers and th
 
 ## Agreement with the canonical implementation
 
-None claimed, so a zero-row equivalence artifact records the absence. npcausal `ctseff` (Kennedy,
+None claimed, so no canonical implementation is compared, and a zero-row equivalence artifact
+records the absence. npcausal `ctseff` (Kennedy,
 Ma, McHugh and Small 2017) smooths against the marginal dose density rather than the Lebesgue
 kernel weight of `DoseResponse`, so a paired comparison needs a matched target. Roadmap item X93,
 part S2, builds the R runner and that target.
@@ -230,6 +231,7 @@ from the committed results.
 | `margin:efficiency_ratio_lower` | 0.9000 | exact-EIF ratio lower bound |
 | `margin:efficiency_ratio_upper` | 1.1000 | exact-EIF ratio upper bound |
 | `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 40 | the same bound, in primary replications |
 | `margin:nominal_coverage` | 0.9500 | nominal interval coverage |
 | `margin:bootstrap_replicates` | 10000 | bootstrap replications |
 | `margin:over_coverage_ceiling` | 0.9900 | descriptive overcoverage threshold |
@@ -241,10 +243,10 @@ from the committed results.
 | `margin:root_n_slope_lower` | -0.6250 | root-n slope lower bound. No cell of this study reads it |
 | `margin:root_n_slope_upper` | -0.3750 | root-n slope upper bound. No cell of this study reads it |
 | `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude. No cell of this study reads it |
-| `margin:paired_difference` | 0.1500 | paired similarity margin in pooled SDs. No cell of this study reads it until the comparator runs register |
-| `margin:rmse_noninferiority` | 1.1000 | RMSE-ratio noninferiority bound. No cell of this study reads it until the comparator runs register |
-| `margin:coverage_noninferiority` | -0.0250 | coverage-difference noninferiority bound. No cell of this study reads it until the comparator runs register |
-| `margin:calibration_noninferiority` | 0.0500 | calibration-excess noninferiority bound. No cell of this study reads it until the comparator runs register |
+| `margin:paired_difference` | 0.1500 | paired similarity margin in pooled SDs. No cell of this study reads it, because it has no comparator |
+| `margin:rmse_noninferiority` | 1.1000 | RMSE-ratio noninferiority bound. No cell of this study reads it, because it has no comparator |
+| `margin:coverage_noninferiority` | -0.0250 | coverage-difference noninferiority bound. No cell of this study reads it, because it has no comparator |
+| `margin:calibration_noninferiority` | 0.0500 | calibration-excess noninferiority bound. No cell of this study reads it, because it has no comparator |
 
 ## Limits
 
