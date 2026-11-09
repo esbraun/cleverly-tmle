@@ -182,11 +182,25 @@ class PooledModel:
         if node in self.held:
             return np.broadcast_to(self.held[node], (n, self.n_classes)).copy()
         if self.model is None:
-            return np.full((n, self.n_classes), 1.0 / self.n_classes)
+            return np.broadcast_to(self._nearest_held(node), (n, self.n_classes)).copy()
         design = person_node_design(baseline, treatment, np.full(n, node), self.n_times)
         fitted = np.zeros((n, self.n_classes))
         fitted[:, np.asarray(self.model.classes_, dtype=int)] = self.model.predict_proba(design)
         return fitted
+
+    def _nearest_held(self, node: int) -> np.ndarray[Any, Any]:
+        """The held vector of the nearest observed node, for a node nobody was observed at.
+
+        A model with no fitted node has every observed node held at one class, so a node
+        with no observed rows reads its nearest neighbour.  A model with no observed node
+        at all holds class zero (no event, no censoring) at the clip.
+        """
+        if self.held:
+            nearest = min(self.held, key=lambda held: (abs(held - node), held))
+            return self.held[nearest]
+        vector = np.zeros(self.n_classes)
+        vector[0] = 1.0
+        return np.clip(vector, CLIP, 1.0 - CLIP) if self.n_classes == 2 else vector
 
     def probability(
         self, node: int, baseline: np.ndarray[Any, Any], treatment: np.ndarray[Any, Any]

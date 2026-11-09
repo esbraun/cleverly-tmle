@@ -1552,15 +1552,17 @@ the observed value wherever $p' = p$.
 The replay fits its own pooled logistic models once per surface, with the observation weights:
 the event, censoring, and on a competing panel the cause given an event. Each design is the
 weighted-standardized baseline block, the treatment, and node indicators. A node whose
-indicator takes one value is held at the clip bound $10^{-6}$ or $1 - 10^{-6}$ rather than
-fitted. `replay_models` records each fit.
+observed rows show one class is held at that class rather than fitted, clipped to
+$[10^{-6}, 1 - 10^{-6}]$ on a binary model. A node with no observed rows reads the pooled fit
+with a zero node coefficient, or the nearest held node when no node was fitted.
+`replay_models` records each fit.
 
 | item | law | witness |
 | --- | --- | --- |
 | identity | at zero strength every observed indicator is kept, so the replayed panel is the observed panel and its refit is the original estimate | `test_simulated_confounding_survival.py`: array equality on survival, competing, uncensored and weighted panels, and the refit equal to the estimate |
-| censoring | redrawn from the censoring model at the perturbed treatment $A'$, kept where the treatment did not change. With a correct censoring model, $C'_k \perp (U, A) \mid W, A'$ among the replay's units at risk, so censoring stays at random given the replayed past | an exact chain over observed and replayed states gives $P(C'_k = 1) = c(k, W, A')$ to $10^{-12}$. Keeping the observed censoring of a flipped unit fails it, and fails a simulation witness at more than 8 standard errors |
-| event | the event model is read at the observed treatment and shifted by $\gamma U$. A flipped unit keeps the outcome process it had, as on the point surface | the exact chain gives the shifted model to $10^{-12}$. Reading the event model at $A'$ fails a simulation witness |
-| competing risks | the default shifts the all-cause event. A kept event keeps its cause, and a new event draws its cause from the fitted shares. `outcome_cause=` instead shifts one cause's hazard among those free of every other cause and leaves every other cause-specific hazard unchanged | the cause of a new event matches the shares in simulation. A named cause moves its own count and leaves the other's to the risk set |
+| censoring | redrawn from the censoring model at the perturbed treatment $A'$, kept where the treatment did not change. With a correct censoring model, $C'_k \perp (U, A) \mid W, A'$ among the replay's units at risk, so censoring stays at random given the replayed past | an exact chain over observed and replayed states, written in the test, gives $P(C'_k = 1) = c(k, W, A')$ to $10^{-12}$, and the coded coupling matches its transition on stratified uniforms. On the shipped replay with the true models, the censoring residual of flipped units stays within 4 standard errors. Keeping the observed censoring of a flipped unit fails the chain and moves the residual past 8 |
+| event | the event model is read at the observed treatment and shifted by $\gamma U$. A flipped unit keeps the outcome process it had, as on the point surface | the test's exact chain gives the shifted model to $10^{-12}$. On the shipped replay the event residual of flipped units stays within 4 standard errors, and reading the event model at $A'$ moves it past 8 |
+| competing risks | the default shifts the all-cause event. A kept event keeps its cause, and a new event draws its cause from the fitted shares. `outcome_cause=` instead shifts one cause's hazard among those free of every other cause and leaves every other cause-specific hazard unchanged | the cause of a new event matches the shares in simulation. A named cause's residual among flipped units stays within 4 standard errors of its shifted hazard at the observed treatment, and reading it at $A'$ moves the residual past 8 |
 | extended follow-up | a unit kept past its observed exit continues on the fitted models with plain uniforms | every replayed panel passes the panel's own sweep over random strengths, including negative $\gamma$ |
 | calibration | the outcome row is the benchmark's coefficient in the replay's event model, in event log-odds per standard deviation, the scale of $\gamma$ | the coefficient equals an in-test penalized Newton fit of the same person-node table to $10^{-6}$ |
 

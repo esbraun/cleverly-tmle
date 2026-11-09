@@ -424,6 +424,12 @@ def validate_longitudinal_request(
                 "outcome_cause names the cause whose hazard the latent shifts on a "
                 "competing-risk fit, and this fit has one outcome"
             )
+        if len(data.cause_labels) < 2:
+            raise ValueError(
+                "outcome_cause picks one of several competing causes, and this fit declares "
+                "one cause, whose hazard the default law already shifts; leave outcome_cause "
+                "unset"
+            )
         if outcome_cause not in data.cause_labels:
             raise ValueError(
                 f"outcome_cause {outcome_cause!r} is not a cause of this fit; its causes are "
@@ -614,6 +620,10 @@ def _calibrate(data: Any, request: LongitudinalRequest, models: Any = None) -> t
     return tuple(rows)
 
 
+#: The calibration method of an outcome row when the replay models raised while fitting.
+_REPLAY_FIT_FAILED_METHOD = "the replay's event model could not be fitted; strength not defined"
+
+
 def _survival_outcome_row(data: Any, name: str, models: Any) -> Any:
     """The outcome row of a survival fit: a coefficient of the replay's event model."""
     from ._simulated_confounding_survival import calibration_strength
@@ -621,9 +631,7 @@ def _survival_outcome_row(data: Any, name: str, models: Any) -> Any:
 
     index = list(data.baseline_names).index(name)
     if models is None:
-        from .simulated_confounding import NONCONVERGENCE_METHOD
-
-        strength, method = float("nan"), NONCONVERGENCE_METHOD
+        strength, method = float("nan"), _REPLAY_FIT_FAILED_METHOD
     else:
         strength, method = calibration_strength(models.event, index)
     return ObservedConfounderCalibration(

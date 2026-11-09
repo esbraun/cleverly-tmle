@@ -26,17 +26,20 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly.longitudinal import LTMLE, LongitudinalData
+from cleverly.exceptions import CapabilityError
+from cleverly.longitudinal import LTMLE, LongitudinalData, Repeated, Separable
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity import _simulated_confounding_survival as survival
 from cleverly.sensitivity._simulated_confounding_longitudinal import (
     _CENSORING_REFUSAL,
     _KNOWN_CENSORING_REFUSAL,
+    _REPEATED_REFUSAL,
     _SEPARABLE_REFUSAL,
     _SURVIVAL_NOT_HELD_REFUSAL,
     longitudinal_fit_refusal,
 )
 from cleverly.sensitivity.simulated_confounding import _latent_child_seed
+from tests.unit._confounding_support import forbid_draw_and_refit
 
 N_TIMES = 3
 
@@ -532,6 +535,100 @@ def test_a_named_cause_moves_only_its_own_hazard() -> None:
     assert other_move < 0.25 * named_move
 
 
+class _Named:
+    """The true per-cause conditionals of the competing panel for a named cause ``j``.
+
+    The panel draws the all-cause event with probability ``h`` and then cause 0 with
+    probability ``pi``, so the other cause has hazard ``h (1 - pi_j)`` and the named cause,
+    among those free of the other, ``h pi_j / (1 - h (1 - pi_j))``.
+    """
+
+    def __init__(self, kind: str, w1: Any, w2: Any, j: int, at: Any = None) -> None:
+        self.kind, self.w1, self.w2, self.j, self.at = kind, w1, w2, j, at
+
+    def probability(self, node: int, baseline: Any, treatment: Any) -> Any:
+        a = treatment if self.at is None else self.at
+        h = _hazard(node + 1, self.w2, a)
+        first = _first_cause(self.w1, a)
+        named = first if self.j == 0 else 1.0 - first
+        if self.kind == "other":
+            return h * (1.0 - named)
+        return h * named / (1.0 - h * (1.0 - named))
+
+    def describe(self) -> str:
+        return self.kind
+
+
+def _named_models(data: LongitudinalData, at: Any = None) -> survival.ReplayModels:
+    w1, w2 = np.asarray(data.baseline, dtype=float).T
+    j = list(data.cause_labels).index("death")
+    return replace(
+        _true_models(data, 2),
+        event=_Named("named", w1, w2, j, at),  # type: ignore[arg-type]
+        other=_Named("other", w1, w2, j),  # type: ignore[arg-type]
+        cause_index=j,
+    )
+
+
+def _named_residual(run: dict[str, Any], strength: float) -> float:
+    """The largest |t| of the named-cause residual among flipped units free of the other."""
+    data = run["data"]
+    w1, w2 = np.asarray(data.baseline, dtype=float).T
+    j = list(data.cause_labels).index("death")
+    raw = run["replay"].event
+    flipped = run["treatment"] != run["observed"].treatment
+    a = run["observed"].treatment
+    worst = 0.0
+    for arm in (0.0, 1.0):
+        residuals = []
+        for node in range(N_TIMES):
+            at_risk = np.isfinite(raw[:, node, 0]) & flipped & (run["treatment"] == arm)
+            free = at_risk & (raw[:, node, 1 - j] == 0.0)
+            rho = _Named("named", w1[free], w2[free], j).probability(node, None, a[free])
+            expected = _expit(np.log(rho / (1 - rho)) + strength * run["latent"][free])
+            residuals.append(raw[free, node, j] - expected)
+        r = np.concatenate(residuals)
+        worst = max(worst, abs(float(np.mean(r)) / float(np.std(r) / np.sqrt(len(r)))))
+    return worst
+
+
+def test_a_named_cause_follows_its_shifted_model_at_the_observed_treatment() -> None:
+    run = _simulated(_named_models, causes=2, strength=1.2)
+    assert _named_residual(run, 1.2) < 4.0
+
+
+def test_reading_the_named_cause_at_the_perturbed_treatment_shows_in_simulation() -> None:
+    """Mutation: the named cause's model read at the perturbed treatment."""
+
+    def mutated(data: LongitudinalData) -> survival.ReplayModels:
+        observed = survival.observed_followup(data)
+        latent = np.random.default_rng(22).normal(size=data.n)
+        perturbed = np.where(latent >= 0.5244, 1.0 - observed.treatment, observed.treatment)
+        return _named_models(data, at=perturbed)
+
+    run = _simulated(mutated, causes=2, strength=1.2)
+    assert _named_residual(run, 1.2) > 8.0
+
+
+def test_a_never_observed_node_reads_its_nearest_held_node() -> None:
+    """An outcome that never occurs is held near zero, not at one half, past observed exits."""
+    n, n_times = 50, 3
+    rows = np.zeros((n, n_times), dtype=bool)
+    rows[:, :2] = True
+    model = survival.fit_pooled(
+        "other cause",
+        np.zeros((n, 1)),
+        np.zeros(n),
+        rows,
+        np.zeros((n, n_times), dtype=int),
+        np.ones(n),
+        2,
+    )
+    assert model.model is None and sorted(model.held) == [0, 1]
+    late = model.probability(2, np.zeros((4, 1)), np.zeros(4))
+    assert np.all(late == survival.CLIP)
+
+
 # ------------------------------------------------------------------ calibration
 
 
@@ -626,6 +723,15 @@ def test_outcome_cause_is_checked_before_work() -> None:
         simulated_confounding(
             competing, "cif_regimen[a1, death @ t=3]", grid=grid, outcome_cause="stroke"
         )
+    frame, columns = _panel(400, 4)
+    single = {**columns, "outcome": {"death": columns["outcome"]}}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        one_cause: Any = _hazard_ltmle().fit(frame, **single)
+    assert one_cause.data.is_competing
+    name = next(iter(one_cause.estimates))
+    with pytest.raises(ValueError, match="this fit declares one cause"):
+        simulated_confounding(one_cause, name, grid=grid, outcome_cause="death")
 
 
 def test_a_signed_outcome_strength_is_accepted_on_a_survival_fit() -> None:
@@ -660,6 +766,77 @@ def test_a_survival_fit_that_is_not_held_is_refused() -> None:
             censoring_learner=LogisticRegression(max_iter=1000),
         ).fit(frame, **{**columns, "treatment": ["A1", "A2", "A3"]})
     assert longitudinal_fit_refusal(result) == _SURVIVAL_NOT_HELD_REFUSAL
+
+
+def _refused_before_work(result: Any, constant: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert longitudinal_fit_refusal(result) == constant
+    forbid_draw_and_refit(monkeypatch, result.estimator)
+    monkeypatch.setattr(survival, "fit_replay_models", _never)
+    with pytest.raises(CapabilityError) as caught:
+        simulated_confounding(
+            result, next(iter(result.estimates)), grid=ConfounderStrengthGrid((0.0,), (0.0, 1.0))
+        )
+    assert str(caught.value) == constant.message()
+
+
+def _never(*args: Any, **kwargs: Any) -> Any:
+    raise AssertionError("the replay models were fitted before the refusal")
+
+
+def test_a_separable_fit_is_refused_before_work(monkeypatch: pytest.MonkeyPatch) -> None:
+    frame, columns = _panel(400, 4, causes=2)
+    learner = LogisticRegression(max_iter=1000)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result: Any = LTMLE(
+            {"a1": 1, "a0": 0, "sep": Separable(arms={"death": 0, "relapse": 1}, first="death")},
+            n_folds=1,
+            random_state=3,
+            survival_model="hazard",
+            targeting="one_step",
+            outcome_learner=learner,
+            treatment_learner=learner,
+            censoring_learner=learner,
+        ).fit(frame, **columns)
+    _refused_before_work(result, _SEPARABLE_REFUSAL, monkeypatch)
+
+
+def test_a_declared_censoring_mechanism_is_refused_before_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame, columns = _panel(400, 4)
+    declared = np.column_stack(
+        [1.0 - _censoring(node, frame["W1"], frame["A"]) for node in range(1, N_TIMES + 1)]
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result: Any = _hazard_ltmle().fit(frame, censoring_probabilities=declared, **columns)
+    _refused_before_work(result, _KNOWN_CENSORING_REFUSAL, monkeypatch)
+
+
+def test_a_repeated_outcome_is_refused_before_work(monkeypatch: pytest.MonkeyPatch) -> None:
+    rng = np.random.default_rng(41)
+    n = 400
+    frame = pd.DataFrame({"W1": rng.normal(size=n), "A": rng.integers(0, 2, size=n)})
+    for node in range(1, N_TIMES + 1):
+        frame[f"Y{node}"] = rng.integers(0, 2, size=n).astype(float)
+    learner = LogisticRegression(max_iter=1000)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result: Any = LTMLE(
+            {"a1": 1, "a0": 0},
+            n_folds=1,
+            random_state=3,
+            outcome_learner=learner,
+            pseudo_learner=LinearRegression(),
+            treatment_learner=learner,
+        ).fit(
+            frame,
+            outcome=Repeated([f"Y{node}" for node in range(1, N_TIMES + 1)]),
+            treatment="A",
+            baseline=["W1"],
+        )
+    _refused_before_work(result, _REPEATED_REFUSAL, monkeypatch)
 
 
 def test_the_refusal_texts_name_their_own_argument() -> None:
