@@ -35,11 +35,17 @@ from ..inference.results import (
     smooth_contrast,
     sole_estimate,
 )
-from ..learners.crossfit import Folds, _fresh_seed, random_partition
+from ..learners.crossfit import Folds, _fresh_seed
 from ..learners.super_learner import resolve_learner
 from ..provenance import Provenance, data_fingerprint, record
 from ..utils.bounds import resolve_g_bounds
-from .atmle import SOURCE_FLOOR, AdaptiveTMLEFit, WorkingModel, fit_adaptive_tmle
+from .atmle import (
+    SOURCE_FLOOR,
+    AdaptiveTMLEFit,
+    WorkingModel,
+    fit_adaptive_tmle,
+    stratified_partition,
+)
 
 if TYPE_CHECKING:
     from ..data.causal_data import CausalData
@@ -776,8 +782,8 @@ def _support() -> Support:
     )
 
 
-def _outer_folds(data: Any, kwargs: dict[str, Any], seed: int) -> Folds:
-    """Return the outer split: a supplied plan, one fold holding every row, or a draw."""
+def _outer_folds(data: Any, kwargs: dict[str, Any], seed: int, observed: Any) -> Folds:
+    """Return the outer split: a supplied plan, one fold holding every row, or a stratified draw."""
     from ..methods import ATMLE_CV_FOLDS_REFUSAL
 
     plan = kwargs["split_plan"]
@@ -800,7 +806,14 @@ def _outer_folds(data: Any, kwargs: dict[str, Any], seed: int) -> Folds:
         # Pooled form only (the method refuses cv without folds): every nuisance trains on
         # every row, as the engine does at one fold.
         return Folds.single(data.n)
-    return random_partition(data.n, kwargs["n_folds"], seed=seed)
+    return stratified_partition(
+        data.source.astype(float),
+        data.outcome,
+        observed,
+        "binomial" if data.family == "binomial" else "gaussian",
+        kwargs["n_folds"],
+        seed,
+    )
 
 
 def fit_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> AdaptiveTMLEResult:
@@ -851,7 +864,7 @@ def fit_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> Ad
     if missing:
         learners["missingness"] = resolved(kwargs["missingness_learner"], "classification")
     g_bounds = resolve_g_bounds(kwargs["g_bounds"], data.n)
-    split = _outer_folds(data, kwargs, seed)
+    split = _outer_folds(data, kwargs, seed, data.observed if missing else None)
     fit = fit_adaptive_tmle(
         data.outcome,
         data.treatment,
@@ -866,6 +879,7 @@ def fit_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> Ad
         basis=kwargs["basis"],
         form=kwargs["form"],
         population=estimand.population,
+        force_arm=kwargs["force_arm"],
         folds=split,
         inner_folds=inner,
         random_state=seed,

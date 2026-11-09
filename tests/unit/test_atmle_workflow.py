@@ -126,6 +126,53 @@ def test_the_study_fit_reproduces_the_engine(form: str, population: str) -> None
     assert low < estimate.psi < high
 
 
+def test_the_force_arm_field_reaches_the_engine_and_the_summary() -> None:
+    """``AdaptiveTMLEMethod(force_arm=True)`` is the engine's ``force_arm=True``."""
+    frame = _frame(seed=3)
+    method = dataclasses.replace(_method("pooled"), force_arm=True)
+    assert method.estimator_kwargs()["force_arm"] is True
+    effect = CausalStudy(
+        frame,
+        design=TrialWithExternalData(outcome="Y", treatment="A", adjustment=("W",), source="S"),
+    ).identify(TrialATE(population="trial"))
+    fitted = effect.estimate(method=method)
+    assert isinstance(fitted, AdaptiveTMLEResult)
+    assert fitted.fit.force_arm and "A" in fitted.working_models[0].bias_columns
+
+    def direct(force_arm: bool) -> Any:
+        return fit_adaptive_tmle(
+            frame["Y"].to_numpy(),
+            frame["A"].to_numpy(dtype=float),
+            frame["S"].to_numpy(dtype=float),
+            frame[["W"]].to_numpy(),
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(),
+            source_learner=LogisticRegression(),
+            g_bounds=fitted.g_bounds,
+            form="pooled",
+            population="trial",
+            force_arm=force_arm,
+            folds=fitted.folds,
+            inner_folds=3,
+            random_state=7,
+        )
+
+    assert fitted.estimate.psi == pytest.approx(direct(True).estimate, abs=1e-12)
+    assert "arm term is unpenalized" in str(fitted.summary(detail="full"))
+    with pytest.raises(cleverly.MethodConfigurationError, match="force_arm"):
+        dataclasses.replace(_method("pooled"), force_arm="yes")  # type: ignore[arg-type]
+
+
+def test_the_default_outer_split_is_stratified_by_source() -> None:
+    fitted = _fit(_frame(n=301, seed=4))
+    frame = _frame(n=301, seed=4)
+    counts = [
+        int(frame["S"].to_numpy()[fitted.folds.assignment == v].sum())
+        for v in range(fitted.folds.n_folds)
+    ]
+    assert max(counts) - min(counts) <= 1
+
+
 def test_the_pooled_form_fits_with_cross_fitting_off() -> None:
     """One fold trains on every row (the engine's one-fold case), not a raw ValueError."""
     frame = _frame(seed=2)
@@ -208,6 +255,19 @@ def test_missing_outcomes_fit_a_missingness_model() -> None:
     fitted = _fit(_frame(missing=True), missingness="R", missingness_learner=LogisticRegression())
     assert "missingness" in fitted.learners
     assert np.isfinite(fitted.psi())
+
+
+def test_force_arm_survives_save_and_load(tmp_path: Path) -> None:
+    method = dataclasses.replace(_method("pooled"), force_arm=True)
+    effect = CausalStudy(
+        _frame(seed=3),
+        design=TrialWithExternalData(outcome="Y", treatment="A", adjustment=("W",), source="S"),
+    ).identify(TrialATE(population="trial"))
+    fitted = effect.estimate(method=method)
+    loaded = cleverly.load(fitted.save(tmp_path / "forced.joblib"))
+    assert isinstance(loaded, AdaptiveTMLEResult)
+    assert loaded.method.force_arm is True and loaded.fit.force_arm is True
+    assert loaded.psi() == fitted.psi()
 
 
 def test_the_result_round_trips_through_save_and_load(

@@ -99,6 +99,8 @@ def _settings(result: AdaptiveTMLEResult) -> SummarySection:
             passes=corrections.passes, met="met" if corrections.converged else "did not meet"
         ),
     ]
+    if not result.support_report().controls_only:
+        lines.append(vocabulary.ATMLE_SETTINGS_ARM[result.fit.force_arm])
     reasons = dict.fromkeys(
         estimate.support.reason
         for estimate in result.estimates.values()

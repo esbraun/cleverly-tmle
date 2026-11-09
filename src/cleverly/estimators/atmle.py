@@ -56,7 +56,7 @@ from ..exceptions import (
     RefusalReason,
 )
 from ..learners._fitting import Task, fit_learner, predict_mean
-from ..learners.crossfit import Folds, random_partition
+from ..learners.crossfit import Folds, make_folds, random_partition
 from ._working_basis import WorkingDictionary
 
 __all__ = [
@@ -87,6 +87,7 @@ __all__ = [
     "residuals",
     "select_working_model",
     "source_covariates",
+    "stratified_partition",
     "target_directions",
     "target_source",
 ]
@@ -1433,6 +1434,7 @@ class AdaptiveTMLEFit:
     influence_curve: FloatArray
     population: Population
     form: Form
+    force_arm: bool
     working_models: tuple[WorkingModel, ...]
     epsilon: tuple[float, ...]
     epsilon_effect: float | None
@@ -1632,6 +1634,7 @@ def fit_adaptive_tmle(
     basis: Any = None,
     form: Form = "cv",
     population: Population = "pooled",
+    force_arm: bool = False,
     folds: Folds | None = None,
     n_folds: int = 5,
     inner_folds: int = 5,
@@ -1672,12 +1675,21 @@ def fit_adaptive_tmle(
         The adaptive CV-TMLE (Appendix C) or Algorithm 1 with cross-fitted nuisances.
     population : {"pooled", "trial"}, default="pooled"
         Average the trial's conditional effect over the pooled covariates or the trial's.
+    force_arm : bool, default=False
+        Leave the bias model's arm column ``A`` unpenalized, as ``atmle``'s default
+        ``force_A = TRUE`` does, and make the arm hierarchy a no-op. ``False`` penalizes
+        ``A`` like every other column except the constant. Forcing ``A`` gives each external
+        arm a free mean shift, so the external rows carry no information on the effect's
+        level and the efficiency bound is the trial-only one. With controls-only external
+        data the bias dictionary has no arm column, and the flag has no effect.
     folds : Folds or None, default=None
-        The outer split. ``None`` draws an unstratified split of ``n_folds`` folds.
+        The outer split. ``None`` draws a split of ``n_folds`` folds stratified by ``S``,
+        and by ``S`` and ``Y`` for a binary outcome (:func:`stratified_partition`).
     n_folds : int, default=5
         The outer folds drawn when ``folds`` is ``None``.
     inner_folds : int, default=5
-        The folds of the cross-validation that chooses each lasso penalty.
+        The folds of the cross-validation that chooses each lasso penalty, stratified like
+        the outer split.
     random_state : int, default=0
         The seed of the outer split, when drawn, and of the inner splits.
     outcome_family : {"gaussian", "binomial"}, default="gaussian"
@@ -1706,7 +1718,13 @@ def fit_adaptive_tmle(
     if seen is not None and missingness_learner is None:
         raise ValueError("observed= needs a missingness_learner")
     n = y.size
-    split = folds if folds is not None else random_partition(n, n_folds, seed=random_state)
+    if not isinstance(force_arm, (bool, np.bool_)):
+        raise ValueError(f"force_arm must be a bool; got {force_arm!r}")
+    split = (
+        folds
+        if folds is not None
+        else stratified_partition(s, y, seen, outcome_family, n_folds, random_state)
+    )
     if split.n != n:
         raise ValueError(f"the folds cover {split.n} rows; the data hold {n}")
     if form == "cv" and split.n_folds < 3:
@@ -1723,6 +1741,7 @@ def fit_adaptive_tmle(
     external = s == 0.0
     n_external_treated = int(np.sum(external & (a == 1.0)))
     controls_only = n_external_treated == 0
+    force_arm = bool(force_arm) and not controls_only
     few = max(20, int(0.01 * int(np.sum(external))))
     if 0 < n_external_treated <= few:
         _warn(
@@ -1784,8 +1803,17 @@ def fit_adaptive_tmle(
     trains: list[WorkingUnit] = []
     models: list[tuple[int | None, WorkingDictionary, Selection, Selection, IntArray, int]] = []
     for index, (fold, rows, values, evaluation) in enumerate(selections):
-        inner = random_partition(rows.size, inner_folds, seed=int(seeds[index])).assignment
-        dictionary, effect, bias = _select(data, rows, values, inner, controls_only, basis)
+        inner = stratified_partition(
+            data.s[rows],
+            data.y[rows],
+            None if data.observed is None else data.observed[rows],
+            data.family,
+            inner_folds,
+            int(seeds[index]),
+        ).assignment
+        dictionary, effect, bias = _select(
+            data, rows, values, inner, controls_only, basis, force_arm
+        )
         units.append(
             _unit(
                 data,
@@ -1810,11 +1838,64 @@ def fit_adaptive_tmle(
         models,
         population,
         form,
+        force_arm,
         split,
         raw_pibar,
         controls_only,
         n_external_treated,
     )
+
+
+def stratified_partition(
+    source: FloatArray,
+    outcome: FloatArray,
+    observed: BoolArray | None,
+    family: Literal["gaussian", "binomial"],
+    n_folds: int,
+    seed: int,
+) -> Folds:
+    """Draw a split that holds trial and external rows in proportion in every fold.
+
+    The strata are ``S``, and ``S`` by ``Y`` for a binary outcome, with an unrecorded
+    outcome as its own level, as ``atmle`` stratifies its folds. Each stratum is spread over
+    the folds to within one row. When a stratum has fewer rows than folds the split
+    stratifies by ``S`` alone, and when ``S`` has such a stratum too it is the plain
+    :func:`~cleverly.learners.crossfit.random_partition`.
+
+    Parameters
+    ----------
+    source : ndarray of float
+        ``S``.
+    outcome : ndarray of float
+        ``Y``; any value where ``observed`` is false.
+    observed : ndarray of bool or None
+        ``Delta``, or ``None`` when every outcome is recorded.
+    family : {"gaussian", "binomial"}
+        The outcome family; only a binary outcome enters the strata.
+    n_folds : int
+        The folds requested.
+    seed : int
+        The seed of the draw.
+
+    Returns
+    -------
+    Folds
+        The split.
+    """
+    trial = (np.asarray(source) == 1.0).astype(np.int64)
+    candidates: list[IntArray] = []
+    if family == "binomial":
+        level = np.asarray(outcome, dtype=float) == 1.0
+        if observed is not None:
+            level = np.where(observed, level, 2)
+        candidates.append(trial + 2 * level.astype(np.int64))
+    candidates.append(trial)
+    for strata in candidates:
+        if n_folds >= 2 and np.unique(strata, return_counts=True)[1].min() >= n_folds:
+            return make_folds(
+                strata.size, n_folds, stratify=strata.astype(float), random_state=seed
+            )
+    return random_partition(strata.size, n_folds, seed=seed)
 
 
 def _select(
@@ -1824,6 +1905,7 @@ def _select(
     inner: IntArray,
     controls_only: bool,
     basis: Any,
+    force_arm: bool,
 ) -> tuple[WorkingDictionary, Selection, Selection]:
     """Fit the dictionary and select both working models on the selection rows."""
     a, s = data.a[rows], data.s[rows]
@@ -1843,18 +1925,27 @@ def _select(
     effect = select_working_model(phi, a - values.g, response_a, 1, inner)
     psi = dictionary.psi(data.w[rows], a)
     multiplier_s = s - values.source_at(a)
-    # Only the constant of the bias model is unpenalized, as the intercept of the paper's
-    # lasso (Algorithm 1). The arm column A is penalized like every other column: forced in,
-    # it gives the external arms free mean shifts, so they carry no information on the
-    # effect's level and the fit's efficiency bound is the trial-only one.
+    # By default only the constant of the bias model is unpenalized, as the intercept of the
+    # paper's lasso (Algorithm 1). The arm column A is penalized like every other column:
+    # forced in, it gives the external arms free mean shifts, so they carry no information on
+    # the effect's level and the fit's efficiency bound is the trial-only one. force_arm
+    # leaves A unpenalized, as atmle's force_A = TRUE does; A is then always selected, and
+    # the arm hierarchy has nothing to add.
+    if force_arm and tuple(dictionary.psi_keep[:2]) != (0, 1):
+        raise CapabilityError(
+            "force_arm needs the bias dictionary's constant and arm column, and the "
+            "selection rows leave the arm column out as collinear with the constant.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative="Use force_arm=False.",
+        )
     bias = select_working_model(
         psi[bias_rows],
         multiplier_s[bias_rows],
         response_s[bias_rows],
-        1,
+        2 if force_arm else 1,
         inner[bias_rows],
     )
-    return dictionary, effect, arm_hierarchy(bias, dictionary.psi_arm)
+    return dictionary, effect, bias if force_arm else arm_hierarchy(bias, dictionary.psi_arm)
 
 
 def arm_hierarchy(selection: Selection, arm: BoolArray) -> Selection:
@@ -2071,6 +2162,7 @@ def _assemble(
     models: list[tuple[int | None, WorkingDictionary, Selection, Selection, IntArray, int]],
     population: Population,
     form: Form,
+    force_arm: bool,
     split: Folds,
     raw_pibar: FloatArray,
     controls_only: bool,
@@ -2113,6 +2205,7 @@ def _assemble(
         influence_curve=influence,
         population=population,
         form=form,
+        force_arm=force_arm,
         working_models=tuple(working),
         epsilon=tuple(targeted.epsilon),
         epsilon_effect=targeted.epsilon_effect,

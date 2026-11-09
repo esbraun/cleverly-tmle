@@ -703,6 +703,40 @@ def test_the_bias_model_penalizes_the_arm_column_so_compatible_arms_add_informat
     assert arm.std_error > 0.9 * bound
 
 
+def test_force_arm_always_selects_the_arm_column_and_removes_the_efficiency_gain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``force_arm=True`` leaves ``A`` unpenalized, as ``atmle``'s ``force_A = TRUE``.
+
+    On a shift common to both external arms the penalized fit drops ``A`` on every fold (the
+    nonzero witness: the lasso would otherwise leave it out), and the forced fit keeps it
+    and returns the trial-only bound. The mutation control ignores the flag and loses ``A``.
+    """
+    common = _shifted_draw(0, 2_000, (0.5, 0.5))
+    bound = float(np.sqrt(4.0 / common["source"].sum()))
+    penalized = _fit(common)
+    assert all("A" not in model.bias_columns for model in penalized.working_models)
+    assert not penalized.force_arm
+    forced = _fit(common, force_arm=True)
+    assert forced.force_arm
+    assert all("A" in model.bias_columns for model in forced.working_models)
+    assert forced.std_error > 0.9 * bound > 1.2 * penalized.std_error
+    original = atmle._select
+    monkeypatch.setattr(atmle, "_select", lambda *args: original(*args[:-1], False))
+    ignored = _fit(common, force_arm=True)
+    assert any("A" not in model.bias_columns for model in ignored.working_models)
+
+
+def test_force_arm_is_moot_when_the_external_data_are_controls_only() -> None:
+    """The bias dictionary holds no arm column there, so the flag changes nothing."""
+    data = trial_draw(2, 400, controls_only=True)
+    plain = _fit(data, n_folds=3)
+    forced = _fit(data, n_folds=3, force_arm=True)
+    assert not forced.force_arm
+    assert all("A" not in model.bias_columns for model in forced.working_models)
+    assert forced.estimate == plain.estimate and forced.std_error == plain.std_error
+
+
 def _sloped_draw(seed: int, n: int) -> dict[str, np.ndarray]:
     """External treated rows biased by ``1.5 W1``: the arms' biases differ, by zero at
     ``W1 = 0``, the covariate's population mean."""
@@ -899,3 +933,43 @@ def test_few_external_treated_rows_and_low_enrollment_probabilities_warn() -> No
     assert fit.diagnostics.n_external_treated == 3
     assert not fit.diagnostics.controls_only
     assert fit.diagnostics.external_source_below_floor > 0
+
+
+@pytest.mark.parametrize("family", ["gaussian", "binomial"])
+@pytest.mark.parametrize("n_folds", [3, 5])
+def test_the_default_outer_split_holds_trial_and_external_rows_in_proportion(
+    family: str, n_folds: int
+) -> None:
+    """Every fold's trial share is within one row of ``n_trial / V``; a binary outcome
+    stratifies by ``S`` and ``Y`` and each stratum is within one row per fold."""
+    rng = np.random.default_rng(5)
+    n = 307
+    s = rng.binomial(1, 0.2, n).astype(float)
+    y = rng.binomial(1, 0.4, n).astype(float) if family == "binomial" else rng.normal(size=n)
+    folds = atmle.stratified_partition(s, y, None, family, n_folds, 3)  # type: ignore[arg-type]
+    assert folds.n_folds == n_folds
+    trial = [int(np.sum(s[folds.assignment == v])) for v in range(n_folds)]
+    assert all(
+        abs(count - s.sum() / n_folds) < (1 if family == "gaussian" else 2) for count in trial
+    )
+    if family == "binomial":
+        for stratum in s * 2 + y:
+            counts = [
+                int(np.sum((s * 2 + y == stratum) & (folds.assignment == v)))
+                for v in range(n_folds)
+            ]
+            assert max(counts) - min(counts) <= 1
+    unstratified = random_partition(n, n_folds, seed=3).assignment
+    spread = [int(np.sum(s[unstratified == v])) for v in range(n_folds)]
+    assert max(spread) - min(spread) > max(trial) - min(trial)
+
+
+def test_the_engine_draws_its_split_stratified_and_a_small_stratum_falls_back() -> None:
+    data = trial_draw(4, 300)
+    fit = _fit(data, n_folds=4)
+    counts = [int(np.sum(data["source"][fit.folds.assignment == v])) for v in range(4)]
+    assert max(counts) - min(counts) <= 1
+    few = np.zeros(40)
+    few[:3] = 1.0
+    folds = atmle.stratified_partition(few, np.zeros(40), None, "gaussian", 5, 1)
+    assert folds.n_folds == 5

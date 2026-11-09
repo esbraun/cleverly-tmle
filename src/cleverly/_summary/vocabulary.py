@@ -4296,6 +4296,18 @@ ATMLE_SETTINGS_BOUNDS: Final = (
 ATMLE_SETTINGS_PASSES: Final = (
     "The trial-membership update took {passes} pass(es) and {met} the stopping rule."
 )
+ATMLE_SETTINGS_ARM: Final[Mapping[bool, str]] = MappingProxyType(
+    {
+        False: (
+            "The bias model's arm term is penalized like its other terms, so external arms "
+            "with the same bias can add information on the effect."
+        ),
+        True: (
+            "The bias model's arm term is unpenalized (force_arm), so each external arm has "
+            "a free mean shift and the external rows add no information on the effect's level."
+        ),
+    }
+)
 #: The assumptions of an adaptive TMLE fit that every fit states.
 ATMLE_ASSUMPTIONS_TRIAL: Final[tuple[str, ...]] = (
     "randomized trial: in the trial, the arm a unit got is unrelated to its outcomes given "

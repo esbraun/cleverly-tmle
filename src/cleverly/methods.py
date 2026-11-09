@@ -1847,7 +1847,9 @@ class AdaptiveTMLEMethod(TMLEMethod):
         treatment mechanism, and ``missingness_learner`` the outcome-observation mechanism.
         ``None`` takes the default Super Learner library.
     cross_fitting : CrossFitting, default=CrossFitting(n_folds=5)
-        The outer split. ``learner_folds`` also sets the folds of the cross-validation that
+        The outer split, drawn stratified by trial membership (and by the outcome when it is
+        binary) so that each fold holds trial and external rows in proportion.
+        ``learner_folds`` also sets the folds of the cross-validation that
         chooses each lasso penalty. ``form="cv"`` needs ``enabled=True`` and at least three
         folds. ``form="pooled"`` with ``enabled=False`` fits every nuisance on every row. A
         ``split_plan`` supplies the outer folds in place of a drawn split. ``repeats`` above
@@ -1873,13 +1875,22 @@ class AdaptiveTMLEMethod(TMLEMethod):
         Learner for the trial-membership probabilities ``P(S = 1 | W, A)`` and
         ``P(S = 1 | W)``. ``None`` takes ``models.treatment_learner``, then the default
         Super Learner.
+    force_arm : bool, default=False
+        Leave the arm column ``A`` of the bias model unpenalized, as the ``atmle`` package
+        does by default (``force_A = TRUE``). ``False`` penalizes it like every other column
+        except the constant, which is the default here because a forced ``A`` gives each
+        external arm a free mean shift: the external rows then carry no information on the
+        effect's level, and the efficiency bound is the trial-only one (on the exact law
+        ``a0`` the standard deviation of the influence function is 0.48 of the trial-only
+        bound with ``A`` penalized and 1.00 with ``A`` forced). With controls-only external
+        data there is no arm column and the setting has no effect.
 
     Raises
     ------
     MethodConfigurationError
-        When ``form`` is not ``"cv"`` or ``"pooled"``, when ``repeats`` is above one, when
-        ``form="cv"`` has fewer than three folds or cross-fitting off, or when a field the
-        method does not read differs from its default.
+        When ``form`` is not ``"cv"`` or ``"pooled"``, when ``force_arm`` is not a bool, when
+        ``repeats`` is above one, when ``form="cv"`` has fewer than three folds or
+        cross-fitting off, or when a field the method does not read differs from its default.
 
     See Also
     --------
@@ -1911,6 +1922,7 @@ class AdaptiveTMLEMethod(TMLEMethod):
     form: Literal["cv", "pooled"] = "cv"
     working_basis: Any = None
     source_learner: Any = None
+    force_arm: bool = False
     name: str = "atmle"
 
     def __post_init__(self) -> None:
@@ -1947,6 +1959,11 @@ class AdaptiveTMLEMethod(TMLEMethod):
             raise MethodConfigurationError(
                 "working_basis must be a scikit-learn transformer with fit and transform, or "
                 f"None; got {type(self.working_basis).__name__}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        if not isinstance(self.force_arm, bool):
+            raise MethodConfigurationError(
+                f"force_arm must be True or False; got {self.force_arm!r}",
                 reason=RefusalReason.INVALID_DECLARATION,
             )
         _validate_learner(self.source_learner, "source_learner")
@@ -1991,6 +2008,7 @@ class AdaptiveTMLEMethod(TMLEMethod):
             "g_bounds": self.targeting.g_bounds,
             "basis": self.working_basis,
             "form": self.form,
+            "force_arm": self.force_arm,
             "n_folds": cross.n_folds,
             "cross_fit": cross.enabled,
             "split_plan": cross.split_plan,
