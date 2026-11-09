@@ -3948,7 +3948,7 @@ class TestPropertyDifferential:
         job = workflow.split("\n  tests:", 1)[1].split("\n  # ", 1)[0]
         assert "matrix.python-version != '3.12'" in job
         assert "--ignore=tests/unit/test_method_evidence.py" in job
-        assert '"3.12"' in job.split("python-version:", 1)[1].split("\n", 1)[0]
+        assert 'python-version: "3.12"' in job
 
     def test_each_binding_witness_names_what_exists(self) -> None:
         job = self._job()
