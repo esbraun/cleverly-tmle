@@ -97,7 +97,7 @@ from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.stratified_incremental_msm_properties import Columns
 
 #: The pilot's replicate count per scenario; the primary count follows from it.
-PILOT_REPLICATES = 400
+PILOT_REPLICATES = 1_000
 #: The declared primary replicate count, set from the pilot
 #: (``tests/studies/survival_ctmle_pilot.py``) by the shared rule before any declared draw.
 #: ``None`` until the pilot is committed; the design test then requires the rule's value.
