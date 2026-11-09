@@ -992,6 +992,13 @@ class TestPublishedVerdicts:
         low, high = property_verdicts.UNION_MODEL_SE_BAND
         union = published.loc[published["property"].isin(property_verdicts.UNION_MODEL_FAMILIES)]
         for row in union.itertuples():
+            if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                # A diagnostic row of a union-model family reports and is never red; a joint
+                # clause the study declares reads it (the dose-response targeting gain).
+                assert bool(row.passed) and bool(row.property_passed), (
+                    f"{row.cell} is a diagnostic row and publishes a verdict"
+                )
+                continue
             endpoint = (
                 _with_alternative(row, row.bias_discriminated)
                 if row.role == "control"
@@ -2042,7 +2049,11 @@ class TestNegativeControls:
             pytest.skip("the study declares no union-model cells")
         rows = _property_rows(study.slug)
         published = _property_summary(study.slug).set_index(["property", "cell"])
-        union = published.loc[published.index.get_level_values(0).isin(families)]
+        # A diagnostic row reports and is never red, so the screen does not reach it.
+        union = published.loc[
+            published.index.get_level_values(0).isin(families)
+            & (published["role"] != property_verdicts.DIAGNOSTIC_ROLE)
+        ]
         # At least one, not all of them: two registered rows publish a red union-model cell
         # under reporting policy, and a mutation whose cells were already failing would show
         # nothing.
