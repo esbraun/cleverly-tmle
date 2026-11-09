@@ -1520,8 +1520,11 @@ and the test module that checks it.
 **Longitudinal latent of X82 part F.** One standard-normal latent value per unit is shared by
 every treatment node and the outcome. The contract covers `LTMLE`, `SDR`,
 `SequentialGComputation`, `SequentialIPW`, and `ParametricGFormula` fits. The panel has no
-censoring, an end-of-study outcome, no time-varying covariate after the first node, binary or
-continuous nodes, and no cluster. The table gives the law and the test module that checks it.
+time-varying covariate after the first node, binary or continuous nodes, and no cluster. Its
+outcome is either an uncensored end-of-study outcome, or a survival or competing-risk outcome
+with the treatment held from baseline, censored or not. The second kind replays its follow-up,
+as the survival replay subsection below describes. The table gives
+the law and the test module that checks it.
 
 | item | law | witness |
 | --- | --- | --- |
@@ -1531,6 +1534,46 @@ continuous nodes, and no cluster. The table gives the law and the test module th
 | held decision | node 1 moves, and the identity nodes repeat it | the refit data repeat the flipped node 1 at node 2 |
 | declared mechanism | a declared node-1 factor becomes $(1 - s)\,g + s\,g(1 - a)$. A declared later node is refused | the refit carries the flipped factor |
 | outcome | the point outcome law, with the bounded laws on a `q_bounds` fit | a cross-fitted bounded fit keeps its folds and its bounds |
+
+#### Survival and competing-risk replay
+
+X91 part C covers a survival or competing-risk fit whose treatment is one baseline decision held
+over every node. The latent moves the treatment by the node law above. The outcome strength
+$\gamma$ shifts each unit's per-node event log-odds by $\gamma U$, and the follow-up is replayed
+node by node, censoring first and the event second, as the panel orders them.
+
+Each replayed indicator is coupled to the observed one. With fitted probability $p$ and observed
+value $b$, the coupling uniform is $pR$ when $b = 1$, $p + (1 - p)R$ when $b = 0$, and $R$ where
+nothing was observed, with $R$ uniform. The replayed indicator is $\mathbf 1\{V < p'\}$. When
+the observed indicator has true probability $q$, the replayed one has probability $q p'/p$ for
+$p' \le p$ and $q + (1 - q)(p' - p)/(1 - p)$ for $p' > p$. That is $p'$ exactly when $p = q$, and
+the observed value wherever $p' = p$.
+
+The replay fits its own pooled logistic models once per surface, with the observation weights:
+the event, censoring, and on a competing panel the cause given an event. Each design is the
+weighted-standardized baseline block, the treatment, and node indicators. A node whose
+indicator takes one value is held at the clip bound $10^{-6}$ or $1 - 10^{-6}$ rather than
+fitted. `replay_models` records each fit.
+
+| item | law | witness |
+| --- | --- | --- |
+| identity | at zero strength every observed indicator is kept, so the replayed panel is the observed panel and its refit is the original estimate | `test_simulated_confounding_survival.py`: array equality on survival, competing, uncensored and weighted panels, and the refit equal to the estimate |
+| censoring | redrawn from the censoring model at the perturbed treatment $A'$, kept where the treatment did not change. With a correct censoring model, $C'_k \perp (U, A) \mid W, A'$ among the replay's units at risk, so censoring stays at random given the replayed past | an exact chain over observed and replayed states gives $P(C'_k = 1) = c(k, W, A')$ to $10^{-12}$. Keeping the observed censoring of a flipped unit fails it, and fails a simulation witness at more than 8 standard errors |
+| event | the event model is read at the observed treatment and shifted by $\gamma U$. A flipped unit keeps the outcome process it had, as on the point surface | the exact chain gives the shifted model to $10^{-12}$. Reading the event model at $A'$ fails a simulation witness |
+| competing risks | the default shifts the all-cause event. A kept event keeps its cause, and a new event draws its cause from the fitted shares. `outcome_cause=` instead shifts one cause's hazard among those free of every other cause and leaves every other cause-specific hazard unchanged | the cause of a new event matches the shares in simulation. A named cause moves its own count and leaves the other's to the risk set |
+| extended follow-up | a unit kept past its observed exit continues on the fitted models with plain uniforms | every replayed panel passes the panel's own sweep over random strengths, including negative $\gamma$ |
+| calibration | the outcome row is the benchmark's coefficient in the replay's event model, in event log-odds per standard deviation, the scale of $\gamma$ | the coefficient equals an in-test penalized Newton fit of the same person-node table to $10^{-6}$ |
+
+Each cell reports three weighted shares of its replayed person-nodes:
+
+- `censoring_redrawn_share`: those whose observed censoring was redrawn at a changed treatment;
+- `extended_share`: those past the unit's observed follow-up;
+- `new_event_share`: those whose event came where the unit had none.
+
+Movement includes the replay models' error at those rows, and at every at-risk row in proportion
+to $\gamma$. A correctly specified control shows that error is zero; nothing here bounds it when
+the models are wrong. `coupling_seed` records the tagged stream of the uniforms, which every cell
+shares.
 
 Each refit passes the original draws' seeds when the root seed is the fit's own, so the refit at
 zero strength reproduces the estimate. An explicit seed other than the fit's own redraws them,
@@ -1546,8 +1589,11 @@ point rule runs.
 | stop | refuses | roadmap |
 | --- | --- | --- |
 | `estimator` | an `IPSI` fit, whose tilt reads the earlier perturbed nodes | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
-| `outcome_kind` | a survival, competing-risk, or repeated outcome | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
-| `censoring` | a censoring node | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
+| `eliminated` | a fit that eliminates competing causes | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
+| `outcome_kind` | a repeated outcome, or a survival or competing-risk outcome whose treatment is not held from baseline | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
+| `censoring` | a censoring node on an end-of-study outcome | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
+| `separable` | a separable-effects fit, whose dismissible components the shared latent breaks | [X91](../roadmap.md#x91-survival-targets-across-the-estimators) |
+| `known_censoring` | a declared censoring mechanism, which the redrawn censoring makes false | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
 | `later_covariates` | a time-varying covariate after the first node | [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
 | `node_law` | a node with more than two levels, or a vector node | [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) part (j) |
 | `cluster` | a clustered panel | [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) part (k) |
@@ -2066,7 +2112,7 @@ of the roadmap also has a part that waits on published theory, as the
 
 | refused | code | why |
 | --- | --- | --- |
-| a longitudinal result outside the time-fixed latent | `implementation_gap` | no time-indexed latent law covers censoring, survival outcomes, a time-varying covariate after the first treatment node, a declared later-node mechanism, an `IPSI` tilt, or a time-varying latent. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay). A node with more than two levels, a vector node, and a clustered panel wait on [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) parts (j) and (k) |
+| a longitudinal result outside the time-fixed latent | `implementation_gap` | no time-indexed latent law covers censoring on an end-of-study outcome, a survival outcome whose treatment is not held, eliminated causes, a repeated outcome, a time-varying covariate after the first treatment node, a declared later-node mechanism, an `IPSI` tilt, or a time-varying latent. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay). A node with more than two levels, a vector node, and a clustered panel wait on [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) parts (j) and (k) |
 | a risk-ratio tilt fit | `implementation_gap` | no typed study request reports a tilt, so no tilt fit carries the backdoor identification that the surface reads. See [X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt) |
 | a cell that moves the treatment of a fit with a missing outcome, and no `observation_reads=` | `implementation_gap` | the observation mechanism may read the treatment, and then the flip breaks missing at random. Outcome-axis cells run. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a cell that moves a declared missing treatment, and no `observation_reads=` | `implementation_gap` | as the missing-outcome row. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |

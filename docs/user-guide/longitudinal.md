@@ -1240,9 +1240,16 @@ The "Longitudinal refutation" part of
 [refutation operations](../technical-reference/validation-methods.md#refutation-operations) lists
 every test.
 
-`result.sensitivity.simulated_confounding()` covers an uncensored panel with an end-of-study
-outcome and no covariate measured after the first node, as
-[Sensitivity analysis](results-assessment.md#sensitivity-analysis) shows.
+`result.sensitivity.simulated_confounding()` covers panels with no covariate measured after
+the first node, as [Sensitivity analysis](results-assessment.md#sensitivity-analysis) shows. An
+end-of-study outcome must be uncensored, but a `TimeToEvent` fit with its one baseline treatment
+may be censored. On such a fit the simulated cause raises or lowers each person's chance of the
+event at every time point, and the follow-up is replayed: censoring is drawn again where the
+treatment changed, and a person whose event the cause removes stays in follow-up on fitted
+models. A grid cell with both strengths at zero gives the original estimate. Each cell reports
+which share of the replayed rows came from the fitted models
+([details](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)).
+
 `result.sensitivity.evalue()` reads the risk ratio of two static plans at one horizon of a
 `TimeToEvent` fit. The other sensitivity analyses, such as the omitted-variable bound, have no
 longitudinal estimator and report `unavailable`. Tan (2025) derives population bounds for binary,

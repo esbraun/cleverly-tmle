@@ -2707,6 +2707,77 @@ class LongitudinalData:
             censoring_names=names,
         )
 
+    def with_replayed_followup(
+        self, treatment: Any, censoring: Any, event: Any
+    ) -> LongitudinalData:
+        """A copy whose held treatment and survival follow-up are replaced.
+
+        The simulated common-cause replay of a survival or competing-risk fit
+        (:mod:`cleverly.sensitivity`) writes a perturbed baseline treatment and a replayed
+        follow-up, which can run past a unit's observed exit.  The columns are read by the
+        same sweep that reads the panel's own columns, so a replayed panel meets every rule
+        the observed one met, and the censoring keeps the panel's own encoding and names.
+
+        Parameters
+        ----------
+        treatment : array-like
+            ``(n,)`` node-1 treatment, which the held design repeats at every node the unit
+            reaches.
+        censoring : array-like or None
+            ``(n, T)`` raw censoring columns, ``1`` while under observation after the node,
+            ``0`` at the node the unit left and ``nan`` after it. ``None`` on a panel that
+            declares no censoring nodes.
+        event : array-like
+            ``(n, T, J)`` raw event columns, ``1`` at the node of the unit's event, ``0``
+            while at risk and ``nan`` otherwise.
+
+        Returns
+        -------
+        LongitudinalData
+            The copy.
+
+        Raises
+        ------
+        DataError
+            On a panel that is not a held survival panel, on one that eliminates causes, or
+            on columns the panel sweep refuses.
+        """
+        if not (self.is_survival and self.treatment_held) or self.eliminated:
+            raise DataError(
+                "with_replayed_followup replaces the follow-up of a held survival panel "
+                "that eliminates no cause"
+            )
+        if (censoring is None) == bool(self.censoring_names):
+            raise DataError(
+                "with_replayed_followup needs censoring columns exactly when the panel "
+                "declares censoring nodes"
+            )
+        n, n_times = self.n, self.n_times
+        uncensored, failed, by_cause = _read_followup(
+            None if censoring is None else np.asarray(censoring, dtype=float),
+            self.censoring_names,
+            np.asarray(event, dtype=float),
+            (),
+            self.cause_labels,
+            n,
+            n_times,
+        )
+        assert failed is not None and by_cause is not None
+        reach = np.column_stack(
+            [_through(uncensored, t) & _event_free(failed, t) for t in range(n_times)]
+        )
+        decision = np.asarray(treatment, dtype=float)
+        if decision.shape != (n,) or not np.all(np.isfinite(decision)):
+            raise DataError("with_replayed_followup needs one finite node-1 treatment per unit")
+        return replace(
+            self,
+            outcome=failed[:, -1].astype(float),
+            event=failed,
+            cause_event=by_cause if self.cause_event is not None else None,
+            uncensored=uncensored,
+            treatment=np.where(reach, decision[:, None], np.nan),
+        )
+
     def with_extra_covariate(self, values: Any, name: str) -> LongitudinalData:
         """A copy with one more baseline covariate, appended after the others.
 
