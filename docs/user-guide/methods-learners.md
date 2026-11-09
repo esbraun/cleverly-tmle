@@ -100,6 +100,11 @@ same three accessors, and so does `"oat"` with a flexible learner. Each estimate
 [Collaborative TMLE](../technical-reference/collaborative-tmle.md) gives the reason for each
 strategy.
 
+`CollaborativeTMLEMethod` also fits a `TimeToEvent` design with a two-level treatment: for each
+arm and time point it chooses the treatment and censoring models (which predict who is treated and
+who drops out) by the greedy search, and it reports point estimates of the risk only
+([time-to-event outcomes](../technical-reference/collaborative-tmle.md#time-to-event-outcomes)).
+
 `strategy="oat"` fits, for each arm, a treatment model on that arm's predicted outcome. It can
 report an interval when the outcome learner is exactly `ParametricOutcome` and the treatment
 learner exactly `ParametricMechanism`, both from `cleverly.learners`. The data must be complete,

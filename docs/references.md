@@ -1042,6 +1042,15 @@ sizes only the cluster sum is the delta-method variance of the row mean
   because the RM19 review could not read the journal version, and the
   [DR-TMLE entry](#doubly-robust-inference-drtmle) for the same article states why. `AdaptiveIPTW` cites the working paper WP302 and not this article. The
   [adaptive-propensity IPTW entry](#adaptive-propensity-iptw-adaptiveiptw) says so.
+- Stitelman & van der Laan (2010), [*Collaborative targeted maximum likelihood for time to event
+  data*](https://doi.org/10.2202/1557-4679.1249), *The International Journal of Biostatistics*
+  6(1), Article 21, DOI 10.2202/1557-4679.1249. Read first-hand in the published PDF. Section 10
+  builds the greedy sequence of main-term treatment and censoring models with the initial hazard
+  fit held fixed, scores it by the log-likelihood penalized by (24) and (25), and chooses the move
+  count by V-fold cross-validation (Figure 7). `SurvivalCTMLE` implements that sequence with (24)
+  as printed ([time-to-event outcomes](technical-reference/collaborative-tmle.md#time-to-event-outcomes)).
+  The paper states no theorem. Its printed contrast curves (22) and (23) are not reused: the
+  package applies the delta method to the two arm curves.
 - Gruber & van der Laan (2010), [*An application of collaborative targeted maximum likelihood
   estimation in causal inference and genomics*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3126668/),
   DOI 10.2202/1557-4679.1182.
