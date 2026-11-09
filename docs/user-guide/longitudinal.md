@@ -999,7 +999,7 @@ every test.
 `result.sensitivity.simulated_confounding()` covers panels with no covariate measured after
 the first node, as [Sensitivity analysis](results-assessment.md#sensitivity-analysis) shows. An
 end-of-study outcome must be uncensored. A censored `TimeToEvent` fit is covered too, as
-[Check a time-to-event result](survival.md#check-a-time-to-event-result) describes.
+[Check sensitivity to a missing confounder](survival.md#check-sensitivity-to-a-missing-confounder) describes.
 
 `result.sensitivity.evalue()` reads the risk ratio of two static plans at one horizon of a
 `TimeToEvent` fit. The other sensitivity analyses, such as the omitted-variable bound, have no
