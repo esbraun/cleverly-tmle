@@ -125,7 +125,6 @@ def solve_tilt(
     gamma: FloatArray,
     arm_weights: FloatArray,
     *,
-    rows: IntArray | None = None,
     tol: float = 1e-10,
 ) -> TiltSolve:
     r"""Fluctuate ``Qbar`` and ``pi`` together until the tilted score is solved.
@@ -140,16 +139,15 @@ def solve_tilt(
         ``(n,)`` each row's arm, as a column index.
     weights : ndarray
         ``(n,)`` observation weights.
-    outcome, mechanism : ndarray
-        ``(n, K)`` the starting ``Qbar_a(W)`` and ``pi_a(W)``.
+    outcome : ndarray
+        ``(n, K)`` the starting ``Qbar_a(W)``.
+    mechanism : ndarray
+        ``(n, K)`` the starting ``pi_a(W)``.
     gamma : ndarray
         ``(K,)`` the tilt of each arm.
     arm_weights : ndarray
         ``(n, K, J)`` the target's arm weight :math:`b_{j,a}(W)` of each column ``j``, which
         already divides by the treatment mechanism where the target's curve does.
-    rows : ndarray of int or None
-        The rows the fluctuation is fit on, such as one validation fold.  ``None`` fits on
-        every row.  The returned arrays move only these rows.
     tol : float
         The relative score each column must reach, the fit's ``targeting_spec.tol``.
 
@@ -158,17 +156,15 @@ def solve_tilt(
     TiltSolve
         The fluctuated regressions and how the solve ended.
     """
-    n, k = outcome.shape
-    index = np.arange(n) if rows is None else np.asarray(rows, dtype=int)
-    q = np.clip(np.asarray(outcome, dtype=float)[index].copy(), _EDGE, 1.0 - _EDGE)
-    p = np.clip(np.asarray(mechanism, dtype=float)[index].copy(), _EDGE, 1.0 - _EDGE)
-    b = np.asarray(arm_weights, dtype=float)[index]
+    q = np.clip(np.asarray(outcome, dtype=float), _EDGE, 1.0 - _EDGE)
+    p = np.clip(np.asarray(mechanism, dtype=float), _EDGE, 1.0 - _EDGE)
+    b = np.asarray(arm_weights, dtype=float)
     g = np.asarray(gamma, dtype=float)[None, :]
-    a = np.asarray(received, dtype=int)[index]
-    w = np.asarray(weights, dtype=float)[index]
-    d = np.asarray(observed, dtype=bool)[index]
-    y = np.where(d, np.asarray(scaled, dtype=float)[index], 0.0)
-    m = index.shape[0]
+    a = np.asarray(received, dtype=int)
+    w = np.asarray(weights, dtype=float)
+    d = np.asarray(observed, dtype=bool)
+    y = np.where(d, np.asarray(scaled, dtype=float), 0.0)
+    m = q.shape[0]
     at = np.arange(m)
     delta = d.astype(float)
 
@@ -215,12 +211,7 @@ def solve_tilt(
     else:
         converged = relative <= tol
 
-    full_q = np.asarray(outcome, dtype=float).copy()
-    full_p = np.asarray(mechanism, dtype=float).copy()
-    full_q[index] = q
-    full_p[index] = p
-    del k
-    return TiltSolve(full_q, full_p, converged, iteration, relative)
+    return TiltSolve(q, p, converged, iteration, relative)
 
 
 def arm_columns(received: IntArray, propensity: FloatArray) -> FloatArray:
@@ -468,44 +459,18 @@ def targeted_tilt_estimates(
     assert mechanism is not None
     tilt = np.array([gamma * direction[arm] for arm in arms], dtype=float)
     tol = float(config.targeting_spec.tol)
-    folds = (
-        None
-        if config.targeting_scheme != "fold" or nuisance.folds.is_single
-        else [np.asarray(test, dtype=int) for _, test in nuisance.folds]
-    )
     n = data.n
     converged = True
 
-    def solve(group: str, columns: FloatArray, start: FloatArray) -> TiltSolve:
+    def solve(columns: FloatArray, start: FloatArray) -> TiltSolve:
+        # Fold-specific targeting with missing outcomes is refused by the fit, so every
+        # fit reaching here fluctuates once on the pooled sample.
         nonlocal converged
-        if folds is None:
-            out = solve_tilt(
-                scaled, observed, received, weights, start, mechanism, tilt, columns, tol=tol
-            )
-            converged = converged and out.converged
-            return out
-        outcome, moved = start, mechanism
-        iterations, worst, every = 0, 0.0, True
-        for rows in folds:
-            out = solve_tilt(
-                scaled,
-                observed,
-                received,
-                weights,
-                outcome,
-                moved,
-                tilt,
-                columns,
-                rows=rows,
-                tol=tol,
-            )
-            outcome, moved = out.outcome, out.mechanism
-            iterations += out.n_iter
-            worst = max(worst, out.score)
-            every = every and out.converged
-        converged = converged and every
-        del group
-        return TiltSolve(outcome, moved, every, iterations, worst)
+        out = solve_tilt(
+            scaled, observed, received, weights, start, mechanism, tilt, columns, tol=tol
+        )
+        converged = converged and out.converged
+        return out
 
     def regression(group: str) -> FloatArray:
         targeted = repeat.fluctuations[group].targeted
@@ -525,7 +490,7 @@ def targeted_tilt_estimates(
     def arm_means(group: str) -> tuple[FloatArray, FloatArray]:
         if group not in means:
             g = propensity(group)
-            out = solve(group, arm_columns(received, g), regression(group))
+            out = solve(arm_columns(received, g), regression(group))
             means[group] = arm_mean_curves(out, scaled, observed, received, weights, g, tilt)
         return means[group]
 
@@ -534,7 +499,7 @@ def targeted_tilt_estimates(
     def natural_course() -> tuple[float, FloatArray]:
         if not observed_mean:
             columns = natural_course_columns(n, len(arms))
-            out = solve("natural_course", columns, regression("natural_course"))
+            out = solve(columns, regression("natural_course"))
             observed_mean.append(
                 natural_course_curve(out, scaled, observed, received, weights, tilt)
             )
@@ -582,7 +547,7 @@ def targeted_tilt_estimates(
                 continue
             g = propensity(parameter.group)
             pair = [(column[parameter.arm], column[parameter.versus], column[conditioning])]
-            solved = solve(parameter.group, contrast_columns(g, pair), regression(parameter.group))
+            solved = solve(contrast_columns(g, pair), regression(parameter.group))
             psi_c, curve_c = contrast_curves(
                 solved, scaled, observed, received, weights, g, tilt, pair
             )

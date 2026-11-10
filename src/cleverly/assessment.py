@@ -5296,8 +5296,9 @@ class SensitivityFacade(_CapabilityFacade):
         the row unavailable in the sentence
         :func:`~cleverly.sensitivity.missingness.tipping_interval_refusal` gives, before the
         call.  A fit with an estimate that supplies no inference, such as a constant-node
-        parameter, makes the row unavailable with the inference refusal.  The default point search stays
-        available, which is why a request without ``use_ci`` reads the row unchanged.
+        parameter, makes the row unavailable with the inference refusal.  The default point
+        search stays available, which is why a request without ``use_ci`` reads the row
+        unchanged.
         """
         if not arguments.get("use_ci"):
             return capability

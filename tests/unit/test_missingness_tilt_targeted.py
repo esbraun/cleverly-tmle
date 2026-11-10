@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 import cleverly.sensitivity._tilt_targeting as tilt_module
 from cleverly import CapabilityError
@@ -100,7 +100,7 @@ def _curves(p: np.ndarray, gamma: np.ndarray) -> dict[str, np.ndarray]:
     The rows are the support points weighted by their probability, so a weighted average is
     an expectation under the law and the weighted curve divided by the weight is ``D(o)``.
     """
-    pw, g1, pi, q = _margins(p)
+    _, g1, pi, q = _margins(p)
     support = np.asarray(_SUPPORT)
     w, a, d, y = support.T
     weights = p * len(p)
@@ -151,9 +151,7 @@ class TestTheCurvesAreGateauxDerivatives:
         "mutation",
         ["kappa_one", "no_mechanism_term"],
     )
-    def test_each_term_is_live(
-        self, mutation: str, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_each_term_is_live(self, mutation: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Deliberate mutations: kappa = 1, or no mechanism term, must fail the check."""
         original: Callable[..., np.ndarray] = residual_block
 
@@ -178,7 +176,7 @@ class TestTheCurvesAreGateauxDerivatives:
         p = _law(_PW, _G1, _PI, _Q)
         _, _, pi, q = _margins(p)
         support = np.asarray(_SUPPORT)
-        w, a, d, y = support.T
+        w, _, d, y = support.T
         outcome = np.column_stack([q[0, w], q[1, w]])
         mechanism = np.column_stack([pi[0, w], pi[1, w]])
         block = residual_block(y.astype(float), d.astype(bool), outcome, mechanism, np.zeros(2))
@@ -215,7 +213,6 @@ def _fit(estimator: type = TMLE, **settings: Any) -> Any:
 CONSTRUCTIONS = {
     "in sample": {},
     "stacked CV-TMLE": {"cross_fit": True},
-    "fold-specific": {"cross_fit": True, "targeting_scheme": "fold"},
     "repeats": {"cross_fit": True, "repeats": 3},
     "natural course": {"estimands": ("ey_obs", "ey0", "par", "paf")},
 }
@@ -231,9 +228,7 @@ class TestGammaZeroIsTheFit:
         targets = list(_tilt_targets(fitted).values())
         direction = dict.fromkeys(fitted.data.arm_codes, 1.0)
         for repeat in fitted.repeats[:1] if len(fitted.repeats) > 1 else fitted.repeats:
-            estimates, converged = targeted_tilt_estimates(
-                fitted, repeat, targets, 0.0, direction
-            )
+            estimates, converged = targeted_tilt_estimates(fitted, repeat, targets, 0.0, direction)
             assert converged
             if len(fitted.repeats) > 1:
                 continue
@@ -272,16 +267,25 @@ class TestTheTargetingSolvesTheTiltedEquation:
         gamma = np.array([1.5, -0.5])
         start = arm_mean_curves(
             TiltSolve(outcome, mechanism, True, 0, 0.0),
-            scaled, observed, received, weights, propensity, gamma,
+            scaled,
+            observed,
+            received,
+            weights,
+            propensity,
+            gamma,
         )[1]
         solved = solve_tilt(
-            scaled, observed, received, weights, outcome, mechanism, gamma,
+            scaled,
+            observed,
+            received,
+            weights,
+            outcome,
+            mechanism,
+            gamma,
             tilt_module.arm_columns(received, propensity),
         )
         assert solved.converged
-        _, curves = arm_mean_curves(
-            solved, scaled, observed, received, weights, propensity, gamma
-        )
+        _, curves = arm_mean_curves(solved, scaled, observed, received, weights, propensity, gamma)
         # The plug-in terms average to zero by construction, so the mean of the curve is the
         # mean of its residual block: the tilted estimating equation.
         sd = np.sqrt(np.var(curves, axis=0))
@@ -352,6 +356,9 @@ class TestWhatKeepsTheDiagnostic:
         settings: dict[str, Any] = {"estimands": ("ey1", "ey0", "ate")}
         if estimator is CTMLE:
             settings["strategy"] = "oat"
+        else:
+            settings["reduced_outcome_learner"] = LinearRegression()
+            settings["reduced_mechanism_residual_learner"] = LinearRegression()
         result = _fit(estimator, **settings)
         reason = tilt_interval_exclusion(result)
         assert reason is not None
@@ -380,9 +387,7 @@ def test_a_clustered_fit_uses_the_cluster_variance() -> None:
                 random_state=0,
                 estimands=("ey1", "ey0", "ate"),
             )
-            .fit(
-                frame, outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta", id="site"
-            )
+            .fit(frame, outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta", id="site")
             .single()
         )
     targets = [_tilt_targets(result)["ate"]]
