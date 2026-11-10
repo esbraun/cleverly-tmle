@@ -272,6 +272,15 @@ outcome_model = SuperLearner(
 The estimator clones each candidate before fitting. The objects supplied by the caller therefore
 remain unfitted and can be reused in another method configuration.
 
+The ensemble scores each candidate on rows it was not trained on, then chooses weights that are
+non-negative and add up to one. For a mean regression it picks the weights with the smallest
+out-of-fold squared error (`meta_learner="cc_ls"`), and for a probability the smallest
+out-of-fold log loss (`"nnloglik"`). With a bounded outcome, that choice does about as well in
+large samples as the best weighted mix of the candidates, so at least as well as the best single
+one ([`SuperLearner`](../api/learners.md) gives the sources). `meta_learner="nnls"` reproduces
+R's `method.NNLS`, which fits weights without the sum-to-one limit and rescales them afterwards.
+It carries no such guarantee and can put all its weight on a much worse candidate.
+
 Library size multiplies with both fold layers below, so it is the first thing to reach for when a
 fit is slower than expected.
 

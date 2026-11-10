@@ -199,6 +199,12 @@ class _AdaptiveGLM(BaseEstimator):
 
 
 #: Estimator settings for the fast tier: parametric nuisances, few folds, seeded.
+#:
+#: The outcome ensemble names ``meta_learner="nnls"``. Draw-specific readings across the fast
+#: tier (a draw where a bound binds, a measured margin) were taken with that combination rule
+#: on continuous outcomes, before ``"auto"`` moved to ``"cc_ls"`` for regression. The fixture
+#: is a test learner, not a subject: ``tests/unit/test_super_learner_refit_and_simplex.py``
+#: tests the meta-learners themselves.
 FAST_KWARGS: dict[str, Any] = {
     "outcome_learner": SuperLearner(
         library=[
@@ -206,6 +212,7 @@ FAST_KWARGS: dict[str, Any] = {
             ("glm", _AdaptiveGLM()),
         ],
         task=None,
+        meta_learner="nnls",
         n_folds=3,
         clip=(0.0, 1.0),
         random_state=None,
