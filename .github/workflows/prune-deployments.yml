@@ -1,0 +1,38 @@
+name: prune-deployments
+
+# Deletes old GitHub deployment records, keeping the newest `keep` per environment. A record is
+# only history: deleting it leaves the live Pages site and published packages untouched. Run it
+# by hand; GitHub cannot restore a deleted record.
+on:
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: Newest records to keep in each environment
+        default: "1"
+        required: true
+
+permissions:
+  deployments: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KEEP: ${{ inputs.keep }}
+    steps:
+      - name: Delete all but the newest records per environment
+        run: |
+          set -euo pipefail
+          [[ "$KEEP" =~ ^[1-9][0-9]*$ ]] || { echo "keep must be a positive integer"; exit 1; }
+          repo="$GITHUB_REPOSITORY"
+          # The API lists deployments newest first.
+          gh api --paginate "repos/$repo/deployments?per_page=100" \
+            --jq '.[] | [.id, .environment] | @tsv' > deployments.tsv
+          awk -F'\t' -v keep="$KEEP" '++seen[$2] > keep { print $1 }' deployments.tsv > prune.txt
+          echo "$(wc -l < deployments.tsv) records, deleting $(wc -l < prune.txt)"
+          while read -r id; do
+            # Only an inactive deployment can be deleted.
+            gh api -X POST "repos/$repo/deployments/$id/statuses" -f state=inactive > /dev/null
+            gh api -X DELETE "repos/$repo/deployments/$id"
+          done < prune.txt
