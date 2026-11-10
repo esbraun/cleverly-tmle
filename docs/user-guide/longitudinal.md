@@ -842,7 +842,7 @@ the contract.
 `MSMProjection` can project regimen-specific longitudinal means onto a declared working model. The
 regimen grid must identify the coefficient vector; a rank-deficient working design is refused.
 
-A longitudinal MSM projection cross-fits by default, as every longitudinal fit does. Each fold
+A longitudinal MSM projection cross-fits by default (`n_folds=10`). Each fold
 runs an untargeted recursion for every regimen, and one stacked fluctuation per node pools the
 update. [MSM projections](../technical-reference/msm-projections.md#the-longitudinal-projection)
 states the construction and its evidence.

@@ -53,7 +53,8 @@ treatment model.
 
 `cleverly` supports two scalar TMLE configurations for this target. An ordinary fit uses
 `CrossFitting(enabled=False)`. It accepts a binary outcome or a continuous outcome with fixed
-`q_bounds`. A stacked CV-TMLE fit accepts a binary outcome and uses this cross-fitting declaration:
+`q_bounds`. A stacked CV-TMLE fit is supported for a binary outcome, and runs a continuous outcome
+under the experimental label. It uses this cross-fitting declaration:
 
 ```python
 stacked_mar = TMLEMethod(
@@ -72,9 +73,11 @@ stacked_mar = TMLEMethod(
 ```
 
 Pass `stacked_mar` when you estimate `NaturalCourseMean()` from a study with `missingness=`. The
-fit generates one near-balanced outer partition. Both configurations require iterative unweighted
-logistic targeting. The treatment can have two or more arms. The ordinary fit also accepts fixed
-weights and clusters. The stacked fit requires unweighted iid rows.
+fit generates one near-balanced outer partition. Both configurations are supported with iterative
+unweighted logistic targeting; other targeting settings run under the experimental label. The
+treatment can have two or more arms. The ordinary fit also accepts fixed weights and clusters. The
+stacked fit is supported on unweighted iid rows, and runs weights or clusters under the
+experimental label.
 
 `PopulationAttributableRisk` and `PopulationAttributableFraction` accept `missingness=` too. The
 fit stacks the natural-course mean and the reference-arm mean on the same rows, so it also uses a
@@ -113,9 +116,10 @@ lists every refused composition for both configurations. See the
 [missing-outcome construction and evidence](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects).
 
 `ATE`, `CounterfactualMean`, `RiskRatio`, and `OddsRatio` also accept `missingness=`. Under
-cross-fitting with missing outcomes, only `TMLEMethod` fits these targets.
-`CollaborativeTMLEMethod` and `DRTMLEMethod` are refused. `ATT` and `ATC` are refused under
-cross-fitting with missing outcomes. Two further requirements are not special to this surface.
+cross-fitting with missing outcomes, `TMLEMethod` fits these targets with an interval.
+`CollaborativeTMLEMethod` fits them only with `strategy="oat"` and the default `oat_design="per_arm"`, and reports a
+point estimate only. Its other strategies and `DRTMLEMethod` are refused. `ATT` and `ATC` run under
+the experimental label under cross-fitting with missing outcomes. Two further requirements are not special to this surface.
 Every cross-fitted fit draws `CrossFitting(stratify_by="none")` folds, which is the default, and
 every cross-fitted continuous outcome needs `Targeting(q_bounds=(lower, upper))` equal to its known
 support.
@@ -365,8 +369,8 @@ with 2,000 rows and an outcome model that matched the truth, its 95% interval co
 rule's value 0.949 of the time over 13,200 samples. The estimate sits slightly below the best
 value, by about a tenth of a standard error there, because the learned rules are a little worse
 than the best rule, and that gap shrinks as the data grow. When cleverly fits the treatment
-probabilities instead, or the fit uses clusters, several splits or a rule learner, it marks the
-result experimental.
+probabilities instead, or the fit uses clusters, several splits or a rule learner other than the
+`LearnedRule(loss="ep")` rule above, it marks the result experimental.
 
 No setting tells cleverly whether the outcome model learned the true pattern of benefit, or whether
 the benefit is zero for many people. In the study, an outcome model that missed the pattern gave

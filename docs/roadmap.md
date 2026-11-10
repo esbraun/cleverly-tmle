@@ -2480,10 +2480,14 @@ result could therefore confirm the current curve or require a different one.
 Outcome-adaptive C-TMLE selects no candidate. Its shared design, `oat_design="shared"`, fits one
 categorical treatment mechanism on the estimated vector of arm-specific outcome predictions. Its
 per-arm design, the default, fits one binary mechanism per arm on that arm's own prediction.
-Every `oat` fit takes the `generated_design_plugin` status, including an `ey1`-only request and
-a per-arm fit with `strata=`, `delta=` or `treatment_delta=`. `ci`, `pvalue` and `std_error`
-refuse, and `plugin_std_error` and `plugin_interval` keep the ordinary adaptive-propensity
-diagnostic. This item holds the interval of the per-arm
+Every `oat` fit that `per_arm_parametric_support` refuses takes the `generated_design_plugin`
+status, including an `ey1`-only request and a per-arm fit with `strata=`, `delta=` or
+`treatment_delta=`. A per-arm fit with the pair `ParametricOutcome` and `ParametricMechanism` that
+the predicate admits reports an interval
+([X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome)).
+
+On the refused fits, `ci`, `pvalue` and `std_error` refuse, and `plugin_std_error` and
+`plugin_interval` keep the ordinary adaptive-propensity diagnostic. This item holds the interval of the per-arm
 [strata and missing-data fits](technical-reference/collaborative-tmle.md#baseline-strata-and-missing-data-in-the-per-arm-design)
 as well. Their observation factors are generated regressors in the same sense.
 

@@ -300,7 +300,7 @@ horizon on its own, so its curve can dip slightly. Two options prevent that.
 | option | what it does | what it needs |
 | --- | --- | --- |
 | `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one categorical treatment at baseline, held over every time point, and no covariate after baseline |
-| `isotonic=True` | projects each fitted curve and its band limits onto a curve that never decreases | any survival or competing-risk fit |
+| `isotonic=True` | projects each fitted curve and its band limits onto a curve that never decreases | a longitudinal TMLE (`LTMLE`) survival or competing-risk fit without `msm=`. The other longitudinal estimators have no `isotonic=` |
 
 Pass the hazard learner as `outcome_learner`. A hazard fit does not use `pseudo_learner`.
 

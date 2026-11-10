@@ -1846,7 +1846,9 @@ class CTMLE(TMLE):
     selects nothing, equals the ordinary TMLE, and reports its interval.
     ``strategy="oat"`` withholds the interval on either design, for the reason F19 in the
     roadmap holds: condition (v) of Benkeser, Cai and van der Laan (2020), Theorem 1,
-    fails for an estimated outcome regression.  ``strategy="derivative"`` selects nothing
+    fails for an estimated outcome regression.  The exception is a per-arm fit that
+    :func:`per_arm_parametric_support` admits, which reports an interval from a stacked
+    influence curve.  ``strategy="derivative"`` selects nothing
     and reports the ordinary TMLE interval.  See the module docstring.
 
     Parameters

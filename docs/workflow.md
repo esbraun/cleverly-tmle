@@ -65,7 +65,7 @@ study = CausalStudy(
 An empty adjustment set is an identification claim. Set `randomized=True` when randomization, not
 omission, justifies it. `randomized=True` does not give the fit the allocation probabilities: the
 treatment mechanism is still estimated. A trial that records its allocation probabilities declares
-them with `treatment_probabilities=`, and every method then divides by them
+them with `treatment_probabilities=`, and every method that accepts the design then divides by them
 ([known treatment mechanism](technical-reference/point-treatment-tmle.md#known-treatment-mechanism)).
 
 Each public object keeps one responsibility:

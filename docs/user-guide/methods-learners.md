@@ -116,8 +116,12 @@ report an interval when the outcome learner is exactly `ParametricOutcome` and t
 learner exactly `ParametricMechanism`, both from `cleverly.learners`. The data must be complete,
 with no strata and no clusters, and the outcome binary or continuous with declared `q_bounds`. The
 fit may be in sample or cross-fitted with at most 20 folds of at least 30 rows each. It may have
-three or more arms, fixed weights, and the targets `ey_obs`, `par` and `paf`. A treatment with $K$
-arms needs `ParametricOutcome(arm_columns=K - 1)`.
+three or more arms and fixed weights. A treatment with $K$ arms needs
+`ParametricOutcome(arm_columns=K - 1)`.
+
+The `CTMLE` estimator in `cleverly.estimators` also fits
+the targets `ey_obs`, `par` and `paf` this way. `effect.estimate()` offers C-TMLE only for the ATE,
+the arm means, the risk ratio and the odds ratio, and refuses it for PAR and PAF.
 
 A fit outside these conditions, for example one with `split_plan=`, keeps its point estimates and
 reports no interval. `cleverly.estimators.ctmle.per_arm_parametric_support(estimator, data)` names
@@ -362,7 +366,7 @@ observations at the rare level.
 | missing-outcome fit | what it needs beyond the rules above | contract table |
 | --- | --- | --- |
 | binary `NaturalCourseMean`, stacked | a binary outcome, pooled targeting, and one repeat | [natural-course contracts](../technical-reference/scope-and-refusals.md#missing-outcome-natural-course-contracts) |
-| arm-indexed means and contrasts, cross-fitted | ordinary TMLE, and no `ATT` or `ATC` target | [arm-indexed contract](../technical-reference/scope-and-refusals.md#missing-outcome-arm-indexed-contract) |
+| arm-indexed means and contrasts, cross-fitted | ordinary TMLE. `ATT` and `ATC` run under the experimental label | [arm-indexed contract](../technical-reference/scope-and-refusals.md#missing-outcome-arm-indexed-contract) |
 | arm-indexed means and contrasts, per-arm `CTMLE(strategy="oat")` | a respondent in each arm and stratum of each training complement, and a nonrespondent in each complement. The fit reports a point estimate only | [per-arm design contract](../technical-reference/collaborative-tmle.md#baseline-strata-and-missing-data-in-the-per-arm-design) |
 | shift, incremental, regime, MSM, and controlled-direct-effect targets, cross-fitted | no contract. The fit refuses them before the first learner | [not written yet](../technical-reference/scope-and-refusals.md#not-written-yet) |
 
