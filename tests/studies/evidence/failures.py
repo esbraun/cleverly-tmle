@@ -1014,6 +1014,9 @@ def _truth_payload(
     if scenario in record.point_only_scenarios:
         # A point-only cell passes on its bias leg alone (StudyRecord.point_only_scenarios).
         legs = [leg for leg in legs if leg.name == "bias"]
+    if scenario in record.reported_scenarios:
+        # A reported stress row states no verdict on its legs (StudyRecord.reported_scenarios).
+        legs = []
     return _rows(
         table="performance",
         implementation=implementation,

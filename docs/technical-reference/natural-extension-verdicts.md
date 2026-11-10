@@ -1,6 +1,6 @@
 # Natural-extension verdicts
 
-This page records the source audit of forty-one compositions that the package refused or did not
+This page records the source audit of forty-two compositions that the package refused or did not
 implement. The audit applies the [Eligibility](../roadmap.md#eligibility) rule of the roadmap. A
 part qualifies when each step is a standard step and no source records an objection. An objection
 is a source that records a step as open or as a defect. A step that needs a new kind of limit
@@ -74,6 +74,7 @@ A row that delivers a part updates the last column of the table below.
 | (aq) a sup-t band over the grid points | none; a new band | part (ap) at each grid point below 1 | a fixed-dimension stack, Cramér–Wold for the conditional law of the draws, and continuous mapping for the studentized maximum | none found. The band holds at the grid points only, not over continuous $q$ | shipped, withheld when any point's SE is 0 or withheld | [targeting curves](conditional-effects.md#targeting-curves) |
 | (ar) ties in the score | none; a tied cut, inside a sample tied block or on its edge, reads `experimental` | part (ap); Yadlowsky et al., Appendix A.2, for the random tie-break | a cut strictly inside an atom: the delta method on five sample means. Areas on a score with finitely many values: the delta method on the block masses and sums | Appendix A.2 says random tie-breaking "extends immediately" with no proof; for a continuous score with atoms that needs a uniform-integrability condition nobody can check for the AUTOC's weights, and at an atom's edge the limit is not normal | shipped for an interior cut and for areas on a score with finitely many values. Areas on a continuous score with atoms read `experimental` | [targeting curves](conditional-effects.md#targeting-curves) |
 | (as) the half-sample bootstrap of the targeted scores | none | Yadlowsky et al., Lemma 4 and Corollary 5 | the targeting update as a fixed-dimension nuisance: its contribution to a draw is $O_P(n^{-1/2}) \cdot o_P(1)$, and $E[\partial\Gamma/\partial\epsilon \mid W] = 0$ when $g$ is correct | with an inconsistent outcome regression and an estimated $g$ the influence function gains a mechanism term the draws do not carry, so that case is not claimed | shipped. With a known mechanism and an inconsistent outcome regression the draws carry the TMLE's influence function | [targeting curves](conditional-effects.md#targeting-curves) |
+| (at) the trial's effect averaged over the trial covariates, $\Psi_2$, and the adaptive CV-TMLE for a binary treatment, `AdaptiveTMLEMethod` | none; `TrialATE(population="trial")` declares it | van der Laan, Qiu, Tarp and van der Laan (2026), read as arXiv:2405.07186v2: Sec 2.4 and Lemma 2 for $\Psi$, Appendix C and Theorem 2 for the CV form | Lemma 2 pointwise in $W$, the weight $S / P(S = 1)$ on the $W$-average, the chain rule for the influence function, and the delta method for the ratio. The paper derives nothing for $\Psi_2$ | none found in the arXiv text. The journal numbering was not read | shipped, under the `working_model_projection` status. The interval covers the working-model projection, and coverage of the effect needs the oracle-approximation condition ([F40](../roadmap.md#f40-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope)) | [adaptive TMLE](adaptive-tmle.md) |
 
 ## The conditions each part inherits
 
@@ -120,3 +121,4 @@ A row that delivers a part updates the last column of the table below.
 | (aq) | part (ap) at every grid point below 1, each with a positive limiting variance |
 | (ar) | part (ap); a population cut strictly inside the mass of one score value, not at its edge, which no data check can confirm |
 | (as) | part (ap); a correct or known mechanism |
+| (at) | A1 and A2 in the trial; A3 for the pooled average; a binary treatment on the difference scale; the oracle-approximation condition for the interval to cover the effect itself |

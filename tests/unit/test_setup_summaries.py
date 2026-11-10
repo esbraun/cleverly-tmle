@@ -336,6 +336,29 @@ PINS: dict[str, tuple[tuple[tuple[str, str, str], ...], int]] = {
         ),
         1,
     ),
+    "trial_ate": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("randomized trial", "no", "this, and the data cannot show it."),
+            ("both arms in the trial", "partly", "values had some chance of either arm."),
+        ),
+        0,
+    ),
+    "trial_pooled_ate": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("randomized trial", "no", "this, and the data cannot show it."),
+            ("both arms in the trial", "partly", "values had some chance of either arm."),
+            (
+                "trial covers the external rows",
+                "partly",
+                "well the trial covers the external rows.",
+            ),
+        ),
+        0,
+    ),
     "regime_policy": (
         (
             ("well-defined treatment", "no", "the same treatment has the same effect."),

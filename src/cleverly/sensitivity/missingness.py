@@ -80,6 +80,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
+from .._trial_family import refuse_augmented_trial
 from .._typing import FloatArray
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..estimators._nuisance import tilt_missingness
@@ -495,6 +496,7 @@ def missingness_tilt(
         ``gamma[<level>]`` column per arm giving the tilt that arm received, and whose
         ``summary()`` prints one table per estimand.
     """
+    refuse_augmented_trial(result, "missingness_tilt", "bound")
     payload = _tilt_payload(result, gamma, estimands, arm_gamma)
     data = result.data
     names = tuple(dict.fromkeys(payload["estimand"]))
@@ -998,6 +1000,7 @@ def tipping_gamma(
         The nearest detected tilt at which the conclusion crosses its null, or ``None``
         when the search detects no crossing.
     """
+    refuse_augmented_trial(result, "tipping_gamma", "bound")
     refusal = fit_wide_tilt_refusal(result)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)

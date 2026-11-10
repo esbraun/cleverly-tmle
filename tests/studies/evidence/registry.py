@@ -210,6 +210,12 @@ class StudyRecord:
     #: inference).  Their truth rows pass on the bias leg alone; coverage and the SE ratio are
     #: still published.  Their paired rows run no calibration leg (:meth:`se_comparable`).
     point_only_scenarios: frozenset[str] = frozenset()
+    #: Scenarios declared as reported stress rows: a law on which the method's guarantee is
+    #: pointwise and the study measures how far the estimate sits from the target, with no
+    #: verdict on it.  Their truth rows publish bias, coverage and the SE ratio, and pass by
+    #: declaration on those three legs.  The failure bound still gates them, so a lost
+    #: replicate is not hidden.  Their paired rows run no calibration leg.
+    reported_scenarios: frozenset[str] = frozenset()
     #: Repository-relative modules whose content the manifest records.
     modules: tuple[str, ...] = ()
     #: Import paths for the study-specific sampling/fitting and property adapters.
@@ -313,6 +319,9 @@ class StudyRecord:
     reference_replicates: Mapping[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        unknown = self.reported_scenarios - set(self.scenarios)
+        if unknown:
+            raise ValueError(f"reported_scenarios names undeclared scenarios: {sorted(unknown)}")
         unknown = self.point_only_scenarios - set(self.scenarios)
         if unknown:
             raise ValueError(f"point_only_scenarios names undeclared scenarios: {sorted(unknown)}")
@@ -504,7 +513,11 @@ class StudyRecord:
 
     def se_comparable(self, scenario: str, estimand: str) -> bool:
         """Whether a paired cell compares the two standard errors (its calibration leg)."""
-        return estimand not in self.incomparable_se and scenario not in self.point_only_scenarios
+        return (
+            estimand not in self.incomparable_se
+            and scenario not in self.point_only_scenarios
+            and scenario not in self.reported_scenarios
+        )
 
     def reported(self, implementation: str) -> Mapping[str, tuple[str, ...]]:
         """Scenario -> the estimands ``implementation`` reports.
@@ -571,6 +584,8 @@ def registered() -> tuple[StudyRecord, ...]:
     Imported lazily so the framework modules stay importable without pulling in a study's
     estimator configuration, and so a study module can import the framework.
     """
+    from tests.studies.adaptive_tmle_selective import STUDY as ADAPTIVE_TMLE_SELECTIVE
+    from tests.studies.adaptive_tmle_trial import STUDY as ADAPTIVE_TMLE_TRIAL
     from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
     from tests.studies.canonical_adaptive_iptw import STUDY as ADAPTIVE_IPTW
     from tests.studies.canonical_adaptive_iptw_pairing import STUDY as ADAPTIVE_IPTW_PAIRING
@@ -857,6 +872,8 @@ def registered() -> tuple[StudyRecord, ...]:
         SURVIVAL_NODE_BOUNDS,
         ADAPTIVE_IPTW,
         ADAPTIVE_IPTW_PAIRING,
+        ADAPTIVE_TMLE_TRIAL,
+        ADAPTIVE_TMLE_SELECTIVE,
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
         DRTMLE_ONE_WRONG,

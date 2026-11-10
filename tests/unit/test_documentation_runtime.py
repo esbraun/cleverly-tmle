@@ -227,6 +227,40 @@ data = frame.rename(
 """
 )
 
+#: ``docs/user-guide/trial-with-external-data.md`` reads a file the reader owns, so ``read_csv``
+#: returns a small pooled frame of the columns the guide names: a trial of about 150 rows and
+#: external rows whose outcomes carry a shift that depends on ``prior_visits``. The prelude patches
+#: through ``_monkeypatch`` so the replacement ends with the test and does not reach other tests
+#: that run on the same worker.
+_TRIAL = """
+import numpy as np
+import pandas as pd
+
+_rng = np.random.default_rng(5)
+_n = 500
+_risk, _age, _prior = _rng.normal(size=(3, _n))
+_in_trial = _rng.binomial(1, 1 / (1 + np.exp(1.0 - 0.5 * _risk)))
+_program = np.where(
+    _in_trial == 1, _rng.binomial(1, 0.5, _n), _rng.binomial(1, 1 / (1 + np.exp(-_risk)))
+)
+_pooled = pd.DataFrame(
+    {
+        "in_trial": _in_trial,
+        "program": _program,
+        "score": 50
+        + 5 * _program
+        + 3 * _risk
+        + 2 * _age
+        + (1 - _in_trial) * (3 + 2 * _prior)
+        + _rng.normal(0, 8, _n),
+        "risk": _risk,
+        "age": _age,
+        "prior_visits": _prior,
+    }
+)
+_monkeypatch.setattr(pd, "read_csv", lambda *args, **kwargs: _pooled)
+"""
+
 #: A trial-like frame for ``docs/user-guide/conditional-effects.md``: an ``age`` modifier inside
 #: the declared domain (18, 90), an effect that grows with age, and an external ``risk_score``
 #: that is a fixed function of ``age`` and ``W2``.
@@ -271,6 +305,7 @@ PRELUDES: dict[str, str] = {
     "docs/user-guide/estimands.md": _STUDY,
     "docs/user-guide/methods-learners.md": _EFFECT,
     "docs/user-guide/results-assessment.md": _RESULT,
+    "docs/user-guide/trial-with-external-data.md": _TRIAL,
     "docs/workflow.md": _WORKFLOW,
 }
 
@@ -614,7 +649,7 @@ def _run_document(
     """
     monkeypatch.chdir(tmp_path)
     document = ROOT / relative
-    namespace: dict[str, Any] = {"__name__": namespace_name}
+    namespace: dict[str, Any] = {"__name__": namespace_name, "_monkeypatch": monkeypatch}
     exec(compile(PRELUDES.get(relative, ""), f"<prelude for {relative}>", "exec"), namespace)
 
     for line, code in python_blocks(document):

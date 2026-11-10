@@ -55,6 +55,7 @@ from scipy.stats import norm
 
 from .._inference_status import InferenceStatus, is_labelled, status_record, supplies_inference
 from .._summary import Detail, Summary, check_detail
+from .._trial_family import refuse_augmented_trial
 from .._typing import BoolArray, FloatArray, IntArray
 from ..data.weighting import REPORTED_DRAW
 from ..inference.cluster import influence_variance
@@ -895,6 +896,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     NuisanceDiagnostics
         One report per nuisance model, read off the stored fits.
     """
+    refuse_augmented_trial(result, "nuisance_diagnostics", "report")
     data = result.data
     nuisance = result.nuisance
     models: list[NuisanceModelReport] = []

@@ -175,6 +175,13 @@ dose_study = CausalStudy(
 )
 ```
 
+## A trial with external data
+
+`TrialWithExternalData` declares a randomized trial pooled with external rows on the same outcome.
+It takes the outcome, a binary treatment, the adjustment columns, and `source=`, the column that
+marks trial rows. [A small trial with external data](trial-with-external-data.md) shows the
+workflow.
+
 ## Longitudinal treatment
 
 A longitudinal design records one ordered treatment role per node, the history available at each

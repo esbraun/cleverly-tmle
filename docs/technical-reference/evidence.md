@@ -151,6 +151,18 @@ unit-test instruments and what each one cannot see.
 | `tests/unit/test_adaptive_iptw_composite.py`, `_regimes.py` | the composite, regime and natural-course keys, with strata and clusters, equal test-side values, in sample and cross-fitted | a cross-fitted regime with missing data, which is refused |
 | `tests/unit/test_adaptive_iptw_status.py` | the status of each construction, the withheld accessors, and the validity identity with a nonzero term | the size of the validity term at a fitted nuisance |
 
+`AdaptiveTMLE` estimates the trial's effect from a trial pooled with external rows and has no row
+in the target registry, because the registry is the point engine's compute table. The [contract
+page](adaptive-tmle.md#unit-tests) lists its instruments. Its gated [trial study](method-evidence/adaptive-tmle-trial.md)
+has a committed result: 16 of 16 gated scenario tests pass at n = 4,000 and every control behaves as
+declared. Its [selective-enrollment study](method-evidence/adaptive-tmle-selective.md) is accepted by a named exception for the bias of its cross-validated form. The table gives the
+exact-law instruments and what each one cannot see.
+
+| instrument | what it checks | what it cannot see |
+| --- | --- | --- |
+| `tests/unit/test_atmle_exact.py` | on finite laws with the true effect and bias outside the dictionary's span, Lemma 2, the influence function as a Gateaux derivative, and that each of its components is needed. Remainder slopes confirm the product form, and two mutations (a trial treatment mechanism in the clever covariate, an inverse-weighted residual with missing outcomes) leave a first-order remainder | the truth at a fitted learner, and the oracle-approximation condition |
+| `tests/unit/test_atmle_engine.py` | the lasso against its optimality conditions and an independent solver, the score equations of the refit and the fluctuation, the support screen, and, on one sampled draw, a nonzero witness that a penalized arm column keeps the standard error below the trial-only bound, and a mutation control showing that a selected arm product keeps the arm column. The exact-law values (0.48 of the trial-only standard deviation, 1.00 with the arm column forced) come from `tests/unit/test_adaptive_tmle_trial_design.py`, not from this test | coverage |
+
 A `discrete` C-TMLE fit with one declared candidate, equal to the full adjustment set, is the
 ordinary TMLE. The `TMLE` studies are its evidence, and
 `tests/unit/test_ctmle.py::TestEquivalenceWithPlainTmle` pins the identity to `1e-12`.
