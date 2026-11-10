@@ -87,7 +87,9 @@ its contract.
 `EPMethod` selects the efficient plug-in learner of a conditional effect curve, for a
 `ConditionalContrast` only. It fits the nuisances out of fold and fits no fluctuation, so it
 refuses `cross_fit=False`, `repeats` above 1, `cv_evaluation=True` and every targeting setting
-except the bounds. It reports no interval. `EPMethod(sieve=..., final_learner=...)` sets the
+except the bounds
+([conditional effects refusals](../technical-reference/conditional-effects.md)). It reports no
+interval. `EPMethod(sieve=..., final_learner=...)` sets the
 smooth functions the correction uses and the regressor of the last step.
 [Conditional effects](conditional-effects.md#fit-the-effect-without-choosing-a-basis) shows the
 workflow.
@@ -121,7 +123,8 @@ three or more arms and fixed weights. A treatment with $K$ arms needs
 
 The `CTMLE` estimator in `cleverly.estimators` also fits
 the targets `ey_obs`, `par` and `paf` this way. `effect.estimate()` offers C-TMLE only for the ATE,
-the arm means, the risk ratio and the odds ratio, and refuses it for PAR and PAF.
+the arm means, the risk ratio and the odds ratio, and refuses it for PAR and PAF
+([collaborative TMLE](../technical-reference/collaborative-tmle.md#parametric-per-arm-intervals)).
 
 A fit outside these conditions, for example one with `split_plan=`, keeps its point estimates and
 reports no interval. `cleverly.estimators.ctmle.per_arm_parametric_support(estimator, data)` names
@@ -291,8 +294,9 @@ interval. See [Report the sequential baselines](longitudinal.md#report-the-seque
 
 A prediction through an aliased column assumes that the column has no effect. On a row that
 departs from the fit rows, the data cannot support that assumption. Sequential g-computation
-refuses such a fit with `DataError`, because no follower has that history. The technical page lists this refusal for
-g-computation only.
+refuses such a fit with `DataError`, because no follower has that history.
+[Sequential g-computation and IPW](../technical-reference/sequential-baselines.md#refusals) lists
+this refusal for g-computation only.
 
 ```python
 import numpy as np
@@ -339,7 +343,8 @@ covariate law, because it models no covariate.
   outcome. This is the default, and it is the only policy a fit that draws a split accepts.
 - `stratify_by="treatment"` and `stratify_by="treatment+outcome"` are refused when the fit draws
   folds. A selector-based collaborative fit refuses them at every setting, because its search draws
-  selection folds without cross-fitting. In-sample outcome-adaptive C-TMLE draws no selection folds
+  selection folds without cross-fitting
+  ([collaborative TMLE](../technical-reference/collaborative-tmle.md)). In-sample outcome-adaptive C-TMLE draws no selection folds
   and accepts an unused policy.
 
 `CrossFitting` raises `MethodConfigurationError` when you construct a declaration its own checks
@@ -379,7 +384,8 @@ candidate, before an estimator variant multiplies it again. The examples in this
 
 Keep all rows from one declared cluster in the same fold. A grouped draw does that by permuting the
 distinct cluster labels and cutting them into near-equal parts. Ordinary TMLE, DR-TMLE and
-longitudinal TMLE accept `id=` under cross-fitting. C-TMLE refuses `id=` at every setting, except `strategy="derivative"`.
+longitudinal TMLE accept `id=` under cross-fitting. C-TMLE refuses `id=` at every setting, except `strategy="derivative"`
+([collaborative TMLE](../technical-reference/collaborative-tmle.md)).
 Cross-fitting reduces empirical-process bias. It does not establish positivity, correct
 identification, or nuisance consistency.
 

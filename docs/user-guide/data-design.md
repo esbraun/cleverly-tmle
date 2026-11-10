@@ -39,7 +39,8 @@ study = CausalStudy(
 - `cluster` selects cluster-robust inference, and it selects a grouped fold draw that keeps each
   cluster whole. It is not another adjustment variable. A cluster is then the independent unit a
   cross-fitted fit counts, so each treatment arm must appear in at least two clusters. C-TMLE
-  refuses `cluster=` at every setting except `strategy="derivative"`. Longitudinal TMLE
+  refuses `cluster=` at every setting except `strategy="derivative"`
+  ([scope and refusals](../technical-reference/scope-and-refusals.md)). Longitudinal TMLE
   cross-fits with whole-cluster folds.
 
   Clusters may differ in size. A clustered fit with fewer than 40 clusters with positive weight mass reports a Student t interval with the cluster count minus 2

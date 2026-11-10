@@ -64,6 +64,36 @@ the stored outputs at the precision the prose writes. R14 rests on
 `tests/unit/test_documentation_links.py`, which resolves a fragment only against a heading of the
 target page.
 
+## Facts a reader page borrows
+
+A data-scientist page often says what a fit refuses, which estimates show an interval, which
+label a result carries, or whether a study has run. Each of those facts has an owning page that
+a test ties to the code, and the reader page borrows it. When code or a study moves, the owning
+page fails a test and gets fixed; a reader page that restated the fact by hand does not, and it
+goes on saying the old thing. That is how the results guide came to say every collaborative
+strategy withholds its interval after `strategy="derivative"` and the parametric `"oat"` pair
+gained one.
+
+| fact | owning page | what ties it to the code |
+| --- | --- | --- |
+| whether an estimate shows an interval, and why not | the inference status table in [inference](../technical-reference/inference.md) | `tests/unit/test_inference_status_registry.py` reads the table against `STATUS_RECORDS` |
+| what a fit refuses, and with which error | [scope and refusals](../technical-reference/scope-and-refusals.md) and each method's own refusal section | each row quotes the message the code raises |
+| when a result reads `supported` or `experimental` | `src/cleverly/_support_rows.py`, and the method's study page under [method evidence](../technical-reference/method-evidence/validation-grid.md) | the fast suite recomputes each verdict from the committed artifacts |
+| whether a study has run, and what it found | the study's page under method evidence, and the validation grid | the same recomputation; a study that has not run has no verdict |
+| an argument default | the docstring signature on the API page | the signature is the code |
+
+Before you write one of these facts on a reader page, read it off the owning page and the code it
+cites, not off another reader page. State the case the page needs in plain words, and link the
+owning page in the same paragraph for the rest; do not copy a full list of cases, which is the
+part that drifts. Run the check again when you change a method: search the reader pages for the
+method's name and the words "refuse", "interval", "experimental" and "has not run".
+
+`python -m tests.prose` reports an `unlinked-claim` row for a sentence on a reader page that says
+a study has not run, or that the package refuses, withholds or labels something for every, all,
+any or only some case, in a paragraph with no link to the technical reference or the roadmap. Add
+the link, or record why the sentence needs none, for example because it reads the page's own
+stored output. The rule cannot tell whether the claim is true.
+
 ## Library words and their plain replacements
 
 On a data-scientist page, the prose must not lean on the words in the left column. The right
