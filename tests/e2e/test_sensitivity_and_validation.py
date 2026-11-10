@@ -1151,43 +1151,11 @@ class TestMissingnessTilt:
         # This process has a substantial effect, so no plausible tilt nulls it.
         assert tipping is None or abs(tipping) > 1.0
 
-    def test_the_confidence_interval_tips_at_the_nearest_limit(self, missing_fit) -> None:
-        """The signed CI objective reaches the null inside an asymmetric search."""
-        direction = {0: 0.0, 1: -1.0}
-        tipping = missing_fit.sensitivity.tipping_gamma(
-            "ate", search=(-0.5, 4.0), use_ci=True, arm_gamma=direction
-        )
-
-        assert tipping is not None
-        assert 2.0 < tipping < 4.0
-        curve = missing_fit.sensitivity.missingness(
-            [tipping], estimands=["ate"], arm_gamma=direction
-        )
-        assert float(curve["ci_lower"].iloc[0]) == pytest.approx(0.0, abs=1e-4)
-
-    def test_the_upper_confidence_limit_can_tip_from_below(self, missing_fit) -> None:
-        """A null above the baseline interval keeps the opposite signed boundary."""
-        direction = {0: -1.0, 1: 1.0}
-        tipping = missing_fit.sensitivity.tipping_gamma(
-            "ate", null_hypothesis=2.0, use_ci=True, arm_gamma=direction
-        )
-
-        assert tipping is not None
-        curve = missing_fit.sensitivity.missingness(
-            [tipping], estimands=["ate"], arm_gamma=direction
-        )
-        assert float(curve["ci_upper"].iloc[0]) == pytest.approx(2.0, abs=1e-4)
-
-    def test_the_ci_tipping_search_handles_baseline_and_no_crossing(self, missing_fit) -> None:
-        assert (
-            missing_fit.sensitivity.tipping_gamma(
-                "ate", null_hypothesis=missing_fit.psi("ate"), use_ci=True
-            )
-            == 0.0
-        )
-        assert (
-            missing_fit.sensitivity.tipping_gamma("ate", null_hypothesis=100.0, use_ci=True) is None
-        )
+    def test_the_interval_search_is_refused(self, missing_fit) -> None:
+        """No tilt claims an interval off gamma = 0 (CDR-001), so no limit can be followed."""
+        for estimand in ("ate", "ey1"):
+            with pytest.raises(CapabilityError, match="claims no interval at gamma != 0"):
+                missing_fit.sensitivity.tipping_gamma(estimand, use_ci=True)
 
     def test_a_nonmonotone_direction_finds_the_nearest_interior_crossing(self, missing_fit) -> None:
         """Equal endpoint signs do not hide two crossings inside the bracket."""

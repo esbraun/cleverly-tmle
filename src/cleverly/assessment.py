@@ -5291,15 +5291,13 @@ class SensitivityFacade(_CapabilityFacade):
     ) -> AssessmentCapability:
         """Resolve the ``tipping_gamma`` row for a ``use_ci=True`` request.
 
-        The interval search reads a confidence limit, and a fit that supplies no inference
-        has none, so :func:`~cleverly.sensitivity.tipping_gamma` refuses it. The row says
-        so before the call, in the sentence the call raises. The default point search
-        stays available, which is why a request without ``use_ci`` reads the row unchanged.
-        The answer reads every estimate of the fit, so a fit with one estimate that supplies
-        no inference, such as a constant-node parameter, makes the row unavailable.  The
-        row is unavailable for a parameter whose tilt claims no interval at
-        ``gamma != 0`` too, in the sentence
-        :func:`~cleverly.sensitivity.missingness.tipping_interval_refusal` gives.
+        No tilted parameter claims an interval at ``gamma != 0``, so the interval search
+        refuses every parameter the tilt re-mixes, in the sentence
+        :func:`~cleverly.sensitivity.missingness.tipping_interval_refusal` gives, and the
+        row says so before the call.  For a name the tilt does not re-mix, a fit with an
+        estimate that supplies no inference, such as a constant-node parameter, makes the
+        row unavailable with the inference refusal.  The default point search stays
+        available, which is why a request without ``use_ci`` reads the row unchanged.
         """
         if not arguments.get("use_ci"):
             return capability

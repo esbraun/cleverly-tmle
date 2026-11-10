@@ -1347,7 +1347,7 @@ cross-fitted nuisances. Acceptance: a registered coverage study for each part.
 | (c) | an arm MSM beside another axis | a fixed-dimension stack |
 | (d) | the MNAR tilt on a shift fit or an incremental fit | the point curve $E[\bar Q_\gamma(d(A, W), W)]$ on a shift fit, and $E[\sum_a q_\delta(a \mid W) \bar Q_\gamma(a, W)]$ on an incremental fit. At $\gamma \neq 0$ the spread columns use the `plugin_std_err` and `plugin_interval_*` names, and no interval is claimed |
 | (e) | a controlled direct effect under a tilt | a redirection to the shipped two-node `IPSI` plan, a tilt node and then a label node $Z = z$ (part (s) of the [natural-extension verdicts](technical-reference/natural-extension-verdicts.md)). The refusal names the call |
-| (f) | an interval spread for the missingness tilt of a ratio | the delta method on the tilted arm means with the missing-at-random arm curves. The shipped spread recentres the reported log-scale standard error under the `plugin_` names and claims no interval |
+| (f) | an interval for the missingness tilt of an arm mean, a contrast, a ratio, the natural-course mean, `par` or `paf` at $\gamma \neq 0$ | a TMLE of each tilted parameter with its own influence curve: the outcome residual is reweighted and a missingness-mechanism term appears, and both vanish only at $\gamma = 0$, so the missing-at-random curve does not apply. Today every tilted row off $\gamma = 0$ recentres the reported standard error under the `plugin_` names and claims no interval |
 
 Acceptance: each composition reduces exactly to each standalone fit; nonzero controls for every
 cross-axis block; a registered study for each interval claim.
