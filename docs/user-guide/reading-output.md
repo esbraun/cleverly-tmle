@@ -1,8 +1,7 @@
 # Read cleverly's output
 
 Every tutorial prints the same three kinds of output: the study description, the summary of the
-causal question, and the summary of an estimate. This page says what each line means, so that a
-tutorial can stay on its own question. [Results, inference, and assessment](results-assessment.md)
+causal question, and the summary of an estimate. [Results, inference, and assessment](results-assessment.md)
 covers the estimate summary and its checks in more depth.
 
 ## The study description
@@ -35,22 +34,23 @@ print(protocol.fingerprint)
 | --- | --- |
 | Population | the people the answer applies to |
 | Eligibility | who enters the study |
-| Follow-up starts | time zero: the moment that lines up eligibility, the treatment decision and the start of follow-up. Only information recorded before it goes into the adjustment |
+| Follow-up starts | time zero: the moment that lines up eligibility, the treatment decision and the start of follow-up. Only information recorded before it should be adjusted for, that is, used to compare like with like |
 | Strategies | the treatment plans compared, such as offering a program or not |
 | Versions | what each plan delivers in practice, in the same order as the plans |
 | Outcome and Horizon | what is measured, and by when |
 | Intercurrent events | what to do about events after time zero that change what the outcome means, such as death before readmission or leaving the health plan (see below) |
 | Interference unit | the unit within which one person's treatment may change another's outcome. "Individual patient" says that no patient's treatment affects another patient |
-| Rationale | why you believe the conditions for a causal answer hold in this study |
+| Rationale | why you believe the conditions for a causal answer, listed under "The causal question" below, hold in this study |
 
 The `fingerprint` is a short code computed from every field. Each result keeps the fingerprint of
-the description it was fitted under, so two results with different fingerprints answer different
-questions even when their numbers look comparable.
+the description it was fitted under. Different fingerprints mean the descriptions differ in at least
+one field, even a reworded rationale, so compare the printed fields before you compare the numbers.
 
 ### Intercurrent events
 
 An intercurrent event happens after time zero and changes what the outcome means. Each way of
-handling one asks a different question, and the tutorials name the way they use in brackets.
+handling one asks a different question, and a tutorial names the composite or hypothetical
+strategy in parentheses where it uses one.
 
 | strategy | what it does | example |
 | --- | --- | --- |
@@ -60,37 +60,43 @@ handling one asks a different question, and the tutorials name the way they use 
 | hypothetical | ask what would have happened had the event not occurred | the readmission risk had every patient stayed enrolled, or had death been prevented |
 
 A hypothetical strategy needs extra conditions, because the data never show the world it
-describes: the event must depend only on recorded information, and every kind of person must have
-had a real chance of avoiding it. [Time-to-event outcomes](survival.md) shows how to ask each of
+describes: whether the event happens must depend only on what was recorded before it, and every
+kind of person must have had a real chance of avoiding it. `cleverly` cannot check either one.
+Censoring columns on the design already ask the "had everyone stayed in follow-up" question, and
+`eliminate=` on the design, such as `TimeToEvent(..., eliminate=["death"])`, asks "had death been
+prevented". [Time-to-event outcomes](survival.md) shows how to ask each of
 the event questions.
 
 ## The causal question
 
-`study.identify(question)` checks that the data can answer the question and prints a summary before
-any model is fitted. The heading names the question with a short code in brackets, such as
+`study.identify(question)` checks that the design can pose the question and prints a summary before
+any model is fitted; whether the answer is causal still rests on the conditions it lists. The heading names the question with a short code in brackets, such as
 `Causal question (ate)` for an average effect or `(ey_regime)` for the mean outcome under each
 treatment plan over time.
 
 | part | what to read |
 | --- | --- |
-| Question, Outcome, Treatment, Adjusted for | the question in words and the role of each column. Check that every column under "Adjusted for" was recorded before the treatment |
-| Answered by | how the data answer the question. "adjusting for covariates" means comparing people with the same recorded characteristics; "adjusting for history" does the same at each treatment time, using everything recorded up to then |
+| Question, Outcome, Treatment, Adjusted for (Baseline over time) | the question in words and the role of each column. Check that every adjusted-for column was recorded before the treatment |
+| Answered by | how the data answer the question. "adjusting for covariates" means comparing people with the same recorded characteristics; "adjusting for history" does the same at each treatment time, using everything recorded up to then; "randomized assignment" uses the recorded chances of a randomized treatment |
 | What each treatment time adjusts for | for a treatment given more than once, the columns each decision is compared within |
-| Conditions the answer rests on | each condition in plain words, and whether the data can check it. `no` means only your knowledge of the study can support it; `partly` means a check after the fit can find a problem but cannot prove the condition |
+| Conditions the answer rests on | each condition in plain words, and in the `checkable` column whether the data can check it. `no` means only your knowledge of the study can support it; `partly` means a check after the fit can find a problem but cannot prove the condition |
 | Methods | the estimators that can fit this question, by the name you pass as `method=` |
 
-The methods table lists only the methods that fit the question. A note under it says how many
-others cannot, and `summary(detail="full")` gives each reason. The tutorials use `tmle`, targeted
-maximum likelihood estimation: it fits a model of the outcome and a model of who got the
-treatment, then corrects the outcome model's estimate with the treatment model so its confidence
-interval is valid when the models are good enough. The other entries are alternatives or
-comparisons; the [technical reference](../technical-reference/index.md) describes each.
+The methods table lists the methods that fit the question, and a note says how many others cannot;
+`summary(detail="full")` gives each reason. The tutorials use `tmle`, targeted maximum likelihood
+estimation. It fits a model of the outcome and a model of who got the treatment, then corrects the
+outcome model's estimate with the treatment model. Its interval is valid when both models
+predict well, and its estimate stays unbiased in large samples if either model is right. Start
+with `tmle`. The others answer special situations, such as a treatment model that a strong
+predictor makes extreme (`collaborative_tmle`); the
+[examples index](../examples/index.md#find-the-example-for-your-problem) matches each situation to
+its method.
 
 ## The estimate
 
 An estimate summary has a header that repeats the question and the fitted models, a table of
-estimates, a table that says what each row estimates, and numbered notes. Each row has a name
-built from three parts.
+estimates, a table that says what each row estimates, and numbered warnings and notes. Each row's name reads
+as follows.
 
 ```text
 ate_regimen[always vs never, readmission @ t=2]
@@ -102,24 +108,33 @@ ate_regimen[always vs never, readmission @ t=2]
 
 | part | values you will meet |
 | --- | --- |
-| what is estimated | `ey`: the mean outcome under one plan. `ate`: the difference between two plans, the first minus the reference. `risk`: the chance of the event by a time. `cif`: the cumulative incidence, the chance that one cause happens first by a time when other events compete. `rr` and `or`: the risk ratio and the odds ratio |
-| kind of plan | none for one treatment given once with fixed levels, such as `ate` or `ey[1]`. `regimen`: a plan over time, or a baseline treatment held over follow-up. `policy`: a change to each person's dose. `ipsi`: a change to each person's odds of treatment. Other names, such as `ey_learned_rule`, follow the same pattern |
-| inside the brackets | the plan or plans, a cause when several events compete, and `t=` the time point on the grid, counted from 1 |
+| what is estimated | `ey`: the mean outcome under one plan (`ey1` and `ey0` for a yes-or-no treatment). `ate`: the difference between two plans, the first named minus the reference named after `vs`. `att` and `atc`: the effect among the treated and among the untreated. `risk`: the chance of the event by a time. `cif`: the cumulative incidence, the chance that one cause happens first by a time when other events compete. `rr` and `or`: the risk ratio and the odds ratio |
+| kind of plan | none for one treatment given once at fixed levels, such as `ate`, or `ey[high]` with several levels. `regime`: a rule for one treatment given once, such as offering only to high-risk patients. `regimen`: a plan over time, or a baseline treatment held over follow-up. The question summary of a plan over time is headed `ey_regime` even though its rows say `regimen`. `policy`: a change to each person's dose. `ipsi`: a change to each person's odds of treatment. Other names, such as `ey_learned_rule`, follow the same pattern |
+| inside the brackets | the plan or plans, named as in your code; a cause when several events compete; and `t=`, the position of the time point: on a grid of check days 30, 60 and 90, `t=2` is day 60 |
 
 The "What each row estimates" table under the estimates spells out every row name in words, such
 as "probability of readmission by time 2 if every unit followed plan always". Read that table
-whenever a name is unfamiliar; it is the authority for the page you are on.
+whenever a name in your output is unfamiliar. A `TimeToEvent` result also reports the actual grid
+time in the `time` column of `curve()` and `to_frame()`.
 
-### Labels and notes
+### Labels, warnings and notes
 
 A `support` column appears when an estimate is `experimental`, and a note below the table says
-why. `supported` means a registered simulation study has checked the method's intervals on that
-kind of fit; `experimental` means no such study covers it yet, and the interval carries no
-checked coverage. The label does not say the estimate is wrong. Some warnings say a study
-"licenses" an interval, which means the same as `supported`: a study covers it.
+why. `supported` means a registered simulation study covers this configuration, such as the same
+method, design and kind of plan, and its checks passed. `experimental` means no study covers it,
+or a stated condition applies, such as too few clusters; the interval then has no checked
+coverage. The label does not say the estimate is wrong.
+
+The word "licenses" in a warning means "covers". For example, the E-value says how strongly a
+missing confounder would need to be tied to both the treatment and the outcome to explain the
+effect away, and its "limit" version does the same for the end of the confidence interval nearer
+no effect. "No validation study licenses the E-value of the limit" means no study covers that
+number. You can still report it, with a plain caveat such as "this E-value describes this sample;
+no simulation study has checked it for this kind of analysis".
 [Read the support label](results-assessment.md#read-the-support-label) lists where the label
 appears and what each reason means.
 
 Other notes appear only when something changes how to read a number: for example, that a model was
-fitted and scored on the same rows, that a cap on extreme weights changed some people, or that an
-estimate rests on few people (`SparseInfluenceWarning`).
+fitted and scored on the same rows, that a cap on extreme weights (the inverse chances of treatment that the correction step uses) changed
+some people's weights, or that an
+estimate's interval leans on few rows (`SparseInfluenceWarning`).

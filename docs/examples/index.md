@@ -7,7 +7,8 @@ a treatment, offer, or policy did, tests whether the result holds up, and says w
 manager. Twenty examples use simulated data, so each page can compare its estimate with the
 true answer. The twenty-first uses real birth records. If you are new to causal inference, read
 [one treatment, one outcome](point-treatment-tmle.ipynb) first. It explains each step that the
-other pages reuse.
+other pages reuse, and [Read cleverly's output](../user-guide/reading-output.md) explains the labels,
+tables and row names that every page prints.
 
 ## Find the example for your problem
 
