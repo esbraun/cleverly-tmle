@@ -177,6 +177,7 @@ from ..interventions import RiskRatioTilt
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
     from .collaborative import SurvivalSelection
+    from .drift import DriftRecord
 from .._summary import Detail, Summary, check_detail
 from ..interventions.policy import Support as DeclaredSupport
 from ..learners._fitting import supports_sample_weight
@@ -1636,6 +1637,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         collaborative selection of each ``(arm label, horizon)``: its path, its
         cross-validated risk and the move count it chose.  ``None`` on every other fit.
         Keyword-only.
+    drift : dict of tuple to DriftRecord or None
+        On a :class:`~cleverly.longitudinal.drift.SurvivalDRTMLE` fit, the drift correction
+        of each ``(arm label, horizon)``: its loop, its held factors and its regressions.
+        ``None`` on every other fit.  Keyword-only.
     estimator : object or None
         The estimator settings the fit ran under, with no bootstrap and no simultaneous
         band, which a refutation refits.  ``None`` on a result built by hand.  Keyword-only.
@@ -1736,6 +1741,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: On a :class:`~cleverly.longitudinal.collaborative.SurvivalCTMLE` fit, the selection
     #: record of each ``(arm label, horizon)``.  ``None`` on every other fit.
     selection: dict[tuple[str, int], SurvivalSelection] | None = field(default=None, kw_only=True)
+    #: On a :class:`~cleverly.longitudinal.drift.SurvivalDRTMLE` fit, the drift record of
+    #: each ``(arm label, horizon)``.  ``None`` on every other fit.
+    drift: dict[tuple[str, int], DriftRecord] | None = field(default=None, kw_only=True)
     #: The estimator settings the fit ran under, which :meth:`_SequentialEstimator.refit`
     #: runs again on a changed container.  ``None`` on a result built by hand.
     estimator: Any = field(default=None, kw_only=True, compare=False, repr=False)
