@@ -20,7 +20,7 @@ The ledger reads each verdict column as a boolean. It refuses a table whose verd
 a blank or any other value, because a blank would otherwise read as a pass. The paired
 `reference_valid` column repeats the comparator's truth row, so the truth kind covers it.
 
-The ledger reads verdict rows and accounting rows only. Nine study modules also define a `scientific_failures` hook.
+The ledger reads verdict rows and accounting rows only. Ten study modules also define a `scientific_failures` hook.
 The regeneration adds each hook's rows to the failures it gates or reports. These hooks audit
 fits and publish no verdict cell, so the ledger does not read them.
 
@@ -35,6 +35,7 @@ fits and publish no verdict cell, so the ledger does not read them.
 | [modified treatment policies at declared boundaries](mtp-boundaries.md) | `reporting` | the `lmtp` exactness witnesses of the `boundaries_ltmle` and `boundaries_sdr` scenarios that exceed the 1e-6 gate | the study page and `exactness.csv` |
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | `reporting` | the `lmtp` exactness witnesses of every scenario that exceed the 1e-6 gate | the study page and `exactness.csv` |
 | [structural nested mean model](structural-nested-mean.md) | `reporting` | the EconML `DynamicDML` exactness witnesses of the 21 paired cells that exceed the 1e-9 gate | the study page and `exactness.csv` |
+| [collaborative TMLE of a risk curve](survival-ctmle.md) | `reporting` | the RMSE ratio gate of the risk of arm 1 at OR 15 against hazard `LTMLE` with the full treatment model, when its upper bound exceeds 1 | the study page and `rmse-comparison.csv` |
 
 `tests/unit/test_red_cell_ledger.py` fails when a study module defines a hook that this table
 does not list.
