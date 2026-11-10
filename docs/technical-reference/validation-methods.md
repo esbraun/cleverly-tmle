@@ -1566,11 +1566,12 @@ with a zero node coefficient, or the nearest held node when no node was fitted.
 | extended follow-up | a unit kept past its observed exit continues on the fitted models with plain uniforms | every replayed panel passes the panel's own sweep over random strengths, including negative $\gamma$ |
 | calibration | the outcome row is the benchmark's coefficient in the replay's event model, in event log-odds per standard deviation, the scale of $\gamma$ | the coefficient equals an in-test penalized Newton fit of the same person-node table to $10^{-6}$ |
 
-Each cell reports three weighted shares of its replayed person-nodes:
+Each cell reports three weighted shares:
 
-- `censoring_redrawn_share`: those whose observed censoring was redrawn at a changed treatment;
-- `extended_share`: those past the unit's observed follow-up;
-- `new_event_share`: those whose event came where the unit had none.
+- `censoring_redrawn_share`: replayed person-nodes whose observed censoring was redrawn at a
+  changed treatment;
+- `extended_share`: replayed person-nodes past the unit's observed follow-up;
+- `new_event_share`: replayed events at a node where the unit had no observed event.
 
 Movement includes the replay models' error at those rows, and at every at-risk row in proportion
 to $\gamma$. A correctly specified control shows that error is zero; nothing here bounds it when
