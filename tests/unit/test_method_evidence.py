@@ -839,8 +839,9 @@ class TestPublishedVerdicts:
                 for key in ACCEPTED_BY_EXCEPTION
                 if key.slug == study.slug and key.kind == "truth"
             ]
-            named = failures[["implementation", "scenario", "estimand"]].agg("/".join, axis=1)
-            failures = failures.loc[~named.isin(accepted)]
+            if not failures.empty:
+                named = failures[["implementation", "scenario", "estimand"]].agg("/".join, axis=1)
+                failures = failures.loc[~named.isin(accepted)]
             assert failures.empty, failures.to_string()
 
     def test_the_subject_is_similar_to_and_no_worse_than_the_reference(
@@ -3175,7 +3176,17 @@ class TestThePublishedTestTables:
         elif name == "properties":
             expected = [_committed_property_result(row) for row in frame.itertuples()]
         else:
-            expected = ["pass" if bool(passed) else "**fail**" for passed in frame["passed"]]
+            # A failed truth row the owner accepted by a named exception reads as that, and
+            # only that row.  The label is spelled out here, not imported from the renderer.
+            accepted = {key.key for key in ACCEPTED_BY_EXCEPTION if key.slug == study.slug}
+            expected = [
+                "pass"
+                if bool(row.passed)
+                else "accepted (named exception)"
+                if f"{row.implementation}/{row.scenario}/{row.estimand}" in accepted
+                else "**fail**"
+                for row in frame.itertuples()
+            ]
         assert sorted(published) == sorted(expected), (
             f"{study.slug}'s {name} results are not the committed ones"
         )

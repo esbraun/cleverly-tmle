@@ -624,3 +624,26 @@ def test_findings_refuse_an_owner_the_roadmap_does_not_list() -> None:
 def test_a_row_claimed_twice_is_refused() -> None:
     with pytest.raises(ValueError, match="claimed by"):
         owners({"RM18-x": (KEY,), "RM18-y": (KEY,)})
+
+
+def test_the_accepted_row_reads_as_accepted_in_its_table_and_no_other_row_does() -> None:
+    """The exception changes one cell's label and nothing else in any accuracy table."""
+    from tests.studies.evidence.document import ACCEPTED_LABEL, accuracy_table
+
+    assert ACCEPTED_LABEL == "accepted (named exception)"
+    labelled = []
+    for study in STUDIES:
+        data = frames(study)
+        frame = data["performance"]
+        lines = accuracy_table(study, data)[2:]
+        ordered = frame.sort_values(["scenario", "estimand", "implementation"])
+        for row, line in zip(ordered.itertuples(), lines, strict=True):
+            cell = line.rstrip(" |").rsplit(" | ", 1)[1]
+            key = RedKey(study.slug, "truth", f"{row.implementation}/{row.scenario}/{row.estimand}")
+            if key in ACCEPTED_BY_EXCEPTION:
+                assert not row.passed
+                assert cell == ACCEPTED_LABEL
+                labelled.append(key)
+            else:
+                assert cell == ("pass" if row.passed else "**fail**")
+    assert labelled == [ACCEPTED_KEY]
