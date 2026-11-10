@@ -44,6 +44,7 @@ residuals is ``approx(density(all)$x, density(observed)$y, xout = all)``.
 from __future__ import annotations
 
 import argparse
+import functools
 import itertools
 import json
 import math
@@ -303,6 +304,26 @@ def _hatvals(inputs: CtseffInputs, bandwidth: float) -> np.ndarray:
     return approx(grid, leverage, a)
 
 
+def knife_edge(a: np.ndarray, bandwidth: float) -> bool:
+    """Whether R's outcome for this call hinges on the last bit of the highest dose's bin.
+
+    ``rlbin`` drops the highest dose when ``(max - min) / delta`` rounds to exactly 400, and
+    keeps it in the last two bins otherwise.  When the second-highest dose lies outside the
+    last node's window, the dropped case leaves that window empty (``NaN``, an ``NA`` risk and
+    an error) and the kept case gives a finite fit.  One unit in the last place of the
+    highest dose, from parsing the CSV or from R's arithmetic, flips it: the R pilot's draw 11
+    at bandwidth 1 failed with "'bandwidth' must be a scalar or an array of length
+    'gridsize'" where the transcription fitted.  The transcription cannot settle such a call.
+    """
+    ordered = np.sort(np.asarray(a, dtype=float))
+    low, high = float(ordered[0]), float(ordered[-1])
+    points = LOCPOLY_POINTS
+    delta = (high - low) / (points - 1)
+    reach = min(math.floor(LOCPOLY_TAU * bandwidth / delta), points)
+    second = int(((float(ordered[-2]) - low) / delta) + 1.0)
+    return second + 1 < points - reach
+
+
 def leave_one_out_risk(inputs: CtseffInputs, bandwidth: float) -> float:
     """``ctseff``'s ``risk.fn(bandwidth)``; ``NaN`` where R's is ``NA``."""
     grid, fit = locpoly(inputs.a, inputs.pseudo, bandwidth)
@@ -494,8 +515,8 @@ FAILURE_EXCEED = 0.01
 #: The joint pass probability the paired legs are sized to, over the cells outside the
 #: pre-registered red set.
 PAIRED_PASS = 0.95
-#: The largest count the paired-leg rule may ask for: about 30 R CPU-hours at two ``ctseff``
-#: calls of about 7 s per replicate.  Past it the straddle reading of the regeneration
+#: The largest count the paired-leg rule may ask for: about 95 R CPU-hours at two ``ctseff``
+#: calls of 21.4 CPU-s (the local probe) per replicate.  Past it the straddle reading of the regeneration
 #: docstring governs a calibration red at doses 1.5 and 2.5 instead.
 PAIRED_CAP = 8_000
 #: Bootstrap resamples for the pilot spread of each paired-leg statistic.
@@ -761,13 +782,28 @@ def subject_rows(frame: pd.DataFrame | None = None) -> PilotRows:
     )
 
 
+@functools.cache
+def knife_edges(draws: int = DRAWS) -> dict[float, frozenset[int]]:
+    """The pilot draws whose call at each candidate is a :func:`knife_edge`."""
+    doses = [draw(r)["A"].to_numpy() for r in range(draws)]
+    return {
+        h: frozenset(r for r, a in enumerate(doses) if knife_edge(a, study.NPCAUSAL_BANDWIDTHS[h]))
+        for h in study.CANDIDATE_BANDWIDTHS
+    }
+
+
 def sketch_reference(frame: pd.DataFrame | None = None) -> PilotRows:
-    """The transcription's rows from this module's pilot, standing in for ``ctseff``."""
+    """The transcription's rows from this module's pilot, standing in for ``ctseff``.
+
+    A :func:`knife_edge` call counts as failed, since R may fail it whatever the
+    transcription returned; its rows leave the reading with it.
+    """
     frame = read(OUTPUT) if frame is None else frame
     rows = frame.loc[frame["implementation"] == SKETCH]
     refused = rows.loc[rows["refusal"].fillna("") != ""]
+    edges = knife_edges(int(frame["replicate"].nunique()))
     failed = {
-        h: frozenset(int(r) for r in refused.loc[refused["bandwidth"] == h, "replicate"])
+        h: frozenset(int(r) for r in refused.loc[refused["bandwidth"] == h, "replicate"]) | edges[h]
         for h in study.CANDIDATE_BANDWIDTHS
     }
     return PilotRows(

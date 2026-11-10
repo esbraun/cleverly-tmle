@@ -321,6 +321,26 @@ class TestTheSizes:
         with pytest.raises(pilot.CtseffRefusal, match=r"which\.min"):
             pilot.ctseff_fit(moved, study.NPCAUSAL_BANDWIDTHS[1.0], study.DOSES)
 
+    def test_pilot_draw_11_at_bandwidth_1_is_a_knife_edge(self) -> None:
+        # The regression the local probe found: R failed this call with "'bandwidth' must be a
+        # scalar or an array of length 'gridsize'" (an NA risk, then an empty bandwidth) where
+        # the transcription fitted.  Its highest dose is isolated beyond the last node's window,
+        # so whether rlbin drops it, which empties that window, turns on one unit in the last
+        # place: the transcription fits as drawn and fails with the highest dose moved by one.
+        frame = pilot.draw(11)
+        h_gauss = study.NPCAUSAL_BANDWIDTHS[1.0]
+        a = frame["A"].to_numpy()
+        assert pilot.knife_edge(a, h_gauss)
+        assert not any(pilot.knife_edge(a, study.NPCAUSAL_BANDWIDTHS[h]) for h in (2.0, 2.5))
+        inputs = pilot.ctseff_inputs(frame)
+        assert math.isfinite(pilot.leave_one_out_risk(inputs, h_gauss))
+        moved = a.copy()
+        top = int(np.argmax(moved))
+        moved[top] = np.nextafter(moved[top], -np.inf)
+        _, fit = pilot.locpoly(moved, inputs.pseudo, h_gauss)
+        assert math.isnan(fit[-1])
+        assert 11 in pilot.knife_edges()[1.0]
+
     def test_the_binned_fit_is_the_local_linear_fit_at_an_interior_node(self) -> None:
         # locpoly's binning moves an interior estimate by far less than a standard error.
         frame = pilot.draw(1)
@@ -360,10 +380,13 @@ class TestTheSizes:
 
     def test_the_stated_pilot_readings_are_the_pilots(self) -> None:
         """The pilot numbers the regeneration docstring and the evidence page state."""
+        sketch = PILOT.loc[PILOT["implementation"] == pilot.SKETCH]
+        refused = sketch.loc[sketch["refusal"].fillna("") != ""]
+        assert refused.groupby("bandwidth").size().to_dict() == {1.0: 74, 1.5: 7, 2.0: 1}
         reference = pilot.sketch_reference()
         assert {h: len(reference.failed[h]) for h in study.CANDIDATE_BANDWIDTHS} == {
-            1.0: 74,
-            1.5: 7,
+            1.0: 77,
+            1.5: 9,
             2.0: 1,
             2.5: 0,
         }

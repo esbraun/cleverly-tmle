@@ -12,9 +12,11 @@ incremental studies build from ``tests/canonical/npcausal_incremental`` (npcausa
 Order of work, all local, before any declared draw reaches R:
 
 1. ``python -m tests.canonical.dose_response_npcausal.pilot probe --scratch <dir> --jobs <n>``
-   (review smoke steps S1, S2, S4, S6 and S7 on constructed draws and 20 pilot draws).
+   (review smoke steps S1, S2, S4, S6 and S7 on constructed draws and 20 pilot draws, about 0.6
+   CPU-hours at the measured 21.4 CPU-s per ``ctseff`` call).
 2. ``python -m tests.canonical.dose_response_npcausal.pilot reference --scratch <dir> --jobs
-   <n>``, which commits the R pilot and prints the declaration read off it.
+   <n>``, which commits the R pilot and prints the declaration read off it (4,000 calls, about
+   24 CPU-hours).
 3. Set :data:`~tests.studies.dose_response_npcausal.BANDWIDTHS` and
    :data:`~tests.studies.dose_response_npcausal.PRIMARY_REPLICATES` to that declaration, which
    ``tests/unit/test_dose_response_npcausal_design.py`` then checks, register the record, and
@@ -24,11 +26,15 @@ Order of work, all local, before any declared draw reaches R:
     python -m tests.canonical.dose_response_npcausal.regenerate --replicates 20 \
         --output <scratch> --allow-failures --jobs <workers>
 
-5. The declared run.
+5. The declared run: about 57 R CPU-hours at the provisional 4,800 replications, beside about
+   3 for the ``cleverly`` fits.
 
 Provisional projection, from the Python pilot with the transcription standing in for
 ``ctseff`` (the design test recomputes every number here).  The transcription fails 74, 7, 1
-and 0 of 1,000 calls at bandwidths 1, 1.5, 2 and 2.5, so the rule selects 2 and 2.5, and the
+and 0 of 1,000 calls at bandwidths 1, 1.5, 2 and 2.5, and 77, 9, 1 and 0 once every call that
+hinges on the last bit of the highest dose's bin counts as failed
+(:func:`~tests.studies.dose_response_npcausal_pilot.knife_edge`), so the rule selects 2 and 2.5,
+and the
 count is 4,800, set by the paired legs (the shared rule reads 2,400 both ways).  At dose 3.5
 the subject's mean reported SE is 1.10 and 1.11 times the exact efficient SD.  At bandwidth 2.5
 its spread rises to 1.11 times efficient as well, so the RMSE ratio there is 1.10 and the RMSE

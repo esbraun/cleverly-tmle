@@ -67,9 +67,16 @@ declared and two wider fallbacks, with $D$ widened from $[0, 5]$ so that every c
 lies inside it. The rule takes consecutive pairs in that order and selects the first whose pilot
 failures, on the draws where either `ctseff` call failed, keep the chance of exceeding the
 declared 1% failure bound at or below 0.01 at the declared count, computed at the failure rate's
-one-sided 95% Clopper-Pearson upper bound. The Python transcription reproduces the failure path
-and fails 74, 7, 1 and 0 of 1,000 calls at the four candidates, so it selects 2.0 and 2.5. The
-R pilot replaces those counts with `ctseff`'s own.
+one-sided 95% Clopper-Pearson upper bound.
+
+The Python transcription reproduces the failure path and fails 74, 7, 1 and 0 of 1,000 calls at
+the four candidates. At the highest dose the outcome
+can hinge on one bit: `locpoly` drops that dose when its bin index rounds to exactly 400 and
+keeps it otherwise. When the next dose lies outside the last node's window, a dropped dose makes
+the call fail and a kept one does not. The local probe met one such call, pilot draw 11 at
+bandwidth 1, which R failed and the transcription fitted. The transcription counts every such
+call as failed, which makes 77, 9, 1 and 0, and it selects 2.0 and 2.5. The R pilot replaces
+those counts with `ctseff`'s own.
 
 ## Sizing
 
@@ -81,7 +88,7 @@ The count is the largest of three readings, each a multiple of 400:
 | B | the same rule with each implementation's own pilot rows | 2,400 |
 | paired legs | the smallest count at which the similarity, RMSE, coverage and calibration legs of every cell pass together with probability 0.95, by a normal approximation from the pilot's bootstrap spread. The RMSE and calibration legs at dose 3.5 are left out, because the pre-registered red signature admits them | 4,800 |
 
-The paired-leg rule is capped at 8,000, about 30 R CPU-hours. Past the cap a declared straddle
+The paired-leg rule is capped at 8,000, about 95 R CPU-hours. Past the cap a declared straddle
 reading governs a calibration red at doses 1.5 and 2.5 instead: the subject's SE ratio in
 $[1, 1.07]$, the reference's below 1, both truth rows green. On the pilot, `cleverly` took 2.3
 seconds per fit on one core at twelve pairs.
@@ -132,10 +139,13 @@ python -m tests.canonical.dose_response_npcausal.pilot reference --scratch <dir>
 ```
 
 The probe checks the image, confirms or refutes the failure path on constructed draws with an
-isolated extreme dose, compares R with the transcription on 20 pilot draws (failures, estimates
-within 0.05 SE, standard errors within 1%), reruns two draws for identical rows, and times a
-call. At 5 to 10 CPU-seconds per call it costs 0.15 to 0.3 CPU-hours, and the full pilot, 4,000
-calls, costs 5.5 to 11. The full pilot works in resumable chunks of 50 draws and commits
+isolated extreme dose, compares R with the transcription on 20 pilot draws, reruns two draws for
+identical rows, and times a call. Its comparison requires estimates within 0.05 SE, standard
+errors within 1%, and the same failed calls. Calls whose outcome hinges on the last bit of the
+highest dose's bin are reported and not gated, since only R settles them. The local probe
+measured 21.4 CPU-seconds per call, so the probe costs about 0.6 CPU-hours, the full pilot of
+4,000 calls about 24, and the declared reference at 4,800 replications about 57, beside about 3
+for the `cleverly` fits. The full pilot works in resumable chunks of 50 draws and commits
 `tests/studies/dose_response_npcausal_pilot_r.csv.gz`, `..._pilot_r_failures.csv` and
 `..._pilot_r.json`. The design test then requires the declared bandwidths and count to equal the
 rule's reading of those rows.

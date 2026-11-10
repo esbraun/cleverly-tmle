@@ -16,7 +16,9 @@ Two commands, in order, each with a scratch directory outside the repository::
 
 ``probe`` runs smoke steps S1, S2, S4, S6 and S7 of the design review on constructed draws and
 the first :data:`PROBE_DRAWS` pilot draws, prints a verdict per step, writes
-``<scratch>/probe/report.json`` and prints the S8 command.  It writes nothing in the
+``<scratch>/probe/report.json`` and prints the S8 command.  Its failure-agreement gate leaves
+out calls whose outcome hinges on the last bit of the highest dose's bin
+(:func:`~tests.studies.dose_response_npcausal_pilot.knife_edge`) and reports them.  It writes nothing in the
 repository.  ``reference`` fits all 1,000 pilot draws at every candidate bandwidth in resumable
 chunks of :data:`CHUNK` draws (a rerun skips each finished chunk), then commits
 ``tests/studies/dose_response_npcausal_pilot_r.csv.gz`` (one row per draw and estimand),
@@ -199,6 +201,7 @@ def compare(
                 "bandwidth": h,
                 "r_failure": str(failed["message"].iloc[0]) if len(failed) else "",
                 "sketch_failure": outcome if isinstance(outcome, str) else "",
+                "knife_edge": pilot.knife_edge(frame["A"].to_numpy(), study.NPCAUSAL_BANDWIDTHS[h]),
                 "estimate_gap": math.nan,
                 "se_ratio_gap": math.nan,
             }
@@ -214,6 +217,17 @@ def compare(
                 )
             records.append(record)
     return pd.DataFrame(records)
+
+
+def _failures_agree(calls: pd.DataFrame) -> bool:
+    """Whether R and the transcription fail on the same calls, knife-edge calls aside.
+
+    On a :func:`~tests.studies.dose_response_npcausal_pilot.knife_edge` call the outcome hinges
+    on the last bit of the highest dose's bin, which the transcription cannot reproduce, so
+    those calls are reported and not gated.
+    """
+    settled = calls.loc[~calls["knife_edge"]]
+    return bool(((settled["r_failure"] != "") == (settled["sketch_failure"] != "")).all())
 
 
 def _rscript(code: str) -> subprocess.CompletedProcess[str]:
@@ -271,9 +285,7 @@ def probe(scratch: Path, cores: int) -> int:
     calls["draw"] = calls["draw"].map({0: "unchanged", 1: "lowest isolated", 2: "highest isolated"})
     print(calls[["draw", "bandwidth", "r_failure", "sketch_failure"]].to_string(), flush=True)
     report["S2"] = {"mechanism": mechanism.stdout, "calls": calls.to_dict("records")}
-    verdicts["S2 R fails where the transcription fails"] = bool(
-        ((calls["r_failure"] != "") == (calls["sketch_failure"] != "")).all()
-    )
+    verdicts["S2 R fails where the transcription fails"] = _failures_agree(calls)
     report["S2"]["b1_confirmed"] = bool((calls["r_failure"] != "").any())
 
     print(f"S4 agreement on pilot draws 0-{PROBE_DRAWS - 1}", flush=True)
@@ -289,8 +301,14 @@ def probe(scratch: Path, cores: int) -> int:
         f"{both['estimate_gap'].max():.4f} SE, largest SE-ratio gap {both['se_ratio_gap'].max():.4f}",
         flush=True,
     )
-    verdicts["S4 failures agree"] = bool(
-        ((calls["r_failure"] != "") == (calls["sketch_failure"] != "")).all()
+    verdicts["S4 failures agree off the knife edge"] = _failures_agree(calls)
+    edge = calls.loc[calls["knife_edge"]]
+    report["S4"]["knife_edge"] = edge.to_dict("records")
+    print(
+        f"knife-edge calls (reported, not gated): {len(edge)}, R failed "
+        f"{(edge['r_failure'] != '').sum()}, transcription failed "
+        f"{(edge['sketch_failure'] != '').sum()}",
+        flush=True,
     )
     verdicts["S4 estimates agree"] = bool((both["estimate_gap"] <= AGREEMENT_ESTIMATE).all())
     verdicts["S4 standard errors agree"] = bool((both["se_ratio_gap"] <= AGREEMENT_SE).all())
