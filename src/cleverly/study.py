@@ -60,6 +60,7 @@ from .longitudinal import (
     SequentialGComputation,
     SequentialIPW,
     SurvivalCTMLE,
+    SurvivalDRTMLE,
 )
 from .longitudinal import estimator as _sequential
 from .longitudinal.data import check_markov_order, markov_restriction
@@ -3743,10 +3744,11 @@ def _variant_roadmap(method: str, functional: Any, design: Any) -> str:
 
     Notes
     -----
-    A longitudinal C-TMLE on a study reads its refusal from
-    :func:`~cleverly.longitudinal.collaborative.survival_design_refusal` instead, which names
-    X62 for a survival composition the source does not cover and F5 for a sequential score;
-    the F5 here is the fallback for an effect without a longitudinal panel.
+    A longitudinal C-TMLE or DR-TMLE on a study reads its refusal from
+    :func:`~cleverly.longitudinal.collaborative.survival_design_refusal` or
+    :func:`~cleverly.longitudinal.drift.drift_design_refusal` instead, which name X62 for a
+    survival composition the source does not cover and F5 for a sequential score; the F5 here
+    is the fallback for an effect without a longitudinal panel.
     """
     axis, target = functional.axis, functional.target
     # F5 keeps a longitudinal functional, a continuous dose, and ATT, ATC, incremental,
@@ -5041,6 +5043,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             alternative="Fit method='tmle'.",
             roadmap=drtmle_item,
         )
+        drtmle = variants
+        if self.functional.longitudinal and blocker is None:
+            drift_refusal = self._survival_drift_refusal()
+            drtmle = drift_refusal is None
+            if drift_refusal is not None:
+                drtmle_blocker = drift_refusal
         if isinstance(design, PointTreatment) and design.support == "vector":
             # A vector with a dose has no arms, as a continuous dose has none; each variant
             # refuses it with the reason its engine gives a continuous treatment.
@@ -5061,7 +5069,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 collaborative,
                 None if collaborative else collaborative_blocker,
             ),
-            MethodAvailability("drtmle", variants, None if variants else drtmle_blocker),
+            MethodAvailability("drtmle", drtmle, None if drtmle else drtmle_blocker),
             MethodAvailability("sdr", sdr, sdr_reason),
             MethodAvailability("ipsi", ipsi, ipsi_reason),
             MethodAvailability("gcomp", gcomp, gcomp_reason),
@@ -5112,6 +5120,33 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         if functional.target in {"ey_ipsi", "ate_ipsi"}:
             return collaborative.POLICY_REFUSAL
         return collaborative.survival_design_refusal(data, functional.interventions)
+
+    def _survival_drift_refusal(self) -> Refusal | None:
+        """Why :class:`~cleverly.longitudinal.SurvivalDRTMLE` refuses this functional, or ``None``.
+
+        Returns
+        -------
+        Refusal or None
+            The engine's refusal of the declared panel and interventions, read before any
+            learner, so ``available_methods()`` and the fit agree.
+        """
+        from .longitudinal import drift
+
+        data = getattr(self._study, "data", None)
+        functional = self.functional
+        if not isinstance(data, LongitudinalData):
+            return Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
+                "the drift-corrected TMLE fits a declared time-to-event panel, and this effect "
+                "has no panel to read.",
+                alternative="Fit method='tmle'.",
+                roadmap="F5",
+            )
+        if functional.msm is not None:
+            return drift.PROJECTION_REFUSAL
+        if functional.target in {"ey_ipsi", "ate_ipsi"}:
+            return drift.POLICY_REFUSAL
+        return drift.drift_design_refusal(data, functional.interventions)
 
     def _effect_modification_methods(
         self, records: tuple[MethodAvailability, ...]
@@ -5824,6 +5859,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             if isinstance(method, ParametricGFormulaMethod)
             else SurvivalCTMLE
             if isinstance(method, CollaborativeTMLEMethod)
+            else SurvivalDRTMLE
+            if isinstance(method, DRTMLEMethod)
             else LTMLE
         )
         estimator = engine(

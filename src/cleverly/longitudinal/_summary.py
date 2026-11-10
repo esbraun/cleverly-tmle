@@ -77,6 +77,8 @@ def method_key(result: LongitudinalResult) -> str:
     config = result.config
     if result.selection is not None:
         return "collaborative"
+    if result.drift is not None:
+        return "drift"
     if config.estimator == "tmle" and config.msm_terms is not None:
         return "msm"
     return config.estimator

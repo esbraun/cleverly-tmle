@@ -2384,6 +2384,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         ('rmst_regimen[always vs never @ t=3]', 'difference')
         """
         self._refuse_curve_functional("RMST")
+        if self.drift is not None:
+            from .drift import RMST_REFUSAL
+
+            raise CapabilityError(refusal=RMST_REFUSAL)
         causes: tuple[str | None, ...] = self.data.cause_labels or (None,)
         node, spacings = self._restriction(horizon, "RMST")
         names = self._risk_names(regimen, node, causes, "RMST")
@@ -9171,6 +9175,10 @@ def longitudinal_truncation_curve(
         from .collaborative import TRUNCATION_REFUSAL
 
         raise CapabilityError(refusal=TRUNCATION_REFUSAL)
+    if result.drift is not None:
+        from .drift import TRUNCATION_REFUSAL as DRIFT_TRUNCATION_REFUSAL
+
+        raise CapabilityError(refusal=DRIFT_TRUNCATION_REFUSAL)
     if result.config.estimator == "gcomp":
         raise CapabilityError(refusal=GCOMP_TRUNCATION_REFUSAL)
     if result.config.estimator == "parametric_gformula":

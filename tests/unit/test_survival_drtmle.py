@@ -753,3 +753,83 @@ def test_status_is_influence_curve(drift_result: Any) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         assert np.isfinite(drift_result.estimates["risk_regimen[a1 @ t=3]"].std_error)
+
+
+# ------------------------------------------------------- on-call refusals, study layer
+
+
+def test_curve_replays_are_refused(drift_result: Any) -> None:
+    from cleverly.longitudinal.estimator import longitudinal_truncation_curve
+    from cleverly.sensitivity._simulated_confounding_longitudinal import longitudinal_fit_refusal
+
+    with pytest.raises(CapabilityError, match="restricted mean survival time"):
+        drift_result.rmst("a1", 3)
+    with pytest.raises(CapabilityError, match="no truncation curve"):
+        longitudinal_truncation_curve(drift_result, [0.05])
+    assert longitudinal_fit_refusal(drift_result) is drift.REPLAY_REFUSAL
+
+
+def test_hazard_ltmle_fits_keep_their_replays(sampled: LongitudinalData) -> None:
+    """The witness: the same calls on the guard-free fit are not refused by these rules."""
+    from cleverly.sensitivity._simulated_confounding_longitudinal import longitudinal_fit_refusal
+
+    plain = fit(sampled, guard=(), horizons=[1.0, 2.0, 3.0])
+    assert plain.drift is None
+    assert np.isfinite(plain.rmst("a1", 3).psi)
+    assert longitudinal_fit_refusal(plain) is not drift.REPLAY_REFUSAL
+
+
+def _study_frame() -> pd.DataFrame:
+    return sample_frame(600, 21)
+
+
+def test_the_study_layer_fits_a_time_to_event_design_by_drift_corrected_tmle() -> None:
+    from cleverly import CausalStudy, RegimeContrast, TimeToEvent
+    from cleverly.methods import DRTMLEMethod
+
+    study = CausalStudy(
+        _study_frame(),
+        design=TimeToEvent(time="time", event="event", treatment="A", baseline=["W1", "W2"]),
+    )
+    effect = study.identify(RegimeContrast(regimens=ARMS, reference="a0"))
+    record = next(r for r in effect.available_methods() if r.name == "drtmle")
+    assert record.available
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = effect.estimate(
+            method=DRTMLEMethod(),
+            outcome_learner=glm(),
+            treatment_learner=glm(),
+            censoring_learner=glm(),
+            cross_fit=False,
+            random_state=0,
+        )
+    assert type(result.estimator) is SurvivalDRTMLE
+    assert result.drift is not None
+    assert result.inference_status == "influence_curve"
+
+
+def test_the_study_layer_refuses_drift_correction_on_a_sequential_design() -> None:
+    from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
+    from cleverly.datasets import make_longitudinal
+
+    frame, _ = make_longitudinal(n=200, seed=0)
+    study = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        ),
+    )
+    effect = study.identify(RegimeContrast(regimens={"always": 1, "never": 0}, reference="never"))
+    record = next(r for r in effect.available_methods() if r.name == "drtmle")
+    assert not record.available
+    assert record.refusal is not None and record.refusal.roadmap == "F5"
+
+
+def test_summary_names_the_drift_correction(drift_result: Any, sampled: LongitudinalData) -> None:
+    assert "survival DR-TMLE" in str(drift_result.summary())
+    assert "DR-TMLE" not in str(fit(sampled, guard=()).summary())
