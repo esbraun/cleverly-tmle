@@ -407,12 +407,6 @@ def tilt_interval_exclusion(result: Any) -> str | None:
             "the fit reads a composite observation mechanism, and the tilt is defined on the "
             "outcome-missingness mechanism alone"
         )
-    if result.config.cv_evaluation and result.data.has_strata:
-        return (
-            "the fold-evaluated construction with baseline strata averages fold plug-ins "
-            "inside each stratum and mixes them by stratum share, and no targeted tilt is "
-            "assembled that way"
-        )
     if result.data.has_intermediate:
         return "no targeted tilt is derived for a controlled direct effect"
     return None

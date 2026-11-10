@@ -49,15 +49,19 @@ coefficient (the working-model projection of the tilted regressions).  Each repe
 arithmetic of the target that reported it, so every curve passes through the reported
 estimate at :math:`\gamma = 0`.
 
-**No interval off** :math:`\gamma = 0`.  The tilted parameter is a different functional
+**Intervals off** :math:`\gamma = 0`.  The tilted parameter is a different functional
 from the MAR one, with its own influence function: off :math:`\gamma = 0` the outcome
 residual is reweighted and a term in the missingness mechanism appears, and both vanish
 only at :math:`\gamma = 0`.  The MAR standard error therefore does not measure the
-sampling variability of a tilted estimate, and can understate it badly.  Every parameter
-reports its spread at :math:`\gamma \neq 0` under the ``plugin_`` names: the MAR standard
-error on its inference scale, centred on the tilted point.  It is a diagnostic and not a
-confidence interval.  The row at :math:`\gamma = 0` is the fit's own report, with its
-interval.
+sampling variability of a tilted estimate, and can understate it badly.  On an ordinary
+``TMLE`` fit the arm means, contrasts, ``att``, ``atc``, ``rr``, ``or``, ``ey_obs``,
+``par`` and ``paf`` are re-targeted at each :math:`\gamma`
+(:mod:`cleverly.sensitivity._tilt_targeting`), and each row carries the estimate,
+standard error and interval of that targeted tilt.  A regime mean, an MSM coefficient,
+and every parameter of a fit the targeted tilt excludes keep the plug-in point, and
+report the MAR standard error on its inference scale, centred on the tilted point, under
+the ``plugin_`` names: a diagnostic and not a confidence interval.  The row at
+:math:`\gamma = 0` is the fit's own report, with its interval.
 
 **What the tilt reports for a fit that has no interval.**  The curve is a plug-in
 sweep of the point estimate, so the whole of it is defined for a fit at a
@@ -68,7 +72,7 @@ therefore receives ``plugin_std_err``, ``plugin_interval_lower`` and
 ``plugin_interval_upper`` in place of ``std_err``, ``ci_lower`` and ``ci_upper``, which
 is the swap :func:`~cleverly.sensitivity.positivity.truncation_curve` already makes for
 the same fit.  :func:`tipping_gamma` keeps its point-estimate search on such a fit, and
-refuses ``use_ci=True`` there as it does on every fit.
+refuses ``use_ci=True`` there, as it does wherever the tilt claims no interval.
 """
 
 from __future__ import annotations
@@ -1063,10 +1067,12 @@ def tipping_gamma(
     reads, because it searches over that same tilt.  The capability row quotes the same
     sentence.
 
-    Refuses ``use_ci=True`` for every parameter the tilt re-mixes, because no tilt claims
-    an interval at ``gamma != 0``, so the search has no confidence limit to follow.
-    ``use_ci=False``, the default, searches the point estimate and answers for every one
-    of them.
+    ``use_ci=True`` follows the confidence limit of the targeted tilt, which the arm means,
+    contrasts, ratios, ``ey_obs``, ``par`` and ``paf`` of an ordinary ``TMLE`` fit carry
+    off ``gamma = 0``.  It refuses a regime mean, an MSM coefficient and every parameter of
+    a fit the targeted tilt excludes, whose spread there is a diagnostic, so the search has
+    no confidence limit to follow.  ``use_ci=False``, the default, searches the point
+    estimate and answers for every parameter the tilt re-mixes.
 
     Parameters
     ----------
@@ -1082,8 +1088,8 @@ def tipping_gamma(
         the declared arm-specific tilt magnitudes before refining each crossing.
     use_ci : bool
         Whether to tip when the confidence limit reaches the null rather than the
-        point estimate. Refused for every tilted parameter, whose spread off
-        ``gamma = 0`` is a diagnostic and not a confidence limit.
+        point estimate. Follows the targeted tilt's limit, and refused for a parameter
+        whose spread off ``gamma = 0`` is a diagnostic and not a confidence limit.
     arm_gamma : mapping of level to float, or None
         One multiplier per arm, as :func:`missingness_tilt` accepts.
 
