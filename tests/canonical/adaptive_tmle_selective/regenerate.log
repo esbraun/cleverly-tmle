@@ -1,0 +1,53 @@
+run scratch: C:\Users\erics\AppData\Local\cleverly\runs\adaptive-tmle-selective\39a592851400
+regenerating Adaptive TMLE under selective enrollment: 2400 x n=3200
+kept the host scratch C:\Users\erics\AppData\Local\cleverly\runs\adaptive-tmle-selective\39a592851400 for audit
+copied 10 files from C:\Users\erics\Documents\x90-run2\x90-sel2 to C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x90\tests\canonical\adaptive_tmle_selective
+Traceback (most recent call last):
+  File "<frozen runpy>", line 203, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x90\tests\canonical\adaptive_tmle_selective\regenerate.py", line 18, in <module>
+    run(
+    ~~~^
+        adaptive_tmle_selective,
+        ^^^^^^^^^^^^^^^^^^^^^^^^
+        adaptive_tmle_selective_properties,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        here=Path(__file__).resolve().parent,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x90\tests\canonical\declared_run.py", line 199, in run
+    declared(study, properties, here=here, arguments=[*rest, *forwarded], reference=reference)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x90\tests\canonical\declared_run.py", line 169, in declared
+    publish_run(
+    ~~~~~~~~~~~^
+        study,
+        ^^^^^^
+    ...<10 lines>...
+        reference=reference,
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x90\tests\canonical\declared_run.py", line 132, in publish_run
+    raise failure
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x90\tests\canonical\declared_run.py", line 109, in publish_run
+    regenerate(study, properties, here=here, reference=reference)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x90\tests\canonical\regenerate.py", line 2338, in main
+    _regenerate(
+    ~~~~~~~~~~~^
+        study,
+        ^^^^^^
+    ...<6 lines>...
+        base_record=base,
+        ^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x90\tests\canonical\regenerate.py", line 2664, in _regenerate
+    raise RuntimeError(
+    ...<4 lines>...
+    )
+RuntimeError: independent performance gates failed:
+                  implementation scenario estimand  replicates  confidence_level inference_scale     bias  bias_ci_lower  bias_ci_upper  bias_margin  standardized_bias  bias_equivalent  coverage  coverage_ci_lower  coverage_ci_upper  coverage_floor  coverage_valid  over_covered  se_ratio  se_ratio_ci_lower  se_ratio_ci_upper  se_ratio_resolution  se_ratio_margin_lower  se_ratio_margin_upper  se_calibrated  passed
+cleverly-adaptive-tmle-selective    s6_cv      psi        2400              0.99        identity 0.028966       0.021487       0.036445     0.035531           0.203811            False  0.936667           0.922763           0.948803             0.9            True         False  0.953032            0.91334           0.995203              0.08666                    0.8                    1.2           True   False
