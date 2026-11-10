@@ -1206,9 +1206,9 @@ def tipping_gamma(
         Whether to tip when the confidence limit reaches the null rather than the
         point estimate. Follows the targeted tilt's limit, and refused for a parameter
         whose spread off ``gamma = 0`` is a diagnostic and not a confidence limit.
-        The value carries that limit's registry reading, which
-        :func:`tipping_interval_reading` returns: where no validation study covers it, the
-        tipping value is descriptive, and the combined assessment row says so.
+        Where no validation study covers that limit, as
+        :attr:`~cleverly.sensitivity.MissingnessTilt.descriptive` lists, the tipping value
+        is descriptive, and the combined assessment row says so.
     arm_gamma : mapping of level to float, or None
         One multiplier per arm, as :func:`missingness_tilt` accepts.
 
