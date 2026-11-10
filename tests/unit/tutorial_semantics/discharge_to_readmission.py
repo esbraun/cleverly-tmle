@@ -218,6 +218,18 @@ def _check_evalue(namespace: dict[str, Any]) -> None:
 
 
 def _check_sensitivity(namespace: dict[str, Any]) -> None:
+    from cleverly.exceptions import CapabilityError
+    from cleverly.sensitivity import ConfounderStrengthGrid
+
+    # "because about half the patients were offered".
+    assert 0.4 < namespace["frame"]["offer"].mean() < 0.6
+    # "The replay refuses the team fit"; the refusal comes before any draw or refit.
+    with pytest.raises(CapabilityError, match="simulated_confounding"):
+        namespace["team_result"].sensitivity.simulated_confounding(
+            namespace["target"],
+            grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
+            latent_level="cluster",
+        )
     moves = namespace["moves"]
     by_name = {(move["fit"], move["left out"]): move["move in SEs"] for move in moves}
     # "Leaving out discharge_risk moves the team estimate ... 4.1 standard errors"; "Every other
@@ -261,12 +273,15 @@ def _check_surface(namespace: dict[str, Any]) -> None:
     calibration = surface.calibration_frame().set_index(["covariate", "role"])["strength"]
     assert round(calibration["lives_alone", "outcome"], 4) == 0.1897
     assert round(calibration["prior_admissions", "outcome"], 4) == 0.2147
-    assert "log-odds per standard deviation" in " ".join(surface.calibration_frame()["method"])
+    methods = surface.calibration_frame().set_index("role")["method"]
+    assert all("log-odds per standard deviation" in m for m in methods.loc[["outcome"]])
+    # "The treatment rows measure something else, the share of predicted offers that change".
+    assert all("class-prediction change" in m for m in methods.loc[["treatment"]])
     # "A hidden cause of readmission that strong (0.2) moves the estimate by 0.0011, and one five
     # times stronger (1.0) moves it to -0.1392".
     assert round(cells[0.0, 0.2].displacement, 4) == 0.0011
     assert round(cells[0.0, 1.0].estimate, 4) == -0.1392
-    # "Mislabeling 20% of the offers moves it to -0.0848, and no cell reaches zero".
+    # "Flipping the recorded offer of 20% of patients moves it to -0.0848, and no cell reaches zero".
     assert round(cells[0.2, 0.0].estimate, 4) == -0.0848
     assert max(cell.estimate for cell in cells.values()) < 0.0
     # "at outcome strength 1.0, about 36% of the replayed readmissions are new ones ..., and about
