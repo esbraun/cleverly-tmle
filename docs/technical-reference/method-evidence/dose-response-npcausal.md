@@ -9,9 +9,11 @@ study's law $\theta$ is a line, and every local-linear smoother reproduces a lin
 equal $\theta(a_0)$ at every declared dose and bandwidth. The comparison is of target recovery on
 that shared value, not of the two smoothing measures, and its kind is "related target".
 
-The study is declared and has not run, and it is registered when the run's artifacts land. A
-declared rule read its bandwidths and its replication count off two pilots, the second of which
-fitted real `ctseff` on 1,000 draws. The generated tables stay empty until the declared run.
+The declared run has landed in `tests/canonical/dose_response_npcausal/`, and the study is not
+yet registered, so the generated tables below stay empty. A declared rule read its bandwidths and
+its replication count off two pilots, the second of which fitted real `ctseff` on 1,000 draws.
+[Results of the declared run](#results-of-the-declared-run) reads the artifacts, including three
+red paired rows, one of them outside the pre-registered red set.
 [Smoothed dose-response curve](../dose-response.md) gives the estimand and the estimator. The [dose-response study](dose-response.md) holds the
 estimator's property evidence.
 
@@ -45,6 +47,78 @@ $10^{-6}$.
 
 <!-- generated: agreement -->
 <!-- /generated -->
+
+## Results of the declared run
+
+All 12 truth rows pass. `cleverly` covers at 0.956 to 0.963 with SE ratios 1.037 to 1.068, and
+`ctseff` covers at 0.953 to 0.960 with SE ratios 1.005 to 1.037. The mean paired differences are
+$0.9 \times 10^{-4}$ to $2.7 \times 10^{-4}$, 2% to 6% of the similarity margins, and the RMSE ratios
+are 0.976 to 1.038 with 99% upper bounds at most 1.071. The pair at $h = 2$, $a_0 = 1.5$ concludes
+superior on coverage, and the pairs at $h = 2.5$, $a_0 = 1.5$ and $a_0 = 2.5$ conclude equivalent.
+The RMSE leg at $h = 2.5$, $a_0 = 3.5$, which the pilot projected red at any count, passes.
+
+### Failed replications
+
+`ctseff` failed 6 of 4,800 replications, inside the declared bound of 48, and `cleverly` failed
+none. Five failures are `locpoly`'s gridsize error at $h = 2$. The Python transcription fails four
+of those calls and counts the fifth, replication 1709, as a knife-edge call, as it did in the
+pilot, and it fits all five at $h = 2.5$. The runner fits each replication as one harness group,
+so an error at $h = 2$ also removes that replication's $h = 2.5$ rows, and every paired row reads
+4,794 replications.
+
+The sixth failure, replication 2540, is a type the pilot never met: `density.default(a.std[1:n])`
+stops with "'x' contains missing values". `ctseff` fits the dose variance by regressing the squared
+dose residuals on the interaction design with `SL.glm.interaction`, an unconstrained least-squares
+fit, and standardizes the dose by the square root of the fitted value. In replication 2540 one row,
+with $W = (4.17, -2.38, -0.55)$, gets a fitted variance of $-0.0058$, so its standardized dose is
+`NaN`. The transcription rebuilds that input without R and refuses at the same point, "the fitted
+dose variance is not positive". The failure comes from `ctseff`'s variance model on this law and
+learner, not from its pseudo-outcome or the runner, and it fell inside `study_stage`, so it costs
+one replication.
+
+### Why three rows are red
+
+| paired row | complete cases | failure-accounting worst case | conclusion | reading |
+| --- | --- | --- | --- | --- |
+| $h = 2$, $a_0 = 3.5$ | calibration excess upper bound 0.0558, above 0.05; the other legs pass | not reached | inconclusive | pre-registered: `cleverly`'s mean SE is 1.10 efficient SDs, its SE ratio 1.068 and its coverage 0.963 |
+| $h = 2$, $a_0 = 2.5$ | every equivalence leg passes; calibration upper bound 0.0391 | calibration slack 0.0111 falls to $-0.0004$ | unaccounted | post-run diagnosis, outside the pre-registered set |
+| $h = 2.5$, $a_0 = 3.5$ | every equivalence leg passes; calibration upper bound 0.0393 | calibration slack 0.0107 falls to $-0.0024$ | unaccounted | post-run diagnosis; the pre-registered dose, not the pre-registered signature |
+
+The failure accounting fills the six replications `ctseff` lost with its declared unfavourable
+candidates and withdraws a conclusion that does not survive them. For the calibration excess
+$|r_s - 1| - |r_r - 1|$, with $r$ an implementation's mean SE over its empirical SD, the worst
+candidate puts `ctseff`'s six missing SEs at the surviving minimum and its six missing estimates
+at the surviving minimum, about four empirical SDs below the mean. That raises `ctseff`'s spread
+and lowers its mean SE. At $h = 2$, $a_0 = 2.5$ its SE ratio moves from 1.0055 to 0.996 and
+crosses 1, so its own error no longer offsets `cleverly`'s 3.7% over-report.
+
+Each imputed failure moves `ctseff`'s SE ratio by 0.0011 to 0.0017. One failure alone lowers the
+calibration slack by 0.0026 at $h = 2$, $a_0 = 2.5$ and by 0.0030 at $h = 2.5$, $a_0 = 3.5$, and
+the six together lower it by 0.011 to 0.013 in all six cells. Of the five rows that pass on their complete cases,
+the two unaccounted ones are those whose complete-case slack, 0.0111 and 0.0107, was smaller than
+their shift; the next smallest, 0.0153 at $h = 2.5$, $a_0 = 2.5$, survives with 0.0027. In both, `cleverly`'s truth row is green, its SE
+ratio is 1.037 and 1.055, and its mean SE sits at the level the pilot read at these pairs. The
+reds do not locate a defect in `DoseResponseTMLE`.
+
+### What the declaration missed
+
+The paired-leg sizing read the pilot's complete cases and priced no failure-accounting imputation.
+The R pilot lost 1 of 1,000 draws at the selected pair, so about 5 losses were expected at 4,800
+and the run met 6. The shift is not a sampling error that more replications remove: the losses
+grow with the count and the extreme survivors move outward, so the shift holds roughly level. Taking
+0.012 off the calibration margin, the pilot's projected calibration pass chance at $h = 2$,
+$a_0 = 2.5$ falls from 0.99 to 0.89, and at $h = 2.5$, $a_0 = 2.5$ from 0.96 to 0.65. At
+$h = 2.5$, $a_0 = 3.5$ it stays at 0.995, because the pilot read an excess of $-0.030$ there
+against 0.018 in the run, so the rule would not have flagged that row.
+
+The record is `reporting`, so the three red rows publish as red. The design test admits the
+inconclusive row under its pre-registered signature, and admits the two unaccounted rows under a
+signature labelled post-run that names those rows only. That signature requires every
+complete-case leg to pass, the published conclusion to be unaccounted, the accounting gate to read
+"worst case fails" with the equivalence route green on its complete cases, at least one reference
+failure within the bound, and `cleverly`'s truth row green. A mutation control breaks each clause
+alone and confirms the row is refused. No margin, threshold, count or declared value changed, and
+no replication was redrawn.
 
 ## Theory properties
 
@@ -125,6 +199,9 @@ signatures in the run's `equivalence.csv`. Owner rows follow the run.
 | dose 3.5, failing only the RMSE leg, the calibration leg, or both, with the subject's mean SE above 1.05 efficient SDs, its coverage at least 0.95 and its truth row green | the pre-registered upper-dose excess of the pooled-hazard density |
 | dose 1.5 or 2.5, failing only the calibration leg, when the paired-leg rule hit its cap | the straddle reading above |
 | anything else | not admitted. The design test fails, and the row is diagnosed before publication |
+
+The run produced reds of the third kind at $h = 2$, $a_0 = 2.5$ and $h = 2.5$, $a_0 = 3.5$, which
+[Why three rows are red](#why-three-rows-are-red) diagnoses.
 
 A red `cleverly` truth row is a defect suspect: the truths are exact, the outcome design holds
 $\bar Q_0$ and the doses are interior. A red `npcausal` truth row is a finding about the

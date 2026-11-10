@@ -14,6 +14,7 @@ from __future__ import annotations
 import inspect
 import math
 import re
+from dataclasses import dataclass, replace
 
 import numpy as np
 import pandas as pd
@@ -27,6 +28,7 @@ from tests.studies import dose_response as s1
 from tests.studies import dose_response_npcausal as study
 from tests.studies import dose_response_npcausal_law as law
 from tests.studies import dose_response_npcausal_pilot as pilot
+from tests.studies.evidence import failures
 from tests.studies.evidence.registry import ROOT
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
@@ -476,59 +478,186 @@ class TestTheDeclaration:
         assert rows == []
 
 
+#: POST-RUN, not pre-registered.  The paired rows that the declared run turned red through the
+#: failure accounting's worst case alone, diagnosed after the run on the evidence page
+#: (``docs/technical-reference/method-evidence/dose-response-npcausal.md``, "Why three rows are
+#: red").  Each row's complete cases conclude equivalent, and the six replicates ``ctseff``
+#: lost, imputed at the accounting's unfavourable candidates, push the calibration excess past
+#: its margin.  The declaration's sizing read complete cases only and never priced that
+#: imputation in.  Only these rows, and only under :func:`_check_worst_case_only`, are admitted.
+POST_RUN_WORST_CASE = frozenset({"dose_response[h=2,a=2.5]", "dose_response[h=2.5,a=3.5]"})
+
+
+@dataclass(frozen=True)
+class _Tables:
+    equivalence: pd.DataFrame
+    summary: pd.DataFrame
+    performance: pd.DataFrame
+    accounting: pd.DataFrame
+
+
+def _read_tables() -> _Tables:
+    path = ARTIFACTS / "equivalence.csv"
+    if not path.exists():
+        pytest.skip("the declared run has not landed")
+    index = ["implementation", "estimand"]
+    return _Tables(
+        equivalence=pd.read_csv(path),
+        summary=pd.read_csv(ARTIFACTS / "summary.csv").set_index(index),
+        performance=pd.read_csv(ARTIFACTS / "performance-tests.csv").set_index(index),
+        accounting=pd.read_csv(ARTIFACTS / "failure-accounting.csv"),
+    )
+
+
+def _failed_legs(row: pd.Series) -> set[str]:
+    """The paired legs that fail on the complete cases, the columns ``equivalence.csv`` holds."""
+    legs = {
+        "similarity": bool(row["paired_similarity"]),
+        "RMSE": row["rmse_ratio_upper"] <= row["rmse_noninferiority_margin"],
+        "coverage": row["coverage_difference_lower"] >= row["coverage_noninferiority_margin"],
+        "calibration": row["calibration_excess_upper"] <= row["calibration_noninferiority_margin"],
+    }
+    return {name for name, held in legs.items() if not held}
+
+
+def _check_worst_case_only(name: str, row: pd.Series, tables: _Tables) -> None:
+    """POST-RUN signature: a red that the failure accounting's worst case alone produced.
+
+    The row's own legs conclude equivalent or superior on the complete cases (the published
+    conclusion is ``unaccounted``), every complete-case leg passes, the reference lost at
+    least one replicate within its bound, the accounting gate reads "worst case fails", and
+    the equivalence route's legs all pass on their complete cases while one of them fails its
+    worst case.
+    """
+    assert row["comparison_conclusion"] == failures.UNACCOUNTED, name
+    assert not _failed_legs(row), f"{name}: complete cases fail {_failed_legs(row)}"
+    accounting = tables.accounting.loc[
+        (tables.accounting["table"] == "equivalence") & (tables.accounting["estimand"] == name)
+    ]
+    assert not accounting.empty, f"{name}: no failure accounting"
+    assert set(accounting["reason"]) == {failures.WORST_CASE_FAILS}, name
+    assert (accounting["reference_failed"] > 0).all(), f"{name}: the reference lost nothing"
+    assert (accounting["failed"] <= accounting["allowed"]).all(), name
+    # The equivalence route held on the complete cases, and its worst case lost it.
+    route = accounting.loc[accounting["leg"].isin(failures.EQUIVALENCE_ROUTE)]
+    assert set(route["leg"]) == set(failures.EQUIVALENCE_ROUTE), name
+    assert (route["complete_case"] >= 0.0).all(), f"{name}: the route is red on complete cases"
+    assert not route["leg_passed"].astype(bool).all(), f"{name}: the worst case holds"
+
+
+def _check_red(row: pd.Series, tables: _Tables) -> str:
+    """Admit one red paired row by a declared signature, and name the signature."""
+    name = str(row["estimand"])
+    a0, h, _ = study.PILOT_PAIRS[name]
+    subject, reference = study.IMPLEMENTATION, study.REFERENCE
+    mine, theirs = tables.summary.loc[(subject, name)], tables.summary.loc[(reference, name)]
+    failed = _failed_legs(row)
+    assert bool(tables.performance.loc[(subject, name), "passed"]), f"{name}: subject truth red"
+    if name in POST_RUN_WORST_CASE:
+        _check_worst_case_only(name, row, tables)
+        return "post-run worst case"
+    if a0 == study.EXPECTED_RED_DOSE:
+        # The pooled-hazard density's upper-dose excess, read as an over-reported SE
+        # (calibration) or as extra spread (RMSE), with similarity and coverage green.
+        efficient = law.efficiency_sd(h, a0, study.KERNEL) / math.sqrt(study.PRIMARY_N)
+        assert failed and failed <= {"RMSE", "calibration"}, f"{name}: {failed}"
+        assert mine["mean_std_error"] / efficient > study.UPPER_DOSE_SE_RATIO, name
+        assert mine["coverage"] >= 0.95, name
+        return "pre-registered upper dose"
+    # The straddle reading, declared only where the paired-leg rule hit its cap.
+    assert pilot.declaration_from_pilot().paired is None, (
+        f"{name}: a red outside the pre-registered set"
+    )
+    assert failed == {"calibration"}, f"{name}: {failed}"
+    high = study.STUDY.margins.calibration_se_ratio[1]
+    assert 1.0 <= mine["se_ratio"] <= high and theirs["se_ratio"] < 1.0, name
+    assert bool(tables.performance.loc[(reference, name), "passed"]), name
+    return "pre-registered straddle"
+
+
 class TestThePreregisteredRedSet:
     """The red paired rows the declaration expects, checked once the declared run lands.
 
     The record is ``reporting``, so a red row publishes.  This test is what keeps
     ``reporting`` from absorbing a red nobody predicted: every red paired row must carry the
-    signature declared before the run, and any other red fails here and forces a diagnosis.
-    Owner rows are filed after the run, against the rows this test admits.
+    signature declared before the run, or the POST-RUN worst-case signature diagnosed after it
+    (:data:`POST_RUN_WORST_CASE`), and any other red fails here and forces a diagnosis.  Owner
+    rows are filed after the run, against the rows this test admits.
     """
 
-    @staticmethod
-    def _tables() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        path = ARTIFACTS / "equivalence.csv"
-        if not path.exists():
-            pytest.skip("the declared run has not landed")
-        equivalence = pd.read_csv(path)
-        summary = pd.read_csv(ARTIFACTS / "summary.csv").set_index(["implementation", "estimand"])
-        performance = pd.read_csv(ARTIFACTS / "performance-tests.csv").set_index(
-            ["implementation", "estimand"]
-        )
-        return equivalence, summary, performance
-
-    @staticmethod
-    def _failed_legs(row: pd.Series) -> set[str]:
-        legs = {
-            "similarity": bool(row["paired_similarity"]),
-            "RMSE": row["rmse_ratio_upper"] <= row["rmse_noninferiority_margin"],
-            "coverage": row["coverage_difference_lower"] >= row["coverage_noninferiority_margin"],
-            "calibration": row["calibration_excess_upper"]
-            <= row["calibration_noninferiority_margin"],
-        }
-        return {name for name, held in legs.items() if not held}
-
     def test_every_red_paired_row_has_a_declared_signature(self) -> None:
-        equivalence, summary, performance = self._tables()
-        straddle_declared = pilot.declaration_from_pilot().paired is None
-        subject, reference = study.IMPLEMENTATION, study.REFERENCE
-        for _, row in equivalence.loc[~equivalence["passed"].astype(bool)].iterrows():
-            name = str(row["estimand"])
-            a0, h, _ = study.PILOT_PAIRS[name]
-            mine, theirs = summary.loc[(subject, name)], summary.loc[(reference, name)]
-            failed = self._failed_legs(row)
-            assert bool(performance.loc[(subject, name), "passed"]), f"{name}: subject truth red"
-            if a0 == study.EXPECTED_RED_DOSE:
-                # The pooled-hazard density's upper-dose excess, read as an over-reported SE
-                # (calibration) or as extra spread (RMSE), with similarity and coverage green.
-                efficient = law.efficiency_sd(h, a0, study.KERNEL) / math.sqrt(study.PRIMARY_N)
-                assert failed and failed <= {"RMSE", "calibration"}, f"{name}: {failed}"
-                assert mine["mean_std_error"] / efficient > study.UPPER_DOSE_SE_RATIO, name
-                assert mine["coverage"] >= 0.95, name
-                continue
-            # The straddle reading, declared only where the paired-leg rule hit its cap.
-            assert straddle_declared, f"{name}: a red outside the pre-registered set"
-            assert failed == {"calibration"}, f"{name}: {failed}"
-            high = study.STUDY.margins.calibration_se_ratio[1]
-            assert 1.0 <= mine["se_ratio"] <= high and theirs["se_ratio"] < 1.0, name
-            assert bool(performance.loc[(reference, name), "passed"]), name
+        tables = _read_tables()
+        red = tables.equivalence.loc[~tables.equivalence["passed"].astype(bool)]
+        admitted = {str(row["estimand"]): _check_red(row, tables) for _, row in red.iterrows()}
+        # The post-run set names rows the run turned red, no more: a stale entry fails.
+        post_run = {name for name, reading in admitted.items() if reading == "post-run worst case"}
+        assert post_run == POST_RUN_WORST_CASE
+
+    @staticmethod
+    def _mutants(name: str, tables: _Tables) -> dict[str, _Tables]:
+        """Copies of the tables, each breaking one clause of the post-run signature at ``name``."""
+        subject = study.IMPLEMENTATION
+
+        def changed(**frames: pd.DataFrame) -> _Tables:
+            return replace(tables, **frames)
+
+        cell = (tables.accounting["table"] == "equivalence") & (
+            tables.accounting["estimand"] == name
+        )
+        row = tables.equivalence["estimand"] == name
+        performance = tables.performance.copy()
+        performance.loc[(subject, name), "passed"] = False
+        no_failures = tables.accounting.copy()
+        no_failures.loc[cell, "reference_failed"] = 0
+        complete_red = tables.equivalence.copy()
+        complete_red.loc[row, "calibration_excess_upper"] = 0.06
+        leg_red = tables.accounting.copy()
+        leg_red.loc[cell & (leg_red["leg"] == "calibration excess"), "complete_case"] = -0.001
+        worst_holds = tables.accounting.copy()
+        worst_holds.loc[cell, "leg_passed"] = True
+        reason = tables.accounting.copy()
+        reason.loc[cell, "reason"] = failures.COMPLETE_CASE_FAILS
+        conclusion = tables.equivalence.copy()
+        conclusion.loc[row, "comparison_conclusion"] = "inconclusive"
+        return {
+            "subject truth red": changed(performance=performance),
+            "no reference failure": changed(accounting=no_failures),
+            "no accounting": changed(accounting=tables.accounting.loc[~cell]),
+            "complete-case calibration red": changed(equivalence=complete_red),
+            "calibration red on complete cases": changed(accounting=leg_red),
+            "worst case holds": changed(accounting=worst_holds),
+            "gate reason": changed(accounting=reason),
+            "not unaccounted": changed(equivalence=conclusion),
+        }
+
+    def test_the_post_run_signature_rejects_each_mutation(self) -> None:
+        # The witness that the post-run branch is not vacuous: each clause, broken alone on a
+        # real admitted row, fails the check.
+        tables = _read_tables()
+        for name in sorted(POST_RUN_WORST_CASE):
+            row = tables.equivalence.loc[tables.equivalence["estimand"] == name].iloc[0]
+            assert _check_red(row, tables) == "post-run worst case"
+            for label, mutant in self._mutants(name, tables).items():
+                mutated = mutant.equivalence.loc[mutant.equivalence["estimand"] == name].iloc[0]
+                try:
+                    _check_red(mutated, mutant)
+                except AssertionError:
+                    continue
+                pytest.fail(f"{name}: the '{label}' mutant was admitted")
+
+    def test_the_post_run_signature_does_not_reach_other_rows(self) -> None:
+        # A green dose-2.5 row given the same worst-case-only accounting stays inadmissible:
+        # the post-run reading covers the diagnosed rows only.
+        tables = _read_tables()
+        name = "dose_response[h=2.5,a=2.5]"
+        assert name not in POST_RUN_WORST_CASE
+        equivalence = tables.equivalence.copy()
+        row = equivalence["estimand"] == name
+        assert bool(equivalence.loc[row, "passed"].iloc[0])
+        equivalence.loc[row, ["passed", "comparison_conclusion"]] = [False, failures.UNACCOUNTED]
+        accounting = tables.accounting.copy()
+        cell = (accounting["table"] == "equivalence") & (accounting["estimand"] == name)
+        accounting.loc[cell, "reason"] = failures.WORST_CASE_FAILS
+        mutant = replace(tables, equivalence=equivalence, accounting=accounting)
+        with pytest.raises(AssertionError, match="outside the pre-registered set"):
+            _check_red(equivalence.loc[row].iloc[0], mutant)

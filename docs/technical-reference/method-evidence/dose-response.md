@@ -255,7 +255,7 @@ from the committed results.
 
 | limit | what it means for use |
 | --- | --- |
-| no comparator | the record names no reference implementation, so the study has no paired verdict. The [comparator study](dose-response-npcausal.md) pairs a triweight fit with npcausal `ctseff` on a linear curve, and its run is pending |
+| no comparator | the record names no reference implementation, so the study has no paired verdict. The [comparator study](dose-response-npcausal.md) pairs a triweight fit with npcausal `ctseff` on a linear curve. Its declared run has landed and is not yet registered |
 | one law family | a normal location model for the dose, with an outcome that reads $W$ through one linear index, on $D = [0, 5]$ |
 | declared sieve learners | the outcome sieve holds the $W$ part of the law exactly. The default learner library is not measured |
 | one sample size per scenario | n = 4,000, n = 8,000 for the stratified scenario and n = 1,000 for the tail pair. Smaller sizes are not claimed |

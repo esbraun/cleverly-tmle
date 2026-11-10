@@ -30,6 +30,24 @@ Order of work, all local:
 
 4. Register the record with the run's artifacts.
 
+Run history.  The declared run (commit ``c1aac5fe``) exited 0.  All 12 truth rows pass.
+``ctseff`` failed 6 of 4,800 replications inside ``study_stage`` and ``cleverly`` none, so
+every paired row reads 4,794: five ``locpoly`` gridsize errors at bandwidth 2, which the
+transcription fails or counts as knife-edge, and at replication 2540 a type the pilot never
+met, ``density.default``'s "'x' contains missing values".  There ``ctseff``'s least-squares
+dose-variance fit is negative at one row, so the standardized dose is ``NaN``; the
+transcription rebuilds the input and refuses at the same point.  The pair at h = 2, a = 1.5 is
+superior and the pairs at h = 2.5, a = 1.5 and 2.5 equivalent.  Three are red.  h = 2, a = 3.5
+is inconclusive on its complete-case calibration leg (upper bound 0.0558), the pre-registered
+reading.  h = 2, a = 2.5 and h = 2.5, a = 3.5 conclude equivalent on their complete cases and
+are unaccounted: the failure accounting's worst case, the six lost ``ctseff`` SEs and estimates
+at the surviving minimum, lowers ``ctseff``'s SE ratio by about 0.01 and the calibration slack
+by 0.011 to 0.013, past the complete-case slack of 0.0111 and 0.0107.  The paired-leg sizing
+read complete cases and never priced that imputation in, a miss in the declaration and not a
+defect of ``DoseResponseTMLE``.  The dose-2.5 red lies outside the pre-registered set; the
+design test admits the two rows under a signature labelled post-run, and nothing was re-sized,
+redrawn or re-margined.  The evidence page's "Results of the declared run" holds the numbers.
+
 Pilot readings (the design test recomputes every number here).  ``ctseff`` failed 77, 9, 1 and
 0 of 1,000 calls at bandwidths 1, 1.5, 2 and 2.5, all inside ``study_stage`` with
 ``locpoly``'s gridsize error.  Those are exactly the calls the Python transcription fails (74,
