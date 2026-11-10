@@ -200,3 +200,55 @@ class TestTheSimplexLeastSquaresMetaLearner:
     def test_an_unknown_meta_learner_is_refused(self) -> None:
         with pytest.raises(ValueError, match="'cc_ls'"):
             _two_point("simplex")
+
+
+class TestTheDefaultReachesATMLEFit:
+    """The fast tier's shared outcome learner names ``"nnls"``, so this fit runs ``"auto"``.
+
+    A continuous outcome sends the outcome ensemble down the regression path, where ``"auto"``
+    must resolve to ``"cc_ls"`` and return weights on the simplex.
+    """
+
+    def test_a_continuous_outcome_fit_combines_by_cc_ls(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import pandas as pd
+
+        from cleverly.estimators import TMLE
+
+        solved: list[np.ndarray] = []
+        real = module._solve_cc_ls
+
+        def spy(*args: object) -> np.ndarray:
+            alpha = real(*args)  # type: ignore[arg-type]
+            solved.append(alpha)
+            return alpha
+
+        def forbidden(*args: object) -> np.ndarray:
+            raise AssertionError("auto resolved to normalised nnls on a regression task")
+
+        monkeypatch.setattr(module, "_solve_cc_ls", spy)
+        monkeypatch.setattr(module, "_solve_nnls", forbidden)
+        rng = np.random.default_rng(5)
+        n = 400
+        w = rng.normal(size=(n, 2))
+        a = (rng.uniform(size=n) < 1.0 / (1.0 + np.exp(-w[:, 0]))).astype(float)
+        y = 0.5 * a + w[:, 0] - 0.5 * w[:, 1] + rng.normal(scale=0.5, size=n)
+        frame = pd.DataFrame({"W1": w[:, 0], "W2": w[:, 1], "A": a, "Y": y})
+        outcome = SuperLearner(
+            library=[("ols", LinearRegression()), ("ridge", Ridge(alpha=50.0))],
+            n_folds=3,
+            random_state=0,
+        )
+        result = TMLE(
+            outcome_learner=outcome,
+            treatment_learner=LogisticRegression(max_iter=1000),
+            cross_fit=False,
+            simultaneous=False,
+            random_state=0,
+        ).fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+        assert solved, "the outcome ensemble never reached the simplex solver"
+        for alpha in solved:
+            assert alpha.sum() == pytest.approx(1.0, abs=1e-12)
+            assert np.all(alpha >= 0.0)
+        assert np.isfinite(result.single()["ate"].psi)
