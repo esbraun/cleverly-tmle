@@ -176,6 +176,7 @@ from ..interventions import RiskRatioTilt
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
+    from .collaborative import SurvivalSelection
 from .._summary import Detail, Summary, check_detail
 from ..interventions.policy import Support as DeclaredSupport
 from ..learners._fitting import supports_sample_weight
@@ -1560,6 +1561,23 @@ class _DrawOutcome(NamedTuple):
     hazard: bool
 
 
+class _HazardBlock(NamedTuple):
+    """What :meth:`_SequentialEstimator._hazard_block` hands back to :meth:`_fit_draw`."""
+
+    #: The mechanism the result reports and the diagnostics read.
+    mechanism: Mechanism
+    #: The targeted fits, keyed by :func:`_fit_key`.
+    fits: dict[str, RegimenFit]
+    #: The initial cause-specific hazards.
+    initial: InitialHazards
+    #: The replay recipe, with the hazard replay attached.
+    replay_recipe: _LongitudinalReplayRecipe
+    #: The plans, with any policy numerator attached.
+    plans: tuple[Plan, ...]
+    #: What :meth:`_SequentialEstimator._parametric` answered.
+    parametric: bool
+
+
 @dataclass(frozen=True)
 class LongitudinalResult(Mapping[str, ParameterEstimate]):
     """Store estimates and fitted artifacts for longitudinal regimens.
@@ -1613,6 +1631,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         On a :class:`ParametricGFormula` fit, what the forward simulation drew: the draws, the
         models, the Monte Carlo share of each parameter and the fixed-dose model reliance.
         ``None`` on every other fit.  Keyword-only.
+    selection : dict of tuple to SurvivalSelection or None
+        On a :class:`~cleverly.longitudinal.collaborative.SurvivalCTMLE` fit, the
+        collaborative selection of each ``(arm label, horizon)``: its path, its
+        cross-validated risk and the move count it chose.  ``None`` on every other fit.
+        Keyword-only.
     estimator : object or None
         The estimator settings the fit ran under, with no bootstrap and no simultaneous
         band, which a refutation refits.  ``None`` on a result built by hand.  Keyword-only.
@@ -1710,6 +1733,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: models, the Monte Carlo share of each parameter and the fixed-dose model reliance.
     #: ``None`` on every other fit.
     simulation: GFormulaReport | None = field(default=None, kw_only=True)
+    #: On a :class:`~cleverly.longitudinal.collaborative.SurvivalCTMLE` fit, the selection
+    #: record of each ``(arm label, horizon)``.  ``None`` on every other fit.
+    selection: dict[tuple[str, int], SurvivalSelection] | None = field(default=None, kw_only=True)
     #: The estimator settings the fit ran under, which :meth:`_SequentialEstimator.refit`
     #: runs again on a changed container.  ``None`` on a result built by hand.
     estimator: Any = field(default=None, kw_only=True, compare=False, repr=False)
@@ -4585,6 +4611,18 @@ class _SequentialEstimator:
                     reason=gap,
                 )
 
+    def _refuse_prepared(self, data: LongitudinalData) -> None:
+        """Refuse a prepared panel this estimator cannot fit, before any regimen is resolved.
+
+        :meth:`fit` calls it once the columns are read and any eliminated cause applied, so
+        an estimator's own design refusals come before the shared ones.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        """
+
     def _refuse_design(self, data: LongitudinalData, plans: tuple[Plan, ...]) -> None:
         """Refuse a design this estimator cannot fit, before any learner runs.
 
@@ -4956,6 +4994,7 @@ class _SequentialEstimator:
             censoring_probabilities=censoring_probabilities,
             dose_atoms=dose_atoms,
         ).eliminating(eliminate)
+        self._refuse_prepared(prepared)
         if learned is not None:
             refuse_learned_regimen_data(prepared)
         if prepared.is_repeated:
@@ -5096,6 +5135,8 @@ class _SequentialEstimator:
                 regimen_kinds=regimen_kinds(plans) | ({"separable"} if separable else set()),
                 conditions=stopping_conditions(getattr(self, "stopping", "relative")),
                 tuned_cap=tuned_folds is not None,
+                # Every plan of one fit shares its first cause (``resolve_separable``).
+                separable_first=separable[0].first + 1 if separable else None,
             )
             if self._record_support
             else None
@@ -5281,6 +5322,161 @@ class _SequentialEstimator:
         record_fit(classification, result, source=f"{type(self).__name__}.fit")
         return result
 
+    def _hazard_block(
+        self,
+        prepared: LongitudinalData,
+        plans: tuple[Plan, ...],
+        levels: tuple[Plan, ...],
+        folds: Folds,
+        *,
+        learners: tuple[Learner, Learner, Learner, Learner, Learner | None],
+        horizons: tuple[int, ...],
+        bounds: tuple[float, float],
+        targeting: dict[str, Any],
+        replay_recipe: _LongitudinalReplayRecipe,
+        node_bounds: dict[str | None, dict[int, NodeBound]] | None,
+        separable: tuple[SeparablePlan, ...],
+    ) -> _HazardBlock:
+        """Fit the mechanism and the initial hazards of one draw, and target the hazards.
+
+        The block of a ``survival_model="hazard"`` draw, from the mechanism fit through
+        :func:`_run_hazard`.  :class:`~cleverly.longitudinal.collaborative.SurvivalCTMLE`
+        replaces it with its collaborative selection.
+
+        Parameters
+        ----------
+        prepared : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+        levels : tuple of Plan
+            One static plan per treatment level.
+        folds : Folds
+            The realized outer split.
+        learners : tuple
+            The resolved outcome, pseudo-outcome, treatment, censoring and competing learners.
+        horizons : tuple of int
+            The reported horizons.
+        bounds : tuple of float
+            The cumulative mechanism bounds.
+        targeting : dict
+            The fluctuation settings of :meth:`_targeting`, with the node bounds.
+        replay_recipe : _LongitudinalReplayRecipe
+            The draw's replay recipe before the mechanism fit.
+        node_bounds : dict or None
+            The resolved hazard-scale node bounds.
+        separable : tuple of SeparablePlan
+            The separable interventions.
+
+        Returns
+        -------
+        _HazardBlock
+            The mechanism, the fits, the initial hazards, the recipe, the plans and the
+            parametric flag.
+        """
+        outcome_learner, pseudo_learner, treatment_learner, censoring_learner, competing = learners
+        mechanism = self._fit_mechanism(
+            prepared,
+            (*plans, *levels),
+            treatment_learner=treatment_learner,
+            censoring_learner=censoring_learner,
+            competing_learner=competing,
+            folds=folds,
+        )
+        parametric = self._parametric(outcome_learner, pseudo_learner, mechanism, horizons, plans)
+        replay_recipe = replace(replay_recipe, parametric=parametric)
+        # A modified treatment policy's ratio numerator reads the fitted mechanism, so it is
+        # attached to its plan here, once per draw, from that draw's out-of-fold fit.  The
+        # replay recipe holds the attached plans, because a truncation replay reuses this
+        # mechanism.
+        plans = attach_policy_numerators(plans, mechanism.policy_numerators)
+        if any(plan.has_mtp for plan in plans):
+            replay_recipe = replace(replay_recipe, plans=_frozen_plans(plans))
+        if self.ratio_trim is not None:
+            # One trim per plan over the pooled out-of-fold ratios, attached to the mechanism
+            # so that every reader of the cumulative product, a truncation replay included,
+            # divides by the same trimmed ratio.
+            mechanism = replace(
+                mechanism, ratio_trims=trim_ratios(prepared, plans, mechanism, self.ratio_trim)
+            )
+        algorithm: HazardAlgorithm = "one_step" if self.targeting == "one_step" else "per_horizon"
+        initial = fit_hazards(
+            prepared,
+            levels,
+            learner=outcome_learner,
+            folds=folds,
+            n_jobs=self.n_jobs,
+            hazard_pooling=self.hazard_pooling,
+            # A separable fit fits its declared first cause first, so the second cause's
+            # pseudo-hazard is its hazard among those free of the first.
+            cause_order=(None if not separable else (separable[0].first, 1 - separable[0].first)),
+        )
+        # A hazard replay refits no learner, so the learner audit does not apply to it.
+        replay_recipe = replace(
+            replay_recipe,
+            omissions=(),
+            hazard=_HazardReplay(
+                _frozen_plans(levels),
+                algorithm,
+                float(self.step_size),
+                targeting["alpha"],
+                targeting["max_iter"],
+                targeting["tol"],
+                separable,
+            ),
+        )
+        fits = _run_hazard(
+            prepared,
+            plans,
+            levels,
+            mechanism,
+            initial,
+            horizons=horizons,
+            g_bounds=bounds,
+            alpha=targeting["alpha"],
+            algorithm=algorithm,
+            max_iter=targeting["max_iter"],
+            tol=targeting["tol"],
+            step_size=self.step_size,
+            node_bounds=node_bounds,
+            stopping=targeting["stopping"],
+            step_bound=targeting["step_bound"],
+            step_search=targeting["step_search"],
+            iterate=targeting["iterate"],
+            separable=separable,
+        )
+        return _HazardBlock(mechanism, fits, initial, replay_recipe, plans, parametric)
+
+    def _draw_status(
+        self,
+        prepared: LongitudinalData,
+        folds: Folds,
+        parametric: bool,
+        mechanism: Mechanism,
+    ) -> InferenceStatus:
+        """The fit status every estimate of one draw starts from.
+
+        Parameters
+        ----------
+        prepared : LongitudinalData
+            The prepared panel.
+        folds : Folds
+            The realized outer split.
+        parametric : bool
+            Whether every regression the estimator reads is a GLM.
+        mechanism : Mechanism
+            The draw's mechanism, with any ratio trim attached.
+
+        Returns
+        -------
+        str
+            :func:`_inference_status`, then :func:`_trimmed_status`.
+        """
+        return _trimmed_status(
+            _inference_status(prepared, folds, estimator=self._estimator, parametric=parametric),
+            mechanism,
+        )
+
     def _fit_draw(
         self,
         prepared: LongitudinalData,
@@ -5375,155 +5571,128 @@ class _SequentialEstimator:
                 random_state=learner_seed,
             )
         )
-        mechanism = self._fit_mechanism(
-            prepared,
-            (*plans, *levels),
-            treatment_learner=treatment_learner,
-            censoring_learner=censoring_learner,
-            competing_learner=competing_learner,
-            folds=folds,
-        )
-        parametric = self._parametric(outcome_learner, pseudo_learner, mechanism, horizons, plans)
-        replay_recipe = replace(replay_recipe, parametric=parametric)
-        # A modified treatment policy's ratio numerator reads the fitted mechanism, so it is
-        # attached to its plan here, once per draw, from that draw's out-of-fold fit.  The
-        # replay recipe holds the attached plans, because a truncation replay reuses this
-        # mechanism.
-        resolved = plans
-        plans = attach_policy_numerators(plans, mechanism.policy_numerators)
-        if any(plan.has_mtp for plan in plans):
-            replay_recipe = replace(replay_recipe, plans=_frozen_plans(plans))
-        # A cross-fitted SDR fold reads its own mechanism at its training rows, so each
-        # fold fits one on those rows alone (the training-fold recursion).  The out-of-fold
-        # mechanism above is what the result reports and what a held-out row divides by.
+        initial: InitialHazards | None = None
+        msm_fits: tuple[MSMRegimenFit, ...]
         fold_mechanisms: tuple[FoldMechanism, ...] = ()
-        if self._estimator in ("sdr", "ipsi") and not folds.is_single:
-            fold_mechanisms = fit_fold_mechanisms(
+        if hazard and rules is None:
+            # The mechanism fit, the initial hazards and the targeting of a hazard fit, as one
+            # block that a collaborative survival fit replaces (X91 part (b)).
+            block = self._hazard_block(
                 prepared,
-                resolved,
+                plans,
+                levels,
+                folds,
+                learners=(
+                    outcome_learner,
+                    pseudo_learner,
+                    treatment_learner,
+                    censoring_learner,
+                    competing_learner,
+                ),
+                horizons=horizons,
+                bounds=bounds,
+                targeting=targeting,
+                replay_recipe=replay_recipe,
+                node_bounds=node_bounds,
+                separable=separable,
+            )
+            mechanism, fits, initial = block.mechanism, block.fits, block.initial
+            replay_recipe, plans, parametric = block.replay_recipe, block.plans, block.parametric
+            msm_fits = ()
+        else:
+            mechanism = self._fit_mechanism(
+                prepared,
+                (*plans, *levels),
                 treatment_learner=treatment_learner,
                 censoring_learner=censoring_learner,
                 competing_learner=competing_learner,
                 folds=folds,
-                density_bins=self.density_bins,
-                ratio=self.ratio,
-                hazard_pooling=self.hazard_pooling,
-                n_jobs=self.n_jobs,
             )
-        if self.ratio_trim is not None:
-            # One trim per plan over the pooled out-of-fold ratios, attached to the mechanism
-            # so that every reader of the cumulative product, a truncation replay included,
-            # divides by the same trimmed ratio.
-            mechanism = replace(
-                mechanism, ratio_trims=trim_ratios(prepared, plans, mechanism, self.ratio_trim)
+            parametric = self._parametric(
+                outcome_learner, pseudo_learner, mechanism, horizons, plans
             )
-        initial: InitialHazards | None = None
-        msm_fits: tuple[MSMRegimenFit, ...]
-        if rules is not None:
-            (plan,) = plans
-            fits = {
-                _fit_key(plan.label, None, plan.values.shape[1], False): _with_node_ratio(
-                    fit_learned_regimen(
-                        prepared,
-                        plan,
-                        mechanism,
-                        rules,
-                        outcome_learner=outcome_learner,
-                        pseudo_learner=pseudo_learner,
-                        scaler=scaler,
-                        g_bounds=bounds,
-                        alpha=targeting["alpha"],
-                        max_iter=targeting["max_iter"],
-                        tol=targeting["tol"],
-                        n_jobs=self.n_jobs,
-                        stopping=targeting["stopping"],
-                        step_bound=targeting["step_bound"],
-                        step_search=targeting["step_search"],
-                        iterate=targeting["iterate"],
-                        node_bounds=None if node_bounds is None else node_bounds.get(None),
-                    ),
-                    None,
-                    mechanism,
+            replay_recipe = replace(replay_recipe, parametric=parametric)
+            # A modified treatment policy's ratio numerator reads the fitted mechanism, so it is
+            # attached to its plan here, once per draw, from that draw's out-of-fold fit.  The
+            # replay recipe holds the attached plans, because a truncation replay reuses this
+            # mechanism.
+            resolved = plans
+            plans = attach_policy_numerators(plans, mechanism.policy_numerators)
+            if any(plan.has_mtp for plan in plans):
+                replay_recipe = replace(replay_recipe, plans=_frozen_plans(plans))
+            # A cross-fitted SDR fold reads its own mechanism at its training rows, so each
+            # fold fits one on those rows alone (the training-fold recursion).  The out-of-fold
+            # mechanism above is what the result reports and what a held-out row divides by.
+            if self._estimator in ("sdr", "ipsi") and not folds.is_single:
+                fold_mechanisms = fit_fold_mechanisms(
+                    prepared,
+                    resolved,
+                    treatment_learner=treatment_learner,
+                    censoring_learner=censoring_learner,
+                    competing_learner=competing_learner,
+                    folds=folds,
+                    density_bins=self.density_bins,
+                    ratio=self.ratio,
+                    hazard_pooling=self.hazard_pooling,
+                    n_jobs=self.n_jobs,
                 )
-            }
-            msm_fits = ()
-        elif hazard:
-            algorithm: HazardAlgorithm = (
-                "one_step" if self.targeting == "one_step" else "per_horizon"
-            )
-            initial = fit_hazards(
-                prepared,
-                levels,
-                learner=outcome_learner,
-                folds=folds,
-                n_jobs=self.n_jobs,
-                hazard_pooling=self.hazard_pooling,
-                # A separable fit fits its declared first cause first, so the second cause's
-                # pseudo-hazard is its hazard among those free of the first.
-                cause_order=(
-                    None if not separable else (separable[0].first, 1 - separable[0].first)
-                ),
-            )
-            # A hazard replay refits no learner, so the learner audit does not apply to it.
-            replay_recipe = replace(
-                replay_recipe,
-                omissions=(),
-                hazard=_HazardReplay(
-                    _frozen_plans(levels),
-                    algorithm,
-                    float(self.step_size),
-                    targeting["alpha"],
-                    targeting["max_iter"],
-                    targeting["tol"],
-                    separable,
-                ),
-            )
-            fits = _run_hazard(
-                prepared,
-                plans,
-                levels,
-                mechanism,
-                initial,
-                horizons=horizons,
-                g_bounds=bounds,
-                alpha=targeting["alpha"],
-                algorithm=algorithm,
-                max_iter=targeting["max_iter"],
-                tol=targeting["tol"],
-                step_size=self.step_size,
-                node_bounds=node_bounds,
-                stopping=targeting["stopping"],
-                step_bound=targeting["step_bound"],
-                step_search=targeting["step_search"],
-                iterate=targeting["iterate"],
-                separable=separable,
-            )
-            msm_fits = ()
-        else:
-            fits, msm_fits = _run_recursion(
-                prepared,
-                plans,
-                mechanism,
-                msm=model,
-                horizons=horizons,
-                outcome_learner=outcome_learner,
-                pseudo_learner=pseudo_learner,
-                folds=folds,
-                scaler=scaler,
-                g_bounds=bounds,
-                **targeting,
-                n_jobs=self.n_jobs,
-                estimator=self._estimator,
-                fold_mechanisms=fold_mechanisms,
-                normalization=self._normalization(),
-                parametric=parametric,
-                gformula=self._gformula_settings(prepared),
-            )
+            if self.ratio_trim is not None:
+                # One trim per plan over the pooled out-of-fold ratios, attached to the mechanism
+                # so that every reader of the cumulative product, a truncation replay included,
+                # divides by the same trimmed ratio.
+                mechanism = replace(
+                    mechanism, ratio_trims=trim_ratios(prepared, plans, mechanism, self.ratio_trim)
+                )
+            if rules is not None:
+                (plan,) = plans
+                fits = {
+                    _fit_key(plan.label, None, plan.values.shape[1], False): _with_node_ratio(
+                        fit_learned_regimen(
+                            prepared,
+                            plan,
+                            mechanism,
+                            rules,
+                            outcome_learner=outcome_learner,
+                            pseudo_learner=pseudo_learner,
+                            scaler=scaler,
+                            g_bounds=bounds,
+                            alpha=targeting["alpha"],
+                            max_iter=targeting["max_iter"],
+                            tol=targeting["tol"],
+                            n_jobs=self.n_jobs,
+                            stopping=targeting["stopping"],
+                            step_bound=targeting["step_bound"],
+                            step_search=targeting["step_search"],
+                            iterate=targeting["iterate"],
+                            node_bounds=None if node_bounds is None else node_bounds.get(None),
+                        ),
+                        None,
+                        mechanism,
+                    )
+                }
+                msm_fits = ()
+            else:
+                fits, msm_fits = _run_recursion(
+                    prepared,
+                    plans,
+                    mechanism,
+                    msm=model,
+                    horizons=horizons,
+                    outcome_learner=outcome_learner,
+                    pseudo_learner=pseudo_learner,
+                    folds=folds,
+                    scaler=scaler,
+                    g_bounds=bounds,
+                    **targeting,
+                    n_jobs=self.n_jobs,
+                    estimator=self._estimator,
+                    fold_mechanisms=fold_mechanisms,
+                    normalization=self._normalization(),
+                    parametric=parametric,
+                    gformula=self._gformula_settings(prepared),
+                )
         parametric = self._simulated_parametric(parametric, fits)
-        status = _trimmed_status(
-            _inference_status(prepared, folds, estimator=self._estimator, parametric=parametric),
-            mechanism,
-        )
+        status = self._draw_status(prepared, folds, parametric, mechanism)
         unprojected_fits = fits
         moves: tuple[tuple[str, str | None, int, float, float], ...] = ()
         if self.isotonic:
@@ -8990,6 +9159,10 @@ def longitudinal_truncation_curve(
     refuse_learned_regimen_result(result, "the truncation curve")
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
+    if result.selection is not None:
+        from .collaborative import TRUNCATION_REFUSAL
+
+        raise CapabilityError(refusal=TRUNCATION_REFUSAL)
     if result.config.estimator == "gcomp":
         raise CapabilityError(refusal=GCOMP_TRUNCATION_REFUSAL)
     if result.config.estimator == "parametric_gformula":

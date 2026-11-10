@@ -10,7 +10,7 @@ display, so a reader sees what the numbers answer rather than bare columns.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -180,11 +180,42 @@ class _Rows:
     def __len__(self) -> int:
         return len(self.rows[0][1]) if self.rows else 0
 
+    def __eq__(self, other: object) -> bool:
+        """Equal when the type and every field match, a NaN matching a NaN.
+
+        A frame that sweeps two spread contracts holds NaN where a row has no value, and
+        ``nan != nan``, so the generated comparison would call such an object unequal to its
+        own pickle.
+        """
+        if type(other) is not type(self):
+            return NotImplemented
+        return self._canonical() == other._canonical()  # type: ignore[attr-defined]
+
+    def __hash__(self) -> int:
+        return hash(self._canonical())
+
+    def _canonical(self) -> tuple[Any, ...]:
+        """Every field, with each NaN replaced by one marker that compares equal to itself."""
+        return tuple(_without_nan(getattr(self, item.name)) for item in fields(self))
+
     def _repr_html_(self) -> str:
         return self.summary().as_html()  # type: ignore[attr-defined]
 
 
-@dataclass(frozen=True, repr=False)
+#: The marker :meth:`_Rows._canonical` puts in place of a NaN.
+_NAN_MARKER = ("nan",)
+
+
+def _without_nan(value: Any) -> Any:
+    """``value`` with every NaN float, at any depth of tuples and lists, made comparable."""
+    if isinstance(value, float) and value != value:
+        return _NAN_MARKER
+    if isinstance(value, (tuple, list)):
+        return tuple(_without_nan(item) for item in value)
+    return value
+
+
+@dataclass(frozen=True, repr=False, eq=False)
 class SensitivityContour(_Rows):
     """One end of the bias-adjusted range over a grid of confounder strengths.
 
@@ -365,7 +396,7 @@ class SensitivityContour(_Rows):
         return contour_repr(self)
 
 
-@dataclass(frozen=True, repr=False)
+@dataclass(frozen=True, repr=False, eq=False)
 class MissingnessTilt(_Rows):
     """Estimates under departures from outcomes missing at random.
 

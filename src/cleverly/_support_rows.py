@@ -3093,7 +3093,7 @@ def long_row(
     splitting: tuple[str, ...] = ("in_sample",),
     dependence: str = "iid",
     qualifiers: Iterable[str] = (),
-    engine: str = "tmle",
+    engine: str | tuple[str, ...] = "tmle",
     normalization: str | None = None,
     survival_model: str = "iterated_mean",
     targeting: str = "iterative",
@@ -3138,8 +3138,9 @@ def long_row(
         The dependence axis.
     qualifiers : iterable of str, default ()
         The known treatment and censoring factors.
-    engine : str, default "tmle"
-        ``tmle``, ``sdr``, ``ipsi``, ``gcomp`` or ``ipw``.
+    engine : str or tuple of str, default "tmle"
+        ``tmle``, ``sdr``, ``ipsi``, ``gcomp`` or ``ipw``, or the whole engine tuple of a
+        class that records one, such as ``("collaborative_tmle", "greedy")``.
     normalization : str or None, default None
         The inverse-probability normalization of an ``ipw`` row.
     survival_model : {"iterated_mean", "hazard"}, default "iterated_mean"
@@ -3175,7 +3176,7 @@ def long_row(
     """
     key = SupportKey(
         kind="longitudinal",
-        engine=(engine,),
+        engine=(engine,) if isinstance(engine, str) else tuple(engine),
         family=frozenset(
             (
                 outcome_kind,
@@ -4887,7 +4888,8 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``), the
 #: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
 #: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``) and the learned two-node
-#: regimen (``G47``), the eliminated competing event (``G48``) and separable effects (``G49``).
+#: regimen (``G47``), the eliminated competing event (``G48``), separable effects (``G49``) and
+#: collaborative TMLE of a risk curve (``G50``).
 #:
 def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
@@ -5017,7 +5019,9 @@ def _separable_rows() -> tuple[SupportRow, ...]:
     """Separable effects on hazard ``LTMLE`` of ``separable-effects`` (X91 part D): ``G49``.
 
     A fit with a ``Separable`` regimen keys the regimen kind ``separable``, beside its static
-    arms, which the factor-wise engine also targets.  The rows were added because every
+    arms, which the factor-wise engine also targets, and the position of the cause it counts
+    first among the data's causes, so a fit that counts the other cause first matches no row.
+    The rows were added because every
     declared verdict passed: 82 of 82 primary tests and all ten property cells
     (``double_robustness`` and ``interval_calibration`` with its controls), with no failed fit.
     The numbers are the committed results (``tests/canonical/separable_effects``).
@@ -5025,10 +5029,11 @@ def _separable_rows() -> tuple[SupportRow, ...]:
     slug = ["separable-effects"]
     shared = (
         "A binary baseline covariate, a three-level baseline treatment held over three nodes, "
-        "censoring, death counted first and relapse; horizons 1 to 3. Every nuisance is a "
-        "saturated cell mean, n = 16,000, so a flexible learner, a continuous covariate and "
-        "another n rest on the theory alone. Two causes, baseline covariates only; no weights, "
-        "clusters or comparator (none was located)."
+        "censoring, and relapse and death listed in that order with death counted first; "
+        "horizons 1 to 3. A fit that counts the first-listed cause first is not covered. "
+        "Every nuisance is a saturated cell mean, n = 16,000, so a flexible learner, a "
+        "continuous covariate and another n rest on the theory alone. Two causes, baseline "
+        "covariates only; no weights, clusters or comparator (none was located)."
     )
     common: dict[str, Any] = {
         "outcome_kind": "competing",
@@ -5037,6 +5042,8 @@ def _separable_rows() -> tuple[SupportRow, ...]:
         "treatment": ("3",) * 3,
         "survival_model": "hazard",
         "targeting": "one_step",
+        # The study lists relapse then death and counts death first.
+        "qualifiers": ("separable_first_cause_2",),
     }
     return (
         long_row(
@@ -5070,6 +5077,74 @@ def _separable_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _survival_ctmle_rows() -> tuple[SupportRow, ...]:
+    """Collaborative TMLE of a risk curve of ``survival-ctmle`` (X91 part B): ``G50``.
+
+    ``SurvivalCTMLE`` records the engine ``("collaborative_tmle", "greedy")`` on the hazard
+    ``LTMLE`` key, with a two-level baseline treatment held over the two nodes and pooled hazard
+    and censoring regressions. Every estimate takes the ``working_mechanism_plugin`` status, so
+    the rows license the point alone (F18). They were added because every declared verdict
+    passed: 14 of 14 bias tests, the RMSE comparison against the full treatment model at OR 15,
+    and no failed fit. The study publishes under ``reporting`` because it declares no property
+    cell. The numbers are the committed results (``tests/canonical/survival_ctmle``).
+    """
+    slug = ["survival-ctmle"]
+    shared = (
+        "The laws of Stitelman and van der Laan (2010), Sections 12 to 14: five clipped "
+        "correlated normal covariates, a binary baseline treatment, light censoring (about 4.7% "
+        "per interval), two grid times and the risk at t = 2. The outcome model is a correct "
+        "main-term GLM with hazard_pooling='pooled' in every cell, and the candidates are the "
+        "paper's main-term logistic models. A misspecified outcome model is reported only: in "
+        "scenario 2 the risk difference then reads a standardized bias of -0.98 at OR 10. "
+        "Another law, learner or n rests on the paper alone. No comparator: no maintained "
+        "package fits this construction."
+    )
+    common: dict[str, Any] = {
+        "outcome_kind": "survival",
+        "engine": ("collaborative_tmle", "greedy"),
+        "held": True,
+        "survival_model": "hazard",
+        "hazard_pooling": "pooled",
+        "kinds": _POINT,
+    }
+    return (
+        long_row(
+            "G50.in_sample",
+            slug,
+            cells=[
+                "or1_qcorrect",
+                "or10_qcorrect",
+                "or15_qcorrect",
+                "s2_or10_qcorrect",
+                "s2_or15_qcorrect",
+                "or15_qcorrect_n2000",
+            ],
+            limits=[
+                "Points only: the plug-in interval is withheld (F18). Six in-sample cells at "
+                "OR 1, 10 and 15, scenario 2 and n = 2,000; the standardized bias of the risk of "
+                "arm 1 and of the risk difference stays within 0.075 over 1,600 draws each, and "
+                "the RMSE of the risk of arm 1 at OR 15 is 0.54 times that of hazard LTMLE with "
+                "the full treatment model.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G50.cross_fitted",
+            slug,
+            splitting=("cross_fitted",),
+            cells=["or10_qcorrect_crossfit"],
+            limits=[
+                "Points only: the plug-in interval is withheld (F18). Two outer folds for the "
+                "initial outcome fit at OR 10; the standardized bias reads 0.047 for the risk of "
+                "arm 1 and -0.010 for the risk difference over 1,600 draws.",
+                shared,
+            ],
+            **common,
+        ),
+    )
+
+
 #: A learned two-node regimen (``LearnedRegimen``, X11 (b)) keys the regimen kind ``learned``.
 #: The row ``G47`` of the ``learned-regimen-ltmle`` study covers the cross-fitted censored
 #: two-node fit with every option at its default; every other composition of that kind matches
@@ -5082,6 +5157,7 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_learned_regimen_rows(),
         *_eliminated_rows(),
         *_separable_rows(),
+        *_survival_ctmle_rows(),
     )
 )
 
@@ -5089,8 +5165,22 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
 # ------------------------------------------------------------------ exemptions and anchors
 
 #: The registered studies that no row names, each with the reason. A study that measures no
-#: estimate cannot license a configuration, so it is not the evidence of a row.
+#: estimate cannot license a configuration, so it is not the evidence of a row. A study of an
+#: engine that no support key reads is the other case: its reason names what a row would need.
 EXEMPT_STUDIES: Final[Mapping[str, str]] = {
+    "adaptive-tmle-trial": (
+        "It measures the intervals of AdaptiveTMLEMethod on a trial pooled with external data. "
+        "No support key reads a TrialWithExternalData fit, so no row can name the "
+        "configurations the study covers. A row would not change the label: every estimate "
+        "carries the shown status working_model_projection, which keeps an estimate "
+        "experimental inside any row until F40 closes."
+    ),
+    "adaptive-tmle-selective": (
+        "It measures the intervals of AdaptiveTMLEMethod under selective enrollment with Super "
+        "Learner nuisances. That engine is no point-treatment row: every estimate carries the "
+        "working_model_projection status, whose open condition F40 holds, and no support row "
+        "was declared before the run, so the fit keeps the experimental label."
+    ),
     "ep-cate": (
         "It measures the EP curve, which carries no interval and is no fit of a point row. "
         "cleverly.estimators.ep.EP_MEASURED, not a support row, records what the study licenses."
@@ -5111,9 +5201,9 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
     ),
     "dose-response": (
         "It measures the kernel-smoothed dose-response curve of DoseResponseTMLE, which is no "
-        "Target and no fit of a point row. Each pair's interval takes its status from the fit's "
-        "own support report (low_dose_support_plugin below the Kish floor), not from a support "
-        "row."
+        "Target and no fit of a point row. cleverly.estimators.dose_response."
+        "DOSE_RESPONSE_MEASURED, not a support row, records the configurations the study "
+        "licenses, and a pair below the Kish floor reads experimental (low_dose_support_plugin)."
     ),
     "omitted-variable-bound-se": (
         "It measures the standard error of a sensitivity bound. The bound carries its own "

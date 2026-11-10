@@ -11,6 +11,7 @@ categorized API tables.
    cleverly.CausalStudy
    cleverly.StudyProtocol
    cleverly.PointTreatment
+   cleverly.TrialWithExternalData
    cleverly.LongitudinalTreatment
    cleverly.Repeated
    cleverly.TimeToEvent
@@ -27,6 +28,12 @@ categorized API tables.
    cleverly.estimators.DoseResponseResult
    cleverly.estimators.PairSupport
    cleverly.longitudinal.LongitudinalResult
+   cleverly.AdaptiveTMLEResult
+   cleverly.estimators.atmle_result.AdaptiveTMLESupport
+   cleverly.estimators.atmle_result.AdaptiveTMLEScoreReport
+   cleverly.estimators.atmle_result.AdaptiveTMLENuisanceReport
+   cleverly.estimators.atmle_result.WorkingModelFold
+   cleverly.estimators.atmle_result.AdaptiveTMLECorrections
    cleverly.longitudinal.LongitudinalRepeat
    cleverly.fluctuation.Fluctuation
    cleverly.fluctuation.FoldFluctuation
@@ -35,6 +42,7 @@ categorized API tables.
    cleverly.ATE
    cleverly.ATT
    cleverly.ATC
+   cleverly.TrialATE
    cleverly.BackdoorMeanContrast
    cleverly.CounterfactualMean
    cleverly.NaturalCourseMean
@@ -79,6 +87,7 @@ categorized API tables.
    cleverly.TMLEMethod
    cleverly.EPMethod
    cleverly.AdaptiveIPTWMethod
+   cleverly.AdaptiveTMLEMethod
    cleverly.CollaborativeTMLEMethod
    cleverly.DRTMLEMethod
    cleverly.SDRMethod
@@ -100,6 +109,8 @@ categorized API tables.
    cleverly.longitudinal.SequentialGComputation
    cleverly.longitudinal.SequentialIPW
    cleverly.longitudinal.ParametricGFormula
+   cleverly.longitudinal.SurvivalCTMLE
+   cleverly.longitudinal.SurvivalSelection
    cleverly.longitudinal.StructuralNestedMean
    cleverly.longitudinal.StructuralNestedMeanResult
    cleverly.longitudinal.StructuralModelCheck
@@ -311,6 +322,9 @@ categorized API tables.
    cleverly.datasets.weekly_orders_truth
    cleverly.datasets.weekly_orders_protocol
    cleverly.datasets.offer_after_no_order
+   cleverly.datasets.make_heart_failure
+   cleverly.datasets.heart_failure_truth
+   cleverly.datasets.heart_failure_protocol
    cleverly.plotting.forest
    cleverly.plotting.curve
    cleverly.plotting.sensitivity

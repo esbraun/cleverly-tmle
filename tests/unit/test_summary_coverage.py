@@ -38,6 +38,7 @@ SUMMARY_CLASSES = (
     "VariableImportanceResult",
     "LongitudinalResult",
     "StructuralNestedMeanResult",
+    "AdaptiveTMLEResult",
     "StructuralModelCheck",
     "GFormulaReport",
     "SupportReport",

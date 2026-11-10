@@ -31,8 +31,11 @@ specified `GLM` models.
 Reach for [`ParametricGFormula`](parametric-gformula.md) for the forward-simulation form of the same
 target and for a fixed or rule-set continuous dose. Its interval holds only under correctly specified models.
 
-Collaborative TMLE and DR-TMLE have no longitudinal derivation, and `available_methods()` says so
-before any model is fitted.
+DR-TMLE has no longitudinal derivation. Collaborative TMLE has one for the risk curve of a binary
+baseline treatment under right censoring, through `SurvivalCTMLE`
+([collaborative TMLE: time-to-event outcomes](collaborative-tmle.md#time-to-event-outcomes)), and
+none for a treatment at several nodes. `available_methods()` says which applies before any model is
+fitted.
 
 A worked applied analysis is in the
 [sequential pricing tutorial](../examples/sequential-pricing.ipynb). It runs two single
@@ -487,9 +490,12 @@ regimen.
 
 `tests/unit/test_separable_effects_law.py` holds these checks. The registered study [separable
 effects](method-evidence/separable-effects.md) measures the fit with one and two folds on a held
-three-level baseline treatment, at n = 16,000 with saturated learners. Those fits read supported
-from rows `G49`; every other composition with a `Separable` regimen reads experimental. No
-separable-effects TMLE implementation was located to compare against.
+three-level baseline treatment, at n = 16,000 with saturated learners, counting the second of the
+data's two causes first. Those fits read supported from rows `G49`. No separable-effects TMLE
+implementation was located to compare against.
+
+The rows key the position of the cause counted first, so a fit that counts the first-listed cause
+first reads experimental, as does every other composition with a `Separable` regimen.
 [Scope and refusals](scope-and-refusals.md#separable-effects) lists what a separable fit refuses,
 including time-varying common causes: Stensrud et al. (2021), Equation (19), identify that case
 but no source gives its influence curve.
@@ -1073,14 +1079,29 @@ node, and $t$ is a reported horizon.
 | initial fit | the sequential pseudo-hazards of `survtmle` (`hazards_estimate.R`). Cause $j$ at node $k$ regresses its event on the rows at risk with no event of an earlier cause. Then $\lambda_j = \rho_j (1 - \sum_{i < j} \lambda_i)$. `outcome_learner` fits each node and cause, and the fit predicts every treatment level for every unit |
 | influence curve | $D_{r,j,t} = \sum_{k \le t} \sum_l h^{r,j,t}_l(k, A, W)\,R_k\,(dN_l(k) - \lambda_l(k \mid A, W)) + \sum_a q_r(a \mid W) F_j(t \mid a, W) - \psi_{r,j}(t)$. $R_k$ indicates a unit uncensored through $k$ and event-free before $k$ |
 | clever covariate | $h^{r,j,t}_l(k, a, W) = \frac{q_r(a \mid W)}{g(a \mid W)\,G_k(a, W)}\,1\{k \le t\}\bigl[1\{l = j\} - \frac{F_j(t \mid a, W) - F_j(k \mid a, W)}{S(k \mid a, W)}\bigr]$, with the retention $G_k = \prod_{s \le k} c_s$. Moore and van der Laan (2009), (11) to (16), at one cause. Rytgaard and van der Laan (2024), Section 3.1 |
-| submodel | the multinomial logistic fluctuation $\eta_l(\epsilon) = \eta_l + \sum_m \epsilon_m h^m_l$ of the softmax logits $\eta_l = \log(\lambda_l / \lambda_0)$. $\lambda_0$ is the probability of no event. At one cause the submodel is (10) of Moore and van der Laan (2009) |
-| bound | the fit clips each logit into $[\operatorname{logit}(1 - \alpha), \operatorname{logit}(\alpha)]$ after every update, with `alpha=`. So $\sum_l \lambda_l < 1$ holds, and no renormalization follows a clip |
+| submodel | the multinomial logistic fluctuation $\eta_l(\epsilon) = \eta_l + \sum_m \epsilon_m h^m_l$ of the softmax logits $\eta_l = \log(\lambda_l / \lambda_0)$. $\lambda_0$ is the probability of no event. In a full cell (a cell whose followers all have an event), $\lambda_0 = 0$ and the softmax runs over the causes alone, $\lambda_l = e^{\eta_l} / \sum_m e^{\eta_m}$. At one cause the submodel is (10) of Moore and van der Laan (2009) |
+| bound | the fit clips the logits into $[\operatorname{logit}(1 - \alpha), \operatorname{logit}(\alpha)]$ after every update, with `alpha=`. When a unit's largest logit at a node passes the upper end, every cause logit of that unit and node first moves down by the same amount, so the largest sits at the bound and each ratio $\lambda_j / \lambda_l$ is kept. Each logit is then clipped from below. With one cause this is the plain clip. So $\sum_l \lambda_l < 1$ holds, and no renormalization follows a clip |
 | inference | the influence-curve variance and the multiplier band over the reported parameters, as on an iterated-mean fit. With `id=`, the cluster sums and the fit statuses of [clusters](#clusters) apply |
 | cross-fitting | with `n_folds > 1`, the hazards, $g$ and $G$ are out of fold. One pooled targeting then runs over every row |
 
 `outcome_learner` is the hazard learner on a hazard fit. `pseudo_learner=` is refused, because the
 fit regresses the event indicator at each node and fits no pseudo-outcome. Every arm is targeted
 together, so the score of every contrast is solved.
+
+`SurvivalCTMLE` runs this per-horizon targeting on a collaborative selection of its treatment and
+censoring models, one arm at a time
+([collaborative TMLE: time-to-event outcomes](collaborative-tmle.md#time-to-event-outcomes)).
+Its paper checks for the event before censoring within an interval, while a node here puts
+censoring first. A wide panel coded in the paper's order records a loss after interval $k$ at the
+next node's censoring column. These two units are event-free through interval 1, and the second is
+lost after it:
+
+| unit | `C1` | `Y1` | `C2` | `Y2` |
+| --- | --- | --- | --- | --- |
+| followed to the end, event at 2 | 1 | 0 | 1 | 1 |
+| lost after interval 1 | 1 | 0 | 0 | missing |
+
+`TimeToEvent` places a censoring at grid time $g_j$ at node $j + 1$ in the same way.
 
 #### Two algorithms
 
@@ -1203,6 +1224,17 @@ per-node hazards lie below it.
 A cell whose followers all have an event is *full*. The fit holds the all-cause hazard of a full
 cell at exactly one, its maximum-likelihood value. The survival after a full cell is zero, and each ratio over that survival is zero there.
 
+The hold fixes only the sum of the cause hazards. With competing causes, each unit's logits in a
+full cell are $\log(\lambda_j / \max_l \lambda_l) + \operatorname{logit}(\alpha)$, so the largest
+cause sits at the upper clip. The fit keeps the learner's split of the event among the causes,
+down to a share $(\alpha / (1 - \alpha))^2$ of the largest, where the lower clip binds, and the fluctuation moves that split while the sum
+stays at one. In the witness of `test_a_correct_cause_split_survives_a_wrong_treatment_mechanism`, every
+unit has one of two causes at the one node, the fitted split is correct, and the treatment model is
+wrong. Both algorithms return the true risk of 0.5 for each cause and arm. Before the fix, the
+start state replaced the split by equal shares, and the one-step walk reported risks of 0.32 and
+0.68 (external review finding CDR-003). `test_m_a_no_event_reference_loses_the_shares` is that
+mutation.
+
 The hold is necessary. Without it, the fit clips the logit at its floor. The joint score equations
 then need that hazard below the floor, so the one-step walk cannot solve them.
 The mutation `test_m_a_clipped_cell_stalls_the_walk` removes the hold and sees the walk fail to converge.
@@ -1289,7 +1321,7 @@ one cause only, because with two causes `survtmle` uses a different scale.
 | `tests/unit/test_hazard_survival_mutations.py` | M1 to M9, M11, M12 and M14: each deliberate mutation breaks the identity it should break. M14 reads the metric from the coefficients of each step. M4 (a sign flip under per-horizon targeting), M12 (the cause order) and M15 (the softmax clip) are positive controls |
 | `tests/unit/test_survival_monotone.py` | the W1 witness of the monotonicity table |
 | `tests/unit/test_hazard_empty_cells.py` | the hold, its mutation, and the status |
-| `tests/unit/test_hazard_full_cells.py` | the hold of a full cell at one, its mutation, the status, and per-horizon convergence |
+| `tests/unit/test_hazard_full_cells.py` | the hold of a full cell at one, its mutation, the status, and per-horizon convergence. With two and three causes, a full cell keeps the fitted shares, the maximum-likelihood fallback reads it over the causes alone, and a correct split survives a wrong treatment model. The upper clip keeps the cause ratios of a unit outside a full cell, and with one cause it equals the plain clip. Each has a deliberate mutation |
 | `tests/unit/test_hazard_refusals.py` | each refusal H1 to H11, by type and message, before any learner |
 | `tests/unit/test_hazard_targeting_rules.py` | the targeting rules on both algorithms, and H13 |
 | `tests/unit/test_hazard_node_bounds.py` | bounded hazards: the refusals, the identities, the exact checks, the finite-sample witness, the held cells and the mutation controls |

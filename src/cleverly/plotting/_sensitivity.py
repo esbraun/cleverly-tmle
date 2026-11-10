@@ -481,8 +481,6 @@ def missingness(
                 f"Hollow points have no interval: off gamma = 0 the fit reports only a "
                 f"plug-in spread for {chosen}, which is not a confidence interval."
             )
-        if any(lo is not None for lo in off_mar):
-            found.append(vocabulary.NOTE_TEXTS["tilt_interval"])
     if tilt.arm_gamma is not None:
         found.append(vocabulary.NOTE_TEXTS["tilt_direction_arms"])
     _core.notes(axis, [*found, *_warnings(tilt), _others(estimands, chosen) or ""])

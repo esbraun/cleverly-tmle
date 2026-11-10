@@ -280,6 +280,7 @@ It moved each part that an established method or a natural extension carries to 
 | Inference for sequential baselines with data-adaptive nuisances | an asymptotic-linearity result for longitudinal sequential g-computation or IPW whose nuisances are fitted by a data-adaptive learner | asymptotic | the point estimate stands. A fit that reads a regression fitted by a learner other than `GLM` takes the `adaptive_baseline_plugin` status and reports a plug-in diagnostic only | [F35](#f35-inference-for-sequential-baselines-with-data-adaptive-nuisances) |
 | Locally efficient g-estimation of the structural nested mean model | an interval for the blips from the g-estimator that weights its instrument by the conditional variance of the outcome residual | efficiency | the shipped `StructuralNestedMean` solves the unweighted equation. Its interval is valid under the linear model, and it is not the efficient estimator of that model | [F36](#f36-locally-efficient-g-estimation-of-the-structural-nested-mean-model) |
 | Unsmoothed dose-response curve | an interval for the curve $\theta(a_0) = E\{\bar Q(a_0, W)\}$ at a fixed dose of a continuous treatment, by an undersmoothed or adaptively smoothed CV-TMLE with an estimated treatment density, and a band over a continuum of doses | adaptive-optimum inference; asymptotic | `DoseResponseTMLE` reports the kernel-smoothed curve at declared bandwidths, with pointwise intervals and a band over the declared pairs | [F39](#f39-unsmoothed-dose-response-curve) |
+| Adaptive TMLE for a trial with external data | an interval for the trial effect itself rather than its working-model projection; a treatment with more than two levels; a ratio scale | adaptive-optimum inference for the interval; regularity for the other two | `AdaptiveTMLEMethod` reports the projection interval under the `working_model_projection` status, for a binary treatment on the difference scale. Every other treatment and scale refuses before any learner | [F40](#f40-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope) |
 
 ## Eligibility
 
@@ -1346,7 +1347,7 @@ cross-fitted nuisances. Acceptance: a registered coverage study for each part.
 | (c) | an arm MSM beside another axis | a fixed-dimension stack |
 | (d) | the MNAR tilt on a shift fit or an incremental fit | the point curve $E[\bar Q_\gamma(d(A, W), W)]$ on a shift fit, and $E[\sum_a q_\delta(a \mid W) \bar Q_\gamma(a, W)]$ on an incremental fit. At $\gamma \neq 0$ the spread columns use the `plugin_std_err` and `plugin_interval_*` names, and no interval is claimed |
 | (e) | a controlled direct effect under a tilt | a redirection to the shipped two-node `IPSI` plan, a tilt node and then a label node $Z = z$ (part (s) of the [natural-extension verdicts](technical-reference/natural-extension-verdicts.md)). The refusal names the call |
-| (f) | an interval spread for the missingness tilt of a ratio | the delta method on the tilted arm means with the missing-at-random arm curves. The shipped spread recentres the reported log-scale standard error under the `plugin_` names and claims no interval |
+| (f) | an interval for the missingness tilt of an arm mean, a contrast, a ratio, the natural-course mean, `par` or `paf` at $\gamma \neq 0$ | a TMLE of each tilted parameter with its own influence curve: the outcome residual is reweighted and a missingness-mechanism term appears, and both vanish only at $\gamma = 0$, so the missing-at-random curve does not apply. Today every tilted row off $\gamma = 0$ recentres the reported standard error under the `plugin_` names and claims no interval |
 
 Acceptance: each composition reduces exactly to each standalone fit; nonzero controls for every
 cross-axis block; a registered study for each interval claim.
@@ -1429,6 +1430,7 @@ refuse the other parts before any learner.
 | (c) | the composite missing-data route for a method other than `TMLE`, `DRTMLE` and `CTMLE` | the indicator reduction to $\Delta_A \cdot \Delta \cdot 1\{A = a\}$ for each method whose binary-treatment result ships. No shipped method reaches this refusal |
 | (d) | `NaturalCourseMean`, PAR and PAF with complete outcomes under `CTMLE` or `DRTMLE` | the $\Delta \equiv 1$ case of X50 part (c) and X51 part (a). With complete outcomes the natural-course TMLE returns the sample mean and the curve $Y - E[Y]$, as the `ey_obs` row of the [evidence map](technical-reference/evidence.md) records. C-TMLE gives points only, as X51 states |
 | (e) | baseline strata (`strata=`), and a declared missing treatment, under `CTMLE(strategy="derivative")` | one derivative fit within each stratum, as the ordinary TMLE fits its stratum estimates; a partner mechanism for the composite indicator $\Delta_A \cdot 1\{A = a\}$. `estimators/ctmle.py` and `estimators/composite.py` refuse both before any learner and name this item |
+| (f) | `SurvivalCTMLE` beyond Stitelman and van der Laan (2010): two or more causes, `eliminate=`, a `Separable` regimen, a rule, a known stochastic policy or more than two treatment levels, a strategy other than `"greedy"`, `targeting="one_step"`, changed `stopping`, `step_bound` or `iterate`, `msm=`, `node_bounds=`, `ratio_trim=`, `isotonic=True`, and `truncation_curve()` or `simulated_confounding` on its result | a cause-specific penalty; a selection over the eliminated cause's mechanism; a multinomial main-term treatment model; a selection joint across horizons for a walk or a projection; a measured replay of the selection. `longitudinal/collaborative.py` refuses each before any learner, and the two accessors when called, and names this item |
 
 Acceptance needs each check below.
 
@@ -1996,7 +1998,7 @@ measures; its R `lmtp` comparator runs are pending. This item carries further su
 
 | part | request | base | readiness |
 | --- | --- | --- | --- |
-| (b) | collaborative TMLE for a time-to-event outcome with a baseline treatment | Stitelman and van der Laan (2010), *The International Journal of Biostatistics* 6(1): a greedy selection of main terms for the treatment and censoring mechanisms with the hazard fluctuation held fixed, scored by a variance-penalized likelihood; no theorem, so points only | published support |
+| (b) | collaborative TMLE for a time-to-event outcome with a baseline treatment | Stitelman and van der Laan (2010), *The International Journal of Biostatistics* 6(1): a greedy selection of main terms for the treatment and censoring mechanisms with the hazard fluctuation held fixed, scored by a variance-penalized likelihood; no theorem, so points only | implemented as `SurvivalCTMLE` ([time-to-event outcomes](technical-reference/collaborative-tmle.md#time-to-event-outcomes)), points only under [F18](#f18-selector-path-c-tmle-inference), with the reporting study [collaborative TMLE of a risk curve](technical-reference/method-evidence/survival-ctmle.md) and the support rows G50 for its in-sample and cross-fitted fits with a correct outcome model; the compositions it refuses are [X62](#x62-other-dr-tmle-and-c-tmle-compositions) part (f) |
 | (c) | the simulated common-cause replay on censored and survival fits | the [survival replay](technical-reference/validation-methods.md#simulated-common-cause-stress-surface) couples each replayed indicator to the observed one, keeps the zero-strength identity exact, and keeps censoring at random given the replayed past up to the fitted censoring model | shipped for survival and competing-risk fits with a held treatment; the rest stays in [F13](#f13-longitudinal-simulated-confounding-replay) |
 | (d) | separable effects with baseline covariates | Stensrud, Young, Didelez, Robins and Hernán (2022), identification (8); `Separable` on hazard `LTMLE` ([separable effects](technical-reference/longitudinal-tmle.md#separable-effects)), a factor-wise TMLE by the chain rule | shipped: the registered study [separable effects](technical-reference/method-evidence/separable-effects.md) measures one and two folds; no comparator was located |
 | (e) | separable effects with time-varying common causes | Stensrud et al. (2021), Section 6.2, Equation (19) | refused: no source gives an efficient influence curve |
@@ -2370,8 +2372,8 @@ machinery are not sufficient.
 
 ### F18. Selector-path C-TMLE inference
 
-The greedy, ordered, discrete, lasso and learners paths report point estimates and path
-diagnostics. They refuse `ci`, `pvalue` and `std_error` under the `working_mechanism_plugin`
+The greedy, ordered, discrete, lasso and learners paths, and the per-arm, per-horizon greedy
+selection of `SurvivalCTMLE` (X91 part (b)), report point estimates and path diagnostics. They refuse `ci`, `pvalue` and `std_error` under the `working_mechanism_plugin`
 status. They report the
 ordinary curve at the selected candidate as `plugin_std_error` and `plugin_interval`. That curve
 does not establish conditional or unconditional coverage after selection. F18 reopens inference
@@ -2479,10 +2481,14 @@ result could therefore confirm the current curve or require a different one.
 Outcome-adaptive C-TMLE selects no candidate. Its shared design, `oat_design="shared"`, fits one
 categorical treatment mechanism on the estimated vector of arm-specific outcome predictions. Its
 per-arm design, the default, fits one binary mechanism per arm on that arm's own prediction.
-Every `oat` fit takes the `generated_design_plugin` status, including an `ey1`-only request and
-a per-arm fit with `strata=`, `delta=` or `treatment_delta=`. `ci`, `pvalue` and `std_error`
-refuse, and `plugin_std_error` and `plugin_interval` keep the ordinary adaptive-propensity
-diagnostic. This item holds the interval of the per-arm
+Every `oat` fit that `per_arm_parametric_support` refuses takes the `generated_design_plugin`
+status, including an `ey1`-only request and a per-arm fit with `strata=`, `delta=` or
+`treatment_delta=`. A per-arm fit with the pair `ParametricOutcome` and `ParametricMechanism` that
+the predicate admits reports an interval
+([X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome)).
+
+On the refused fits, `ci`, `pvalue` and `std_error` refuse, and `plugin_std_error` and
+`plugin_interval` keep the ordinary adaptive-propensity diagnostic. This item holds the interval of the per-arm
 [strata and missing-data fits](technical-reference/collaborative-tmle.md#baseline-strata-and-missing-data-in-the-per-arm-design)
 as well. Their observation factors are generated regressors in the same sense.
 
@@ -2690,7 +2696,7 @@ controlled direct effect names this item too.
 | C-TMLE incremental, modified treatment policies and the risk-ratio tilt | regularity | each candidate $g$ of the collaborative search defines a different parameter, so collaborative consistency fails. The risk-ratio tilt is the `lmtp` `ipsi` rule, a known two-point randomizer on the natural value, so it joins the modified treatment policies |
 | C-TMLE controlled direct effect | regularity | a collaborative path over two mechanisms. Schnitzer, Sango, Ferreira Guerra and van der Laan (2020), *Biometrics* 76(1):145-157, may give a published point method. The review read its abstract only, and its first-hand read is pending |
 | C-TMLE on a continuous dose | regularity | a collaborative candidate sequence of conditional density estimators. No read source derives one |
-| C-TMLE on a longitudinal functional | regularity | a sequential collaborative score. No read source derives one |
+| C-TMLE with a treatment at several nodes or a covariate measured after baseline | regularity | a sequential collaborative score. No read source derives one. A binary baseline treatment with baseline covariates under right censoring ships as `SurvivalCTMLE` (X91 part (b)) |
 | DR-TMLE ATT, ATC, modified treatment policies, the risk-ratio tilt and incremental | asymptotic | Benkeser, Carone, van der Laan and Gilbert (2017), PMC5793673, Section 4, name other parameters as future work. Díaz et al., arXiv:2006.01366v4, Theorem 2, assumes that the regime does not depend on $P$ |
 | DR-TMLE controlled direct effect and longitudinal functionals | asymptotic | Benkeser et al. (2017), Section 1, name interventions at several time points as future work |
 | DR-TMLE on a continuous dose, with its evaluation companion and its foldwise construction | asymptotic | reduced regressions that condition on a conditional density in place of an arm probability. No read source derives them |
@@ -2886,6 +2892,22 @@ the same question and is unread. It is the first source to read.
 | --- | --- | --- |
 | an interval for $\theta(a_0)$ with an estimated treatment density | adaptive-optimum inference; asymptotic | a limit law for a CV-TMLE at a data-adaptive, undersmoothing bandwidth when the density is estimated |
 | a band over every dose in an interval | adaptive-optimum inference | a limit theorem for a growing number of doses; Kennedy, Ma, McHugh and Small (2017), Appendix 8, leave weak convergence to future work |
+
+### F40. Adaptive TMLE: the oracle-approximation condition and the underived scope
+
+`AdaptiveTMLEMethod` estimates the trial effect of a randomized trial pooled with external data.
+It selects a working model for the conditional effect and one for the bias of the external rows,
+and its interval covers the projection of the trial effect onto those models. The interval covers
+the trial effect itself only under the oracle-approximation condition of arXiv:2405.07186v2,
+Theorem 1 (Theorem 2 for the CV form), which makes the gap between the projection and the trial
+effect $o_P(n^{-1/2})$. The source states that condition and gives no test of it, so the fit
+reports the `working_model_projection` status. A testable form of the condition would reopen it.
+
+| kept claim | kind | missing argument |
+| --- | --- | --- |
+| an interval for the trial effect, from a testable oracle-approximation condition | adaptive-optimum inference | a rate for the approximation error of the selected working model that the data can check, and a limit law under it. Theorem 1 assumes the rate and does not test it |
+| adaptive TMLE for a treatment with more than two levels, a continuous dose or a vector treatment | regularity | the decomposition of Lemma 2 and the working models of Sections 2 to 4 are stated for a binary treatment |
+| a ratio scale for the trial effect | regularity | the source gives no working model and no projection parameter for a ratio |
 
 ## Reading a gap correctly
 

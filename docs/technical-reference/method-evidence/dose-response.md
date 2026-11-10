@@ -259,7 +259,7 @@ from the committed results.
 | one law family | a normal location model for the dose, with an outcome that reads $W$ through one linear index, on $D = [0, 5]$ |
 | declared sieve learners | the outcome sieve holds the $W$ part of the law exactly. The default learner library is not measured |
 | one sample size per scenario | n = 4,000, n = 8,000 for the stratified scenario and n = 1,000 for the tail pair. Smaller sizes are not claimed |
-| the band covers 15 declared pairs, with one multiplier draw | a band over other doses or bandwidths reads `experimental`, and the band cell measures coverage conditional on the single multiplier draw that `random_state=0` fixes |
+| the band covers 15 declared pairs, with one multiplier draw | the band cell measures one 15-pair declaration on the binary outcome, conditional on the single multiplier draw that `random_state=0` fixes. A band with strata or on a continuous outcome reads `experimental` ([support label](../dose-response.md#support-label)); the label does not read the number or spacing of the pairs |
 | the support label is not validated | the pilot's coverage did not rise with the fitted Kish size. The unlabelled stratified pair at dose 0.25 in $V = 1$ covered 0.908 at n = 4,000 with a mean Kish size of 69 and 2.9% of its fits labelled, so an interval above the floor of 50 can under-cover (roadmap X95). The `tail` cell measures one pair near the floor |
 | a wrong outcome is measured as a targeting gain | the declared density is misspecified, so with a wrong outcome the study gates how far targeting moves the estimate, not a bias equivalence |
 | no weights, clusters or missing outcomes | the study measures none of them |

@@ -1504,6 +1504,12 @@ RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
         "test_a_baseline_refuses_repeats_above_one",
         None,
     ),
+    # Only SurvivalCTMLE fills it, and SurvivalCTMLE refuses repeats > 1 before any learner.
+    "selection": (
+        "tests.unit.test_survival_ctmle",
+        "test_repeated_splits_are_refused_before_a_learner",
+        None,
+    ),
     "data": _witness("test_long_panel_repeats_reproduce_the_wide_fit"),
     "config": _witness("test_config_records_repeats_and_the_multiplier_seed"),
     "scaler": _witness(EACH_DRAW, "clustered"),
@@ -1607,6 +1613,12 @@ DATA_DECLARATIONS: dict[str, tuple[str, str, str | None]] = {
     "LongitudinalTreatment": _STUDY,
     "LongPanel": _witness("test_long_panel_repeats_reproduce_the_wide_fit"),
     "TimeToEvent": _witness("test_time_to_event_study_repeats_reach_the_engine"),
+    # A point design: its only method refuses repeated splits by name.
+    "TrialWithExternalData": (
+        "tests.unit.test_atmle_refusals",
+        "test_repeated_splits_are_refused",
+        None,
+    ),
 }
 
 #: Every field that ``CausalStudy`` changes on a repeated engine result.

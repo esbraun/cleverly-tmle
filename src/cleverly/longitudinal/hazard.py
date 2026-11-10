@@ -118,6 +118,7 @@ __all__ = [
     "HazardState",
     "InitialHazards",
     "check_hazard_node_bounds",
+    "clip_logits",
     "clipped_shares",
     "fit_hazards",
     "hazard_bounds",
@@ -125,6 +126,7 @@ __all__ = [
     "project_curves",
     "refuse_hazard_design",
     "refuse_hazard_settings",
+    "softmax_logits",
     "solve_per_horizon",
     "target_regimens",
     "walk_curve",
@@ -452,6 +454,82 @@ class HazardInputs:
         return tuple(int(k) + 1 for k in np.flatnonzero(flagged))
 
 
+def clip_logits(
+    logits: FloatArray, bounds: tuple[float, float], bounded: BoolArray | None = None
+) -> FloatArray:
+    """Clip softmax cause logits into ``bounds`` without losing the ratios between causes.
+
+    Where a unit's largest cause logit at a node exceeds the upper bound, every cause logit of
+    that unit and node moves down by the same constant, so the largest sits at the bound and
+    :math:`\\lambda_j / \\lambda_l` is kept.  Each logit is then clipped into ``bounds``, so a
+    cause that the shift pushes under the lower bound comes back up to it.  With one cause the
+    shift is the clip.  A node of ``bounded``, ``(T,)``, holds independent per-cause logits and
+    takes the per-cause clip alone.
+
+    Parameters
+    ----------
+    logits : FloatArray
+        ``(n, T, ..., J)`` cause logits, the node on the second axis.
+    bounds : tuple of float
+        The clip interval.
+    bounded : BoolArray or None, default=None
+        ``(T,)`` the bounded nodes.
+
+    Returns
+    -------
+    FloatArray
+        The clipped logits.  A logit at :math:`-\\infty` comes back at the lower bound.
+    """
+    eta = np.asarray(logits, dtype=float)
+    low, high = bounds
+    top = np.max(eta, axis=-1)
+    over = np.isfinite(top) & (top > high)
+    if bounded is not None:
+        node = np.asarray(bounded, dtype=bool).reshape((1, -1) + (1,) * (eta.ndim - 3))
+        over = over & ~node
+    with np.errstate(invalid="ignore"):
+        # (eta - top) + high puts the largest logit at exactly ``high``, as the clip would.
+        shifted = np.where(over[..., None], (eta - top[..., None]) + high, eta)
+    return np.asarray(np.clip(shifted, low, high), dtype=float)
+
+
+def softmax_logits(hazards: FloatArray, high: float, full: BoolArray | None = None) -> FloatArray:
+    """``(n, T, L, J)`` softmax logits of hazards, before the clip into the bounds.
+
+    A unit with some mass left on no event takes :math:`\\log(\\lambda_j / \\lambda_0)`.  A
+    unit with none left, which is every unit of a ``full`` cell, ``(T, L)``, and any other unit
+    whose fitted hazards sum to one or more, has no finite reference.  It takes
+    :math:`\\log(\\lambda_j / \\max_l \\lambda_l) + \\text{high}`, the ratio-keeping upper
+    clip of :func:`clip_logits`: the largest cause sits at ``high`` and every ratio
+    :math:`\\lambda_j / \\lambda_l` is kept down to the lower bound.  A full cell's softmax has
+    no no-event category, so the common constant does not move its split.
+
+    Parameters
+    ----------
+    hazards : FloatArray
+        ``(n, T, L, J)`` hazards.
+    high : float
+        The upper clip of a logit.
+    full : BoolArray or None, default=None
+        ``(T, L)`` cells whose all-cause hazard is held at one.
+
+    Returns
+    -------
+    FloatArray
+        The logits, unclipped.  A zero hazard has a logit of :math:`-\\infty`.
+    """
+    lam = np.asarray(hazards, dtype=float)
+    reference = 1.0 - lam.sum(axis=-1)
+    largest = lam.max(axis=-1)
+    spent = reference <= 0.0
+    if full is not None:
+        spent = spent | np.asarray(full, dtype=bool)[None]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        eta = np.log(lam) - np.log(reference)[..., None]
+        topped = np.log(lam) - np.log(largest)[..., None] + high
+    return np.asarray(np.where((spent & (largest > 0.0))[..., None], topped, eta), dtype=float)
+
+
 @dataclass(frozen=True)
 class HazardState:
     """One set of hazards, held as clipped softmax logits.
@@ -459,10 +537,13 @@ class HazardState:
     Parameters
     ----------
     logits : FloatArray
-        ``(n, T, L, J)`` :math:`\\eta_l = \\log(\\lambda_l / \\lambda_0)`.
+        ``(n, T, L, J)`` :math:`\\eta_l = \\log(\\lambda_l / \\lambda_0)`, clipped by
+        :func:`clip_logits`.
     full : BoolArray or None
         ``(T, L)`` cells whose no-event probability :math:`\\lambda_0` is held at exactly
-        zero.  The logits there split the event among the causes.
+        zero.  The logits there split the event among the causes,
+        :math:`\\lambda_l = e^{\\eta_l} / \\sum_m e^{\\eta_m}`, so a common constant added
+        to them leaves the split unchanged.
     node_bounds : HazardBounds or None
         The bounded nodes.  There ``logits`` holds
         :math:`\\theta_j = \\operatorname{logit}((\\lambda_j - l_j) / s_j)` for every cause.
@@ -511,21 +592,23 @@ class HazardState:
         full: BoolArray | None = None,
         node_bounds: HazardBounds | None = None,
     ) -> HazardState:
-        """The state of ``(n, T, L, J)`` hazards, with each logit clipped into ``bounds``.
+        """The state of ``(n, T, L, J)`` hazards, with the logits clipped by :func:`clip_logits`.
 
         A cell of ``empty``, ``(T, L, J)``, holds the hazard at exactly zero for every unit,
         its logit at :math:`-\\infty`.  A cell of ``full``, ``(T, L)``, holds the all-cause
-        hazard at exactly one for every unit.  No fluctuation moves either.  At a node of
-        ``node_bounds`` the logit is :math:`\\operatorname{logit}((\\lambda_j - l_j) / s_j)`,
-        clipped into ``bounds``, so the hazard lies in
-        :math:`[l_j + (1 - \\alpha) s_j, u_j - (1 - \\alpha) s_j]`.
+        hazard at exactly one for every unit, and its logits are those of
+        :func:`softmax_logits`, which keep the fitted ratios :math:`\\lambda_j / \\lambda_l`
+        among the causes down to the lower bound.  No fluctuation moves either hold.
+        At a node of ``node_bounds`` the logit is
+        :math:`\\operatorname{logit}((\\lambda_j - l_j) / s_j)`, clipped into ``bounds``, so the
+        hazard lies in :math:`[l_j + (1 - \\alpha) s_j, u_j - (1 - \\alpha) s_j]`.
         """
         lam = np.asarray(hazards, dtype=float)
-        none = 1.0 - lam.sum(axis=-1)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            eta = np.log(lam) - np.log(none)[..., None]
+        low, high = bounds
+        eta = softmax_logits(lam, high, full)
+        bounded = None
         if node_bounds is not None and node_bounds.active:
-            k = node_bounds.bounded
+            k = bounded = node_bounds.bounded
             share = np.clip(
                 (lam[:, k] - node_bounds.lower[k][None, :, None, :])
                 / node_bounds.scale[k][None, :, None, :],
@@ -534,22 +617,26 @@ class HazardState:
             )
             with np.errstate(divide="ignore"):
                 eta[:, k] = np.log(share) - np.log(1.0 - share)
-        eta = np.clip(
-            np.nan_to_num(eta, nan=bounds[0], posinf=bounds[1], neginf=bounds[0]), *bounds
-        )
+        eta = clip_logits(np.nan_to_num(eta, nan=low, posinf=high, neginf=low), bounds, bounded)
         if empty is not None:
             eta = np.where(np.asarray(empty, dtype=bool)[None], -np.inf, eta)
         return cls(eta, full, node_bounds)
 
     def moved(self, delta: FloatArray, bounds: tuple[float, float]) -> HazardState:
-        """The state after adding ``delta`` to every logit, then clipping.
+        """The state after adding ``delta`` to every logit, then clipping by :func:`clip_logits`.
 
         A logit at :math:`-\\infty`, a hazard held at zero, stays there, and so does a held
         all-cause hazard of one.  The bounded nodes stay bounded: ``delta`` there is the
         step on :math:`\\theta_j`, which :func:`direction` has scaled by :math:`s_j`.
         """
+        node_bounds = self.node_bounds
+        bounded = node_bounds.bounded if node_bounds is not None and node_bounds.active else None
         return HazardState(
-            np.where(np.isneginf(self.logits), -np.inf, np.clip(self.logits + delta, *bounds)),
+            np.where(
+                np.isneginf(self.logits),
+                -np.inf,
+                clip_logits(self.logits + delta, bounds, bounded),
+            ),
             self.full,
             self.node_bounds,
         )
@@ -1196,7 +1283,7 @@ def _quasi_terms(events: FloatArray, logits: FloatArray, bounds: HazardBounds) -
     return np.asarray((xlogy(y, p) + xlogy(1.0 - y, 1.0 - p)).sum(axis=-1), dtype=float)
 
 
-def walk_loss(state: HazardState, inputs: HazardInputs) -> float:
+def walk_loss(state: HazardState, inputs: HazardInputs, *, last_node: int | None = None) -> float:
     """The walk loss of the observed events on the risk set.
 
     It is the negative weighted multinomial log-likelihood at every unbounded node, plus the
@@ -1209,6 +1296,10 @@ def walk_loss(state: HazardState, inputs: HazardInputs) -> float:
         The current hazards.
     inputs : HazardInputs
         The targeting inputs.
+    last_node : int or None, default=None
+        Count only the person-nodes ``k <= last_node``, counted from one.  The collaborative
+        survival selector scores a fluctuation at one horizon, which leaves the later nodes
+        unchanged.  ``None`` counts every node.
 
     Returns
     -------
@@ -1227,6 +1318,8 @@ def walk_loss(state: HazardState, inputs: HazardInputs) -> float:
             inputs.events, state.logits[rows, :, levels], bounds
         )
     counted = inputs.at_risk & (inputs.weights != 0.0)[:, None]
+    if last_node is not None:
+        counted = counted & (np.arange(inputs.n_times) < last_node)[None, :]
     return -float(np.sum(np.where(counted, inputs.weights[:, None] * terms, 0.0)))
 
 
@@ -1474,7 +1567,8 @@ def _newton(
 ) -> FloatArray:
     """Fit the fluctuation coefficients with :math:`h` held fixed, from zero.
 
-    At an unbounded node the loss is the multinomial log-likelihood.  At a bounded node it is
+    At an unbounded node the loss is the multinomial log-likelihood, over the causes alone in a
+    full cell.  At a bounded node it is
     the quasi-binomial loss of each cause, the logit moves by :math:`s_j \\epsilon \\cdot h_j`,
     and the information is :math:`\\sum_j (s_j h_j)^2 p_j (1 - p_j)` with no cross-cause
     term.  The gradient is the score :math:`h_j (dN_j - \\lambda_j)` at both kinds of node.
@@ -1483,19 +1577,29 @@ def _newton(
     rows, levels = inputs.rows, inputs.observed
     base = state.logits[rows, :, levels]
     held = np.isneginf(base)
-    low, high = inputs.bounds
+    cut = inputs.bounds
     w = inputs.weights[:, None]
     mask = inputs.at_risk
     n = inputs.n
     epsilon = np.zeros(clever.shape[0])
     bounds = state.node_bounds
+    # (n, T) the observed cells whose all-cause hazard is held at one: their softmax has no
+    # no-event category, as in HazardState.  hazard_inputs holds no full cell at a bounded node.
+    full = (
+        np.zeros(mask.shape, dtype=bool)
+        if state.full is None
+        else np.asarray(state.full, dtype=bool)[:, levels].T
+    )
+
+    def softmax(eta: FloatArray) -> tuple[FloatArray, FloatArray]:
+        expo = np.exp(eta)
+        events = expo.sum(axis=-1)
+        denom = np.where(full, events, 1.0 + events)
+        return expo / denom[..., None], np.where(full, 0.0, 1.0 / denom)
 
     def evaluate(eps: FloatArray) -> tuple[float, FloatArray, FloatArray]:
-        eta = np.where(held, -np.inf, np.clip(base + np.tensordot(eps, clever, axes=1), low, high))
-        expo = np.exp(eta)
-        denom = 1.0 + expo.sum(axis=-1)
-        lam = expo / denom[..., None]
-        none = 1.0 / denom
+        eta = np.where(held, -np.inf, clip_logits(base + np.tensordot(eps, clever, axes=1), cut))
+        lam, none = softmax(eta)
         terms = xlogy(inputs.events, lam).sum(-1) + xlogy(1.0 - inputs.events.sum(-1), none)
         value = float(np.sum(np.where(mask & (w != 0.0), w * terms, 0.0)))
         residual = np.where(mask[..., None], inputs.events - lam, 0.0)
@@ -1512,11 +1616,8 @@ def _newton(
         assert bounds is not None
         k = bounds.bounded
         step = bounds.scale[None] * np.tensordot(eps, clever, axes=1)
-        eta = np.where(held, -np.inf, np.clip(base + step, low, high))
-        expo = np.exp(eta)
-        denom = 1.0 + expo.sum(axis=-1)
-        lam = expo / denom[..., None]
-        none = 1.0 / denom
+        eta = np.where(held, -np.inf, clip_logits(base + step, cut, k))
+        lam, none = softmax(eta)
         p = expit(eta)
         lam[:, k] = bounds.lower[k][None] + bounds.scale[k][None] * p[:, k]
         none[:, k] = 1.0 - lam[:, k].sum(axis=-1)

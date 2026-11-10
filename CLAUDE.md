@@ -104,6 +104,10 @@ The points agents miss most:
   against headings.
 - Give evidence for each material claim: a source, a test or artifact, or the condition it
   needs. Check scientific claims against code, tests, artifacts, and sources.
+- A reader page borrows facts about refusals, intervals, support labels and study status from
+  pages that tests tie to the code. Read them there, link the owning page, and do not copy a full
+  list of cases. [Facts a reader page borrows](docs/development/writing-for-readers.md#facts-a-reader-page-borrows)
+  names the owners.
 
 When you rewrite a whole data-scientist page, or write a new one, run the reader review in the
 guide before you hand off. For any doc change, follow the

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
+from dataclasses import fields as dataclass_fields
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, runtime_checkable
 
 from ._typing import (
@@ -30,6 +31,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = [
     "ADAPTIVE_IPTW_LONGITUDINAL_REFUSAL",
+    "ATMLE_CV_FOLDS_REFUSAL",
+    "ATMLE_CV_OFF_REFUSAL",
+    "ATMLE_FIELDS",
+    "ATMLE_REPEATS_REFUSAL",
     "BASELINE_HAZARD_POOLING_REFUSAL",
     "BASELINE_POINT_REFUSAL",
     "BASELINE_RATIO_TRIM_REFUSAL",
@@ -47,6 +52,7 @@ __all__ = [
     "SDR_TILT_REFUSAL",
     "SHORTCUTS",
     "AdaptiveIPTWMethod",
+    "AdaptiveTMLEMethod",
     "CollaborativeTMLEMethod",
     "CrossFitting",
     "DRTMLEMethod",
@@ -468,11 +474,12 @@ class ModelSpec:
         the covariates alone (R's ``drtmle(stratify=TRUE)``).  The default fits one regression
         on the covariates and the treatment.  A continuous dose has no arms and is refused,
         and so is a longitudinal design.
-    survival_model : {"iterated_mean", "hazard"}
+    survival_model : {"iterated_mean", "hazard"} or None
         How a longitudinal fit models a survival curve.  ``"hazard"`` targets the
         cause-specific hazards of a held baseline treatment; see
-        :class:`~cleverly.longitudinal.LTMLE`.  A point-treatment fit refuses
-        ``"hazard"``.
+        :class:`~cleverly.longitudinal.LTMLE`.  ``None``, the default, is the engine's own
+        model: ``"hazard"`` for :class:`~cleverly.longitudinal.SurvivalCTMLE` and
+        ``"iterated_mean"`` everywhere else.  A point-treatment fit refuses ``"hazard"``.
 
     See Also
     --------
@@ -508,7 +515,7 @@ class ModelSpec:
     min_retain: int | None = None
     hazard_pooling: str = "node"
     outcome_by_arm: bool = False
-    survival_model: SurvivalModel = "iterated_mean"
+    survival_model: SurvivalModel | None = None
 
     def __post_init__(self) -> None:
         check_hazard_pooling(self.hazard_pooling)
@@ -768,8 +775,10 @@ class Inference:
         Bootstrap fits. Zero disables full-refit bootstrap inference.
     bootstrap_resampling : {"auto", "iid", "cluster"}, default="auto"
         Unit or cluster resampling policy.
-    simultaneous : bool, default=True
-        Whether multi-parameter results include simultaneous bands.
+    simultaneous : bool or None, default=None
+        Whether multi-parameter results include simultaneous bands.  ``None`` is the
+        engine's own default: no band for :class:`~cleverly.longitudinal.SurvivalCTMLE`,
+        which has none, and a band everywhere else.
     n_multiplier : int or {"auto"}, default="auto"
         Multiplier draws for simultaneous bands.
     multiplier_kind : {"rademacher", "mammen", "normal"}, default="rademacher"
@@ -805,7 +814,7 @@ class Inference:
     alpha: float = 0.05
     n_bootstrap: int = 0
     bootstrap_resampling: Resampling = "auto"
-    simultaneous: bool = True
+    simultaneous: bool | None = None
     #: Multiplier-bootstrap draws behind the simultaneous bands.  ``"auto"`` is each engine's
     #: own default, which is not one number: the point path draws 1000 and the sequential path
     #: draws 2000.  A single literal here would silently pick one of them for the other engine
@@ -1050,7 +1059,7 @@ def _refuse_node_bounds(method: TMLEMethod, estimator: str) -> None:
 def _refuse_curve_settings(method: TMLEMethod, name: str) -> None:
     """Refuse a hazard or isotonic setting on an estimator that is not the targeted fit."""
     if (
-        method.models.survival_model != "iterated_mean"
+        method.models.survival_model not in (None, "iterated_mean")
         or method.targeting.algorithm != "iterative"
         or method.targeting.step_size != Targeting().step_size
         or method.targeting.isotonic
@@ -1227,7 +1236,7 @@ class TMLEMethod:
             "max_iter": targeting.max_iter,
             "tol": targeting.tol,
             "alpha_sig": inference.alpha,
-            "simultaneous": inference.simultaneous,
+            "simultaneous": True if inference.simultaneous is None else inference.simultaneous,
             "n_multiplier": inference.n_multiplier,
             "multiplier_kind": inference.multiplier_kind,
             "random_state": runtime.random_state,
@@ -1266,7 +1275,7 @@ class TMLEMethod:
                     "iterate": targeting.iterate,
                     "density_bins": models.density_bins,
                     "ratio": models.ratio,
-                    "survival_model": models.survival_model,
+                    "survival_model": models.survival_model or "iterated_mean",
                     "targeting": targeting.algorithm,
                     "step_size": targeting.step_size,
                     "isotonic": targeting.isotonic,
@@ -1288,7 +1297,7 @@ class TMLEMethod:
             raise MethodConfigurationError.from_refusal(_POINT_HAZARD_POOLING)
         if targeting.node_bounds is not None:
             raise MethodConfigurationError.from_refusal(_POINT_NODE_BOUNDS)
-        if models.survival_model != "iterated_mean" or targeting.isotonic:
+        if models.survival_model not in (None, "iterated_mean") or targeting.isotonic:
             raise MethodConfigurationError(
                 "survival_model= and isotonic= apply to a survival curve over time nodes, and "
                 "a point-treatment functional has no curve. Remove them, or declare a "
@@ -1582,7 +1591,10 @@ default="greedy"
 
     ``strategy="oat"`` selects nothing, and it keeps the diagnostic only on either design:
     condition (v) of Benkeser, Cai and van der Laan (2020), Theorem 1, fails for an
-    estimated outcome regression.
+    estimated outcome regression. The exception is a per-arm fit with the pair
+    :class:`~cleverly.learners.ParametricOutcome` and
+    :class:`~cleverly.learners.ParametricMechanism` that ``per_arm_parametric_support``
+    admits, which reports an interval from a stacked influence curve.
 
     ``strategy="derivative"`` adds a derivative column for each arm to one TMLE update.
     The columns contain the clever covariates, so the update solves the efficient influence
@@ -1652,20 +1664,51 @@ default="greedy"
         Parameters
         ----------
         longitudinal : bool
-            Must be false because no longitudinal collaborative score is supported.
+            Whether to translate for
+            :class:`~cleverly.longitudinal.SurvivalCTMLE`, the time-to-event engine.
 
         Returns
         -------
         dict of str to Any
-            CTMLE engine keyword arguments.
+            CTMLE or SurvivalCTMLE engine keyword arguments.
+
+        Notes
+        -----
+        The time-to-event engine fits hazards and reports no band, so the unset
+        ``survival_model=None`` and ``simultaneous=None`` resolve to ``"hazard"`` and
+        ``False`` there, and the default ``selection_estimand="ate"`` resolves to the
+        engine's per-arm selection. An explicit value passes through, including
+        ``survival_model="iterated_mean"`` and ``simultaneous=True``, and the engine refuses
+        what it cannot fit.
         """
         if longitudinal:
-            raise MethodConfigurationError(
-                "collaborative TMLE has no longitudinal derivation.",
-                reason=RefusalReason.IMPLEMENTATION_GAP,
-                alternative="Fit a longitudinal design with method='tmle' (LTMLE) or 'sdr'.",
-                roadmap="F5",
-            )
+            defaults = CollaborativeTMLEMethod()
+            kwargs = TMLEMethod.estimator_kwargs(self, longitudinal=True)
+            if self.models.survival_model is None:
+                kwargs["survival_model"] = "hazard"
+            if self.inference.simultaneous is None:
+                kwargs["simultaneous"] = False
+            return {
+                **kwargs,
+                "strategy": self.strategy,
+                "preorder": self.preorder,
+                "ordering": self.ordering,
+                "candidates": self.candidates,
+                "selection_folds": self.selection_folds,
+                "selection_inner_folds": self.selection_inner_folds,
+                "loss": self.loss,
+                "penalty": self.penalty,
+                "selection_estimand": (
+                    None
+                    if self.selection_estimand == defaults.selection_estimand
+                    else self.selection_estimand
+                ),
+                "oat_design": self.oat_design,
+                "lambdas": self.lambdas,
+                "treatment_candidates": self.treatment_candidates,
+                "selection_split": self.selection_split,
+                "patience": self.patience,
+            }
         return {
             **super().estimator_kwargs(),
             "strategy": self.strategy,
@@ -1917,6 +1960,265 @@ class AdaptiveIPTWMethod(TMLEMethod):
             **super().estimator_kwargs(),
             "form": self.form,
             "reduced_outcome_learner": self.reduced_outcome_learner,
+        }
+
+
+#: The settings of the shared configuration groups that :class:`AdaptiveTMLEMethod` reads,
+#: as ``(group, field)``. Every other field of :class:`ModelSpec`, :class:`CrossFitting`,
+#: :class:`Targeting`, :class:`Inference` and :class:`Runtime` must keep its default, so a
+#: field added to a group later is refused until it is read here.
+ATMLE_FIELDS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("models", "outcome_learner"),
+        ("models", "treatment_learner"),
+        ("models", "missingness_learner"),
+        ("cross_fitting", "enabled"),
+        ("cross_fitting", "n_folds"),
+        ("cross_fitting", "learner_folds"),
+        ("cross_fitting", "split_plan"),
+        ("targeting", "g_bounds"),
+        ("inference", "alpha"),
+        ("runtime", "random_state"),
+        ("runtime", "run_id"),
+    }
+)
+
+#: Why adaptive TMLE takes one outer split.
+ATMLE_REPEATS_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "No source combines adaptive working-model fits across repeated splits; a median of fits "
+    "with different working models has no derived variance.",
+    alternative="Use CrossFitting(repeats=1).",
+)
+
+#: Why the adaptive CV-TMLE needs three folds.
+ATMLE_CV_FOLDS_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "The adaptive CV-TMLE selects each fold's working model with nuisances that read neither "
+    "that fold nor the row's own fold, which needs at least three folds. Use n_folds=3 or "
+    "more, or form='pooled'.",
+)
+
+
+#: Why the adaptive CV-TMLE cannot run with cross-fitting off.
+ATMLE_CV_OFF_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "The adaptive CV-TMLE selects and targets each fold's working models on the other folds, "
+    "so it needs folds; cross-fitting is off.",
+    alternative="Use CrossFitting(enabled=True) with three or more folds, or form='pooled'.",
+)
+
+#: Why each unread setting group does not apply to adaptive TMLE.
+_ATMLE_UNREAD_REASONS: dict[str, str] = {
+    "models": (
+        "adaptive TMLE reads the outcome, treatment and missingness learners and nothing "
+        "else of ModelSpec"
+    ),
+    "cross_fitting": (
+        "adaptive TMLE has one outer split and its own targeting scheme, so this setting "
+        "has no effect"
+    ),
+    "targeting": "adaptive TMLE fits no outcome fluctuation",
+    "inference": (
+        "adaptive TMLE reports one influence-curve interval and draws no bootstrap or "
+        "simultaneous band"
+    ),
+    "runtime": "the adaptive TMLE engine fits the folds serially",
+}
+
+
+@dataclass(frozen=True)
+class AdaptiveTMLEMethod(TMLEMethod):
+    """Configure adaptive TMLE for a randomized trial pooled with external data.
+
+    The estimator of van der Laan, Qiu, Tarp and van der Laan (arXiv:2405.07186v2) learns two
+    working models by lasso over a dictionary of covariate functions: one for the treatment
+    effect on the pooled rows, and one for how the external outcomes differ from the trial's.
+    It then targets the trial's effect, removing the bias the second model describes. The
+    interval covers the effect within the selected working models, so every estimate carries
+    the status ``working_model_projection``. Only :class:`~cleverly.TrialWithExternalData`
+    takes this method.
+
+    The method reads the learners of :class:`ModelSpec`, ``enabled``, ``n_folds``,
+    ``learner_folds`` and ``split_plan`` of :class:`CrossFitting`, ``g_bounds`` of
+    :class:`Targeting`, ``alpha`` of :class:`Inference` and ``random_state`` and ``run_id``
+    of :class:`Runtime`. Every other field of those groups must keep its default, and a
+    changed one is refused by name with the reason it has no effect.
+
+    Parameters
+    ----------
+    models : ModelSpec
+        ``outcome_learner`` fits the outcome regressions, ``treatment_learner`` the pooled
+        treatment mechanism, and ``missingness_learner`` the outcome-observation mechanism.
+        ``None`` takes the default Super Learner library.
+    cross_fitting : CrossFitting, default=CrossFitting(n_folds=5)
+        The outer split, drawn stratified by trial membership (and by the outcome when it is
+        binary) so that each fold holds trial and external rows in proportion.
+        ``learner_folds`` also sets the folds of the cross-validation that
+        chooses each lasso penalty. ``form="cv"`` needs ``enabled=True`` and at least three
+        folds. ``form="pooled"`` with ``enabled=False`` fits every nuisance on every row. A
+        ``split_plan`` supplies the outer folds in place of a drawn split. ``repeats`` above
+        one is refused.
+    targeting : Targeting
+        ``g_bounds`` bounds the treatment, trial-membership and observation probabilities.
+    inference : Inference
+        ``alpha`` sets the interval's level.
+    runtime : Runtime
+        Seed and run identifier.
+    name : str
+        Stable method name.
+    form : {"cv", "pooled"}, default="cv"
+        ``"cv"`` is the adaptive CV-TMLE (Appendix C, Theorem 2), which selects each fold's
+        working models on the other folds. ``"pooled"`` is Algorithm 1 (Section 7,
+        Theorem 1), which selects them on every row with cross-fitted nuisances.
+    working_basis : scikit-learn transformer or None, default=None
+        Maps the covariates to the dictionary the working models are selected from.
+        ``None`` takes a standardized linear term, hinge terms at five quantile knots and
+        pairwise products for each continuous covariate, and indicators for a covariate with
+        few values.
+    source_learner : estimator or None, default=None
+        Learner for the trial-membership probabilities ``P(S = 1 | W, A)`` and
+        ``P(S = 1 | W)``. ``None`` takes ``models.treatment_learner``, then the default
+        Super Learner.
+    force_arm : bool, default=False
+        Leave the arm column ``A`` of the bias model unpenalized, as the ``atmle`` package
+        does by default (``force_A = TRUE``). ``False`` penalizes it like every other column
+        except the constant, which is the default here because a forced ``A`` gives each
+        external arm a free mean shift: the external rows then carry no information on the
+        effect's level, and the efficiency bound is the trial-only one (on the exact law
+        ``a0`` the standard deviation of the influence function is 0.48 of the trial-only
+        bound with ``A`` penalized and 1.00 with ``A`` forced). With controls-only external
+        data there is no arm column and the setting has no effect.
+
+    Raises
+    ------
+    MethodConfigurationError
+        When ``form`` is not ``"cv"`` or ``"pooled"``, when ``force_arm`` is not a bool, when
+        ``repeats`` is above one, when ``form="cv"`` has fewer than three folds or
+        cross-fitting off, or when a field the method does not read differs from its default.
+
+    See Also
+    --------
+    TrialWithExternalData : The design this method fits.
+    TrialATE : The effect it estimates.
+    cleverly.estimators.atmle_result.AdaptiveTMLEResult : What a fit returns.
+
+    Examples
+    --------
+    >>> from cleverly import AdaptiveTMLEMethod, CrossFitting
+    >>> method = AdaptiveTMLEMethod(form="pooled", cross_fitting=CrossFitting(n_folds=3))
+    >>> method.name, method.form, method.cross_fitting.n_folds
+    ('atmle', 'pooled', 3)
+
+    A setting the method does not read is refused before any fit:
+
+    >>> from cleverly import MethodConfigurationError
+    >>> try:
+    ...     AdaptiveTMLEMethod().with_overrides(n_bootstrap=200)
+    ... except MethodConfigurationError as error:
+    ...     print(str(error).split(";")[1].strip())
+    inference.n_bootstrap does not apply. Remove it.
+    """
+
+    _ratio_refusal: ClassVar[Refusal | None] = None
+    _density_bins_refusal: ClassVar[Refusal | None] = None
+
+    cross_fitting: CrossFitting = CrossFitting(n_folds=5)
+    form: Literal["cv", "pooled"] = "cv"
+    working_basis: Any = None
+    source_learner: Any = None
+    force_arm: bool = False
+    name: str = "atmle"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.form not in ("cv", "pooled"):
+            raise MethodConfigurationError(
+                f"form must be 'cv' or 'pooled'; got {self.form!r}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        cross = self.cross_fitting
+        if cross.repeats > 1:
+            raise MethodConfigurationError.from_refusal(ATMLE_REPEATS_REFUSAL)
+        if self.form == "cv" and not cross.enabled:
+            raise MethodConfigurationError.from_refusal(ATMLE_CV_OFF_REFUSAL)
+        if self.form == "cv" and cross.split_plan is None and cross.n_folds < 3:
+            raise MethodConfigurationError.from_refusal(ATMLE_CV_FOLDS_REFUSAL)
+        defaults = AdaptiveTMLEMethod.__dataclass_fields__
+        for group in ("models", "cross_fitting", "targeting", "inference", "runtime"):
+            value = getattr(self, group)
+            default = defaults[group].default
+            for item in dataclass_fields(value):
+                if (group, item.name) in ATMLE_FIELDS:
+                    continue
+                if _differs_from_default(getattr(value, item.name), getattr(default, item.name)):
+                    raise MethodConfigurationError(
+                        f"{_ATMLE_UNREAD_REASONS[group]}; {group}.{item.name} does not "
+                        "apply. Remove it.",
+                        reason=RefusalReason.INVALID_DECLARATION,
+                    )
+        if self.working_basis is not None and not (
+            callable(getattr(self.working_basis, "fit", None))
+            and callable(getattr(self.working_basis, "transform", None))
+        ):
+            raise MethodConfigurationError(
+                "working_basis must be a scikit-learn transformer with fit and transform, or "
+                f"None; got {type(self.working_basis).__name__}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        if not isinstance(self.force_arm, bool):
+            raise MethodConfigurationError(
+                f"force_arm must be True or False; got {self.force_arm!r}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        _validate_learner(self.source_learner, "source_learner")
+
+    def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
+        """Translate this configuration for the adaptive TMLE engine.
+
+        The learners are returned as declared: the fit resolves ``None`` to the default
+        library once it knows the outcome family, and ``g_bounds="auto"`` once it knows the
+        number of rows.
+
+        Parameters
+        ----------
+        longitudinal : bool
+            Must be false, because adaptive TMLE is derived for one treatment decision.
+
+        Returns
+        -------
+        dict of str to Any
+            Engine keyword arguments.
+
+        Raises
+        ------
+        MethodConfigurationError
+            When ``longitudinal`` is true.
+        """
+        if longitudinal:
+            raise MethodConfigurationError(
+                "adaptive TMLE is derived for one treatment decision in a trial pooled with "
+                "external data; declare TrialWithExternalData",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        models = self.models
+        cross = self.cross_fitting
+        return {
+            "outcome_learner": models.outcome_learner,
+            "treatment_learner": models.treatment_learner,
+            "source_learner": (
+                self.source_learner if self.source_learner is not None else models.treatment_learner
+            ),
+            "missingness_learner": models.missingness_learner,
+            "g_bounds": self.targeting.g_bounds,
+            "basis": self.working_basis,
+            "form": self.form,
+            "force_arm": self.force_arm,
+            "n_folds": cross.n_folds,
+            "cross_fit": cross.enabled,
+            "split_plan": cross.split_plan,
+            "inner_folds": cross.learner_folds,
+            "random_state": self.runtime.random_state,
         }
 
 

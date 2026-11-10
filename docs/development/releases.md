@@ -6,6 +6,7 @@ standards behind this process.
 
 ## Release history
 
+- [cleverly 0.2.2](release-notes-0.2.2.md)
 - [cleverly 0.2.1](release-notes-0.2.1.md)
 - [cleverly 0.2.0](release-notes-0.2.0.md)
 - [cleverly 0.1.7](release-notes-0.1.7.md)
@@ -18,6 +19,7 @@ standards behind this process.
 ```{toctree}
 :hidden:
 
+release-notes-0.2.2
 release-notes-0.2.1
 release-notes-0.2.0
 release-notes-0.1.7
@@ -52,6 +54,10 @@ Prepare the release in a pull request from `main`.
 5. Create the matching `v0.2.N` tag on the reviewed `main` commit.
 6. Push the tag, and review both publishing environments in GitHub Actions.
 7. Create the GitHub release from the tag, and paste the reviewed notes.
+
+The documentation site deploys once `publish.yml` succeeds, from the tagged commit
+(`.github/workflows/pages.yml`). A merge to `main` does not redeploy it. To publish a
+documentation fix between releases, run the `pages` workflow by hand from `main`.
 
 The workflow rejects a tag with another form. It also rejects a tag that differs from the source
 version or points outside `main` history.

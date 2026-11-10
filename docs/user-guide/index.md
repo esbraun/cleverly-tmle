@@ -20,11 +20,14 @@ registered validation studies, not in an example.
 ```{toctree}
 :maxdepth: 2
 
+reading-output
 data-design
 estimands
 conditional-effects
 methods-learners
+trial-with-external-data
 results-assessment
 longitudinal
+survival
 capabilities
 ```

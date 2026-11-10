@@ -30,6 +30,7 @@ the parameter under.
 from __future__ import annotations
 
 from ..exceptions import LongitudinalError
+from .collaborative import SurvivalCTMLE, SurvivalSelection
 from .data import LongitudinalData, Repeated
 from .estimator import (
     IPSI,
@@ -104,6 +105,8 @@ __all__ = [
     "StructuralModelCheck",
     "StructuralNestedMean",
     "StructuralNestedMeanResult",
+    "SurvivalCTMLE",
+    "SurvivalSelection",
     "each_node",
     "fit_mechanism",
     "fit_regimen",

@@ -87,6 +87,14 @@ Three functions serve the [treatment-rules tutorial](../examples/treatment-rules
 | `treatment_rule_value` | the exact share who stay home under any rule or random offer, written as the chance of an offer for each patient |
 | `learned_rule_truth` | the true value of the fold rules of a learned-rule fit of these data |
 
+Three functions serve the [separable-effects tutorial](../examples/separable-effects.ipynb).
+
+| function | what it returns |
+| --- | --- |
+| `make_heart_failure` | a frame of patients sent home on no water pill, a standard dose or a high dose, with the day and code of the first event (readmission or death) or of leaving follow-up, and the exact risks for every pair of doses of the pill's two parts |
+| `heart_failure_truth` | the exact risk of each event by each check when the part acting on readmission and the part acting on death are set to two doses, in either event order |
+| `heart_failure_protocol` | the `StudyProtocol` of the separable-effects question |
+
 ```{eval-rst}
 .. autosummary::
    :nosignatures:
@@ -144,6 +152,9 @@ Three functions serve the [treatment-rules tutorial](../examples/treatment-rules
    cleverly.datasets.make_treatment_rules
    cleverly.datasets.treatment_rule_value
    cleverly.datasets.learned_rule_truth
+   cleverly.datasets.make_heart_failure
+   cleverly.datasets.heart_failure_truth
+   cleverly.datasets.heart_failure_protocol
 ```
 
 Five names serve the [model-based-over-time tutorial](../examples/model-based-over-time.ipynb),

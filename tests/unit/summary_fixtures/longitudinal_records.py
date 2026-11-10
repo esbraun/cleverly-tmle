@@ -127,10 +127,24 @@ def tilt_row() -> Any:
     return _point("ipsi").diagnostics.support()["down"]
 
 
+@_quiet
+def survival_selection() -> Any:
+    """The collaborative selection of one arm at one horizon of a survival C-TMLE."""
+    from .longitudinal import survival_ctmle
+
+    return survival_ctmle().selection[("a1", 2)]
+
+
 FIXTURES: dict[str, Any] = {
     "snmm": snmm,
     "snmm_in_sample": snmm_in_sample,
     "check": Case(check, fidelity=read.read_check),
+    "survival_selection": Case(
+        survival_selection,
+        names=("a1",),
+        fidelity=read.read_survival_selection,
+        sectioned=False,
+    ),
     "structural_diagnostics": Case(
         structural_diagnostics, fidelity=read.read_structural_diagnostics
     ),

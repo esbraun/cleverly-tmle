@@ -59,6 +59,7 @@ from .longitudinal import (
     Repeated,
     SequentialGComputation,
     SequentialIPW,
+    SurvivalCTMLE,
 )
 from .longitudinal import estimator as _sequential
 from .longitudinal.data import check_markov_order, markov_restriction
@@ -77,6 +78,7 @@ from .methods import (
     SDR_POINT_REFUSAL,
     SDR_TILT_REFUSAL,
     AdaptiveIPTWMethod,
+    AdaptiveTMLEMethod,
     CollaborativeTMLEMethod,
     DRTMLEMethod,
     EPMethod,
@@ -99,7 +101,9 @@ from .targets.base import (
     INTERMEDIATE_MECHANISM,
     MISSINGNESS_MECHANISM,
     OUTCOME_REGRESSION,
+    TREATMENT_MECHANISM,
     TREATMENT_OBSERVATION_MECHANISM,
+    TRIAL_MEMBERSHIP_MECHANISM,
     Identification,
     Interpretation,
     arm_alias,
@@ -127,6 +131,7 @@ from .utils.frames import as_frame
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .assessment import AssessmentReport
     from .effect_curves import EffectCurveResult
+    from .estimators.atmle_result import AdaptiveTMLEResult
 
 __all__ = [
     "ATC",
@@ -161,6 +166,8 @@ __all__ = [
     "RiskRatio",
     "StudyProtocol",
     "TimeToEvent",
+    "TrialATE",
+    "TrialWithExternalData",
 ]
 
 
@@ -725,6 +732,14 @@ class PointTreatment:
         naming ``adjustment=("Z1",)`` over a container fitted on ``W1..W3`` reported an
         adjustment set no estimate came from -- and, since this PR, persisted it.
         """
+        if data.source is not None:
+            # The one point-treatment reader of a container that marks trial membership:
+            # every point estimator would read the pooled rows as one population.
+            raise DataError(
+                f"the supplied CausalData marks trial membership in {data.source_name!r}, and "
+                "a point-treatment design reads every row as one population; declare "
+                "TrialWithExternalData to estimate the trial's effect with external data"
+            )
         expected: tuple[tuple[str, Any, Any], ...] = (
             ("outcome", self.outcome, data.outcome_name),
             ("treatment", self.treatment_name, data.treatment_name),
@@ -814,6 +829,196 @@ class PointTreatment:
                 f"the supplied CausalData has treatment_adjustment={used!r}, but this design "
                 f"declares treatment_adjustment={self.treatment_adjustment!r}; build the data "
                 "from this design, or correct the design"
+            )
+
+
+#: Why a trial pooled with external data takes a binary treatment only. Shared by the
+#: declaration of a vector treatment and the data check of a treatment with more levels.
+TRIAL_BINARY_TREATMENT_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "Adaptive TMLE for a trial with external data is derived for a binary treatment "
+    "(arXiv:2405.07186v2, Sec 2).",
+    alternative=("Fit the trial rows alone with PointTreatment, which takes more than two arms."),
+    roadmap="F40",
+)
+
+
+@dataclass(frozen=True)
+class TrialWithExternalData:
+    """Declare a randomized trial pooled with external data on the same outcome.
+
+    The pooled frame holds the trial's rows and the external rows, such as the controls of
+    a registry or an earlier study, with one column marking trial membership. The design
+    claims two things about the trial and nothing about the external rows: the treatment
+    was randomized in the trial given the adjustment columns, and every trial row could get
+    either arm. The adaptive TMLE (``method="atmle"``) learns how the external outcomes
+    differ from the trial's and removes that bias. After the fit it reports how well the
+    trial covers the external rows' covariates.
+
+    Parameters
+    ----------
+    outcome : str
+        Outcome column.
+    treatment : str
+        Binary treatment column. A treatment with more than two levels, a continuous dose
+        and a vector treatment are refused, because the estimator is derived for a binary
+        treatment only.
+    adjustment : sequence of str
+        Baseline covariate columns. At least one is required: the bias of the external rows
+        is learned as a function of them.
+    source : str
+        The column that marks trial membership.
+    trial : Any, default=1
+        The value of ``source`` on trial rows. Every other value marks an external row.
+    missingness : str or None, default=None
+        Outcome-observation indicator. One means observed. The design then assumes the
+        outcome is missing at random given the covariates and the arm in the trial, and
+        assumes nothing about why external outcomes are missing.
+    outcome_family : {"auto", "gaussian", "binomial"}, default="auto"
+        Outcome family. ``"auto"`` infers it from observed values.
+
+    Raises
+    ------
+    DataError
+        When two roles name one column, or ``adjustment`` is empty or repeats a column.
+    CapabilityError
+        When ``treatment`` names more than one column.
+
+    See Also
+    --------
+    TrialATE : The effect this design identifies.
+    AdaptiveTMLEMethod : The method that estimates it.
+    PointTreatment : The design for the trial rows alone.
+
+    Examples
+    --------
+    >>> from cleverly import TrialWithExternalData
+    >>> design = TrialWithExternalData(
+    ...     outcome="Y", treatment="A", adjustment=("W1", "W2"), source="S"
+    ... )
+    >>> design.source, design.trial
+    ('S', 1)
+    """
+
+    outcome: str
+    treatment: str
+    adjustment: Sequence[str]
+    source: str
+    trial: Any = 1
+    missingness: str | None = None
+    outcome_family: Family = "auto"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "adjustment", tuple(self.adjustment))
+        if not isinstance(self.treatment, str):
+            raise CapabilityError.from_refusal(TRIAL_BINARY_TREATMENT_REFUSAL)
+        if not self.outcome or not self.treatment or not self.source:
+            raise DataError("outcome, treatment and source must be non-empty column names")
+        if not self.adjustment:
+            raise DataError(
+                "TrialWithExternalData needs a non-empty adjustment set: the bias of the "
+                "external rows is learned as a function of the adjustment columns"
+            )
+        if len(set(self.adjustment)) != len(self.adjustment):
+            raise DataError(f"adjustment contains duplicate columns: {list(self.adjustment)}")
+        roles = [self.outcome, self.treatment, self.source, *self.adjustment]
+        if self.missingness is not None:
+            roles.append(self.missingness)
+        if len(set(roles)) != len(roles):
+            raise DataError(
+                "outcome, treatment, source, missingness and adjustment must name different "
+                f"columns; got {roles}"
+            )
+
+    @property
+    def treatment_name(self) -> str:
+        """The treatment's column."""
+        return self.treatment
+
+    def prepare(self, data: Any) -> CausalData:
+        """Validate the pooled data and encode the declared column roles.
+
+        Parameters
+        ----------
+        data : dataframe or CausalData
+            Pandas, Polars, or prepared causal data.
+
+        Returns
+        -------
+        CausalData
+            Validated internal representation, with trial membership in ``source``.
+
+        Raises
+        ------
+        CapabilityError
+            When the treatment takes more than two values.
+        DataError
+            When the data hold no trial row, no external row, or a trial with one arm, or
+            when a supplied ``CausalData`` was built with other roles.
+        """
+        if isinstance(data, CausalData):
+            prepared = data
+            self._check_prepared(prepared)
+        else:
+            frame = as_frame(data)
+            if self.treatment in frame.columns:
+                values = frame[self.treatment].drop_nulls().unique()
+                if len(values) > 2:
+                    raise CapabilityError.from_refusal(TRIAL_BINARY_TREATMENT_REFUSAL)
+            prepared = CausalData.from_frame(
+                data,
+                outcome=self.outcome,
+                treatment=self.treatment,
+                covariates=self.adjustment,
+                delta=self.missingness,
+                family=self.outcome_family,
+                source=self.source,
+                trial=self.trial,
+            )
+        if prepared.n_arms != 2:
+            raise CapabilityError.from_refusal(TRIAL_BINARY_TREATMENT_REFUSAL)
+        source = prepared.source
+        assert source is not None
+        if not np.any(source):
+            raise DataError(
+                f"no row has {self.source}={self.trial!r}, so the pooled data hold no trial row"
+            )
+        if np.all(source):
+            raise DataError(
+                f"every row has {self.source}={self.trial!r}, so the pooled data hold no "
+                "external row. Declare PointTreatment for a trial alone"
+            )
+        if np.unique(prepared.treatment[source]).size < 2:
+            raise DataError("the trial rows hold one arm only; the trial must randomize both arms")
+        return prepared
+
+    def _check_prepared(self, data: CausalData) -> None:
+        """Reconcile an already-built container with the roles this design declares."""
+        expected: tuple[tuple[str, Any, Any], ...] = (
+            ("outcome", self.outcome, data.outcome_name),
+            ("treatment", self.treatment, data.treatment_name),
+            ("missingness", self.missingness, data.delta_name),
+            ("source", self.source, data.source_name),
+        )
+        for role, declared, held in expected:
+            if declared != held:
+                raise DataError(
+                    f"the supplied CausalData was built with {role}={held!r}, but this design "
+                    f"declares {role}={declared!r}; build the data from this design, or "
+                    "correct the design"
+                )
+        generated = data.indicator_sources
+        sources = {generated.get(name, name) for name in data.covariate_names}
+        sources.update(data.dropped_covariates)
+        if sources != set(self.adjustment):
+            raise DataError(
+                f"the supplied CausalData adjusts for {sorted(sources)}, but this design "
+                f"declares {sorted(self.adjustment)}"
+            )
+        if self.outcome_family != "auto" and self.outcome_family != data.family:
+            raise DataError(
+                f"the supplied CausalData has family={data.family!r}, but this design "
+                f"declares outcome_family={self.outcome_family!r}"
             )
 
 
@@ -1811,6 +2016,65 @@ class ATE:
         return "average treatment effect, E[Y^a] - E[Y^reference]"
 
 
+#: The populations a :class:`TrialATE` averages the trial's conditional effect over.
+TrialPopulation = Literal["pooled", "trial"]
+
+
+@dataclass(frozen=True)
+class TrialATE:
+    """The trial's treatment effect, estimated with external data pooled in.
+
+    The trial's conditional effect at covariates ``W`` is the difference in the trial's
+    mean outcome between the arms among trial rows with those covariates. ``population``
+    says over whose covariates it is averaged. The contrast is the second treatment level
+    against the first, in sorted order, as :class:`ATE` takes it by default. The estimand
+    is on the difference scale only.
+
+    Parameters
+    ----------
+    population : {"pooled", "trial"}
+        ``"trial"`` averages over the trial's covariates, which is the trial's average
+        treatment effect. ``"pooled"`` averages over the covariates of every row, trial and
+        external; it also needs every external row's covariates to occur in the trial.
+        Required, because the two differ whenever trial membership depends on the
+        covariates.
+
+    Raises
+    ------
+    ValueError
+        When ``population`` is neither ``"pooled"`` nor ``"trial"``.
+
+    See Also
+    --------
+    TrialWithExternalData : The design this estimand is identified on.
+    AdaptiveTMLEMethod : The method that estimates it.
+    ATE : The average treatment effect of a single study.
+
+    Examples
+    --------
+    >>> from cleverly import TrialATE
+    >>> TrialATE(population="trial").definition
+    'trial effect averaged over the trial covariates, E[Y^1 - Y^0 | S = 1]'
+    """
+
+    population: TrialPopulation
+    name: str = field(default="ate", init=False)
+
+    def __post_init__(self) -> None:
+        if self.population not in ("pooled", "trial"):
+            raise ValueError(f"population must be 'pooled' or 'trial'; got {self.population!r}")
+
+    @property
+    def definition(self) -> str:
+        """Return the effect's definition for the declared population."""
+        if self.population == "trial":
+            return "trial effect averaged over the trial covariates, E[Y^1 - Y^0 | S = 1]"
+        return (
+            "trial effect averaged over the covariates of every row, trial and external, "
+            "E_W[E(Y^1 - Y^0 | S = 1, W)]"
+        )
+
+
 @dataclass(frozen=True)
 class ATT:
     """Compare counterfactual means among units in each comparison arm.
@@ -2541,6 +2805,7 @@ PointEstimand = (
     | IncrementalEffect
     | MSMProjection
     | ControlledDirectEffect
+    | TrialATE
     | ConditionalContrast
 )
 
@@ -2835,6 +3100,18 @@ class BackdoorMeanContrast:
         """
         if self.longitudinal:
             return "sequential g-formula under the declared treatment regimen"
+        if self.axis == "trial":
+            treated, control = self.treatment_levels[1], self.treatment_levels[0]
+            observed = "" if self.missingness is None else f", {self.missingness}=1"
+            arm = "E({Y} | S=1, {A}={a}, W{d})"
+            effect = (
+                arm.format(Y=self.outcome, A=self.treatment, a=repr(treated), d=observed)
+                + " - "
+                + arm.format(Y=self.outcome, A=self.treatment, a=repr(control), d=observed)
+            )
+            if self.target == "ate_trial":
+                return f"E_{{W | S=1}}[{effect}], with S the trial-membership indicator"
+            return f"E_W[{effect}] over every row, with S the trial-membership indicator"
 
         def regression(arm: Any = "a") -> str:
             conditions = [f"{self.treatment}={arm}"]
@@ -3699,6 +3976,13 @@ def _variant_roadmap(method: str, functional: Any, design: Any) -> str:
     str
         F5 for the compositions it keeps, X50 or X51 for the ones that moved there, and X62
         for the natural course with complete outcomes.
+
+    Notes
+    -----
+    A longitudinal C-TMLE on a study reads its refusal from
+    :func:`~cleverly.longitudinal.collaborative.survival_design_refusal` instead, which names
+    X62 for a survival composition the source does not cover and F5 for a sequential score;
+    the F5 here is the fallback for an effect without a longitudinal panel.
     """
     axis, target = functional.axis, functional.target
     # F5 keeps a longitudinal functional, a continuous dose, and ATT, ATC, incremental,
@@ -4019,6 +4303,92 @@ _LONGITUDINAL_TILT_IDENTIFICATION = Identification(
 )
 
 
+#: Why ``atmle`` does not fit a point-treatment design.
+ATMLE_POINT_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "adaptive TMLE needs trial membership; declare TrialWithExternalData(source=).",
+)
+
+#: Why every method other than ``atmle`` is refused on the pooled design.
+TRIAL_METHOD_REFUSAL = Refusal(
+    RefusalReason.DIFFERENT_ESTIMAND,
+    "this method reads the pooled rows as one population, and a trial pooled with external "
+    "data identifies the trial's effect only.",
+    alternative="Fit method='atmle'.",
+)
+
+#: Why :class:`TrialATE` needs the pooled design.
+TRIAL_DESIGN_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "TrialATE needs the trial-membership column. Declare TrialWithExternalData(source=...).",
+)
+
+#: Why the pooled design identifies :class:`TrialATE` only.
+TRIAL_ESTIMAND_REFUSAL = Refusal(
+    RefusalReason.DIFFERENT_ESTIMAND,
+    "A trial pooled with external data identifies the trial's effect, not a population "
+    "effect of the external rows.",
+    alternative="Request TrialATE(population='pooled') or TrialATE(population='trial').",
+)
+
+#: Why the pooled design has no ratio-scale effect.
+TRIAL_RATIO_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "Only the difference scale is derived; the source gives no working model for a ratio.",
+    alternative="Request TrialATE(population='pooled') or TrialATE(population='trial').",
+    roadmap="F40",
+)
+
+
+def _trial_identification(
+    population: TrialPopulation, design: TrialWithExternalData
+) -> Identification:
+    """The identification record of :class:`TrialATE` on the pooled design.
+
+    A1 and A2 of arXiv:2405.07186v2, Sec 2.2, are claims about the trial and nothing is
+    assumed about the external rows. The pooled average also needs A3, which the fit reports
+    on after it runs.
+    """
+    assumptions = [
+        "consistency: Y = Y^a when A = a",
+        "no interference: one unit's potential outcome does not depend on other units' "
+        "treatment assignments",
+        "randomization in the trial: Y^a is independent of A given W among trial rows (S = 1) (A1)",
+        "positivity in the trial: 0 < P(A = 1 | S = 1, W) < 1 almost surely (A2)",
+    ]
+    if population == "pooled":
+        assumptions.append(
+            "trial support: P(S = 1 | W) > 0 wherever the pooled covariates fall, so the "
+            "trial's conditional effect is defined at every pooled row (A3); the fit reports "
+            "the external rows' estimated P(S = 1 | W)"
+        )
+    if design.missingness is not None:
+        assumptions.append(
+            "outcomes missing at random in the trial (missingness= declared): whether Y is "
+            "recorded is independent of Y given (W, A) among trial rows; nothing is assumed "
+            "about why external outcomes are missing"
+        )
+    return Identification(
+        assumptions=tuple(assumptions),
+        required_nuisances=(
+            OUTCOME_REGRESSION,
+            TREATMENT_MECHANISM,
+            TRIAL_MEMBERSHIP_MECHANISM,
+            *((MISSINGNESS_MECHANISM,) if design.missingness is not None else ()),
+        ),
+        dr_condition=(
+            "the remainder is a sum of products of nuisance errors; the interval covers the "
+            "trial effect itself only when the selected working models approximate the "
+            "conditional effect and the external bias well enough (the oracle-approximation "
+            "condition of arXiv:2405.07186v2, Theorem 1)"
+        ),
+        references=(
+            "van der Laan, Qiu, Tarp & van der Laan (2026), J. Causal Inference 14(1), "
+            "doi:10.1515/jci-2024-0025; read as arXiv:2405.07186v2",
+        ),
+    )
+
+
 @dataclass(frozen=True)
 class ExplicitAdjustmentProvider:
     """Identify effects from declared adjustment sets or sequential histories.
@@ -4047,9 +4417,41 @@ class ExplicitAdjustmentProvider:
             Functional, assumptions, and method availability for the question.
         """
         design = study.design
+        if isinstance(design, TrialWithExternalData):
+            return self._identify_trial(study, estimand)
+        if isinstance(estimand, TrialATE):
+            raise CapabilityError.from_refusal(TRIAL_DESIGN_REFUSAL)
         if isinstance(design, (LongitudinalTreatment, TimeToEvent, LongPanel)):
             return self._identify_longitudinal(study, estimand)
         return self._identify_point(study, estimand)
+
+    def _identify_trial(self, study: CausalStudy, estimand: PointEstimand) -> IdentifiedEffect:
+        """Bind :class:`TrialATE` to the pooled design, and refuse every other estimand."""
+        design = study.design
+        data = study.data
+        assert isinstance(design, TrialWithExternalData) and isinstance(data, CausalData)
+        if isinstance(estimand, (RiskRatio, OddsRatio)):
+            raise CapabilityError.from_refusal(TRIAL_RATIO_REFUSAL)
+        if not isinstance(estimand, TrialATE):
+            raise CapabilityError.from_refusal(TRIAL_ESTIMAND_REFUSAL)
+        levels = tuple(data.treatment_levels)
+        functional = BackdoorMeanContrast(
+            outcome=design.outcome,
+            treatment=design.treatment,
+            adjustment=tuple(design.adjustment),
+            target=f"ate_{estimand.population}",
+            axis="trial",
+            reference=levels[0],
+            missingness=design.missingness,
+            treatment_levels=levels,
+        )
+        return IdentifiedEffect(
+            estimand=estimand,
+            functional=functional,
+            identification=_trial_identification(estimand.population, design),
+            provider=self,
+            _study=study,
+        )
 
     def _identify_point(self, study: CausalStudy, estimand: PointEstimand) -> IdentifiedEffect:
         design = study.design
@@ -4327,6 +4729,12 @@ def _longitudinal_tilts(estimand: IncrementalMean | IncrementalEffect) -> dict[s
     return {item.name: item for item in items}
 
 
+#: Every design a :class:`CausalStudy` accepts.
+StudyDesign = (
+    PointTreatment | LongitudinalTreatment | TimeToEvent | LongPanel | TrialWithExternalData
+)
+
+
 class CausalStudy:
     """Validate observed data against an immutable causal-study design.
 
@@ -4334,7 +4742,7 @@ class CausalStudy:
     ----------
     data : dataframe, CausalData, or LongitudinalData
         Observed study data. Pandas and Polars dataframes are supported.
-    design : PointTreatment, LongitudinalTreatment, TimeToEvent, or LongPanel
+    design : PointTreatment, LongitudinalTreatment, TimeToEvent, LongPanel, or TrialWithExternalData
         Column roles and treatment-time structure.
     protocol : StudyProtocol or None
         Scientific study protocol. ``None`` records that no protocol was supplied.
@@ -4342,7 +4750,7 @@ class CausalStudy:
     Attributes
     ----------
     data : CausalData or LongitudinalData
-    design : PointTreatment, LongitudinalTreatment, TimeToEvent, or LongPanel
+    design : PointTreatment, LongitudinalTreatment, TimeToEvent, LongPanel, or TrialWithExternalData
     protocol : StudyProtocol or None
 
     See Also
@@ -4374,7 +4782,11 @@ class CausalStudy:
         self,
         data: Any,
         *,
-        design: PointTreatment | LongitudinalTreatment | TimeToEvent | LongPanel,
+        design: PointTreatment
+        | LongitudinalTreatment
+        | TimeToEvent
+        | LongPanel
+        | TrialWithExternalData,
         protocol: StudyProtocol | None = None,
     ) -> None:
         if protocol is not None and not isinstance(protocol, StudyProtocol):
@@ -4387,7 +4799,9 @@ class CausalStudy:
         self._source = data
 
     @property
-    def design(self) -> PointTreatment | LongitudinalTreatment | TimeToEvent | LongPanel:
+    def design(
+        self,
+    ) -> PointTreatment | LongitudinalTreatment | TimeToEvent | LongPanel | TrialWithExternalData:
         """Return the immutable study design."""
         return self._design
 
@@ -4506,30 +4920,35 @@ class CausalStudy:
 
     @overload
     def estimate(
-        self, estimand: PointEstimand, method: str | EstimationMethod = "tmle", **overrides: Any
-    ) -> TMLEResult | LongitudinalResult: ...
+        self,
+        estimand: PointEstimand,
+        method: str | EstimationMethod | None = None,
+        **overrides: Any,
+    ) -> TMLEResult | LongitudinalResult | AdaptiveTMLEResult: ...
 
     def estimate(
         self,
         estimand: PointEstimand,
-        method: str | EstimationMethod = "tmle",
+        method: str | EstimationMethod | None = None,
         **overrides: Any,
-    ) -> TMLEResult | LongitudinalResult | EffectCurveResult:
+    ) -> TMLEResult | LongitudinalResult | EffectCurveResult | AdaptiveTMLEResult:
         """Identify and estimate one causal quantity.
 
         Parameters
         ----------
         estimand : Estimand
             Typed causal quantity.
-        method : str or EstimationMethod
-            Named method or configured method object.
+        method : str, EstimationMethod or None
+            Named method or configured method object. ``None`` takes ``"atmle"`` on a
+            :class:`TrialWithExternalData` design and ``"tmle"`` on every other design.
         **overrides : Any
             Method fields overridden for this fit.
 
         Returns
         -------
-        TMLEResult, LongitudinalResult or EffectCurveResult
-            Fitted result for the declared design; an EP fit returns its curve.
+        TMLEResult, LongitudinalResult, EffectCurveResult or AdaptiveTMLEResult
+            Fitted result for the declared design; an EP fit returns its curve, and a trial
+            pooled with external data returns an adaptive TMLE result.
         """
         return self.identify(estimand).estimate(method=method, **overrides)
 
@@ -4587,7 +5006,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     >>> effect.estimand.name
     'ate'
     >>> sorted(method.name for method in effect.available_methods())[:2]
-    ['adaptive_iptw', 'collaborative_tmle']
+    ['adaptive_iptw', 'atmle']
     """
 
     estimand: PointEstimand
@@ -4932,6 +5351,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         fold-evaluated report; ``CrossFitting(enabled=False)`` fits the value of the one rule
         learned on every row, a different target (experimental).
         """
+        if self.functional.axis == "trial":
+            return self._trial_methods()
         point = not self.functional.longitudinal
         target = self.functional.target
         blocker = (
@@ -4982,6 +5403,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             )
         )
         collaborative = variants and not known
+        if self.functional.longitudinal and blocker is None:
+            survival_refusal = self._survival_collaborative_refusal()
+            collaborative = survival_refusal is None
+            if survival_refusal is not None:
+                collaborative_blocker = survival_refusal
         drtmle_blocker = blocker or Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
             "no reduced-dimension correction is evidenced for this functional.",
@@ -5026,12 +5452,67 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 ),
             ),
             MethodAvailability("ep", False, EP_OTHER_ESTIMAND_REFUSAL),
+            MethodAvailability("atmle", False, ATMLE_POINT_REFUSAL),
         )
         if self.functional.axis == "effect_modification":
             records = self._effect_modification_methods(records)
         from ._summary._setup import question_text
 
         return MethodAvailabilities(records, question=question_text(self))
+
+    def _trial_methods(self) -> MethodAvailabilities:
+        """The methods of a trial pooled with external data: ``atmle`` and nothing else.
+
+        Every other method reads the pooled rows as one population, so each is refused with
+        the design's estimand refusal.
+        """
+        from ._summary._setup import question_text
+
+        names = (
+            "tmle",
+            "adaptive_iptw",
+            "collaborative_tmle",
+            "drtmle",
+            "sdr",
+            "ipsi",
+            "gcomp",
+            "ipw",
+            "parametric_gformula",
+            "riesz_tmle",
+            "ep",
+        )
+        records = (
+            MethodAvailability("atmle", True, None),
+            *(MethodAvailability(name, False, TRIAL_METHOD_REFUSAL) for name in names),
+        )
+        return MethodAvailabilities(records, question=question_text(self))
+
+    def _survival_collaborative_refusal(self) -> Refusal | None:
+        """Why :class:`~cleverly.longitudinal.SurvivalCTMLE` refuses this functional, or ``None``.
+
+        Returns
+        -------
+        Refusal or None
+            The engine's refusal of the declared panel and interventions, read before any
+            learner, so ``available_methods()`` and the fit agree.
+        """
+        from .longitudinal import collaborative
+
+        data = getattr(self._study, "data", None)
+        functional = self.functional
+        if not isinstance(data, LongitudinalData):
+            return Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
+                "collaborative TMLE fits a declared time-to-event panel, and this effect has "
+                "no panel to read.",
+                alternative="Fit method='tmle'.",
+                roadmap="F5",
+            )
+        if functional.msm is not None:
+            return collaborative.PROJECTION_REFUSAL
+        if functional.target in {"ey_ipsi", "ate_ipsi"}:
+            return collaborative.POLICY_REFUSAL
+        return collaborative.survival_design_refusal(data, functional.interventions)
 
     def _effect_modification_methods(
         self, records: tuple[MethodAvailability, ...]
@@ -5334,29 +5815,30 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
 
     @overload
     def estimate(
-        self, method: str | EstimationMethod = "tmle", **overrides: Any
-    ) -> TMLEResult | LongitudinalResult: ...
+        self, method: str | EstimationMethod | None = None, **overrides: Any
+    ) -> TMLEResult | LongitudinalResult | AdaptiveTMLEResult: ...
 
     @records_fit
     def estimate(
         self,
-        method: str | EstimationMethod = "tmle",
+        method: str | EstimationMethod | None = None,
         **overrides: Any,
-    ) -> TMLEResult | LongitudinalResult | EffectCurveResult:
+    ) -> TMLEResult | LongitudinalResult | EffectCurveResult | AdaptiveTMLEResult:
         """Estimate the identified functional.
 
         Parameters
         ----------
-        method : str or EstimationMethod
-            Named method or configured method object.
+        method : str, EstimationMethod or None
+            Named method or configured method object. ``None`` takes ``"atmle"`` on a
+            :class:`TrialWithExternalData` design and ``"tmle"`` on every other design.
         **overrides : Any
             Method fields overridden for this fit.
 
         Returns
         -------
-        TMLEResult or LongitudinalResult or EffectCurveResult
+        TMLEResult, LongitudinalResult, EffectCurveResult or AdaptiveTMLEResult
             Fitted result matching the study design: an effect curve for
-            ``method="ep"``.
+            ``method="ep"`` and an adaptive TMLE result for a trial pooled with external data.
 
         Raises
         ------
@@ -5398,10 +5880,14 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 "construct a new CausalStudy to estimate it again",
                 reason=RefusalReason.INVALID_DECLARATION,
             )
+        if method is None:
+            method = "atmle" if self.functional.axis == "trial" else "tmle"
         normalized = self._method(method, overrides)
         refusal = self._unused_ratio_refusal(normalized)
         if refusal is not None:
             raise MethodConfigurationError.from_refusal(refusal)
+        if self.functional.axis == "trial":
+            return self._estimate_trial(normalized)
         if self.functional.longitudinal:
             return self._estimate_longitudinal(normalized)
         if isinstance(normalized, EPMethod):
@@ -5475,6 +5961,21 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             ),
         )
 
+    def _estimate_trial(self, method: EstimationMethod) -> AdaptiveTMLEResult:
+        assert self._study is not None and isinstance(self._study.data, CausalData)
+        assert isinstance(self.estimand, TrialATE)
+        if not isinstance(method, AdaptiveTMLEMethod):
+            raise CapabilityError(
+                f"a method named {method.name!r} that is not AdaptiveTMLEMethod cannot fit "
+                "TrialATE: only adaptive TMLE is derived for a trial pooled with external "
+                f"data, and a {type(method).__name__} carries none of its settings.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Pass method='atmle' or an AdaptiveTMLEMethod.",
+            )
+        from .estimators.atmle_result import fit_trial_effect
+
+        return fit_trial_effect(self, method)
+
     def _unused_ratio_refusal(self, method: EstimationMethod) -> Refusal | None:
         """Why ``ratio="classifier"`` would change nothing on this fit, or ``None``.
 
@@ -5537,6 +6038,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 "ipw": IPWMethod,
                 "parametric_gformula": ParametricGFormulaMethod,
                 "ep": EPMethod,
+                "atmle": AdaptiveTMLEMethod,
             }
             return constructors[method]().with_overrides(**overrides)
         if not isinstance(method, EstimationMethod):
@@ -5742,6 +6244,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             if isinstance(method, IPWMethod)
             else ParametricGFormula
             if isinstance(method, ParametricGFormulaMethod)
+            else SurvivalCTMLE
+            if isinstance(method, CollaborativeTMLEMethod)
             else LTMLE
         )
         estimator = engine(

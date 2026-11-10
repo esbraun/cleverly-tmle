@@ -203,6 +203,7 @@ METHOD_NAMES: Final[Mapping[str, str]] = MappingProxyType(
         "parametric_gformula": "parametric g-formula",
         "riesz_tmle": "TMLE with a learned Riesz representer",
         "ep": "efficient plug-in learner",
+        "atmle": "adaptive TMLE for a trial with external data",
     }
 )
 
@@ -213,6 +214,7 @@ METHOD_SHORT_NAMES: Final[Mapping[str, str]] = MappingProxyType(
         "collaborative_tmle": "C-TMLE",
         "drtmle": "DR-TMLE",
         "adaptive_iptw": "adaptive IPTW",
+        "atmle": "adaptive TMLE",
     }
 )
 
@@ -393,6 +395,7 @@ NOTE_CODES: Mapping[str, NoteKind] = MappingProxyType(
         "bootstrap_experimental": "note",
         "score_unsolved": "warning",
         "stopping_rule": "note",
+        "survival_selection": "note",
         "folds_reduced": "note",
         "fit_warning_positivity": "warning",
         "fit_warning_convergence": "warning",
@@ -550,6 +553,11 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
         "no_inference": (
             "No confidence interval or p-value for {names}. {reason} The {label} column is "
             "a diagnostic, not a standard error."
+        ),
+        "survival_selection": (
+            "Each plan and time point has its own selected treatment and censoring models, so "
+            "the risk curve is not forced to rise over time. The model facts above describe "
+            "the selection at time {horizon}; result.selection holds every one."
         ),
         "no_inference_row": (
             "No confidence interval or p-value for {names}, marked *. {reason} Their "
@@ -2440,6 +2448,7 @@ DESIGN_WORDS: Final[Mapping[str, str]] = MappingProxyType(
         "LongitudinalTreatment": "treatment at {T} times",
         "TimeToEvent": "time to an event, {T} time points",
         "LongPanel": "{T} times, long rows read as one row per unit",
+        "TrialWithExternalData": "a randomized trial combined with external data",
     }
 )
 
@@ -2500,6 +2509,35 @@ Checkable = Literal["no", "partly"]
 #: definedness of a ratio, a known policy or a model restriction. ``test_setup_summaries``
 #: pins which entry each statement of a broad set of questions reaches.
 CONDITION_WORDS: Final[tuple[tuple[str, tuple[str, str, Checkable]], ...]] = (
+    (
+        "randomization in the trial:",
+        (
+            "randomized trial",
+            "Among trial units with the same adjusted-for values, which arm a unit got is "
+            "unrelated to the outcomes it would have had, as randomization ensures. The "
+            "design declares this, and the data cannot show it.",
+            "no",
+        ),
+    ),
+    (
+        "positivity in the trial:",
+        (
+            "both arms in the trial",
+            "Every group of trial units that share the adjusted-for values had some chance "
+            "of either arm.",
+            "partly",
+        ),
+    ),
+    (
+        "trial support:",
+        (
+            "trial covers the external rows",
+            "The adjusted-for values of every row, external rows included, also occur among "
+            "trial rows, so the trial's effect is defined for them. The fit reports how well "
+            "the trial covers the external rows.",
+            "partly",
+        ),
+    ),
     (
         "consistency: each observed history",
         (
@@ -2881,10 +2919,16 @@ PHASE_COLUMNS: Final[tuple[str, ...]] = (
 
 # ----------------------------------------------------------------- longitudinal (T2)
 
+#: The treatment and censoring model fact of a collaborative survival fit.
+SELECTED_MODEL: Final = (
+    "logistic regression, selected by the collaborative search (at time {horizon})"
+)
+
 #: The plain name of each longitudinal estimator, keyed by ``LongitudinalConfig.estimator``.
 LONGITUDINAL_METHOD_NAMES: Final[Mapping[str, str]] = MappingProxyType(
     {
         "tmle": "longitudinal targeted maximum likelihood (LTMLE)",
+        "collaborative": "collaborative targeted maximum likelihood of a risk curve (C-TMLE)",
         "msm": "longitudinal TMLE of a working model (MSM)",
         "sdr": "sequentially doubly robust estimator (SDR)",
         "ipsi": "incremental propensity score estimator (IPSI)",
@@ -2898,6 +2942,7 @@ LONGITUDINAL_METHOD_NAMES: Final[Mapping[str, str]] = MappingProxyType(
 LONGITUDINAL_SHORT_NAMES: Final[Mapping[str, str]] = MappingProxyType(
     {
         "tmle": "LTMLE",
+        "collaborative": "survival C-TMLE",
         "msm": "LTMLE, working model",
         "sdr": "SDR",
         "ipsi": "IPSI",
@@ -4081,11 +4126,6 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "Where gamma times an arm's factor is positive, that arm's missing outcomes were "
             "higher; a factor of zero leaves the arm at missing at random."
         ),
-        "tilt_interval": (
-            "Where an interval is printed off a gamma of zero, it reuses the main analysis's "
-            "standard error and treats gamma as known, so it describes sampling error at "
-            "that gamma, not doubt about gamma."
-        ),
         "assumption_surface": (
             "Each cell adds a simulated common cause of {moved} and the outcome, refits the "
             "analysis, and reports how far the estimate moved. The surface is qualitative: "
@@ -4238,7 +4278,9 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "tilt_diagnostic": (
             "For {names} the spread off a gamma of zero is the main analysis's spread around the "
-            "moved estimate{scale}, a diagnostic: no interval is claimed there."
+            "moved estimate{scale}, a diagnostic and not a confidence interval: the moved "
+            "estimate has its own sampling error, which the main analysis's spread does not "
+            "measure."
         ),
         "population_moves": (
             "Each cell rebuilds the population of units with {arm_phrase} from its own "
@@ -4255,6 +4297,101 @@ NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T4_NOTE_TEXTS})
 
 #: Symbols a short sensitivity summary leaves to ``detail="full"`` (X89 plan 8.1 row T4).
 SHORT_DETAIL_SYMBOLS: Final[tuple[str, ...]] = ("sigma^2", "nu^2", "Riesz")
+
+# ----------------------------------------------------------------- adaptive TMLE (X90 T2)
+
+#: The title and header labels of an adaptive TMLE fit of a trial with external data.
+ATMLE_TITLE: Final = "Trial effect with external data (adaptive TMLE)"
+ATMLE_QUESTION: Final = "Effect of {A} on {Y} in the trial, borrowing external rows"
+ATMLE_POPULATION: Final = "Averaged over"
+ATMLE_POPULATIONS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "trial": "the trial rows' covariates",
+        "pooled": "the covariates of every row, trial and external",
+    }
+)
+ATMLE_FORMS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "cv": "adaptive TMLE, models selected out of fold",
+        "pooled": "adaptive TMLE, models selected on all rows",
+    }
+)
+TRIAL_ROWS: Final = "Trial rows"
+EXTERNAL_ROWS: Final = "External rows"
+EXTERNAL_ARMS: Final = "External arms"
+EXTERNAL_CONTROLS_ONLY: Final = "controls only"
+EXTERNAL_BOTH_ARMS: Final = "both, {k} treated"
+SOURCE_MODEL: Final = "Trial-membership model"
+ATMLE_FOLDS_WORD: Final = "{k} folds"
+ATMLE_SETTINGS_BOUNDS: Final = (
+    "The treatment and trial-membership probabilities are clipped to [{low}, {high}], and "
+    "the probability that an outcome is recorded is bounded below by {low}."
+)
+ATMLE_SETTINGS_PASSES: Final = (
+    "The trial-membership update took {passes} pass(es) and {met} the stopping rule."
+)
+ATMLE_SETTINGS_ARM: Final[Mapping[bool, str]] = MappingProxyType(
+    {
+        False: (
+            "The bias model's arm term is penalized like its other terms, so external arms "
+            "with the same bias can add information on the effect."
+        ),
+        True: (
+            "The bias model's arm term is unpenalized (force_arm), so each external arm has "
+            "a free mean shift and the external rows add no information on the effect's level."
+        ),
+    }
+)
+#: The assumptions of an adaptive TMLE fit that every fit states.
+ATMLE_ASSUMPTIONS_TRIAL: Final[tuple[str, ...]] = (
+    "randomized trial: in the trial, the arm a unit got is unrelated to its outcomes given "
+    "the adjusted-for values",
+    "both arms in the trial: every group of trial units with the same adjusted-for values "
+    "could get either arm",
+)
+#: Stated only for the effect averaged over every row.
+ATMLE_ASSUMPTION_COVERAGE: Final = (
+    "trial covers the external rows: every external row's adjusted-for values also occur in "
+    "the trial (needed when averaging over every row)"
+)
+#: Stated only when the design declares missing outcomes.
+ATMLE_ASSUMPTION_MISSING: Final = (
+    "outcomes missing at random in the trial: among trial rows, whether the outcome is "
+    "recorded is unrelated to it given the adjusted-for values and the arm; nothing is "
+    "assumed about why external outcomes are missing"
+)
+
+T2_ATMLE_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "atmle_overlap": "note",
+        "atmle_overlap_trial": "note",
+        "atmle_working_model": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **T2_ATMLE_NOTE_CODES})
+
+T2_ATMLE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "atmle_overlap": (
+            "On the external rows, the estimated chance of being a trial row is at least "
+            "{low}, with median {median}; {share} of external rows fall below {floor}. "
+            "Rows the trial does not cover add variance and rest on the bias model."
+        ),
+        "atmle_overlap_trial": (
+            "On the external rows, the estimated chance of being a trial row is at least "
+            "{low}, with median {median}; {share} of external rows fall below {floor}. The "
+            "effect is averaged over the trial rows, which the trial covers by "
+            "construction, so this does not limit the estimate; it shows how much the bias "
+            "model leans on external rows unlike the trial's."
+        ),
+        "atmle_working_model": (
+            "The fit learned how the external outcomes differ from the trial's with a model "
+            "of {bias} term(s), and the effect with a model of {effect} term(s) (largest over "
+            "{folds}). result.working_models lists them."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T2_ATMLE_NOTE_TEXTS})
 
 # ------------------------------------------------------------ effect curves (P1 part (a))
 

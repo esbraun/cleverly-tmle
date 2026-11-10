@@ -21,7 +21,6 @@ from cleverly import (
     CapabilityError,
     CausalStudy,
     CleverlyError,
-    CollaborativeTMLEMethod,
     ControlledDirectEffect,
     CounterfactualMean,
     CrossFitting,
@@ -947,6 +946,8 @@ def test_method_availability_is_structured_and_refuses_before_fitting(monkeypatc
     assert methods["tmle"].available
     assert not methods["riesz_tmle"].available
     assert "representer" in (methods["riesz_tmle"].reason or "")
+    assert not methods["atmle"].available
+    assert "TrialWithExternalData" in (methods["atmle"].reason or "")
 
     class MustNotConstruct:
         def __init__(self, **kwargs) -> None:
@@ -1350,7 +1351,7 @@ def test_repeats_reaches_the_longitudinal_engine() -> None:
     assert method.estimator_kwargs(longitudinal=True)["repeats"] == 3
 
 
-@pytest.mark.parametrize("method", [CollaborativeTMLEMethod(), DRTMLEMethod()])
+@pytest.mark.parametrize("method", [DRTMLEMethod()])
 def test_variant_longitudinal_refusals_use_the_library_error_hierarchy(method) -> None:
     with pytest.raises(MethodConfigurationError) as raised:
         method.estimator_kwargs(longitudinal=True)

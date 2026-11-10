@@ -1042,6 +1042,15 @@ sizes only the cluster sum is the delta-method variance of the row mean
   because the RM19 review could not read the journal version, and the
   [DR-TMLE entry](#doubly-robust-inference-drtmle) for the same article states why. `AdaptiveIPTW` cites the working paper WP302 and not this article. The
   [adaptive-propensity IPTW entry](#adaptive-propensity-iptw-adaptiveiptw) says so.
+- Stitelman & van der Laan (2010), [*Collaborative targeted maximum likelihood for time to event
+  data*](https://doi.org/10.2202/1557-4679.1249), *The International Journal of Biostatistics*
+  6(1), Article 21, DOI 10.2202/1557-4679.1249. Read first-hand in the published PDF. Section 10
+  builds the greedy sequence of main-term treatment and censoring models with the initial hazard
+  fit held fixed, scores it by the log-likelihood penalized by (24) and (25), and chooses the move
+  count by V-fold cross-validation (Figure 7). `SurvivalCTMLE` implements that sequence with (24)
+  as printed ([time-to-event outcomes](technical-reference/collaborative-tmle.md#time-to-event-outcomes)).
+  The paper states no theorem. Its printed contrast curves (22) and (23) are not reused: the
+  package applies the delta method to the two arm curves.
 - Gruber & van der Laan (2010), [*An application of collaborative targeted maximum likelihood
   estimation in causal inference and genomics*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3126668/),
   DOI 10.2202/1557-4679.1182.
@@ -1138,11 +1147,28 @@ sizes only the cluster sum is the delta-method variance of the row mean
   data*](https://doi.org/10.1515/jci-2024-0025), *Journal of Causal Inference* 14:20240025,
   DOI 10.1515/jci-2024-0025, preprint [arXiv:2405.07186](https://arxiv.org/abs/2405.07186).
   The paper proves asymptotic normality for its adaptive working-model estimator. It is adjacent to
-  F18, and not a result for the shipped collaborative selector.
+  F18, and not a result for the shipped collaborative selector. It is the source of
+  [adaptive TMLE](technical-reference/adaptive-tmle.md): Sec 2.4 and Lemma 2 for the estimand and
+  its decomposition, Algorithm 1 and Theorem 1 for the pooled form, and Appendix B and Appendix C
+  for missing outcomes and the cross-validated form. Read first-hand in arXiv:2405.07186v2 and
+  in the journal text, which keeps v2's section, lemma, theorem, algorithm and appendix numbering,
+  so the locators hold for both. The R package [`atmle`](https://github.com/tq21/atmle) at commit
+  8452808 was read for the [differences from the algorithm](technical-reference/adaptive-tmle.md#differences-from-the-published-algorithm-and-the-atmle-package).
+  The paper does not derive the trial-population effect, the $\Pi$ fluctuation, or a lasso-specific
+  theorem. Those are stated on the technical page as extensions or as open (F40).
+- Tseng (2001), [*Convergence of a block coordinate descent method for nondifferentiable
+  minimization*](https://doi.org/10.1023/A:1017501703105), *Journal of Optimization Theory and
+  Applications* 109(3):475-494, DOI 10.1023/A:1017501703105. Its convergence result covers a smooth
+  convex loss plus a separable convex penalty, which includes the lasso: cyclic coordinate
+  descent from any start has every limit point a minimizer. It is the convergence argument of
+  the coordinate-descent fallback of the [adaptive TMLE](technical-reference/adaptive-tmle.md)
+  lasso.
 - Karim (2026), [*When Does Real-World Data Make a Randomized Trial More Efficient? Selection-Aware
   Inference for Adaptive-TMLE*](https://arxiv.org/abs/2607.02787), arXiv:2607.02787. This entry
   records a simulation caution. It reports undercoverage for selection-unaware standard errors and
-  studies a block jackknife in its RCT augmentation setting. It supplies no F18 theorem.
+  studies a block jackknife in its RCT augmentation setting. It supplies no F18 theorem. It is the
+  source of the selective-enrollment cell of the declared `adaptive-tmle-selective` study,
+  which does not reproduce its numbers.
 
   Three 2019 *SMMR* papers have Cheng Ju as first author. The Ju, Gruber et al. entry above is
   volume 28(2), DOI 10.1177/0962280217729845. The Ju, Schwab and van der Laan entry is also volume

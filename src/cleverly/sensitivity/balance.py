@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 from .._refusal import RefusalReason
+from .._trial_family import refuse_augmented_trial
 from .._typing import FloatArray
 from ..exceptions import CapabilityError, DataError
 
@@ -425,6 +426,7 @@ def covariate_balance(
     """
     from ..targets.population_intervention import NATURAL_COURSE_SUPPORT_REFUSAL
 
+    refuse_augmented_trial(result, "covariate_balance", "report")
     if not result.nuisance.fits_treatment:
         raise CapabilityError.from_refusal(NATURAL_COURSE_SUPPORT_REFUSAL)
     data = result.data

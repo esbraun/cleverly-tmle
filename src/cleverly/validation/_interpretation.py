@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 import numpy as np
 
 from .._inference_status import supplies_inference
+from .._trial_family import refuse_augmented_trial
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -268,6 +269,8 @@ def fit_configuration(result: TMLEResult, estimand: str) -> FitConfiguration:
         from ._structural_refute import structural_configuration
 
         return structural_configuration(result, estimand)
+    # An adaptive working-model fit has no refutation, so no test reads its configuration.
+    refuse_augmented_trial(result, "refute", "refutation")
     data = result.data
     estimator = result.estimator
     estimate = result[estimand]

@@ -20,7 +20,6 @@ from cleverly import CapabilityError, CrossFitting, NaturalCourseMean
 from cleverly.datasets import navigation_protocol, population_impact_truth
 from cleverly.datasets import population_impact as law
 from cleverly.sensitivity import ConfounderStrengthGrid, missingness_tilt, simulated_confounding
-from cleverly.validation import BernoulliAdjustmentOutcome
 from cleverly.validation._readings import subset_reference_sd
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
@@ -32,7 +31,7 @@ from tests.unit.tutorial_semantics import (
 
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
-REFIT_CELLS = ("sensitivity", "refutation", "generated-outcomes")
+REFIT_CELLS = ("sensitivity", "refutation")
 
 NOTEBOOK = EXAMPLES / "population-impact.ipynb"
 
@@ -251,7 +250,7 @@ def check(namespace: dict[str, Any]) -> None:
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
-    """The refit cells: the confounder bound, the refutation, and the generated outcomes."""
+    """The refit cells: the confounder bound and the refutation."""
     truth = namespace["truth"]
     today = namespace["today"]
     everyone = namespace["everyone_fit"]["ey1"]
@@ -291,17 +290,6 @@ def check_refits(namespace: dict[str, Any]) -> None:
     reference = subset_reference_sd(ate.std_error, n, int(0.7 * n))
     assert f"{reference:.4f}" == "0.0126"
     assert 0.5 < float(np.std(tests["subset"].values, ddof=1)) / reference < 2.0
-
-    # The generated outcomes run at level L1, near their true values.
-    independent, adjusted = namespace["independent"], namespace["adjusted"]
-    assert isinstance(independent, BernoulliAdjustmentOutcome)
-    assert (independent.effect, independent.adjustment_scale) == (0.0, 0.0)
-    assert isinstance(adjusted, BernoulliAdjustmentOutcome) and adjusted.effect != 0.0
-    for name, check_result in namespace["generated_tests"].items():
-        assert check_result.rung == "L1" and check_result.n_replicates == 10, name
-        assert abs(check_result.mean - check_result.declared_effect) < 0.02, name
-    dummy = namespace["generated_tests"]["dummy_outcome"].readings[0]
-    assert 0.0 < dummy.lower < 0.01
 
     # The replay the page skips: the response reads the offer, so a cell that moves the offer is
     # refused and names F12.  Nonzero witness: the law's response differs by arm.

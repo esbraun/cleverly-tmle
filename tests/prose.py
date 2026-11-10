@@ -39,6 +39,16 @@ Each produces a row in ``tests/prose-report.md`` that needs a disposition.
 ``paragraph-length``
     More than six sentences.
 
+``unlinked-claim``
+    On a data-scientist page, a sentence that says a study has not run, or that the package
+    refuses, withholds or labels something for every, all, any or only some case, in a paragraph
+    with no link to the technical reference or the roadmap.  Those pages own such facts, and
+    tests pin them to the code; a hand-written restatement nothing checks is how the results
+    guide came to say that every collaborative strategy withholds its interval after one strategy
+    gained one.  Link the owning page in the paragraph, or record why the sentence needs none
+    (it is the page's own stored output, say).  The rule cannot tell whether the claim is true;
+    it asks a writer to check it against the page that is pinned.
+
 Rules deliberately rejected, and why
 ------------------------------------
 
@@ -100,6 +110,7 @@ __all__ = [
     "long_sentences",
     "prose_lines",
     "scan",
+    "unlinked_claims",
 ]
 
 #: The committed ledger.  It sits outside ``docs/`` on purpose: this scanner *scans* ``docs/``,
@@ -111,7 +122,13 @@ LEDGER_COLUMNS = ("file", "rule", "id", "excerpt", "disposition")
 
 #: The rules that produce a ledger row.  ``sentence-length`` is deliberately absent; see the
 #: module docstring.
-GATING_RULES = ("clause-dash", "empty-transition", "empty-intensifier", "paragraph-length")
+GATING_RULES = (
+    "clause-dash",
+    "empty-transition",
+    "empty-intensifier",
+    "paragraph-length",
+    "unlinked-claim",
+)
 
 #: The guide's "about 30 words" (rule R9).  Reported, never gated.
 SENTENCE_WORDS = 30
@@ -183,6 +200,39 @@ RST_FURNITURE = re.compile(r"^\s*([=~^-]{3,}\s*$|:\w[\w-]*:)")
 LIST_ITEM = re.compile(r"^\s*(\d+\.|[-*+])\s+")
 
 LINK = re.compile(r"\[([^\]]*)\]\([^)\s]*\)")
+
+#: The data-scientist pages of ``CLAUDE.md``.  ``unlinked-claim`` reads only these: the
+#: technical reference owns the facts they restate.
+DATA_SCIENTIST_PAGES = (
+    "README.md",
+    "docs/examples/",
+    "docs/getting-started/",
+    "docs/user-guide/",
+    "docs/index.md",
+    "docs/workflow.md",
+)
+
+#: A sentence that says a study is still to come.  Studies run after a page is written, so this
+#: is the claim that goes stale with no edit to the page.
+STUDY_STATUS_RE = re.compile(
+    r"\b(?:has|have) not (?:yet )?(?:been )?run\b|\bnot run yet\b|\b(?:is|are) planned\b",
+    re.IGNORECASE,
+)
+
+#: A universal claim about what the package refuses, withholds or labels: one of the
+#: quantifiers within a clause of one of the outcomes.  "Before any learner" names when a
+#: refusal runs, not what it covers, so it is no quantifier.
+_QUANTIFIER = r"\b(?:every|all|any(?! (?:learner|model|nuisance)\b)|only|never|always)\b"
+_OUTCOME = r"\b(?:refus\w*|withh[eo]\w*|no (?:confidence )?interval|experimental)\b"
+UNIVERSAL_CLAIM_RE = re.compile(
+    _QUANTIFIER + r"[^.;:]{0,60}?" + _OUTCOME + "|" + _OUTCOME + r"[^.;:]{0,60}?" + _QUANTIFIER,
+    re.IGNORECASE,
+)
+
+#: A link to a page that owns such a fact: the technical reference, which tests pin to the code
+#: (the status table of ``inference.md``, the refusal tables, the study pages), or the roadmap.
+#: The README links the built site, so any path prefix counts.
+OWNER_LINK = re.compile(r"\]\([^)\s]*?(?:technical-reference/|roadmap\.(?:md|html))")
 
 
 def strip_directives(text: str) -> str:
@@ -349,7 +399,25 @@ def findings_for(document: Path) -> list[Finding]:
             found.append(
                 Finding(name, "paragraph-length", number, f"{count} sentences: {paragraph[:80]}")
             )
+        found.extend(
+            Finding(name, "unlinked-claim", number, sentence)
+            for sentence in unlinked_claims(name, paragraph)
+        )
     return found
+
+
+def unlinked_claims(name: str, paragraph: str) -> list[str]:
+    """The sentences of ``paragraph`` that ``unlinked-claim`` reports on the page ``name``.
+
+    Empty off the data-scientist pages, and empty when the paragraph links an owning page.
+    """
+    if not name.startswith(DATA_SCIENTIST_PAGES) or OWNER_LINK.search(paragraph):
+        return []
+    return [
+        sentence
+        for sentence in sentences(paragraph)
+        if STUDY_STATUS_RE.search(sentence) or UNIVERSAL_CLAIM_RE.search(sentence)
+    ]
 
 
 def long_sentences(document: Path) -> list[tuple[int, int, str]]:

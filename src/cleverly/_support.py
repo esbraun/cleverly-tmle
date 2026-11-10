@@ -840,6 +840,7 @@ def longitudinal_key(
     has_msm: bool,
     regimen_kinds: Iterable[str],
     tuned_cap: bool = False,
+    separable_first: int | None = None,
 ) -> tuple[SupportKey, dict[str, type | None]]:
     """The key and the learner classes of a longitudinal fit.
 
@@ -862,6 +863,11 @@ def longitudinal_key(
     tuned_cap : bool, default False
         Whether a regimen has a policy cap tuned on the data. The cap adds a derivative term to
         the curve, so only a row of a tuned-cap study covers it.
+    separable_first : int or None, default None
+        The cause a ``Separable`` regimen counts first, as its 1-based position among the
+        data's causes, or ``None`` without one. Swapping the order changes which hazard the
+        factor-wise engine reads first in each interval, so a study of one order covers only
+        that order. The key holds the position and not the label, which no row can name.
 
     Returns
     -------
@@ -876,7 +882,7 @@ def longitudinal_key(
     )
     key = SupportKey(
         kind="longitudinal",
-        engine=(str(estimator._estimator),),
+        engine=getattr(estimator, "_support_engine", None) or (str(estimator._estimator),),
         family=frozenset(
             (
                 outcome_kind,
@@ -906,7 +912,11 @@ def longitudinal_key(
         dependence=_dependence(
             _positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
         ),
-        qualifiers=frozenset(known_factors),
+        qualifiers=frozenset(
+            (*known_factors, f"separable_first_cause_{separable_first}")
+            if separable_first is not None
+            else known_factors
+        ),
         options=(
             ("multiplier_kind", _option(estimator.multiplier_kind)),
             ("normalization", _option(estimator._normalization())),
@@ -1577,6 +1587,7 @@ def classify_longitudinal_fit(
     regimen_kinds: Iterable[str],
     conditions: Sequence[Refusal] = (),
     tuned_cap: bool = False,
+    separable_first: int | None = None,
 ) -> Classification | None:
     """Classify a longitudinal fit before any mechanism is fitted.
 
@@ -1605,6 +1616,8 @@ def classify_longitudinal_fit(
         experimental.
     tuned_cap : bool, default False
         Whether a regimen has a policy cap tuned on the data.
+    separable_first : int or None, default None
+        The 1-based position of the cause a ``Separable`` regimen counts first, or ``None``.
 
     Returns
     -------
@@ -1621,6 +1634,7 @@ def classify_longitudinal_fit(
             has_msm=has_msm,
             regimen_kinds=regimen_kinds,
             tuned_cap=tuned_cap,
+            separable_first=separable_first,
         )
         classification = classify_key(key, learners, conditions)
     except Exception as error:

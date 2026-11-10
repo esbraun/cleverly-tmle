@@ -20,7 +20,13 @@ The ledger reads each verdict column as a boolean. It refuses a table whose verd
 a blank or any other value, because a blank would otherwise read as a pass. The paired
 `reference_valid` column repeats the comparator's truth row, so the truth kind covers it.
 
-The ledger reads verdict rows and accounting rows only. Nine study modules also define a `scientific_failures` hook.
+One red row is not on the ledger. The `s6_cv` truth row of
+[Adaptive TMLE under selective enrollment](adaptive-tmle-selective.md) belongs to a `gated` study,
+and the repo owner accepted it by a named exception on 2026-11-10
+(`ACCEPTED_BY_EXCEPTION` in `tests/studies/evidence/red_cells.py`). The test fails if the cell turns
+green or the study is rerun, and it admits no other row.
+
+The ledger reads verdict rows and accounting rows only. Eleven study modules also define a `scientific_failures` hook.
 The regeneration adds each hook's rows to the failures it gates or reports. These hooks audit
 fits and publish no verdict cell, so the ledger does not read them.
 
@@ -35,6 +41,9 @@ fits and publish no verdict cell, so the ledger does not read them.
 | [modified treatment policies at declared boundaries](mtp-boundaries.md) | `reporting` | the `lmtp` exactness witnesses of the `boundaries_ltmle` and `boundaries_sdr` scenarios that exceed the 1e-6 gate | the study page and `exactness.csv` |
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | `reporting` | the `lmtp` exactness witnesses of every scenario that exceed the 1e-6 gate | the study page and `exactness.csv` |
 | [structural nested mean model](structural-nested-mean.md) | `reporting` | the EconML `DynamicDML` exactness witnesses of the 21 paired cells that exceed the 1e-9 gate | the study page and `exactness.csv` |
+| [Adaptive TMLE with external data](adaptive-tmle-trial.md) | `gated` | the control and efficiency verdicts: the efficiency contrast on `a0`, and controls K1, K2, K3 and K5 | `controls.csv`. The test requires every row to pass |
+| [Adaptive TMLE under selective enrollment](adaptive-tmle-selective.md) | `gated` | the K6 control verdicts | `controls.csv`. The test requires every row to pass |
+| [collaborative TMLE of a risk curve](survival-ctmle.md) | `reporting` | the RMSE ratio gate of the risk of arm 1 at OR 15 against hazard `LTMLE` with the full treatment model, when its upper bound exceeds 1 | the study page and `rmse-comparison.csv` |
 
 `tests/unit/test_red_cell_ledger.py` fails when a study module defines a hook that this table
 does not list.
@@ -56,6 +65,11 @@ reading and the declaration that a future regeneration needs.
 The `X41-negative-control` owner holds the three `misspecification_control` cells of the
 [sequential baselines study](sequential-baselines.md). They are a declared negative control. The
 study lists them as red before the run, and no work is owed.
+
+The `X90-cv-finite-sample` owner holds the `s6_cv` bias row of the
+[selective-enrollment study](adaptive-tmle-selective.md). It is a standing record of a reading with
+no defect: the cross-validated form's targeting carries a finite-sample term of about 0.2 error
+SDs at n = 3,200.
 
 The `X26-plugin-conservative` owner holds the lower bound of the ATE of arm 2 against arm 0 on the
 cross-fitted three-arm fit of the
@@ -380,6 +394,7 @@ row. A move to `gated` is a separate registry decision.
 | [repeated cross-fitted longitudinal TMLE, SDR and IPSI](repeated-cross-fitted-longitudinal.md) | 89 | 0 |
 | [C-TMLE0 derivative covariate](ctmle-derivative.md) | 30 | 0 |
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
+| [collaborative TMLE of a risk curve](survival-ctmle.md) | 14 | 0 |
 | [vector modified treatment policies](vector-modified-treatment-policies.md) | 96 | 0 |
 | [tuned caps and their population and fold-average targets](mtp-tuning.md) | 26 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |

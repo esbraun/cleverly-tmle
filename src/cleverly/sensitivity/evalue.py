@@ -68,6 +68,7 @@ import numpy as np
 from .._inference_status import status_record
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._support import UNCLASSIFIED, Support, combine_support, record_refusal_site
+from .._trial_family import refuse_augmented_trial
 from ..assessment import AssessmentStatus
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
@@ -813,6 +814,7 @@ def evalue(result: TMLEResult, estimand: str | tuple[str, str] | None = None) ->
         controlled direct effect, and its E-value inverts a product of one bounding factor
         per arm; a result that names only one half of that variable refuses.
     """
+    refuse_augmented_trial(result, "evalue", "bound")
     return _evalue_from_selection(result, _select_evalue(result, estimand))
 
 

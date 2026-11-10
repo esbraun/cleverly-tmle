@@ -28,6 +28,10 @@ Three kinds of row can be red, and each is read the way the regeneration gates i
   fitting failures leave red.  A truth or paired cell that the accounting leaves red stays a
   truth or paired row, and its ``fails by`` names the accounting.
 
+One red row sits outside the ledger: :data:`ACCEPTED_BY_EXCEPTION` names it.  Its study is
+``gated``, its owner accepted it by a written decision, and the ledger lists no row that has no
+ask to close it.
+
 A study module may also define a ``scientific_failures`` hook, which the regeneration driver
 adds to the failures it gates or reports.  Those hooks audit fits rather than publish verdict
 cells, and the ledger does not read them.  :data:`EXCLUDED_HOOKS` names every study that has
@@ -141,6 +145,48 @@ REPORTING_TRUTH_ROWS: Mapping[RedKey, str] = {
         "truth",
         "cleverly-long-horizon-sdr/sdr_categorical_k5_switch/ey_regimen[switch]",
     ): "its truth legs; a reporting row, with n below the tail size",
+}
+
+
+@dataclass(frozen=True)
+class AcceptedRow:
+    """A red verdict of a ``gated`` study that its owner accepted by a named exception.
+
+    Parameters
+    ----------
+    reason : str
+        What was decided, by whom and when, and the reading that supports it.
+    replicates_sha256 : str
+        The hash of the ``replicates.parquet`` the owner accepted.  A rerun of the study writes
+        another file, and the exception then fails until it is removed.
+    """
+
+    reason: str
+    replicates_sha256: str
+
+
+#: The one red verdict of a ``gated`` study that its owner accepted by exception.  The row
+#: stays red in the committed tables, and the ledger neither owns it nor requires the
+#: ``reporting`` policy for it.  ``tests/unit/test_red_cell_ledger.py`` ratchets the entry: it
+#: fails when the cell turns green or the study is rerun, and it admits no other row.
+ACCEPTED_BY_EXCEPTION: Mapping[RedKey, AcceptedRow] = {
+    RedKey(
+        "adaptive-tmle-selective",
+        "truth",
+        "cleverly-adaptive-tmle-selective/s6_cv/psi",
+    ): AcceptedRow(
+        reason=(
+            "Eric, 2026-11-10: \"if the bias is not a defect, i don't want to run a repeat "
+            "study - that's wasteful. let's make any exception and accept the study as valid.\" "
+            "The diagnosis (plans X90-progress.md, S6 red-cell diagnosis 2) found no defect. "
+            "The bias leg of the cross-validated form reads 0.0290 (0.20 SD, 99% interval 0.0215 "
+            "to 0.0364 against the margin of 0.0355), from a finite-sample term of order K/n_v "
+            "in its targeting step. The projection truth is within 0.0035 of Psi and the "
+            "projection coverage is 0.939. The margin, count, law, seed, learner and label "
+            "are unchanged, and the study was run once under the declaration at c6f9e51c."
+        ),
+        replicates_sha256="52ef091a9a5703205967d9d8ad605d7af5e09aadc705766c67c052cf0454a9cc",
+    ),
 }
 
 
@@ -760,6 +806,9 @@ EXCLUDED_HOOKS: dict[str, str] = {
     "mtp-boundaries": "the lmtp exactness witnesses of the boundaries_ltmle and boundaries_sdr scenarios",
     "mtp-pricing": "the lmtp exactness witnesses of every scenario",
     "structural-nested-mean": "the EconML DynamicDML exactness witnesses of the paired cells",
+    "adaptive-tmle-trial": "the control and efficiency verdicts of controls.csv",
+    "adaptive-tmle-selective": "the K6 control verdicts of controls.csv, which pass",
+    "survival-ctmle": "the RMSE ratio gate against hazard LTMLE with the full treatment model",
 }
 
 #: The artefacts :func:`red_rows` reads, by the short names ``claims.ARTIFACTS`` uses.
@@ -1168,6 +1217,7 @@ def findings(
     owned: Mapping[RedKey, str],
     policies: Mapping[str, str],
     ids: Iterable[str],
+    accepted: Iterable[RedKey] = (),
 ) -> list[str]:
     """Every way the red rows, their owners, the roadmap and the registry disagree.
 
@@ -1183,17 +1233,26 @@ def findings(
         Each study slug's registered publication policy.
     ids : Iterable of str
         The owner names the roadmap declares.
+    accepted : Iterable of RedKey
+        The red rows a named exception accepts (:data:`ACCEPTED_BY_EXCEPTION`).  Each needs
+        neither an owner nor the ``reporting`` policy, and each must still be red.
 
     Returns
     -------
     list of str
         One sentence per disagreement.  Empty when the ledger is consistent.
     """
-    rows = list(rows)
+    accepted = set(accepted)
+    all_rows = list(rows)
+    rows = [row for row in all_rows if row.key not in accepted]
     known = set(ids)
     red = {row.key for row in rows}
     out = [f"{key} is red and has no owner" for key in sorted(red - set(owned))]
     out += [f"{key} has an owner but is not red" for key in sorted(set(owned) - red)]
+    out += [
+        f"{key} is accepted by exception but is not red"
+        for key in sorted(accepted - {row.key for row in all_rows})
+    ]
     out += [
         f"{key} is owned by {owner!r}, which the roadmap's id column does not list"
         for key, owner in sorted(owned.items())
@@ -1358,7 +1417,7 @@ def rendered(records: Sequence[StudyRecord] | None = None) -> dict[str, list[str
     counts: dict[str, int] = {}
     for record in records:
         tables = frames(record)
-        rows += red_rows(record, tables)
+        rows += [row for row in red_rows(record, tables) if row.key not in ACCEPTED_BY_EXCEPTION]
         counts[record.slug] = verdict_count(tables)
     ids = owner_ids()
     return {

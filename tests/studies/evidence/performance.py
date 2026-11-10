@@ -200,6 +200,10 @@ def _cell(payload: tuple[StudyRecord, pd.DataFrame, tuple[str, str, str], int]) 
     point_only = scenario in record.point_only_scenarios
     # A point-only cell's coverage and SE ratio are published and read by no verdict.
     extra = {"point_only": point_only} if record.point_only_scenarios else {}
+    # A reported stress row publishes its legs and passes by declaration.
+    reported = scenario in record.reported_scenarios
+    if record.reported_scenarios:
+        extra["reported"] = reported
     return {
         "implementation": implementation,
         "scenario": scenario,
@@ -226,7 +230,9 @@ def _cell(payload: tuple[StudyRecord, pd.DataFrame, tuple[str, str, str], int]) 
         "se_ratio_margin_lower": margins.se_ratio_sanity[0],
         "se_ratio_margin_upper": margins.se_ratio_sanity[1],
         "se_calibrated": se_calibrated,
-        "passed": bool(bias.equivalent and (point_only or (coverage_valid and se_calibrated))),
+        "passed": bool(
+            reported or (bias.equivalent and (point_only or (coverage_valid and se_calibrated)))
+        ),
         **extra,
     }
 

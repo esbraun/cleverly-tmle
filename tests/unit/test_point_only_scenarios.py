@@ -56,3 +56,23 @@ def test_point_only_scenarios_must_be_declared() -> None:
 
 def test_the_pairing_study_declares_every_estimated_mechanism_point_only() -> None:
     assert pairing.STUDY.point_only_scenarios == frozenset(pairing.SCENARIOS) - pairing.KNOWN
+
+
+@pytest.mark.parametrize("reported", [True, False])
+def test_a_reported_truth_row_passes_by_declaration(reported: bool) -> None:
+    scenarios = frozenset({"p_insample"}) if reported else frozenset()
+    record = dataclasses.replace(
+        pairing.STUDY, reported_scenarios=scenarios, point_only_scenarios=frozenset()
+    )
+    key = (pairing.IMPLEMENTATION, "p_insample", "ey0")
+    row = performance._cell((record, _group("p_insample", 0.005), key, 1))
+    # The legs are published either way; only the declaration changes the verdict.
+    assert not row["se_calibrated"]
+    assert row["passed"] is reported
+    assert row.get("reported", False) is reported
+    assert record.se_comparable("p_insample", "ey0") is (not reported)
+
+
+def test_reported_scenarios_must_be_declared() -> None:
+    with pytest.raises(ValueError, match="undeclared"):
+        dataclasses.replace(pairing.STUDY, reported_scenarios=frozenset({"no_such"}))

@@ -114,6 +114,10 @@ def data_fingerprint(data: CausalData) -> str:
         because :attr:`~cleverly.data.CausalData.treatment` then holds ``NaN`` alone.  A
         treatment of one column digests exactly what it did before vectors existed.
     """
+    if data.source is not None:
+        # Trial membership changes the estimand, so it enters the digest; data without it
+        # digest exactly what they did before the field existed.
+        return fingerprint_array(data.outcome, data.treatment, data.covariates, data.source)
     if not data.is_vector_treatment:
         return fingerprint_array(data.outcome, data.treatment, data.covariates)
     declared = np.asarray(

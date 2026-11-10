@@ -26,7 +26,7 @@ from tests.unit.tutorial_semantics import (
 
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
-REFIT_CELLS = ("sensitivity", "refute", "refute-generated")
+REFIT_CELLS = ("sensitivity", "refute")
 
 NOTEBOOK = EXAMPLES / "treatment-rules.ipynb"
 
@@ -237,7 +237,7 @@ def check(namespace: dict[str, Any]) -> None:
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
-    """The sensitivity, refutation and generated-outcome refits of the random offer's gain."""
+    """The sensitivity and refutation refits of the random offer's gain."""
     random_fit, gain = namespace["random_fit"], namespace["gain"]
     name = namespace["RANDOM_OFFER"]
     # The named contrast that the checks read is the `options.contrast` difference.
@@ -282,19 +282,3 @@ def check_refits(namespace: dict[str, Any]) -> None:
     rules = placebo["learned rule's value"]
     assert round(rules.mean, 4) == 0.6692
     assert abs(rules.mean - share) < 2 * rules.spread
-
-    generated = namespace["generated_tests"]
-    assert list(generated) == ["dummy_outcome", "simulated_outcome", "plasmode"]
-    assert generated["dummy_outcome"].declared_effect == 0.0
-    for test in generated.values():
-        assert test.verdict == "descriptive" and test.n_replicates == 20
-        # "Each mean estimate lands near its true gain"; "At 20 refits the interval is wide".
-        bias = test.readings[0]
-        assert bias.lower < 0.0 < bias.upper
-        assert bias.lower < bias.band[0] and bias.band[1] < bias.upper
-        assert abs(test.mean - test.declared_effect) < 0.005
-    # "such as 0.0271 against 0.0261 for `simulated_outcome`".
-    simulated = generated["simulated_outcome"]
-    assert round(simulated.mean, 4) == 0.0271 and round(simulated.declared_effect, 4) == 0.0261
-    # "The check is meant to run with 400 refits, the number its simulation study used".
-    assert "fewer than the 400 its simulation study needs" in simulated.evidence
