@@ -796,9 +796,11 @@ The `missingness()` tilt and the `tipping_gamma()` search perturb the arm means 
 contrasts and ratios, `ey_obs`, PAR and PAF, the regime parameters, and the MSM coefficients. Away
 from $\gamma = 0$ on an ordinary `TMLE` fit, the arm means, their contrasts and ratios, `ey_obs`,
 PAR and PAF are re-estimated at each $\gamma$, each with its own confidence interval, and
-`tipping_gamma(use_ci=True)` finds where an interval limit reaches the null. A regime parameter,
-an MSM coefficient, and every parameter of a `DRTMLE` or `CTMLE` fit get no interval off
-$\gamma = 0$. Their spread there is the main analysis's standard error placed around the moved
+`tipping_gamma(use_ci=True)` finds where an interval limit reaches the null. The summary and the
+figure call those intervals descriptive wherever no simulation study covers the kind of fit.
+
+A regime parameter, an MSM coefficient, and every parameter of a `DRTMLE` or `CTMLE` fit get no
+interval off $\gamma = 0$. Their spread there is the main analysis's standard error placed around the moved
 estimate, reported under the `plugin_` column names, and it is a diagnostic: the moved estimate
 has its own sampling error, which can be much larger. For those, `tipping_gamma(use_ci=True)`
 refuses and the default point search answers.

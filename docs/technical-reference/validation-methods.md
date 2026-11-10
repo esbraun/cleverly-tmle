@@ -2681,6 +2681,7 @@ diagnostic, with the reason each gives.
 `tests/unit/test_missingness_tilt_targeted.py` checks the estimator. On a discrete law the
 curve's mean is zero and its Gateaux derivative matches the numerical one at three values of
 $\gamma$. Two mutations break that check: $\kappa = 1$, and a curve without the mechanism term.
+
 At $\gamma = 0$ the targeted tilt equals the reported estimate and standard error in sample, on
 a stacked cross-fitted fit, under repeats, under `cv_evaluation=True` with and without weights,
 and for the natural-course targets. The curve is continuous across $\gamma = 0$. The update

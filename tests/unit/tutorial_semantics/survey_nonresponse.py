@@ -284,12 +284,12 @@ def check(namespace: dict[str, Any]) -> None:
     for row in ("missingness", "tipping_gamma"):
         assert str(ledger.loc[("sensitivity", row), "status"]) == "completed"
 
-    # Step 10: the estimate never reaches 0 under the navigation-arm tilt, and no interval is
-    # offered off gamma = 0, so the interval search refuses.
+    # Step 10: the estimate never reaches 0 under the navigation-arm tilt.  Each moved
+    # estimate is re-targeted with its own interval, so the interval search runs.
     assert namespace["tipping_gamma"] is None
     arm_gamma = {0: 0.0, 1: -1.0}
-    with pytest.raises(CapabilityError, match="claims no interval at gamma != 0"):
-        fitted.sensitivity.tipping_gamma(arm_gamma=arm_gamma, use_ci=True)
+    limit = fitted.sensitivity.tipping_gamma(arm_gamma=arm_gamma, use_ci=True)
+    assert limit is not None and 0.0 < limit
     # The mean shift divides each move by the mean non-response probability under navigation.
     # Nonzero witness: navigation raises response, so the other arm's column would differ.
     missingness = fitted.nuisance.bounded_missingness(0.01)
@@ -301,19 +301,20 @@ def check(namespace: dict[str, Any]) -> None:
     floor = missingness_tilt(fitted, [30.0, 60.0], estimands=["ate"], arm_gamma=arm_gamma)
     assert abs(float(floor["psi"].iloc[0] - floor["psi"].iloc[1])) < 1e-6
     assert float(floor["psi"].iloc[0]) > 0.0
-    assert f"{namespace['mar_mean']:.3f}" == "0.727"
-    assert f"{namespace['floor_estimate']:.4f}" == "0.0025"
+    assert f"{namespace['mar_mean']:.3f}" == "0.722"
+    assert f"{namespace['floor_estimate']:.4f}" == "0.0034"
     assert namespace["floor_estimate"] == pytest.approx(float(floor["psi"].iloc[0]), rel=1e-12)
 
-    # The curve's gamma=0 row is the MAR estimate with its interval; the other rows carry only the
-    # diagnostic spread, which is the MAR standard error under the plugin_ names.
+    # The curve's gamma=0 row is the MAR estimate with its interval; every other row carries the
+    # targeted tilt's own interval, which the summary calls descriptive.
     curve = namespace["missingness_curve"]
     mar = curve[curve["gamma"] == 0.0]
     assert float(mar["psi"].iloc[0]) == pytest.approx(full.psi, rel=1e-9)
     assert float(mar["std_err"].iloc[0]) == full.std_error
     moved = curve[curve["gamma"] != 0.0]
-    assert moved["std_err"].isna().all() and moved["ci_lower"].isna().all()
-    assert (moved["plugin_std_err"] == full.std_error).all()
+    assert moved["std_err"].notna().all() and moved["ci_lower"].notna().all()
+    assert "plugin_std_err" not in curve.columns
+    assert curve.descriptive == ("ate",)
     assert curve["psi"].is_monotonic_decreasing
     assert (curve["psi"] > 0.0).all()
     # The printed mean drop is the move of the estimate over the mean non-response probability,
