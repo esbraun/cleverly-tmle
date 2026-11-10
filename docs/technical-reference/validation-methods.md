@@ -2641,8 +2641,11 @@ The update starts from the fit's targeted $\bar{Q}^*$ and its bounded mechanism 
 fluctuates both on the logit scale: $\operatorname{logit}\bar{Q} \mathrel{+}= \varepsilon\, b\,
 \kappa / \pi$ and $\operatorname{logit}\pi \mathrel{+}= \varepsilon\, b\,(\bar{Q} - h)$, with one
 coefficient per column $b$ shared by the two submodels. Newton steps on the summed weighted log
-likelihood run until every column's score is below the fit's `tol` relative to its scale. The two
-scores then sum to the mean of the residual block, so the tilted estimating equation holds.
+likelihood run until every column's score is below the fit's `tol` relative to its scale. The
+derivative of the summed loss in a column's $\varepsilon$ is the weighted sample mean of
+$b\,\mathbb{1}\{A = a\}\{\Delta\kappa_a(Y - \bar{Q}_a)/\pi_a + (\bar{Q}_a - h_a)(\Delta - \pi_a)\}$,
+which is that column's full residual block $b\,\mathbb{1}\{A = a\} R_a$. Solving it, with the
+plug-in $\psi$ centring $m_a - \psi$, gives $P_n D = 0$, so the tilted estimating equation holds.
 Sharing the coefficient keeps the curve continuous at $\gamma = 0$, where the mechanism covariate
 vanishes: a coefficient of its own would solve the mechanism score along that vanishing direction
 at every $\gamma \neq 0$, and the estimate would jump. At $\gamma = 0$ the fit's $\bar{Q}^*$
