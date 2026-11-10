@@ -318,11 +318,13 @@ def check(namespace: dict[str, Any]) -> None:
     assert curve["psi"].is_monotonic_decreasing
     assert (curve["psi"] > 0.0).all()
     # The printed mean drop is the move of the estimate over the mean non-response probability,
-    # and it approaches the missing-at-random mean as gamma grows toward the floor.
+    # and it approaches the missing-at-random mean as gamma grows toward the floor.  Each moved
+    # estimate carries its own correction step, so the approach is to within that adjustment.
     printed = namespace["curve"]
     expected_drop = (full.psi - curve["psi"].to_numpy()) / nonresponse
     assert np.allclose(printed["mean drop"].to_numpy(), expected_drop)
-    assert float(printed["mean drop"].iloc[-1]) < namespace["mar_mean"]
+    assert abs(float(printed["mean drop"].iloc[-1]) - namespace["mar_mean"]) < 0.01
+    assert float(printed["mean drop"].iloc[1]) < 0.5 * namespace["mar_mean"]
     assert (
         figure_title(namespace["missingness_fig"])
         == "Does the estimate depend on why outcomes are missing?"
