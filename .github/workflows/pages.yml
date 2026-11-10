@@ -1,8 +1,18 @@
 name: pages
 
+# The site follows releases, not every merge. Deploying on each push to `main` made one GitHub
+# deployment record per merged pull request (about 420 by November 2026). It now deploys after
+# `publish.yml` succeeds, from the released commit, and on a manual run from `main` when the
+# site needs a fix between releases. The `docs` job in `ci.yml` still builds the site on every
+# pull request, so a broken build fails before the merge.
+#
+# `workflow_run` and `workflow_dispatch` both run with `main` as the workflow ref, which the
+# `github-pages` environment allows; a tag-push trigger would depend on that environment's
+# branch policy accepting tags.
 on:
-  push:
-    branches: ["main"]
+  workflow_run:
+    workflows: ["publish"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -16,9 +26,12 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
