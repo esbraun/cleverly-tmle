@@ -712,3 +712,55 @@ constructed level-set-breaking error produced a bias that grows with `n` in the 
 On law L, one gradient-boosting mechanism with a wrong outcome regression produced a bias of +1.5
 to +2.0 SD cross-fitted and −1.2 to −2.5 SD in sample
 ([a data-adaptive mechanism](#a-data-adaptive-mechanism)).
+
+## Time-to-event outcomes
+
+`SurvivalDRTMLE` (the `drtmle` method on a `TimeToEvent` design) implements Section 5 of Díaz
+(2019) for one binary baseline treatment, baseline covariates, one event type and right censoring
+on a discrete grid. The parameter is the risk $F_a(\tau) = 1 - E_W S(\tau \mid a, W)$ of each arm at
+each requested horizon, and their difference. The hazard TMLE is fluctuated along three logistic
+submodels, for the treatment mechanism $g_A$, the censoring hazard $g_R$ and the event hazard $h$,
+with the drift covariates of the source's eq. (9) added to the usual clever covariate. The loop
+stops when every fitted $\varepsilon$ is below $10^{-4} n^{-3/5}$, the source's rule, or after
+`max_iter` iterations (200 by default) with a `ConvergenceWarning`. The interval is Wald on the
+corrected influence curve $D - D_L - D_R - D_A$ of the source's Theorem 2.
+
+The auxiliary regressions are univariate: each regresses a residual or an indicator on one scalar
+index of the initial fits ($C_g(t) = \hat g_A \hat G(t)$, $C_h(k) = \hat S(\tau)/\hat S(k)$ or
+$\hat S(\tau)$) among the rows at risk. They are fitted once, from the initial fits, by a
+Nadaraya–Watson smoother with a Gaussian kernel and a leave-one-out bandwidth
+(`cleverly.longitudinal._kernel`), and held fixed through the loop. With cross-fitting the indices
+read the out-of-fold initial fits, as in the source's Theorem 3.
+
+The source's eq. (9) carries four sign and index defects, recorded in
+[the references](../../references.md). The implementation uses the corrected forms:
+$D_R = +\sum_k A J_k H_R(k)\{R_k - g_R(k)\}$; the $e_R$ sum in $H_L$ with the sign opposite to the
+$e_A$ term; the $e_A$ term's products on the index $C_h(0) = S(\tau)$; and $e_A$ regressed on
+$S(\tau)$. The drift identity of Theorem 1 then holds to second order in each branch: with the
+hazard wrong, $\beta - P_0(D_A + D_R)$ is second order when the estimated mechanism keeps the level
+sets of its index; with the mechanisms wrong, $\beta - P_0 D_L$ is second order when the estimated
+hazard keeps the level sets of its index. An error that breaks the level sets leaves a first-order
+term, as in the point-treatment construction above
+([the release claim](#the-release-claim)). The exact-law checks of
+`tests/unit/test_survival_drtmle.py` pin each branch and each correction.
+
+Three choices depart from the source. A declared factor (a known treatment mechanism, declared
+censoring probabilities, or a node with no censoring) is never fluctuated, its residual
+regressions on the hazard side are set to their population value zero, and its score is left out
+of the curve. With every mechanism declared the remainder is exactly zero for any hazard model, so
+the interval is valid with the hazard model wrong. Every denominator is floored: the cumulative
+$g_A G$ and $q$ at `g_bounds[0]`, the products $B_k$ and $D_k$ at $10^{-8}$. A binding floor makes
+the drift covariate an approximation; `result.drift` counts the floored values.
+
+| treatment | censoring | fluctuated | the curve subtracts | remainder with the hazard wrong |
+| --- | --- | --- | --- | --- |
+| declared | declared or absent | $h$ | nothing (the $D_L$ block is zero) | exactly zero |
+| declared | estimated | $g_R$, $h$ | $D_L$, $D_R$ over the estimated nodes | linear in $\hat G - G_0$, removed by the drift term when the level sets are kept |
+| estimated | absent | $g_A$, $h$ | $D_L$, $D_A$ | linear in $\hat g_A - g_{A,0}$, removed likewise |
+| estimated | estimated | $g_A$, $g_R$, $h$ | $D_L$, $D_R$, $D_A$ | the point-treatment case table above |
+
+An estimated treatment mechanism with declared censoring is refused. A declared retention column
+holds each unit's value at the arm it received, while $H_A$ divides by the retention under each
+arm on every row, so a retention that depends on treatment would bias $D_A$. `result.drift` holds
+one `DriftRecord` per arm and horizon: the iterations, the four $\varepsilon$ of each, the score
+means at the stop, the held factors, each auxiliary regression and the floored denominators.
