@@ -11,9 +11,10 @@ the local queue and its sample size is its own.
 
 ``s6_cv`` and ``s6_pooled``
     The Psi coverage of both forms with the Super Learner nuisances, gated by the primary
-    performance tests (bias leg, coverage floor, SE sanity). The study publishes under
-    ``reporting`` (declared 2026-11-10 after the second run read ``s6_cv`` red with no defect;
-    owner row ``X90-cv-finite-sample``), so a red verdict is written and not raised. On this
+    performance tests (bias leg, coverage floor, SE sanity). The study stays
+    ``gated``. The second run read the bias leg of ``s6_cv`` at 0.20 SD with no defect, and the
+    owner accepted the study by the named exception ``red_cells.ACCEPTED_BY_EXCEPTION`` on
+    2026-11-10, with no repeat run. On this
     law the projection and :math:`\Psi` coincide only if the dictionary approximates the wiggly bias, which the
     reported rows measure (``projection_bias_sd``).
 K6
@@ -89,7 +90,7 @@ STUDY = StudyRecord(
     properties_module="tests.studies.adaptive_tmle_selective_properties",
     property_cells={},
     calibration_efficiency_ratio=False,
-    publication_policy="reporting",
+    publication_policy="gated",
     extra_artifacts=(REPORTED_ARTIFACT, CONTROLS_ARTIFACT),
     truth_varies_by_replicate=True,
 )

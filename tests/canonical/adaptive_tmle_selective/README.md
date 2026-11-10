@@ -1,6 +1,6 @@
-# adaptive-tmle-selective (X90 T3, declared, repeat run pending)
+# adaptive-tmle-selective (X90 T3, run 2 accepted by a named exception)
 
-The study of cell S6 (selective enrollment, a large wiggly bias, Super Learner nuisances,
+The gated study of cell S6 (selective enrollment, a large wiggly bias, Super Learner nuisances,
 both forms) and control K6 (main-terms GLM nuisances on the same draws, reported only: a pilot found it does not under-cover at n = 3,200).
 The module docstring of `tests/studies/adaptive_tmle_selective.py` is the declaration. The
 flexible fits cost two orders more than study A's, so this study goes to the local queue.
@@ -42,14 +42,18 @@ python -m tests.canonical.adaptive_tmle_trial.pilot --study selective --replicat
   and replication counts are unchanged. The sizing pilots predate these changes; the rule's count
   is unchanged at the proxy coverages (the selective count stays at the rule's floor of 2,400 for
   `s6_cv` coverage down to 0.94 at the 1,200-replicate pilot).
-- 2026-11-10, route declared after run 2 (declared at c6f9e51c; artifacts kept on branch
-  `claude/x90-selective-red-run-2`, commit 8f2a91a5). The run read `s6_cv` red on its bias leg
-  (bias 0.0290, 0.20 SD, 99% interval 0.0215 to 0.0364 against the margin of 0.0355) and
-  `s6_pooled` green. Diagnosis: no defect. The projection truth is within 0.0035 of Psi and the
-  projection coverage is 0.939, so it is no projection gap. The cause is a finite-sample
-  O(K/n_v) term of the CV form's targeting: about 37 selected bias columns on 640 validation
-  rows, 0.13 SD above the pooled form on the same draws. Route: the study publishes under
-  `reporting` (`publication_policy="reporting"`), with the owner row `X90-cv-finite-sample` in
-  the roadmap's "Red-cell owners" table. A repeat run at the same seeds, replication count,
-  margins and laws follows this declaration. No margin, count, law, seed, learner or label
-  changes.
+- 2026-11-10, run 2 accepted by the owner's named exception, with no repeat run (declared at
+  c6f9e51c; artifacts kept on branch `claude/x90-selective-red-run-2`, commit 8f2a91a5, and
+  committed unedited here). The run read `s6_cv` with a bias of 0.0290 (0.20 SD, 99% interval
+  0.0215 to 0.0364, margin 0.0355), a coverage of 0.9367 and an SE ratio of 0.953, and
+  `s6_pooled` inside every margin (bias 0.0129, 0.10 SD). Diagnosis: no defect. The projection
+  truth is within 0.0035 of Psi and the projection coverage is 0.939, so it is no projection gap.
+  The cause is a finite-sample O(K/n_v) term of the CV form's targeting: about 37 selected bias
+  columns on 640 validation rows, and 0.0161 more bias than the pooled form on different draws.
+  The owner decided in writing on 2026-11-10: "if the bias is not a defect, i don't want to run
+  a repeat study - that's wasteful. let's make any exception and accept the study as valid." The
+  study keeps `publication_policy="gated"`, the policy its run recorded. The exception is
+  `ACCEPTED_BY_EXCEPTION` in `tests/studies/evidence/red_cells.py`, keyed to this study and the
+  `s6_cv/psi` truth row and to the `replicates.parquet` hash of this run. It fails if the cell
+  turns green or the study is rerun. No margin, count, law, seed, learner or label changed, and
+  no roadmap owner row exists for the cell.

@@ -414,10 +414,11 @@ blocks the method.
 
 Two registered studies and exact-law unit tests check the method. Study A, `adaptive-tmle-trial`,
 has a committed result, recorded in the [method-evidence page](method-evidence/adaptive-tmle-trial.md).
-Study S6, `adaptive-tmle-selective`, has a declared run that read its `s6_cv` bias leg red with no
-defect, and it publishes under `reporting`. The roadmap owner row
-[`X90-cv-finite-sample`](../roadmap.md#red-cell-owners) holds that cell, and the repeat run's
-results are pending (see the [study page](method-evidence/adaptive-tmle-selective.md)). The label of every fit stays
+Study S6, `adaptive-tmle-selective`, has a committed result, recorded in the
+[study page](method-evidence/adaptive-tmle-selective.md). `s6_pooled` is inside every margin. `s6_cv`
+covers in 0.937 of replications, and its bias is 0.0290 (0.20 error SDs), from a finite-sample term
+of its targeting step with no defect. The repo owner accepted the study with that reading by a named
+exception on 2026-11-10, and the study was not rerun. The label of every fit stays
 experimental. No support row covers the method, and a row would not change the label: the
 `working_model_projection` status keeps an estimate experimental inside any row until F39 closes
 (see Inference status).

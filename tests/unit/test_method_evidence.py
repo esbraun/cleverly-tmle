@@ -53,6 +53,7 @@ from tests.studies.evidence.inference import clopper_pearson, student_interval
 from tests.studies.evidence.manifest import comparator_findings, csv_text, read_rows, write_rows
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
+from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 from tests.studies.evidence.schema import truth_on_inference_scale, validate_replicates
 from tests.studies.evidence.seeds import replicate_seed
@@ -85,6 +86,12 @@ GATED_OFF_GRID: dict[str, str] = {
         "its primary coverage tests and its controls (controls.csv, through its own "
         "scientific_failures hook) gated the declared run of 99eb159e, but it declared no "
         "property cell, and the R atmle pairing record is declared and not run, so "
+        "AdaptiveTMLEMethod has no grid row"
+    ),
+    "adaptive-tmle-selective": (
+        "its primary coverage tests gated the declared run of c6f9e51c (artifacts at 8f2a91a5), "
+        "and its one red row, the s6_cv bias leg, is accepted by the named exception in "
+        "red_cells.ACCEPTED_BY_EXCEPTION. It declared no property cell and no comparator, so "
         "AdaptiveTMLEMethod has no grid row"
     ),
 }
@@ -825,6 +832,15 @@ class TestPublishedVerdicts:
             failures = published.loc[~published["passed"]]
             if study.accepted_reference_failure:
                 failures = failures.loc[failures["implementation"] != study.reference]
+            # The one named exception: a row of ``ACCEPTED_BY_EXCEPTION``, keyed to its study,
+            # implementation, scenario and estimand.  Any other failed row still fails here.
+            accepted = [
+                key.key
+                for key in ACCEPTED_BY_EXCEPTION
+                if key.slug == study.slug and key.kind == "truth"
+            ]
+            named = failures[["implementation", "scenario", "estimand"]].agg("/".join, axis=1)
+            failures = failures.loc[~named.isin(accepted)]
             assert failures.empty, failures.to_string()
 
     def test_the_subject_is_similar_to_and_no_worse_than_the_reference(

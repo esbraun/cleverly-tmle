@@ -155,7 +155,7 @@ unit-test instruments and what each one cannot see.
 in the target registry, because the registry is the point engine's compute table. The [contract
 page](adaptive-tmle.md#unit-tests) lists its instruments. Its gated [trial study](method-evidence/adaptive-tmle-trial.md)
 has a committed result: 16 of 16 gated scenario tests pass at n = 4,000 and every control behaves as
-declared. Its [selective-enrollment study](method-evidence/adaptive-tmle-selective.md) publishes under `reporting`, and its repeat run is pending. The table gives the
+declared. Its [selective-enrollment study](method-evidence/adaptive-tmle-selective.md) is accepted by a named exception for the bias of its cross-validated form. The table gives the
 exact-law instruments and what each one cannot see.
 
 | instrument | what it checks | what it cannot see |

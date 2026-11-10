@@ -23,6 +23,7 @@ import pytest
 from tests.studies.evidence import failures, property_failures, red_cells
 from tests.studies.evidence.comparison import empty_equivalence
 from tests.studies.evidence.red_cells import (
+    ACCEPTED_BY_EXCEPTION,
     BLOCKS,
     EXCLUDED_HOOKS,
     FRAMES,
@@ -65,7 +66,7 @@ def rows(tables: dict[str, dict[str, pd.DataFrame]]) -> list[RedRow]:
 
 
 def test_every_red_row_has_an_owner(rows: list[RedRow]) -> None:
-    unowned = sorted({row.key for row in rows} - set(OWNERS))
+    unowned = sorted({row.key for row in rows} - set(OWNERS) - set(ACCEPTED_BY_EXCEPTION))
     assert unowned == [], (
         f"these committed verdicts are red and no roadmap ask owns them: {unowned}. Add each "
         f"to red_cells.CLAIMS under the ask that will close it"
@@ -81,8 +82,66 @@ def test_every_owner_entry_is_still_red(rows: list[RedRow]) -> None:
 
 
 def test_a_red_row_needs_the_reporting_policy(rows: list[RedRow]) -> None:
-    gated = sorted({row.key.slug for row in rows if POLICIES[row.key.slug] != "reporting"})
+    gated = sorted(
+        {
+            row.key.slug
+            for row in rows
+            if POLICIES[row.key.slug] != "reporting" and row.key not in ACCEPTED_BY_EXCEPTION
+        }
+    )
     assert gated == [], f"these studies publish a red verdict but are not `reporting`: {gated}"
+
+
+def test_the_ledger_has_no_findings(rows: list[RedRow]) -> None:
+    assert findings(rows, OWNERS, POLICIES, owner_ids(), ACCEPTED_BY_EXCEPTION) == []
+
+
+# --- the named exception: one gated study's one accepted red row --------------------------------
+
+ACCEPTED_KEY = RedKey(
+    "adaptive-tmle-selective", "truth", "cleverly-adaptive-tmle-selective/s6_cv/psi"
+)
+
+
+def test_the_exception_admits_exactly_the_selective_s6_cv_row() -> None:
+    assert set(ACCEPTED_BY_EXCEPTION) == {ACCEPTED_KEY}
+    entry = ACCEPTED_BY_EXCEPTION[ACCEPTED_KEY]
+    assert "2026-11-10" in entry.reason and "Eric" in entry.reason
+
+
+def test_the_exception_row_is_gated_and_still_red(rows: list[RedRow]) -> None:
+    """Ratchet 1: the cell turns green, or the study turns `reporting`, and the entry goes."""
+    assert ACCEPTED_KEY in {row.key for row in rows}, "the cell is green; remove the exception"
+    assert POLICIES[ACCEPTED_KEY.slug] == "gated", "the study is reporting; remove the exception"
+
+
+def test_the_exception_covers_only_the_accepted_run() -> None:
+    """Ratchet 2: a rerun writes another replicates.parquet, and the entry fails until removed."""
+    import json
+
+    manifest = json.loads(
+        BY_SLUG[ACCEPTED_KEY.slug].artifact("manifest.json").read_text(encoding="utf-8")
+    )
+    recorded = manifest["sha256"]["replicates.parquet"]
+    assert recorded == ACCEPTED_BY_EXCEPTION[ACCEPTED_KEY].replicates_sha256, (
+        "the study was rerun; the exception covered the run it names. Remove it"
+    )
+
+
+def test_the_exception_is_keyed_to_one_row_and_not_its_study(rows: list[RedRow]) -> None:
+    """A second red row of the same study, or another gated study's red row, is still refused."""
+    other = dataclasses.replace(next(r for r in rows if r.key == ACCEPTED_KEY))
+    sibling = dataclasses.replace(
+        other, key=dataclasses.replace(ACCEPTED_KEY, key="x/s6_pooled/psi")
+    )
+    problems = findings([other, sibling], {}, POLICIES, [], ACCEPTED_BY_EXCEPTION)
+    assert any("s6_pooled" in problem and "no owner" in problem for problem in problems)
+    assert not any("s6_cv" in problem for problem in problems)
+
+
+def test_a_green_exception_is_a_finding(rows: list[RedRow]) -> None:
+    problems = findings([], {}, POLICIES, [], ACCEPTED_BY_EXCEPTION)
+    assert any("accepted by exception but is not red" in problem for problem in problems)
 
 
 def test_every_owner_is_an_id_the_roadmap_lists() -> None:
@@ -90,10 +149,6 @@ def test_every_owner_is_an_id_the_roadmap_lists() -> None:
     assert len(ids) == len(set(ids)), f"the roadmap's id column repeats a name: {ids}"
     unknown = sorted(set(OWNERS.values()) - set(ids))
     assert unknown == [], f"these owners are not in the roadmap's id column: {unknown}"
-
-
-def test_the_ledger_has_no_findings(rows: list[RedRow]) -> None:
-    assert findings(rows, OWNERS, POLICIES, owner_ids()) == []
 
 
 def test_every_committed_paired_verdict_follows_its_legs(
