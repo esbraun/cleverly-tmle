@@ -1073,3 +1073,173 @@ def test_independent_reference_matches_the_engine(
     # Mutation: the D_R sign of the transcribed eq. (9) moves the curve.
     _, flipped = reference_drift(view, tau, g_bounds=bounds, d_r_sign=-1.0)
     assert np.max(np.abs(flipped - out.curve.curve)) > 1e-4
+
+
+# ------------------------------------------------- review follow-ups (X91-F-impl-review)
+
+
+def _wide(frame: pd.DataFrame, n_times: int = 5) -> pd.DataFrame:
+    """The time-to-event frame as a wide panel: censoring after the event check at ``t`` is
+    ``C_{t+1} = 0``, and every node after an event or a censoring is missing."""
+    wide = frame[["W1", "W2", "A"]].copy()
+    event, time = frame["event"].to_numpy(), frame["time"].to_numpy()
+    for k in range(1, n_times + 1):
+        event_before = (event == 1) & (time < k)
+        censored_before = (event == 0) & (time < k)
+        long_gone = event_before | ((event == 0) & (time < k - 1))
+        wide[f"C{k}"] = np.where(long_gone, np.nan, np.where(censored_before, 0.0, 1.0))
+        wide[f"Y{k}"] = np.where(
+            event_before | censored_before, np.nan, ((event == 1) & (time == k)).astype(float)
+        )
+    return wide
+
+
+def test_time_to_event_and_wide_panel_give_the_same_fit() -> None:
+    """Check 2's independent witness: two constructions of the same law agree."""
+    frame = sample_frame(1200, 31)
+    wide = LongitudinalData.from_frame(
+        _wide(frame),
+        outcome=[f"Y{k}" for k in range(1, 6)],
+        treatment="A",
+        baseline=["W1", "W2"],
+        censoring=[f"C{k}" for k in range(1, 6)],
+    )
+    one, two = fit(container(frame)), fit(wide)
+    for name, estimate in one.estimates.items():
+        other = two.estimates[name]
+        np.testing.assert_allclose(other.psi, estimate.psi, rtol=1e-9, atol=1e-12)
+        np.testing.assert_allclose(other.std_error, estimate.std_error, rtol=1e-8)
+
+
+def test_declared_censoring_with_an_estimated_treatment_is_refused() -> None:
+    """A declared retention is read at the received arm, but H_A needs every arm's (review H1)."""
+    frame = sample_frame(400, 32, known=True)
+    data = container(frame, censoring_probabilities={float(g): f"r{g}" for g in range(1, 4)})
+    with pytest.raises(CapabilityError, match="treatment_probabilities"):
+        fit(data)
+    assert drift.drift_design_refusal(data, ARMS) is drift.DECLARED_CENSORING_REFUSAL
+
+
+@pytest.fixture(scope="module")
+def partial_view() -> drift.PaperView:
+    frame = sample_frame(1500, 33, known=True)
+    data = container(
+        frame,
+        treatment_probabilities={1: "p1", 0: "p0"},
+        censoring_probabilities={1.0: "r1"},
+    )
+    return _views(data)[1]
+
+
+def test_curve_sums_d_r_over_estimated_nodes_only(partial_view: drift.PaperView) -> None:
+    """The node-2 guard of the curve's D_R, with the sigma mutation of check 9."""
+    view = partial_view
+    assert view.held_censoring[1] and not view.held_censoring[2]
+    out = drift.target_drift(
+        view, 3, label="a1", g_bounds=(0.01, 1.0), alpha=0.9995, max_iter=200, n_folds=2
+    )
+    state, h_r = out.state, out.covariates.h_r
+
+    def term(m: int) -> np.ndarray:
+        rows = view.eligible[:, m]
+        return np.where(rows, view.arm * h_r[:, m] * (view.censored[:, m] - state.g_r[:, m]), 0.0)
+
+    np.testing.assert_allclose(out.curve.d_r, term(2), rtol=0.0, atol=1e-14)
+    held = term(1)
+    assert np.std(held) > 1e-6
+    mutated = out.curve.curve + held
+    assert abs(np.std(mutated) / np.std(out.curve.curve) - 1.0) > 1e-6
+
+
+def test_declared_factors_zero_their_residual_regressions(partial_view: drift.PaperView) -> None:
+    """e_R at a declared node and e_A under a declared treatment are zero, and would not be."""
+    view = partial_view
+    state = drift._State(view.g_a.copy(), view.g_r.copy(), view.h.copy())
+    guarded = drift._Reductions(view, state, 3, (0.01, 1.0))
+    np.testing.assert_array_equal(guarded.e_r(1), 0.0)
+    np.testing.assert_array_equal(guarded.e_a(), 0.0)
+    free_view = drift.PaperView(
+        **{
+            **view.__dict__,
+            "held_treatment": False,
+            "held_censoring": np.zeros_like(view.held_censoring),
+        }
+    )
+    free = drift._Reductions(free_view, state, 3, (0.01, 1.0))
+    assert np.max(np.abs(free.e_r(1))) > 1e-6
+    assert np.max(np.abs(free.e_a())) > 1e-6
+
+
+def test_every_g_declared_leaves_h_l_identically_zero() -> None:
+    frame = sample_frame(1200, 34, known=True)
+    data = container(
+        frame,
+        treatment_probabilities={1: "p1", 0: "p0"},
+        censoring_probabilities={float(g): f"r{g}" for g in range(1, 5)},
+    )
+    view = _views(data)[1]
+    out = drift.target_drift(
+        view, 3, label="a1", g_bounds=(0.01, 1.0), alpha=0.9995, max_iter=200, n_folds=2
+    )
+    np.testing.assert_array_equal(out.covariates.h_l, 0.0)
+    np.testing.assert_array_equal(out.record.epsilon[:, :3], 0.0)
+
+
+def _saturating(x: np.ndarray, y: np.ndarray, rows: np.ndarray) -> np.ndarray:
+    """Binary regressions return one, so the B and D products are exactly zero."""
+    from cleverly.longitudinal._kernel import smooth
+
+    if set(np.unique(y[rows])) <= {0.0, 1.0}:
+        return np.ones(x.shape[0])
+    return smooth(x, y, rows).values
+
+
+def test_product_floor_binds_and_keeps_the_fit_finite(
+    reference_views: dict[int, drift.PaperView], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Check 10 with a binding floor, and its mutation (review M2)."""
+    view = reference_views[1]
+    settings: dict[str, Any] = {
+        "label": "a1",
+        "g_bounds": (0.01, 1.0),
+        "alpha": 0.9995,
+        "max_iter": 200,
+        "n_folds": 2,
+        "regress": _saturating,
+        "warn": False,
+    }
+    out = drift.target_drift(view, TAU, **settings)
+    hits = dict(out.record.denominator_hits)
+    assert hits["B"] > 0 and hits["D"] > 0
+    assert np.isfinite(out.curve.risk) and np.all(np.isfinite(out.curve.curve))
+    monkeypatch.setattr(drift, "DENOMINATOR_FLOOR", 0.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            broken = drift.target_drift(view, TAU, **settings)
+        except Exception:
+            return
+    assert not (np.isfinite(broken.curve.risk) and np.all(np.isfinite(broken.curve.curve)))
+
+
+def test_a_newton_failure_raises_a_recordable_error(
+    reference_views: dict[int, drift.PaperView], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A submodel with no finite maximum is a failed fit, not a reported one (review M4)."""
+    from cleverly.exceptions import LongitudinalError
+    from cleverly.validation._failures import recordable
+
+    monkeypatch.setattr(
+        drift, "_logistic_epsilon", lambda y, offset, x: np.full(x.shape[1], np.nan)
+    )
+    with pytest.raises(LongitudinalError, match="no finite maximum") as raised:
+        drift.target_drift(
+            reference_views[1],
+            3,
+            label="a1",
+            g_bounds=(0.01, 1.0),
+            alpha=0.9995,
+            max_iter=5,
+            n_folds=2,
+        )
+    assert recordable(raised.value)

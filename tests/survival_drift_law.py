@@ -36,9 +36,14 @@ class FiniteLaw:
         ``(N,)`` the index of the baseline point.
     treatment : numpy.ndarray
         ``(N,)`` the treatment.
-    at_risk, events, eligible, censored : numpy.ndarray
-        ``(N, K)`` :math:`I_t`, :math:`L_t` (column ``t - 1``), :math:`J_m`, :math:`R_m`
-        (column ``m``).
+    at_risk : numpy.ndarray
+        ``(N, K)`` :math:`I_t` at column ``t - 1``.
+    events : numpy.ndarray
+        ``(N, K)`` :math:`L_t` at column ``t - 1``.
+    eligible : numpy.ndarray
+        ``(N, K)`` :math:`J_m` at column ``m``.
+    censored : numpy.ndarray
+        ``(N, K)`` :math:`R_m` at column ``m``.
     """
 
     weights: np.ndarray

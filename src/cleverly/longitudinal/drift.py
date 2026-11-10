@@ -34,12 +34,12 @@ Three choices differ from the source, each stated in the design (X91 part F, rev
 
 Four signs and indices differ from eq. (9) as the design transcribed it, each pinned by the
 exact-law drift identity (check 5 in ``tests/unit/test_survival_drtmle.py``):
-:math:`D_R = +\\sum_k A J_k H_R(k)\\{R_k - g_R(k)\\}`, since censoring lowers the cumulative
+:math:`D_R = +\sum_k A J_k H_R(k)\{R_k - g_R(k)\}`, since censoring lowers the cumulative
 :math:`g_A G` while treatment raises it; the :math:`e_R` sum enters :math:`H_L` with the sign
 opposite to the :math:`e_A` term, for the same reason; the :math:`e_A` term's products are
-:math:`D_0(t) B_0(t - 1)`, on the index :math:`C_h(0) = S(\\tau)` that :math:`q` uses; and
-:math:`e_A` itself is regressed on :math:`S(\\tau)`, not on :math:`M = \\sum_t S(t)`, because its
-term in the remainder telescopes to :math:`S_0(\\tau) - \\hat S(\\tau)`.  A re-read of the source
+:math:`D_0(t) B_0(t - 1)`, on the index :math:`C_h(0) = S(\tau)` that :math:`q` uses; and
+:math:`e_A` itself is regressed on :math:`S(\tau)`, not on :math:`M = \sum_t S(t)`, because its
+term in the remainder telescopes to :math:`S_0(\tau) - \hat S(\tau)`.  A re-read of the source
 (``X91-sources.md`` section 6a.4) traces the first three to slips in its supplementary proof.
 """
 
@@ -55,7 +55,7 @@ from scipy.special import expit, logit
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._typing import BoolArray, FloatArray, Learner
 from .._warnings import warn as _warn
-from ..exceptions import CapabilityError, ConvergenceWarning
+from ..exceptions import CapabilityError, ConvergenceWarning, LongitudinalError
 from ..learners.crossfit import Folds
 from ..utils.bounds import bound
 from ._kernel import SmoothFit, smooth
@@ -152,10 +152,12 @@ class PaperView:
 
     @property
     def n(self) -> int:
+        """The number of units."""
         return int(self.arm.shape[0])
 
     @property
     def n_times(self) -> int:
+        """The number of times :math:`K`."""
         return int(self.h.shape[1])
 
 
@@ -642,12 +644,17 @@ def _logistic_epsilon(y: FloatArray, offset: FloatArray, x: FloatArray) -> Float
         if not np.all(np.isfinite(step)):
             return np.full(p, np.nan)
         size = 1.0
+        accepted = False
         for _ in range(_NEWTON_HALVINGS):
             trial = beta + size * step
             value = loglik(trial)
             if value >= current - 1e-14 * max(1.0, abs(current)):
+                accepted = True
                 break
             size *= 0.5
+        if not accepted:
+            # No halving raised the likelihood: the current point is the maximum to rounding.
+            break
         beta, current = trial, value
         if np.max(np.abs(size * step)) < _NEWTON_TOL:
             break
@@ -808,7 +815,7 @@ def corrected_curve(
 # ------------------------------------------------------------------------- the loop
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class DriftRecord:
     """The drift correction of one arm at one horizon.
 
@@ -1025,7 +1032,12 @@ def target_drift(
         state, eps = fluctuate_once(view, state, covariates, tau, alpha)
         path.append(eps)
         if not np.all(np.isfinite(eps)):
-            break
+            raise LongitudinalError(
+                f"the drift correction of {label!r} at horizon {tau} met a logistic submodel "
+                f"with no finite maximum likelihood at iteration {len(path)}, so no targeted "
+                "state exists. Check the overlap of the arms and of censoring in "
+                "result.diagnostics, or bind g_bounds further from zero"
+            )
         if float(np.max(np.abs(eps))) < threshold:
             converged = True
             break
@@ -1091,6 +1103,15 @@ SEQUENTIAL_REFUSAL = _gap(
     "confounding of censoring as future work.",
     "F5",
     "Fit LTMLE, which supports a treatment at several nodes and later covariates.",
+)
+DECLARED_CENSORING_REFUSAL = _gap(
+    "SurvivalDRTMLE with an estimated treatment model cannot read declared censoring "
+    "probabilities. A declared retention column holds one value per unit, at the arm the unit "
+    "received, while the treatment covariate H_A divides by the retention under each arm on "
+    "every row; where retention depends on treatment the drift score is then biased.",
+    "X62",
+    "Declare the treatment probabilities too (treatment_probabilities=), or let the censoring "
+    "model be estimated.",
 )
 CAUSES_REFUSAL = _gap(
     "SurvivalDRTMLE fits a time-to-event outcome with one event type, and this fit declares two "
@@ -1285,6 +1306,13 @@ def drift_design_refusal(data: LongitudinalData, regimens: Any) -> Refusal | Non
             return ARMS_REFUSAL
     if data.is_weighted:
         return WEIGHTS_REFUSAL
+    known = data.known_mechanisms
+    if (
+        known is not None
+        and all(values is None for values in known.treatment)
+        and any(values is not None for values in known.censoring)
+    ):
+        return DECLARED_CENSORING_REFUSAL
     return None
 
 
