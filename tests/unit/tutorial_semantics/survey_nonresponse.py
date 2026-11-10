@@ -51,8 +51,6 @@ UNPRINTED_DECIMALS = {
     "0.960": f"complete-case intervals that contain 0.172772 (480 of 500): {_PROBE}/summary.log",
     "0.00043": f"mean complete-case estimate minus 0.172772, 500 draws: {_PROBE}/summary.log",
     "0.00023": f"Monte Carlo SE of the mean complete-case estimate: {_PROBE}/summary.log",
-    "3.17": f"5th percentile of the interval tipping gamma (3.1721): {_PROBE}/summary.log",
-    "5.48": f"95th percentile of the interval tipping gamma (5.4783): {_PROBE}/summary.log",
 }
 
 _REFUTE_PROBE = "reviews/notebook-review/probes/sn-refute/summary.log"
@@ -286,16 +284,12 @@ def check(namespace: dict[str, Any]) -> None:
     for row in ("missingness", "tipping_gamma"):
         assert str(ledger.loc[("sensitivity", row), "status"]) == "completed"
 
-    # Step 10: the estimate never reaches 0 under the navigation-arm tilt, and the interval does
-    # at 4.921.  Nonzero witness: just before it, the lower limit is still positive.
+    # Step 10: the estimate never reaches 0 under the navigation-arm tilt, and no interval is
+    # offered off gamma = 0, so the interval search refuses.
     assert namespace["tipping_gamma"] is None
-    ci_tipping = namespace["ci_tipping_gamma"]
-    assert f"{ci_tipping:.3f}" == "4.921"
     arm_gamma = {0: 0.0, 1: -1.0}
-    at_tip = missingness_tilt(fitted, [ci_tipping], estimands=["ate"], arm_gamma=arm_gamma)
-    before = missingness_tilt(fitted, [ci_tipping - 0.5], estimands=["ate"], arm_gamma=arm_gamma)
-    assert abs(float(at_tip["ci_lower"].iloc[0])) < 1e-4
-    assert float(before["ci_lower"].iloc[0]) > 0.0
+    with pytest.raises(CapabilityError, match="claims no interval at gamma != 0"):
+        fitted.sensitivity.tipping_gamma(arm_gamma=arm_gamma, use_ci=True)
     # The mean shift divides each move by the mean non-response probability under navigation.
     # Nonzero witness: navigation raises response, so the other arm's column would differ.
     missingness = fitted.nuisance.bounded_missingness(0.01)
@@ -307,17 +301,19 @@ def check(namespace: dict[str, Any]) -> None:
     floor = missingness_tilt(fitted, [30.0, 60.0], estimands=["ate"], arm_gamma=arm_gamma)
     assert abs(float(floor["psi"].iloc[0] - floor["psi"].iloc[1])) < 1e-6
     assert float(floor["psi"].iloc[0]) > 0.0
-    assert (
-        f"{namespace['mar_mean']:.3f}",
-        f"{namespace['ci_mean_shift']:.3f}",
-    ) == ("0.727", "0.688")
-    assert namespace["ci_mean_shift"] < namespace["mar_mean"]
+    assert f"{namespace['mar_mean']:.3f}" == "0.727"
+    assert f"{namespace['floor_estimate']:.4f}" == "0.0025"
+    assert namespace["floor_estimate"] == pytest.approx(float(floor["psi"].iloc[0]), rel=1e-12)
 
-    # The curve's gamma=0 row is the MAR estimate, and its interval reuses the MAR standard error.
+    # The curve's gamma=0 row is the MAR estimate with its interval; the other rows carry only the
+    # diagnostic spread, which is the MAR standard error under the plugin_ names.
     curve = namespace["missingness_curve"]
     mar = curve[curve["gamma"] == 0.0]
     assert float(mar["psi"].iloc[0]) == pytest.approx(full.psi, rel=1e-9)
-    assert (curve["std_err"] == full.std_error).all()
+    assert float(mar["std_err"].iloc[0]) == full.std_error
+    moved = curve[curve["gamma"] != 0.0]
+    assert moved["std_err"].isna().all() and moved["ci_lower"].isna().all()
+    assert (moved["plugin_std_err"] == full.std_error).all()
     assert curve["psi"].is_monotonic_decreasing
     assert (curve["psi"] > 0.0).all()
     # The printed mean drop is the move of the estimate over the mean non-response probability,

@@ -566,7 +566,12 @@ def test_missingness_plot_marks_the_main_analysis(missing_fit: Any) -> None:
     assert drawn == pytest.approx(expected)
     (main,) = _lines(ax, "cleverly-marker")
     assert main.get_xdata()[0] == 0.0
-    assert len(_interval_segments(ax)) == 3
+    # CDR-001: only the main analysis has an interval; a tilted estimate has its own sampling
+    # variance, so the gamma != 0 points are hollow and carry no interval artist.
+    (segment,) = _interval_segments(ax)
+    assert segment[0, 0] == 0.0
+    assert _filled(ax) == [gamma == 0.0 for gamma in tilt.column("gamma")]
+    assert "Hollow points have no interval" in _core.note_text(fig)
 
 
 def test_missingness_plot_of_a_ratio_uses_a_log_axis_and_null_one() -> None:
@@ -602,10 +607,10 @@ def test_missingness_plot_draws_no_interval_when_the_tilt_withholds_it(missing_f
     assert _interval_segments(fig.axes[0]) == []
     assert status_record(WITHHELD).plain_reason.split(".")[0] in _core.note_text(fig)
     assert not any(_filled(fig.axes[0]))
-    # Control: the tilt as computed draws its intervals with filled points.
+    # Control: the tilt as computed draws the main analysis's interval with a filled point.
     computed = tilt.plot().axes[0]
-    assert len(_interval_segments(computed)) == 3
-    assert all(_filled(computed))
+    assert len(_interval_segments(computed)) == 1
+    assert _filled(computed) == [False, True, False]
 
 
 def test_sensitivity_refuses_other_objects() -> None:
