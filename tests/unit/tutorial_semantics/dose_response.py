@@ -83,7 +83,11 @@ def _check_support(namespace: dict[str, Any]) -> None:
     assert set(support.loc[~support["low_support"], "status"]) == {"influence_curve"}
     assert curve.support_floor == 50.0
     assert result.quadrature_shift < 0.05, "below the level at which the fit warns"
-    assert {estimate.support.label for estimate in result.estimates.values()} == {"experimental"}
+    # The page reads "supported" above the floor and "experimental" for the flagged pairs and
+    # the band that covers them.
+    assert set(flagged["label"]) == {"experimental"}
+    assert set(support.loc[~support["low_support"], "label"]) == {"supported"}
+    assert result.band.support.label == "experimental"
     assert figure_title(namespace["figure"]) == "Smoothed dose-response curve"
 
 
