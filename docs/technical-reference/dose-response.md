@@ -198,7 +198,7 @@ the label.
 | composition | status |
 | --- | --- |
 | cross-fitted fit, with or without baseline strata | accepted. A continuous $Y$ needs `q_bounds=`, its declared range, as every cross-fitted fit does ([fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules)) |
-| in-sample fit (`cross_fit=False`), observation weights | accepted, with an `experimental:` note in `result.warnings`. No registered study measures them |
+| in-sample fit (`cross_fit=False`), observation weights | accepted, with an `experimental:` note in `result.warnings` and the `experimental` support label. No registered study measures them |
 | clustered rows (`id=`) | refused, `implementation_gap`, [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) part (b). The intervals would need the few-cluster rule |
 | a dose with fewer than 20 distinct values | refused, `invalid_declaration`. A discrete dose has no density between its values. Fit its levels as arms with `TMLE` |
 | `one_step` targeting | not offered. Each pair takes its own one-dimensional fluctuation |
@@ -207,6 +207,28 @@ the label.
 | missing outcome, missing treatment, intermediate variable | refused, `implementation_gap`, roadmap X10. The second mechanism would have to be evaluated at every node |
 | a treatment with declared dose atoms, or a declared known treatment mechanism | refused, `implementation_gap`; [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) part (c) |
 | `CausalStudy` | not wired. Fit `DoseResponseTMLE` directly |
+
+## Support label
+
+Each pair's estimate carries `support.label`, and the band carries `result.band.support`. The
+label reads `supported` when the [registered study](method-evidence/dose-response.md) measured the
+fit's configuration, which
+`cleverly.estimators.dose_response.DOSE_RESPONSE_MEASURED` lists. Every measured configuration is
+cross-fitted, on iid unweighted rows with complete outcomes.
+
+| outcome | fluctuation | strata | pointwise intervals | band | study scenario |
+| --- | --- | --- | --- | --- | --- |
+| binary | `"logistic"` (default) | none | `supported` | `supported` | `binary`, `tail` |
+| binary | `"logistic"` (default) | baseline strata | `supported` | `experimental` | `strata` |
+| continuous, with `q_bounds=` | `"linear"` | none | `supported` | `experimental` | `gaussian` |
+| any other combination | | | `experimental` | `experimental` | none |
+
+The band reads `supported` only where the study's band cell measured it, on the 15 pairs of the
+binary declaration. A pair below the support floor reads `experimental` with
+[X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) as its evidence, and a
+band over such a pair reads `experimental` too. The label does not read the learners, the sample
+size, the number or spacing of the pairs, or the law. The study measured declared sieve learners,
+one law family and sizes from 1,000 to 8,000, and each label's `limits` repeat that.
 
 ## Validation
 

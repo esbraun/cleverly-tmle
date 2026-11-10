@@ -17,12 +17,14 @@ See ``docs/technical-reference/dose-response.md``.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass, field
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from typing import Any, Final, Literal
 
 import numpy as np
 
+from .._inference_status import STATUS_RECORDS
+from .._support import Support, combine_support
 from .._typing import FloatArray
 from .._warnings import warn
 from ..data import CausalData
@@ -40,7 +42,14 @@ from ..learners.density import ConditionalDensity, bin_edges, default_density_bi
 from ..utils.frames import frame_from_dict
 from ._nuisance import NuisanceEstimates, fit_nuisances
 
-__all__ = ["DoseResponseResult", "DoseResponseTMLE"]
+__all__ = [
+    "DOSE_RESPONSE_BAND_MEASURED",
+    "DOSE_RESPONSE_MEASURED",
+    "DOSE_RESPONSE_STUDY",
+    "DoseResponseResult",
+    "DoseResponseTMLE",
+    "dose_response_support",
+]
 
 #: The memory the node predictions may use before the fit refuses, in bytes.
 NODE_MEMORY_BUDGET: Final[int] = 4 * 1024**3
@@ -289,6 +298,127 @@ def _refuse_unsupported(data: CausalData) -> None:
         )
 
 
+#: The registered study that measures :class:`DoseResponseTMLE`.
+DOSE_RESPONSE_STUDY: Final[str] = "dose-response"
+
+#: The configurations the registered ``dose-response`` study measures, keyed by
+#: ``(outcome, fluctuation, strata)``, each with the scenario that measures it.  Every scenario
+#: fits cross-fitted nuisances on iid, unweighted rows with complete outcomes.  A configuration
+#: outside this table, an in-sample fit or observation weights read experimental.
+DOSE_RESPONSE_MEASURED: Final[Mapping[tuple[str, str, bool], str]] = {
+    ("binary", "logistic", False): "binary, tail",
+    ("binary", "logistic", True): "strata",
+    ("continuous", "linear", False): "gaussian",
+}
+
+#: The one configuration whose simultaneous band the study measures (the band cell, on 15
+#: pairs of the binary declaration).  A band of any other configuration reads experimental.
+DOSE_RESPONSE_BAND_MEASURED: Final[tuple[str, str, bool]] = ("binary", "logistic", False)
+
+
+def dose_response_support(
+    *,
+    outcome: str,
+    fluctuation: str,
+    strata: bool,
+    cross_fitted: bool,
+    weighted: bool,
+) -> tuple[Support, Support]:
+    """The support of a dose-response fit's pointwise intervals and of its band.
+
+    A fit's intervals read ``supported`` when its configuration is one of
+    :data:`DOSE_RESPONSE_MEASURED` and it is cross-fitted and unweighted.  Its band reads
+    ``supported`` when, in addition, the configuration is :data:`DOSE_RESPONSE_BAND_MEASURED`.
+    Otherwise each reads ``experimental``, with every reason that applies.  A pair below the
+    support floor is experimental whatever this returns (status ``low_dose_support_plugin``).
+
+    Parameters
+    ----------
+    outcome : {"binary", "continuous"}
+        The outcome type.
+    fluctuation : {"logistic", "linear"}
+        The submodel on the scaled outcome.
+    strata : bool
+        Whether the fit reports one curve per baseline stratum.
+    cross_fitted : bool
+        Whether the nuisances are fitted out of fold.
+    weighted : bool
+        Whether the rows carry observation weights.
+
+    Returns
+    -------
+    tuple of Support
+        The support of each pair's estimate, then the support of the band.
+
+    Examples
+    --------
+    >>> from cleverly.estimators.dose_response import dose_response_support
+    >>> pairs, band = dose_response_support(
+    ...     outcome="continuous", fluctuation="linear", strata=False,
+    ...     cross_fitted=True, weighted=False,
+    ... )
+    >>> pairs.label, band.label
+    ('supported', 'experimental')
+    """
+    configuration = (outcome, fluctuation, bool(strata))
+    reasons: list[str] = []
+    if not cross_fitted:
+        reasons.append(
+            "The fit is in-sample, and the registered study measures cross-fitted fits only."
+        )
+    if weighted:
+        reasons.append("No registered study measures a dose-response curve with weighted rows.")
+    if configuration not in DOSE_RESPONSE_MEASURED:
+        strata_words = " with baseline strata" if strata else ""
+        reasons.append(
+            f"No registered study measures a {outcome} outcome with the {fluctuation} "
+            f"fluctuation{strata_words}: the dose-response study measures a binary outcome with "
+            "the logistic fluctuation, with and without strata, and a continuous outcome with "
+            "the linear fluctuation."
+        )
+    limits = (
+        "One law family on a declared interval, with declared sieve learners; the default "
+        "learner library is not measured.",
+        "Sample sizes 1,000 to 8,000.",
+    )
+    if reasons:
+        experimental = Support("experimental", " ".join(reasons), limits=limits)
+        return experimental, experimental
+    scenario = DOSE_RESPONSE_MEASURED[configuration]
+    pairs = Support(
+        "supported",
+        f"The registered {DOSE_RESPONSE_STUDY} study measures this configuration "
+        f"(scenario {scenario}).",
+        (DOSE_RESPONSE_STUDY,),
+        limits=limits,
+    )
+    if configuration == DOSE_RESPONSE_BAND_MEASURED:
+        return pairs, pairs
+    band = Support(
+        "experimental",
+        "The registered dose-response study measures the simultaneous band on a binary outcome "
+        "with the logistic fluctuation and no strata only.",
+        limits=limits,
+    )
+    return pairs, band
+
+
+def _pair_support(configured: Support, below_floor: bool) -> Support:
+    """A pair's support: the configuration's, made experimental below the support floor."""
+    if not below_floor:
+        return configured
+    record = STATUS_RECORDS["low_dose_support_plugin"]
+    assert record.shown_reason is not None
+    reasons = (configured.reason,) if configured.label == "experimental" else ()
+    evidence = configured.evidence if configured.label == "experimental" else ()
+    return Support(
+        "experimental",
+        " ".join([*reasons, record.shown_reason]),
+        tuple(dict.fromkeys([*evidence, record.reopened_by])),
+        limits=configured.limits,
+    )
+
+
 def _experimental_notes(data: CausalData, *, cross_fit: bool) -> list[str]:
     """Name the accepted compositions that no registered study has measured."""
     notes = []
@@ -488,8 +618,15 @@ class DoseResponseTMLE:
             raise RuntimeError(
                 "the fitted density does not use the bin edges the rule was built on"
             )
-        coarse = self._target(data, nuisance, rule, 0)
-        refined = self._target(data, nuisance, fine, rule.n_nodes)
+        configured, band_configured = dose_response_support(
+            outcome="binary" if data.family == "binomial" else "continuous",
+            fluctuation=self.fluctuation,
+            strata=data.strata is not None,
+            cross_fitted=self.cross_fit,
+            weighted=not np.allclose(data.weights, data.weights[0]),
+        )
+        coarse = self._target(data, nuisance, rule, 0, configured)
+        refined = self._target(data, nuisance, fine, rule.n_nodes, configured)
         estimates, supports, scores = coarse
         shift = max(
             abs(estimates[name].psi - refined[0][name].psi)
@@ -502,6 +639,14 @@ class DoseResponseTMLE:
             n_replicates=self.n_replicates,
             random_state=self.random_state,
             cluster=data.cluster,
+        )
+        # simultaneous_bands() leaves the band unclassified; it carries its pairs' support and the
+        # band's own measured configuration.
+        band = replace(
+            band,
+            support=combine_support(
+                [*(estimate.support for estimate in estimates.values()), band_configured]
+            ),
         )
         notes: list[str] = []
         if shift > QUADRATURE_TOLERANCE:
@@ -550,6 +695,7 @@ class DoseResponseTMLE:
         nuisance: NuisanceEstimates,
         rule: QuadratureRule,
         offset: int,
+        configured: Support,
     ) -> tuple[dict[str, ParameterEstimate], tuple[PairSupport, ...], dict[str, float]]:
         curve = self.curve
         density = nuisance.density
@@ -650,5 +796,6 @@ class DoseResponseTMLE:
                 scale="level",
                 alpha=self.alpha,
                 inference="low_dose_support_plugin" if below else "influence_curve",
+                support=_pair_support(configured, below),
             )
         return estimates, tuple(supports), scores

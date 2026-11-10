@@ -612,7 +612,10 @@ customer received given their characteristics. The dose range must lie inside th
 observed, with a margin: the fit refuses a range that
 reaches past them. A row whose dose has few nearby observations is flagged in the `low_support`
 column, and its estimate's `inference` reads `low_dose_support_plugin`: its interval rests on few
-effective rows. `cleverly.plotting.curve(dose_fit)` draws one
+effective rows. Each estimate's `support.label` says whether a registered simulation study covers
+the fit's setup. It reads `supported` for a cross-fitted, unweighted fit of a binary outcome, or of
+a continuous outcome with `fluctuation="linear"`, except at a flagged row, and `experimental`
+otherwise. `cleverly.plotting.curve(dose_fit)` draws one
 line per bandwidth with the band.
 [Smoothed dose-response curve](../technical-reference/dose-response.md) states the estimand, the
 conditions and the refusals.

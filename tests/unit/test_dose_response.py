@@ -16,6 +16,7 @@ import pytest
 from scipy.special import expit
 from sklearn.linear_model import LogisticRegression
 
+from cleverly._support import UNCLASSIFIED
 from cleverly.dose_response import (
     DoseResponse,
     equivalent_kernel,
@@ -23,7 +24,13 @@ from cleverly.dose_response import (
     kernel,
     pair_name,
 )
-from cleverly.estimators.dose_response import DoseResponseTMLE
+from cleverly.estimators.dose_response import (
+    DOSE_RESPONSE_BAND_MEASURED,
+    DOSE_RESPONSE_MEASURED,
+    DOSE_RESPONSE_STUDY,
+    DoseResponseTMLE,
+    dose_response_support,
+)
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
 
@@ -334,6 +341,57 @@ def test_round_trip_keeps_the_estimates(fitted) -> None:  # type: ignore[no-unty
 def test_linear_fluctuation_solves_its_score() -> None:
     result = _fit(_sample(800, 5), FIT_CURVE, fluctuation="linear")
     assert max(abs(score) for score in result.scores.values()) < 1e-9
+    # A binary outcome with the linear fluctuation is no configuration the study measures.
+    assert {e.support.label for e in result.estimates.values()} == {"experimental"}
+    assert "linear fluctuation" in result[FIT_CURVE.names[0]].support.reason
+
+
+def test_a_measured_configuration_reads_supported(fitted) -> None:  # type: ignore[no-untyped-def]
+    assert not any(cell.below_floor for cell in fitted.pair_support)
+    for estimate in fitted.estimates.values():
+        assert estimate.support.label == "supported"
+        assert estimate.support.evidence == (DOSE_RESPONSE_STUDY,)
+    assert fitted.band.support.label == "supported"
+
+
+def test_an_in_sample_fit_reads_experimental() -> None:
+    result = _fit(_sample(600, 4), FIT_CURVE, cross_fit=False)
+    assert {e.support.label for e in result.estimates.values()} == {"experimental"}
+    assert result.band.support.label == "experimental"
+    assert "in-sample" in result[FIT_CURVE.names[0]].support.reason
+
+
+@pytest.mark.parametrize(
+    ("outcome", "fluctuation", "strata", "pairs", "band"),
+    [
+        ("binary", "logistic", False, "supported", "supported"),
+        ("binary", "logistic", True, "supported", "experimental"),
+        ("continuous", "linear", False, "supported", "experimental"),
+        ("continuous", "logistic", False, "experimental", "experimental"),
+        ("binary", "linear", False, "experimental", "experimental"),
+        ("continuous", "linear", True, "experimental", "experimental"),
+    ],
+)
+def test_the_label_reads_the_measured_table(
+    outcome: str, fluctuation: str, strata: bool, pairs: str, band: str
+) -> None:
+    configured, banded = dose_response_support(
+        outcome=outcome, fluctuation=fluctuation, strata=strata, cross_fitted=True, weighted=False
+    )
+    assert (configured.label, banded.label) == (pairs, band)
+    weighted, _ = dose_response_support(
+        outcome=outcome, fluctuation=fluctuation, strata=strata, cross_fitted=True, weighted=True
+    )
+    assert weighted.label == "experimental"
+    assert "weighted rows" in weighted.reason
+
+
+def test_the_measuring_study_is_registered_and_exempt_from_support_rows() -> None:
+    from cleverly._support_rows import EXEMPT_STUDIES
+    from tests.studies.evidence.registry import registered
+
+    assert DOSE_RESPONSE_STUDY in {record.slug for record in registered()} & set(EXEMPT_STUDIES)
+    assert DOSE_RESPONSE_BAND_MEASURED in DOSE_RESPONSE_MEASURED
 
 
 def test_low_support_pairs_carry_the_label() -> None:
@@ -341,6 +399,12 @@ def test_low_support_pairs_carry_the_label() -> None:
     result = _fit(_sample(600, 7), curve)
     assert all(s.below_floor for s in result.pair_support)
     assert all(e.inference == "low_dose_support_plugin" for e in result.estimates.values())
+    # The configuration is measured, so the floor alone makes each pair and the band
+    # experimental, with X95 as the evidence that would lift it.
+    for estimate in result.estimates.values():
+        assert estimate.support.label == "experimental"
+        assert estimate.support.evidence == ("X95",)
+    assert result.band.support.label == "experimental"
     assert result.warnings
 
 
@@ -385,6 +449,11 @@ def test_baseline_strata_get_their_own_curves_from_one_nuisance_fit() -> None:
         assert np.all(curve_values[outside] == 0.0)
         assert abs(float(curve_values.mean())) < 1e-8
     assert set(result.to_frame()["stratum"]) == {"V=0", "V=1"}
+    # The strata scenario measures the pointwise intervals; the band cell is unstratified.
+    for cell in result.pair_support:
+        label = result.estimates[cell.name].support.label
+        assert label == ("experimental" if cell.below_floor else "supported")
+    assert result.band.support.label == "experimental"
 
 
 def test_the_curve_plot_draws_one_series_per_bandwidth(fitted) -> None:  # type: ignore[no-untyped-def]
@@ -503,7 +572,7 @@ def _exact_target(offset: int = 0):  # type: ignore[no-untyped-def]
         treatment_kind="continuous",
     )
     rule = EXACT_CURVE.quadrature(EXACT_EDGES)
-    return estimator._target(data, _Nuisance(data, rule), rule, offset)  # type: ignore[arg-type]
+    return estimator._target(data, _Nuisance(data, rule), rule, offset, UNCLASSIFIED)  # type: ignore[arg-type]
 
 
 def test_the_estimators_targeting_recovers_the_truth_from_a_wrong_outcome_regression() -> None:
