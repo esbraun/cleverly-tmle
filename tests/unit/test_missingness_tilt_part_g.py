@@ -303,21 +303,19 @@ class TestEachMutationMovesTheCurve:
 
 
 class TestTheSpreadClaimsNoIntervalOffMar:
-    """At ``gamma != 0`` the new targets publish the ``plugin_`` columns only."""
+    """At ``gamma != 0`` every target publishes the ``plugin_`` columns only (CDR-001)."""
 
     def test_the_columns_per_row(self, ratios: Any) -> None:
         frame = _rows(ratios)
         for row in frame.iter_rows(named=True):
             estimate = ratios[row["estimand"]]
-            arm = row["estimand"] in {"ey1", "ey0", "ate"}
-            if arm or row["gamma"] == 0.0:
+            if row["gamma"] == 0.0:
                 assert row["std_err"] == pytest.approx(estimate.std_error)
                 assert np.isnan(row["plugin_std_err"])
+                assert (row["ci_lower"], row["ci_upper"]) == pytest.approx(estimate.ci)
             else:
                 assert np.isnan(row["std_err"]) and np.isnan(row["ci_lower"])
                 assert row["plugin_std_err"] == pytest.approx(estimate.plugin_std_error)
-            if not arm and row["gamma"] == 0.0:
-                assert (row["ci_lower"], row["ci_upper"]) == pytest.approx(estimate.ci)
 
     def test_a_ratio_interval_is_centred_on_the_log_of_the_tilted_point(self, ratios: Any) -> None:
         frame = _rows(ratios, (GAMMA,), estimands=["rr"])
@@ -331,15 +329,24 @@ class TestTheSpreadClaimsNoIntervalOffMar:
         assert low == pytest.approx(psi * np.exp(-z * se), rel=1e-6)
         assert high == pytest.approx(psi * np.exp(z * se), rel=1e-6)
 
-    def test_an_arm_frame_keeps_its_columns(self, ratios: Any) -> None:
-        frame = missingness_tilt(ratios, [0.0, GAMMA], estimands=["ey1", "ate"]).to_frame()
-        assert "plugin_std_err" not in nw.from_native(frame, eager_only=True).columns
+    def test_an_arm_frame_withholds_its_interval_off_mar(self, ratios: Any) -> None:
+        frame = nw.from_native(
+            missingness_tilt(ratios, [0.0, GAMMA], estimands=["ey1", "ate"]).to_frame(),
+            eager_only=True,
+        )
+        moved = frame.filter(nw.col("gamma") != 0.0)
+        assert moved["ci_lower"].is_nan().all() and moved["ci_upper"].is_nan().all()
+        assert not moved["plugin_interval_lower"].is_nan().any()
+        # Nonzero witness: the gamma = 0 rows keep the fit's own interval.
+        assert not frame.filter(nw.col("gamma") == 0.0)["ci_lower"].is_nan().any()
 
 
 class TestTippingGamma:
     @pytest.mark.parametrize(
         ("fixture", "name"),
         [
+            ("ratios", "ey1"),
+            ("ratios", "ate"),
             ("ratios", "rr"),
             ("natural_course", "ey_obs"),
             ("joint", "par"),
@@ -361,5 +368,66 @@ class TestTippingGamma:
         assert 0.0 < abs(crossing) <= GAMMA + 1e-3
         assert _psi(result, name, crossing) == pytest.approx(null, abs=1e-4)
 
-    def test_an_arm_contrast_keeps_its_interval_search(self, ratios: Any) -> None:
-        tipping_gamma(ratios, "ate", use_ci=True)
+    def test_the_interval_refusal_says_why(self, ratios: Any) -> None:
+        with pytest.raises(CapabilityError, match="has its own influence curve"):
+            tipping_gamma(ratios, "ate", use_ci=True)
+
+
+class TestTheReviewersLaw:
+    """CDR-001: the MAR standard error understates the tilted plug-in's sampling SD.
+
+    One arm with no prognostic covariate: ``q = 0.1``, ``pi = 0.3`` and 5,000 units per arm.
+    The tilted plug-in is ``F(q_hat, pi_hat)``, so the delta method gives its SD exactly, and at
+    ``gamma = 2`` that SD is 2.24 times the MAR standard error.  Before the fix the gamma = 2
+    row published the MAR standard error as ``std_err`` with a confidence interval around it.
+    """
+
+    @pytest.fixture(scope="class")
+    def fit(self) -> Any:
+        import pandas as pd
+
+        n_arm = 5000
+        treatment = np.repeat([0, 1], n_arm)
+        observed = np.tile(np.r_[np.ones(1500), np.zeros(3500)], 2)
+        outcome = np.tile(np.r_[np.ones(150), np.zeros(1350), np.full(3500, np.nan)], 2)
+        frame = pd.DataFrame(
+            {"A": treatment, "Delta": observed, "Y": outcome, "W": np.tile([0, 1], n_arm)}
+        )
+
+        def learner() -> LogisticRegression:
+            return LogisticRegression(C=np.inf, tol=1e-12, max_iter=2000)
+
+        return (
+            TMLE(
+                outcome_learner=learner(),
+                treatment_learner=learner(),
+                missingness_learner=learner(),
+                cross_fit=False,
+                estimands=("ey1",),
+                simultaneous=False,
+                random_state=0,
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=("W",), delta="Delta")
+            .single()
+        )
+
+    def test_the_gamma_two_row_publishes_no_interval(self, fit: Any) -> None:
+        frame = nw.from_native(missingness_tilt(fit, [0.0, 2.0]).to_frame(), eager_only=True)
+        mar, moved = (frame.filter(nw.col("gamma") == value) for value in (0.0, 2.0))
+        assert float(mar["std_err"][0]) == pytest.approx(fit["ey1"].std_error, rel=1e-12)
+        assert np.isnan(float(moved["std_err"][0])) and np.isnan(float(moved["ci_lower"][0]))
+        assert float(moved["plugin_std_err"][0]) == pytest.approx(fit["ey1"].std_error)
+
+    def test_the_withheld_spread_is_far_from_the_delta_method_sd(self, fit: Any) -> None:
+        # The witness that withholding matters on this law: the diagnostic spread is the MAR
+        # standard error, and the plug-in's delta-method SD is more than twice it.
+        q, pi, gamma, n_arm = 0.1, 0.3, 2.0, 5000
+        h = float(expit(logit(np.asarray(q)) + gamma))
+        f_q = pi + (1 - pi) * h * (1 - h) / (q * (1 - q))
+        f_pi = q - h
+        delta_sd = np.sqrt((f_q**2 * q * (1 - q) / pi + f_pi**2 * pi * (1 - pi)) / n_arm)
+        assert delta_sd == pytest.approx(0.017389, rel=1e-4)
+        assert fit["ey1"].std_error == pytest.approx(0.00775, abs=5e-5)
+        assert delta_sd / fit["ey1"].std_error > 2.2
+        with pytest.raises(CapabilityError, match="claims no interval at gamma != 0"):
+            tipping_gamma(fit, "ey1", use_ci=True)

@@ -241,21 +241,21 @@ def test_the_marginal_coverage_sentence_needs_a_licence() -> None:
     assert text.endswith(TEXTS["marginal_interval"].format(level="95%"))
 
 
-def test_the_tilt_states_the_reused_standard_error() -> None:
+def test_the_tilt_claims_no_interval_off_mar() -> None:
+    """CDR-001: every tilted estimand prints the diagnostic note, and none an interval claim."""
     tilt = built("tilt")
-    text = tilt.summary().note("sensitivity_assumption").text
-    direction = TEXTS["tilt_direction"] + " " + TEXTS["tilt_interval"]
-    assert text == TEXTS["assumption_tilt"].format(arm_clause="", direction=direction)
-    assert "reuses the main analysis's standard error" in text
+    summary = tilt.summary()
+    text = summary.note("sensitivity_assumption").text
+    assert text == TEXTS["assumption_tilt"].format(arm_clause="", direction=TEXTS["tilt_direction"])
+    assert "reuses the main analysis's standard error" not in text
+    diagnostic = summary.note("tilt_diagnostic").text
+    assert "not a confidence interval" in diagnostic
     ratio = built("tilt_ratio").summary()
     assert ratio.note("tilt_diagnostic").text == TEXTS["tilt_diagnostic"].format(
-        names="rr", scale=", on the log scale"
+        names="ate, rr", scale=", on the log scale for rr"
     )
-    # The difference keeps its interval off a gamma of zero, so the sentence stays.
-    assert TEXTS["tilt_interval"] in ratio.note("sensitivity_assumption").text
-    # Mutation: no estimand of a withheld fit prints an interval, so the sentence goes.
+    # Mutation: a withheld fit names its status instead, and no diagnostic note repeats it.
     withheld = built("tilt_withheld").summary().note("sensitivity_assumption").text
-    assert TEXTS["tilt_interval"] not in withheld
     assert withheld.endswith(TEXTS["tilt_direction"])
 
 

@@ -216,6 +216,12 @@ class SuperLearner(BaseEstimator):
         ``(n, n_candidates)`` matrix of out-of-fold predictions.  The validation
         module reuses it to assess calibration without refitting.
 
+    See Also
+    --------
+    cleverly.ModelSpec : Where an ensemble is passed as a nuisance learner.
+    cleverly.learners.default_library : The candidates used when none are given.
+    cleverly.learners.SuperLearnerDiagnostics : Per-candidate risk and weight.
+
     Notes
     -----
     The Super Learner oracle result covers the weights that minimise the cross-validated risk
@@ -230,12 +236,6 @@ class SuperLearner(BaseEstimator):
     unconstrained non-negative weights by their sum, which is not the simplex minimiser, so it
     has no oracle guarantee and can keep all weight on a much worse candidate at every sample
     size.
-
-    See Also
-    --------
-    cleverly.ModelSpec : Where an ensemble is passed as a nuisance learner.
-    cleverly.learners.default_library : The candidates used when none are given.
-    cleverly.learners.SuperLearnerDiagnostics : Per-candidate risk and weight.
 
     Examples
     --------
