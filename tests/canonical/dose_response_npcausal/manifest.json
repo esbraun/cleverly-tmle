@@ -1,0 +1,145 @@
+{
+  "schema_version": 2,
+  "study": "kernel-smoothed dose-response CV-TMLE against npcausal ctseff",
+  "slug": "dose-response-npcausal",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-dose-response",
+      "cleverly_version": "0.2.1",
+      "cleverly_commit": "d1031347a9ef3edebfbf43c8881c66e4e874dfca",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": {
+      "implementation": "npcausal",
+      "npcausal_commit": "56a5ac117a29258b67b94874be662a171b5131f7",
+      "npcausal_version": "0.1.0",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "image": "cleverly-npcausal:0.1.0-56a5ac1",
+      "reference_parameter": "ctseff: local-linear kernel regression of the doubly robust pseudo-outcome on the dose, Gaussian kernel; equal to theta(a0) at this law, where theta is linear",
+      "reference_call": "ctseff(y, a, x = cbind(W1, W2, W3), bw.seq = <one Gaussian bandwidth>, n.pts = 8 (hi - lo) + 1, a.rng = c(lo, hi), sl.lib = 'SL.glm.interaction'), with lo and hi the observed dose range widened to multiples of 1/8; one call per bandwidth",
+      "bandwidths": {
+        "2": 0.6915352324056784,
+        "2.5": 0.864419040507098
+      },
+      "candidate_bandwidths": [
+        1.0,
+        1.5,
+        2.0,
+        2.5
+      ],
+      "reference_nuisances": "in sample, one learner per SuperLearner call (weight 1)",
+      "standard_error": "res$se / sqrt(n), the interval res$ci.ll and res$ci.ul (1.96)"
+    }
+  },
+  "configuration": {
+    "replicates": 4800,
+    "n": 4000,
+    "seed": 2026119331,
+    "resampling_seed": 2026119332,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-dose-response": 0.01,
+      "npcausal": 0.01
+    },
+    "scenarios": {
+      "linear_gaussian": [
+        "dose_response[h=2,a=1.5]",
+        "dose_response[h=2,a=2.5]",
+        "dose_response[h=2,a=3.5]",
+        "dose_response[h=2.5,a=1.5]",
+        "dose_response[h=2.5,a=2.5]",
+        "dose_response[h=2.5,a=3.5]"
+      ]
+    },
+    "construction": "CV-TMLE of the kernel-smoothed curve (one pooled fluctuation per pair)",
+    "support": [
+      -1.5,
+      6.5
+    ],
+    "kernel": "triweight",
+    "doses": [
+      1.5,
+      2.5,
+      3.5
+    ],
+    "bandwidths": [
+      2.0,
+      2.5
+    ],
+    "npcausal_bandwidths": {
+      "2": 0.6915352324056784,
+      "2.5": 0.864419040507098
+    },
+    "nodes_per_piece": 8,
+    "n_folds": 5,
+    "density_bins": "default: max(20, ceil(2 n^(1/3)))",
+    "fluctuation": "linear",
+    "q_bounds": [
+      -25.0,
+      25.0
+    ],
+    "learners": "outcome: PolynomialFeatures(2, interaction_only=True) of (a, W) with LinearRegression; density: pooled-hazard binned density with the S1 HazardDesign [indicators, W, W^2, bin*W, bin*W^2], StandardScaler, LogisticRegression(C=100)",
+    "initial_estimate": "the untargeted plug-in of the same cross-fitted regression",
+    "variance_method": "ic",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/dose_response_npcausal.py": "338975391dfb33c5ce6e3787c75f578c519261bd714faa8862d585ea9e86ff34",
+    "tests/studies/dose_response_npcausal_properties.py": "843a1fb2f95cb780ddc91f6372c218093bfc3080bd6a154e3aba2a00a96c1241",
+    "tests/studies/dose_response_npcausal_law.py": "e893206345e06961410a61fa40eb779b18f3ca152b210176aabd492ffdc29cd3",
+    "tests/studies/dose_response.py": "c8588abd6af2597d66360851a3eaa0bde0a1b72680602fc27dd6bce2a4b06ad8",
+    "tests/studies/dose_response_law.py": "894e0c81cccf24ef2a86359c7ff07b8ec2fb509c63692e580c3c741a4e99c650",
+    "tests/studies/evidence/comparison.py": "30a584e78e19060d23638ff27704a969acb3f7799eca5b522dc4cfa0ec06a056",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "9240d2569b567fc10e0db520a062ef6ae8e3f31814facbbe6fecc818bfccbb50",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {
+    "tests/canonical/npcausal_incremental/Dockerfile": "f790996d3833b584d564202862591e9e66ad340b3639380fe964a6c8195cdc43",
+    "tests/canonical/dose_response_npcausal/run_study.R": "084de7d88b1815b3a882315b54ccf1dbad13b8456a78eec090cde587da0749b2",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+  },
+  "sha256": {
+    "replicates.parquet": "8d678cd0cff4cf7edde04d0dbae5b747359ae2ad68cd4b821579b81c1b9937f9",
+    "summary.csv": "7fc9243b4a996b737ec89cac2db053bd52a0407758efd06599ae830ea4ea23f0",
+    "equivalence.csv": "8d314985f1824132d79f5a40763b174c25539de23e8c7682a91e2f1bad60adca",
+    "performance-tests.csv": "8aea2f48737623b4f0659cabedc0a5f6249235e1706125dc4ea8327db14886fe",
+    "property-replicates.parquet": "dd8a47681fd2920201f8b0d2016db74dbd4c45f019231350e31532ea17bde3d8",
+    "properties.csv": "f9941c012c9d4382c92fe56bb4f353058b90d77dd321c10ee9db895b180b293a",
+    "failures.csv": "8581629bf5dd54dbac621daaa9a980bdd35152edb974e5deb74491e34b4e8aa0",
+    "failure-accounting.csv": "d2edb654c5b3ced4ccd153dc88d9c60346c0c820b084fe018919eac603bdd556"
+  }
+}
