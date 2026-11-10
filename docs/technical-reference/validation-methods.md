@@ -2618,8 +2618,9 @@ The curve is a point-estimate sweep, so a selector-based C-TMLE fit receives all
 three spread columns read an interval that those paths refuse. Such a fit therefore receives
 `plugin_std_err`, `plugin_interval_lower`, and `plugin_interval_upper` in place of `std_err`,
 `ci_lower`, and `ci_upper`, which is the swap the truncation curve above already makes.
-`tipping_gamma()` keeps its default point-estimate search on that fit. It refuses `use_ci=True`,
-because it returns one float and a float carries no column name.
+`tipping_gamma()` keeps its default point-estimate search on that fit. It refuses `use_ci=True`
+there with the same sentence as on every other fit, because no tilted parameter claims an interval
+off $\gamma = 0$.
 [Collaborative TMLE](collaborative-tmle.md) states the refusal these columns come from.
 
 ### The scope rule

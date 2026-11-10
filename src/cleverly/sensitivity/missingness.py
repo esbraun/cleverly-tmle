@@ -67,9 +67,8 @@ columns depend on an influence curve the package refuses to claim there.  Such a
 therefore receives ``plugin_std_err``, ``plugin_interval_lower`` and
 ``plugin_interval_upper`` in place of ``std_err``, ``ci_lower`` and ``ci_upper``, which
 is the swap :func:`~cleverly.sensitivity.positivity.truncation_curve` already makes for
-the same fit.  :func:`tipping_gamma` keeps its point-estimate search on such a fit and refuses
-``use_ci=True``, because it returns one float and a float carries no column name to
-say which of the two an interval crossing came from.
+the same fit.  :func:`tipping_gamma` keeps its point-estimate search on such a fit, and
+refuses ``use_ci=True`` there as it does on every fit.
 """
 
 from __future__ import annotations
@@ -956,7 +955,7 @@ def tipping_gamma(
     """The tilt at which the conclusion tips.
 
     Returns the detected crossing with the smallest ``|gamma|`` at which the estimate
-    (or, with ``use_ci=True``, the confidence interval) crosses ``null_hypothesis``.
+    crosses ``null_hypothesis``.
     Returns ``None`` if the search detects no crossing. Reporting this single number is
     usually more informative than the whole curve: it converts "is MAR plausible?"
     into "would the unobserved outcomes have to differ by *this much*?".
@@ -1021,12 +1020,8 @@ def tipping_gamma(
         if interval is not None:
             raise CapabilityError.from_refusal(interval)
     if use_ci and estimand in result.estimates:
-        # Before the first tilt.  The curve renames its spread columns on a selector-path
-        # collaborative fit, so an interval crossing is still computable there, but this
-        # function returns one bare float and no float can carry the name that says the
-        # crossing came from a diagnostic.  The point-estimate search, which is the
-        # default, answers for that fit unchanged.  A name this fit does not report falls
-        # through to ``missingness_tilt``, which lists the tiltable ones.
+        # Reached only for a reported name the tilt does not re-mix, on a fit that supplies
+        # no inference: name the status before the first tilt refuses the name.
         refuse_inference(
             result.estimates[estimand].inference, operation=_TIPPING_INTERVAL_OPERATION
         )
