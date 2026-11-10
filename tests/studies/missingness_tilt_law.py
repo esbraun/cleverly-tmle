@@ -32,6 +32,13 @@ scale), ``att`` is :math:`E[g_0(1 \mid W)\{m_{1,\gamma} - m_{0,\gamma}\}] / E g_
 :math:`W_1` and a two-point sum over :math:`W_2`, exact to rounding for these smooth
 integrands.  The estimator never enters this module.
 
+The weighted scenario's observation weight is :math:`\omega(W) = \exp(0.5 W_1)`, a function of
+the covariate, so a weighted fit estimates the parameters of the weight-tilted covariate law:
+every mean becomes :math:`E[\omega f] / E[\omega]` and ``att`` becomes
+:math:`E[\omega g_0 (m_{1,\gamma} - m_{0,\gamma})] / E[\omega g_0]`.  The weighted truths sit
+well away from the unweighted ones (``ey1`` at :math:`\gamma = 2` moves from 0.372 to 0.466), so a
+fit that ignored its weights would be seen.
+
 :func:`efficiency_sd` is the standard deviation of the efficient influence curve of the tilted
 ``ate``, from its closed form
 
@@ -67,8 +74,15 @@ _HERMITE = np.polynomial.hermite_e.hermegauss(80)
 G_COEF = (0.1, 0.5, -0.4)
 PI_COEF = (1.2, 0.5, 0.25, -0.4)
 Q_COEF = (-1.6, 0.8, 0.6, -0.5, 0.5)
-#: The independent observation-weight law of the weighted scenario.
-WEIGHT_RANGE = (0.5, 2.0)
+#: The observation weight of the weighted scenario, :math:`\omega(W) = \exp(0.5 W_1)`.
+WEIGHT_SLOPE = 0.5
+
+
+def weight(w1: np.ndarray, w2: np.ndarray) -> np.ndarray:
+    """:math:`\\omega(W)`, the weighted scenario's observation weight."""
+    del w2  # the weight reads W1 alone
+    return np.asarray(np.exp(WEIGHT_SLOPE * np.asarray(w1, dtype=float)))
+
 
 #: Every target the law evaluates.
 TARGETS = ("ey1", "ey0", "ate", "att", "rr", "ey_obs", "par")
@@ -96,8 +110,8 @@ def outcome(a: np.ndarray | float, w1: np.ndarray, w2: np.ndarray) -> np.ndarray
 def sample(n: int, seed: int, *, weighted: bool = False) -> pd.DataFrame:
     """``n`` rows ``W1, W2, A, Delta, Y`` (and ``wt`` when weighted), ``Y`` NaN when unobserved.
 
-    The weights are uniform on :data:`WEIGHT_RANGE` and independent of every other column, so
-    the weighted population is the sampling population and the truths do not move.
+    The weight ``wt`` is :func:`weight`, a function of ``W1``, so the weighted population tilts
+    the covariate law and :func:`truths` with ``weighted=True`` gives its parameters.
     """
     rng = np.random.default_rng(seed)
     w1 = rng.standard_normal(n)
@@ -109,7 +123,7 @@ def sample(n: int, seed: int, *, weighted: bool = False) -> pd.DataFrame:
         {"W1": w1, "W2": w2, "A": a, "Delta": delta, "Y": np.where(delta == 1, y, np.nan)}
     )
     if weighted:
-        frame["wt"] = rng.uniform(*WEIGHT_RANGE, n)
+        frame["wt"] = weight(w1, w2)
     return frame
 
 
@@ -129,24 +143,29 @@ def tilted_arm(a: int, gamma: float, w1: np.ndarray, w2: np.ndarray) -> np.ndarr
     return np.asarray(pi * q + (1.0 - pi) * expit(logit(q) + gamma))
 
 
-def truths(gamma: float) -> dict[str, float]:
-    """Every target of :data:`TARGETS` at ``gamma``; ``rr`` is the ratio, not its log."""
-    ey1 = _expect(lambda w1, w2: tilted_arm(1, gamma, w1, w2))
-    ey0 = _expect(lambda w1, w2: tilted_arm(0, gamma, w1, w2))
-    treated = _expect(propensity)
-    att = (
-        _expect(
-            lambda w1, w2: (
-                propensity(w1, w2) * (tilted_arm(1, gamma, w1, w2) - tilted_arm(0, gamma, w1, w2))
-            )
-        )
-        / treated
-    )
-    ey_obs = _expect(
-        lambda w1, w2: (
-            propensity(w1, w2) * tilted_arm(1, gamma, w1, w2)
-            + (1.0 - propensity(w1, w2)) * tilted_arm(0, gamma, w1, w2)
-        )
+def truths(gamma: float, *, weighted: bool = False) -> dict[str, float]:
+    """Every target of :data:`TARGETS` at ``gamma``; ``rr`` is the ratio, not its log.
+
+    With ``weighted=True`` every expectation is taken under the weight-tilted covariate law,
+    :math:`E[\\omega f] / E[\\omega]`, and ``att`` under :math:`E[\\omega g_0 f] / E[\\omega g_0]`.
+    """
+
+    def mean(f: Callable[[np.ndarray, np.ndarray], np.ndarray]) -> float:
+        if not weighted:
+            return _expect(f)
+        return _expect(lambda w1, w2: weight(w1, w2) * f(w1, w2)) / _expect(weight)
+
+    def m1(w1: np.ndarray, w2: np.ndarray) -> np.ndarray:
+        return tilted_arm(1, gamma, w1, w2)
+
+    def m0(w1: np.ndarray, w2: np.ndarray) -> np.ndarray:
+        return tilted_arm(0, gamma, w1, w2)
+
+    ey1 = mean(m1)
+    ey0 = mean(m0)
+    att = mean(lambda w1, w2: propensity(w1, w2) * (m1(w1, w2) - m0(w1, w2))) / mean(propensity)
+    ey_obs = mean(
+        lambda w1, w2: propensity(w1, w2) * m1(w1, w2) + (1.0 - propensity(w1, w2)) * m0(w1, w2)
     )
     return {
         "ey1": ey1,

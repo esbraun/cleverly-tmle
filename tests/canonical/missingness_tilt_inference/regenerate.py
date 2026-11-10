@@ -5,8 +5,7 @@ optionally ``--jobs`` and ``--fresh``, and nothing else (:mod:`tests.canonical.d
 The record has no comparator, so the run starts no container.  Laws, learners, sizes, margins
 and replicate counts are those of :mod:`tests.studies.missingness_tilt_inference` and its
 properties module, fixed before any run from the committed pilot
-(:mod:`tests.studies.missingness_tilt_pilot`).  The sizes in this draft read the small local
-pilot; the runner's full pilot replaces them before the declared run.
+(:mod:`tests.studies.missingness_tilt_pilot`, the full pilot of about 21,000 fits).
 
 Red-cell readings (declared before any run).  The record is ``gated``, so any red verdict fails
 the run.  A red that the diagnosis finds is not a defect follows the route of
@@ -26,12 +25,6 @@ after a verdict is seen.
   only at the ladder's size.
 * A red ``natural_course`` row is a defect suspect of the observed-arm tilt (``ey_obs``) or of
   the joint influence curve of ``par``; diagnose it the same way.
-* A red ``flexible_q`` row is a finding about the boosted outcome regression at n = 1,000, not
-  by itself a defect suspect: the tilted parameter is not doubly robust in the outcome
-  regression, and its remainder is second order in that regression's error.  If the matching
-  ``cross_fit`` row is green the route above applies, with the measured bias stated; the
-  ``+cross_fit`` rules stay licensed on the parametric cells and the evidence page says the
-  flexible learner was not shown to meet them.
 * A red ``ate_gamma2__correctly_specified`` calibration cell on the lower end of its SE ratio,
   a red coverage interval, or an efficiency ratio outside [0.90, 1.10] is an
   anti-conservative variance defect suspect of the tilted influence curve.  A red on the upper
@@ -43,13 +36,14 @@ after a verdict is seen.
   variance from the tilted one at gamma 2 (the law's exact ratio is 0.81): an instrument
   defect, and the run is void; the law changes under a fresh declaration.
 * A red ``ate_gamma2__targeted`` necessity arm (bias not equivalent) is a defect suspect of the
-  tilt fluctuation, read against the second-order remainder of the main-terms regression,
-  which the pilot puts at 0.02 SDs.  An ``untargeted`` arm whose bias is not discriminated, or
+  tilt fluctuation, read against the second-order remainder of the main-terms regression: its
+  large-n limit, from four fits at n = 3,000,000, is -0.019 (SE 0.005) targeted-arm SDs at
+  n = 1,000, and the untargeted arm's is +0.379 (SE 0.005).  An ``untargeted`` arm whose bias is not discriminated, or
   a displacement below 0.25, says the declared misspecification no longer moves the plug-in:
   an instrument defect, and the run is void.
 * A replication that raises is never redrawn, and the failure record governs.  A recordable
-  error costs its cell one replicate, within the declared 1% bound; the local pilot lost none
-  of about 2,000 fits.  An exception that is not recordable stops the run and is a defect
+  error costs its cell one replicate, within the declared 1% bound; the pilot lost none of
+  about 21,000 fits.  An exception that is not recordable stops the run and is a defect
   suspect.
 """
 

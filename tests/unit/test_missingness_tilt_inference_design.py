@@ -45,9 +45,25 @@ def _quad(function: Callable[[np.ndarray, np.ndarray], np.ndarray]) -> float:
     return total
 
 
+def _pilot_sd() -> dict[str, float]:
+    """Each target's n = 1,000 SD at gamma = 2, from the pilot, on the inference scale."""
+    committed = pd.read_csv(pilot.OUTPUT, low_memory=False)
+    out = {}
+    for scenario, targets in (
+        (study.IN_SAMPLE, ("ey1", "ey0", "ate", "att", "rr")),
+        (study.NATURAL_COURSE, ("ey_obs", "par")),
+    ):
+        rows = committed.loc[committed["label"] == scenario]
+        for name in targets:
+            values = rows.loc[rows["estimand"] == study.estimand_name(name, 2.0)]
+            out[name] = float(values["inference_estimate"].std(ddof=1))
+    return out
+
+
 class TestTheTruths:
+    @pytest.mark.parametrize("weighted", [False, True])
     @pytest.mark.parametrize("gamma", GAMMAS)
-    def test_every_truth_is_a_second_quadratures(self, gamma: float) -> None:
+    def test_every_truth_is_a_second_quadratures(self, gamma: float, weighted: bool) -> None:
         def arm(a: int) -> Callable[[np.ndarray, np.ndarray], np.ndarray]:
             def m(w1: np.ndarray, w2: np.ndarray) -> np.ndarray:
                 q = law.outcome(a, w1, w2)
@@ -57,11 +73,19 @@ class TestTheTruths:
             return m
 
         m1, m0 = arm(1), arm(0)
-        ey1 = _quad(m1)
-        ey0 = _quad(m0)
-        treated = _quad(law.propensity)
-        att = _quad(lambda w1, w2: law.propensity(w1, w2) * (m1(w1, w2) - m0(w1, w2))) / treated
-        ey_obs = _quad(
+
+        def mean(f: Callable[[np.ndarray, np.ndarray], np.ndarray]) -> float:
+            if not weighted:
+                return _quad(f)
+            return _quad(lambda w1, w2: np.exp(0.5 * w1) * f(w1, w2)) / _quad(
+                lambda w1, w2: np.exp(0.5 * w1)
+            )
+
+        ey1 = mean(m1)
+        ey0 = mean(m0)
+        treated = mean(law.propensity)
+        att = mean(lambda w1, w2: law.propensity(w1, w2) * (m1(w1, w2) - m0(w1, w2))) / treated
+        ey_obs = mean(
             lambda w1, w2: (
                 law.propensity(w1, w2) * m1(w1, w2) + (1 - law.propensity(w1, w2)) * m0(w1, w2)
             )
@@ -75,13 +99,17 @@ class TestTheTruths:
             "ey_obs": ey_obs,
             "par": ey_obs - ey0,
         }
-        truths = law.truths(gamma)
+        truths = law.truths(gamma, weighted=weighted)
         for name, value in expected.items():
             assert truths[name] == pytest.approx(value, abs=1e-10), name
 
-    def test_the_truths_are_the_full_data_means_the_tilt_describes(self) -> None:
-        """Simulate the full-data law: an unobserved outcome is Bernoulli(expit(logit Q + gamma))."""
-        rng = np.random.default_rng(stream_seed(study.STUDY, "design", "full_data"))
+    @pytest.mark.parametrize("weighted", [False, True])
+    def test_the_truths_are_the_full_data_means_the_tilt_describes(self, weighted: bool) -> None:
+        """Simulate the full-data law: an unobserved outcome is Bernoulli(expit(logit Q + gamma)).
+
+        Weighted, every mean is the weighted mean under ``exp(0.5 W1)``.
+        """
+        rng = np.random.default_rng(stream_seed(study.STUDY, "design", "full_data", str(weighted)))
         n = 2_000_000
         w1 = rng.standard_normal(n)
         w2 = rng.binomial(1, 0.5, n).astype(float)
@@ -93,21 +121,43 @@ class TestTheTruths:
             observed = rng.binomial(1, law.response(arm, w1, w2)) == 1
             p = np.where(observed, q, expit(logit(q) + gamma))
             means[arm] = rng.binomial(1, p)
-        truths = law.truths(gamma)
-        tolerance = 5.0 / np.sqrt(n)
-        assert np.mean(means[1]) == pytest.approx(truths["ey1"], abs=tolerance)
-        assert np.mean(means[0]) == pytest.approx(truths["ey0"], abs=tolerance)
+        omega = np.exp(0.5 * w1) if weighted else np.ones(n)
+        truths = law.truths(gamma, weighted=weighted)
+        # The Kish size of exp(0.5 W1) is n exp(-0.25), so the tolerance widens by exp(0.125).
+        tolerance = 5.0 * np.exp(0.125) / np.sqrt(n)
+        assert np.average(means[1], weights=omega) == pytest.approx(truths["ey1"], abs=tolerance)
+        assert np.average(means[0], weights=omega) == pytest.approx(truths["ey0"], abs=tolerance)
         treated = a == 1
-        att = np.mean(means[1][treated] - means[0][treated])
+        att = np.average(means[1][treated] - means[0][treated], weights=omega[treated])
         assert att == pytest.approx(truths["att"], abs=2 * tolerance / np.sqrt(np.mean(treated)))
         observed_arm = np.where(treated, means[1], means[0])
-        assert np.mean(observed_arm) == pytest.approx(truths["ey_obs"], abs=tolerance)
+        assert np.average(observed_arm, weights=omega) == pytest.approx(
+            truths["ey_obs"], abs=tolerance
+        )
 
-    def test_the_tilt_moves_every_target(self) -> None:
-        """A nonzero witness: the gamma = 2 truths sit away from the MAR ones."""
-        mar, tilted = law.truths(0.0), law.truths(2.0)
+    def test_the_tilt_moves_every_target_by_half_an_sd(self) -> None:
+        """A nonzero witness in SE units: each gamma = 2 truth sits at least half its n = 1,000
+        SD (the pilot spread, on the inference scale) from its MAR value.  At gamma = -1 the
+        contrast barely moves, which is why those cells test validity only."""
+        spread = _pilot_sd()
+        mar, tilted, low = law.truths(0.0), law.truths(2.0), law.truths(-1.0)
+
+        def scale(name: str, value: float) -> float:
+            return float(np.log(value)) if name == "rr" else value
+
         for name in law.TARGETS:
-            assert abs(tilted[name] - mar[name]) > 0.01, name
+            moved = abs(scale(name, tilted[name]) - scale(name, mar[name]))
+            assert moved >= 0.5 * spread[name], name
+        assert abs(low["ate"] - mar["ate"]) / spread["ate"] < 0.15
+
+    def test_the_weighted_truths_differ_from_the_unweighted_by_half_an_sd(self) -> None:
+        """A fit that dropped its weights would miss: ey1 and ate at gamma = 2."""
+        committed = pd.read_csv(pilot.OUTPUT, low_memory=False)
+        rows = committed.loc[committed["label"] == study.WEIGHTED]
+        weighted, plain = law.truths(2.0, weighted=True), law.truths(2.0)
+        for name in ("ey1", "ate"):
+            estimates = rows.loc[rows["estimand"] == study.estimand_name(name, 2.0), "estimate"]
+            assert abs(weighted[name] - plain[name]) >= 0.5 * float(estimates.std(ddof=1)), name
 
     def test_the_study_truths_are_the_laws(self) -> None:
         for scenario, spec in study.SCENARIOS.items():
@@ -115,14 +165,12 @@ class TestTheTruths:
             for gamma in study.GAMMAS:
                 for target in spec.targets:
                     name = study.estimand_name(target, gamma)
-                    assert study.TRUTH[scenario][name] == law.truths(gamma)[target]
+                    expected = law.truths(gamma, weighted=spec.weighted)[target]
+                    assert study.TRUTH[scenario][name] == expected
 
-    def test_the_weights_are_independent_of_the_data(self) -> None:
-        frame = law.sample(200_000, stream_seed(study.STUDY, "design", "weights"), weighted=True)
-        low, high = law.WEIGHT_RANGE
-        assert frame["wt"].between(low, high).all()
-        for column in ("W1", "A", "Delta"):
-            assert abs(np.corrcoef(frame["wt"], frame[column])[0, 1]) < 0.01
+    def test_the_weight_is_the_declared_function_of_w1(self) -> None:
+        frame = law.sample(10_000, stream_seed(study.STUDY, "design", "weights"), weighted=True)
+        np.testing.assert_allclose(frame["wt"], np.exp(0.5 * frame["W1"]), rtol=1e-15)
 
 
 class TestTheMechanisms:
@@ -177,29 +225,34 @@ class TestTheEfficientSpread:
 
 class TestTheSizes:
     def test_the_property_sizes_are_the_pilots(self) -> None:
-        committed = pd.read_csv(pilot.OUTPUT)
+        committed = pd.read_csv(pilot.OUTPUT, low_memory=False)
         assert pilot.calibration_size(committed) == properties.CALIBRATION_REPLICATES
         assert pilot.necessity_size(committed) == properties.NECESSITY_REPLICATES
 
     def test_the_primary_size_is_the_pilots(self) -> None:
-        committed = pd.read_csv(pilot.OUTPUT)
-        full = [s for s in study.SCENARIOS if (committed["label"] == s).any()]
-        if not full:
-            pytest.skip(
-                "draft declaration: only the local pilot is committed, whose 200 draws read "
-                "no budget; the runner's full pilot sets PRIMARY_REPLICATES"
-            )
+        committed = pd.read_csv(pilot.OUTPUT, low_memory=False)
         assert pilot.primary_size(committed) == study.PRIMARY_REPLICATES
 
     def test_the_pilot_lost_no_fit(self) -> None:
-        committed = pd.read_csv(pilot.OUTPUT)
+        committed = pd.read_csv(pilot.OUTPUT, low_memory=False)
         assert committed["refusal"].isna().all() or (committed["refusal"].fillna("") == "").all()
 
-    def test_the_local_pilot_is_what_the_module_declares(self) -> None:
-        committed = pd.read_csv(pilot.OUTPUT)
-        for label in pilot.LOCAL_LABELS:
+    def test_the_pilot_is_the_full_one(self) -> None:
+        """Every declared label at its declared draws; a smaller pilot cannot size the run."""
+        committed = pd.read_csv(pilot.OUTPUT, low_memory=False)
+        assert not committed["label"].str.endswith("_local").any()
+        for label, (_, n, draws, _) in pilot.PILOTS.items():
             rows = committed.loc[committed["label"] == label]
-            assert rows["replicate"].nunique() == pilot.PILOTS[label][2], label
+            assert rows["replicate"].nunique() == draws, label
+            assert (rows["n"] == n).all(), label
+
+    def test_the_necessity_limits_are_the_pilots(self) -> None:
+        limits = pilot.necessity_limits(pd.read_csv(pilot.OUTPUT, low_memory=False))
+        for name, value in properties.NECESSITY_LIMITS.items():
+            assert limits[name] == pytest.approx(value, abs=0.005), name
+        # The positive's limit sits well inside the 0.25 margin, the control's well outside it.
+        assert abs(limits["targeted"]) + 3 * limits["targeted_se"] < 0.1
+        assert limits["untargeted"] - 3 * limits["untargeted_se"] > 0.25
 
 
 class TestTheRecord:
@@ -213,23 +266,34 @@ class TestTheRecord:
         assert study.SEED != study.RESAMPLING_SEED
 
     def test_the_sample_seeds_are_distinct(self) -> None:
+        """At the declared counts: every primary, property, pilot and design stream."""
         seeds = [
             replicate_seed(study.STUDY, scenario, r)
             for scenario in study.SCENARIOS
-            for r in range(50)
+            for r in range(study.PRIMARY_REPLICATES)
         ]
         seeds += [
-            stream_seed(study.STUDY, "property_sample", family, properties.LABEL, r)
-            for family in (properties.CALIBRATION, properties.NECESSITY)
-            for r in range(50)
+            stream_seed(study.STUDY, "property_sample", properties.CALIBRATION, properties.LABEL, r)
+            for r in range(properties.CALIBRATION_REPLICATES)
         ]
         seeds += [
-            stream_seed(study.STUDY, "pilot", label, r) for label in pilot.PILOTS for r in range(50)
+            stream_seed(study.STUDY, "property_sample", properties.NECESSITY, properties.LABEL, r)
+            for r in range(properties.NECESSITY_REPLICATES)
+        ]
+        seeds += [
+            stream_seed(study.STUDY, "pilot", label, r)
+            for label, (_, _, draws, _) in pilot.PILOTS.items()
+            for r in range(draws)
         ]
         seeds += [
             stream_seed(study.STUDY, "design", label)
-            for label in ("full_data", "weights", "sample", "efficiency")
+            for label in ("weights", "sample", "efficiency")
         ]
+        seeds += [
+            stream_seed(study.STUDY, "design", "full_data", str(weighted))
+            for weighted in (False, True)
+        ]
+        seeds += [stream_seed(study.STUDY, "design", "rules", scenario) for scenario in RULES]
         assert len(set(seeds)) == len(seeds)
 
     def test_the_record_declares_the_scenario_sizes(self) -> None:
@@ -274,7 +338,6 @@ RULES = {
         "rr": "ratio+weighted",
     },
     study.NATURAL_COURSE: {"ey_obs": "natural_course", "ey0": "level", "par": "par"},
-    study.FLEXIBLE_Q: {"ate": "contrast+cross_fit", "rr": "ratio+cross_fit"},
 }
 
 

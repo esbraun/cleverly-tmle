@@ -29,7 +29,7 @@ cell                                      what it must show
 The A1-era control is a fit-free reading of the same fit, so a lost positive loses it too.  Its
 SE ratio is the MAR efficient SD over the tilted plug-in's spread: on the law the MAR efficient
 SD of ``ate`` is 0.898 and the tilted one at :math:`\gamma = 2` is 1.105 (ratio 0.81), and the
-local pilot reads 0.84 with coverage 0.90 (1,000 draws).  It needs ``mar_variance_control`` in
+pilot reads 0.82 with coverage 0.895 (8,000 draws).  It needs ``mar_variance_control`` in
 :data:`~tests.studies.evidence.property_verdicts.SE_CONTROL_SIDES` (side ``below``).
 
 **Targeting necessity** (``ate_gamma2``, R = :data:`NECESSITY_REPLICATES`).  The outcome
@@ -42,22 +42,31 @@ arm is the untargeted tilted plug-in on the MAR-targeted regression, whose first
 :math:`\operatorname{cov}(\kappa, \bar Q^* - \bar Q_0)`, nonzero because the dropped term moves
 the regression error with its level.  The positive's bias must be equivalent to zero, the
 control's discriminated from it, and the displacement at least
-:data:`TARGETING_DISPLACEMENT` positive-arm SDs.  The local pilot reads targeted +0.02 and
-untargeted +0.42 SDs (400 draws).  The positive's limit is not exactly the truth: the remainder above is a
-fixed nonzero number for a fixed misspecified regression, and the pilot puts it well inside the
-margin at n = 1,000.
+:data:`TARGETING_DISPLACEMENT` positive-arm SDs.  The pilot reads targeted +0.01 and
+untargeted +0.41 SDs (1,000 draws at n = 1,000).
 
-**Sizes** (declared before any run, from :mod:`tests.studies.missingness_tilt_pilot`).
-Provisional: they read the small local pilot (calibration 1,000 draws, pilot SE ratio 1.013;
-necessity 400 draws), and the runner's full pilot replaces them.
+The positive's limit is not exactly the truth: the remainder above is a fixed nonzero number for
+a fixed misspecified regression.  :data:`NECESSITY_LIMITS` records both arms' large-n limits,
+from four fits at n = 3,000,000 (the pilot label ``necessity_limit``,
+:func:`tests.studies.missingness_tilt_pilot.necessity_limits`), in units of the targeted arm's SD
+at n = 1,000: targeted -0.019 (SE 0.005 over the four fits), untargeted +0.379 (SE 0.005).  The
+positive's limit therefore sits well inside the 0.25 margin, so a red positive is a defect
+suspect and not the remainder, and the control's limit sits outside it.
 
-* :data:`CALIBRATION_REPLICATES`: the smallest multiple of 400 at which
-  :func:`~tests.studies.repeated_sizing.calibration_pass` at the one-sided 80% bounds of the
-  pilot SE ratio is at least :data:`~tests.studies.repeated_sizing.SIZED_SHARE`, and each
-  control discriminates with probability above ``1 - DISCRIMINATION_FAIL``.
-* :data:`NECESSITY_REPLICATES`: the smallest multiple of 200 at which the positive's bias
+**Sizes** (declared before any run, from the full pilot of
+:mod:`tests.studies.missingness_tilt_pilot`; the design test recomputes each).
+
+* :data:`CALIBRATION_REPLICATES` = 4,000:
+  :func:`~tests.studies.repeated_sizing.calibration_size` on the positive (one cell) with its
+  pilot SE ratio 0.987 and standardized bias 0.023 over 8,000 draws, at the whole calibration
+  share :data:`~tests.studies.repeated_sizing.SIZED_FAIL`, raised if needed until each SE
+  control (shrunken, noise, and the A1-era control at the one-sided 80% upper bound of its
+  pilot ratio 0.82) leaves the band with probability at least ``1 - DISCRIMINATION_FAIL``.  The
+  controls do not bind.
+* :data:`NECESSITY_REPLICATES` = 1,200: the smallest multiple of 200 at which the positive's bias
   equivalence at the one-sided 80% upper bound of its pilot bias, times the control's
-  discrimination at the lower bound of its pilot bias, is at least ``SIZED_SHARE``.
+  discrimination at the lower bound of its pilot bias, is at least
+  :data:`~tests.studies.repeated_sizing.SIZED_SHARE`.
 
 A replication that raises is never redrawn.
 """
@@ -100,9 +109,17 @@ NAME = study.estimand_name(TARGET, GAMMA)
 
 PROPERTY_N = study.PRIMARY_N
 CALIBRATION_N = PROPERTY_N
-#: Provisional, from the small local pilot (see the module docstring).
-CALIBRATION_REPLICATES = 8_400
-NECESSITY_REPLICATES = 1_600
+#: From the full pilot (see the module docstring).
+CALIBRATION_REPLICATES = 4_000
+NECESSITY_REPLICATES = 1_200
+#: The large-n limits of the necessity arms, in the targeted arm's n = 1,000 SD, with their
+#: standard errors over the four n = 3,000,000 pilot fits.
+NECESSITY_LIMITS = {
+    "targeted": -0.019,
+    "targeted_se": 0.005,
+    "untargeted": 0.379,
+    "untargeted_se": 0.005,
+}
 
 SHRUNKEN_SE_FACTOR = 0.70
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)

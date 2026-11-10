@@ -21,33 +21,42 @@ scenario           n       construction                           rules it licen
 ``in_sample``      1,000   ``TMLE(cross_fit=False)``;             ``level``, ``contrast``,
                            ey1, ey0, ate, att, rr                 ``conditional``, ``ratio``
 ``in_sample_4k``   4,000   the same fit, the n ladder             the same rules
-``cross_fit``      1,000   stacked CV-TMLE, 5 folds;              ``<kind>+cross_fit`` for
-                           ey1, ey0, ate, att, rr                 the four kinds
-``cv_evaluation``  1,000   ``cv_evaluation=True``, 5 folds;       ``level+cv_evaluation``,
+``cross_fit``      1,000   stacked CV-TMLE at the package's       ``<kind>+cross_fit`` for
+                           default 10 folds; ey1, ey0, ate,       the four kinds
+                           att, rr
+``cv_evaluation``  1,000   ``cv_evaluation=True``, 10 folds;      ``level+cv_evaluation``,
                            ey1, ey0, ate, att                     ``contrast+cv_evaluation``,
                                                                   ``conditional+cv_evaluation``
 ``weighted``       1,000   in sample, ``weights="wt"`` with       ``<kind>+weighted`` for the
-                           ``wt ~ U(0.5, 2)`` independent of      four kinds
-                           every other column; ey1, ey0, ate,
+                           ``wt = exp(0.5 W1)``; ey1, ey0, ate,   four kinds
                            att, rr
 ``natural_course`` 1,000   in sample; ey_obs, ey0, par            ``natural_course``, ``par``
                                                                   (and ``level`` again)
-``flexible_q``     1,000   stacked CV-TMLE, 5 folds, with the     the ``+cross_fit`` rules,
-                           flexible outcome learner;              under a nonparametric
-                           ey1, ey0, ate, att, rr                 outcome learner
 =================  ======  =====================================  ============================
 
 ``ratio`` is read on the log scale, where the package forms its interval.  ``att`` under
 ``cv_evaluation`` is covered; ``rr`` is not, because the fold-evaluated report forms no ratio.
-The truths of ``weighted`` are the unweighted ones, since the weights are independent of the
-data.
+The weight of ``weighted`` reads ``W1``, so its truths are those of the weight-tilted covariate
+law (:func:`tests.studies.missingness_tilt_law.truths` with ``weighted=True``), which differ
+from the unweighted truths by more than half an SD at n = 1,000 for ``ey1`` and ``ate``: a fit
+that dropped its weights would miss them.
+
+**What the cells test.**  At :math:`\gamma = 2` every target's truth moves from its MAR value by
+at least half its n = 1,000 SD (the design test checks it against the pilot spread), so those
+cells test that the tilt is applied and targeted.  At :math:`\gamma = -1` the movement is small
+for the contrasts (``ate`` moves 0.07 SD), so those cells test the validity of the interval
+off :math:`\gamma = 0`, not that the tilt was applied.
+
+**License scope.**  A licensed rule covers the configurations measured here: parametric GLM
+nuisance learners (the declared logistic regressions, correctly specified), n of at least
+1,000, a binary treatment and outcome, one repeat, and the package's default fold count where
+the fit is cross-fitted.  It says nothing about flexible outcome learners, whose remainder the
+tilted parameter does not protect: it is not doubly robust in the outcome regression.
 
 **Learners** (declared here, not the package defaults).  Outcome: the degree-two
 interaction expansion of the design (which holds the law's ``A W1`` term, so the model is
 correctly specified), ``StandardScaler`` and ``LogisticRegression(C=1e4)``.  Treatment and
-response mechanisms: main-terms ``LogisticRegression(C=1e4)``, correctly specified.  The
-``flexible_q`` cell replaces the outcome learner with
-``HistGradientBoostingClassifier(max_iter=100, max_depth=3)``.
+response mechanisms: main-terms ``LogisticRegression(C=1e4)``, correctly specified.
 
 **Initial estimate.**  ``initial_estimate`` is the untargeted tilted plug-in of the same fit,
 ``cleverly.sensitivity.missingness._tilted_value`` on the MAR-targeted regression, combined over
@@ -56,23 +65,25 @@ reported it.
 
 **Size** (declared before any run, from :mod:`tests.studies.missingness_tilt_pilot`).
 :data:`PRIMARY_REPLICATES` is :func:`~tests.studies.repeated_sizing.primary_replicates` on the
-pilot's per-estimand coverages, with one implementation.  The value below is a placeholder.
-The local pilot (200 draws of ``in_sample``, ``cross_fit`` and ``flexible_q``) is too small for
-the rule: its lowest cell, ``ate[gamma=2]`` in sample at 182 of 200, has a one-sided 80% lower
-bound of 0.889, below the 0.90 floor, so no budget meets it.  The same configuration read 0.956
-over the 1,000 calibration pilot draws.  The runner's full pilot (2,000 draws of every scenario)
-sets the size before the declared run, and the design test then recomputes it.
+full pilot's 2,000 draws of every scenario, with one implementation, one bias group per scenario
+from the standardized errors on the inference scale, and both shares at
+:data:`~tests.studies.repeated_sizing.PRIMARY_CLAUSE_SHARE`: 8,400.  No fit was lost in the
+pilot's 12,000 fits.  The lowest pilot coverages are all in ``weighted`` at
+:math:`\gamma = -1` (``ey0`` 0.9215, one-sided 80% lower bound 0.916; ``att`` 0.926; ``rr``
+0.927), with SE ratios down to 0.94.  Every other scenario covers between 0.932 and 0.965, with
+SE ratios between 0.95 and 1.05 and no standardized bias above 0.11, so the weighted cells bind
+the size.  The design test recomputes it.
 
 **Properties.** :mod:`tests.studies.missingness_tilt_properties` declares the calibration
 family at :math:`\gamma = 2` with its two derived controls and the A1-era interval as a third
-control, and the targeting-necessity family with a shrunken outcome regression.
+control, and the targeting-necessity family with a main-terms outcome regression.
 
 **Comparator.** None.  No published implementation reports this targeted tilt.
 
-**Not covered.** Repeated cross-fitting (``+repeats``), clustered rows, a declared
-``arm_gamma`` direction, multi-arm and continuous outcomes, ``or`` and ``paf``, regime means
-and MSM coefficients (which keep the descriptive plug-in spread), and collaborative fits.  A
-fit whose rule no registered study covers reads descriptive.
+**Not covered.** Flexible outcome learners, repeated cross-fitting (``+repeats``), clustered
+rows, a declared ``arm_gamma`` direction, multi-arm and continuous outcomes, ``or`` and
+``paf``, regime means and MSM coefficients (which keep the descriptive plug-in spread), and
+collaborative fits.  A fit whose rule no registered study covers reads descriptive.
 
 The red-cell readings are declared in ``tests/canonical/missingness_tilt_inference/regenerate.py``.
 """
@@ -85,7 +96,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
@@ -104,8 +114,8 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
-#: Provisional: the small local pilot's size (see the module docstring).
-PRIMARY_REPLICATES = 2_000
+#: The shared primary rule on the full pilot (see the module docstring).
+PRIMARY_REPLICATES = 8_400
 PRIMARY_N = 1_000
 LADDER_N = 4_000
 FAILURE_BOUND = 0.01
@@ -126,7 +136,6 @@ CROSS_FIT = "cross_fit"
 CV_EVALUATION = "cv_evaluation"
 WEIGHTED = "weighted"
 NATURAL_COURSE = "natural_course"
-FLEXIBLE_Q = "flexible_q"
 
 
 def estimand_name(target: str, gamma: float) -> str:
@@ -146,11 +155,6 @@ def outcome_learner() -> Pipeline:
     )
 
 
-def flexible_outcome_learner() -> HistGradientBoostingClassifier:
-    """The ``flexible_q`` cell's outcome regression."""
-    return HistGradientBoostingClassifier(max_iter=100, max_depth=3, random_state=0)
-
-
 def mechanism_learner() -> LogisticRegression:
     """The declared treatment and response mechanisms: main-terms logistic regression."""
     return LogisticRegression(C=UNPENALIZED_C, max_iter=5000)
@@ -168,20 +172,17 @@ class Scenario:
     targets : tuple of str
         The parameters the fit reports and the tilt reads.
     cross_fit : bool
-        Whether the fit is cross-fitted (five folds).
+        Whether the fit is cross-fitted (the package's default fold count).
     cv_evaluation : bool
         Whether the cross-fitted report is fold-evaluated.
     weighted : bool
         Whether the fit reads the observation weights ``wt``.
-    flexible : bool
-        Whether the outcome learner is the flexible one.
     """
 
     targets: tuple[str, ...]
     cross_fit: bool = False
     cv_evaluation: bool = False
     weighted: bool = False
-    flexible: bool = False
 
     @property
     def estimands(self) -> tuple[str, ...]:
@@ -196,13 +197,17 @@ SCENARIOS: dict[str, Scenario] = {
     CV_EVALUATION: Scenario(LINEAR_TARGETS, cross_fit=True, cv_evaluation=True),
     WEIGHTED: Scenario(RATIO_TARGETS, weighted=True),
     NATURAL_COURSE: Scenario(NATURAL_TARGETS),
-    FLEXIBLE_Q: Scenario(RATIO_TARGETS, cross_fit=True, flexible=True),
 }
 SCENARIO_N = {LADDER: LADDER_N}
 ESTIMANDS = {scenario: spec.estimands for scenario, spec in SCENARIOS.items()}
 TRUTHS_BY_GAMMA = {gamma: law.truths(gamma) for gamma in GAMMAS}
+WEIGHTED_TRUTHS_BY_GAMMA = {gamma: law.truths(gamma, weighted=True) for gamma in GAMMAS}
 TRUTH: dict[str, dict[str, float]] = {
-    scenario: {estimand_name(t, g): TRUTHS_BY_GAMMA[g][t] for g in GAMMAS for t in spec.targets}
+    scenario: {
+        estimand_name(t, g): (WEIGHTED_TRUTHS_BY_GAMMA if spec.weighted else TRUTHS_BY_GAMMA)[g][t]
+        for g in GAMMAS
+        for t in spec.targets
+    }
     for scenario, spec in SCENARIOS.items()
 }
 
@@ -252,7 +257,7 @@ STUDY = StudyRecord(
 CONFIGURATION = {
     "construction": "targeted missingness tilt off gamma = 0, read by missingness_tilt",
     "gammas": list(GAMMAS),
-    "n_folds": 5,
+    "n_folds": "package default (10)",
     "scenarios": {
         scenario: {
             "targets": list(spec.targets),
@@ -260,16 +265,15 @@ CONFIGURATION = {
             "cross_fit": spec.cross_fit,
             "cv_evaluation": spec.cv_evaluation,
             "weighted": spec.weighted,
-            "outcome_learner": "flexible" if spec.flexible else "declared",
         }
         for scenario, spec in SCENARIOS.items()
     },
     "learners": (
         "outcome: PolynomialFeatures(2, interaction_only) + StandardScaler + "
-        "LogisticRegression(C=1e4); flexible: HistGradientBoostingClassifier(max_iter=100, "
-        "max_depth=3); treatment and response: LogisticRegression(C=1e4) on main terms"
+        "LogisticRegression(C=1e4); treatment and response: LogisticRegression(C=1e4) on "
+        "main terms"
     ),
-    "weights": f"uniform{law.WEIGHT_RANGE}, independent of every column",
+    "weights": f"exp({law.WEIGHT_SLOPE} W1); truths of the weight-tilted covariate law",
     "initial_estimate": "the untargeted tilted plug-in (_tilted_value) of the same fit",
     "variance_method": "ic",
 }
@@ -280,14 +284,14 @@ def estimator(scenario: str, **overrides: Any) -> TMLE:
     spec = SCENARIOS[scenario]
     settings: dict[str, Any] = {
         "estimands": spec.targets,
-        "outcome_learner": flexible_outcome_learner() if spec.flexible else outcome_learner(),
+        "outcome_learner": outcome_learner(),
         "treatment_learner": mechanism_learner(),
         "missingness_learner": mechanism_learner(),
         "cross_fit": spec.cross_fit,
         "random_state": 0,
     }
     if spec.cross_fit:
-        settings.update(n_folds=5, cv_evaluation=spec.cv_evaluation)
+        settings["cv_evaluation"] = spec.cv_evaluation
     settings.update(overrides)
     return TMLE(**settings)
 
@@ -369,6 +373,9 @@ def tilt_rows(
         if bool(record["is_mar"]):
             continue
         name = estimand_name(str(record["estimand"]), float(record["gamma"]))
+        std_error = float(record.get("std_err", float("nan")))
+        if not np.isfinite(std_error):
+            raise AssertionError(f"{name} carries no finite targeted standard error")
         psi = float(record["psi"])
         ratio = str(record["estimand"]) == "rr"
         low, high = float(record["ci_lower"]), float(record["ci_upper"])
@@ -383,7 +390,7 @@ def tilt_rows(
                 "truth": reference,
                 "estimate": psi,
                 "inference_estimate": float(np.log(psi)) if ratio else psi,
-                "std_error": float(record["std_err"]),
+                "std_error": std_error,
                 "ci_lower": low,
                 "ci_upper": high,
                 "inference_scale": "log" if ratio else "identity",
