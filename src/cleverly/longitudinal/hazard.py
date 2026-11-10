@@ -126,6 +126,7 @@ __all__ = [
     "project_curves",
     "refuse_hazard_design",
     "refuse_hazard_settings",
+    "softmax_logits",
     "solve_per_horizon",
     "target_regimens",
     "walk_curve",
@@ -492,6 +493,43 @@ def clip_logits(
     return np.asarray(np.clip(shifted, low, high), dtype=float)
 
 
+def softmax_logits(hazards: FloatArray, high: float, full: BoolArray | None = None) -> FloatArray:
+    """``(n, T, L, J)`` softmax logits of hazards, before the clip into the bounds.
+
+    A unit with some mass left on no event takes :math:`\\log(\\lambda_j / \\lambda_0)`.  A
+    unit with none left, which is every unit of a ``full`` cell, ``(T, L)``, and any other unit
+    whose fitted hazards sum to one or more, has no finite reference.  It takes
+    :math:`\\log(\\lambda_j / \\max_l \\lambda_l) + \\text{high}`, the ratio-keeping upper
+    clip of :func:`clip_logits`: the largest cause sits at ``high`` and every ratio
+    :math:`\\lambda_j / \\lambda_l` is kept down to the lower bound.  A full cell's softmax has
+    no no-event category, so the common constant does not move its split.
+
+    Parameters
+    ----------
+    hazards : FloatArray
+        ``(n, T, L, J)`` hazards.
+    high : float
+        The upper clip of a logit.
+    full : BoolArray or None, default=None
+        ``(T, L)`` cells whose all-cause hazard is held at one.
+
+    Returns
+    -------
+    FloatArray
+        The logits, unclipped.  A zero hazard has a logit of :math:`-\\infty`.
+    """
+    lam = np.asarray(hazards, dtype=float)
+    reference = 1.0 - lam.sum(axis=-1)
+    largest = lam.max(axis=-1)
+    spent = reference <= 0.0
+    if full is not None:
+        spent = spent | np.asarray(full, dtype=bool)[None]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        eta = np.log(lam) - np.log(reference)[..., None]
+        topped = np.log(lam) - np.log(largest)[..., None] + high
+    return np.asarray(np.where((spent & (largest > 0.0))[..., None], topped, eta), dtype=float)
+
+
 @dataclass(frozen=True)
 class HazardState:
     """One set of hazards, held as clipped softmax logits.
@@ -558,29 +596,16 @@ class HazardState:
 
         A cell of ``empty``, ``(T, L, J)``, holds the hazard at exactly zero for every unit,
         its logit at :math:`-\\infty`.  A cell of ``full``, ``(T, L)``, holds the all-cause
-        hazard at exactly one for every unit, and its logits are
-        :math:`\\log(\\lambda_j / \\sum_l \\lambda_l)`, which keep the fitted ratios
-        :math:`\\lambda_j / \\lambda_l` among the causes.  No fluctuation moves either hold.
+        hazard at exactly one for every unit, and its logits are those of
+        :func:`softmax_logits`, which keep the fitted ratios :math:`\\lambda_j / \\lambda_l`
+        among the causes down to the lower bound.  No fluctuation moves either hold.
         At a node of ``node_bounds`` the logit is
         :math:`\\operatorname{logit}((\\lambda_j - l_j) / s_j)`, clipped into ``bounds``, so the
         hazard lies in :math:`[l_j + (1 - \\alpha) s_j, u_j - (1 - \\alpha) s_j]`.
         """
         lam = np.asarray(hazards, dtype=float)
         low, high = bounds
-        reference = 1.0 - lam.sum(axis=-1)
-        if full is not None:
-            # A full cell's softmax has no no-event category, so its logits are the causes'
-            # log shares: any common constant gives the same split, and a reference of
-            # log(1 - sum) = log(0) would send every cause to the same clipped bound.
-            reference = np.where(np.asarray(full, dtype=bool)[None], lam.sum(axis=-1), reference)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            eta = np.log(lam) - np.log(reference)[..., None]
-            # A unit outside a full cell whose fitted all-cause hazard reaches one has no
-            # finite logits; give it the ratio-keeping upper clip of clip_logits directly.
-            spent = (reference <= 0.0) & (lam.max(axis=-1) > 0.0)
-            eta = np.where(
-                spent[..., None], np.log(lam) - np.log(lam.max(axis=-1))[..., None] + high, eta
-            )
+        eta = softmax_logits(lam, high, full)
         bounded = None
         if node_bounds is not None and node_bounds.active:
             k = bounded = node_bounds.bounded

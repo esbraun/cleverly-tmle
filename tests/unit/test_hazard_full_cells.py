@@ -184,16 +184,36 @@ def test_a_full_cell_keeps_an_empty_cause_at_zero() -> None:
     np.testing.assert_allclose(state.hazards[0, 0, 0], [0.25, 0.0, 0.75], atol=1e-12)
 
 
-def test_m_a_no_event_reference_loses_the_shares() -> None:
-    """Deliberate mutation: the old logits log(lambda_j / (1 - sum)) on a full cell."""
+def test_a_full_cell_keeps_a_small_share() -> None:
+    """The largest cause sits at the upper bound, so a share far below the others survives.
+
+    The fitted hazards sum to 0.9, as a learner's can in a full cell; the hold rescales them
+    to one and keeps their ratio.
+    """
+    hazards = np.array([[[[1e-5, 0.9 - 1e-5]]]])
+    state = HazardState.from_hazards(hazards, BOUNDS, full=np.ones((1, 1), dtype=bool))
+    np.testing.assert_allclose(state.hazards, hazards / 0.9, rtol=1e-9, atol=0.0)
+
+
+def _no_event_reference(
+    hazards: np.ndarray, high: float, full: np.ndarray | None = None
+) -> np.ndarray:
+    """The logits before CDR-003: log(lambda_j / (1 - sum)) in every cell."""
+    lam = np.asarray(hazards, dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.asarray(np.log(lam) - np.log(1.0 - lam.sum(axis=-1))[..., None])
+
+
+def test_m_a_no_event_reference_loses_the_shares(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deliberate mutation: the old no-event reference in from_hazards."""
+    from cleverly.longitudinal import hazard as hazard_module
+
+    monkeypatch.setattr(hazard_module, "softmax_logits", _no_event_reference)
     hazards = _full_cell([0.2, 0.8])
-    lam = hazards
-    with np.errstate(divide="ignore"):
-        eta = np.log(lam) - np.log(1.0 - lam.sum(axis=-1))[..., None]
-    eta = np.clip(np.nan_to_num(eta, posinf=BOUNDS[1], neginf=BOUNDS[0]), *BOUNDS)
-    mutated = HazardState(eta, np.ones((1, 1), dtype=bool))
+    mutated = HazardState.from_hazards(hazards, BOUNDS, full=np.ones((1, 1), dtype=bool))
     np.testing.assert_allclose(mutated.hazards, 0.5)
-    assert np.max(np.abs(mutated.hazards - hazards)) > 0.29
+    result = _competing_fit("one_step")
+    assert abs(result["cif_regimen[a0, one @ t=1]"].psi - 0.5) > 0.1
 
 
 def _one_node_law() -> LongitudinalData:
@@ -283,15 +303,17 @@ def test_the_likelihood_fallback_reads_a_full_cell_over_the_causes() -> None:
 
 
 def _near_full_unit() -> np.ndarray:
-    """``(2, 1, 1, 2)`` hazards: one unit with no event mass left, one ordinary unit."""
-    return np.array([[[[0.2, 0.8]]], [[[0.1, 0.3]]]])
+    """``(3, 1, 1, 2)`` hazards: no event mass left, almost none left, an ordinary unit."""
+    return np.array([[[[0.2, 0.8]]], [[[0.2, 0.8 - 1e-6]]], [[[0.1, 0.3]]]])
 
 
 def test_a_unit_near_one_keeps_its_cause_ratio() -> None:
     hazards = _near_full_unit()
     state = HazardState.from_hazards(hazards, BOUNDS)
-    near, ordinary = state.hazards[0, 0, 0], state.hazards[1, 0, 0]
+    near, ordinary = state.hazards[0, 0, 0], state.hazards[2, 0, 0]
     assert near[1] / near[0] == pytest.approx(4.0, rel=1e-12)
+    almost = state.hazards[1, 0, 0]
+    assert almost[1] / almost[0] == pytest.approx(4.0 - 5e-6, rel=1e-9)
     assert state.logits[0, 0, 0].max() == pytest.approx(BOUNDS[1], abs=1e-12)
     assert near.sum() < 1.0
     assert 1.0 - near.sum() == pytest.approx(1.0 / (1.0 + 1.25 * np.exp(BOUNDS[1])), rel=1e-9)
@@ -326,11 +348,18 @@ def test_one_cause_takes_the_plain_clip() -> None:
     np.testing.assert_array_equal(clip_logits(logits, BOUNDS), np.clip(logits, *BOUNDS))
 
 
-def test_m_a_per_cause_upper_clip_loses_the_ratio() -> None:
-    """Deliberate mutation: clip each cause logit on its own, as before CDR-003."""
-    hazards = _near_full_unit()
-    with np.errstate(divide="ignore"):
-        eta = np.log(hazards) - np.log(1.0 - hazards.sum(axis=-1))[..., None]
-    eta = np.clip(np.nan_to_num(eta, posinf=BOUNDS[1]), *BOUNDS)
-    near = HazardState(eta).hazards[0, 0, 0]
-    assert near[1] / near[0] == pytest.approx(1.0)
+def test_m_a_per_cause_upper_clip_loses_the_ratio(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deliberate mutation: clip each cause logit on its own in clip_logits, as before CDR-003."""
+    from cleverly.longitudinal import hazard as hazard_module
+
+    monkeypatch.setattr(
+        hazard_module, "clip_logits", lambda logits, bounds, bounded=None: np.clip(logits, *bounds)
+    )
+    state = HazardState.from_hazards(_near_full_unit(), BOUNDS)
+    almost = state.hazards[1, 0, 0]
+    assert almost[1] / almost[0] == pytest.approx(1.0)
+    moved = HazardState.from_hazards(_near_full_unit()[2:], BOUNDS).moved(
+        np.full((1, 1, 1, 2), 10.0), BOUNDS
+    )
+    stepped = moved.hazards[0, 0, 0]
+    assert stepped[1] / stepped[0] == pytest.approx(1.0)

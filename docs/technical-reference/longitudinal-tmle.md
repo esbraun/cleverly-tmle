@@ -1079,7 +1079,7 @@ node, and $t$ is a reported horizon.
 | initial fit | the sequential pseudo-hazards of `survtmle` (`hazards_estimate.R`). Cause $j$ at node $k$ regresses its event on the rows at risk with no event of an earlier cause. Then $\lambda_j = \rho_j (1 - \sum_{i < j} \lambda_i)$. `outcome_learner` fits each node and cause, and the fit predicts every treatment level for every unit |
 | influence curve | $D_{r,j,t} = \sum_{k \le t} \sum_l h^{r,j,t}_l(k, A, W)\,R_k\,(dN_l(k) - \lambda_l(k \mid A, W)) + \sum_a q_r(a \mid W) F_j(t \mid a, W) - \psi_{r,j}(t)$. $R_k$ indicates a unit uncensored through $k$ and event-free before $k$ |
 | clever covariate | $h^{r,j,t}_l(k, a, W) = \frac{q_r(a \mid W)}{g(a \mid W)\,G_k(a, W)}\,1\{k \le t\}\bigl[1\{l = j\} - \frac{F_j(t \mid a, W) - F_j(k \mid a, W)}{S(k \mid a, W)}\bigr]$, with the retention $G_k = \prod_{s \le k} c_s$. Moore and van der Laan (2009), (11) to (16), at one cause. Rytgaard and van der Laan (2024), Section 3.1 |
-| submodel | the multinomial logistic fluctuation $\eta_l(\epsilon) = \eta_l + \sum_m \epsilon_m h^m_l$ of the softmax logits $\eta_l = \log(\lambda_l / \lambda_0)$. $\lambda_0$ is the probability of no event. In a [full cell](#a-hazard-cell-with-no-event), $\lambda_0 = 0$ and $\eta_l = \log(\lambda_l / \sum_m \lambda_m)$. At one cause the submodel is (10) of Moore and van der Laan (2009) |
+| submodel | the multinomial logistic fluctuation $\eta_l(\epsilon) = \eta_l + \sum_m \epsilon_m h^m_l$ of the softmax logits $\eta_l = \log(\lambda_l / \lambda_0)$. $\lambda_0$ is the probability of no event. In a [full cell](#a-hazard-cell-with-no-event), $\lambda_0 = 0$ and the softmax runs over the causes alone, $\lambda_l = e^{\eta_l} / \sum_m e^{\eta_m}$. At one cause the submodel is (10) of Moore and van der Laan (2009) |
 | bound | the fit clips the logits into $[\operatorname{logit}(1 - \alpha), \operatorname{logit}(\alpha)]$ after every update, with `alpha=`. When a unit's largest logit at a node passes the upper end, every cause logit of that unit and node first moves down by the same amount, so the largest sits at the bound and each ratio $\lambda_j / \lambda_l$ is kept. Each logit is then clipped from below. With one cause this is the plain clip. So $\sum_l \lambda_l < 1$ holds, and no renormalization follows a clip |
 | inference | the influence-curve variance and the multiplier band over the reported parameters, as on an iterated-mean fit. With `id=`, the cluster sums and the fit statuses of [clusters](#clusters) apply |
 | cross-fitting | with `n_folds > 1`, the hazards, $g$ and $G$ are out of fold. One pooled targeting then runs over every row |
@@ -1225,8 +1225,9 @@ A cell whose followers all have an event is *full*. The fit holds the all-cause 
 cell at exactly one, its maximum-likelihood value. The survival after a full cell is zero, and each ratio over that survival is zero there.
 
 The hold fixes only the sum of the cause hazards. With competing causes, each unit's logits in a
-full cell are its fitted log shares $\log(\lambda_j / \sum_l \lambda_l)$, so the fit keeps the
-learner's split of the event among the causes, and the fluctuation moves that split while the sum
+full cell are $\log(\lambda_j / \max_l \lambda_l) + \operatorname{logit}(\alpha)$, so the largest
+cause sits at the upper clip. The fit keeps the learner's split of the event among the causes,
+down to a share $(\alpha / (1 - \alpha))^2$ of the largest, where the lower clip binds, and the fluctuation moves that split while the sum
 stays at one. In the witness of `test_a_correct_cause_split_survives_a_wrong_treatment_mechanism`, every
 unit has one of two causes at the one node, the fitted split is correct, and the treatment model is
 wrong. Both algorithms return the true risk of 0.5 for each cause and arm. Before the fix, the
