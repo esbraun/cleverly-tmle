@@ -327,6 +327,10 @@ for a finite-sample red with no defect.
 | `margin:root_n_slope_upper` | -0.3750 | root-n slope upper bound |
 | `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
 | `margin:shrunken_se_factor` | 0.7000 | negative-control SE multiplier |
+| `margin:subject_failure_bound` | 0.0100 | share of `cleverly` fits a primary cell may lose |
+| `margin:subject_failures_allowed` | 16 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | share of `npcausal` fits a primary cell may lose |
+| `margin:reference_failures_allowed` | 16 | the same bound, in primary replications |
 | `bound:ate_ipsi[odds x0.5 vs natural course][V=0]_standard_error` | 0.0050 | exact L1 efficiency-bound standard error at primary n |
 | `bound:ate_ipsi[odds x0.5 vs natural course][V=1]_standard_error` | 0.0053 | exact L1 efficiency-bound standard error at primary n |
 | `bound:ate_ipsi[odds x0.5 vs natural course][V=2]_standard_error` | 0.0043 | exact L1 efficiency-bound standard error at primary n |

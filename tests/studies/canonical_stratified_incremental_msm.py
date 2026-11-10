@@ -37,6 +37,13 @@ logit-MSM slope at a stratum of about 400 rows.  The shipped unstratified fit on
 size from the law given ``V = 2`` under-reports alike (0.896 against 0.867), and both arms are
 calibrated at four times the size (0.997 and 1.006).  No defect was found, so the study moved to
 ``reporting`` and was re-run at the same seeds.  The owner is ``X8-logit-small-stratum``.
+
+The CDR-005 fix changed the logit-MSM parameter from the least-squares projection on the mean
+scale to the quasi-likelihood projection, and so its efficiency SD and its estimator, with no
+gate, floor, seed or budget changed.  The re-run at the same seeds reads
+``logit_v1_a__correctly_specified`` at an SE ratio of 0.982 (0.941 to 1.027), which passes, and
+``logit_v2_a__correctly_specified`` at 0.901 (0.798 to 0.993), which stays red under the same
+owner.
 """
 
 from __future__ import annotations
