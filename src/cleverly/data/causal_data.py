@@ -327,6 +327,13 @@ class CausalData:
     #: The package warnings raised while this data was built and checked (a dropped
     #: constant covariate, say), which every fit on it adds to its own record.
     validation_warnings: tuple[FitWarning, ...] = field(default=(), compare=False, repr=False)
+    #: ``True`` on the rows of a trial and ``False`` on the external rows pooled with it, or
+    #: ``None`` for data with no trial membership.  Only
+    #: :class:`~cleverly.TrialWithExternalData` sets it, and only the adaptive TMLE of that
+    #: design reads it; a point-treatment design refuses data that carry it.
+    source: BoolArray | None = None
+    #: The column that marks trial membership, or ``None``.
+    source_name: str | None = None
 
     # ------------------------------------------------------------------ build
 
@@ -352,6 +359,8 @@ class CausalData:
         treatment_probabilities: Any = None,
         treatment_covariates: Sequence[str] | None = None,
         continuous_treatment: Sequence[str] = (),
+        source: str | None = None,
+        trial: Any = 1,
     ) -> CausalData:
         """Build from a pandas or polars dataframe by column name.
 
@@ -438,6 +447,11 @@ class CausalData:
         continuous_treatment : Sequence[str]
             The columns of a vector ``treatment`` that hold a continuous dose.  A treatment
             of one column declares a dose with ``treatment_kind="continuous"`` instead.
+        source : str or None
+            The column that marks trial membership, for a trial pooled with external data.
+            It is a role, so ``covariates=None`` does not adjust for it.
+        trial : Any
+            The value of ``source`` on trial rows.  Every other value marks an external row.
 
         Returns
         -------
@@ -466,6 +480,7 @@ class CausalData:
             ("id", id),
             ("intermediate", intermediate),
             ("treatment_delta", treatment_delta),
+            ("source", source),
         ):
             if name is not None:
                 roles[role] = name
@@ -524,7 +539,7 @@ class CausalData:
                 continue
             _reject_null_labels(frame, name, role)
 
-        return cls._build(
+        built = cls._build(
             outcome=column_array(frame, outcome),
             # Not cast: `encode_treatment` reads the dtype kind to tell a numeric arm
             # from a categorical one, and a cast to float would erase that distinction.
@@ -568,6 +583,20 @@ class CausalData:
             component_names=components,
             continuous_components=tuple(str(name) for name in continuous_treatment),
         )
+        if source is None:
+            return built
+        column = frame[source]
+        holes = has_nulls(frame, source) or (
+            column.dtype.is_float() and bool(column.is_nan().any())
+        )
+        if holes:
+            raise DataError(
+                f"trial-membership column {source!r} contains missing values. A row with no "
+                "membership label would be read as an external row. Drop those rows or "
+                "label them before handing the data to CausalData."
+            )
+        membership = np.asarray(column.to_numpy() == trial, dtype=bool)
+        return replace(built, source=membership, source_name=source)
 
     @classmethod
     @records_data
@@ -1438,6 +1467,7 @@ class CausalData:
             treatment_components=(
                 None if self.treatment_components is None else self.treatment_components[idx]
             ),
+            source=None if self.source is None else self.source[idx],
         )
 
     def with_dose_declarations(
@@ -2037,6 +2067,8 @@ class CausalData:
             payload[self.cluster_name or "id"] = self.cluster
         if self.intermediate is not None:
             payload[self.intermediate_name or "Z"] = self.intermediate
+        if self.source is not None:
+            payload[self.source_name or "S"] = self.source.astype(float)
         return frame_from_dict(payload, backend=self.backend)
 
     def _component_columns(self) -> dict[str, Any]:

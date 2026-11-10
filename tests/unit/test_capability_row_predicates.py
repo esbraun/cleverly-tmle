@@ -2241,6 +2241,7 @@ class TestARowAndItsRaiseShareOneRefusal:
             ("sdr", RefusalReason.API_REDIRECTION),
             ("riesz_tmle", RefusalReason.IMPLEMENTATION_GAP),
             ("ep", RefusalReason.DIFFERENT_ESTIMAND),
+            ("atmle", RefusalReason.INVALID_DECLARATION),
         ],
     )
     def test_a_method_availability_row(self, method: str, code: RefusalReason) -> None:

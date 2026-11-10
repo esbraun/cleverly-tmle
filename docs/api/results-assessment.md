@@ -13,6 +13,12 @@ rows as a dataframe.
    cleverly.estimators.DoseResponseResult
    cleverly.estimators.PairSupport
    cleverly.longitudinal.LongitudinalResult
+   cleverly.AdaptiveTMLEResult
+   cleverly.estimators.atmle_result.AdaptiveTMLESupport
+   cleverly.estimators.atmle_result.AdaptiveTMLEScoreReport
+   cleverly.estimators.atmle_result.AdaptiveTMLENuisanceReport
+   cleverly.estimators.atmle_result.WorkingModelFold
+   cleverly.estimators.atmle_result.AdaptiveTMLECorrections
    cleverly.longitudinal.LongitudinalRepeat
    cleverly.fluctuation.Fluctuation
    cleverly.fluctuation.FoldFluctuation
@@ -37,8 +43,10 @@ rows as a dataframe.
 ```
 
 `CausalResult` is the protocol every fitted scalar result satisfies. The concrete classes are
-`TMLEResult` for a point-treatment fit and `LongitudinalResult` for a sequential one; `estimate()`
-returns one of those two.
+`TMLEResult` for a point-treatment fit, `LongitudinalResult` for a sequential one, and
+`AdaptiveTMLEResult` for a randomized trial pooled with external data (`TrialWithExternalData`);
+`estimate()` returns one of them. The adaptive fit's diagnostics return the four
+`cleverly.estimators.atmle_result` reports listed above.
 
 `TMLEResult.fluctuations` returns one `Fluctuation` for each target group. A fold-targeted
 cross-validated fit fills that record's `folds` field with one `FoldFluctuation` for each

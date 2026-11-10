@@ -720,3 +720,10 @@ declares `publication_policy="reporting"` and an empty `property_cells`. It keep
 with no properties block, and the red-cell ledger reads its verdicts. The validation grid does not
 list it. `tests/unit/test_method_evidence.py` checks each of these facts. The learned-rule boundary
 study is the example.
+
+A gated study off the grid validates no method, because no grid row carries its verdicts. Declare
+a property cell for each claim the study gates, before the run, so that its method earns a row.
+`GATED_OFF_GRID` in that test names each exception with its reason. `adaptive-tmle-trial` is the
+one entry: it gated its controls through its own hook and declared no property cell. The manifest
+records the policy of the run, so an entry leaves only at a regeneration or when a
+comparator-backed record puts the method on the grid.

@@ -97,6 +97,7 @@ import numpy as np
 
 from .._inference_status import status_record
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
+from .._trial_family import AUGMENTED_TRIAL_FAMILY, augmented_trial_refusal, refuse_augmented_trial
 from ..exceptions import CapabilityError
 from ..inference.cluster import influence_variance
 from ..inference.delta import reference_quantile
@@ -390,6 +391,8 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
         )
     if family == "structural":
         return STRUCTURAL_REFUSAL
+    if family == AUGMENTED_TRIAL_FAMILY:
+        return augmented_trial_refusal("marginal_sensitivity_bounds", "bound")
     data = result.data
     config = result.config
     if getattr(config, "continuous_treatment", False) or getattr(data, "policies", None):
@@ -1166,6 +1169,7 @@ def marginal_sensitivity_bounds(
     >>> bool(row_2.lower < row_1.lower and row_2.upper > row_1.upper)
     True
     """
+    refuse_augmented_trial(result, "marginal_sensitivity_bounds", "bound")
     refusal = marginal_bound_refusal(result)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)

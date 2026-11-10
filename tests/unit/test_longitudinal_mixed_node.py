@@ -538,6 +538,7 @@ _DISPATCHING: dict[tuple[str, str], str] = {
         "a panel container only: from_long_panel refuses a vector node with a dose"
     ),
     ("study.py", "TimeToEvent._check_prepared"): "one baseline column",
+    ("study.py", "TrialWithExternalData.prepare"): "point CausalData",
     ("sensitivity/_simulated_confounding_longitudinal.py", "_calibrate"): (
         "after the node_law rule of longitudinal_fit_refusal refuses a mixed node"
     ),
