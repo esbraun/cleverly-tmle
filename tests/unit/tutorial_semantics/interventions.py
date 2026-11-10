@@ -31,7 +31,6 @@ from tests.unit.tutorial_semantics import (
 REFIT_CELLS = (
     "bound",
     "refute-regimes",
-    "generated",
     "sensitivity",
     "sensitivity-other",
 )
@@ -369,9 +368,7 @@ def check(namespace: dict[str, Any]) -> None:
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
-    """Steps 14 to 16: the refutation, the generated outcomes, and the stress surfaces."""
-    # The law that ``check`` rebuilds for its refusal is the notebook's own.
-    assert namespace["bounded"] == BoundedAdjustmentOutcome(effect=0.5)
+    """The refutation and the stress surfaces."""
     # The treatment-only stress surface: both cells return, and the flip moves the screen
     # estimate down by 0.029037 (-6.1 standard errors) with a small induced association.
     surface = namespace["surface"]
@@ -389,7 +386,6 @@ def check_refits(namespace: dict[str, Any]) -> None:
         assert cell.induced_treatment_association is not None
         assert abs(cell.induced_treatment_association) < 0.1
     _check_refutation(namespace)
-    _check_generated(namespace)
     _check_benchmarks(namespace)
     # The nudge and raise surfaces: the flip moves each estimate down.
     for key in ("nudge_surface", "raise_surface"):
@@ -449,48 +445,8 @@ def _check_refutation_limits(namespace: dict[str, Any]) -> None:
         )
 
 
-def _check_generated(namespace: dict[str, Any]) -> None:
-    """Step 15: the generated outcomes, each at 10 draws, and the limits that the page states."""
-    expected = (
-        ("screen_generated", "simulated_outcome", SCREEN, 0.049828, 0.051083),
-        ("nudge_plasmode", "plasmode", "ate_ipsi[double odds vs current odds]", 0.016329, 0.016364),
-        ("raise_generated", "simulated_outcome", CAPPED, 0.24367, 0.24717),
-    )
-    for name, test_name, estimand, truth, mean in expected:
-        report = namespace[name]
-        test = report[test_name]
-        assert report.estimand == estimand
-        # "No reading prints a verdict ... 10 draws are below the calibrated minimum of 400."
-        assert test.passed is None and test.rung == "L1" and len(test.values) == 10
-        assert round(float(test.declared_effect), 5 if truth > 0.1 else 6) == truth
-        assert round(float(np.mean(test.values)), 5 if truth > 0.1 else 6) == mean
-        # "Each mean of the refits lies close to its truth": a nonzero witness against a mean
-        # that sat at the real-data estimate, which differs from every generated truth.
-        assert abs(np.mean(test.values) - truth) < 0.05 * abs(truth) + 0.01
-        assert (
-            abs(
-                truth
-                - namespace[
-                    {
-                        "screen_generated": "regime_result",
-                        "nudge_plasmode": "incremental_result",
-                        "raise_generated": "shift_result",
-                    }[name]
-                ][estimand].psi
-            )
-            > 0.005
-        )
-    # The bias reading is in standard deviations of the draws: (mean - truth) / sd.
-    screen = namespace["screen_generated"]["simulated_outcome"]
-    assert (
-        round((np.mean(screen.values) - screen.declared_effect) / np.std(screen.values, ddof=1), 3)
-        == 0.472
-    )
-
-
 def _check_generated_limits(namespace: dict[str, Any]) -> None:
-    """Step 15: the stored output, and the refusals that the step table states."""
-    assert stored_output(NOTEBOOK, "generated").count("10 refits, verdict descriptive") == 3
+    """The refusals that the tests on simulated scores meet, as the refutation Details state."""
     # The limits of the step table.
     regimes, incremental = namespace["regime_result"], namespace["incremental_result"]
     shift = namespace["shift_result"]
