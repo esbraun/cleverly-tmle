@@ -10,9 +10,9 @@ which no gated replicate and no pilot draw uses.
 
 It declares no property cell, so it writes no property row and no property verdict.  Its fits
 publish as two property artifacts: ``reported-replicates.csv``, one row per replicate,
-implementation and estimand, and ``reported-cells.csv``, their summary per cell.  A fit that
-raises is a reading here, recorded with its error class in the replicate rows and counted in
-the summary, so no fit of a reported cell can stop the run.
+implementation and estimand, and ``reported-cells.csv``, their summary per cell.  A recordable
+fitting failure is a reading here, recorded with its error class in the replicate rows and
+counted in the summary.  Any other raise is a defect and stops the run.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 from cleverly.utils.parallel import map_parallel
+from cleverly.validation._failures import recordable
 from tests.parallel import STUDY_JOBS
 from tests.studies import survival_ctmle as study
 from tests.studies.evidence import property_verdicts
@@ -58,6 +59,8 @@ def _fit(scenario: str, replicate: int) -> list[dict[str, Any]]:
                 warnings.simplefilter("ignore")
                 result = study.fit(frame, scenario, implementation)
         except Exception as error:
+            if not recordable(error):
+                raise
             seconds = time.perf_counter() - start
             rows.extend(
                 {

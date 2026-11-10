@@ -6,6 +6,8 @@ its truth, its seeds and its sizes.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -15,6 +17,7 @@ from scipy.special import expit
 from tests.studies import survival_ctmle as study
 from tests.studies import survival_ctmle_pilot as pilot
 from tests.studies import survival_ctmle_properties as properties
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence.registry import registered
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
@@ -94,6 +97,7 @@ def _primary_rows(subject_error: float, comparator_error: float) -> pd.DataFrame
                         "seconds": 1.0 + replicate % 2,
                         **{column: float(replicate % 2) for column in study.EXTRA_COLUMNS[1:]},
                         **dict.fromkeys(study.SECONDS_COLUMNS, 0.5),
+                        **{f"failure[{arm}]": "" for arm in study.COMPARATORS},
                         **{
                             f"estimate[{arm}]": truth + comparator_error * noise
                             for arm in study.COMPARATORS
@@ -236,3 +240,62 @@ class TestTheSizes:
 
     def test_the_primary_replicates_follow_the_shared_rule(self) -> None:
         assert pilot.primary_replicates(PILOT) == study.PRIMARY_REPLICATES
+
+
+def _failure(scenario: str) -> pd.DataFrame:
+    """One recorded subject failure of replicate 7 of ``scenario``."""
+    return pd.DataFrame(
+        [
+            {
+                "implementation": study.CTMLE_ARM,
+                "group_id": 0,
+                "scenarios": scenario,
+                "replicates": "7",
+                "attempt": 0,
+                "class": "LinAlgError",
+                "stage": "fit",
+                "call": "",
+                "message": "singular",
+                "seed": 1,
+            }
+        ],
+        columns=list(evidence_failures.FAILURE_COLUMNS),
+    )
+
+
+@pytest.mark.parametrize(("scenario", "red"), [("or15_qcorrect", True), ("or1_qcorrect", False)])
+def test_a_lost_subject_fit_turns_gate_b_red_only_in_its_cell(scenario: str, red: bool) -> None:
+    """Decision Q1: a lost fit of the gated cell could have moved the ratio; another cannot."""
+    frames = study.extra_artifacts(_primary_rows(0.01, 0.02))
+    rows = evidence_failures.hook_accounting(study, _failure(scenario), frames, record=study.STUDY)
+    assert len(rows) == 1
+    assert bool(rows["gate_passed"].iloc[0]) is not red
+
+
+def test_a_cell_without_two_paired_replicates_fails_gate_b() -> None:
+    rows = _primary_rows(0.01, 0.02)
+    rows[f"estimate[{study.FULL_G_ARM}]"] = np.nan
+    comparison = study.rmse_comparison(rows)
+    gated = comparison.loc[comparison["gated"]]
+    assert gated["passed"].tolist() == [False]
+    assert gated["comparator_failures"].tolist() == [40]
+    (failed,) = study.scientific_failures({study.COMPARISON_FILE: comparison}).values()
+    assert len(failed) == 1
+
+
+def test_a_comparator_defect_stops_the_run() -> None:
+    """Only a recordable fitting failure of a hazard LTMLE arm is a reading."""
+    frame, _ = study.draw_scenario("or15_qcorrect", 200, 0)
+    original = study.fit
+
+    def broken(frame: pd.DataFrame, scenario: str, implementation: str) -> Any:
+        if implementation == study.FULL_G_ARM:
+            raise TypeError("a defect")
+        return original(frame, scenario, implementation)
+
+    study.fit = broken
+    try:
+        with pytest.raises(TypeError, match="a defect"):
+            study._comparator(frame, "or15_qcorrect", study.FULL_G_ARM)
+    finally:
+        study.fit = original

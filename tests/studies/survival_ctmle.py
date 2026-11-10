@@ -86,6 +86,7 @@ cell draws from ``replicate_seed(STUDY, scenario, r)`` and of a reported cell fr
 
 from __future__ import annotations
 
+import inspect
 import itertools
 import time
 import warnings
@@ -101,7 +102,9 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly.learners import GLM
 from cleverly.longitudinal import LTMLE, LongitudinalData, SurvivalCTMLE
+from cleverly.validation._failures import recordable
 from tests.parallel import STUDY_JOBS
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence import replication
 from tests.studies.evidence.inference import bootstrap, upper_bound
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
@@ -190,6 +193,8 @@ COMPARATORS = (FULL_G_ARM, NO_W4_ARM)
 #: over the full-:math:`g` arm's, for the risk of arm 1, at most this ceiling.
 RMSE_GATE_ESTIMAND = ESTIMAND_NAMES[0]
 RMSE_GATE_CEILING = 1.0
+#: The name gate (b) fails under, in the run's gates and its failure accounting.
+RMSE_LEG = "RMSE against the full-g arm"
 #: Each gated cell's RMSE of the subject against both hazard ``LTMLE`` arms (gate (b)).
 COMPARISON_FILE = "rmse-comparison.csv"
 #: The subject's risk of arm 0 in each gated cell, reported and not gated.
@@ -200,6 +205,16 @@ REPORTED_REPLICATES = 400
 #: The property phase's two files: the reported cells' summary and their replicate rows.
 REPORTED_CELLS_FILE = "reported-cells.csv"
 REPORTED_REPLICATES_FILE = "reported-replicates.csv"
+
+
+#: The Genz integrator behind ``multivariate_normal.cdf`` is randomized.  A fixed generator
+#: makes the truth the same bits in every process that imports this module.  SciPy 1.15
+#: renamed the keyword from ``random_state`` to ``rng``.
+_FIXED: dict[str, Any] = (
+    {"rng": 0}
+    if "rng" in inspect.signature(multivariate_normal.cdf).parameters
+    else {"random_state": 0}
+)
 
 
 def clipped_sum_law(nodes: int = 30, eps: float = 1e-10) -> tuple[np.ndarray, np.ndarray]:
@@ -249,10 +264,8 @@ def clipped_sum_law(nodes: int = 30, eps: float = 1e-10) -> tuple[np.ndarray, np
                 corner = np.full(len(outside), -2.0)
                 orthant = np.array(
                     [
-                        # The Genz integrator is randomized; a fixed generator makes the
-                        # truth the same bits in every process that imports this module.
                         multivariate_normal.cdf(
-                            corner, mean=row, cov=spread, abseps=eps, releps=eps, rng=0
+                            corner, mean=row, cov=spread, abseps=eps, releps=eps, **_FIXED
                         )
                         for row in mean
                     ]
@@ -487,6 +500,7 @@ PRIMARY_COLUMNS = (
     *EXTRA_COLUMNS,
     *SECONDS_COLUMNS,
     *(f"estimate[{arm}]" for arm in COMPARATORS),
+    *(f"failure[{arm}]" for arm in COMPARATORS),
     "a0_truth",
     "a0_estimate",
     "a0_std_error",
@@ -573,7 +587,34 @@ def rmse_comparison(rows: pd.DataFrame) -> pd.DataFrame:
     for (scenario, estimand), group in subject.groupby(["scenario", "estimand"], sort=True):
         truth_ = float(group["truth"].iloc[0])
         for arm in COMPARATORS:
-            kept = group.loc[group[f"estimate[{arm}]"].notna()]
+            kept = group.loc[np.isfinite(group[f"estimate[{arm}]"].astype(float))]
+            gated = (scenario, estimand, arm) == (
+                RMSE_GATE_SCENARIO,
+                RMSE_GATE_ESTIMAND,
+                FULL_G_ARM,
+            )
+            base = {
+                "scenario": scenario,
+                "estimand": estimand,
+                "comparator": arm,
+                "replicates": len(kept),
+                "comparator_failures": len(group) - len(kept),
+            }
+            if len(kept) < 2:
+                # Too few paired replicates to bound a ratio: no reading, and a gated row fails.
+                records.append(
+                    {
+                        **base,
+                        **dict.fromkeys(
+                            ("rmse_subject", "rmse_comparator", "rmse_ratio", "rmse_ratio_upper"),
+                            np.nan,
+                        ),
+                        "ceiling": RMSE_GATE_CEILING if gated else np.nan,
+                        "gated": gated,
+                        "passed": False if gated else np.nan,
+                    }
+                )
+                continue
             arrays = {
                 "subject": kept["estimate"].to_numpy(dtype=float) - truth_,
                 "comparator": kept[f"estimate[{arm}]"].to_numpy(dtype=float) - truth_,
@@ -592,18 +633,9 @@ def rmse_comparison(rows: pd.DataFrame) -> pd.DataFrame:
             )
             point = float(ratio({name: values[None, :] for name, values in arrays.items()})[0])
             upper = upper_bound(samples["ratio"], confidence_level=MARGINS.confidence_level)
-            gated = (scenario, estimand, arm) == (
-                RMSE_GATE_SCENARIO,
-                RMSE_GATE_ESTIMAND,
-                FULL_G_ARM,
-            )
             records.append(
                 {
-                    "scenario": scenario,
-                    "estimand": estimand,
-                    "comparator": arm,
-                    "replicates": len(kept),
-                    "comparator_failures": len(group) - len(kept),
+                    **base,
                     "rmse_subject": float(np.sqrt(np.mean(arrays["subject"] ** 2))),
                     "rmse_comparator": float(np.sqrt(np.mean(arrays["comparator"] ** 2))),
                     "rmse_ratio": point,
@@ -643,7 +675,26 @@ def scientific_failures(extra_frames: Mapping[str, pd.DataFrame]) -> dict[str, p
     gated = table.loc[table["gated"].astype(bool)]
     if len(gated) != 1:
         raise RuntimeError(f"{STUDY.slug}: expected one gated RMSE row, found {len(gated)}")
-    return {"RMSE against the full-g arm": gated.loc[~gated["passed"].astype(bool)]}
+    return {RMSE_LEG: gated.loc[gated["passed"].ne(True)]}
+
+
+def account_failures(
+    failures: pd.DataFrame | None, artifacts: Mapping[str, pd.DataFrame]
+) -> pd.DataFrame:
+    """Gate (b) with each subject fit lost in :data:`RMSE_GATE_SCENARIO` counted as failing it.
+
+    Decision Q1: the RMSE ratio reads the surviving replicates only, so a lost fit of the gated
+    cell could have moved it, and each one turns the audit red.  A fit lost in another cell
+    leaves the gated ratio whole; gate (c) bounds those through the failure bound.
+    """
+    lost = evidence_failures.expand(failures, STUDY)
+    lost = lost.loc[
+        (lost["implementation"] == STUDY.implementation) & (lost["scenario"] == RMSE_GATE_SCENARIO)
+    ]
+    return evidence_failures.audits(
+        scientific_failures(artifacts),
+        missing={RMSE_LEG: len(lost[["scenario", "replicate"]].drop_duplicates())},
+    )
 
 
 def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -657,18 +708,29 @@ def _timed(frame: pd.DataFrame, scenario: str, implementation: str) -> tuple[Any
     return result, time.perf_counter() - start
 
 
-def _comparator(frame: pd.DataFrame, scenario: str, arm: str) -> tuple[Any | None, float]:
-    """A hazard ``LTMLE`` arm's fit, or ``None`` when it raised.
+def _comparator(frame: pd.DataFrame, scenario: str, arm: str) -> tuple[Any | None, float, str]:
+    """A hazard ``LTMLE`` arm's fit, its seconds, and the error class when it raised.
 
     The arms are reported beside the subject and gate only through :func:`rmse_comparison`,
-    which counts the replicates they lost; a raise there is a reading, not a subject failure.
+    which counts the replicates they lost.  Only a recordable fitting failure is a reading;
+    any other raise is a defect and stops the run.
     """
     start = time.perf_counter()
     try:
         result = fit(frame, scenario, arm)
-    except Exception:
-        result = None
-    return result, time.perf_counter() - start
+    except Exception as error:
+        if not recordable(error):
+            raise
+        return None, time.perf_counter() - start, type(error).__name__
+    return result, time.perf_counter() - start, ""
+
+
+def _comparator_estimate(result: Any | None, estimand: str) -> float:
+    """The arm's estimate, ``NaN`` when it raised or returned a non-finite value."""
+    if result is None:
+        return np.nan
+    psi = float(result[estimand].psi)
+    return psi if np.isfinite(psi) else np.nan
 
 
 def _replicate(
@@ -686,7 +748,8 @@ def _replicate(
     extra: dict[str, Any] = {
         "seconds": seconds,
         **selection_readings(result),
-        **{f"seconds[{arm}]": spent for arm, (_, spent) in others.items()},
+        **{f"seconds[{arm}]": spent for arm, (_, spent, _) in others.items()},
+        **{f"failure[{arm}]": failed for arm, (_, _, failed) in others.items()},
         "a0_truth": float(truth_[ESTIMAND_NAMES[1]]),
         "a0_estimate": float(arm0.psi),
         "a0_std_error": reported_inference(arm0)[0],
@@ -697,8 +760,8 @@ def _replicate(
         if row["estimand"] not in GATED_ESTIMANDS[scenario]:
             continue
         comparators = {
-            f"estimate[{arm}]": (np.nan if fitted is None else float(fitted[row["estimand"]].psi))
-            for arm, (fitted, _) in others.items()
+            f"estimate[{arm}]": _comparator_estimate(fitted, row["estimand"])
+            for arm, (fitted, _, _) in others.items()
         }
         rows.append({**row, **extra, **comparators})
     return rows

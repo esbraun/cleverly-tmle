@@ -27,8 +27,11 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
   ceiling of 1.  With no defect found it takes the route above, and the claim that the
   selection improves on the full treatment model at OR 15 is withheld.
 * A fit-failure share of the subject above the failure bound (gate (c)) is a defect suspect;
-  the pilot lost no subject fit.  A raise of a hazard ``LTMLE`` arm is counted in
-  ``comparator_failures`` and decides nothing.
+  the pilot lost no subject fit in 17,000.  A subject fit lost in ``or15_qcorrect`` also turns
+  gate (b) red, because the ratio reads the surviving replicates (decision Q1); diagnose it as
+  a fit failure first.  A recordable raise of a hazard ``LTMLE`` arm is counted in
+  ``comparator_failures`` and decides nothing unless it leaves the gated cell fewer than two
+  paired replicates; any other raise of an arm stops the run as a defect.
 * Coverage, the SE ratio, the reported cells, the risk of arm 0 and the selection readings are
   reported and cannot fail the run (F18).  The pilot's plug-in coverage reads 0.77 to 0.95 in
   the gated cells, the working-mechanism diagnostic the design states.
