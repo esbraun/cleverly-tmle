@@ -311,6 +311,9 @@ categorized API tables.
    cleverly.datasets.weekly_orders_truth
    cleverly.datasets.weekly_orders_protocol
    cleverly.datasets.offer_after_no_order
+   cleverly.datasets.make_heart_failure
+   cleverly.datasets.heart_failure_truth
+   cleverly.datasets.heart_failure_protocol
    cleverly.plotting.forest
    cleverly.plotting.curve
    cleverly.plotting.sensitivity

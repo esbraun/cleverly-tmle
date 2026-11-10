@@ -349,7 +349,7 @@ change.
 | Sequential g-computation and IPW over time | sequential-offers (g-computation). No tutorial fits `IPWMethod`: its supported row needs a bounded outcome with dropout |
 | Structural nested mean model | model-based-over-time |
 | Parametric g-formula over time | model-based-over-time |
-| Longitudinal survival and competing risks | longitudinal-survival |
+| Longitudinal survival and competing risks | longitudinal-survival; separable-effects (separable effects of a treatment's two parts, `Separable`) |
 | Longitudinal repeated outcomes, `IPSI` | weekly-outcomes |
 | Longitudinal repeated outcomes, `SDR` | weekly-outcomes |
 | Longitudinal evidence at three to five decisions | sequential-offers, weekly-outcomes |
