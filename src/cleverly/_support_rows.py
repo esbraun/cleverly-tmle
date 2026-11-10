@@ -5017,7 +5017,9 @@ def _separable_rows() -> tuple[SupportRow, ...]:
     """Separable effects on hazard ``LTMLE`` of ``separable-effects`` (X91 part D): ``G49``.
 
     A fit with a ``Separable`` regimen keys the regimen kind ``separable``, beside its static
-    arms, which the factor-wise engine also targets.  The rows were added because every
+    arms, which the factor-wise engine also targets, and the position of the cause it counts
+    first among the data's causes, so a fit that counts the other cause first matches no row.
+    The rows were added because every
     declared verdict passed: 82 of 82 primary tests and all ten property cells
     (``double_robustness`` and ``interval_calibration`` with its controls), with no failed fit.
     The numbers are the committed results (``tests/canonical/separable_effects``).
@@ -5025,10 +5027,11 @@ def _separable_rows() -> tuple[SupportRow, ...]:
     slug = ["separable-effects"]
     shared = (
         "A binary baseline covariate, a three-level baseline treatment held over three nodes, "
-        "censoring, death counted first and relapse; horizons 1 to 3. Every nuisance is a "
-        "saturated cell mean, n = 16,000, so a flexible learner, a continuous covariate and "
-        "another n rest on the theory alone. Two causes, baseline covariates only; no weights, "
-        "clusters or comparator (none was located)."
+        "censoring, and relapse and death listed in that order with death counted first; "
+        "horizons 1 to 3. A fit that counts the first-listed cause first is not covered. "
+        "Every nuisance is a saturated cell mean, n = 16,000, so a flexible learner, a "
+        "continuous covariate and another n rest on the theory alone. Two causes, baseline "
+        "covariates only; no weights, clusters or comparator (none was located)."
     )
     common: dict[str, Any] = {
         "outcome_kind": "competing",
@@ -5037,6 +5040,8 @@ def _separable_rows() -> tuple[SupportRow, ...]:
         "treatment": ("3",) * 3,
         "survival_model": "hazard",
         "targeting": "one_step",
+        # The study lists relapse then death and counts death first.
+        "qualifiers": ("separable_first_cause_2",),
     }
     return (
         long_row(

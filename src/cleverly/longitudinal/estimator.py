@@ -5096,6 +5096,8 @@ class _SequentialEstimator:
                 regimen_kinds=regimen_kinds(plans) | ({"separable"} if separable else set()),
                 conditions=stopping_conditions(getattr(self, "stopping", "relative")),
                 tuned_cap=tuned_folds is not None,
+                # Every plan of one fit shares its first cause (``resolve_separable``).
+                separable_first=separable[0].first + 1 if separable else None,
             )
             if self._record_support
             else None
