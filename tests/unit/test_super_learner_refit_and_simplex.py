@@ -157,6 +157,21 @@ class TestTheSimplexLeastSquaresMetaLearner:
         assert risk(model.coef_) <= best + 1e-12
         assert model.diagnostics_.ensemble_cv_risk <= model.cv_risk_.min() + 1e-12
 
+    @pytest.mark.parametrize("scale", [1e-2, 1e2, 1e4, 1e6])
+    def test_the_weights_do_not_depend_on_the_outcome_scale(self, scale: float) -> None:
+        # The simplex minimiser is scale-free; a solver whose stopping rule is absolute would
+        # quietly fall back to the discrete selector on a large outcome.
+        rng = np.random.default_rng(23)
+        n = 400
+        base = rng.normal(size=n)
+        z = np.column_stack([base + rng.normal(scale=s, size=n) for s in (0.4, 0.6, 0.8, 1.0)])
+        y = base + rng.normal(scale=0.3, size=n)
+        risks = np.mean((y[:, None] - z) ** 2, axis=0)
+        unit = module._solve_cc_ls(z, y, np.ones(n), risks)
+        scaled = module._solve_cc_ls(scale * z, scale * y, np.ones(n), scale**2 * risks)
+        assert np.count_nonzero(unit > 1e-8) >= 2, "the optimum must be interior"
+        np.testing.assert_allclose(scaled, unit, atol=1e-9)
+
     def test_a_solver_failure_falls_back_to_the_discrete_selector(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

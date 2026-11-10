@@ -669,16 +669,23 @@ def _solve_cc_ls(
 
     Minimises the weighted cross-validated squared error of ``z @ alpha`` over
     ``alpha >= 0`` with ``sum(alpha) = 1``, a convex quadratic programme in the Gram
-    matrix of the stacked predictions.  SLSQP finds the active set; the weights are
-    then re-solved exactly on it from the equality-constrained normal equations.  A
+    matrix of the stacked predictions, posed in units of the outcome's root mean square.
+    SLSQP finds the active set; the weights are then re-solved exactly on it from the
+    equality-constrained normal equations.  A
     solver failure, or a solution whose risk exceeds the best single candidate's,
     falls back to that candidate (the discrete selector), which is a feasible point.
     """
     n_candidates = z.shape[1]
     fallback = _one_hot(int(np.argmin(risks)), n_candidates)
     w = weights / weights.sum()
-    gram = (z * w[:, None]).T @ z
-    cross = (z * w[:, None]).T @ y
+    # The weights do not depend on the outcome's scale, but SLSQP's stopping rule is absolute,
+    # so the problem is solved in units of the outcome's root mean square.
+    scale = float(np.sqrt(np.sum(w * y * y)))
+    if not np.isfinite(scale) or scale <= 0.0:
+        scale = 1.0
+    zs, ys = z / scale, y / scale
+    gram = (zs * w[:, None]).T @ zs
+    cross = (zs * w[:, None]).T @ ys
 
     def objective(alpha: FloatArray) -> float:
         return float(0.5 * alpha @ gram @ alpha - cross @ alpha)
