@@ -2646,10 +2646,13 @@ derivative of the summed loss in a column's $\varepsilon$ is the weighted sample
 $b\,\mathbb{1}\{A = a\}\{\Delta\kappa_a(Y - \bar{Q}_a)/\pi_a + (\bar{Q}_a - h_a)(\Delta - \pi_a)\}$,
 which is that column's full residual block $b\,\mathbb{1}\{A = a\} R_a$. Solving it, with the
 plug-in $\psi$ centring $m_a - \psi$, gives $P_n D = 0$, so the tilted estimating equation holds.
+
 Sharing the coefficient keeps the curve continuous at $\gamma = 0$, where the mechanism covariate
 vanishes: a coefficient of its own would solve the mechanism score along that vanishing direction
-at every $\gamma \neq 0$, and the estimate would jump. At $\gamma = 0$ the fit's $\bar{Q}^*$
-already solves the score, so no step is taken and the row is the reported estimate.
+at every $\gamma \neq 0$, and the estimate would jump. At $\gamma = 0$ the row is the reported
+estimate by construction. The fit's $\bar{Q}^*$ solves the score only to the fit's own stopping
+rule, so near $\gamma = 0$ the solve may still take steps, and the row moves by about the score
+that rule left.
 
 | target | columns $b_{j,a}(W)$ | curve |
 | --- | --- | --- |

@@ -581,8 +581,11 @@ def _tilt_reading(result: TMLEResult, target: _TiltTarget, directed: bool) -> Re
     The rule is the target's kind, ``level``, ``contrast``, ``conditional`` (``att`` and
     ``atc``), ``ratio``, ``natural_course``, ``par`` or ``paf``, followed by one feature per
     composition in this order: ``+continuous``, ``+multi_arm``, ``+cross_fit`` (the stacked
-    report), ``+cv_evaluation``, ``+repeats``, ``+weighted``, ``+clustered`` and
-    ``+arm_direction``.  A rule no registered study covers reads descriptive.
+    report), ``+cv_evaluation``, ``+repeats``, ``+weighted``, ``+estimated_weights``,
+    ``+clustered``, ``+stratified``, ``+targeting_variant`` (any update rule other than the
+    default iterative logistic one) and ``+arm_direction``.  A rule no registered study
+    covers reads descriptive.  Learners, sample size and a declared treatment mechanism are
+    axes of the registered row's scope, which :func:`resolve` reads from the fit.
     """
     from ..validation._interpretation import fit_configuration, resolve
 
@@ -610,13 +613,29 @@ def _tilt_reading(result: TMLEResult, target: _TiltTarget, directed: bool) -> Re
         features.append("repeats")
     if data.weights_name is not None:
         features.append("weighted")
+    if data.declares_estimated_weights:
+        features.append("estimated_weights")
     if data.cluster is not None:
         features.append("clustered")
+    if data.strata is not None:
+        features.append("stratified")
+    spec = config.targeting_spec
+    if (
+        spec.targeting != "iterative"
+        or spec.fluctuation != "logistic"
+        or spec.target_weights
+        or spec.stopping != "relative"
+        or spec.step_bound is not None
+    ):
+        # The fit's own update rule sets the starting point and, at gamma = 0, the row; a
+        # study of the default update says nothing about another one.
+        features.append("targeting_variant")
     if directed:
         features.append("arm_direction")
     try:
         fit = fit_configuration(result, target.name)
     except (AttributeError, KeyError, TypeError, ValueError):
+        # An unreadable fit lies outside every restricted scope, so it reads descriptive.
         fit = None
     return resolve(TILT_INTERVAL_INSTRUMENT, "+".join(features), fit)
 
@@ -1055,6 +1074,40 @@ def _tilted(targeted: FloatArray, observed_probability: FloatArray, gamma: float
 _TIPPING_INTERVAL_OPERATION = "tipping_gamma(use_ci=True)"
 
 
+def tipping_interval_reading(
+    result: Any, estimand: str | None, *, directed: bool = False
+) -> Resolution | None:
+    """What the registry licenses for the confidence limit ``tipping_gamma(use_ci=True)`` follows.
+
+    The interval search follows the targeted tilt's limit for ``estimand``, so it carries the
+    same reading as :attr:`~cleverly.sensitivity.MissingnessTilt.descriptive`: a returned
+    tipping value is descriptive wherever no validation study covers that limit.
+
+    Parameters
+    ----------
+    result : Any
+        A fitted result the interval search admits.
+    estimand : str or None
+        The searched name; ``None`` reads the one estimand the tilt re-mixes, else ``ate``,
+        as the assessment facade substitutes.
+    directed : bool
+        Whether the call passed ``arm_gamma``.
+
+    Returns
+    -------
+    Resolution or None
+        The reading, or ``None`` for a name the tilt does not re-mix.
+    """
+    targets = _tilt_targets(result)
+    if estimand is None:
+        names = [name for name in result.estimates if name in targets]
+        estimand = names[0] if len(names) == 1 else "ate"
+    target = targets.get(estimand)
+    if target is None:
+        return None
+    return _tilt_reading(result, target, directed)
+
+
 def tipping_interval_refusal(result: Any, estimand: str | None) -> Refusal | None:
     """Why ``tipping_gamma(use_ci=True)`` cannot follow an interval for ``estimand``.
 
@@ -1153,6 +1206,9 @@ def tipping_gamma(
         Whether to tip when the confidence limit reaches the null rather than the
         point estimate. Follows the targeted tilt's limit, and refused for a parameter
         whose spread off ``gamma = 0`` is a diagnostic and not a confidence limit.
+        The value carries that limit's registry reading, which
+        :func:`tipping_interval_reading` returns: where no validation study covers it, the
+        tipping value is descriptive, and the combined assessment row says so.
     arm_gamma : mapping of level to float, or None
         One multiplier per arm, as :func:`missingness_tilt` accepts.
 

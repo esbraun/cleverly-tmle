@@ -90,6 +90,7 @@ def _psi(p: np.ndarray, gamma: np.ndarray) -> dict[str, float]:
         "ey1": float(pw @ m[1]),
         "ate": float(pw @ (m[1] - m[0])),
         "att": float((pw * g1) @ (m[1] - m[0]) / (pw @ g1)),
+        "atc": float((pw * (1 - g1)) @ (m[1] - m[0]) / (pw @ (1 - g1))),
         "ey_obs": float(pw @ (g1 * m[1] + (1 - g1) * m[0])),
     }
 
@@ -111,12 +112,15 @@ def _curves(p: np.ndarray, gamma: np.ndarray) -> dict[str, np.ndarray]:
     observed = d.astype(bool)
     scaled = y.astype(float)
     _, means = arm_mean_curves(solve, scaled, observed, a, weights, propensity, gamma)
-    _, att = contrast_curves(solve, scaled, observed, a, weights, propensity, gamma, [(1, 0, 1)])
+    _, conditional = contrast_curves(
+        solve, scaled, observed, a, weights, propensity, gamma, [(1, 0, 1), (1, 0, 0)]
+    )
     _, natural = natural_course_curve(solve, scaled, observed, a, weights, gamma)
     return {
         "ey1": means[:, 1] / weights,
         "ate": (means[:, 1] - means[:, 0]) / weights,
-        "att": att[:, 0] / weights,
+        "att": conditional[:, 0] / weights,
+        "atc": conditional[:, 1] / weights,
         "ey_obs": natural / weights,
     }
 
@@ -232,12 +236,14 @@ class TestGammaZeroIsTheFit:
     def test_the_targeted_tilt_at_zero_is_the_reported_estimate(self, fitted: Any) -> None:
         targets = list(_tilt_targets(fitted).values())
         direction = dict.fromkeys(fitted.data.arm_codes, 1.0)
-        for repeat in fitted.repeats[:1] if len(fitted.repeats) > 1 else fitted.repeats:
+        for repeat in fitted.repeats:
             estimates, converged = targeted_tilt_estimates(fitted, repeat, targets, 0.0, direction)
             assert converged
-            if len(fitted.repeats) > 1:
-                continue
             for name, estimate in estimates.items():
+                if len(fitted.repeats) > 1:
+                    # Each repeat's row is that repeat's own point estimate.
+                    assert estimate.psi == pytest.approx(repeat.psi[name], rel=1e-9, abs=1e-12)
+                    continue
                 assert estimate.psi == pytest.approx(fitted[name].psi, rel=1e-9, abs=1e-12)
                 assert estimate.std_error == pytest.approx(fitted[name].std_error, rel=1e-6)
 
@@ -254,9 +260,39 @@ class TestGammaZeroIsTheFit:
         assert "plugin_std_err" not in frame.columns
 
 
+def _curves_for(
+    kind: str,
+    solve: TiltSolve,
+    scaled: np.ndarray,
+    observed: np.ndarray,
+    received: np.ndarray,
+    weights: np.ndarray,
+    propensity: np.ndarray,
+    gamma: np.ndarray,
+) -> np.ndarray:
+    """The weighted curves of one target family: arm means, att and atc, or ey_obs."""
+    if kind == "arm means":
+        return arm_mean_curves(solve, scaled, observed, received, weights, propensity, gamma)[1]
+    if kind == "att and atc":
+        pairs = [(1, 0, 1), (1, 0, 0)]
+        return contrast_curves(
+            solve, scaled, observed, received, weights, propensity, gamma, pairs
+        )[1]
+    return natural_course_curve(solve, scaled, observed, received, weights, gamma)[1][:, None]
+
+
+def _columns_for(kind: str, received: np.ndarray, propensity: np.ndarray) -> np.ndarray:
+    if kind == "arm means":
+        return tilt_module.arm_columns(received, propensity)
+    if kind == "att and atc":
+        return tilt_module.contrast_columns(propensity, [(1, 0, 1), (1, 0, 0)])
+    return tilt_module.natural_course_columns(len(received), propensity.shape[1])
+
+
 class TestTheTargetingSolvesTheTiltedEquation:
+    @pytest.mark.parametrize("kind", ["arm means", "att and atc", "ey_obs"])
     @pytest.mark.parametrize("covariates", [COVARIATES, ("W1",)], ids=["flexible", "wrong Q"])
-    def test_the_score_is_solved(self, covariates: tuple[str, ...]) -> None:
+    def test_the_score_is_solved(self, covariates: tuple[str, ...], kind: str) -> None:
         result = _fit(covariates=covariates)
         repeat = result.repeats[0]
         data = result.data
@@ -270,7 +306,8 @@ class TestTheTargetingSolvesTheTiltedEquation:
         targeted = repeat.fluctuations["mean"].targeted
         outcome = np.column_stack([targeted.arms[arm] for arm in arms])
         gamma = np.array([1.5, -0.5])
-        start = arm_mean_curves(
+        start = _curves_for(
+            kind,
             TiltSolve(outcome, mechanism, True, 0, 0.0),
             scaled,
             observed,
@@ -278,7 +315,7 @@ class TestTheTargetingSolvesTheTiltedEquation:
             weights,
             propensity,
             gamma,
-        )[1]
+        )
         solved = solve_tilt(
             scaled,
             observed,
@@ -287,16 +324,17 @@ class TestTheTargetingSolvesTheTiltedEquation:
             outcome,
             mechanism,
             gamma,
-            tilt_module.arm_columns(received, propensity),
+            _columns_for(kind, received, propensity),
         )
         assert solved.converged
-        _, curves = arm_mean_curves(solved, scaled, observed, received, weights, propensity, gamma)
+        curves = _curves_for(kind, solved, scaled, observed, received, weights, propensity, gamma)
         # The plug-in terms average to zero by construction, so the mean of the curve is the
         # mean of its residual block: the tilted estimating equation.
         sd = np.sqrt(np.var(curves, axis=0))
         assert np.all(np.abs(curves.mean(axis=0)) < 1e-8 * sd)
-        # Nonzero witness: the untargeted start does not solve it.
-        assert np.max(np.abs(start.mean(axis=0)) / sd) > 1e-4
+        # Nonzero witness: the untargeted start misses it by at least a hundred times the
+        # solved tolerance.  The natural course's start is the closest, near 1.6e-5 SD.
+        assert np.max(np.abs(start.mean(axis=0)) / sd) > 1e-6
 
 
 class TestTheReviewersLaw:
@@ -445,3 +483,82 @@ def test_a_weighted_fold_evaluated_fit_starts_from_its_own_update() -> None:
     for name, estimate in estimates.items():
         assert estimate.psi == pytest.approx(result[name].psi, rel=1e-9, abs=1e-12)
         assert estimate.std_error == pytest.approx(result[name].std_error, rel=1e-6)
+
+
+class TestTheReadingNamesEveryComposition:
+    """The registry rule names each setting that changes the targeted tilt's estimator."""
+
+    @staticmethod
+    def _rules(result: Any, monkeypatch: pytest.MonkeyPatch) -> set[str]:
+        import cleverly.validation._interpretation as interpretation
+
+        seen: set[str] = set()
+        original = interpretation.resolve
+
+        def recording(instrument: str, rule: str, fit: Any) -> Any:
+            seen.add(rule)
+            return original(instrument, rule, fit)
+
+        monkeypatch.setattr(interpretation, "resolve", recording)
+        missingness_tilt(result, [1.0])
+        return seen
+
+    def test_the_default_fit_reads_its_bases(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        rules = self._rules(_fit(), monkeypatch)
+        assert {"level", "contrast", "conditional", "ratio"} <= rules
+
+    @pytest.mark.parametrize(
+        ("settings", "feature"),
+        [
+            ({"stopping": "scaled_var"}, "targeting_variant"),
+            ({"targeting": "one_step"}, "targeting_variant"),
+        ],
+        ids=["stopping", "one step"],
+    )
+    def test_a_variant_update_rule_is_named(
+        self, settings: dict[str, Any], feature: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        rules = self._rules(_fit(**settings), monkeypatch)
+        assert rules and all(rule.endswith(f"+{feature}") for rule in rules), rules
+
+    def test_baseline_strata_are_named(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        frame, _ = make_missing_outcome_binary(n=600, seed=82)
+        frame["S"] = (frame["W1"] > 0).astype(int)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = (
+                TMLE(
+                    outcome_learner=LogisticRegression(max_iter=1000),
+                    treatment_learner=LogisticRegression(max_iter=1000),
+                    missingness_learner=LogisticRegression(max_iter=1000),
+                    cross_fit=False,
+                    simultaneous=False,
+                    random_state=0,
+                    estimands=("ey1", "ey0", "ate"),
+                )
+                .fit(
+                    frame,
+                    outcome="Y",
+                    treatment="A",
+                    covariates=(*COVARIATES, "S"),
+                    delta="Delta",
+                    strata=["S"],
+                )
+                .single()
+            )
+        rules = self._rules(result, monkeypatch)
+        assert rules and all("+stratified" in rule for rule in rules), rules
+
+
+def test_an_interval_tipping_value_carries_the_reading() -> None:
+    from cleverly.assessment import INTERPRETERS
+    from cleverly.sensitivity.missingness import tipping_interval_reading
+
+    result = _fit(estimands=("ey1", "ey0", "ate"))
+    reading = tipping_interval_reading(result, "ate")
+    assert reading is not None
+    item = INTERPRETERS["tipping_gamma"](1.5, result, {"estimand": "ate", "use_ci": True})
+    assert ("descriptive" in item.detail) is (not reading.licensed)
+    # Control: the point search follows no interval, so it carries no reading.
+    point = INTERPRETERS["tipping_gamma"](1.5, result, {"estimand": "ate"})
+    assert "descriptive" not in point.detail

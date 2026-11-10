@@ -206,6 +206,10 @@ def solve_tilt(
         gram = ((own_q * vq[:, None]).T @ own_q + (own_p * vp[:, None]).T @ own_p) / m
         total, _, _ = score(q, p)
         step = np.asarray(np.linalg.lstsq(gram, total, rcond=None)[0], dtype=float)
+        # The updated mechanism is not clipped back to ``missingness_bound``.  That floor
+        # guards the initial fit; the update is a score-solving submodel step, and clipping
+        # its result would break the estimating equation the step solves.  The departure from
+        # the bounded start is of the order of the coefficient, which shrinks with n.
         q = np.clip(expit(logit(q) + hq @ step), _EDGE, 1.0 - _EDGE)
         p = np.clip(expit(logit(p) + hp @ step), _EDGE, 1.0 - _EDGE)
         _, _, relative = score(q, p)

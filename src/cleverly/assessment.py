@@ -4325,6 +4325,19 @@ def _tipping_item(
         if report is None
         else f"tipping gamma {float(report):.4g}"
     )
+    if _arguments.get("use_ci") and report is not None:
+        from .sensitivity.missingness import tipping_interval_reading
+
+        reading = tipping_interval_reading(
+            _result,
+            _arguments.get("estimand"),
+            directed=_arguments.get("arm_gamma") is not None,
+        )
+        if reading is not None and not reading.licensed:
+            detail += (
+                "; the confidence limit it follows is descriptive: no coverage evidence "
+                "covers this configuration"
+            )
     return AssessmentItem("tipping_gamma", AssessmentStatus.COMPLETED, detail)
 
 
