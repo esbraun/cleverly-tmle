@@ -289,7 +289,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert namespace["tipping_gamma"] is None
     arm_gamma = {0: 0.0, 1: -1.0}
     limit = fitted.sensitivity.tipping_gamma(arm_gamma=arm_gamma, use_ci=True)
-    assert limit is not None and 0.0 < limit
+    assert limit is not None and limit > 0.0
     # The mean shift divides each move by the mean non-response probability under navigation.
     # Nonzero witness: navigation raises response, so the other arm's column would differ.
     missingness = fitted.nuisance.bounded_missingness(0.01)
