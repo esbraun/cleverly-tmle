@@ -263,6 +263,25 @@ An operation on the result refuses by name as well.
 | `sensitivity.missingness`, `tipping_gamma` | `api_redirection` | use `TMLE`. Each tilts an outcome regression |
 | `sensitivity.simulated_confounding` on a regime or MSM | `implementation_gap` | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F, the fixed-policy replay under another method |
 
+### DoseResponseTMLE refusals
+
+`DoseResponse` validates its declaration when it is built, and `DoseResponseTMLE.fit` raises every
+other refusal in the table before any learner fits, except the zero-density rule. The tests are in
+`tests/unit/test_dose_response.py`. The [contract page](dose-response.md) states the estimator.
+
+| refused | class and code | where |
+| --- | --- | --- |
+| a dose interval that is not finite with lower below upper, a dose outside it, doses that are not strictly increasing, bandwidths that are not positive and distinct, more than 200 pairs, two pairs whose names collide, an unknown kernel | `DataError` | fix the declaration |
+| a binary, categorical or vector treatment, or a dose with fewer than 20 distinct values | `CapabilityError`, `invalid_declaration` | fit the levels as arms with `TMLE` |
+| clustered rows (`id=`) | `CapabilityError`, `implementation_gap` | [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) part (b) |
+| a cross-fitted continuous outcome with no `q_bounds=` | `CapabilityError`, the shared [outcome-scale refusal](cv-tmle.md#fold-and-outcome-scale-rules) | declare the outcome's range |
+| a missing outcome, a missing treatment or an intermediate variable, declared on a prepared `CausalData` | `CapabilityError`, `implementation_gap` | [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism). The second mechanism would have to be evaluated at every node |
+| a treatment with declared dose atoms, or a declared known treatment mechanism | `CapabilityError`, `implementation_gap` | [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) part (c) |
+| a dose interval that leaves the observed dose range | `DataError` | the binned density is zero outside that range. Declare the interval with a margin inside it |
+| quadrature nodes that need more than 4 GB | `DataError` | declare fewer pairs, fewer `nodes_per_piece` or fewer density bins |
+| a fitted density of zero at an observed dose or a node where a weight is nonzero | `DataError`, raised after the nuisance fit | narrow the dose interval |
+| an interval for the unsmoothed curve, or a band over every dose in an interval | not offered | [F39](../roadmap.md#f39-unsmoothed-dose-response-curve) |
+
 ### Experimental compositions
 
 A composition that no study covers, and whose code computes the requested quantity, runs. The

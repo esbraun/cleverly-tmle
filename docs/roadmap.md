@@ -165,6 +165,7 @@ not change the package version.
 | after beta | EP learner | preprint support, read first-hand | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | after beta | Adaptive TMLE for a trial augmented with external data | preprint support, read first-hand | the shipped point-treatment TMLE, its known treatment mechanism and the shipped lasso | [X90](#x90-adaptive-tmle-for-a-trial-augmented-with-external-data) |
 | after beta | Survival targets across the estimators | published support for part (b); natural extension for parts (c) and (d); audit first for part (f); part (e) refused | the shipped survival and competing-risk paths of `LTMLE` | [X91](#x91-survival-targets-across-the-estimators) |
+| after beta | Dose-response intervals below the support floor | no new theory for part (a), a support diagnostic that tracks the interval's error and a registered study at small bandwidths and tail doses; part (b), clustered rows, needs a few-cluster rule for the multiplier band | the shipped `DoseResponseTMLE` and its support report | [X95](#x95-dose-response-intervals-below-the-support-floor) |
 | after beta | Plots and visualizations | no new theory for the plots; preprint and published support for the targeting curves of part 5, read first-hand | the shipped results, diagnostics and sensitivity analyses; `matplotlib` through the `plot` extra | [X92](#x92-plots-and-visualizations) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -278,6 +279,7 @@ It moved each part that an established method or a natural extension carries to 
 | E-values beyond the total-population arm contrast | the ATT and ATC E-value on a binomial outcome; the E-value of a regime, policy or incremental contrast, with the derived risk ratio off the arm axis | identification | E-values of total-population arm contrasts, of a controlled direct effect, and the standardized ATT and ATC E-value on a gaussian outcome | [F34](#f34-e-values-beyond-the-total-population-arm-contrast) |
 | Inference for sequential baselines with data-adaptive nuisances | an asymptotic-linearity result for longitudinal sequential g-computation or IPW whose nuisances are fitted by a data-adaptive learner | asymptotic | the point estimate stands. A fit that reads a regression fitted by a learner other than `GLM` takes the `adaptive_baseline_plugin` status and reports a plug-in diagnostic only | [F35](#f35-inference-for-sequential-baselines-with-data-adaptive-nuisances) |
 | Locally efficient g-estimation of the structural nested mean model | an interval for the blips from the g-estimator that weights its instrument by the conditional variance of the outcome residual | efficiency | the shipped `StructuralNestedMean` solves the unweighted equation. Its interval is valid under the linear model, and it is not the efficient estimator of that model | [F36](#f36-locally-efficient-g-estimation-of-the-structural-nested-mean-model) |
+| Unsmoothed dose-response curve | an interval for the curve $\theta(a_0) = E\{\bar Q(a_0, W)\}$ at a fixed dose of a continuous treatment, by an undersmoothed or adaptively smoothed CV-TMLE with an estimated treatment density, and a band over a continuum of doses | adaptive-optimum inference; asymptotic | `DoseResponseTMLE` reports the kernel-smoothed curve at declared bandwidths, with pointwise intervals and a band over the declared pairs | [F39](#f39-unsmoothed-dose-response-curve) |
 
 ## Eligibility
 
@@ -2010,6 +2012,34 @@ Acceptance: each part that ships needs exact-law checks with a nonzero witness o
 a mutation control, and a registered study. Each request that stays refused needs a pre-fit
 refusal test.
 
+### X95. Dose-response intervals below the support floor
+
+`DoseResponseTMLE` labels a pair whose clever covariate has a Kish effective size below the
+declaration's `support_floor` with the `low_dose_support_plugin` status: its interval is shown and
+experimental. The default floor of 50 is provisional.
+
+The X93 pilot found that the fitted Kish
+size does not separate the intervals that under-cover from those that do not. At the tail pair
+(bandwidth 0.5, dose 0.4, n = 1,000), coverage was 0.938 below the floor and 0.934 above it, and
+it fell from 0.944 to 0.924 across the quartiles of the Kish size, because a fit with a larger
+Kish size reported a smaller SE without a smaller error. The stratified pair at dose 0.25 in
+$V = 1$ at n = 4,000 covered 0.908 at a mean Kish size of 69, with 2.9% of its fits labelled
+(`tests/studies/dose_response_pilot.csv.gz`). The registered X93 run repeats both readings
+(`tests/canonical/dose_response/pair-support.csv`): at the tail pair the unlabelled fits covered
+0.929 and the labelled fits 0.944, and the stratified pair at n = 8,000 covered 0.921 at a mean
+Kish size of 141 with an SE ratio of 0.93. This item has two parts.
+
+- (a) Find a support diagnostic that tracks the interval's error, label by it, and measure the
+  interval near the new threshold, at small bandwidths and at tail doses, in a registered study.
+  Raising the Kish floor would label more of the fits that cover and few of those that do not.
+  The X93 run publishes the coverage split by the current label (`pair-support.csv`).
+- (b) Clustered rows. `DoseResponseTMLE` refuses `id=`. Its intervals and band would need the
+  package's few-cluster rule: the status `few_cluster_plugin` and a $t$ reference below 40
+  clusters, which the multiplier band does not take.
+- (c) A declared treatment mechanism and declared dose atoms. `DoseResponseTMLE` fits its own
+  binned dose density and refuses both: a known density would replace the fitted one in the
+  clever covariate, and an atom would need a point mass in the quadrature and the band.
+
 ### X92. Plots and visualizations
 
 `cleverly.plotting` draws the figures a reader of a result needs and a table cannot show: a shape
@@ -2829,6 +2859,34 @@ variance of `LTMLE`. The weighted instrument also needs a nuisance for that vari
 | kept claim | kind | missing argument |
 | --- | --- | --- |
 | an interval for the blips from the variance-weighted g-estimator, with a cross-fitted variance nuisance | efficiency | the efficient influence function of the linear structural nested mean model, and a limit theorem for the cross-fitted weighted estimator. No source read for this item states either |
+
+### F39. Unsmoothed dose-response curve
+
+`DoseResponseTMLE` targets the kernel-smoothed curve $\theta_h(a_0)$ at declared bandwidths, which
+is pathwise differentiable. The curve at a fixed dose, $\theta(a_0)$, is not, and its interval
+needs a bandwidth that shrinks with $n$. Bibaut and van der Laan, arXiv:1706.07408v2, give the
+closest results, and none covers the package's setting:
+
+- Their dose-response example holds the treatment density $g_0$ known (Example 3, Section 5.3 and
+  Corollary 4, pages 3 and 24-25), so its remainder is zero. The Discussion (page 32) defers an
+  estimated mechanism to a forthcoming article. No source read for this item gives a result with
+  an estimated density.
+- Their CV-TMLE (Theorem 3, page 20) assumes A9 and A12, of which the authors write "we
+  conjecture that assumptions A9 and A12 hold in the case where the approximating family is
+  obtained by kernel smoothing" (page 20).
+- Under a known $g_0$, their one-step estimator (Theorem 1, page 16) has a published limit under
+  their assumption A1, a power law in the bandwidth for the bias and the variance. It is not a
+  TMLE, so the package does not ship it as a primary estimator.
+- Díaz and van der Laan (2013), *Journal of Causal Inference* 1(2), 171-192, give a CV-TMLE of the
+  risk of candidate curve estimators and no interval for the curve.
+
+Chapter 25 of *Targeted Learning in Data Science* (van der Laan, Bibaut and Luedtke, 2018) treats
+the same question and is unread. It is the first source to read.
+
+| kept claim | kind | missing argument |
+| --- | --- | --- |
+| an interval for $\theta(a_0)$ with an estimated treatment density | adaptive-optimum inference; asymptotic | a limit law for a CV-TMLE at a data-adaptive, undersmoothing bandwidth when the density is estimated |
+| a band over every dose in an interval | adaptive-optimum inference | a limit theorem for a growing number of doses; Kennedy, Ma, McHugh and Small (2017), Appendix 8, leave weak convergence to future work |
 
 ## Reading a gap correctly
 

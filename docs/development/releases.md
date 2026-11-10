@@ -53,6 +53,10 @@ Prepare the release in a pull request from `main`.
 6. Push the tag, and review both publishing environments in GitHub Actions.
 7. Create the GitHub release from the tag, and paste the reviewed notes.
 
+The documentation site deploys once `publish.yml` succeeds, from the tagged commit
+(`.github/workflows/pages.yml`). A merge to `main` does not redeploy it. To publish a
+documentation fix between releases, run the `pages` workflow by hand from `main`.
+
 The workflow rejects a tag with another form. It also rejects a tag that differs from the source
 version or points outside `main` history.
 

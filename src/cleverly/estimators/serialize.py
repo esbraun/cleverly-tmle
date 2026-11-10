@@ -54,10 +54,17 @@ def _check_result(result: Any, *, operation: str) -> None:
     from ..effect_curves import EffectCurveResult
     from ..longitudinal import LongitudinalResult, StructuralNestedMeanResult
     from .base import TMLEResult
+    from .dose_response import DoseResponseResult
 
     if not isinstance(
         result,
-        (TMLEResult, LongitudinalResult, StructuralNestedMeanResult, EffectCurveResult),
+        (
+            TMLEResult,
+            LongitudinalResult,
+            StructuralNestedMeanResult,
+            EffectCurveResult,
+            DoseResponseResult,
+        ),
     ):
         raise TypeError(f"{operation} expects a fitted causal result; got {type(result).__name__}")
 

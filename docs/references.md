@@ -2509,6 +2509,44 @@ implementation provenance and the origin of the one-step form.
   and line 250 refuses inference for the untargeted IPTW with the message "Theory does not
   support inference for naive IPTW with super learner."
 
+## Smoothed dose-response curve (`DoseResponseTMLE`)
+
+[Smoothed dose-response curve](technical-reference/dose-response.md) cites these sources. The
+generic CV-TMLE theorem is Zheng & van der Laan (2011), in [Targeted learning, in
+general](#targeted-learning-in-general).
+
+- Bibaut & van der Laan (2017), cited under [Targeted learning, in
+  general](#targeted-learning-in-general). Section 1.3, page 5, defines the kernel average
+  $\Psi_{a_0,\delta}(P) = E \int K_{\delta,a_0}(a) \bar Q(a, W)\,da$ and gives its canonical
+  gradient under a known treatment density. The PDF prints $\bar Q(a, W)$ in the first term of the
+  gradient, a typo for $\bar Q(A, W)$. The same page states $\operatorname{Var} D_\delta \sim
+  C\delta^{-1}$. Example 3 and Section 5.3 hold the density known throughout, and the Discussion,
+  page 32, defers an estimated density. Theorem 3, page 20, rests on assumptions A9 and A12, which
+  the authors conjecture for kernel smoothing. The package uses the paper for the parameter and its
+  gradient only. [F39](roadmap.md#f39-unsmoothed-dose-response-curve) records what it leaves open.
+- Neugebauer & van der Laan (2003), [*Locally efficient estimation of nonparametric causal effects
+  on mean outcomes in longitudinal studies*](https://biostats.bepress.com/ucbbiostat/paper134/), UC
+  Berkeley Division of Biostatistics Working Paper 134. Read first-hand. Section 2.1, Equation (1),
+  defines the projection $\beta_{m,\lambda} = \arg\min_\beta E \sum_a \{Y_a - m(a \mid
+  \beta)\}^2 \lambda(a)$ with a known weight. The smoothed curve is its intercept under a local-linear
+  working model with the kernel as the weight, with the sum replaced by an integral over doses.
+  Section 3.4.1, page 12, gives the doubly robust estimating function. The paper's estimators are
+  IPTW, G-computation and estimating equations, not TMLE. The journal version, Neugebauer & van der
+  Laan (2007), is listed under [Longitudinal, survival and marginal structural
+  models](#longitudinal-survival-and-marginal-structural-models).
+- Díaz & van der Laan (2013), [*Targeted data adaptive estimation of the causal dose-response
+  curve*](https://doi.org/10.1515/jci-2012-0005), *Journal of Causal Inference* 1(2):171-192, DOI
+  10.1515/jci-2012-0005. Read first-hand. The paper estimates the risk of candidate curve estimators
+  by CV-TMLE and selects the candidate with the smallest risk. It gives no interval for the curve.
+  Section 3.1, page 180, says an aggressively estimated mechanism "will usually" break its
+  condition (4).
+- Kennedy, Ma, McHugh & Small (2017), [*Non-parametric methods for doubly robust estimation of
+  continuous treatment effects*](https://doi.org/10.1111/rssb.12212), *Journal of the Royal
+  Statistical Society Series B* 79(4):1229-1245, DOI 10.1111/rssb.12212. Read first-hand in
+  arXiv:1507.00747v3, with its appendix. Their smoothed curve weights by the marginal dose density, and
+  their interval covers that smoothed curve. Appendix 8 leaves a band over a continuum of doses to
+  future work. npcausal `ctseff` implements the estimator. The package uses it as a comparator only.
+
 ## The TWINS example
 
 The [TWINS notebook](examples/twins-causal-inference.ipynb) cites these sources for the data, the

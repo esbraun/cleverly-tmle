@@ -48,13 +48,14 @@ PRECEDENCE = (
     "adaptive_baseline_plugin",
     "no_cluster_variance_plugin",
     "few_cluster_plugin",
+    "low_dose_support_plugin",
     "constant_node_plugin",
     "stack_failure_plugin",
 )
 
 #: The statuses whose interval is shown under the experimental label. Eric's answer of
 #: 2026-10-15 keeps the other labelled statuses point-only.
-SHOWN = ("estimated_weight_plugin", "few_cluster_plugin")
+SHOWN = ("estimated_weight_plugin", "few_cluster_plugin", "low_dose_support_plugin")
 WITHHELD = tuple(status for status in PRECEDENCE if status not in SHOWN)
 
 

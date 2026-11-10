@@ -478,6 +478,7 @@ BACKEND_ROUTES: dict[str, str] = {
     "CausalData": "field",
     "CorrectionCheck": "field",
     "CVTargeting": "field",
+    "DoseResponseResult": "field",
     "DiagnosticReport": "field",
     "InfluenceReport": "field",
     "LongitudinalDiagnostics": "field",
