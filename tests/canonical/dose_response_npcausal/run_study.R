@@ -19,30 +19,20 @@ paths <- study_arguments("usage: run_study.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv
 truths <- read.csv(paths$truths, stringsAsFactors = FALSE, check.names = FALSE)
 scenario <- "linear_gaussian"
 
-# One pair per row: the name both implementations report (the triweight bandwidth of
-# `DoseResponse`), the dose, and the Gaussian bandwidth `ctseff` receives, h R(K_G) / R(K_T).
-# `tests/unit/test_dose_response_npcausal_design.py` checks these literals against
-# `tests.studies.dose_response_npcausal.PAIRS`, digit for digit.
-PAIRS <- data.frame(
-  estimand = c(
-    "dose_response[h=1,a=1.5]",
-    "dose_response[h=1,a=2.5]",
-    "dose_response[h=1,a=3.5]",
-    "dose_response[h=1.5,a=1.5]",
-    "dose_response[h=1.5,a=2.5]",
-    "dose_response[h=1.5,a=3.5]"
-  ),
-  dose = c(1.5, 2.5, 3.5, 1.5, 2.5, 3.5),
-  bandwidth = c(
-    0.3457676162028392, 0.3457676162028392, 0.3457676162028392,
-    0.5186514243042588, 0.5186514243042588, 0.5186514243042588
-  ),
-  stringsAsFactors = FALSE
-)
+# Each replicate fits the pairs its truth rows name.  A name is `pair_name(h, a0)` with the
+# triweight bandwidth h of `DoseResponse`; `ctseff` receives the Gaussian bandwidth of equal
+# roughness per unit bandwidth, h R(K_G) / R(K_T), computed in the operation order of
+# `tests.studies.dose_response_npcausal.gaussian_bandwidth` so that the two agree to the bit.
+# The declared run names six pairs per replicate; the R pilot
+# (tests/canonical/dose_response_npcausal/pilot.py) names the three doses of one candidate
+# bandwidth per replicate, so each `ctseff` call is its own group and its own failure record.
+PAIR_NAME <- "^dose_response\\[h=([0-9.]+),a=([0-9.]+)\\]$"
+gaussian_bandwidth <- function(h) h * (1 / (2 * sqrt(pi))) / (350 / 429)
 # `ctseff`'s evaluation grid is seq(a.rng[1], a.rng[2], length.out = n.pts).  The range is the
 # observed dose range widened outward to multiples of 1/8, so every grid point is a dyadic
 # rational, every declared dose is a grid point exactly, and the grid spans the data as
-# `ctseff`'s default range does (its smoothing splines extrapolate past the grid).
+# `ctseff`'s default range does.  A grid short of the data would leave its smoothing splines to
+# extrapolate (linearly) at the outer doses.
 GRID_STEP <- 0.125
 # One learner, so SuperLearner's cross-validated weight is 1 and each prediction is that
 # learner's full-sample fit: no fit depends on SuperLearner's fold draw.  `.^2` over (W, a) is
@@ -50,10 +40,23 @@ GRID_STEP <- 0.125
 # and dose variance exactly.
 SL_LIBRARY <- "SL.glm.interaction"
 
-truth_for <- function(replicate, estimand) {
-  selected <- truths$replicate == replicate & truths$scenario == scenario & truths$estimand == estimand
-  if (sum(selected) != 1) stop(sprintf("truth join found %d rows", sum(selected)))
-  truths$truth[selected]
+pairs_for <- function(replicate) {
+  # The truth file is the driver's; a replicate without truth rows, or a name outside the
+  # pattern, is a broken input, not a fitting failure, so both stop the run.
+  selected <- truths[truths$replicate == replicate & truths$scenario == scenario, ]
+  if (!nrow(selected)) stop(sprintf("no truth rows for replicate %s", replicate))
+  if (!all(grepl(PAIR_NAME, selected$estimand))) {
+    stop(sprintf("unparsed estimand among %s", paste(selected$estimand, collapse = ", ")))
+  }
+  h <- as.numeric(sub(PAIR_NAME, "\\1", selected$estimand))
+  data.frame(
+    estimand = selected$estimand,
+    dose = as.numeric(sub(PAIR_NAME, "\\2", selected$estimand)),
+    triweight = h,
+    bandwidth = gaussian_bandwidth(h),
+    truth = selected$truth,
+    stringsAsFactors = FALSE
+  )
 }
 
 fit_bandwidth <- function(frame, bandwidth, doses, low, high, points) {
@@ -67,6 +70,11 @@ fit_bandwidth <- function(frame, bandwidth, doses, low, high, points) {
       a.rng = c(low, high),
       sl.lib = SL_LIBRARY
     )
+    # An NA leave-one-out risk leaves `which.min` empty, so `ctseff` ran its final fit with a
+    # zero-length bandwidth.  Whatever that call returned, the row is not the declared fit.
+    if (!all(is.finite(fit$bw.risk$risk))) {
+      stop("ctseff's leave-one-out bandwidth risk is NA, so its bandwidth selection is empty")
+    }
     # A one-value `bw.seq` selects that value; the risk table says which one ran.
     if (!identical(fit$bw.risk$bw, bandwidth)) {
       stop(sprintf("ctseff ran bandwidth %s, not the declared %s", fit$bw.risk$bw, bandwidth))
@@ -85,10 +93,11 @@ fit_one <- function(frame) {
   low <- floor(min(frame$A) / GRID_STEP) * GRID_STEP
   high <- ceiling(max(frame$A) / GRID_STEP) * GRID_STEP
   points <- as.integer(round((high - low) / GRID_STEP)) + 1L
-  rows <- lapply(unique(PAIRS$bandwidth), function(bandwidth) {
-    selected <- PAIRS[PAIRS$bandwidth == bandwidth, ]
+  pairs <- pairs_for(replicate)
+  rows <- lapply(unique(pairs$bandwidth), function(bandwidth) {
+    selected <- pairs[pairs$bandwidth == bandwidth, ]
     res <- fit_bandwidth(frame, bandwidth, selected$dose, low, high, points)
-    truth <- vapply(selected$estimand, function(name) truth_for(replicate, name), numeric(1))
+    truth <- selected$truth
     # `res$se` is the standard deviation of the estimated influence function; `ctseff`'s own
     # interval is est -/+ 1.96 se / sqrt(n), which these rows keep.
     std_error <- res$se / sqrt(n)

@@ -8056,7 +8056,8 @@ _DOSE_NPCAUSAL_SLUG = "dose-response-npcausal"
 STUDY_SCENARIOS[(_DOSE_NPCAUSAL_SLUG, "linear_gaussian")] = (
     "a dose with a normal location model linear in three normal covariates, and a Gaussian "
     "outcome linear in the dose with a dose-varying covariate slope, so the curve is a line; "
-    "doses 1.5, 2.5 and 3.5 by triweight bandwidths 1.0 and 1.5, n = 4,000"
+    "doses 1.5, 2.5 and 3.5 by two consecutive triweight bandwidths of 1.0, 1.5, 2.0 and 2.5, "
+    "n = 4,000"
 )
 STUDY_ESTIMANDS.update(
     {
@@ -8064,7 +8065,7 @@ STUDY_ESTIMANDS.update(
             f"{_dose_words(h, a0)}, which equals the curve at {a0:g} because the curve is a line; "
             "npcausal ctseff estimates the same value with a Gaussian kernel of matched roughness"
         )
-        for h in (1.0, 1.5)
+        for h in (1.0, 1.5, 2.0, 2.5)
         for a0 in (1.5, 2.5, 3.5)
     }
 )

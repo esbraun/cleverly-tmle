@@ -2,59 +2,68 @@
 
 A declared run passes ``--output`` (an empty scratch directory outside the repository) and
 optionally ``--jobs`` and ``--fresh``, and nothing else (:mod:`tests.canonical.declared_run`).
-The law, learners, bandwidths, size and margins are those of
-:mod:`tests.studies.dose_response_npcausal`, fixed before any run from the committed pilot
-(:mod:`tests.studies.dose_response_npcausal_pilot`).  The reference runs in the image the
+The law, learners, doses and margins are those of :mod:`tests.studies.dose_response_npcausal`.
+The bandwidths and the replicate count are read off the pilots by
+:func:`tests.studies.dose_response_npcausal_pilot.declaration_from_pilot`, and they stay
+provisional until the local R pilot is committed.  The reference runs in the image the
 incremental studies build from ``tests/canonical/npcausal_incremental`` (npcausal 0.1.0 at
 ``56a5ac1`` on R 4.5.2), unchanged, with ``run_study.R`` mounted at ``/fixture``.
 
-Smoke before the declared run.  A smoke passes ``--replicates`` other than the declared count,
-so the driver skips the (empty) property phase and refuses an ``--output`` in the repository::
+Order of work, all local, before any declared draw reaches R:
+
+1. ``python -m tests.canonical.dose_response_npcausal.pilot probe --scratch <dir> --jobs <n>``
+   (review smoke steps S1, S2, S4, S6 and S7 on constructed draws and 20 pilot draws).
+2. ``python -m tests.canonical.dose_response_npcausal.pilot reference --scratch <dir> --jobs
+   <n>``, which commits the R pilot and prints the declaration read off it.
+3. Set :data:`~tests.studies.dose_response_npcausal.BANDWIDTHS` and
+   :data:`~tests.studies.dose_response_npcausal.PRIMARY_REPLICATES` to that declaration, which
+   ``tests/unit/test_dose_response_npcausal_design.py`` then checks, register the record, and
+   commit.
+4. The smoke (S8), which draws declared replicates 0 to 19 and so informs no declared value::
 
     python -m tests.canonical.dose_response_npcausal.regenerate --replicates 20 \
         --output <scratch> --allow-failures --jobs <workers>
 
-The smoke must confirm, before the declared run, what the declaration took from the Python
-pilot because R could not run there: that ``ctseff`` returns finite rows at every pair, that its
-estimates sit near the Python transcription's on the same draw (the transcription interpolates
-no binned fit, so expect agreement to a few hundredths of a standard error, not to rounding),
-and that a call costs seconds.  Read them off the smoke's ``replicates.parquet`` and
-``run.log``.  The smoke cannot judge a coverage or a paired verdict at 20 replicates.
+5. The declared run.
 
-Projected paired verdicts (declared before any run, from the pilot with the transcription
-standing in for ``ctseff``).  At dose 3.5 the subject's reported SE runs above its spread
-(pilot SE ratio 1.07 at both bandwidths, against 1.00 and 1.01 for the transcription), the
-conservatism the ``dose-response`` study already reports at interior pairs.  The calibration
-leg there reads a calibration excess near 0.06 against the margin 0.05, so those two paired cells
-are projected red (``inconclusive``) whatever the count.  The other four project green on every
-leg, and the RMSE leg's projected bounds stay at or below 1.09.
+Provisional projection, from the Python pilot with the transcription standing in for
+``ctseff`` (the design test recomputes every number here).  The transcription fails 74, 7, 1
+and 0 of 1,000 calls at bandwidths 1, 1.5, 2 and 2.5, so the rule selects 2 and 2.5, and the
+count is 4,800, set by the paired legs (the shared rule reads 2,400 both ways).  At dose 3.5
+the subject's mean reported SE is 1.10 and 1.11 times the exact efficient SD.  At bandwidth 2.5
+its spread rises to 1.11 times efficient as well, so the RMSE ratio there is 1.10 and the RMSE
+leg projects red at any count while the calibration leg projects green; at bandwidth 2 the RMSE
+ratio is 1.05.  The four cells at doses 1.5 and 2.5 pass every leg with projected probability
+at least 0.96 at that count, with RMSE ratios at or below 1.00 and calibration excesses at or
+below 0.015.
 
-Red-cell readings (declared before any run).  The record is ``gated``.  No cell is re-sized,
-re-drawn or downgraded after a verdict is seen; a red that the diagnosis finds is not a defect
-moves the record to ``reporting`` with an owner row and the reading below, and the run is
-repeated under the new commit on the same seeds.
+Red-cell readings, declared before any run.  The record is ``reporting``: a red row publishes,
+and ``TestThePreregisteredRedSet`` in the design test admits only the signatures below.  No cell
+is re-sized, re-drawn or downgraded after a verdict is seen, and owner rows are filed after the
+run against the rows the test admits.
 
-* A red subject truth row is a defect suspect of ``DoseResponseTMLE``: the truths are exact,
-  the outcome learner holds the law's regression exactly and the doses are interior.  Diagnose
-  it against ``tests/unit/test_dose_response.py`` and the ``dose-response`` study.
-* A red ``npcausal`` truth row is a finding about the reference at this law and n, published
-  under ``reporting`` with ``accepted_reference_failure`` naming it; it does not turn the
-  subject's row red (``tests.studies.evidence.comparison`` keeps the two questions apart).  The
-  Python transcription read ``ctseff``'s coverage at each pair from the pilot draws
-  (``tests/unit/test_dose_response_npcausal_design.py``).
-* A red similarity leg is a defect suspect of whichever side's truth row is also off.  With
-  both truth rows green it reads as the two estimators' finite-sample difference on one target
-  (different kernels' shapes, density estimators and fold use) and takes the route above.
-* A red RMSE leg with both truth rows green reads as the two estimators' variance difference at
-  matched roughness: the route above, with the measured ratio stated.
-* A red calibration leg at dose 3.5 whose subject SE ratio lies above 1 (conservative) while
-  the subject's coverage and truth row are green is the projected reading above: the subject's
-  conservative influence-curve SE at that dose, not a defect.  It takes the route above, with
-  the measured ratios stated.  A red calibration leg with the subject's SE ratio below 1, or
-  outside the sanity band, is a variance defect suspect.
+* A red calibration leg at dose 3.5, with every other leg of the row green, the subject's SE
+  ratio above 1, its coverage at least 0.95 and its truth row green, is the pre-registered
+  reading: the subject's influence-curve SE over-reports at the upper end of the dose axis.
+  The reflected pilot fits locate the over-report there whichever end of the law the dose
+  sits at, so its source is the pooled-hazard density, whose bin hazards compound upward
+  through the survival product, not the law and not ``ctseff``.  The dose-response study sees
+  the same effect at its upper boundary dose 4.75; this law's wider dose spread brings it to
+  an interior dose.
+* Where the declaration's paired-leg count hit its cap (``paired`` is ``None``), a red
+  calibration leg at dose 1.5 or 2.5, with every other leg green, the subject's SE ratio in
+  [1, 1.07], the reference's below 1 and both truth rows green, reads as the reference's
+  anti-conservative SE plus straddle noise: when the two ratios sit on opposite sides of 1 the
+  leg adds their errors instead of cancelling them.
+* Any other red fails the design test and is diagnosed before anything is published.  A red
+  subject truth row is a defect suspect of ``DoseResponseTMLE``: the truths are exact, the
+  outcome learner holds the law's regression and the doses are interior.  A red ``npcausal``
+  truth row is a finding about the reference at this law and n; it does not turn the subject's
+  row red (``tests.studies.evidence.comparison`` keeps the two questions apart).
 * A replication that raises is never redrawn, and the failure record governs: a recordable
   subject error or an R error inside ``study_stage`` costs one replicate of its side, read
-  within the declared 1% bound.  An error outside a stage stops the run.
+  within the declared 1% bound.  The selected bandwidths keep the R pilot's failure rate inside
+  that bound with probability 0.99.  An error outside a stage stops the run.
 """
 
 from pathlib import Path

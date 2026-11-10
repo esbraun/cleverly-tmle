@@ -42,7 +42,11 @@ import pandas as pd
 from cleverly.dose_response import KernelName, equivalent_kernel
 
 SIGMA = 1.5
-SUPPORT = (0.0, 5.0)
+#: The dose interval :math:`D`, symmetric about the dose mean 2.5 so that the reflection
+#: :math:`a \mapsto 5 - a` maps it to itself, and wide enough that the kernel of every
+#: candidate bandwidth at every declared dose lies inside it (the widest, 2.5 at dose 1.5 or
+#: 3.5, reaches -1 and 6).
+SUPPORT = (-1.5, 6.5)
 DOSE_INTERCEPT = 2.5
 DOSE_LOADINGS = (0.5, 0.3, -0.3)
 #: :math:`s^2 = \operatorname{Var} m(W)`.
