@@ -794,9 +794,11 @@ gives the estimator, its conditions and each refusal.
 
 The `missingness()` tilt and the `tipping_gamma()` search perturb the arm means and their
 contrasts and ratios, `ey_obs`, PAR and PAF, the regime parameters, and the MSM coefficients. Away
-from $\gamma = 0$, every parameter but an arm mean or a linear contrast reports its spread under
-the `plugin_` column names, and `tipping_gamma(use_ci=True)` refuses it. The table gives each
-missing-outcome fit where both are unavailable.
+from $\gamma = 0$ no parameter has a confidence interval. Its spread there is the main analysis's
+standard error placed around the moved estimate, reported under the `plugin_` column names. That
+spread is a diagnostic: the moved estimate has its own sampling error, which can be much larger.
+For the same reason `tipping_gamma(use_ci=True)` refuses, and the default point search answers.
+The table gives each missing-outcome fit where both methods are unavailable.
 
 | fit | reason |
 | --- | --- |

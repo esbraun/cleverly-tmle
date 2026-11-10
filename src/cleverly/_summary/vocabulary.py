@@ -4094,11 +4094,6 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "Where gamma times an arm's factor is positive, that arm's missing outcomes were "
             "higher; a factor of zero leaves the arm at missing at random."
         ),
-        "tilt_interval": (
-            "Where an interval is printed off a gamma of zero, it reuses the main analysis's "
-            "standard error and treats gamma as known, so it describes sampling error at "
-            "that gamma, not doubt about gamma."
-        ),
         "assumption_surface": (
             "Each cell adds a simulated common cause of {moved} and the outcome, refits the "
             "analysis, and reports how far the estimate moved. The surface is qualitative: "
@@ -4251,7 +4246,9 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "tilt_diagnostic": (
             "For {names} the spread off a gamma of zero is the main analysis's spread around the "
-            "moved estimate{scale}, a diagnostic: no interval is claimed there."
+            "moved estimate{scale}, a diagnostic and not a confidence interval: the moved "
+            "estimate has its own sampling error, which the main analysis's spread does not "
+            "measure."
         ),
         "population_moves": (
             "Each cell rebuilds the population of units with {arm_phrase} from its own "
