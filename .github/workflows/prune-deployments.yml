@@ -1,9 +1,13 @@
 name: prune-deployments
 
 # Deletes old GitHub deployment records, keeping the newest `keep` per environment. A record is
-# only history: deleting it leaves the live Pages site and published packages untouched. Run it
-# by hand; GitHub cannot restore a deleted record.
+# only history: deleting it leaves the live Pages site and published packages untouched, but
+# GitHub cannot restore it. It runs after every `pages` or `publish` run, the only workflows
+# that create deployments, so records never pile up; a manual run can keep more than one.
 on:
+  workflow_run:
+    workflows: ["pages", "publish"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       keep:
@@ -14,12 +18,16 @@ on:
 permissions:
   deployments: write
 
+concurrency:
+  group: prune-deployments
+  cancel-in-progress: false
+
 jobs:
   prune:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      KEEP: ${{ inputs.keep }}
+      KEEP: ${{ inputs.keep || '1' }}
     steps:
       - name: Delete all but the newest records per environment
         run: |
