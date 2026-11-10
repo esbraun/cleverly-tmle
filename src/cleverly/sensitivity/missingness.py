@@ -111,6 +111,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..data import CausalData
     from ..estimators._nuisance import RepeatFit
     from ..estimators.base import TMLEResult
+    from ..validation._interpretation import Resolution
 
 __all__ = ["DEFAULT_GAMMA_GRID", "missingness_tilt", "tipping_gamma"]
 
@@ -511,6 +512,10 @@ def missingness_tilt(
     payload = _tilt_payload(result, gamma, estimands, arm_gamma)
     data = result.data
     names = tuple(dict.fromkeys(payload["estimand"]))
+    targets = _tilt_targets(result)
+    inferential_names = {
+        target.name for target in _interval_targets(result, [targets[name] for name in names])
+    }
     declared = (
         None
         if arm_gamma is None
@@ -534,6 +539,11 @@ def missingness_tilt(
             for name, target in _tilt_targets(result).items()
             if name in names and target.kind == "ratio"
         ),
+        readings=tuple(
+            (name, _tilt_reading(result, targets[name], declared is not None))
+            for name in names
+            if name in inferential_names
+        ),
     )
 
 
@@ -546,6 +556,69 @@ def _tilt_frame(
 ) -> Any:
     """The rows of :func:`missingness_tilt` as a frame, for the tipping search."""
     return result.data.frame_like(_tilt_payload(result, gamma, estimands, arm_gamma))
+
+
+def _interval_targets(
+    result: TMLEResult, targets: Sequence[_TiltTarget]
+) -> tuple[_TiltTarget, ...]:
+    """The targets whose tilted parameter is estimated by its own TMLE, with an interval."""
+    if tilt_interval_exclusion(result) is not None:
+        return ()
+    return tuple(
+        target
+        for target in targets
+        if target.kind in INFERENTIAL_KINDS and result[target.name].supplies_inference
+    )
+
+
+#: The registry instrument of the targeted tilt's intervals off ``gamma = 0``.
+TILT_INTERVAL_INSTRUMENT = "missingness_tilt_interval"
+
+
+def _tilt_reading(result: TMLEResult, target: _TiltTarget, directed: bool) -> Resolution:
+    """What the registry licenses for the targeted tilt's interval of one target.
+
+    The rule is the target's kind, ``level``, ``contrast``, ``conditional`` (``att`` and
+    ``atc``), ``ratio``, ``natural_course``, ``par`` or ``paf``, followed by one feature per
+    composition in this order: ``+continuous``, ``+multi_arm``, ``+cross_fit`` (the stacked
+    report), ``+cv_evaluation``, ``+repeats``, ``+weighted``, ``+clustered`` and
+    ``+arm_direction``.  A rule no registered study covers reads descriptive.
+    """
+    from ..validation._interpretation import fit_configuration, resolve
+
+    data = result.data
+    config = result.config
+    if target.kind == "arm":
+        parameter = target.parameter
+        assert parameter is not None
+        if parameter.conditions_on is not None:
+            base = "conditional"
+        elif parameter.versus is not None:
+            base = "contrast"
+        else:
+            base = "level"
+    else:
+        base = target.kind
+    features = [base]
+    if data.family != "binomial":
+        features.append("continuous")
+    if not data.is_binary_treatment:
+        features.append("multi_arm")
+    if config.cross_fit:
+        features.append("cv_evaluation" if config.cv_evaluation else "cross_fit")
+    if len(result.repeats) > 1:
+        features.append("repeats")
+    if data.weights_name is not None:
+        features.append("weighted")
+    if data.cluster is not None:
+        features.append("clustered")
+    if directed:
+        features.append("arm_direction")
+    try:
+        fit = fit_configuration(result, target.name)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        fit = None
+    return resolve(TILT_INTERVAL_INSTRUMENT, "+".join(features), fit)
 
 
 def _tilt_payload(
@@ -586,17 +659,7 @@ def _tilt_payload(
     direction = _tilt_direction(data, arm_gamma)
     grid = tuple(DEFAULT_GAMMA_GRID if gamma is None else (float(g) for g in gamma))
 
-    # The targets whose tilted parameter is estimated by its own TMLE, with an interval.
-    excluded = tilt_interval_exclusion(result)
-    inferential = (
-        ()
-        if excluded is not None
-        else tuple(
-            target
-            for target in targets
-            if target.kind in INFERENTIAL_KINDS and result[target.name].supplies_inference
-        )
-    )
+    inferential = _interval_targets(result, targets)
 
     rows: list[dict[str, Any]] = []
     for value in grid:

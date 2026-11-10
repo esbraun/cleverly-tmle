@@ -1214,6 +1214,10 @@ def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
                 TEXTS["tilt_diagnostic"].format(names=_names(diagnostic), scale=scale),
             )
         )
+    if tilt.descriptive:
+        notes.append(
+            _descriptive(f"interval off a gamma of zero for {_names(list(tilt.descriptive))}")
+        )
     sections: list[SummarySection] = []
     if detail == "full":
         targeted = [name for name in names if name not in diagnostic and name not in withheld]
@@ -1224,6 +1228,8 @@ def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
                 "new correction step that solves the tilted parameter's own estimating "
                 "equation."
             )
+        for name, reading in tilt.readings:
+            settings.append(f"Evidence for the interval of {name}: {_formal(reading.sentence)}")
         if diagnostic:
             settings.append(
                 f"Off gamma = 0 the estimate for {_names(diagnostic)} reuses the main fit "
