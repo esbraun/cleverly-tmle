@@ -164,7 +164,8 @@ estimate holds roadmap ids, such as `X54`, that name the missing evidence.
 A fit with fewer clusters than the interval floor shows its interval under the experimental
 label. Its bootstrap is published as `bootstrap sd` and a percentile range, and its summary
 labels both as diagnostics. A fit that withholds its
-interval, such as a collaborative fit, keeps its point estimate and refuses `ci`. The
+interval, such as a collaborative fit with the default `"greedy"` strategy, keeps its point
+estimate and refuses `ci`. The
 [inference status](../technical-reference/inference.md#inference-status) table lists each case.
 
 ## Result structure
@@ -180,8 +181,14 @@ point = result[names[0]]
 print(point.psi, point.std_error, point.ci, point.pvalue)
 ```
 
-A collaborative fit refuses `std_error`, `ci`, and `pvalue` with `CapabilityError` at every
-`strategy`. A `DRTMLE` fit with a `guard` and varying weights declared estimated
+Most collaborative fits refuse `std_error`, `ci`, and `pvalue` with `CapabilityError`. That
+covers the `"greedy"` default, `"ordered"`, `"discrete"`, `"lasso"`,
+`"learners"`, and `"oat"` with a flexible learner. Three collaborative fits report an interval:
+`strategy="derivative"`; `"oat"` with a parametric outcome model and treatment model, under the
+conditions in
+[parametric per-arm intervals](../technical-reference/collaborative-tmle.md#parametric-per-arm-intervals);
+and a fit that selects nothing, such as `"discrete"` whose one candidate is the full adjustment set.
+A `DRTMLE` fit with a `guard` and varying weights declared estimated
 (`weights_estimated=True`) reports them under the experimental label. A clustered fit refuses them
 below 3 clusters with positive weight mass, and reports them under the experimental label from 3
 to 9 clusters, or to 19 for longitudinal TMLE. The property `result.inference_status` gives the status of the fit, and
