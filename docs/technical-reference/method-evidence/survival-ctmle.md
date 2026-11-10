@@ -114,8 +114,31 @@ the committed results and checked at the precision printed.
 | `performance[cleverly-survival-ctmle/or15_qcorrect/ate_regimen[a1 vs a0 @ t=2]]:standardized_bias` | -0.0169 | standardized bias of the risk difference at OR 15 |
 | `summary[cleverly-survival-ctmle/or15_qcorrect/risk_regimen[a1 @ t=2]]:rmse` | 0.0224 | RMSE of $F_1(2)$ at OR 15 |
 | `summary[cleverly-survival-ctmle/or15_qcorrect/risk_regimen[a1 @ t=2]]:coverage` | 0.9275 | plug-in coverage of $F_1(2)$ at OR 15, reported only |
+| `margin:subject_failure_bound` | 0.0100 | largest share of subject fits a cell may lose, gate (c) |
+| `margin:subject_failures_allowed` | 16 | lost subject fits that share allows at 1,600 replicates |
 | `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval |
+| `margin:alpha` | 0.0500 | nominal size of the reported intervals |
+| `margin:nominal_coverage` | 0.9500 | nominal coverage those intervals claim |
+| `margin:bootstrap_replicates` | 10000 | resamples behind every bootstrap interval |
 | `margin:standardized_bias` | 0.2500 | bias equivalence margin, in error SDs |
+| `margin:coverage_floor` | 0.9000 | coverage floor, not applied: every gated cell is point-only |
+| `margin:over_coverage_ceiling` | 0.9900 | above this, coverage is conservative rather than invalid |
+| `margin:se_ratio_sanity_lower` | 0.8000 | SE-ratio screen, lower limit |
+| `margin:se_ratio_sanity_upper` | 1.2000 | SE-ratio screen, upper limit |
+| `margin:calibration_se_ratio_lower` | 0.9300 | calibration-cell SE-ratio band, lower limit. The study declares no calibration cell |
+| `margin:calibration_se_ratio_upper` | 1.0700 | calibration-cell SE-ratio band, upper limit |
+| `margin:calibration_coverage_lower` | 0.9200 | calibration-cell coverage band, lower limit |
+| `margin:calibration_coverage_upper` | 0.9800 | calibration-cell coverage band, upper limit |
+| `margin:type_i_ceiling` | 0.1000 | largest size a one-sided type-I bound may establish |
+| `margin:paired_difference` | 0.1500 | paired similarity margin, in pooled empirical SDs |
+| `margin:rmse_noninferiority` | 1.1000 | largest external-comparison RMSE ratio bound |
+| `margin:coverage_noninferiority` | -0.0250 | smallest external-comparison coverage difference bound |
+| `margin:calibration_noninferiority` | 0.0500 | largest external-comparison calibration excess bound |
+| `margin:minimum_power` | 0.8000 | rejection lower bound a power control must clear |
+| `margin:root_n_slope` | -0.5000 | contraction rate root-n asymptotics predict |
+| `margin:root_n_slope_lower` | -0.6250 | accepted root-n slope band, lower limit |
+| `margin:root_n_slope_upper` | -0.3750 | accepted root-n slope band, upper limit |
+| `margin:excluded_slope` | -0.2500 | slower rate a root-n interval must exclude |
 
 ## Limitations
 

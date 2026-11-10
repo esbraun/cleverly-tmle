@@ -62,9 +62,9 @@ hazard ``LTMLE``, for :math:`F_1(2)` in ``or15_qcorrect``, at most 1
 on every gated replicate and carried on the subject's rows; they are this library, not a
 comparator of the grid row.  (c) The subject's fit-failure share under :data:`FAILURE_BOUND`.
 
-The study declares no coverage gate and no SE-ratio gate (F18): its :class:`Margins` set the
-coverage floor to zero and the SE-ratio band wide open, so plug-in standard errors against the
-empirical SD and plug-in Wald coverage are reported only.  Reported and not gated: the risk of
+The study declares no coverage gate and no SE-ratio gate (F18): every gated cell is
+point-only (``StudyRecord.point_only_scenarios``), so its truth rows pass on the bias leg alone,
+and plug-in standard errors against the empirical SD and plug-in Wald coverage are reported only.  Reported and not gated: the risk of
 arm 0 (``arm0-risk.csv``), every other RMSE ratio (``rmse-comparison.csv``), the share selecting
 :math:`W_4` into :math:`g_1` and :math:`A` into :math:`g_2`, the restart counts, clips, dropped
 terms and run time (``selection-readings.csv``).  The study's censoring is about 4.7% per
@@ -182,9 +182,10 @@ REPORTED_SCENARIOS = tuple(name for name in SCENARIOS if name not in GATED_SCENA
 #: The estimands gate (a) reads in each gated cell: the risk of arm 1 and the risk difference.
 #: The pilot settled the risk difference at OR 15 (the module docstring gives its readings).
 GATED_ESTIMANDS = dict.fromkeys(GATED_SCENARIOS, (ESTIMAND_NAMES[0], ESTIMAND_NAMES[2]))
-#: No coverage or SE-ratio gate (F18): the plug-in interval is a diagnostic.  A floor of zero
-#: cannot fail, and the open SE-ratio band cannot bind; the bias and RMSE margins stand.
-MARGINS = Margins(coverage_floor=0.0, se_ratio_sanity=(0.0, 1e6))
+#: The shared margins.  No coverage or SE-ratio gate (F18): every gated cell is declared
+#: point-only (``StudyRecord.point_only_scenarios``), so its truth rows pass on the bias leg
+#: alone while coverage and the SE ratio of the plug-in diagnostic are published.
+MARGINS = Margins()
 
 #: The two hazard ``LTMLE`` arms every replicate also fits.  They are reported beside the
 #: subject on its own rows, never as a comparator of the grid row: they are this library.
@@ -322,6 +323,12 @@ STUDY = StudyRecord(
         "tests/studies/survival_ctmle.py",
         "tests/studies/survival_ctmle_properties.py",
         "tests/studies/stratified_incremental_msm_properties.py",
+        # Imported through ``Columns``'s module; none of them is called by this study's fits.
+        "tests/studies/canonical_stratified_incremental_msm.py",
+        "tests/studies/stratified_alternating_law.py",
+        "tests/studies/stratified_law.py",
+        "tests/studies/point_study_helpers.py",
+        "tests/discrete_law.py",
         "tests/studies/evidence/schema.py",
         "tests/studies/evidence/seeds.py",
     ),
@@ -330,6 +337,7 @@ STUDY = StudyRecord(
     # No property cell, so no validation row: the study reports its verdicts off the grid
     # (``method-benchmarking.md``, "Adding a method row").  Its claim is points only (F18).
     publication_policy="reporting",
+    point_only_scenarios=frozenset(GATED_SCENARIOS),
 )
 
 CONFIGURATION = {

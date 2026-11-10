@@ -2641,6 +2641,30 @@ def _separable_cases() -> tuple[RowCase, ...]:
     return (case("G49.in_sample", "in_sample"), case("G49.cross_fitted", "cross_fitted"))
 
 
+def _survival_ctmle_cases() -> tuple[RowCase, ...]:
+    """The cases of ``survival-ctmle`` (X91 part B): ``G50``.
+
+    Each runs the study's own fit of one scenario, on a draw of its law, up to the classifier.
+    """
+    module, slug = "survival_ctmle", "survival-ctmle"
+
+    def case(row: str, scenario: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            scenario,
+            f"{module}.py:427",
+            module,
+            lambda study: study.draw_from_seed(scenario, 1_000, 0)[0],
+            lambda study, frame: study.fit(frame, scenario, study.CTMLE_ARM),
+        )
+
+    return (
+        case("G50.in_sample", "or15_qcorrect"),
+        case("G50.cross_fitted", "or10_qcorrect_crossfit"),
+    )
+
+
 def _projection_cases() -> tuple[RowCase, ...]:
     """The cases of ``conditional-projection`` (P1 part (a)): ``T49`` and ``T50``.
 
@@ -3003,6 +3027,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_regimen_cases(),
     *_eliminated_cases(),
     *_separable_cases(),
+    *_survival_ctmle_cases(),
     *_projection_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),

@@ -537,9 +537,13 @@ point strategies, `q_bounds=` and `loss="squared"` are refused as invalid declar
 which every eligible row is censored, at or before the last horizon, is refused with the advice to
 set `horizons=` before it.
 
-**Evidence.** Checks 1 to 10 are in `tests/unit/test_survival_ctmle.py`. The study
-`survival-ctmle` (`tests/studies/survival_ctmle.py`) is declared and not yet run or registered,
-so every estimate reads experimental. Its page and grid row come with its registration.
+**Evidence.** Checks 1 to 10 are in `tests/unit/test_survival_ctmle.py`. The reporting study
+[collaborative TMLE of a risk curve](method-evidence/survival-ctmle.md) reads the points at the
+paper's laws with a correct outcome model, in sample and with two outer folds for the initial
+fit. Every gated bias passes, and at OR 15 the RMSE of the risk of arm 1 is 0.54 times that of
+hazard `LTMLE` with the full treatment model. The support rows G50 cover those fits, points only,
+with `hazard_pooling="pooled"`; another configuration reads experimental. The study declares no
+property cell, so the validation grid does not list it.
 
 ## Validation issues special to this method
 

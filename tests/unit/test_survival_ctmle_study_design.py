@@ -70,11 +70,9 @@ def test_the_gated_cells_are_declared() -> None:
 
 def test_no_coverage_or_se_ratio_gate_applies() -> None:
     """F18: the plug-in interval is a diagnostic, so no coverage or SE ratio can fail a cell."""
-    margins = study.STUDY.margins
-    assert margins.coverage_floor == 0.0
-    low, high = margins.se_ratio_sanity
-    assert low == 0.0 and high >= 1e6
-    assert margins.standardized_bias == 0.25
+    assert study.STUDY.point_only_scenarios == frozenset(study.GATED_SCENARIOS)
+    assert set(study.STUDY.scenarios) == set(study.GATED_SCENARIOS)
+    assert study.STUDY.margins.standardized_bias == 0.25
 
 
 def _primary_rows(subject_error: float, comparator_error: float) -> pd.DataFrame:

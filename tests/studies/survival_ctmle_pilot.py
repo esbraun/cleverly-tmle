@@ -23,6 +23,7 @@ label for a smoke run, which writes nothing.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import os
 import time
 import warnings
@@ -171,9 +172,9 @@ def primary_replicates(pilot: pd.DataFrame) -> int:
     :func:`~tests.studies.repeated_sizing.primary_replicates` with one implementation, the
     subject, over every gated cell and estimand of
     :data:`~tests.studies.survival_ctmle.GATED_ESTIMANDS`, both shares at
-    :data:`~tests.studies.repeated_sizing.PRIMARY_CLAUSE_SHARE`.  The study's margins carry no
-    coverage gate (F18), so the coverage clauses cannot bind and the bias clauses size it; one
-    bias group per gated scenario.
+    :data:`~tests.studies.repeated_sizing.PRIMARY_CLAUSE_SHARE`.  Every gated cell is point-only
+    (F18), so the rule reads a coverage floor of zero and the bias clauses size it; one bias
+    group per gated scenario.
     """
     subject = pilot.loc[pilot["implementation"] == study.CTMLE_ARM]
     covered: dict[str, int] = {}
@@ -196,8 +197,11 @@ def primary_replicates(pilot: pd.DataFrame) -> int:
         )
     (pilot_draws,) = draws
     share = sizing.PRIMARY_CLAUSE_SHARE
+    # The cells are point-only, so the rule reads no coverage floor and no SE screen: a floor
+    # of zero passes the coverage clauses at every budget, the rule the declared count was
+    # sized under.
     return sizing.primary_replicates(
-        study.STUDY.margins,
+        dataclasses.replace(study.STUDY.margins, coverage_floor=0.0, se_ratio_sanity=(0.0, 1e6)),
         covered,
         pilot_draws,
         implementations=1,
