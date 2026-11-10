@@ -1432,6 +1432,102 @@ def _t_rows() -> tuple[SupportRow, ...]:
             ],
         )
     )
+    # P1 (c): the learned-rule value when the EP curve sets each fold's rule
+    # (``LearnedRule(loss="ep", modifiers=...)``), keyed ``rule_learner_ep``. The plan named these
+    # rows T49; the conditional-projection rows took T49 and T50 first. Two rows, for the
+    # fold-evaluated report on rows, because every declared verdict of ``learned-rule-ep``
+    # passed: the primary bias leg, coverage floor and SE sanity at both laws, every
+    # ``interval_calibration`` positive at n = 16,000, the shrunken-SE and noise controls, and the
+    # fold-locality control. The sizing reading admitted the rows (``T49_ADMITTED`` of
+    # ``tests/studies/learned_rule_ep_properties.py``), and every row carries its ``T49_LIMITS``
+    # sentence. The support key holds neither the sieve nor the final learner, so
+    # ``ep_rule_condition`` of ``cleverly.interventions.learned`` labels a declared one
+    # experimental. Weights, clusters, fold targeting, repeats above 1, known regimes, a
+    # continuous outcome and an estimated g for the optimal value key other axes or qualifiers,
+    # and three or more arms, an intermediate and strata refuse. The numbers are the committed
+    # results (``tests/canonical/learned_rule_ep``).
+    ep_limits = [
+        "The study measures LearnedRule(loss='ep', modifiers=Modifiers(['W1', 'W2'], ...)) with "
+        "sieve=None, the default sieve of six cosines of W1 plus the indicator of W2 with its "
+        "size chosen by cross-validation over the inner folds, and the least-squares final "
+        "stage, on unweighted rows with ten folds, pooled targeting, repeats=1 and no id, at "
+        "two RM30 laws with the main-terms logistic outcome learner and a correct logistic "
+        "treatment learner. A declared sieve or final learner reads experimental. The key holds "
+        "neither the modifiers, the law, the learners nor n, so another modifier set, law, "
+        "learner or n reads supported and rests on the theory alone.",
+        "Calibrated at n = 16,000 at these laws; at n = 4,000 the sizing pilot read an SE ratio "
+        "of 0.970 and coverage 0.9365, about 6.5% excess error variance from learning the "
+        "rule. The size moved from 4,000 to 16,000 after that pilot and before any declared "
+        "draw.",
+        "The exceptional law, where the effect is zero everywhere, under-covers: at n = 2,000 "
+        "the coverage is 0.901 (99% interval 0.885 to 0.916) and the SE ratio 0.833. The fold "
+        "curves have no fixed sign there, so condition C3 fails, and no check in the package "
+        "detects such a law. The row makes no claim there.",
+        "The fold-locality control, each fold's EP curve fitted on its own validation rows, "
+        "covers 0.008 with a bias of 4.6 error SDs, so the instrument resolves a gross leak. "
+        "The subtle leaks, the outer nuisances at the training rows and a size step that sees "
+        "its inner fold, rest on the unit witnesses W-c2 and W-c3. No comparator: no maintained "
+        "package fits a cross-validated TMLE of the value of an EP rule.",
+    ]
+    rows.append(
+        point_row(
+            "T51",
+            ["learned-rule-ep"],
+            families=("P11",),
+            splitting=("fold_evaluated",),
+            qualifiers=["rule_learner_ep"],
+            cells=[
+                "non_exceptional",
+                "misspecified_limit",
+                "non_exceptional__declared",
+                "misspecified_limit__declared",
+            ],
+            # Roadmap: P1.
+            limits=[
+                "The target is the fold average of the value of the rules the fit learned, not "
+                "the value of the optimal rule. Only the T51.optimal cell sees whether the EP "
+                "rule is a good rule: a learner that treats nobody still covers its own value.",
+                *ep_limits[:2],
+                "At n = 16,000 the SE ratio is 0.999 (99% interval 0.978 to 1.020) at "
+                "non_exceptional and 1.008 (0.988 to 1.030) at misspecified_limit, with "
+                "coverage 0.951 and 0.954 (7,200 draws each). At n = 2,000 it is 0.994 and "
+                "0.983 with coverage 0.951 and 0.944, and at n = 1,000 it is 0.987 and 0.911 "
+                "with coverage 0.948 and 0.918 (2,000 draws each), so at n = 1,000 at the "
+                "misspecified law the SE is about 9% small. The key holds no sample size, so a "
+                "smaller fit also reads supported.",
+                *ep_limits[2:],
+                "The value gain over the plug-in rule is descriptive and carries no test.",
+            ],
+        )
+    )
+    rows.append(
+        point_row(
+            "T51.optimal",
+            ["learned-rule-ep"],
+            families=("P12",),
+            splitting=("fold_evaluated",),
+            qualifiers=["known_mechanism", "rule_learner_ep"],
+            cells=["optimal_known_g__declared"],
+            # Roadmap: P1.
+            limits=[
+                "The study measures the value of the optimal rule (estimands=['ey_optimal_rule']) "
+                "with the EP rule given both adjustment columns and the treatment mechanism "
+                "known (treatment_probabilities=), at the non_exceptional law only, at "
+                "n = 16,000. An estimated g drops known_mechanism and reads experimental.",
+                *ep_limits[:2],
+                "The interval covers the optimal value only up to the regret of the EP limit "
+                "rule, the sign of the projection of the effect on the largest default member, "
+                "which differs from the optimal rule on 0.98% of the population and gives up "
+                "2.4e-5 of value, 0.005 SE at n = 16,000. The cell reads SE ratio 0.985 (99% "
+                "interval 0.965 to 1.007), coverage 0.947 and standardized bias -0.070 (7,200 "
+                "draws); the bias interval, -0.00053 to -0.00021, excludes zero and lies inside "
+                "the margin. On a law where the sign of the effect is not that of a function in "
+                "the sieve, the regret does not vanish and the interval covers the value of the "
+                "limit rule instead.",
+                *ep_limits[2:],
+            ],
+        )
+    )
     rows.append(
         point_row(
             "T25",
@@ -2997,7 +3093,7 @@ def long_row(
     splitting: tuple[str, ...] = ("in_sample",),
     dependence: str = "iid",
     qualifiers: Iterable[str] = (),
-    engine: str = "tmle",
+    engine: str | tuple[str, ...] = "tmle",
     normalization: str | None = None,
     survival_model: str = "iterated_mean",
     targeting: str = "iterative",
@@ -3042,8 +3138,9 @@ def long_row(
         The dependence axis.
     qualifiers : iterable of str, default ()
         The known treatment and censoring factors.
-    engine : str, default "tmle"
-        ``tmle``, ``sdr``, ``ipsi``, ``gcomp`` or ``ipw``.
+    engine : str or tuple of str, default "tmle"
+        ``tmle``, ``sdr``, ``ipsi``, ``gcomp`` or ``ipw``, or the whole engine tuple of a
+        class that records one, such as ``("collaborative_tmle", "greedy")``.
     normalization : str or None, default None
         The inverse-probability normalization of an ``ipw`` row.
     survival_model : {"iterated_mean", "hazard"}, default "iterated_mean"
@@ -3079,7 +3176,7 @@ def long_row(
     """
     key = SupportKey(
         kind="longitudinal",
-        engine=(engine,),
+        engine=(engine,) if isinstance(engine, str) else tuple(engine),
         family=frozenset(
             (
                 outcome_kind,
@@ -4791,7 +4888,8 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``), the
 #: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
 #: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``) and the learned two-node
-#: regimen (``G47``).
+#: regimen (``G47``), the eliminated competing event (``G48``), separable effects (``G49``) and
+#: collaborative TMLE of a risk curve (``G50``).
 #:
 def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
@@ -4848,6 +4946,205 @@ def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _eliminated_rows() -> tuple[SupportRow, ...]:
+    """The eliminated competing event of ``eliminated-competing-events`` (X91 part A): ``G48``.
+
+    A fit with ``eliminate=`` keys the missing axis ``("censoring", "eliminated")``. The rows
+    were added because every declared verdict passed: 31 of 31 primary tests and all ten
+    property cells (``double_robustness`` and ``interval_calibration`` with its controls), with
+    no failed fit. The numbers are the committed results
+    (``tests/canonical/eliminated_competing_events``).
+    """
+    slug = ["eliminated-competing-events"]
+    shared = (
+        "Every nuisance in the study is a saturated cell mean on a discrete law, n = 16,000, so "
+        "a flexible learner, a continuous covariate and another n rest on the theory alone. "
+        "One prevented cause and one remaining cause; no weights, clusters or comparator (R "
+        "lmtp with a composite censoring column is the matching implementation, and its runs "
+        "are pending)."
+    )
+    return (
+        long_row(
+            "G48.in_sample",
+            slug,
+            outcome_kind="survival",
+            missing=("censoring", "eliminated"),
+            cells=["ltmle_time_varying", "tv_rule_t2", "tv_never_t2", "ltmle_always_t2"],
+            limits=[
+                "Two binary treatment nodes with a time-varying covariate, two static plans "
+                "and a dynamic one, horizons 1 and 2. The primary rows read coverage 0.945 to "
+                "0.951 over 2,800 draws; the calibration cell reads SE ratio 0.990 and coverage "
+                "0.947 over 4,800 draws.",
+                shared,
+            ],
+        ),
+        long_row(
+            "G48.cross_fitted",
+            slug,
+            outcome_kind="survival",
+            missing=("censoring", "eliminated"),
+            splitting=("cross_fitted",),
+            cells=["ltmle_time_varying_crossfit"],
+            limits=[
+                "Two outer folds, with the prevented-cause factor fitted by the censoring "
+                "learner's clone. The same law and estimands as G48.in_sample, coverage 0.945 to "
+                "0.956 over 2,800 draws. No property cell reads the cross-fitted fit; at "
+                "n = 16,000 its spread sits up to 1.32 times the efficient one while its "
+                "reported SE tracks it (SE ratio 0.949 to 1.033).",
+                shared,
+            ],
+        ),
+        long_row(
+            "G48.hazard",
+            slug,
+            outcome_kind="survival",
+            missing=("censoring", "eliminated"),
+            held=True,
+            treatment=("3",) * 3,
+            survival_model="hazard",
+            cells=["hazard_held_baseline", "hb_a1_t2", "hb_a2_t1", "hazard_a1_t3"],
+            limits=[
+                "A three-level baseline treatment held over three nodes, horizons 1 to 3. At "
+                "t = 3 the influence curve rests on Kish sizes near 30 to 60 and the fit warns "
+                "SparseInfluenceWarning. The primary rows read coverage 0.938 to 0.953 over 2,800 "
+                "draws, and the calibration cell at t = 3 reads SE ratio 0.992 and "
+                "coverage 0.945 over 4,800 draws.",
+                shared,
+            ],
+        ),
+    )
+
+
+def _separable_rows() -> tuple[SupportRow, ...]:
+    """Separable effects on hazard ``LTMLE`` of ``separable-effects`` (X91 part D): ``G49``.
+
+    A fit with a ``Separable`` regimen keys the regimen kind ``separable``, beside its static
+    arms, which the factor-wise engine also targets, and the position of the cause it counts
+    first among the data's causes, so a fit that counts the other cause first matches no row.
+    The rows were added because every
+    declared verdict passed: 82 of 82 primary tests and all ten property cells
+    (``double_robustness`` and ``interval_calibration`` with its controls), with no failed fit.
+    The numbers are the committed results (``tests/canonical/separable_effects``).
+    """
+    slug = ["separable-effects"]
+    shared = (
+        "A binary baseline covariate, a three-level baseline treatment held over three nodes, "
+        "censoring, and relapse and death listed in that order with death counted first; "
+        "horizons 1 to 3. A fit that counts the first-listed cause first is not covered. "
+        "Every nuisance is a saturated cell mean, n = 16,000, so a flexible learner, a "
+        "continuous covariate and another n rest on the theory alone. Two causes, baseline "
+        "covariates only; no weights, clusters or comparator (none was located)."
+    )
+    common: dict[str, Any] = {
+        "outcome_kind": "competing",
+        "regimens": ("separable", "static"),
+        "held": True,
+        "treatment": ("3",) * 3,
+        "survival_model": "hazard",
+        "targeting": "one_step",
+        # The study lists relapse then death and counts death first.
+        "qualifiers": ("separable_first_cause_2",),
+    }
+    return (
+        long_row(
+            "G49.in_sample",
+            slug,
+            cells=["in_sample", "sep10_relapse_t3", "in_sample_sde_relapse_t3"],
+            limits=[
+                "Two static and two separable arms, 41 risks and contrasts. The primary rows "
+                "read coverage 0.945 to 0.954 over 8,400 draws; the separable direct effect's "
+                "calibration cell reads SE ratio 0.998 and coverage 0.952 over 4,400 draws. The "
+                "robustness cells measure the factor engine with the exact mechanism and one "
+                "wrong hazard at a time.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G49.cross_fitted",
+            slug,
+            splitting=("cross_fitted",),
+            cells=["cross_fitted", "cross_fitted_sep01_death_t3"],
+            limits=[
+                "Two outer folds. The primary rows read coverage 0.948 to 0.955 over 8,400 "
+                "draws, and the calibration cell reads SE ratio 0.990 and coverage 0.945 over "
+                "4,400 draws. In 2.0% of the fits the targeting stopped short of tol at a "
+                "relative score near 1e-3 and warned; those fits are kept in every row.",
+                shared,
+            ],
+            **common,
+        ),
+    )
+
+
+def _survival_ctmle_rows() -> tuple[SupportRow, ...]:
+    """Collaborative TMLE of a risk curve of ``survival-ctmle`` (X91 part B): ``G50``.
+
+    ``SurvivalCTMLE`` records the engine ``("collaborative_tmle", "greedy")`` on the hazard
+    ``LTMLE`` key, with a two-level baseline treatment held over the two nodes and pooled hazard
+    and censoring regressions. Every estimate takes the ``working_mechanism_plugin`` status, so
+    the rows license the point alone (F18). They were added because every declared verdict
+    passed: 14 of 14 bias tests, the RMSE comparison against the full treatment model at OR 15,
+    and no failed fit. The study publishes under ``reporting`` because it declares no property
+    cell. The numbers are the committed results (``tests/canonical/survival_ctmle``).
+    """
+    slug = ["survival-ctmle"]
+    shared = (
+        "The laws of Stitelman and van der Laan (2010), Sections 12 to 14: five clipped "
+        "correlated normal covariates, a binary baseline treatment, light censoring (about 4.7% "
+        "per interval), two grid times and the risk at t = 2. The outcome model is a correct "
+        "main-term GLM with hazard_pooling='pooled' in every cell, and the candidates are the "
+        "paper's main-term logistic models. A misspecified outcome model is reported only: in "
+        "scenario 2 the risk difference then reads a standardized bias of -0.98 at OR 10. "
+        "Another law, learner or n rests on the paper alone. No comparator: no maintained "
+        "package fits this construction."
+    )
+    common: dict[str, Any] = {
+        "outcome_kind": "survival",
+        "engine": ("collaborative_tmle", "greedy"),
+        "held": True,
+        "survival_model": "hazard",
+        "hazard_pooling": "pooled",
+        "kinds": _POINT,
+    }
+    return (
+        long_row(
+            "G50.in_sample",
+            slug,
+            cells=[
+                "or1_qcorrect",
+                "or10_qcorrect",
+                "or15_qcorrect",
+                "s2_or10_qcorrect",
+                "s2_or15_qcorrect",
+                "or15_qcorrect_n2000",
+            ],
+            limits=[
+                "Points only: the plug-in interval is withheld (F18). Six in-sample cells at "
+                "OR 1, 10 and 15, scenario 2 and n = 2,000; the standardized bias of the risk of "
+                "arm 1 and of the risk difference stays within 0.075 over 1,600 draws each, and "
+                "the RMSE of the risk of arm 1 at OR 15 is 0.54 times that of hazard LTMLE with "
+                "the full treatment model.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G50.cross_fitted",
+            slug,
+            splitting=("cross_fitted",),
+            cells=["or10_qcorrect_crossfit"],
+            limits=[
+                "Points only: the plug-in interval is withheld (F18). Two outer folds for the "
+                "initial outcome fit at OR 10; the standardized bias reads 0.047 for the risk of "
+                "arm 1 and -0.010 for the risk difference over 1,600 draws.",
+                shared,
+            ],
+            **common,
+        ),
+    )
+
+
 #: A learned two-node regimen (``LearnedRegimen``, X11 (b)) keys the regimen kind ``learned``.
 #: The row ``G47`` of the ``learned-regimen-ltmle`` study covers the cross-fitted censored
 #: two-node fit with every option at its default; every other composition of that kind matches
@@ -4858,6 +5155,9 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_categorical_long_rows(),
         *_long_horizon_rows(),
         *_learned_regimen_rows(),
+        *_eliminated_rows(),
+        *_separable_rows(),
+        *_survival_ctmle_rows(),
     )
 )
 
@@ -4873,13 +5173,37 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "No support key reads a TrialWithExternalData fit, so no row can name the "
         "configurations the study covers. A row would not change the label: every estimate "
         "carries the shown status working_model_projection, which keeps an estimate "
-        "experimental inside any row until F39 closes."
+        "experimental inside any row until F40 closes."
     ),
     "adaptive-tmle-selective": (
         "It measures the intervals of AdaptiveTMLEMethod under selective enrollment with Super "
         "Learner nuisances. That engine is no point-treatment row: every estimate carries the "
-        "working_model_projection status, whose open condition F39 holds, and no support row "
+        "working_model_projection status, whose open condition F40 holds, and no support row "
         "was declared before the run, so the fit keeps the experimental label."
+    ),
+    "ep-cate": (
+        "It measures the EP curve, which carries no interval and is no fit of a point row. "
+        "cleverly.estimators.ep.EP_MEASURED, not a support row, records what the study licenses."
+    ),
+    "ep-crr": (
+        "It measures the log-CRR EP curve, which carries no interval and is no fit of a point "
+        "row. cleverly.estimators.ep.EP_MEASURED, not a support row, records what the study "
+        "licenses."
+    ),
+    "ep-assessment": (
+        "It measures the held-out readings of an EP curve. A reading is no estimate and carries "
+        "no status."
+    ),
+    "targeting-curves": (
+        "It measures the targeting curves of a priority score, which are no Target and no fit "
+        "of a point row. cleverly.targeting_curves.TARGETING_MEASURED, not a support row, "
+        "records the configurations the study licenses."
+    ),
+    "dose-response": (
+        "It measures the kernel-smoothed dose-response curve of DoseResponseTMLE, which is no "
+        "Target and no fit of a point row. cleverly.estimators.dose_response."
+        "DOSE_RESPONSE_MEASURED, not a support row, records the configurations the study "
+        "licenses, and a pair below the Kish floor reads experimental (low_dose_support_plugin)."
     ),
     "omitted-variable-bound-se": (
         "It measures the standard error of a sensitivity bound. The bound carries its own "
@@ -5056,6 +5380,11 @@ FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
         "",
         "tests/discrete_law_longitudinal_ipsi.py",
         "tests/unit/test_influence_gateaux_ipsi.py",
+    ),
+    "separable": _anchor(
+        "separable effects on competing events",
+        "tests/discrete_law_point_survival.py",
+        "tests/unit/test_separable_effects_law.py",
     ),
     # X11 (b): with each fold's rule pair held fixed the learned fit is the known
     # ``DynamicRegimen`` fit bit for bit, so the dynamic-rule oracle covers it fold by fold.

@@ -24,6 +24,7 @@ from .ctmle import (
     PropensityArrays,
     logistic_plugin,
 )
+from .dose_response import DoseResponseResult, DoseResponseTMLE, PairSupport
 from .drtmle import DRTMLE, ReducedFit
 from .iptw import AdaptiveIPTW, AdaptiveIPTWFit
 from .tmle import TMLE, tmle
@@ -43,8 +44,11 @@ __all__ = [
     "CTMLESelection",
     "CTMLEStrategy",
     "CVTargeting",
+    "DoseResponseResult",
+    "DoseResponseTMLE",
     "LogisticPlugin",
     "NuisanceEstimates",
+    "PairSupport",
     "PropensityArrays",
     "ReducedFit",
     "TMLEConfig",

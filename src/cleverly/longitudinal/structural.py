@@ -1464,6 +1464,10 @@ class StructuralNestedMean:
         StructuralNestedMeanResult
             The blips, the reference mean, and the declared regimen means and contrasts.
         """
+        if refused.pop("eliminate", None):
+            # Eliminating a competing cause declares a survival estimand, which this
+            # estimator does not fit.
+            raise CapabilityError.from_refusal(_SURVIVAL_REFUSAL)
         refuse_unsupported(refused, where="StructuralNestedMean.fit")
         from .estimator import _SequentialEstimator
 

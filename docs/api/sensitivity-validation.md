@@ -34,6 +34,11 @@ methods](../technical-reference/validation-methods.md) states the conditions of 
    cleverly.sensitivity.MarginalSensitivityRow
    cleverly.sensitivity.positivity_report
    cleverly.sensitivity.truncation_curve
+   cleverly.sensitivity.covariate_balance
+   cleverly.sensitivity.CovariateBalance
+   cleverly.sensitivity.BalanceRow
+   cleverly.longitudinal.node_weights
+   cleverly.longitudinal.NodeWeights
    cleverly.sensitivity.omitted_variable_bounds
    cleverly.sensitivity.robustness_value
    cleverly.sensitivity.benchmark

@@ -1324,6 +1324,46 @@ class CTMLESelection:
         chosen = set(self.selected_covariates)
         return tuple(name for name in self.covariates if name not in chosen)
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the cross-validated risk along the candidate sequence.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.learners`: ``ax=``.
+
+        Returns
+        -------
+        Figure
+            One panel with the chosen candidate marked.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly.datasets import make_linear_ate
+        >>> from cleverly.estimators import CTMLE
+        >>> frame, _ = make_linear_ate(n=200, seed=0)
+        >>> result = CTMLE(
+        ...     strategy="greedy",
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     selection_folds=3,
+        ...     estimands=("ate",),
+        ...     random_state=0,
+        ... ).fit(frame, outcome="Y", treatment="A").single()
+        >>> fig = result.ctmle_selection.plot()
+        >>> fig.texts[0].get_text()
+        'How sharp was the choice of treatment model?'
+        >>> plt.close(fig)
+        """
+        from ..plotting import learners
+
+        return learners(self, **kwargs)
+
     def _label(self, index: int) -> str:
         if self.labels:
             return self.labels[index]
@@ -1806,7 +1846,9 @@ class CTMLE(TMLE):
     selects nothing, equals the ordinary TMLE, and reports its interval.
     ``strategy="oat"`` withholds the interval on either design, for the reason F19 in the
     roadmap holds: condition (v) of Benkeser, Cai and van der Laan (2020), Theorem 1,
-    fails for an estimated outcome regression.  ``strategy="derivative"`` selects nothing
+    fails for an estimated outcome regression.  The exception is a per-arm fit that
+    :func:`per_arm_parametric_support` admits, which reports an interval from a stacked
+    influence curve.  ``strategy="derivative"`` selects nothing
     and reports the ordinary TMLE interval.  See the module docstring.
 
     Parameters

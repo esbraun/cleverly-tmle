@@ -352,86 +352,21 @@ on the plan received at that node raises `LongitudinalError` before any learner.
 gives the estimator, its conditions, and its evidence. Code cannot inspect a closure, so the fit
 accepts a false `"known"` declaration.
 
-## Survival outcomes
+## Time-to-event outcomes
 
-An outcome sequence declares one absorbing event process and makes horizon part of the estimand.
+Risks of an event by each time, competing events, a risk had another event been prevented, and
+separable effects have their own page: [Time-to-event outcomes](survival.md).
 
-```python
-from cleverly import RegimeMean
-from cleverly.datasets import make_longitudinal_survival
-
-frame, truth = make_longitudinal_survival(n=2_000, seed=12)
-study = CausalStudy(
-    frame,
-    design=LongitudinalTreatment(
-        outcome=("Y1", "Y2"),
-        treatment=("A1", "A2"),
-        baseline=("W1", "W2"),
-        time_varying=((), ("L2",)),
-        censoring=("C1", "C2"),
-    ),
-)
-risks = study.estimate(
-    RegimeMean({"always": 1, "never": 0}, horizons=(1, 2)),
-    outcome_learner=LinearRegression(),
-    pseudo_learner=LinearRegression(),
-    treatment_learner=LogisticRegression(max_iter=1000),
-)
-```
-
-Each node fit uses the relevant uncensored, event-free risk set. The result key preserves regimen
-and horizon.
-
-Read ratios and the restricted mean survival time (RMST) off the fitted curve. They refit nothing.
-
-```python
-risk_ratio = risks.ratio("risk_regimen[always @ t=2]", "risk_regimen[never @ t=2]")
-survival_ratio = risks.ratio(
-    "risk_regimen[always @ t=2]", "risk_regimen[never @ t=2]", view="survival"
-)
-rmst = risks.rmst("always", 3, versus="never")
-print(risk_ratio.ci, survival_ratio.psi, rmst.psi, rmst.ci)
-```
-
-| call | what it reports |
-| --- | --- |
-| `ratio(a, b)` | the risk ratio of two levels at one horizon, with its interval on the log scale |
-| `ratio(a, b, view="survival")` | the ratio of the two survival probabilities |
-| `ratio(a, b, kind="or")` | the odds ratio of the two levels |
-| `rmst(d, tau)` | the RMST up to node `tau`, $\tau - \sum_{t<\tau} F_d(t)$, in node units |
-| `rmst(d, tau, versus=b)` | the difference of two RMSTs |
-| `rmtl(d, tau, cause)` | the restricted mean time lost to one cause |
-
-`rmst` needs the risk at every horizon from 1 to `tau - 1`. For nodes spaced $\Delta$ apart,
-multiply by $\Delta$ to get calendar time.
+## Bootstrap for sparse regimens
 
 Pass `n_bootstrap=` to refit the whole estimator on resamples. Each estimate then carries a
 percentile interval beside its influence-curve interval.
+[The full-refit bootstrap](../technical-reference/longitudinal-tmle.md#the-full-refit-bootstrap)
+states what each replicate resamples and refits. The percentile interval carries the support
+label of the fit, so a fit no registered study covers says under its summary that the bootstrap
+interval is experimental. A fit with fewer than 20 clusters prints a `bootstrap SD (diagnostic)`
+column and a percentile range, both diagnostics.
 
-```python
-bootstrapped = study.estimate(
-    RegimeMean({"always": 1, "never": 0}, horizons=(1, 2)),
-    outcome_learner=LinearRegression(),
-    pseudo_learner=LinearRegression(),
-    treatment_learner=LogisticRegression(max_iter=1000),
-    n_bootstrap=200,
-    random_state=0,
-)
-print(bootstrapped.summary())
-```
-
-The [bootstrap contract](../technical-reference/longitudinal-tmle.md#the-full-refit-bootstrap)
-states what each replicate resamples and refits. The percentile interval carries the support label
-of the fit. A registered support row decides the label. The `bootstrap` kind of the row covers an
-in-sample end-of-study or survival fit with static regimens. On any other fit, a note under the
-summary says the bootstrap interval is experimental.
-
-The registered study measures correctly specified cell-mean nuisances on finite
-binary laws, at $n = 1000$. A fit with fewer than 20 clusters prints a
-`bootstrap SD (diagnostic)` column and a percentile range, both diagnostics. `ratio` and `rmst`
-carry the bootstrap of their inputs.
-
-### Bootstrap for sparse regimens
 
 Three registered studies measured this feature at three to five decisions: [binary `LTMLE`](../technical-reference/method-evidence/long-horizon-longitudinal-tmle.md), [three-level `LTMLE`](../technical-reference/method-evidence/long-horizon-categorical-longitudinal-tmle.md) and [`SDR`](../technical-reference/method-evidence/long-horizon-sequentially-doubly-robust-estimation.md).
 The label of a fit follows the support rows `G46`. A fit outside those rows prints `experimental`, and the label makes no coverage claim.
@@ -591,140 +526,6 @@ within six millionths.
 
 The [repeated-outcome `IPSI` study](../technical-reference/method-evidence/repeated-outcome-ipsi.md)
 does the same for `IPSI`. It has no comparator.
-
-## Competing risks
-
-A mapping from cause labels to absorbing outcome sequences declares competing risks. Cause,
-horizon, and regimen remain separate key fields. The engine uses a cause-specific recursion while
-keeping all prior competing events out of later risk sets.
-
-## A baseline treatment and a time-to-event outcome
-
-Use `TimeToEvent` when each unit has one follow-up time, one event code and one treatment given at
-baseline. Code `0` means censored. The design bins the times onto a grid of visit times and holds
-the treatment over every visit.
-
-```python
-from cleverly import TimeToEvent
-from cleverly.datasets import make_point_survival
-
-frame, truth = make_point_survival(n=1_000, seed=4, n_times=4)
-design = TimeToEvent(
-    time="time", event="event", treatment="A", baseline=("W1", "W2"), grid=(1, 2, 3, 4)
-)
-curve = CausalStudy(frame, design=design).estimate(
-    RegimeContrast({"arm1": 1, "arm0": 0}, reference="arm0", horizons=(2, 4)),
-    outcome_learner=LinearRegression(),
-    pseudo_learner=LinearRegression(),
-    treatment_learner=LogisticRegression(max_iter=1000),
-    cross_fit=False,
-)
-print(curve["ate_regimen[arm1 vs arm0 @ t=4]"].ci, truth["ate_regimen[arm1 vs arm0 @ t=4]"])
-```
-
-Follow these rules for the input.
-
-| rule | reason |
-| --- | --- |
-| Declare `grid=` at the visit times. Omit it only for integer times, and the grid is then `1, 2, ...` up to the largest event time | a grid read off the sample would change with the sample |
-| Record a censoring time as a grid time, or as a time after the last grid time | a censoring between two grid times cannot be ordered against that interval's events, so the fit refuses it |
-| Give `horizons=` and the `tau` of `rmst` as grid times | the parameter name keeps the node index, and `curve()` and `to_frame()` report the grid time in a `time` column |
-| Expect $K(K+1)/2$ regressions per regimen and cause for $K$ grid times | a default grid on day-level times can hold thousands of nodes |
-| Expect a risk of zero with no interval at a grid time before any follower of an arm had the event | the regression of a node with no event is zero, its maximum-likelihood hazard. That node adds no variance to the curve, so the risk and its contrasts report no interval, and the fit warns. `msm=` refuses such a cell |
-
-An event after the last grid time leaves the unit event-free at the end of the grid. `causes=`
-maps each nonzero code to a cause label. Without it, codes `0` and `1` declare one event and any
-other codes declare competing causes. Declare `continuous_treatment=True` for a continuous dose,
-and give each regimen as a modified treatment policy such as `Shift(0.5, cap=None)`.
-
-On the wide layout, declare the same design with one column name: `treatment="A"` on
-`LongitudinalTreatment`. The node count then comes from the outcome columns, else from
-`censoring=`, else from `time_varying=`. The wide layout also takes a covariate measured after
-baseline, and an end-of-study outcome after several censoring nodes. A regimen is one arm, a known
-rule, a known stochastic policy, or a modified treatment policy, all at baseline. A plan that
-changes the treatment after baseline is refused, because the design holds one decision.
-[One baseline treatment held over the nodes](../technical-reference/longitudinal-tmle.md#one-baseline-treatment-held-over-the-nodes)
-gives the contract and its evidence.
-
-## A survival curve that never decreases
-
-The default survival fit targets each horizon in its own backward pass, so its curve can decrease
-by a small amount. Two options give a non-decreasing curve.
-
-| option | what it does | what it needs |
-| --- | --- | --- |
-| `survival_model="hazard", targeting="one_step"` | fits the cause-specific hazard at every node, and targets one set of hazards for every horizon together | one categorical treatment at baseline, held over every node, and no covariate after baseline |
-| `isotonic=True` | projects each fitted curve and its band limits onto a non-decreasing curve | any survival or competing-risk fit |
-
-Pass the hazard learner as `outcome_learner`. A hazard fit does not use `pseudo_learner`.
-
-```python
-from sklearn.linear_model import LinearRegression, LogisticRegression
-from cleverly import CausalStudy, RegimeMean, TimeToEvent
-from cleverly.datasets import make_point_survival
-
-frame, truth = make_point_survival(n=1_000, seed=4, n_times=4)
-study = CausalStudy(
-    frame,
-    design=TimeToEvent(
-        time="time", event="event", treatment="A", baseline=("W1", "W2"), grid=(1, 2, 3, 4)
-    ),
-)
-hazard_curve = study.estimate(
-    RegimeMean({"arm1": 1, "arm0": 0}),
-    survival_model="hazard",
-    targeting="one_step",
-    outcome_learner=LogisticRegression(max_iter=1000),
-    treatment_learner=LogisticRegression(max_iter=1000),
-    censoring_learner=LogisticRegression(max_iter=1000),
-    cross_fit=False,
-)
-print(hazard_curve.curve()[["estimand", "psi", "ci_lower", "ci_upper"]])
-```
-
-The risks of each arm do not decrease over the four grid times. Call `summary(detail="full")` to see
-the walk under Settings: the step count, the number of estimates it updated, the largest relative
-score, and whether it solved its equations.
-
-`targeting="iterative"`, the default, targets the hazards at each horizon on its own. That curve is
-not guaranteed to be monotone.
-
-To keep the iterated-mean fit and project its curve, pass `isotonic=True`.
-
-```python
-projected = study.estimate(
-    RegimeMean({"arm1": 1, "arm0": 0}),
-    isotonic=True,
-    outcome_learner=LinearRegression(),
-    pseudo_learner=LinearRegression(),
-    treatment_learner=LogisticRegression(max_iter=1000),
-    cross_fit=False,
-)
-print(projected.isotonic_moves)
-```
-
-`isotonic_moves` lists each level the projection moved. On this sample it is empty, because the
-fitted curve already does not decrease. The projection keeps every influence curve and standard
-error. A pointwise interval at a moved level is valid only where the true curve strictly
-increases. [The isotonic projection](../technical-reference/longitudinal-tmle.md#the-isotonic-projection)
-states each claim and its condition.
-
-The hazard model refuses a treatment at several nodes, a covariate after baseline, a continuous
-treatment, and a modified treatment policy. Each message names the iterated-mean route.
-[Hazard-based survival targeting](../technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
-gives the contract, both algorithms, and the evidence.
-
-Three registered studies measure hazard fits
-on a design with one baseline treatment:
-[per-horizon targeting](../technical-reference/method-evidence/point-survival-hazard.md),
-[one-step targeting](../technical-reference/method-evidence/point-survival-curve.md) and
-[five-fold cross-fitting](../technical-reference/method-evidence/point-survival-curve-crossfit.md).
-The first two agree with R packages fitted to the same samples (`survtmle` and `tmle3`), and the
-cross-fitted one has no comparison, because no package fits that construction. The one-step study
-also holds one cell
-that fits the default iterated-mean model with `isotonic=True` on a law with treatment at two nodes. Its curve rises steeply
-enough that the projection never moved a level, so no study yet measures an interval at a level
-that the projection moved.
 
 ## Fit the sequentially doubly robust estimator
 
@@ -1041,7 +842,7 @@ the contract.
 `MSMProjection` can project regimen-specific longitudinal means onto a declared working model. The
 regimen grid must identify the coefficient vector; a rank-deficient working design is refused.
 
-A longitudinal MSM projection cross-fits by default, as every longitudinal fit does. Each fold
+A longitudinal MSM projection cross-fits by default (`n_folds=10`). Each fold
 runs an untargeted recursion for every regimen, and one stacked fluctuation per node pools the
 update. [MSM projections](../technical-reference/msm-projections.md#the-longitudinal-projection)
 states the construction and its evidence.
@@ -1195,9 +996,11 @@ The "Longitudinal refutation" part of
 [refutation operations](../technical-reference/validation-methods.md#refutation-operations) lists
 every test.
 
-`result.sensitivity.simulated_confounding()` covers an uncensored panel with an end-of-study
-outcome and no covariate measured after the first node, as
-[Sensitivity analysis](results-assessment.md#sensitivity-analysis) shows.
+`result.sensitivity.simulated_confounding()` covers panels with no covariate measured after
+the first node, as [Sensitivity analysis](results-assessment.md#sensitivity-analysis) shows. An
+end-of-study outcome must be uncensored. A censored `TimeToEvent` fit is covered too, as
+[Check sensitivity to a missing confounder](survival.md#check-sensitivity-to-a-missing-confounder) describes.
+
 `result.sensitivity.evalue()` reads the risk ratio of two static plans at one horizon of a
 `TimeToEvent` fit. The other sensitivity analyses, such as the omitted-variable bound, have no
 longitudinal estimator and report `unavailable`. Tan (2025) derives population bounds for binary,

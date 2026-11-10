@@ -538,6 +538,18 @@ def _select_time_to_event(result: Any, estimand: Any) -> _EValueSelection:
 def _select_evalue(result: TMLEResult, estimand: Any) -> _EValueSelection:
     """Select the exact, approximate, or refusal branch for one request."""
     if getattr(result, "assessment_family", None) != "point":
+        eliminated = tuple(getattr(getattr(result, "data", None), "eliminated", ()) or ())
+        if eliminated:
+            raise _EValueRefusal(
+                AssessmentStatus.UNAVAILABLE,
+                f"this fit eliminates {list(eliminated)}, and its identification also needs "
+                "no unmeasured common cause of the prevented events and the outcome. The "
+                "E-value bounds unmeasured treatment-outcome confounding only, so it would "
+                "answer a narrower question (docs/roadmap.md F16 tracks this stop).",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=NO_ALTERNATIVE,
+                roadmap="F16",
+            )
         time_to_event = _is_time_to_event(result)
         if time_to_event and estimand is not None:
             return _select_time_to_event(result, estimand)

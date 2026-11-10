@@ -45,6 +45,7 @@ from cleverly.learners.crossfit import CrossFitPlan, check_integrity, random_par
 from cleverly.longitudinal import IPSI, LTMLE, SDR, LongitudinalData, LongitudinalResult
 from cleverly.provenance import fold_fingerprint
 from cleverly.study import LongPanel
+from tests.discrete_law_point_survival import CellMeans, CellProbabilities, survival_law
 from tests.unit import _longitudinal_repeats_support as support
 from tests.unit._longitudinal_repeats_golden import GOLDEN
 
@@ -993,6 +994,72 @@ def test_each_draw_carries_the_x33_option(option: str) -> None:
     assert moved > 1e-3
 
 
+def _eliminated_fit(**keywords: Any) -> Any:
+    """A two-cause survival fit that prevents death, at ``repeats=3`` unless told otherwise."""
+    law = survival_law(causes=2)
+    settings: dict[str, Any] = {"n_folds": 2, "repeats": 3, "random_state": 1, **keywords}
+    eliminate = settings.pop("eliminate", ["death"])
+    return _quiet(
+        lambda: LTMLE(
+            {"a0": 0, "a1": 1},
+            outcome_learner=CellMeans(),
+            treatment_learner=CellProbabilities(),
+            censoring_learner=CellMeans(),
+            **settings,
+        ).fit(law.frame(), **law.fit_columns(), **({"eliminate": eliminate} if eliminate else {}))
+    )
+
+
+class _MarginalMeans(CellMeans):
+    """A competing learner that reads no covariate, so it moves the eliminated curve."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _MarginalMeans:
+        return super().fit(np.zeros((len(y), 1)), y, sample_weight)
+
+    def predict(self, X: Any) -> np.ndarray:
+        return super().predict(np.zeros((len(X), 1)))
+
+
+@pytest.mark.parametrize(
+    ("setting", "default"),
+    [
+        ({}, {"eliminate": None}),
+        ({"competing_learner": "marginal"}, {}),
+    ],
+    ids=["eliminate", "competing_learner"],
+)
+def test_each_draw_carries_the_eliminated_cause(
+    setting: dict[str, Any], default: dict[str, Any]
+) -> None:
+    """Draw ``r`` of an eliminated fit is the single-draw eliminated fit at ``seed_r``.
+
+    The fit without the option at the same seeds is the nonzero witness: a draw that dropped
+    ``eliminate=`` or ``competing_learner=`` would equal it and fail the difference check.
+    """
+
+    def resolved(keywords: dict[str, Any]) -> dict[str, Any]:
+        if keywords.get("competing_learner") == "marginal":
+            return {**keywords, "competing_learner": _MarginalMeans()}
+        return keywords
+
+    result = _eliminated_fit(**resolved(setting))
+    plain = _eliminated_fit(**resolved(default))
+    assert result.n_repeats == 3
+    moved = 0.0
+    for draw, other in zip(result.repeats, plain.repeats, strict=True):
+        assert draw.seed == other.seed
+        single = _eliminated_fit(**resolved(setting), repeats=1, random_state=draw.seed)
+        _assert_draw_equals_fit(draw, single)
+        for name, estimate in draw.estimates.items():
+            # The total-effect fit names the same cause's incidence ``cif_regimen[.., relapse]``.
+            twin = (
+                other.estimates.get(name)
+                or other.estimates[name.replace("risk_", "cif_").replace(" @", ", relapse @")]
+            )
+            moved = max(moved, abs(estimate.psi - twin.psi))
+    assert moved > 1e-3
+
+
 def test_repeats_enter_the_support_key_so_a_single_draw_row_never_covers_them() -> None:
     """``repeated`` is a splitting flag, as on a point fit, so no single-draw row matches."""
     single = _fit("ltmle", repeats=1)
@@ -1418,6 +1485,8 @@ KEYWORDS: dict[str, tuple[str, str, str | None]] = {
     "node_bounds": _witness("test_each_draw_carries_the_x33_option"),
     "hazard_pooling": _witness("test_each_draw_carries_the_x33_option"),
     "ratio_trim": _witness("test_each_draw_carries_the_x33_option"),
+    "eliminate": _witness("test_each_draw_carries_the_eliminated_cause"),
+    "competing_learner": _witness("test_each_draw_carries_the_eliminated_cause"),
 }
 
 _READERS = _witness("test_readers_report_the_combined_estimates")
@@ -1433,6 +1502,12 @@ RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
     "simulation": (
         "tests.unit.test_sequential_baselines_repeats",
         "test_a_baseline_refuses_repeats_above_one",
+        None,
+    ),
+    # Only SurvivalCTMLE fills it, and SurvivalCTMLE refuses repeats > 1 before any learner.
+    "selection": (
+        "tests.unit.test_survival_ctmle",
+        "test_repeated_splits_are_refused_before_a_learner",
         None,
     ),
     "data": _witness("test_long_panel_repeats_reproduce_the_wide_fit"),
@@ -1463,6 +1538,11 @@ RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
     "converged": _witness("test_converged_reads_every_draw"),
     "covariance": _witness("test_covariance_is_the_median_operator_norm_candidate"),
     "curve": _witness("test_median_of_monotone_curves_is_monotone"),
+    "plot": (
+        "tests.unit.test_plotting_curves",
+        "test_plot_of_a_fit_of_several_repeats_draws_its_reported_curve",
+        None,
+    ),
     "diagnostics": _witness("test_score_rows_cover_every_draw"),
     "estimate": _READERS,
     "fits": _READ_THROUGH,

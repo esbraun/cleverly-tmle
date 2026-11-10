@@ -937,6 +937,12 @@ ARMS["misspecified_limit"] = (
 ARMS["blip"] = "the learned-rule law with a blip rule learner"
 ARMS["weighted_classification"] = "the learned-rule law with a weighted-classification rule learner"
 
+#: The two labels of ``learned-rule-ep`` (P1 part (c)) that no other study uses, which
+#: :data:`STUDY_ARMS` scopes to the study. They sit here because the cell-name pattern below is
+#: built from :data:`ARMS` at import.
+ARMS["optimal_known_g"] = "the value of the optimal rule at the learned-rule law, with g0 known"
+ARMS["exceptional"] = "the learned-rule law with no treatment effect for any unit"
+
 #: The parameter labels of ``fold-evaluated-strata`` (X11 PR E1, X28), one arm per setting,
 #: target and stratum, ``<setting>_<target>_<stratum>``. They sit here because the cell-name
 #: pattern below is built from :data:`ARMS` at import. Mirrored from
@@ -1176,6 +1182,271 @@ ARMS.update(
         "heterogeneity": (
             "the df-2 heterogeneity test of the W1 and W3 slopes of Linear(W1, W3) on a "
             "randomized law with the risk-scale CATE 0.2 + s W1"
+        ),
+    }
+)
+
+#: The laws and groups of the EP studies (P1 part (b)): ``ep-cate``, ``ep-crr`` and
+#: ``ep-assessment``.  Mirrored from ``tests.studies.ep_cate``, ``ep_crr`` and
+#: ``ep_assessment``, which this module cannot import.  A group is ``<law>_<size>`` and a growth
+#: row is read on the law alone.  ``ep-cate`` and ``ep-crr`` share law labels, so the words of
+#: both sit in :data:`STUDY_ARMS`; ``ARMS`` holds the labels for the cell-name match.
+_EP_CATE_LAWS = {
+    "d3_simple_moderate": (
+        "hte3's d = 3 law with the CATE 1 + W1 and moderate overlap, logit pi = (W1 + W2 + W3) / 3"
+    ),
+    "d3_simple_limited": (
+        "hte3's d = 3 law with the CATE 1 + W1 + W2 + W3 and limited overlap, "
+        "logit pi = W1 + W2 + W3"
+    ),
+    "d3_complex_moderate": (
+        "hte3's d = 3 law with the CATE 1 + sum W + sum sin(5 W) and moderate overlap"
+    ),
+    "d3_complex_limited": (
+        "hte3's d = 3 law with the CATE 1 + sum W + sum sin(5 W) and limited overlap"
+    ),
+    "d3_complex_moderate_noise2": (
+        "the complex d = 3 law at moderate overlap with EPL App B.2's noise, SD 2 truncated at +-8"
+    ),
+    "d3_complex_limited_noise2": (
+        "the complex d = 3 law at limited overlap with EPL App B.2's noise, SD 2 truncated at +-8"
+    ),
+    "d20_simple": (
+        "hte3's sim.CATEHighDim(positivity=FALSE), d = 20, with the CATE "
+        "1 + (W1 + W5 + W9 + W10 + W15) / 5"
+    ),
+    "d20_complex": (
+        "hte3's sim.CATEHighDim(positivity=FALSE), d = 20, with the CATE "
+        "1 + {sin(4 W1) + sin(4 W5) + cos(4 W9) + 1.5 (W15^2 - W10^2)} / 5"
+    ),
+}
+#: The sizes of each ``ep-cate`` law, in thousands.
+_EP_CATE_SIZES = {
+    **dict.fromkeys(
+        ("d3_simple_moderate", "d3_simple_limited", "d3_complex_moderate", "d3_complex_limited"),
+        (1, 2, 4),
+    ),
+    **dict.fromkeys(
+        ("d3_complex_moderate_noise2", "d3_complex_limited_noise2", "d20_simple", "d20_complex"),
+        (1, 4),
+    ),
+}
+_EP_CRR_LAWS = {
+    "d3_simple_moderate": (
+        "hte3's log-CRR law with the log CRR 0.1 (-1 + sum W) and moderate overlap, "
+        "logit pi = sum W / 3"
+    ),
+    "d3_simple_limited": (
+        "hte3's log-CRR law with the log CRR 0.1 (-1 + sum W) and limited overlap, logit pi = sum W"
+    ),
+    "d3_complex_moderate": (
+        "hte3's log-CRR law with the log CRR 0.1 (-1 + sum W + sum sin(4 W)) and moderate overlap"
+    ),
+    "d3_complex_limited": (
+        "hte3's log-CRR law with the log CRR 0.1 (-1 + sum W + sum sin(4 W)) and limited overlap"
+    ),
+}
+_EP_FIXED_TERMS = {"intercept": "intercept", "W1": "W1 slope", "W3": "W3 slope"}
+_EP_ASSESSMENT_LAWS = {
+    "strong_2k": "ep-cate's complex d = 3 law at moderate overlap, n = 2,000",
+    "weak_2k": "the same law with the constant CATE 0.1, n = 2,000",
+}
+ARMS.update(
+    {
+        **_EP_CATE_LAWS,
+        **{
+            f"{law}_{size}k": f"{words}, n = {size},000"
+            for law, words in _EP_CATE_LAWS.items()
+            for size in _EP_CATE_SIZES[law]
+        },
+        "d3_complex_moderate_2k_cv": (
+            f"{_EP_CATE_LAWS['d3_complex_moderate']}, n = 2,000, sieve size chosen by "
+            "cross-validation"
+        ),
+        "d3_complex_moderate_1k_cv": (
+            f"{_EP_CRR_LAWS['d3_complex_moderate']}, n = 1,000, sieve size chosen by "
+            "cross-validation"
+        ),
+        **{
+            f"ep_fixed_obs_4k_{term}": (
+                f"conditional-projection's observational law, n = 4,000: the {words} of "
+                "the EP fit with model=Linear(['W1', 'W3'])"
+            )
+            for term, words in _EP_FIXED_TERMS.items()
+        },
+        **_EP_ASSESSMENT_LAWS,
+    }
+)
+
+#: The labels of ``eliminated-competing-events`` (X91 part A).  Mirrored from
+#: ``tests.studies.eliminated_competing_events_properties``, which this module cannot import.
+ARMS.update(
+    {
+        "tv_rule_t2": (
+            "the time-varying eliminated-competing-events law, the risk by t = 2 under the plan "
+            "treat first, then continue if L2 equals one, n = 16,000"
+        ),
+        "tv_never_t2": (
+            "the time-varying eliminated-competing-events law, the risk by t = 2 under the plan "
+            "treat at neither time, n = 16,000"
+        ),
+        "hb_a1_t2": (
+            "the held-baseline eliminated-competing-events law, the risk by t = 2 under arm 1, "
+            "n = 16,000"
+        ),
+        "hb_a2_t1": (
+            "the held-baseline eliminated-competing-events law, the risk by t = 1 under arm 2, "
+            "n = 16,000"
+        ),
+        "ltmle_always_t2": (
+            "the time-varying eliminated-competing-events law, the risk difference by t = 2 "
+            "between treating at both times and at neither, one-fold iterated LTMLE, n = 16,000"
+        ),
+        "hazard_a1_t3": (
+            "the held-baseline eliminated-competing-events law, the risk difference by t = 3 "
+            "between arms 1 and 0, hazard LTMLE, n = 16,000"
+        ),
+    }
+)
+
+#: The arms of ``targeting-curves`` (X92 part 5): each group's law and each quantity of its
+#: targeting curve, ``<group>_<quantity>``, and each group's band, ``<group>_band``.  They sit
+#: here because the cell-name pattern below is built from :data:`ARMS` at import.  Mirrored from
+#: ``tests.studies.targeting_curves``, which this module cannot import;
+#: ``tests/unit/test_targeting_curves_design.py`` pins the two equal.
+_TARGETING_GROUPS = {
+    "H": (
+        "law H (a continuous outcome with effect 1 + W1 and the external score S = W1 + 0.5 W3), "
+        "n = 2,000"
+    ),
+    "B": (
+        "law B (a binary outcome with a logistic effect in W1 and the external score "
+        "S = W1 + 0.5 W3), n = 2,000"
+    ),
+    "K": (
+        "law K (a continuous outcome with effect 1 + W1 + W1 W3, a main-terms outcome regression "
+        "that is wrong for it, and the treatment mechanism known), n = 2,000"
+    ),
+    "U": (
+        "law U (a binary outcome whose effect does not vary with the external score S = W3, so "
+        "every TOC is 0), n = 2,000"
+    ),
+    "N": "law N (a continuous outcome with a constant effect, so every TOC is 0), n = 2,000",
+    "D": (
+        "law D (a binary outcome and the atomic score round(2 W1) / 2, five tied blocks), n = 2,000"
+    ),
+    "S": (
+        "law H with the score refit on 2,000 training rows as a B-spline effect curve in "
+        "(W1, W2, W3) and evaluated on 2,000 other rows (route 2)"
+    ),
+    "P": "law P (a continuous outcome with effect 1 + 0.46 W1 and noise SD 1), n = 1,000",
+}
+_TARGETING_QUANTITIES = {
+    "toc_0.1": "the TOC at q = 0.1",
+    "toc_0.2": "the TOC at q = 0.2",
+    "toc_0.5": "the TOC at q = 0.5",
+    "toc_0.9": "the TOC at q = 0.9",
+    "autoc": "the AUTOC",
+    "qini": "the Qini coefficient",
+    "group_effect_0.2": "the mean effect of the top fifth of the score",
+    "group_effect_1": "the mean effect of the bottom fifth of the score",
+    **{
+        f"S_minus_S_B_{name}": f"{words} of S minus that of S_B = W1 + 1.5 W3, on the same draws"
+        for name, words in (
+            ("toc_0.1", "the TOC at q = 0.1"),
+            ("toc_0.5", "the TOC at q = 0.5"),
+            ("autoc", "the AUTOC"),
+            ("qini", "the Qini coefficient"),
+        )
+    },
+}
+#: Each group's calibration rows, its SE controls and its band, as ``group_cells`` names them.
+_TARGETING_CORE = ("toc_0.1", "toc_0.5", "toc_0.9", "autoc", "qini")
+_TARGETING_ROWS = {
+    "H": (
+        *_TARGETING_CORE,
+        "group_effect_0.2",
+        "group_effect_1",
+        "S_minus_S_B_toc_0.1",
+        "S_minus_S_B_toc_0.5",
+        "S_minus_S_B_autoc",
+        "S_minus_S_B_qini",
+    ),
+    "B": _TARGETING_CORE,
+    "K": ("toc_0.5", "autoc", "qini"),
+    "U": ("toc_0.1", "toc_0.5", "autoc", "qini"),
+    "N": ("autoc", "qini"),
+    "D": ("toc_0.2", "toc_0.5", "autoc", "qini"),
+    "S": _TARGETING_CORE,
+}
+_TARGETING_SE_CONTROLS = {
+    ("H", "fixed_cut"): ("toc_0.5", "toc_0.9"),
+    ("H", "fixed_ranks"): ("autoc",),
+    ("H", "unpaired"): ("S_minus_S_B_toc_0.1", "S_minus_S_B_autoc"),
+    ("K", "untargeted"): ("autoc",),
+}
+_TARGETING_BIAS_CONTROLS = {
+    ("D", "whole_block"): ("toc_0.2",),
+    ("S", "in_sample"): ("toc_0.1", "autoc"),
+}
+ARMS.update(
+    {
+        **{
+            f"{group}_{name}": f"{_TARGETING_GROUPS[group]}: {_TARGETING_QUANTITIES[name]}"
+            for group, names in _TARGETING_ROWS.items()
+            for name in names
+        },
+        **{
+            f"{group}_{control}_{name}": (
+                f"{_TARGETING_GROUPS[group]}: {_TARGETING_QUANTITIES[name]}"
+            )
+            for (group, control), names in _TARGETING_SE_CONTROLS.items()
+            for name in names
+        },
+        **{
+            f"{group}_band": (
+                f"{_TARGETING_GROUPS[group]}: the sup-t band of the TOC over the nine grid points "
+                "0.1 to 0.9"
+            )
+            for group in ("H", "U", "N", "P")
+        },
+    }
+)
+
+#: The labels of ``dose-response`` (X93 S1).  Mirrored from
+#: ``tests.studies.dose_response_properties``, which this module cannot import.
+ARMS.update(
+    {
+        "binary_curve": (
+            "the binary dose-response law, the smoothed curve at doses 0.25, 1.5, 2.5, 3.5 and "
+            "4.75 and bandwidths 0.5, 1.0 and 1.5 (15 pairs), n = 4,000"
+        ),
+        "interior_h1_a2_5": (
+            "the binary dose-response law, the smoothed curve at dose 2.5 and bandwidth 1.0, an "
+            "interior pair, n = 4,000"
+        ),
+        "h1_a3_5": (
+            "the binary dose-response law, the smoothed curve at dose 3.5 and bandwidth 1.0, "
+            "n = 4,000"
+        ),
+    }
+)
+
+#: The labels of ``separable-effects`` (X91 part D).  Mirrored from
+#: ``tests.studies.separable_effects_properties``, which this module cannot import.
+ARMS.update(
+    {
+        "sep10_relapse_t3": (
+            "the separable-effects law, the risk of relapse by t = 3 with the part of the "
+            "treatment acting on relapse at 1 and the part acting on death at 0, n = 16,000"
+        ),
+        "in_sample_sde_relapse_t3": (
+            "the separable-effects law, the separable direct effect on relapse by t = 3 (relapse "
+            "component 1 and death component 0 against no treatment), one fold, n = 16,000"
+        ),
+        "cross_fitted_sep01_death_t3": (
+            "the separable-effects law, the risk of death by t = 3 with the relapse component at "
+            "0 and the death component at 1, two outer folds, n = 16,000"
         ),
     }
 )
@@ -6798,6 +7069,86 @@ STUDY_ARM_CELLS.update(
 )
 
 
+#: ``learned-rule-ep`` (P1 part (c)): the learned-rule value when the sign of the EP curve of
+#: the effect given (W1, W2) sets each fold's rule. The laws and learners are those of
+#: ``tests/studies/_learned_rule_ep_law.py``; the cell names are those of
+#: ``tests/studies/learned_rule_ep_properties.py``.
+_EP_RULE_SLUG = "learned-rule-ep"
+IMPLEMENTATIONS["cleverly-learned-rule-ep"] = (
+    "`cleverly` fold-evaluated CV-TMLE of the learned-rule value, each fold's rule the sign of "
+    "the EP curve of the effect given (W1, W2) fitted on the fold's training rows, with the "
+    "default sieve's size chosen by cross-validation over five inner folds"
+)
+STUDY_ESTIMANDS[_EP_RULE_SLUG, "ey_learned_rule[learned rule]"] = (
+    "fold average of the value of the rule that the EP curve fitted on each fold's training rows "
+    "sets"
+)
+_EP_RULE_LAWS = {
+    "non_exceptional": (
+        "the learned-rule law with the blip 0.1 + W1, whose main-terms interaction logistic "
+        "outcome learner is correct"
+    ),
+    "misspecified_limit": (
+        "the learned-rule law with the blip 0.8 W1 + W1^2 - 0.3, whose main-terms interaction "
+        "logistic outcome learner has no W1^2 term"
+    ),
+}
+STUDY_SCENARIOS.update(
+    {
+        (_EP_RULE_SLUG, name): (
+            f"{words.removeprefix('the ')}, with `LearnedRule(loss='ep')` on the default sieve"
+        )
+        for name, words in _EP_RULE_LAWS.items()
+    }
+)
+STUDY_ARMS.update(
+    {
+        **{
+            (_EP_RULE_SLUG, name): f"{words}, with `LearnedRule(loss='ep')` on the default sieve"
+            for name, words in _EP_RULE_LAWS.items()
+        },
+        (_EP_RULE_SLUG, "optimal_known_g"): (
+            "the value of the optimal rule at the learned-rule law with the blip 0.1 + W1, with "
+            "`LearnedRule(loss='ep')` on both adjustment columns and the treatment mechanism "
+            "known, read against the fixed optimal value 0.577115"
+        ),
+        (_EP_RULE_SLUG, "exceptional"): (
+            "the learned-rule law with no effect anywhere (RM30 `exceptional`), with "
+            "`LearnedRule(loss='ep')` on the default sieve"
+        ),
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_EP_RULE_SLUG, "interval_calibration", label, "declared"): (
+                "the declared fit at n = 16,000 with the study's logistic nuisance learners",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for label in ("non_exceptional", "misspecified_limit", "optimal_known_g")
+        },
+        (_EP_RULE_SLUG, "interval_calibration", "non_exceptional", "validation_rule_control"): (
+            "the same fit at n = 2,000 with each fold's EP curve fitted on that fold's own "
+            "validation rows, so the rule has seen the rows that evaluate it",
+            "the coverage interval must fall below the calibration band",
+        ),
+        **{
+            (_EP_RULE_SLUG, "small_sample_diagnostic", label, "n1000"): (
+                "the declared fit at n = 1,000, reported without a verdict",
+                "none. The cell reports the SE ratio, coverage and bias at the smaller size",
+            )
+            for label in ("non_exceptional", "misspecified_limit")
+        },
+        (_EP_RULE_SLUG, "exceptional_law_report", "exceptional", "n2000"): (
+            "the declared fit at n = 2,000, where condition C3 fails because the fold curves "
+            "have no fixed sign",
+            "none. The cell reports its coverage with the declared reading: an upper 99% "
+            "coverage endpoint below 0.95 reads under-coverage",
+        ),
+    }
+)
+
+
 #: ``learned-rule-intermediate`` (X11 PR J, X11 (j)): the plug-in rule at A with a binary
 #: intermediate held at each level, and the known rule 1{W1 > 0} through the same
 #: fold-evaluated controlled-direct-effect path. The law and learners are those of
@@ -7038,6 +7389,716 @@ CELLS.update(
             for control, (group, words) in _PROJECTION_BIAS_CONTROLS.items()
             for term in _PROJECTION_CONTROL_TERMS[control.rsplit("_", 1)[0]]
         },
+    }
+)
+
+
+#: The EP studies (P1 part (b)).  Every ``oracle_comparison`` row is the mean over replicates
+#: of ``log ISE(estimator) - log ISE(oracle)``, paired within a replicate, where the oracle is
+#: the least-squares fit (``ep-cate``) or the one-step log-CRR risk minimiser (``ep-crr``) of
+#: the pseudo-outcome at the true nuisances on the same sieve.  The laws, groups and cell names
+#: are those of ``tests/studies/ep_cate.py``, ``ep_crr.py`` and ``ep_assessment.py``.
+_EP_CATE_SLUG, _EP_CRR_SLUG, _EP_ASSESSMENT_SLUG = "ep-cate", "ep-crr", "ep-assessment"
+IMPLEMENTATIONS.update(
+    {
+        f"cleverly-{slug}": (
+            "`cleverly` projection TMLE of the CATE on (1, W1, W3), the primary phase of the "
+            f"{slug} study: the EP curve has no interval for the primary rows to read"
+        )
+        for slug in (_EP_CATE_SLUG, _EP_CRR_SLUG, _EP_ASSESSMENT_SLUG)
+    }
+)
+for _slug in (_EP_CATE_SLUG, _EP_CRR_SLUG, _EP_ASSESSMENT_SLUG):
+    STUDY_SCENARIOS[(_slug, "obs_4k")] = (
+        "conditional-projection's observational law with a CATE that is not linear in W3, "
+        "spline GLM learners, n = 4,000, on this study's own seed"
+    )
+    STUDY_ESTIMANDS.update(
+        {
+            (_slug, f"cate_projection[{term}]"): (
+                f"the {words} of the least-squares projection of the CATE on (1, W1, W3)"
+            )
+            for term, words in (
+                ("(intercept)", "intercept"),
+                ("W1", "W1 slope"),
+                ("W3", "W3 slope"),
+            )
+        }
+    )
+for _law, _words in _EP_CATE_LAWS.items():
+    STUDY_ARMS[(_EP_CATE_SLUG, _law)] = _words
+for _law, _words in _EP_CRR_LAWS.items():
+    STUDY_ARMS[(_EP_CRR_SLUG, _law)] = _words
+    for _size in (1, 4):
+        STUDY_ARMS[(_EP_CRR_SLUG, f"{_law}_{_size}k")] = f"{_words}, n = {_size},000"
+
+PROPERTIES.update(
+    {
+        "oracle_comparison": (
+            "the EP learner's integrated squared error is close to the oracle learner's, which "
+            "fits the same sieve to the pseudo-outcome at the true nuisances (EPL Theorem 5), "
+            "and stays close as n grows; with a wrong outcome learner the debiasing keeps it "
+            "close while the T-learner on that learner falls far behind"
+        ),
+        "nuisance_error": (
+            "the L2 errors of the outcome regression and the propensity and their product, "
+            "reported with no verdict"
+        ),
+        "oracle_hessian": (
+            "the share of replicates whose oracle log-CRR fit has a positive-definite Hessian, "
+            "reported with no verdict"
+        ),
+        "diagnostic": (
+            "the paired difference of the EP and projection-TMLE coefficients at a fixed basis, "
+            "reported with no verdict"
+        ),
+        "calibration": (
+            "the out-of-fold calibration slope of the EP curve is near 1, and a curve stretched "
+            "by 1.5 about its mean reads a slope below the band"
+        ),
+        "risk_comparison": (
+            "the out-of-fold risk difference of the EP curve against the constant has the sign "
+            "of its exact value"
+        ),
+        "stability": (
+            "the split sensitivity of the EP curve over five cross-fitting seeds on the same "
+            "draw, reported with no verdict"
+        ),
+    }
+)
+
+_EP_REPORTED = "reported with no verdict"
+_EP_TERMS = {
+    "ep": "EP at the declared schedule k(n) = 3, 4, 5 at n = 1,000, 2,000, 4,000, ensemble learners",
+    "t_learner": "the T-learner (no debiasing) on the same sieve and ensemble learners",
+    "dr_learner": "the DR-learner on the same sieve and ensemble learners",
+    "ep_greedy_hgb": "EP with a gradient-boosting final learner on the same nuisances",
+    "ep_misspecified": "EP with the per-arm main-terms linear outcome learner",
+    "t_misspecified": "the T-learner on the per-arm main-terms linear outcome learner",
+}
+_EP_CRR_TERMS = {
+    "ep": "EP at the declared schedule k(n) = 3, 5 at n = 1,000, 4,000, ensemble learners",
+    "t_learner": "the T-learner (no debiasing) on the same sieve and ensemble learners",
+    "ep_misspecified": "EP with the intercept-only outcome learner, which ignores W",
+    "t_misspecified": "the T-learner on the intercept-only outcome learner",
+    "ep_offset": (
+        "EP with the true outcome regression whose treated-arm logit is off by "
+        "2 {(sum W)^2 - 1}, outside the additive sieve"
+    ),
+    "t_offset": "the T-learner on that offset outcome learner",
+}
+
+
+def _ep_ratio(words: str) -> str:
+    return f"{words}: log ISE against the oracle's, paired by replicate"
+
+
+def _ep_bound(side: str, margin: str) -> str:
+    return f"one-sided 99% {side} bound {'below' if side == 'upper' else 'above'} {margin}"
+
+
+def _ep_oracle_cells() -> dict[tuple[str, str, str, str], tuple[str, str]]:
+    cells: dict[tuple[str, str, str, str], tuple[str, str]] = {}
+    family = "oracle_comparison"
+    for law, sizes in _EP_CATE_SIZES.items():
+        noise2 = law.endswith("_noise2")
+        for size in sizes:
+            arm = f"{law}_{size}k"
+            largest = size == sizes[-1]
+            gated = {
+                "ep": largest and not noise2,
+                "ep_misspecified": largest and noise2,
+                "t_misspecified": largest and noise2,
+            }
+            for base, words in _EP_TERMS.items():
+                if not gated.get(base):
+                    required = _EP_REPORTED
+                elif base == "t_misspecified":
+                    required = f"{_ep_bound('lower', 'log 3')}: the control must fail"
+                elif base == "ep_misspecified":
+                    required = _ep_bound("upper", "log 3")
+                else:
+                    required = _ep_bound("upper", "log 1.5")
+                cells[(_EP_CATE_SLUG, family, arm, base)] = (_ep_ratio(words), required)
+        estimator = "ep_misspecified" if noise2 else "ep"
+        cells[(_EP_CATE_SLUG, family, law, f"{estimator}_growth")] = (
+            f"the change in the mean log ISE ratio of {_EP_TERMS[estimator]} from n = 1,000 "
+            "to n = 4,000, from an independent-samples interval",
+            _ep_bound("upper", "log 1.25"),
+        )
+    cells[(_EP_CATE_SLUG, family, "d3_complex_moderate_2k_cv", "ep")] = (
+        _ep_ratio("EP with the default sieve size chosen by cross-validation, ensemble learners"),
+        _EP_REPORTED,
+    )
+    for law in _EP_CRR_LAWS:
+        rescue = law == "d3_complex_limited"
+        for size in (1, 4):
+            arm = f"{law}_{size}k"
+            for base, words in _EP_CRR_TERMS.items():
+                gated = size == 4 and (base in ("ep",) or rescue)
+                if not gated or base == "t_learner":
+                    required = _EP_REPORTED
+                elif base.startswith("t_"):
+                    required = f"{_ep_bound('lower', 'log 1.5')}: the control must fail"
+                else:
+                    required = _ep_bound("upper", "log 1.5")
+                cells[(_EP_CRR_SLUG, family, arm, base)] = (_ep_ratio(words), required)
+        for estimator in ("ep", "ep_misspecified", "ep_offset"):
+            cells[(_EP_CRR_SLUG, family, law, f"{estimator}_growth")] = (
+                f"the change in the mean log ISE ratio of {_EP_CRR_TERMS[estimator]} from "
+                "n = 1,000 to n = 4,000, from an independent-samples interval",
+                _EP_REPORTED if estimator == "ep_offset" else _ep_bound("upper", "log 1.25"),
+            )
+    cells[(_EP_CRR_SLUG, family, "d3_complex_moderate_1k_cv", "ep")] = (
+        _ep_ratio("EP with the default sieve size chosen by cross-validation, ensemble learners"),
+        _EP_REPORTED,
+    )
+    return cells
+
+
+def _ep_reported_cells() -> dict[tuple[str, str, str, str], tuple[str, str]]:
+    cells: dict[tuple[str, str, str, str], tuple[str, str]] = {}
+    nuisance = {
+        "mu_l2": "the L2 error of the outcome regression",
+        "pi_l2": "the L2 error of the propensity",
+        "product": "the product of the two L2 errors",
+    }
+    learners = {
+        _EP_CATE_SLUG: {
+            "ensemble": "the ensemble",
+            "misspecified": "the main-terms linear outcome learner",
+        },
+        _EP_CRR_SLUG: {
+            "ensemble": "the ensemble",
+            "misspecified": "the intercept-only outcome learner",
+            "offset": "the offset outcome learner",
+        },
+    }
+    arms = {
+        _EP_CATE_SLUG: [
+            f"{law}_{size}k" for law, sizes in _EP_CATE_SIZES.items() for size in sizes
+        ],
+        _EP_CRR_SLUG: [f"{law}_{size}k" for law in _EP_CRR_LAWS for size in (1, 4)],
+    }
+    for slug, names in arms.items():
+        for arm in names:
+            for learner, learner_words in learners[slug].items():
+                for name, words in nuisance.items():
+                    cells[(slug, "nuisance_error", arm, f"{learner}_{name}")] = (
+                        f"{words}, {learner_words}",
+                        _EP_REPORTED,
+                    )
+        if slug == _EP_CRR_SLUG:
+            for arm in (*names, "d3_complex_moderate_1k_cv"):
+                cells[(slug, "oracle_hessian", arm, "oracle_pd")] = (
+                    "whether the oracle fit's Hessian is positive definite; a replicate where it "
+                    "is not leaves every comparison of its group",
+                    "reported with no verdict; a gated row of a group that excluded more than 1% "
+                    "of its replicates is red",
+                )
+    for term, words in _EP_FIXED_TERMS.items():
+        cells[(_EP_CATE_SLUG, "diagnostic", f"ep_fixed_obs_4k_{term}", "ep_minus_tmle")] = (
+            f"the paired difference of the EP and projection-TMLE {words}s on the same draw",
+            _EP_REPORTED,
+        )
+    assessment = {
+        ("calibration", "strong_2k", "slope"): (
+            "the mean out-of-fold calibration slope of the EP curve at the schedule size 4",
+            "two-sided 99% interval inside 0.85 to 1.15",
+        ),
+        ("calibration", "strong_2k", "stretched_slope"): (
+            "the same slope of the curve stretched by 1.5 about its mean, on the same folds",
+            "one-sided 99% upper bound below 0.85: the control must fail",
+        ),
+        ("calibration", "weak_2k", "slope"): (
+            "the mean out-of-fold calibration slope of the EP curve at the schedule size 4",
+            _EP_REPORTED,
+        ),
+        ("stability", "strong_2k", "relative_sd"): (
+            "the mean relative SD of the curve over five split seeds on the same draw",
+            _EP_REPORTED,
+        ),
+        ("stability", "weak_2k", "relative_sd"): (
+            "the mean relative SD of the curve over five split seeds on the same draw",
+            _EP_REPORTED,
+        ),
+        ("stability", "strong_2k", "warns"): (
+            "the share of replicates whose relative SD exceeds 0.5 and warns",
+            _EP_REPORTED,
+        ),
+        ("stability", "weak_2k", "warns"): (
+            "the share of replicates whose relative SD exceeds 0.5 and warns",
+            _EP_REPORTED,
+        ),
+        ("risk_comparison", "strong_2k", "sign_agrees"): (
+            "the share of replicates whose reported EP-minus-constant DR risk difference has "
+            "the sign of the exact difference at the true CATE",
+            "one-sided 99% Clopper-Pearson lower bound at least 0.80",
+        ),
+        ("risk_comparison", "weak_2k", "sign_agrees"): (
+            "the share of replicates whose reported EP-minus-constant DR risk difference has "
+            "the sign of the exact difference at the true CATE",
+            _EP_REPORTED,
+        ),
+        **{
+            ("risk_comparison", arm, "risk_difference"): (
+                "the mean reported EP-minus-constant DR risk difference",
+                _EP_REPORTED,
+            )
+            for arm in _EP_ASSESSMENT_LAWS
+        },
+        **{
+            ("risk_comparison", arm, "exact_difference"): (
+                "the mean exact EP-minus-constant risk difference at the true CATE",
+                _EP_REPORTED,
+            )
+            for arm in _EP_ASSESSMENT_LAWS
+        },
+    }
+    for (family, arm, base), text in assessment.items():
+        cells[(_EP_ASSESSMENT_SLUG, family, arm, base)] = text
+    return cells
+
+
+STUDY_ARM_CELLS.update({**_ep_oracle_cells(), **_ep_reported_cells()})
+CELLS.update(
+    {
+        ("bias", f"ep_fixed_obs_4k_{term}"): (
+            "conditional-projection's observational law at n = 4,000 with its spline GLM "
+            f"learners: the {words} of the EP fit with model=Linear(['W1', 'W3'])",
+            "standardized-bias interval inside +-0.25",
+        )
+        for term, words in _EP_FIXED_TERMS.items()
+    }
+)
+
+
+#: ``eliminated-competing-events`` (X91 part A): the risk of relapse had death been prevented,
+#: Young et al. (2020) g-formula (23).  The scenario, estimand and cell names are those of
+#: ``tests/studies/eliminated_competing_events.py`` and its properties module.
+_ELIMINATED_SLUG = "eliminated-competing-events"
+IMPLEMENTATIONS["cleverly-eliminated-ltmle"] = (
+    "`cleverly` LTMLE with eliminate=['death']: the relapse risk had death been prevented, "
+    "with retention fitted as a censoring factor and a prevented-cause factor"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_ELIMINATED_SLUG, "ltmle_time_varying"): (
+            "two-node law with a time-varying covariate, censoring, death and relapse, "
+            "iterated-mean LTMLE with saturated cell means, one fold, n = 16,000"
+        ),
+        (_ELIMINATED_SLUG, "ltmle_time_varying_crossfit"): (
+            "the same two-node law, two outer folds, the death factor fitted by a clone of the "
+            "censoring learner, n = 16,000"
+        ),
+        (_ELIMINATED_SLUG, "hazard_held_baseline"): (
+            "three-node law with a three-level baseline treatment held over time, censoring, "
+            "death and relapse, hazard LTMLE with saturated cell means, one fold, n = 16,000"
+        ),
+    }
+)
+_ELIMINATED_PLANS = {
+    "never": "treat at neither time",
+    "always": "treat at both times",
+    "continue_if_l2": "treat first, then continue if L2 equals one",
+    "a0": "arm 0",
+    "a1": "arm 1",
+    "a2": "arm 2",
+}
+STUDY_ESTIMANDS.update(
+    {
+        **{
+            (_ELIMINATED_SLUG, f"risk_regimen[{plan} @ t={t}]"): (
+                f"risk of relapse by t = {t} under {words}, had death been prevented"
+            )
+            for plan, words in _ELIMINATED_PLANS.items()
+            for t in (1, 2, 3)
+        },
+        **{
+            (_ELIMINATED_SLUG, f"ate_regimen[{plan} vs {base} @ t={t}]"): (
+                f"difference in the risk of relapse by t = {t}, had death been prevented, "
+                f"between {_ELIMINATED_PLANS[plan]} and {_ELIMINATED_PLANS[base]}"
+            )
+            for plan, base in (
+                ("always", "never"),
+                ("continue_if_l2", "never"),
+                ("a1", "a0"),
+                ("a2", "a0"),
+            )
+            for t in (1, 2, 3)
+        },
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_ELIMINATED_SLUG, "double_robustness", arm, "mechanism_correct"): (
+                "a prior-only outcome model, with the treatment, censoring and prevented-cause "
+                "factors correct, so the targeting step does the adjusting",
+                "bias interval inside the equivalence margin, with the reported standard error "
+                "on the scale of the empirical spread",
+            )
+            for arm in ("tv_rule_t2", "hb_a1_t2")
+        },
+        **{
+            (_ELIMINATED_SLUG, "double_robustness", arm, "outcome_wrong_competing_wrong"): (
+                "a prior-only outcome model and a prior-only prevented-cause factor, with the "
+                "treatment and censoring factors correct",
+                "bias interval must fall entirely outside the margin",
+            )
+            for arm in ("tv_never_t2", "hb_a2_t1")
+        },
+        **{
+            (_ELIMINATED_SLUG, "interval_calibration", arm, "correctly_specified"): (
+                "every nuisance (outcome, treatment, censoring and prevented-cause factor) is a "
+                "saturated cell mean",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for arm in ("ltmle_always_t2", "hazard_a1_t3")
+        },
+    }
+)
+
+#: ``targeting-curves`` (X92 part 5): the TMLE-targeted targeting curve of
+#: ``IdentifiedEffect.targeting_curve`` and of ``curve.diagnostics.targeting_curve()``.  The
+#: groups, quantities and cells are those of ``tests/studies/targeting_curves.py``.
+_TARGETING_SLUG = "targeting-curves"
+IMPLEMENTATIONS["cleverly-targeting-curves"] = (
+    "`cleverly` targeting curve of an external score: one pooled TMLE fluctuation of the "
+    "cross-fitted ATE fit along the span of the rank weights, with a Wald interval from 2,000 "
+    "half-sample draws"
+)
+STUDY_SCENARIOS[(_TARGETING_SLUG, "H")] = (
+    "law H, a continuous outcome with effect 1 + W1 and the external score S = W1 + 0.5 W3, "
+    "a spline GLM per arm and a logistic treatment model, n = 2,000"
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_TARGETING_SLUG, "toc[0.1]"): "the TOC at q = 0.1: the mean effect of the top tenth of S "
+        "minus the ATE",
+        (_TARGETING_SLUG, "toc[0.5]"): "the TOC at q = 0.5: the mean effect of the top half of S "
+        "minus the ATE",
+        (_TARGETING_SLUG, "toc[0.9]"): "the TOC at q = 0.9: the mean effect of the top nine "
+        "tenths of S minus the ATE",
+        (_TARGETING_SLUG, "autoc"): "the AUTOC, the integral of the TOC over q",
+        (_TARGETING_SLUG, "qini"): "the Qini coefficient, the integral of q times the TOC over q",
+    }
+)
+_TARGETING_CALIBRATED = (
+    "the curve's Wald interval, estimate +- 1.96 times the SD of its 2,000 half-sample draws"
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_TARGETING_SLUG, "interval_calibration", f"{group}_{name}", "correctly_specified"): (
+                f"{_TARGETING_CALIBRATED}, with a spline GLM per arm and a logistic treatment "
+                "model",
+                (
+                    "SE ratio and coverage intervals both inside their calibration bands; a "
+                    "reporting row, whose one-sided gate needs the lower ends of its SE-ratio "
+                    "and coverage intervals at or above 0.93 and 0.92"
+                )
+                if (group, name) == ("H", "S_minus_S_B_toc_0.1")
+                else "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for group, names in _TARGETING_ROWS.items()
+            if group != "K"
+            for name in names
+        },
+        **{
+            (_TARGETING_SLUG, "interval_calibration", f"K_{name}", "known_mechanism"): (
+                f"{_TARGETING_CALIBRATED}, with the main-terms outcome regression and the known "
+                "treatment mechanism",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for name in _TARGETING_ROWS["K"]
+        },
+        **{
+            (
+                _TARGETING_SLUG,
+                "interval_calibration",
+                f"H_fixed_cut_{name}",
+                "inflated_se_control",
+            ): (
+                "the same estimate with the SE of draws that keep the full-sample cut",
+                "the SE-ratio interval must lie above the calibration band",
+            )
+            for name in _TARGETING_SE_CONTROLS[("H", "fixed_cut")]
+        },
+        (_TARGETING_SLUG, "interval_calibration", "H_fixed_ranks_autoc", "inflated_se_control"): (
+            "the same estimate with the SE of draws that keep the full-sample rank weights",
+            "the SE-ratio interval must lie above the calibration band",
+        ),
+        **{
+            (
+                _TARGETING_SLUG,
+                "interval_calibration",
+                f"H_unpaired_{name}",
+                "inflated_se_control",
+            ): (
+                "the same estimate with the SE of draws that resample the two scores separately",
+                "the SE-ratio interval must lie above the calibration band",
+            )
+            for name in _TARGETING_SE_CONTROLS[("H", "unpaired")]
+        },
+        (_TARGETING_SLUG, "interval_calibration", "K_untargeted_autoc", "shrunken_se_control"): (
+            "the same TMLE estimate with the SE of draws of the untargeted one-step scores",
+            "the SE-ratio interval must lie below the calibration band",
+        ),
+        (_TARGETING_SLUG, "bias", "D_toc_0.2", "whole_block"): (
+            "the rule S >= cut, which puts the whole tied block at the cut in the top fraction",
+            "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+        ),
+        **{
+            (_TARGETING_SLUG, "bias", f"S_{name}", "in_sample"): (
+                "the effect curve fitted on the evaluation rows themselves ranks those rows, read "
+                "against the truth of that curve",
+                "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+            )
+            for name in _TARGETING_BIAS_CONTROLS[("S", "in_sample")]
+        },
+        (_TARGETING_SLUG, "simultaneous_coverage", "H_band", "correctly_specified"): (
+            "whether the band covers the TOC at every grid point at once",
+            "the joint coverage interval inside the calibration coverage band 0.92 to 0.98",
+        ),
+        (_TARGETING_SLUG, "simultaneous_coverage", "H_band", "pointwise_joint"): (
+            "whether the pointwise 95% intervals cover the TOC at every grid point at once",
+            "the joint coverage interval must lie below 0.95",
+        ),
+        **{
+            (_TARGETING_SLUG, "type_i_error", f"{group}_band", "null"): (
+                "whether the band excludes 0 at some grid point",
+                "the 99% upper end of the rejection rate at most 0.10",
+            )
+            for group in ("U", "N")
+        },
+        (_TARGETING_SLUG, "power", "P_band", "slope"): (
+            "whether the band excludes 0 at some grid point, at the slope where its power is 0.90",
+            "the rejection rate's lower end at least 0.80",
+        ),
+    }
+)
+
+
+#: ``dose-response`` (X93 S1): CV-TMLE of the kernel-smoothed dose-response curve.  The scenario,
+#: estimand and cell names are those of ``tests/studies/dose_response.py`` and its properties
+#: module.
+_DOSE_SLUG = "dose-response"
+IMPLEMENTATIONS["cleverly-dose-response"] = (
+    "`cleverly` DoseResponseTMLE: CV-TMLE of the kernel-smoothed dose-response curve, one pooled "
+    "fluctuation per (bandwidth, dose) pair"
+)
+_DOSE_LAW = (
+    "a dose with a normal location model nonlinear in three normal covariates, and an outcome "
+    "whose logit is nonlinear in the dose with a dose-varying covariate slope"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_DOSE_SLUG, "binary"): (
+            f"{_DOSE_LAW}, binary outcome, 15 (bandwidth, dose) pairs, n = 4,000"
+        ),
+        (_DOSE_SLUG, "strata"): (
+            f"{_DOSE_LAW}, binary outcome, the curve in each stratum of V = 1{{W1 > 0}} at three "
+            "doses and bandwidth 1.0, n = 8,000"
+        ),
+        (_DOSE_SLUG, "gaussian"): (
+            f"{_DOSE_LAW}, Gaussian outcome with the linear fluctuation, five doses at bandwidth "
+            "1.0, n = 4,000"
+        ),
+        (_DOSE_SLUG, "tail"): (
+            f"{_DOSE_LAW}, binary outcome, bandwidth 0.5 at dose 0.4, where the expected Kish "
+            "size is 62 just above the support floor of 50, n = 1,000"
+        ),
+    }
+)
+
+
+def _dose_words(h: float, a0: float) -> str:
+    return (
+        f"the counterfactual outcome mean averaged over doses near {a0:g} by the local-linear "
+        f"kernel weight of bandwidth {h:g}"
+    )
+
+
+STUDY_ESTIMANDS.update(
+    {
+        **{
+            (_DOSE_SLUG, f"dose_response[h={h:.10g},a={a0:.10g}]"): _dose_words(h, a0)
+            for h in (0.5, 1.0, 1.5)
+            for a0 in (0.25, 0.4, 1.5, 2.5, 3.5, 4.75)
+        },
+        **{
+            (_DOSE_SLUG, f"dose_response[h=1,a={a0:.10g}][V={v}]"): (
+                f"{_dose_words(1.0, a0)}, in stratum V = {v}"
+            )
+            for a0 in (0.25, 2.5, 4.75)
+            for v in (0, 1)
+        },
+    }
+)
+
+#: ``separable-effects`` (X91 part D): the incidence of relapse and of death when the part of
+#: the treatment acting on each cause takes its own level, Stensrud et al. (2022)
+#: identification (8) with censoring (10).  The scenario, estimand and cell names are those of
+#: ``tests/studies/separable_effects.py`` and its properties module.
+_SEPARABLE_SLUG = "separable-effects"
+IMPLEMENTATIONS["cleverly-separable-ltmle"] = (
+    "`cleverly` hazard LTMLE with Separable regimens: the factor-wise one-step targeting of the "
+    "death hazard and of the relapse hazard among the death-free"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_SEPARABLE_SLUG, "in_sample"): (
+            "three-node law with a binary baseline covariate, a three-level baseline treatment "
+            "held over time, censoring, death and relapse; hazard LTMLE with saturated cell "
+            "means, one fold, n = 16,000"
+        ),
+        (_SEPARABLE_SLUG, "cross_fitted"): (
+            "the same law and fit with two outer folds, so the targeting starts away from the "
+            "truth, n = 16,000"
+        ),
+    }
+)
+_SEPARABLE_PLANS = {
+    "a0": "no treatment",
+    "a1": "treatment",
+    "sep10": "the relapse component of treatment alone",
+    "sep01": "the death component of treatment alone",
+}
+STUDY_ESTIMANDS.update(
+    {
+        **{
+            (_SEPARABLE_SLUG, f"cif_regimen[{plan}, {cause} @ t={t}]"): (
+                f"risk of {cause} by t = {t} under {words}"
+            )
+            for plan, words in _SEPARABLE_PLANS.items()
+            for cause in ("relapse", "death")
+            for t in (1, 2, 3)
+        },
+        **{
+            (_SEPARABLE_SLUG, f"ate_regimen[{plan} vs a0, {cause} @ t={t}]"): (
+                f"difference in the risk of {cause} by t = {t} between {words} and no treatment"
+            )
+            for plan, words in _SEPARABLE_PLANS.items()
+            if plan != "a0"
+            for cause in ("relapse", "death")
+            for t in (1, 2, 3)
+        },
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_DOSE_SLUG, "double_robustness", "h1_a3_5", "outcome_correct_density_wrong"): (
+            "the declared outcome sieve, with the dose density replaced by the binned marginal "
+            "density, which ignores the covariates",
+            "bias interval inside the equivalence margin, with the reported standard error "
+            "on the scale of the empirical spread",
+        ),
+        (_DOSE_SLUG, "double_robustness", "h1_a3_5", "both_wrong"): (
+            "an outcome spline in the dose alone and the binned marginal density, so neither "
+            "nuisance reads the confounder",
+            "bias interval must fall entirely outside the margin",
+        ),
+        (_DOSE_SLUG, "double_robustness", "h1_a3_5", "outcome_wrong_density_declared"): (
+            "an outcome spline in the dose alone with the declared pooled-hazard density, on the "
+            "draws of the other robustness cells: the targeted estimate",
+            "reported: its bias and the plug-in's give the targeting gain, which the family's "
+            "joint clause requires to put the estimate at least 1.5 efficient SEs closer to the "
+            "truth than the plug-in",
+        ),
+        (_DOSE_SLUG, "double_robustness", "h1_a3_5", "outcome_wrong_density_declared_plug_in"): (
+            "the untargeted plug-in of the same fit, carrying the targeted fit's standard error",
+            "reported: the bias the targeting step has to remove",
+        ),
+        (_DOSE_SLUG, "interval_calibration", "interior_h1_a2_5", "correctly_specified"): (
+            "the declared outcome sieve and pooled-hazard density, read at this pair from each "
+            "band fit of the 15-pair declaration",
+            "SE ratio and coverage intervals both inside their calibration bands, and the "
+            "empirical SD and the mean reported SE each within 0.90 to 1.10 of the exact "
+            "efficient SD",
+        ),
+        (_SEPARABLE_SLUG, "double_robustness", "sep10_relapse_t3", "event_hazard_wrong"): (
+            "the relapse hazard among the death-free shifted on the logit scale at the level the "
+            "target reads, with the death hazard and the treatment and censoring mechanisms "
+            "exact, so the targeting step does the adjusting",
+            "bias interval inside the equivalence margin, with the reported standard error on the "
+            "scale of the empirical spread",
+        ),
+        (_SEPARABLE_SLUG, "double_robustness", "sep10_relapse_t3", "competing_hazard_wrong"): (
+            "the death hazard shifted on the logit scale at the level the target reads, with the "
+            "relapse hazard and the mechanisms exact",
+            "bias interval inside the equivalence margin, with the reported standard error on the "
+            "scale of the empirical spread",
+        ),
+        (_SEPARABLE_SLUG, "double_robustness", "sep10_relapse_t3", "both_hazards_wrong"): (
+            "both hazards shifted, with the mechanisms exact: no sufficient condition holds",
+            "bias interval must fall entirely outside the margin",
+        ),
+        (_SEPARABLE_SLUG, "double_robustness", "sep10_relapse_t3", "mechanism_wrong"): (
+            "saturated hazards fitted out of fold and a treatment model that reads no covariate",
+            "bias interval inside the equivalence margin, with the reported standard error on the "
+            "scale of the empirical spread",
+        ),
+        **{
+            (_SEPARABLE_SLUG, "interval_calibration", arm, "correctly_specified"): (
+                "every nuisance (both hazards, treatment and censoring) is a saturated cell mean",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for arm in ("in_sample_sde_relapse_t3", "cross_fitted_sep01_death_t3")
+        },
+    }
+)
+
+
+#: ``survival-ctmle`` (X91 part B): collaborative TMLE of a risk curve, Stitelman and van der
+#: Laan (2010), Sections 12 to 14.  The scenario and estimand names are those of
+#: ``tests/studies/survival_ctmle.py``; the record holds its gated cells only.
+_SURVIVAL_CTMLE_SLUG = "survival-ctmle"
+IMPLEMENTATIONS["cleverly-survival-ctmle"] = (
+    "`cleverly` SurvivalCTMLE: per arm, the greedy collaborative selection of main-term "
+    "treatment and censoring models, with the hazard fluctuation and the printed penalty"
+)
+_SURVIVAL_CTMLE_LAW = (
+    "five clipped correlated normal covariates, a binary baseline treatment whose odds rise "
+    "with W4, which does not affect the event, an event hazard and a censoring hazard at two "
+    "time points; the outcome model correct"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_SURVIVAL_CTMLE_SLUG, "or1_qcorrect"): (
+            f"{_SURVIVAL_CTMLE_LAW}, W4 odds ratio 1, n = 1,000"
+        ),
+        (_SURVIVAL_CTMLE_SLUG, "or10_qcorrect"): (
+            f"{_SURVIVAL_CTMLE_LAW}, W4 odds ratio 10, n = 1,000"
+        ),
+        (_SURVIVAL_CTMLE_SLUG, "or15_qcorrect"): (
+            f"{_SURVIVAL_CTMLE_LAW}, W4 odds ratio 15, n = 1,000"
+        ),
+        (_SURVIVAL_CTMLE_SLUG, "s2_or10_qcorrect"): (
+            f"{_SURVIVAL_CTMLE_LAW}, W4 odds ratio 10 and the W1 coefficient of the treatment "
+            "model log 15, n = 1,000"
+        ),
+        (_SURVIVAL_CTMLE_SLUG, "s2_or15_qcorrect"): (
+            f"{_SURVIVAL_CTMLE_LAW}, W4 odds ratio 15 and the W1 coefficient of the treatment "
+            "model log 15, n = 1,000"
+        ),
+        (_SURVIVAL_CTMLE_SLUG, "or15_qcorrect_n2000"): (
+            f"{_SURVIVAL_CTMLE_LAW}, W4 odds ratio 15, n = 2,000"
+        ),
+        (_SURVIVAL_CTMLE_SLUG, "or10_qcorrect_crossfit"): (
+            f"{_SURVIVAL_CTMLE_LAW}, W4 odds ratio 10, two outer folds, n = 1,000"
+        ),
+    }
+)
+STUDY_ESTIMANDS.update(
+    {
+        (
+            _SURVIVAL_CTMLE_SLUG,
+            "risk_regimen[a1 @ t=2]",
+        ): "risk of the event by t = 2 under treatment",
+        (_SURVIVAL_CTMLE_SLUG, "ate_regimen[a1 vs a0 @ t=2]"): (
+            "difference in the risk of the event by t = 2 between treatment and no treatment"
+        ),
     }
 )
 

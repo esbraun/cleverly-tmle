@@ -19,12 +19,18 @@ from scipy.special import expit
 from sklearn.linear_model import LogisticRegression
 
 from cleverly import CausalStudy, ConditionalContrast, PointTreatment
-from cleverly.bases import Linear, Modifiers
+from cleverly.bases import Cosine, Linear, Modifiers, Sieve
 
 from . import Case
 from ._check_fidelity import close, header_values, text_tables
 
-__all__ = ["FIXTURES", "curve_checks", "read_effect_curve", "read_score_assessment"]
+__all__ = [
+    "FIXTURES",
+    "curve_checks",
+    "read_effect_curve",
+    "read_ep_curve",
+    "read_score_assessment",
+]
 
 _GRID = {"age": [30.0, 50.0, 70.0]}
 
@@ -93,6 +99,27 @@ def curve_outside() -> Any:
     return replace(curve, in_sample=np.asarray(curve.in_sample) * 4.0)
 
 
+@functools.cache
+def _ep_fit() -> Any:
+    study = CausalStudy(
+        _frame(), design=PointTreatment(outcome="Y", treatment="A", adjustment=("age", "W2"))
+    )
+    effect = study.identify(ConditionalContrast(Modifiers(["age"], domains={"age": (18, 90)})))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return effect.estimate("ep", sieve=Sieve(Cosine(["age"], 3), size=2), **_learners())
+
+
+def curve_ep() -> Any:
+    """The EP learner's difference-scale curve at a fixed sieve size."""
+    return _ep_fit()
+
+
+def curve_ep_clipped() -> Any:
+    """The EP curve with a synthetic clipped share, so its clip note fires."""
+    return replace(curve_ep(), clipped_share=0.25)
+
+
 def score_difference() -> Any:
     """The check of an external score on the difference scale."""
     with warnings.catch_warnings():
@@ -134,6 +161,7 @@ def curve_checks() -> dict[str, Any]:
             "CurveCalibration": checks.calibration(n_folds=2, random_state=0),
             "CurveRiskComparison": checks.risk_comparison(n_folds=2, random_state=0),
             "ModifierStability": checks.modifier_stability(n_folds=2, random_state=0),
+            "DebiasingScores": curve_ep().diagnostics.score_equations(),
         }
 
 
@@ -170,6 +198,25 @@ def read_effect_curve(curve: Any, text: str) -> None:
         assert close(cells[1], float(value)), (cells, value)
 
 
+def read_ep_curve(curve: Any, text: str) -> None:
+    """Assert that every number printed in ``text`` matches the EP ``curve``.
+
+    Parameters
+    ----------
+    curve : EffectCurveResult
+        The EP curve, which prints no coefficients.
+    text : str
+        Its short printed summary.
+    """
+    facts = header_values(text)
+    assert facts["Rows"] == f"{int(curve.in_sample.size):,}"
+    _, rows = _table(text, "In-sample predictions")
+    quantiles = [float(cells[0]) for cells in rows]
+    spread = np.quantile(curve.in_sample, quantiles)
+    for cells, value in zip(rows, spread, strict=True):
+        assert close(cells[1], float(value)), (cells, value)
+
+
 def read_score_assessment(check: Any, text: str) -> None:
     """Assert that every number printed in ``text`` matches ``check``.
 
@@ -196,6 +243,10 @@ FIXTURES: dict[str, Case] = {
     "curve_log_ratio": Case(curve_log_ratio, names=("age",), fidelity=read_effect_curve),
     "curve_outside": Case(
         curve_outside, names=("age",), fidelity=read_effect_curve, sectioned=False
+    ),
+    "curve_ep": Case(curve_ep, names=("age",), fidelity=read_ep_curve, sectioned=False),
+    "curve_ep_clipped": Case(
+        curve_ep_clipped, names=("age",), fidelity=read_ep_curve, sectioned=False
     ),
     "score_difference": Case(score_difference, names=("score",), fidelity=read_score_assessment),
     "score_log_ratio": Case(score_log_ratio, names=("score",), fidelity=read_score_assessment),

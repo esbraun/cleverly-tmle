@@ -731,6 +731,13 @@ def measured(row: Any) -> str:
             f"{render(float(row.mean_regret))}, coverage of the realized rule value "
             f"{render(float(row.rule_value_coverage))}"
         )
+    if family == "exceptional_law_report" and not hasattr(row, "mean_regret"):
+        # P1 part (c): the learned-rule value's report at the exceptional law, with no verdict
+        # and no regret columns. Its declared reading is printed beside the coverage.
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}, reading: {row.reading}"
+        )
     if family in {"estimated_g_report", "exceptional_law_report"}:
         # X11 PR I: the two reports of the optimal value, with no verdict. Their rows carry no
         # bootstrap SE-ratio interval, so the point ratio is printed.
@@ -758,6 +765,34 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"RMSE {render(float(row.rmse))}, bounded RMSE {render(float(row.bounded_rmse))}"
         )
+    if family == "oracle_comparison":
+        # P1 part (b): a mean log ISE ratio and the one-sided 99% bound its role reads, a
+        # positive's upper bound and a control's lower bound, each beside its margin.  A
+        # diagnostic row prints the mean and its spread.
+        measured = f"mean log ratio {render(float(row.ratio_mean))}"
+        if str(row.role) == "control":
+            return f"{measured}, 99% lower {render(float(row.ratio_lower))}, margin {render(float(row.margin))}"
+        if str(row.role) == "positive":
+            return f"{measured}, 99% upper {render(float(row.ratio_upper))}, margin {render(float(row.margin))}"
+        return f"{measured}, SD {render(float(row.ratio_sd))}"
+    if family in {"nuisance_error", "oracle_hessian"}:
+        # Reported means: an L2 error or its product, or the share of positive-definite
+        # oracle Hessians.  No margin reads either.
+        return f"mean {render(float(row.mean_estimate))}"
+    if family == "diagnostic":
+        # The paired EP-minus-TMLE difference at a fixed basis, reported with no verdict.
+        return f"mean difference {_interval(row.bias_ci_lower, row.bias_ci_upper)}"
+    if family in {"calibration", "risk_comparison", "stability"}:
+        # ``ep-assessment``'s readings: a mean with its 99% interval, or a share with its
+        # Clopper-Pearson lower end, beside the threshold its role reads.
+        measured = f"reading {render(float(row.reading))}"
+        if pd.notna(row.reading_upper):
+            measured += f", 99% interval {_interval(row.reading_lower, row.reading_upper)}"
+        else:
+            measured += f", 99% lower {render(float(row.reading_lower))}"
+        if str(row.role) != "diagnostic" and pd.notna(row.threshold):
+            measured += f", threshold {render(float(row.threshold))}"
+        return measured
     return f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
 
 

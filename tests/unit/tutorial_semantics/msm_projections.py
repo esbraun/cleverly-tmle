@@ -26,6 +26,7 @@ from tests.unit.tutorial_semantics import (
     assert_protocol_recorded,
     changed_fields,
     covers,
+    figure_title,
     stored_output,
 )
 
@@ -35,7 +36,6 @@ REFIT_CELLS = (
     "sensitivity",
     "refute",
     "generated",
-    "surface",
 )
 
 
@@ -239,6 +239,12 @@ def check(namespace: dict[str, Any]) -> None:
     residual = line - population
     assert abs(residual[1]) > 0.15, "the contact mapping no longer witnesses misspecification"
     assert 0.17 < abs(residual[1]) < 0.21, "the prose says the line misses medium by about 0.19"
+    assert (
+        figure_title(namespace["trend_fig"])
+        == "How does the average score change with assigned contacts?"
+    )
+    line_minus_mean = namespace["in_fits"]["line minus mean"]
+    assert line_minus_mean.iloc[0] > 0 > line_minus_mean.iloc[1]
     # The miss at medium is a fixed contrast of the three arm means, read through ``contrast``.
     # "The interval excludes zero" and "the interval contains the population miss".
     medium_misfit = namespace["medium_misfit"]
@@ -320,11 +326,10 @@ def check(namespace: dict[str, Any]) -> None:
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
-    """The refutation, the omitted-variable bounds, the generated outcomes, and the surface."""
+    """The refutation, the omitted-variable bounds, and the generated outcomes."""
     assert namespace["SLOPE"] == "msm[assigned contacts]"
     _check_refutation(namespace)
     _check_sensitivity(namespace)
-    _check_stress_surface(namespace)
 
 
 def _check_sensitivity(namespace: dict[str, Any]) -> None:
@@ -474,33 +479,3 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
         for reading in test.readings
     )
     assert inside_points == 5, "the reading counts five point values inside their bands"
-
-
-def _check_stress_surface(namespace: dict[str, Any]) -> None:
-    """Simulate a hidden confounder: the grid cells, the benchmark scale, and the stated movements."""
-    surface, trend = namespace["surface"], namespace["trend_result"]
-    slope = trend[namespace["SLOPE"]]
-    frame = surface.to_frame()
-    assert list(zip(frame["treatment_strength"], frame["outcome_strength"], strict=True)) == [
-        (0.0, 0.0),
-        (0.0, 0.9),
-        (0.1, 0.0),
-        (0.1, 0.9),
-        (0.3, 0.0),
-        (0.3, 0.9),
-    ]
-    # The anchor cell is the original fit.
-    assert frame["displacement"].iloc[0] == 0.0
-    assert frame["estimate"].iloc[0] == pytest.approx(slope.psi, abs=1e-12)
-    moves = (frame["displacement"] / slope.std_error).round(2).tolist()
-    assert moves == [0.0, -1.44, -8.98, -9.15, -19.74, -19.33]
-    assert frame["estimate"].min() > 0.0 and round(float(frame["estimate"].min()), 4) == 0.0991
-    association = frame["induced_treatment_association"].round(4).tolist()
-    assert association == [0.0372, 0.0372, -0.0393, -0.0393, -0.1027, -0.1027]
-    # A treatment swap moves the slope by misclassification: its movement dwarfs the outcome cell.
-    assert abs(frame["displacement"].iloc[2]) > 5 * abs(frame["displacement"].iloc[1])
-    strength = {(item.covariate, item.role): item.strength for item in surface.calibrations}
-    assert round(strength[("discharge_risk", "treatment")], 3) == 0.300
-    assert round(strength[("discharge_risk", "outcome")], 3) == 0.916
-    assert round(strength[("age", "treatment")], 3) == 0.276
-    assert round(strength[("age", "outcome")], 3) == -0.361

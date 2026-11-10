@@ -117,12 +117,7 @@ LEDGER: tuple[Row, ...] = (
     Row("policies", REDIRECTION, lambda: _ltmle(policies=1), instead="regimens="),
     Row("incremental", REDIRECTION, lambda: _ltmle(incremental=1), instead="IPSI"),
     Row("delta", REDIRECTION, lambda: _ltmle(delta=1), instead="censoring"),
-    Row(
-        "eliminate",
-        RefusalReason.DIFFERENT_ESTIMAND.value,
-        lambda: _ltmle(eliminate=1),
-        instead="cause-specific",
-    ),
+    Row("eliminate", REDIRECTION, lambda: _ltmle(eliminate=1), instead="eliminate="),
     Row("cross_fit", REDIRECTION, lambda: _ltmle(cross_fit=1), instead="n_folds"),
 )
 

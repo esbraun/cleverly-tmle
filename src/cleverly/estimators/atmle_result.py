@@ -775,7 +775,7 @@ def _support() -> Support:
         "experimental",
         "No support row covers an adaptive TMLE fit. The registered study adaptive-tmle-trial "
         f"measured its intervals at its own simulated laws and settings only. {shown}",
-        evidence=("F39",),
+        evidence=("F40",),
     )
 
 

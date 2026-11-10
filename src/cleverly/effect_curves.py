@@ -333,11 +333,14 @@ class ProjectionCurve:
 class EffectCurveResult:
     """A fitted conditional effect curve: its model, its predictions and how it was fitted.
 
-    A projection fit produces it through :meth:`cleverly.estimators.TMLEResult.effect_curve`.  The
-    curve is the projection of the conditional contrast onto the declared basis, which
-    equals the contrast only when the contrast lies in the span of the basis.  It is not
-    a :class:`cleverly.CausalResult`: it has no scalar estimate, and the coefficients with
-    their intervals stay on the :class:`~cleverly.estimators.TMLEResult`.
+    Two fits produce it.  A projection fit (``method="tmle"``) produces it through
+    :meth:`cleverly.estimators.TMLEResult.effect_curve`: the curve is the projection of the
+    conditional contrast onto the declared basis, with pointwise intervals and a band.  The
+    EP learner (``method="ep"``) returns it directly: the curve has no interval, and with
+    ``model=None`` it estimates the conditional contrast itself, approximated within the
+    final learner's class.  It is not a :class:`cleverly.CausalResult`: it has no scalar
+    estimate, and the coefficients with their intervals stay on the
+    :class:`~cleverly.estimators.TMLEResult` of a projection fit.
 
     Parameters
     ----------
@@ -345,7 +348,7 @@ class EffectCurveResult:
         ``"cate"`` or ``"log_crr"``.
     modifiers : Modifiers
         The modifier schema.
-    model : ProjectionCurve
+    model : ProjectionCurve or EPCurve
         The fitted curve, which predicts at new rows.
     scale : {"difference", "log_ratio"}
         The scale of the contrast.
@@ -372,13 +375,24 @@ class EffectCurveResult:
     provenance : Provenance or None
         The producing fit's provenance record.
     fit : Any
-        The producing :class:`~cleverly.estimators.TMLEResult`, which the curve's
-        assessment reads and refits.
+        The producing fit, which the curve's assessment reads and refits: a
+        :class:`~cleverly.estimators.TMLEResult`, or an
+        :class:`~cleverly.estimators.ep.EPFit`.
+    fitted_method : {"tmle", "ep"}
+        The method that produced the curve.
+    sieve : SieveRecord or None
+        How an EP fit set its sieve size, and what its cross-validation read; ``None`` for a
+        projection fit.
+    clipped_share : float
+        The share of in-sample predictions an EP fit with ``model=None`` clipped to the range
+        of a contrast of means; 0 for every other curve.
+    fit_warnings : tuple of FitWarning
+        The warnings the fit raised, recorded as a point fit records them.
     """
 
     estimand_name: str
     modifiers: Modifiers
-    model: ProjectionCurve
+    model: Any
     scale: str
     in_sample: FloatArray
     target_sentence: str
@@ -392,10 +406,12 @@ class EffectCurveResult:
     identified_effect: Any = field(default=None, repr=False, compare=False)
     provenance: Any = field(default=None, repr=False, compare=False)
     fit: Any = field(default=None, repr=False, compare=False)
+    fitted_method: str = "tmle"
+    sieve: Any = None
+    clipped_share: float = 0.0
+    fit_warnings: tuple[Any, ...] = field(default=(), compare=False)
     assessment_cache: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
 
-    #: The method that produced the curve.
-    fitted_method: ClassVar[str] = "tmle"
     #: The assessment family whose capability rows a curve reads.
     assessment_family: ClassVar[str] = "effect_modification"
 
@@ -433,7 +449,8 @@ class EffectCurveResult:
 
         The rows are checked against the modifier schema: a missing column, an
         undeclared level, or a value outside its domain under ``outside="refuse"`` raises,
-        and ``outside="clip"`` clips.
+        and ``outside="clip"`` clips.  A projection curve gives an interval; an EP curve
+        refuses ``interval=True``, because its source proves no limit law for the curve.
 
         Parameters
         ----------
@@ -450,6 +467,11 @@ class EffectCurveResult:
         -------
         ndarray or dataframe
             The predictions, or a frame in the input's backend.
+
+        Raises
+        ------
+        CapabilityError
+            If ``interval=True`` on an EP curve.
 
         See Also
         --------
@@ -485,6 +507,10 @@ class EffectCurveResult:
         >>> list(curve.predict({"W": np.array([0.5])}, interval=True).columns)
         ['estimate', 'std_err', 'ci_lower', 'ci_upper']
         """
+        if interval and self.fitted_method == "ep":
+            from .estimators.ep import EP_INTERVAL_REFUSAL
+
+            raise CapabilityError.from_refusal(EP_INTERVAL_REFUSAL)
         estimate = self.model.predict(data)
         if not interval:
             return estimate
@@ -501,6 +527,68 @@ class EffectCurveResult:
             },
             backend=backend,
         )
+
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the conditional effect over one modifier.
+
+        The curve is drawn over the modifier with its pointwise interval (a projection fit
+        only; an EP curve carries none), a rug of the modifier's values, and the band at the
+        grid points the fit declared. A difference-scale projection whose model includes a
+        constant term also draws its average effect as a reference line: the mean of the
+        curve over the fitted rows, which equals the fit's plug-in average effect only then.
+        A curve that reads other modifiers is drawn with each held at a value you give in
+        ``at=``.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.curve`: ``modifier=``, ``by=``, ``at=``,
+            ``alpha=``, ``outcome_label=``, ``units=`` and ``title=``.
+
+        Returns
+        -------
+        Figure
+            One panel, or one panel per level of ``by``.
+
+        Raises
+        ------
+        ValueError
+            When the curve reads modifiers that ``modifier=``, ``by=`` and ``at=`` leave
+            undeclared.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> import numpy as np
+        >>> import pandas as pd
+        >>> from sklearn.linear_model import LogisticRegression
+        >>> from cleverly import CausalStudy, ConditionalContrast, PointTreatment
+        >>> from cleverly.bases import Linear, Modifiers
+        >>> rng = np.random.default_rng(0)
+        >>> W = rng.uniform(-1, 1, 400)
+        >>> A = rng.binomial(1, 0.5, 400)
+        >>> Y = rng.binomial(1, 0.3 + 0.2 * A * (W > 0))
+        >>> frame = pd.DataFrame({"Y": Y, "A": A, "W": W})
+        >>> study = CausalStudy(
+        ...     frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+        ... )
+        >>> effect = study.identify(ConditionalContrast(Modifiers(["W"]), model=Linear(["W"])))
+        >>> curve = effect.estimate(
+        ...     outcome_learner=LogisticRegression(),
+        ...     treatment_learner=LogisticRegression(),
+        ...     cross_fit=False,
+        ...     random_state=0,
+        ... ).effect_curve()
+        >>> fig = curve.plot()
+        >>> fig.axes[0].get_title(loc="left")
+        'Conditional effect by W'
+        >>> plt.close(fig)
+        """
+        from .plotting import curve
+
+        return curve(self, **kwargs)
 
     def to_frame(self) -> Any:
         """The in-sample predictions, one row per fit row, in the fit's backend.
@@ -534,9 +622,10 @@ class EffectCurveResult:
 
     def __repr__(self) -> str:
         band = "" if self.band is None else f", band={int(self.band.estimate.size)} points"
+        method = "" if self.fitted_method == "tmle" else f", method={self.fitted_method}"
         return (
             f"EffectCurveResult({self.estimand_name}, terms={len(self.model.terms)}, "
-            f"rows={int(self.in_sample.size)}{band})"
+            f"rows={int(self.in_sample.size)}{band}{method})"
         )
 
     def save(self, path: Any) -> Any:

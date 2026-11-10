@@ -7,7 +7,10 @@ the test is about estimator machinery rather than flexible learning.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Sequence
+import os
+import sys
+import zlib
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -26,6 +29,21 @@ from cleverly.estimators.ctmle import CTMLEStrategy
 from cleverly.learners import SuperLearner
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(autouse=True)
+def _close_figures() -> Iterator[None]:
+    """Close every pyplot figure a test leaves open.
+
+    pyplot keeps a figure until it is closed, and an executed docstring or document example
+    rarely closes its own. Left open, they build up across one xdist worker until matplotlib's
+    more-than-20-figures warning fires, which the warning filter turns into a failure of
+    whichever later test happens to open the next figure.
+    """
+    yield
+    pyplot = sys.modules.get("matplotlib.pyplot")
+    if pyplot is not None:
+        pyplot.close("all")
 
 
 def _check_source_matches_checkout() -> None:
@@ -65,7 +83,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 @pytest.hookimpl(tryfirst=True)
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Run one study's evidence checks together, on one xdist worker.
 
     The evidence module reads and summarizes the same immutable artifacts in several tests,
@@ -90,6 +108,51 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         items[position] = item
         if slug(item):
             item.add_marker(pytest.mark.xdist_group(slug(item)))
+    _keep_this_shard(config, items)
+
+
+# CI splits one pytest run across runners: `CLEVERLY_TEST_SHARD=i/N` keeps the i-th of N shards. A
+# shard is a set of scheduling units: an `xdist_group` stays whole (the group exists to put its
+# tests on one worker) and an ungrouped test is a unit of its own. A unit goes to the shard its
+# CRC-32 names, so the assignment depends on the unit alone and the N shards run every test once.
+SHARD_ENV = "CLEVERLY_TEST_SHARD"
+
+
+def shard_of(unit: str, count: int) -> int:
+    """The 1-based shard that runs ``unit``, out of ``count`` shards."""
+    return zlib.crc32(unit.encode()) % count + 1
+
+
+def parse_shard(value: str | None = None) -> tuple[int, int] | None:
+    """Read ``i/N`` from ``value`` (default: the environment), or None when unset."""
+    text = (os.environ.get(SHARD_ENV, "") if value is None else value).strip()
+    if not text:
+        return None
+    try:
+        index, count = (int(part) for part in text.split("/"))
+    except ValueError as error:
+        raise ValueError(f"{SHARD_ENV}={text!r} is not of the form i/N") from error
+    if not 1 <= index <= count:
+        raise ValueError(f"{SHARD_ENV}={text!r} names no shard of {count}")
+    return index, count
+
+
+def _keep_this_shard(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Deselect the tests that another CI shard runs (``CLEVERLY_TEST_SHARD=i/N``)."""
+    shard = parse_shard()
+    if shard is None:
+        return
+    index, count = shard
+    kept: list[pytest.Item] = []
+    dropped: list[pytest.Item] = []
+    for item in items:
+        marker = item.get_closest_marker("xdist_group")
+        group = None if marker is None else (marker.args or [marker.kwargs.get("name")])[0]
+        unit = item.nodeid if group is None else str(group)
+        (kept if shard_of(unit, count) == index else dropped).append(item)
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+        items[:] = kept
 
 
 class _AdaptiveMean(BaseEstimator):

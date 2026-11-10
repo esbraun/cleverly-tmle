@@ -322,3 +322,20 @@ def read_structural_diagnostics(diagnostics: Any, text: str) -> None:
         )
     check_rows(text, [rows])
     assert _fact(text, "Fits with a one-class fold") == f"{diagnostics.n_constant_fits:,}"
+
+
+def read_survival_selection(record: Any, text: str) -> None:
+    """A collaborative survival selection: one row per path position, and its header."""
+    rows = []
+    for index in range(len(record.moves)):
+        g1 = ", ".join(record.g1_terms[index]) or "intercept"
+        g2 = ", ".join(record.g2_terms[index]) or "nodes only"
+        values: tuple[Any, ...] = (g1, g2, record.train_risk[index], record.cv_risk[index])
+        if index == record.selected:
+            values = (*values, "chosen")
+        rows.append((str(index), values))
+    check_rows(text, [rows])
+    assert _fact(text, "Arm") == record.arm
+    assert _fact(text, "Horizon") == str(record.horizon)
+    assert _fact(text, "Folds") == str(record.folds.n_folds)
+    assert _fact(text, "Chosen") == f"{record.selected} moves"

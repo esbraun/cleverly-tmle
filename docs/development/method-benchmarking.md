@@ -614,6 +614,14 @@ a reader cannot re-derive from this repository. Declare a result-neutral differe
 Do not rewrite a recorded hash. The manifest keeps the hash of the bytes that ran. A rewritten
 hash makes the manifest claim that bytes which did not exist produced the result.
 
+The Python stack of a run is recorded, not gated. `generated_with.subject` records the Python,
+NumPy, SciPy, pandas, scikit-learn and joblib versions, and `dependency_lock_sha256`, the digest
+of `uv.lock`. A study may declare the stack its committed run used, as rule L7 of
+`tests/canonical/learned_rule_run.py` does for the learned-rule studies. A declared run on
+another stack still runs: it warns, notes each difference in `run.log`, and records the declared
+stack and the differences under `generated_with.declared_stack`. Read a regenerated artifact
+against any stack difference as well as against the code change.
+
 ### Targeted regeneration record
 
 A targeted rerun combines inherited replications with new fits under one unchanged study design.

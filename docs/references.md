@@ -1042,6 +1042,15 @@ sizes only the cluster sum is the delta-method variance of the row mean
   because the RM19 review could not read the journal version, and the
   [DR-TMLE entry](#doubly-robust-inference-drtmle) for the same article states why. `AdaptiveIPTW` cites the working paper WP302 and not this article. The
   [adaptive-propensity IPTW entry](#adaptive-propensity-iptw-adaptiveiptw) says so.
+- Stitelman & van der Laan (2010), [*Collaborative targeted maximum likelihood for time to event
+  data*](https://doi.org/10.2202/1557-4679.1249), *The International Journal of Biostatistics*
+  6(1), Article 21, DOI 10.2202/1557-4679.1249. Read first-hand in the published PDF. Section 10
+  builds the greedy sequence of main-term treatment and censoring models with the initial hazard
+  fit held fixed, scores it by the log-likelihood penalized by (24) and (25), and chooses the move
+  count by V-fold cross-validation (Figure 7). `SurvivalCTMLE` implements that sequence with (24)
+  as printed ([time-to-event outcomes](technical-reference/collaborative-tmle.md#time-to-event-outcomes)).
+  The paper states no theorem. Its printed contrast curves (22) and (23) are not reused: the
+  package applies the delta method to the two arm curves.
 - Gruber & van der Laan (2010), [*An application of collaborative targeted maximum likelihood
   estimation in causal inference and genomics*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3126668/),
   DOI 10.2202/1557-4679.1182.
@@ -1146,7 +1155,7 @@ sizes only the cluster sum is the delta-method variance of the row mean
   so the locators hold for both. The R package [`atmle`](https://github.com/tq21/atmle) at commit
   8452808 was read for the [differences from the algorithm](technical-reference/adaptive-tmle.md#differences-from-the-published-algorithm-and-the-atmle-package).
   The paper does not derive the trial-population effect, the $\Pi$ fluctuation, or a lasso-specific
-  theorem. Those are stated on the technical page as extensions or as open (F39).
+  theorem. Those are stated on the technical page as extensions or as open (F40).
 - Tseng (2001), [*Convergence of a block coordinate descent method for nondifferentiable
   minimization*](https://doi.org/10.1023/A:1017501703105), *Journal of Optimization Theory and
   Applications* 109(3):475-494, DOI 10.1023/A:1017501703105. Its convergence result covers a smooth
@@ -1851,8 +1860,8 @@ sizes only the cluster sum is the delta-method variance of the row mean
   *Statistics in Medicine* 39(8):1199-1236, DOI 10.1002/sim.8471. The paper defines the total
   and controlled direct effects on a cause-specific cumulative incidence, and their identifying
   conditions. Cited by the [time-to-event tutorial](examples/longitudinal-survival.ipynb).
-  Roadmap item [X56](roadmap.md#x56-competing-event-intervention-targets) part (a) reads
-  arXiv:1806.06136v3. Section 4.1, Equations (5) and (6), defines the risk under elimination of
+  [Eliminated competing events](technical-reference/longitudinal-tmle.md#eliminated-competing-events)
+  reads arXiv:1806.06136v3. Section 4.1, Equations (5) and (6), defines the risk under elimination of
   competing events. Section 5 treats the competing event as a censoring event for that risk.
   Section 6.1, Equations (20) to (23), gives the identifying conditions and the g-formula. Section
   8.1, Equations (36) and (37), gives the g-formula and IPW estimators of the direct effect.
@@ -2517,6 +2526,44 @@ implementation provenance and the origin of the one-step form.
   and line 250 refuses inference for the untargeted IPTW with the message "Theory does not
   support inference for naive IPTW with super learner."
 
+## Smoothed dose-response curve (`DoseResponseTMLE`)
+
+[Smoothed dose-response curve](technical-reference/dose-response.md) cites these sources. The
+generic CV-TMLE theorem is Zheng & van der Laan (2011), in [Targeted learning, in
+general](#targeted-learning-in-general).
+
+- Bibaut & van der Laan (2017), cited under [Targeted learning, in
+  general](#targeted-learning-in-general). Section 1.3, page 5, defines the kernel average
+  $\Psi_{a_0,\delta}(P) = E \int K_{\delta,a_0}(a) \bar Q(a, W)\,da$ and gives its canonical
+  gradient under a known treatment density. The PDF prints $\bar Q(a, W)$ in the first term of the
+  gradient, a typo for $\bar Q(A, W)$. The same page states $\operatorname{Var} D_\delta \sim
+  C\delta^{-1}$. Example 3 and Section 5.3 hold the density known throughout, and the Discussion,
+  page 32, defers an estimated density. Theorem 3, page 20, rests on assumptions A9 and A12, which
+  the authors conjecture for kernel smoothing. The package uses the paper for the parameter and its
+  gradient only. [F39](roadmap.md#f39-unsmoothed-dose-response-curve) records what it leaves open.
+- Neugebauer & van der Laan (2003), [*Locally efficient estimation of nonparametric causal effects
+  on mean outcomes in longitudinal studies*](https://biostats.bepress.com/ucbbiostat/paper134/), UC
+  Berkeley Division of Biostatistics Working Paper 134. Read first-hand. Section 2.1, Equation (1),
+  defines the projection $\beta_{m,\lambda} = \arg\min_\beta E \sum_a \{Y_a - m(a \mid
+  \beta)\}^2 \lambda(a)$ with a known weight. The smoothed curve is its intercept under a local-linear
+  working model with the kernel as the weight, with the sum replaced by an integral over doses.
+  Section 3.4.1, page 12, gives the doubly robust estimating function. The paper's estimators are
+  IPTW, G-computation and estimating equations, not TMLE. The journal version, Neugebauer & van der
+  Laan (2007), is listed under [Longitudinal, survival and marginal structural
+  models](#longitudinal-survival-and-marginal-structural-models).
+- Díaz & van der Laan (2013), [*Targeted data adaptive estimation of the causal dose-response
+  curve*](https://doi.org/10.1515/jci-2012-0005), *Journal of Causal Inference* 1(2):171-192, DOI
+  10.1515/jci-2012-0005. Read first-hand. The paper estimates the risk of candidate curve estimators
+  by CV-TMLE and selects the candidate with the smallest risk. It gives no interval for the curve.
+  Section 3.1, page 180, says an aggressively estimated mechanism "will usually" break its
+  condition (4).
+- Kennedy, Ma, McHugh & Small (2017), [*Non-parametric methods for doubly robust estimation of
+  continuous treatment effects*](https://doi.org/10.1111/rssb.12212), *Journal of the Royal
+  Statistical Society Series B* 79(4):1229-1245, DOI 10.1111/rssb.12212. Read first-hand in
+  arXiv:1507.00747v3, with its appendix. Their smoothed curve weights by the marginal dose density, and
+  their interval covers that smoothed curve. Appendix 8 leaves a band over a continuum of doses to
+  future work. npcausal `ctseff` implements the estimator. The package uses it as a comparator only.
+
 ## The TWINS example
 
 The [TWINS notebook](examples/twins-causal-inference.ipynb) cites these sources for the data, the
@@ -2562,7 +2609,8 @@ The notebook also cites one source for its sensitivity analysis. Its entry is un
 ## Conditional effects
 
 The [conditional effects reference](technical-reference/conditional-effects.md) cites this source
-for the projection targets of `ConditionalContrast` and for the check of an external score.
+for the projection targets of `ConditionalContrast`, for the check of an external score and for
+the EP learner, and the next two for the targeting curves of a priority score.
 
 - van der Laan, Carone & Luedtke (2024; v2 2026), [*Combining T-learning and DR-learning: a framework for
   oracle-efficient estimation of causal contrasts*](https://arxiv.org/abs/2402.01972),
@@ -2573,8 +2621,25 @@ for the projection targets of `ConditionalContrast` and for the check of an exte
   influence curve of the risk of a fixed function, which `assess_score` uses for an external
   score. Section 4, Example 1, identifies the debiasing regression with a linear class of fixed
   size as a TMLE of the best linear projection of the effect. The paper states no
-  identification conditions; the package takes them from its point-treatment contract. Roadmap
-  item P1 cites the same paper for the EP learner, which is not shipped.
+  identification conditions; the package takes them from its point-treatment contract. The EP
+  learner (`method="ep"`) follows Algorithms 2 to 4 and App C.1, Method 1. Theorems 4 and 5 give
+  its rate and oracle efficiency for a declared size schedule under conditions C1 to C6, and
+  Section 5.1 proves nothing for a size chosen by cross-validation.
+- Yadlowsky, Fleming, Shah, Brunskill & Wager (2025), [*Evaluating treatment prioritization
+  rules via rank-weighted average treatment effects*](https://arxiv.org/abs/2111.07966),
+  arXiv:2111.07966v2, published in the *Journal of the American Statistical Association*. The
+  locators here are the arXiv version's, and the journal numbering was not checked. Definition 2
+  and equation (2.2) define the TOC, Examples 2 and 3 the AUTOC and the Qini, and (2.8) and (2.9)
+  the estimators. Theorem 3, Lemma 4 and Corollaries 5 and 7 and Proposition 8 give the areas'
+  limit and the half-sample bootstrap, and Appendix A.2 the random tie-break.
+  `targeting_curve` uses them, and the fixed-$q$ points rest on the natural extensions of
+  [the verdicts](technical-reference/natural-extension-verdicts.md).
+- Imai & Li (2023), [*Experimental evaluation of individualized treatment
+  rules*](https://arxiv.org/abs/1905.05389), arXiv:1905.05389v6, published in the *Journal of
+  the American Statistical Association*. The locators are the arXiv version's, and the journal
+  numbering was not checked. Section 3 evaluates a rule fitted on other data, and Section 4
+  the average over folds of fold-specific rules in a completely randomized experiment, which is
+  why `targeting_curve` refuses a fold average.
 
 ## Proposed methods on the roadmap
 
@@ -2655,15 +2720,35 @@ not a shipped claim.
 - Stensrud, Young, Didelez, Robins & Hernán (2022), [*Separable effects for causal inference in
   the presence of competing events*](https://arxiv.org/abs/1901.09472v2), *Journal of the American
   Statistical Association* 117(537):175-183. Read in arXiv:1901.09472v2. Section 5.2, formula (5),
-  identifies the separable effects with baseline covariates. Cited by roadmap item
-  [X56](roadmap.md#x56-competing-event-intervention-targets) part (b).
+  identifies the separable effects with baseline covariates. In arXiv v3 the same results are
+  the estimand (5), identification (8) in Section 5.2, and the censoring form (10) in Section 5.4.
+  Cited by roadmap item [X91](roadmap.md#x91-survival-targets-across-the-estimators) part (d).
+- Martinussen & Stensrud (2023), [*Estimation of separable direct and indirect effects in
+  continuous time*](https://arxiv.org/abs/2008.13126), *Biometrics* 79(1):127-139, DOI
+  10.1111/biom.13559. Read in arXiv:2008.13126v1, the only arXiv version; the published text was
+  not available. Section 3 (p 5) and Section 3.1 with the Appendix (pp 6, 16-18) give the
+  efficient influence function of the separable effects and a one-step estimator, the plug-in
+  plus the mean estimated influence function. The estimator is consistent when both
+  cause-specific hazards are right at both treatment levels, or when either hazard is right at
+  both levels together with the treatment and censoring mechanisms. These are sufficient
+  conditions, stated for misspecified working models without rate conditions, and the variance
+  comes from the bootstrap. Continuous time with no ties, so the within-step order does not
+  arise. Cited by roadmap item [X91](roadmap.md#x91-survival-targets-across-the-estimators) part
+  (d).
+- Breum, Munch, Gerds & Martinussen (2024), [*Estimation of separable direct and indirect effects
+  in a continuous-time illness-death model*](https://doi.org/10.1007/s10985-023-09601-y),
+  *Lifetime Data Analysis* 30:143-180. Read in the published open-access version. Equation (11)
+  (pp 155-156) is the one-step estimator. Lemma 3 (p 154) shows the influence function has mean zero when the
+  treatment and censoring mechanisms and two of the three transition hazards are right, or when
+  all three hazards are right; their scenario with two hazards wrong is biased. Cited by roadmap
+  item [X91](roadmap.md#x91-survival-targets-across-the-estimators) part (d).
 - Stensrud, Hernán, Tchetgen Tchetgen, Robins, Didelez & Young (2021), [*A generalized theory of
   separable effects in competing event settings*](https://doi.org/10.1007/s10985-021-09530-8),
   *Lifetime Data Analysis* 27(4):588-631, DOI 10.1007/s10985-021-09530-8. Read first-hand in
   [PMC8536652](https://pmc.ncbi.nlm.nih.gov/articles/PMC8536652/), the published version of
   arXiv:2004.14824. Section 6.2, Equation (19), identifies the separable effects with time-varying
   common causes. It is Section 7.2 of the arXiv version. Section 6.3 treats censoring. Cited by
-  roadmap item [X56](roadmap.md#x56-competing-event-intervention-targets) part (c).
+  roadmap item [X91](roadmap.md#x91-survival-targets-across-the-estimators) part (e).
 - Wang, van der Laan, Petersen, Gerds, Kvist & van der Laan (2025), [*Targeted maximum likelihood
   based estimation for longitudinal mediation analysis*](https://arxiv.org/abs/2304.04904v1),
   *Journal of Causal Inference* 13(1), DOI 10.1515/jci-2023-0013. Read in arXiv:2304.04904v1, the
@@ -2671,9 +2756,9 @@ not a shipped claim.
   mediator to follow its law under the control intervention. Theorem 3.1, Equation (2), gives the
   identified g-formula. Section 2.3 puts competing risks inside $L_t$. Theorem 3.2, in Section
   3.4, gives the efficient influence curve. Section 5.3 gives the TMLE and its conditions (B1) to
-  (B3). Cited by roadmap item
-  [X56](roadmap.md#x56-competing-event-intervention-targets) parts (b) and (c) as the estimator.
-  The source audit of those parts is pending.
+  (B3). It is a TMLE for longitudinal natural direct and indirect effects under random
+  interventions on the mediator, and it does not estimate separable effects. Recorded here
+  because earlier versions of these pages cited it as the separable-effects estimator.
 - Hejazi, Rudolph, van der Laan & Díaz (2023), [*Nonparametric causal mediation analysis for
   stochastic interventional (in)direct effects*](https://arxiv.org/abs/2009.06203v4),
   *Biostatistics*, DOI 10.1093/biostatistics/kxac002. Read in arXiv:2009.06203v4. Lemma 3 and

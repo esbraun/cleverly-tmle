@@ -78,6 +78,8 @@ from .validation.longitudinal import (
     LONGITUDINAL_NO_CENSORING,
     LONGITUDINAL_NO_CENSORING_IN_FOLD,
     LONGITUDINAL_NO_OUTCOME_REGRESSION,
+    LONGITUDINAL_NO_PREVENTED,
+    LONGITUDINAL_NO_PREVENTED_IN_FOLD,
     LONGITUDINAL_SIMULATED_MODELS,
     LongitudinalDiagnostics,
     LongitudinalNuisanceDiagnostics,
@@ -103,6 +105,8 @@ __all__ = [
     "LONGITUDINAL_NO_CENSORING",
     "LONGITUDINAL_NO_CENSORING_IN_FOLD",
     "LONGITUDINAL_NO_OUTCOME_REGRESSION",
+    "LONGITUDINAL_NO_PREVENTED",
+    "LONGITUDINAL_NO_PREVENTED_IN_FOLD",
     "LONGITUDINAL_SIMULATED_MODELS",
     "SENSITIVITY_ROUTES",
     "VALIDATION_OPERATIONS",
@@ -683,8 +687,11 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
     _capability(
         "score_equations",
         "effect_modification",
-        artifacts=("the producing fit's targeting state", "influence curves"),
-        interpretation="the projection's score equations, as the producing fit solved them",
+        artifacts=("the producing fit's targeting or debiasing state",),
+        interpretation=(
+            "the score equations the producing fit solved: the projection's targeting, or the "
+            "EP learner's debiasing regression"
+        ),
     ),
     _capability(
         "corrections",
@@ -694,8 +701,8 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         status=AssessmentStatus.NOT_APPLICABLE,
         refusal=Refusal(
             RefusalReason.INVALID_DECLARATION,
-            "a projection curve is fitted by TMLE, which solves no doubly-robust correction "
-            "equations.",
+            "a projection curve is fitted by TMLE and an EP curve by one debiasing regression, "
+            "and neither solves doubly-robust correction equations.",
         ),
         interpretation="the correction identities solved by guarded doubly-robust targeting",
     ),
@@ -749,10 +756,31 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
             ("modifier_stability", "change in out-of-fold risk without each modifier"),
         )
     ),
+    # X92 PR-5: the targeting curve of the curve refit on a declared split.  Its draws are
+    # seeded by ``random_state``, so one seed gives one frame.
+    _capability(
+        "targeting_curve",
+        "effect_modification",
+        artifacts=("the producing estimator", "analysis data", "a refit on a declared split"),
+        execution="refit",
+        deterministic=True,
+        cost="expensive",
+        accepts_random_state=True,
+        interpretation=(
+            "TOC, cumulative gain, AUTOC and Qini of the curve refit on a training split, "
+            "evaluated on the other rows with half-sample bootstrap intervals"
+        ),
+    ),
 )
 
 #: The operations only an effect curve declares.
-CURVE_OPERATIONS = ("calibration", "risk_comparison", "stability", "modifier_stability")
+CURVE_OPERATIONS = (
+    "calibration",
+    "risk_comparison",
+    "stability",
+    "modifier_stability",
+    "targeting_curve",
+)
 
 
 @dataclass(frozen=True)
@@ -1120,6 +1148,7 @@ class TruncationCurve:
     See Also
     --------
     cleverly.sensitivity.positivity.truncation_curve : The frame of a point-treatment fit.
+    cleverly.plotting.sensitivity : The plot :meth:`plot` draws.
     """
 
     frame: Any
@@ -1133,6 +1162,50 @@ class TruncationCurve:
             The frame, in the fit's backend.
         """
         return self.frame
+
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the estimate against the probability limits, with the share of units capped.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.sensitivity`: ``estimand=``,
+            ``outcome_label=``, ``units=`` and ``title=``.
+
+        Returns
+        -------
+        Figure
+            Two panels with a shared x axis.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=200, seed=0)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> result = study.identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     random_state=0,
+        ... )
+        >>> fig = result.diagnostics.truncation_curve().plot()
+        >>> fig.axes[0].get_ylabel()
+        'Average effect (ate)'
+        >>> plt.close(fig)
+        """
+        from .plotting import sensitivity
+
+        return sensitivity(self, **kwargs)
 
     def summary(self, detail: Detail = "short") -> Summary:
         """Return the printed summary of the curve.
@@ -4332,6 +4405,22 @@ def _modifier_stability_item(
     return AssessmentItem("modifier_stability", AssessmentStatus.COMPLETED, detail)
 
 
+def _targeting_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
+    area = report.area("autoc")
+    interval = (
+        "interval withheld"
+        if not np.isfinite(float(area["lower"]))
+        else f"interval [{area['lower']:.3g}, {area['upper']:.3g}]"
+    )
+    detail = (
+        f"AUTOC {area['estimate']:.3g} ({interval}) of the curve refit on {report.n_train} "
+        f"rows and evaluated on {report.n_eval}; {report.status}"
+    )
+    return AssessmentItem("targeting_curve", AssessmentStatus.COMPLETED, detail)
+
+
 #: How each operation's own report becomes one report row.
 #:
 #: The third argument is what the caller supplied for that operation.  An interpreter that
@@ -4362,6 +4451,7 @@ INTERPRETERS: dict[str, Callable[[Any, Any, Mapping[str, Any]], AssessmentItem]]
     "risk_comparison": _curve_risk_item,
     "stability": _curve_stability_item,
     "modifier_stability": _modifier_stability_item,
+    "targeting_curve": _targeting_item,
 }
 
 

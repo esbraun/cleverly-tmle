@@ -726,8 +726,13 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.conditional_projection import STUDY as CONDITIONAL_PROJECTION
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
+    from tests.studies.dose_response import STUDY as DOSE_RESPONSE
     from tests.studies.drtmle_foldwise import STUDY as DRTMLE_FOLDWISE
     from tests.studies.drtmle_one_wrong import STUDY as DRTMLE_ONE_WRONG
+    from tests.studies.eliminated_competing_events import STUDY as ELIMINATED_COMPETING_EVENTS
+    from tests.studies.ep_assessment import STUDY as EP_ASSESSMENT
+    from tests.studies.ep_cate import STUDY as EP_CATE
+    from tests.studies.ep_crr import STUDY as EP_CRR
     from tests.studies.evalue_limit_coverage import STUDY as EVALUE_LIMIT_COVERAGE
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
@@ -739,6 +744,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.learned_rule_contrast import STUDY as LEARNED_RULE_CONTRAST
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
     from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
+    from tests.studies.learned_rule_ep import STUDY as LEARNED_RULE_EP
     from tests.studies.learned_rule_in_sample import STUDY as LEARNED_RULE_IN_SAMPLE
     from tests.studies.learned_rule_intermediate import STUDY as LEARNED_RULE_INTERMEDIATE
     from tests.studies.learned_rule_learners import STUDY as LEARNED_RULE_LEARNERS
@@ -759,6 +765,9 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.refuter_calibration_point import STUDY as REFUTER_CALIBRATION_POINT
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
+    from tests.studies.separable_effects import STUDY as SEPARABLE_EFFECTS
+    from tests.studies.survival_ctmle import STUDY as SURVIVAL_CTMLE
+    from tests.studies.targeting_curves import STUDY as TARGETING_CURVES
 
     return (
         CANONICAL_TMLE,
@@ -813,6 +822,15 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_RULE_INTERMEDIATE,
         LEARNED_REGIMEN_LTMLE,
         CONDITIONAL_PROJECTION,
+        EP_CATE,
+        EP_CRR,
+        EP_ASSESSMENT,
+        LEARNED_RULE_EP,
+        ELIMINATED_COMPETING_EVENTS,
+        SEPARABLE_EFFECTS,
+        SURVIVAL_CTMLE,
+        TARGETING_CURVES,
+        DOSE_RESPONSE,
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,

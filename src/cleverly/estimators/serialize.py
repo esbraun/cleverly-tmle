@@ -55,12 +55,14 @@ def _check_result(result: Any, *, operation: str) -> None:
     from ..longitudinal import LongitudinalResult, StructuralNestedMeanResult
     from .atmle_result import AdaptiveTMLEResult
     from .base import TMLEResult
+    from .dose_response import DoseResponseResult
 
     fitted = (
         TMLEResult,
         LongitudinalResult,
         StructuralNestedMeanResult,
         EffectCurveResult,
+        DoseResponseResult,
         AdaptiveTMLEResult,
     )
     if not isinstance(result, fitted):

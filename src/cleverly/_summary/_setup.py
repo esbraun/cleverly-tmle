@@ -120,18 +120,31 @@ def _censoring_fact(data: Any) -> str | None:
     return listed(names)
 
 
-def _followed_fact(data: Any) -> tuple[str, str] | None:
+def _followed_facts(data: Any) -> list[tuple[str, str]]:
     """The share of units still observed at the last time when the design censors, or, for
     an event time, the share censored before the end: a unit after its event is fully
-    observed, so it does not count as lost."""
+    observed, so it does not count as lost.  A fit that eliminates a competing event
+    records that event as censoring; its share is reported apart from the units lost to
+    follow-up."""
     if getattr(data, "event", None) is not None and getattr(data, "repeated", None) is None:
         times, codes = data.to_time_to_event()
         end = data.time_grid[-1] if data.time_grid else float(data.n_times)
         censored = (np.asarray(codes) == 0) & (np.asarray(times, dtype=float) < end)
-        return vocabulary.CENSORED_BEFORE_END, share_text(float(np.mean(censored)))
+        retained = getattr(data, "retained", None)
+        if retained is None:
+            return [(vocabulary.CENSORED_BEFORE_END, share_text(float(np.mean(censored))))]
+        # A prevented event drops a unit from the composite record at a node where the
+        # censoring record still keeps it.
+        kept = np.cumprod(np.asarray(retained, dtype=bool), axis=1, dtype=bool)
+        observed = np.cumprod(np.asarray(data.uncensored, dtype=bool), axis=1, dtype=bool)
+        prevented = censored & (kept & ~observed).any(axis=1)
+        return [
+            (vocabulary.CENSORED_BEFORE_END, share_text(float(np.mean(censored & ~prevented)))),
+            (vocabulary.PREVENTED_BEFORE_END, share_text(float(np.mean(prevented)))),
+        ]
     if not tuple(getattr(data, "censoring_names", ()) or ()):
-        return None
-    return vocabulary.FOLLOWED, share_text(float(data.uncensored_through(data.n_times).mean()))
+        return []
+    return [(vocabulary.FOLLOWED, share_text(float(data.uncensored_through(data.n_times).mean())))]
 
 
 def _declared(design: Any, field: str) -> tuple[str, ...]:
@@ -237,9 +250,7 @@ def _longitudinal_header(design: Any, data: Any) -> tuple[list[tuple[str, str]],
         (vocabulary.ROWS, count_text(data.n)),
         (vocabulary.TIME_POINTS, str(data.n_times)),
     ]
-    followed = _followed_fact(data)
-    if followed is not None:
-        right.append(followed)
+    right.extend(_followed_facts(data))
     if getattr(data, "known_mechanisms", None) is not None:
         right.append((vocabulary.TREATMENT_MODEL, vocabulary.KNOWN_MECHANISM))
     clusters = clusters_fact(data)

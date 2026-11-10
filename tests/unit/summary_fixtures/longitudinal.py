@@ -9,6 +9,7 @@ explicit linear or logistic learners, except the one that needs a flexible learn
 from __future__ import annotations
 
 import functools
+import warnings
 from typing import Any
 
 import numpy as np
@@ -179,6 +180,30 @@ def survival() -> Any:
 
 
 @functools.cache
+def survival_ctmle() -> Any:
+    """Collaborative TMLE of the event risk at two time points, by arm and time point."""
+    from sklearn.linear_model import LogisticRegression
+
+    from cleverly.datasets import make_point_survival
+    from cleverly.longitudinal import LongitudinalData, SurvivalCTMLE
+
+    frame, _ = make_point_survival(n=300, seed=3, n_times=3)
+    data = LongitudinalData.from_time_to_event(
+        frame, time="time", event="event", treatment="A", baseline=["W1", "W2"]
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return SurvivalCTMLE(
+            {"a1": 1, "a0": 0},
+            reference="a0",
+            horizons=[1, 2],
+            outcome_learner=LogisticRegression(max_iter=1000),
+            selection_folds=3,
+            random_state=0,
+        ).fit(data)
+
+
+@functools.cache
 def gridded() -> Any:
     """Event risks on the unequal time grid (1, 2.5, 4), where a row's time is not its index."""
     from tests.unit import test_time_to_event_input as grid
@@ -279,6 +304,7 @@ FIXTURES = {
     "repeats": repeats,
     "bootstrap": bootstrap,
     "survival": survival,
+    "survival_ctmle": survival_ctmle,
     "gridded": gridded,
     "repeated_outcome": repeated_outcome,
     "competing": competing,

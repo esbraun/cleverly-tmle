@@ -4,10 +4,11 @@
 
 Each example is a complete analysis that you can run and adapt. It loads a dataset, estimates what
 a treatment, offer, or policy did, tests whether the result holds up, and says what you can tell a
-manager. Seventeen examples use simulated data, so each page can compare its estimate with the true
-answer. The eighteenth uses real birth records. If you are new to causal inference, read
+manager. Twenty-one examples use simulated data, so each page can compare its estimate with the
+true answer. The twenty-second uses real birth records. If you are new to causal inference, read
 [one treatment, one outcome](point-treatment-tmle.ipynb) first. It explains each step that the
-other pages reuse.
+other pages reuse, and [Read cleverly's output](../user-guide/reading-output.md) explains the labels,
+tables and row names that every page prints.
 
 ## Find the example for your problem
 
@@ -27,6 +28,7 @@ treatment was unlikely.
 | the treatment was assigned at random with a recorded chance, as in a pilot | [a randomized pilot](randomized-pilot.ipynb) | because the chance of the offer differed by risk group, a simple comparison of offered and other patients is confounded even though the offer was random (here -0.006 against a true 0.142). Replacing the recorded chances with a fitted model of who got the treatment gives up the one model known to be right; when that fitted model and the outcome model are both wrong, the estimate is biased |
 | the gain from offering everyone over current practice, or whether the offer still helps when a later step, such as a doctor's visit within 7 days, is guaranteed for everyone | [gain over current practice](population-impact.ipynb) | the usual average effect compares offering everyone with offering no one, so it also counts the gain current practice has already collected and overstates what offering everyone would add |
 | policies to compare, such as offering a program only to high-risk patients, raising each patient's chance of an offer, or raising how much of the program each patient gets | [three offer policies](interventions.ipynb) | each policy has its own starting point: offering only to high-risk patients is compared with offering no one, and the other two with current practice, so the answers do not rank the policies or compare one with another directly. A staffing limit on how much each patient can get is part of the question: the same raise with and without the limit gives two different answers |
+| an effect that changes with a customer's or patient's characteristics, such as age, and you want to see how before deciding whom to target | [who gains most from a coupon](conditional-effects.ipynb) | within each age group, a simple comparison of customers with and without a coupon mixes the coupon's effect with who received it, and here it overstates the gain for older customers who gain almost nothing. The curve has no confidence interval, so the page checks it on held-out rows before acting on it |
 | a treatment that helps some patients and harms others, so you must decide who gets it, or share a limited number of places at random | [who should get the offer](treatment-rules.ipynb) | a rule scored on the same patients it was learned from looks better than it will do on new patients |
 | a team chooses among several contact schedules, or sets two service times, and you want the effect of nudging those choices or raising both amounts | [more contacts and more service time](schedules-and-intensity.ipynb) | when two services help each other, the effects of raising each one alone do not add up to the effect of raising both |
 | several treatment levels, summarized by one trend | [a trend across three contact schedules](msm-projections.ipynb) | a straight line through the levels still reports a slope when it does not fit them, so the slope alone can mislead |
@@ -35,8 +37,11 @@ treatment was unlikely.
 | a treatment repeated weekly, where earlier offers change later behavior | [weekly offer policies](sequential-offers.ipynb) | treating two policies as if they had been tried on separate customers, when both are estimated from the same customers, overstates the uncertainty of their difference |
 | an outcome recorded every week, such as whether a customer ordered, while the treatment repeats | [weekly orders under repeated offers](weekly-outcomes.ipynb) | fitting each week without the earlier orders leaves out what drove later offers, and adding the weekly variances as if the weeks were independent makes the interval for the total slightly too narrow |
 | repeated treatments where you can model how the whole process unfolds | [three offers after discharge](model-based-over-time.ipynb) | a model of the process that is too simple gives a confident wrong answer; comparing two methods that rest on different models shows the problem |
+| a continuous dose, such as a discount from 0% to 40%, and how the outcome changes across its range | [renewal discounts](dose-response.ipynb) | subscribers who got bigger discounts renewed less, because the engine gave them to less active subscribers. The curve has no interval at one exact discount, so the page reads it averaged over nearby discounts, and the estimates where few comparable subscribers got a discount are flagged |
 | a price or dose that varies continuously and is set again each month | [monthly prices](sequential-pricing.ipynb) | one regression that holds later behavior and later prices fixed misses part of the effect of a price rise |
+| a fitted result that you want to look at, check, and explain with figures | [plot results](plots.ipynb) | a table of estimates hides which patients had almost no chance of an offer, how the estimate moves when a setting changes, and a method whose intervals all miss on one side |
 | a full analysis of real records, where no true answer is known | [smoking and twins' birth weight](twins-causal-inference.ipynb) | adjusting for a variable that the treatment itself changes, here gestational age, removes part of the effect |
+| a treatment with two parts that act on two competing events, such as a medicine that lowers readmission through one part and raises the risk of death through another | [a medicine with two effects](separable-effects.ipynb) | the drop in readmission under the whole medicine includes patients who died before they could be readmitted, so reading it as the benefit of the part that acts on readmission overstates that benefit |
 
 ## The health program
 
@@ -109,7 +114,7 @@ part of the effect.
 | comparison | usual discharge support without access to the navigation protocol |
 | primary outcome | a 30-day patient-reported transition score. The protocol scores death before day 30 as the worst transition score (a composite strategy) |
 | death strategy on each page | the composite strategy needs an outcome with a worst value, such as a bounded score or a top-box indicator (whether the patient gave the best rating). The [trend page](msm-projections.ipynb) and the navigation-intensity raise on the [policy page](interventions.ipynb) use synthetic scores with no worst value, so they use the hypothetical strategy: the score the patient would have had without dying |
-| death in the data | under the composite strategy, a death before day 30 enters the data as an observed outcome: the worst score, or not top box. Under the hypothetical strategy, a real analysis treats death as censoring (the outcome goes unseen), and then needs exchangeability and positivity for death given the recorded history |
+| death in the data | under the composite strategy, a death before day 30 enters the data as an observed outcome: the worst score, or not top box. Under the hypothetical strategy, a real analysis treats death as censoring (the outcome goes unseen), and then needs exchangeability and positivity for death given the recorded history. The [time-to-event page](longitudinal-survival.ipynb) fits that strategy with `eliminate=["death"]` |
 | deaths in the synthetic data | the simulated data of the transition-score pages contain no deaths. Only the [time-to-event](longitudinal-survival.ipynb) data do |
 | unreturned surveys | under the composite strategy, the composite score of a patient who died counts as observed, so only living patients who do not respond are missing. Under the hypothetical strategy, a death also leaves the score missing |
 | missing at random | under the composite strategy, a death is always observed, so response depends on the composite outcome. Missing at random given treatment and baseline covariates then fails when some patients die and some survivors do not respond. The analysis needs missing at random among survivors, given treatment, covariates, and survival. Under the hypothetical strategy, it needs missing at random for death and for non-response, given treatment and covariates |
@@ -127,7 +132,7 @@ correlated. Scores are in simulated units.
 
 ## The retailer program
 
-Three examples follow a subscription retailer. On the [weekly offer
+Four examples follow a subscription retailer. On the [weekly offer
 policies](sequential-offers.ipynb) page, the retailer sends each customer one offer in each of three
 weeks: nothing, a 15% discount code, or a free-shipping code. Its system draws each offer at random,
 with logged probabilities that depend on the customer's engagement that week, so the chance of each
@@ -149,8 +154,14 @@ customer ordered. Its scoring system draws who gets a code but does not log the 
 estimates it, and customers who withdraw tracking consent leave the data. `weekly_orders_protocol()`
 returns its study description.
 
-All three retailer datasets are simulated. The [datasets reference](../api/datasets.md) lists each
-generator and its true answers.
+On the [renewal discounts](dose-response.ipynb) page, the renewal engine gives each subscriber a
+discount of 0% to 40% off the renewal price, with bigger discounts for less active and newer
+subscribers. The page asks what share would renew if every subscriber got the same discount, for
+discounts from 5% to 30%. Its data are simulated in the notebook, and it has no study description
+object, because its estimator does not run inside `CausalStudy`.
+
+All four retailer datasets are simulated. The [datasets reference](../api/datasets.md) lists the
+generators of the first three and their true answers.
 
 ## A real-data example
 
@@ -183,14 +194,23 @@ simulation studies that check it.
 | [weekly offer policies](sequential-offers.ipynb) | TMLE for treatments over time, compared with week-by-week g-computation and a simple comparison | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) and [sequential g-computation and IPW](../technical-reference/sequential-baselines.md) |
 | [weekly orders under repeated offers](weekly-outcomes.ipynb) | TMLE for a weekly outcome curve under repeated treatments, with the sequentially doubly robust estimator and an odds-doubling policy over weeks | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
 | [three offers after discharge](model-based-over-time.ipynb) | the parametric g-formula, which simulates each plan forward, and a structural nested mean (blip) model of what each offer adds | [parametric g-formula](../technical-reference/parametric-gformula.md) and [structural dynamic effects](../technical-reference/structural-dynamic-effects.md) |
+| [renewal discounts](dose-response.ipynb) | cross-fitted TMLE for a dose-response curve averaged over nearby doses, with one band over every reported dose | [smoothed dose-response curve](../technical-reference/dose-response.md) |
 | [monthly prices](sequential-pricing.ipynb) | TMLE for shifts of a continuous treatment over time | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
 | [smoking and twins' birth weight](twins-causal-inference.ipynb) | TMLE for the effect among the treated | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
+| [a medicine with two effects](separable-effects.ipynb) | TMLE for separable effects: the risk of each of two competing events when the part of a treatment that acts on one event and the part that acts on the other are set to different doses | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
 
 ```{toctree}
 :caption: First example
 :maxdepth: 1
 
 point-treatment-tmle
+```
+
+```{toctree}
+:caption: Look at a result
+:maxdepth: 1
+
+plots
 ```
 
 ```{toctree}
@@ -211,8 +231,10 @@ population-impact
 
 interventions
 treatment-rules
+conditional-effects
 schedules-and-intensity
 msm-projections
+dose-response
 ```
 
 ```{toctree}
@@ -225,6 +247,7 @@ sequential-offers
 weekly-outcomes
 model-based-over-time
 sequential-pricing
+separable-effects
 ```
 
 ```{toctree}

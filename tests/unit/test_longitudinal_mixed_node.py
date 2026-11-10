@@ -499,6 +499,12 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("estimators/ctmle.py", "_Selector._fluctuate"): "point CausalData",
     ("estimators/ctmle.py", "_Selector._lasso_propensities"): "point CausalData",
     ("estimators/ctmle.py", "_Selector._ordering"): "point CausalData",
+    ("longitudinal/collaborative.py", "_Mechanisms.__init__"): (
+        "after survival_design_refusal refuses a non-categorical node"
+    ),
+    ("longitudinal/collaborative.py", "assemble_mechanism"): (
+        "after survival_design_refusal refuses a non-categorical node"
+    ),
     ("longitudinal/data.py", "LongitudinalData.node_present"): "presence of every kind",
     ("longitudinal/data.py", "LongitudinalData.node_codes"): "raises at a mixed node",
     ("longitudinal/data.py", "LongitudinalData.node_values"): "dispatches on the kind",
@@ -566,6 +572,12 @@ _DISPATCHING: dict[tuple[str, str], str] = {
 #: here fails closed; the list makes each one a reviewed decision (review LOW-6).
 _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("data/causal_data.py", "CausalData.arm_label"): "point CausalData; refuses a vector first",
+    ("longitudinal/collaborative.py", "_Mechanisms.__init__"): (
+        "after survival_design_refusal refuses a non-categorical node"
+    ),
+    ("longitudinal/collaborative.py", "survival_design_refusal"): (
+        "refuses a node that is not categorical before reading its levels"
+    ),
     ("longitudinal/data.py", "LongitudinalData._declare_known"): "a mixed node is refused first",
     ("longitudinal/data.py", "LongitudinalData.encode_assignment"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",

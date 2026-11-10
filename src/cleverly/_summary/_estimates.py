@@ -100,15 +100,22 @@ def plain_support_reason(reason: str) -> str:
         The same facts in words a reader of the analysis can use.
     """
 
+    def qualifier_words(name: str) -> str:
+        if name in vocabulary.SUPPORT_QUALIFIERS:
+            return vocabulary.SUPPORT_QUALIFIERS[name]
+        # A longitudinal fit's qualifiers are the names of the treatment and censoring
+        # columns it declares known, which differ from the validated fit's columns by name
+        # alone; the names, and the ids they look like, would mean nothing to a reader.
+        return vocabulary.SUPPORT_KNOWN_FACTORS
+
     def axis_words(axis: str) -> str:
         named = re.fullmatch(r"qualifiers \(([^)]*)\)", axis)
         if named is None:
             return vocabulary.SUPPORT_AXES.get(axis, axis)
         words = dict.fromkeys(
-            vocabulary.SUPPORT_QUALIFIERS.get(name, name.replace("_", " "))
-            for name in named[1].split(" and ")
+            qualifier_words(name.strip()) for name in named[1].split(" and ") if name.strip()
         )
-        return " and ".join(words)
+        return " and ".join(words) or vocabulary.SUPPORT_AXES["qualifiers"]
 
     def nearest(match: re.Match[str]) -> str:
         axes = [axis_words(axis) for axis in match[1].split(", ")]

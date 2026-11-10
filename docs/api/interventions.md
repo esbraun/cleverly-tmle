@@ -27,9 +27,13 @@ plan can be a rule. It can also be a `Stochastic` node that draws its arm from a
 each training fold, and to estimate the value of the learned rules. `LearnedRegimenRecord`
 records the rules of that fit, with one `LearnedRegimenNode` for each node.
 
+`Separable` sets the part of a baseline treatment that acts on each of two competing events to
+its own level, for the separable effects of a hazard `LTMLE` fit.
+
 `LearnedRule` declares a rule that the fit learns inside each training fold. By default the rule
 comes from the fit's outcome model, and `loss="blip"` or `loss="weighted_classification"` learns
-it with a learner that you pass. `LearnedRuleRecord` records that fit, with one `LearnedRuleSplit`
+it with a learner that you pass. `loss="ep"` learns it from the EP curve of the effect given the
+`modifiers` you declare. `LearnedRuleRecord` records that fit, with one `LearnedRuleSplit`
 for each split of the folds.
 
 ```{eval-rst}
@@ -46,6 +50,7 @@ for each split of the folds.
    cleverly.longitudinal.LearnedRegimen
    cleverly.longitudinal.LearnedRegimenRecord
    cleverly.longitudinal.LearnedRegimenNode
+   cleverly.longitudinal.Separable
    cleverly.interventions.LearnedRule
    cleverly.interventions.LearnedRuleRecord
    cleverly.interventions.LearnedRuleSplit

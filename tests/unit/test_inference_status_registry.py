@@ -48,6 +48,7 @@ PRECEDENCE = (
     "adaptive_baseline_plugin",
     "no_cluster_variance_plugin",
     "few_cluster_plugin",
+    "low_dose_support_plugin",
     "constant_node_plugin",
     "stack_failure_plugin",
     "working_model_projection",
@@ -56,7 +57,12 @@ PRECEDENCE = (
 #: The statuses whose interval is shown under the experimental label. Eric's answer of
 #: 2026-10-15 keeps the other labelled statuses point-only. The adaptive TMLE of a trial
 #: with external data (X90) shows its working-model projection interval.
-SHOWN = ("estimated_weight_plugin", "few_cluster_plugin", "working_model_projection")
+SHOWN = (
+    "estimated_weight_plugin",
+    "few_cluster_plugin",
+    "low_dose_support_plugin",
+    "working_model_projection",
+)
 WITHHELD = tuple(status for status in PRECEDENCE if status not in SHOWN)
 
 

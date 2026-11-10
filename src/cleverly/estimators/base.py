@@ -1648,6 +1648,51 @@ class TMLEResult:
             {name: estimate.influence_curve for name, estimate in self.estimates.items()}
         )
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the fit's estimates with their intervals (a forest plot).
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.forest`: ``labels=``, ``title=``,
+            ``subtitle=``, ``outcome_label=``, ``units=``, ``truth=``, ``include_null=``
+            and ``ax=``.
+
+        Returns
+        -------
+        Figure
+            One row per estimate, one panel per scale.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=200, seed=0)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> result = study.identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     random_state=0,
+        ... )
+        >>> fig = result.plot()
+        >>> [text.get_text() for text in fig.axes[0].get_yticklabels()]
+        ['ate']
+        >>> plt.close(fig)
+        """
+        from ..plotting import forest
+
+        return forest(self, **kwargs)
+
     def summary(self, *, detail: Detail = "short") -> Summary:
         """A printable report of the fit, like a statsmodels summary.
 
@@ -1790,6 +1835,47 @@ class TMLEResultSet(Mapping["float | None", TMLEResult]):
 
         stacked = nw.concat([nw.from_native(frame, eager_only=True) for frame in frames])
         return stacked.to_native()
+
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot every level's estimates with their intervals (a forest plot).
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.forest`.
+
+        Returns
+        -------
+        Figure
+            One row per estimate and level of the intermediate variable.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> import numpy as np, pandas as pd
+        >>> from sklearn.linear_model import LogisticRegression
+        >>> from cleverly.estimators import TMLE
+        >>> rng = np.random.default_rng(0)
+        >>> w = rng.normal(size=400)
+        >>> a = rng.binomial(1, 1 / (1 + np.exp(-w)))
+        >>> z = rng.binomial(1, 1 / (1 + np.exp(-(w + a))))
+        >>> y = rng.binomial(1, 1 / (1 + np.exp(-(w + a + z - 1))))
+        >>> frame = pd.DataFrame({"W": w, "A": a, "Z": z, "Y": y})
+        >>> fits = TMLE(
+        ...     outcome_learner=LogisticRegression(),
+        ...     treatment_learner=LogisticRegression(),
+        ...     random_state=0,
+        ... ).fit(frame, outcome="Y", treatment="A", covariates=["W"], intermediate="Z")
+        >>> fig = fits.plot()
+        >>> [text.get_text() for text in fig.axes[0].get_yticklabels()][:2]
+        ['Z = 0: ate', 'Z = 0: att']
+        >>> plt.close(fig)
+        """
+        from ..plotting import forest
+
+        return forest(self, **kwargs)
 
     def summary(self, *, detail: Detail = "short") -> Summary:
         """The results as one summary: a single result's own, or one table over the levels.

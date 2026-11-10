@@ -324,6 +324,7 @@ class PointLaw:
         assign: Callable[[Any, int], Sequence[Any]],
         horizon: int | None = None,
         cause: int = 1,
+        eliminate: int | None = None,
     ) -> Any:
         r"""The risk (or cause incidence, or end-of-study mean) under a node-1 intervention.
 
@@ -331,6 +332,12 @@ class PointLaw:
         ``W = w``.  It may read ``probs``, which is how a modified treatment policy states
         the law of the shifted treatment.  Every operation is a sum, a product or a
         quotient, so the value is analytic in ``probs``.
+
+        ``eliminate`` names the event code of a competing cause the intervention prevents:
+        the value is then the risk of ``cause`` with that cause eliminated, Young et al.
+        (2020) g-formula (23), with the order censoring, eliminated cause, event of
+        interest within a node.  Each node's hazards condition on having no eliminated
+        event there.
         """
         total = self._mass(probs, {})
         psi: Any = 0.0
@@ -339,12 +346,18 @@ class PointLaw:
             weights = assign(probs, w)
             for a in range(3):
                 psi = psi + share * weights[a] * self._regression(
-                    probs, {"W": w, "A": a}, 1, horizon, cause
+                    probs, {"W": w, "A": a}, 1, horizon, cause, eliminate
                 )
         return psi
 
     def _regression(
-        self, probs: Any, history: dict[str, int], node: int, horizon: int | None, cause: int
+        self,
+        probs: Any,
+        history: dict[str, int],
+        node: int,
+        horizon: int | None,
+        cause: int,
+        eliminate: int | None = None,
     ) -> Any:
         """``Q_t(history)``: the iterated conditional expectation from node ``t``."""
         if self.with_l2 and node == 2:
@@ -353,13 +366,19 @@ class PointLaw:
             for l in (0, 1):
                 with_l = {**history, "L2": l}
                 value = value + self._mass(probs, with_l) / base * self._after_l(
-                    probs, with_l, node, horizon, cause
+                    probs, with_l, node, horizon, cause, eliminate
                 )
             return value
-        return self._after_l(probs, history, node, horizon, cause)
+        return self._after_l(probs, history, node, horizon, cause, eliminate)
 
     def _after_l(
-        self, probs: Any, history: dict[str, int], node: int, horizon: int | None, cause: int
+        self,
+        probs: Any,
+        history: dict[str, int],
+        node: int,
+        horizon: int | None,
+        cause: int,
+        eliminate: int | None = None,
     ) -> Any:
         kept = {**history, f"C{node}": 1}
         if self.kind == "end_of_study":
@@ -368,12 +387,76 @@ class PointLaw:
             return self._regression(probs, kept, node + 1, horizon, cause)
         assert horizon is not None
         reached = self._mass(probs, kept)
+        if eliminate is not None:
+            # The eliminated cause is decided before the event of interest: condition on
+            # having none at this node.
+            reached = reached - self._mass(probs, {**kept, f"E{node}": eliminate})
         fired = self._mass(probs, {**kept, f"E{node}": cause}) / reached
         if node == horizon:
             return fired
         survived = {**kept, f"E{node}": 0}
         free = self._mass(probs, survived) / reached
-        return fired + free * self._regression(probs, survived, node + 1, horizon, cause)
+        return fired + free * self._regression(probs, survived, node + 1, horizon, cause, eliminate)
+
+    def separable(
+        self,
+        probs: Any,
+        arms: dict[int, int],
+        first: int,
+        horizon: int,
+        cause: int,
+    ) -> Any:
+        r"""The risk of ``cause`` by ``horizon`` under a separable intervention.
+
+        ``arms`` maps each of the two event codes to the level of ``A`` whose component acts
+        on it, and ``first`` names the code counted first within a node.  This is Stensrud
+        et al. (2022) identification (8) (arXiv v3), with censoring (10): the first cause's
+        hazard is read at its own level, and the second cause's hazard among those free of the
+        first, :math:`\lambda_s / (1 - \lambda_f)`, at the second cause's level.  At equal
+        levels it is the cause incidence of that static arm.  Needs two causes and no ``L2``.
+        """
+        if self.causes != 2 or self.with_l2:
+            raise ValueError("a separable functional needs two causes and no L2")
+        second = 3 - first
+        total = self._mass(probs, {})
+        psi: Any = 0.0
+        for w in (0, 1):
+            share = self._mass(probs, {"W": w}) / total
+            survival: Any = 1.0
+            incidence: Any = 0.0
+            for node in range(1, horizon + 1):
+                lam_f = self._node_hazard(probs, w, arms[first], node, first)
+                at_second = arms[second]
+                h_s = self._node_hazard(probs, w, at_second, node, second) / (
+                    1.0 - self._node_hazard(probs, w, at_second, node, first)
+                )
+                composed = {first: lam_f, second: h_s * (1.0 - lam_f)}
+                incidence = incidence + survival * composed[cause]
+                survival = survival * (1.0 - h_s) * (1.0 - lam_f)
+            psi = psi + share * incidence
+        return psi
+
+    def _node_hazard(self, probs: Any, w: int, a: int, node: int, code: int) -> Any:
+        """``P(E_k = code | at risk at k, C_k = 1, W = w, A = a)``."""
+        kept: dict[str, int] = {"W": w, "A": a}
+        for k in range(1, node):
+            kept[f"C{k}"] = 1
+            kept[f"E{k}"] = 0
+        kept[f"C{node}"] = 1
+        return self._mass(probs, {**kept, f"E{node}": code}) / self._mass(probs, kept)
+
+    def separable_eif(
+        self, arms: dict[int, int], first: int, horizon: int, cause: int, *, step: float = 1e-30
+    ) -> np.ndarray:
+        """The EIF of :meth:`separable` at every support point, by complex-step derivatives."""
+        base = self.probs.astype(complex)
+        out = np.empty(len(self.support))
+        for i in range(len(self.support)):
+            mass = np.zeros_like(base)
+            mass[i] = 1.0
+            perturbed = (1.0 - 1j * step) * base + 1j * step * mass
+            out[i] = np.imag(self.separable(perturbed, arms, first, horizon, cause)) / step
+        return out
 
     def gateaux(
         self,
@@ -383,22 +466,31 @@ class PointLaw:
         cause: int = 1,
         *,
         step: float = 1e-30,
+        eliminate: int | None = None,
     ) -> float:
         """The Gateaux derivative of the functional at support point ``point``."""
         base = self.probs.astype(complex)
         mass = np.zeros_like(base)
         mass[point] = 1.0
         perturbed = (1.0 - 1j * step) * base + 1j * step * mass
-        return float(np.imag(self.functional(perturbed, assign, horizon, cause)) / step)
+        value = self.functional(perturbed, assign, horizon, cause, eliminate)
+        return float(np.imag(value) / step)
 
     def eif(
         self,
         assign: Callable[[Any, int], Sequence[Any]],
         horizon: int | None = None,
         cause: int = 1,
+        *,
+        eliminate: int | None = None,
     ) -> np.ndarray:
         """The EIF at every support point, in support order."""
-        return np.array([self.gateaux(assign, i, horizon, cause) for i in range(len(self.support))])
+        return np.array(
+            [
+                self.gateaux(assign, i, horizon, cause, eliminate=eliminate)
+                for i in range(len(self.support))
+            ]
+        )
 
 
 def static(arm: int) -> Callable[[Any, int], Sequence[float]]:

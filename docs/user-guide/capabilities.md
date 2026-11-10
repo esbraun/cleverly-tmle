@@ -40,7 +40,7 @@ shows the workflow, and the [technical page](../technical-reference/adaptive-tml
 | `IPSI` | the treatment mechanism | the influence curve of the incremental estimator |
 | `SequentialGComputation` | the outcome and pseudo-outcome regressions | the stacked curve when every regression is a `GLM`. Otherwise the point only |
 | `SequentialIPW` | the treatment and censoring mechanisms | the stacked curve when every mechanism is a `GLM`. Otherwise the point only |
-| `StructuralNestedMean` | the outcome and treatment regressions on the full history, with a linear blip model | the influence curve, valid under the linear structural nested mean model with the declared blip features |
+| `StructuralNestedMean` | the outcome and treatment regressions on the full history, with a linear blip model | the influence curve, valid under the linear structural nested mean model with the declared blip features. An in-sample fit (`n_folds=1`) needs every regression to be a `GLM`; otherwise the point only |
 | `ParametricGFormula` | a model of each time-varying covariate, and the outcome or hazard models | the stacked curve with the simulation error when every model is a `GLM`. Otherwise the point only |
 
 The two sequential baselines are reference estimators. They refuse `n_folds > 1` and `msm=`.
@@ -80,8 +80,10 @@ genuinely the scientific question.
 ## Explicitly unimplemented
 
 Graph identification, front-door adjustment, instrumental-variable effects, mediation
-decompositions, transport, direct Riesz learning, and EP learning are proposals or outside the
-current scope. The [roadmap](../roadmap.md) states the evidence required before a proposed method
+decompositions, transport, and direct Riesz learning are proposals or outside the current scope.
+The EP learner of a conditional effect curve ships for `ConditionalContrast` without intervals.
+It also sets the rule of a learned treatment rule (`LearnedRule(loss="ep")`), whose value keeps
+its interval. EP learning of any other target is not implemented. The [roadmap](../roadmap.md) states the evidence required before a proposed method
 can become a release claim.
 
 ## Extending the package

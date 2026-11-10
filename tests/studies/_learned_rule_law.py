@@ -225,6 +225,8 @@ def validation_rule(
         estimator._rule_g_bounds(data),
     )[test]
     covariates = np.asarray(data.covariates, dtype=float)[test]
+    if rule.loss == "ep":
+        return validation_ep_rule(estimator, data, nuisance, test)
     if rule.loss == "blip":
         model = fit_learner(rule.learner, covariates, as_target(target, "regression"))
         return lambda rows: FoldRule("blip", model, False, 0, target).treat(rows)
@@ -240,6 +242,77 @@ def validation_rule(
     labels = as_target(signs, "classification")
     model = fit_learner(rule.learner, covariates, labels, np.abs(target))
     return lambda rows: FoldRule("weighted_classification", model, False, 0, target).treat(rows)
+
+
+def validation_ep_rule(
+    estimator: TMLE, data: Any, nuisance: Any, test: np.ndarray
+) -> Callable[[np.ndarray], np.ndarray]:
+    """The ``fold_locality`` control's EP rule, fitted on one fold's validation rows.
+
+    The EP curve at the largest member of the rule's sieve is fitted on ``test`` from the
+    fit's outer cross-fitted nuisances there, with no inner refit and no size selection, so
+    the rows that evaluate the rule also chose it.  The fit reads ``test``'s outcomes, which
+    is the mutation.
+    """
+    curve = outer_ep_curve(estimator, data, nuisance, test)
+    return lambda covariates: curve(covariates) > 0.0
+
+
+def outer_ep_curve(
+    estimator: TMLE, data: Any, nuisance: Any, rows: np.ndarray
+) -> Callable[[np.ndarray], np.ndarray]:
+    """The EP curve fitted on ``rows`` from the fit's outer cross-fitted nuisances there.
+
+    The curve is the largest member of the rule's sieve, or its declared size, with no inner
+    refit.  It returns the curve's value at covariate rows in the fit's layout.  Fitted on a
+    fold's validation rows it is the ``fold_locality`` control; fitted on ``T_v`` it is the
+    unit witness W-c2's mutation, whose nuisances at ``T_v`` were trained on fold ``v``.
+    """
+    test = rows
+    from dataclasses import fields, replace
+
+    from cleverly.bases import Sieve
+    from cleverly.effect_modification import ModifierReader, modifier_frame
+    from cleverly.estimators.ep import curve_from_pieces, nuisance_pieces, sieve_member
+
+    rule = estimator.learned_rule
+    assert rule is not None and rule.modifiers is not None
+    modifiers = rule.modifiers
+    sieve = rule.sieve if rule.sieve is not None else Sieve.default(modifiers)
+    family = sieve.basis
+    size = int(family.max_size) if sieve.chosen_by_cv else int(sieve.size_at(data.n))
+    control, treated = nuisance.outcome.levels
+    whole = nuisance_pieces(
+        data,
+        nuisance,
+        pair=(float(treated), float(control)),
+        g_bounds=estimator._rule_g_bounds(data),
+        alpha=estimator.alpha,
+    )
+    pieces = replace(
+        whole,
+        **{
+            item.name: np.asarray(getattr(whole, item.name))[test]
+            for item in fields(whole)
+            if item.name != "pair"
+        },
+    )
+    basis = sieve_member(family, size, modifiers)
+    values = modifier_frame(data.subset(np.asarray(test)), tuple(modifiers.columns))
+    width = float(np.diff(nuisance.scaler.unscale_levels(np.array([0.0, 1.0])))[0])
+    curve, _ = curve_from_pieces(
+        pieces,
+        np.asarray(basis.evaluate(values, modifiers), dtype=float),
+        basis=basis,
+        modifiers=modifiers,
+        scale="difference",
+        width=width,
+        clip=True,
+        final_learner=rule.learner,
+        values=values,
+    )
+    reader = ModifierReader.of(data, tuple(modifiers.columns))
+    return lambda covariates: np.asarray(curve.predict(reader(covariates)), dtype=float)
 
 
 def estimator(
@@ -457,6 +530,9 @@ def fold_rule(
         scaler=nuisance.scaler,
         g_bounds=result.config.g_bounds,
         seed=seed,
+        modifiers=rule.modifiers,
+        sieve=rule.sieve,
+        alpha=result.estimator.alpha,
     )
     return fitted.treat
 

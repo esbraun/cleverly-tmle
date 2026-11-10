@@ -30,6 +30,7 @@ the parameter under.
 from __future__ import annotations
 
 from ..exceptions import LongitudinalError
+from .collaborative import SurvivalCTMLE, SurvivalSelection
 from .data import LongitudinalData, Repeated
 from .estimator import (
     IPSI,
@@ -55,6 +56,7 @@ from .regimen import (
     Plan,
     Regimen,
     RegimenSpec,
+    Separable,
     resolve_plans,
     resolve_regimens,
 )
@@ -71,6 +73,7 @@ from .structural import (
     StructuralNestedMeanResult,
     snmm,
 )
+from .weights import NodeWeights, node_weights
 
 __all__ = [
     "IPSI",
@@ -87,6 +90,7 @@ __all__ = [
     "LongitudinalResult",
     "Mechanism",
     "NodeRule",
+    "NodeWeights",
     "PanelLayout",
     "ParametricGFormula",
     "Plan",
@@ -94,12 +98,15 @@ __all__ = [
     "RegimenFit",
     "RegimenSpec",
     "Repeated",
+    "Separable",
     "SequentialGComputation",
     "SequentialIPW",
     "SequentialStep",
     "StructuralModelCheck",
     "StructuralNestedMean",
     "StructuralNestedMeanResult",
+    "SurvivalCTMLE",
+    "SurvivalSelection",
     "each_node",
     "fit_mechanism",
     "fit_regimen",
@@ -108,6 +115,7 @@ __all__ = [
     "ipsi",
     "ipw",
     "ltmle",
+    "node_weights",
     "resolve_plans",
     "resolve_regimens",
     "sdr",

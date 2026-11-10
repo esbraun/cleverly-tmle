@@ -67,6 +67,7 @@ InferenceStatus = Literal[
     "few_cluster_plugin",
     "constant_node_plugin",
     "stack_failure_plugin",
+    "low_dose_support_plugin",
     "working_model_projection",
 ]
 
@@ -228,13 +229,16 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
     {
         "working_mechanism_plugin": StatusRecord(
             plain_reason=(
-                "The collaborative search chose the treatment model from the data, and no result "
-                "shows that the reported spread is a valid standard error after that choice. For "
-                "an interval, fit TMLE or DR-TMLE on the same design."
+                "The collaborative search chose the treatment model, and for a time-to-event "
+                "outcome the censoring model, from the data, and no result shows that the "
+                "reported spread is a valid standard error after that choice. For an interval, "
+                "fit TMLE or DR-TMLE on the same design."
             ),
             reason=(
                 "The greedy, ordered, discrete, lasso and learners collaborative paths report "
-                "no confidence interval, no p-value and no standard error. The reported curve "
+                "no confidence interval, no p-value and no standard error, and so does "
+                "SurvivalCTMLE's greedy selection of its treatment and censoring models. The "
+                "reported curve "
                 "is the ordinary efficient influence curve at the candidate the search "
                 "stopped at, or at the final-step candidate, and no result shows it is this "
                 "estimator's influence curve when that "
@@ -530,6 +534,36 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "X54 in docs/roadmap.md holds the measurements."
             ),
         ),
+        "low_dose_support_plugin": StatusRecord(
+            plain_reason=(
+                "Few rows have a dose near this point of the dose-response curve (the effective "
+                "number of rows behind it is below the declared floor), so the normal "
+                "approximation behind the interval is not measured there, and cleverly marks it "
+                "experimental."
+            ),
+            reason=(
+                "A smoothed dose-response estimate whose clever covariate has a Kish effective "
+                "size below the declaration's support_floor reports its interval with the "
+                "experimental label. The floor of 50 is provisional until a registered study "
+                "measures the intervals near it. The estimate stays in the simultaneous band. "
+                "X95 in docs/roadmap.md holds the measurements below the floor."
+            ),
+            assessment_note=(
+                "the reported interval is experimental: the effective number of rows behind this "
+                "dose-response point is below the declared floor, and X95 in the roadmap holds "
+                "the measurements below it"
+            ),
+            bootstrap_note="a diagnostic; no result validates it at low dose support",
+            diagnostic_noun="low-support dose-response interval",
+            reopened_by="X95",
+            alternative=NO_ALTERNATIVE,
+            interval="shown",
+            shown_reason=(
+                "The effective number of rows behind this dose-response point is below the "
+                "declared floor, where no registered study measures the interval. X95 in "
+                "docs/roadmap.md holds the measurements."
+            ),
+        ),
         "constant_node_plugin": StatusRecord(
             plain_reason=(
                 "A regression in this estimate's recursion saw a single outcome value at some time "
@@ -614,20 +648,20 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "the working-model projection of the trial effect. It covers the trial effect "
                 "itself only when the selected working model approximates the true "
                 "conditional effect and bias well enough (the oracle-approximation condition "
-                "of arXiv:2405.07186v2, Theorem 1), and no data check can confirm that. F39 "
+                "of arXiv:2405.07186v2, Theorem 1), and no data check can confirm that. F40 "
                 "in docs/roadmap.md holds the testable condition that would reopen it."
             ),
             assessment_note=(
                 "the reported interval covers the working-model projection of the trial "
                 "effect, and covers the effect itself only under the oracle-approximation "
-                "condition, which no data check confirms; F39 in the roadmap holds a testable "
+                "condition, which no data check confirms; F40 in the roadmap holds a testable "
                 "form of that condition"
             ),
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap of an adaptive working-model fit"
             ),
             diagnostic_noun="working-model projection interval",
-            reopened_by="F39",
+            reopened_by="F40",
             alternative=(
                 "For an interval for the trial effect that needs no working model, fit TMLE on "
                 "the trial rows alone with PointTreatment."
@@ -638,7 +672,7 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "covers the trial effect itself only when the selected working model "
                 "approximates the true conditional effect and bias well enough (the "
                 "oracle-approximation condition of arXiv:2405.07186v2, Theorem 1), and no data "
-                "check can confirm that. F39 in docs/roadmap.md holds the testable condition "
+                "check can confirm that. F40 in docs/roadmap.md holds the testable condition "
                 "that would reopen it."
             ),
         ),

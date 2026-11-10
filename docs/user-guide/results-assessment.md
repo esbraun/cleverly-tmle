@@ -63,6 +63,10 @@ raw `value` and the printed `text`. `summary.facts` maps each header label to it
 The rest of this page uses the same layout for the assessment, the sensitivity analyses, and the
 checks of the fit.
 
+To see a result instead of reading its table, draw it with `cleverly.plotting`: the
+[plot results](../examples/plots.ipynb) tutorial draws the estimate, the overlap and balance checks,
+and the sensitivity analyses.
+
 ## Run the assessment battery
 
 Call `assess()` to collect validation, diagnostics, and sensitivity in one report.
@@ -160,7 +164,8 @@ estimate holds roadmap ids, such as `X54`, that name the missing evidence.
 A fit with fewer clusters than the interval floor shows its interval under the experimental
 label. Its bootstrap is published as `bootstrap sd` and a percentile range, and its summary
 labels both as diagnostics. A fit that withholds its
-interval, such as a collaborative fit, keeps its point estimate and refuses `ci`. The
+interval, such as a collaborative fit with the default `"greedy"` strategy, keeps its point
+estimate and refuses `ci`. The
 [inference status](../technical-reference/inference.md#inference-status) table lists each case.
 
 ## Result structure
@@ -176,8 +181,14 @@ point = result[names[0]]
 print(point.psi, point.std_error, point.ci, point.pvalue)
 ```
 
-A collaborative fit refuses `std_error`, `ci`, and `pvalue` with `CapabilityError` at every
-`strategy`. A `DRTMLE` fit with a `guard` and varying weights declared estimated
+Most collaborative fits refuse `std_error`, `ci`, and `pvalue` with `CapabilityError`. That
+covers the `"greedy"` default, `"ordered"`, `"discrete"`, `"lasso"`,
+`"learners"`, and `"oat"` with a flexible learner. Three collaborative fits report an interval:
+`strategy="derivative"`; `"oat"` with a parametric outcome model and treatment model, under the
+conditions in
+[parametric per-arm intervals](../technical-reference/collaborative-tmle.md#parametric-per-arm-intervals);
+and a fit that selects nothing, such as `"discrete"` whose one candidate is the full adjustment set.
+A `DRTMLE` fit with a `guard` and varying weights declared estimated
 (`weights_estimated=True`) reports them under the experimental label. A clustered fit refuses them
 below 3 clusters with positive weight mass, and reports them under the experimental label from 3
 to 9 clusters, or to 19 for longitudinal TMLE. The property `result.inference_status` gives the status of the fit, and
@@ -207,12 +218,13 @@ if len(names) >= 2:
 ```
 
 Use cluster roles in the study design for cluster-robust variance. Below 40 clusters with
-positive weight mass, a TMLE, DR-TMLE, or longitudinal TMLE fit reports Student t intervals with
+positive weight mass, a clustered fit reports Student t intervals with
 the cluster count minus 2 degrees of freedom, and the summary prints a `df` column. Below 10 such
 clusters, or 20 for longitudinal TMLE, the interval carries the `experimental` label, and below 3
 the fit reports no interval. For TMLE and DR-TMLE, these rules also apply to one reported
 stratum.
-[Clusters](../technical-reference/inference.md#clusters) gives the rules. Use
+[Clusters](../technical-reference/inference.md#clusters) gives the rules and the estimators they
+cover. Use
 `Inference(simultaneous=True)` when the reported family, rather than each interval separately,
 needs error control.
 
@@ -1220,7 +1232,7 @@ before the operation runs.
 
 A result can hold a copied or modified estimator whose configuration the package refuses before a
 refit. A stratified fold policy, a cross-fitted continuous outcome with `q_bounds=None`, and a
-C-TMLE fit on clustered data are examples. The `refit_nuisances` slot runs every check that
+`"greedy"` C-TMLE fit on clustered data are examples. The `refit_nuisances` slot runs every check that
 `refit()` runs before a learner, so a design refusal of an estimator subclass counts too. The table
 gives what such a result keeps.
 

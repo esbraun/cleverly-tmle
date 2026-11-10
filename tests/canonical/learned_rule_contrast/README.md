@@ -76,12 +76,13 @@ The declarations are in `tests/studies/learned_rule_contrast.py`,
 
 ## Run
 
-A declared run takes `--output`, `--jobs` and `--fresh` only, on the Python and package versions
-that rule L7 of `tests/canonical/learned_rule_run.py` declares, with one thread per numerical
-library. It draws 11,200 samples (1,200 primary, 5,600 calibration, 3,200 coverage and 1,200
-necessity). The pilot read about 0.38 core-s per property draw (both reports and the refit
-harness) and 0.29 core-s per necessity draw. That is about 4,000 core-s, under 20 minutes on 4
-cores; allow an hour with the summaries and bootstraps:
+A declared run takes `--output`, `--jobs` and `--fresh` only, with one thread per numerical library.
+Rule L7 of `tests/canonical/learned_rule_run.py` declares the stack the committed run used and
+refuses no other: a run on another stack warns, and `manifest.json` records the versions the run
+used and each difference from the declared stack. It draws 11,200 samples (1,200 primary, 5,600
+calibration, 3,200 coverage and 1,200 necessity). The pilot read about 0.38 core-s per property draw
+(both reports and the refit harness) and 0.29 core-s per necessity draw. That is about 4,000 core-s,
+under 20 minutes on 4 cores; allow an hour with the summaries and bootstraps:
 
 ```bash
 python -u -m tests.canonical.learned_rule_contrast.regenerate --jobs 4 --output <empty scratch directory>

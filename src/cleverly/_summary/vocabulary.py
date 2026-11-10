@@ -45,6 +45,11 @@ WEIGHTS: Final = "Weights"
 TIME_POINTS: Final = "Time points"
 HORIZON: Final = "Horizon"
 CENSORING_MODEL: Final = "Censoring model"
+#: The header fact that names the eliminated causes and how the fit reads them.
+PREVENTED: Final = "Prevented"
+PREVENTED_FACT: Final = "{causes}; each plan also prevents it, so its events count as censoring"
+#: The model of an eliminated competing cause, beside the censoring model.
+PREVENTED_MODEL: Final = "Prevented-event model"
 #: The censoring indicators of a longitudinal fit, and what every plan does with them.
 CENSORING: Final = "Censoring"
 ANALYSIS: Final = "Analysis"
@@ -95,6 +100,8 @@ HEADER_LABELS: frozenset[str] = frozenset(
         TIME_POINTS,
         HORIZON,
         CENSORING_MODEL,
+        PREVENTED_MODEL,
+        PREVENTED,
         ANALYSIS,
         DESIGN,
         TREATMENT,
@@ -388,6 +395,7 @@ NOTE_CODES: Mapping[str, NoteKind] = MappingProxyType(
         "bootstrap_experimental": "note",
         "score_unsolved": "warning",
         "stopping_rule": "note",
+        "survival_selection": "note",
         "folds_reduced": "note",
         "fit_warning_positivity": "warning",
         "fit_warning_convergence": "warning",
@@ -457,8 +465,13 @@ SUPPORT_QUALIFIERS: Final[Mapping[str, str]] = MappingProxyType(
         "known_regimes": "the fixed rules reported beside the learned rule",
         "rule_learner_blip": "a rule learner",
         "rule_learner_weighted_classification": "a rule learner",
+        "rule_learner_ep": "a rule learner",
     }
 )
+
+#: Plain words for the qualifiers of a longitudinal fit, which name the treatment and
+#: censoring columns whose mechanism the data declares known.
+SUPPORT_KNOWN_FACTORS: Final = "which treatment and censoring mechanisms are declared known"
 
 #: Fit-time warnings a note already states, by that note's code: when the note prints, a
 #: recorded warning whose message holds one of these phrases is left out of the Warnings
@@ -504,6 +517,11 @@ EXPERIMENTAL_REASONS: Final[Mapping[str, str]] = MappingProxyType(
             "This fit has a feature the validation study of its kind does not cover, so "
             "cleverly marks {names} experimental."
         ),
+        "theory": (
+            "The method's published theory does not cover a sieve size chosen by "
+            "cross-validation or a final learner you supply, so cleverly marks {names} "
+            "experimental whatever a study shows."
+        ),
     }
 )
 
@@ -535,6 +553,11 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
         "no_inference": (
             "No confidence interval or p-value for {names}. {reason} The {label} column is "
             "a diagnostic, not a standard error."
+        ),
+        "survival_selection": (
+            "Each plan and time point has its own selected treatment and censoring models, so "
+            "the risk curve is not forced to rise over time. The model facts above describe "
+            "the selection at time {horizon}; result.selection holds every one."
         ),
         "no_inference_row": (
             "No confidence interval or p-value for {names}, marked *. {reason} Their "
@@ -1150,6 +1173,7 @@ STEP_FAILURES: Final[Mapping[str, str]] = MappingProxyType(
             "covariates separate almost perfectly"
         ),
         "bound_excludes_data": "the outcome bound excludes some of the data",
+        "newton_stalled": "its last steps stopped reducing the error",
     }
 )
 
@@ -1924,6 +1948,7 @@ LONGITUDINAL_ROLES: Final[Mapping[str, str]] = MappingProxyType(
     {
         "treatment": "treatment",
         "censoring": "censoring",
+        "competing": "prevented event",
         "outcome": "outcome",
         "pseudo_outcome": "iterated outcome",
         "hazard": "event hazard",
@@ -2295,6 +2320,8 @@ BASELINE: Final = "Baseline"
 FOLLOWED: Final = "Observed to the end"
 EFFECTIVE_SAMPLE_SIZE: Final = "Effective sample size"
 CENSORED_BEFORE_END: Final = "Censored before the end"
+#: The share of units whose eliminated competing event the analysis treats as prevented.
+PREVENTED_BEFORE_END: Final = "Treated as prevented"
 HELD_FIXED: Final = "Held fixed"
 PROTOCOL: Final = "Study protocol"
 ANSWERED_BY: Final = "Answered by"
@@ -2313,6 +2340,7 @@ HEADER_LABELS = HEADER_LABELS | {
     FOLLOWED,
     EFFECTIVE_SAMPLE_SIZE,
     CENSORED_BEFORE_END,
+    PREVENTED_BEFORE_END,
     HELD_FIXED,
     PROTOCOL,
     ANSWERED_BY,
@@ -2891,10 +2919,16 @@ PHASE_COLUMNS: Final[tuple[str, ...]] = (
 
 # ----------------------------------------------------------------- longitudinal (T2)
 
+#: The treatment and censoring model fact of a collaborative survival fit.
+SELECTED_MODEL: Final = (
+    "logistic regression, selected by the collaborative search (at time {horizon})"
+)
+
 #: The plain name of each longitudinal estimator, keyed by ``LongitudinalConfig.estimator``.
 LONGITUDINAL_METHOD_NAMES: Final[Mapping[str, str]] = MappingProxyType(
     {
         "tmle": "longitudinal targeted maximum likelihood (LTMLE)",
+        "collaborative": "collaborative targeted maximum likelihood of a risk curve (C-TMLE)",
         "msm": "longitudinal TMLE of a working model (MSM)",
         "sdr": "sequentially doubly robust estimator (SDR)",
         "ipsi": "incremental propensity score estimator (IPSI)",
@@ -2908,6 +2942,7 @@ LONGITUDINAL_METHOD_NAMES: Final[Mapping[str, str]] = MappingProxyType(
 LONGITUDINAL_SHORT_NAMES: Final[Mapping[str, str]] = MappingProxyType(
     {
         "tmle": "LTMLE",
+        "collaborative": "survival C-TMLE",
         "msm": "LTMLE, working model",
         "sdr": "SDR",
         "ipsi": "IPSI",
@@ -3206,6 +3241,8 @@ LONGITUDINAL_MEANINGS: Final[Mapping[str, str]] = MappingProxyType(
 
 #: A competing-risks working-model coefficient names its cause.
 MSM_CAUSE: Final = "{text}, for {cause}"
+#: A row of a fit that eliminates competing causes: the risk had those causes been prevented.
+ELIMINATED_MEANING: Final = "{text}, had {causes} been prevented"
 
 #: The Censoring header fact: the indicators, and that every plan keeps each unit observed,
 #: so a row is its value had no unit been censored.
@@ -4366,6 +4403,7 @@ MODIFIERS: Final = "Modifiers"
 CURVE_SCALE: Final = "Scale"
 BASIS: Final = "Basis"
 CURVE_STATUS: Final = "Status"
+SIEVE: Final = "Sieve"
 SCORE_ASSESSMENT_TITLE: Final = "Check of an external score"
 
 #: The notes an effect-curve summary can print.
@@ -4376,6 +4414,10 @@ EFFECT_CURVE_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "curve_band": "note",
         "curve_experimental": "note",
         "score_external": "note",
+        "ep_target": "note",
+        "ep_no_interval": "note",
+        "ep_experimental": "note",
+        "ep_clipped": "note",
     }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **EFFECT_CURVE_NOTE_CODES})
@@ -4401,6 +4443,19 @@ EFFECT_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "{reason} Its intervals are computed as for a validated fit; read them with more "
             "caution."
         ),
+        "ep_target": (
+            "The curve estimates {target}. Check it out of fold with diagnostics.calibration() "
+            "before acting on it."
+        ),
+        "ep_no_interval": (
+            "This curve has no confidence interval: the EP learner's source proves rates, not "
+            "a limit law for the curve. For intervals, declare model= and fit method='tmle'."
+        ),
+        "ep_experimental": "{reason}",
+        "ep_clipped": (
+            "{share} of the in-sample predictions were clipped to [-{width}, {width}], the range "
+            "a difference of two means of this outcome can take."
+        ),
         "score_external": (
             "The intervals hold only if {column} was fitted on other data. A negative risk "
             "difference says the score predicts the conditional effect better than the "
@@ -4410,3 +4465,198 @@ EFFECT_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **EFFECT_CURVE_NOTE_TEXTS})
+
+# ------------------------------------------------------------ targeting curves (X92 PR-5)
+
+TARGETING_TITLE: Final = "Prioritization curve"
+TARGETING_ESTIMAND: Final = "the mean effect in the top fraction q minus the average, TOC(q)"
+TARGETING_SOURCE: Final = "Score"
+TARGETING_COMPARE: Final = "Compared with"
+TARGETING_ATE: Final = "Average effect"
+
+#: The notes a targeting-curve summary, or its plot, can print.
+TARGETING_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "targeting_external": "note",
+        "targeting_split": "note",
+        "targeting_band": "note",
+        "targeting_withheld": "note",
+        "targeting_experimental": "note",
+        "targeting_gain_interval": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **TARGETING_NOTE_CODES})
+
+TARGETING_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "targeting_external": (
+            "The intervals hold only if {column} was fitted on other rows. A positive TOC at "
+            "q says the rows the score puts in its top fraction q gain more from treatment "
+            "than the average row. AUTOC and Qini average the TOC over q, and Qini gives "
+            "larger fractions more weight."
+        ),
+        "targeting_split": (
+            "The score is the curve refit on {n_train} training rows and evaluated on the "
+            "other {n_eval}. The result describes that refit, not the curve fitted on every row."
+        ),
+        "targeting_band": (
+            "The band holds jointly at {level} over the {points} grid points below the whole "
+            "population, with critical value {critical}. It says nothing between grid points."
+        ),
+        "targeting_withheld": (
+            "Rows marked {mark} report the estimate with no interval. The status_reason column "
+            "of to_frame() gives the reason."
+        ),
+        "targeting_experimental": (
+            "{reason} The intervals are computed as for a validated fit; read them with more "
+            "caution."
+        ),
+        "targeting_gain_interval": (
+            "The gap of the gain to the line q times the average effect is q times the TOC, so "
+            "its interval is the TOC interval scaled by q; the gain view of the plot draws "
+            "that one. The gain rows of to_frame() carry the interval of the gain itself, "
+            "which also holds the uncertainty of the average effect."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **TARGETING_NOTE_TEXTS})
+
+# ------------------------------------------------------------ covariate balance (X92 V11)
+
+BALANCE_TITLE: Final = "Covariate balance before and after weighting"
+BALANCE_TREATMENT: Final = "Treatment"
+BALANCE_WEIGHTS_FOR: Final = "Weights for"
+BALANCE_COVARIATES: Final = "Covariates"
+BALANCE_HELD_AGAINST: Final = "Held against"
+BALANCE_LARGEST: Final = "Largest after weighting"
+BALANCE_COLUMNS: Final[tuple[str, ...]] = (
+    "covariate",
+    "before weighting",
+    "after weighting",
+)
+BALANCE_MEANS_TITLE: Final = "Group means and spread"
+BALANCE_MEANS_LINE: Final = (
+    "{covariate}: mean {group} in the first group and {rest} in the second; {group_weighted} "
+    "and {rest_weighted} after weighting; spread {spread}"
+)
+#: Whose weights a balance uses, in words, keyed by its estimand.
+BALANCE_ESTIMAND_WORDS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "ate": "the average effect (ate)",
+        "att": "the effect among the treated (att)",
+        "atc": "the effect among the untreated (atc)",
+    }
+)
+#: What each difference is divided by: two arms, more arms, or the arm the effect is among.
+BALANCE_SPREAD_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "pooled_two": (
+            "a standard deviation common to both groups: the square root of the average of "
+            "the two groups' variances, before weighting"
+        ),
+        "pooled_arms": (
+            "one standard deviation per covariate, the same in every comparison: the square "
+            "root of the average of all {arms} arms' variances, before weighting"
+        ),
+        "att": (
+            "the standard deviation in the first group, the one the effect is among, before "
+            "weighting"
+        ),
+        "atc": (
+            "the standard deviation in the second group, the one the effect is among, "
+            "before weighting"
+        ),
+    }
+)
+#: How a unit counts after weighting, by estimand and by whether the data carry weights.
+BALANCE_WEIGHT_TEXTS: Final[Mapping[tuple[str, bool], str]] = MappingProxyType(
+    {
+        ("ate", False): (
+            "After weighting, each unit counts as the inverse of the probability the fit "
+            "gave its own arm{limits}. Before weighting, every unit counts once."
+        ),
+        ("ate", True): (
+            "After weighting, each unit counts as its data weight divided by the probability "
+            "the fit gave its own arm{limits}. Before weighting, units count as the data's "
+            "weights say."
+        ),
+        ("att", False): (
+            "After weighting, units of the first group count once and units of the second "
+            "as the fit's probability of the first group's arm over that of their own"
+            "{limits}. Before weighting, every unit counts once."
+        ),
+        ("att", True): (
+            "After weighting, units of the first group count as their data weight and units "
+            "of the second as their data weight times the fit's probability of the first "
+            "group's arm over that of their own{limits}. Before weighting, units count as "
+            "the data's weights say."
+        ),
+        ("atc", False): (
+            "After weighting, units of the second group count once and units of the first "
+            "as the fit's probability of the second group's arm over that of their own"
+            "{limits}. Before weighting, every unit counts once."
+        ),
+        ("atc", True): (
+            "After weighting, units of the second group count as their data weight and units "
+            "of the first as their data weight times the fit's probability of the second "
+            "group's arm over that of their own{limits}. Before weighting, units count as "
+            "the data's weights say."
+        ),
+    }
+)
+#: Where the probabilities come from.
+BALANCE_SOURCE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "in_sample": "The probabilities are in-sample predictions; the fit was not cross-fitted.",
+        "out_of_fold": "The probabilities are out-of-fold predictions.",
+        "repeats": (
+            "The probabilities are the first of {repeats} cross-fitting repeats' out-of-fold "
+            "predictions."
+        ),
+    }
+)
+
+#: The notes a balance summary can print.
+BALANCE_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "balance_descriptive": "note",
+        "balance_weights": "note",
+        "balance_rest": "note",
+        "balance_unlisted": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **BALANCE_NOTE_CODES})
+
+BALANCE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "balance_descriptive": (
+            "These differences describe the data and the fitted weights and carry no "
+            "interval or test. Each is the mean in the first group minus the mean in the "
+            "second, divided by {spread}."
+        ),
+        "balance_weights": "{weights} {source}",
+        "balance_rest": (
+            "Each {part} compares one arm with all the other arms together, so imbalances of "
+            "opposite sign in two other arms can cancel."
+        ),
+        "balance_unlisted": (
+            "Balance on covariates that were not adjusted for is not shown, and small "
+            "differences on these do not show it."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **BALANCE_NOTE_TEXTS})
+
+BALANCE_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "balanced": (
+            "{before} of {total} covariate differences are larger than {threshold} before "
+            "weighting and {after} after."
+        ),
+        "residual": (
+            "{before} of {total} covariate differences are larger than {threshold} before "
+            "weighting and {after} after. The largest left is {worst} ({size}), so the "
+            "treatment model has not made the groups alike on it."
+        ),
+    }
+)

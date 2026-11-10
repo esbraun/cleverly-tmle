@@ -1,0 +1,9 @@
+law,n,checks,non_pd,negative_share
+d3_simple_moderate,1000,3000,0,0.321179
+d3_simple_moderate,4000,3000,0,0.321595
+d3_simple_limited,1000,3000,0,0.237422
+d3_simple_limited,4000,3000,0,0.237413
+d3_complex_moderate,1000,3000,0,0.32751
+d3_complex_moderate,4000,3000,0,0.327718
+d3_complex_limited,1000,3000,0,0.238274
+d3_complex_limited,4000,3000,0,0.237918

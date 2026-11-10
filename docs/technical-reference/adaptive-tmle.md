@@ -307,7 +307,7 @@ interval is for the projection onto its limit, which equals $\Psi$ when $\tau_A$
 and $\tau_S$ lie in that span or when the representers of the previous section do.
 
 [Inference](inference.md) lists the status in precedence order, and roadmap item
-[F39](../roadmap.md#f39-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope)
+[F40](../roadmap.md#f40-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope)
 owns a testable oracle condition. The fit reports `result.working_models` for every fold so that a
 reader can see which columns carried the bias.
 
@@ -329,8 +329,8 @@ lists the codes.
 
 | request | refusal | why |
 | --- | --- | --- |
-| a treatment with more than two levels, a dose, a vector treatment | `implementation_gap`, [F39](../roadmap.md#f39-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope) | Lemma 2 and the working models are stated for a binary treatment |
-| a ratio scale | `implementation_gap`, F39 | the source gives no working model for a ratio |
+| a treatment with more than two levels, a dose, a vector treatment | `implementation_gap`, [F40](../roadmap.md#f40-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope) | Lemma 2 and the working models are stated for a binary treatment |
+| a ratio scale | `implementation_gap`, F40 | the source gives no working model for a ratio |
 | `method="atmle"` on `PointTreatment` | `invalid_declaration` | the method needs trial membership |
 | `TrialATE` on any other design, or another estimand on `TrialWithExternalData` | `invalid_declaration` or `different_estimand` | only the trial effect is identified |
 | any method other than `atmle` on the pooled design | `different_estimand` | the other methods read the pooled rows as one population |
@@ -420,7 +420,7 @@ covers in 0.937 of replications, and its bias is 0.0290 (0.20 error SDs), from a
 of its targeting step with no defect. The repo owner accepted the study with that reading by a named
 exception on 2026-11-10, and the study was not rerun. The label of every fit stays
 experimental. No support row covers the method, and a row would not change the label: the
-`working_model_projection` status keeps an estimate experimental inside any row until F39 closes
+`working_model_projection` status keeps an estimate experimental inside any row until F40 closes
 (see Inference status).
 
 ### Studies

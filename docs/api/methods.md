@@ -9,6 +9,7 @@ runtime behavior. Pass the configured object to `IdentifiedEffect.estimate()`.
 
    cleverly.EstimationMethod
    cleverly.TMLEMethod
+   cleverly.EPMethod
    cleverly.AdaptiveIPTWMethod
    cleverly.AdaptiveTMLEMethod
    cleverly.CollaborativeTMLEMethod
@@ -42,6 +43,7 @@ the column roles, as the [longitudinal guide](../user-guide/longitudinal.md) doe
 | `GComputationMethod` | `SequentialGComputation` |
 | `IPWMethod` | `SequentialIPW` |
 | `ParametricGFormulaMethod` | `ParametricGFormula` |
+| `CollaborativeTMLEMethod` on a time-to-event design | `SurvivalCTMLE` |
 
 `StructuralNestedMean` has no method object, so you construct it directly or call `snmm()`. Its
 `fit()` and `snmm()` return a `StructuralNestedMeanResult`, whose `check_model()` returns a
@@ -57,6 +59,8 @@ the column roles, as the [longitudinal guide](../user-guide/longitudinal.md) doe
    cleverly.longitudinal.SequentialGComputation
    cleverly.longitudinal.SequentialIPW
    cleverly.longitudinal.ParametricGFormula
+   cleverly.longitudinal.SurvivalCTMLE
+   cleverly.longitudinal.SurvivalSelection
    cleverly.longitudinal.StructuralNestedMean
    cleverly.longitudinal.StructuralNestedMeanResult
    cleverly.longitudinal.StructuralModelCheck

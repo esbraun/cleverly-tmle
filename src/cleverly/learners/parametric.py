@@ -92,21 +92,30 @@ class ParametricFitDiagnostics:
     reciprocal_condition: float
 
 
-def _deviance(z: FloatArray, y: FloatArray, w: FloatArray, beta: FloatArray) -> float:
+def _deviance(
+    z: FloatArray, y: FloatArray, w: FloatArray, beta: FloatArray, offset: FloatArray | float = 0.0
+) -> float:
     """The weighted binomial deviance of a logistic fit, finite at fitted values of 0 or 1."""
-    eta = z @ beta
+    eta = z @ beta + offset
     # log(1 + exp(eta)) - y eta, the negative log likelihood of a quasi-binomial row.
     return float(np.sum(w * (np.logaddexp(0.0, eta) - y * eta)))
 
 
 def logistic_newton(
-    z: FloatArray, y: FloatArray, w: FloatArray, *, label: str
+    z: FloatArray,
+    y: FloatArray,
+    w: FloatArray,
+    *,
+    label: str,
+    offset: FloatArray | None = None,
 ) -> tuple[FloatArray, ParametricFitDiagnostics]:
     """The weighted maximum-likelihood logistic fit of ``y`` on ``z``.
 
     ``y`` may be fractional in ``[0, 1]``: the score ``z (y - expit(z' beta))`` is the
     quasi-binomial one. Newton's method runs on columns scaled to unit root mean square, with
-    step halving when a step raises the deviance.
+    step halving when a step raises the deviance. With ``offset`` the linear predictor is
+    ``offset + z' beta``, a fixed known term the fit does not estimate: the EP learner's
+    debiasing regression (:mod:`cleverly.estimators.ep`) carries the initial fit's logit there.
 
     Parameters
     ----------
@@ -118,6 +127,8 @@ def logistic_newton(
         ``(n,)``, nonnegative row weights.
     label : str
         The learner name the diagnostics and any error report.
+    offset : ndarray or None
+        ``(n,)``, a known term of the linear predictor; ``None`` fits without one.
 
     Returns
     -------
@@ -138,16 +149,21 @@ def logistic_newton(
         raise DataError(f"{label} has no row with positive weight to fit")
     if np.any((y < 0.0) | (y > 1.0)) or not np.all(np.isfinite(y)):
         raise DataError(f"{label} needs a target in [0, 1]")
+    known: FloatArray | float = 0.0
+    if offset is not None:
+        known = np.asarray(offset, dtype=float).reshape(-1)
+        if known.shape != y.shape or not np.all(np.isfinite(known)):
+            raise DataError(f"{label} needs one finite offset per row")
     scale = np.sqrt(np.sum(w[:, None] * z**2, axis=0) / total)
     scale = np.where(scale > 0.0, scale, 1.0)
     zs = z / scale
     beta = np.zeros(zs.shape[1])
-    deviance = _deviance(zs, y, w, beta)
+    deviance = _deviance(zs, y, w, beta, known)
     converged = False
     iterations = 0
     rcond = 0.0
     for iterations in range(1, _MAX_ITERATIONS + 1):  # noqa: B007 - read after the loop
-        mean = expit(zs @ beta)
+        mean = expit(zs @ beta + known)
         score = zs.T @ (w * (y - mean)) / total
         information = (zs * (w * mean * (1.0 - mean))[:, None]).T @ zs / total
         rcond = _reciprocal_condition(information)
@@ -155,7 +171,7 @@ def logistic_newton(
             break
         step = np.linalg.solve(information, score)
         candidate = beta + step
-        candidate_deviance = _deviance(zs, y, w, candidate)
+        candidate_deviance = _deviance(zs, y, w, candidate, known)
         halvings = 0
         while candidate_deviance > deviance + 1e-12 * max(1.0, abs(deviance)):
             halvings += 1
@@ -163,12 +179,12 @@ def logistic_newton(
                 break
             step = step / 2.0
             candidate = beta + step
-            candidate_deviance = _deviance(zs, y, w, candidate)
+            candidate_deviance = _deviance(zs, y, w, candidate, known)
         beta, deviance = candidate, candidate_deviance
         if np.max(np.abs(step)) < _STEP_TOLERANCE * max(1.0, float(np.max(np.abs(beta)))):
             converged = True
             break
-    mean = expit(zs @ beta)
+    mean = expit(zs @ beta + known)
     score = zs.T @ (w * (y - mean)) / total
     information = (zs * (w * mean * (1.0 - mean))[:, None]).T @ zs / total
     rcond = _reciprocal_condition(information)
@@ -186,7 +202,7 @@ def logistic_newton(
             "maximum-likelihood fit does not exist."
         )
     coef = beta / scale
-    raw_score = z.T @ (w * (y - expit(z @ coef))) / total
+    raw_score = z.T @ (w * (y - expit(z @ coef + known))) / total
     diagnostics = ParametricFitDiagnostics(
         learner=label,
         coef=tuple(float(value) for value in coef),

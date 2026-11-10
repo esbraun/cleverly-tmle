@@ -22,8 +22,9 @@ Reach for a different entry when your worry is the *inference* rather than the *
 ([point-treatment TMLE](point-treatment-tmle.md)).
 
 Collaborative TMLE is available for point-treatment, arm-axis fits whose target is `ate`, `ey`,
-`ey1`, `ey0`, `rr`, or `or`. It has no longitudinal derivation, and `available_methods()` says so
-before any model is fitted.
+`ey1`, `ey0`, `rr`, or `or`, and for the risk curve of a binary baseline treatment under right
+censoring ([time-to-event outcomes](#time-to-event-outcomes)). A treatment at several nodes has no
+collaborative derivation, and `available_methods()` says so before any model is fitted.
 
 A worked applied analysis is in the
 [collaborative TMLE tutorial](../examples/collaborative-tmle.ipynb). It compares the in-sample
@@ -450,6 +451,99 @@ wrong-outcome cells. Three test modules hold the C-TMLE0 checks.
 | `tests/unit/test_ctmle_derivative.py` | an independent transcription of R type 3; the solved derivative scores (W1); the move away from the TMLE estimate (W2); span invariance (W3); the counterfactual block (W4); three arms (W5) |
 | `tests/unit/test_ctmle_derivative_strategy.py` | the partner rule and the penalty cross-validation (W6); the row identity (W7); the refusals (W8); the status (W9); the retarget and the save round trip (W10); the omitted-variable and refit paths (W11) |
 | `tests/unit/test_ctmle_derivative_witness.py` | the update on R's own arrays from `tests/canonical/ctmle_derivative_witness/`, four blocks. The coefficients match R to a relative 1e-6. The targeted fits, the curve, the estimate and `var.psi` match to 1e-6. Block B fails with an unbounded partner, and block C fails with an unbounded mechanism |
+
+## Time-to-event outcomes
+
+`SurvivalCTMLE` implements the
+C-TMLE of Stitelman and van der Laan (2010) for the treatment-specific risk curve
+$F_a(t) = 1 - \psi_a(t)$, $\psi_a(t) = E_W S(t \mid a, W)$, their (4). The design is one binary
+baseline treatment held over every node, baseline covariates, one event type and right censoring,
+as `TimeToEvent` declares it. `CausalStudy` fits it with `method="collaborative_tmle"` on such a
+design. The estimates use hazard `LTMLE`'s names and status rules, with one difference: every
+estimate takes the `working_mechanism_plugin` status. The paper states no theorem, and its own
+simulations read Wald coverage of 0.89 to 0.95 (their Table 7).
+
+For each static arm $a$ and each reported horizon $t$ the fit runs one selection.
+
+| paper operation | implementation invariant | how it is validated |
+| --- | --- | --- |
+| hold the initial hazard fit fixed (Sec 10) | `outcome_learner` fits $\hat Q_2$ once on the full data, out of fold when `n_folds > 1`. Every path, including each selection fold's, starts from it | `test_the_hand_built_selector_is_the_fit_s` |
+| candidates $M_0, \dots, M_J$, $J = 2p + 1$ | $g_1$: a main-term logistic regression of $A$ on the chosen $W$, intercept only at $M_0$. $g_2$: one logistic regression pooled over the person-nodes at risk of censoring, with one indicator per node after the first and the chosen terms of $\{A\} \cup W$. A term leaves its mechanism's pool once used | check 1 against hazard `LTMLE`; checks 2 and 3 |
+| evaluate the censoring model at $A = a$ | every unit's $\hat c_k(a, W)$ reads $A = a$, and the bounded cumulative $\operatorname{bound}(\hat g_1 \prod_{s \le k} \hat c_s)$ is formed as hazard `LTMLE` forms it | check 1: the full candidate equals `_run_hazard` at `rtol=0`; evaluating at the observed $A$ fails it |
+| target each candidate (16) | a per-horizon logistic fluctuation of arm $a$ alone, with $g$ not updated | check 10: the reported curve is `hazard.influence` at the selected state |
+| take the best move | the move of least penalized loss is accepted when its risk is strictly below the current one. Otherwise the current targeted fit becomes the initial fit and the search runs again | `test_check_10_the_greedy_rule_on_a_scripted_table` |
+| penalized log-likelihood (24) | the negative weighted log-likelihood of the targeted hazard over the at-risk person-nodes $k \le t$, plus the printed (24) with the initial $\hat Q_2$ | checks 5 and 6, with mutations of the survival ratio, the rows, the initial fit and the last node |
+| cross-validate the number of moves (Fig 7) | each selection fold rebuilds the path on its training rows, fitting $g$ there and weighting the fluctuation by the training rows. The test-row penalized loss is summed over folds, and the first least sum chooses the move count. The full-data path is cut there | check 8: permuting validation events leaves the fold's fluctuation unchanged |
+
+**Order within a node.** The paper puts the event check before censoring within an interval, and
+its (11) and (24) divide by $g_1 \prod_{i < t}(1 - g_2(i))$. The container puts censoring before
+the event check at a node and divides by $g\,G_k$, $G_k = \prod_{s \le k} c_s$. Censoring after the
+event check in interval $t$ is censoring before the event check at node $t + 1$, so the two agree
+when $c_1 \equiv 1$. `TimeToEvent` places a censoring at grid time $g_j$ at node $j + 1$, which gives
+the paper's product. A wide panel with the paper's order writes a loss after interval $k$ as
+$C_{k+1} = 0$. Check 7 fits one law coded both ways and gets the same path and estimates, and a
+mutation that reads $G_{k-1}$ for $G_k$ moves the one-step value off the truth.
+
+**The penalty.** The fit uses (24) as printed:
+
+$$\operatorname{pen}_a = \frac{1}{n}\sum_i \sum_{k \le t} \frac{1}{\pi_k(a, W_i)}
+\frac{\hat S(t \mid a, W_i)}{\hat S(k \mid a, W_i)}\,\hat\lambda_k(a, W_i)\{1 - \hat\lambda_k(a, W_i)\},$$
+
+averaged over every row, with no at-risk or $A = a$ indicator. $\pi_k$ is the candidate's bounded
+cumulative mechanism, and $\hat S$, $\hat\lambda$ are the initial fit. The result records
+`penalty_form="printed_24"`. Three departures from the paper are stated here:
+
+- (24) is not the influence-curve variance, which has the survival ratio squared and an at-risk
+  factor. The printed form is kept because the paper's simulations used it.
+- The paper does not say how the penalty enters the loss. The fit adds it to the summed loss, as
+  point `CTMLE` does (`combination="sum_loss_plus_penalty"`).
+- The paper does not say what follows a restart that still finds no improvement. The fit accepts
+  that pass's best move, the rule of van der Laan and Gruber (2010), so every path has $J$ moves.
+  Ties go to the try order: $g_1$ terms in data order, then $A$, then the $W$ of $g_2$.
+
+The paper's $\hat Q_2$ sees the test rows of every selection fold, and the fit follows it, so
+`selection_inner_folds` is refused. `SurvivalCTMLE` fits $\hat Q_2$ in sample by default
+(`n_folds=1`), as the paper does. `CausalStudy` passes the `CrossFitting` default, so a study fit
+cross-fits $\hat Q_2$ over 10 folds; set `CrossFitting(enabled=False)` for the paper's fit. The
+`CollaborativeTMLEMethod` fields `survival_model` and `simultaneous` default to `None`, which
+resolves to `"hazard"` and `False` here. An explicit `"iterated_mean"` or `True` reaches the
+engine and is refused. A hazard clipped at $10^{-12}$ inside the loss is counted in
+`result.selection[...].clipped`. A held cell already keeps every validation hazard away from zero,
+so the clip is a backstop. The default cumulative bound `g_bounds=(0.01, 1.0)` applies, while the
+paper truncated nothing.
+
+**Contrasts.** Each arm has its own selection, so a contrast combines two selected curves by the
+delta method. `ate_regimen[...]` is the risk difference, and `ratio(..., view="survival")` is the
+paper's (6). The paper's printed (22) and (23) are not used. Each horizon is selected separately,
+so `curve()` is not forced to rise.
+
+**Refused.** Every refusal fires before any learner and raises `CapabilityError`, as point
+`CTMLE`'s do, whether it names a missing implementation or redirects to another estimator. Each
+carries its roadmap item:
+
+| request | reason | roadmap |
+| --- | --- | --- |
+| two or more causes, `eliminate=`, a `Separable` regimen | the paper has one event type and no third mechanism | X62 |
+| a rule, a known stochastic policy, or more than two levels | the paper defines static arms of a binary $A$ | X62 |
+| a modified treatment policy or a tilt; a treatment at several nodes or a later covariate | no collaborative score is derived | F5 |
+| `targeting="one_step"`, a strategy other than `"greedy"`, `stopping`, `step_bound` or `iterate` changed, `msm`, `node_bounds`, `ratio_trim`, `isotonic=True` | not in the paper | X62 |
+| `simultaneous=True`, a bootstrap or repeated splits | no interval claim | F18 |
+| `id=` | no clustered result | X51 |
+| `truncation_curve()` and `simulated_confounding` on a fitted result | each replay would rerun the selection | X62 |
+
+`treatment_learner=` and `censoring_learner=` are refused with a redirection: the candidates are
+the paper's main-term models, and `outcome_learner=` fits $\hat Q_2$. The settings of the other
+point strategies, `q_bounds=` and `loss="squared"` are refused as invalid declarations. A node at
+which every eligible row is censored, at or before the last horizon, is refused with the advice to
+set `horizons=` before it.
+
+**Evidence.** Checks 1 to 10 are in `tests/unit/test_survival_ctmle.py`. The reporting study
+[collaborative TMLE of a risk curve](method-evidence/survival-ctmle.md) reads the points at the
+paper's laws with a correct outcome model, in sample and with two outer folds for the initial
+fit. Every gated bias passes, and at OR 15 the RMSE of the risk of arm 1 is 0.54 times that of
+hazard `LTMLE` with the full treatment model. The support rows G50 cover those fits, points only,
+with `hazard_pooling="pooled"`; another configuration reads experimental. The study declares no
+property cell, so the validation grid does not list it.
 
 ## Validation issues special to this method
 

@@ -337,22 +337,24 @@ def check(namespace: dict[str, Any]) -> None:
         assert not covers(differences["death", horizon], 0.0)
         assert not covers(differences["event-free", horizon], 0.0)
 
-    # Death as dropout. The censoring indicator is K_k = C_k (1 - D_k): both components remove rows, so
-    # dropping either one is a mutation that changes the risk set.
-    kept_p1 = namespace["kept_p1"]
-    enrolled_died = (frame["enrolled_p1"] == 1) & (frame["death_p1"] == 1)
-    assert (kept_p1[enrolled_died] == 0).all() and enrolled_died.sum() == 253
-    assert (kept_p1[disenrolled] == 0).all() and disenrolled.sum() > 0
-    assert ((kept_p1 == 1) == ((frame["enrolled_p1"] == 1) & ~enrolled_died)).all()
-    kept_p2 = namespace["kept_p2"]
-    died_p2 = namespace["through_p1"] & (frame["death_p2"] == 1)
-    left_p2 = namespace["through_p1"] & (frame["enrolled_p2"] == 0)
-    assert died_p2.sum() > 0 and left_p2.sum() > 0
-    assert (kept_p2[died_p2 | left_p2] == 0).all()
-    recoded = namespace["death_as_censoring"]
-    assert recoded.loc[kept_p1 == 0, "readmission_p1"].isna().all()
+    # Death as censoring through eliminate=. Retention has two factors: the censoring step keeps
+    # the enrolled, then the death step removes the enrolled who died. Dropping either factor is a
+    # mutation that changes the risk set.
     eliminated = namespace["eliminated"]
-    assert eliminated.data.censoring_names == ("enrolled_alive_p1", "enrolled_alive_p2")
+    data = eliminated.data
+    assert data.eliminated == ("death",)
+    enrolled_died = ((frame["enrolled_p1"] == 1) & (frame["death_p1"] == 1)).to_numpy()
+    assert enrolled_died.sum() == 253
+    assert data.retained is not None
+    retained_p1, kept_p1 = data.retained[:, 0], data.uncensored[:, 0]
+    assert (retained_p1 == (frame["enrolled_p1"] == 1).to_numpy()).all()
+    assert (retained_p1 & ~kept_p1 == enrolled_died).all()
+    assert not kept_p1[disenrolled.to_numpy()].any() and disenrolled.sum() > 0
+    through_p1 = kept_p1 & (frame["readmission_p1"].fillna(0) == 0).to_numpy()
+    died_p2 = through_p1 & (frame["death_p2"] == 1).to_numpy()
+    left_p2 = through_p1 & (frame["enrolled_p2"] == 0).to_numpy()
+    assert died_p2.sum() > 0 and left_p2.sum() > 0
+    assert not data.uncensored[died_p2 | left_p2, 1].any()
 
     # Each constant equals the generator's functional under its order, and the order matters.
     functional = namespace["shortcut_truth"]
@@ -366,12 +368,12 @@ def check(namespace: dict[str, Any]) -> None:
 
     eliminated_t2 = namespace["eliminated_t2"]
     readmission_t2 = differences["readmission", 2]
-    # "The shortcut turns the small positive estimate (0.0223) into a negative one (-0.0180)".
+    # "turns the small positive estimate (0.0223) into a negative one (-0.0157)".
     assert eliminated_t2.psi < 0.0 < readmission_t2.psi
-    # "The shortcut's interval (-0.0592, 0.0231) contains both 0.0024 and -0.0403".
+    # "The interval (-0.0589, 0.0276) contains both 0.0024 and -0.0403".
     assert covers(eliminated_t2, death_first)
     assert covers(eliminated_t2, population["ate_regimen[always vs never, readmission @ t=2]"])
-    # "mostly by raising the never-schedule risk from 0.2285 to 0.2879, since more patients die
+    # "mostly by raising the never-schedule risk from 0.2285 to 0.2858, since more patients die
     # under never".
     raised_never = (
         eliminated["risk_regimen[never @ t=2]"].psi

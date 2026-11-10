@@ -117,7 +117,6 @@ def _guard(
     monkeypatch.setattr(declared_run, "refusals", lambda smoke: list(refused))
     if not threads:
         monkeypatch.setattr(declared_run, "thread_refusals", list)
-    monkeypatch.setattr(learned_rule_run, "runtime_refusals", list)
 
 
 def _no_driver(monkeypatch: pytest.MonkeyPatch) -> None:

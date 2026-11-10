@@ -2330,6 +2330,39 @@ def _learned_rule_learners_cases() -> tuple[RowCase, ...]:
     return (case("blip"), case("weighted_classification"))
 
 
+def _learned_rule_ep_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-ep`` (P1 part (c)): ``T51`` and ``T51.optimal``.
+
+    ``T51`` runs the study's own declared fit of the EP rule on a draw of each law at the
+    primary size, and ``T51.optimal`` the study's optimal-value fit with ``g0`` supplied on a
+    draw of ``non_exceptional``, each up to the classifier.
+    """
+
+    def case(scenario: str) -> RowCase:
+        return _observed(
+            "T51",
+            "learned-rule-ep",
+            scenario,
+            "_learned_rule_law.py:358",
+            "learned_rule_ep",
+            lambda study: study.draw_from_seed(scenario, 2_000, 0)[0],
+            lambda study, frame: study.base.fit(
+                frame, study.base.outcome_learner(), 0, rule=study.law.rule()
+            ),
+        )
+
+    optimal = _observed(
+        "T51.optimal",
+        "learned-rule-ep",
+        "optimal_known_g__declared",
+        "_learned_rule_ep_law.py:192",
+        "_learned_rule_ep_law",
+        lambda study: study.base.draw("non_exceptional", 2_000, 0),
+        lambda study, frame: study.optimal_measured(frame, 0),
+    )
+    return (case("non_exceptional"), case("misspecified_limit"), optimal)
+
+
 def _fold_evaluated_strata_cases() -> tuple[RowCase, ...]:
     """The cases of ``fold-evaluated-strata`` (X11 PR E1, X28).
 
@@ -2559,6 +2592,76 @@ def _learned_regimen_cases() -> tuple[RowCase, ...]:
             lambda study: study.draw(2_000, 0),
             lambda study, frame: study.fit(frame, "declared", 0),
         ),
+    )
+
+
+def _eliminated_cases() -> tuple[RowCase, ...]:
+    """The cases of ``eliminated-competing-events`` (X91 part A): ``G48``.
+
+    Each runs the study's own fit of one scenario, on a draw of its law, up to the classifier.
+    """
+    module, slug = "eliminated_competing_events", "eliminated-competing-events"
+
+    def case(row: str, scenario: str, held: bool) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            scenario,
+            f"{module}.py:203",
+            module,
+            lambda study: (study.law.hb_sample if held else study.law.tv_sample)(4_000, 0),
+            lambda study, frame: study.fit(frame, scenario),
+        )
+
+    return (
+        case("G48.in_sample", "ltmle_time_varying", False),
+        case("G48.cross_fitted", "ltmle_time_varying_crossfit", False),
+        case("G48.hazard", "hazard_held_baseline", True),
+    )
+
+
+def _separable_cases() -> tuple[RowCase, ...]:
+    """The cases of ``separable-effects`` (X91 part D): ``G49``.
+
+    Each runs the study's own fit of one scenario, on a draw of its law, up to the classifier.
+    """
+    module, slug = "separable_effects", "separable-effects"
+
+    def case(row: str, scenario: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            scenario,
+            f"{module}.py:170",
+            module,
+            lambda study: study.law.sample(4_000, 0),
+            lambda study, frame: study.fit(frame, scenario),
+        )
+
+    return (case("G49.in_sample", "in_sample"), case("G49.cross_fitted", "cross_fitted"))
+
+
+def _survival_ctmle_cases() -> tuple[RowCase, ...]:
+    """The cases of ``survival-ctmle`` (X91 part B): ``G50``.
+
+    Each runs the study's own fit of one scenario, on a draw of its law, up to the classifier.
+    """
+    module, slug = "survival_ctmle", "survival-ctmle"
+
+    def case(row: str, scenario: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            scenario,
+            f"{module}.py:427",
+            module,
+            lambda study: study.draw_from_seed(scenario, 1_000, 0)[0],
+            lambda study, frame: study.fit(frame, scenario, study.CTMLE_ARM),
+        )
+
+    return (
+        case("G50.in_sample", "or15_qcorrect"),
+        case("G50.cross_fitted", "or10_qcorrect_crossfit"),
     )
 
 
@@ -2912,6 +3015,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_composition_cases(),
     *_learned_rule_split_mean_cases(),
     *_learned_rule_learners_cases(),
+    *_learned_rule_ep_cases(),
     *_fold_evaluated_strata_cases(),
     *_learned_rule_strata_cases(),
     *_learned_rule_stacked_cases(),
@@ -2921,6 +3025,9 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_optimal_value_cases(),
     *_learned_rule_intermediate_cases(),
     *_learned_regimen_cases(),
+    *_eliminated_cases(),
+    *_separable_cases(),
+    *_survival_ctmle_cases(),
     *_projection_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),

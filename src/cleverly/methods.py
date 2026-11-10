@@ -56,6 +56,7 @@ __all__ = [
     "CollaborativeTMLEMethod",
     "CrossFitting",
     "DRTMLEMethod",
+    "EPMethod",
     "EstimationMethod",
     "GComputationMethod",
     "IPSIMethod",
@@ -443,6 +444,9 @@ class ModelSpec:
         Sequential pseudo-outcome learner.
     censoring_learner : estimator or None
         Longitudinal observation-mechanism learner.
+    competing_learner : estimator or None
+        Learner of the prevented-cause factor of a design that declares ``eliminate=``.
+        ``None`` uses the censoring learner.
     density_bins : int or None
         Number of bins for a continuous-treatment conditional density.  ``None`` grows the
         count with the sample, ``max(20, ceil(2 n^(1/3)))``.  A growing count is necessary for
@@ -470,11 +474,12 @@ class ModelSpec:
         the covariates alone (R's ``drtmle(stratify=TRUE)``).  The default fits one regression
         on the covariates and the treatment.  A continuous dose has no arms and is refused,
         and so is a longitudinal design.
-    survival_model : {"iterated_mean", "hazard"}
+    survival_model : {"iterated_mean", "hazard"} or None
         How a longitudinal fit models a survival curve.  ``"hazard"`` targets the
         cause-specific hazards of a held baseline treatment; see
-        :class:`~cleverly.longitudinal.LTMLE`.  A point-treatment fit refuses
-        ``"hazard"``.
+        :class:`~cleverly.longitudinal.LTMLE`.  ``None``, the default, is the engine's own
+        model: ``"hazard"`` for :class:`~cleverly.longitudinal.SurvivalCTMLE` and
+        ``"iterated_mean"`` everywhere else.  A point-treatment fit refuses ``"hazard"``.
 
     See Also
     --------
@@ -502,6 +507,7 @@ class ModelSpec:
     intermediate_learner: Any = None
     pseudo_learner: Any = None
     censoring_learner: Any = None
+    competing_learner: Any = None
     density_bins: int | None = None
     ratio: Literal["density", "classifier"] = "density"
     screen_treatment: bool = False
@@ -509,7 +515,7 @@ class ModelSpec:
     min_retain: int | None = None
     hazard_pooling: str = "node"
     outcome_by_arm: bool = False
-    survival_model: SurvivalModel = "iterated_mean"
+    survival_model: SurvivalModel | None = None
 
     def __post_init__(self) -> None:
         check_hazard_pooling(self.hazard_pooling)
@@ -520,6 +526,7 @@ class ModelSpec:
             "intermediate_learner",
             "pseudo_learner",
             "censoring_learner",
+            "competing_learner",
         ):
             _validate_learner(getattr(self, name), name)
         if self.ratio not in ("density", "classifier"):
@@ -768,8 +775,10 @@ class Inference:
         Bootstrap fits. Zero disables full-refit bootstrap inference.
     bootstrap_resampling : {"auto", "iid", "cluster"}, default="auto"
         Unit or cluster resampling policy.
-    simultaneous : bool, default=True
-        Whether multi-parameter results include simultaneous bands.
+    simultaneous : bool or None, default=None
+        Whether multi-parameter results include simultaneous bands.  ``None`` is the
+        engine's own default: no band for :class:`~cleverly.longitudinal.SurvivalCTMLE`,
+        which has none, and a band everywhere else.
     n_multiplier : int or {"auto"}, default="auto"
         Multiplier draws for simultaneous bands.
     multiplier_kind : {"rademacher", "mammen", "normal"}, default="rademacher"
@@ -805,7 +814,7 @@ class Inference:
     alpha: float = 0.05
     n_bootstrap: int = 0
     bootstrap_resampling: Resampling = "auto"
-    simultaneous: bool = True
+    simultaneous: bool | None = None
     #: Multiplier-bootstrap draws behind the simultaneous bands.  ``"auto"`` is each engine's
     #: own default, which is not one number: the point path draws 1000 and the sequential path
     #: draws 2000.  A single literal here would silently pick one of them for the other engine
@@ -929,6 +938,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "intermediate_learner": "intermediate_learner",
         "pseudo_learner": "pseudo_learner",
         "censoring_learner": "censoring_learner",
+        "competing_learner": "competing_learner",
         "density_bins": "density_bins",
         "ratio": "ratio",
         "screen_treatment": "screen_treatment",
@@ -1049,7 +1059,7 @@ def _refuse_node_bounds(method: TMLEMethod, estimator: str) -> None:
 def _refuse_curve_settings(method: TMLEMethod, name: str) -> None:
     """Refuse a hazard or isotonic setting on an estimator that is not the targeted fit."""
     if (
-        method.models.survival_model != "iterated_mean"
+        method.models.survival_model not in (None, "iterated_mean")
         or method.targeting.algorithm != "iterative"
         or method.targeting.step_size != Targeting().step_size
         or method.targeting.isotonic
@@ -1226,7 +1236,7 @@ class TMLEMethod:
             "max_iter": targeting.max_iter,
             "tol": targeting.tol,
             "alpha_sig": inference.alpha,
-            "simultaneous": inference.simultaneous,
+            "simultaneous": True if inference.simultaneous is None else inference.simultaneous,
             "n_multiplier": inference.n_multiplier,
             "multiplier_kind": inference.multiplier_kind,
             "random_state": runtime.random_state,
@@ -1255,6 +1265,7 @@ class TMLEMethod:
                     "pseudo_learner": models.pseudo_learner,
                     "treatment_learner": models.treatment_learner,
                     "censoring_learner": models.censoring_learner,
+                    "competing_learner": models.competing_learner,
                     "n_bootstrap": inference.n_bootstrap,
                     "bootstrap_resampling": inference.bootstrap_resampling,
                     "repeats": cross.repeats,
@@ -1264,7 +1275,7 @@ class TMLEMethod:
                     "iterate": targeting.iterate,
                     "density_bins": models.density_bins,
                     "ratio": models.ratio,
-                    "survival_model": models.survival_model,
+                    "survival_model": models.survival_model or "iterated_mean",
                     "targeting": targeting.algorithm,
                     "step_size": targeting.step_size,
                     "isotonic": targeting.isotonic,
@@ -1286,7 +1297,7 @@ class TMLEMethod:
             raise MethodConfigurationError.from_refusal(_POINT_HAZARD_POOLING)
         if targeting.node_bounds is not None:
             raise MethodConfigurationError.from_refusal(_POINT_NODE_BOUNDS)
-        if models.survival_model != "iterated_mean" or targeting.isotonic:
+        if models.survival_model not in (None, "iterated_mean") or targeting.isotonic:
             raise MethodConfigurationError(
                 "survival_model= and isotonic= apply to a survival curve over time nodes, and "
                 "a point-treatment functional has no curve. Remove them, or declare a "
@@ -1325,6 +1336,166 @@ class TMLEMethod:
             }
         )
         return common
+
+
+#: The targeting settings an EP fit reads: the bounds of the nuisances it debiases.  Every
+#: other :class:`Targeting` field configures a fluctuation, which the EP learner does not fit.
+_EP_TARGETING_FIELDS = ("g_bounds", "q_bounds", "nuisance_bound", "submodel_alpha")
+
+
+def _ep_setting_refusal(names: list[str], why: str) -> Refusal:
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f"EPMethod does not read {', '.join(names)}: {why}",
+        alternative=(
+            "Remove these settings, or declare model= and fit method='tmle', which reads them."
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class EPMethod(TMLEMethod):
+    """Configure the EP learner of a conditional effect curve.
+
+    The EP learner (van der Laan, Carone and Luedtke, arXiv:2402.01972v2, a preprint) fits the
+    outcome regressions and the treatment model out of fold, adjusts the outcome regressions
+    by one weighted logistic regression on a sieve of the modifiers, and fits the curve to the
+    adjusted contrast.  The curve has no confidence interval.  It estimates a
+    :class:`cleverly.ConditionalContrast`; with ``model=None`` the target is the conditional
+    effect itself, approximated within the final learner's class.
+
+    Parameters
+    ----------
+    models : ModelSpec
+        Nuisance learners and related model settings.
+    cross_fitting : CrossFitting
+        Sample-splitting settings.  The fit needs out-of-fold nuisances, so
+        ``enabled=False``, ``repeats`` above 1 and ``fold_evaluation=True`` (the
+        ``cv_evaluation=True`` shortcut) are refused.
+    targeting : Targeting
+        Only ``g_bounds``, ``q_bounds``, ``nuisance_bound`` and ``submodel_alpha`` are read;
+        the EP learner fits no fluctuation, and any other non-default setting is refused.
+    inference : Inference
+        Must be the default: the EP curve has no interval (R1 of the P1 plan).
+    runtime : Runtime
+        Seed, run identifier, and parallelism.
+    name : str
+        Stable method name.
+    sieve : Sieve or None
+        The debiasing sieve of a fit with ``model=None``.  ``None`` uses
+        ``Sieve.default(modifiers)``: additive cosines of the continuous modifiers and
+        indicators of the categorical ones, sizes 1 to 6, chosen by cross-validation.  A
+        fixed size or a declared schedule ``n -> size`` skips the cross-validation.  With
+        ``model=`` declared on the estimand, the model is the sieve and this stays ``None``.
+    final_learner : Any
+        A regressor fitted to the adjusted contrast on the modifier columns, in place of the
+        default least squares on the sieve basis.  Difference scale and ``model=None`` only.
+
+    See Also
+    --------
+    cleverly.ConditionalContrast : The estimand this method fits.
+    cleverly.bases.Sieve : The sieve and its size rule.
+    TMLEMethod : The projection fit with intervals, for a declared model.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from sklearn.linear_model import LogisticRegression
+    >>> from cleverly import CausalStudy, ConditionalContrast, EPMethod, PointTreatment
+    >>> from cleverly.bases import Cosine, Modifiers, Sieve
+    >>> rng = np.random.default_rng(0)
+    >>> w = rng.uniform(0.0, 1.0, 400)
+    >>> a = rng.binomial(1, 0.5, 400)
+    >>> y = rng.binomial(1, 0.3 + 0.3 * a * w)
+    >>> study = CausalStudy(
+    ...     pd.DataFrame({"W": w, "A": a, "Y": y}),
+    ...     design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",)),
+    ... )
+    >>> effect = study.identify(ConditionalContrast(Modifiers(["W"], domains={"W": (0.0, 1.0)})))
+    >>> method = EPMethod(sieve=Sieve(Cosine(["W"], size=3), size=2)).with_overrides(
+    ...     outcome_learner=LogisticRegression(),
+    ...     treatment_learner=LogisticRegression(),
+    ...     random_state=0,
+    ... )
+    >>> curve = effect.estimate(method)
+    >>> curve.fitted_method, curve.inference_status, curve.sieve.chosen
+    ('ep', 'no_interval', 2)
+    """
+
+    name: str = "ep"
+    sieve: Any = None
+    final_learner: Any = None
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        from .bases import Sieve
+
+        if self.sieve is not None and not isinstance(self.sieve, Sieve):
+            raise MethodConfigurationError(
+                f"EPMethod(sieve=...) takes a cleverly.bases.Sieve; got {self.sieve!r}",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Pass Sieve(basis, size=...), or None for the default sieve.",
+            )
+        if self.inference != Inference():
+            from .estimators.ep import EP_INTERVAL_REFUSAL
+
+            raise MethodConfigurationError.from_refusal(EP_INTERVAL_REFUSAL)
+        defaults = Targeting()
+        targeting = [
+            name
+            for name in Targeting.__dataclass_fields__
+            if name not in _EP_TARGETING_FIELDS
+            and _differs_from_default(getattr(self.targeting, name), getattr(defaults, name))
+        ]
+        if targeting:
+            raise MethodConfigurationError.from_refusal(
+                _ep_setting_refusal(
+                    targeting,
+                    "the EP learner fits no fluctuation, so these settings would change nothing.",
+                )
+            )
+        cross = self.cross_fitting
+        unread = [
+            name
+            for name, refused in (
+                ("cross_fit=False", not cross.enabled),
+                ("repeats above 1", cross.repeats != 1),
+                ("cv_evaluation=True", cross.fold_evaluation),
+                (
+                    f"targeting_scheme={cross.targeting_scheme!r}",
+                    cross.targeting_scheme != CrossFitting().targeting_scheme,
+                ),
+            )
+            if refused
+        ]
+        if unread:
+            raise MethodConfigurationError.from_refusal(
+                _ep_setting_refusal(
+                    unread,
+                    "the debiasing regression pools every row with its own out-of-fold "
+                    "nuisances from one split, and fits no fold-level update.",
+                )
+            )
+
+    def with_overrides(self, **overrides: Any) -> EPMethod:
+        """Return a copy with flat shortcuts normalized by concern.
+
+        Parameters
+        ----------
+        **overrides : Any
+            The shortcuts :meth:`TMLEMethod.with_overrides` takes, plus ``sieve`` and
+            ``final_learner``.
+
+        Returns
+        -------
+        EPMethod
+            New immutable configuration.
+        """
+        own = {key: overrides.pop(key) for key in ("sieve", "final_learner") if key in overrides}
+        method = super().with_overrides(**overrides)
+        assert isinstance(method, EPMethod)
+        return replace(method, **own) if own else method
 
 
 @dataclass(frozen=True)
@@ -1420,7 +1591,10 @@ default="greedy"
 
     ``strategy="oat"`` selects nothing, and it keeps the diagnostic only on either design:
     condition (v) of Benkeser, Cai and van der Laan (2020), Theorem 1, fails for an
-    estimated outcome regression.
+    estimated outcome regression. The exception is a per-arm fit with the pair
+    :class:`~cleverly.learners.ParametricOutcome` and
+    :class:`~cleverly.learners.ParametricMechanism` that ``per_arm_parametric_support``
+    admits, which reports an interval from a stacked influence curve.
 
     ``strategy="derivative"`` adds a derivative column for each arm to one TMLE update.
     The columns contain the clever covariates, so the update solves the efficient influence
@@ -1490,20 +1664,51 @@ default="greedy"
         Parameters
         ----------
         longitudinal : bool
-            Must be false because no longitudinal collaborative score is supported.
+            Whether to translate for
+            :class:`~cleverly.longitudinal.SurvivalCTMLE`, the time-to-event engine.
 
         Returns
         -------
         dict of str to Any
-            CTMLE engine keyword arguments.
+            CTMLE or SurvivalCTMLE engine keyword arguments.
+
+        Notes
+        -----
+        The time-to-event engine fits hazards and reports no band, so the unset
+        ``survival_model=None`` and ``simultaneous=None`` resolve to ``"hazard"`` and
+        ``False`` there, and the default ``selection_estimand="ate"`` resolves to the
+        engine's per-arm selection. An explicit value passes through, including
+        ``survival_model="iterated_mean"`` and ``simultaneous=True``, and the engine refuses
+        what it cannot fit.
         """
         if longitudinal:
-            raise MethodConfigurationError(
-                "collaborative TMLE has no longitudinal derivation.",
-                reason=RefusalReason.IMPLEMENTATION_GAP,
-                alternative="Fit a longitudinal design with method='tmle' (LTMLE) or 'sdr'.",
-                roadmap="F5",
-            )
+            defaults = CollaborativeTMLEMethod()
+            kwargs = TMLEMethod.estimator_kwargs(self, longitudinal=True)
+            if self.models.survival_model is None:
+                kwargs["survival_model"] = "hazard"
+            if self.inference.simultaneous is None:
+                kwargs["simultaneous"] = False
+            return {
+                **kwargs,
+                "strategy": self.strategy,
+                "preorder": self.preorder,
+                "ordering": self.ordering,
+                "candidates": self.candidates,
+                "selection_folds": self.selection_folds,
+                "selection_inner_folds": self.selection_inner_folds,
+                "loss": self.loss,
+                "penalty": self.penalty,
+                "selection_estimand": (
+                    None
+                    if self.selection_estimand == defaults.selection_estimand
+                    else self.selection_estimand
+                ),
+                "oat_design": self.oat_design,
+                "lambdas": self.lambdas,
+                "treatment_candidates": self.treatment_candidates,
+                "selection_split": self.selection_split,
+                "patience": self.patience,
+            }
         return {
             **super().estimator_kwargs(),
             "strategy": self.strategy,

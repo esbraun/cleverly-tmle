@@ -289,7 +289,8 @@ class SupportKey:
     qualifiers : frozenset of str
         ``strata``, ``known_mechanism`` and, on a learned-rule fit with clusters of unequal
         sizes, ``unequal_clusters``. A learned-rule fit with a rule learner adds
-        ``rule_learner_blip`` or ``rule_learner_weighted_classification``, and one with known
+        ``rule_learner_blip``, ``rule_learner_weighted_classification`` or
+        ``rule_learner_ep``, and one with known
         regimes beside the rule (``interventions=``) adds ``known_regimes``. A longitudinal key
         holds the known factors.
     options : tuple of tuple
@@ -526,7 +527,9 @@ def in_sample_learned_rule_learners(estimator: Any, data: Any) -> dict[str, str]
     the family of each learner the fit uses: ``outcome_learner_family``,
     ``treatment_learner_family`` (``"known"`` when the data declare the treatment
     probabilities, which the fit then does not learn), and ``rule_learner_family`` for a
-    pseudo-outcome loss. A cross-fitted learned-rule key holds none of them, so the rows of
+    pseudo-outcome loss. An EP rule without a final learner reads ``"parametric"`` at a
+    fixed or scheduled sieve size and ``"adaptive"`` when the size is chosen by
+    cross-validation. A cross-fitted learned-rule key holds none of them, so the rows of
     the cross-fitted studies keep matching their fits.
 
     Parameters
@@ -550,7 +553,12 @@ def in_sample_learned_rule_learners(estimator: Any, data: Any) -> dict[str, str]
         ),
     }
     rule = estimator.learned_rule
-    if rule.loss != "plug_in":
+    if rule.loss == "ep" and rule.learner is None:
+        # Least squares on a sieve of fixed or scheduled size is a fixed-dimension class
+        # that selects nothing; a size chosen by cross-validation selects.
+        cv = rule.sieve is None or rule.sieve.chosen_by_cv
+        families["rule_learner_family"] = "adaptive" if cv else "parametric"
+    elif rule.loss != "plug_in":
         families["rule_learner_family"] = learner_family(rule.learner)
     return families
 
@@ -714,8 +722,9 @@ def point_key(
         qualifiers.add("known_regimes")
     loss = getattr(getattr(estimator, "learned_rule", None), "loss", "plug_in")
     if loss != "plug_in":
-        # No study has measured a rule learner yet (X11 (g)), so a learned-rule row of the
-        # plug-in rule never covers a fit whose rule a blip or classification learner sets.
+        # A learned-rule row of the plug-in rule never covers a fit whose rule a blip, a
+        # classification learner or the EP curve sets (X11 (g), P1 (c)): each loss has its own
+        # rows, T39.<loss> and T51.
         qualifiers.add(f"rule_learner_{loss}")
 
     options: dict[str, Any] = {
@@ -779,7 +788,14 @@ def point_key(
 #: The regimen kinds of a longitudinal key: a static or dynamic regimen, a known stochastic
 #: policy, a modified treatment policy, an odds tilt and a regimen learned in each training
 #: fold (X11 (b)).
-REGIMEN_KINDS: Final[tuple[str, ...]] = ("static", "stochastic", "mtp", "tilt", "learned")
+REGIMEN_KINDS: Final[tuple[str, ...]] = (
+    "static",
+    "stochastic",
+    "mtp",
+    "tilt",
+    "learned",
+    "separable",
+)
 
 
 def regimen_kinds(plans: Iterable[Any]) -> frozenset[str]:
@@ -795,7 +811,9 @@ def regimen_kinds(plans: Iterable[Any]) -> frozenset[str]:
     frozenset of str
         Members of :data:`REGIMEN_KINDS`. A plan with no policy node is ``static``. A plan
         with a policy node and no modified treatment policy or tilt is ``stochastic``. A plan of
-        a :class:`~cleverly.longitudinal.LearnedRegimen` is ``learned``.
+        a :class:`~cleverly.longitudinal.LearnedRegimen` is ``learned``.  A fit with a
+        :class:`~cleverly.longitudinal.Separable` adds ``separable`` itself: its static arms go
+        through the factor-wise engine, so no static-arm row covers them.
     """
     kinds: set[str] = set()
     for plan in plans:
@@ -822,6 +840,7 @@ def longitudinal_key(
     has_msm: bool,
     regimen_kinds: Iterable[str],
     tuned_cap: bool = False,
+    separable_first: int | None = None,
 ) -> tuple[SupportKey, dict[str, type | None]]:
     """The key and the learner classes of a longitudinal fit.
 
@@ -844,6 +863,11 @@ def longitudinal_key(
     tuned_cap : bool, default False
         Whether a regimen has a policy cap tuned on the data. The cap adds a derivative term to
         the curve, so only a row of a tuned-cap study covers it.
+    separable_first : int or None, default None
+        The cause a ``Separable`` regimen counts first, as its 1-based position among the
+        data's causes, or ``None`` without one. Swapping the order changes which hazard the
+        factor-wise engine reads first in each interval, so a study of one order covers only
+        that order. The key holds the position and not the label, which no row can name.
 
     Returns
     -------
@@ -858,7 +882,7 @@ def longitudinal_key(
     )
     key = SupportKey(
         kind="longitudinal",
-        engine=(str(estimator._estimator),),
+        engine=getattr(estimator, "_support_engine", None) or (str(estimator._estimator),),
         family=frozenset(
             (
                 outcome_kind,
@@ -867,7 +891,15 @@ def longitudinal_key(
             )
         ),
         outcome=_outcome(data, estimator.q_bounds),
-        missing=("censoring",) if data.has_censoring else ("complete",),
+        # An eliminated competing event is censoring with a second factor of its own, which
+        # no study of censoring alone covers.
+        missing=(
+            ("censoring", "eliminated")
+            if getattr(data, "eliminated", ())
+            else ("censoring",)
+            if data.has_censoring
+            else ("complete",)
+        ),
         treatment=("held", *levels) if data.treatment_held else levels,
         weighting=_weighting(data),
         splitting=(
@@ -880,7 +912,11 @@ def longitudinal_key(
         dependence=_dependence(
             _positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
         ),
-        qualifiers=frozenset(known_factors),
+        qualifiers=frozenset(
+            (*known_factors, f"separable_first_cause_{separable_first}")
+            if separable_first is not None
+            else known_factors
+        ),
         options=(
             ("multiplier_kind", _option(estimator.multiplier_kind)),
             ("normalization", _option(estimator._normalization())),
@@ -901,6 +937,12 @@ def longitudinal_key(
         "treatment": _learner_type(estimator.treatment_learner),
         "censoring": _learner_type(estimator.censoring_learner),
     }
+    if getattr(data, "eliminated", ()):
+        # The censoring learner fits the prevented cause unless a competing learner is set.
+        competing = estimator.competing_learner
+        learners["competing"] = (
+            learners["censoring"] if competing is None else _learner_type(competing)
+        )
     return key, learners
 
 
@@ -1545,6 +1587,7 @@ def classify_longitudinal_fit(
     regimen_kinds: Iterable[str],
     conditions: Sequence[Refusal] = (),
     tuned_cap: bool = False,
+    separable_first: int | None = None,
 ) -> Classification | None:
     """Classify a longitudinal fit before any mechanism is fitted.
 
@@ -1573,6 +1616,8 @@ def classify_longitudinal_fit(
         experimental.
     tuned_cap : bool, default False
         Whether a regimen has a policy cap tuned on the data.
+    separable_first : int or None, default None
+        The 1-based position of the cause a ``Separable`` regimen counts first, or ``None``.
 
     Returns
     -------
@@ -1589,6 +1634,7 @@ def classify_longitudinal_fit(
             has_msm=has_msm,
             regimen_kinds=regimen_kinds,
             tuned_cap=tuned_cap,
+            separable_first=separable_first,
         )
         classification = classify_key(key, learners, conditions)
     except Exception as error:

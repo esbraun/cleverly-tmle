@@ -1013,10 +1013,9 @@ class TestItRefusesByName:
             # As with ``event``: no longer a refusal but a redirect to the keyword that
             # does this, since competing risks are declared by the outcome columns.
             ("competing", "mapping of cause"),
-            # This one *is* still a refusal, and of a different estimand rather than of a
-            # missing feature: eliminating the competing events makes them intervened
-            # nodes with their own identification.
-            ("eliminate", "different estimand"),
+            # As with ``competing``: a redirect, since the causes to prevent are declared
+            # with the data, where they change which events count.
+            ("eliminate", "declared with the data"),
             ("cross_fit", "n_folds=1"),
         ],
     )

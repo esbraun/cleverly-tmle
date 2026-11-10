@@ -277,6 +277,48 @@ class MarginalSensitivityBounds:
         payload = {name: [getattr(row, name) for row in self.rows] for name in names}
         return emit_frame(payload, backend=self.backend)
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the range of the estimate against Γ, with its interval and no-effect line.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.sensitivity`: ``outcome_label=``, ``units=``
+            and ``title=``.
+
+        Returns
+        -------
+        Figure
+            One panel over the grid of Γ.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> import numpy as np, pandas as pd
+        >>> from sklearn.linear_model import LogisticRegression
+        >>> from cleverly.estimators import TMLE
+        >>> from cleverly.sensitivity import marginal_sensitivity_bounds
+        >>> rng = np.random.default_rng(0)
+        >>> w = rng.normal(size=300)
+        >>> a = rng.binomial(1, 1 / (1 + np.exp(-w)))
+        >>> y = rng.binomial(1, 1 / (1 + np.exp(-(w + a - 0.5))))
+        >>> frame = pd.DataFrame({"W": w, "A": a, "Y": y})
+        >>> fit = TMLE(
+        ...     outcome_learner=LogisticRegression(),
+        ...     treatment_learner=LogisticRegression(),
+        ...     random_state=0,
+        ... ).fit(frame, outcome="Y", treatment="A", covariates=["W"]).single()
+        >>> fig = marginal_sensitivity_bounds(fit, gamma=(1.0, 1.5, 2.0, 3.0)).plot()
+        >>> fig.axes[0].get_ylabel()
+        'Range of the average effect (ate)'
+        >>> plt.close(fig)
+        """
+        from ..plotting import sensitivity
+
+        return sensitivity(self, **kwargs)
+
     def summary(self, *, detail: Detail = "short") -> Summary:
         """Return the printed summary.
 

@@ -214,7 +214,7 @@ from the committed results and checked at the precision printed.
 | Consistent learners, per arm | Every calibration group uses learners that are consistent for the law, with one outcome regression per arm (`outcome_by_arm=True`); a pooled outcome regression on this axis reads experimental. The ladder measures bias under slow nuisances, and two groups measure it under a declared wrong outcome regression; coverage under a misspecified treatment model was not measured |
 | Laws and sizes | n runs from 1,000 to 16,000 on smooth laws with overlap of about 0.25 to 0.77. Weaker overlap, a rare outcome or another n reads supported and rests on the theory alone |
 | The assessment of a score | `assess_score` was measured for an external score on the difference scale only, and its estimates still read experimental because they are built outside a classified fit. The held-out curve checks of `curve.diagnostics` are descriptive and carry no interval |
-| Compositions outside the row | The plug-in learner (`method="ep"`), `model=None`, `strata=`, an intermediate variable, missing treatment values, repeated out-of-fold fits and the bootstrap refuse before fitting |
+| Compositions outside the row | The EP learner (`method="ep"`) is another estimator, measured by [`ep-cate`](ep-cate.md) and [`ep-crr`](ep-crr.md). `model=None` with the default method, `strata=`, an intermediate variable, missing treatment values, repeated out-of-fold fits and the bootstrap refuse before fitting |
 
 ## Reproduction
 

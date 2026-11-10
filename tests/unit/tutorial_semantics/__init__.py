@@ -210,8 +210,9 @@ def notebook_code(path: Path) -> list[tuple[str, str]]:
 
 
 #: A call to any of these names, as a function or as a method, makes a cell a refit cell.  Each
-#: one refits the estimator once per replicate, grid point, or dropped covariate.
-REFIT_CALLS = frozenset({"benchmark", "refute", "simulated_confounding"})
+#: one refits the estimator once per replicate, grid point, dropped covariate, or split seed
+#: (``stability``, the conditional effect curve's refits under other cross-fitting splits).
+REFIT_CALLS = frozenset({"benchmark", "refute", "simulated_confounding", "stability"})
 
 
 def _called(tree: ast.AST) -> set[str]:
@@ -510,12 +511,58 @@ class RefitNamespace(dict[str, Any]):
         return self[name] if name in self.refit_names else super().get(name, default)
 
 
+#: The ``text/plain`` reprs of a matplotlib figure or axes.
+_FIGURE_REPRS = ("<Figure", "Figure(", "<Axes", "<matplotlib.")
+
+
 def _output_text(output: Mapping[str, Any]) -> str:
-    """The readable text of one stored output: its stream, plain text, and HTML payloads."""
+    """The readable text of one stored output: its stream, plain text, and HTML payloads.
+
+    A ``text/plain`` figure repr such as ``<Figure size 800x400 with 1 Axes>`` is skipped when
+    the same output carries an image, so a figure never becomes the last line of a cell.
+
+    Parameters
+    ----------
+    output : Mapping[str, Any]
+        One stored output of a code cell.
+
+    Returns
+    -------
+    str
+        The output's readable text.
+    """
     parts = [_joined(output.get("text", ""))]
     data = output.get("data", {})
-    parts += [_joined(data[mime]) for mime in ("text/plain", "text/html") if mime in data]
+    has_image = any(mime.startswith("image/") for mime in data)
+    for mime in ("text/plain", "text/html"):
+        if mime not in data:
+            continue
+        text = _joined(data[mime])
+        if mime == "text/plain" and has_image and text.lstrip().startswith(_FIGURE_REPRS):
+            continue
+        parts.append(text)
     return "\n".join(part for part in parts if part)
+
+
+def figure_title(figure: Any) -> str:
+    """The title of a figure that a notebook cell drew with :mod:`cleverly.plotting`.
+
+    The runner closes every figure before a callback runs, and a closed figure still holds its
+    text, so a callback asserts the question a figure asks instead of reading an image.
+
+    Parameters
+    ----------
+    figure : Any
+        A matplotlib figure bound to a name in the notebook namespace.
+
+    Returns
+    -------
+    str
+        The title as one line.
+    """
+    from cleverly.plotting._core import title_text
+
+    return title_text(figure)
 
 
 def stored_output(path: Path, cell_id: str) -> str:

@@ -272,6 +272,8 @@ class TestTheSimulationDefaults:
             truth=0.0,
             estimate=0.1,
             std_error=0.1,
+            lower=-0.1,
+            upper=0.3,
             covered=True,
             rejected=False,
             inference_estimate=0.1,

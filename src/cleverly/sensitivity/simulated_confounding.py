@@ -200,6 +200,17 @@ class SimulatedConfoundingCell:
         outcome, on a fit whose estimator declares ``q_bounds``, else ``None``.  The bounded
         laws read the outcome strength on their own scale, so this is the quantity to
         compare across fits.
+    censoring_redrawn_share : float or None
+        On a survival or competing-risk fit with censoring, the weighted share of this
+        cell's replayed person-nodes whose observed censoring was redrawn from the fitted
+        censoring model because the treatment changed.  ``None`` elsewhere.
+    extended_share : float or None
+        On a survival or competing-risk fit, the weighted share of replayed person-nodes
+        past the unit's observed follow-up, drawn from the fitted models.  ``None`` elsewhere.
+    new_event_share : float or None
+        On a survival or competing-risk fit, the weighted share of replayed events at a node
+        where the unit had no observed event.  ``None`` elsewhere, and when the cell has no
+        event.
     """
 
     treatment_strength: float | tuple[float, ...]
@@ -212,6 +223,9 @@ class SimulatedConfoundingCell:
     intermediate_strength: float | None = None
     induced_intermediate_association: float | None = None
     induced_outcome_association: float | None = None
+    censoring_redrawn_share: float | None = None
+    extended_share: float | None = None
+    new_event_share: float | None = None
 
     def __repr__(self) -> str:
         strength = self.treatment_strength
@@ -246,6 +260,10 @@ class SimulatedConfoundingResult:
     movement_scale : {"estimate_difference", "log_ratio"}
         Scale used for the signed displacement. Ratio estimates use their stored log
         value. Other estimates use their reported value.
+    scale : {"difference", "ratio", "level", "fraction"}
+        The scale of the estimate, as the fit reports it.  It names the estimate's
+        no-effect value: zero for a difference or a fraction, one for a ratio, and none for
+        a level (a counterfactual mean).
     grid : ConfounderStrengthGrid
         Explicit strength pairs evaluated by the surface.
     cells : tuple of SimulatedConfoundingCell
@@ -296,6 +314,10 @@ class SimulatedConfoundingResult:
         treatment nodes of a longitudinal fit, or ``()``.  Each cell's
         ``treatment_strength`` and ``induced_treatment_association`` then hold one value
         per component or node in this order.
+    component_kinds : tuple of str
+        For each entry of ``treatment_components``, ``"binary"`` when its strength is the
+        share of units flipped, or ``"dose"`` when it is the dose shift per standard
+        deviation of the simulated cause; ``()`` on a single treatment.
     arm_pair : tuple or None
         The two arm labels ``(a, b)`` that the pairwise swap of a multi-arm treatment
         exchanges, or ``None`` on every other treatment.  Each cell's
@@ -348,6 +370,15 @@ class SimulatedConfoundingResult:
         learner seeds, redraws them under an explicit seed other than the fit's own, or
         the fit has no split.  Redrawn folds put fold noise into the movement of every
         cell near the anchor.  ``None`` on a point-treatment fit.
+    replay_models : tuple of str
+        On a survival or competing-risk fit, one line per fitted model of the follow-up
+        replay: what it fits, its settings, and whether it converged.  ``()`` elsewhere.
+    coupling_seed : int or None
+        On a survival or competing-risk fit, the tagged child seed of the uniforms that
+        couple each replayed indicator to the observed one.  ``None`` elsewhere.
+    outcome_cause : str or None
+        On a competing-risk fit, the cause whose hazard the latent shifts, or ``None`` when
+        it shifts the all-cause event.
 
     Attributes
     ----------
@@ -364,6 +395,7 @@ class SimulatedConfoundingResult:
     estimand: str
     original_estimate: float
     movement_scale: Literal["estimate_difference", "log_ratio"]
+    scale: str
     grid: ConfounderStrengthGrid
     cells: tuple[SimulatedConfoundingCell, ...]
     calibrations: tuple[ObservedConfounderCalibration, ...]
@@ -384,6 +416,7 @@ class SimulatedConfoundingResult:
     conditioning_arm: Any = None
     known_mechanism_carried: bool = False
     treatment_components: tuple[str, ...] = ()
+    component_kinds: tuple[str, ...] = ()
     arm_pair: tuple[Any, Any] | None = None
     latent_level: Literal["row", "cluster", "mixed"] = "row"
     latent_rho: float | None = None
@@ -398,6 +431,9 @@ class SimulatedConfoundingResult:
     bounded_share: float | None = None
     held_decision: bool = False
     refit_folds: Literal["original", "redrawn", "none"] | None = None
+    replay_models: tuple[str, ...] = ()
+    coupling_seed: int | None = None
+    outcome_cause: str | None = None
 
     @property
     def target_measure(self) -> Literal["unweighted", "fixed_empirical_tilt"]:
@@ -635,6 +671,20 @@ class SimulatedConfoundingResult:
                 "target_population_fraction": [
                     cell.target_population_fraction for cell in self.cells
                 ],
+            }
+        )
+        if self.replay_models:
+            payload.update(
+                {
+                    "censoring_redrawn_share": [
+                        cell.censoring_redrawn_share for cell in self.cells
+                    ],
+                    "extended_share": [cell.extended_share for cell in self.cells],
+                    "new_event_share": [cell.new_event_share for cell in self.cells],
+                }
+            )
+        payload.update(
+            {
                 "error_type": [
                     None if cell.failure is None else cell.failure.error_type for cell in self.cells
                 ],
@@ -644,6 +694,51 @@ class SimulatedConfoundingResult:
             }
         )
         return emit_frame(payload, backend=self.backend)
+
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the refitted estimate over the declared strengths of the simulated cause.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.confounding`: ``at=``, ``null=``,
+            ``x_label=``, ``y_label=``, ``title=`` and ``ax=``.
+
+        Returns
+        -------
+        Figure
+            A heat map of the estimate over two strength axes in their own units, with the
+            null crossing outlined; extra axes become small multiples.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
+        >>> frame, _ = make_linear_ate(n=200, seed=0)
+        >>> design = PointTreatment(
+        ...     outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ... )
+        >>> result = CausalStudy(frame, design=design).identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     random_state=0,
+        ... )
+        >>> grid = ConfounderStrengthGrid(treatment=(0.0, 0.1, 0.2), outcome=(0.0, 0.5, 1.0))
+        >>> surface = simulated_confounding(result, "ate", grid=grid, random_state=0)
+        >>> fig = surface.plot()
+        >>> fig.axes[0].get_title(loc="left").replace("\\n", " ")
+        'How far does the estimate move under a simulated common cause?'
+        >>> plt.close(fig)
+        """
+        from ..plotting import confounding
+
+        return confounding(self, **kwargs)
 
     def calibration_frame(self) -> Any:
         """Return model-dependent observed-covariate comparisons.
@@ -959,7 +1054,9 @@ def _latent_child_seed(root_seed: int) -> int:
     The tag keeps this stream apart from every other child stream built on the same
     root. A plain ``SeedSequence(root_seed).spawn(...)`` reproduces the bootstrap
     replicate seeds in :mod:`cleverly.inference.bootstrap`, and the tagged form in
-    :func:`cleverly.validation.refute._generated_child_seeds` uses tags one and two.
+    :func:`cleverly.validation.refute._generated_child_seeds` uses tags one to four, whose
+    spawned children never equal this unspawned draw.  The survival replay's coupling
+    uniforms use their own tag (``COUPLING_SEED_TAG``).
 
     Parameters
     ----------
@@ -1594,6 +1691,7 @@ def simulated_confounding(
     latent_rho: float | None = None,
     observation_reads: tuple[str, ...] | None = None,
     bounded_outcome_law: Literal["logit", "normal_score"] | None = None,
+    outcome_cause: str | None = None,
 ) -> SimulatedConfoundingResult:
     """Refit a selected parameter across a simulated common-cause strength grid.
 
@@ -1646,6 +1744,10 @@ def simulated_confounding(
         quantile, so it depends on the sample, and clips the result to the bounds.  Every
         outcome either law moves lands inside the bounds.
         Any other fit takes ``None`` only.
+    outcome_cause : str or None
+        On a competing-risk longitudinal fit, the cause whose hazard the latent shifts,
+        holding every other cause-specific hazard fixed.  ``None`` shifts the all-cause
+        event and keeps the cause shares.  Any other fit takes ``None`` only.
 
     Returns
     -------
@@ -1761,8 +1863,14 @@ def simulated_confounding(
             latent_rho=latent_rho,
             observation_reads=observation_reads,
             bounded_outcome_law=bounded_outcome_law,
+            outcome_cause=outcome_cause,
         )
         return longitudinal_surface(result, estimand, grid, longitudinal, random_state)
+    if outcome_cause is not None:
+        raise ValueError(
+            "outcome_cause names a cause of a competing-risk longitudinal fit, and this is a "
+            "point-treatment fit"
+        )
     request = _validate_request(
         result,
         estimand,
@@ -1975,6 +2083,7 @@ def simulated_confounding(
         estimand=estimand,
         original_estimate=original,
         movement_scale=request.movement_scale,
+        scale=str(original_parameter.scale),
         grid=grid,
         cells=tuple(cells),
         calibrations=calibrations,
@@ -2001,6 +2110,10 @@ def simulated_confounding(
         weight_report=result.data.weight_report(),
         known_mechanism_carried=result.data.known_treatment is not None,
         treatment_components=columns,
+        component_kinds=tuple(
+            "binary" if data.component_levels[data.component_names.index(name)] else "dose"
+            for name in columns
+        ),
         arm_pair=(
             None
             if request.arm_codes is None and not request.component_pairs

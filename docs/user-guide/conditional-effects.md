@@ -111,12 +111,83 @@ per-row estimate of each unit's effect built from the outcome and treatment mode
 - `curve.diagnostics.risk_comparison()`: how well the curve predicts the effect on held-out
   rows, beside the average effect, the difference of the two outcome models, and, for a
   difference, a regression of the pseudo-outcome on the same basis. Lower is better.
-- `curve.diagnostics.stability()`: how much the curve moves when the fit is repeated on other
-  random splits. It warns when that movement is more than half the curve's own spread.
+- `curve.diagnostics.stability()`: how much the curve moves when the fit is repeated on the
+  same rows with other random splits for the held-out fits. It warns when that movement is more
+  than half the curve's own spread. It measures sensitivity to the split, not to the sample, so
+  a low value does not mean the curve is well determined: a curve fitted to pure noise can read
+  low. Whether the effect changes at all is what `fit.heterogeneity_test()` and the intervals
+  of the default fit answer.
 - `curve.diagnostics.modifier_stability()`: how much worse the held-out prediction gets when
   each modifier is left out of the basis.
 
 These are single numbers with no intervals. They describe this fit and do not test it.
+
+## Fit the effect without choosing a basis
+
+When you have no shape in mind for the effect, leave `model=` out and fit `method="ep"`:
+
+```python
+from cleverly.bases import Cosine, Sieve
+
+effect = study.identify(ConditionalContrast(Modifiers(["age"], domains={"age": (18, 90)})))
+curve = effect.estimate(
+    "ep",
+    sieve=Sieve(Cosine(["age"], 6), size=lambda n: 3 if n < 2000 else 5),  # set before the fit
+    outcome_learner=LogisticRegression(max_iter=1000),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    outcome_by_arm=True,
+    random_state=0,
+)
+curve.predict({"age": [40, 60]})  # the estimated effect at those ages, with no interval
+curve.summary()
+```
+
+The result predicts the effect for each row you pass it, but it has no confidence interval, and
+`curve.predict(rows, interval=True)` is refused. For intervals, declare a basis and use the
+default fit above, or check a score with `assess_score` below.
+
+This is the efficient plug-in (EP) learner of van der Laan, Carone and Luedtke (a preprint).
+It fits the outcome and treatment models so that no row is predicted by a model fitted on it,
+corrects the outcome models with one weighted regression on simple functions of the modifiers,
+and fits the curve to the corrected difference between the arms. The functions are cosines of
+each continuous modifier, which therefore needs a declared domain, and indicators of each
+categorical one. `size=` sets how many: a number, or a rule in the sample size `n` as above.
+Left out, the number is chosen by cross-validation. A number larger than the basis holds is
+refused.
+
+Two simulation studies checked the curve against a reference fit that knew the true outcome and
+treatment models, with the number of functions set by a rule like the one above. On the
+difference scale, at 4,000 rows, the curve's mean squared error was within about 8% of the
+reference's on six simulated populations, and the gap did not grow from 1,000 to 4,000 rows. On
+the log-ratio scale its error was no larger than the reference's. The status line of
+`curve.summary()` reads `supported` for a fit like the one the studies ran: a rule for the
+number of functions, one outcome model per arm (`outcome_by_arm=True`), two arms, an estimated
+treatment model and no weights, clusters or missing outcomes. The method's theory backs that
+label only under the paper's conditions on the models and the rule, which you have to judge.
+
+A fit outside that setting reads `experimental`. That covers the default, a number chosen by
+cross-validation, and a final learner you supply, which the theory does not cover. In the study
+the cross-validated number did about as well as the rule. It also covers a pooled outcome model,
+weights, clusters, missing outcomes, three or more arms, treatment probabilities you declare,
+and a fixed number of functions with `model=None`. They are computed the same way, and no study
+has checked them.
+
+The correction is what keeps the curve on target when the outcome model is wrong and the
+treatment model is right. With a deliberately wrong outcome model, at the outcome noise of the
+paper's simulations, the corrected curve's error was about twice the reference's, against about
+twenty times without the correction. The gap depends on the noise: with a less noisy outcome the
+reference's error shrinks and the wrong model's leftover error does not, and the ratio was about
+four times (see the [study page](../technical-reference/method-evidence/ep-cate.md)).
+
+Check the curve with `curve.diagnostics` as above. A third study checked those checks on an EP
+curve whose effect varies strongly: its held-out calibration slope came out at 0.99, and the
+risk comparison picked the curve over the average effect in every run.
+`curve.diagnostics.score_equations()` shows that the correction solved its equations. A
+difference curve is kept inside the outcome's range (`curve.clipped_share` says how often that
+bound was hit).
+
+With `model=` declared, `method="ep"` estimates the same projection as the default fit, without
+intervals, so the default fit is the better choice there.
 
 ## Check a score fitted elsewhere
 
@@ -144,9 +215,57 @@ treatments. `score_kind="external"` states that, and no code can check it. A col
 matches a curve fitted from this effect, or that carries the `effect_curve:` prefix of
 `curve.to_frame()`, is refused.
 
+## Check how well a score ranks who to treat first
+
+When a score decides who is treated first, the useful question is how much more the treated
+rows gain than a random choice of the same number would. `targeting_curve` answers it from the
+study's outcomes, for a score column fitted on other data:
+
+```python
+gain = effect.targeting_curve(
+    "risk_score",
+    computed_from=["age", "W2"],
+    score_kind="external",
+    outcome_learner=LogisticRegression(max_iter=1000),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    random_state=0,
+)
+gain.summary()
+gain.plot()
+```
+
+The rows are sorted by the score, highest first. For each treated fraction $q$ (10%, 20%, up to
+100%), the TOC column is the average effect among the top $q$ of rows minus the average effect
+over everyone. A TOC above 0 means the score puts rows with larger effects first. AUTOC
+averages the TOC over every fraction, and the Qini coefficient does the same with more weight
+on large fractions. Each carries an interval, and the TOC column also carries a band that holds
+at all the listed fractions at once. `gain.plot(view="gain")` draws the cumulative effect
+against the straight line of treating at random.
+
+A second column passed as `compare=`, with its own `compare_computed_from=`, is scored on the
+same rows, and `gain.summary(detail="full")` shows the difference between the two scores
+with its interval.
+Every quantity is a difference of outcome means, whatever the scale of the score itself.
+
+The intervals hold only for a score that was not fitted on this study's outcomes or
+treatments, as for `assess_score`. To check a curve fitted on this study, use
+`curve.diagnostics.targeting_curve(split=0.5)`. It refits the curve on half of the rows and
+scores the other half, so the result describes that refit, not the curve fitted on every row.
+A fraction with fewer than 50 rows in its top group reports its point without an interval.
+
+Each row of the result is labelled `supported` or `experimental`, and the `status_reason` column
+of `gain.to_frame()` says why. A row reads `supported` when a
+[simulation study](../technical-reference/method-evidence/targeting-curves.md) checked its
+setting and its intervals covered at close to 95%. That setting is a two-arm treatment, the default
+cross-fitting, rows without weights, clusters or missing outcomes, and at least 200 rows in the
+top group. The score comes from other data for a continuous or a binary outcome, or from the
+half-and-half split for a continuous outcome. Known treatment probabilities
+(`treatment_probabilities=`) were checked with a score from other data and a continuous outcome. The difference between two scores was checked for a continuous outcome
+only, and its interval at 10% came out a little wide: it covered 96% of the time.
+
 ## What is not supported yet
 
-The curve without a basis (`model=None`), the efficient plug-in learner (`method="ep"`),
+An interval for the EP curve, a learner of your own as its last step on the log-ratio scale,
 checks of how much hidden confounding would move the coefficients, missing treatment values, an
 intermediate variable, `strata=`, repeated out-of-fold fits on new splits and the bootstrap each
 refuse before any model is fitted and say what to do instead.

@@ -31,6 +31,9 @@ that reading adds.
    cleverly.IncrementalEffect
    cleverly.MSMProjection
    cleverly.msm.MSM
+   cleverly.msm.working_model_means
+   cleverly.dose_response.DoseResponse
+   cleverly.estimators.DoseResponseTMLE
    cleverly.ConditionalContrast
    cleverly.ControlledDirectEffect
 ```

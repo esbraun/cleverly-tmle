@@ -93,6 +93,16 @@ node the treatment mechanism defines the plan, and the estimator is not doubly r
 [Incremental interventions over time](../technical-reference/longitudinal-tmle.md#incremental-interventions-over-time) states
 its contract.
 
+`EPMethod` selects the efficient plug-in learner of a conditional effect curve, for a
+`ConditionalContrast` only. It fits the nuisances out of fold and fits no fluctuation, so it
+refuses `cross_fit=False`, `repeats` above 1, `cv_evaluation=True` and every targeting setting
+except the bounds
+([conditional effects refusals](../technical-reference/conditional-effects.md)). It reports no
+interval. `EPMethod(sieve=..., final_learner=...)` sets the
+smooth functions the correction uses and the regressor of the last step.
+[Conditional effects](conditional-effects.md#fit-the-effect-without-choosing-a-basis) shows the
+workflow.
+
 The collaborative fit above reports no confidence interval, no p-value, and no standard error. The
 `"greedy"` strategy is the default. `"ordered"`, `"discrete"`, `"lasso"` and `"learners"` refuse the
 same three accessors, and so does `"oat"` with a flexible learner. Each estimate keeps
@@ -101,13 +111,29 @@ same three accessors, and so does `"oat"` with a flexible learner. Each estimate
 [Collaborative TMLE](../technical-reference/collaborative-tmle.md) gives the reason for each
 strategy.
 
+`CollaborativeTMLEMethod` also fits a `TimeToEvent` design with a two-level treatment. For each
+arm and time point it builds the treatment and censoring models (which predict who is treated and
+who drops out) one covariate at a time. Each step adds the covariate whose model gives the best
+penalized fit of the event data once the risk curve is updated to it, and cross-validation picks
+how many steps to keep. It reports point estimates of the risk only. A
+[simulation study](../technical-reference/method-evidence/survival-ctmle.md) measured those points
+with a correct outcome model and `hazard_pooling="pooled"`; other settings are marked experimental
+([time-to-event outcomes](../technical-reference/collaborative-tmle.md#time-to-event-outcomes)).
+Through `CausalStudy` the starting outcome model is cross-fitted with 10 folds, the `CrossFitting`
+default; `SurvivalCTMLE` called directly fits it on all rows (`n_folds=1`), as the source does.
+
 `strategy="oat"` fits, for each arm, a treatment model on that arm's predicted outcome. It can
 report an interval when the outcome learner is exactly `ParametricOutcome` and the treatment
 learner exactly `ParametricMechanism`, both from `cleverly.learners`. The data must be complete,
 with no strata and no clusters, and the outcome binary or continuous with declared `q_bounds`. The
 fit may be in sample or cross-fitted with at most 20 folds of at least 30 rows each. It may have
-three or more arms, fixed weights, and the targets `ey_obs`, `par` and `paf`. A treatment with $K$
-arms needs `ParametricOutcome(arm_columns=K - 1)`.
+three or more arms and fixed weights. A treatment with $K$ arms needs
+`ParametricOutcome(arm_columns=K - 1)`.
+
+The `CTMLE` estimator in `cleverly.estimators` also fits
+the targets `ey_obs`, `par` and `paf` this way. `effect.estimate()` offers C-TMLE only for the ATE,
+the arm means, the risk ratio and the odds ratio, and refuses it for PAR and PAF
+([collaborative TMLE](../technical-reference/collaborative-tmle.md#parametric-per-arm-intervals)).
 
 A fit outside these conditions, for example one with `split_plan=`, keeps its point estimates and
 reports no interval. `cleverly.estimators.ctmle.per_arm_parametric_support(estimator, data)` names
@@ -277,8 +303,9 @@ interval. See [Report the sequential baselines](longitudinal.md#report-the-seque
 
 A prediction through an aliased column assumes that the column has no effect. On a row that
 departs from the fit rows, the data cannot support that assumption. Sequential g-computation
-refuses such a fit with `DataError`, because no follower has that history. The technical page lists this refusal for
-g-computation only.
+refuses such a fit with `DataError`, because no follower has that history.
+[Sequential g-computation and IPW](../technical-reference/sequential-baselines.md#refusals) lists
+this refusal for g-computation only.
 
 ```python
 import numpy as np
@@ -325,7 +352,8 @@ covariate law, because it models no covariate.
   outcome. This is the default, and it is the only policy a fit that draws a split accepts.
 - `stratify_by="treatment"` and `stratify_by="treatment+outcome"` are refused when the fit draws
   folds. A selector-based collaborative fit refuses them at every setting, because its search draws
-  selection folds without cross-fitting. In-sample outcome-adaptive C-TMLE draws no selection folds
+  selection folds without cross-fitting
+  ([collaborative TMLE](../technical-reference/collaborative-tmle.md)). In-sample outcome-adaptive C-TMLE draws no selection folds
   and accepts an unused policy.
 
 `CrossFitting` raises `MethodConfigurationError` when you construct a declaration its own checks
@@ -352,7 +380,7 @@ observations at the rare level.
 | missing-outcome fit | what it needs beyond the rules above | contract table |
 | --- | --- | --- |
 | binary `NaturalCourseMean`, stacked | a binary outcome, pooled targeting, and one repeat | [natural-course contracts](../technical-reference/scope-and-refusals.md#missing-outcome-natural-course-contracts) |
-| arm-indexed means and contrasts, cross-fitted | ordinary TMLE, and no `ATT` or `ATC` target | [arm-indexed contract](../technical-reference/scope-and-refusals.md#missing-outcome-arm-indexed-contract) |
+| arm-indexed means and contrasts, cross-fitted | ordinary TMLE. `ATT` and `ATC` run under the experimental label | [arm-indexed contract](../technical-reference/scope-and-refusals.md#missing-outcome-arm-indexed-contract) |
 | arm-indexed means and contrasts, per-arm `CTMLE(strategy="oat")` | a respondent in each arm and stratum of each training complement, and a nonrespondent in each complement. The fit reports a point estimate only | [per-arm design contract](../technical-reference/collaborative-tmle.md#baseline-strata-and-missing-data-in-the-per-arm-design) |
 | shift, incremental, regime, MSM, and controlled-direct-effect targets, cross-fitted | no contract. The fit refuses them before the first learner | [not written yet](../technical-reference/scope-and-refusals.md#not-written-yet) |
 
@@ -365,7 +393,8 @@ candidate, before an estimator variant multiplies it again. The examples in this
 
 Keep all rows from one declared cluster in the same fold. A grouped draw does that by permuting the
 distinct cluster labels and cutting them into near-equal parts. Ordinary TMLE, DR-TMLE and
-longitudinal TMLE accept `id=` under cross-fitting. C-TMLE refuses `id=` at every setting, except `strategy="derivative"`.
+longitudinal TMLE accept `id=` under cross-fitting. C-TMLE refuses `id=` at every setting, except `strategy="derivative"`
+([collaborative TMLE](../technical-reference/collaborative-tmle.md)).
 Cross-fitting reduces empirical-process bias. It does not establish positivity, correct
 identification, or nuisance consistency.
 

@@ -6,17 +6,21 @@ bias, a coverage or an SE ratio.  The declared seeds are only computed, never dr
 
 from __future__ import annotations
 
+import hashlib
 import importlib
+import json
 import platform
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from tests.canonical import declared_run, learned_rule_run
+from tests.canonical.regenerate import ARTIFACT_NAMES
 from tests.studies import _learned_rule_law as law
 from tests.studies import fold_evaluated_strata as strata
 from tests.studies import learned_regimen_ltmle as regimen
@@ -26,6 +30,7 @@ from tests.studies import learned_rule_contrast as contrast
 from tests.studies import learned_rule_cvtmle as gated
 from tests.studies import learned_rule_cvtmle_boundary as boundary
 from tests.studies import learned_rule_cvtmle_properties as properties
+from tests.studies import learned_rule_ep as ep
 from tests.studies import learned_rule_in_sample as in_sample
 from tests.studies import learned_rule_intermediate as intermediate
 from tests.studies import learned_rule_learners as learners
@@ -33,7 +38,9 @@ from tests.studies import learned_rule_optimal_value as optimal
 from tests.studies import learned_rule_split_mean as split_mean
 from tests.studies import learned_rule_stacked as stacked
 from tests.studies import learned_rule_strata as learned_strata
+from tests.studies.evidence import manifest
 from tests.studies.evidence.inference import Interval
+from tests.studies.evidence.registry import ROOT
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
 #: Throwaway seeds, far from every declared and pilot seed.
@@ -115,6 +122,8 @@ class TestTheSeedRules:
         # seed (``test_learned_rule_intermediate_design``).
         # X11's learned-regimen-ltmle (X11 PR K) adds 1,200 primary and 15,200 property seeds,
         # none of which equals another X11 study's seed (``test_learned_regimen_ltmle_design``).
+        # P1 PR-c's learned-rule-ep adds 4,000 primary and 28,500 property seeds, none of which
+        # equals another learned-rule study's seed (``test_learned_rule_ep_design``).
         assert len(declared) == (
             46_310
             + 6_000
@@ -131,6 +140,7 @@ class TestTheSeedRules:
             + 18_400
             + 32_400
             + 16_400
+            + 32_500
         )
         for study in (
             gated,
@@ -147,6 +157,7 @@ class TestTheSeedRules:
             optimal,
             intermediate,
             regimen,
+            ep,
         ):
             smoke = law.smoke_record(study.STUDY)
             seeds = {replicate_seed(smoke, s, r) for s in smoke.scenarios for r in range(32)}
@@ -268,41 +279,112 @@ class TestTheBoundaryReading:
 class TestTheRunForm:
     """What the RM30 run form adds to the shared one; ``test_declared_run.py`` tests that."""
 
-    def test_the_runtime_refusals_name_each_version_that_differs(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(learned_rule_run, "PYTHON", platform.python_version())
-        monkeypatch.setattr(
-            learned_rule_run,
-            "PACKAGES",
-            {name: importlib.import_module(name).__version__ for name in learned_rule_run.PACKAGES},
-        )
-        assert learned_rule_run.runtime_refusals() == []
-        monkeypatch.setitem(learned_rule_run.PACKAGES, "sklearn", "0.0.0")
-        assert learned_rule_run.runtime_refusals() == [
-            f"sklearn is {importlib.import_module('sklearn').__version__}, not 0.0.0 (rule L7)",
-        ]
+    def _declared_run(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, sklearn_version: str
+    ) -> tuple[dict[str, Any], str]:
+        """A declared run under a stand-in driver, on the installed stack but for scikit-learn.
 
-    def test_a_declared_run_refuses_a_runtime_rule_l7_does_not_declare(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        monkeypatch.setattr(sys, "argv", ["regenerate", "--output", str(tmp_path / "run")])
+        The declared stack is the installed one, so the only difference a run can see is the
+        scikit-learn version it is given.  Returns the copied manifest and ``run.log``.
+        """
+        installed = {
+            name: version
+            for name, version in manifest.provenance().items()
+            if name in learned_rule_run.DECLARED_STACK
+        }
+        monkeypatch.setattr(learned_rule_run, "DECLARED_STACK", installed)
+        monkeypatch.setattr(importlib.import_module("sklearn"), "__version__", sklearn_version)
+        output = tmp_path / "run"
+        monkeypatch.setattr(sys, "argv", ["regenerate", "--output", str(output)])
         monkeypatch.setattr(declared_run, "refusals", lambda smoke: [])
         monkeypatch.setattr(declared_run, "thread_refusals", list)
-        monkeypatch.setattr(learned_rule_run, "PYTHON", "0.0.0")
-        monkeypatch.setattr(declared_run, "regenerate", pytest.fail)
-        with pytest.raises(SystemExit, match=r"not 0\.0\.0 \(rules L6 and L7\)"):
-            learned_rule_run.run(gated, properties, here=tmp_path / "here")
 
-    def test_the_declared_packages_are_the_l7_list(self) -> None:
-        assert learned_rule_run.PYTHON == "3.13.7"
-        assert learned_rule_run.PACKAGES == {
+        def driver(study: ModuleType, properties: ModuleType, **_: object) -> None:
+            names = (*ARTIFACT_NAMES, *study.STUDY.extra_artifacts, *study.STUDY.property_artifacts)
+            paths = [output / name for name in names]
+            for path in paths:
+                path.write_text("artifact\n", encoding="utf-8", newline="\n")
+            manifest.write_manifest(output / "manifest.json", study.STUDY, paths)
+
+        monkeypatch.setattr(declared_run, "regenerate", driver)
+        learned_rule_run.run(gated, properties, here=tmp_path / "here")
+        here = tmp_path / "here"
+        recorded = json.loads((here / "manifest.json").read_text(encoding="utf-8"))
+        return recorded, (here / "run.log").read_text(encoding="utf-8")
+
+    def test_a_declared_run_records_its_stack_and_the_lock(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        installed = importlib.import_module("sklearn").__version__
+        recorded, log = self._declared_run(monkeypatch, tmp_path, installed)
+        subject = recorded["generated_with"]["subject"]
+        assert subject["python"] == platform.python_version()
+        for name in ("numpy", "scipy", "pandas", "joblib"):
+            assert subject[name] == importlib.import_module(name).__version__, name
+        assert subject["scikit_learn"] == installed
+        lock = ROOT / "uv.lock"
+        assert subject["dependency_lock_sha256"] == hashlib.sha256(lock.read_bytes()).hexdigest()
+        assert recorded["generated_with"]["declared_stack"] == {
+            "versions": learned_rule_run.DECLARED_STACK,
+            "differences": {},
+        }
+        assert "warning" not in capsys.readouterr().err
+        assert "warning" not in log
+
+    def test_a_declared_run_on_another_stack_warns_and_records_the_difference(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Rule L7 is a record, not a gate: the witness is a scikit-learn no release carries."""
+        declared = importlib.import_module("sklearn").__version__
+        recorded, log = self._declared_run(monkeypatch, tmp_path, "0.0.0")
+        assert recorded["generated_with"]["subject"]["scikit_learn"] == "0.0.0"
+        assert recorded["generated_with"]["declared_stack"]["differences"] == {
+            "scikit_learn": {"declared": declared, "ran": "0.0.0"}
+        }
+        warning = f"warning: scikit_learn is 0.0.0, not the declared {declared}"
+        assert warning in capsys.readouterr().err
+        assert f"note: {warning}" in log
+
+    def test_the_declared_stack_is_the_l7_list(self) -> None:
+        assert learned_rule_run.DECLARED_STACK == {
+            "python": "3.13.7",
             "numpy": "2.4.6",
             "scipy": "1.18.0",
             "pandas": "3.0.5",
-            "sklearn": "1.9.0",
+            "scikit_learn": "1.9.0",
             "joblib": "1.5.3",
         }
+
+    def test_the_declared_stack_is_the_stack_of_every_committed_run(self) -> None:
+        """The declared stack records what ran; each study's manifest says what that was."""
+        for module in (
+            gated,
+            boundary,
+            compositions,
+            split_mean,
+            learners,
+            strata,
+            learned_strata,
+            stacked,
+            in_sample,
+            contrast,
+            arms,
+            optimal,
+            intermediate,
+            regimen,
+        ):
+            path = module.STUDY.artifact("manifest.json")
+            subject = json.loads(path.read_text(encoding="utf-8"))["generated_with"]["subject"]
+            assert not manifest.stack_differences(
+                {k: v for k, v in learned_rule_run.DECLARED_STACK.items() if k in subject},
+                subject,
+            ), module.STUDY.slug
 
     def test_the_harness_check_flag_is_refused_on_a_declared_run(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

@@ -124,6 +124,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "CounterfactualMean",
         "CrossFitting",
         "DRTMLEMethod",
+        "EPMethod",
         "DataError",
         "DiagnosticReport",
         "Estimand",
@@ -481,6 +482,7 @@ BACKEND_ROUTES: dict[str, str] = {
     "CausalData": "field",
     "CorrectionCheck": "field",
     "CVTargeting": "field",
+    "DoseResponseResult": "field",
     "DiagnosticReport": "field",
     "InfluenceReport": "field",
     "LongitudinalDiagnostics": "field",
@@ -500,6 +502,7 @@ BACKEND_ROUTES: dict[str, str] = {
     "StructuralNestedMeanResult": "container",
     "AdaptiveTMLEResult": "container",
     "CTMLESelection": "argument",
+    "SurvivalSelection": "argument",
     "StudyResult": "argument",
     "RefutationTest": "argument",
     "MethodAvailabilities": "argument",
@@ -516,12 +519,23 @@ BACKEND_ROUTES: dict[str, str] = {
     "SimultaneousBands": "argument",
     # The truncation curve (X89 T3) wraps the frame the diagnostics built.
     "TruncationCurve": "wrapped",
+    # The targeting curves (X92 part 5) carry the study's backend name.
+    "TargetingCurve": "field",
+    # Balance and per-node weight readings (X92 part 3b): built from a fit's weights,
+    # so the caller names the backend.
+    "CovariateBalance": "argument",
+    "NodeWeights": "argument",
+    # The MSM working model's mean at each level (X92 part 2): built from a fit's
+    # coefficients alone, so the caller names the backend.
+    "WorkingModelMeans": "argument",
     # A projection's effect curve, its readings, and the external-score check (P1 plan).
     "EffectCurveResult": "field",
     "CurveCalibration": "field",
     "CurveRiskComparison": "field",
     "ModifierStability": "field",
     "ScoreAssessment": "field",
+    # The EP learner's debiasing-score report (P1 part b).
+    "DebiasingScores": "field",
 }
 
 

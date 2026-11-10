@@ -1035,6 +1035,13 @@ class TestPublishedVerdicts:
         low, high = property_verdicts.UNION_MODEL_SE_BAND
         union = published.loc[published["property"].isin(property_verdicts.UNION_MODEL_FAMILIES)]
         for row in union.itertuples():
+            if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                # A diagnostic row of a union-model family reports and is never red; a joint
+                # clause the study declares reads it (the dose-response targeting gain).
+                assert bool(row.passed) and bool(row.property_passed), (
+                    f"{row.cell} is a diagnostic row and publishes a verdict"
+                )
+                continue
             endpoint = (
                 _with_alternative(row, row.bias_discriminated)
                 if row.role == "control"
@@ -1134,6 +1141,38 @@ class TestPublishedVerdicts:
                 )
             assert bool(row.passed) is bool(expected), (
                 f"{row.cell} publishes passed={row.passed} against its own one-wrong endpoint"
+            )
+
+        # The EP studies' log ISE ratios (P1 part (b)): a positive answers to its one-sided
+        # upper bound below the declared margin, a control to its lower bound above it, and a
+        # diagnostic row states no verdict.
+        oracle = published.loc[published["property"] == "oracle_comparison"]
+        for row in oracle.itertuples():
+            if row.role == "positive":
+                expected = row.ratio_upper < row.margin
+            elif row.role == "control":
+                expected = row.ratio_lower > row.margin
+            else:
+                expected = True
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own ratio bound"
+            )
+        # ``ep-assessment``: the calibration slope's interval inside the declared band, the
+        # stretched control's upper end below the band's floor, and a sign share's
+        # Clopper-Pearson lower end at or above its floor.
+        readings = published.loc[published["property"].isin({"calibration", "risk_comparison"})]
+        for row in readings.itertuples():
+            if row.role == "diagnostic":
+                expected = True
+            elif row.property == "risk_comparison":
+                expected = row.reading_lower >= row.threshold
+            elif row.role == "control":
+                expected = row.reading_upper < row.threshold
+            else:
+                low, high = study.runner().CALIBRATION_BAND
+                expected = low < row.reading_lower and row.reading_upper < high
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own reading"
             )
 
         accuracy = published.loc[published["property"] == "known_mechanism_accuracy"]
@@ -1797,6 +1836,12 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # margin, a control's outside it.  The ladder rows read the same equivalence endpoint.
         "bias",
         "root_n_points",
+        # P1 part (b), the EP studies: a log ISE ratio against its declared margin, a
+        # calibration slope against its band and a sign share against its floor.  Checked row
+        # by row below.
+        "oracle_comparison",
+        "calibration",
+        "risk_comparison",
     }
 )
 
@@ -1883,6 +1928,13 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # X46's first-draw reading and its displacement share, reported with no verdict.
         "single_draw_reading",
         "split_displacement",
+        # P1 part (b), the EP studies: the paired EP-minus-TMLE difference at a fixed basis, the
+        # nuisance errors, the oracle Hessian checks and the split-stability readings, each
+        # reported with no verdict.
+        "diagnostic",
+        "nuisance_error",
+        "oracle_hessian",
+        "stability",
         # X33's bounded fits on the parameters the bounds do not gate, and the unbounded fits on
         # the same draws, each reported with no verdict.
         "reported_calibration",
@@ -1944,6 +1996,10 @@ class TestNegativeControls:
             "coverage": self._lose_coverage,
             "standard error": self._inflate_standard_errors,
         }
+        # A point-only cell passes on its bias leg alone (StudyRecord.point_only_scenarios), so
+        # its coverage and standard error are published and never gated.
+        if label != "bias" and set(cell["scenario"]) <= set(study.point_only_scenarios):
+            pytest.skip("a point-only cell gates neither coverage nor the standard error")
         baseline = independent_performance_tests(cell, record=_cheap(study), n_jobs=1).set_index(
             "implementation"
         )
@@ -2040,7 +2096,11 @@ class TestNegativeControls:
             pytest.skip("the study declares no union-model cells")
         rows = _property_rows(study.slug)
         published = _property_summary(study.slug).set_index(["property", "cell"])
-        union = published.loc[published.index.get_level_values(0).isin(families)]
+        # A diagnostic row reports and is never red, so the screen does not reach it.
+        union = published.loc[
+            published.index.get_level_values(0).isin(families)
+            & (published["role"] != property_verdicts.DIAGNOSTIC_ROLE)
+        ]
         # At least one, not all of them: two registered rows publish a red union-model cell
         # under reporting policy, and a mutation whose cells were already failing would show
         # nothing.
@@ -3798,6 +3858,11 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
         ("natural_course_identity", "sup-norm identity"),
         ("static_reduction", "sup-norm identity"),
         ("correction_necessity", "closed score below the initial"),
+        # ep-cate and ep-crr: a lost replicate of an ISE comparison has no candidate value.
+        ("oracle_comparison", "oracle comparison bound"),
+        # ep-assessment: a lost replicate of a refit-based reading has no candidate value.
+        ("calibration", "assessment reading"),
+        ("risk_comparison", "assessment reading"),
     }
 )
 
@@ -3967,7 +4032,7 @@ class TestPropertyDifferential:
         job = workflow.split("\n  tests:", 1)[1].split("\n  # ", 1)[0]
         assert "matrix.python-version != '3.12'" in job
         assert "--ignore=tests/unit/test_method_evidence.py" in job
-        assert '"3.12"' in job.split("python-version:", 1)[1].split("\n", 1)[0]
+        assert 'python-version: "3.12"' in job
 
     def test_each_binding_witness_names_what_exists(self) -> None:
         job = self._job()

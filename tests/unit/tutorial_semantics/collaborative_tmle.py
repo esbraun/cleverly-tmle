@@ -16,7 +16,7 @@ import pytest
 from cleverly._summary import vocabulary
 from cleverly.datasets import navigation_protocol
 from cleverly.exceptions import CapabilityError
-from cleverly.sensitivity import evalue_from_rr, omitted_variable_bounds
+from cleverly.sensitivity import omitted_variable_bounds
 from tests.studies.oat_per_arm_laws import BINARY_ACTIVE
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
@@ -24,6 +24,7 @@ from tests.unit.tutorial_semantics import (
     assert_protocol_recorded,
     changed_fields,
     covers,
+    figure_title,
     stored_output,
 )
 
@@ -182,6 +183,7 @@ def check(namespace: dict[str, Any]) -> None:
     # "about 14% of patients get a predicted offer probability below 0.1 or above 0.9".
     tails = ordinary_support.tail_mass[0.1]
     assert round(tails["below"] + tails["above"], 2) == 0.14
+    assert figure_title(namespace["overlap_fig"]) == "Predicted probability of treatment, by group"
 
     # "Check the fit": the working mechanisms read the outcome prediction only, so they discriminate
     # the offer weakly.  The ordinary g, which holds staffing, discriminates it well.
@@ -199,7 +201,6 @@ def check(namespace: dict[str, Any]) -> None:
     assert "unavailable" not in stored and "not_applicable" not in stored
 
     _check_refutation_stored(namespace)
-    _check_evalue(namespace)
     _check_bound_limit(namespace)
 
 
@@ -296,27 +297,6 @@ def _check_generated_outcome(namespace: dict[str, Any]) -> None:
         assert abs(np.mean(test.values) - 0.12) < 3 * spread
         # The generated truth is not the page's ATE.
         assert abs(namespace["fits"][name]["ate"].psi - 0.12) > 0.02
-
-
-def _check_evalue(namespace: dict[str, Any]) -> None:
-    """The E-value of each fit is the retargeted risk ratio's, with the page's scope."""
-    for name, fit in namespace["fits"].items():
-        value = fit.sensitivity.evalue()
-        assert value.estimand == "rr" and not value.approximate
-        assert value.risk_ratio > 1.0 and 1.0 < value.risk_ratio_ci[0] < value.risk_ratio
-        assert value.point == pytest.approx(evalue_from_rr(value.risk_ratio), rel=1e-12)
-        # The limit is the E-value of the interval end nearest the null.
-        assert value.limit == pytest.approx(evalue_from_rr(value.risk_ratio_ci[0]), rel=1e-12)
-        assert 1.0 < value.limit < value.point
-        # "Derived ... no nuisance model was refit": the retargeted ratio of two arm means.
-        assert value.source_estimand == "ate"
-        # The note under the OAT fit only: no registered calibration covers its limit.
-        assert (value.limit_reading is not None) == (name == "collaborative TMLE")
-    stored = stored_output(NOTEBOOK, "evalue")
-    assert stored.count("No calibration covers this configuration") == 1
-    assert stored.index("collaborative TMLE") < stored.index(
-        "No calibration covers this configuration"
-    )
 
 
 def _check_stress_surface(namespace: dict[str, Any]) -> None:

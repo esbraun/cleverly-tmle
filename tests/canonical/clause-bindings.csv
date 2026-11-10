@@ -600,6 +600,18 @@ deterministic-regimes,targeting_necessity,bias equivalent,bias
 deterministic-regimes,targeting_necessity,least displacement over labels,control_concentrated
 deterministic-regimes,type_i_error,coverage floor,coverage/0.5
 deterministic-regimes,type_i_error,rejection ceiling,rejection/0.1
+dose-response,double_robustness,bias discriminated,pair_collapse
+dose-response,double_robustness,bias equivalent,bias
+dose-response,double_robustness,se ratio in union band,se/0.05
+dose-response,double_robustness,targeting gain past truth,centre/diagnostic/0.5
+dose-response,interval_calibration,coverage in calibration band,shift/0.7
+dose-response,interval_calibration,efficiency above band,pair_collapse
+dose-response,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/0.97
+dose-response,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+dose-response,interval_calibration,se ratio below band,se_high
+dose-response,interval_calibration,se ratio in calibration band,se/0.9
+dose-response,simultaneous_coverage,joint coverage below nominal,se_high
+dose-response,simultaneous_coverage,joint coverage in calibration band,se_low
 drtmle-foldwise,double_robustness,bias discriminated,pair_collapse
 drtmle-foldwise,double_robustness,bias equivalent,bias
 drtmle-foldwise,double_robustness,se ratio in union band,se/0.05
@@ -613,6 +625,20 @@ drtmle-one-wrong,one_wrong_inference,se ratio above calibration band,se/0.05
 drtmle-one-wrong,one_wrong_inference,se ratio in union band,contract
 drtmle-one-wrong,one_wrong_inference,se ratio sanity,se_high
 drtmle-one-wrong,one_wrong_inference,standardized bias grows,pair_collapse
+eliminated-competing-events,double_robustness,bias discriminated,shift/1.5
+eliminated-competing-events,double_robustness,bias equivalent,bias
+eliminated-competing-events,double_robustness,se ratio in union band,se/0.05
+eliminated-competing-events,interval_calibration,coverage in calibration band,bias
+eliminated-competing-events,interval_calibration,efficiency above band,pair_collapse
+eliminated-competing-events,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+eliminated-competing-events,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+eliminated-competing-events,interval_calibration,se ratio below band,se_high
+eliminated-competing-events,interval_calibration,se ratio in calibration band,se/0.95
+ep-assessment,calibration,assessment reading,pair_collapse
+ep-assessment,risk_comparison,assessment reading,control_concentrated
+ep-cate,bias,bias equivalent,bias
+ep-cate,oracle_comparison,oracle comparison bound,contract
+ep-crr,oracle_comparison,oracle comparison bound,bias
 few-cluster-cross-fitted-ltmle,few_cluster_reference,bias equivalent,bias
 few-cluster-cross-fitted-ltmle,few_cluster_reference,coverage floor,se_low
 few-cluster-cross-fitted-ltmle,few_cluster_reference,iid se ratio under its ceiling,se_high
@@ -754,6 +780,11 @@ learned-rule-cvtmle,root_n_rate,slope in root-n band,contract
 learned-rule-cvtmle,targeting_necessity,bias discriminated,pair_collapse
 learned-rule-cvtmle,targeting_necessity,bias equivalent,bias
 learned-rule-cvtmle,targeting_necessity,least displacement over labels,control_concentrated
+learned-rule-ep,interval_calibration,coverage in calibration band,shift/0.7
+learned-rule-ep,interval_calibration,noise se ratio below band,se_high
+learned-rule-ep,interval_calibration,se ratio below band,se_high
+learned-rule-ep,interval_calibration,se ratio in calibration band,se/0.05
+learned-rule-ep,interval_calibration,validation-rule coverage below band,coverage/0.9
 learned-rule-in-sample,interval_calibration,coverage in calibration band,bias
 learned-rule-in-sample,interval_calibration,interpolating se ratio below band,pair_collapse
 learned-rule-in-sample,interval_calibration,noise se ratio below band,se_high
@@ -1396,6 +1427,15 @@ repeated-crossfit-tmle,root_n_and_efficiency,se ratio sanity,se_high
 repeated-crossfit-tmle,root_n_rate,slope in root-n band,contract
 repeated-crossfit-tmle,type_i_error,coverage floor,coverage/0.5
 repeated-crossfit-tmle,type_i_error,rejection ceiling,rejection/0.1
+separable-effects,double_robustness,bias discriminated,pair_collapse
+separable-effects,double_robustness,bias equivalent,bias
+separable-effects,double_robustness,se ratio in union band,se/0.05
+separable-effects,interval_calibration,coverage in calibration band,affine
+separable-effects,interval_calibration,efficiency above band,pair_collapse
+separable-effects,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+separable-effects,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+separable-effects,interval_calibration,se ratio below band,se_high
+separable-effects,interval_calibration,se ratio in calibration band,se/0.9
 sequential-baselines,interval_calibration,bias equivalent,bias
 sequential-baselines,interval_calibration,coverage in calibration band,coverage/0.5
 sequential-baselines,interval_calibration,noise se ratio below band,se_high
@@ -1515,6 +1555,16 @@ survival-node-bounds,interval_calibration,efficiency reported in efficiency band
 survival-node-bounds,interval_calibration,se ratio below band,se_high
 survival-node-bounds,interval_calibration,se ratio in calibration band,se/0.95
 survival-node-bounds,interval_calibration,unconverged share,extra|converged|interval_calibration|mean_model_f5_arm1__correctly_specified|floor
+targeting-curves,bias,bias discriminated,shift/0.7
+targeting-curves,interval_calibration,coverage in calibration band,bias
+targeting-curves,interval_calibration,se ratio above band,se_low
+targeting-curves,interval_calibration,se ratio below band,se_high
+targeting-curves,interval_calibration,se ratio in calibration band,none
+targeting-curves,power,rejection floor,se_low
+targeting-curves,simultaneous_coverage,joint coverage below nominal,se_low
+targeting-curves,simultaneous_coverage,joint coverage in calibration band,se_low
+targeting-curves,type_i_error,coverage floor,coverage/0.5
+targeting-curves,type_i_error,rejection ceiling,rejection/0.1
 tests.studies.longitudinal_sdr_properties,clustered_calibration,coverage in calibration band,shift/0.7
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio in calibration band,se/0.05

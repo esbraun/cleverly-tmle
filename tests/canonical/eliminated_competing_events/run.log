@@ -1,0 +1,21 @@
+=== eliminated-competing-events declared run
+command: /usr/local/bin/python /home/user/cleverly-tmle/tests/canonical/eliminated_competing_events/regenerate.py --output /home/claude/x91out --jobs 4
+commit: f9650869616ec6fa5edce1cda72dcbf36c3f596b; upstream f9650869616ec6fa5edce1cda72dcbf36c3f596b
+clean tree: True
+cleverly 0.2.0 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.18; numpy 2.5.3; scipy 1.18.1; pandas 3.0.5; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 194, sha256 e0b3799770c7db2e3618b43204b7e06d32e1a8b27bc8f8e116345f664d7bc274
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-07T23:11:05+00:00
+finished: 2026-11-07T23:49:08+00:00
+wall seconds: 2282.5
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: ab7e7f95de7f21b9cb1de737f1a27eeb1e9cda7bd80ef6a02c908a371d4bc177
+sha256 performance-tests.csv: 37c6d55ba1f1eed0c00c1fcea8e69812786ea8ee9c8284357569dfa433db7ea9
+sha256 properties.csv: 392fed75ec07c3506c5f549aaddd9471698486bde1607d84547f8b66f0e7d455
+sha256 property-replicates.parquet: 242aa7b9304ccf0109a7a976fc328aac079138a60689211713a68678cb041ddc
+sha256 replicates.parquet: a5290240a8fb513191037f7fb582f766a6301a54130230057fdc44c7451483e7
+sha256 summary.csv: a5f1e5d6e17378e24eaf63ae1dde2eea8d5ee2eef99e20c2d9af4a28158e0823
+

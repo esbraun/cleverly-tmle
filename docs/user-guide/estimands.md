@@ -53,7 +53,8 @@ treatment model.
 
 `cleverly` supports two scalar TMLE configurations for this target. An ordinary fit uses
 `CrossFitting(enabled=False)`. It accepts a binary outcome or a continuous outcome with fixed
-`q_bounds`. A stacked CV-TMLE fit accepts a binary outcome and uses this cross-fitting declaration:
+`q_bounds`. A stacked CV-TMLE fit is supported for a binary outcome, and runs a continuous outcome
+under the experimental label. It uses this cross-fitting declaration:
 
 ```python
 stacked_mar = TMLEMethod(
@@ -72,9 +73,11 @@ stacked_mar = TMLEMethod(
 ```
 
 Pass `stacked_mar` when you estimate `NaturalCourseMean()` from a study with `missingness=`. The
-fit generates one near-balanced outer partition. Both configurations require iterative unweighted
-logistic targeting. The treatment can have two or more arms. The ordinary fit also accepts fixed
-weights and clusters. The stacked fit requires unweighted iid rows.
+fit generates one near-balanced outer partition. Both configurations are supported with iterative
+unweighted logistic targeting; other targeting settings run under the experimental label. The
+treatment can have two or more arms. The ordinary fit also accepts fixed weights and clusters. The
+stacked fit is supported on unweighted iid rows, and runs weights or clusters under the
+experimental label.
 
 `PopulationAttributableRisk` and `PopulationAttributableFraction` accept `missingness=` too. The
 fit stacks the natural-course mean and the reference-arm mean on the same rows, so it also uses a
@@ -113,9 +116,10 @@ lists every refused composition for both configurations. See the
 [missing-outcome construction and evidence](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects).
 
 `ATE`, `CounterfactualMean`, `RiskRatio`, and `OddsRatio` also accept `missingness=`. Under
-cross-fitting with missing outcomes, only `TMLEMethod` fits these targets.
-`CollaborativeTMLEMethod` and `DRTMLEMethod` are refused. `ATT` and `ATC` are refused under
-cross-fitting with missing outcomes. Two further requirements are not special to this surface.
+cross-fitting with missing outcomes, `TMLEMethod` fits these targets with an interval.
+`CollaborativeTMLEMethod` fits them only with `strategy="oat"` and the default `oat_design="per_arm"`, and reports a
+point estimate only. Its other strategies and `DRTMLEMethod` are refused. `ATT` and `ATC` run under
+the experimental label under cross-fitting with missing outcomes. Two further requirements are not special to this surface.
 Every cross-fitted fit draws `CrossFitting(stratify_by="none")` folds, which is the default, and
 every cross-fitted continuous outcome needs `Targeting(q_bounds=(lower, upper))` equal to its known
 support.
@@ -239,10 +243,47 @@ the study measured ten only.
 
 With four or more options, or with three and any other setting on this page (the default
 `CrossFitting()`, the in-sample fit, weights, clusters, strata, several splits or a comparison
-with a fixed policy), cleverly marks the estimate experimental. The two rule learners described
+with a fixed policy), cleverly marks the estimate experimental. The three rule learners described
 in [Learned rules](../technical-reference/point-treatment-tmle.md#learned-rules),
-`loss="blip"` and `loss="weighted_classification"`, compare two options only, so with more than
+`loss="blip"`, `loss="weighted_classification"` and `loss="ep"`, compare two options only, so with more than
 two they raise `CapabilityError` and name the default rule as the way out.
+
+A rule can also read only the covariates you choose, which makes it easier to apply and to
+explain. Pass `LearnedRule(loss="ep", modifiers=...)` as the rule. Each fold then fits a curve of
+the treatment effect against those covariates, with the EP learner of
+[effects that differ between people](conditional-effects.md), and treats where the curve is
+above zero. The curve corrects the outcome model's predictions with the treatment model. So
+when the treatment model is right, the curve still approaches the closest curve that the
+default shapes can draw, even if the outcome model is wrong. The default shapes are up to six
+smooth waves for each numeric covariate and one step for each level of a categorical one,
+added together, so with several covariates the curve is a sum of one curve per covariate.
+
+```python
+from cleverly.bases import Modifiers
+from cleverly.interventions import LearnedRule
+
+by_w1 = LearnedRule(loss="ep", modifiers=Modifiers(["W1"], domains={"W1": (-5, 5)}))
+targeted = study.estimate(LearnedRuleValue(rule=by_w1), method=fold_evaluated, random_state=3)
+```
+
+The covariates must be ones the study adjusts for, and each continuous one needs a range that
+holds every value. `OptimalRuleValue` with this rule needs all of the adjustment covariates,
+because the best rule may use any of them. The curve also picks its own flexibility inside each
+fold, so a fit takes about 25 times as long as the default rule.
+
+A [study](../technical-reference/method-evidence/learned-rule-ep.md) measured this rule with the
+default shapes on two simulated datasets. With 16,000 rows its 95% interval covered the target
+95% of the time, and with 2,000 rows 94% to 95% of the time. With 1,000 rows, on the dataset
+where the outcome model was wrong, it covered 92% of the time, because the reported standard
+error was about 9% too small. When the treatment has no effect for anyone, the curve has no
+fixed sign, so the folds disagree on whom to treat, and the interval covered only 90% of the
+time. cleverly cannot detect that case.
+
+With the default shapes, two options, each fold scored on its own (`fold_evaluation=True`, as
+above), no weights, no groups and one split, cleverly marks the estimate supported. With your own
+`sieve=` or `learner=`, or with weights, groups, several splits or a comparison with a fixed
+policy, it marks the estimate experimental. `OptimalRuleValue` below, with this rule, is
+supported only when you pass the known treatment probabilities.
 
 The reported value is a data-adaptive target. It depends on the realized split and on the fitted
 rules. It is not the value of one rule fitted on all rows (the in-sample fit below), and it is not
@@ -336,8 +377,8 @@ with 2,000 rows and an outcome model that matched the truth, its 95% interval co
 rule's value 0.949 of the time over 13,200 samples. The estimate sits slightly below the best
 value, by about a tenth of a standard error there, because the learned rules are a little worse
 than the best rule, and that gap shrinks as the data grow. When cleverly fits the treatment
-probabilities instead, or the fit uses clusters, several splits or a rule learner, it marks the
-result experimental.
+probabilities instead, or the fit uses clusters, several splits or a rule learner other than the
+`LearnedRule(loss="ep")` rule above, it marks the result experimental.
 
 No setting tells cleverly whether the outcome model learned the true pattern of benefit, or whether
 the benefit is zero for many people. In the study, an outcome model that missed the pattern gave
@@ -534,6 +575,62 @@ On a continuous dose, `MSMProjection` needs every outcome observed. `CausalStudy
 raises `CapabilityError` when an outcome is missing. The refused table of
 [MSM projections](../technical-reference/msm-projections.md#variations) lists this refusal.
 [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism) tracks that composition.
+
+## A curve over a continuous dose
+
+`DoseResponseTMLE` estimates how the mean outcome changes with a continuous dose, such as a price
+or a discount. A curve at one exact dose has no interval that narrows at the usual rate as the
+data grow, so the estimator
+reports a smoothed curve: at each declared dose it averages the curve over nearby doses, within a
+declared bandwidth. You choose the doses, the bandwidths and the dose range before looking at the
+results. The fit gives an interval at each dose and bandwidth, and one band that covers all of them
+at once.
+
+```python
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+
+from cleverly.dose_response import DoseResponse
+from cleverly.estimators import DoseResponseTMLE
+
+rng = np.random.default_rng(1)
+n = 800
+income = rng.normal(size=n)
+discount = np.clip(2.5 + 0.8 * income + rng.normal(size=n), -1.0, 6.0)
+bought = rng.binomial(1, 1 / (1 + np.exp(-(0.6 * np.sin(discount) + 0.5 * income))))
+orders = pd.DataFrame({"income": income, "discount": discount, "bought": bought})
+
+curve = DoseResponse(doses=[1.0, 2.5, 4.0], bandwidths=[0.8, 1.2], support=(0.5, 4.5))
+dose_fit = DoseResponseTMLE(
+    curve,
+    outcome_learner=HistGradientBoostingClassifier(max_depth=2, max_iter=50),
+    treatment_learner=LogisticRegression(),
+    density_bins=10,
+    random_state=0,
+).fit(orders, outcome="bought", treatment="discount", covariates=["income"])
+table = dose_fit.to_frame()
+```
+
+Each row of `table` is one dose and bandwidth. `lower` and `upper` are the interval for that row
+alone. `band_lower` and `band_upper` hold for every row together, so read the band when you compare
+bandwidths or pick one after seeing the results. A wider bandwidth usually gives a narrower interval
+and more smoothing, unless it reaches doses with few observations. The smoothing bias grows with the square of the bandwidth where the curve bends, so
+prefer the narrower bandwidth when its interval is usable.
+
+The intervals need both models to be good: the outcome model, and the model of which dose each
+customer received given their characteristics. The dose range must lie inside the doses you
+observed, with a margin: the fit refuses a range that
+reaches past them. A row whose dose has few nearby observations is flagged in the `low_support`
+column, and its estimate's `inference` reads `low_dose_support_plugin`: its interval rests on few
+effective rows. Each estimate's `support.label` says whether a registered simulation study covers
+the fit's setup. It reads `supported` for a cross-fitted, unweighted fit of a binary outcome, or of
+a continuous outcome with `fluctuation="linear"`, except at a flagged row, and `experimental`
+otherwise. `cleverly.plotting.curve(dose_fit)` draws one
+line per bandwidth with the band.
+[Smoothed dose-response curve](../technical-reference/dose-response.md) states the estimand, the
+conditions and the refusals.
 
 ## Effects that change with a baseline column
 

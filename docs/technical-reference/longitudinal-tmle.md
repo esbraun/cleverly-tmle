@@ -31,8 +31,11 @@ specified `GLM` models.
 Reach for [`ParametricGFormula`](parametric-gformula.md) for the forward-simulation form of the same
 target and for a fixed or rule-set continuous dose. Its interval holds only under correctly specified models.
 
-Collaborative TMLE and DR-TMLE have no longitudinal derivation, and `available_methods()` says so
-before any model is fitted.
+DR-TMLE has no longitudinal derivation. Collaborative TMLE has one for the risk curve of a binary
+baseline treatment under right censoring, through `SurvivalCTMLE`
+([collaborative TMLE: time-to-event outcomes](collaborative-tmle.md#time-to-event-outcomes)), and
+none for a treatment at several nodes. `available_methods()` says which applies before any model is
+fitted.
 
 A worked applied analysis is in the
 [sequential pricing tutorial](../examples/sequential-pricing.ipynb). It runs two single
@@ -313,6 +316,189 @@ Two reductions pin these as generalisations rather than as second estimators. A 
 only happen at the last node reproduces the end-of-study fit **bit for bit**. A fit declaring a
 single cause reproduces a single-event survival fit **bit for bit**. Stitelman, De Gruttola and van
 der Laan (2012) is the survival implementation reference.
+
+### Eliminated competing events
+
+A competing-risk fit reports each cause's incidence with the other causes left as they are. The
+risk under elimination asks a different question: the risk of cause $j$ by node $k$ had the
+competing causes been prevented. Young, Stensrud, Tchetgen Tchetgen and Hernán (2020) define it,
+their Equation (5), as a controlled direct effect on the cause-specific incidence. Declare the
+causes to prevent with the data, `eliminate=["death"]`, on `LongitudinalData.from_frame`,
+`from_long_panel`, `from_time_to_event`, `LTMLE.fit`, or the `TimeToEvent`,
+`LongitudinalTreatment` and `LongPanel` designs. The estimator keyword `eliminate=` redirects to
+these, because the elimination changes what the data's censoring is.
+
+Their Section 5 identifies the risk by treating a prevented event as censoring, and Section 6.1,
+Equations (20) to (23), gives the conditions and the g-formula. Within a node the order is
+censoring $C_t$, then the prevented cause $D_t$, then the remaining causes $Y_t$, then the
+covariates $L_t$. The identified hazard of $Y_t$ is $\lambda_Y/(1 - \lambda_D)$ among units free of
+both. Two conditions beyond the competing-risk fit's are needed: no unmeasured common cause of
+$D$ and $Y$ given the history, and positivity of remaining free of $D$,
+$P(D_t = 0 \mid \bar L_{t-1}, \bar A_t, C_t = 1) > 0$ under each regimen.
+
+The node retention is the product of two factors,
+
+$$
+P(C_t = 1 \mid H_t)\;P(D_t = 0 \mid H_t, C_t = 1),
+$$
+
+each fitted as its own model. The censoring factor is fitted on the units at risk with target
+`retained`, the censoring record alone. The competing factor is fitted on the units that passed
+censoring at the node, with target `uncensored`, which is now the composite $1\{C_t = 1, D_t = 0\}$
+that every mask reads. `competing_learner=` sets its learner on every engine; the default is the
+censoring learner. Two separate models show which factor is extreme, where one composite model
+would mix two mechanisms. The product enters the clever covariate's cumulative denominator, the
+hazard path's censoring product, the truncation replay and `ratio_trim=`. `SequentialIPW` with
+GLM factors stacks a third projected score block for the competing factor.
+
+After the recode the prevented causes leave `cause_labels`. With one remaining cause the fit is a
+single-cause survival fit, so `curve(scale="survival")`, `ratio()` and `rmst()` read it as one.
+The summary names the prevented cause and its model, reports the share of prevented events apart
+from the share censored, and words each row as "probability of relapse by time 3 if every unit
+followed plan a1, had death been prevented". The support key marks these fits apart from
+censoring alone. The registered study [eliminated competing
+events](method-evidence/eliminated-competing-events.md) measures iterated-mean `LTMLE` with one
+and two folds on two binary nodes and hazard `LTMLE` on a held three-level baseline treatment, at
+n = 16,000 with saturated learners. Those fits read supported from rows `G48`; every other
+composition with `eliminate=` reads experimental.
+
+| check | what it shows |
+| --- | --- |
+| exact law, six engines (iterated-mean and hazard `LTMLE`, `SDR`, both `SequentialIPW` normalizations, `SequentialGComputation`) and `ParametricGFormula` | the estimate is Young et al.'s g-formula (23), and each reported influence curve is its Gateaux derivative |
+| witness | the eliminated risk differs from the total-effect incidence by more than 0.01 on that law |
+| mutations | dropping the competing factor, counting $D$ twice (the composite as the censoring target), dropping the IPW block, and the other within-node order each move the influence curve or the estimate off the truth |
+| exact law with a treatment at each node (iterated-mean `LTMLE`, a dynamic plan) | the estimate is the eliminated g-formula and the influence curve is its Gateaux derivative |
+| pooled factors | with `hazard_pooling="pooled"` the iterated-mean and hazard curves are still the Gateaux derivative |
+| reductions | with no prevented event the fit is the relapse-only fit; a hand-built composite censoring column gives the same estimate, for `LTMLE` and for `IPSI` |
+
+The exact law realises its probabilities, so a saturated outcome fit is the oracle and the point
+estimate cannot see the mechanism. The competing factor is therefore checked through the
+influence curve. The mechanism diagnostics report it as its own `competing` row at each node,
+scored on the units that passed censoring, beside a `censoring` row that scores the censoring
+factor alone. `tests/unit/test_eliminated_competing_law.py` holds these checks.
+
+The E-value, the simulated common-cause replay, the generated-outcome and plasmode refutations,
+and structural nested means refuse an eliminated fit; [scope and
+refusals](scope-and-refusals.md#eliminated-competing-events) gives each reason. A learned regimen
+refuses it through its survival refusal. `IPSI` composes through the shared mechanism: on the
+two-cause law with a treatment at each node, its estimates and influence curves equal those of a
+fit with death folded into censoring by hand.
+
+### Separable effects
+
+A competing-risk fit compares arms of the whole treatment. The separable effects of Stensrud,
+Young, Didelez, Robins and Hernán (2022) split the treatment into a component $A_Y$ that acts on
+the event of interest $Y$ and a component $A_D$ that acts on the competing event $D$, and set the
+two to different levels. In the observed data the two components always agree. Declare the split
+as a regimen, `Separable(arms={"relapse": 1, "death": 0}, first="death")`, beside at least one
+static arm, and fit `LTMLE(survival_model="hazard", targeting="one_step")` on a design with one
+baseline treatment and exactly two causes. The fit reports `cif_regimen[sep, relapse @ t=h]` and
+`cif_regimen[sep, death @ t=h]`, the incidence of each cause under the joint intervention.
+
+The estimand is their estimand (5). Identification (8), with censoring (10), needs exchangeability,
+consistency, positivity (6) and (7), and the dismissible-component conditions $\Delta 1$ and
+$\Delta 2$ of their Section 5.1. Within a node the declared first cause comes first. Write
+$\lambda_l(k \mid a, W)$ for the cause-specific hazard of the hazard engine and
+$h_Y(k \mid a) = \lambda_Y(k \mid a)/(1 - \lambda_D(k \mid a))$ for the hazard of $Y$ among units
+also free of $D$ at node $k$. With $W$ suppressed, the composed hazards are
+
+$$
+\tilde\lambda_D(k) = \lambda_D(k \mid a_D), \qquad
+\tilde\lambda_Y(k) = h_Y(k \mid a_Y)\,\bigl(1 - \lambda_D(k \mid a_D)\bigr),
+$$
+
+and $\psi_j(t; a_Y, a_D) = E_W \sum_{k \le t} \tilde\lambda_j(k)\,\tilde S(k-1)$ with
+$\tilde S(k) = \prod_{s \le k} (1 - h_Y(s \mid a_Y))(1 - \lambda_D(s \mid a_D))$. Their argument,
+node by node, identifies the joint law of both causes under $(a_Y, a_D)$, so the incidence of $D$
+is identified with that of $Y$. At $a_Y = a_D$ both reduce to the static arm's cumulative
+incidence.
+
+The declared order is part of the estimand. With $a_Y \ne a_D$, counting $Y$ before $D$ in a node
+gives a different functional, and the data cannot settle which is meant, so `first=` is required.
+The order matters little on a fine time grid and can matter on a coarse one. $\Delta 1$ and
+$\Delta 2$ fail when an unmeasured common cause of $D$ and $Y$ exists, and no data check verifies
+them unless $A_Y$ and $A_D$ were randomized apart. The separable direct effect varies $a_Y$ at a
+fixed $a_D$ and the separable indirect effect varies $a_D$ at a fixed $a_Y$. With a binary
+treatment, the direct effect at $a_D = 0$ and the indirect effect at $a_Y = 1$ sum to the total
+effect; `contrast` computes each from the reported parameters.
+
+**Influence curve.** No source gives the discrete-time curve. Martinussen and Stensrud (2023)
+derive the continuous-time influence function and a one-step estimator, and Breum, Munch, Gerds
+and Martinussen (2024) extend it to an illness-death model. Neither treats ties within a time
+step, so neither settles the order. The discrete functional
+is a smooth map of the hazards at two levels, so its curve follows from the hazard engine's by the
+chain rule through $(\lambda_D, h_Y)$, a natural extension. With
+$c_l(k) = 1\{l = j\} - (\tilde F_j(t) - \tilde F_j(k))/\tilde S(k)$ for target cause $j$, the
+target has a clever covariate for each factor at each level it reads:
+
+$$
+H_Y(k, a_Y) = \frac{\tilde S(k-1)\,(1 - \lambda_D(k \mid a_D))\,c_Y(k)}
+{g(a_Y)\,G_k(a_Y)\,S(k-1 \mid a_Y)\,(1 - \lambda_D(k \mid a_Y))}, \qquad
+H_D(k, a_D) = \frac{\tilde S(k-1)\,\bigl(c_D(k) - h_Y(k \mid a_Y)\,c_Y(k)\bigr)}
+{g(a_D)\,G_k(a_D)\,S(k-1 \mid a_D)},
+$$
+
+for $k \le t$. $H_Y$ multiplies the residual of $Y$ among units at risk and free of $D$, and
+$H_D$ the residual of $D$ among units at risk. Unlike the static case,
+$\tilde S(k-1)/S(k-1 \mid a)$ does not cancel, and `g_bounds=` does not bound that ratio.
+
+**Targeting.** `cleverly.longitudinal.separable` targets each factor apart, on the logit scale of
+$\lambda_D$ and of $h_Y$, with one coefficient per factor and per target, along the one-step walk
+of the hazard engine. When the walk's relative score stops halving over 50 steps, the fit
+continues with Newton steps on the same factor-wise submodel at the current covariates, the
+classical iterative TMLE, and reports the state with the smallest relative score. Both phases
+solve the same factor scores, so the robustness below holds for either.
+
+The static arms of the same fit go through the same walk as separable interventions with equal levels, so one pair of
+factors carries every reported curve. At the truth this is the shipped static estimate and curve.
+From a fitted start it is a different TMLE of the same static parameter. The initial hazards are
+fitted in the declared order.
+
+With cross-fitted initial hazards, a separable fit can stop short of `tol` and warn. An
+out-of-fold start does not solve the cell scores, and when targets outnumber the free cells of a
+factor at a level, part of the remaining score lies along nearly redundant target directions,
+which none of the solvers tried brings within `tol`. In the `separable-effects` pilot at
+n = 16,000 this happened in 2.6% of two-fold primary fits and 2.2% of 8,000 calibration fits, at
+relative scores between $10^{-3}$ and $2 \times 10^{-2}$, and never in sample.
+
+**Robustness.** With the treatment and censoring mechanisms right, the estimate is consistent when
+$\lambda_D$ is right at both levels or $h_Y$ is right at both levels, the counterparts of
+Stensrud's IPW forms (11) and (12); with both hazards right it is consistent under any mechanism that keeps
+positivity and bounded weights.
+These are sufficient conditions, the discrete-time counterpart of Martinussen and Stensrud (2023),
+Section 3.1. With both hazards wrong, consistency is not guaranteed even under the exact
+mechanism: the remainder holds the product of the two hazard errors, so the estimate is biased in
+general, and the exact-law control shows one such case. A fluctuation shared by the two factors, as in
+the softmax submodel of a competing-risk fit, loses the first two cases. Many targets on few
+covariate cells can pin a factor at its cell means, so a check of robustness fits one target.
+
+**Positivity.** The target reads the hazards at both levels. If every unit at risk at $a_Y$ in a
+node had $D$, $h_Y$ is not identified there and the fit raises. If no unit at $a_D$ stays
+event-free past a node, the fit warns, names the node, and drops the later horizons from that
+regimen.
+
+| check | what it shows |
+| --- | --- |
+| exact law, two causes, every horizon and cause | the estimate is identification (8) in the declared order and the influence curve is its Gateaux derivative |
+| static arms in a separable fit | each is the static cumulative incidence and its curve |
+| reduction | a `Separable` with equal levels gives the static estimate |
+| order | the other `first=` gives the other functional, which differs |
+| witness | at $a_Y \ne a_D$ the separable risk differs from both static risks |
+| robustness from a wrong start | a wrong $h_Y$ or a wrong $\lambda_D$ is corrected; both wrong miss the truth |
+| mutation | one coefficient shared by both factors misses the truth |
+| loss derivative | the walk loss falls at the rate of the factor scores |
+
+`tests/unit/test_separable_effects_law.py` holds these checks. The registered study [separable
+effects](method-evidence/separable-effects.md) measures the fit with one and two folds on a held
+three-level baseline treatment, at n = 16,000 with saturated learners, counting the second of the
+data's two causes first. Those fits read supported from rows `G49`. No separable-effects TMLE
+implementation was located to compare against.
+
+The rows key the position of the cause counted first, so a fit that counts the first-listed cause
+first reads experimental, as does every other composition with a `Separable` regimen.
+[Scope and refusals](scope-and-refusals.md#separable-effects) lists what a separable fit refuses,
+including time-varying common causes: Stensrud et al. (2021), Equation (19), identify that case
+but no source gives its influence curve.
 
 ### Repeated outcomes
 
@@ -901,6 +1087,21 @@ node, and $t$ is a reported horizon.
 `outcome_learner` is the hazard learner on a hazard fit. `pseudo_learner=` is refused, because the
 fit regresses the event indicator at each node and fits no pseudo-outcome. Every arm is targeted
 together, so the score of every contrast is solved.
+
+`SurvivalCTMLE` runs this per-horizon targeting on a collaborative selection of its treatment and
+censoring models, one arm at a time
+([collaborative TMLE: time-to-event outcomes](collaborative-tmle.md#time-to-event-outcomes)).
+Its paper checks for the event before censoring within an interval, while a node here puts
+censoring first. A wide panel coded in the paper's order records a loss after interval $k$ at the
+next node's censoring column. These two units are event-free through interval 1, and the second is
+lost after it:
+
+| unit | `C1` | `Y1` | `C2` | `Y2` |
+| --- | --- | --- | --- | --- |
+| followed to the end, event at 2 | 1 | 0 | 1 | 1 |
+| lost after interval 1 | 1 | 0 | 0 | missing |
+
+`TimeToEvent` places a censoring at grid time $g_j$ at node $j + 1$ in the same way.
 
 #### Two algorithms
 
@@ -1644,13 +1845,13 @@ construction and its evidence. The score report has one `solver` row per node an
 `LTMLE` refuses each point-treatment keyword in `_REFUSED` in
 [`longitudinal/estimator.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/estimator.py)
 by name, with its own reason. Some keywords redirect to the argument that does the work.
-`interventions=` redirects to `regimens=`. `incremental=` redirects to
+`interventions=` redirects to `regimens=`. `eliminate=` redirects to the data or to `fit()`
+([eliminated competing events](#eliminated-competing-events)). `incremental=` redirects to
 [`IPSI`](#incremental-interventions-over-time), which fits the odds tilt over time. The table gives the
 refusals that are statements about the question, the construction, or coverage.
 
 | refused | code | what it would need |
 | --- | --- | --- |
-| eliminating the competing events | `different_estimand` | what is reported is the cause-specific cumulative incidence with the competing causes *left alone*, so a competing event is part of the history. Removing it makes it an intervened node: a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions |
 | `intermediate=` | `different_estimand` | a controlled direct effect fixes a mediator at one time point. Over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
 | a `truncation_curve()` pair that truncates a declared cumulative product | `invalid_declaration` | the fit refuses the same pair as `g_bounds`, because truncating a known product moves the estimate with no variance reason. A curve row at that pair would show a movement that no admitted fit has. Remove the pair from the grid. A pair `(lower, 1)` with `lower` below the smallest declared product is admitted |
 | `mechanism=True` on `truncation_curve()` | `invalid_declaration` | a longitudinal fit holds one cumulative treatment-and-censoring bound, and it fits no separate observation mechanism to sweep. The option names a point-treatment axis, so the call raises `CapabilityError` rather than sweeping the cumulative bound under another name |
@@ -2484,7 +2685,8 @@ under refinement.
 Competing-risk correctness also rests on the independent finite law, the Gateaux comparison, the
 all-cause-versus-cause-specific mutation, and the one-cause reduction. The two competing-risk rows
 add the R `lmtp` comparison. Both rows keep the competing event natural and supply the mechanisms.
-Neither row covers weights, clustering, or an eliminated competing event.
+Neither row covers weights, clustering, or an eliminated competing event; the
+[eliminated competing events](#eliminated-competing-events) section lists that fit's checks.
 
 ### Three to five decisions
 

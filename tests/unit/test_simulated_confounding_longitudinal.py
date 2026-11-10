@@ -36,7 +36,7 @@ from cleverly.sensitivity._simulated_confounding_longitudinal import (
     _KNOWN_LATER_NODE_REFUSAL,
     _LATER_COVARIATE_REFUSAL,
     _NODE_LAW_REFUSAL,
-    _OUTCOME_KIND_REFUSAL,
+    _SURVIVAL_NOT_HELD_REFUSAL,
     _frozen_seeds,
     _refuse_node_law,
     longitudinal_fit_refusal,
@@ -540,7 +540,9 @@ def test_censoring_refuses_before_work(monkeypatch: pytest.MonkeyPatch) -> None:
     _refused(result, _CENSORING_REFUSAL, monkeypatch)
 
 
-def test_a_survival_outcome_refuses_before_work(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_survival_outcome_with_later_treatment_nodes_refuses_before_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     frame, _ = make_longitudinal_survival(n=300, seed=2)
     result = _ltmle(censoring_learner=LogisticRegression(max_iter=1000)).fit(
         frame,
@@ -550,7 +552,7 @@ def test_a_survival_outcome_refuses_before_work(monkeypatch: pytest.MonkeyPatch)
         time_varying=[[], ["L2"]],
         censoring=["C1", "C2"],
     )
-    _refused(result, _OUTCOME_KIND_REFUSAL, monkeypatch)
+    _refused(result, _SURVIVAL_NOT_HELD_REFUSAL, monkeypatch)
 
 
 def test_a_covariate_after_the_first_node_refuses_before_work(

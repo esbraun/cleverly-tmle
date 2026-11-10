@@ -17,9 +17,10 @@ Read the pages in this order.
 
 A validation study declares property cells or names a reference. A study that names a reference
 is comparator-backed, and its agreement block names the comparison kind of each row. The
-[learned-rule boundary study](learned-rule-cvtmle-boundary.md) declares neither, so it has a page
-and no grid row. The [adaptive TMLE trial study](adaptive-tmle-trial.md) and the
-[selective-enrollment study](adaptive-tmle-selective.md) are the second and third such studies.
+[learned-rule boundary study](learned-rule-cvtmle-boundary.md) and the study of
+[collaborative TMLE of a risk curve](survival-ctmle.md) declare neither, so each has a page and
+no grid row. The [adaptive TMLE trial study](adaptive-tmle-trial.md) and the
+[selective-enrollment study](adaptive-tmle-selective.md) are the third and fourth such studies.
 
 To register a new study, follow
 [adding a method row](../../development/method-benchmarking.md#adding-a-method-row).
@@ -87,8 +88,14 @@ learned-rule-optimal-value
 learned-rule-intermediate
 learned-regimen-ltmle
 conditional-projection
+ep-cate
+ep-crr
+ep-assessment
+learned-rule-ep
+targeting-curves
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
+dose-response
 point-modified-treatment-policies
 incremental-propensity-interventions
 ordinary-end-of-study-longitudinal-tmle
@@ -98,6 +105,9 @@ stochastic-categorical-longitudinal-tmle
 longitudinal-modified-treatment-policies
 longitudinal-incremental-interventions
 longitudinal-incremental-interventions-dropout
+eliminated-competing-events
+separable-effects
+survival-ctmle
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries

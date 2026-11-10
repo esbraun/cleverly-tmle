@@ -82,7 +82,7 @@ def test_a_ratio_scale_is_not_derived(no_engine: None, estimand: Any) -> None:
     with pytest.raises(CapabilityError, match="Only the difference scale") as error:
         study.identify(estimand)
     assert _code(error) is RefusalReason.IMPLEMENTATION_GAP
-    assert error.value.refusal is not None and error.value.refusal.roadmap == "F39"
+    assert error.value.refusal is not None and error.value.refusal.roadmap == "F40"
 
 
 def test_trial_ate_needs_the_trial_membership_column(no_engine: None) -> None:
@@ -225,6 +225,8 @@ _OTHER: dict[tuple[str, str], Any] = {
     ("models", "intermediate_learner"): LinearRegression(),
     ("models", "pseudo_learner"): LinearRegression(),
     ("models", "censoring_learner"): LogisticRegression(),
+    ("models", "competing_learner"): LogisticRegression(),
+    ("models", "survival_model"): "hazard",
     ("models", "density_bins"): 8,
     ("models", "min_retain"): 2,
     ("models", "hazard_pooling"): "pooled",
@@ -233,6 +235,7 @@ _OTHER: dict[tuple[str, str], Any] = {
     ("targeting", "ratio_trim"): 0.99,
     ("targeting", "node_bounds"): {1: (0.05, 0.95)},
     ("inference", "n_multiplier"): 1000,
+    ("inference", "simultaneous"): True,
 }
 
 

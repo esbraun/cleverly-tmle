@@ -342,6 +342,8 @@ def test_partial_executor_preserves_original_id_and_one_seed(
                     truth=0.125,
                     estimate=0.2,
                     std_error=0.1,
+                    lower=0.0,
+                    upper=0.4,
                     covered=True,
                     rejected=False,
                     inference_estimate=0.2,

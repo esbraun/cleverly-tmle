@@ -26,7 +26,8 @@ An unrecorded partial probe cannot replace published study evidence.
 ## The slow tier
 
 The `slow` marker has one use: the tutorial notebooks' refit cells. A refit cell calls `refute`,
-`simulated_confounding`, or `benchmark`, or it reads a name that a refit cell binds. These cells
+`simulated_confounding`, `benchmark`, or a curve's `stability`, or it reads a name that a refit
+cell binds. These cells
 took about 90% of the notebook gate's time, so they moved out of the fast tier (Eric, 2026-10-23).
 [Example notebooks](example-notebooks.md#refit-cells-and-the-slow-tier) states the rule for authors.
 

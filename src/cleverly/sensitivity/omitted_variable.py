@@ -3508,6 +3508,7 @@ def contour_data(
         mechanism_learner=mechanism_learner,
     )
     sign = -1.0 if bound == "lower" else 1.0
+    elements = _combined_elements(draws, result)
 
     cf_d_grid = np.linspace(0.0, grid_bounds[0], grid_size)
     cf_y_grid = np.linspace(0.0, grid_bounds[1], grid_size)
@@ -3525,4 +3526,14 @@ def contour_data(
         psi=float(result[estimand].psi),
         bound=bound,
         rho=rho,
+        scale=str(result[estimand].scale),
+        max_bias=elements.max_bias,
+        nu2=elements.nu2,
+        nu2_estimator=elements.nu2_estimator,
+        n_repeats=len(draws),
+        assumption=(
+            _consistent_mechanism_assumption(result, mechanism_learner)
+            if assume_consistent_mechanism
+            else None
+        ),
     )
