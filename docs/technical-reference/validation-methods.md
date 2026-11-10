@@ -2531,8 +2531,8 @@ Without `q_bounds`, `OutcomeScaler.from_outcome` takes the observed range and wi
 Declare `q_bounds` to fix what one unit of $\gamma$ means for a continuous outcome.
 
 Away from $\gamma = 0$, the curve is a plug-in value.
-`_tilted_value` reuses the targeted $\bar{Q}^*$ of the $\gamma = 0$ fit and does not target again at each $\gamma$.
-The accuracy of the curve away from $\gamma = 0$ therefore depends on the outcome model.
+`_tilted_value` reuses the targeted $\bar{Q}^*$ of the $\gamma = 0$ fit and the untargeted mechanism $\pi$, and does not target again at each $\gamma$.
+$\bar{Q}^*$ solves the missing-at-random score and not the tilted one, so with data-adaptive learners the tilted point can carry a first-order bias, and its accuracy depends on the outcome model.
 
 This is a retarget operation and not a refit.
 
@@ -2543,18 +2543,29 @@ $\gamma_a$ is the tilt of arm $a$.
 
 | parameter | point curve at $\gamma$ | spread at $\gamma \neq 0$ |
 | --- | --- | --- |
-| an arm mean, a contrast, `att`, `atc` | the same functional of $\bar{Q}_\gamma(a, W)$ | the reported standard error under `std_err`, `ci_lower` and `ci_upper` |
+| an arm mean, a contrast, `att`, `atc` | the same functional of $\bar{Q}_\gamma(a, W)$ | the reported standard error, centred on the tilted point |
 | `rr`, `or` | the ratio of two tilted arm means | the reported log-scale standard error, centred on the log of the tilted point |
 | `ey_obs` | $P_n[\pi(A, W)\,\bar{Q}^*(A, W) + \{1 - \pi(A, W)\}\,\operatorname{expit}\{\operatorname{logit}\bar{Q}^*(A, W) + \gamma_A\}]$ | the reported standard error, centred on the tilted point |
 | `par`, `paf` | the tilted `ey_obs` and the tilted reference-arm mean | as above |
 | a regime mean or contrast | $P_n[\sum_a g^\star(a \mid W)\,\bar{Q}_\gamma(a, W)]$ | as above |
 | an MSM coefficient | the projection of $\bar{Q}_\gamma(a, W)$ onto the working model, with its design, weights and link | as above |
 
-Every row except the first publishes its spread at $\gamma \neq 0$ under `plugin_std_err`,
-`plugin_interval_lower` and `plugin_interval_upper`. The reported influence curve is the
-missing-at-random curve, so this spread is a diagnostic and not an interval for the tilted
-parameter. At $\gamma = 0$ each row publishes the fit's own spread. A frame that mixes the two
-kinds carries both sets of columns, with NaN where a row has no value. `missingness_tilt()`
+Every row publishes its spread at $\gamma \neq 0$ under `plugin_std_err`,
+`plugin_interval_lower` and `plugin_interval_upper`. This spread is a diagnostic and not a
+confidence interval. The reported influence curve is the missing-at-random curve, and the tilted
+parameter has its own. For an arm mean $\psi_\gamma(a) = E_W[\pi_a \bar{Q}_a + (1 - \pi_a) h_a]$,
+with $h_a = \operatorname{expit}(\operatorname{logit} \bar{Q}_a + \gamma_a)$, the outcome
+residual of the tilted curve is weighted by
+$\kappa_a = \pi_a + (1 - \pi_a) h_a (1 - h_a) / \{\bar{Q}_a (1 - \bar{Q}_a)\}$, and the curve
+gains a mechanism term $(\bar{Q}_a - h_a)(\Delta - \pi_a)$. Both reduce to the
+missing-at-random curve only at $\gamma = 0$.
+
+On a law with 5,000 units per arm, no prognostic covariate, $\bar{Q} = 0.1$, $\pi = 0.3$ and
+$\gamma = 2$, the delta-method standard deviation of the tilted arm mean is 0.0174, 2.2 times the
+reported missing-at-random standard error of 0.0078. `TestTheReviewersLaw` in
+`tests/unit/test_missingness_tilt_part_g.py` checks both numbers. At $\gamma = 0$ each row publishes the
+fit's own spread. A frame that sweeps both kinds of row carries both sets of columns, with NaN
+where a row has no value. `missingness_tilt()`
 returns a `MissingnessTilt`, whose `to_frame()` gives that frame and whose `summary()` prints one
 table per estimand.
 
@@ -2564,7 +2575,7 @@ $P_n[\Delta Y + (1 - \Delta)\bar{Q}_\gamma(A, W)]$ estimate one functional. Only
 form passes through the reported estimate at $\gamma = 0$, because targeting solves the weighted
 residual equation and not the unweighted one.
 
-`tipping_gamma(use_ci=True)` follows a confidence limit, so it refuses every row but the first.
+`tipping_gamma(use_ci=True)` follows a confidence limit, so it refuses every row.
 `tipping_interval_refusal` gives the sentence, and the argument-aware capability row quotes it.
 The default point search answers for every row.
 

@@ -1193,10 +1193,6 @@ def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
         else ", multiplied for each arm by its declared factor (" + direction + ")"
     )
     direction_text = TEXTS["tilt_direction" if tilt.arm_gamma is None else "tilt_direction_arms"]
-    moved = any(float(gamma) != 0.0 for gamma in payload["gamma"])
-    reused = moved and any(name not in diagnostic and name not in withheld for name in names)
-    if reused:
-        direction_text += " " + TEXTS["tilt_interval"]
     assumption = TEXTS["assumption_tilt"].format(arm_clause=arm_clause, direction=direction_text)
     notes = [note("sensitivity_assumption", assumption)]
     if withheld:
@@ -1222,8 +1218,8 @@ def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
     if detail == "full":
         settings = [
             f"Interval level: {_level(tilt.level)}.",
-            "Off gamma = 0 each interval is centred on the tilted estimate and reuses the "
-            "standard error of the missing-at-random analysis, with no new correction step.",
+            "Off gamma = 0 no interval is claimed: the spread is the missing-at-random "
+            "standard error centred on the tilted estimate, with no new correction step.",
         ]
         if tilt.arm_gamma is not None:
             settings.append(f"Each arm's tilt is its multiplier times gamma: {direction}.")

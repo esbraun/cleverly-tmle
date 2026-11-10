@@ -49,12 +49,15 @@ coefficient (the working-model projection of the tilted regressions).  Each repe
 arithmetic of the target that reported it, so every curve passes through the reported
 estimate at :math:`\gamma = 0`.
 
-Caveat, stated plainly: the confidence intervals on the curve of an arm mean or a linear
-contrast treat :math:`\gamma` as known and reuse the MAR standard error.  They describe
-sampling uncertainty at a fixed :math:`\gamma`, not uncertainty about :math:`\gamma`
-itself.  Every other parameter claims no interval at :math:`\gamma \neq 0`: its spread
-there is the MAR standard error on its inference scale, centred on the tilted point, under
-the ``plugin_`` names (roadmap X57 part d).
+**No interval off** :math:`\gamma = 0`.  The tilted parameter is a different functional
+from the MAR one, with its own influence function: off :math:`\gamma = 0` the outcome
+residual is reweighted and a term in the missingness mechanism appears, and both vanish
+only at :math:`\gamma = 0`.  The MAR standard error therefore does not measure the
+sampling variability of a tilted estimate, and can understate it badly.  Every parameter
+reports its spread at :math:`\gamma \neq 0` under the ``plugin_`` names: the MAR standard
+error on its inference scale, centred on the tilted point.  It is a diagnostic and not a
+confidence interval.  The row at :math:`\gamma = 0` is the fit's own report, with its
+interval.
 
 **What the tilt reports for a fit that has no interval.**  The curve is a plug-in
 sweep of the point estimate, so the whole of it is defined for a fit at a
@@ -83,7 +86,7 @@ from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..estimators._nuisance import tilt_missingness
 from ..estimators.iptw import OPERATION_REFUSALS
 from ..exceptions import CapabilityError, refuse_inference
-from ..inference.delta import log_odds_ratio_influence, log_ratio_influence, wald_ci
+from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
 from ..inference.influence import _DIAGNOSTIC_NAMES, ParameterEstimate, spread_name
 from ..interventions.learned import LEARNED_RULE_TILT_REFUSAL
 from ..msm import solve_projection
@@ -268,15 +271,6 @@ class _TiltTarget:
     versus: float | None = None
     parameter: ArmParameter | None = None
     stem: str = ""
-
-    @property
-    def keeps_interval(self) -> bool:
-        """Whether a row at ``gamma != 0`` keeps the inferential spread names.
-
-        Only the arm kind does, which is the shipped contract.  Every other kind reports
-        its spread at ``gamma != 0`` under the ``plugin_`` names (roadmap X57 part d).
-        """
-        return self.kind == "arm"
 
 
 def _tilt_targets(result: Any) -> dict[str, _TiltTarget]:
@@ -463,13 +457,14 @@ def missingness_tilt(
     MSM coefficient      the working-model projection of the tilted regressions
     ==================== =====================================================
 
-    At ``gamma = 0`` every curve passes through the reported estimate.  An arm mean or
-    a linear contrast keeps the reported standard error and its interval names at every
-    ``gamma``.  Every other parameter reports its spread at ``gamma != 0`` under
-    ``plugin_std_err``, ``plugin_interval_lower`` and ``plugin_interval_upper``: the
-    reported standard error on the estimate's inference scale, centred on the tilted
-    point.  No interval is claimed there.  A frame that mixes the two kinds carries
-    both sets of columns, with NaN where a row has no value.
+    At ``gamma = 0`` every curve passes through the reported estimate, and the row
+    carries the fit's standard error and interval.  At ``gamma != 0`` every parameter
+    reports its spread under ``plugin_std_err``, ``plugin_interval_lower`` and
+    ``plugin_interval_upper``: the reported standard error on the estimate's inference
+    scale, centred on the tilted point.  It is a diagnostic and not a confidence
+    interval, because the tilted parameter has its own sampling variance, which the MAR
+    standard error does not measure.  A frame that sweeps both kinds of row carries both
+    sets of columns, with NaN where a row has no value.
 
     A fit whose inference status supplies no inference, such as a selector-path
     ``CTMLE`` fit, receives ``plugin_std_err``,
@@ -599,24 +594,9 @@ def _tilt_payload(
                 )
             )
             psi = float(np.exp(center)) if target.kind == "ratio" else center
-            status = estimate.inference
-            if target.keeps_interval:
-                # The names ``truncation_curve`` publishes, for the reason it publishes
-                # them: a selector-path collaborative fit supplies no interval, so the
-                # sweep reports the retained diagnostic under names that make no coverage
-                # claim. The interval is centred on the tilted estimate, so only the names
-                # come from ``spread_name``.
-                std_error = estimate.plugin_std_error
-                low, high = wald_ci(
-                    psi, std_error, result.config.alpha_sig, df=estimate.reference_df
-                )
-                spread = {
-                    spread_name("std_err", status): std_error,
-                    spread_name("ci_lower", status): low,
-                    spread_name("ci_upper", status): high,
-                }
-            else:
-                spread = _plugin_spread(estimate, psi, center, mar=value == 0.0)
+            # Off gamma = 0 the tilted parameter has its own influence curve, which the
+            # fit did not compute, so no target keeps an interval there.
+            spread = _plugin_spread(estimate, psi, center, mar=value == 0.0)
             rows.append(
                 {
                     "gamma": value,
@@ -637,8 +617,8 @@ def _tilt_payload(
                 }
             )
 
-    # A frame that mixes the two spread contracts has both sets of columns. The arm rows
-    # come first in the column order, so a frame of arm parameters alone is unchanged.
+    # The gamma = 0 rows carry the fit's spread names and the others the plugin_ names,
+    # so a frame that sweeps both has both sets of columns.
     columns: dict[str, None] = {}
     for row in rows:
         columns.update(dict.fromkeys(row))
@@ -654,8 +634,8 @@ def _plugin_spread(
     At ``gamma = 0`` the row is the fit's own report, so it carries the fit's spread under
     the names the fit's inference status gives.  At ``gamma != 0`` it carries the reported
     standard error on the estimate's inference scale, centred on the tilted point, under
-    the ``plugin_`` names.  The reported influence curve is the MAR curve, so the spread is
-    a diagnostic and not a confidence interval for the tilted parameter.
+    the ``plugin_`` names.  The reported influence curve is the MAR curve, and the tilted
+    parameter has its own, so the spread is a diagnostic and not a confidence interval.
     """
     status = estimate.inference
     if mar:
@@ -930,11 +910,11 @@ _TIPPING_INTERVAL_OPERATION = "tipping_gamma(use_ci=True)"
 def tipping_interval_refusal(result: Any, estimand: str | None) -> Refusal | None:
     """Why ``tipping_gamma(use_ci=True)`` cannot follow an interval for ``estimand``.
 
-    The tilt of a ratio, a natural-course or attributable target, a regime mean or an
-    MSM coefficient claims no interval at ``gamma != 0``, so the interval search has no
-    confidence limit to follow.  The point search answers.  ``None`` for an arm mean or a
-    linear contrast, and for a name the tilt does not re-mix, which the call refuses
-    later with the list of the names it does.
+    No tilted parameter claims an interval at ``gamma != 0``: its spread there is the MAR
+    standard error centred on the tilted point, which does not measure the tilted
+    parameter's own sampling variance.  The interval search therefore has no confidence
+    limit to follow, and the point search answers.  ``None`` for a name the tilt does not
+    re-mix, which the call refuses later with the list of the names it does.
 
     Parameters
     ----------
@@ -946,18 +926,19 @@ def tipping_interval_refusal(result: Any, estimand: str | None) -> Refusal | Non
     Returns
     -------
     Refusal or None
-        The refusal, or ``None`` when the interval search can run.
+        The refusal, or ``None`` when the name is not one the tilt re-mixes.
     """
     if estimand is None or fit_wide_tilt_refusal(result) is not None:
         return None
-    target = _tilt_targets(result).get(estimand)
-    if target is None or target.keeps_interval:
+    if estimand not in _tilt_targets(result):
         return None
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         f"{_TIPPING_INTERVAL_OPERATION} follows a confidence limit, and the tilt of "
-        f"{estimand!r} claims no interval at gamma != 0. Its spread there is the MAR "
-        "standard error centred on the tilted point, published under the plugin_ names.",
+        f"{estimand!r} claims no interval at gamma != 0. The tilted parameter has its own "
+        "influence curve, which is not yet derived here; its spread off gamma = 0 is the "
+        "MAR standard error centred on the tilted point, a diagnostic published under the "
+        "plugin_ names.",
         alternative=f"Call tipping_gamma(result, {estimand!r}) for the point search.",
         roadmap="X57",
     )
@@ -988,12 +969,10 @@ def tipping_gamma(
     reads, because it searches over that same tilt.  The capability row quotes the same
     sentence.
 
-    Refuses ``use_ci=True`` on a fit whose inference status supplies no inference, such
-    as a selector-path ``CTMLE`` fit. Such a fit supplies no confidence limit for the
-    search to follow.  It refuses ``use_ci=True`` for a ratio, a natural-course or
-    attributable target, a regime mean and an MSM coefficient too, whose tilt claims no
-    interval at ``gamma != 0``.  ``use_ci=False``, the default, searches the point
-    estimate and answers for every one of them.
+    Refuses ``use_ci=True`` for every parameter the tilt re-mixes, because no tilt claims
+    an interval at ``gamma != 0``, so the search has no confidence limit to follow.
+    ``use_ci=False``, the default, searches the point estimate and answers for every one
+    of them.
 
     Parameters
     ----------
@@ -1009,8 +988,8 @@ def tipping_gamma(
         the declared arm-specific tilt magnitudes before refining each crossing.
     use_ci : bool
         Whether to tip when the confidence limit reaches the null rather than the
-        point estimate. Refused on a fit whose inference status supplies no
-        inference, which reports no confidence limit.
+        point estimate. Refused for every tilted parameter, whose spread off
+        ``gamma = 0`` is a diagnostic and not a confidence limit.
     arm_gamma : mapping of level to float, or None
         One multiplier per arm, as :func:`missingness_tilt` accepts.
 
@@ -1056,17 +1035,10 @@ def tipping_gamma(
         frame = _tilt_frame(result, [value], estimands=[estimand], arm_gamma=arm_gamma)
         return nw.from_native(frame, eager_only=True)
 
+    # Every tiltable name refused ``use_ci=True`` above, and an untiltable one is refused by
+    # the first tilt, so the search always follows the point estimate.
     baseline_row = row_at(0.0)
     field = "psi"
-    if use_ci:
-        low = float(baseline_row["ci_lower"][0])
-        high = float(baseline_row["ci_upper"][0])
-        if low <= null_hypothesis <= high:
-            return 0.0
-        # Follow the limit between the baseline interval and the null. Its signed
-        # distance crosses zero exactly when that limit reaches the null. The old
-        # absolute distance never changed sign, so brentq could not find the boundary.
-        field = "ci_lower" if null_hypothesis < low else "ci_upper"
 
     def deviation(value: float) -> float:
         return float(row_at(value)[field][0]) - null_hypothesis
