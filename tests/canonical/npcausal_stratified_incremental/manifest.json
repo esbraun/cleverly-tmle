@@ -5,14 +5,16 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-stratified-incremental",
-      "cleverly_version": "0.1.2",
-      "cleverly_commit": "51c9a6ea3a345dc55c0f61753480ca165fdd354a",
+      "cleverly_version": "0.2.1",
+      "cleverly_commit": "1510e6ff4c0435dc13cf3d6526ef16ce9c4da71b",
       "cleverly_worktree_clean": true,
-      "python": "3.13.7",
-      "numpy": "2.5.3",
+      "python": "3.13.16",
+      "numpy": "2.5.4",
       "scipy": "1.18.1",
-      "pandas": "3.0.6",
-      "scikit_learn": "1.9.1"
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
     },
     "reference": {
       "implementation": "npcausal-stratified",
@@ -29,6 +31,10 @@
     "seed": 20268801,
     "resampling_seed": 20268802,
     "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-stratified-incremental": 0.01,
+      "npcausal-stratified": 0.01
+    },
     "scenarios": {
       "stratified_incremental": [
         "ey_ipsi[natural course]",
@@ -71,6 +77,7 @@
     "outcome_model": "saturated: one probability per (A, W, V) cell",
     "treatment_model": "saturated: one probability per (W, V) cell",
     "declared_difference": "npcausal ipsi cross-fits its nuisances with nsplits = 2; the cleverly fit is in sample.  ipsi is called once per stratum subset for the stratum names, and once on every row for the five marginal names of the stratified fit",
+    "property_failure_bound": 0.01,
     "margins": {
       "confidence_level": 0.99,
       "alpha": 0.05,
@@ -98,32 +105,32 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_stratified_incremental_msm.py": "2cb0889983ad3090695c71ff870b2c47dead73366a6c02f506388ee032fb75e3",
-    "tests/studies/stratified_incremental_msm_properties.py": "542825a5d1b3d0e52894ee1a2aec43d30490e0c4d973b89cd906f82e3fc4db59",
-    "tests/studies/stratified_alternating_law.py": "19d62e110b376ee2fa83832101d57f32414e49d3eff8381b3889b0accd7150fe",
+    "tests/studies/canonical_stratified_incremental_msm.py": "ae31f553f3d695eff243529c31409d35d0ccceee43222c9459c67b086185f402",
+    "tests/studies/stratified_incremental_msm_properties.py": "628403ef4caf95d465f20c8d44e510a405eaa95ab66db9a8478aa6bba42482d6",
+    "tests/studies/stratified_alternating_law.py": "06dd359ac9b20bbbedad07080baeca51b5d35f4940a9e3bb750e54c86620f276",
     "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
-    "tests/discrete_law.py": "781827e6225aec7451e8b1bd2232873abfccd0e8ae56b85e1cc90f658f55eaeb",
+    "tests/discrete_law.py": "cecd125d7cc80652937d83edbd29f792cd05468baf634cc7b2855fd17db778f2",
     "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
-    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
-    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
-    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
-    "tests/studies/evidence/properties.py": "9c8e6a923bb16fd6637dbec77492c43aef29d9a5f825799a20ce5002ca5e9590",
-    "tests/studies/evidence/property_verdicts.py": "6bddb3468d8135bc663df0d92fc52aadea539efdee0cd1ed84ef0e3e12658076",
-    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
-    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
-    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
+    "tests/studies/evidence/comparison.py": "30a584e78e19060d23638ff27704a969acb3f7799eca5b522dc4cfa0ec06a056",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "9240d2569b567fc10e0db520a062ef6ae8e3f31814facbbe6fecc818bfccbb50",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "36d494f7ca114cf955e4fcd6fe6b460a5b5f88ecf538cf2285b3dfff595bfd84",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/evidence/simultaneous.py": "7162dbce520449fbb29623932caf0de0571295f0881457fab0fc1e3dfcb194f9"
   },
   "reference_sha256": {
     "tests/canonical/npcausal_incremental/Dockerfile": "f790996d3833b584d564202862591e9e66ad340b3639380fe964a6c8195cdc43",
-    "tests/canonical/npcausal_stratified_incremental/run_study.R": "4ecafb1488b2958ec3844a11f2e4aa78da7fedd41add44778ac0c10ef3f5bce8",
-    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+    "tests/canonical/npcausal_stratified_incremental/run_study.R": "719e6123f796d00b345d758625020a0799a2bfeb6039894a1a8e4c80f94a8bcc",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
   },
   "sha256": {
-    "replicates.parquet": "b28fa0b5080c66f52f9f37619df4cde6d274cdb9717dda868c4c0ba1cf4655cf",
-    "summary.csv": "10dfbf3b4df0220b7db182f926147a28756bcc3c7e9c4aa927e697ab66f4b1f3",
-    "equivalence.csv": "4264ff2aab78642a2ef4f5f2f10f84e25a07d12a356b2e120898970555a9a175",
-    "performance-tests.csv": "c68bcc3193b2cca7a929d2f556214d766a3cd6c815d44f56712c0f979e1f4d17",
-    "property-replicates.parquet": "5643caed0de819647381ba3987b373005a735aa7759c292d34bfde8c5e835edb",
-    "properties.csv": "2b89b9ec18b445b70172defa32f3d9a421c4996abebd5009dc7b419a31cf79f3"
+    "replicates.parquet": "0789a12419da408069a01c57b1320e6d9305837b08d120defe0ac83af66072f7",
+    "summary.csv": "7003a0e4d16e6b0a69a70a0ab69545e351f6eb03c93c118038d7b5f0729d70e6",
+    "equivalence.csv": "ad4348d7f4994ce1fd169e9b134151038aac95b8a2afbb9ec24091d3cca57a7b",
+    "performance-tests.csv": "b492231a2b892811f0227323c651ccc2bf5c09fc45dc8aea2f60b001bdaeb101",
+    "property-replicates.parquet": "aa30fcfe103d40892ece6426614f04eaef542405ccc393924b5e2c7afdb00e07",
+    "properties.csv": "79cf826b7ea9289ecdf8edb71109a43a3eb9a2578fb340bf0f723d6127a4e554"
   }
 }
