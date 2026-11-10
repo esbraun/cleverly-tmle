@@ -218,12 +218,13 @@ if len(names) >= 2:
 ```
 
 Use cluster roles in the study design for cluster-robust variance. Below 40 clusters with
-positive weight mass, a TMLE, DR-TMLE, or longitudinal TMLE fit reports Student t intervals with
+positive weight mass, a clustered fit reports Student t intervals with
 the cluster count minus 2 degrees of freedom, and the summary prints a `df` column. Below 10 such
 clusters, or 20 for longitudinal TMLE, the interval carries the `experimental` label, and below 3
 the fit reports no interval. For TMLE and DR-TMLE, these rules also apply to one reported
 stratum.
-[Clusters](../technical-reference/inference.md#clusters) gives the rules. Use
+[Clusters](../technical-reference/inference.md#clusters) gives the rules and the estimators they
+cover. Use
 `Inference(simultaneous=True)` when the reported family, rather than each interval separately,
 needs error control.
 
@@ -1231,7 +1232,7 @@ before the operation runs.
 
 A result can hold a copied or modified estimator whose configuration the package refuses before a
 refit. A stratified fold policy, a cross-fitted continuous outcome with `q_bounds=None`, and a
-C-TMLE fit on clustered data are examples. The `refit_nuisances` slot runs every check that
+`"greedy"` C-TMLE fit on clustered data are examples. The `refit_nuisances` slot runs every check that
 `refit()` runs before a learner, so a design refusal of an estimator subclass counts too. The table
 gives what such a result keeps.
 

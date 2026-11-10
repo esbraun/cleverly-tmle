@@ -12,9 +12,13 @@ The study pairs the fit with R
 binary recode $1\{A = a\}$. Both sides read this package's initial outcome regression, so the pairs
 test the design, the mechanism and the targeting step.
 
-The study publishes under the `reporting` policy. Its declared revert cells are red, so every
-per-arm fit takes the `generated_design_plugin` status and reports no interval. A shared-design
-fit already withheld its interval before this study. The coverage and
+The study publishes under the `reporting` policy. Its declared revert cells are red, so a
+per-arm fit like the ones it measures takes the `generated_design_plugin` status and reports no
+interval. A shared-design fit already withheld its interval before this study.
+
+A later study,
+[parametric per-arm C-TMLE](outcome-adaptive-per-arm-c-tmle-parametric.md), admits the interval of
+a per-arm fit with the pair `ParametricOutcome` and `ParametricMechanism`. The coverage and
 standard-error columns below measure `plugin_interval` and `plugin_std_error` as diagnostics.
 Their pass labels do not authorize `ci`, `pvalue` or `std_error`.
 [The applied revert](../collaborative-tmle.md#the-applied-revert) gives the diagnosis, and
@@ -239,7 +243,7 @@ study fits no ordinary TMLE on the same draws, so this comparison is reported an
 
 | limitation | what it means for use |
 | --- | --- |
-| No cell measures published inference | Every `oat` fit withholds `ci`, `pvalue` and `std_error`. The `std_error`, `ci_lower`, `ci_upper` and `covered` columns read `plugin_std_error` and `plugin_interval`. The coverage, calibration, null-size, band and power cells describe that diagnostic |
+| No cell measures published inference | Every `oat` fit this study measures withholds `ci`, `pvalue` and `std_error`. The `std_error`, `ci_lower`, `ci_upper` and `covered` columns read `plugin_std_error` and `plugin_interval`. The coverage, calibration, null-size, band and power cells describe that diagnostic |
 | The diagnostic standard error is too small on both laws | The primary SE ratios run from `min_se_ratio_ci_lower` to `max_se_ratio_ci_upper`, and the ladder does not close the gap as n grows. Condition (v) of Theorem 1 fails for an estimated outcome regression, so the remainder $R_{24}$ is first order. R `drtmle` reports the same standard errors, so the pairing cannot detect the gap |
 | The points are paired, not the intervals | All 16 paired rows are equivalent, with `max_margin_utilization` of the margin used. The truth rows of both implementations are red alike. The per-arm design moves the three-arm points away from the shared design by `design_gap[three_arm_active/ey[1]]:mean_design_gap` standard errors on `ey[1]` |
 | The mechanisms agree only off the bounds | Where no row of the per-arm mechanism sits at a bound, the two mechanisms agree to `mechanism_max_gap_off_bound`. In `mechanism_fits_with_rows_at_bound` fits some rows sit at a bound, and the gap reaches `mechanism_max_gap`. The rows at a bound are reported, not gated |

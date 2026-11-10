@@ -1582,7 +1582,10 @@ default="greedy"
 
     ``strategy="oat"`` selects nothing, and it keeps the diagnostic only on either design:
     condition (v) of Benkeser, Cai and van der Laan (2020), Theorem 1, fails for an
-    estimated outcome regression.
+    estimated outcome regression. The exception is a per-arm fit with the pair
+    :class:`~cleverly.learners.ParametricOutcome` and
+    :class:`~cleverly.learners.ParametricMechanism` that ``per_arm_parametric_support``
+    admits, which reports an interval from a stacked influence curve.
 
     ``strategy="derivative"`` adds a derivative column for each arm to one TMLE update.
     The columns contain the clever covariates, so the update solves the efficient influence

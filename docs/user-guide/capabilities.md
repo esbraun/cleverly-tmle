@@ -30,7 +30,7 @@ covers its configuration, and `experimental` otherwise.
 | `IPSI` | the treatment mechanism | the influence curve of the incremental estimator |
 | `SequentialGComputation` | the outcome and pseudo-outcome regressions | the stacked curve when every regression is a `GLM`. Otherwise the point only |
 | `SequentialIPW` | the treatment and censoring mechanisms | the stacked curve when every mechanism is a `GLM`. Otherwise the point only |
-| `StructuralNestedMean` | the outcome and treatment regressions on the full history, with a linear blip model | the influence curve, valid under the linear structural nested mean model with the declared blip features |
+| `StructuralNestedMean` | the outcome and treatment regressions on the full history, with a linear blip model | the influence curve, valid under the linear structural nested mean model with the declared blip features. An in-sample fit (`n_folds=1`) needs every regression to be a `GLM`; otherwise the point only |
 | `ParametricGFormula` | a model of each time-varying covariate, and the outcome or hazard models | the stacked curve with the simulation error when every model is a `GLM`. Otherwise the point only |
 
 The two sequential baselines are reference estimators. They refuse `n_folds > 1` and `msm=`.

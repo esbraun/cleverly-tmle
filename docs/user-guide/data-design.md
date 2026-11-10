@@ -42,12 +42,11 @@ study = CausalStudy(
   refuses `cluster=` at every setting except `strategy="derivative"`. Longitudinal TMLE
   cross-fits with whole-cluster folds.
 
-  Clusters may differ in size. A TMLE, DR-TMLE, or longitudinal TMLE fit with fewer than 40
-  clusters with positive weight mass reports a Student t interval with the cluster count minus 2
+  Clusters may differ in size. A clustered fit with fewer than 40 clusters with positive weight mass reports a Student t interval with the cluster count minus 2
   degrees of freedom. Below 10 such clusters, or 20 for longitudinal TMLE, the interval carries
   the `experimental` label, and below 3 the fit reports no interval. For TMLE and DR-TMLE, these
-  rules also apply to one reported stratum
-  ([clusters](../technical-reference/inference.md#clusters)).
+  rules also apply to one reported stratum. [Clusters](../technical-reference/inference.md#clusters)
+  gives the rules and the estimators they cover.
 - `strata` requests subgroup parameters and preserves the stratum in structured parameter keys.
   A stratum variable must also appear in `adjustment`: it conditions the reported parameter, so a
   design that stratified on a variable it did not adjust for is refused rather than fitted.
@@ -82,7 +81,8 @@ trial = CausalStudy(
 )
 ```
 
-- Every method divides by the declared probabilities and fits no treatment learner. On complete
+- Every method that accepts the design divides by the declared probabilities and fits no
+  treatment learner. On complete
   data, the estimate is then consistent for any outcome learner, and the interval is not
   conservative. With missing outcomes, the fit still estimates the missingness mechanism, and the
   outcome learner must also be consistent.
