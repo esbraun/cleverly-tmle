@@ -116,8 +116,9 @@ NECESSITY_STRATA = (0, 2)
 NECESSITY_LABELS: tuple[str, ...] = tuple(f"v{stratum}_ey_x2" for stratum in NECESSITY_STRATA)
 NECESSITY_ARMS = ("stratified", "marginal_fluctuation")
 #: The MSM targeting-necessity family reads strata 0 and 1.  The untargeted projection of a
-#: ``Q`` that omits ``V`` is 1.8 and 1.1 SD off the truth there and 0.5 SD in stratum 2, so
-#: stratum 2 does not resolve the pair (``tests/unit/test_stratified_alternating_design.py``).
+#: ``Q`` that omits ``V`` is 1.8 and 1.1 SD off the truth there and 0.61 SD in stratum 2, below
+#: the 1.0 SD a declared control needs, so stratum 2 does not resolve the pair
+#: (``tests/unit/test_stratified_alternating_design.py``).
 TARGETING_LABELS: tuple[str, ...] = ("v0_a", "v1_a")
 TARGETING_ARMS = ("targeted", "untargeted")
 #: The robustness family fits the logit MSM ``(1, a)``, :data:`law.ARM_TERMS`.  Inside a

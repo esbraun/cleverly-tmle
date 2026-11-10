@@ -34,6 +34,8 @@ from tests.studies import stratified_incremental_msm_properties as properties
 from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 
 N = 2_000
+#: The displacement, in efficiency SDs, that a declared targeting control must reach.
+CONTROL_FLOOR = 1.0
 SUPPORT = np.asarray(law.SUPPORT, dtype=float)
 V, W, A, Y = SUPPORT.T
 PROBS = law.PROBS
@@ -274,7 +276,7 @@ def test_the_incremental_necessity_control_is_displaced(stratum: int) -> None:
 def test_the_untargeted_msm_control_is_displaced(stratum: int) -> None:
     name = f"msm[a][V={stratum}]"
     displacement = (untargeted_limit(stratum) - law.TRUTH_MSM["logit"][name]) / _sd(name, "logit")
-    assert abs(displacement) >= 1.0, displacement
+    assert abs(displacement) >= CONTROL_FLOOR, displacement
 
 
 def _arm_sd(name: str) -> float:
@@ -300,10 +302,14 @@ class TestTheUndeclaredControlsCouldNotFail:
     """Why three planned families are not declared: on L1 their controls stay near the truth."""
 
     def test_stratum_two_does_not_resolve_the_untargeted_control(self) -> None:
-        """Why the MSM targeting family reads strata 0 and 1."""
+        """Why the MSM targeting family reads strata 0 and 1.
+
+        In stratum 2 the untargeted control is 0.61 SD off the truth, below the floor a
+        declared control needs, so it could not resolve the pair.
+        """
         name = "msm[a][V=2]"
         displacement = (untargeted_limit(2) - law.TRUTH_MSM["logit"][name]) / _sd(name, "logit")
-        assert abs(displacement) < 0.6
+        assert abs(displacement) < CONTROL_FLOOR, displacement
 
     @pytest.mark.parametrize("stratum", law.STRATA)
     def test_the_mechanism_tilt_repairs_a_mechanism_that_omits_w(self, stratum: int) -> None:
