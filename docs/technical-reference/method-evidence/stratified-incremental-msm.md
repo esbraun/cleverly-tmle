@@ -10,8 +10,8 @@ partition, which the [natural-extension verdicts](../natural-extension-verdicts.
 
 Each target solves one score block $I(V=s) H_s / P_n(V=s)$ for each equation of its targeting.
 Each stratum curve is $I(V=s) D_s / P_n(V=s)$. The incremental fit alternates outcome blocks and
-treatment-mechanism blocks. The linked MSM fit takes its stratum coefficients from a nested
-fluctuation of the blocks at each stratum's own coefficients.
+treatment-mechanism blocks. The linked MSM fit solves its stratum blocks in one fluctuation,
+because its clever covariate does not read the coefficients.
 [Point-treatment TMLE](../point-treatment-tmle.md#weights-strata-and-clusters) states each
 construction.
 

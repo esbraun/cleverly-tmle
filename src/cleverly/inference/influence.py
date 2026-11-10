@@ -72,7 +72,7 @@ from .._inference_status import (
 from .._support import UNCLASSIFIED, Classification, Support, support_for
 from .._typing import BoolArray, FloatArray, IntArray
 from .._warnings import warn as _warn
-from ..exceptions import refuse_inference
+from ..exceptions import ConvergenceWarning, refuse_inference
 from ..fluctuation.iterative import InitialFit
 from ..fluctuation.submodel import Submodel
 from ..msm import link_for, solve_projection
@@ -2587,6 +2587,17 @@ def msm_coefficients(
 
     spec = link_for(str(link))
     fit = solve_projection(phi, h, predictions, w, str(link))
+    if not fit.converged:
+        # Bounded targeted means inside the link's range have a finite minimiser, so this
+        # is a numerical failure: the coefficients and their curve describe an equation
+        # that was not solved.
+        _warn(
+            f"the working model's {link} projection did not converge in {fit.n_iter} "
+            f"Newton steps (relative score {fit.score:.1e}), so its coefficients "
+            "and standard errors solve its estimating equation only approximately.",
+            ConvergenceWarning,
+            stacklevel=2,
+        )
     beta = fit.beta
     fitted = np.asarray(spec.inverse(np.einsum("ijp,p->ij", phi, beta)), dtype=float)
     # (n, K, p) -- h * phi, the estimating equation's weight under every link.

@@ -99,7 +99,7 @@ Comparator-backed: a paired comparison with `lmtp projected regimen fits` on the
 
 Every property family but two uses the exact censored binary support law of the ordinary study.
 Its regimen truths and influence curves are derived independently before the fixed projection is
-applied. The logit truth is a longhand Newton solve of the weighted logistic projection. The
+applied. The logit truth is a longhand Newton solve of the weighted quasi-binomial projection. The
 overfitting pair and the band cell use the primary law. The untargeted arm is the projection of
 the same fit's stitched initial fit.
 

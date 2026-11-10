@@ -1307,7 +1307,7 @@ def solve_projection(
     and the score can still fall under ``tol`` as the fitted means approach the boundary.
     So a solve also reports ``converged=False`` when the smallest generalised eigenvalue of
     :math:`M` against the design's Gram matrix is below :data:`_MIN_CURVATURE`: the slope
-    :math:`dm/d\eta` has collapsed along some direction, and the caller refuses the fit.
+    :math:`dm/d\eta` has collapsed along some direction.  The caller warns or refuses.
 
     Parameters
     ----------

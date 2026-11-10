@@ -224,8 +224,9 @@ class Projection:
             step = np.linalg.solve(matrix, score)
             if float(np.max(np.abs(step))) <= 1e-13 * max(1.0, float(np.max(np.abs(beta)))):
                 return beta
-            # The loss is convex, so a full Newton step from a nearby start converges; the
-            # halving guards a far start whose step overshoots the score's sign.
+            # The loss is convex, so a full Newton step from a nearby start converges.  The
+            # halving only keeps the trial means finite; a start that does not converge
+            # raises below.
             size = 1.0
             while size > 1e-8:
                 trial, _ = self._inverse(phi @ (beta + size * step))

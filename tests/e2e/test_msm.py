@@ -431,6 +431,24 @@ class TestFoldWiseTargetingUnderALink:
             assert abs(float(np.mean(estimate.influence_curve))) < 1e-9
 
 
+def test_an_unconverged_linked_projection_warns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A projection that stops short of its minimiser says so rather than reporting quietly."""
+    from dataclasses import replace
+
+    from cleverly.exceptions import ConvergenceWarning
+    from cleverly.inference import influence
+
+    solve = influence.solve_projection
+
+    def stalled(*args: object, **kwargs: object) -> object:
+        return replace(solve(*args, **kwargs), converged=False)
+
+    monkeypatch.setattr(influence, "solve_projection", stalled)
+    frame, _ = make_binary_multi_arm(n=400, seed=SEED)
+    with pytest.warns(ConvergenceWarning, match="projection did not converge"):
+        TMLE(msm=dose_response(link="logit"), **SETTINGS).fit(frame, outcome="Y", treatment="A")
+
+
 class TestTheExponentiatedView:
     @pytest.fixture(scope="class")
     def fits(self):
