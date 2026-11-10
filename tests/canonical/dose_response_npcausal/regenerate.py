@@ -3,45 +3,45 @@
 A declared run passes ``--output`` (an empty scratch directory outside the repository) and
 optionally ``--jobs`` and ``--fresh``, and nothing else (:mod:`tests.canonical.declared_run`).
 The law, learners, doses and margins are those of :mod:`tests.studies.dose_response_npcausal`.
-The bandwidths and the replicate count are read off the pilots by
-:func:`tests.studies.dose_response_npcausal_pilot.declaration_from_pilot`, and they stay
-provisional until the local R pilot is committed.  The reference runs in the image the
-incremental studies build from ``tests/canonical/npcausal_incremental`` (npcausal 0.1.0 at
-``56a5ac1`` on R 4.5.2), unchanged, with ``run_study.R`` mounted at ``/fixture``.
+The bandwidths 2.0 and 2.5 and the 4,800 replications are
+:func:`tests.studies.dose_response_npcausal_pilot.declaration_from_pilot`'s reading of the
+committed local R pilot, which ``tests/unit/test_dose_response_npcausal_design.py`` checks.  The
+reference runs in the image the incremental studies build from
+``tests/canonical/npcausal_incremental`` (npcausal 0.1.0 at ``56a5ac1`` on R 4.5.2), unchanged,
+with ``run_study.R`` mounted at ``/fixture``.
 
-Order of work, all local, before any declared draw reaches R:
+Order of work, all local:
 
-1. ``python -m tests.canonical.dose_response_npcausal.pilot probe --scratch <dir> --jobs <n>``
-   (review smoke steps S1, S2, S4, S6 and S7 on constructed draws and 20 pilot draws, about 0.6
-   CPU-hours at the measured 21.4 CPU-s per ``ctseff`` call).
-2. ``python -m tests.canonical.dose_response_npcausal.pilot reference --scratch <dir> --jobs
-   <n>``, which commits the R pilot and prints the declaration read off it (4,000 calls, about
-   24 CPU-hours).
-3. Set :data:`~tests.studies.dose_response_npcausal.BANDWIDTHS` and
-   :data:`~tests.studies.dose_response_npcausal.PRIMARY_REPLICATES` to that declaration, which
-   ``tests/unit/test_dose_response_npcausal_design.py`` then checks, register the record, and
-   commit.
-4. The smoke (S8), which draws declared replicates 0 to 19 and so informs no declared value::
+1. Done: ``python -m tests.canonical.dose_response_npcausal.pilot probe`` (review smoke steps
+   S1, S2, S4, S6 and S7) and ``python -m tests.canonical.dose_response_npcausal.pilot
+   reference``, which committed the R pilot: 4,000 ``ctseff`` calls at a measured 18.65 CPU-s
+   each, about 21 CPU-hours.
+2. The smoke (S8), which draws declared replicates 0 to 19 and so informs no declared value::
 
     python -m tests.canonical.dose_response_npcausal.regenerate --replicates 20 \
         --output <scratch> --allow-failures --jobs <workers>
 
-5. The declared run: about 57 R CPU-hours at the provisional 4,800 replications, beside about
-   3 for the ``cleverly`` fits.
+3. The declared run, from a clean tree whose ``HEAD`` is pushed, with every thread variable
+   set to 1: about 50 R CPU-hours at 4,800 replications (9,600 calls), beside about 3 for the
+   ``cleverly`` fits::
 
-Provisional projection, from the Python pilot with the transcription standing in for
-``ctseff`` (the design test recomputes every number here).  The transcription fails 74, 7, 1
-and 0 of 1,000 calls at bandwidths 1, 1.5, 2 and 2.5, and 77, 9, 1 and 0 once every call that
-hinges on the last bit of the highest dose's bin counts as failed
-(:func:`~tests.studies.dose_response_npcausal_pilot.knife_edge`), so the rule selects 2 and 2.5,
-and the
-count is 4,800, set by the paired legs (the shared rule reads 2,400 both ways).  At dose 3.5
-the subject's mean reported SE is 1.10 and 1.11 times the exact efficient SD.  At bandwidth 2.5
-its spread rises to 1.11 times efficient as well, so the RMSE ratio there is 1.10 and the RMSE
-leg projects red at any count while the calibration leg projects green; at bandwidth 2 the RMSE
-ratio is 1.05.  The four cells at doses 1.5 and 2.5 pass every leg with projected probability
-at least 0.96 at that count, with RMSE ratios at or below 1.00 and calibration excesses at or
-below 0.015.
+    python -m tests.canonical.dose_response_npcausal.regenerate --output <empty scratch> \
+        --jobs <workers>
+
+4. Register the record with the run's artifacts.
+
+Pilot readings (the design test recomputes every number here).  ``ctseff`` failed 77, 9, 1 and
+0 of 1,000 calls at bandwidths 1, 1.5, 2 and 2.5, all inside ``study_stage`` with
+``locpoly``'s gridsize error.  Those are exactly the calls the Python transcription fails (74,
+7, 1 and 0) or counts as failed because they hinge on the last bit of the highest dose's bin
+(:func:`~tests.studies.dose_response_npcausal_pilot.knife_edge`), pilot draw 11 at bandwidth 1
+among them.  The rule selects 2 and 2.5, and the count is 4,800, set by the paired legs (the
+shared rule reads 2,400 both ways).  At dose 3.5 the subject's mean reported SE is 1.10 and
+1.11 times the exact efficient SD.  At bandwidth 2.5 its spread rises to 1.11 times efficient
+as well, so the RMSE ratio against ``ctseff`` there is 1.10 and the RMSE leg projects red at any
+count while the calibration leg projects green; at bandwidth 2 the RMSE ratio is 1.05.  The
+four cells at doses 1.5 and 2.5 pass every leg with projected probability at least 0.96 at that
+count, with RMSE ratios at or below 1.00 and calibration excesses at or below 0.015.
 
 Red-cell readings, declared before any run.  The record is ``reporting``: a red row publishes,
 and ``TestThePreregisteredRedSet`` in the design test admits only the signatures below.  No cell

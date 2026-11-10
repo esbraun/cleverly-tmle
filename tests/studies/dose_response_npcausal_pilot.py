@@ -15,8 +15,7 @@ reads, at the declared ``n``.  Two pilots fit those draws.
   :data:`R_OUTPUT`, :data:`R_FAILURES` and :data:`R_METADATA`.
 
 :func:`declaration_from_pilot` reads the bandwidths and the replicate count off the subject's
-rows and the reference's rows: the R pilot's once it is committed, the transcription's until
-then.  The study module's :data:`~tests.studies.dose_response_npcausal.BANDWIDTHS` and
+rows and the committed R pilot's ``ctseff`` rows.  The study module's :data:`~tests.studies.dose_response_npcausal.BANDWIDTHS` and
 :data:`~tests.studies.dose_response_npcausal.PRIMARY_REPLICATES` must equal its output, which
 the design test checks.
 
@@ -515,9 +514,10 @@ FAILURE_EXCEED = 0.01
 #: The joint pass probability the paired legs are sized to, over the cells outside the
 #: pre-registered red set.
 PAIRED_PASS = 0.95
-#: The largest count the paired-leg rule may ask for: about 95 R CPU-hours at two ``ctseff``
-#: calls of 21.4 CPU-s (the local probe) per replicate.  Past it the straddle reading of the regeneration
-#: docstring governs a calibration red at doses 1.5 and 2.5 instead.
+#: The largest count the paired-leg rule may ask for, declared at about 95 R CPU-hours from the
+#: local probe's 21.4 CPU-s per ``ctseff`` call; at the R pilot's 18.65 CPU-s and two calls per
+#: replicate it is about 83.  Past it the straddle reading of the regeneration docstring governs
+#: a calibration red at doses 1.5 and 2.5 instead.
 PAIRED_CAP = 8_000
 #: Bootstrap resamples for the pilot spread of each paired-leg statistic.
 PAIRED_BOOTSTRAP = 400
@@ -840,11 +840,10 @@ def declaration_from_pilot(
     rule with each implementation's own rows on the draws both fitted (``own``), and
     :func:`paired_replicates`.  The first pair whose reference and subject failures keep
     :func:`failure_exceed` at or below :data:`FAILURE_EXCEED` at that count is declared.  The
-    reference is the committed R pilot when it exists and the transcription otherwise.
+    reference defaults to the committed R pilot.
     """
     subject = subject_rows() if subject is None else subject
-    if reference is None:
-        reference = r_reference() if R_OUTPUT.exists() else sketch_reference()
+    reference = r_reference() if reference is None else reference
     candidates = study.CANDIDATE_BANDWIDTHS
     for low, high in itertools.pairwise(candidates):
         names = [name for name, (_, h, _) in study.PILOT_PAIRS.items() if h in (low, high)]

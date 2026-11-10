@@ -284,14 +284,9 @@ class TestTheSizes:
         assert int((subject["refusal"].fillna("") != "").sum()) == 0
 
     def test_the_declaration_is_the_pilot_rule(self) -> None:
-        """The bandwidths and the count are :func:`declaration_from_pilot`'s output.
-
-        It reads the committed R pilot once that exists, and the transcription until then, so
-        the declared values are provisional until the R pilot is committed.
-        """
+        """The bandwidths and the count are :func:`declaration_from_pilot`'s reading of the R pilot."""
         declaration = pilot.declaration_from_pilot()
-        expected = study.REFERENCE if pilot.R_OUTPUT.exists() else pilot.SKETCH
-        assert declaration.source == expected
+        assert declaration.source == study.REFERENCE
         assert declaration.bandwidths == study.BANDWIDTHS
         assert declaration.replicates == study.PRIMARY_REPLICATES == study.STUDY.replicates
         assert declaration.replicates >= 1_000
@@ -383,15 +378,23 @@ class TestTheSizes:
         sketch = PILOT.loc[PILOT["implementation"] == pilot.SKETCH]
         refused = sketch.loc[sketch["refusal"].fillna("") != ""]
         assert refused.groupby("bandwidth").size().to_dict() == {1.0: 74, 1.5: 7, 2.0: 1}
-        reference = pilot.sketch_reference()
+        sketch_reference = pilot.sketch_reference()
+        reference = pilot.r_reference()
+        # R fails exactly the calls the transcription fails or counts as knife-edge.
+        assert reference.failed == sketch_reference.failed
         assert {h: len(reference.failed[h]) for h in study.CANDIDATE_BANDWIDTHS} == {
             1.0: 77,
             1.5: 9,
             2.0: 1,
             2.5: 0,
         }
-        declaration = pilot.declaration_from_pilot(reference=reference)
-        assert (declaration.assumed, declaration.own, declaration.paired) == (2_400, 2_400, 4_800)
+        assert 11 in reference.failed[1.0]
+        messages = set(pilot.read(pilot.R_FAILURES)["message"])
+        assert messages == {"'bandwidth' must be a scalar or an array of length 'gridsize'"}
+        for source in (sketch_reference, reference):
+            declaration = pilot.declaration_from_pilot(reference=source)
+            readings = (declaration.assumed, declaration.own, declaration.paired)
+            assert readings == (2_400, 2_400, 4_800), source.source
         ratio = self._se_over_efficient(study.IMPLEMENTATION)
         assert [round(ratio[(h, 3.5)], 2) for h in study.BANDWIDTHS] == [1.10, 1.11]
         lost = reference.failed[2.0] | reference.failed[2.5]

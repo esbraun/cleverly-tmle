@@ -9,11 +9,10 @@ study's law $\theta$ is a line, and every local-linear smoother reproduces a lin
 equal $\theta(a_0)$ at every declared dose and bandwidth. The comparison is of target recovery on
 that shared value, not of the two smoothing measures, and its kind is "related target".
 
-The study is declared and has not run, and it is not yet registered. Its bandwidths and its
-replication count are provisional: a rule reads them off two pilots, and until the local R pilot
-commits real `ctseff` rows, a Python transcription of `ctseff` stands in for it. The generated
-tables stay empty until the declared run. [Smoothed dose-response curve](../dose-response.md)
-gives the estimand and the estimator. The [dose-response study](dose-response.md) holds the
+The study is declared and has not run, and it is registered when the run's artifacts land. A
+declared rule read its bandwidths and its replication count off two pilots, the second of which
+fitted real `ctseff` on 1,000 draws. The generated tables stay empty until the declared run.
+[Smoothed dose-response curve](../dose-response.md) gives the estimand and the estimator. The [dose-response study](dose-response.md) holds the
 estimator's property evidence.
 
 ## What was compared
@@ -21,8 +20,8 @@ estimator's property evidence.
 | setting | declaration |
 | --- | --- |
 | law | $W \sim N(0, I_3)$; $A = 2.5 + 0.5 W_1 + 0.3 W_2 - 0.3 W_3 + 1.5\varepsilon$; $Y = 0.2 + 0.5 A + (0.8 + 0.1 A)(0.7 W_1 - 0.5 W_3) + \eta$, with standard normal $\varepsilon$ and $\eta$. $W_1$ confounds, and $\theta(a) = 0.2 + 0.5a$ |
-| pairs | doses 1.5, 2.5 and 3.5 at two consecutive triweight bandwidths of the candidates 1.0, 1.5, 2.0 and 2.5, provisionally 2.0 and 2.5: six pairs, each kernel's support inside $D$ |
-| sample | provisionally 4,800 replications of n = 4,000, each fitted by both implementations |
+| pairs | doses 1.5, 2.5 and 3.5 at two consecutive triweight bandwidths of the candidates 1.0, 1.5, 2.0 and 2.5, which the R pilot selects as 2.0 and 2.5: six pairs, each kernel's support inside $D$ |
+| sample | 4,800 replications of n = 4,000, each fitted by both implementations |
 | `cleverly` | `DoseResponseTMLE` with the triweight kernel, five folds, the linear fluctuation and `q_bounds=(-25, 25)` |
 | `ctseff` | one call per bandwidth, `bw.seq` set to the matched Gaussian bandwidth, so its leave-one-out selection has one candidate. It still computes that candidate's risk |
 | matched kernels | `ctseff` receives $h_G = h\,R(K_G)/R(K_T)$, with $R(K) = \int K^2$: 0.3458, 0.5187, 0.6915 and 0.8644 for $h$ = 1, 1.5, 2 and 2.5. At an interior dose both estimators then have the leading variance $R(K)\,E_W\{\sigma^2 / g_0(a_0 \mid W)\}/(nh)$, within 10% of the subject's exact term at $h \le 1.5$ and within 25% at $h = 2.5$ |
@@ -69,32 +68,37 @@ failures, on the draws where either `ctseff` call failed, keep the chance of exc
 declared 1% failure bound at or below 0.01 at the declared count, computed at the failure rate's
 one-sided 95% Clopper-Pearson upper bound.
 
-The Python transcription reproduces the failure path and fails 74, 7, 1 and 0 of 1,000 calls at
-the four candidates. At the highest dose the outcome
-can hinge on one bit: `locpoly` drops that dose when its bin index rounds to exactly 400 and
-keeps it otherwise. When the next dose lies outside the last node's window, a dropped dose makes
-the call fail and a kept one does not. The local probe met one such call, pilot draw 11 at
-bandwidth 1, which R failed and the transcription fitted. The transcription counts every such
-call as failed, which makes 77, 9, 1 and 0, and it selects 2.0 and 2.5. The R pilot replaces
-those counts with `ctseff`'s own.
+On the 1,000 pilot draws `ctseff` failed 77, 9, 1 and 0 calls at the four candidates, each with
+`locpoly`'s error "'bandwidth' must be a scalar or an array of length 'gridsize'", so the rule
+selects 2.0 and 2.5. One draw, 215, is lost at bandwidth 2.0, and the chance of exceeding the
+failure bound at 4,800 replications is about $10^{-6}$.
+
+The Python transcription reproduces the failure path and fails 74, 7, 1 and 0 of the same calls.
+At the highest dose the outcome can hinge on one bit: `locpoly` drops that dose when its bin
+index rounds to exactly 400 and keeps it otherwise. When the next dose lies outside the last
+node's window, a dropped dose makes the call fail and a kept one does not. The local probe met
+one such call, pilot draw 11 at bandwidth 1, which R failed and the transcription fitted. The
+transcription counts every such call as failed, which makes 77, 9, 1 and 0, and these are
+exactly the calls R failed.
 
 ## Sizing
 
 The count is the largest of three readings, each a multiple of 400:
 
-| reading | what it reads | provisional replications |
+| reading | what it reads | replications |
 | --- | --- | --- |
 | A | the shared primary rule (`tests/studies/repeated_sizing.py`) at the X32b clause shares, with `cleverly`'s pilot rows for both implementations | 2,400 |
 | B | the same rule with each implementation's own pilot rows | 2,400 |
 | paired legs | the smallest count at which the similarity, RMSE, coverage and calibration legs of every cell pass together with probability 0.95, by a normal approximation from the pilot's bootstrap spread. The RMSE and calibration legs at dose 3.5 are left out, because the pre-registered red signature admits them | 4,800 |
 
-The paired-leg rule is capped at 8,000, about 95 R CPU-hours. Past the cap a declared straddle
+The paired-leg rule is capped at 8,000, about 83 R CPU-hours at the R pilot's cost. Past the cap a declared straddle
 reading governs a calibration red at doses 1.5 and 2.5 instead: the subject's SE ratio in
 $[1, 1.07]$, the reference's below 1, both truth rows green. On the pilot, `cleverly` took 2.3
 seconds per fit on one core at twelve pairs.
 
-The provisional readings come from the transcription in place of `ctseff`. Its binned `locpoly`
-fit is transcribed from the Fortran, and it differs from `ctseff` in three declared places. Its
+The readings use the R pilot's `ctseff` rows, and the transcription in their place gives the
+same three counts. Its binned `locpoly` fit is transcribed from the Fortran, and it differs from
+`ctseff` in three declared places. Its
 smoothing spline places a knot at every grid point, where R places about 60. The outcome spline
 smooths a line, which both reproduce, so only the marginal-density spline can differ. Its
 residual density is an exact Gaussian kernel sum, where R bins and convolves, and its
@@ -109,7 +113,7 @@ pooled-hazard density, whose bin hazards compound upward through the survival pr
 from the law or from `ctseff`. The [dose-response study](dose-response.md) sees the same effect at
 its upper boundary dose 4.75; this law's wider dose spread brings it to an interior dose. At
 bandwidth 2.5 the subject's spread rises to 1.11 times efficient as well, so its SE is calibrated
-there, the RMSE ratio against the transcription is 1.10, and the RMSE leg projects red at any
+there, the RMSE ratio against `ctseff` is 1.10, and the RMSE leg projects red at any
 count. At bandwidth 2.0 the RMSE ratio is 1.05. The four cells at doses 1.5 and 2.5 pass every
 leg with projected probability at least 0.96 at 4,800 replications.
 
@@ -128,7 +132,7 @@ reference at this law. It does not turn the subject's row red.
 
 ## Local R pilot
 
-The R pilot runs on a machine with Docker. It builds the image of the incremental studies from
+The R pilot ran on a machine with Docker. It builds the image of the incremental studies from
 `tests/canonical/npcausal_incremental/Dockerfile` on first use and fits through the declared
 runner `run_study.R`. Each `ctseff` call is its own harness group, so a failed call is one
 failure record with R's message. The probe comes first and the full pilot second:
@@ -142,13 +146,13 @@ The probe checks the image, confirms or refutes the failure path on constructed 
 isolated extreme dose, compares R with the transcription on 20 pilot draws, reruns two draws for
 identical rows, and times a call. Its comparison requires estimates within 0.05 SE, standard
 errors within 1%, and the same failed calls. Calls whose outcome hinges on the last bit of the
-highest dose's bin are reported and not gated, since only R settles them. The local probe
-measured 21.4 CPU-seconds per call, so the probe costs about 0.6 CPU-hours, the full pilot of
-4,000 calls about 24, and the declared reference at 4,800 replications about 57, beside about 3
-for the `cleverly` fits. The full pilot works in resumable chunks of 50 draws and commits
+highest dose's bin are reported and not gated, since only R settles them. The full pilot
+works in resumable chunks of 50 draws. It committed
 `tests/studies/dose_response_npcausal_pilot_r.csv.gz`, `..._pilot_r_failures.csv` and
-`..._pilot_r.json`. The design test then requires the declared bandwidths and count to equal the
-rule's reading of those rows.
+`..._pilot_r.json`, measured 18.65 CPU-seconds per call over its 4,000 calls (about 21
+CPU-hours), and the design test requires the declared bandwidths and count to equal the rule's
+reading of those rows. At that cost the declared reference of 9,600 calls takes about 50
+CPU-hours, beside about 3 for the `cleverly` fits.
 
 ## Measured values and declared margins
 
@@ -157,7 +161,7 @@ counts. The run adds the measured rows and the failure bounds it applied.
 
 | quantity | value | source |
 | --- | --- | --- |
-| `replicates` | 4800 | paired replications, provisional |
+| `replicates` | 4800 | paired replications, read off the R pilot |
 | `n` | 4000 | observations per replication |
 | `independent_tests_total` | 12 | truth tests reported, six pairs for each implementation |
 | `paired_tests_total` | 6 | paired comparisons reported |
@@ -205,6 +209,7 @@ The smoke run is `python -m tests.canonical.dose_response_npcausal.regenerate --
 --output <empty directory outside the repository> --allow-failures --jobs <workers>`. The declared
 run is `python -m tests.canonical.dose_response_npcausal.regenerate --output <empty directory>
 --jobs <workers>`. Both build the unchanged image of the incremental studies from
-`tests/canonical/npcausal_incremental/Dockerfile` and mount `run_study.R`. Neither runs before
-the R pilot is committed and the declaration is final. The smoke draws declared replicates 0
-to 19, so no declared value is read from it.
+`tests/canonical/npcausal_incremental/Dockerfile` and mount `run_study.R`. The declared run
+needs a clean tree whose `HEAD` is pushed and every thread variable set to 1, and it copies its
+artifacts, `manifest.json` and `run.log` into `tests/canonical/dose_response_npcausal/`. The
+smoke draws declared replicates 0 to 19, so no declared value is read from it.

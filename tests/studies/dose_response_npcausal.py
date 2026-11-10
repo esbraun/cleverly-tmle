@@ -1,10 +1,14 @@
 r"""Declared comparison of the smoothed dose-response curve with npcausal ``ctseff`` (X93 S2).
 
-**Status: provisional.**  :data:`BANDWIDTHS` and :data:`PRIMARY_REPLICATES` are read off the
-pilots by :func:`tests.studies.dose_response_npcausal_pilot.declaration_from_pilot`.  Until the
-local R pilot (``python -m tests.canonical.dose_response_npcausal.pilot reference``) commits
-real ``ctseff`` rows, the rule reads the Python transcription in place of ``ctseff``, and the
-two values are provisional.  The record is not registered until the declared run lands.
+**Status: declared, not yet run.**  :data:`BANDWIDTHS` and :data:`PRIMARY_REPLICATES` are
+:func:`tests.studies.dose_response_npcausal_pilot.declaration_from_pilot`'s reading of the
+committed local R pilot (``python -m tests.canonical.dose_response_npcausal.pilot reference``):
+1,000 draws, on which real ``ctseff`` failed 77, 9, 1 and 0 calls at the four candidate
+bandwidths, every one with ``locpoly``'s "'bandwidth' must be a scalar or an array of length
+'gridsize'".  Those are exactly the calls the transcription fails or counts as knife-edge
+(pilot draw 11 at bandwidth 1 among them), so the rule selects 2.0 and 2.5 and sizes 4,800
+replications, the values it read off the transcription before.  The record is registered with
+the declared run's artifacts.
 
 The subject is :class:`cleverly.estimators.DoseResponseTMLE`, the CV-TMLE of
 :math:`\theta_h(a_0) = \int_D w_{h,a_0}(a)\theta(a)\,da` with the local-linear equivalent kernel
@@ -32,7 +36,7 @@ B1).  The rate falls with the bandwidth.  :data:`CANDIDATE_BANDWIDTHS` is 1.0, 1
 declared before any R output: the two first-declared values and two wider fallbacks, with
 :math:`D` widened to hold every candidate's kernel at every dose.  The rule picks the first
 consecutive pair whose pilot failure rate keeps the reference inside its 1% failure bound
-(:func:`~tests.studies.dose_response_npcausal_pilot.select_bandwidths`).  The doses and
+(:func:`~tests.studies.dose_response_npcausal_pilot.declaration_from_pilot`).  The doses and
 learners do not move.
 
 **Matched kernels.**  ``DoseResponse`` offers compact kernels and ``ctseff`` a Gaussian one, so
@@ -134,8 +138,7 @@ NPCAUSAL_IMAGE = "cleverly-npcausal:0.1.0-56a5ac1"
 #: The one learner of every ``SuperLearner`` call ``ctseff`` makes.
 SL_LIBRARY = "SL.glm.interaction"
 
-#: PROVISIONAL: the pilot rule's reading with the Python transcription standing in for
-#: ``ctseff``; the committed R pilot replaces it (see the module docstring).
+#: The pilot rule's count on the committed R pilot (see the module docstring).
 PRIMARY_REPLICATES = 4_800
 PRIMARY_N = 4_000
 #: The declared share of replicates one cell may lose to recordable fitting failures.
@@ -147,7 +150,7 @@ SUPPORT = law.SUPPORT
 DOSES = (1.5, 2.5, 3.5)
 #: The triweight bandwidths the pilots fit, in the order the selection rule reads them.
 CANDIDATE_BANDWIDTHS = (1.0, 1.5, 2.0, 2.5)
-#: PROVISIONAL: the consecutive pair of :data:`CANDIDATE_BANDWIDTHS` the selection rule picks.
+#: The consecutive pair of :data:`CANDIDATE_BANDWIDTHS` the selection rule picks on the R pilot.
 BANDWIDTHS = (2.0, 2.5)
 KERNEL: KernelName = "triweight"
 #: :math:`R(K) = \int K^2` of the triweight :math:`\tfrac{35}{32}(1 - u^2)^3` and of the
