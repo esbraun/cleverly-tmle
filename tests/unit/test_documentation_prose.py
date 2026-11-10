@@ -227,9 +227,12 @@ def test_each_gating_rule_is_reachable(rule: str) -> None:
         "empty-transition": "The identity holds. Thus, the sign is fixed.",
         "empty-intensifier": "This is a crucial step.",
         "paragraph-length": " ".join(f"Sentence number {n} here." for n in range(1, 9)),
+        "unlinked-claim": "A collaborative fit refuses the interval at every strategy.",
     }
     lines = prose.prose_lines(samples[rule])
-    if rule == "paragraph-length":
+    if rule == "unlinked-claim":
+        assert prose.unlinked_claims("docs/user-guide/page.md", samples[rule])
+    elif rule == "paragraph-length":
         found = [len(prose.sentences(text)) for _, text in prose.paragraphs(lines)]
         assert found and max(found) > prose.PARAGRAPH_SENTENCES
     else:
@@ -240,6 +243,37 @@ def test_each_gating_rule_is_reachable(rule: str) -> None:
             for _, line in lines
         )
         assert matched, f"{rule} matched nothing in its own sample"
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The simulation study of this method has not run yet.",
+        "Two comparisons are planned and have not run.",
+        "Every estimate is labelled experimental.",
+        "C-TMLE refuses clusters at every setting except the derivative strategy.",
+        "Only the parametric pair reports an interval, and others give no interval.",
+    ],
+)
+def test_unlinked_claim_reports_a_claim_with_no_owner_link(sentence: str) -> None:
+    assert prose.unlinked_claims("docs/user-guide/page.md", sentence) == [sentence]
+
+
+def test_unlinked_claim_spares_a_linked_paragraph_and_other_readers() -> None:
+    """A link to the owning page clears the paragraph; contributor and reference pages are out."""
+    claim = "C-TMLE refuses clusters at every setting except the derivative strategy."
+    # Built from parts so the link test, which also reads this file, sees no link to resolve.
+    target = "../technical-reference/collaborative-tmle.md"
+    linked = f"{claim} [Collaborative TMLE]" + f"({target}) says why."
+    site = f"{claim} [The grid](https://example.org/technical-reference/grid.html) lists it."
+    assert prose.unlinked_claims("docs/examples/page.ipynb", linked) == []
+    assert prose.unlinked_claims("README.md", site) == []
+    assert prose.unlinked_claims("docs/technical-reference/page.md", claim) == []
+    assert prose.unlinked_claims("docs/development/page.md", claim) == []
+    # A refusal that runs "before any learner" names when it runs, not what it covers.
+    assert (
+        prose.unlinked_claims("docs/user-guide/page.md", "It is refused before any learner.") == []
+    )
 
 
 #: C0 control characters other than tab, line feed and carriage return.  A backslash escape
