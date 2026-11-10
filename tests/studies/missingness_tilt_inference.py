@@ -258,7 +258,7 @@ CONFIGURATION = {
     "construction": "targeted missingness tilt off gamma = 0, read by missingness_tilt",
     "gammas": list(GAMMAS),
     "n_folds": "package default (10)",
-    "scenarios": {
+    "scenario_settings": {
         scenario: {
             "targets": list(spec.targets),
             "n": STUDY.sizes(PRIMARY_N)[scenario],
