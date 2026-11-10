@@ -161,6 +161,15 @@ def generate_property_rows(*, n_jobs: int = 1) -> pd.DataFrame:
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    """No property verdicts."""
-    del rows
-    return pd.DataFrame(columns=["property", "cell", "passed"])
+    """No property cell, so no verdict: an empty table with the columns the evidence reads."""
+    if not rows.empty:
+        raise ValueError("survival-ctmle declares no property cell, and it received rows")
+    return pd.DataFrame(
+        {
+            "property": pd.Series(dtype=str),
+            "cell": pd.Series(dtype=str),
+            "role": pd.Series(dtype=str),
+            "passed": pd.Series(dtype=bool),
+            "property_passed": pd.Series(dtype=bool),
+        }
+    )

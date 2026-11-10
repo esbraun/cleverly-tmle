@@ -7943,3 +7943,56 @@ STUDY_ARM_CELLS.update(
         },
     }
 )
+
+
+#: ``survival-ctmle`` (X91 part B): collaborative TMLE of a risk curve, Stitelman and van der
+#: Laan (2010), Sections 12 to 14.  The scenario and estimand names are those of
+#: ``tests/studies/survival_ctmle.py``; the record holds its gated cells only.
+_SURVIVAL_CTMLE_SLUG = "survival-ctmle"
+IMPLEMENTATIONS["cleverly-survival-ctmle"] = (
+    "`cleverly` SurvivalCTMLE: per arm, the greedy collaborative selection of main-term "
+    "treatment and censoring models, with the hazard fluctuation and the printed penalty"
+)
+_SURVIVAL_CTMLE_LAW = (
+    "five clipped correlated normal covariates, a binary baseline treatment whose odds rise "
+    "with W4, which does not affect the event, an event hazard and a censoring hazard at two "
+    "time points; the outcome model correct"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_SURVIVAL_CTMLE_SLUG, "or1_qcorrect"): (
+            f"{_SURVIVAL_CTMLE_LAW}, W4 odds ratio 1, n = 1,000"
+        ),
+        (_SURVIVAL_CTMLE_SLUG, "or10_qcorrect"): (
+            f"{_SURVIVAL_CTMLE_LAW}, W4 odds ratio 10, n = 1,000"
+        ),
+        (_SURVIVAL_CTMLE_SLUG, "or15_qcorrect"): (
+            f"{_SURVIVAL_CTMLE_LAW}, W4 odds ratio 15, n = 1,000"
+        ),
+        (_SURVIVAL_CTMLE_SLUG, "s2_or10_qcorrect"): (
+            f"{_SURVIVAL_CTMLE_LAW}, W4 odds ratio 10 and the W1 coefficient of the treatment "
+            "model log 15, n = 1,000"
+        ),
+        (_SURVIVAL_CTMLE_SLUG, "s2_or15_qcorrect"): (
+            f"{_SURVIVAL_CTMLE_LAW}, W4 odds ratio 15 and the W1 coefficient of the treatment "
+            "model log 15, n = 1,000"
+        ),
+        (_SURVIVAL_CTMLE_SLUG, "or15_qcorrect_n2000"): (
+            f"{_SURVIVAL_CTMLE_LAW}, W4 odds ratio 15, n = 2,000"
+        ),
+        (_SURVIVAL_CTMLE_SLUG, "or10_qcorrect_crossfit"): (
+            f"{_SURVIVAL_CTMLE_LAW}, W4 odds ratio 10, two outer folds, n = 1,000"
+        ),
+    }
+)
+STUDY_ESTIMANDS.update(
+    {
+        (
+            _SURVIVAL_CTMLE_SLUG,
+            "risk_regimen[a1 @ t=2]",
+        ): "risk of the event by t = 2 under treatment",
+        (_SURVIVAL_CTMLE_SLUG, "ate_regimen[a1 vs a0 @ t=2]"): (
+            "difference in the risk of the event by t = 2 between treatment and no treatment"
+        ),
+    }
+)

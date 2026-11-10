@@ -1,4 +1,4 @@
-"""The declaration of the unregistered study ``survival-ctmle`` (X91 part B, design section 8).
+"""The declaration of the study ``survival-ctmle`` (X91 part B, design section 8).
 
 The study is declared before its pilot: these checks hold the parts a pilot must not move,
 its truth, its seeds and its sizes.
@@ -180,14 +180,15 @@ def test_a_reported_fit_that_raises_is_counted_not_summarized() -> None:
 
 
 def test_the_seeds_are_used_by_no_registered_study() -> None:
-    seeds = {record.seed for record in registered()}
-    resampling = {record.resampling_seed for record in registered()}
+    others = [record for record in registered() if record.slug != study.STUDY.slug]
+    seeds = {record.seed for record in others}
+    resampling = {record.resampling_seed for record in others}
     assert study.SEED not in seeds | resampling
     assert study.RESAMPLING_SEED not in seeds | resampling
 
 
 def test_every_gated_cell_draws_at_least_one_thousand_units() -> None:
-    assert study.STUDY.slug not in {record.slug for record in registered()}
+    assert study.STUDY.slug in {record.slug for record in registered()}
     for name in study.PRIMARY_SCENARIOS:
         assert study.STUDY.n_of(name) >= 1_000
     assert study.RMSE_GATE_SCENARIO in study.PRIMARY_SCENARIOS

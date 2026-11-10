@@ -1,12 +1,12 @@
-r"""Declared evidence for collaborative TMLE of a risk curve (X91 part B), before any run.
+r"""Registered evidence for collaborative TMLE of a risk curve (X91 part B).
 
 The subject is :class:`~cleverly.longitudinal.SurvivalCTMLE`: for each static arm of a
 binary baseline treatment and each horizon, the greedy collaborative selection of a
 main-term logistic treatment model and a pooled main-term logistic censoring model of
 Stitelman and van der Laan (2010), with the printed penalty (24).  This module holds the
-declaration and the runner of the study ``survival-ctmle``.  It is **not registered**: the
-pilot that sizes it, the registration, the grid row and the support rows come in a later
-change, after the design review (``X91-B-design.md`` section 8).
+declaration and the runner of the study ``survival-ctmle`` (``X91-B-design.md`` section 8).
+It declares no property cell, so it registers under ``reporting`` and the validation grid does
+not list it; its page is ``docs/technical-reference/method-evidence/survival-ctmle.md``.
 
 **Law** (the source's Sections 12 to 14).  :math:`W_1, \dots, W_5` are multivariate normal,
 mean 0, variance 1, covariance 0.2, each set to :math:`\pm 2` beyond :math:`\pm 2`;
@@ -327,6 +327,9 @@ STUDY = StudyRecord(
     ),
     runner_module="tests.studies.survival_ctmle",
     properties_module="tests.studies.survival_ctmle_properties",
+    # No property cell, so no validation row: the study reports its verdicts off the grid
+    # (``method-benchmarking.md``, "Adding a method row").  Its claim is points only (F18).
+    publication_policy="reporting",
 )
 
 CONFIGURATION = {

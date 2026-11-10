@@ -380,6 +380,7 @@ row. A move to `gated` is a separate registry decision.
 | [repeated cross-fitted longitudinal TMLE, SDR and IPSI](repeated-cross-fitted-longitudinal.md) | 89 | 0 |
 | [C-TMLE0 derivative covariate](ctmle-derivative.md) | 30 | 0 |
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
+| [collaborative TMLE of a risk curve](survival-ctmle.md) | 14 | 0 |
 | [vector modified treatment policies](vector-modified-treatment-policies.md) | 96 | 0 |
 | [tuned caps and their population and fold-average targets](mtp-tuning.md) | 26 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |
