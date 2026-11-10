@@ -1279,6 +1279,7 @@ class TestPublishedVerdicts:
                     "unnormalised_curve_control",
                     "share_dropped_control",
                     "interpolating_control",
+                    "mar_variance_control",
                 ):
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
