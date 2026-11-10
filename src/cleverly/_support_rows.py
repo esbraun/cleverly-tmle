@@ -4875,6 +4875,12 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "carries the shown status working_model_projection, which keeps an estimate "
         "experimental inside any row until F39 closes."
     ),
+    "adaptive-tmle-selective": (
+        "It measures the intervals of AdaptiveTMLEMethod under selective enrollment with Super "
+        "Learner nuisances. That engine is no point-treatment row: every estimate carries the "
+        "working_model_projection status, whose open condition F39 holds, and no support row "
+        "was declared before the run, so the fit keeps the experimental label."
+    ),
     "omitted-variable-bound-se": (
         "It measures the standard error of a sensitivity bound. The bound carries its own "
         "status and is no fit of a row."

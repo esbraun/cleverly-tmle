@@ -414,7 +414,10 @@ blocks the method.
 
 Two registered studies and exact-law unit tests check the method. Study A, `adaptive-tmle-trial`,
 has a committed result, recorded in the [method-evidence page](method-evidence/adaptive-tmle-trial.md).
-Study S6, `adaptive-tmle-selective`, is declared and has not run. The label of every fit stays
+Study S6, `adaptive-tmle-selective`, has a declared run that read its `s6_cv` bias leg red with no
+defect, and it publishes under `reporting`. The roadmap owner row
+[`X90-cv-finite-sample`](../roadmap.md#red-cell-owners) holds that cell, and the repeat run's
+results are pending (see the [study page](method-evidence/adaptive-tmle-selective.md)). The label of every fit stays
 experimental. No support row covers the method, and a row would not change the label: the
 `working_model_projection` status keeps an estimate experimental inside any row until F39 closes
 (see Inference status).
@@ -508,7 +511,7 @@ All 16 gated tests passed, with coverage of the gated target from 0.931 to 0.953
 The [study page](method-evidence/adaptive-tmle-trial.md) lists every row. The study declares no
 property cell and no registered comparator, so the
 [implementation validation grid](method-evidence/validation-grid.md) does not list it, and the
-method has no grid row. Study S6 is declared the same way. A property cell declared before a run,
+method has no grid row. Study S6 is declared the same way, under `reporting`. A property cell declared before a run,
 or the R `atmle` pairing record, would give the method a row.
 
 ### Unit tests

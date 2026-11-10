@@ -20,7 +20,7 @@ The ledger reads each verdict column as a boolean. It refuses a table whose verd
 a blank or any other value, because a blank would otherwise read as a pass. The paired
 `reference_valid` column repeats the comparator's truth row, so the truth kind covers it.
 
-The ledger reads verdict rows and accounting rows only. Ten study modules also define a `scientific_failures` hook.
+The ledger reads verdict rows and accounting rows only. Eleven study modules also define a `scientific_failures` hook.
 The regeneration adds each hook's rows to the failures it gates or reports. These hooks audit
 fits and publish no verdict cell, so the ledger does not read them.
 
@@ -36,6 +36,7 @@ fits and publish no verdict cell, so the ledger does not read them.
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | `reporting` | the `lmtp` exactness witnesses of every scenario that exceed the 1e-6 gate | the study page and `exactness.csv` |
 | [structural nested mean model](structural-nested-mean.md) | `reporting` | the EconML `DynamicDML` exactness witnesses of the 21 paired cells that exceed the 1e-9 gate | the study page and `exactness.csv` |
 | [Adaptive TMLE with external data](adaptive-tmle-trial.md) | `gated` | the control and efficiency verdicts: the efficiency contrast on `a0`, and controls K1, K2, K3 and K5 | `controls.csv`. The test requires every row to pass |
+| [Adaptive TMLE under selective enrollment](adaptive-tmle-selective.md) | `reporting` | the K6 control verdicts, a reporting row that always passes | the study page and `controls.csv` |
 
 `tests/unit/test_red_cell_ledger.py` fails when a study module defines a hook that this table
 does not list.
@@ -57,6 +58,11 @@ reading and the declaration that a future regeneration needs.
 The `X41-negative-control` owner holds the three `misspecification_control` cells of the
 [sequential baselines study](sequential-baselines.md). They are a declared negative control. The
 study lists them as red before the run, and no work is owed.
+
+The `X90-cv-finite-sample` owner holds the `s6_cv` bias row of the
+[selective-enrollment study](adaptive-tmle-selective.md). It is a standing record of a reading with
+no defect: the cross-validated form's targeting carries a finite-sample term of about 0.2 error
+SDs at n = 3,200.
 
 The `X26-plugin-conservative` owner holds the lower bound of the ATE of arm 2 against arm 0 on the
 cross-fitted three-arm fit of the

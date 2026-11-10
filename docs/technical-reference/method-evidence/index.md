@@ -18,7 +18,8 @@ Read the pages in this order.
 A validation study declares property cells or names a reference. A study that names a reference
 is comparator-backed, and its agreement block names the comparison kind of each row. The
 [learned-rule boundary study](learned-rule-cvtmle-boundary.md) declares neither, so it has a page
-and no grid row. The [adaptive TMLE trial study](adaptive-tmle-trial.md) is the second such study.
+and no grid row. The [adaptive TMLE trial study](adaptive-tmle-trial.md) and the
+[selective-enrollment study](adaptive-tmle-selective.md) are the second and third such studies.
 
 To register a new study, follow
 [adding a method row](../../development/method-benchmarking.md#adding-a-method-row).
@@ -126,6 +127,7 @@ dr-tmle-one-inconsistent-nuisance
 adaptive-iptw
 adaptive-iptw-pairing
 adaptive-tmle-trial
+adaptive-tmle-selective
 known-node-mechanisms-ltmle
 sequential-baselines
 structural-nested-mean

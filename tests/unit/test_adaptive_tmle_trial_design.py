@@ -533,6 +533,8 @@ def test_the_selective_record_declares_its_own_seeds_and_size() -> None:
     assert selective.PRIMARY_REPLICATES % sizing.BUDGET_STEP == 0
     seeds = {record.seed, record.resampling_seed}
     for other in [*registered(), study.STUDY]:
+        if other.slug == record.slug:
+            continue
         assert not seeds & {other.seed, other.resampling_seed}, other.slug
         mine = {replicate_seed(record, s, r) for s in record.scenarios for r in range(50)}
         theirs = {replicate_seed(other, s, r) for s in other.scenarios for r in range(50)}

@@ -584,6 +584,7 @@ def registered() -> tuple[StudyRecord, ...]:
     Imported lazily so the framework modules stay importable without pulling in a study's
     estimator configuration, and so a study module can import the framework.
     """
+    from tests.studies.adaptive_tmle_selective import STUDY as ADAPTIVE_TMLE_SELECTIVE
     from tests.studies.adaptive_tmle_trial import STUDY as ADAPTIVE_TMLE_TRIAL
     from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
     from tests.studies.canonical_adaptive_iptw import STUDY as ADAPTIVE_IPTW
@@ -854,6 +855,7 @@ def registered() -> tuple[StudyRecord, ...]:
         ADAPTIVE_IPTW,
         ADAPTIVE_IPTW_PAIRING,
         ADAPTIVE_TMLE_TRIAL,
+        ADAPTIVE_TMLE_SELECTIVE,
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
         DRTMLE_ONE_WRONG,

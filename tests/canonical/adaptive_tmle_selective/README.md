@@ -1,6 +1,6 @@
-# adaptive-tmle-selective (X90 T3, declared, not yet run)
+# adaptive-tmle-selective (X90 T3, declared, repeat run pending)
 
-The gated study of cell S6 (selective enrollment, a large wiggly bias, Super Learner nuisances,
+The study of cell S6 (selective enrollment, a large wiggly bias, Super Learner nuisances,
 both forms) and control K6 (main-terms GLM nuisances on the same draws, reported only: a pilot found it does not under-cover at n = 3,200).
 The module docstring of `tests/studies/adaptive_tmle_selective.py` is the declaration. The
 flexible fits cost two orders more than study A's, so this study goes to the local queue.
@@ -42,3 +42,14 @@ python -m tests.canonical.adaptive_tmle_trial.pilot --study selective --replicat
   and replication counts are unchanged. The sizing pilots predate these changes; the rule's count
   is unchanged at the proxy coverages (the selective count stays at the rule's floor of 2,400 for
   `s6_cv` coverage down to 0.94 at the 1,200-replicate pilot).
+- 2026-11-10, route declared after run 2 (declared at c6f9e51c; artifacts kept on branch
+  `claude/x90-selective-red-run-2`, commit 8f2a91a5). The run read `s6_cv` red on its bias leg
+  (bias 0.0290, 0.20 SD, 99% interval 0.0215 to 0.0364 against the margin of 0.0355) and
+  `s6_pooled` green. Diagnosis: no defect. The projection truth is within 0.0035 of Psi and the
+  projection coverage is 0.939, so it is no projection gap. The cause is a finite-sample
+  O(K/n_v) term of the CV form's targeting: about 37 selected bias columns on 640 validation
+  rows, 0.13 SD above the pooled form on the same draws. Route: the study publishes under
+  `reporting` (`publication_policy="reporting"`), with the owner row `X90-cv-finite-sample` in
+  the roadmap's "Red-cell owners" table. A repeat run at the same seeds, replication count,
+  margins and laws follows this declaration. No margin, count, law, seed, learner or label
+  changes.

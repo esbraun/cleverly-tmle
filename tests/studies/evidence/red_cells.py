@@ -698,6 +698,11 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     ),
     # X21. The three-arm composite cell reads -0.153 on its 400 draws and -0.011 on 4,000 fresh ones.
     "adaptive-iptw-composite-l3": _keys("adaptive-iptw", "property", "bias/ey_low__composite_l3"),
+    # X90. The bias leg of the cross-validated form on law S6; the second declared run reads it
+    # red with no defect, and the study publishes it under ``reporting``.
+    "X90-cv-finite-sample": _keys(
+        "adaptive-tmle-selective", "truth", "cleverly-adaptive-tmle-selective/s6_cv/psi"
+    ),
 }
 
 
@@ -752,6 +757,7 @@ EXCLUDED_HOOKS: dict[str, str] = {
     "mtp-pricing": "the lmtp exactness witnesses of every scenario",
     "structural-nested-mean": "the EconML DynamicDML exactness witnesses of the paired cells",
     "adaptive-tmle-trial": "the control and efficiency verdicts of controls.csv",
+    "adaptive-tmle-selective": "the K6 control verdicts of controls.csv, a reporting row that always passes",
 }
 
 #: The artefacts :func:`red_rows` reads, by the short names ``claims.ARTIFACTS`` uses.

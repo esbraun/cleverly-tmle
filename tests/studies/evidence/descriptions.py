@@ -7094,3 +7094,32 @@ STUDY_ESTIMANDS.update(
         (_ATMLE_SLUG, "psi_2"): "the trial effect over the trial rows' own covariate distribution",
     }
 )
+
+
+#: ``adaptive-tmle-selective`` (X90 study S6): the adaptive TMLE of a trial pooled with external
+#: rows under selective enrollment.  The laws and forms are those of
+#: ``tests/studies/adaptive_tmle_selective.py``, which this module cannot import.  The study
+#: shares the estimands of ``adaptive-tmle-trial``, which it names again under its own slug.
+_ATMLE_SELECTIVE_SLUG = "adaptive-tmle-selective"
+IMPLEMENTATIONS["cleverly-adaptive-tmle-selective"] = (
+    "`cleverly` adaptive TMLE of a trial pooled with external data, with Super Learner nuisances "
+    "(spline GLM, shallow regularized gradient boosting, lasso): a lasso-selected working model "
+    "for the effect and one for the external bias, a refit, and a fluctuation of the enrollment "
+    "mechanism, with an influence-curve Wald interval"
+)
+STUDY_SCENARIOS[(_ATMLE_SELECTIVE_SLUG, "s6_cv")] = (
+    "selective enrollment (the enrollment probability depends on W1 and W2) with a large wiggly "
+    "external bias, cross-validated form, Super Learner nuisances, n = 3,200"
+)
+STUDY_SCENARIOS[(_ATMLE_SELECTIVE_SLUG, "s6_pooled")] = (
+    "selective enrollment with a large wiggly external bias, form='pooled' (no cross-fitting of "
+    "the working model), Super Learner nuisances, n = 3,200"
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_ATMLE_SELECTIVE_SLUG, "psi"): (
+            "the trial effect over the pooled covariate distribution, which the interval covers "
+            "when the working model approximates the external bias"
+        ),
+    }
+)
