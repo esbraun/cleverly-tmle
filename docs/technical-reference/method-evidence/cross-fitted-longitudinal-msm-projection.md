@@ -138,6 +138,10 @@ the committed results and checked at the precision printed.
 | `margin:calibration_coverage_lower` | 0.9200 | calibration coverage lower bound |
 | `margin:calibration_coverage_upper` | 0.9800 | calibration coverage upper bound |
 | `margin:paired_difference` | 0.1500 | paired similarity margin in pooled SDs |
+| `margin:subject_failure_bound` | 0.0100 | share of `cleverly` fits a primary cell may lose |
+| `margin:subject_failures_allowed` | 8 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | share of `lmtp` fits a primary cell may lose |
+| `margin:reference_failures_allowed` | 8 | the same bound, in primary replications |
 | `margin:overfit_control_ceiling` | 0.7500 | in-sample tree SE-ratio upper bound |
 | `margin:alpha` | 0.0500 | test size |
 | `margin:bootstrap_replicates` | 10000 | bootstrap replications |
