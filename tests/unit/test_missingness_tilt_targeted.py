@@ -214,6 +214,11 @@ CONSTRUCTIONS = {
     "in sample": {},
     "stacked CV-TMLE": {"cross_fit": True},
     "repeats": {"cross_fit": True, "repeats": 3},
+    "fold-evaluated": {
+        "cross_fit": True,
+        "cv_evaluation": True,
+        "estimands": ("ey1", "ey0", "ate", "att"),
+    },
     "natural course": {"estimands": ("ey_obs", "ey0", "par", "paf")},
 }
 
@@ -399,3 +404,44 @@ def test_a_clustered_fit_uses_the_cluster_variance() -> None:
     assert ate.variance == pytest.approx(clustered)
     # Nonzero witness: the clustered variance is not the independent one.
     assert abs(clustered - influence_variance(ate.influence_curve, None)) > 1e-3 * clustered
+
+
+def test_a_weighted_fold_evaluated_fit_starts_from_its_own_update() -> None:
+    # The fold-evaluated update normalises weight mass inside each validation fold.  Solving
+    # the tilt with the raw weights would move the fluctuation at gamma = 0, and the tilted
+    # estimate would jump away from the reported one.
+    frame, _ = make_missing_outcome_binary(n=600, seed=83)
+    rng = np.random.default_rng(83)
+    frame = frame.assign(sw=rng.uniform(0.2, 3.0, size=len(frame)))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = (
+            TMLE(
+                outcome_learner=LogisticRegression(max_iter=1000),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                missingness_learner=LogisticRegression(max_iter=1000),
+                cross_fit=True,
+                cv_evaluation=True,
+                simultaneous=False,
+                random_state=0,
+                estimands=("ey1", "ey0", "ate"),
+            )
+            .fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=COVARIATES,
+                delta="Delta",
+                weights="sw",
+            )
+            .single()
+        )
+    targets = list(_tilt_targets(result).values())
+    direction = dict.fromkeys(result.data.arm_codes, 1.0)
+    estimates, converged = targeted_tilt_estimates(
+        result, result.repeats[0], targets, 0.0, direction
+    )
+    assert converged
+    for name, estimate in estimates.items():
+        assert estimate.psi == pytest.approx(result[name].psi, rel=1e-9, abs=1e-12)
+        assert estimate.std_error == pytest.approx(result[name].std_error, rel=1e-6)

@@ -1216,12 +1216,20 @@ def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
         )
     sections: list[SummarySection] = []
     if detail == "full":
-        settings = [
-            f"Interval level: {_level(tilt.level)}.",
-            "Off gamma = 0 the tilted estimate reuses the main fit without a new correction "
-            "step, and its spread, the missing-at-random standard error, is not a confidence "
-            "interval.",
-        ]
+        targeted = [name for name in names if name not in diagnostic and name not in withheld]
+        settings = [f"Interval level: {_level(tilt.level)}."]
+        if targeted:
+            settings.append(
+                f"Off gamma = 0 the estimate and interval for {_names(targeted)} come from a "
+                "new correction step that solves the tilted parameter's own estimating "
+                "equation."
+            )
+        if diagnostic:
+            settings.append(
+                f"Off gamma = 0 the estimate for {_names(diagnostic)} reuses the main fit "
+                "without a new correction step, and its spread, the missing-at-random "
+                "standard error, is not a confidence interval."
+            )
         if tilt.arm_gamma is not None:
             settings.append(f"Each arm's tilt is its multiplier times gamma: {direction}.")
         sections = [

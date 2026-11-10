@@ -49,6 +49,7 @@ from typing import Any
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
+from ..data.causal_data import arm_share
 from ..estimators._nuisance import tilt_missingness
 from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
 from ..inference.influence import ParameterEstimate, Scale, make_estimate, unscale
@@ -406,10 +407,11 @@ def tilt_interval_exclusion(result: Any) -> str | None:
             "the fit reads a composite observation mechanism, and the tilt is defined on the "
             "outcome-missingness mechanism alone"
         )
-    if result.config.cv_evaluation:
+    if result.config.cv_evaluation and result.data.has_strata:
         return (
-            "the fold-evaluated construction averages fold estimates, and the targeted tilt "
-            "is solved on the stacked rows"
+            "the fold-evaluated construction with baseline strata averages fold plug-ins "
+            "inside each stratum and mixes them by stratum share, and no targeted tilt is "
+            "assembled that way"
         )
     if result.data.has_intermediate:
         return "no targeted tilt is derived for a controlled direct effect"
@@ -460,17 +462,29 @@ def targeted_tilt_estimates(
     tilt = np.array([gamma * direction[arm] for arm in arms], dtype=float)
     tol = float(config.targeting_spec.tol)
     n = data.n
+    alpha = float(config.alpha_sig)
+    folds = (
+        [np.asarray(test, dtype=int) for _, test in nuisance.folds]
+        if config.cv_evaluation and not nuisance.folds.is_single
+        else None
+    )
+    # The fit's own update weights: under the fold-evaluated construction they normalise
+    # the weight mass inside each validation fold, and solving with any other weights would
+    # move the fluctuation at gamma = 0 away from the fit's.
+    solve_weights = np.asarray(result.estimator._validation_weights(data, nuisance), dtype=float)
     converged = True
+    solved: dict[Any, TiltSolve] = {}
 
-    def solve(columns: FloatArray, start: FloatArray) -> TiltSolve:
-        # Fold-specific targeting with missing outcomes is refused by the fit, so every
-        # fit reaching here fluctuates once on the pooled sample.
+    def solve(key: Any, columns: FloatArray, start: FloatArray) -> TiltSolve:
+        # Fold-specific targeting with missing outcomes is refused by the fit, so every fit
+        # reaching here fluctuates once on the pooled sample.
         nonlocal converged
-        out = solve_tilt(
-            scaled, observed, received, weights, start, mechanism, tilt, columns, tol=tol
-        )
-        converged = converged and out.converged
-        return out
+        if key not in solved:
+            solved[key] = solve_tilt(
+                scaled, observed, received, solve_weights, start, mechanism, tilt, columns, tol=tol
+            )
+            converged = converged and solved[key].converged
+        return solved[key]
 
     def regression(group: str) -> FloatArray:
         targeted = repeat.fluctuations[group].targeted
@@ -485,105 +499,134 @@ def targeted_tilt_estimates(
         bounds = g_bounds_for(group, config.g_bounds, config.g_bounds_conditional)
         return np.asarray(nuisance.bounded_propensity(bounds), dtype=float)
 
-    means: dict[str, tuple[FloatArray, FloatArray]] = {}
+    def report(rows: IntArray | None) -> dict[str, ParameterEstimate]:
+        # Every target on the rows ``rows`` selects, one validation fold or (``None``) the
+        # whole sample, from the pooled fluctuations.  A fold's weights are renormalised to
+        # mean one, so its estimate and curve are those of a standalone fit on its rows.
+        at = slice(None) if rows is None else rows
+        size = n if rows is None else rows.size
+        y, d, a = scaled[at], observed[at], received[at]
+        w = weights[at] / (1.0 if rows is None else float(np.mean(weights[at])))
+        cluster = None if data.cluster is None else np.asarray(data.cluster)[at]
 
-    def arm_means(group: str) -> tuple[FloatArray, FloatArray]:
-        if group not in means:
-            g = propensity(group)
-            out = solve(arm_columns(received, g), regression(group))
-            means[group] = arm_mean_curves(out, scaled, observed, received, weights, g, tilt)
-        return means[group]
-
-    observed_mean: list[tuple[float, FloatArray]] = []
-
-    def natural_course() -> tuple[float, FloatArray]:
-        if not observed_mean:
-            columns = natural_course_columns(n, len(arms))
-            out = solve(columns, regression("natural_course"))
-            observed_mean.append(
-                natural_course_curve(out, scaled, observed, received, weights, tilt)
+        def cut(out: TiltSolve) -> TiltSolve:
+            if rows is None:
+                return out
+            return TiltSolve(
+                out.outcome[rows], out.mechanism[rows], out.converged, out.n_iter, out.score
             )
-        return observed_mean[0]
 
-    def finish(target: Any, psi: float, curve: FloatArray, scale: Scale) -> ParameterEstimate:
-        reported = result[target.name]
-        value, ic = unscale(psi, curve, scaler, scale)
-        log_psi = None
-        if scale == "ratio":
-            log_psi, value = psi, float(np.exp(psi))
-        return make_estimate(
-            target.name,
-            value,
-            ic,
-            n=n,
-            cluster=data.cluster,
-            scale=scale,
-            alpha=float(config.alpha_sig),
-            log_psi=log_psi,
-            covariance_rule=reported.covariance_rule,
-            inference=reported.inference,
-            reference_df=reported.reference_df,
-        )
+        means: dict[str, tuple[FloatArray, FloatArray]] = {}
 
-    out: dict[str, ParameterEstimate] = {}
-    for target in targets:
-        kind = target.kind
-        if kind == "arm":
-            parameter = target.parameter
-            conditioning = parameter.conditions_on
-            if conditioning is None:
-                psi_arms, curves = arm_means(parameter.group)
-                a = column[parameter.arm]
-                if parameter.versus is None:
-                    out[target.name] = finish(target, psi_arms[a], curves[:, a], "level")
-                else:
-                    r = column[parameter.versus]
-                    out[target.name] = finish(
-                        target,
-                        psi_arms[a] - psi_arms[r],
-                        curves[:, a] - curves[:, r],
-                        "difference",
-                    )
-                continue
-            g = propensity(parameter.group)
-            pair = [(column[parameter.arm], column[parameter.versus], column[conditioning])]
-            solved = solve(contrast_columns(g, pair), regression(parameter.group))
-            psi_c, curve_c = contrast_curves(
-                solved, scaled, observed, received, weights, g, tilt, pair
-            )
-            out[target.name] = finish(target, float(psi_c[0]), curve_c[:, 0], "difference")
-        elif kind == "natural_course":
-            psi_o, curve_o = natural_course()
-            out[target.name] = finish(target, psi_o, curve_o, "level")
-        elif kind in {"par", "paf"}:
-            psi_o, curve_o = natural_course()
-            psi_arms, curves = arm_means(target.group)
-            r = column[target.code]
-            if kind == "par":
-                out[target.name] = finish(
-                    target, psi_o - psi_arms[r], curve_o - curves[:, r], "difference"
-                )
+        def arm_means(group: str) -> tuple[FloatArray, FloatArray]:
+            if group not in means:
+                g = propensity(group)
+                out = solve(("arm", group), arm_columns(received, g), regression(group))
+                means[group] = arm_mean_curves(cut(out), y, d, a, w, g[at], tilt)
+            return means[group]
+
+        observed_mean: list[tuple[float, FloatArray]] = []
+
+        def natural_course() -> tuple[float, FloatArray]:
+            if not observed_mean:
+                columns = natural_course_columns(n, len(arms))
+                out = solve("natural_course", columns, regression("natural_course"))
+                observed_mean.append(natural_course_curve(cut(out), y, d, a, w, tilt))
+            return observed_mean[0]
+
+        def finish(target: Any, psi: float, curve: FloatArray, scale: Scale) -> ParameterEstimate:
+            reported = result[target.name]
+            log_psi = None
+            if scale == "fraction":
+                value, ic = psi, curve
             else:
-                psi = 1.0 - psi_arms[r] / psi_o
-                curve = -curves[:, r] / psi_o + psi_arms[r] * curve_o / psi_o**2
-                out[target.name] = make_estimate(
-                    target.name,
-                    psi,
-                    curve,
-                    n=n,
-                    cluster=data.cluster,
-                    scale="fraction",
-                    alpha=float(config.alpha_sig),
-                    covariance_rule=result[target.name].covariance_rule,
-                    inference=result[target.name].inference,
-                    reference_df=result[target.name].reference_df,
-                )
-        elif kind == "ratio":
-            psi_arms, curves = arm_means(target.group)
-            a, r = column[target.code], column[target.versus]
-            ratio = log_ratio_influence if target.stem == "rr" else log_odds_ratio_influence
-            log_psi, curve = ratio(psi_arms[a], curves[:, a], psi_arms[r], curves[:, r])
-            out[target.name] = finish(target, log_psi, curve, "ratio")
-        else:  # pragma: no cover - the caller passes only the inferential kinds
-            raise ValueError(f"no targeted tilt for the {kind!r} kind")
-    return out, converged
+                value, ic = unscale(psi, curve, scaler, scale)
+            if scale == "ratio":
+                log_psi, value = psi, float(np.exp(psi))
+            return make_estimate(
+                target.name,
+                value,
+                ic,
+                n=size,
+                cluster=cluster,
+                scale=scale,
+                alpha=alpha,
+                log_psi=log_psi,
+                covariance_rule=reported.covariance_rule,
+                inference=reported.inference,
+                reference_df=reported.reference_df,
+            )
+
+        out: dict[str, ParameterEstimate] = {}
+        for target in targets:
+            kind = target.kind
+            if kind == "arm":
+                parameter = target.parameter
+                conditioning = parameter.conditions_on
+                if conditioning is None:
+                    psi_arms, curves = arm_means(parameter.group)
+                    i = column[parameter.arm]
+                    if parameter.versus is None:
+                        out[target.name] = finish(target, psi_arms[i], curves[:, i], "level")
+                    else:
+                        r = column[parameter.versus]
+                        out[target.name] = finish(
+                            target,
+                            psi_arms[i] - psi_arms[r],
+                            curves[:, i] - curves[:, r],
+                            "difference",
+                        )
+                    continue
+                g = propensity(parameter.group)
+                pair = [(column[parameter.arm], column[parameter.versus], column[conditioning])]
+                key = ("contrast", parameter.group, pair[0])
+                columns = contrast_columns(g, pair)
+                if folds is not None:
+                    # The fit rebuilds this covariate with each validation fold's share of
+                    # the conditioning arm, so the common update solves the equal average of
+                    # the fold scores; a common share would target a different equation.
+                    for fold in folds:
+                        columns[fold] /= arm_share(
+                            data.treatment, data.weights, conditioning, mask=fold
+                        )
+                fitted = solve(key, columns, regression(parameter.group))
+                psi_c, curve_c = contrast_curves(cut(fitted), y, d, a, w, g[at], tilt, pair)
+                out[target.name] = finish(target, float(psi_c[0]), curve_c[:, 0], "difference")
+            elif kind == "natural_course":
+                psi_o, curve_o = natural_course()
+                out[target.name] = finish(target, psi_o, curve_o, "level")
+            elif kind in {"par", "paf"}:
+                psi_o, curve_o = natural_course()
+                psi_arms, curves = arm_means(target.group)
+                r = column[target.code]
+                if kind == "par":
+                    out[target.name] = finish(
+                        target, psi_o - psi_arms[r], curve_o - curves[:, r], "difference"
+                    )
+                else:
+                    # The fraction reads the two means on the outcome's own scale.
+                    whole, whole_curve = unscale(psi_o, curve_o, scaler, "level")
+                    base, base_curve = unscale(psi_arms[r], curves[:, r], scaler, "level")
+                    psi = 1.0 - base / whole
+                    curve = -base_curve / whole + base * whole_curve / whole**2
+                    out[target.name] = finish(target, psi, curve, "fraction")
+            elif kind == "ratio":
+                psi_arms, curves = arm_means(target.group)
+                i, r = column[target.code], column[target.versus]
+                ratio = log_ratio_influence if target.stem == "rr" else log_odds_ratio_influence
+                log_psi, curve = ratio(psi_arms[i], curves[:, i], psi_arms[r], curves[:, r])
+                out[target.name] = finish(target, log_psi, curve, "ratio")
+            else:  # pragma: no cover - the caller passes only the inferential kinds
+                raise ValueError(f"no targeted tilt for the {kind!r} kind")
+        return out
+
+    if folds is None:
+        return report(None), converged
+    from ..estimators.tmle import _average_over_folds
+
+    # The fold-evaluated construction: the equal 1/V average of the fold plug-ins, with the
+    # cross-validated variance, assembled exactly as the fit assembles its own report.
+    per_fold = [report(rows) for rows in folds]
+    names = [target.name for target in targets]
+    averaged = _average_over_folds(per_fold, names, folds, n=n, cluster=data.cluster, alpha=alpha)
+    return averaged, converged

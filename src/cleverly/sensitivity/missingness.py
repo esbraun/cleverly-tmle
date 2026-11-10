@@ -632,6 +632,12 @@ def _tilt_payload(
                 )
             )
             psi = float(np.exp(center)) if target.kind == "ratio" else center
+            if value == 0.0:
+                # The fit's own report.  The plug-in above matches it for the stacked
+                # report; the fold-evaluated report of a conditional contrast averages fold
+                # plug-ins with fold shares, which the whole-sample plug-in does not.
+                psi = estimate.psi
+                center = float(np.log(psi)) if target.kind == "ratio" else psi
             # A target with no targeted tilt keeps the diagnostic spread off gamma = 0.
             spread = _plugin_spread(estimate, psi, center, mar=value == 0.0)
             rows.append(_row(data, value, name, psi, spread, direction))
