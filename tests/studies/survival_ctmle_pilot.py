@@ -43,7 +43,7 @@ PILOT_REPLICATES = study.PILOT_REPLICATES
 
 #: ``label -> (scenario, n, draws)``: one label per scenario, at its declared size.
 PILOTS: dict[str, tuple[str, int, int]] = {
-    name: (name, study.STUDY.n_of(name), PILOT_REPLICATES) for name in study.SCENARIOS
+    name: (name, study.SCENARIOS[name][3], PILOT_REPLICATES) for name in study.SCENARIOS
 }
 
 COLUMNS = (

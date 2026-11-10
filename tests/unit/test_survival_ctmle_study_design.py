@@ -14,6 +14,7 @@ from scipy.special import expit
 
 from tests.studies import survival_ctmle as study
 from tests.studies import survival_ctmle_pilot as pilot
+from tests.studies import survival_ctmle_properties as properties
 from tests.studies.evidence.registry import registered
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
@@ -59,10 +60,9 @@ def test_the_gated_cells_are_declared() -> None:
         assert not settings.get("binarized") and "g_lower" not in settings
     assert "or15_binarized" in study.REPORTED_SCENARIOS
     assert study.RMSE_GATE_SCENARIO in study.GATED_SCENARIOS
-    # The risk difference at OR 15 waits on the pilot.
-    for name, estimands in study.GATED_ESTIMANDS.items():
-        rd = "ate_regimen[a1 vs a0 @ t=2]" in estimands
-        assert rd == (study.SCENARIOS[name][0] != 15.0)
+    # The pilot read the risk difference inside the margin at OR 15, so every gated cell gates it.
+    for estimands in study.GATED_ESTIMANDS.values():
+        assert "ate_regimen[a1 vs a0 @ t=2]" in estimands
 
 
 def test_no_coverage_or_se_ratio_gate_applies() -> None:
@@ -74,30 +74,105 @@ def test_no_coverage_or_se_ratio_gate_applies() -> None:
     assert margins.standardized_bias == 0.25
 
 
-def test_the_rows_carry_the_selection_readings() -> None:
+def _primary_rows(subject_error: float, comparator_error: float) -> pd.DataFrame:
+    """Gated rows of two cells, the comparators' errors a fixed multiple of the subject's."""
+    rng = np.random.default_rng(3)
+    rows = []
+    for scenario in ("or15_qcorrect", "or1_qcorrect"):
+        for replicate in range(40):
+            noise = rng.normal()
+            for estimand in study.GATED_ESTIMANDS[scenario]:
+                truth = study.TRUTH[estimand]
+                rows.append(
+                    {
+                        "implementation": study.CTMLE_ARM,
+                        "scenario": scenario,
+                        "replicate": replicate,
+                        "estimand": estimand,
+                        "truth": truth,
+                        "estimate": truth + subject_error * noise,
+                        "seconds": 1.0 + replicate % 2,
+                        **{column: float(replicate % 2) for column in study.EXTRA_COLUMNS[1:]},
+                        **dict.fromkeys(study.SECONDS_COLUMNS, 0.5),
+                        **{
+                            f"estimate[{arm}]": truth + comparator_error * noise
+                            for arm in study.COMPARATORS
+                        },
+                        "a0_truth": study.TRUTH["risk_regimen[a0 @ t=2]"],
+                        "a0_estimate": study.TRUTH["risk_regimen[a0 @ t=2]"] + 0.01 * noise,
+                        "a0_std_error": 0.02,
+                        "a0_covered": 1,
+                    }
+                )
+    frame = pd.DataFrame(rows)
+    assert set(study.PRIMARY_COLUMNS) <= set(frame.columns)
+    return frame
 
-    rows = pd.DataFrame(
-        [
-            {
-                "implementation": implementation,
-                "scenario": "or15_qcorrect",
-                "replicate": replicate,
-                "estimand": "risk_regimen[a1 @ t=2]",
-                "seconds": 1.0 + replicate,
-                **{
-                    column: (float(replicate) if implementation == study.CTMLE_ARM else np.nan)
-                    for column in study.EXTRA_COLUMNS[1:]
-                },
-            }
-            for implementation in study.IMPLEMENTATIONS
-            for replicate in (0, 1)
-        ]
+
+def test_the_primary_rows_publish_the_reported_tables() -> None:
+    tables = study.extra_artifacts(_primary_rows(0.01, 0.02))
+    assert set(tables) == set(study.STUDY.extra_artifacts)
+    readings = tables[study.SELECTION_FILE]
+    assert readings["share_w4_in_g1"].tolist() == [0.5] * 4
+    assert readings["fits"].tolist() == [40] * 4
+    assert readings[f"mean_seconds[{study.CTMLE_ARM}]"].tolist() == [1.5] * 4
+    arm0 = tables[study.ARM0_FILE]
+    assert arm0["coverage"].tolist() == [1.0, 1.0]
+    comparison = tables[study.COMPARISON_FILE]
+    assert len(comparison) == 2 * 2 * len(study.COMPARATORS)
+    assert comparison["rmse_ratio"].to_numpy() == pytest.approx(0.5)
+    (gated,) = comparison.loc[comparison["gated"]].itertuples()
+    assert (gated.scenario, gated.estimand, gated.comparator) == (
+        study.RMSE_GATE_SCENARIO,
+        study.RMSE_GATE_ESTIMAND,
+        study.FULL_G_ARM,
     )
-    (readings,) = study.extra_artifacts(rows).values()
-    assert list(readings["arm"]) == list(study.ARMS)
-    assert readings["share_w4_in_g1"].tolist() == [0.5, 0.5]
-    assert readings["fits"].tolist() == [2, 2]
-    assert readings[f"mean_seconds[{study.CTMLE_ARM}]"].tolist() == [1.5, 1.5]
+
+
+def test_gate_b_fails_when_the_subject_is_worse() -> None:
+    """A witness: the same rows with the arms' errors swapped fail gate (b), and only it."""
+    better = study.scientific_failures(study.extra_artifacts(_primary_rows(0.01, 0.02)))
+    worse = study.scientific_failures(study.extra_artifacts(_primary_rows(0.02, 0.01)))
+    assert all(frame.empty for frame in better.values())
+    (failed,) = worse.values()
+    assert len(failed) == 1
+    assert failed["rmse_ratio"].iloc[0] == pytest.approx(2.0)
+
+
+def test_the_record_holds_the_gated_cells_and_the_property_phase_the_rest() -> None:
+    assert dict(study.STUDY.scenarios) == {
+        name: study.GATED_ESTIMANDS[name] for name in study.GATED_SCENARIOS
+    }
+    for name in study.GATED_SCENARIOS:
+        assert study.STUDY.n_of(name) == study.SCENARIOS[name][3]
+    assert study.STUDY.properties_module == properties.__name__
+    assert set(study.STUDY.property_artifacts) == {
+        properties.CELLS_FILE,
+        properties.REPLICATES_FILE,
+    }
+    assert set(study.REPORTED_SCENARIOS).isdisjoint(study.STUDY.scenarios)
+
+
+def test_a_reported_fit_that_raises_is_counted_not_summarized() -> None:
+    rows = pd.DataFrame(
+        {
+            "scenario": "or1_qwrong",
+            "implementation": study.CTMLE_ARM,
+            "estimand": study.ESTIMAND_NAMES[0],
+            "replicate": range(4),
+            "n": 1_000,
+            "truth": 0.5,
+            "estimate": [0.4, 0.6, 0.5, np.nan],
+            "std_error": [0.1, 0.1, 0.1, np.nan],
+            "covered": [1.0, 1.0, 1.0, np.nan],
+            "failure": ["", "", "", "LinAlgError"],
+            "seconds": 1.0,
+        }
+    )
+    (cell,) = properties.summarize_cells(rows).itertuples()
+    assert (cell.fits, cell.failures) == (3, 1)
+    assert cell.bias == pytest.approx(0.0)
+    assert cell.coverage == 1.0
 
 
 def test_the_seeds_are_used_by_no_registered_study() -> None:
@@ -129,15 +204,17 @@ def test_the_sampler_follows_the_declared_law() -> None:
 
 def test_the_pilot_draws_no_declared_sample() -> None:
     """Every pilot draw takes its own stream, distinct from every declared replicate seed."""
-    declared = {replicate_seed(study.STUDY, name, r) for name in study.SCENARIOS for r in range(50)}
+    declared = {
+        replicate_seed(study.STUDY, name, r) for name in study.STUDY.scenarios for r in range(50)
+    }
     streams = [
         stream_seed(study.STUDY, "pilot", label, r) for label in pilot.PILOTS for r in range(50)
-    ]
+    ] + [properties.reported_seed(name, r) for name in study.REPORTED_SCENARIOS for r in range(50)]
     assert len(set(streams)) == len(streams)
     assert not declared & set(streams)
     assert set(pilot.PILOTS) == set(study.SCENARIOS)
     for scenario, n, draws in pilot.PILOTS.values():
-        assert n == study.STUDY.n_of(scenario)
+        assert n == study.SCENARIOS[scenario][3]
         assert draws == study.PILOT_REPLICATES
 
 

@@ -48,28 +48,40 @@ source comparison: :math:`n = 500` at each OR; OR 15 with tertile-binarized cova
 as columns (``or15_binarized``, without the source's FDR step; the outcome model on the
 indicators is not the correct one); OR 15 with ``g_bounds`` lower bound :math:`10^{-8}`.
 
-**Gates** (declared, not yet measured).  :data:`GATED_SCENARIOS` names every gated cell; every
-other cell is reported only.  (a) The bias of :math:`F_1(2)` within the standardized-bias
-margin at the binding confidence bound in each gated cell, and the bias of the risk difference
-in the gated cells at OR 1 and 10.  Whether the risk difference is gated at OR 15 is left to the
-pilot: a review probe read a bias of 0.018 against an SD of 0.035 there, twice the margin, so
-the pilot either measures it inside the margin or the declaration reports it only, before any
-declared draw.  (b) The RMSE of ``SurvivalCTMLE`` at most the full-:math:`g` hazard ``LTMLE``'s
-at the binding bound, outcome model correct, OR 15 only.  (c) The fit-failure share under
-:data:`FAILURE_BOUND`.  The study declares no coverage gate and no SE-ratio gate (F18): its
-:class:`Margins` set the coverage floor to zero and the SE-ratio band wide open, so plug-in
-standard errors against the empirical SD and plug-in Wald coverage are reported only.  The
-misspecified cells, the share selecting :math:`W_4` into :math:`g_1` and :math:`A` into
-:math:`g_2`, the restart counts, clips, dropped terms and run time are reported and not gated;
-:func:`draw_and_fit` carries them on the subject's rows and :func:`extra_artifacts` publishes
-them as ``selection-readings.csv``.  The study's censoring is about 4.7% per interval, so :math:`g_2` moves are rare
-here; ``tests/unit/test_survival_ctmle.py`` check 3 is the :math:`g_2` witness.
+**Gates** (declared before any declared draw).  :data:`GATED_SCENARIOS` names every gated
+cell, and the record's rows hold those cells and the subject alone, because the shared driver
+judges every row against its truth.  (a) The bias of :math:`F_1(2)` and of the risk difference
+within the standardized-bias margin at the binding confidence bound, in every gated cell.  A
+review probe had read a risk-difference bias of 0.018 against an SD of 0.035 at OR 15, so the
+declaration left that gate to the pilot.  The pilot read standardized biases of -0.016
+(``or15_qcorrect``), 0.030 (``s2_or15_qcorrect``) and -0.012 (``or15_qcorrect_n2000``) over
+1,000 draws each, inside the 0.25 margin, so the risk difference is gated at OR 15 as well.
+(b) The one-sided upper bound of the RMSE ratio of ``SurvivalCTMLE`` over the full-:math:`g`
+hazard ``LTMLE``, for :math:`F_1(2)` in ``or15_qcorrect``, at most 1
+(:func:`rmse_comparison`, :func:`scientific_failures`).  Both hazard ``LTMLE`` arms are fitted
+on every gated replicate and carried on the subject's rows; they are this library, not a
+comparator of the grid row.  (c) The subject's fit-failure share under :data:`FAILURE_BOUND`.
 
-**Size and seeds.** :data:`PILOT_REPLICATES` sizes the pilot, ``tests/studies/survival_ctmle_pilot.py``,
-which draws on its own seed streams.  The primary replicate count is
-the shared rule (the smallest multiple of 400 that reaches the pass share) on that pilot,
-declared before any declared draw.  :data:`SEED` and :data:`RESAMPLING_SEED` are used by no
-other study; replicate ``r`` of a scenario draws from ``replicate_seed(STUDY, scenario, r)``.
+The study declares no coverage gate and no SE-ratio gate (F18): its :class:`Margins` set the
+coverage floor to zero and the SE-ratio band wide open, so plug-in standard errors against the
+empirical SD and plug-in Wald coverage are reported only.  Reported and not gated: the risk of
+arm 0 (``arm0-risk.csv``), every other RMSE ratio (``rmse-comparison.csv``), the share selecting
+:math:`W_4` into :math:`g_1` and :math:`A` into :math:`g_2`, the restart counts, clips, dropped
+terms and run time (``selection-readings.csv``).  The study's censoring is about 4.7% per
+interval, so :math:`g_2` moves are rare here; ``tests/unit/test_survival_ctmle.py`` check 3 is
+the :math:`g_2` witness.  The reported cells (:data:`REPORTED_SCENARIOS`: the misspecified
+outcome model and the source comparison) are fitted by the property phase,
+``tests/studies/survival_ctmle_properties.py``, with all three implementations, and publish as
+``reported-cells.csv`` and ``reported-replicates.csv``.
+
+**Size and seeds.** :data:`PILOT_REPLICATES` sizes the pilot,
+``tests/studies/survival_ctmle_pilot.py``, which draws on its own seed streams.  The shared rule
+(the smallest multiple of 400 that reaches the pass share) on that pilot gives
+:data:`PRIMARY_REPLICATES`, 1,600.  The reported cells take :data:`REPORTED_REPLICATES`, 400
+each: they carry no verdict, and the share of the run they would cost at 1,600 buys no claim.
+:data:`SEED` and :data:`RESAMPLING_SEED` are used by no other study; replicate ``r`` of a gated
+cell draws from ``replicate_seed(STUDY, scenario, r)`` and of a reported cell from
+``stream_seed(STUDY, "reported", scenario, r)``.
 """
 
 from __future__ import annotations
@@ -91,17 +103,17 @@ from cleverly.learners import GLM
 from cleverly.longitudinal import LTMLE, LongitudinalData, SurvivalCTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence import replication
+from tests.studies.evidence.inference import bootstrap, upper_bound
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS, reported_inference
-from tests.studies.evidence.seeds import draw_replicate, replicate_seed
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_seed
 from tests.studies.stratified_incremental_msm_properties import Columns
 
 #: The pilot's replicate count per scenario; the primary count follows from it.
 PILOT_REPLICATES = 1_000
-#: The declared primary replicate count, set from the pilot
+#: The declared primary replicate count, set from the committed pilot
 #: (``tests/studies/survival_ctmle_pilot.py``) by the shared rule before any declared draw.
-#: ``None`` until the pilot is committed; the design test then requires the rule's value.
-PRIMARY_REPLICATES: int | None = None
+PRIMARY_REPLICATES = 1_600
 PRIMARY_N = 1_000
 #: The declared share of replicates one cell may lose to recordable fitting failures.
 FAILURE_BOUND = 0.01
@@ -164,19 +176,30 @@ GATED_SCENARIOS = (
     "or10_qcorrect_crossfit",
 )
 REPORTED_SCENARIOS = tuple(name for name in SCENARIOS if name not in GATED_SCENARIOS)
-#: The estimands gate (a) reads in each gated cell.  The risk difference at OR 15 waits on the
-#: pilot (the module docstring says why), so those cells gate the risk of arm 1 alone.
-GATED_ESTIMANDS = {
-    name: (
-        (ESTIMAND_NAMES[0],)
-        if SCENARIOS[name][0] == 15.0
-        else (ESTIMAND_NAMES[0], ESTIMAND_NAMES[2])
-    )
-    for name in GATED_SCENARIOS
-}
+#: The estimands gate (a) reads in each gated cell: the risk of arm 1 and the risk difference.
+#: The pilot settled the risk difference at OR 15 (the module docstring gives its readings).
+GATED_ESTIMANDS = dict.fromkeys(GATED_SCENARIOS, (ESTIMAND_NAMES[0], ESTIMAND_NAMES[2]))
 #: No coverage or SE-ratio gate (F18): the plug-in interval is a diagnostic.  A floor of zero
 #: cannot fail, and the open SE-ratio band cannot bind; the bias and RMSE margins stand.
 MARGINS = Margins(coverage_floor=0.0, se_ratio_sanity=(0.0, 1e6))
+
+#: The two hazard ``LTMLE`` arms every replicate also fits.  They are reported beside the
+#: subject on its own rows, never as a comparator of the grid row: they are this library.
+COMPARATORS = (FULL_G_ARM, NO_W4_ARM)
+#: Gate (b): in :data:`RMSE_GATE_SCENARIO`, the one-sided upper bound of the subject's RMSE
+#: over the full-:math:`g` arm's, for the risk of arm 1, at most this ceiling.
+RMSE_GATE_ESTIMAND = ESTIMAND_NAMES[0]
+RMSE_GATE_CEILING = 1.0
+#: Each gated cell's RMSE of the subject against both hazard ``LTMLE`` arms (gate (b)).
+COMPARISON_FILE = "rmse-comparison.csv"
+#: The subject's risk of arm 0 in each gated cell, reported and not gated.
+ARM0_FILE = "arm0-risk.csv"
+#: The reported cells' replicate count.  They are fitted by the property phase
+#: (``tests/studies/survival_ctmle_properties.py``) on their own seed stream.
+REPORTED_REPLICATES = 400
+#: The property phase's two files: the reported cells' summary and their replicate rows.
+REPORTED_CELLS_FILE = "reported-cells.csv"
+REPORTED_REPLICATES_FILE = "reported-replicates.csv"
 
 
 def clipped_sum_law(nodes: int = 30, eps: float = 1e-10) -> tuple[np.ndarray, np.ndarray]:
@@ -226,8 +249,10 @@ def clipped_sum_law(nodes: int = 30, eps: float = 1e-10) -> tuple[np.ndarray, np
                 corner = np.full(len(outside), -2.0)
                 orthant = np.array(
                     [
+                        # The Genz integrator is randomized; a fixed generator makes the
+                        # truth the same bits in every process that imports this module.
                         multivariate_normal.cdf(
-                            corner, mean=row, cov=spread, abseps=eps, releps=eps
+                            corner, mean=row, cov=spread, abseps=eps, releps=eps, rng=0
                         )
                         for row in mean
                     ]
@@ -266,9 +291,11 @@ STUDY = StudyRecord(
     artifacts=ROOT / "tests" / "canonical" / "survival_ctmle",
     document="docs/technical-reference/method-evidence/survival-ctmle.md",
     anchor="collaborative-tmle-of-a-risk-curve",
-    scenarios=dict.fromkeys(SCENARIOS, ESTIMAND_NAMES),
-    scenario_n={name: n for name, (_, _, _, n, _) in SCENARIOS.items() if n != PRIMARY_N},
-    replicates=PILOT_REPLICATES,
+    scenarios={name: GATED_ESTIMANDS[name] for name in GATED_SCENARIOS},
+    scenario_n={
+        name: SCENARIOS[name][3] for name in GATED_SCENARIOS if SCENARIOS[name][3] != PRIMARY_N
+    },
+    replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
     seed=SEED,
     resampling_seed=RESAMPLING_SEED,
@@ -276,14 +303,17 @@ STUDY = StudyRecord(
     implementation=CTMLE_ARM,
     reference=None,
     failure_bound={CTMLE_ARM: FAILURE_BOUND},
-    extra_artifacts=(SELECTION_FILE,),
+    extra_artifacts=(SELECTION_FILE, COMPARISON_FILE, ARM0_FILE),
+    property_artifacts=(REPORTED_CELLS_FILE, REPORTED_REPLICATES_FILE),
     modules=(
         "tests/studies/survival_ctmle.py",
+        "tests/studies/survival_ctmle_properties.py",
         "tests/studies/stratified_incremental_msm_properties.py",
         "tests/studies/evidence/schema.py",
         "tests/studies/evidence/seeds.py",
     ),
     runner_module="tests.studies.survival_ctmle",
+    properties_module="tests.studies.survival_ctmle_properties",
 )
 
 CONFIGURATION = {
@@ -307,7 +337,10 @@ CONFIGURATION = {
         "per inside axis, and conditional normal orthant probabilities at 1e-10"
     ),
     "gated_scenarios": list(GATED_SCENARIOS),
-    "gates": "bias and RMSE only; no coverage or SE-ratio gate (F18)",
+    "reported_scenarios": list(REPORTED_SCENARIOS),
+    "reported_replicates": REPORTED_REPLICATES,
+    "gates": "bias of F1(2) and the RD; RMSE ratio against the full-g arm at OR 15; no coverage "
+    "or SE-ratio gate (F18)",
     "variance_method": "plug-in influence curve (SurvivalCTMLE: working-mechanism diagnostic)",
 }
 
@@ -445,6 +478,20 @@ EXTRA_COLUMNS = (
     "seconds",
     *(f"{reading}_{arm}" for arm in ARMS for reading in SELECTION_READINGS),
 )
+#: The run time of each hazard ``LTMLE`` arm on the subject's replicate.
+SECONDS_COLUMNS = tuple(f"seconds[{arm}]" for arm in COMPARATORS)
+#: The columns a primary row carries beside the published schema: the selection readings,
+#: the run times, both hazard ``LTMLE`` arms' estimates of the row's estimand, and the
+#: subject's risk of arm 0, which no row of the record states.
+PRIMARY_COLUMNS = (
+    *EXTRA_COLUMNS,
+    *SECONDS_COLUMNS,
+    *(f"estimate[{arm}]" for arm in COMPARATORS),
+    "a0_truth",
+    "a0_estimate",
+    "a0_std_error",
+    "a0_covered",
+)
 
 
 def selection_readings(result: Any) -> dict[str, float]:
@@ -466,17 +513,32 @@ def selection_readings(result: Any) -> dict[str, float]:
 
 
 def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """``selection-readings.csv``: per scenario and arm, the selection shares and run time.
+    """The three reported tables of the primary rows, read from the subject's own rows.
 
-    The share of fits that select :math:`W_4` into :math:`g_1` and :math:`A` into :math:`g_2`,
-    the mean restart count, selected position, clips and dropped terms of the selected
-    candidate, and the mean seconds per fit of each implementation.  None is a verdict.
+    ``selection-readings.csv``: per scenario and arm, the share of fits that select
+    :math:`W_4` into :math:`g_1` and :math:`A` into :math:`g_2`, the mean restart count,
+    selected position, clips and dropped terms of the selected candidate, and the mean seconds
+    per fit of each implementation.  ``rmse-comparison.csv`` (:func:`rmse_comparison`) holds
+    gate (b).  ``arm0-risk.csv`` (:func:`arm0_risk`) reports the risk of arm 0.
     """
-    subject = rows.loc[rows["implementation"] == CTMLE_ARM].drop_duplicates(
-        ["scenario", "replicate"]
-    )
+    return {
+        SELECTION_FILE: selection_table(rows),
+        COMPARISON_FILE: rmse_comparison(rows),
+        ARM0_FILE: arm0_risk(rows),
+    }
+
+
+def _one_per_replicate(rows: pd.DataFrame) -> pd.DataFrame:
+    """One row per scenario and replicate: the columns every estimand's row repeats."""
+    subject = rows.loc[rows["implementation"] == CTMLE_ARM]
+    return subject.drop_duplicates(["scenario", "replicate"])
+
+
+def selection_table(rows: pd.DataFrame) -> pd.DataFrame:
+    """``selection-readings.csv``; none of it is a verdict."""
+    fits = _one_per_replicate(rows)
     records = []
-    for scenario, group in subject.groupby("scenario", sort=True):
+    for scenario, group in fits.groupby("scenario", sort=True):
         for arm in ARMS:
             records.append(
                 {
@@ -492,15 +554,96 @@ def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
                 }
             )
     readings = pd.DataFrame(records)
-    seconds = (
-        rows.drop_duplicates(["implementation", "scenario", "replicate"])
-        .groupby(["scenario", "implementation"])["seconds"]
-        .mean()
-        .unstack("implementation")
-        .rename(columns=lambda name: f"mean_seconds[{name}]")
-        .reset_index()
-    )
-    return {SELECTION_FILE: readings.merge(seconds, on="scenario", how="left")}
+    seconds = fits.groupby("scenario")[["seconds", *SECONDS_COLUMNS]].mean()
+    seconds.columns = [f"mean_seconds[{name}]" for name in IMPLEMENTATIONS]
+    return readings.merge(seconds.reset_index(), on="scenario", how="left")
+
+
+def rmse_comparison(rows: pd.DataFrame) -> pd.DataFrame:
+    """Each gated cell's RMSE of the subject against both hazard ``LTMLE`` arms.
+
+    Per cell, estimand and comparator: both RMSEs on the replicates where the comparator
+    returned, the ratio, and its one-sided upper bound at the declared confidence level from a
+    paired percentile bootstrap of :data:`MARGINS`' size, on a stream named for the cell.  Only
+    the row of :data:`RMSE_GATE_SCENARIO`, :data:`RMSE_GATE_ESTIMAND` and the full-:math:`g`
+    arm is gated (``gated``), against :data:`RMSE_GATE_CEILING`; every other row is reported.
+    """
+    records = []
+    subject = rows.loc[rows["implementation"] == CTMLE_ARM]
+    for (scenario, estimand), group in subject.groupby(["scenario", "estimand"], sort=True):
+        truth_ = float(group["truth"].iloc[0])
+        for arm in COMPARATORS:
+            kept = group.loc[group[f"estimate[{arm}]"].notna()]
+            arrays = {
+                "subject": kept["estimate"].to_numpy(dtype=float) - truth_,
+                "comparator": kept[f"estimate[{arm}]"].to_numpy(dtype=float) - truth_,
+            }
+
+            def ratio(draw: dict[str, np.ndarray]) -> np.ndarray:
+                return np.sqrt(
+                    np.mean(draw["subject"] ** 2, axis=1) / np.mean(draw["comparator"] ** 2, axis=1)
+                )
+
+            samples = bootstrap(
+                arrays,
+                {"ratio": ratio},
+                replicates=MARGINS.bootstrap_replicates,
+                seed=stream_seed(STUDY, "rmse", str(scenario), str(estimand), arm),
+            )
+            point = float(ratio({name: values[None, :] for name, values in arrays.items()})[0])
+            upper = upper_bound(samples["ratio"], confidence_level=MARGINS.confidence_level)
+            gated = (scenario, estimand, arm) == (
+                RMSE_GATE_SCENARIO,
+                RMSE_GATE_ESTIMAND,
+                FULL_G_ARM,
+            )
+            records.append(
+                {
+                    "scenario": scenario,
+                    "estimand": estimand,
+                    "comparator": arm,
+                    "replicates": len(kept),
+                    "comparator_failures": len(group) - len(kept),
+                    "rmse_subject": float(np.sqrt(np.mean(arrays["subject"] ** 2))),
+                    "rmse_comparator": float(np.sqrt(np.mean(arrays["comparator"] ** 2))),
+                    "rmse_ratio": point,
+                    "rmse_ratio_upper": upper,
+                    "ceiling": RMSE_GATE_CEILING if gated else np.nan,
+                    "gated": gated,
+                    "passed": bool(upper <= RMSE_GATE_CEILING) if gated else np.nan,
+                }
+            )
+    return pd.DataFrame(records)
+
+
+def arm0_risk(rows: pd.DataFrame) -> pd.DataFrame:
+    """The subject's risk of arm 0 per gated cell: bias, spread, RMSE, mean SE, coverage."""
+    records = []
+    for scenario, group in _one_per_replicate(rows).groupby("scenario", sort=True):
+        error = group["a0_estimate"] - group["a0_truth"]
+        records.append(
+            {
+                "scenario": scenario,
+                "estimand": ESTIMAND_NAMES[1],
+                "replicates": len(group),
+                "truth": float(group["a0_truth"].iloc[0]),
+                "bias": float(error.mean()),
+                "empirical_sd": float(error.std(ddof=1)),
+                "rmse": float(np.sqrt(np.mean(error**2))),
+                "mean_std_error": float(group["a0_std_error"].mean()),
+                "coverage": float(group["a0_covered"].mean()),
+            }
+        )
+    return pd.DataFrame(records)
+
+
+def scientific_failures(extra_frames: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """Gate (b): the gated row of ``rmse-comparison.csv`` when its bound passes the ceiling."""
+    table = extra_frames[COMPARISON_FILE]
+    gated = table.loc[table["gated"].astype(bool)]
+    if len(gated) != 1:
+        raise RuntimeError(f"{STUDY.slug}: expected one gated RMSE row, found {len(gated)}")
+    return {"RMSE against the full-g arm": gated.loc[~gated["passed"].astype(bool)]}
 
 
 def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -508,35 +651,56 @@ def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
     return draw_scenario(scenario, n, replicate)
 
 
-def _fit_rows(
-    frame: pd.DataFrame,
-    truth_: Mapping[str, float],
-    scenario: str,
-    replicate: int,
-    implementation: str,
-) -> list[dict[str, Any]]:
-    """One implementation's rows, with its run time and, for the subject, its readings."""
+def _timed(frame: pd.DataFrame, scenario: str, implementation: str) -> tuple[Any, float]:
     start = time.perf_counter()
     result = fit(frame, scenario, implementation)
-    extra: dict[str, float] = {"seconds": time.perf_counter() - start}
-    extra.update(dict.fromkeys(EXTRA_COLUMNS[1:], np.nan))
-    if implementation == CTMLE_ARM:
-        extra.update(selection_readings(result))
-    return [
-        {**row, **extra} for row in result_rows(result, truth_, scenario, replicate, implementation)
-    ]
+    return result, time.perf_counter() - start
+
+
+def _comparator(frame: pd.DataFrame, scenario: str, arm: str) -> tuple[Any | None, float]:
+    """A hazard ``LTMLE`` arm's fit, or ``None`` when it raised.
+
+    The arms are reported beside the subject and gate only through :func:`rmse_comparison`,
+    which counts the replicates they lost; a raise there is a reading, not a subject failure.
+    """
+    start = time.perf_counter()
+    try:
+        result = fit(frame, scenario, arm)
+    except Exception:
+        result = None
+    return result, time.perf_counter() - start
 
 
 def _replicate(
     key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> list[dict[str, Any]]:
+    """The subject's gated rows, each carrying both hazard ``LTMLE`` arms' estimates."""
     scenario, replicate, _ = key
     frame, truth_ = drawn
-    rows: list[dict[str, Any]] = []
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        for implementation in IMPLEMENTATIONS:
-            rows.extend(_fit_rows(frame, truth_, scenario, replicate, implementation))
+        result, seconds = _timed(frame, scenario, CTMLE_ARM)
+        others = {arm: _comparator(frame, scenario, arm) for arm in COMPARATORS}
+    arm0 = result[ESTIMAND_NAMES[1]]
+    _, low, high = reported_inference(arm0)
+    extra: dict[str, Any] = {
+        "seconds": seconds,
+        **selection_readings(result),
+        **{f"seconds[{arm}]": spent for arm, (_, spent) in others.items()},
+        "a0_truth": float(truth_[ESTIMAND_NAMES[1]]),
+        "a0_estimate": float(arm0.psi),
+        "a0_std_error": reported_inference(arm0)[0],
+        "a0_covered": int(low <= truth_[ESTIMAND_NAMES[1]] <= high),
+    }
+    rows = []
+    for row in result_rows(result, truth_, scenario, replicate, CTMLE_ARM):
+        if row["estimand"] not in GATED_ESTIMANDS[scenario]:
+            continue
+        comparators = {
+            f"estimate[{arm}]": (np.nan if fitted is None else float(fitted[row["estimand"]].psi))
+            for arm, (fitted, _) in others.items()
+        }
+        rows.append({**row, **extra, **comparators})
     return rows
 
 
@@ -547,9 +711,9 @@ def draw_and_fit(
     n_jobs: int = STUDY_JOBS,
     scenarios: tuple[str, ...] | None = None,
 ) -> replication.PhaseResult:
-    """Every row of ``scenarios`` (all by default), each at its declared size."""
+    """Every gated cell of ``scenarios`` (all by default), each at its declared size."""
     sizes = STUDY.sizes(n)
-    chosen = tuple(SCENARIOS) if scenarios is None else scenarios
+    chosen = tuple(STUDY.scenarios) if scenarios is None else scenarios
     outcomes = replication.fit_primary(
         [
             (scenario, replicate, sizes[scenario])
@@ -564,40 +728,4 @@ def draw_and_fit(
         seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
     )
     rows = pd.DataFrame([row for result in outcomes.kept for row in result])
-    return replication.result(outcomes, rows.loc[:, [*REPLICATE_COLUMNS, *EXTRA_COLUMNS]])
-
-
-def smoke(scenarios: tuple[str, ...] = ("or15_qcorrect", "or1_qwrong"), replicates: int = 2) -> Any:
-    """A cheap run of a few cells, for a runner to check the module before the pilot.
-
-    Prints each row and the selection readings; it writes nothing and registers nothing.
-    """
-    check_truth()
-    out = []
-    for scenario in scenarios:
-        n = STUDY.n_of(scenario)
-        for replicate in range(replicates):
-            out.extend(_replicate((scenario, replicate, n), draw_scenario(scenario, n, replicate)))
-    frame = pd.DataFrame(out)
-    with pd.option_context("display.width", 200, "display.max_columns", 20):
-        print(
-            frame[
-                [
-                    "implementation",
-                    "scenario",
-                    "replicate",
-                    "estimand",
-                    "truth",
-                    "estimate",
-                    "std_error",
-                    "covered",
-                    "seconds",
-                ]
-            ]
-        )
-        print(extra_artifacts(frame)[SELECTION_FILE])
-    return frame
-
-
-if __name__ == "__main__":
-    smoke()
+    return replication.result(outcomes, rows.loc[:, [*REPLICATE_COLUMNS, *PRIMARY_COLUMNS]])
