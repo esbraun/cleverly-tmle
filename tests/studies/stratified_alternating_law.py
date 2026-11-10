@@ -16,9 +16,9 @@ parameter                              functional of the law given ``V = s`` (or
 ``ey_ipsi[name]``                      ``sum_w P(w) [q_d Q(1, w) + (1 - q_d) Q(0, w)]`` with
                                        ``q_d = d g / (d g + 1 - g)`` (Kennedy 2019, Equation (1))
 ``ate_ipsi[name vs natural course]``   the difference from the ``delta = 1`` mean
-``msm[term]`` (identity, logit)        the ``h = 1`` least-squares projection of ``Q(a, w)`` on
-                                       ``phi = (1, a, W)`` over both arms and the law of ``W``,
-                                       on the link's scale with its ``dm/deta`` weight
+``msm[term]`` (identity, logit)        the ``h = 1`` projection of ``Q(a, w)`` on
+                                       ``phi = (1, a, W)`` over both arms and the law of ``W``
+                                       that minimises the link's quasi-likelihood loss
 =====================================  ===========================================================
 
 The marginal incremental mean is the ``P(V = s)``-weighted mixture of the stratum means.  The
@@ -85,7 +85,7 @@ def msm_beta(
     Newton with the exact Jacobian runs a fixed number of steps, so the function stays
     analytic in the probabilities, as :func:`tests.discrete_law.functional` keeps it.
     """
-    inverse, slope, curvature = discrete_law.MSM_LINKS[link]
+    inverse, slope = discrete_law.MSM_LINKS[link]
     p_vw, _, q = _cells(probs)
     w = np.broadcast_to(np.arange(3, dtype=float)[None, :, None], (3, 3, 2))
     a = np.broadcast_to(np.array([0.0, 1.0])[None, None, :], (3, 3, 2))
@@ -95,10 +95,9 @@ def msm_beta(
     beta = np.zeros(len(terms), dtype=np.asarray(probs).dtype)
     for _ in range(discrete_law.MSM_NEWTON_STEPS):
         m = inverse(np.einsum("vwap,p->vwa", phi, beta))
-        residual = q - m
-        first, second = slope(m), curvature(m)
-        score = np.einsum("vwap,vwa,vw->p", phi, first * residual, mass)
-        jacobian = np.einsum("vwap,vwaq,vwa,vw->pq", phi, phi, first**2 - residual * second, mass)
+        # The link's quasi-likelihood estimating equation and its Jacobian.
+        score = np.einsum("vwap,vwa,vw->p", phi, q - m, mass)
+        jacobian = np.einsum("vwap,vwaq,vwa,vw->pq", phi, phi, slope(m), mass)
         beta = beta + np.linalg.solve(jacobian, score)
     return beta
 
@@ -337,13 +336,16 @@ def _l2_cells(stratum: int | None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     return w.ravel(), v.ravel(), mass.ravel()
 
 
-def _link(link: str) -> tuple[Any, Any, Any]:
+def _link(link: str) -> tuple[Any, Any]:
     return discrete_law.MSM_LINKS[link]
 
 
 def l2_beta(link: str, stratum: int | None = None) -> np.ndarray:
-    """The grid projection of ``E[Y_d | V]`` on ``(1, d)``, inside a stratum or marginal."""
-    inverse, slope, curvature = _link(link)
+    """The grid projection of ``E[Y_d | V]`` on ``(1, d)``, inside a stratum or marginal.
+
+    The minimiser of the link's quasi-likelihood (cumulant) loss over the grid.
+    """
+    inverse, slope = _link(link)
     w, v, mass = _l2_cells(stratum)
     doses = np.asarray(GRID)
     phi = np.column_stack([np.ones_like(doses), doses])
@@ -355,16 +357,8 @@ def l2_beta(link: str, stratum: int | None = None) -> np.ndarray:
     for _ in range(discrete_law.MSM_NEWTON_STEPS):
         m = inverse(phi @ beta)
         residual = q - m[None, :]
-        first, second = slope(m), curvature(m)
-        score = np.einsum("c,cj,jp,j->p", mass, residual * first[None, :], phi, weights)
-        jacobian = np.einsum(
-            "c,cj,jp,jq,j->pq",
-            mass,
-            first[None, :] ** 2 - residual * second[None, :],
-            phi,
-            phi,
-            weights,
-        )
+        score = np.einsum("c,cj,jp,j->p", mass, residual, phi, weights)
+        jacobian = np.einsum("j,jp,jq,j->pq", slope(m), phi, phi, weights) * float(mass.sum())
         beta = beta + np.linalg.solve(jacobian, score)
     return np.asarray(beta, dtype=float)
 
@@ -372,44 +366,34 @@ def l2_beta(link: str, stratum: int | None = None) -> np.ndarray:
 def l2_efficiency_sd(link: str, stratum: int | None = None, *, points: int = 4001) -> np.ndarray:
     """The SD of the influence curve the package reports for each coefficient, at the law.
 
-    The curve is ``M^-1 [h 1{A in range} phi(A) m'(A) / g(A | W) {Y - Q(A, W)} +
-    sum_j w_j phi_j m'_j {Q(d_j, W) - m_j}]``, divided by ``P(V = s)`` on the stratum's rows
-    inside a stratum.  ``M`` is the projection Jacobian with its curvature term.  The two terms
+    The curve is ``M^-1 [h 1{A in range} phi(A) / g(A | W) {Y - Q(A, W)} +
+    sum_j w_j phi_j {Q(d_j, W) - m_j}]``, divided by ``P(V = s)`` on the stratum's rows
+    inside a stratum.  ``M = sum_j w_j m'_j phi_j phi_j'`` is the projection Jacobian.  The two terms
     are uncorrelated, so the variance is the sum of an integral over the dose range and a sum
     over the ``(W, V)`` cells.  The integral runs on ``points`` trapezoid nodes.
     """
-    inverse, slope, curvature = _link(link)
+    inverse, slope = _link(link)
     w, v, mass = _l2_cells(stratum)
     beta = l2_beta(link, stratum)
     doses = np.asarray(GRID)
     phi = np.column_stack([np.ones_like(doses), doses])
     weights = quadrature()
     m = inverse(phi @ beta)
-    first, second = slope(m), curvature(m)
     q = np.array(
         [[l2_outcome(link, d, wi, vi) for d in doses] for wi, vi in zip(w, v, strict=True)]
     )
     residual = q - m[None, :]
-    jacobian = np.einsum(
-        "c,cj,jp,jq,j->pq",
-        mass,
-        first[None, :] ** 2 - residual * second[None, :],
-        phi,
-        phi,
-        weights,
-    )
+    jacobian = np.einsum("j,jp,jq,j->pq", slope(m), phi, phi, weights)
     inverse_jacobian = np.linalg.inv(jacobian)
     # The plug-in term, one vector per cell.
-    plug = np.einsum("cj,jp,j->cp", residual * first[None, :], phi, weights)
+    plug = np.einsum("cj,jp,j->cp", residual, phi, weights)
     plug_variance = np.einsum("c,cp,cq->pq", mass, plug, plug)
-    # The residual term: an integral over the dose range of phi phi' m'^2 Var(Y | a, W) / g.
+    # The residual term: an integral over the dose range of phi phi' Var(Y | a, W) / g.
     grid = np.linspace(doses[0], doses[-1], points)
     step = grid[1] - grid[0]
     trapezoid = np.full(points, step)
     trapezoid[[0, -1]] = step / 2.0
     phi_a = np.column_stack([np.ones_like(grid), grid])
-    m_a = inverse(phi_a @ beta)
-    first_a = slope(m_a)
     residual_variance = np.zeros((2, 2))
     for wi, vi, cell in zip(w, v, mass, strict=True):
         if cell == 0.0:
@@ -417,7 +401,7 @@ def l2_efficiency_sd(link: str, stratum: int | None = None, *, points: int = 400
         density = np.exp(-0.5 * (grid - dose_mean(wi, vi)) ** 2) / np.sqrt(2.0 * np.pi)
         mean = l2_outcome(link, grid, wi, vi)
         variance = np.ones_like(grid) if link == "identity" else mean * (1.0 - mean)
-        integrand = (first_a**2) * variance / density
+        integrand = variance / density
         residual_variance += cell * np.einsum("a,ap,aq->pq", trapezoid * integrand, phi_a, phi_a)
     covariance = inverse_jacobian @ (plug_variance + residual_variance) @ inverse_jacobian.T
     scale = 1.0 if stratum is None else 1.0 / float(base.P_V[stratum])

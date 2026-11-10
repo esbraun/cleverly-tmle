@@ -5,8 +5,10 @@ estimands, asked of the projection
 
 .. math::
 
-    U(\beta) = E_P\Big[\sum_a h(a, V)\,\frac{dm}{d\eta}\,\varphi(a, V)\,
-               \big(\bar Q(a, W) - m(a, V; \beta)\big)\Big] = 0
+    U(\beta) = E_P\Big[\sum_a h(a, V)\,\varphi(a, V)\,
+               \big(\bar Q(a, W) - m(a, V; \beta)\big)\Big] = 0,
+
+the stationary point of the link's quasi-likelihood (cumulant) loss,
 
 and answered the same way: differentiate a longhand statement of :math:`\beta` along the
 contamination path by complex step, and compare against what the estimator reports.  No
@@ -22,8 +24,10 @@ Three things about this parameter make it easier to get wrong than the means, an
 pinned below.  :math:`M` **depends on the law** -- through the marginal of :math:`V` -- so
 treating it as a constant gives an influence curve that is wrong by exactly the term
 :math:`M` contributes, and every check that holds :math:`P(W)` fixed would still pass.
-Under a link :math:`M` also carries a **curvature term** that vanishes wherever the working
-model fits, so a saturated model cannot see it.  And the model is **not saturated** here:
+Under a link :math:`M = E[\sum_a h\,(dm/d\eta)\,\varphi\varphi^\top]`, and the clever
+covariate is :math:`h\varphi/g` with **no** :math:`dm/d\eta` factor: carrying the factor
+over from a least-squares projection on the mean scale is a mutation that a saturated
+model cannot see, because the two projections agree wherever the model fits.  And the model is **not saturated** here:
 three coefficients against six ``(w, a)`` cells, so ``beta`` is a genuine projection and not
 a reparameterisation of the conditional means.
 """
@@ -68,9 +72,7 @@ def exact_fit(request):
     """A working-model fit on the discrete law with oracle nuisances, one link per case.
 
     Handed the truth, the initial fit is exactly right in the sample, ``epsilon`` is zero
-    and the curve reported is the EIF at ``P_0`` rather than an estimate of it.  Under a
-    link that is also what makes the alternation exit at once: with nothing for the
-    fluctuation to do, ``beta`` does not move either.
+    and the curve reported is the EIF at ``P_0`` rather than an estimate of it.
     """
     dgp = law.DiscreteLaw()
     estimator = TMLE(
@@ -122,7 +124,7 @@ class TestTheOracleAndTheLibraryDescribeTheSameModel:
 
 
 class TestTheNewtonSolveHasConverged:
-    """The oracle solves its own normal equations by a *fixed* number of Newton steps.
+    """The oracle solves its own estimating equation by a *fixed* number of Newton steps.
 
     That is what keeps :func:`law.functional` analytic -- a convergence test is a
     comparison, and a comparison cannot be differentiated by a complex step.  The price is
@@ -158,15 +160,10 @@ class TestThePremisesHold:
         for fluctuation in fit.fluctuations.values():
             assert np.max(np.abs(fluctuation.epsilon)) == pytest.approx(0.0, abs=1e-12)
 
-    def test_the_alternation_exits_without_moving_beta(self, exact_fit) -> None:
-        """With an exact initial fit there is nothing for either equation to solve."""
-        link, fit = exact_fit
-        projection = fit.fluctuations["msm"].projection
-        if link == "identity":
-            assert projection is None
-            return
-        assert projection.converged and projection.n_outer == 1
-        assert projection.trace[0][2] == pytest.approx(0.0, abs=1e-14)
+    def test_every_link_is_one_fluctuation(self, exact_fit) -> None:
+        """No link alternates: the clever covariate ``h phi / g`` does not read ``beta``."""
+        _, fit = exact_fit
+        assert fit.fluctuations["msm"].projection is None
 
 
 #: Absolute window on the curve, passed explicitly with ``rtol=0`` as every sibling module
@@ -201,15 +198,17 @@ class TestTheInfluenceCurveIsTheEIF:
     def test_the_score_equation_is_solved_exactly(self, exact_fit) -> None:
         """``P_n D_beta = 0``, which for this parameter holds for *two* separate reasons.
 
-        The fluctuation zeroes the residual half; the weighted least squares zeroes the
-        plug-in half by construction.  Checked at ``1e-13`` rather than through
-        ``score_check``'s tolerance, because with oracle nuisances there is nothing left
-        for either half to solve and the answer should be arithmetic-exact.
+        The fluctuation zeroes the residual half; the projection zeroes the plug-in half by
+        construction.  Checked far inside ``score_check``'s tolerance, because with oracle
+        nuisances there is nothing left for either half to solve.  The identity link's
+        closed form is arithmetic-exact; a linked projection stops at a relative score of
+        ``1e-12`` and the curve reaches magnitude 20 here, so it is held to ``1e-11``.
         """
-        _, fit = exact_fit
+        link, fit = exact_fit
+        window = 1e-13 if link == "identity" else 1e-11
         for name in REPORTED:
             assert float(np.mean(fit.estimates[name].influence_curve)) == pytest.approx(
-                0.0, abs=1e-13
+                0.0, abs=window
             )
 
 
@@ -228,48 +227,66 @@ class TestTheComparisonHasTeeth:
         gram_factor: float = 1.0,
         plugin: bool = True,
         uniform_h: bool = False,
-        curvature: bool = True,
+        least_squares: bool = False,
     ):
-        """``D_beta`` at the support points, written out longhand from the formula."""
-        inverse, slope, second = law.MSM_LINKS[link]
+        """``D_beta`` at the support points, written out longhand from the formula.
+
+        ``least_squares=True`` is the shape the projection had before it followed the
+        link: ``beta`` the least-squares stationary point on the mean scale, the covariate
+        and the plug-in carrying ``dm/deta``, and ``M`` its curvature-corrected Jacobian.
+        It is a different parameter under a link, so it must move the answer.
+        """
+        inverse, slope = law.MSM_LINKS[link]
         h = np.ones_like(law.MSM_WEIGHTS) if uniform_h else law.MSM_WEIGHTS
         p_w = law.PROBS.sum(axis=(1, 2))
+
+        def second(m):
+            if link == "log":
+                return m
+            if link == "logit":
+                return m * (1.0 - m) * (1.0 - 2.0 * m)
+            return np.zeros_like(m)
+
+        def weight(m):
+            return slope(m) if least_squares else np.ones_like(m)
+
+        def jacobian_weight(m, residual):
+            if least_squares:
+                return slope(m) ** 2 - residual * second(m)
+            return slope(m)
+
         beta = np.zeros(len(law.MSM_TERMS))
         for _ in range(law.MSM_NEWTON_STEPS):
             m = inverse(np.einsum("wap,p->wa", law.MSM_DESIGN, beta))
             residual = law.Q_EXACT - m
-            u = np.einsum("wap,wa,w->p", law.MSM_DESIGN, h * slope(m) * residual, p_w)
+            u = np.einsum("wap,wa,w->p", law.MSM_DESIGN, h * weight(m) * residual, p_w)
             jacobian = np.einsum(
                 "wap,waq,wa,w->pq",
                 law.MSM_DESIGN,
                 law.MSM_DESIGN,
-                h * (slope(m) ** 2 - residual * second(m)),
+                h * jacobian_weight(m, residual),
                 p_w,
             )
             beta = beta + np.linalg.solve(jacobian, u)
 
         m = inverse(np.einsum("wap,p->wa", law.MSM_DESIGN, beta))
         residual = law.Q_EXACT - m
-        # The matrix the curve is premultiplied by the inverse of. `curvature=False` is
-        # the mutation that matters under a link: M built as the slope-weighted Gram
-        # matrix, which is right only where the working model fits.
-        second_term = residual * second(m) if curvature else np.zeros_like(residual)
         gram = gram_factor * np.einsum(
             "wap,waq,wa,w->pq",
             law.MSM_DESIGN,
             law.MSM_DESIGN,
-            h * (slope(m) ** 2 - second_term),
+            h * jacobian_weight(m, residual),
             p_w,
         )
 
         rows = []
         for w, a, y in law.SUPPORT:
             g = law.G_EXACT[w] if a == 1 else 1.0 - law.G_EXACT[w]
-            clever = h[w, a] * slope(m)[w, a] * law.MSM_DESIGN[w, a] / g
+            clever = h[w, a] * weight(m)[w, a] * law.MSM_DESIGN[w, a] / g
             contribution = clever * (y - law.Q_EXACT[w, a])
             if plugin:
                 contribution = contribution + np.einsum(
-                    "ap,a,a,a->p", law.MSM_DESIGN[w], h[w], slope(m)[w], residual[w]
+                    "ap,a,a,a->p", law.MSM_DESIGN[w], h[w], weight(m)[w], residual[w]
                 )
             rows.append(np.linalg.solve(gram, contribution))
         return np.array(rows)
@@ -293,20 +310,23 @@ class TestTheComparisonHasTeeth:
         assert np.max(np.abs(self._hand_written(link, **kwargs) - expected)) > 1e-2, why
 
     @pytest.mark.parametrize("link", [name for name in LINKS if name != "identity"])
-    def test_dropping_the_curvature_term_moves_the_answer(self, link: str) -> None:
+    def test_the_least_squares_projection_moves_the_answer(self, link: str) -> None:
         """The mutation a saturated working model could not catch.
 
-        ``M`` without ``-(Qbar - m) d2m/deta2`` is the matrix an author would write by
-        generalising the identity link's Gram matrix one factor at a time. It is right
-        wherever the model fits, and this one does not fit -- three coefficients against
-        six cells -- so the curve moves by two orders more than the tolerance.
+        Least squares on the mean scale, with ``dm/deta`` in the covariate and the curvature
+        term in ``M``, agrees with the quasi-likelihood projection wherever the model fits.
+        This one does not fit -- three coefficients against six cells -- so the curve
+        moves by two orders more than the tolerance.
         """
         expected = np.column_stack([law.eif(name) for name in law.msm_names(link)])
-        gram_only = self._hand_written(link, curvature=False)
-        assert np.max(np.abs(gram_only - expected)) > 1e-2
+        mutated = self._hand_written(link, least_squares=True)
+        assert np.max(np.abs(mutated - expected)) > 1e-2
 
-    def test_the_identity_link_has_no_curvature_to_drop(self) -> None:
-        """Which is why it needed no such term, and why the link path needs its own check."""
-        np.testing.assert_array_equal(
-            self._hand_written("identity", curvature=False), self._hand_written("identity")
+    def test_the_identity_link_is_least_squares(self) -> None:
+        """Which is why the identity link's path needs no separate check of the loss."""
+        np.testing.assert_allclose(
+            self._hand_written("identity", least_squares=True),
+            self._hand_written("identity"),
+            atol=1e-12,
+            rtol=0,
         )

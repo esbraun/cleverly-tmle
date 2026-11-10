@@ -142,7 +142,7 @@ def mechanism_wrong_limit(stratum: int) -> float:
 def _projection(
     q1: np.ndarray, q0: np.ndarray, mass: np.ndarray, *, with_w: bool = True
 ) -> np.ndarray:
-    """The logit projection of ``(q1, q0)`` on ``(1, a, W)``, or ``(1, a)``, over ``mass``."""
+    """The quasi-binomial projection of ``(q1, q0)`` on ``(1, a, W)``, or ``(1, a)``."""
     w = W[FIRST]
     cells = mass[FIRST]
     target = np.concatenate([q0[FIRST], q1[FIRST]])
@@ -152,11 +152,8 @@ def _projection(
     beta = np.zeros(design.shape[1])
     for _ in range(100):
         m = expit(design @ beta)
-        first = m * (1 - m)
-        residual = target - m
-        score = design.T @ (weights * first * residual)
-        curvature = first**2 - residual * first * (1 - 2 * m)
-        jacobian = (design * (weights * curvature)[:, None]).T @ design
+        score = design.T @ (weights * (target - m))
+        jacobian = (design * (weights * m * (1 - m))[:, None]).T @ design
         beta = beta + np.linalg.solve(jacobian, score)
     return beta
 
@@ -168,11 +165,10 @@ def _cell_mass(stratum: int | None) -> np.ndarray:
 def _msm_covariate(
     beta: np.ndarray, arm: float, share: np.ndarray, inside: np.ndarray
 ) -> np.ndarray:
-    """``I(S = s) m'(phi beta) phi(arm, W) / g(arm)`` at each support point."""
+    """``I(S = s) phi(arm, W) / g(arm)`` at each support point, free of ``beta``."""
     columns = [np.ones_like(W), np.full_like(W, arm), W][: beta.size]
-    m = expit(np.column_stack(columns) @ beta)
     phi = np.column_stack(columns)
-    return phi * (m * (1 - m) / share * inside)[:, None]
+    return phi * (inside / share)[:, None]
 
 
 def _linked_msm_limit(
@@ -184,7 +180,9 @@ def _linked_msm_limit(
     *,
     with_w: bool = True,
 ) -> float:
-    """The logit-MSM slope of an alternation over ``scope`` (``None`` is marginal).
+    """The logit-MSM slope of a fit over ``scope`` (``None`` is marginal).
+
+    The covariate is free of ``beta``, so the loop below exits after its second round.
 
     The fluctuated regression is projected on the ``report`` stratum's cells.  ``with_w``
     selects the working model ``(1, a, W)`` or ``(1, a)``.

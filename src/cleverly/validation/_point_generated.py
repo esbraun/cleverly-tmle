@@ -127,10 +127,10 @@ class Projection:
     """One coefficient of a marginal structural model's projection (part E3).
 
     The coefficient vector ``beta`` solves
-    ``sum_i w_i sum_a h(a, V_i) m'(eta) phi(a, V_i) (Q(a, W_i) - m(a, V_i; beta)) = 0``,
-    the working-model normal equations of :mod:`cleverly.msm`, with ``Q`` the process mean.
-    :meth:`coefficient` solves them by Gauss-Newton iterations written here, so the truth
-    does not share the package's projection solver.
+    ``sum_i w_i sum_a h(a, V_i) phi(a, V_i) (Q(a, W_i) - m(a, V_i; beta)) = 0``,
+    the stationary point of the link's cumulant loss in :mod:`cleverly.msm`, with ``Q`` the
+    process mean.  :meth:`coefficient` solves it by Newton iterations written here, so the
+    truth does not share the package's projection solver.
 
     Parameters
     ----------
@@ -150,28 +150,23 @@ class Projection:
     term: int
 
     def _inverse(self, eta: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        mean, slope, _ = self._derivatives(eta)
-        return mean, slope
-
-    def _derivatives(self, eta: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Return the mean ``m``, ``dm/deta`` and ``d2m/deta2`` of the link at ``eta``."""
+        """Return the mean ``m`` and ``dm/deta`` of the link at ``eta``."""
         if self.link == "identity":
-            return eta, np.ones_like(eta), np.zeros_like(eta)
+            return eta, np.ones_like(eta)
         if self.link == "log":
             mean = np.exp(eta)
-            return mean, mean, mean
+            return mean, mean
         if self.link == "logit":
             mean = 1.0 / (1.0 + np.exp(-eta))
-            slope = mean * (1.0 - mean)
-            return mean, slope, slope * (1.0 - 2.0 * mean)
+            return mean, mean * (1.0 - mean)
         raise ValueError(f"no projection for the link {self.link!r}")
 
     def covariate_part(self, means: np.ndarray, population: np.ndarray) -> np.ndarray:
         """Return the covariate part of the reported coefficient's curve at each row.
 
-        The part is ``e_j' M^{-1} sum_a h m'(eta) phi (Q - m)`` at each row, with
-        ``M = P[sum_a h (m'^2 - (Q - m) m'') phi phi']`` the derivative of the normal
-        equations (:func:`cleverly.msm.solve_projection` states the same matrix).
+        The part is ``e_j' M^{-1} sum_a h phi (Q - m)`` at each row, with
+        ``M = P[sum_a h m'(eta) phi phi']`` the derivative of the estimating equation
+        (:func:`cleverly.msm.solve_projection` states the same matrix).
 
         Parameters
         ----------
@@ -189,11 +184,9 @@ class Projection:
         h = np.asarray(self.weights, dtype=float)
         w = np.asarray(population, dtype=float)
         beta = self.coefficients(means, w)
-        fitted, slope, curvature = self._derivatives(phi @ beta)
-        residual = means - fitted
-        bend = h * (slope**2 - residual * curvature)
-        matrix = np.einsum("i,ik,ikp,ikq->pq", w, bend, phi, phi) / float(np.sum(w))
-        rows = np.einsum("ik,ikp->ip", h * slope * residual, phi)
+        fitted, slope = self._inverse(phi @ beta)
+        matrix = np.einsum("i,ik,ikp,ikq->pq", w, h * slope, phi, phi) / float(np.sum(w))
+        rows = np.einsum("ik,ikp->ip", h * (means - fitted), phi)
         return np.asarray(np.linalg.solve(matrix, rows.T)[self.term], dtype=float)
 
     def coefficients(self, means: np.ndarray, population: np.ndarray) -> np.ndarray:
@@ -224,23 +217,20 @@ class Projection:
         elif self.link == "logit":
             level = np.sum(mass * means) / np.sum(mass)
             beta[0] = np.log(level / (1.0 - level))
-
-        def loss(candidate: np.ndarray) -> float:
-            fitted, _ = self._inverse(phi @ candidate)
-            return float(np.sum(mass * (means - fitted) ** 2))
-
         for _ in range(500):
             fitted, slope = self._inverse(phi @ beta)
-            gradient = phi * (slope * np.sqrt(mass))[:, :, None]
-            residual = (means - fitted) * np.sqrt(mass)
-            jacobian = gradient.reshape(-1, phi.shape[2])
-            step = np.linalg.lstsq(jacobian, residual.reshape(-1), rcond=None)[0]
-            # The full Gauss-Newton step decides convergence. Halving guards a step that
-            # raises the loss beyond rounding, and it never stops the iteration by itself.
+            score = np.einsum("ik,ikp->p", mass * (means - fitted), phi)
+            matrix = np.einsum("ik,ikp,ikq->pq", mass * slope, phi, phi)
+            step = np.linalg.solve(matrix, score)
             if float(np.max(np.abs(step))) <= 1e-13 * max(1.0, float(np.max(np.abs(beta)))):
                 return beta
-            size, current = 1.0, loss(beta)
-            while loss(beta + size * step) > current * (1.0 + 1e-12) and size > 1e-8:
+            # The loss is convex, so a full Newton step from a nearby start converges; the
+            # halving guards a far start whose step overshoots the score's sign.
+            size = 1.0
+            while size > 1e-8:
+                trial, _ = self._inverse(phi @ (beta + size * step))
+                if np.all(np.isfinite(trial)):
+                    break
                 size /= 2.0
             beta = beta + size * step
         raise ValueError("the working-model projection did not converge")

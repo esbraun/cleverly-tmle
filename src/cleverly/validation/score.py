@@ -674,43 +674,6 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
                     ),
                 )
             )
-            # A linked working model with baseline strata solves its stratum blocks in a
-            # nested fluctuation at the stratum coefficients.  The stratum estimates are
-            # read from it, so its score is checked on its own row.
-            # Under a declared rule that fluctuation is an outcome solve the rule stopped, so
-            # its row is judged by its own rule ratio, as the row above is.
-            nested = fluctuation.stratified
-            if nested is not None:
-                score = nested.score_norm
-                bar, passes, before, judged_by = (
-                    float(threshold),
-                    bool(score <= threshold),
-                    nested.initial_score_norm,
-                    "relative",
-                )
-                if _judged_by_rule(nested):
-                    score, bar = _rule_bar(nested, span)
-                    passes = bool(nested.rule_ratio <= 1.0)  # type: ignore[operator]
-                    before = nested.initial_score_norm * span
-                    judged_by = nested.stopping
-                stem = f"{group} (strata)"
-                rows.append(
-                    ScoreCheckRow(
-                        name=stem if result.n_repeats == 1 else f"{stem}[draw {index}]",
-                        kind="fluctuation",
-                        score=score,
-                        threshold=bar,
-                        std_error=float(reference_se),
-                        passed=passes,
-                        converged=nested.converged,
-                        n_iter=nested.n_iter,
-                        method=nested.method,
-                        score_initial=before,
-                        stopping=judged_by,
-                        failure=nested.failure or "",
-                        hessian_condition=nested.hessian_condition,
-                    )
-                )
             # A group whose parameter is defined through the mechanism solves *two*
             # equations, and the per-estimand rows below check only their sum -- the
             # influence curve contains both terms, so its mean cannot be zero unless
