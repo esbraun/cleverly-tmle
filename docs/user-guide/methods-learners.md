@@ -100,6 +100,17 @@ same three accessors, and so does `"oat"` with a flexible learner. Each estimate
 [Collaborative TMLE](../technical-reference/collaborative-tmle.md) gives the reason for each
 strategy.
 
+`CollaborativeTMLEMethod` also fits a `TimeToEvent` design with a two-level treatment. For each
+arm and time point it builds the treatment and censoring models (which predict who is treated and
+who drops out) one covariate at a time. Each step adds the covariate whose model gives the best
+penalized fit of the event data once the risk curve is updated to it, and cross-validation picks
+how many steps to keep. It reports point estimates of the risk only. A
+[simulation study](../technical-reference/method-evidence/survival-ctmle.md) measured those points
+with a correct outcome model and `hazard_pooling="pooled"`; other settings are marked experimental
+([time-to-event outcomes](../technical-reference/collaborative-tmle.md#time-to-event-outcomes)).
+Through `CausalStudy` the starting outcome model is cross-fitted with 10 folds, the `CrossFitting`
+default; `SurvivalCTMLE` called directly fits it on all rows (`n_folds=1`), as the source does.
+
 `strategy="oat"` fits, for each arm, a treatment model on that arm's predicted outcome. It can
 report an interval when the outcome learner is exactly `ParametricOutcome` and the treatment
 learner exactly `ParametricMechanism`, both from `cleverly.learners`. The data must be complete,

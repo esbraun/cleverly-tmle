@@ -1953,6 +1953,10 @@ class TestNegativeControls:
             "coverage": self._lose_coverage,
             "standard error": self._inflate_standard_errors,
         }
+        # A point-only cell passes on its bias leg alone (StudyRecord.point_only_scenarios), so
+        # its coverage and standard error are published and never gated.
+        if label != "bias" and set(cell["scenario"]) <= set(study.point_only_scenarios):
+            pytest.skip("a point-only cell gates neither coverage nor the standard error")
         baseline = independent_performance_tests(cell, record=_cheap(study), n_jobs=1).set_index(
             "implementation"
         )

@@ -31,8 +31,11 @@ specified `GLM` models.
 Reach for [`ParametricGFormula`](parametric-gformula.md) for the forward-simulation form of the same
 target and for a fixed or rule-set continuous dose. Its interval holds only under correctly specified models.
 
-Collaborative TMLE and DR-TMLE have no longitudinal derivation, and `available_methods()` says so
-before any model is fitted.
+DR-TMLE has no longitudinal derivation. Collaborative TMLE has one for the risk curve of a binary
+baseline treatment under right censoring, through `SurvivalCTMLE`
+([collaborative TMLE: time-to-event outcomes](collaborative-tmle.md#time-to-event-outcomes)), and
+none for a treatment at several nodes. `available_methods()` says which applies before any model is
+fitted.
 
 A worked applied analysis is in the
 [sequential pricing tutorial](../examples/sequential-pricing.ipynb). It runs two single
@@ -1084,6 +1087,21 @@ node, and $t$ is a reported horizon.
 `outcome_learner` is the hazard learner on a hazard fit. `pseudo_learner=` is refused, because the
 fit regresses the event indicator at each node and fits no pseudo-outcome. Every arm is targeted
 together, so the score of every contrast is solved.
+
+`SurvivalCTMLE` runs this per-horizon targeting on a collaborative selection of its treatment and
+censoring models, one arm at a time
+([collaborative TMLE: time-to-event outcomes](collaborative-tmle.md#time-to-event-outcomes)).
+Its paper checks for the event before censoring within an interval, while a node here puts
+censoring first. A wide panel coded in the paper's order records a loss after interval $k$ at the
+next node's censoring column. These two units are event-free through interval 1, and the second is
+lost after it:
+
+| unit | `C1` | `Y1` | `C2` | `Y2` |
+| --- | --- | --- | --- | --- |
+| followed to the end, event at 2 | 1 | 0 | 1 | 1 |
+| lost after interval 1 | 1 | 0 | 0 | missing |
+
+`TimeToEvent` places a censoring at grid time $g_j$ at node $j + 1$ in the same way.
 
 #### Two algorithms
 

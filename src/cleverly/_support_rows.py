@@ -3093,7 +3093,7 @@ def long_row(
     splitting: tuple[str, ...] = ("in_sample",),
     dependence: str = "iid",
     qualifiers: Iterable[str] = (),
-    engine: str = "tmle",
+    engine: str | tuple[str, ...] = "tmle",
     normalization: str | None = None,
     survival_model: str = "iterated_mean",
     targeting: str = "iterative",
@@ -3138,8 +3138,9 @@ def long_row(
         The dependence axis.
     qualifiers : iterable of str, default ()
         The known treatment and censoring factors.
-    engine : str, default "tmle"
-        ``tmle``, ``sdr``, ``ipsi``, ``gcomp`` or ``ipw``.
+    engine : str or tuple of str, default "tmle"
+        ``tmle``, ``sdr``, ``ipsi``, ``gcomp`` or ``ipw``, or the whole engine tuple of a
+        class that records one, such as ``("collaborative_tmle", "greedy")``.
     normalization : str or None, default None
         The inverse-probability normalization of an ``ipw`` row.
     survival_model : {"iterated_mean", "hazard"}, default "iterated_mean"
@@ -3175,7 +3176,7 @@ def long_row(
     """
     key = SupportKey(
         kind="longitudinal",
-        engine=(engine,),
+        engine=(engine,) if isinstance(engine, str) else tuple(engine),
         family=frozenset(
             (
                 outcome_kind,
@@ -4887,7 +4888,8 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``), the
 #: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
 #: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``) and the learned two-node
-#: regimen (``G47``), the eliminated competing event (``G48``) and separable effects (``G49``).
+#: regimen (``G47``), the eliminated competing event (``G48``), separable effects (``G49``) and
+#: collaborative TMLE of a risk curve (``G50``).
 #:
 def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
@@ -5075,6 +5077,74 @@ def _separable_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _survival_ctmle_rows() -> tuple[SupportRow, ...]:
+    """Collaborative TMLE of a risk curve of ``survival-ctmle`` (X91 part B): ``G50``.
+
+    ``SurvivalCTMLE`` records the engine ``("collaborative_tmle", "greedy")`` on the hazard
+    ``LTMLE`` key, with a two-level baseline treatment held over the two nodes and pooled hazard
+    and censoring regressions. Every estimate takes the ``working_mechanism_plugin`` status, so
+    the rows license the point alone (F18). They were added because every declared verdict
+    passed: 14 of 14 bias tests, the RMSE comparison against the full treatment model at OR 15,
+    and no failed fit. The study publishes under ``reporting`` because it declares no property
+    cell. The numbers are the committed results (``tests/canonical/survival_ctmle``).
+    """
+    slug = ["survival-ctmle"]
+    shared = (
+        "The laws of Stitelman and van der Laan (2010), Sections 12 to 14: five clipped "
+        "correlated normal covariates, a binary baseline treatment, light censoring (about 4.7% "
+        "per interval), two grid times and the risk at t = 2. The outcome model is a correct "
+        "main-term GLM with hazard_pooling='pooled' in every cell, and the candidates are the "
+        "paper's main-term logistic models. A misspecified outcome model is reported only: in "
+        "scenario 2 the risk difference then reads a standardized bias of -0.98 at OR 10. "
+        "Another law, learner or n rests on the paper alone. No comparator: no maintained "
+        "package fits this construction."
+    )
+    common: dict[str, Any] = {
+        "outcome_kind": "survival",
+        "engine": ("collaborative_tmle", "greedy"),
+        "held": True,
+        "survival_model": "hazard",
+        "hazard_pooling": "pooled",
+        "kinds": _POINT,
+    }
+    return (
+        long_row(
+            "G50.in_sample",
+            slug,
+            cells=[
+                "or1_qcorrect",
+                "or10_qcorrect",
+                "or15_qcorrect",
+                "s2_or10_qcorrect",
+                "s2_or15_qcorrect",
+                "or15_qcorrect_n2000",
+            ],
+            limits=[
+                "Points only: the plug-in interval is withheld (F18). Six in-sample cells at "
+                "OR 1, 10 and 15, scenario 2 and n = 2,000; the standardized bias of the risk of "
+                "arm 1 and of the risk difference stays within 0.075 over 1,600 draws each, and "
+                "the RMSE of the risk of arm 1 at OR 15 is 0.54 times that of hazard LTMLE with "
+                "the full treatment model.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G50.cross_fitted",
+            slug,
+            splitting=("cross_fitted",),
+            cells=["or10_qcorrect_crossfit"],
+            limits=[
+                "Points only: the plug-in interval is withheld (F18). Two outer folds for the "
+                "initial outcome fit at OR 10; the standardized bias reads 0.047 for the risk of "
+                "arm 1 and -0.010 for the risk difference over 1,600 draws.",
+                shared,
+            ],
+            **common,
+        ),
+    )
+
+
 #: A learned two-node regimen (``LearnedRegimen``, X11 (b)) keys the regimen kind ``learned``.
 #: The row ``G47`` of the ``learned-regimen-ltmle`` study covers the cross-fitted censored
 #: two-node fit with every option at its default; every other composition of that kind matches
@@ -5087,6 +5157,7 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_learned_regimen_rows(),
         *_eliminated_rows(),
         *_separable_rows(),
+        *_survival_ctmle_rows(),
     )
 )
 

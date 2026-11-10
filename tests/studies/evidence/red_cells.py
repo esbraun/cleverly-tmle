@@ -760,6 +760,7 @@ EXCLUDED_HOOKS: dict[str, str] = {
     "mtp-boundaries": "the lmtp exactness witnesses of the boundaries_ltmle and boundaries_sdr scenarios",
     "mtp-pricing": "the lmtp exactness witnesses of every scenario",
     "structural-nested-mean": "the EconML DynamicDML exactness witnesses of the paired cells",
+    "survival-ctmle": "the RMSE ratio gate against hazard LTMLE with the full treatment model",
 }
 
 #: The artefacts :func:`red_rows` reads, by the short names ``claims.ARTIFACTS`` uses.

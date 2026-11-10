@@ -1,0 +1,156 @@
+{
+  "schema_version": 2,
+  "study": "collaborative TMLE of a risk curve",
+  "slug": "survival-ctmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-survival-ctmle",
+      "cleverly_version": "0.2.1",
+      "cleverly_commit": "659c05bf6eb6273d5f5d3ab720b39018e9ed5424",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.18",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 1000,
+    "scenario_n": {
+      "or15_qcorrect_n2000": 2000
+    },
+    "seed": 20271917,
+    "resampling_seed": 2027191701,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-survival-ctmle": 0.01
+    },
+    "scenarios": {
+      "or1_qcorrect": [
+        "risk_regimen[a1 @ t=2]",
+        "ate_regimen[a1 vs a0 @ t=2]"
+      ],
+      "or10_qcorrect": [
+        "risk_regimen[a1 @ t=2]",
+        "ate_regimen[a1 vs a0 @ t=2]"
+      ],
+      "or15_qcorrect": [
+        "risk_regimen[a1 @ t=2]",
+        "ate_regimen[a1 vs a0 @ t=2]"
+      ],
+      "s2_or10_qcorrect": [
+        "risk_regimen[a1 @ t=2]",
+        "ate_regimen[a1 vs a0 @ t=2]"
+      ],
+      "s2_or15_qcorrect": [
+        "risk_regimen[a1 @ t=2]",
+        "ate_regimen[a1 vs a0 @ t=2]"
+      ],
+      "or15_qcorrect_n2000": [
+        "risk_regimen[a1 @ t=2]",
+        "ate_regimen[a1 vs a0 @ t=2]"
+      ],
+      "or10_qcorrect_crossfit": [
+        "risk_regimen[a1 @ t=2]",
+        "ate_regimen[a1 vs a0 @ t=2]"
+      ]
+    },
+    "construction": "Stitelman and van der Laan (2010), Sections 12 to 14",
+    "horizon": 2,
+    "grid": [
+      1.0,
+      2.0
+    ],
+    "engines": {
+      "cleverly-survival-ctmle": "SurvivalCTMLE, selection_folds=5, penalty=True",
+      "cleverly-hazard-ltmle-full-g": "LTMLE(survival_model='hazard'), GLM treatment model and logistic censoring model (C=1e6, with the grid time) on every W",
+      "cleverly-hazard-ltmle-no-w4": "the same without W4 in either model"
+    },
+    "outcome_models": {
+      "correct": "GLM on W, A and the grid time, hazard_pooling='pooled'",
+      "wrong": "GLM on A and W5, hazard_pooling='pooled'"
+    },
+    "truth": "the clipped law with its point masses at -2 and 2 exact: Gauss-Legendre, 30 nodes per inside axis, and conditional normal orthant probabilities at 1e-10",
+    "gated_scenarios": [
+      "or1_qcorrect",
+      "or10_qcorrect",
+      "or15_qcorrect",
+      "s2_or10_qcorrect",
+      "s2_or15_qcorrect",
+      "or15_qcorrect_n2000",
+      "or10_qcorrect_crossfit"
+    ],
+    "reported_scenarios": [
+      "or1_qwrong",
+      "or10_qwrong",
+      "or15_qwrong",
+      "s2_or10_qwrong",
+      "s2_or15_qwrong",
+      "or1_qcorrect_n500",
+      "or10_qcorrect_n500",
+      "or15_qcorrect_n500",
+      "or15_binarized",
+      "or15_qcorrect_glower"
+    ],
+    "reported_replicates": 400,
+    "gates": "bias of F1(2) and the RD; RMSE ratio against the full-g arm at OR 15; no coverage or SE-ratio gate (F18)",
+    "variance_method": "plug-in influence curve (SurvivalCTMLE: working-mechanism diagnostic)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/survival_ctmle.py": "2ff76b50332d2a6b2eb6e702ac8bdeaf65dcecdf5f0ba3af7c76e0df4d32a5a9",
+    "tests/studies/survival_ctmle_properties.py": "fd331eeaca2d010a907f9ea7b00069fa134e4d036b90a23b31b790bd463931ce",
+    "tests/studies/stratified_incremental_msm_properties.py": "bbc78b79ba8484124ae5befd24a3ce2c1e4a1ffec0fb931f8711677d6d244bcf",
+    "tests/studies/canonical_stratified_incremental_msm.py": "2ea8f4cdede46713ed7160342875c14cef70cae3a4d4f494caf8516b2229f335",
+    "tests/studies/stratified_alternating_law.py": "19d62e110b376ee2fa83832101d57f32414e49d3eff8381b3889b0accd7150fe",
+    "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/discrete_law.py": "073a7d54ecd37360eca301d42af593c724874eb969775844edea75067f9d0076",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "16d6e43754d036ad8c92bb0d191eac4e09893efd636897723251c1789116dee9",
+    "summary.csv": "e8301e87948abeccf81781b842bdd0cb804f2632eb704fc6a71c8a1b9d6affa4",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "a81fdcbacd9e7540d3ccc9635f0fd41711b96f8f50ddfcd99fb3c90bdfac41f3",
+    "property-replicates.parquet": "dd8a47681fd2920201f8b0d2016db74dbd4c45f019231350e31532ea17bde3d8",
+    "properties.csv": "f9941c012c9d4382c92fe56bb4f353058b90d77dd321c10ee9db895b180b293a",
+    "selection-readings.csv": "980e22e5721e485f1dbfa298e5811e410700a1e9851d247331f6764a5c56ca61",
+    "rmse-comparison.csv": "cb1a79d04bc21004499caf2b390a99fd8998b7371760a696ec3396c2ad9318a9",
+    "arm0-risk.csv": "329c58f4244e9f7317e65f6452074e1e4bcdec6b9ebe897fe7ca99d36185cf4a",
+    "reported-cells.csv": "21a07e72d037bde9c27ce9d1fc2851621657d4ab2fc85d5ab6b35842241f19e7",
+    "reported-replicates.csv": "5e709fa6ebcb081f3cf6b1269254d116e05edd36e65f7468132cf7fd639707ab"
+  }
+}

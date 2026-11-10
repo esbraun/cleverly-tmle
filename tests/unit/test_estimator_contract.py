@@ -497,6 +497,7 @@ BACKEND_ROUTES: dict[str, str] = {
     "LongitudinalResult": "container",
     "StructuralNestedMeanResult": "container",
     "CTMLESelection": "argument",
+    "SurvivalSelection": "argument",
     "StudyResult": "argument",
     "RefutationTest": "argument",
     "MethodAvailabilities": "argument",

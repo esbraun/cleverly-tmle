@@ -468,11 +468,12 @@ class ModelSpec:
         the covariates alone (R's ``drtmle(stratify=TRUE)``).  The default fits one regression
         on the covariates and the treatment.  A continuous dose has no arms and is refused,
         and so is a longitudinal design.
-    survival_model : {"iterated_mean", "hazard"}
+    survival_model : {"iterated_mean", "hazard"} or None
         How a longitudinal fit models a survival curve.  ``"hazard"`` targets the
         cause-specific hazards of a held baseline treatment; see
-        :class:`~cleverly.longitudinal.LTMLE`.  A point-treatment fit refuses
-        ``"hazard"``.
+        :class:`~cleverly.longitudinal.LTMLE`.  ``None``, the default, is the engine's own
+        model: ``"hazard"`` for :class:`~cleverly.longitudinal.SurvivalCTMLE` and
+        ``"iterated_mean"`` everywhere else.  A point-treatment fit refuses ``"hazard"``.
 
     See Also
     --------
@@ -508,7 +509,7 @@ class ModelSpec:
     min_retain: int | None = None
     hazard_pooling: str = "node"
     outcome_by_arm: bool = False
-    survival_model: SurvivalModel = "iterated_mean"
+    survival_model: SurvivalModel | None = None
 
     def __post_init__(self) -> None:
         check_hazard_pooling(self.hazard_pooling)
@@ -768,8 +769,10 @@ class Inference:
         Bootstrap fits. Zero disables full-refit bootstrap inference.
     bootstrap_resampling : {"auto", "iid", "cluster"}, default="auto"
         Unit or cluster resampling policy.
-    simultaneous : bool, default=True
-        Whether multi-parameter results include simultaneous bands.
+    simultaneous : bool or None, default=None
+        Whether multi-parameter results include simultaneous bands.  ``None`` is the
+        engine's own default: no band for :class:`~cleverly.longitudinal.SurvivalCTMLE`,
+        which has none, and a band everywhere else.
     n_multiplier : int or {"auto"}, default="auto"
         Multiplier draws for simultaneous bands.
     multiplier_kind : {"rademacher", "mammen", "normal"}, default="rademacher"
@@ -805,7 +808,7 @@ class Inference:
     alpha: float = 0.05
     n_bootstrap: int = 0
     bootstrap_resampling: Resampling = "auto"
-    simultaneous: bool = True
+    simultaneous: bool | None = None
     #: Multiplier-bootstrap draws behind the simultaneous bands.  ``"auto"`` is each engine's
     #: own default, which is not one number: the point path draws 1000 and the sequential path
     #: draws 2000.  A single literal here would silently pick one of them for the other engine
@@ -1050,7 +1053,7 @@ def _refuse_node_bounds(method: TMLEMethod, estimator: str) -> None:
 def _refuse_curve_settings(method: TMLEMethod, name: str) -> None:
     """Refuse a hazard or isotonic setting on an estimator that is not the targeted fit."""
     if (
-        method.models.survival_model != "iterated_mean"
+        method.models.survival_model not in (None, "iterated_mean")
         or method.targeting.algorithm != "iterative"
         or method.targeting.step_size != Targeting().step_size
         or method.targeting.isotonic
@@ -1227,7 +1230,7 @@ class TMLEMethod:
             "max_iter": targeting.max_iter,
             "tol": targeting.tol,
             "alpha_sig": inference.alpha,
-            "simultaneous": inference.simultaneous,
+            "simultaneous": True if inference.simultaneous is None else inference.simultaneous,
             "n_multiplier": inference.n_multiplier,
             "multiplier_kind": inference.multiplier_kind,
             "random_state": runtime.random_state,
@@ -1266,7 +1269,7 @@ class TMLEMethod:
                     "iterate": targeting.iterate,
                     "density_bins": models.density_bins,
                     "ratio": models.ratio,
-                    "survival_model": models.survival_model,
+                    "survival_model": models.survival_model or "iterated_mean",
                     "targeting": targeting.algorithm,
                     "step_size": targeting.step_size,
                     "isotonic": targeting.isotonic,
@@ -1288,7 +1291,7 @@ class TMLEMethod:
             raise MethodConfigurationError.from_refusal(_POINT_HAZARD_POOLING)
         if targeting.node_bounds is not None:
             raise MethodConfigurationError.from_refusal(_POINT_NODE_BOUNDS)
-        if models.survival_model != "iterated_mean" or targeting.isotonic:
+        if models.survival_model not in (None, "iterated_mean") or targeting.isotonic:
             raise MethodConfigurationError(
                 "survival_model= and isotonic= apply to a survival curve over time nodes, and "
                 "a point-treatment functional has no curve. Remove them, or declare a "
@@ -1652,20 +1655,51 @@ default="greedy"
         Parameters
         ----------
         longitudinal : bool
-            Must be false because no longitudinal collaborative score is supported.
+            Whether to translate for
+            :class:`~cleverly.longitudinal.SurvivalCTMLE`, the time-to-event engine.
 
         Returns
         -------
         dict of str to Any
-            CTMLE engine keyword arguments.
+            CTMLE or SurvivalCTMLE engine keyword arguments.
+
+        Notes
+        -----
+        The time-to-event engine fits hazards and reports no band, so the unset
+        ``survival_model=None`` and ``simultaneous=None`` resolve to ``"hazard"`` and
+        ``False`` there, and the default ``selection_estimand="ate"`` resolves to the
+        engine's per-arm selection. An explicit value passes through, including
+        ``survival_model="iterated_mean"`` and ``simultaneous=True``, and the engine refuses
+        what it cannot fit.
         """
         if longitudinal:
-            raise MethodConfigurationError(
-                "collaborative TMLE has no longitudinal derivation.",
-                reason=RefusalReason.IMPLEMENTATION_GAP,
-                alternative="Fit a longitudinal design with method='tmle' (LTMLE) or 'sdr'.",
-                roadmap="F5",
-            )
+            defaults = CollaborativeTMLEMethod()
+            kwargs = TMLEMethod.estimator_kwargs(self, longitudinal=True)
+            if self.models.survival_model is None:
+                kwargs["survival_model"] = "hazard"
+            if self.inference.simultaneous is None:
+                kwargs["simultaneous"] = False
+            return {
+                **kwargs,
+                "strategy": self.strategy,
+                "preorder": self.preorder,
+                "ordering": self.ordering,
+                "candidates": self.candidates,
+                "selection_folds": self.selection_folds,
+                "selection_inner_folds": self.selection_inner_folds,
+                "loss": self.loss,
+                "penalty": self.penalty,
+                "selection_estimand": (
+                    None
+                    if self.selection_estimand == defaults.selection_estimand
+                    else self.selection_estimand
+                ),
+                "oat_design": self.oat_design,
+                "lambdas": self.lambdas,
+                "treatment_candidates": self.treatment_candidates,
+                "selection_split": self.selection_split,
+                "patience": self.patience,
+            }
         return {
             **super().estimator_kwargs(),
             "strategy": self.strategy,

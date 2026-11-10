@@ -1429,6 +1429,7 @@ refuse the other parts before any learner.
 | (c) | the composite missing-data route for a method other than `TMLE`, `DRTMLE` and `CTMLE` | the indicator reduction to $\Delta_A \cdot \Delta \cdot 1\{A = a\}$ for each method whose binary-treatment result ships. No shipped method reaches this refusal |
 | (d) | `NaturalCourseMean`, PAR and PAF with complete outcomes under `CTMLE` or `DRTMLE` | the $\Delta \equiv 1$ case of X50 part (c) and X51 part (a). With complete outcomes the natural-course TMLE returns the sample mean and the curve $Y - E[Y]$, as the `ey_obs` row of the [evidence map](technical-reference/evidence.md) records. C-TMLE gives points only, as X51 states |
 | (e) | baseline strata (`strata=`), and a declared missing treatment, under `CTMLE(strategy="derivative")` | one derivative fit within each stratum, as the ordinary TMLE fits its stratum estimates; a partner mechanism for the composite indicator $\Delta_A \cdot 1\{A = a\}$. `estimators/ctmle.py` and `estimators/composite.py` refuse both before any learner and name this item |
+| (f) | `SurvivalCTMLE` beyond Stitelman and van der Laan (2010): two or more causes, `eliminate=`, a `Separable` regimen, a rule, a known stochastic policy or more than two treatment levels, a strategy other than `"greedy"`, `targeting="one_step"`, changed `stopping`, `step_bound` or `iterate`, `msm=`, `node_bounds=`, `ratio_trim=`, `isotonic=True`, and `truncation_curve()` or `simulated_confounding` on its result | a cause-specific penalty; a selection over the eliminated cause's mechanism; a multinomial main-term treatment model; a selection joint across horizons for a walk or a projection; a measured replay of the selection. `longitudinal/collaborative.py` refuses each before any learner, and the two accessors when called, and names this item |
 
 Acceptance needs each check below.
 
@@ -1996,7 +1997,7 @@ measures; its R `lmtp` comparator runs are pending. This item carries further su
 
 | part | request | base | readiness |
 | --- | --- | --- | --- |
-| (b) | collaborative TMLE for a time-to-event outcome with a baseline treatment | Stitelman and van der Laan (2010), *The International Journal of Biostatistics* 6(1): a greedy selection of main terms for the treatment and censoring mechanisms with the hazard fluctuation held fixed, scored by a variance-penalized likelihood; no theorem, so points only | published support |
+| (b) | collaborative TMLE for a time-to-event outcome with a baseline treatment | Stitelman and van der Laan (2010), *The International Journal of Biostatistics* 6(1): a greedy selection of main terms for the treatment and censoring mechanisms with the hazard fluctuation held fixed, scored by a variance-penalized likelihood; no theorem, so points only | implemented as `SurvivalCTMLE` ([time-to-event outcomes](technical-reference/collaborative-tmle.md#time-to-event-outcomes)), points only under [F18](#f18-selector-path-c-tmle-inference), with the reporting study [collaborative TMLE of a risk curve](technical-reference/method-evidence/survival-ctmle.md) and the support rows G50 for its in-sample and cross-fitted fits with a correct outcome model; the compositions it refuses are [X62](#x62-other-dr-tmle-and-c-tmle-compositions) part (f) |
 | (c) | the simulated common-cause replay on censored and survival fits | the [survival replay](technical-reference/validation-methods.md#simulated-common-cause-stress-surface) couples each replayed indicator to the observed one, keeps the zero-strength identity exact, and keeps censoring at random given the replayed past up to the fitted censoring model | shipped for survival and competing-risk fits with a held treatment; the rest stays in [F13](#f13-longitudinal-simulated-confounding-replay) |
 | (d) | separable effects with baseline covariates | Stensrud, Young, Didelez, Robins and Hernán (2022), identification (8); `Separable` on hazard `LTMLE` ([separable effects](technical-reference/longitudinal-tmle.md#separable-effects)), a factor-wise TMLE by the chain rule | shipped: the registered study [separable effects](technical-reference/method-evidence/separable-effects.md) measures one and two folds; no comparator was located |
 | (e) | separable effects with time-varying common causes | Stensrud et al. (2021), Section 6.2, Equation (19) | refused: no source gives an efficient influence curve |
@@ -2370,8 +2371,8 @@ machinery are not sufficient.
 
 ### F18. Selector-path C-TMLE inference
 
-The greedy, ordered, discrete, lasso and learners paths report point estimates and path
-diagnostics. They refuse `ci`, `pvalue` and `std_error` under the `working_mechanism_plugin`
+The greedy, ordered, discrete, lasso and learners paths, and the per-arm, per-horizon greedy
+selection of `SurvivalCTMLE` (X91 part (b)), report point estimates and path diagnostics. They refuse `ci`, `pvalue` and `std_error` under the `working_mechanism_plugin`
 status. They report the
 ordinary curve at the selected candidate as `plugin_std_error` and `plugin_interval`. That curve
 does not establish conditional or unconditional coverage after selection. F18 reopens inference
@@ -2690,7 +2691,7 @@ controlled direct effect names this item too.
 | C-TMLE incremental, modified treatment policies and the risk-ratio tilt | regularity | each candidate $g$ of the collaborative search defines a different parameter, so collaborative consistency fails. The risk-ratio tilt is the `lmtp` `ipsi` rule, a known two-point randomizer on the natural value, so it joins the modified treatment policies |
 | C-TMLE controlled direct effect | regularity | a collaborative path over two mechanisms. Schnitzer, Sango, Ferreira Guerra and van der Laan (2020), *Biometrics* 76(1):145-157, may give a published point method. The review read its abstract only, and its first-hand read is pending |
 | C-TMLE on a continuous dose | regularity | a collaborative candidate sequence of conditional density estimators. No read source derives one |
-| C-TMLE on a longitudinal functional | regularity | a sequential collaborative score. No read source derives one |
+| C-TMLE with a treatment at several nodes or a covariate measured after baseline | regularity | a sequential collaborative score. No read source derives one. A binary baseline treatment with baseline covariates under right censoring ships as `SurvivalCTMLE` (X91 part (b)) |
 | DR-TMLE ATT, ATC, modified treatment policies, the risk-ratio tilt and incremental | asymptotic | Benkeser, Carone, van der Laan and Gilbert (2017), PMC5793673, Section 4, name other parameters as future work. Díaz et al., arXiv:2006.01366v4, Theorem 2, assumes that the regime does not depend on $P$ |
 | DR-TMLE controlled direct effect and longitudinal functionals | asymptotic | Benkeser et al. (2017), Section 1, name interventions at several time points as future work |
 | DR-TMLE on a continuous dose, with its evaluation companion and its foldwise construction | asymptotic | reduced regressions that condition on a conditional density in place of an arm probability. No read source derives them |

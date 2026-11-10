@@ -227,13 +227,16 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
     {
         "working_mechanism_plugin": StatusRecord(
             plain_reason=(
-                "The collaborative search chose the treatment model from the data, and no result "
-                "shows that the reported spread is a valid standard error after that choice. For "
-                "an interval, fit TMLE or DR-TMLE on the same design."
+                "The collaborative search chose the treatment model, and for a time-to-event "
+                "outcome the censoring model, from the data, and no result shows that the "
+                "reported spread is a valid standard error after that choice. For an interval, "
+                "fit TMLE or DR-TMLE on the same design."
             ),
             reason=(
                 "The greedy, ordered, discrete, lasso and learners collaborative paths report "
-                "no confidence interval, no p-value and no standard error. The reported curve "
+                "no confidence interval, no p-value and no standard error, and so does "
+                "SurvivalCTMLE's greedy selection of its treatment and censoring models. The "
+                "reported curve "
                 "is the ordinary efficient influence curve at the candidate the search "
                 "stopped at, or at the final-step candidate, and no result shows it is this "
                 "estimator's influence curve when that "

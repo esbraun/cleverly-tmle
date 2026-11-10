@@ -59,7 +59,19 @@ def _every_subclass() -> list[type[_SequentialEstimator]]:
             if child.__module__.startswith("cleverly") and child not in found
         )
         index += 1
-    return [kind for kind in found if not inspect.isabstract(kind) and kind is not found[0]]
+    return [
+        kind
+        for kind in found
+        if not inspect.isabstract(kind)
+        and kind is not found[0]
+        and kind.__name__ not in _SURVIVAL_ONLY
+    ]
+
+
+#: Subclasses that fit a survival design only and take no mechanism learner, so neither the
+#: reduction nor the allowlist refusal applies: their own design check refuses the panel
+#: before any learner, which ``test_a_survival_only_estimator_refuses_the_panel`` checks.
+_SURVIVAL_ONLY = {"SurvivalCTMLE": "one baseline treatment held over every node (X91 part B)"}
 
 
 class _Untouchable(LogisticRegression):
@@ -237,3 +249,14 @@ def test_the_refusal_names_the_kinds_of_the_allowlist(monkeypatch: Any) -> None:
     assert "IPSI and LTMLE fit one." in sequential.repeated_outcome_refusal("SDR").message()
     monkeypatch.setattr(sequential, "REPEATED_OUTCOME_KINDS", frozenset({"tmle", "ipsi", "sdr"}))
     assert "IPSI, LTMLE and SDR fit one." in sequential.repeated_outcome_refusal("X").message()
+
+
+def test_a_survival_only_estimator_refuses_the_panel() -> None:
+    """``SurvivalCTMLE`` refuses the repeated-outcome panel before its outcome learner runs."""
+    from cleverly.longitudinal import SurvivalCTMLE
+
+    assert set(_SURVIVAL_ONLY) == {"SurvivalCTMLE"}
+    with pytest.raises(CapabilityError, match=r"^SurvivalCTMLE"):
+        SurvivalCTMLE(
+            {"a1": 1, "a0": 0}, reference="a0", outcome_learner=_Untouchable(), n_folds=1
+        ).fit(panel(), **ROLES)

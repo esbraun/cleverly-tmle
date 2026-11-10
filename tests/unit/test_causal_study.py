@@ -21,7 +21,6 @@ from cleverly import (
     CapabilityError,
     CausalStudy,
     CleverlyError,
-    CollaborativeTMLEMethod,
     ControlledDirectEffect,
     CounterfactualMean,
     CrossFitting,
@@ -1350,7 +1349,7 @@ def test_repeats_reaches_the_longitudinal_engine() -> None:
     assert method.estimator_kwargs(longitudinal=True)["repeats"] == 3
 
 
-@pytest.mark.parametrize("method", [CollaborativeTMLEMethod(), DRTMLEMethod()])
+@pytest.mark.parametrize("method", [DRTMLEMethod()])
 def test_variant_longitudinal_refusals_use_the_library_error_hierarchy(method) -> None:
     with pytest.raises(MethodConfigurationError) as raised:
         method.estimator_kwargs(longitudinal=True)

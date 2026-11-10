@@ -100,6 +100,8 @@ categorized API tables.
    cleverly.longitudinal.SequentialGComputation
    cleverly.longitudinal.SequentialIPW
    cleverly.longitudinal.ParametricGFormula
+   cleverly.longitudinal.SurvivalCTMLE
+   cleverly.longitudinal.SurvivalSelection
    cleverly.longitudinal.StructuralNestedMean
    cleverly.longitudinal.StructuralNestedMeanResult
    cleverly.longitudinal.StructuralModelCheck

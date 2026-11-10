@@ -59,6 +59,7 @@ from .longitudinal import (
     Repeated,
     SequentialGComputation,
     SequentialIPW,
+    SurvivalCTMLE,
 )
 from .longitudinal import estimator as _sequential
 from .longitudinal.data import check_markov_order, markov_restriction
@@ -3699,6 +3700,13 @@ def _variant_roadmap(method: str, functional: Any, design: Any) -> str:
     str
         F5 for the compositions it keeps, X50 or X51 for the ones that moved there, and X62
         for the natural course with complete outcomes.
+
+    Notes
+    -----
+    A longitudinal C-TMLE on a study reads its refusal from
+    :func:`~cleverly.longitudinal.collaborative.survival_design_refusal` instead, which names
+    X62 for a survival composition the source does not cover and F5 for a sequential score;
+    the F5 here is the fallback for an effect without a longitudinal panel.
     """
     axis, target = functional.axis, functional.target
     # F5 keeps a longitudinal functional, a continuous dose, and ATT, ATC, incremental,
@@ -4982,6 +4990,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             )
         )
         collaborative = variants and not known
+        if self.functional.longitudinal and blocker is None:
+            survival_refusal = self._survival_collaborative_refusal()
+            collaborative = survival_refusal is None
+            if survival_refusal is not None:
+                collaborative_blocker = survival_refusal
         drtmle_blocker = blocker or Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
             "no reduced-dimension correction is evidenced for this functional.",
@@ -5032,6 +5045,33 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         from ._summary._setup import question_text
 
         return MethodAvailabilities(records, question=question_text(self))
+
+    def _survival_collaborative_refusal(self) -> Refusal | None:
+        """Why :class:`~cleverly.longitudinal.SurvivalCTMLE` refuses this functional, or ``None``.
+
+        Returns
+        -------
+        Refusal or None
+            The engine's refusal of the declared panel and interventions, read before any
+            learner, so ``available_methods()`` and the fit agree.
+        """
+        from .longitudinal import collaborative
+
+        data = getattr(self._study, "data", None)
+        functional = self.functional
+        if not isinstance(data, LongitudinalData):
+            return Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
+                "collaborative TMLE fits a declared time-to-event panel, and this effect has "
+                "no panel to read.",
+                alternative="Fit method='tmle'.",
+                roadmap="F5",
+            )
+        if functional.msm is not None:
+            return collaborative.PROJECTION_REFUSAL
+        if functional.target in {"ey_ipsi", "ate_ipsi"}:
+            return collaborative.POLICY_REFUSAL
+        return collaborative.survival_design_refusal(data, functional.interventions)
 
     def _effect_modification_methods(
         self, records: tuple[MethodAvailability, ...]
@@ -5742,6 +5782,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             if isinstance(method, IPWMethod)
             else ParametricGFormula
             if isinstance(method, ParametricGFormulaMethod)
+            else SurvivalCTMLE
+            if isinstance(method, CollaborativeTMLEMethod)
             else LTMLE
         )
         estimator = engine(

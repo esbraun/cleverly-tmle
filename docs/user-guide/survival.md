@@ -365,6 +365,24 @@ treatment at two time points. Its curve rises steeply enough that the projection
 risk, so no study yet measures an interval at a risk that the projection moved.
 :::
 
+## Let the data choose the treatment and censoring models
+
+With many covariates, a treatment model that uses all of them can give some people a tiny
+predicted chance of the treatment they got. Their weights then grow large and the estimate
+becomes noisy. `method=CollaborativeTMLEMethod()` on a `TimeToEvent` design with a two-level
+treatment builds the treatment and censoring models one covariate at a time instead, keeping a
+covariate only when it improves the fit of the event data. It reports point estimates of the
+risk, with no confidence interval.
+
+A [simulation study](../technical-reference/method-evidence/survival-ctmle.md) on the laws of
+Stitelman and van der Laan (2010) found the points unbiased when the event model is correct. With
+a covariate that strongly predicts treatment but not the event, their typical error was 40% to
+65% of that of the ordinary hazard fit with every covariate in the treatment model. When the
+event model was wrong, some points were biased by up to about one standard deviation of the
+estimate. [Methods and learners](methods-learners.md#method-presets) gives the settings, and
+[Time-to-event outcomes](../technical-reference/collaborative-tmle.md#time-to-event-outcomes)
+gives the algorithm and what it refuses.
+
 ## Bootstrap intervals
 
 Pass `n_bootstrap=` to refit the whole estimator on resamples of the data. Each estimate then
