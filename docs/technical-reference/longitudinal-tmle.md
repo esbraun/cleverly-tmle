@@ -490,9 +490,12 @@ regimen.
 
 `tests/unit/test_separable_effects_law.py` holds these checks. The registered study [separable
 effects](method-evidence/separable-effects.md) measures the fit with one and two folds on a held
-three-level baseline treatment, at n = 16,000 with saturated learners. Those fits read supported
-from rows `G49`; every other composition with a `Separable` regimen reads experimental. No
-separable-effects TMLE implementation was located to compare against.
+three-level baseline treatment, at n = 16,000 with saturated learners, counting the second of the
+data's two causes first. Those fits read supported from rows `G49`. No separable-effects TMLE
+implementation was located to compare against.
+
+The rows key the position of the cause counted first, so a fit that counts the first-listed cause
+first reads experimental, as does every other composition with a `Separable` regimen.
 [Scope and refusals](scope-and-refusals.md#separable-effects) lists what a separable fit refuses,
 including time-varying common causes: Stensrud et al. (2021), Equation (19), identify that case
 but no source gives its influence curve.

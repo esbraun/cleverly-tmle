@@ -14,6 +14,7 @@ competing-free is wrong, and misses it when both are.
 from __future__ import annotations
 
 import warnings
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -21,6 +22,8 @@ import pandas as pd
 import pytest
 
 import cleverly.longitudinal.separable as separable_module
+from cleverly._support import classify_key
+from cleverly._support_rows import LONGITUDINAL_ROWS
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.fluctuation._score import relative_score
 from cleverly.longitudinal import LTMLE, SDR, DynamicRegimen, LongitudinalData, Separable
@@ -518,6 +521,25 @@ def test_the_support_key_marks_a_separable_fit(fit: Any) -> None:
     """Its static arms come from the factor-wise engine, so no static-arm row may cover them."""
     assert "separable" in fit.config.support_key.family
     assert "separable" not in _fit(regimens={"a0": 0, "a1": 1}).config.support_key.family
+
+
+def test_the_support_key_holds_the_position_of_the_first_cause(fit: Any) -> None:
+    """The study counted the second-listed cause first, so the other order reads no ``G49``."""
+    causes = tuple(_data().cause_labels)
+    qualifiers = fit.config.support_key.qualifiers
+    assert f"separable_first_cause_{causes.index('death') + 1}" in qualifiers
+    swapped = Separable(arms={"death": 0, "relapse": 1}, first="relapse")
+    other = _fit(regimens={"a0": 0, "a1": 1, "sep": swapped}).config.support_key
+    assert f"separable_first_cause_{causes.index('relapse') + 1}" in other.qualifiers
+    assert other.qualifiers != qualifiers
+    for row in (row for row in LONGITUDINAL_ROWS if row.id.startswith("G49")):
+        assert (
+            classify_key(
+                replace(row.key, qualifiers=frozenset({"separable_first_cause_1"})), {}
+            ).row
+            is not row
+        )
+        assert classify_key(row.key, {}).row is row
 
 
 def test_the_summary_names_both_components_and_the_order(fit: Any) -> None:
