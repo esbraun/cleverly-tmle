@@ -12,6 +12,7 @@ mutations each turn it first order.
 
 from __future__ import annotations
 
+import functools
 import pickle
 import warnings
 from collections.abc import Callable
@@ -833,3 +834,242 @@ def test_the_study_layer_refuses_drift_correction_on_a_sequential_design() -> No
 def test_summary_names_the_drift_correction(drift_result: Any, sampled: LongitudinalData) -> None:
     assert "survival DR-TMLE" in str(drift_result.summary())
     assert "DR-TMLE" not in str(fit(sampled, guard=()).summary())
+
+
+# ------------------------------------------------------- check 6: independent reference
+
+
+def _reference_newton(y: np.ndarray, offset: np.ndarray, x: np.ndarray) -> np.ndarray:
+    """Plain Newton for an unpenalized logistic fit with an offset; zero columns stay zero."""
+    eps = np.zeros(x.shape[1])
+    live = [j for j in range(x.shape[1]) if np.any(x[:, j] != 0.0)]
+    if not live or y.size == 0:
+        return eps
+    design = x[:, live]
+    beta = np.zeros(len(live))
+    for _ in range(200):
+        mu = expit(offset + design @ beta)
+        step = np.linalg.solve((design.T * (mu * (1.0 - mu))) @ design, design.T @ (y - mu))
+        beta = beta + step
+        if np.max(np.abs(step)) < 1e-15:
+            break
+    eps[live] = beta
+    return eps
+
+
+def reference_drift(
+    view: drift.PaperView,
+    tau: int,
+    *,
+    g_bounds: tuple[float, float] = (0.01, 1.0),
+    alpha: float = 0.9995,
+    max_iter: int = 200,
+    d_r_sign: float = 1.0,
+) -> tuple[float, np.ndarray]:
+    """Steps 1 to 5 of Díaz (2019), Section 5, written from the design's section 4.
+
+    It shares only the smoother with the engine.  Products are formed as the ratios eq. (9)
+    prints, the clever covariates in plain loops over times, and the corrected signs and
+    indices of the module docstring are written out where they enter.
+    """
+    from cleverly.longitudinal._kernel import smooth
+
+    n, (lo, hi) = view.n, g_bounds
+    a = view.arm
+    treated = a > 0.0
+    everyone = np.ones(n, dtype=bool)
+
+    def surv(h: np.ndarray) -> np.ndarray:
+        out = np.ones((n, tau + 1))
+        for t in range(1, tau + 1):
+            out[:, t] = out[:, t - 1] * (1.0 - h[:, t - 1])
+        return out
+
+    def ret(g_r: np.ndarray) -> np.ndarray:
+        out = np.ones((n, tau + 1))
+        for t in range(1, tau + 1):
+            out[:, t] = out[:, t - 1] * (1.0 - g_r[:, t - 1])
+        return out
+
+    def reg(x: np.ndarray, y: np.ndarray, rows: np.ndarray) -> np.ndarray:
+        return smooth(x, y, rows).values
+
+    g_a, g_r, h = view.g_a.copy(), view.g_r.copy(), view.h.copy()
+    L, R, I, J = view.events, view.censored, view.at_risk, view.eligible
+
+    # Step 1: the indices and the reductions, from the initial fits, held fixed.
+    s0, big_g0 = surv(h), ret(g_r)
+    pi0 = np.clip(g_a[:, None] * big_g0, lo, hi)
+    c_g = pi0
+    c_h = s0[:, [tau]] / s0
+    e_r = {}
+    for k in range(tau):
+        if view.held_censoring[k]:
+            e_r[k] = np.zeros(n)
+        else:
+            e_r[k] = reg(c_h[:, k], (R[:, k] - g_r[:, k]) / pi0[:, k + 1], J[:, k] & treated)
+    e_l = {
+        t: reg(c_g[:, t], c_h[:, t] * (L[:, t - 1] - h[:, t - 1]), I[:, t - 1] & treated)
+        for t in range(1, tau + 1)
+    }
+    e_a = np.zeros(n) if view.held_treatment else reg(s0[:, tau], (a - g_a) / g_a, everyone)
+    q = np.clip(reg(s0[:, tau], a, everyone), lo, 1.0 - lo)
+
+    @functools.cache
+    def u(t: int, m: int) -> np.ndarray:
+        return reg(c_g[:, t], R[:, m], J[:, m] & treated)
+
+    @functools.cache
+    def v(t: int, m: int) -> np.ndarray:
+        return reg(c_g[:, t], L[:, m - 1], I[:, m - 1] & treated)
+
+    @functools.cache
+    def b(k: int, m: int) -> np.ndarray:
+        return reg(c_h[:, k], L[:, m - 1], I[:, m - 1] & treated)
+
+    @functools.cache
+    def d(k: int, m: int) -> np.ndarray:
+        return reg(c_h[:, k], R[:, m], J[:, m] & treated)
+
+    def prod(factors: list[np.ndarray]) -> np.ndarray:
+        out = np.ones(n)
+        for f in factors:
+            out = out * (1.0 - f)
+        return out
+
+    def big_u(t: int, upto: int) -> np.ndarray:  # U_t(upto) = prod_{m=0}^{upto-1}
+        return prod([u(t, m) for m in range(upto)])
+
+    def big_v(t: int, upto: int) -> np.ndarray:  # V_t(upto) = prod_{m=1}^{upto}
+        return prod([v(t, m) for m in range(1, upto + 1)])
+
+    def big_b(k: int, upto: int) -> np.ndarray:  # B_k(upto) = prod_{m=1}^{upto}
+        return prod([b(k, m) for m in range(1, upto + 1)])
+
+    def big_d(k: int, upto: int) -> np.ndarray:  # D_k(upto) = prod_{m=0}^{upto-1}
+        return prod([d(k, m) for m in range(upto)])
+
+    def covariates(
+        g_a: np.ndarray, g_r: np.ndarray, h: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        s, big_g = surv(h), ret(g_r)
+        # G(k)/G(t) is read as the cumulative ratio g_A G(k) / g_A G(t), so the floored
+        # cumulative is the only denominator, as the design's floor states.
+        raw = g_a[:, None] * big_g
+        pi = np.clip(raw, lo, hi)
+        h_a = np.zeros(n)
+        for t in range(1, tau + 1):
+            h_a += big_u(t, t) * big_v(t, t - 1) * e_l[t] / pi[:, t]
+        h_r = np.zeros((n, tau))
+        for k in range(tau):
+            total = np.zeros(n)
+            for t in range(k + 1, tau + 1):
+                total += (
+                    big_v(t, t - 1)
+                    / big_v(t, k)
+                    * big_u(t, t)
+                    / big_u(t, k)
+                    * raw[:, k]
+                    / pi[:, t]
+                    * e_l[t]
+                )
+            h_r[:, k] = total / pi[:, k + 1]
+        h_l = np.zeros((n, tau))
+        for t in range(1, tau + 1):
+            inner = np.zeros(n)
+            for k in range(t):
+                # Corrected sign: the e_R sum enters with the sign opposite to the e_A term.
+                inner -= (
+                    s[:, t - 1]
+                    / s[:, k]
+                    * big_b(k, k)
+                    / big_b(k, t - 1)
+                    * big_d(k, k)
+                    / big_d(k, t)
+                    * e_r[k]
+                )
+            # Corrected index: the e_A term's products sit on C_h(0) = S(tau).
+            inner += e_a * s[:, t - 1] / (q * big_d(0, t) * big_b(0, t - 1))
+            h_l[:, t - 1] = s[:, tau] / s[:, t] * inner
+        z = s[:, [tau]] / s[:, 1:] / pi[:, 1:]
+        return h_a, h_r, h_l, z
+
+    clip = float(logit(alpha))
+    threshold = 1e-4 * n ** (-0.6)
+    for _ in range(max_iter):
+        h_a, h_r, h_l, z = covariates(g_a, g_r, h)
+        eps_a = 0.0
+        if not view.held_treatment:
+            eps_a = _reference_newton(a, logit(g_a), h_a[:, None])[0]
+        nodes_r = [m for m in range(tau) if not view.held_censoring[m]]
+        eps_r = 0.0
+        if nodes_r:
+            pick = [(J[:, m] & treated, m) for m in nodes_r]
+            eps_r = _reference_newton(
+                np.concatenate([R[rows, m] for rows, m in pick]),
+                np.concatenate([logit(g_r[rows, m]) for rows, m in pick]),
+                np.concatenate([h_r[rows, m] for rows, m in pick])[:, None],
+            )[0]
+        nodes_l = [t for t in range(1, tau + 1) if not view.held_hazard[t - 1]]
+        pick_l = [(I[:, t - 1] & treated, t) for t in nodes_l]
+        eps_l = _reference_newton(
+            np.concatenate([L[rows, t - 1] for rows, t in pick_l]),
+            np.concatenate([logit(h[rows, t - 1]) for rows, t in pick_l]),
+            np.vstack([np.column_stack([h_l[rows, t - 1], z[rows, t - 1]]) for rows, t in pick_l]),
+        )
+        if not view.held_treatment:
+            g_a = expit(np.clip(logit(g_a) + eps_a * h_a, -clip, clip))
+        g_r = g_r.copy()
+        for m in nodes_r:
+            g_r[:, m] = expit(np.clip(logit(g_r[:, m]) + eps_r * h_r[:, m], -clip, clip))
+        h = h.copy()
+        for t in nodes_l:
+            shift = eps_l[0] * h_l[:, t - 1] + eps_l[1] * z[:, t - 1]
+            h[:, t - 1] = expit(np.clip(logit(h[:, t - 1]) + shift, -clip, clip))
+        if max(abs(eps_a), abs(eps_r), *np.abs(eps_l)) < threshold:
+            break
+
+    # Step 5 and the corrected curve of Theorem 2.
+    h_a, h_r, h_l, z = covariates(g_a, g_r, h)
+    s = surv(h)
+    theta = float(np.mean(s[:, tau]))
+    eif = s[:, tau] - theta
+    d_l = np.zeros(n)
+    for t in range(1, tau + 1):
+        resid = np.where(I[:, t - 1], L[:, t - 1] - h[:, t - 1], 0.0)
+        eif -= a * z[:, t - 1] * resid
+        d_l -= a * h_l[:, t - 1] * resid
+    d_r = np.zeros(n)
+    for k in range(tau):
+        if not view.held_censoring[k]:
+            # Corrected sign: D_R = + sum_k A J_k H_R(k) (R_k - g_R(k)).
+            d_r += d_r_sign * np.where(J[:, k], a * h_r[:, k] * (R[:, k] - g_r[:, k]), 0.0)
+    d_a = np.zeros(n) if view.held_treatment else -h_a * (a - g_a)
+    return 1.0 - theta, -(eif - d_l - d_r - d_a)
+
+
+@pytest.fixture(scope="module")
+def reference_views(sampled: LongitudinalData) -> dict[int, drift.PaperView]:
+    return _views(sampled)
+
+
+@pytest.mark.parametrize("code", [1, 0])
+def test_independent_reference_matches_the_engine(
+    reference_views: dict[int, drift.PaperView], code: int
+) -> None:
+    view = reference_views[code]
+    tau, bounds = TAU, (0.01, 1.0)
+    out = drift.target_drift(
+        view, tau, label="a", g_bounds=bounds, alpha=0.9995, max_iter=200, n_folds=2
+    )
+    record = out.record
+    # Live drift in every block; no product floor binds, so the printed ratios apply.
+    assert record.converged and record.n_iter >= 2
+    assert np.all(np.abs(record.epsilon[0]) > 1e-8), record.epsilon[0]
+    assert all(count == 0 for _, count in record.denominator_hits)
+    risk, curve = reference_drift(view, tau, g_bounds=bounds)
+    assert abs(risk - out.curve.risk) < 1e-10
+    np.testing.assert_allclose(curve, out.curve.curve, rtol=0.0, atol=1e-10)
+    # Mutation: the D_R sign of the transcribed eq. (9) moves the curve.
+    _, flipped = reference_drift(view, tau, g_bounds=bounds, d_r_sign=-1.0)
+    assert np.max(np.abs(flipped - out.curve.curve)) > 1e-4
