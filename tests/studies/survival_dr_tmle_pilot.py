@@ -14,8 +14,9 @@ label                   what it sizes
                         positives' bias and the control's gap, stated before the run
 ``calibration_both``    the calibration cell's risk difference at 16,000, 8,000 draws
                         (:data:`~tests.studies.repeated_sizing.CALIBRATION_PILOT_DRAWS`)
-``slow_<kind>_16k``     each slow reported cell at 16,000, 300 draws: whether the declared
-                        offset moves the arm risks by at least two standard deviations
+``slow_<kind>_16k``     each slow reported cell at 16,000, 300 draws: how far the declared
+                        offset moves the arm risks (under two standard deviations at c = 4,
+                        so the cells are reported descriptively)
 ======================  ======================================================================
 """
 

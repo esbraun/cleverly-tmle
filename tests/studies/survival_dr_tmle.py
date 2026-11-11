@@ -57,6 +57,7 @@ from cleverly.longitudinal import LTMLE, LongitudinalData, SurvivalDRTMLE
 from cleverly.validation._failures import recordable
 from tests.parallel import STUDY_JOBS
 from tests.studies import survival_dr_tmle_law as law
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
@@ -108,6 +109,7 @@ STUDY = StudyRecord(
     implementation=SUBJECT,
     reference=None,
     failure_bound={SUBJECT: FAILURE_BOUND},
+    nuisance_count=3,
     extra_artifacts=(PAIRED_FILE, READINGS_FILE),
     modules=(
         "tests/studies/survival_dr_tmle.py",
@@ -232,11 +234,36 @@ def fit(frame: pd.DataFrame, scenario: str, implementation: str = SUBJECT) -> An
     return LTMLE(law.ARMS, survival_model="hazard", simultaneous=False, **common).fit(data)
 
 
+def initial_estimates(result: Any) -> dict[str, float]:
+    """The plug-in of each estimand at the initial hazards, before targeting.
+
+    Each arm's targeting record holds the initial level of every target it solved, in
+    ``targets`` order; the contrast is the difference of its two arms' levels.
+    """
+    index = result.parameter_index or {}
+    plug_in: dict[tuple[str, Any, int], float] = {}
+    for fit_record in result.fits.values():
+        record = fit_record.hazard
+        targets = list(dict.fromkeys(tuple(target[:3]) for target in record.targets))
+        for target, value in zip(targets, record.initial_levels, strict=True):
+            plug_in[target] = float(value)
+    out: dict[str, float] = {}
+    for name in law.ESTIMANDS:
+        label, cause, horizon = index[name]
+        if " vs " in label:
+            left, right = label.split(" vs ")
+            out[name] = plug_in[(left, cause, horizon)] - plug_in[(right, cause, horizon)]
+        else:
+            out[name] = plug_in[(label, cause, horizon)]
+    return out
+
+
 def result_rows(
     result: Any, truth: Mapping[str, float], scenario: str, replicate: int
 ) -> list[dict[str, Any]]:
     """One row per estimand on the identity scale."""
     rows = []
+    initial = initial_estimates(result)
     for name in law.ESTIMANDS:
         estimate = result[name]
         low, high = estimate.ci
@@ -256,7 +283,7 @@ def result_rows(
                 "ci_upper": float(high),
                 "inference_scale": "identity",
                 "covered": int(low <= reference <= high),
-                "initial_estimate": float(estimate.psi),
+                "initial_estimate": initial[name],
             }
         )
     return rows
@@ -399,6 +426,17 @@ def drift_readings(rows: pd.DataFrame) -> pd.DataFrame:
         )
         .reset_index()
     )
+
+
+def account_failures(
+    failures: pd.DataFrame | None, artifacts: Mapping[str, pd.DataFrame]
+) -> pd.DataFrame:
+    """No scientific gate reads the extra tables, so a lost fit counts only against the bound.
+
+    Without this hook the shared audit marks any lost fit unaccountable; here a fit lost to a
+    recordable error is bounded by :data:`FAILURE_BOUND` alone.
+    """
+    return evidence_failures.audits({}, missing={})
 
 
 def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:

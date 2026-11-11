@@ -30,8 +30,16 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
   n = 1,000 only when its SE ratio's 99% interval lies below 1, its bias is equivalent and its
   coverage interval reaches 0.90; it then takes the route above.
 * A red primary row of ``known_*`` is a defect suspect of the held-factor rule (design 4.5a, row
-  2): with both mechanisms declared the remainder is exactly zero for any hazard model.
-* A red positive ``double_robustness`` cell is a defect suspect.  The control is read against
+  2): with both mechanisms declared the remainder is exactly zero for any hazard model while the
+  ``g_bounds`` floor does not bind.  The arm rows witness the rule: the hazard model is wrong, so
+  an untargeted plug-in sits about 3.6 SD off each arm's risk at n = 200,000.  The risk
+  difference row is gated but is no witness, since that error cancels between the randomized
+  arms (+0.03 SD).
+* A red positive ``double_robustness`` cell is a defect suspect, except that ``outcome_correct``
+  (pilot bias -0.086 SD) red on equivalence alone, with its measured standardized bias negative
+  and inside the 0.2 margin and with ``mechanism_correct`` green, reads as the finite-sample bias
+  of the branch that rests on the hazard model alone at 16,000, and takes the route above with
+  the measured bias stated.  The control is read against
   its pilot gap; a control that does not clear the margin is an instrument finding, and the
   cells' claim to witness the wrong mechanisms is withheld.
 * A calibration cell red on its SE ratio while its coverage is green and its efficiency ratios
@@ -40,9 +48,20 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
   band, is a variance defect suspect.
 * A derived control (``shrunken_se_control``, ``noise_control``) that does not leave the band is
   an instrument defect, and the run is void.
-* The reported cells carry no verdict.  The slow cells are expected to show a standardized bias
-  that grows with n (the pilot read -0.60 for the slow censoring cell and 0.26 for the slow
-  hazard cell at 16,000); their readings are published as measured.
+* The reported cells carry no verdict and no prediction.  They are descriptive, not controls,
+  and no predicted drift term was computed for them.  At c = 4 the slow cells' bias is well
+  under two standard deviations (the pilot read -0.60 for the slow censoring cell and 0.26 for
+  the slow hazard cell at 16,000), so a small reading shows neither validity nor failure under
+  a slowly converging nuisance.  ``insample_4k`` is a failure mode, not a test (a 12-replicate
+  smoke read a bias near -5 SD and coverage near 0.1).  Their readings are published as
+  measured.
+
+Departure from the design (X91-F-design.md section 8): the law-P cells are dropped (the law is a
+reconstruction with open items and its l1 learner was never built), and the slow and in-sample
+must-fail controls are reported cells.  The first-order drift term under a misspecified index
+rests on the exact-law check 5(b) of ``tests/unit/test_survival_drtmle.py`` alone, and Díaz's
+Section 6 simulation is not reproduced: the evidence covers GLM learners on the two-covariate
+law L-S only.
 * A replication that raises is never redrawn.  A ``LongitudinalError`` from a submodel with no
   finite maximum is a recordable fit failure, bounded by the failure bound; the pilot lost no fit.
 """

@@ -34,8 +34,9 @@ its condition C2.  ``slow_censoring_<n>`` is the design's L-trial-slow: the tria
 treatment declared, the hazard model wrong and the censoring model correct plus the logit offset
 :math:`c\,n^{-1/3} W_2`; ``slow_hazard_<n>`` is L-hslow: the hazard model correct plus the same
 offset, the treatment on ``W1`` and constant censoring.  Both slow cells run at the record's
-three sizes with :data:`SLOW_OFFSET`; their standardized bias is expected to grow with
-:math:`n`.  They publish as ``reported-cells.csv`` and ``reported-replicates.csv``.
+three sizes with :data:`SLOW_OFFSET`.  They are descriptive: at :math:`c = 4` the offset moves
+the arm risk by well under two standard deviations at 16,000, so no growth is predicted and a
+small reading shows neither validity nor failure.  They publish as ``reported-cells.csv`` and ``reported-replicates.csv``.
 
 A replication that raises is never redrawn.
 """
@@ -78,6 +79,8 @@ ROBUSTNESS = "double_robustness"
 CALIBRATION = "interval_calibration"
 
 ROBUSTNESS_N = 16_000
+#: The smallest multiple of 400 at which each positive cell passes equivalence with probability
+#: above 0.98 at its one-sided 80% upper pilot bias; ``outcome_correct`` sets it.
 ROBUSTNESS_REPLICATES = 5_200
 CALIBRATION_N = 16_000
 CALIBRATION_REPLICATES = 3_600

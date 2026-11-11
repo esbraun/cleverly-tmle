@@ -176,6 +176,7 @@ class TestTheSizes:
     def test_the_robustness_cells_pass_at_their_pilot_bias(self) -> None:
         """Each positive at its one-sided 80% upper bias bound; the control at its lower one."""
         controls = [c for c, (_, role) in properties.ROBUSTNESS_CELLS.items() if role == "control"]
+        smaller: list[float] = []
         for cell, (configuration, role) in properties.ROBUSTNESS_CELLS.items():
             rows = _pilot_rows(f"dr_{configuration}", properties.ARM1)
             assert int(rows["n"].iloc[0]) == properties.ROBUSTNESS_N
@@ -186,11 +187,17 @@ class TestTheSizes:
             if role == "positive":
                 probability = sizing.bias_equivalent_probability(MARGINS, bias + slack, replicates)
                 assert probability > 0.98, (cell, bias)
+                smaller.append(
+                    sizing.bias_equivalent_probability(MARGINS, bias + slack, replicates - 400)
+                )
             else:
                 probability = sizing.bias_discriminated_probability(
                     MARGINS, bias - slack, replicates
                 )
                 assert probability >= sizing.discrimination_floor(len(controls)), (cell, bias)
+        # The declared count is the smallest multiple of 400 that clears every positive.
+        assert properties.ROBUSTNESS_REPLICATES % 400 == 0
+        assert min(smaller) <= 0.98
 
 
 class TestTheCells:
