@@ -1,0 +1,24 @@
+=== dose-response-npcausal declared run
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x93\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x93\tests\canonical\dose_response_npcausal\regenerate.py' --output C:/Users/erics/Documents/x93-declared/declared --jobs 16
+commit: d1031347a9ef3edebfbf43c8881c66e4e874dfca; upstream d1031347a9ef3edebfbf43c8881c66e4e874dfca
+clean tree: True
+cleverly 0.2.1 from C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x93\src\cleverly\__init__.py
+python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 112, sha256 7ab75a8ba60a4a6ff8a29cb9afb8d0b54ba121406ceebaa6908f6c8e44114fcc
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-11-10T18:11:10+00:00
+note: resumed from /cache/dose-response-npcausal/7ae2897212a2/run_study__reference-results, reused 0 groups
+finished: 2026-11-10T21:50:41+00:00
+wall seconds: 13171.3
+exit code: 0
+sha256 equivalence.csv: 8d314985f1824132d79f5a40763b174c25539de23e8c7682a91e2f1bad60adca
+sha256 failure-accounting.csv: d2edb654c5b3ced4ccd153dc88d9c60346c0c820b084fe018919eac603bdd556
+sha256 failures.csv: 8581629bf5dd54dbac621daaa9a980bdd35152edb974e5deb74491e34b4e8aa0
+sha256 manifest.json: a8ed3e2e62ddf790cb4813eefb0b53925755738141e5eb40b66e0dcf27f73d59
+sha256 performance-tests.csv: 8aea2f48737623b4f0659cabedc0a5f6249235e1706125dc4ea8327db14886fe
+sha256 properties.csv: f9941c012c9d4382c92fe56bb4f353058b90d77dd321c10ee9db895b180b293a
+sha256 property-replicates.parquet: dd8a47681fd2920201f8b0d2016db74dbd4c45f019231350e31532ea17bde3d8
+sha256 replicates.parquet: 8d678cd0cff4cf7edde04d0dbae5b747359ae2ad68cd4b821579b81c1b9937f9
+sha256 summary.csv: 7fc9243b4a996b737ec89cac2db053bd52a0407758efd06599ae830ea4ea23f0
+

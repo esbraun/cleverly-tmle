@@ -1,17 +1,32 @@
-"""The red ``both_correct__n_2000`` cell of ``longitudinal-sdr``, refitted beside LTMLE.
+r"""The ``both_correct__n_2000`` cell of ``longitudinal-sdr``, below its tail size, beside LTMLE.
 
 The registered cell ``sequential_double_robustness/both_correct__n_2000`` read a coverage of 0.911
 over 1,000 replications, with a 99% interval of 0.885 to 0.933 against a floor of 0.90.  Its
-n = 8,000 partner reads 0.950.  This diagnostic asks whether the shortfall belongs to ``SDR`` or to
-the law at n = 2,000.  It runs the cell's own fit (``sdr_family_fit`` with every nuisance correct)
-and the shipped ``LTMLE`` with the same learners on the same 1,000 fresh draws of n = 2,000.
+n = 8,000 partner reads 0.950.  On the family law the exact-law tail size of the contrast
+``ate_regimen[always vs never]`` is :math:`n_\kappa` = 2,326, so the n of 2,000 sits below even
+:math:`n_\kappa`, and the cell's Wald coverage is a reporting reading under the tail-size rule of
+the study (``tests/studies/longitudinal_sdr_properties.py``, ``BELOW_TAIL_SIZE``).  The gated
+coverage claim for the contrast is the cell at n = 4,800.
+
+The diagnostic runs the cell's own fit (``sdr_family_fit`` with every nuisance correct) and the
+shipped ``LTMLE`` with the same learners on the same 1,000 fresh draws of n = 2,000.  Both cover
+alike, so the shortfall belongs to the law at this n, not to ``SDR``.
+
+The mechanism is the always-path cell ``W = 1, A1 = 1, C1 = 1, L2 = 1, A2 = 1, C2 = 1``: its
+probability is 0.001465 (2.9 rows at n = 2,000), its inverse weight 85.3, and it carries 27% of
+the EIF variance.  :func:`strata` splits the draws by what that cell holds: no row, one row, two
+or more rows with every outcome 1 or every outcome 0, or mixed outcomes.  In all but the last,
+the cell carries no within-cell variation: a cell of equal outcomes is fitted exactly, and an
+empty or one-row cell is absent from the training folds of its held-out row, so the cell mean
+falls back to the training mean.  No plug-in variance then sees the cell's share, and coverage
+drops.  The split redraws each sample from its seed and refits nothing.
 
 Replication ``r`` draws the seed ``100_000 + r`` of :func:`tests.discrete_law_longitudinal_sdr.sample`,
 the design-probe range that no declared stream reads.  The diagnostic cannot change the cell's
 verdict.
 
-The rows go to ``rows.csv.gz`` and the reading to ``reading.csv``.
-``tests/unit/test_sdr_shortfall_reading.py`` rebuilds the reading from the rows.
+The rows go to ``rows.csv.gz``, the reading to ``reading.csv`` and the split to ``strata.csv``.
+``tests/unit/test_sdr_below_tail_size_reading.py`` rebuilds the reading and the split.
 
     python -m tests.diagnostics.x4_both_correct.run --jobs 4
 """
@@ -71,6 +86,47 @@ def reading(rows: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 
+#: The always-path cell, as ``column -> value``.
+ALWAYS_PATH = {"W": 1.0, "A1": 1.0, "C1": 1.0, "L2": 1.0, "A2": 1.0, "C2": 1.0}
+#: The strata of :func:`strata`, in their published order.
+STRATA = ("empty", "one row", "two or more, all Y = 1", "two or more, all Y = 0", "mixed")
+
+
+def stratum(frame: pd.DataFrame) -> str:
+    """What the always-path cell of one draw holds."""
+    inside = np.ones(len(frame), dtype=bool)
+    for column, value in ALWAYS_PATH.items():
+        inside &= frame[column].to_numpy() == value
+    outcomes = frame.loc[inside, "Y"].to_numpy()
+    if len(outcomes) == 0:
+        return STRATA[0]
+    if len(outcomes) == 1:
+        return STRATA[1]
+    if np.all(outcomes == 1.0):
+        return STRATA[2]
+    if np.all(outcomes == 0.0):
+        return STRATA[3]
+    return STRATA[4]
+
+
+def strata(rows: pd.DataFrame) -> pd.DataFrame:
+    """Draws and ``SDR`` coverage per stratum of the always-path cell, redrawn from the seeds."""
+    truth = float(law.TRUTH[base.STATIC])
+    covered = np.abs(rows["sdr_estimate"] - truth) <= CRITICAL * rows["sdr_std_error"]
+    labels = pd.Series(
+        [stratum(law.sample(N, SEED_BASE + int(r))) for r in rows["replicate"]], index=rows.index
+    )
+    out = [
+        {
+            "stratum": name,
+            "draws": int((labels == name).sum()),
+            "sdr_coverage": float(covered[labels == name].mean()),
+        }
+        for name in STRATA
+    ]
+    return pd.DataFrame(out)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--jobs", type=int, default=1)
@@ -84,6 +140,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     reading(rows).to_csv(
         arguments.output / "reading.csv", index=False, float_format="%.6g", lineterminator="\n"
+    )
+    strata(rows).to_csv(
+        arguments.output / "strata.csv", index=False, float_format="%.6g", lineterminator="\n"
     )
 
 

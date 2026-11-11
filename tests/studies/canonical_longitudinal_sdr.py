@@ -63,6 +63,45 @@ owner row, declared before any re-run.  A red property cell that reads as a fini
 gets an owner row the same way.  A replication that raises is never redrawn; the failing cell
 drops to its owner with its failure count stated as a page limit, and the run repeats without
 it.  No budget, margin, law, learner, fold count or seed moves after a verdict is seen.
+
+**Re-declaration of 2026-11** (under the red-cell rule of 2026-10-07: a design error that makes
+a cell measure the wrong thing is fixed and re-run under a fresh declaration).  The first run read
+``sequential_double_robustness/both_correct__n_2000`` red on its coverage floor alone (0.911,
+99% interval 0.885 to 0.933).  Its n of 2,000 is below the exact-law tail size :math:`n_\kappa`
+= 2,326 of ``ate_regimen[always vs never]`` on the family law, so its Wald coverage was never in
+the regime a gated claim needs (the X39 rule, ``WALD_REGIME_FACTOR`` 2 of
+``tests/long_horizon_design.py``).  The rule now applies to every Wald cell of the study:
+a cell gates a Wald interval only where n is at least twice the larger of the tail sizes of the
+quantity's EIF and of the cell's own exact-law curve.  Two committed cells besides it sit below
+that size, ``P_C__n_2000`` and ``weighted_calibration/selection_weighted__correctly_specified``
+(:math:`n_\kappa` = 1,159).  No committed cell moves: every committed fit set keeps its label,
+law, learners, size, replications, seeds and verdict rule, and its Wald clauses read as
+reporting (``BELOW_TAIL_SIZE`` of the properties module).  Three gated fit sets join at the least
+multiple of 400 at or above twice the tail size: ``both_correct__n_4800`` and ``P_C__n_4800``
+(1,600 replications each) and ``weighted_calibration/selection_weighted_n2400`` (5,600, with
+its two derived controls).  ``tests/unit/test_longitudinal_sdr_design.py`` derives each
+classification and each new size from the exact law, and computes the replication counts by the
+project's rule: the smallest multiple of 400 at which the three new gated cells pass together
+with probability at least 0.95 on their pilots.  ``P_C__n_2000`` and the weighted 2,000 positive
+passed in the first run and are classified reporting all the same: the classification follows
+from the exact law alone, and would be the same had they been red.
+
+The red-cell route of the re-declared run, fixed before it:
+
+* A committed cell whose verdict moves only by library rounding keeps its reading.
+* ``both_correct__n_2000`` red on its coverage floor alone reads ``reporting, below the tail
+  size`` under the owner ``X39-below-tail-size``.  Red on its bias or its reported-error
+  screen, it is a defect suspect.
+* ``P_C__n_2000`` or the weighted 2,000 positive turning red on a Wald clause alone takes the
+  same reading and owner.
+* A new gated cell red (``both_correct__n_4800``, ``P_C__n_4800``, the weighted 2,400 positive
+  or one of its controls) is read under the rule of 2026-10-08.  It is a finite-sample red only
+  when its SE-ratio interval contains 1, its coverage is consistent with 0.95 and the diagnosis
+  finds no defect; it then goes to reporting under the owner ``X4-finite-sample``, reused with
+  the reading ``finite-sample at twice the tail size``.  Any other red is a defect suspect,
+  fixed and re-declared.
+* The rule has already fixed each size, so a red at 4,800 or 2,400 never moves the size again.
+  No replication count, margin, law, learner or seed moves after the reading either.
 """
 
 from __future__ import annotations
@@ -196,21 +235,39 @@ CLUSTERED_POSITIVE = "known_ratio"
 #: :data:`tests.studies.longitudinal_sdr_properties.NOISE_SD`).
 SEPARATE_CALIBRATION: dict[str, tuple[tuple[str, ...], str]] = {
     "clustered_calibration": (CLUSTERED_LABELS, CLUSTERED_POSITIVE),
-    "weighted_calibration": (("selection_weighted",), "correctly_specified"),
+    "weighted_calibration": (
+        ("selection_weighted", "selection_weighted_n2400"),
+        "correctly_specified",
+    ),
 }
 #: The joint label of the band cell.
 BAND_LABEL = "six_regimens"
 #: The band cell's seed stream, fresh for its band-finite-sample re-declaration so its rows
 #: are never pooled with the 2,000 of the identity band it replaced.
 BAND_STREAM = "six_regimens/band-finite-sample"
-#: The patterns of ``sequential_double_robustness`` and their sizes (``X4-plan.md`` 6.8).
+#: The patterns of ``sequential_double_robustness`` (``X4-plan.md`` 6.8).
 SDR_PATTERNS = ("both_correct", "P_A", "P_B", "P_C", "P_D")
-SDR_SIZES = (2_000, 8_000)
+#: The patterns with an exact ratio, which gate the coverage floor where n is at least twice the
+#: tail size of the contrast.
+EXACT_RATIO_PATTERNS = ("both_correct", "P_C")
+#: The two sizes of the bias rule of ``P_A``, ``P_B`` and ``P_D``.
+SDR_TWO_SIZES = (2_000, 8_000)
+#: The sizes of each pattern.  The exact-ratio patterns add n = 4,800, the least multiple of
+#: :data:`tests.studies.longitudinal_sdr_properties.WALD_GATED_STEP` at or above twice the tail
+#: size of the contrast (re-declared 2026-11; the study docstring says why).
+SDR_PATTERN_SIZES: dict[str, tuple[int, ...]] = {
+    pattern: (2_000, 4_800, 8_000) if pattern in EXACT_RATIO_PATTERNS else SDR_TWO_SIZES
+    for pattern in SDR_PATTERNS
+}
 
 #: Every published property cell, by family.
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "sequential_double_robustness": (
-        *(f"{pattern}__n_{size}" for pattern in SDR_PATTERNS for size in SDR_SIZES),
+        *(
+            f"{pattern}__n_{size}"
+            for pattern in SDR_PATTERNS
+            for size in SDR_PATTERN_SIZES[pattern]
+        ),
         "node2_both_wrong_control",
         "ltmle_P_D_control",
     ),

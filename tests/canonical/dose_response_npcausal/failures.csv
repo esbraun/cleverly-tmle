@@ -1,0 +1,7 @@
+implementation,group_id,scenarios,replicates,attempt,class,stage,call,message,seed
+npcausal,r000001709,linear_gaussian,1709,1,fitting_failure,ctseff,"locpoly(a, pseudo.out, bandwidth = h.opt)",'bandwidth' must be a scalar or an array of length 'gridsize',1821600061
+npcausal,r000001771,linear_gaussian,1771,1,fitting_failure,ctseff,"locpoly(a, pseudo.out, bandwidth = h.opt)",'bandwidth' must be a scalar or an array of length 'gridsize',1585269887
+npcausal,r000002540,linear_gaussian,2540,1,fitting_failure,ctseff,density.default(a.std[1:n]),'x' contains missing values,1238684934
+npcausal,r000003068,linear_gaussian,3068,1,fitting_failure,ctseff,"locpoly(a, pseudo.out, bandwidth = h.opt)",'bandwidth' must be a scalar or an array of length 'gridsize',1903676933
+npcausal,r000003320,linear_gaussian,3320,1,fitting_failure,ctseff,"locpoly(a, pseudo.out, bandwidth = h.opt)",'bandwidth' must be a scalar or an array of length 'gridsize',1084793482
+npcausal,r000003336,linear_gaussian,3336,1,fitting_failure,ctseff,"locpoly(a, pseudo.out, bandwidth = h.opt)",'bandwidth' must be a scalar or an array of length 'gridsize',1194130930

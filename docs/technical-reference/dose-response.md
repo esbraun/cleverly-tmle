@@ -247,5 +247,7 @@ one law family and sizes from 1,000 to 8,000, and each label's `limits` repeat t
 
 The [registered study](method-evidence/dose-response.md) passes every gate: 27 primary rows
 (lowest coverage 0.9215, worst standardized bias 0.031) and 7 property cells, including the band's
-joint coverage, exact-efficiency calibration and the targeting gain. It has no comparator:
-roadmap X93, part S2, declares the npcausal `ctseff` runs on a matched target.
+joint coverage, exact-efficiency calibration and the targeting gain. It has no comparator.
+A [separate study](method-evidence/dose-response-npcausal.md) pairs `DoseResponseTMLE` with
+npcausal `ctseff` on a law where the curve is a line, so both smoothed curves equal it. That study
+is declared, and its runs are pending a local R run.

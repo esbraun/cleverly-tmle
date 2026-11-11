@@ -727,6 +727,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.conditional_projection import STUDY as CONDITIONAL_PROJECTION
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
     from tests.studies.dose_response import STUDY as DOSE_RESPONSE
+    from tests.studies.dose_response_npcausal import STUDY as DOSE_RESPONSE_NPCAUSAL
     from tests.studies.drtmle_foldwise import STUDY as DRTMLE_FOLDWISE
     from tests.studies.drtmle_one_wrong import STUDY as DRTMLE_ONE_WRONG
     from tests.studies.eliminated_competing_events import STUDY as ELIMINATED_COMPETING_EVENTS
@@ -754,6 +755,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.learned_rule_strata import STUDY as LEARNED_RULE_STRATA
     from tests.studies.longitudinal_repeated_crossfit import STUDY as LONGITUDINAL_REPEATED_CROSSFIT
     from tests.studies.marginal_bound_coverage import STUDY as MARGINAL_BOUND_LIMIT_COVERAGE
+    from tests.studies.missingness_tilt_inference import STUDY as MISSINGNESS_TILT_INFERENCE
     from tests.studies.omitted_variable_bound import STUDY as OMITTED_VARIABLE_BOUND_SE
     from tests.studies.omitted_variable_bound_plugin import (
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
@@ -831,6 +833,8 @@ def registered() -> tuple[StudyRecord, ...]:
         SURVIVAL_CTMLE,
         TARGETING_CURVES,
         DOSE_RESPONSE,
+        MISSINGNESS_TILT_INFERENCE,
+        DOSE_RESPONSE_NPCAUSAL,
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,

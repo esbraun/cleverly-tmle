@@ -96,6 +96,7 @@ targeting-curves
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 dose-response
+dose-response-npcausal
 point-modified-treatment-policies
 incremental-propensity-interventions
 ordinary-end-of-study-longitudinal-tmle
@@ -153,6 +154,7 @@ omitted-variable-bound-plugin-standard-error
 ovb-limit-coverage
 evalue-limit-coverage
 marginal-bound-limit-coverage
+missingness-tilt
 calibration-slope-warning
 refuter-calibration-longitudinal
 refuter-calibration-point

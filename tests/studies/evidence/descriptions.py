@@ -498,6 +498,9 @@ ARMS: dict[str, str] = {
     "msm_identity": "the duration coefficient of the identity-link working model",
     "msm_logit": "the duration coefficient of the logit-link working model",
     "selection_weighted": "contrast of always against never on the selected law, with weights",
+    "selection_weighted_n2400": (
+        "contrast of always against never on the selected law, with weights, at n = 2,400"
+    ),
     "clusters_200": "contrast of always against never, 200 clusters of 10 rows",
     "clusters_20": "contrast of always against never, 20 clusters of 100 rows",
     "six_regimens": "the six regimen means and five contrasts of the two-node law",
@@ -910,6 +913,10 @@ _SH_ROWS = {
     for end in ("lower", "upper")
 }
 ARMS.update(_SH_ROWS)
+
+#: The one property label of ``missingness-tilt-inference`` (A2), the tilted ATE at gamma 2. It
+#: sits here because the cell-name pattern below is built from :data:`ARMS` at import.
+ARMS["ate_gamma2"] = "the tilted ATE at gamma 2, in-sample fit at n = 1,000"
 
 #: The settings of ``learned-rule-compositions`` (X11 PR A) that no other study names. Its
 #: ``weighted`` and ``clustered`` labels are shared, so :data:`STUDY_ARMS` scopes their words.
@@ -4936,8 +4943,9 @@ CELLS.update(
 
 
 #: The ``sequential_double_robustness`` cells of ``longitudinal-sdr``: one pattern of wrong
-#: nuisances per node, at two sizes.  Mirrored from
-#: ``tests.studies.longitudinal_sdr_properties.PATTERN_NUISANCES``.
+#: nuisances per node, at two sizes, and at a third for the exact-ratio pair.  Mirrored from
+#: ``tests.studies.longitudinal_sdr_properties.PATTERN_NUISANCES`` and the sizes of
+#: ``tests.studies.canonical_longitudinal_sdr.SDR_PATTERN_SIZES``.
 _SDR_PATTERNS = {
     "both_correct": (
         "every outcome regression and mechanism is correct",
@@ -4963,14 +4971,24 @@ _SDR_PATTERNS = {
         "inside the union-model band",
     ),
 }
+#: The exact-ratio patterns at n = 2,000, below twice the tail size of the contrast, where the
+#: coverage clause reports.
+_SDR_BELOW_TAIL_SIZE = (
+    "bias inside the margin, SE ratio inside the union-model band; coverage clears the floor, "
+    "a reporting clause because n is below twice the tail size of the contrast"
+)
 CELLS.update(
     {
         ("sequential_double_robustness", f"{pattern}__n_{size}"): (
             f"{tested}, at n = {size:,}",
-            required,
+            _SDR_BELOW_TAIL_SIZE
+            if pattern in {"both_correct", "P_C"} and size == 2_000
+            else required,
         )
         for pattern, (tested, required) in _SDR_PATTERNS.items()
-        for size in (2_000, 8_000)
+        for size in (
+            (2_000, 4_800, 8_000) if pattern in {"both_correct", "P_C"} else (2_000, 8_000)
+        )
     }
 )
 CELLS.update(
@@ -5938,6 +5956,84 @@ def _marginal_bound_cells() -> None:
 
 
 _marginal_bound_cells()
+
+
+# ------------------------------------------------------------------ A2 targeted missingness tilt
+
+
+def _missingness_tilt_cells() -> None:
+    """The targeted missingness tilt interval study (A2): six scenarios, three tilts each.
+
+    Mirrored from ``tests.studies.missingness_tilt_inference``, which this module cannot
+    import; ``tests/unit/test_missingness_tilt_interval_registry.py`` pins that every cell a
+    registry row cites is published.
+    """
+    slug = "missingness-tilt-inference"
+    IMPLEMENTATIONS["cleverly-missingness-tilt"] = (
+        "`cleverly` targeted missingness tilt (`missingness_tilt`)"
+    )
+    law = "binary outcome missing at random given A, W1, W2; correctly specified GLMs"
+    STUDY_SCENARIOS.update(
+        {
+            (slug, "in_sample"): f"in-sample TMLE at n = 1,000; {law}",
+            (slug, "in_sample_4k"): f"in-sample TMLE at n = 4,000; {law}",
+            (slug, "cross_fit"): f"stacked CV-TMLE, 10 folds, at n = 1,000; {law}",
+            (slug, "cv_evaluation"): f"fold-evaluated CV-TMLE, 10 folds, at n = 1,000; {law}",
+            (slug, "weighted"): (
+                f"in-sample TMLE with weights exp(0.5 W1) at n = 1,000; {law}; truths of the "
+                "weight-tilted covariate law"
+            ),
+            (slug, "natural_course"): f"in-sample natural-course TMLE at n = 1,000; {law}",
+        }
+    )
+    targets = {
+        "ey1": "tilted arm-1 mean",
+        "ey0": "tilted arm-0 mean",
+        "ate": "tilted ATE",
+        "att": "tilted ATT",
+        "rr": "tilted risk ratio, on the log scale",
+        "ey_obs": "tilted observed-outcome mean under the natural course",
+        "par": "tilted PAR, natural course versus arm 0",
+    }
+    STUDY_ESTIMANDS.update(
+        {
+            (slug, f"{target}[gamma={gamma:g}]"): f"{words} at gamma {gamma:g}"
+            for target, words in targets.items()
+            for gamma in (-1.0, 1.0, 2.0)
+        }
+    )
+    STUDY_ARM_CELLS.update(
+        {
+            (slug, "interval_calibration", "ate_gamma2", "correctly_specified"): (
+                "the targeted tilt's Wald interval, every nuisance correctly specified, read",
+                "SE ratio and coverage intervals inside their calibration bands",
+            ),
+            (slug, "interval_calibration", "ate_gamma2", "shrunken_se_control"): (
+                "the reported standard error is multiplied by 0.70",
+                "the SE-ratio interval must fall below the calibration band",
+            ),
+            (slug, "interval_calibration", "ate_gamma2", "noise_control"): (
+                "one efficiency unit of independent noise is added to each estimate",
+                "the empirical efficiency-ratio interval must rise above its band",
+            ),
+            (slug, "interval_calibration", "ate_gamma2", "mar_variance_control"): (
+                "the untargeted tilted plug-in with the fit's missing-at-random standard error, "
+                "the interval the tilt published before targeting",
+                "the SE-ratio interval must fall below the calibration band",
+            ),
+            (slug, "targeting_necessity", "ate_gamma2", "targeted"): (
+                "the outcome regression omits the A W1 term and the tilt is targeted",
+                "bias equivalent to zero within the margin",
+            ),
+            (slug, "targeting_necessity", "ate_gamma2", "untargeted"): (
+                "the same regression and the untargeted tilted plug-in",
+                "bias discriminated from the targeted arm, displaced by at least 0.25 SDs",
+            ),
+        }
+    )
+
+
+_missingness_tilt_cells()
 
 
 # ------------------------------------------------------------------------------ long horizon
@@ -8046,6 +8142,27 @@ STUDY_ARM_CELLS.update(
             )
             for arm in ("in_sample_sde_relapse_t3", "cross_fitted_sep01_death_t3")
         },
+    }
+)
+
+
+#: ``dose-response-npcausal`` (X93 S2): the smoothed curve against npcausal ``ctseff`` at a law
+#: where the curve is a line.  The names are those of ``tests/studies/dose_response_npcausal.py``.
+_DOSE_NPCAUSAL_SLUG = "dose-response-npcausal"
+STUDY_SCENARIOS[(_DOSE_NPCAUSAL_SLUG, "linear_gaussian")] = (
+    "a dose with a normal location model linear in three normal covariates, and a Gaussian "
+    "outcome linear in the dose with a dose-varying covariate slope, so the curve is a line; "
+    "doses 1.5, 2.5 and 3.5 by triweight bandwidths 2.0 and 2.5, which the R pilot selected from "
+    "1.0, 1.5, 2.0 and 2.5, n = 4,000"
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_DOSE_NPCAUSAL_SLUG, f"dose_response[h={h:.10g},a={a0:.10g}]"): (
+            f"{_dose_words(h, a0)}, which equals the curve at {a0:g} because the curve is a line; "
+            "npcausal ctseff estimates the same value with a Gaussian kernel of matched roughness"
+        )
+        for h in (2.0, 2.5)
+        for a0 in (1.5, 2.5, 3.5)
     }
 )
 

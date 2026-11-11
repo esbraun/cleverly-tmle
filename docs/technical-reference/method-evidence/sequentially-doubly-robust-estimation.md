@@ -245,7 +245,7 @@ disappear as $n$ grows.
 at the exact-law critical value of 2.693 covers 0.931 on the same replications. The package band
 covers 0.925 at a mean critical value of 2.683. The shortfall therefore comes from the pointwise
 intervals. The other cells that the `band-finite-sample` owner holds read the same way.
-`tests/unit/test_sdr_shortfall_reading.py` rebuilds the coverage reading from the committed rows.
+`tests/unit/test_sdr_below_tail_size_reading.py` rebuilds the coverage reading from the committed rows.
 `tests/unit/test_band_shortfall_reading.py` rebuilds the band reading.
 
 ## Measured values and declared margins

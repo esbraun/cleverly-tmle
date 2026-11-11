@@ -199,6 +199,7 @@ def test_an_inflated_standard_error_control_must_rise_above_the_band() -> None:
         "unnormalised_curve_control": "below",
         "share_dropped_control": "below",
         "interpolating_control": "below",
+        "mar_variance_control": "below",
     }
     with pytest.raises(ValueError, match="unknown side"):
         se_ratio_leaves_band(Interval(1.0, 1.1), (0.93, 1.07), "beside")  # type: ignore[arg-type]
