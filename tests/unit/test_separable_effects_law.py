@@ -551,8 +551,11 @@ def test_the_summary_names_both_components_and_the_order(fit: Any) -> None:
 def test_a_cross_fitted_separable_fit_solves_every_factor_score() -> None:
     """From a cross-fitted start the walk hands over to Newton steps and still converges.
 
-    The fold split is seeded: an unseeded split drew a new start on every run, and an unlucky
-    one stopped short of the tolerance on CI.  Seeds 0 to 39 all converge.
+    The fold split is seeded.  Convergence from a cross-fitted start is not guaranteed: on a
+    few splits the out-of-fold start leaves a score along nearly redundant target directions
+    and the Newton steps stall short of ``tol`` (split 163 stops near 1e-4; the
+    separable-effects study declares the same 2% at n = 16,000).  An unseeded split drew such
+    a start on CI.  Split 0 converges in 59 steps, as do splits 0 to 59.
     """
     result = _fit(n_folds=2, random_state=0)
     record = result.fits[next(iter(result.fits))].hazard
