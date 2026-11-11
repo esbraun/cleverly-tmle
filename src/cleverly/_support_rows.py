@@ -5205,6 +5205,11 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "DOSE_RESPONSE_MEASURED, not a support row, records the configurations the study "
         "licenses, and a pair below the Kish floor reads experimental (low_dose_support_plugin)."
     ),
+    "dose-response-npcausal": (
+        "It compares the kernel-smoothed dose-response curve of DoseResponseTMLE with npcausal "
+        "ctseff, which is no Target and no fit of a point row. Each pair's interval takes its "
+        "status from the fit's own support report, not from a support row."
+    ),
     "omitted-variable-bound-se": (
         "It measures the standard error of a sensitivity bound. The bound carries its own "
         "status and is no fit of a row."
