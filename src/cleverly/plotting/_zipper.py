@@ -126,6 +126,14 @@ def zipper(
     --------
     cleverly.validation.CoverageStudy : The study that produces the records.
 
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes count the intervals that miss
+    below and above the true value and say which estimates are experimental.
+
     Examples
     --------
     >>> import matplotlib
@@ -164,7 +172,7 @@ def zipper(
         if name not in study.summaries:
             raise KeyError(f"the study did not measure {name!r}; it did {list(study.summaries)}")
     columns = min(len(names), _COLUMNS)
-    fig, head, axes, foot = strip_figure(len(names), columns, panel=_PANEL)
+    fig, head, axes = strip_figure(len(names), columns, panel=_PANEL)
     coverage: list[str] = []
     found: list[str] = []
     experimental: dict[str, list[str]] = {}
@@ -250,7 +258,7 @@ def zipper(
         )
     if study.n_failed:
         found.append(f"{study.n_failed} replications failed and are not drawn.")
-    _core.notes(foot, found)
+    _core.add_notes(fig, found)
     fit_height(fig, axes, columns, _PANEL[1])
     return fig
 

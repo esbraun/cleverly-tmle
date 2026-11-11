@@ -339,4 +339,5 @@ categorized API tables.
    cleverly.plotting.repeats
    cleverly.plotting.bootstrap
    cleverly.plotting.influence
+   cleverly.plotting.notes
    cleverly.plotting.style

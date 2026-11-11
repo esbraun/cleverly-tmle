@@ -277,7 +277,7 @@ def truncation(
         )
     if not any(fitted):
         found.append("The limit the fit used is not on this grid.")
-    _core.notes(bottom, [*found, *_warnings(curve), _others(estimands, chosen) or ""])
+    _core.add_notes(bottom, [*found, *_warnings(curve), _others(estimands, chosen) or ""])
     return fig
 
 
@@ -361,7 +361,7 @@ def marginal(
     else:
         ax.set_ylabel(_with_units(f"Range of {words}", units))
     _core.header(ax, title or "Does the conclusion survive hidden confounding?", subtitle)
-    _core.notes(ax, _warnings(bounds))
+    _core.add_notes(ax, _warnings(bounds))
     return fig
 
 
@@ -492,7 +492,7 @@ def missingness(
             )
     if tilt.arm_gamma is not None:
         found.append(vocabulary.NOTE_TEXTS["tilt_direction_arms"])
-    _core.notes(axis, [*found, *_warnings(tilt), _others(estimands, chosen) or ""])
+    _core.add_notes(axis, [*found, *_warnings(tilt), _others(estimands, chosen) or ""])
     return fig
 
 
@@ -533,6 +533,15 @@ def sensitivity(obj: Any, **kwargs: Any) -> Figure:
     --------
     cleverly.plotting.forest : The estimates of a fit with their intervals.
     cleverly.assessment.TruncationCurve.plot : This plot for a truncation curve.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes name the estimands not drawn,
+    say when no validation study licenses an interval (read it as descriptive), and give the
+    sign convention of the sensitivity parameter.
 
     Examples
     --------

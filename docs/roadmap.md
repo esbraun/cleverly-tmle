@@ -1902,6 +1902,8 @@ Kish size of 141 with an SE ratio of 0.93. This item has two parts.
 `cleverly.plotting` ships the figures of a result
 ([plotting API](api/plotting.md), [the plots tutorial](examples/plots.ipynb)). Each plot draws
 numbers the object already holds and never draws an interval or band the fit did not compute.
+The figure carries no notes: `cleverly.plotting.notes(fig)` gives the reason for a withheld
+interval and says when a result is experimental.
 
 Three requests stay open, and each refusal names this item:
 

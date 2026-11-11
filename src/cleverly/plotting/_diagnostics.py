@@ -9,8 +9,9 @@
   interval is built on?
 * :func:`influence`: how few units carry the variance of the influence values?
 
-Every quantity is descriptive and none carries an interval the object does not hold; each
-note says so. Nothing is refitted and nothing is drawn at random.
+Every quantity is descriptive and none carries an interval the object does not hold;
+:func:`~cleverly.plotting.notes` says so for each figure. Nothing is refitted and nothing is drawn
+at random.
 """
 
 from __future__ import annotations
@@ -107,18 +108,19 @@ def _finish(
     *,
     owned: bool,
 ) -> None:
-    """The title, subtitle, key and notes: at the figure's edge on a figure the plot made.
+    """The title, subtitle and key: at the figure's edge on a figure the plot made.
 
-    A figure the plot created takes the figure-level header and notes, anchored at the
-    figure's left edge and wrapped to its width, so a square panel or a column of panels
-    never pushes them past the edge. On the caller's axes they go on that axes.
+    A figure the plot created takes the figure-level header, anchored at the figure's left
+    edge and wrapped to its width, so a square panel or a column of panels never pushes it
+    past the edge. On the caller's axes it goes on that axes. The notes are recorded, not
+    drawn.
     """
     if owned:
         _core.figure_header(fig, title, subtitle, key_sources=axes)
-        _core.figure_notes(fig, found)
+        _core.add_notes(fig, found)
     else:
         _core.header(axes[0], title, subtitle, key_sources=axes)
-        _core.notes(axes[-1], found)
+        _core.add_notes(axes[-1], found)
 
 
 # ------------------------------------------------------------------------- calibration
@@ -371,7 +373,7 @@ def calibration(
     collaborative working treatment model or a declared treatment law shows none either,
     because neither is an estimate of the treatment law.
 
-    Bins are descriptive: no interval is drawn, and the note says so.
+    Bins are descriptive: no interval is drawn.
 
     Parameters
     ----------
@@ -396,6 +398,14 @@ def calibration(
     See Also
     --------
     cleverly.plotting.learners : Which learners carry the models.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes say the bins are descriptive,
+    which predictions they use, and how the slope and intercept are computed.
 
     Examples
     --------
@@ -736,6 +746,14 @@ def learners(source: Any, *, ax: Axes | None = None) -> Figure:
     --------
     cleverly.plotting.calibration : Whether the models' probabilities are calibrated.
 
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes say the risks are descriptive
+    and what the criterion adds to the loss.
+
     Examples
     --------
     >>> import matplotlib
@@ -867,6 +885,14 @@ def repeats(
     See Also
     --------
     cleverly.estimators.TMLEResult.repeat_spread : The spread of the repeats as numbers.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes say the points are descriptive
+    and which estimates are experimental.
 
     Examples
     --------
@@ -1114,6 +1140,15 @@ def bootstrap(
     --------
     cleverly.inference.BootstrapResult.interval : The percentile interval as numbers.
 
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes say the histogram is
+    descriptive, how rows were resampled, and whether the bootstrap interval is
+    experimental.
+
     Examples
     --------
     >>> import matplotlib
@@ -1346,7 +1381,7 @@ def influence(
     The curve describes the stored influence values. On a fit with several cross-fitting
     repeats the stored curve is the median draw's (the mean of the two central draws for
     an even count), and on a fit evaluated within folds the reported variance is not
-    computed from this curve; the note says so.
+    computed from this curve; :func:`~cleverly.plotting.notes` says so.
 
     Parameters
     ----------
@@ -1377,6 +1412,15 @@ def influence(
     --------
     cleverly.assessment.DiagnosticsFacade.influence : The Kish effective count, skewness and
         kurtosis of the same curve.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes say the curve is descriptive,
+    whether influence values are summed within clusters, and when the curve is not the
+    reported variance.
 
     Examples
     --------

@@ -34,6 +34,7 @@ from cleverly.sensitivity import (
     simulated_confounding,
 )
 from cleverly.validation.simulation import ReplicationFailure
+from tests.unit.test_plotting_core import assert_no_note_text
 
 pytestmark = pytest.mark.xdist_group("plotting_confounding")
 
@@ -333,8 +334,10 @@ class TestContour:
 
     def test_png_render(self, grid_data: Any, rv: Any, tmp_path: Any) -> None:
         path = tmp_path / "v13.png"
-        grid_data.plot(robustness=rv).savefig(path, dpi=60)
+        fig = grid_data.plot(robustness=rv)
+        fig.savefig(path, dpi=60)
         assert path.stat().st_size > 5_000
+        assert_no_note_text(fig)
 
     def test_dispatch(self, grid_data: Any) -> None:
         fig = confounding(grid_data)
@@ -652,8 +655,10 @@ class TestSurface:
 
     def test_png_render(self, surface_result: Any, tmp_path: Any) -> None:
         path = tmp_path / "v14.png"
-        surface_result.plot().savefig(path, dpi=60)
+        fig = surface_result.plot()
+        fig.savefig(path, dpi=60)
         assert path.stat().st_size > 5_000
+        assert_no_note_text(fig)
 
     def test_dispatch(self, surface_result: Any) -> None:
         assert confounding(surface_result).axes[0].get_title(loc="left").startswith("How far")
@@ -864,8 +869,10 @@ class TestSmallMultiples:
 
     def test_panel_figure_renders(self, surface_result: Any, tmp_path: Any) -> None:
         path = tmp_path / "panels.png"
-        _vector(surface_result).plot().savefig(path, dpi=60)
+        fig = _vector(surface_result).plot()
+        fig.savefig(path, dpi=60)
         assert path.stat().st_size > 5_000
+        assert_no_note_text(fig)
 
     def test_no_estimate_refuses(self, surface_result: Any) -> None:
         failure = ReplicationFailure(0, 0, "ValueError", "boom")

@@ -49,7 +49,6 @@ GID_RANGE: Final = "cleverly-range"
 GID_REFERENCE: Final = "cleverly-reference"
 GID_MARKER: Final = "cleverly-marker"
 GID_SUBTITLE: Final = "cleverly-subtitle"
-GID_NOTES: Final = "cleverly-notes"
 GID_SERIES_LABEL: Final = "cleverly-series-label"
 GID_SWATCH: Final = "cleverly-swatch"
 GID_TRUTH: Final = "cleverly-truth"
@@ -65,7 +64,6 @@ TITLE_SIZE: Final = 12.0
 SUBTITLE_SIZE: Final = 10.0
 LABEL_SIZE: Final = 10.0
 TICK_SIZE: Final = 9.0
-NOTE_SIZE: Final = 8.5
 
 #: The default figure size, in inches.
 FIGSIZE: Final = (7.0, 4.5)
@@ -367,39 +365,54 @@ def subtitle_text(ax: Axes) -> str | None:
     return None
 
 
-def notes(ax: Axes, lines: Sequence[str]) -> None:
-    """Write the note lines under the bottom axes, below its axis label.
+#: The attribute of a figure that holds the notes a plot recorded for it.
+_NOTES_ATTRIBUTE: Final = "_cleverly_notes"
 
-    Each line is one statement the reader needs to read the figure correctly: what an
-    interval is, why one is missing, that a quantity is descriptive or experimental. The
-    block starts at the figure's left edge and is wrapped to the figure's width, so long row
-    labels cannot push it off the page.
+
+def add_notes(target: Any, lines: Sequence[str]) -> None:
+    """Record note lines for the figure that holds ``target``, without drawing them.
+
+    Each line is one statement a reader may need: what an interval is, why one is missing,
+    that a quantity is descriptive or the fit experimental. The figure itself stays free of
+    such text; :func:`notes` returns the lines, and the plot's docstring describes them.
 
     Parameters
     ----------
-    ax : Axes
-        The bottom axes.
+    target : Axes or Figure
+        An axes of the figure, or the figure itself.
     lines : sequence of str
-        The notes, in order. Duplicates are dropped.
+        The notes, in order. Empty lines and lines already recorded are dropped.
     """
-    distinct = list(dict.fromkeys(line for line in lines if line))
-    if not distinct:
-        return
-    text = "\n".join(wrap(line, ax, NOTE_SIZE) for line in distinct)
-    below = ax.xaxis.label if ax.get_xlabel() else ax
-    ax.annotate(
-        text,
-        xy=(0.015, 0.0),
-        xycoords=("figure fraction", below),
-        xytext=(0.0, -6.0),
-        textcoords="offset points",
-        ha="left",
-        va="top",
-        fontsize=NOTE_SIZE,
-        color=SECONDARY_INK,
-        gid=GID_NOTES,
-        annotation_clip=False,
-    )
+    figure = _root(target)
+    recorded: list[str] = getattr(figure, _NOTES_ATTRIBUTE, None) or []
+    for line in lines:
+        if line and line not in recorded:
+            recorded.append(line)
+    setattr(figure, _NOTES_ATTRIBUTE, recorded)
+
+
+def notes(fig: Figure) -> tuple[str, ...]:
+    """Return the notes a plot recorded for a figure.
+
+    A figure from :mod:`cleverly.plotting` carries no note text. What a reader may need to
+    know about one fit lives here instead: why an interval is missing, that the fit or its
+    band is experimental (its interval has no checked coverage), that a quantity is
+    descriptive, or which repeat, horizon or estimand the figure shows. A fitted result's
+    ``summary()`` prints the same support and inference statements.
+
+    Parameters
+    ----------
+    fig : Figure
+        A figure a plot returned.
+
+    Returns
+    -------
+    tuple of str
+        One statement per line, in the order the plot recorded them; empty for a figure no
+        plot drew or a plot that recorded none.
+    """
+    figure = _root(fig)
+    return tuple(getattr(figure, _NOTES_ATTRIBUTE, None) or ())
 
 
 def note_text(fig: Figure) -> str:
@@ -413,25 +426,23 @@ def note_text(fig: Figure) -> str:
     Returns
     -------
     str
-        The notes, or an empty string.
+        The notes of :func:`notes`, or an empty string.
     """
-    texts = [*(text for axis in fig.axes for text in axis.texts), *fig.texts]
-    parts = [text.get_text() for text in texts if text.get_gid() == GID_NOTES]
-    return " ".join(" ".join(parts).split())
+    return " ".join(" ".join(notes(fig)).split())
 
 
 # ----------------------------------------------------------------------- figure-level text
 #
-# header() and notes() write on one axes, so the layout engine counts the text's width
-# against that axes' column. In a figure with several columns of panels a long title or
-# note then squeezes its column and pushes the next one off the page. The figure-level
-# pair below writes the same roles as figure texts anchored at the figure's left edge and
-# reserves their height through the layout rect. The constrained layout engine never sizes
+# header() writes on one axes, so the layout engine counts the text's width against that
+# axes' column. In a figure with several columns of panels a long title then squeezes its
+# column and pushes the next one off the page. figure_header() writes the same roles as
+# figure texts anchored at the figure's left edge and reserves their height through the
+# layout rect. The constrained layout engine never sizes
 # panels around figure texts or an anchored figure legend, so the texts stay in the layout:
 # a tight bounding box (``savefig(bbox_inches="tight")``, Jupyter's inline display) then
 # keeps them instead of cropping them away.
 
-#: Left edge of figure-level text, in figure fraction (the edge notes() uses too).
+#: Left edge of figure-level text, in figure fraction.
 _FIGURE_LEFT: Final = 0.015
 #: Space between the figure's edge and its text, and between text blocks, in points.
 _EDGE_PAD: Final = 6.0
@@ -452,33 +463,19 @@ def _text_height(text: str, size: float) -> float:
     return size * (1.0 + 1.2 * (lines - 1)) + 0.3 * size
 
 
-def _reserve(fig: Figure, *, top: float | None = None, bottom: float | None = None) -> None:
-    """Keep the top or bottom band of ``fig`` free of panels, in figure fraction.
-
-    The band of the side not named is kept as it is, so the header and the notes can be
-    written in either order.
-    """
+def _reserve(fig: Figure, *, top: float) -> None:
+    """Keep the top band of ``fig``, ``top`` in figure fraction, free of panels."""
     engine: Any = fig.get_layout_engine()
     settings = engine.get() if engine is not None else {}
     rect = settings.get("rect")
     if rect is not None and type(engine).__name__ == "ConstrainedLayoutEngine":
-        left, low, width, height = (float(value) for value in rect)
-        high = low + height
-        low = bottom if bottom is not None else low
-        high = 1.0 - top if top is not None else high
-        engine.set(rect=(left, low, width, high - low))
+        left, low, width, _ = (float(value) for value in rect)
+        engine.set(rect=(left, low, width, 1.0 - top - low))
     elif rect is not None:  # the tight layout engine reads (left, bottom, right, top)
-        left, low, right, high = (float(value) for value in rect)
-        low = bottom if bottom is not None else low
-        high = 1.0 - top if top is not None else high
-        engine.set(rect=(left, low, right, high))
+        left, low, right, _ = (float(value) for value in rect)
+        engine.set(rect=(left, low, right, 1.0 - top))
     else:
-        settings = {}
-        if top is not None:
-            settings["top"] = 1.0 - top
-        if bottom is not None:
-            settings["bottom"] = bottom
-        fig.subplots_adjust(**settings)
+        fig.subplots_adjust(top=1.0 - top)
 
 
 def figure_header(
@@ -495,9 +492,9 @@ def figure_header(
     collects them) are written at the figure's left edge and wrapped to the figure's width,
     and the layout engine's ``rect`` is lowered at the top by their height, so no panel is
     squeezed by text wider than its column. They count toward a tight bounding box, so
-    ``savefig(bbox_inches="tight")`` and Jupyter's inline display keep them. Use it, with
-    :func:`figure_notes`, for a figure the plot created; :func:`header` stays the call for
-    one axes. Call it after every labelled artist is drawn.
+    ``savefig(bbox_inches="tight")`` and Jupyter's inline display keep them. Use it for a
+    figure the plot created; :func:`header` stays the call for one axes. Call it after every
+    labelled artist is drawn.
 
     Parameters
     ----------
@@ -551,45 +548,6 @@ def figure_header(
         key.set_gid(GID_KEY)
         cursor += math.ceil(len(handles) / columns) * TICK_SIZE * 1.45 + _GAP
     _reserve(fig, top=(cursor + _GAP) / height)
-
-
-def figure_notes(fig: Figure, lines: Sequence[str]) -> None:
-    """Write the note lines at the bottom of a figure with several columns of panels.
-
-    The figure-level counterpart of :func:`notes`: the same roles and ink, written at the
-    figure's left edge and wrapped to the figure's width, with the layout engine's ``rect``
-    raised at the bottom by their height. Like the header, they count toward a tight
-    bounding box. :func:`note_text` reads them.
-
-    Parameters
-    ----------
-    fig : Figure
-        The figure.
-    lines : sequence of str
-        The notes, in order. Duplicates are dropped.
-    """
-    distinct = list(dict.fromkeys(line for line in lines if line))
-    if not distinct:
-        return
-    height = float(fig.get_figheight()) * 72.0
-    characters = max(30, int(float(fig.get_figwidth()) * 0.94 * 72.0 / (NOTE_SIZE * 0.52)))
-    text = "\n".join(
-        "\n".join(
-            textwrap.fill(part, characters, break_on_hyphens=False) for part in line.split("\n")
-        )
-        for line in distinct
-    )
-    fig.text(
-        _FIGURE_LEFT,
-        _EDGE_PAD / height,
-        text,
-        ha="left",
-        va="bottom",
-        fontsize=NOTE_SIZE,
-        color=SECONDARY_INK,
-        gid=GID_NOTES,
-    )
-    _reserve(fig, bottom=(_EDGE_PAD + _text_height(text, NOTE_SIZE) + 2.0 * _GAP) / height)
 
 
 def title_text(fig: Figure) -> str:
@@ -1567,7 +1525,6 @@ __all__ = [
     "GID_KEY_BAND",
     "GID_KEY_INTERVAL",
     "GID_MARKER",
-    "GID_NOTES",
     "GID_POINT",
     "GID_RANGE",
     "GID_REFERENCE",
@@ -1586,6 +1543,7 @@ __all__ = [
     "SECONDARY_INK",
     "TRUTH_LABEL",
     "Interval",
+    "add_notes",
     "band_label",
     "brackets",
     "corner_label",
@@ -1594,7 +1552,6 @@ __all__ = [
     "estimate_interval",
     "figure_for",
     "figure_header",
-    "figure_notes",
     "finite",
     "format_values",
     "header",

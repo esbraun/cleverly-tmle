@@ -2,11 +2,19 @@
 
 Use these functions after estimation to look at a result. Each draws numbers the object
 already holds and returns the matplotlib `Figure`, so you can save it, restyle it, or add to it.
-The title of each figure states the question it answers, and the note under it says what an
-interval is, why one is missing, or that a quantity is descriptive. A plot never draws an
-interval or band the fit did not compute. On simulated data, pass the known true values as
-`truth=` to `forest` or `curve`. Each is drawn as a cross beside its estimate, or as a line
-along a conditional effect curve, and the key names it "True value (simulated data only)".
+A plot never draws an interval or band the fit did not compute.
+
+The figure itself carries no notes. `cleverly.plotting.notes(fig)` returns what a reader of that
+fit may need, such as why an interval is missing or which quantities are descriptive. It also
+says whether the estimate or its band is
+[experimental](../user-guide/reading-output.md#labels-warnings-and-notes), so that its interval
+has no checked coverage. The figure does not mark an experimental result, so read the notes, or
+the result's `summary()`, before you publish a figure. Each function's documentation says what
+its notes cover.
+
+On simulated data, pass the known true values as `truth=` to `forest` or `curve`. Each is drawn
+as a cross beside its estimate, or as a line along a conditional effect curve, and the key names
+it "True value (simulated data only)".
 
 matplotlib is optional. Install it with `pip install "cleverly[plot]"`.
 
@@ -30,6 +38,7 @@ The [plot results](../examples/plots.ipynb) tutorial shows the main figures on s
    cleverly.plotting.repeats
    cleverly.plotting.bootstrap
    cleverly.plotting.influence
+   cleverly.plotting.notes
    cleverly.plotting.style
 ```
 
