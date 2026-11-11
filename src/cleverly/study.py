@@ -2951,7 +2951,7 @@ def _narrow_bands(
             kind=bands.kind,
             random_state=result.config.multiplier_seed,
             cluster=result.data.cluster,
-            band_scale=bands.band_scale,  # type: ignore[arg-type]
+            band_scale=bands.band_scale,
         )
     else:
         narrowed = simultaneous_bands(
@@ -2961,7 +2961,7 @@ def _narrow_bands(
             kind=bands.kind,
             random_state=getattr(method, "runtime", Runtime()).random_state,
             cluster=result.data.cluster,
-            band_scale=bands.band_scale,  # type: ignore[arg-type]
+            band_scale=bands.band_scale,
         )
     # No study measures a band over a narrowed family, so the band is experimental whatever its
     # row licenses for the engine's own band.
