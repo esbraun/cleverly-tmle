@@ -25,6 +25,7 @@ from typing import Any, Final, Literal
 
 import numpy as np
 
+from .._refusal import NO_ALTERNATIVE, RefusalReason
 from .._typing import FloatArray, IntArray
 from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, ConvergenceWarning, DataError
@@ -33,6 +34,14 @@ from .cox import HazardSelection, default_library, select_hazard
 from .result import ContinuousSurvivalResult, build_estimates
 
 __all__ = ["ContinuousSurvivalRecord", "ContinuousSurvivalTMLE"]
+
+
+def _gap(text: str) -> CapabilityError:
+    """A refusal of a composition the continuous-time engine has no source or study for."""
+    return CapabilityError(
+        text, reason=RefusalReason.IMPLEMENTATION_GAP, alternative=NO_ALTERNATIVE, roadmap="X6"
+    )
+
 
 ROADMAP: Final = "roadmap X6"
 #: An initial survival at or below this before the last target time is refused.
@@ -287,7 +296,7 @@ class ContinuousSurvivalTMLE:
         if norm not in ("covariance", "variance", "euclidean"):
             raise ValueError("norm is 'covariance', 'variance' or 'euclidean'")
         if treatment_learner is not None and not cross_fit:
-            raise CapabilityError(
+            raise _gap(
                 "A user treatment learner needs cross_fit=True: without cross-fitting every "
                 "nuisance is fitted and predicted on the same rows, and the interval assumes a "
                 "finite parametric model there (a Donsker class), which the default "
@@ -325,7 +334,7 @@ class ContinuousSurvivalTMLE:
         levels = list(dict.fromkeys(np.unique(treatment).tolist()))
         if self.arms is None:
             if len(levels) != 2:
-                raise CapabilityError(
+                raise _gap(
                     f"The continuous-time engine takes a binary baseline treatment; the "
                     f"column holds {len(levels)} levels. Every source of this estimator "
                     f"has two arms ({ROADMAP})."
@@ -334,12 +343,12 @@ class ContinuousSurvivalTMLE:
         else:
             labels = self.arms
             if len(labels) != 2:
-                raise CapabilityError(
+                raise _gap(
                     f"The continuous-time engine contrasts two static arms; {len(labels)} "
                     f"were declared ({ROADMAP})."
                 )
             if set(np.unique(treatment).tolist()) - set(labels.values()):
-                raise CapabilityError(
+                raise _gap(
                     "The treatment column holds a level no arm names; the continuous-time "
                     f"engine takes a binary baseline treatment ({ROADMAP})."
                 )
@@ -443,7 +452,7 @@ class ContinuousSurvivalTMLE:
             for code, label in causes.items():
                 first_event = T[(a == A) & (code == D)]
                 if first_event.size == 0 or first_event.min() > self.horizons[0]:
-                    raise CapabilityError(
+                    raise _gap(
                         f"Arm {arm_labels[a]!r} has no event of cause {label!r} at or before "
                         f"the first target time {_time_text(self.horizons[0])}, so that risk's "
                         "influence curve is zero and its interval undefined. Choose a later "
@@ -501,7 +510,7 @@ class ContinuousSurvivalTMLE:
         assert censoring_record is not None
 
         if np.any(dlam.sum(axis=1) >= 1.0):
-            raise CapabilityError(
+            raise _gap(
                 "An initial hazard fit puts a combined jump of one or more at some time, so the "
                 "product-limit survival is not a probability there. A Breslow jump can exceed "
                 "one where few units are at risk; choose earlier target times or a smaller "
@@ -509,7 +518,7 @@ class ContinuousSurvivalTMLE:
             )
         survival = np.cumprod(1.0 - dlam.sum(axis=1), axis=-1)
         if np.any(survival[..., -1] <= SURVIVAL_FLOOR):
-            raise CapabilityError(
+            raise _gap(
                 "The initial survival reaches zero before the last target time for some unit "
                 "and arm, so the clever covariate divides by zero. The estimator needs "
                 "S(t_K | a, L) bounded away from zero; choose an earlier last target time."

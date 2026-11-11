@@ -1673,7 +1673,7 @@ class TimeToEvent:
             event=self.event,
             treatment=self.treatment,
             baseline=self.baseline,
-            grid=self.grid,
+            grid=None if isinstance(self.grid, str) else self.grid,
             causes=self.causes,
             id=self.cluster,
             weights=self.weights,

@@ -1,0 +1,440 @@
+"""The continuous-time survival TMLE (X91 part G) on an exact law, plus refusals.
+
+The law is the two-cause ``PointLaw`` of ``tests/discrete_law_point_survival.py`` restricted to
+arms 0 and 1.  Its sample realises the law exactly, so the stratified Nelson-Aalen fit is the
+law's own hazard, the g-formula is a quotient of cell masses, and the efficient influence
+function is the complex-step Gateaux derivative of that quotient.  Censoring at node ``k`` is
+time ``k - 1``, so censoring ties with the events of node ``k - 1``.
+"""
+
+from __future__ import annotations
+
+import warnings
+from functools import cache
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from cleverly import CausalStudy, RegimeContrast, RegimeMean, TimeToEvent
+from cleverly.exceptions import CapabilityError, DataError, MethodConfigurationError
+from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard, StratifiedNelsonAalen, _targeting
+from cleverly.survival._targeting import Problem, evaluate, walk
+from cleverly.survival.cox import (
+    _design,
+    _loglik_parts,
+    _risk_sets,
+    partial_log_likelihood,
+    select_hazard,
+)
+from tests.discrete_law_point_survival import PointLaw
+
+HORIZONS = (1, 2, 3)
+TARGETS = [(a, j, h) for a in (0, 1) for j in (1, 2) for h in HORIZONS]
+
+
+@cache
+def _law() -> dict[str, Any]:
+    law = PointLaw("survival", 3, 2, False, False)
+    frame = law.long_frame([1.0, 2.0, 3.0])
+    keep = frame["A"].to_numpy() != 2
+    arm_of = np.array([point[law.columns.index("A")] for point in law.support])
+    points = np.flatnonzero(arm_of != 2)
+    first = (np.cumsum(keep) - 1)[law.first_row_of()[points]]
+    base = law.probs * (arm_of != 2)
+    return {
+        "law": law,
+        "frame": frame[keep].reset_index(drop=True),
+        "points": points,
+        "first": first,
+        "base": base / base.sum(),
+    }
+
+
+def _functional(probs: Any, arm: int, horizon: int, cause: int) -> Any:
+    law = _law()["law"]
+    total = sum(law._mass(probs, {"A": b}) for b in (0, 1))
+    return sum(
+        (law._mass(probs, {"W": w, "A": 0}) + law._mass(probs, {"W": w, "A": 1}))
+        / total
+        * law._regression(probs, {"W": w, "A": arm}, 1, horizon, cause, None)
+        for w in (0, 1)
+    )
+
+
+def _truth(arm: int, horizon: int, cause: int) -> float:
+    return float(np.real(_functional(_law()["base"].astype(float), arm, horizon, cause)))
+
+
+@cache
+def _gateaux(arm: int, horizon: int, cause: int) -> np.ndarray:
+    data = _law()
+    out = []
+    for point in data["points"]:
+        mass = np.zeros(data["base"].size, dtype=complex)
+        mass[point] = 1.0
+        perturbed = (1 - 1e-30j) * data["base"] + 1e-30j * mass
+        out.append(np.imag(_functional(perturbed, arm, horizon, cause)) / 1e-30)
+    return np.array(out)
+
+
+def _arrays() -> tuple[np.ndarray, ...]:
+    frame = _law()["frame"]
+    W = frame["W"].to_numpy().astype(float)
+    A = frame["A"].to_numpy().astype(int)
+    T = frame["time"].to_numpy().astype(float)
+    D = frame["event"].to_numpy().astype(int)
+    return W, A, T, D
+
+
+def _jumps(model: Any, X: np.ndarray, grid: np.ndarray) -> np.ndarray:
+    out = np.zeros((2, X.shape[0], grid.size))
+    for a in (0, 1):
+        Xa = X.copy()
+        Xa[:, 0] = a
+        cumulative = model.cumulative_hazard(Xa, grid)
+        out[a] = np.diff(np.concatenate([np.zeros((X.shape[0], 1)), cumulative], axis=1), axis=1)
+    return out
+
+
+def _problem(
+    *, hazard_by: tuple[int, ...] = (0, 1), tie_rule: bool = True, before: bool = True
+) -> tuple[Problem, np.ndarray]:
+    """The exact-law problem: saturated or arm-only hazards, the law's own G."""
+    W, A, T, D = _arrays()
+    X = np.column_stack([A, W]).astype(float)
+    grid = np.unique(T)
+    dlam = np.zeros((2, 2, T.size, grid.size))
+    for j in range(2):
+        model = StratifiedNelsonAalen(by=hazard_by).fit(X, T, (j + 1 == D).astype(float))
+        dlam[:, j] = _jumps(model, X, grid)
+    censor_time = np.where(D > 0, T - 0.25, T) if tie_rule else T
+    censoring = StratifiedNelsonAalen(by=(0, 1)).fit(X, censor_time, (D == 0).astype(float))
+    retention = np.cumprod(1 - _jumps(censoring, X, grid), axis=-1)
+    if before:
+        retention = np.concatenate([np.ones((2, T.size, 1)), retention[..., :-1]], axis=-1)
+    p1 = np.array([np.mean(A[w == W] == 1) for w in W])
+    pi = np.stack([1 - p1, p1])
+    at_risk = (T[:, None] >= grid[None, :]).astype(float)
+    events = np.stack(
+        [((T[:, None] == grid[None, :]) & (D[:, None] == j + 1)).astype(float) for j in range(2)]
+    )
+    index = np.searchsorted(grid, HORIZONS, side="right") - 1
+    return Problem(A, at_risk, events, 1.0 / (pi[:, :, None] * retention), index), dlam
+
+
+def _ic_error(problem: Problem, dlam: np.ndarray) -> float:
+    first = _law()["first"]
+    evaluation = evaluate(problem, dlam)
+    return max(
+        float(np.max(np.abs(evaluation.influence[first, p] - _gateaux(a, h, j))))
+        for p, (a, j, h) in enumerate(TARGETS)
+    )
+
+
+def _bias(psi: np.ndarray) -> np.ndarray:
+    return np.array([psi[p] - _truth(a, h, j) for p, (a, j, h) in enumerate(TARGETS)])
+
+
+# ------------------------------------------------------------------ check 1 and 2
+
+
+def test_the_saturated_fit_is_the_g_formula_and_needs_no_step() -> None:
+    problem, dlam = _problem()
+    result = walk(problem, dlam, cutoff=1e-12)
+    assert result.steps == 0
+    np.testing.assert_allclose(_bias(result.evaluation.psi), 0.0, atol=1e-14)
+    np.testing.assert_allclose(result.evaluation.score, 0.0, atol=1e-14)
+
+
+def test_the_influence_curve_is_the_gateaux_derivative() -> None:
+    assert _ic_error(*_problem()) < 1e-12
+
+
+@pytest.mark.parametrize(
+    ("mutation", "kwargs"),
+    [
+        ("censoring risk set holds tied events", {"tie_rule": False}),
+        ("S_c(u) in place of S_c(u-)", {"before": False}),
+    ],
+)
+def test_each_censoring_mutation_breaks_the_influence_curve(
+    mutation: str, kwargs: dict[str, bool]
+) -> None:
+    # The estimate never reads S_c at the saturated fit, so only the curve can see these.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        error = _ic_error(*_problem(**kwargs))
+    assert not error <= 0.1, mutation
+
+
+def test_the_exponential_survival_mutation_breaks_the_curve_and_the_sum(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    problem, dlam = _problem()
+
+    def exponential(jumps: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        survival = np.exp(-np.cumsum(jumps.sum(axis=1), axis=-1))
+        before = np.concatenate([np.ones((*survival.shape[:-1], 1)), survival[..., :-1]], -1)
+        return survival, np.cumsum(before[:, None] * jumps, axis=-1)
+
+    monkeypatch.setattr(_targeting, "curves", exponential)
+    assert _ic_error(problem, dlam) > 1e-3
+    survival, incidence = exponential(dlam)
+    assert np.max(np.abs(survival + incidence.sum(axis=1) - 1.0)) > 1e-3
+
+
+# ------------------------------------------------------------------- check 3
+
+
+@pytest.fixture(scope="module")
+def wrong_hazard() -> tuple[Problem, np.ndarray]:
+    return _problem(hazard_by=(0,))
+
+
+@pytest.mark.parametrize("norm", ["covariance", "variance", "euclidean"])
+def test_targeting_a_wrong_hazard_reaches_the_truth(
+    wrong_hazard: tuple[Problem, np.ndarray], norm: str
+) -> None:
+    problem, dlam = wrong_hazard
+    result = walk(problem, dlam, cutoff=1e-7, norm=norm, max_steps=20_000)  # type: ignore[arg-type]
+    initial = np.abs(_bias(result.initial.psi))
+    witnesses = initial > 1e-3
+    assert witnesses.sum() >= 6
+    assert result.converged
+    assert np.max(np.abs(_bias(result.evaluation.psi))) < 1e-6 * np.max(initial) * 1e3
+
+
+def test_tilting_only_the_received_arm_keeps_the_bias(
+    wrong_hazard: tuple[Problem, np.ndarray],
+) -> None:
+    problem, dlam = wrong_hazard
+    result = walk(problem, dlam, cutoff=1e-7, max_steps=20_000, tilt="factual")
+    np.testing.assert_allclose(result.evaluation.score, 0.0, atol=1e-6)
+    initial = np.abs(_bias(result.initial.psi))
+    assert np.max(np.abs(_bias(result.evaluation.psi))[initial > 1e-3]) > 1e-3
+
+
+def test_freezing_the_other_cause_keeps_the_bias(
+    wrong_hazard: tuple[Problem, np.ndarray], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    problem, dlam = wrong_hazard
+    original = _targeting._direction
+
+    def frozen(problem: Problem, evaluation: Any, v: np.ndarray) -> np.ndarray:
+        out = original(problem, evaluation, v)
+        out[:, 1] = 0.0
+        return out
+
+    monkeypatch.setattr(_targeting, "_direction", frozen)
+    result = walk(problem, dlam, cutoff=1e-7, max_steps=2_000)
+    assert np.max(np.abs(_bias(result.evaluation.psi))) > 1e-3
+
+
+def test_the_true_hazards_take_no_step_under_any_censoring_model() -> None:
+    problem, dlam = _problem(tie_rule=False)
+    assert walk(problem, dlam, cutoff=1e-12).steps == 0
+
+
+# ------------------------------------------------------------------- check 4
+
+
+@pytest.mark.parametrize("norm", ["covariance", "variance", "euclidean"])
+def test_the_path_derivative_of_the_log_likelihood_is_the_score_norm(
+    wrong_hazard: tuple[Problem, np.ndarray], norm: str
+) -> None:
+    problem, dlam = wrong_hazard
+    evaluation = evaluate(problem, dlam)
+    sigma = np.cov(evaluation.influence, rowvar=False, bias=True)
+    metric = _targeting._metric(sigma, norm)  # type: ignore[arg-type]
+    x = evaluation.score
+    length = float(np.sqrt(x @ metric @ x))
+    direction = _targeting._direction(problem, evaluation, metric @ x / length)
+    factual = np.stack([(problem.arm == a) for a in (0, 1)])[:, None, :, None]
+
+    def loglik(step: float) -> float:
+        jumps = dlam * np.exp(step * direction)
+        own = (jumps * factual).sum(axis=0)  # (J, n, M) at the received arm
+        return (
+            float(
+                np.sum(problem.events * np.log(np.where(problem.events > 0, own, 1.0)))
+                - np.sum(problem.at_risk[None] * own)
+            )
+            / problem.n
+        )
+
+    h = 1e-6
+    derivative = (loglik(h) - loglik(-h)) / (2 * h)
+    assert derivative == pytest.approx(length, rel=1e-6)
+
+
+# ------------------------------------------------------------------- check 5
+
+
+def test_incidences_and_survival_add_to_one_along_the_walk(
+    wrong_hazard: tuple[Problem, np.ndarray],
+) -> None:
+    problem, dlam = wrong_hazard
+    result = walk(problem, dlam, cutoff=1e-7, max_steps=50)
+    survival, incidence = _targeting.curves(result.dlam)
+    np.testing.assert_allclose(survival + incidence.sum(axis=1), 1.0, atol=1e-12)
+    assert np.all(np.diff(incidence, axis=-1) >= -1e-15)
+
+
+# ------------------------------------------------------------- check 6: Cox
+
+
+def _cox_sample(n: int = 400, seed: int = 3) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    rng = np.random.default_rng(seed)
+    A = rng.integers(0, 2, n)
+    L = rng.normal(size=(n, 2))
+    T = rng.exponential(1 / np.exp(0.5 * A - 0.3 * L[:, 0]))
+    C = rng.exponential(2.0, n)
+    time = np.round(np.minimum(T, C), 2)  # ties
+    return np.column_stack([A, L]), time, (T <= C).astype(float)
+
+
+def test_the_cox_fit_solves_its_score_with_the_exact_hessian() -> None:
+    X, time, event = _cox_sample()
+    model = CoxHazard("main").fit(X, time, event)
+    Z = _design(X, "main")
+    sets = _risk_sets(time, event)
+    _, grad, info = _loglik_parts(model.coef_, Z, sets)
+    assert np.max(np.abs(grad)) < 1e-9
+    step = 1e-6
+    numeric = np.array(
+        [
+            (
+                _loglik_parts(model.coef_ + step * e, Z, sets)[1]
+                - _loglik_parts(model.coef_ - step * e, Z, sets)[1]
+            )
+            / (2 * step)
+            for e in np.eye(3)
+        ]
+    )
+    np.testing.assert_allclose(-numeric, info, atol=1e-6)
+
+
+def test_at_zero_coefficients_the_baseline_is_nelson_aalen_and_the_score_is_log_rank() -> None:
+    X, time, event = _cox_sample()
+    pooled = StratifiedNelsonAalen(by=()).fit(X, time, event)
+    nearly_zero = CoxHazard("treatment", penalty=1e12).fit(X, time, event)
+    grid = np.linspace(0.0, 3.0, 13)
+    np.testing.assert_allclose(
+        nearly_zero.cumulative_hazard(X[:2], grid), pooled.cumulative_hazard(X[:2], grid), atol=1e-9
+    )
+    sets = _risk_sets(time, event)
+    _, grad, _ = _loglik_parts(np.zeros(1), X[:, :1], sets)
+    observed = event[X[:, 0] == 1].sum()
+    expected = sum(
+        d * np.mean(X[time >= t, 0]) for t, d in zip(sets.times, sets.deaths, strict=True)
+    )
+    assert grad[0] == pytest.approx(observed - expected, rel=1e-12)
+
+
+def test_a_hand_computed_tied_example() -> None:
+    # Two events tie at t = 1 among four units at risk; one more at t = 2 among two.
+    X = np.array([[0.0], [1.0], [0.0], [1.0]])
+    time = np.array([1.0, 1.0, 2.0, 3.0])
+    event = np.array([1.0, 1.0, 1.0, 0.0])
+    model = CoxHazard("treatment").fit(X, time, event)
+    beta = model.coef_[0]
+    # Breslow: score = sum over events of x - (2 * S1/S0 at t=1) - (S1/S0 at t=2) = 0
+    s0_1, s1_1 = 2 + 2 * np.exp(beta), 2 * np.exp(beta)
+    s0_2, s1_2 = 1 + np.exp(beta), np.exp(beta)
+    assert 1 - 2 * s1_1 / s0_1 - s1_2 / s0_2 == pytest.approx(0.0, abs=1e-10)
+    jumps = model.cumulative_hazard(np.array([[0.0]]), np.array([1.0, 2.0]))[0]
+    assert jumps[0] == pytest.approx(2 / s0_1, rel=1e-10)
+    assert jumps[1] - jumps[0] == pytest.approx(1 / s0_2, rel=1e-10)
+
+
+def test_the_selector_compares_like_with_like_and_refuses_a_mixed_library() -> None:
+    X, time, event = _cox_sample()
+    folds = np.arange(time.size) % 5
+    selection = select_hazard(
+        [CoxHazard("treatment"), CoxHazard("main"), CoxHazard("interaction")], X, time, event, folds
+    )
+    assert selection.chosen_name in {"CoxHazard('main')", "CoxHazard('interaction')"}
+    assert np.isfinite(partial_log_likelihood(selection.model, X, time, event))
+    with pytest.raises(CapabilityError, match="same risk sets"):
+        select_hazard([CoxHazard("main"), StratifiedNelsonAalen((0,))], X, time, event, folds)
+
+
+# --------------------------------------------------------- end to end and refusals
+
+
+def _sample(n: int = 500, seed: int = 0) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    X3 = rng.normal(size=n)
+    Z = rng.binomial(1, 1 / (1 + np.exp(-X3)))
+    h1 = np.exp(-1.5 + 0.5 * X3 - Z)
+    h2 = np.exp(-2.0 - 0.5 * X3 - 0.5 * Z)
+    T = rng.exponential(1 / (h1 + h2))
+    cause = np.where(rng.uniform(size=n) < h1 / (h1 + h2), 1, 2)
+    C = rng.exponential(1 / 0.15, n)
+    return pd.DataFrame(
+        {"time": np.minimum(T, C), "event": np.where(T <= C, cause, 0), "Z": Z, "X3": X3}
+    )
+
+
+def _design_continuous(**extra: Any) -> TimeToEvent:
+    return TimeToEvent(
+        time="time", event="event", treatment="Z", baseline=["X3"], grid="continuous", **extra
+    )
+
+
+def test_the_study_route_reports_every_risk_and_contrast() -> None:
+    study = CausalStudy(_sample(), design=_design_continuous(causes={1: "relapse", 2: "death"}))
+    effect = study.identify(
+        RegimeContrast({"treated": 1, "control": 0}, reference="control", horizons=[0.5, 1.0])
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = effect.estimate(random_state=0, cross_fit=False)
+    assert "cif_regimen[treated, death @ t=1]" in result
+    assert "ate_regimen[treated vs control, relapse @ t=0.5]" in result
+    assert result.record.converged
+    assert not result.record.cross_fitted
+    assert 0.0 <= result["cif_regimen[control, relapse @ t=1]"].psi <= 1.0
+
+
+@pytest.mark.parametrize(
+    ("extra", "match"),
+    [
+        ({"cluster": "X3"}, "cluster"),
+        ({"eliminate": ("death",), "causes": {1: "relapse", 2: "death"}}, "eliminate"),
+        ({"continuous_treatment": True}, "continuous_treatment"),
+    ],
+)
+def test_the_design_refuses_what_has_no_continuous_form(extra: dict[str, Any], match: str) -> None:
+    with pytest.raises(CapabilityError, match=match):
+        _design_continuous(**extra)
+
+
+def test_other_methods_estimands_and_settings_refuse() -> None:
+    study = CausalStudy(_sample(), design=_design_continuous())
+    effect = study.identify(RegimeMean({"1": 1, "0": 0}, horizons=[1.0]))
+    with pytest.raises(CapabilityError, match="no continuous-time form"):
+        effect.estimate(method="gcomp")
+    with pytest.raises(MethodConfigurationError, match="q_bounds"):
+        effect.estimate(q_bounds=(0.1, 0.9))
+    with pytest.raises(CapabilityError, match="two static arms"):
+        study.identify(RegimeMean({"1": 1}, horizons=[1.0]))
+    with pytest.raises(DataError, match="horizons"):
+        study.identify(RegimeMean({"1": 1, "0": 0}))
+
+
+def test_a_flexible_treatment_learner_needs_cross_fitting() -> None:
+    from sklearn.ensemble import RandomForestClassifier
+
+    with pytest.raises(CapabilityError, match="cross_fit=True"):
+        ContinuousSurvivalTMLE([1.0], cross_fit=False, treatment_learner=RandomForestClassifier())
+
+
+def test_a_target_before_any_event_of_a_cause_in_an_arm_is_refused() -> None:
+    frame = _sample()
+    early = float(frame["time"][frame["event"] > 0].min()) / 2
+    with pytest.raises(CapabilityError, match="no event of cause"):
+        ContinuousSurvivalTMLE([early], cross_fit=False).fit(
+            frame, time="time", event="event", treatment="Z", baseline=["X3"]
+        )

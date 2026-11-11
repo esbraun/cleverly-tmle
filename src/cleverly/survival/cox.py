@@ -22,6 +22,7 @@ from typing import Any, Final, Literal
 import numpy as np
 from scipy.linalg import cho_factor, cho_solve
 
+from .._refusal import NO_ALTERNATIVE, RefusalReason
 from .._typing import FloatArray, IntArray
 from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, ConvergenceWarning
@@ -33,6 +34,14 @@ __all__ = [
     "partial_log_likelihood",
     "select_hazard",
 ]
+
+
+def _gap(text: str) -> CapabilityError:
+    """A refusal of a composition the continuous-time engine has no source or study for."""
+    return CapabilityError(
+        text, reason=RefusalReason.IMPLEMENTATION_GAP, alternative=NO_ALTERNATIVE, roadmap="X6"
+    )
+
 
 CoxTerms = Literal["treatment", "main", "interaction"]
 
@@ -340,7 +349,7 @@ class StratifiedNelsonAalen:
         for i, key in enumerate(keys):
             if key not in cache:
                 if key not in self.cells_:
-                    raise CapabilityError(
+                    raise _gap(
                         f"{self!r} has no fitted cell {key}; a saturated hazard predicts only "
                         "the cells it saw."
                     )
@@ -432,7 +441,7 @@ def select_hazard(
     if len(library) == 1:
         return HazardSelection(names, (float("nan"),), 0, _clone(library[0]).fit(X, time, event))
     if not all(isinstance(member, CoxHazard) for member in library):
-        raise CapabilityError(
+        raise _gap(
             "A hazard library of more than one member holds CoxHazard models only: the "
             "cross-validated partial likelihood compares members over the same risk sets, which "
             "a stratified or nonparametric learner does not share. A comparable loss for mixed "
