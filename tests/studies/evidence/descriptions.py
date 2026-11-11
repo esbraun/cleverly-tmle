@@ -3682,13 +3682,12 @@ STUDY_ARM_CELLS.update(
             _DIAGNOSTIC_REQUIRED,
         ),
         (*_SDR_BAND, "rademacher_band_reporting"): (
-            "the band on the logit and atanh scales with the Rademacher multiplier at 10,000 "
-            "draws",
+            "the band on the logit and atanh scales with the Rademacher multiplier at 10,000 draws",
             _DIAGNOSTIC_REQUIRED,
         ),
         (*_SDR_BAND, "refused_band"): (
             "per replication, whether the fit refused the declared band because an estimate "
-            "sat on its range boundary",
+            "sat on its range boundary; its coverage column is the share of fits refused",
             _DIAGNOSTIC_REQUIRED,
         ),
     }

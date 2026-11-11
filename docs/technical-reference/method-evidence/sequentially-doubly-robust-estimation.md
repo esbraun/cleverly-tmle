@@ -202,7 +202,7 @@ Comparator-backed: a paired comparison with `lmtp` on the same samples. Each row
 | `simultaneous_coverage` | `six_regimens__identity_scale_control` | scale_control | the six regimen means and five contrasts of the two-node law: the same band on the identity scale at the band's own critical value | the 99% lower bound of the paired coverage gain of the band over this row is at least 0.0001 | joint coverage 0.9272 to 0.9384 | pass |
 | `simultaneous_coverage` | `six_regimens__pointwise_joint_control` | control | the six regimen means and five contrasts of the two-node law: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.6904 to 0.7107 | pass |
 | `simultaneous_coverage` | `six_regimens__rademacher_band_reporting` | diagnostic | the six regimen means and five contrasts of the two-node law: the band on the logit and atanh scales with the Rademacher multiplier at 10,000 draws | none. The row is a diagnostic and states no verdict | joint coverage 0.9354 to 0.9459 | reported |
-| `simultaneous_coverage` | `six_regimens__refused_band` | diagnostic | the six regimen means and five contrasts of the two-node law: per replication, whether the fit refused the declared band because an estimate sat on its range boundary | none. The row is a diagnostic and states no verdict | joint coverage 0 to 0.000390 | reported |
+| `simultaneous_coverage` | `six_regimens__refused_band` | diagnostic | the six regimen means and five contrasts of the two-node law: per replication, whether the fit refused the declared band because an estimate sat on its range boundary; its coverage column is the share of fits refused | none. The row is a diagnostic and states no verdict | joint coverage 0 to 0.000390 | reported |
 | `simultaneous_coverage` | `six_regimens__shipped_band_reporting` | diagnostic | the six regimen means and five contrasts of the two-node law: the shipped default band: identity scale, Rademacher multiplier, 2,000 draws | none. The row is a diagnostic and states no verdict | joint coverage 0.9255 to 0.9368 | reported |
 | `simultaneous_coverage` | `six_regimens__simultaneous_band` | positive | the six regimen means and five contrasts of the two-node law: the max-t band with each regimen mean on its logit scale and each contrast on its atanh scale, at the Mammen multiplier critical value from 10,000 draws; a band the fit refuses for an estimate on its range boundary counts as not covering | joint coverage interval inside the calibration coverage band | joint coverage 0.9366 to 0.9470 | pass |
 | `type_i_error` | `static__sharp_null` | positive | static plan: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0600, 0.0404 to 0.0850 | pass |
@@ -278,20 +278,20 @@ the cell carries no within-cell variation, so no plug-in variance sees its share
 A cell of equal outcomes is fitted exactly, so its residual is zero. An empty or one-row cell is
 absent from the training folds of its held-out row, so the cell mean falls back to the training
 mean. A defect in the `SDR` curve would not be shared with `LTMLE`, and would not disappear at
-twice the tail size.
+twice the tail size. `tests/unit/test_sdr_below_tail_size_reading.py` rebuilds this reading from
+the committed rows.
 
 **The weighted cell at n = 2,400.** The weighted cell at n = 2,000 sits at 0.86 of twice its tail
 size and passes as a reporting cell. Its gated twin `selection_weighted_n2400` runs 5,600
 replications. Its SE-ratio interval is 0.961 to 1.011 and its coverage interval 0.928 to 0.945,
 inside both bands, and both of its controls fall below the SE-ratio band.
 
-`tests/unit/test_sdr_below_tail_size_reading.py` rebuilds the coverage reading from the committed rows.
-
 **The band.** The band reads every regimen mean and contrast of the six-plan law. Its first
 registration, the shipped band on the identity scale, covered 0.925 (99% interval 0.909 to
 0.939) against a band of 0.92 to 0.98. A diagnosis traced the shortfall to the standard error of
-a probability moving with its estimate, so the band was re-declared before a fresh run on a new
-seed stream ([`band-finite-sample`](../../roadmap.md#red-cell-owners)). Each regimen mean is
+a probability moving with its estimate. The scale and multiplier were chosen on those draws, so
+the band was re-declared and run on a new seed stream that the choice never saw
+([`band-finite-sample`](../../roadmap.md#red-cell-owners)). Each regimen mean is
 banded on its logit scale and each contrast on its atanh scale, at the Mammen multiplier critical
 value from 10,000 draws (`band_scale="logit"`, `multiplier_kind="mammen"`; see
 [the band scale](../inference.md#the-band-scale)). Over 13,600 replications that band covers
@@ -300,8 +300,9 @@ value from 10,000 draws (`band_scale="logit"`, `multiplier_kind="mammen"`; see
 The same band on the identity scale at the same critical value covers 0.933, and the paired
 gain of the logit band has a 99% lower bound of 0.0068. The shipped default band (identity
 scale, Rademacher multiplier, 2,000 draws) covers 0.931 (99% interval 0.926 to 0.937) on the
-same fits. That row states no verdict, and it is why a band built with the shipped default on
-this support row is experimental. No fit refused the logit band.
+same fits, and the logit band with the Rademacher multiplier covers 0.941, so most of the gain
+comes from the scale. Neither reporting row states a verdict. A band built with the shipped
+default on this support row is experimental. No fit refused the logit band.
 
 ## Measured values and declared margins
 

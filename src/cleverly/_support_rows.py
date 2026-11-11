@@ -2619,7 +2619,8 @@ BAND_OPTION_SHORTFALLS: Final[Mapping[tuple[str, BandOption], str]] = {
         "Row G23.cross_fitted measured its shipped default band (Rademacher, identity scale, "
         "2,000 draws) in the reporting row six_regimens__shipped_band_reporting: joint coverage "
         "0.9313 with 99% Clopper-Pearson interval 0.9255 to 0.9368, reported with no verdict "
-        "(band-finite-sample)."
+        "(band-finite-sample). A band with band_scale='logit', multiplier_kind='mammen' and at "
+        "least 10,000 draws is supported on this row."
     ),
 }
 
