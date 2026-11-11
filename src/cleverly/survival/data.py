@@ -38,6 +38,8 @@ class ContinuousSurvivalData:
         ``(time, event, treatment, *baseline)`` column names.
     causes : dict of int to str or None
         The label of each nonzero event code, as declared.
+    backend : str or None
+        The dataframe library the frame arrived in, so results come back in it.
     """
 
     time: np.ndarray
@@ -46,6 +48,7 @@ class ContinuousSurvivalData:
     baseline: np.ndarray
     names: tuple[str, ...]
     causes: dict[int, str] | None
+    backend: str | None = None
 
     @property
     def n(self) -> int:
@@ -90,7 +93,7 @@ class ContinuousSurvivalData:
         ContinuousSurvivalData
             The container.
         """
-        from ..utils.frames import as_frame, is_dataframe
+        from ..utils.frames import as_frame, backend_of, is_dataframe
 
         if not is_dataframe(data):
             raise DataError("TimeToEvent(grid='continuous') expects a pandas or polars DataFrame")
@@ -125,6 +128,7 @@ class ContinuousSurvivalData:
             L,
             names,
             None if causes is None else {int(k): str(v) for k, v in causes.items()},
+            backend_of(frame),
         )
 
 

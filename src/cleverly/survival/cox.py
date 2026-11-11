@@ -141,6 +141,13 @@ class CoxHazard:
         extra = f", penalty={self.penalty:g}" if self.penalty else ""
         return f"CoxHazard({self.terms!r}{extra})"
 
+    @property
+    def label(self) -> str:
+        """The model in words, as a summary prints it."""
+        terms = {"treatment": "treatment only", "main": "main terms", "interaction": "interactions"}
+        extra = f", penalty {self.penalty:g}" if self.penalty else ""
+        return f"Cox, {terms[self.terms]}{extra}"
+
     def _standardize(self, Z: FloatArray) -> FloatArray:
         return (Z - self.center_) / self.scale_
 
@@ -292,6 +299,11 @@ class StratifiedNelsonAalen:
 
     def __repr__(self) -> str:
         return f"StratifiedNelsonAalen(by={self.by})"
+
+    @property
+    def label(self) -> str:
+        """The model in words, as a summary prints it."""
+        return "Nelson-Aalen by treatment" if self.by == (0,) else "Nelson-Aalen by stratum"
 
     def _keys(self, X: Any) -> list[tuple[float, ...]]:
         X = np.asarray(X, dtype=float)

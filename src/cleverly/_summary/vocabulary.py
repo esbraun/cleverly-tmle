@@ -4662,3 +4662,57 @@ BALANCE_READINGS: Final[Mapping[str, str]] = MappingProxyType(
         ),
     }
 )
+
+# ------------------------------------------------- continuous-time survival (X91 part G)
+
+CONTINUOUS_SURVIVAL_TITLE: Final = "Risk by time, continuous follow-up (TMLE)"
+CONTINUOUS_QUESTION: Final = "risk of {causes} by each time"
+CONTINUOUS_TIMES: Final = "Times"
+CONTINUOUS_ARMS: Final = "Arms"
+CONTINUOUS_ARMS_TEXT: Final = "{treated} vs {reference}"
+CONTINUOUS_METHOD: Final = "one-step TMLE"
+CONTINUOUS_FOLDS: Final = ", {k} folds"
+EVENT_MODELS: Final = "Event model"
+CENSORING_MODEL: Final = "Censoring model"
+TARGETING_STEPS: Final = "Update steps"
+TARGETING_READING: Final[Mapping[bool, str]] = MappingProxyType(
+    {True: "{steps}, converged", False: "{steps}, stopped early"}
+)
+USER_TREATMENT_MODEL: Final = "the learner passed in"
+SECTION_TARGETING: Final = "How the update ended"
+CONTINUOUS_TARGETING_LINES: Final[tuple[str, ...]] = (
+    "Event times in the follow-up window: {grid}",
+    "Largest |mean score| / its standard error: {worst} (stopping rule {cutoff})",
+    "Step halvings: {halvings}",
+    "Share of at-risk times where the chance of the arm times staying uncensored was raised "
+    "to its floor: {bounded}",
+    "Share of a fine time grid whose score exceeds the stopping rule: {off_grid}",
+)
+#: The assumptions a continuous-time survival fit states.
+CONTINUOUS_ASSUMPTIONS: Final[tuple[str, ...]] = (
+    "no unmeasured confounding: given the baseline covariates, the arm a unit got is "
+    "unrelated to its event times",
+    "censoring at random: given the arm and the baseline covariates, whether a unit is still "
+    "followed is unrelated to when its event would happen",
+    "both arms possible: every group of units with the same baseline covariates could get "
+    "either arm",
+    "follow-up reaches the last target time: every group could still be followed then",
+)
+
+CONTINUOUS_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "continuous_not_converged": "warning",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **CONTINUOUS_NOTE_CODES})
+
+CONTINUOUS_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "continuous_not_converged": (
+            "The update stopped after {steps} steps before every mean score fell below "
+            "its stopping rule; the largest is {worst} times the rule. The intervals may be "
+            "too narrow. result.record.standardized_score lists every target."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **CONTINUOUS_NOTE_TEXTS})

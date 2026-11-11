@@ -4,11 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from .._support import Support
 from ..inference.influence import ParameterEstimate, make_estimate
+from ..utils.frames import emit_frame
+
+#: Until the validation study registers a support row, every estimate is experimental.
+UNVALIDATED: Support = Support(
+    "experimental",
+    "No validation study covers the continuous-time survival TMLE yet.",
+)
 
 if TYPE_CHECKING:
     from ._targeting import WalkResult
@@ -111,7 +119,14 @@ def build_estimates(
                 p = (a * J + j) * K + k
                 name = level_name(arms[a], None if single else cause, time)
                 out[name] = make_estimate(
-                    name, psi[p], ic[:, p], n=n, scale="level", alpha=alpha, bounds=(0.0, 1.0)
+                    name,
+                    psi[p],
+                    ic[:, p],
+                    n=n,
+                    scale="level",
+                    alpha=alpha,
+                    bounds=(0.0, 1.0),
+                    support=UNVALIDATED,
                 )
     for j, cause in enumerate(labels):
         for k, time in enumerate(horizons):
@@ -126,6 +141,7 @@ def build_estimates(
                 scale="difference",
                 alpha=alpha,
                 bounds=(-1.0, 1.0),
+                support=UNVALIDATED,
             )
             name = contrast_name("rr_regimen", arms[1], arms[0], label, time)
             if psi[p0] > 0 and psi[p1] > 0:
@@ -138,6 +154,7 @@ def build_estimates(
                     scale="ratio",
                     alpha=alpha,
                     log_psi=float(np.log(psi[p1] / psi[p0])),
+                    support=UNVALIDATED,
                 )
     return out
 
@@ -167,6 +184,8 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         The target times.
     n : int
         The number of units.
+    backend : str or None
+        The dataframe library the data arrived in; :meth:`to_frame` returns a frame of it.
     """
 
     estimates: dict[str, ParameterEstimate]
@@ -176,6 +195,7 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     causes: tuple[str, ...]
     horizons: tuple[float, ...]
     n: int
+    backend: str | None = None
 
     def __getitem__(self, name: str) -> ParameterEstimate:
         return self.estimates[name]
@@ -186,26 +206,66 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     def __len__(self) -> int:
         return len(self.estimates)
 
-    def to_frame(self) -> Any:
-        """One row per parameter: estimate, standard error and interval.
+    @property
+    def n_folds(self) -> int:
+        """The number of cross-fitting folds, ``1`` for a full-sample fit."""
+        return int(self.record.n_folds)
+
+    def summary(self, *, detail: Literal["short", "full"] = "short") -> Any:
+        """A printable report of the fit.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}
+            ``"full"`` adds the assumptions and how the update ended.
 
         Returns
         -------
-        pandas.DataFrame
-            The table.
+        Summary
+            The report.
         """
-        import pandas as pd
+        from .._summary._continuous_survival import continuous_survival_summary
 
-        rows = []
-        for name, estimate in self.estimates.items():
-            low, high = estimate.ci
-            rows.append(
-                {
-                    "parameter": name,
-                    "estimate": estimate.psi,
-                    "std_error": estimate.std_error,
-                    "ci_lower": low,
-                    "ci_upper": high,
-                }
-            )
-        return pd.DataFrame(rows)
+        return continuous_survival_summary(self, detail=detail)
+
+    def _repr_html_(self) -> str:
+        return str(self.summary().as_html())
+
+    def __repr__(self) -> str:
+        return (
+            f"ContinuousSurvivalResult(parameters={len(self.estimates)}, n={self.n}, "
+            f"causes={len(self.causes)}, times={len(self.horizons)})"
+        )
+
+    def to_frame(self) -> Any:
+        """One row per parameter, in the backend the data arrived in.
+
+        Returns
+        -------
+        dataframe
+            The estimates with their standard errors and intervals.
+        """
+        rows = [estimate.to_dict() for estimate in self.estimates.values()]
+        columns: list[str] = []
+        for row in rows:
+            columns.extend(key for key in row if key not in columns)
+        return emit_frame(
+            {key: [row.get(key) for row in rows] for key in columns}, backend=self.backend
+        )
+
+    def save(self, path: Any) -> Any:
+        """Write this result to a trusted joblib artifact; see :func:`cleverly.load`.
+
+        Parameters
+        ----------
+        path : path-like
+            Destination file.
+
+        Returns
+        -------
+        Path
+            The destination path, as given.
+        """
+        from ..estimators.serialize import save as _save
+
+        return _save(self, path)

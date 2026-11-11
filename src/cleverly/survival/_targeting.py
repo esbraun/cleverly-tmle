@@ -193,7 +193,7 @@ def _direction(problem: Problem, evaluation: Evaluation, v: FloatArray) -> Float
 
 
 def tilt_jumps(dlam: FloatArray, increment: FloatArray) -> FloatArray:
-    """Tilt the cause hazard jumps of every cell along a multinomial logistic path.
+    r"""Tilt the cause hazard jumps of every cell along a multinomial logistic path.
 
     Parameters
     ----------

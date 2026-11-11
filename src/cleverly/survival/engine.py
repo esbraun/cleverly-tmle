@@ -102,6 +102,8 @@ class ContinuousSurvivalRecord:
         The share of off-grid times at which the score equation holds to the cutoff.
     cross_fitted : bool
         Whether the nuisances were fitted out of fold.
+    n_folds : int
+        The number of cross-fitting folds, ``1`` for a full-sample fit.
     grid_size : int
         The number of distinct observed times up to the last target.
     """
@@ -117,6 +119,7 @@ class ContinuousSurvivalRecord:
     bounded_share: float
     off_grid_share: float
     cross_fitted: bool
+    n_folds: int
     grid_size: int
 
 
@@ -403,7 +406,7 @@ class ContinuousSurvivalTMLE:
         ContinuousSurvivalResult
             The targeted risks, their contrasts and the record.
         """
-        from ..utils.frames import as_frame
+        from ..utils.frames import as_frame, backend_of
 
         frame = as_frame(data)
         T = frame[time].to_numpy().astype(float)
@@ -416,7 +419,7 @@ class ContinuousSurvivalTMLE:
         L = np.column_stack([frame[name].to_numpy().astype(float) for name in baseline])
         arm_labels, A = self._arms(frame[treatment].to_numpy())
         causes = self._causes(D)
-        return self._fit_arrays(T, D, A, L, arm_labels, causes)
+        return self._fit_arrays(T, D, A, L, arm_labels, causes, backend=backend_of(frame))
 
     def fit_data(self, data: Any) -> ContinuousSurvivalResult:
         """Fit a :class:`~cleverly.survival.data.ContinuousSurvivalData` container.
@@ -433,7 +436,9 @@ class ContinuousSurvivalTMLE:
         """
         arm_labels, A = self._arms(data.treatment)
         causes = self._causes(data.event, self.causes if self.causes is not None else data.causes)
-        return self._fit_arrays(data.time, data.event, A, data.baseline, arm_labels, causes)
+        return self._fit_arrays(
+            data.time, data.event, A, data.baseline, arm_labels, causes, backend=data.backend
+        )
 
     def _fit_arrays(
         self,
@@ -443,6 +448,8 @@ class ContinuousSurvivalTMLE:
         L: FloatArray,
         arm_labels: tuple[str, str],
         causes: dict[int, str],
+        *,
+        backend: str | None = None,
     ) -> ContinuousSurvivalResult:
         n = T.size
         codes = list(causes)
@@ -571,6 +578,7 @@ class ContinuousSurvivalTMLE:
             bounded_share=bounded_share,
             off_grid_share=off_grid,
             cross_fitted=self.cross_fit,
+            n_folds=self.n_folds if self.cross_fit else 1,
             grid_size=int(grid.size),
         )
         estimates = build_estimates(
@@ -597,6 +605,7 @@ class ContinuousSurvivalTMLE:
             causes=tuple(causes.values()),
             horizons=self.horizons,
             n=n,
+            backend=backend,
         )
 
 

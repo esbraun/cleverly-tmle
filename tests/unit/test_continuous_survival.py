@@ -257,10 +257,13 @@ def test_the_path_derivative_of_the_log_likelihood_is_the_score_norm(
         jumps = (_targeting.tilt_jumps(dlam, step * direction) * factual).sum(axis=0)
         none = 1.0 - jumps.sum(axis=0)
         stay = problem.at_risk - problem.events.sum(axis=0)
-        return float(
-            np.sum(problem.events * np.log(np.where(problem.events > 0, jumps, 1.0)))
-            + np.sum(stay * np.log(none))
-        ) / problem.n
+        return (
+            float(
+                np.sum(problem.events * np.log(np.where(problem.events > 0, jumps, 1.0)))
+                + np.sum(stay * np.log(none))
+            )
+            / problem.n
+        )
 
     h = 1e-6
     derivative = (loglik(h) - loglik(-h)) / (2 * h)
@@ -395,6 +398,23 @@ def test_the_study_route_reports_every_risk_and_contrast() -> None:
     assert result.record.converged
     assert not result.record.cross_fitted
     assert 0.0 <= result["cif_regimen[control, relapse @ t=1]"].psi <= 1.0
+
+
+def test_a_polars_frame_comes_back_as_polars_and_the_result_saves(tmp_path: Any) -> None:
+    pl = pytest.importorskip("polars")
+    import cleverly
+
+    study = CausalStudy(pl.from_pandas(_sample(300)), design=_design_continuous())
+    effect = study.identify(RegimeMean({"1": 1, "0": 0}, horizons=[1.0]))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = effect.estimate(random_state=0, cross_fit=False)
+    frame = result.to_frame()
+    assert isinstance(frame, pl.DataFrame)
+    assert list(frame["estimand"]) == list(result)
+    loaded = cleverly.load(result.save(tmp_path / "fit.joblib"))
+    assert {k: v.psi for k, v in loaded.items()} == {k: v.psi for k, v in result.items()}
+    assert loaded.backend == "polars"
 
 
 @pytest.mark.parametrize(
