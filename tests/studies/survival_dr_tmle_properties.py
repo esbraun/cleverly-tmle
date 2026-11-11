@@ -1,8 +1,8 @@
 r"""Repeated-sampling properties of the drift-corrected survival TMLE, and its reported cells.
 
 Two families, fixed before any run, on law L-S (:mod:`tests.studies.survival_dr_tmle_law`),
-cross-fitted with the study's 10 folds.  "Wrong" for the hazard is the logistic regression on
-``W1``, ``A`` and time; for the treatment it is the logistic regression on ``W1`` alone; for
+cross-fitted with the study's 10 folds.  "Wrong" for the hazard is the per-node logistic regression on
+``W1`` and ``A``; for the treatment it is the logistic regression on ``W1`` alone; for
 censoring it is a constant retention (``DummyClassifier(strategy="prior")``).
 
 **Double robustness** (:data:`ROBUSTNESS_REPLICATES` each, :math:`n = 16{,}000`).
@@ -150,7 +150,7 @@ def _logistic() -> Any:
 
 
 def _hazard_wrong() -> Any:
-    return Columns(_logistic(), keep=(0, 2, 3))
+    return Columns(_logistic(), keep=(0, 2))
 
 
 def _treatment_wrong() -> Any:

@@ -13,9 +13,11 @@ cell               law                 hazard model      treatment          cens
 ``known_<n>``      trial               on A and W1 only  declared (0.5)     declared
 =================  ==================  ================  =================  ==================
 
-"Correct" is a large-``C`` logistic regression on every column of the pooled design
-``[W1, W2, A, time]`` (``hazard_pooling="pooled"``) for the hazard, and on ``W1, W2`` for the
-treatment and the per-node retention; each is the true model's family.  ``known_<n>`` is row 2
+"Correct" is a large-``C`` logistic regression fitted at each node on ``[W1, W2, A]`` for the
+hazard and the retention, and on ``W1, W2`` for the treatment; each is the true model's family.
+A pooled fit over the nodes would not be: node 1 has no censoring, so a retention model linear
+in the node time is misspecified (a first pilot read a bias of 0.7 SD at 16,000 in the
+mechanism-correct robustness cell from it, for this method and hazard ``LTMLE`` alike).  ``known_<n>`` is row 2
 of the design's case table: :math:`g` is declared, so it is never fluctuated, and the
 remainder is exactly zero for any hazard model, so the interval is valid with the hazard model
 wrong.  Every fit is cross-fitted with 10 outer folds (the default path, Theorem 3).
@@ -149,8 +151,8 @@ CONFIGURATION = {
     "n_folds": N_FOLDS,
     "g_bounds": list(G_BOUNDS),
     "learners": {
-        "correct": "LogisticRegression(C=1e6) on every design column",
-        "hazard_wrong": "the same on W1, A and time",
+        "correct": "LogisticRegression(C=1e6) per node on every design column",
+        "hazard_wrong": "the same on W1 and A",
         "declared": "treatment_probabilities p1, p0 and censoring_probabilities r1..r4",
     },
     "engines": {
@@ -205,15 +207,14 @@ def settings(configuration: str) -> dict[str, Any]:
     """The learners and settings both engines share in one configuration."""
     outcome: Any = _logistic()
     if configuration == "known":
-        # The pooled hazard design is [W1, W2, A, time]: drop W2.
-        outcome = Columns(_logistic(), keep=(0, 2, 3))
+        # The per-node hazard design is [W1, W2, A]: drop W2.
+        outcome = Columns(_logistic(), keep=(0, 2))
     return {
         "reference": law.REFERENCE,
         "horizons": [float(law.HORIZON)],
         "outcome_learner": outcome,
         "treatment_learner": _logistic(),
         "censoring_learner": _logistic(),
-        "hazard_pooling": "pooled",
         "n_folds": N_FOLDS,
         "g_bounds": G_BOUNDS,
         "random_state": 0,
