@@ -377,6 +377,12 @@ def swapped(name: str, original: Any, replacement: Any) -> Iterator[None]:
     try:
         yield
     finally:
+        # A module imported inside the block bound ``replacement`` through a swapped module.
+        for module in list(sys.modules.values()):
+            if getattr(module, "__name__", "").startswith("tests") and (
+                getattr(module, name, None) is replacement
+            ):
+                touched.append(module)
         for module in touched:
             setattr(module, name, original)
 

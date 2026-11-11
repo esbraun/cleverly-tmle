@@ -101,6 +101,23 @@ def test_every_planned_study_smokes_on_the_smoke_stream(slug: str) -> None:
     assert band_rerun.salt_check(slug) == []
 
 
+def test_the_salt_does_not_outlive_its_block(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A module imported inside the salted block binds the salted seed through the swapped
+    ``seeds`` module; the block's exit rebinds it, or a later summary reads smoke seeds."""
+    import sys
+    import types
+
+    from tests.studies.evidence import seeds
+
+    probe = types.ModuleType("tests._salt_probe")
+    monkeypatch.setitem(sys.modules, probe.__name__, probe)
+    with band_rerun.salted():
+        exec("from tests.studies.evidence.seeds import stream_seed", probe.__dict__)
+        assert probe.stream_seed is not band_rerun._ORIGINAL_SEEDS["stream_seed"]
+    assert probe.stream_seed is band_rerun._ORIGINAL_SEEDS["stream_seed"]
+    assert seeds.stream_seed is band_rerun._ORIGINAL_SEEDS["stream_seed"]
+
+
 def test_a_key_with_a_declared_seed_or_no_salt_is_refused() -> None:
     declared, salted_seed = 2**40 + 1, 2**40 + 2
     band_rerun.DECLARED_SEEDS.add(declared)
