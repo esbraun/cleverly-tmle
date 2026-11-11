@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Any, Final, Literal
 
 import numpy as np
@@ -210,8 +211,8 @@ class ContinuousSurvivalTMLE:
         The label of each nonzero event code.  ``None`` reads one code ``1`` as one event,
         and several codes as competing causes labelled ``str(code)``.
     cross_fit : bool
-        Fit every nuisance out of fold on ``n_folds`` folds.  ``False`` fits each on every
-        row, the sources' setting, which the interval's conditions assume.
+        Fit every nuisance out of fold on ``n_folds`` folds, selecting each model inside the
+        training folds.  ``False`` fits each on every row, the sources' setting.
     n_folds : int
         Cross-fitting folds.
     learner_folds : int
@@ -242,6 +243,14 @@ class ContinuousSurvivalTMLE:
         Seed of the folds and the off-grid diagnostic.
     tilt : {"all", "factual"}
         ``"factual"`` reproduces the ``concrete`` 1.0.5 update, for the mutation control only.
+    simultaneous : bool
+        Add a sup-t band over every risk and risk difference.
+    n_multiplier : int
+        Multiplier draws of the band.
+    multiplier_kind : str
+        The multiplier distribution, as :func:`~cleverly.inference.simultaneous_bands` takes.
+    band_scale : {"identity", "logit"}
+        The scale of the band of a bounded estimate.
     """
 
     def __init__(
@@ -251,7 +260,7 @@ class ContinuousSurvivalTMLE:
         arms: Mapping[str, Any] | None = None,
         reference: str | None = None,
         causes: Mapping[int, str] | None = None,
-        cross_fit: bool = False,
+        cross_fit: bool = True,
         n_folds: int = 10,
         learner_folds: int = 5,
         hazard_library: Sequence[Any] | None = None,
@@ -265,11 +274,15 @@ class ContinuousSurvivalTMLE:
         alpha: float = 0.05,
         random_state: int | None = None,
         tilt: Literal["all", "factual"] = "all",
+        simultaneous: bool = False,
+        n_multiplier: int = 1000,
+        multiplier_kind: str = "rademacher",
+        band_scale: str = "identity",
     ) -> None:
         times = tuple(float(t) for t in horizons)
         if not times or any(not np.isfinite(t) or t <= 0 for t in times):
             raise ValueError("horizons are positive finite target times, at least one")
-        if any(b <= a for a, b in zip(times, times[1:], strict=False)):
+        if any(b <= a for a, b in pairwise(times)):
             raise ValueError("horizons are strictly increasing")
         if norm not in ("covariance", "variance", "euclidean"):
             raise ValueError("norm is 'covariance', 'variance' or 'euclidean'")
@@ -301,6 +314,10 @@ class ContinuousSurvivalTMLE:
         self.alpha = float(alpha)
         self.random_state = random_state
         self.tilt: Literal["all", "factual"] = tilt
+        self.simultaneous = bool(simultaneous)
+        self.n_multiplier = int(n_multiplier)
+        self.multiplier_kind = multiplier_kind
+        self.band_scale = band_scale
 
     # ------------------------------------------------------------------ inputs
 
@@ -334,13 +351,14 @@ class ContinuousSurvivalTMLE:
         coded = np.where(np.asarray(treatment) == labels[ordered[1]], 1, 0).astype(int)
         return ordered, coded
 
-    def _causes(self, event: IntArray) -> dict[int, str]:
+    def _causes(self, event: IntArray, declared: Mapping[int, str] | None = None) -> dict[int, str]:
         codes = sorted(int(c) for c in np.unique(event) if c != 0)
-        if self.causes is not None:
-            missing = set(codes) - set(self.causes)
+        declared = self.causes if declared is None else declared
+        if declared is not None:
+            missing = set(codes) - set(declared)
             if missing:
                 raise DataError(f"event codes {sorted(missing)} are not named by causes")
-            return dict(sorted(self.causes.items()))
+            return {int(k): str(v) for k, v in sorted(declared.items()) if int(k) in codes}
         if codes == [1]:
             return {1: "1"}
         return {code: str(code) for code in codes}
@@ -390,6 +408,23 @@ class ContinuousSurvivalTMLE:
         arm_labels, A = self._arms(frame[treatment].to_numpy())
         causes = self._causes(D)
         return self._fit_arrays(T, D, A, L, arm_labels, causes)
+
+    def fit_data(self, data: Any) -> ContinuousSurvivalResult:
+        """Fit a :class:`~cleverly.survival.data.ContinuousSurvivalData` container.
+
+        Parameters
+        ----------
+        data : ContinuousSurvivalData
+            The validated container.
+
+        Returns
+        -------
+        ContinuousSurvivalResult
+            The targeted risks, their contrasts and the record.
+        """
+        arm_labels, A = self._arms(data.treatment)
+        causes = self._causes(data.event, self.causes if self.causes is not None else data.causes)
+        return self._fit_arrays(data.time, data.event, A, data.baseline, arm_labels, causes)
 
     def _fit_arrays(
         self,
@@ -532,8 +567,22 @@ class ContinuousSurvivalTMLE:
         estimates = build_estimates(
             result, arm_labels, causes, self.horizons, n=n, alpha=self.alpha
         )
+        bands = None
+        if self.simultaneous:
+            from ..inference.multiplier import simultaneous_bands
+
+            banded = {k: v for k, v in estimates.items() if not k.startswith("rr_regimen")}
+            bands = simultaneous_bands(
+                banded,
+                alpha=self.alpha,
+                n_replicates=self.n_multiplier,
+                kind=self.multiplier_kind,  # type: ignore[arg-type]
+                random_state=self.random_state,
+                band_scale=self.band_scale,  # type: ignore[arg-type]
+            )
         return ContinuousSurvivalResult(
             estimates=estimates,
+            simultaneous=bands,
             record=record,
             arms=arm_labels,
             causes=tuple(causes.values()),

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -157,6 +157,8 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         (``rr_regimen[...]``).
     record : ContinuousSurvivalRecord
         The nuisance selections and the targeting record.
+    simultaneous : SimultaneousBands or None
+        The sup-t band over every risk and risk difference, when requested.
     arms : tuple of str
         ``(reference, treated)``.
     causes : tuple of str
@@ -169,11 +171,11 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
 
     estimates: dict[str, ParameterEstimate]
     record: ContinuousSurvivalRecord
+    simultaneous: Any
     arms: tuple[str, str]
     causes: tuple[str, ...]
     horizons: tuple[float, ...]
     n: int
-    extras: dict[str, Any] = field(default_factory=dict, repr=False)
 
     def __getitem__(self, name: str) -> ParameterEstimate:
         return self.estimates[name]
