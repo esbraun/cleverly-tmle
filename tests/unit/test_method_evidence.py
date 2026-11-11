@@ -2342,6 +2342,25 @@ class TestPropertyTruthsAreTheDeclaredLawsOwn:
         assert str(clean["cell"].iloc[0]) in findings[0]
 
 
+#: Comparisons whose reference publishes no plug-in and that declare no ``targeting_necessity``
+#: family, each with the registered sibling study that measures the same subject's targeting and
+#: the reason the gate below is waived.  The waiver is narrow on purpose:
+#: :func:`test_a_plug_in_waiver_stays_honest` requires the reference's ``initial_estimate`` to be
+#: absent in every row, the subject's to be committed in every row and moved, and the sibling to
+#: run the same implementation and publish its targeting-gain clause.  A study whose reference
+#: publishes a plug-in can never be covered by an entry here.
+PLUG_IN_WAIVERS: dict[str, tuple[str, str]] = {
+    "dose-response-npcausal": (
+        "dose-response",
+        "npcausal ctseff is a one-step estimator that publishes no plug-in, so its runner writes "
+        "initial_estimate as NA; the subject's untargeted plug-in is committed beside every "
+        "targeted estimate, and the sibling dose-response study's double_robustness family "
+        "gates the targeting gain (targeting_gain and targeting_gain_past_truth) of the same "
+        "DoseResponseTMLE fit, so a targeting_necessity family here would repeat that clause",
+    ),
+}
+
+
 class TestTheStudyStillMeasuresTheCode:
     """The study declarations remain reproducible inputs to selective regeneration."""
 
@@ -2436,11 +2455,19 @@ class TestTheStudyStillMeasuresTheCode:
         the study to carry the family that can separate the two instead.  The distinction is the
         point: an absent column says the quantity does not exist, and a repeated one would say it
         exists and did not move.
+
+        A comparison whose subject's targeting another registered study already gates may name
+        that study in :data:`PLUG_IN_WAIVERS` instead of repeating the family.
         """
         if study.reference is None:
             pytest.skip("study declares no comparison implementation")
         reference = rows.loc[rows["implementation"] == study.reference]
         if reference["initial_estimate"].isna().all():
+            if study.slug in PLUG_IN_WAIVERS:
+                sibling, reason = PLUG_IN_WAIVERS[study.slug]
+                pytest.skip(
+                    f"{study.reference} publishes no plug-in; {sibling} measures it: {reason}"
+                )
             assert "targeting_necessity" in study.property_cells, (
                 f"{study.slug} publishes no plug-in for {study.reference} and declares no "
                 f"targeting_necessity family, so nothing separates targeting from a plug-in"
@@ -2457,6 +2484,39 @@ class TestTheStudyStillMeasuresTheCode:
         published = reference.loc[reference["initial_estimate"].notna()]
         moved = (published["estimate"] - published["initial_estimate"]).abs()
         assert moved.max() > 1e-3, moved.describe()
+
+    @pytest.mark.parametrize("slug", sorted(PLUG_IN_WAIVERS))
+    def test_a_plug_in_waiver_stays_honest(self, slug: str) -> None:
+        """Each :data:`PLUG_IN_WAIVERS` entry still describes a study that needs it."""
+        study = STUDY_BY_SLUG[slug]
+        sibling_slug, reason = PLUG_IN_WAIVERS[slug]
+        assert reason
+        assert study.reference is not None, f"{slug} has no reference, so it needs no waiver"
+        assert "targeting_necessity" not in study.property_cells, (
+            f"{slug} declares targeting_necessity, so the gate holds and the waiver is stale"
+        )
+        rows = _replication_rows(slug)
+        reference = rows.loc[rows["implementation"] == study.reference, "initial_estimate"]
+        assert len(reference) and reference.isna().all(), (
+            f"{study.reference} publishes a plug-in in {slug}, so the gate must read it"
+        )
+        subject = rows.loc[rows["implementation"] == study.implementation]
+        assert len(subject) and subject["initial_estimate"].notna().all(), (
+            f"{slug} must commit the subject's plug-in beside every targeted estimate"
+        )
+        assert (subject["estimate"] - subject["initial_estimate"]).abs().max() > 1e-3
+        sibling = STUDY_BY_SLUG[sibling_slug]
+        assert sibling.implementation == study.implementation, (
+            f"{sibling_slug} measures another implementation's targeting"
+        )
+        published = pd.read_csv(sibling.artifact("properties.csv"))
+        clause = published.loc[
+            published["property"] == "double_robustness",
+            ["targeting_gain", "targeting_gain_past_truth"],
+        ]
+        assert len(clause) and clause.notna().all().all(), (
+            f"{sibling_slug} publishes no targeting-gain clause, so nothing measures targeting"
+        )
 
     def test_native_interval_scales_are_recorded_instead_of_forced_to_match(
         self, study: StudyRecord, rows: pd.DataFrame

@@ -12,7 +12,8 @@ conditions.
 The study has no comparator, so this page publishes no paired verdict. npcausal `ctseff`
 estimates a related target, and the separate study
 [against npcausal `ctseff`](dose-response-npcausal.md) compares the two on a law where both
-targets equal the curve. That study is declared and waits for its local R run.
+targets equal the curve. Three of its six paired rows are red under `reporting`, and that page
+diagnoses them.
 
 The declared run at `7f9d5172` passed every gate: 27 of 27 primary rows and 7 of 7 property
 cells. An earlier run at `dfd56920` fitted the same seeds and wrote the same replicate rows. It
@@ -87,7 +88,7 @@ records the absence. npcausal `ctseff` (Kennedy,
 Ma, McHugh and Small 2017) smooths against the marginal dose density rather than the Lebesgue
 kernel weight of `DoseResponse`, so a paired comparison needs a matched target. The
 [comparator study](dose-response-npcausal.md) supplies one: a law where the curve is a line, so
-both smoothed curves equal it. It is declared and waits for its local R run.
+both smoothed curves equal it, and its declared run is registered.
 
 The owner's rule applies: a method merges on its Python evidence, and the comparator study
 follows ([Theory and comparators](../../architecture-invariants.md#theory-and-comparators)).
@@ -255,7 +256,7 @@ from the committed results.
 
 | limit | what it means for use |
 | --- | --- |
-| no comparator | the record names no reference implementation, so the study has no paired verdict. The [comparator study](dose-response-npcausal.md) pairs a triweight fit with npcausal `ctseff` on a linear curve. Its declared run has landed and is not yet registered |
+| no comparator | the record names no reference implementation, so the study has no paired verdict. The [comparator study](dose-response-npcausal.md) pairs a triweight fit with npcausal `ctseff` on a linear curve. Its declared run is registered, with three red paired rows under `reporting` |
 | one law family | a normal location model for the dose, with an outcome that reads $W$ through one linear index, on $D = [0, 5]$ |
 | declared sieve learners | the outcome sieve holds the $W$ part of the law exactly. The default learner library is not measured |
 | one sample size per scenario | n = 4,000, n = 8,000 for the stratified scenario and n = 1,000 for the tail pair. Smaller sizes are not claimed |

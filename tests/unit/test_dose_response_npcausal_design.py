@@ -461,7 +461,12 @@ class TestTheDeclaration:
     def test_the_seeds_are_no_registered_studys_seeds(self) -> None:
         from tests.studies.evidence.registry import registered
 
-        taken = {seed for record in registered() for seed in (record.seed, record.resampling_seed)}
+        taken = {
+            seed
+            for record in registered()
+            if record.slug != study.STUDY.slug
+            for seed in (record.seed, record.resampling_seed)
+        }
         assert not {study.SEED, study.RESAMPLING_SEED} & taken
 
     def test_a_draw_is_its_seed(self) -> None:
