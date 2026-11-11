@@ -465,6 +465,16 @@ estimates a familywise critical value.
 | `n_multiplier=` | the number of draws. `"auto"` resolves per engine, because the point path draws 1000 and the sequential path draws 2000 |
 | `multiplier_kind=` | the multiplier distribution: `rademacher`, `mammen`, or `normal` |
 
+A band reads `supported` only when the fit's support row lists the band kind and a registered band
+cell measured the band for that row. `BAND_CELLS` in
+[`_support_rows.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/_support_rows.py)
+names each row's cells, and `tests/unit/test_band_cell_mapping.py` ties every entry to a positive
+`*__simultaneous_band` row of a study the row cites. The band must also use a multiplier kind and
+band scale that the row's cells measured, which is the Rademacher multiplier on the identity scale
+for every row; `G23.cross_fitted` also lists the Mammen multiplier on the logit scale. Any other
+choice makes the band `experimental` and leaves the pointwise intervals as they are, because
+pointwise inference never reads the multiplier.
+
 Ordinary and cluster resampling both preserve the declared independent unit. Whole-cluster
 resampling gives each sampled occurrence a distinct cluster code. Repeated draws of one source
 cluster therefore remain separate for fold construction and variance estimation.
