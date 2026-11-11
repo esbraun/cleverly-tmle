@@ -13,7 +13,8 @@ once and reads ``missingness_tilt(result, GAMMAS, estimands=[...])``.  The law i
 **Cells.**  Every scenario reports each of its targets at :math:`\gamma \in \{-1, 1, 2\}`; an
 estimand is named ``<target>[gamma=<g>]``.  The rule column is the
 :data:`~cleverly.sensitivity.missingness.TILT_INTERVAL_INSTRUMENT` rule that
-``_tilt_reading`` computes for the fit, which a later change binds to these cells.
+``_tilt_reading`` computes for the fit.  The registry rows that cite these cells are
+``_tilt_rows()`` in :mod:`cleverly.validation._interpretation`.
 
 =================  ======  =====================================  ============================
 scenario           n       construction                           rules it licenses

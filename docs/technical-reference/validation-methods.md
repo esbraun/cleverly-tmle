@@ -2697,6 +2697,15 @@ $\gamma = 2$, the published standard error is the delta-method value 0.0174, 2.2
 missing-at-random standard error of 0.0078 that the tilt published as an interval before
 CDR-001.
 
+The registered study [`missingness-tilt-inference`](method-evidence/missingness-tilt.md) measures
+these intervals at $\gamma \in \{-1, 1, 2\}$ and registers the 17 `missingness_tilt_interval`
+rules of `_tilt_rows()`. The rows cover binary outcomes only, because each scope names the
+outcome family `binomial`, so the tilt interval of a continuous outcome reads descriptive. They
+also need `TMLE` with the study's correctly specified GLM learners, two arms and $n \ge 1000$,
+and they cover the in-sample, stacked cross-fitted, fold-evaluated and weighted fits that the
+study measured. Every other fit, `atc`, `or` and `paf` among them, prints its interval as
+descriptive.
+
 ### The scope rule
 
 A point-treatment sensitivity formula is not reused on longitudinal data. A longitudinal fit runs
