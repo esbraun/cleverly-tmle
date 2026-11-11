@@ -1868,7 +1868,10 @@ class StructuralNestedMean:
         return replace(
             bands,
             support=band_support(
-                classification, status, (estimate.support for estimate in chosen.values())
+                classification,
+                status,
+                (estimate.support for estimate in chosen.values()),
+                options=(self.multiplier_kind, getattr(self, "band_scale", "identity")),
             ),
         )
 

@@ -717,7 +717,7 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "longitudinal-sdr",
         "property",
         "simultaneous_coverage/six_regimens__simultaneous_band",
-        "G23.in_sample",
+        "G23.cross_fitted",
         ("band",),
         LIMIT,
         "band-finite-sample: joint coverage 0.9085 to 0.9394",

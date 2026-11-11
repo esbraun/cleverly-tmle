@@ -587,7 +587,6 @@ def test_each_setup_records_its_declared_support_key(
         assert key["dependence"] == declared.dependence, name
         assert dict(map(tuple, key["options"])) == {
             "covariate_features": declared.covariate_features,
-            "multiplier_kind": "rademacher",
         }, name
         assert learners == {
             "outcome": _qualified(declared.learners["outcome"]),

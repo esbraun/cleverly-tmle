@@ -38,11 +38,13 @@ from ._inference_status import (
 from ._refusal import Refusal
 
 __all__ = [
+    "DEFAULT_BAND_OPTION",
     "KEY_AXES",
     "LEARNER_FAMILY_MARKER",
     "RECORD_ENVIRONMENT_VARIABLE",
     "REGIMEN_KINDS",
     "UNCLASSIFIED",
+    "BandOption",
     "Classification",
     "Kind",
     "Preflight",
@@ -114,6 +116,13 @@ class Support:
 UNCLASSIFIED: Final[Support] = Support(
     "experimental", "This estimate was built outside a classified fit."
 )
+
+#: A band configuration: the ``multiplier_kind`` that draws its critical value and the
+#: ``band_scale`` its limits are built on.
+BandOption = tuple[str, str]
+
+#: The band configuration of a default fit, which every row's band cells measured.
+DEFAULT_BAND_OPTION: Final[BandOption] = ("rademacher", "identity")
 
 _TWO_ROWS_REASON: Final[str] = "This estimate combines estimates of two support rows."
 
@@ -296,11 +305,13 @@ class SupportKey:
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
         point key on the policy axis holds the policy density ``ratio``, and ``tuned_cap`` when a
-        policy has a cap tuned on the data. A longitudinal key holds ``multiplier_kind``, the
-        inverse-probability ``normalization``, the policy density ``ratio``, the
-        ``survival_model``, the hazard ``targeting`` algorithm, the ``isotonic`` projection,
-        whether the fit declares ``node_bounds``, the ``hazard_pooling``, whether it declares a
-        ``ratio_trim``, the data's ``markov_order``, and whether a regimen has a ``tuned_cap``.
+        policy has a cap tuned on the data. A longitudinal key holds the inverse-probability
+        ``normalization``, the policy density ``ratio``, the ``survival_model``, the hazard
+        ``targeting`` algorithm, the ``isotonic`` projection, whether the fit declares
+        ``node_bounds``, the ``hazard_pooling``, whether it declares a ``ratio_trim``, the data's
+        ``markov_order``, and whether a regimen has a ``tuned_cap``. No key holds the band's
+        ``multiplier_kind`` or ``band_scale``: pointwise inference never reads them, so they
+        are checked against the row's ``band_options`` by :func:`band_support` alone.
     """
 
     kind: str
@@ -731,7 +742,6 @@ def point_key(
         "fluctuation": estimator.fluctuation,
         "targeting": estimator.targeting,
         "target_weights": estimator.target_weights,
-        "multiplier_kind": estimator.multiplier_kind,
     }
     if method == "drtmle":
         for name in ("guard", "reduction", "update_order", "randomized"):
@@ -918,7 +928,6 @@ def longitudinal_key(
             else known_factors
         ),
         options=(
-            ("multiplier_kind", _option(estimator.multiplier_kind)),
             ("normalization", _option(estimator._normalization())),
             ("ratio", _option(getattr(estimator, "ratio", "density"))),
             ("survival_model", _option(estimator.survival_model)),
@@ -1001,10 +1010,7 @@ def structural_key(
             _positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
         ),
         qualifiers=frozenset(),
-        options=(
-            ("covariate_features", bool(covariate_features)),
-            ("multiplier_kind", _option(estimator.multiplier_kind)),
-        ),
+        options=(("covariate_features", bool(covariate_features)),),
     )
     learners = {
         "outcome": _learner_type(estimator.outcome_learner),
@@ -1046,6 +1052,14 @@ class SupportRow:
         Pairs of a kind and the target families that kind covers. A kind with no pair covers
         every family of the row. A fit that holds a family outside the pair reads the kind as
         unlicensed.
+    band_options : tuple of tuple of str, default (("rademacher", "identity"),)
+        The ``(multiplier_kind, band_scale)`` pairs the row's band cells measured. A band built
+        with another pair is experimental, and the fit's other estimates keep the row. The
+        field means nothing on a row that does not license ``band``.
+    band_option_shortfalls : tuple of tuple, default ()
+        Pairs of a band option and a sentence. The sentence states the measured number of a red
+        band cell for that option alone. A band built with that option is experimental, and the
+        sentence is a reason of its label.
     """
 
     id: str
@@ -1057,6 +1071,8 @@ class SupportRow:
     limits: tuple[str, ...] = ()
     shortfalls: tuple[tuple[str, str], ...] = ()
     kind_families: tuple[tuple[str, frozenset[str]], ...] = ()
+    band_options: tuple[BandOption, ...] = (DEFAULT_BAND_OPTION,)
+    band_option_shortfalls: tuple[tuple[BandOption, str], ...] = ()
 
     def licenses(self, kind: str, families: frozenset[str]) -> bool:
         """Whether the row licenses ``kind`` for a fit that holds ``families``.
@@ -1354,8 +1370,14 @@ def band_support(
     status: str,
     supports: Iterable[Support],
     kind: Kind = "band",
+    options: BandOption = DEFAULT_BAND_OPTION,
 ) -> Support:
     """What a simultaneous band carries: its row's band kind, combined with its estimates.
+
+    A multiplier band also needs its ``(multiplier_kind, band_scale)`` pair among the row's
+    ``band_options``. An unlisted pair makes only the band experimental: the fit's
+    classification, and so the support of each pointwise estimate, does not read the
+    multiplier.
 
     Parameters
     ----------
@@ -1368,15 +1390,51 @@ def band_support(
     kind : {"band", "bootstrap_band"}, default="band"
         The band's kind: the influence-curve multiplier band, or the studentized bootstrap
         sup-t band.
+    options : tuple of str, default ("rademacher", "identity")
+        The band's ``(multiplier_kind, band_scale)``. Read only for ``kind="band"``.
 
     Returns
     -------
     Support
-        ``supported`` only when the row licenses ``kind`` and every estimate is supported on
-        that row. ``experimental`` otherwise.
+        ``supported`` only when the row licenses ``kind``, lists ``options`` for a multiplier
+        band with no shortfall, and every estimate is supported on that row.
+        ``experimental`` otherwise.
+
+    Examples
+    --------
+    >>> from cleverly._support import band_support
+    >>> band_support(None, "influence_curve", [], options=("mammen", "logit")).label
+    'experimental'
     """
     kind_support = support_for(classification, status, None, kind=kind)
-    return combine_support([kind_support, *supports])
+    row = None if classification is None else classification.row
+    option_reasons: list[str] = []
+    if (
+        kind == "band"
+        and row is not None
+        and classification is not None
+        and row.licenses(kind, classification.key.family)
+    ):
+        multiplier_kind, band_scale = options
+        if options not in row.band_options:
+            listed = " and ".join(
+                f"multiplier_kind={k!r} with band_scale={s!r}" for k, s in row.band_options
+            )
+            option_reasons.append(
+                f"Row {row.id} measured its simultaneous band with {listed} only, and this "
+                f"band uses multiplier_kind={multiplier_kind!r} with "
+                f"band_scale={band_scale!r}."
+            )
+        option_reasons.extend(
+            text for option, text in row.band_option_shortfalls if option == options
+        )
+    if not option_reasons:
+        return combine_support([kind_support, *supports])
+    assert row is not None
+    option_support = Support(
+        "experimental", " ".join(option_reasons), row=row.id, limits=row.limits
+    )
+    return combine_support([kind_support, option_support, *supports])
 
 
 # --------------------------------------------------------------------- record switch

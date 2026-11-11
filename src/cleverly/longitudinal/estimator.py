@@ -6309,7 +6309,10 @@ class _SequentialEstimator:
         return replace(
             bands,
             support=band_support(
-                classification, status, (estimate.support for estimate in estimates.values())
+                classification,
+                status,
+                (estimate.support for estimate in estimates.values()),
+                options=(self.multiplier_kind, getattr(self, "band_scale", "identity")),
             ),
         )
 
