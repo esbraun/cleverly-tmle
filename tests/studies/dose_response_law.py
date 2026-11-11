@@ -25,7 +25,12 @@ Every smoothed truth :math:`\theta_h(a_0) = \int_D w_{h,a_0}(a)\theta(a)\,da` is
 Gauss-Legendre rule on the pieces between :math:`D`'s endpoints and :math:`a_0 \pm h`, where the
 weight is a polynomial and :math:`\theta` is smooth.  A stratified truth conditions on
 :math:`V = 1\{W_1 > 0\}`, under which :math:`U` is a skew normal; it is a two-dimensional
-Gauss-Hermite integral over :math:`(W_1, W_3)`.  The implementation never enters this module.
+Gauss-Hermite integral over :math:`(W_1, W_3)`.  Every weight here is the shipped
+:func:`cleverly.dose_response.equivalent_kernel`, used as the definition of the target: the
+smoothed curve is defined by that weight, so the truths, the efficient-influence spread and the
+expected Kish size all read it.  No other part of the implementation enters this module, and
+``tests/unit/test_dose_response_design.py`` recomputes the committed truths with an independently
+written local-linear Epanechnikov weight.
 """
 
 from __future__ import annotations
