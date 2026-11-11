@@ -1872,6 +1872,7 @@ class StructuralNestedMean:
                 status,
                 (estimate.support for estimate in chosen.values()),
                 options=(self.multiplier_kind, getattr(self, "band_scale", "identity")),
+                draws=int(self.n_multiplier),
             ),
         )
 

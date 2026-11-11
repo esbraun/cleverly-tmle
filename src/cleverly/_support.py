@@ -1060,6 +1060,9 @@ class SupportRow:
         Pairs of a band option and a sentence. The sentence states the measured number of a red
         band cell for that option alone. A band built with that option is experimental, and the
         sentence is a reason of its label.
+    band_option_draws : tuple of tuple, default ()
+        Pairs of a band option and the multiplier draws its cell measured. A band built with
+        that option and fewer draws is experimental. An option with no pair reads any count.
     """
 
     id: str
@@ -1073,6 +1076,7 @@ class SupportRow:
     kind_families: tuple[tuple[str, frozenset[str]], ...] = ()
     band_options: tuple[BandOption, ...] = (DEFAULT_BAND_OPTION,)
     band_option_shortfalls: tuple[tuple[BandOption, str], ...] = ()
+    band_option_draws: tuple[tuple[BandOption, int], ...] = ()
 
     def licenses(self, kind: str, families: frozenset[str]) -> bool:
         """Whether the row licenses ``kind`` for a fit that holds ``families``.
@@ -1371,6 +1375,7 @@ def band_support(
     supports: Iterable[Support],
     kind: Kind = "band",
     options: BandOption = DEFAULT_BAND_OPTION,
+    draws: int | None = None,
 ) -> Support:
     """What a simultaneous band carries: its row's band kind, combined with its estimates.
 
@@ -1392,6 +1397,9 @@ def band_support(
         sup-t band.
     options : tuple of str, default ("rademacher", "identity")
         The band's ``(multiplier_kind, band_scale)``. Read only for ``kind="band"``.
+    draws : int or None, default=None
+        The band's multiplier draws. An option whose row names a measured draw count needs
+        at least that many; ``None`` never meets it.
 
     Returns
     -------
@@ -1428,6 +1436,12 @@ def band_support(
         option_reasons.extend(
             text for option, text in row.band_option_shortfalls if option == options
         )
+        for option, measured in row.band_option_draws:
+            if option == options and (draws is None or draws < measured):
+                option_reasons.append(
+                    f"Row {row.id} measured this band at {measured:,} multiplier draws, and "
+                    f"this band uses {'an unstated number' if draws is None else f'{draws:,}'}."
+                )
     if not option_reasons:
         return combine_support([kind_support, *supports])
     assert row is not None

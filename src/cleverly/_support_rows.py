@@ -24,6 +24,7 @@ from .learners.glm import GLM
 __all__ = [
     "BAND_CELLS",
     "BAND_OPTIONS",
+    "BAND_OPTION_DRAWS",
     "BAND_OPTION_SHORTFALLS",
     "EXEMPT_STUDIES",
     "FAMILY_THEORY",
@@ -2606,6 +2607,12 @@ BAND_OPTIONS: Final[Mapping[str, tuple[BandOption, ...]]] = {
     "G23.cross_fitted": (DEFAULT_BAND_OPTION, SDR_MEASURED_BAND_OPTION),
 }
 
+#: The multiplier draws each listed band option was measured at, as ``(row id, option) ->
+#: draws``. A band with that option and fewer draws is experimental.
+BAND_OPTION_DRAWS: Final[Mapping[tuple[str, BandOption], int]] = {
+    ("G23.cross_fitted", SDR_MEASURED_BAND_OPTION): 10_000,
+}
+
 #: The red band readings of one band option inside one row, as ``(row id, option) -> sentence``.
 #: A band built with that option reads the sentence as a reason of its experimental label.
 BAND_OPTION_SHORTFALLS: Final[Mapping[tuple[str, BandOption], str]] = {
@@ -2624,8 +2631,8 @@ BAND_OPTION_SHORTFALLS: Final[Mapping[tuple[str, BandOption], str]] = {
 def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
     """Attach the shortfall, limit and band-option tables to their rows.
 
-    The tables are :data:`SHORTFALLS`, :data:`MEASURED_LIMITS`, :data:`BAND_OPTIONS` and
-    :data:`BAND_OPTION_SHORTFALLS`.
+    The tables are :data:`SHORTFALLS`, :data:`MEASURED_LIMITS`, :data:`BAND_OPTIONS`,
+    :data:`BAND_OPTION_SHORTFALLS` and :data:`BAND_OPTION_DRAWS`.
     """
     out = []
     for row in rows:
@@ -2638,6 +2645,11 @@ def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
             for (row_id, option), text in BAND_OPTION_SHORTFALLS.items()
             if row_id == row.id
         )
+        option_draws = tuple(
+            (option, draws)
+            for (row_id, option), draws in BAND_OPTION_DRAWS.items()
+            if row_id == row.id
+        )
         out.append(
             replace(
                 row,
@@ -2645,6 +2657,7 @@ def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
                 limits=limits,
                 band_options=BAND_OPTIONS.get(row.id, row.band_options),
                 band_option_shortfalls=option_shortfalls,
+                band_option_draws=option_draws,
             )
         )
     return tuple(out)

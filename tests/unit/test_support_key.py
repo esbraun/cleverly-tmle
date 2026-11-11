@@ -442,13 +442,28 @@ class TestBandSupport:
         classification = Classification(row.key, {}, row)
         support = _support.support_for(classification, "influence_curve")
         mammen = band_support(
-            classification, "influence_curve", [support], options=SDR_MEASURED_BAND_OPTION
+            classification,
+            "influence_curve",
+            [support],
+            options=SDR_MEASURED_BAND_OPTION,
+            draws=10_000,
         )
         normal = band_support(
             classification, "influence_curve", [support], options=("normal", "identity")
         )
         assert mammen.label == "supported"
         assert normal.label == "experimental"
+        # The cell measured 10,000 draws; fewer, or an unstated count, is experimental.
+        for draws in (2_000, None):
+            fewer = band_support(
+                classification,
+                "influence_curve",
+                [support],
+                options=SDR_MEASURED_BAND_OPTION,
+                draws=draws,
+            )
+            assert fewer.label == "experimental"
+            assert "10,000 multiplier draws" in str(fewer.reason)
 
     def test_a_row_without_the_band_gives_one_reason(self, frame: Any) -> None:
         key, learners = key_of(TMLE(**linear_in_sample()), frame)

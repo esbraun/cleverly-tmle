@@ -159,7 +159,17 @@ def standardized_deviation(estimate: Any, truth: float, scale: str) -> float:
     """
     se = float(estimate.plugin_std_error)
     psi = float(estimate.psi)
-    if scale == "identity":
+    if se == 0.0:
+        # The band of a zero-SE estimate is the point on every scale, even on a bound.
+        return 0.0 if psi == float(truth) else math.inf
+    transform = estimate.transform
+    if transform is not None and transform.name == scale:
+        center, target, spread = (
+            float(estimate.inference_value),
+            float(transform.forward(truth)),
+            se,
+        )
+    elif scale == "identity":
         center, target, spread = psi, float(truth), se
     elif scale == "log":
         center, target, spread = float(estimate.inference_value), math.log(truth), se
@@ -171,17 +181,8 @@ def standardized_deviation(estimate: Any, truth: float, scale: str) -> float:
         low, high = (float(value) for value in estimate.bounds)
         center, target = _range_logit(psi, low, high), _range_logit(float(truth), low, high)
         spread = se * (high - low) / ((psi - low) * (high - psi))
-    elif estimate.transform is not None and estimate.transform.name == scale:
-        transform = estimate.transform
-        center, target, spread = (
-            float(estimate.inference_value),
-            float(transform.forward(truth)),
-            se,
-        )
     else:
         raise ValueError(f"{estimate.name} cannot be read on the {scale!r} scale")
-    if spread == 0.0:
-        return 0.0 if center == target else math.inf
     return abs(center - target) / spread
 
 

@@ -1105,6 +1105,8 @@ def _settings(result: LongitudinalResult) -> SummarySection:
             lines.append(NO_SIMULTANEOUS_BANDS)
         elif t_reference:
             lines.append(NO_T_REFERENCE_BANDS)
+        # The kept estimator is the refit template, whose ``simultaneous`` is always False, so
+        # this reads like the lines above: no band on a fit with several estimates.
         elif outside := out_of_range(
             {name: value for name, value in estimates.items() if value.supplies_inference},
             str(getattr(result.estimator, "band_scale", "identity")),
