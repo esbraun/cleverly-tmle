@@ -77,7 +77,6 @@ refuses ``use_ci=True`` there, as it does wherever the tilt claims no interval.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Literal
@@ -87,6 +86,7 @@ import numpy as np
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._trial_family import refuse_augmented_trial
 from .._typing import FloatArray
+from .._warnings import warn as _warn
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..estimators._nuisance import tilt_missingness
 from ..estimators.iptw import OPERATION_REFUSALS
@@ -783,7 +783,7 @@ def _targeted_tilt(
         per_repeat.append(estimates)
         converged = converged and solved
     if not converged:
-        warnings.warn(
+        _warn(
             f"the tilt fluctuation at gamma = {gamma:g} did not reach the fit's tolerance "
             f"{result.config.targeting_spec.tol:g}; its estimates and intervals do not solve "
             "the tilted estimating equation exactly.",
