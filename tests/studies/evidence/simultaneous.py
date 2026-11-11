@@ -32,8 +32,7 @@ and :func:`joint_coverage_rows` records them the same way for a fit on the defau
 While :data:`BAND_OBSERVER` holds a list, :func:`joint_coverage_rows` appends one record per
 band it reads (its label, whether the band was refused, the number of estimates outside their
 range, the smallest Kish count of the banded influence curves and the band's options).  The
-targeted band rerun's smoke reads it (``tests/studies/evidence/band_rerun.py``); it never
-changes a row.
+targeted band rerun's smoke reads it; it never changes a row.
 """
 
 from __future__ import annotations

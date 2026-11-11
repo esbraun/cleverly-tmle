@@ -2622,7 +2622,7 @@ SDR_MEASURED_BAND_OPTION: Final[BandOption] = ("mammen", "logit")
 #: covered, blocks it); a row with a mapped red cell keeps its shortfall on the regenerated
 #: reading; ``rademacher``, ``normal`` and ``band_scale="identity"`` then read experimental with
 #: the reason "no registered study after band-finite-sample".  A blocked Wave 2 changes nothing
-#: here and leaves the readings in the ``band_rerun/`` sidecars, which no row reads.
+#: here and leaves the readings in the diagnostic sidecars, which no row reads.
 BAND_OPTIONS: Final[Mapping[str, tuple[BandOption, ...]]] = {
     # The six_regimens cell of longitudinal_sdr is cross-fitted, so it is this row's band cell
     # (BAND_CELLS).

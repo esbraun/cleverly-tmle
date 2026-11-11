@@ -359,6 +359,7 @@ class TestArtifacts:
         self, study: StudyRecord
     ) -> None:
         """A partial run may not overwrite a historical producer with its new source."""
+        from tests.studies.evidence import band_rerun
         from tests.studies.evidence.seed_repair import (
             PLAN_PATH,
             ROW_FILES,
@@ -397,6 +398,17 @@ class TestArtifacts:
                     assert (
                         carried_rows_findings(study.slug, study.artifacts, ROW_FILES.values()) == []
                     ), "changed rows still name only their historical producer"
+            return
+        if manifest["generation_mode"] == band_rerun.MODE:
+            band_plan = band_rerun.PLAN_PATH.read_bytes()
+            band_rerun.validate_composite_manifest(manifest, band_plan)
+            rows = read_rows(study.artifact("property-replicates.parquet"))
+            assert digest(csv_text(rows)) == manifest["composite"]["composite_property_csv_sha256"]
+            moved = json.loads(band_plan)["studies"][study.slug]["moved_cells"]
+            assert (
+                band_rerun.carried_digest(rows, moved)
+                == manifest["composite"]["carried_property_rows_sha256"]
+            ), "a band rerun changed a row its band does not determine"
             return
         plan_raw = PLAN_PATH.read_bytes()
         validate_composite_manifest(manifest, plan_raw)
