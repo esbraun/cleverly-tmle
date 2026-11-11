@@ -1,0 +1,30 @@
+{
+  "band_fits": 2000,
+  "cells": {
+    "simultaneous_coverage/known_band__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.95,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 85.9,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 1.5518726930499998
+    }
+  },
+  "cpu_seconds": 31.037453861,
+  "estimated_cpu_hours": 0.8621514961388889,
+  "keys": 20,
+  "slug": "adaptive-iptw",
+  "strata": 1,
+  "stream": "band-finite-sample/wave2-smoke",
+  "wall_seconds": 8.930519051999
+}

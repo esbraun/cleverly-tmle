@@ -1,0 +1,38 @@
+{
+  "artifact_sha256": {
+    "design-gap.csv": "ed1f0190f24a578895dab0caeef37ee6edc30e64811b911ea24c1311f14418b9",
+    "equivalence.csv": "cc777253c82d0a1ec1699e6c638a65df867aac757c896a9631eba35743dcb41d",
+    "fit-diagnostics.csv": "201abe629b4beb3b8a7af67f4b67ecd4d3a0e026020ea689b0ee64b952db21cf",
+    "manifest.json": "0475b1ee241da12354e033d988142bbe622e1445630b2bdeb05f5dde2444c391",
+    "performance-tests.csv": "168739542afadf464610a96cd0b1800c6b3e3321cd80a658f2364b7fb4824b01",
+    "properties.csv": "5a3279d1b6b13ce2ba80a5d285b9faee24815afa776353203d523ef354cc801e",
+    "property-replicates.parquet": "046406915088901ca3932da6837919043b2dd425c230a0abad08cf44938e78ea",
+    "replicates.parquet": "b3d2b552b68e3cddb8f0714b7a70392c12046ef77ae95c73e7f137a2152028be",
+    "summary.csv": "ce5e3e8df7d590cc074624699b65a4d61107f81c52856a98e73d5176c54194ae"
+  },
+  "band_fits": 2400,
+  "cache": "/root/band-wave/cache/ctmle-oat-per-arm/91a56e7bfa463e4bfa56bbbadc081406cef9584b/30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "ctmle-oat-per-arm",
+    "--jobs",
+    "4",
+    "--cache",
+    "/root/band-wave/cache",
+    "--output",
+    "/root/band-wave/out"
+  ],
+  "fit_seconds": 175.20629777999966,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "ctmle-oat-per-arm",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}

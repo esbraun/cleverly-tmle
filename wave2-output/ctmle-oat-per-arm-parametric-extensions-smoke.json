@@ -1,0 +1,94 @@
+{
+  "band_fits": 59200,
+  "cells": {
+    "simultaneous_coverage/binary_population__shipped_curve_band_control": {
+      "band_options": [],
+      "covered_share": 0.0,
+      "errors": [
+        "CapabilityError: .std_error is not defined here. This outcome-adaptive collaborative fit, strategy='oat', reports no confidence interval, no p-value and no standard error. The shared design, oat_design='shared', fits one treatment mechanism on the outcome predictions of every arm, and no result cove",
+        "CapabilityError: .std_error is not defined here. This outcome-adaptive collaborative fit, strategy='oat', reports no confidence interval, no p-value and no standard error. The shared design, oat_design='shared', fits one treatment mechanism on the outcome predictions of every arm, and no result cove",
+        "CapabilityError: .std_error is not defined here. This outcome-adaptive collaborative fit, strategy='oat', reports no confidence interval, no p-value and no standard error. The shared design, oat_design='shared', fits one treatment mechanism on the outcome predictions of every arm, and no result cove"
+      ],
+      "failed": 20,
+      "keys": 20,
+      "kish_min": null,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.27637222845
+    },
+    "simultaneous_coverage/binary_population__simultaneous_band": {
+      "band_options": [],
+      "covered_share": 0.0,
+      "errors": [
+        "CapabilityError: .std_error is not defined here. This outcome-adaptive collaborative fit, strategy='oat', reports no confidence interval, no p-value and no standard error. The shared design, oat_design='shared', fits one treatment mechanism on the outcome predictions of every arm, and no result cove",
+        "CapabilityError: .std_error is not defined here. This outcome-adaptive collaborative fit, strategy='oat', reports no confidence interval, no p-value and no standard error. The shared design, oat_design='shared', fits one treatment mechanism on the outcome predictions of every arm, and no result cove",
+        "CapabilityError: .std_error is not defined here. This outcome-adaptive collaborative fit, strategy='oat', reports no confidence interval, no p-value and no standard error. The shared design, oat_design='shared', fits one treatment mechanism on the outcome predictions of every arm, and no result cove"
+      ],
+      "failed": 20,
+      "keys": 20,
+      "kish_min": null,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.27637222845
+    },
+    "simultaneous_coverage/three_arm__shipped_curve_band_control": {
+      "band_options": [],
+      "covered_share": 0.0,
+      "errors": [
+        "CapabilityError: .std_error is not defined here. This outcome-adaptive collaborative fit, strategy='oat', reports no confidence interval, no p-value and no standard error. The shared design, oat_design='shared', fits one treatment mechanism on the outcome predictions of every arm, and no result cove",
+        "CapabilityError: .std_error is not defined here. This outcome-adaptive collaborative fit, strategy='oat', reports no confidence interval, no p-value and no standard error. The shared design, oat_design='shared', fits one treatment mechanism on the outcome predictions of every arm, and no result cove",
+        "CapabilityError: .std_error is not defined here. This outcome-adaptive collaborative fit, strategy='oat', reports no confidence interval, no p-value and no standard error. The shared design, oat_design='shared', fits one treatment mechanism on the outcome predictions of every arm, and no result cove"
+      ],
+      "failed": 20,
+      "keys": 20,
+      "kish_min": null,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.3079680868999999
+    },
+    "simultaneous_coverage/three_arm__simultaneous_band": {
+      "band_options": [],
+      "covered_share": 0.0,
+      "errors": [
+        "CapabilityError: .std_error is not defined here. This outcome-adaptive collaborative fit, strategy='oat', reports no confidence interval, no p-value and no standard error. The shared design, oat_design='shared', fits one treatment mechanism on the outcome predictions of every arm, and no result cove",
+        "CapabilityError: .std_error is not defined here. This outcome-adaptive collaborative fit, strategy='oat', reports no confidence interval, no p-value and no standard error. The shared design, oat_design='shared', fits one treatment mechanism on the outcome predictions of every arm, and no result cove",
+        "CapabilityError: .std_error is not defined here. This outcome-adaptive collaborative fit, strategy='oat', reports no confidence interval, no p-value and no standard error. The shared design, oat_design='shared', fits one treatment mechanism on the outcome predictions of every arm, and no result cove"
+      ],
+      "failed": 20,
+      "keys": 20,
+      "kish_min": null,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.3079680868999999
+    },
+    "simultaneous_coverage/three_arm_crossfit__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.95,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 65.7,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.21687734790000004
+    }
+  },
+  "cpu_seconds": 16.024353265,
+  "estimated_cpu_hours": 4.490369787955555,
+  "keys": 60,
+  "slug": "ctmle-oat-per-arm-parametric-extensions",
+  "strata": 3,
+  "stream": "band-finite-sample/wave2-smoke",
+  "wall_seconds": 4.230658847000086
+}

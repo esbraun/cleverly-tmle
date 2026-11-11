@@ -1,0 +1,36 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "manifest.json": "edfd4ca340f387f71b71f2a17d5f54eebc1c5dd7a59664b07b4ea3ed242242ee",
+    "performance-tests.csv": "3ab88accf8b52f5b4f43762809a953443b39559e6abadeb544055002ad2d8068",
+    "properties.csv": "36379c871852c8cd00d37e94faead3c5d181bc2322fac7d8639aa72ef2f27fb8",
+    "property-replicates.parquet": "c5fcc49570c2306d7671c5eb419a8970e21c62e12776f92902486cc028ff6079",
+    "replicates.parquet": "de32d3183edeaf1c3222becca161cb8e07ca9b7bb00d628e49238d2c3545d1fc",
+    "summary.csv": "4dea98a8996caea1ea2c1bb8a2d443e7d7a6f85f77433de0f1806084580c7ad9"
+  },
+  "band_fits": 2000,
+  "cache": "/root/band-wave/cache/adaptive-iptw/91a56e7bfa463e4bfa56bbbadc081406cef9584b/30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "adaptive-iptw",
+    "--jobs",
+    "4",
+    "--cache",
+    "/root/band-wave/cache",
+    "--output",
+    "/root/band-wave/out"
+  ],
+  "fit_seconds": 776.3259530679989,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "adaptive-iptw",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}

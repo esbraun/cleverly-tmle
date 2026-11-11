@@ -1,0 +1,30 @@
+{
+  "band_fits": 2400,
+  "cells": {
+    "simultaneous_coverage/arms__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          1000
+        ]
+      ],
+      "covered_share": 0.95,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 105.3,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 2.43116570665
+    }
+  },
+  "cpu_seconds": 48.623314133,
+  "estimated_cpu_hours": 1.6207771377666667,
+  "keys": 20,
+  "slug": "multi-arm-mar-drtmle",
+  "strata": 1,
+  "stream": "band-finite-sample/wave2-smoke",
+  "wall_seconds": 12.92429105500014
+}

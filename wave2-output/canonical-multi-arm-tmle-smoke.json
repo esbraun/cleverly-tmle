@@ -1,0 +1,30 @@
+{
+  "band_fits": 2400,
+  "cells": {
+    "simultaneous_coverage/arms__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.9,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 193.4,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.23209108049999996
+    }
+  },
+  "cpu_seconds": 4.64182161,
+  "estimated_cpu_hours": 0.154727387,
+  "keys": 20,
+  "slug": "canonical-multi-arm-tmle",
+  "strata": 1,
+  "stream": "band-finite-sample/wave2-smoke",
+  "wall_seconds": 1.3384701700015285
+}

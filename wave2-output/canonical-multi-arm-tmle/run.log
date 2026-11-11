@@ -1,0 +1,36 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "7b4241aa37a40a10841c2ba54160dc9996616c33149cfa93abc754ee50a7e659",
+    "manifest.json": "7da8caee25605d8a75f89779d07bb86cbb27e90606cdf24c77895b5fcd041412",
+    "performance-tests.csv": "f707a50a231dd787136788b2665caaf931208731aed8708a337c23127b8324e3",
+    "properties.csv": "ea96c398d17214525c1632c54c835b44c77b5bc11e2b09f981049c5569adbb52",
+    "property-replicates.parquet": "44a3d18c6be0180a3711f61dde0b522a10beef5d1f62f4f2bcb3934709cf3236",
+    "replicates.parquet": "36276afe8192ae5a454e4a15b8dd8cae7e44977911c392f7172ae5b098e82736",
+    "summary.csv": "db7083cba1d79048f8b24fbc84f25b3ba39b860f234c62825e296aac9636cfeb"
+  },
+  "band_fits": 2400,
+  "cache": "/root/band-wave/cache/canonical-multi-arm-tmle/91a56e7bfa463e4bfa56bbbadc081406cef9584b/30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "canonical-multi-arm-tmle",
+    "--jobs",
+    "4",
+    "--cache",
+    "/root/band-wave/cache",
+    "--output",
+    "/root/band-wave/out"
+  ],
+  "fit_seconds": 118.66089586799899,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "canonical-multi-arm-tmle",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}
