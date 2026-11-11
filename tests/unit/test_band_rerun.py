@@ -790,7 +790,7 @@ def bind(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fabricated: Wave) -> W
         band_rerun,
         "record_for",
         lambda slug: types.SimpleNamespace(
-            slug=slug, artifacts=fabricated.study, margins=Margins()
+            slug=slug, artifacts=fabricated.study, margins=Margins(), failure_bound={}
         ),
     )
     monkeypatch.setattr(band_rerun, "descends_from_flip", lambda commit: commit == WAVE_COMMIT)
@@ -1101,3 +1101,24 @@ def test_a_blocked_wave_puts_the_complete_rerun_in_the_sidecar(wave: Wave) -> No
     assert band_rerun.validate_sidecar(wave.study, wave.plan) == [
         f"{SLUG}: complete-summary.csv is not the complete rerun's file"
     ]
+
+
+def test_a_complete_rerun_may_add_only_the_declared_primary_failure_bound() -> None:
+    hashes = {"property-replicates.parquet": "a", "properties.csv": "b"}
+    baseline = {"configuration": {"seed": 1}, "sha256": hashes}
+    rerun = {
+        "configuration": {
+            "seed": 1,
+            band_rerun.PROPERTY_BOUND_KEY: 0.01,
+            band_rerun.PRIMARY_BOUND_KEY: {"cleverly": 0.01},
+        },
+        "sha256": {"property-replicates.parquet": "c", "properties.csv": "d"},
+    }
+    assert band_rerun.normal_run_findings(baseline, rerun, {"cleverly": 0.01}) == []
+    assert band_rerun.normal_run_findings(baseline, rerun, {"cleverly": 0.02}) == [
+        "the complete rerun's failure_bound is not the declared one"
+    ]
+    changed = {**baseline, "configuration": {"seed": 1, band_rerun.PRIMARY_BOUND_KEY: {}}}
+    assert "configuration differs" in " ".join(
+        band_rerun.normal_run_findings(changed, rerun, {"cleverly": 0.01})
+    )

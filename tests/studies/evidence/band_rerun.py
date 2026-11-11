@@ -102,7 +102,7 @@ from scipy.stats import binom
 
 from tests.canonical.regenerate import ARTIFACT_NAMES as REGENERATION_ARTIFACTS
 from tests.canonical.regenerate import PROPERTY_FAILURE_FILES
-from tests.studies.evidence import property_failures, replication, seeds, simultaneous
+from tests.studies.evidence import failures, property_failures, replication, seeds, simultaneous
 from tests.studies.evidence.manifest import csv_text, provenance, read_rows, write_csv, write_rows
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
@@ -185,6 +185,7 @@ EXIT_RECORD = "exit.json"
 #: The configuration key every property run writes and a baseline written before it lacks;
 #: its presence shows the property phase ran (``regenerate._property_failure_bound``).
 PROPERTY_BOUND_KEY = property_failures.PROPERTY_BOUND_KEY
+PRIMARY_BOUND_KEY = failures.BOUND_KEY
 #: The rule each band cell answers to (``property_verdicts.simultaneous_coverage_verdicts``):
 #: a positive cell's 99% Clopper-Pearson interval inside :data:`COVERAGE_BAND`, a control's
 #: upper limit below ``1 - CONTROL_ALPHA``, a diagnostic cell no verdict.
@@ -1735,7 +1736,9 @@ def validate_complete(slug: str, output: Path, plan_raw: bytes) -> dict[str, Any
     baseline_raw = (artifacts / "manifest.json").read_bytes()
     if digest(baseline_raw) != entry["manifest_sha256"]:
         raise ValueError(f"{slug}: the committed artifacts are not the baseline")
-    findings += normal_run_findings(json.loads(baseline_raw), manifest)
+    findings += normal_run_findings(
+        json.loads(baseline_raw), manifest, dict(record_for(slug).failure_bound)
+    )
     exit_path = complete / EXIT_RECORD
     if exit_path.exists():
         if json.loads(exit_path.read_bytes()).get("returncode") != 0:
@@ -1758,11 +1761,26 @@ def validate_complete(slug: str, output: Path, plan_raw: bytes) -> dict[str, Any
     }
 
 
-def normal_run_findings(baseline: Mapping[str, Any], manifest: Mapping[str, Any]) -> list[str]:
-    """What shows a complete rerun is not a normal run of the baseline's declaration."""
+def normal_run_findings(
+    baseline: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+    declared_failure_bound: Mapping[str, float] | None = None,
+) -> list[str]:
+    """What shows a complete rerun is not a normal run of the baseline's declaration.
+
+    Two failure-accounting keys may appear in the rerun's configuration although the baseline
+    predates them: ``property_failure_bound``, which every property phase now writes, and the
+    primary ``failure_bound``, which must then equal the bound the study's record declares at
+    the run commit (``declared_failure_bound``).  Neither changes a fit or a row; each bounds
+    how many failed replicates a verdict tolerates.
+    """
     out = []
     old = dict(baseline.get("configuration") or {})
     new = dict(manifest.get("configuration") or {})
+    if PRIMARY_BOUND_KEY in new and PRIMARY_BOUND_KEY not in old:
+        if dict(new[PRIMARY_BOUND_KEY]) != dict(declared_failure_bound or {}):
+            out.append(f"the complete rerun's {PRIMARY_BOUND_KEY} is not the declared one")
+        new.pop(PRIMARY_BOUND_KEY)
     if PROPERTY_BOUND_KEY not in new:
         out.append(f"the complete configuration records no {PROPERTY_BOUND_KEY}")
     elif PROPERTY_BOUND_KEY in old and old[PROPERTY_BOUND_KEY] != new[PROPERTY_BOUND_KEY]:
