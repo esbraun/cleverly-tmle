@@ -1147,6 +1147,8 @@ def tipping_interval_refusal(result: Any, estimand: str | None) -> Refusal | Non
     )
     if excluded is None and not result[estimand].supplies_inference:
         return None
+    # The doubly robust exclusion is permanent; the others wait on X57.
+    roadmap_id = None if "doubly robust" in reason else "X57"
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         f"{_TIPPING_INTERVAL_OPERATION} follows a confidence limit, and the tilt of "
@@ -1154,7 +1156,7 @@ def tipping_interval_refusal(result: Any, estimand: str | None) -> Refusal | Non
         "gamma = 0 is the MAR standard error centred on the tilted point, a diagnostic "
         "published under the plugin_ names.",
         alternative=f"Call tipping_gamma(result, {estimand!r}) for the point search.",
-        roadmap=None if "doubly robust" in reason else "X57",
+        roadmap=roadmap_id,
     )
 
 
