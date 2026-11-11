@@ -924,7 +924,7 @@ def summary_text(summary: pd.DataFrame) -> str:
 
 
 def _parse(text: str) -> pd.DataFrame:
-    return pd.read_csv(io.StringIO(text), float_precision="round_trip", keep_default_na=True)
+    return pd.read_csv(io.StringIO(text), low_memory=False)
 
 
 def compose_summary(
