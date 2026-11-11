@@ -206,7 +206,7 @@ Comparator-backed: a paired comparison with `lmtp` on the same samples. Each row
 | `simultaneous_coverage` | `six_regimens__shipped_band_reporting` | diagnostic | the six regimen means and five contrasts of the two-node law: the shipped default band: identity scale, Rademacher multiplier, 2,000 draws | none. The row is a diagnostic and states no verdict | joint coverage 0.9255 to 0.9368 | reported |
 | `simultaneous_coverage` | `six_regimens__simultaneous_band` | positive | the six regimen means and five contrasts of the two-node law: the max-t band with each regimen mean on its logit scale and each contrast on its atanh scale, at the Mammen multiplier critical value from 10,000 draws; a band the fit refuses for an estimate on its range boundary counts as not covering | joint coverage interval inside the calibration coverage band | joint coverage 0.9366 to 0.9470 | pass |
 | `type_i_error` | `static__sharp_null` | positive | static plan: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0600, 0.0404 to 0.0850 | pass |
-| `weighted_calibration` | `selection_weighted__correctly_specified` | positive | contrast of always against never on the selected law, with weights: every nuisance is correct; no efficiency ratio is claimed (RM18-fixed-weights) | SE ratio and coverage intervals both inside their calibration bands | SE ratio 0.9681 to 1.0272, coverage 0.9273 to 0.9472 | pass |
+| `weighted_calibration` | `selection_weighted__correctly_specified` | positive | contrast of always against never on the selected law, with weights: every nuisance is correct; no efficiency ratio is claimed (RM18-fixed-weights) | SE ratio and coverage intervals both inside their calibration bands, reporting clauses because n is below twice the tail size of the contrast | SE ratio 0.9681 to 1.0272, coverage 0.9273 to 0.9472 | pass |
 | `weighted_calibration` | `selection_weighted__noise_control` | control | contrast of always against never on the selected law, with weights: one efficiency-bound unit of independent noise is added to each estimate | the SE-ratio interval must fall below the calibration band | SE ratio 0.6900 to 0.7323, coverage 0.8093 to 0.8404 | pass |
 | `weighted_calibration` | `selection_weighted__shrunken_se_control` | control | contrast of always against never on the selected law, with weights: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | SE ratio 0.6777 to 0.7180, coverage 0.8038 to 0.8354 | pass |
 | `weighted_calibration` | `selection_weighted_n2400__correctly_specified` | positive | contrast of always against never on the selected law, with weights, at n = 2,400: every nuisance is correct; no efficiency ratio is claimed (RM18-fixed-weights) | SE ratio and coverage intervals both inside their calibration bands | SE ratio 0.9614 to 1.0113, coverage 0.9278 to 0.9447 | pass |
@@ -218,11 +218,10 @@ The `sequential_double_robustness` family reads the two-node law of
 `tests/discrete_law_longitudinal_sdr.py`. Each of the patterns P_A to P_D makes one nuisance
 wrong at each node, and the pattern `both_correct` makes none wrong. The patterns `both_correct`
 and `P_C` keep the ratios exact, so they gate the bias and the reported-error screen at n = 2,000,
-4,800 and 8,000. They gate the coverage floor at 4,800 and 8,000 only.
-
-The patterns `P_A`, `P_B` and `P_D` gate the absolute bias at n = 2,000 and n = 8,000, and report their coverage only.
-Theorem 4 needs the rate product for their intervals. Both controls make the same nuisances wrong
-at one node, and their bias clears the floor of 3 empirical SDs.
+4,800 and 8,000. They gate the coverage floor at 4,800 and 8,000 only. The patterns `P_A`, `P_B`
+and `P_D` gate the absolute bias at n = 2,000 and n = 8,000, and report their coverage only,
+because Theorem 4 needs the rate product for their intervals. Both controls make the same
+nuisances wrong at one node, and their bias clears the floor of 3 empirical SDs.
 
 A cell gates a Wald interval only at an $n$ of at least $2 n_\kappa$, where $n_\kappa$ is the
 exact-law tail size of the quantity or of the cell's own curve, whichever is larger. The rule is
@@ -264,8 +263,9 @@ fresh draws
 | `LTMLE` | 0.903 | 0.917 | 0.187 | 0.321 |
 
 The two engines cover equally on the same draws, so the shortfall belongs to the law at this $n$.
-The diagnostic splits the draws by what the always-path cell holds. In every stratum but the last
-the cell carries no within-cell variation, so no plug-in variance sees its share.
+The diagnostic splits the draws by what the always-path cell holds. The split was chosen after
+the first run read red and is descriptive, not a declared test. In every stratum but the last the
+cell carries no within-cell variation, so no plug-in variance sees its share.
 
 | always-path cell | draws | `SDR` coverage |
 | --- | ---: | ---: |
@@ -275,11 +275,16 @@ the cell carries no within-cell variation, so no plug-in variance sees its share
 | two or more rows, all $Y = 0$ | 312 | 0.856 |
 | mixed outcomes | 472 | 0.979 |
 
-A cell of equal outcomes is fitted exactly, so its residual is zero. An empty or one-row cell is
-absent from the training folds of its held-out row, so the cell mean falls back to the training
-mean. A defect in the `SDR` curve would not be shared with `LTMLE`, and would not disappear at
-twice the tail size. `tests/unit/test_sdr_below_tail_size_reading.py` rebuilds this reading from
-the committed rows.
+A cell of equal outcomes is fitted exactly whenever its training folds hold another of its rows,
+so its residual is zero. An empty or one-row cell is absent from the training folds of its
+held-out row, so the cell mean falls back to the training mean, as it does for a two-row cell
+whose rows share one fold. A defect in the `SDR` curve would not be shared with `LTMLE`, and would
+not shrink as $n$ grows.
+
+Coverage is 0.911 at n = 2,000, 0.929 at 4,800 and 0.950 at 8,000. At 4,800 the 99% interval clears
+the floor of 0.90, but its upper end, 0.945, is below 0.95, so the shortfall narrows and is not
+yet gone. `tests/unit/test_sdr_below_tail_size_reading.py` rebuilds the coverage reading from the
+committed rows.
 
 **The weighted cell at n = 2,400.** The weighted cell at n = 2,000 sits at 0.86 of twice its tail
 size and passes as a reporting cell. Its gated twin `selection_weighted_n2400` runs 5,600

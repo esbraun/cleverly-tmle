@@ -2509,9 +2509,10 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
     ),
     "G23.in_sample": (
         (
-            "X39-below-tail-size: the Wald interval is not validated below the tail size of a "
-            "quantity. Coverage of ate_regimen[always vs never] at n = 2,000, below its n_kappa "
-            "of 2,326, is 0.911; bias 0.000011 to 0.0112, SE ratio 0.9459"
+            "X39-below-tail-size: the Wald interval is validated only at n of at least twice the "
+            "exact-law tail size of the quantity. At n = 2,000, below the tail size 2,326 of "
+            "ate_regimen[always vs never], coverage is 0.911; bias 0.000011 to 0.0112, SE ratio "
+            "0.9459"
         ),
     ),
     "G29.g1": ("X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",),
@@ -4664,9 +4665,9 @@ def _lh_note(wald: Sequence[int], bca: Sequence[int], *, static_bca: bool) -> st
 
 
 _LH_SWITCH_LIMIT: Final[str] = (
-    "X39-below-tail-size: the Wald interval is not validated below the tail size of a quantity. "
-    "Coverage of ey_regimen[switch] at n = 72,000, below its n_kappa of 134,244, is 0.9133; "
-    "bias -0.0015 to 0.0038, SE ratio 0.9624"
+    "X39-below-tail-size: the Wald interval is validated only at n of at least twice the "
+    "exact-law tail size of the quantity. At n = 72,000, below the tail size 134,244 of "
+    "ey_regimen[switch], coverage is 0.9133; bias -0.0015 to 0.0038, SE ratio 0.9624"
 )
 # Roadmap: X20.
 _LH_CROSSFIT_NOTE: Final[str] = (

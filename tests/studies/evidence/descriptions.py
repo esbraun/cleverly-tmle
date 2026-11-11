@@ -5085,6 +5085,15 @@ CELLS.update(
         ),
     }
 )
+#: The weighted positive at n = 2,000 is below twice the tail size of the weighted contrast, so
+#: both of its Wald clauses report; its twin at n = 2,400 gates them.
+STUDY_ARM_CELLS[
+    ("longitudinal-sdr", "weighted_calibration", "selection_weighted", "correctly_specified")
+] = (
+    CELLS["weighted_calibration", "correctly_specified"][0],
+    "SE ratio and coverage intervals both inside their calibration bands, reporting clauses "
+    "because n is below twice the tail size of the contrast",
+)
 
 
 # ------------------------------------------------------------------ sequential-baselines
