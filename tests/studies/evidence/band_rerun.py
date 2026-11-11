@@ -47,10 +47,11 @@ and installs either every composite or, when the flip is blocked, every diagnost
 ``WAVE/<slug>/replay-miss.json``.  It reruns whole with its own regeneration driver at the
 wave's commit, and that output is copied as is to ``WAVE/<slug>/complete/``
 (:func:`validate_complete`).  ``--decide`` reads it as route ``complete_rerun`` beside the
-targeted studies (route ``targeted``): every moved band cell against the baseline rows as for
-a targeted study, paired over the union of replicates (a replicate one side lost is not covered
-there), the runtime versions that differ from the baseline's, and every other verdict that changed listed under
-``complete_rerun_changes`` without blocking.  On a flip ``--install-wave`` installs the complete
+targeted studies (route ``targeted``).  Every moved band cell is read from the rows against
+the baseline rows as for a targeted study, paired over the union of replicates (a replicate one
+side lost is not covered there); the runtime versions that differ from the baseline's are
+recorded, and every other verdict that changed is listed under ``complete_rerun_changes``
+without blocking.  On a flip ``--install-wave`` installs the complete
 artifacts as the regeneration wrote them, with ``band_rerun/complete-rerun.json`` keeping the
 baseline manifest the plan hashed; on a block they join the study's sidecar, labelled
 diagnostic.
@@ -173,7 +174,22 @@ COMPLETE_ROUTE = "complete_rerun"
 COMPLETE_RECORD = "complete-rerun.json"
 #: The prefix of a complete rerun's artifacts in a blocked study's sidecar.
 COMPLETE_PREFIX = "complete-"
-VERDICT_LABELS = {"passed": "diagnostic_passed", "property_passed": "diagnostic_property_passed"}
+VERDICT_LABELS = {
+    "passed": "diagnostic_passed",
+    "property_passed": "diagnostic_property_passed",
+    "gate_passed": "diagnostic_gate_passed",
+}
+#: The runner's record of a complete rerun's exit, ``{"returncode": 0}``, beside its output.
+#: A study that publishes verdicts needs it: its driver refuses after writing on a failed gate.
+EXIT_RECORD = "exit.json"
+#: The configuration key every property run writes and a baseline written before it lacks;
+#: its presence shows the property phase ran (``regenerate._property_failure_bound``).
+PROPERTY_BOUND_KEY = property_failures.PROPERTY_BOUND_KEY
+#: The rule each band cell answers to (``property_verdicts.simultaneous_coverage_verdicts``):
+#: a positive cell's 99% Clopper-Pearson interval inside :data:`COVERAGE_BAND`, a control's
+#: upper limit below ``1 - CONTROL_ALPHA``, a diagnostic cell no verdict.
+COVERAGE_CONFIDENCE = 0.99
+CONTROL_ALPHA = 0.05
 #: The section 8 rule: the closed coverage band of a positive cell at 99% Clopper-Pearson.
 COVERAGE_BAND = (0.92, 0.98)
 DECISION_ALPHA = 0.01
@@ -1566,6 +1582,43 @@ def discordant(before: pd.DataFrame, after: pd.DataFrame, name: str) -> tuple[in
     return b, c, len(old)
 
 
+def union_reading(
+    before: pd.DataFrame, after: pd.DataFrame, name: str, role: str
+) -> dict[str, Any]:
+    """A complete rerun's reading of one moved cell from its rows, as a targeted reading counts.
+
+    The trials are the union of both sides' replicates (:func:`discordant_union`), and a
+    replicate the rerun lacks is not covered, as a band key that failed inside the band is in a
+    targeted reading.  The coverage, its 99% Clopper-Pearson interval and ``passed`` follow
+    ``property_verdicts.simultaneous_coverage_verdicts``.
+
+    Raises
+    ------
+    ValueError
+        For a role whose verdict reads more than the cell's coverage (a scale control).
+    """
+    from tests.studies.evidence.inference import clopper_pearson
+
+    new = _covered_by_replicate(after, name)
+    union = sorted(set(_covered_by_replicate(before, name).index) | set(new.index))
+    hits = int(new.reindex(union, fill_value=0).sum())
+    interval = clopper_pearson(hits, len(union), confidence_level=COVERAGE_CONFIDENCE)
+    if role == "positive":
+        passed = COVERAGE_BAND[0] <= interval.low and interval.high <= COVERAGE_BAND[1]
+    elif role == "control":
+        passed = interval.high < 1.0 - CONTROL_ALPHA
+    elif role == "diagnostic":
+        passed = True
+    else:
+        raise ValueError(f"{name}: a {role} cell's verdict is not read from its coverage alone")
+    return {
+        "coverage": hits / len(union),
+        "coverage_ci_lower": float(interval.low),
+        "coverage_ci_upper": float(interval.high),
+        "passed": bool(passed),
+    }
+
+
 def discordant_union(
     before: pd.DataFrame, after: pd.DataFrame, name: str
 ) -> tuple[int, int, int, int, int]:
@@ -1631,7 +1684,16 @@ def validate_complete(slug: str, output: Path, plan_raw: bytes) -> dict[str, Any
     output of the study's own regeneration driver, copied as is.  The study is planned, the
     miss names it, the directory holds no composite, and ``complete/manifest.json`` is a normal
     regeneration manifest of the study from a clean committed tree whose every artifact matches
-    its hash.  Returns the route, the producer commit and the digests the decision records.
+    its hash.  It is a normal run of the property phase: its configuration is the baseline's
+    but for :data:`PROPERTY_BOUND_KEY`, which every property run writes and so must be present;
+    its ``property-replicates.parquet`` and ``properties.csv`` are not the baseline's bytes (a
+    ``--skip-properties`` run copies them); and each moved cell requests the baseline's
+    replicates.  Its exit is clean: an ``exit.json`` beside the output, read whenever present,
+    holds ``returncode`` 0, and a study that publishes verdicts must have one.  Returns the
+    route, the producer commit and the digests the decision records.
+
+    The miss file is the targeted run's record, written at the wave's commit; it is hashed into
+    the decision and not otherwise interpreted.
     """
     if slug not in json.loads(plan_raw)["studies"]:
         raise ValueError(f"{slug}: not planned")
@@ -1668,12 +1730,59 @@ def validate_complete(slug: str, output: Path, plan_raw: bytes) -> dict[str, Any
         findings.append("the complete rerun ran from an unclean tree")
     if findings:
         raise ValueError(f"{slug}: " + "; ".join(findings))
+    entry = json.loads(plan_raw)["studies"][slug]
+    artifacts = record_for(slug).artifacts
+    baseline_raw = (artifacts / "manifest.json").read_bytes()
+    if digest(baseline_raw) != entry["manifest_sha256"]:
+        raise ValueError(f"{slug}: the committed artifacts are not the baseline")
+    findings += normal_run_findings(json.loads(baseline_raw), manifest)
+    exit_path = complete / EXIT_RECORD
+    if exit_path.exists():
+        if json.loads(exit_path.read_bytes()).get("returncode") != 0:
+            findings.append("the complete rerun's driver exited with an error")
+    elif (manifest.get("configuration") or {}).get("publication_policy") != "reporting":
+        findings.append(f"a study that publishes verdicts needs {EXIT_RECORD} with returncode 0")
+    if not findings:
+        before = read_rows(artifacts / "property-replicates.parquet")
+        after = read_rows(complete / "property-replicates.parquet")
+        for name in entry["moved_cells"]:
+            if requested(before, name) != requested(after, name):
+                findings.append(f"{name} requests other replicates than the baseline")
+    if findings:
+        raise ValueError(f"{slug}: " + "; ".join(findings))
     return {
         "route": COMPLETE_ROUTE,
         "source_commit": commit,
         "manifest_sha256": digest(manifest_raw),
         "miss_sha256": digest(miss_raw),
     }
+
+
+def normal_run_findings(baseline: Mapping[str, Any], manifest: Mapping[str, Any]) -> list[str]:
+    """What shows a complete rerun is not a normal run of the baseline's declaration."""
+    out = []
+    old = dict(baseline.get("configuration") or {})
+    new = dict(manifest.get("configuration") or {})
+    if PROPERTY_BOUND_KEY not in new:
+        out.append(f"the complete configuration records no {PROPERTY_BOUND_KEY}")
+    elif PROPERTY_BOUND_KEY in old and old[PROPERTY_BOUND_KEY] != new[PROPERTY_BOUND_KEY]:
+        out.append(f"the complete rerun changed {PROPERTY_BOUND_KEY}")
+    old.pop(PROPERTY_BOUND_KEY, None)
+    new.pop(PROPERTY_BOUND_KEY, None)
+    if old != new:
+        changed = sorted(key for key in set(old) | set(new) if old.get(key) != new.get(key))
+        out.append(f"the complete configuration differs from the baseline's: {changed}")
+    for name in ("property-replicates.parquet", "properties.csv"):
+        if manifest["sha256"].get(name) == baseline["sha256"].get(name):
+            out.append(f"the complete {name} is the baseline's file: no property phase ran")
+    return out
+
+
+def requested(rows: pd.DataFrame, name: str) -> list[int]:
+    """The ``requested_replicates`` values one cell's rows carry."""
+    prop, cell = name.split("/", 1)
+    values = rows.loc[(rows["property"] == prop) & (rows["cell"] == cell), "requested_replicates"]
+    return sorted({int(value) for value in values.dropna()})
 
 
 def read_output(slug: str, output: Path, plan_raw: bytes) -> dict[str, Any]:
@@ -1731,14 +1840,6 @@ def verdict_changes(
     return {"cells": cells, "properties": properties}
 
 
-def failed_replicates(rows: pd.DataFrame, name: str) -> int:
-    """The replicates the regeneration's failure records cost one cell (``failed_replicates``)."""
-    prop, cell = name.split("/", 1)
-    counts = rows.loc[(rows["property"] == prop) & (rows["cell"] == cell), "failed_replicates"]
-    counts = counts.dropna()
-    return 0 if counts.empty else int(counts.max())
-
-
 def breach_direction(role: str, reading: Mapping[str, Any], baseline_coverage: float) -> str:
     """The direction a cell that lost its verdict moved: ``"less"`` or ``"more"`` coverage.
 
@@ -1780,9 +1881,10 @@ def decide(
     route ``complete_rerun``) under the same commit as every other study.  Its moved cells are
     read as a targeted study's, against the committed baseline rows, but paired over the union
     of replicates (:func:`discordant_union`): a replicate one side lost is not covered there.
-    ``band_failures``
-    is the replicates the regeneration's own failure records cost the cell, and the property
-    failure files it wrote are listed.  Every other ``passed`` or ``property_passed`` that
+    The coverage, its interval, ``passed``, the loss and the breach come from those rows
+    (:func:`union_reading`), not from the regeneration's complete-case summary, whose verdict
+    is kept as ``regeneration_passed``.  ``band_failures`` is then the replicates the rerun
+    lost, each counted not covered, and the property failure files it wrote are listed.  Every other ``passed`` or ``property_passed`` that
     changed is listed under ``complete_rerun_changes`` and does not block, and the runtime
     versions that differ from the baseline's are recorded under ``stack_differences``.
     """
@@ -1816,27 +1918,41 @@ def decide(
             raise ValueError(f"{slug}: the committed artifacts are not the baseline")
         source = sources[slug]
         complete = source["route"] == COMPLETE_ROUTE
+        margins = getattr(record, "margins", None)
+        if complete and margins is not None:
+            declared = (
+                margins.confidence_level,
+                tuple(margins.calibration_coverage),
+                margins.alpha,
+            )
+            if declared != (COVERAGE_CONFIDENCE, COVERAGE_BAND, CONTROL_ALPHA):
+                raise ValueError(f"{slug}: its margins are not the rule the decision reads")
         output = wave / slug / COMPLETE if complete else wave / slug
         before_rows = read_rows(record.artifacts / "property-replicates.parquet")
         after_rows = read_rows(output / "property-replicates.parquet")
         before = pd.read_csv(record.artifacts / "properties.csv")
         after = pd.read_csv(output / "properties.csv")
         manifest = json.loads((output / "manifest.json").read_bytes())
-        if complete:
-            failures = {name: failed_replicates(after_rows, name) for name in entry["moved_cells"]}
-        else:
+        failures: dict[str, int] = {}
+        if not complete:
             failures = manifest["composite"]["replacement"]["replay"]["band_failures"]
         after_cells = {cell["cell"]: cell for cell in moved_readings(after, entry["moved_cells"])}
         study = []
         for baseline in entry["cells"]:
             name = f"{BAND_FAMILY}/{baseline['cell']}"
             now = after_cells[baseline["cell"]]
-            lost_counts: dict[str, int] = {}
+            lost_counts: dict[str, Any] = {}
             if complete:
                 b, c, pairs, lost_now, lost_before = discordant_union(before_rows, after_rows, name)
                 lost_counts = {
                     "replicates_lost_now": lost_now,
                     "replicates_lost_before": lost_before,
+                    "regeneration_passed": now["passed"],
+                }
+                failures[name] = lost_now
+                now = {
+                    "cell": baseline["cell"],
+                    **union_reading(before_rows, after_rows, name, baseline["role"]),
                 }
             else:
                 b, c, pairs = discordant(before_rows, after_rows, name)
@@ -1936,9 +2052,23 @@ def sidecar_files(route: str, output_manifest: Mapping[str, Any]) -> tuple[str, 
     return (*SIDECAR_FILES, *(COMPLETE_PREFIX + name for name in extra))
 
 
-def diagnostic_table(source: Path, target: Path) -> None:
-    """A table with its verdict columns labelled diagnostic (:data:`VERDICT_LABELS`)."""
-    write_csv(pd.read_csv(source, low_memory=False).rename(columns=VERDICT_LABELS), target)
+def is_table(name: str) -> bool:
+    return name.endswith((".csv", ".csv.gz"))
+
+
+def diagnostic_table(source: Path, target: Path) -> bool:
+    """Write ``source`` with its verdict columns labelled diagnostic (:data:`VERDICT_LABELS`).
+
+    The values are read round trip.  Returns whether a column was relabelled; a table with no
+    verdict column is copied byte for byte.
+    """
+    table = pd.read_csv(source, low_memory=False, float_precision="round_trip")
+    if not set(VERDICT_LABELS) & set(table.columns):
+        shutil.copyfile(source, target)
+        return False
+    compression = {"method": "gzip", "mtime": 0} if target.name.endswith(".gz") else None
+    write_csv(table.rename(columns=VERDICT_LABELS), target, compression=compression)
+    return True
 
 
 def write_sidecar(
@@ -1964,11 +2094,12 @@ def write_sidecar(
     shutil.copyfile(output / "manifest.json", side / SIDECAR_FILES[3])
     manifest = json.loads((output / "manifest.json").read_bytes())
     names = sidecar_files(route, manifest)
+    relabelled = []
     for name in names[len(SIDECAR_FILES) :]:
         source = output / name.removeprefix(COMPLETE_PREFIX)
-        if name.endswith(".csv"):
-            diagnostic_table(source, side / name)
-        else:
+        if is_table(name) and diagnostic_table(source, side / name):
+            relabelled.append(name)
+        elif not is_table(name):
             shutil.copyfile(source, side / name)
     record = {
         "mode": MODE,
@@ -1985,6 +2116,8 @@ def write_sidecar(
         "sha256": {name: digest((side / name).read_bytes()) for name in names},
         "output_manifest_sha256": digest((output / "manifest.json").read_bytes()),
     }
+    if route == COMPLETE_ROUTE:
+        record["relabelled"] = relabelled
     (side / "record.json").write_bytes(json_bytes(record))
 
 
@@ -2008,6 +2141,18 @@ def validate_sidecar(directory: Path, plan: Mapping[str, Any]) -> list[str]:
         if output_manifest.get("slug") != slug or "generation_mode" in output_manifest:
             out.append(f"{slug}: the sidecar's output manifest is not the study's complete rerun")
         expected = sidecar_files(route, output_manifest)
+        relabelled = record.get("relabelled")
+        if not isinstance(relabelled, list) or not set(relabelled) <= set(expected):
+            out.append(f"{slug}: the record names no relabelled files")
+            relabelled = []
+        for name in expected[len(SIDECAR_FILES) :]:
+            copied = directory / SIDECAR / name
+            original = output_manifest["sha256"][name.removeprefix(COMPLETE_PREFIX)]
+            if name in relabelled:
+                if not is_table(name):
+                    out.append(f"{slug}: {name} is relabelled but is no table")
+            elif not copied.is_file() or digest(copied.read_bytes()) != original:
+                out.append(f"{slug}: {name} is not the complete rerun's file")
     for name in expected:
         path = directory / SIDECAR / name
         if not path.is_file() or digest(path.read_bytes()) != record["sha256"].get(name):

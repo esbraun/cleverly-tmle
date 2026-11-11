@@ -587,14 +587,25 @@ def test_a_sidecar_with_an_altered_file_is_refused(tmp_path: Path, plan: dict[st
 SLUG = "synthetic"
 STUDY = "tests/canonical/synthetic"
 WAVE_COMMIT = "c" * 40
-REPLICATES = 20
+#: The grid's replicates per band cell, so a 95% cell's 99% interval sits inside the band.
+REPLICATES = 2400
+GREEN = 2280
 #: The study sources a regeneration never writes.
 SOURCES = ("README.md", "__init__.py", "regenerate.py")
+#: A table the regeneration wrote beside the six artifacts, with a gate verdict.
+GATE_TABLE = "reference-gates.csv.gz"
+#: How far the rerun's pointwise rows moved: the replay miss.
+POINT_DRIFT = 6.3e-8
 
 
-def study_rows(covered: list[int], point_covered: int = 1) -> pd.DataFrame:
+def study_rows(
+    covered: list[int], point_covered: int = 1, point_drift: float = 0.0
+) -> pd.DataFrame:
     return pd.DataFrame(
-        [row(POINT, r, 0.3, rounds=3.0, covered=point_covered) for r in range(REPLICATES)]
+        [
+            row(POINT, r, 0.3 + point_drift, rounds=3.0, covered=point_covered)
+            for r in range(REPLICATES)
+        ]
         + [row(BAND, r, 1.5, covered=flag, rejected=1 - flag) for r, flag in enumerate(covered)]
     )
 
@@ -634,6 +645,7 @@ def write_regeneration(
     rows: pd.DataFrame,
     summary: pd.DataFrame,
     *,
+    configuration: dict[str, Any],
     commit: str = WAVE_COMMIT,
     clean: bool = True,
     slug: str = SLUG,
@@ -646,14 +658,19 @@ def write_regeneration(
     directory.mkdir(parents=True, exist_ok=True)
     write_rows(rows, directory / "property-replicates.parquet")
     write_csv(summary, directory / "properties.csv")
-    for name in (*band_rerun.REGENERATION_ARTIFACTS, *extra):
-        if name.endswith(".csv") and name != "properties.csv":
+    names = (*band_rerun.REGENERATION_ARTIFACTS, *extra)
+    for name in names:
+        if name.endswith(".csv.gz"):
+            frame = pd.DataFrame({"gate": [name], "gate_passed": [True], "value": [0.1 + 0.2]})
+            write_csv(frame, directory / name, compression={"method": "gzip", "mtime": 0})
+        elif name == "summary.csv":
+            (directory / name).write_text(f"check,value\n{name},{commit[0]}\n")
+        elif name.endswith(".csv") and name != "properties.csv":
             (directory / name).write_text(f"check,passed\n{name},{commit[0]}\n")
         elif name.endswith(".parquet") and name != "property-replicates.parquet":
             write_rows(
                 pd.DataFrame({"replicate": [0, 1], "source": [name, commit]}), directory / name
             )
-    names = (*band_rerun.REGENERATION_ARTIFACTS, *extra)
     manifest = {
         "schema_version": 2,
         "study": "Synthetic",
@@ -666,6 +683,7 @@ def write_regeneration(
             },
             "reference": None,
         },
+        "configuration": configuration,
         "sha256": {name: band_rerun.digest((directory / name).read_bytes()) for name in names},
     }
     raw = band_rerun.json_bytes(manifest)
@@ -673,23 +691,31 @@ def write_regeneration(
     return raw
 
 
-BASELINE_COVERED = [1] * (REPLICATES - 1) + [0]
+BASELINE_COVERED = [1] * GREEN + [0] * (REPLICATES - GREEN)
+GREEN_SUMMARY = (0.95, 0.938, 0.961)
+
+
+def green_summary(**options: Any) -> pd.DataFrame:
+    return study_summary(*GREEN_SUMMARY, band_passed=True, **options)
 
 
 class Wave:
     """A fabricated wave of one planned study whose targeted run missed the replay rule."""
 
-    def __init__(self, root: Path, wave: Path) -> None:
+    def __init__(self, root: Path, wave: Path, policy: str = "reporting") -> None:
         self.study = root / STUDY
         self.wave = wave
         self.output = wave / SLUG
+        self.configuration = {"publication_policy": policy, "seed": 7}
         baseline_rows = study_rows(BASELINE_COVERED)
-        summary = study_summary(0.95, 0.75, 0.999, band_passed=True)
-        # The committed baseline: a regeneration from another commit, with one optional file.
+        summary = green_summary()
+        # The committed baseline: a regeneration from another commit, written before property
+        # runs recorded their bound, with one optional file.
         raw = write_regeneration(
             self.study,
             baseline_rows,
             summary,
+            configuration=self.configuration,
             commit="b" * 40,
             clean=False,
             extra=("failures.csv",),
@@ -715,48 +741,81 @@ class Wave:
             band_rerun.json_bytes({"miss": "point/a/r3: estimate", "started": "t", "study": SLUG})
         )
 
-    def complete(self, covered: list[int], summary: pd.DataFrame, **options: Any) -> Path:
+    def complete(
+        self,
+        covered: list[int],
+        summary: pd.DataFrame,
+        *,
+        point: int = 1,
+        drop: tuple[int, ...] = (),
+        requested: int | None = None,
+        configuration: dict[str, Any] | None = None,
+        **options: Any,
+    ) -> Path:
+        """The regeneration's output: its pointwise rows drifted, as the miss reported."""
         directory = self.output / band_rerun.COMPLETE
-        rows = study_rows(covered, options.pop("point", 1))
-        drop = options.pop("drop", None)
-        if drop is not None:
-            rows = rows.loc[~(band_rerun.band_mask(rows, [BAND]) & (rows["replicate"] == drop))]
-        write_regeneration(directory, rows.reset_index(drop=True), summary, **options)
+        rows = study_rows(covered, point, POINT_DRIFT)
+        if drop:
+            rows = rows.loc[~(band_rerun.band_mask(rows, [BAND]) & rows["replicate"].isin(drop))]
+        if requested is not None:
+            rows.loc[band_rerun.band_mask(rows, [BAND]), "requested_replicates"] = requested
+        summary = summary.copy()
+        summary.loc[0, "coverage"] = 0.95 + 1e-9
+        write_regeneration(
+            directory,
+            rows.reset_index(drop=True),
+            summary,
+            configuration=(
+                {**self.configuration, band_rerun.PROPERTY_BOUND_KEY: 0.01}
+                if configuration is None
+                else configuration
+            ),
+            extra=(GATE_TABLE,),
+            **options,
+        )
         return directory
 
     def decide(self) -> dict[str, Any]:
         return band_rerun.decide(self.wave, plan_raw=self.plan_raw)
 
 
-@pytest.fixture
-def wave(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Wave:
+def bind(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fabricated: Wave) -> Wave:
     import types
 
-    fabricated = Wave(tmp_path / "root", tmp_path / "wave")
+    from tests.studies.evidence.registry import Margins
+
     monkeypatch.setattr(band_rerun, "ROOT", tmp_path / "root")
     monkeypatch.setattr(band_rerun, "PLAN_PATH", fabricated.plan_path)
     monkeypatch.setattr(
         band_rerun,
         "record_for",
-        lambda slug: types.SimpleNamespace(slug=slug, artifacts=fabricated.study),
+        lambda slug: types.SimpleNamespace(
+            slug=slug, artifacts=fabricated.study, margins=Margins()
+        ),
     )
     monkeypatch.setattr(band_rerun, "descends_from_flip", lambda commit: commit == WAVE_COMMIT)
     return fabricated
 
 
+@pytest.fixture
+def wave(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Wave:
+    return bind(monkeypatch, tmp_path, Wave(tmp_path / "root", tmp_path / "wave"))
+
+
 def green_rerun(wave: Wave) -> Path:
     """A complete rerun whose band cell trades one replicate each way and stays green, and
     whose non-band cell turns red."""
-    covered = [0] + [1] * (REPLICATES - 2) + [1]
-    return wave.complete(
-        covered, study_summary(0.95, 0.75, 0.999, band_passed=True, point_passed=False)
-    )
+    covered = [0, *BASELINE_COVERED[1:GREEN], 1, *BASELINE_COVERED[GREEN + 1 :]]
+    return wave.complete(covered, green_summary(point_passed=False))
+
+
+RED = 168
 
 
 def red_rerun(wave: Wave) -> Path:
-    """A complete rerun whose band cell loses twelve replicates: red, and paired p <= 0.01."""
-    covered = [0] * 12 + [1] * (REPLICATES - 13) + [0]
-    return wave.complete(covered, study_summary(0.35, 0.15, 0.59, band_passed=False))
+    """A complete rerun whose band cell loses 168 replicates: red, and paired p <= 0.01."""
+    covered = [0] * RED + BASELINE_COVERED[RED:]
+    return wave.complete(covered, study_summary(0.88, 0.86, 0.90, band_passed=False))
 
 
 def test_a_complete_rerun_is_read_and_decided(wave: Wave) -> None:
@@ -769,6 +828,8 @@ def test_a_complete_rerun_is_read_and_decided(wave: Wave) -> None:
     assert (cell["b_covered_before_only"], cell["c_covered_now_only"]) == (1, 1)
     assert cell["mcnemar_p_covers_less"] == pytest.approx(0.75)
     assert cell["band_failures"] == 0 and cell["lost"] is False
+    assert cell["coverage"] == pytest.approx(GREEN / REPLICATES)
+    assert cell["passed"] is True and cell["regeneration_passed"] is True
     assert reading["manifest_sha256"] == band_rerun.digest(
         (complete / "manifest.json").read_bytes()
     )
@@ -790,17 +851,16 @@ def test_a_red_complete_rerun_blocks_under_the_paired_rule(wave: Wave) -> None:
     red_rerun(wave)
     decision = wave.decide()
     (cell,) = decision["readings"][SLUG]["cells"]
-    assert (cell["b_covered_before_only"], cell["c_covered_now_only"]) == (12, 0)
+    assert (cell["b_covered_before_only"], cell["c_covered_now_only"]) == (RED, 0)
     assert cell["breach"] == "less" and cell["interval_red"] is True
     assert decision["decision"] == "blocked" and len(decision["would_block"]) == 1
 
 
 def test_a_flipped_band_replicate_of_a_complete_rerun_moves_b_or_c(wave: Wave) -> None:
     """Mutation control: the reading is by replicate on the band rows, not on the summary."""
-    summary = study_summary(0.95, 0.75, 0.999, band_passed=True)
 
     def counts(covered: list[int], point: int = 1) -> tuple[int, int]:
-        wave.complete(covered, summary, point=point)
+        wave.complete(covered, green_summary(), point=point)
         (cell,) = wave.decide()["readings"][SLUG]["cells"]
         return cell["b_covered_before_only"], cell["c_covered_now_only"]
 
@@ -808,6 +868,63 @@ def test_a_flipped_band_replicate_of_a_complete_rerun_moves_b_or_c(wave: Wave) -
     assert counts(BASELINE_COVERED, point=0) == (0, 0)
     assert counts([0, *BASELINE_COVERED[1:]]) == (1, 0)
     assert counts([*BASELINE_COVERED[:-1], 1]) == (0, 1)
+
+
+def test_a_replicate_the_complete_rerun_lost_is_not_covered_there(wave: Wave) -> None:
+    """A covered baseline replicate the rerun lacks adds to b, and the pairs span the union."""
+    wave.complete(BASELINE_COVERED, green_summary(), drop=(0,))
+    (cell,) = wave.decide()["readings"][SLUG]["cells"]
+    assert (cell["b_covered_before_only"], cell["c_covered_now_only"]) == (1, 0)
+    assert cell["replicates"] == REPLICATES and cell["band_failures"] == 1
+    assert (cell["replicates_lost_now"], cell["replicates_lost_before"]) == (1, 0)
+    # The baseline's uncovered replicate lost by the rerun moves neither count.
+    wave.complete(BASELINE_COVERED, green_summary(), drop=(REPLICATES - 1,))
+    (cell,) = wave.decide()["readings"][SLUG]["cells"]
+    assert (cell["b_covered_before_only"], cell["c_covered_now_only"]) == (0, 0)
+    assert cell["replicates_lost_now"] == 1
+
+
+def test_lost_replicates_turn_a_green_regeneration_summary_red(wave: Wave) -> None:
+    """The verdict is read from the rows with each lost replicate not covered, as a targeted
+    reading counts a failed band key, not from the regeneration's complete-case summary."""
+    lost = tuple(range(150))
+    wave.complete(BASELINE_COVERED, green_summary(), drop=lost)
+    decision = wave.decide()
+    (cell,) = decision["readings"][SLUG]["cells"]
+    assert cell["regeneration_passed"] is True
+    assert cell["coverage"] == pytest.approx((GREEN - 150) / REPLICATES)
+    assert cell["interval_red"] is True and cell["passed"] is False and cell["lost"] is True
+    assert cell["breach"] == "less" and cell["band_failures"] == 150
+    assert (cell["b_covered_before_only"], cell["c_covered_now_only"]) == (150, 0)
+    assert decision["decision"] == "blocked"
+
+
+def test_a_union_reading_follows_each_role() -> None:
+    before = study_rows(BASELINE_COVERED)
+    for covered, passed in ((BASELINE_COVERED, False), ([0] * 300 + [1] * 2100, True)):
+        after = study_rows(covered)
+        reading = band_rerun.union_reading(before, after, BAND, "control")
+        assert reading["passed"] is passed
+    assert band_rerun.union_reading(before, before, BAND, "diagnostic")["passed"] is True
+    with pytest.raises(ValueError, match="scale_control"):
+        band_rerun.union_reading(before, before, BAND, "scale_control")
+
+
+def test_the_targeted_route_still_requires_the_same_replicates() -> None:
+    before = committed()
+    after = before.loc[~(band_rerun.band_mask(before, [BAND]) & (before["replicate"] == 0))]
+    with pytest.raises(ValueError, match="replicates differ"):
+        band_rerun.discordant(before, after, BAND)
+    assert band_rerun.discordant_union(before, after, BAND) == (1, 0, 2, 1, 0)
+
+
+def test_a_complete_rerun_records_its_stack_against_the_baseline(wave: Wave) -> None:
+    wave.complete(BASELINE_COVERED, green_summary())
+    assert wave.decide()["readings"][SLUG]["stack_differences"] == {}
+    wave.complete(BASELINE_COVERED, green_summary(), numpy="2.1")
+    assert wave.decide()["readings"][SLUG]["stack_differences"] == {
+        "numpy": {"baseline": "2.0", "ran": "2.1"}
+    }
 
 
 def test_a_complete_rerun_without_a_replay_miss_is_refused(wave: Wave) -> None:
@@ -822,6 +939,12 @@ def test_a_replay_miss_without_a_complete_rerun_is_refused(wave: Wave) -> None:
         wave.decide()
 
 
+def rewrite_manifest(directory: Path, change: Any) -> None:
+    manifest = json.loads((directory / "manifest.json").read_bytes())
+    change(manifest)
+    (directory / "manifest.json").write_bytes(band_rerun.json_bytes(manifest))
+
+
 @pytest.mark.parametrize(
     "mutation, message",
     [
@@ -831,28 +954,53 @@ def test_a_replay_miss_without_a_complete_rerun_is_refused(wave: Wave) -> None:
         ("slug", "another study"),
         ("miss", "miss names another study"),
         ("composite", "not a normal regeneration"),
+        ("configuration", r"configuration differs from the baseline's: \['seed'\]"),
+        ("no_bound", "records no property_failure_bound"),
+        ("copied_rows", "property-replicates.parquet is the baseline's file"),
+        ("copied_summary", "properties.csv is the baseline's file"),
+        ("requested", "requests other replicates"),
+        ("exit", "exited with an error"),
     ],
 )
 def test_the_complete_route_refuses_each_mutation(wave: Wave, mutation: str, message: str) -> None:
-    summary = study_summary(0.95, 0.75, 0.999, band_passed=True)
     mutations: dict[str, dict[str, Any]] = {
         "commit": {"commit": "d" * 40},
         "dirty": {"clean": False},
         "slug": {"slug": "other"},
+        "configuration": {
+            "configuration": {**wave.configuration, "seed": 8, band_rerun.PROPERTY_BOUND_KEY: 0.01}
+        },
+        "no_bound": {"configuration": wave.configuration},
+        "requested": {"requested": 3},
     }
-    options = mutations.get(mutation, {})
-    complete = wave.complete(BASELINE_COVERED, summary, **options)
+    complete = wave.complete(BASELINE_COVERED, green_summary(), **mutations.get(mutation, {}))
     if mutation == "hash":
         with (complete / "summary.csv").open("a") as handle:
             handle.write("tampered,True\n")
     elif mutation == "miss":
         (wave.output / band_rerun.MISS).write_text('{"study": "other"}')
     elif mutation == "composite":
-        manifest = json.loads((complete / "manifest.json").read_bytes())
-        manifest["generation_mode"] = band_rerun.MODE
-        (complete / "manifest.json").write_bytes(band_rerun.json_bytes(manifest))
+        rewrite_manifest(complete, lambda manifest: manifest.update(generation_mode="x"))
+    elif mutation in ("copied_rows", "copied_summary"):
+        name = "property-replicates.parquet" if mutation == "copied_rows" else "properties.csv"
+        (complete / name).write_bytes((wave.study / name).read_bytes())
+        hashed = band_rerun.digest((complete / name).read_bytes())
+        rewrite_manifest(complete, lambda manifest: manifest["sha256"].update({name: hashed}))
+    elif mutation == "exit":
+        (complete / band_rerun.EXIT_RECORD).write_text('{"returncode": 1}')
     with pytest.raises(ValueError, match=message):
         wave.decide()
+
+
+def test_a_study_that_publishes_verdicts_needs_a_clean_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gated = bind(monkeypatch, tmp_path, Wave(tmp_path / "root", tmp_path / "wave", "gated"))
+    complete = green_rerun(gated)
+    with pytest.raises(ValueError, match=r"needs exit\.json"):
+        gated.decide()
+    (complete / band_rerun.EXIT_RECORD).write_text('{"returncode": 0}')
+    assert gated.decide()["decision"] == "flip"
 
 
 def test_a_complete_rerun_from_another_commit_than_the_wave_is_refused(
@@ -860,10 +1008,7 @@ def test_a_complete_rerun_from_another_commit_than_the_wave_is_refused(
 ) -> None:
     """One commit for the whole wave: a targeted study at the wave's commit and a complete
     rerun at another descendant of the flip do not decide together."""
-    other = "e" * 40
-    wave.complete(
-        BASELINE_COVERED, study_summary(0.95, 0.75, 0.999, band_passed=True), commit=other
-    )
+    wave.complete(BASELINE_COVERED, green_summary(), commit="e" * 40)
     wave.plan["studies"]["targeted"] = wave.plan["studies"][SLUG]
     wave.plan_raw = band_rerun.json_bytes(wave.plan)
     (wave.wave / "targeted").mkdir()
@@ -923,6 +1068,8 @@ def test_install_re_derives_the_decision_of_a_complete_rerun(wave: Wave) -> None
 
 
 def test_a_blocked_wave_puts_the_complete_rerun_in_the_sidecar(wave: Wave) -> None:
+    import gzip
+
     complete = red_rerun(wave)
     (wave.wave / band_rerun.DECISION).write_bytes(band_rerun.json_bytes(wave.decide()))
     before = snapshot(wave.study)
@@ -938,46 +1085,19 @@ def test_a_blocked_wave_puts_the_complete_rerun_in_the_sidecar(wave: Wave) -> No
     assert set(record["sha256"]) == set(band_rerun.sidecar_files(record["route"], manifest))
     assert "complete-replicates.parquet" in record["sha256"]
     assert "complete-properties.csv" not in record["sha256"]
-    for name in record["sha256"]:
-        if name.endswith(".csv") and name != band_rerun.SIDECAR_FILES[2]:
-            header = (wave.study / band_rerun.SIDECAR / name).read_text().splitlines()[0]
-            assert "diagnostic_passed" in header.split(",") and "passed" not in header.split(","), (
-                name
-            )
-    (wave.study / band_rerun.SIDECAR / "complete-summary.csv").write_text("check\n")
+    assert sorted(record["relabelled"]) == sorted(
+        ["complete-" + GATE_TABLE, "complete-equivalence.csv", "complete-performance-tests.csv"]
+    )
+    for name in (*record["relabelled"], band_rerun.SIDECAR_FILES[1]):
+        raw = (wave.study / band_rerun.SIDECAR / name).read_bytes()
+        header = (gzip.decompress(raw) if name.endswith(".gz") else raw).decode().splitlines()[0]
+        assert not {"passed", "property_passed", "gate_passed"} & set(header.split(",")), name
+        assert any(column.startswith("diagnostic_") for column in header.split(",")), name
+    # A file copied as is stays the rerun's file, even with its recorded hash rewritten.
+    copied = wave.study / band_rerun.SIDECAR / "complete-summary.csv"
+    copied.write_text("check\n")
+    record["sha256"]["complete-summary.csv"] = band_rerun.digest(b"check\n")
+    (wave.study / band_rerun.SIDECAR / "record.json").write_bytes(band_rerun.json_bytes(record))
     assert band_rerun.validate_sidecar(wave.study, wave.plan) == [
-        f"{SLUG}: complete-summary.csv differs from its recorded hash"
+        f"{SLUG}: complete-summary.csv is not the complete rerun's file"
     ]
-
-
-def test_a_replicate_the_complete_rerun_lost_is_not_covered_there(wave: Wave) -> None:
-    """A covered baseline replicate the rerun lacks adds to b, and the pairs span the union."""
-    summary = study_summary(0.95, 0.75, 0.999, band_passed=True)
-    wave.complete(BASELINE_COVERED, summary, drop=0)
-    (cell,) = wave.decide()["readings"][SLUG]["cells"]
-    assert (cell["b_covered_before_only"], cell["c_covered_now_only"]) == (1, 0)
-    assert cell["replicates"] == REPLICATES
-    assert (cell["replicates_lost_now"], cell["replicates_lost_before"]) == (1, 0)
-    # The baseline's uncovered replicate lost by the rerun moves neither count.
-    wave.complete(BASELINE_COVERED, summary, drop=REPLICATES - 1)
-    (cell,) = wave.decide()["readings"][SLUG]["cells"]
-    assert (cell["b_covered_before_only"], cell["c_covered_now_only"]) == (0, 0)
-    assert cell["replicates_lost_now"] == 1
-
-
-def test_the_targeted_route_still_requires_the_same_replicates() -> None:
-    before = committed()
-    after = before.loc[~(band_rerun.band_mask(before, [BAND]) & (before["replicate"] == 0))]
-    with pytest.raises(ValueError, match="replicates differ"):
-        band_rerun.discordant(before, after, BAND)
-    assert band_rerun.discordant_union(before, after, BAND) == (1, 0, 2, 1, 0)
-
-
-def test_a_complete_rerun_records_its_stack_against_the_baseline(wave: Wave) -> None:
-    summary = study_summary(0.95, 0.75, 0.999, band_passed=True)
-    wave.complete(BASELINE_COVERED, summary)
-    assert wave.decide()["readings"][SLUG]["stack_differences"] == {}
-    wave.complete(BASELINE_COVERED, summary, numpy="2.1")
-    assert wave.decide()["readings"][SLUG]["stack_differences"] == {
-        "numpy": {"baseline": "2.0", "ran": "2.1"}
-    }
