@@ -67,7 +67,7 @@ from tests.studies.stratified_incremental_msm_properties import Columns
 PILOT_REPLICATES = 1_000
 #: The declared primary replicate count, set from the committed pilot by the shared rule
 #: before any declared draw.
-PRIMARY_REPLICATES = 1_600
+PRIMARY_REPLICATES = 6_000
 PRIMARY_N = 4_000
 #: The declared share of replicates one cell may lose to recordable fitting failures.
 FAILURE_BOUND = 0.01
