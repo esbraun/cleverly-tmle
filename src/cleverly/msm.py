@@ -1308,6 +1308,9 @@ def solve_projection(
     So a solve also reports ``converged=False`` when the smallest generalised eigenvalue of
     :math:`M` against the design's Gram matrix is below :data:`_MIN_CURVATURE`: the slope
     :math:`dm/d\eta` has collapsed along some direction.  The caller warns or refuses.
+    Under the log link :math:`dm/d\eta = m`, so this check and the relative score are in the
+    outcome's units: means of order 1e-9 can flag a sound projection, and means of order 1e6
+    or more can stop the solve short.
 
     Parameters
     ----------
