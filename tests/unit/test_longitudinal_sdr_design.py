@@ -19,8 +19,12 @@ the second.  No committed fit set changed.
 * A Wald cell gates only at n of at least twice its exact-law tail size.  The guard
   :func:`test_each_wald_cell_gates_only_at_twice_its_tail_size` derives the classification and
   each gated twin's size from the exact laws, and its witnesses fail under each mutation the
-  re-declaration guards against.  The three new gated cells pass together with probability
-  0.967 at the declared replications (:data:`GATED_PASS`).
+  re-declaration guards against.
+* Each new gated cell's replication count is the smallest multiple of 400 at which the three
+  pass together with probability at least 0.95, and one step of 400 less on either count falls
+  short (:func:`test_the_new_gated_replications_follow_the_sizing_rule`).  The pass
+  probabilities are computed here from the pilot counts of :data:`COVERAGE_PILOT`, and the
+  weighted cell's SE clause passes with probability at least 0.90 under perfect calibration.
 * The power cell is sized on the exact law: the contrast 0.15625, the efficiency bound 2.5749
   and n = 4,000 give power 0.970 (:data:`DESIGN_POWER`).
 * The band cell's pointwise control needs a power of at least 0.99 at ``p0 + 0.005`` (the RM36
@@ -52,10 +56,12 @@ import warnings
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
 from functools import cache
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import pytest
+from scipy import stats
 
 from cleverly.longitudinal import LTMLE, SDR
 from tests import discrete_law_competing as competing_law
@@ -94,8 +100,11 @@ NEW_FIT_SETS = (
     "weighted_calibration/selection_weighted_n2400",
 )
 #: The pre-declaration failure-only probe on streams 0 to 1,999: in 2026-10 of every fit set
-#: declared then, and in 2026-11 of the three new fit sets (``failure_probe(2_000,
-#: fit_sets=NEW_FIT_SETS)``).  Failed fits per fit set.
+#: declared then, and in 2026-11 of the three new fit sets.  Failed fits per fit set.  The
+#: 2026-11 probe ran ``failure_probe(2_000, n_jobs=4, fit_sets=NEW_FIT_SETS)`` on 2026-11-11 at
+#: 58bba782 (6,000 fits, 130 s wall on 4 cores) and printed 0 for each fit set
+#: (``_x4_failure_probe_2026-11.log`` beside the plan).  It reads each fit set's n and streams,
+#: not its replication count, so the later move of those counts leaves it current.
 FAILURE_PROBE = {
     **{
         f"{family}/{label}": 0
@@ -110,17 +119,26 @@ BAND_P0 = 0.685
 DESIGN_POWER = 0.9698
 #: The pass probability of the two-size rule per cell when the bias is zero at both sizes.
 TWO_SIZE_PASS = 0.9934
-#: A record, not a check: the pass probability of each new gated cell at its declared
-#: replications.  An SDR cell's is its coverage clause averaged over a Jeffreys posterior from its
-#: pilot; the weighted cell's multiplies that of its coverage clause by the simulated SE clause
-#: and both controls, which passed in 200 of 200 simulated studies.
-GATED_PASS = {
-    "both_correct__n_4800": 0.9953,
-    "P_C__n_4800": 0.9995,
-    "selection_weighted_n2400": 0.9716,
+#: The coverage pilots of the new gated cells, ``label -> (covered, draws)``, on the design-probe
+#: streams of :data:`DESIGN_PROBE` (raw sampler seeds 300,000 + r and 400,000 + r).
+COVERAGE_PILOT = {
+    "both_correct__n_4800": (1_884, 2_000),
+    "P_C__n_4800": (1_895, 2_000),
+    "selection_weighted_n2400": (7_496, 8_000),
 }
-#: The family-wise pass probability of the three new gated cells.
-FAMILY_WISE_PASS = 0.967
+#: The project's family-wise floor for the gated cells a declaration adds, and the grain of R.
+FAMILY_FLOOR = 0.95
+REPLICATE_GRAIN = 400
+#: The AGENT-BRIEF floor of a calibration cell's SE clause under perfect calibration.
+PERFECT_CALIBRATION_FLOOR = 0.90
+#: Each new gated cell's pass probability at its declared replications, and their product, as
+#: computed by :func:`gated_pass` (checked equal to it).
+GATED_PASS = {
+    "both_correct__n_4800": 0.9967,
+    "P_C__n_4800": 0.9997,
+    "selection_weighted_n2400": 0.9594,
+}
+FAMILY_WISE_PASS = 0.956
 #: A record, not a check: each control's exact-law limit of the standardized bias at n = 2,000.
 CONTROL_LIMITS = {"node2_both_wrong_control": 4.535, "ltmle_P_D_control": 4.578}
 #: A record, not a check: the design probe, on streams 100,000 and above.  Each value is
@@ -151,8 +169,8 @@ FIT_SET_SIZES = {
         for pattern in ("both_correct", "P_A", "P_B", "P_C", "P_D")
         for size in (2_000, 8_000)
     },
-    ("sequential_double_robustness", "both_correct__n_4800"): (4_800, 1_500),
-    ("sequential_double_robustness", "P_C__n_4800"): (4_800, 1_500),
+    ("sequential_double_robustness", "both_correct__n_4800"): (4_800, 1_600),
+    ("sequential_double_robustness", "P_C__n_4800"): (4_800, 1_600),
     ("sequential_double_robustness", "controls"): (2_000, 1_000),
     ("root_n_and_efficiency", "n_1000"): (1_000, 700),
     ("root_n_and_efficiency", "n_2000"): (2_000, 700),
@@ -170,7 +188,7 @@ FIT_SET_SIZES = {
         )
     },
     ("weighted_calibration", "selection_weighted"): (2_000, 4_000),
-    ("weighted_calibration", "selection_weighted_n2400"): (2_400, 6_000),
+    ("weighted_calibration", "selection_weighted_n2400"): (2_400, 5_600),
     ("clustered_calibration", "clusters_200"): (2_000, 4_000),
     ("clustered_calibration", "clusters_20"): (2_000, 4_000),
     ("type_i_error", "sharp_null"): (4_000, 800),
@@ -203,8 +221,8 @@ def test_the_declared_numbers() -> None:
         "selection_weighted": weighted.EFFICIENCY_SD["static"],
         "selection_weighted_n2400": weighted.EFFICIENCY_SD["static"],
     } == properties.NOISE_SD
-    assert (properties.SDR_GATED_N, properties.SDR_GATED_REPLICATES) == (4_800, 1_500)
-    assert properties.WEIGHTED_GATED_REPLICATES == 6_000
+    assert (properties.SDR_GATED_N, properties.SDR_GATED_REPLICATES) == (4_800, 1_600)
+    assert properties.WEIGHTED_GATED_REPLICATES == 5_600
     assert properties.WALD_GATED_STEP == 400
     assert properties.WALD_REGIME_FACTOR == long_horizon_design.WALD_REGIME_FACTOR == 2
     assert set(properties.SEPARATE_SIZES) == set(properties.NOISE_SD)
@@ -412,9 +430,162 @@ def test_the_failure_probe_runs_only_the_named_fit_sets() -> None:
     assert properties.failure_probe(0, fit_sets=NEW_FIT_SETS) == dict.fromkeys(NEW_FIT_SETS, 0)
 
 
-def test_the_new_gated_cells_pass_together_at_the_declared_replications() -> None:
-    assert math.prod(GATED_PASS.values()) == pytest.approx(FAMILY_WISE_PASS, abs=5e-4)
-    assert FAMILY_WISE_PASS >= 0.95
+# ------------------------------------------------------- sizing of the new gated cells
+
+SDR_GATED_LABELS = ("both_correct__n_4800", "P_C__n_4800")
+WEIGHTED_GATED_LABEL = "selection_weighted_n2400"
+#: Gauss-Hermite nodes and weights for averaging over a normal law of a true SE ratio.
+_GH_X, _GH_W = np.polynomial.hermite_e.hermegauss(41)
+_GH_W = _GH_W / _GH_W.sum()
+
+
+def _coverage_law(label: str, points: int = 400) -> np.ndarray:
+    """The pilot coverage's Jeffreys posterior, as ``points`` equal-mass quantiles."""
+    covered, draws = COVERAGE_PILOT[label]
+    mass = (np.arange(points) + 0.5) / points
+    return np.asarray(stats.beta.ppf(mass, covered + 0.5, draws - covered + 0.5))
+
+
+@cache
+def _accepted(replicates: int, clause: str) -> np.ndarray:
+    """Whether each count's exact Clopper-Pearson interval at ``replicates`` passes ``clause``.
+
+    ``floor`` is the coverage floor of an exact-ratio pattern; ``band`` is the coverage band of
+    a calibration cell.  Both read the endpoints inclusively, as the verdicts do.
+    """
+    margins = Margins()
+    counts = np.arange(replicates + 1)
+    tail = (1.0 - margins.confidence_level) / 2.0
+    low = np.where(counts > 0, stats.beta.ppf(tail, counts, replicates - counts + 1), 0.0)
+    high = np.where(
+        counts < replicates, stats.beta.ppf(1.0 - tail, counts + 1, replicates - counts), 1.0
+    )
+    if clause == "floor":
+        return np.asarray(low >= margins.coverage_floor)
+    band = margins.calibration_coverage
+    return np.asarray((low >= band[0]) & (high <= band[1]))
+
+
+def _coverage_pass(coverage: np.ndarray, replicates: int, clause: str) -> float:
+    """The coverage clause's pass probability at ``replicates``, averaged over ``coverage``."""
+    pmf = stats.binom.pmf(
+        np.arange(replicates + 1)[None, :], replicates, np.atleast_1d(coverage)[:, None]
+    )
+    return float(np.mean(pmf @ _accepted(replicates, clause).astype(float)))
+
+
+def _ratio_spread(ratio: Any, replicates: int) -> Any:
+    """The normal approximation of an SE-ratio estimate's SD from the empirical spread alone."""
+    return ratio * np.sqrt(1.0 / (2.0 * (replicates - 1)))
+
+
+def _se_clause_pass(ratio: Any, replicates: int) -> Any:
+    """The chance the 99% interval of the SE ratio lies inside the calibration band."""
+    margins = Margins()
+    z = float(stats.norm.ppf(0.5 + margins.confidence_level / 2.0))
+    low, high = margins.calibration_se_ratio
+    spread = _ratio_spread(ratio, replicates)
+    return stats.norm.cdf((high - z * spread - ratio) / spread) - stats.norm.cdf(
+        (low + z * spread - ratio) / spread
+    )
+
+
+def _control_pass(ratio: float, replicates: int) -> float:
+    """The chance a derived control's SE-ratio interval lies wholly below the band."""
+    margins = Margins()
+    z = float(stats.norm.ppf(0.5 + margins.confidence_level / 2.0))
+    spread = float(_ratio_spread(ratio, replicates))
+    return float(stats.norm.cdf((margins.calibration_se_ratio[0] - z * spread - ratio) / spread))
+
+
+def weighted_ratio_clauses(replicates: int) -> dict[str, float]:
+    """The weighted 2,400 cell's SE clause and its two controls, by a normal approximation.
+
+    The true SE ratio is normal about the probe's 0.985 with the probe's own sampling SD
+    (:func:`_ratio_spread` at 8,000 draws, 0.0078), so the pool's ratio is not taken as the
+    truth.  The shrunken control's ratio is :data:`~properties.SHRUNKEN_SE_FACTOR` times the
+    positive's; the noise control's is the positive's over ``sqrt(1 + (bound / spread)^2)``,
+    with the probe's root-n spread over the bound.
+    """
+    draws, ratio, _, spread = DESIGN_PROBE[WEIGHTED_GATED_LABEL]
+    sd = float(_ratio_spread(ratio, draws))
+    return {
+        "se_ratio": float(np.sum(_GH_W * _se_clause_pass(ratio + sd * _GH_X, replicates))),
+        "shrunken": _control_pass(properties.SHRUNKEN_SE_FACTOR * ratio, replicates),
+        "noise": _control_pass(ratio / math.sqrt(1.0 + spread**-2), replicates),
+    }
+
+
+@cache
+def gated_pass(sdr_replicates: int, weighted_replicates: int) -> dict[str, float]:
+    """Each new gated cell's pass probability at the given replication counts.
+
+    An SDR cell's is its coverage floor averaged over the Jeffreys posterior of its pilot; its
+    bias clause and SE screen pass with probability above 0.9999 at the pilot's bias of about
+    0.01 SD.  The weighted cell's is its coverage band, averaged the same way, times the SE
+    clause and both controls of :func:`weighted_ratio_clauses`.  The clauses are read as
+    independent.
+    """
+    passes = {
+        label: _coverage_pass(_coverage_law(label), sdr_replicates, "floor")
+        for label in SDR_GATED_LABELS
+    }
+    passes[WEIGHTED_GATED_LABEL] = _coverage_pass(
+        _coverage_law(WEIGHTED_GATED_LABEL), weighted_replicates, "band"
+    ) * math.prod(weighted_ratio_clauses(weighted_replicates).values())
+    return passes
+
+
+def family_pass(sdr_replicates: int, weighted_replicates: int) -> float:
+    """The chance that the three new gated cells pass together."""
+    return math.prod(gated_pass(sdr_replicates, weighted_replicates).values())
+
+
+def test_the_coverage_pilot_is_the_design_probe() -> None:
+    for label, (covered, draws) in COVERAGE_PILOT.items():
+        assert draws == DESIGN_PROBE[label][0]
+        assert covered / draws == pytest.approx(DESIGN_PROBE[label][2], abs=5e-5)
+
+
+def test_the_new_gated_replications_follow_the_sizing_rule() -> None:
+    """Each count is the smallest multiple of 400 with family-wise pass at least 0.95.
+
+    One step of 400 less on either count, with the other held, falls short.
+    """
+    sdr, weighted_r = properties.SDR_GATED_REPLICATES, properties.WEIGHTED_GATED_REPLICATES
+    assert sdr % REPLICATE_GRAIN == 0 and weighted_r % REPLICATE_GRAIN == 0
+    assert family_pass(sdr, weighted_r) >= FAMILY_FLOOR
+    assert family_pass(sdr - REPLICATE_GRAIN, weighted_r) < FAMILY_FLOOR
+    assert family_pass(sdr, weighted_r - REPLICATE_GRAIN) < FAMILY_FLOOR
+
+
+def test_the_declared_pass_probabilities_are_the_computed_ones() -> None:
+    computed = gated_pass(properties.SDR_GATED_REPLICATES, properties.WEIGHTED_GATED_REPLICATES)
+    assert computed == pytest.approx(GATED_PASS, abs=5e-4)
+    assert math.prod(computed.values()) == pytest.approx(FAMILY_WISE_PASS, abs=5e-4)
+
+
+def test_the_weighted_se_clause_passes_under_perfect_calibration() -> None:
+    """The AGENT-BRIEF rule: at a true SE ratio of 1, the SE clause passes with chance >= 0.90."""
+    replicates = properties.WEIGHTED_GATED_REPLICATES
+    assert float(_se_clause_pass(1.0, replicates)) >= PERFECT_CALIBRATION_FLOOR
+
+
+def test_every_new_gated_cell_passes_at_nominal_coverage() -> None:
+    """At a true coverage of 0.95 each coverage clause passes with chance above 0.999."""
+    nominal = np.array([0.95])
+    assert _coverage_pass(nominal, properties.SDR_GATED_REPLICATES, "floor") > 0.999
+    assert _coverage_pass(nominal, properties.WEIGHTED_GATED_REPLICATES, "band") > 0.999
+
+
+def test_every_fit_set_replicate_reads_its_own_stream() -> None:
+    """No two replicates of any two fit sets, of one family or of two, share a sample seed."""
+    seeds = [
+        properties._seed(family, label, r)
+        for family, label, _, _, replicates, _ in properties.FIT_SETS
+        for r in range(replicates)
+    ]
+    assert len(set(seeds)) == len(seeds)
 
 
 # ------------------------------------------------------------------ the tail-size rule

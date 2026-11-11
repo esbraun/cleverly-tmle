@@ -9,7 +9,7 @@ family                              cells, replications and size
 ``sequential_double_robustness``    ``ate_regimen[always vs never]`` of
                                     :mod:`tests.discrete_law_longitudinal_sdr` in the five
                                     patterns of ``X4-plan.md`` 6.8.  ``both_correct`` and
-                                    ``P_C`` at n = 2,000, 4,800 and 8,000 (1,000, 1,500 and
+                                    ``P_C`` at n = 2,000, 4,800 and 8,000 (1,000, 1,600 and
                                     1,000); ``P_A``, ``P_B`` and ``P_D`` at n = 2,000 and
                                     8,000, 1,000 each.  Two controls at n = 2,000: SDR with
                                     both nuisances wrong at node 2, and LTMLE in ``P_D``
@@ -21,7 +21,7 @@ family                              cells, replications and size
                                     ``weighted_longitudinal_properties_common`` with its
                                     weights, ``always vs never``: ``selection_weighted``,
                                     4,000 at n = 2,000, and ``selection_weighted_n2400``,
-                                    6,000 at n = 2,400, each with two derived controls
+                                    5,600 at n = 2,400, each with two derived controls
 ``clustered_calibration``           ``clustered_longitudinal_laws`` with grouped folds and
                                     GLM outcome regressions: ``clusters_200`` (200 clusters
                                     of 10) and ``clusters_20`` (20 clusters of 100,
@@ -199,9 +199,11 @@ from tests.studies.fractional_glm import QuasiBinomialGLM
 from tests.studies.oracle_density_bins import fit_bytes, oracle_bins
 
 SDR_REPLICATES = 1_000
-#: The replications of each gated exact-ratio cell at n = 4,800, sized on a pilot of 2,000 draws
-#: per pattern (``tests/unit/test_longitudinal_sdr_design.py``, :data:`DESIGN_PROBE`).
-SDR_GATED_REPLICATES = 1_500
+#: The replications of each gated exact-ratio cell at n = 4,800.  With
+#: :data:`WEIGHTED_GATED_REPLICATES` it is the smallest multiple of 400 at which the three new
+#: gated cells pass together with probability at least 0.95, read from a pilot of 2,000 draws per
+#: pattern (``tests/unit/test_longitudinal_sdr_design.py`` computes it).
+SDR_GATED_REPLICATES = 1_600
 #: The size at which each exact-ratio pattern gates its coverage floor (:data:`WALD_GATED_STEP`).
 SDR_GATED_N = 4_800
 CONTROL_N = 2_000
@@ -209,9 +211,10 @@ RATE_REPLICATES = 700
 RATE_SIZES = (1_000, 2_000, 8_000)
 CALIBRATION_REPLICATES = 4_000
 CALIBRATION_N = 2_000
-#: The replications of the gated weighted cell at n = 2,400, sized on a probe of 8,000 draws so
-#: that the three new gated cells pass together with probability 0.967.
-WEIGHTED_GATED_REPLICATES = 6_000
+#: The replications of the gated weighted cell at n = 2,400, sized by the rule of
+#: :data:`SDR_GATED_REPLICATES` on a probe of 8,000 draws: the three new gated cells pass together
+#: with probability 0.956.
+WEIGHTED_GATED_REPLICATES = 5_600
 #: The project's margin above the tail size: a Wald interval gates only where n is at least this
 #: many times :math:`n_\kappa` (``tests/long_horizon_design.py``).
 WALD_REGIME_FACTOR = 2

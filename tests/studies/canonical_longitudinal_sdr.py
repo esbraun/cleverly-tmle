@@ -78,9 +78,13 @@ that size, ``P_C__n_2000`` and ``weighted_calibration/selection_weighted__correc
 law, learners, size, replications, seeds and verdict rule, and its Wald clauses read as
 reporting (``BELOW_TAIL_SIZE`` of the properties module).  Three gated fit sets join at the least
 multiple of 400 at or above twice the tail size: ``both_correct__n_4800`` and ``P_C__n_4800``
-(1,500 replications each) and ``weighted_calibration/selection_weighted_n2400`` (6,000, with
+(1,600 replications each) and ``weighted_calibration/selection_weighted_n2400`` (5,600, with
 its two derived controls).  ``tests/unit/test_longitudinal_sdr_design.py`` derives each
-classification and each new size from the exact law.
+classification and each new size from the exact law, and computes the replication counts by the
+project's rule: the smallest multiple of 400 at which the three new gated cells pass together
+with probability at least 0.95 on their pilots.  ``P_C__n_2000`` and the weighted 2,000 positive
+passed in the first run and are classified reporting all the same: the classification follows
+from the exact law alone, and would be the same had they been red.
 
 The red-cell route of the re-declared run, fixed before it:
 
