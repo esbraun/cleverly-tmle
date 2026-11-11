@@ -2509,8 +2509,9 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
     ),
     "G23.in_sample": (
         (
-            "X4-finite-sample: bias 0.000011 to 0.0112, margin 0.0172, coverage 0.8853 to "
-            "0.9327, SE ratio 0.9459"
+            "X39-below-tail-size: the Wald interval is not validated below the tail size of a "
+            "quantity. Coverage of ate_regimen[always vs never] at n = 2,000, below its n_kappa "
+            "of 2,326, is 0.911; bias 0.000011 to 0.0112, SE ratio 0.9459"
         ),
     ),
     "G29.g1": ("X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",),

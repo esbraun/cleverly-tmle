@@ -217,26 +217,45 @@ Comparator-backed: a paired comparison with `lmtp` on the same samples. Each row
 The `sequential_double_robustness` family reads the two-node law of
 `tests/discrete_law_longitudinal_sdr.py`. Each of the patterns P_A to P_D makes one nuisance
 wrong at each node, and the pattern `both_correct` makes none wrong. The patterns `both_correct`
-and `P_C` keep the ratios exact, so they gate the bias and the coverage at both sizes. The
-patterns `P_A`, `P_B` and `P_D` gate the absolute bias at n = 2,000 and n = 8,000, and report their
-coverage only. Theorem 4 needs the rate product for their intervals. Both controls make the same
-nuisances wrong at one node, and their bias clears the floor of 3 empirical SDs.
+and `P_C` keep the ratios exact, so they gate the bias and the reported-error screen at n = 2,000,
+4,800 and 8,000. They gate the coverage floor at 4,800 and 8,000 only.
+
+The patterns `P_A`, `P_B` and `P_D` gate the absolute bias at n = 2,000 and n = 8,000, and report their coverage only.
+Theorem 4 needs the rate product for their intervals. Both controls make the same nuisances wrong
+at one node, and their bias clears the floor of 3 empirical SDs.
+
+A cell gates a Wald interval only at an $n$ of at least $2 n_\kappa$, where $n_\kappa$ is the
+exact-law tail size of the quantity or of the cell's own curve, whichever is larger. The rule is
+the one the long-horizon study applies, re-declared for this study in 2026-11 before its rerun.
+For `ate_regimen[always vs never]` on the family law $n_\kappa$ = 2,326, so the coverage of the
+exact-ratio pair at n = 2,000 reports, and the twins at 4,800 gate it. The weighted contrast has
+$n_\kappa$ = 1,159, so the weighted cells at n = 2,000 report their Wald clauses and the cells at
+n = 2,400 gate them. A reporting cell keeps its verdict, so a miss on a Wald clause alone still
+reads red ([`tests/studies/longitudinal_sdr_properties.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/studies/longitudinal_sdr_properties.py),
+`BELOW_TAIL_SIZE`). `tests/unit/test_longitudinal_sdr_design.py` derives the classification from
+the exact laws.
 
 The `construction_diagnostic` and `sdr_tmle_agreement` cells state no verdict. The stitched cell
 fits Step 2 of Section 5.3 as printed. The tree cell estimates the mechanism with trees of at
 least 50 rows a leaf, under the default bounds (0.01, 1).
 
-One property cell fails its own rule, and the diagnosis finds no defect in `SDR`. The
-[`X4-finite-sample`](../../roadmap.md#red-cell-owners) owner holds it.
+One property cell fails its own rule, and the diagnosis finds no defect in `SDR`. It is a
+reporting cell below its tail size, and the
+[`X39-below-tail-size`](../../roadmap.md#red-cell-owners) owner holds it.
 
 | cell | measured | reading |
 | --- | --- | --- |
-| `sequential_double_robustness/both_correct__n_2000` | coverage 0.911, 99% interval 0.885 to 0.933, against a floor of 0.90; SE ratio 0.946 | finite-sample, shared with LTMLE |
+| `sequential_double_robustness/both_correct__n_2000` | coverage 0.911, 99% interval 0.885 to 0.933, against a floor of 0.90; bias interval inside its margin; SE ratio 0.946 | reporting, below the tail size |
 
-**The `both_correct` cell at n = 2,000.** The law's smallest path probability is near 0.012, so
-an inverse weight can reach about 85. At n = 2,000 the standard error then varies with the error
-it measures. A diagnostic refitted the cell's own fit and `LTMLE` with the same learners on the
-same 1,000 fresh draws
+**The `both_correct` cell at n = 2,000.** The cell's $n$ is below even $n_\kappa$ = 2,326, so its
+coverage measures the law in a regime the Wald interval is not validated for. The gated twin
+`both_correct__n_4800` covers 0.929 (99% interval 0.911 to 0.945) with an SE ratio of 0.988, and
+the cell at n = 8,000 covers 0.950. The always-path cell of the law ($W = 1$, treated and
+uncensored at both nodes, $L_2 = 1$) has probability 0.0015, about 2.9 rows at n = 2,000. Its
+inverse weight is 85.3, and it carries 27% of the EIF variance.
+
+A diagnostic refitted the cell's own fit and `LTMLE` with the same learners on the same 1,000
+fresh draws
 ([`tests/diagnostics/x4_both_correct/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x4_both_correct)).
 
 | engine | coverage | SE ratio | coefficient of variation of the SE | correlation of SE and error |
@@ -244,9 +263,27 @@ same 1,000 fresh draws
 | `SDR` | 0.903 | 0.918 | 0.186 | 0.301 |
 | `LTMLE` | 0.903 | 0.917 | 0.187 | 0.321 |
 
-The two engines cover equally on the same draws. The same cell at n = 8,000 covers 0.950, with
-an SE ratio of 0.999. A defect in the `SDR` curve would not be shared with `LTMLE`, and would not
-disappear as $n$ grows.
+The two engines cover equally on the same draws, so the shortfall belongs to the law at this $n$.
+The diagnostic splits the draws by what the always-path cell holds. In every stratum but the last
+the cell carries no within-cell variation, so no plug-in variance sees its share.
+
+| always-path cell | draws | `SDR` coverage |
+| --- | ---: | ---: |
+| empty | 50 | 0.860 |
+| one row | 149 | 0.805 |
+| two or more rows, all $Y = 1$ | 17 | 0.647 |
+| two or more rows, all $Y = 0$ | 312 | 0.856 |
+| mixed outcomes | 472 | 0.979 |
+
+A cell of equal outcomes is fitted exactly, so its residual is zero. An empty or one-row cell is
+absent from the training folds of its held-out row, so the cell mean falls back to the training
+mean. A defect in the `SDR` curve would not be shared with `LTMLE`, and would not disappear at
+twice the tail size.
+
+**The weighted cell at n = 2,400.** The weighted cell at n = 2,000 sits at 0.86 of twice its tail
+size and passes as a reporting cell. Its gated twin `selection_weighted_n2400` runs 5,600
+replications. Its SE-ratio interval is 0.961 to 1.011 and its coverage interval 0.928 to 0.945,
+inside both bands, and both of its controls fall below the SE-ratio band.
 
 `tests/unit/test_sdr_below_tail_size_reading.py` rebuilds the coverage reading from the committed rows.
 
@@ -260,11 +297,11 @@ value from 10,000 draws (`band_scale="logit"`, `multiplier_kind="mammen"`; see
 [the band scale](../inference.md#the-band-scale)). Over 13,600 replications that band covers
 0.942 (99% interval 0.937 to 0.947) and passes.
 
-The same band on the identity scale at the same critical value covers 0.933, and the paired gain of the logit band has a 99% lower bound of
-0.0068. The shipped default band (identity scale, Rademacher multiplier, 2,000 draws) covers
-0.931 (99% interval 0.926 to 0.937) on the same fits. That row states no verdict, and it is why
-a band built with the shipped default on this support row is experimental. No fit refused the
-logit band.
+The same band on the identity scale at the same critical value covers 0.933, and the paired
+gain of the logit band has a 99% lower bound of 0.0068. The shipped default band (identity
+scale, Rademacher multiplier, 2,000 draws) covers 0.931 (99% interval 0.926 to 0.937) on the
+same fits. That row states no verdict, and it is why a band built with the shipped default on
+this support row is experimental. No fit refused the logit band.
 
 ## Measured values and declared margins
 
@@ -328,6 +365,6 @@ the committed results and checked at the precision printed.
 | parametric node regressions in the primary scenarios | a quasibinomial GLM and least squares. The overfitting family adds fully grown trees with a known mechanism |
 | the cross-fitted pairs compare two constructions | `lmtp` stitches Step 2 across folds, and this package runs the training-fold recursion. The pairs are margins pairs, not exactness checks |
 | the one-correct patterns report coverage only | an interval under `P_A`, `P_B` or `P_D` needs the Theorem 4 rate product, which a wrong nuisance does not meet |
-| two property cells are red under `reporting` | a finite-sample coverage cell at n = 2,000 shared with LTMLE, and a band that inherits its pointwise shortfall. The `X4-finite-sample` and `band-finite-sample` owners hold them |
+| below twice its tail size a Wald interval reports | the coverage of the exact-ratio pair at n = 2,000 and the Wald clauses of the weighted cell at n = 2,000 are not gated. The `both_correct` cell at n = 2,000 covers 0.911 and stays published red under `X39-below-tail-size`; its twin at n = 4,800 is the gated claim |
 | clusters, weights and an MSM are calibration cells only | the `clustered_calibration`, `weighted_calibration` and `msm_*` cells have no `lmtp` pairing |
 | no multiply robust interval | page 854 of the source states that neither SDR nor TMLE gives one |
