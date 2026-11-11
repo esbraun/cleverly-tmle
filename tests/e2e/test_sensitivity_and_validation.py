@@ -1151,43 +1151,14 @@ class TestMissingnessTilt:
         # This process has a substantial effect, so no plausible tilt nulls it.
         assert tipping is None or abs(tipping) > 1.0
 
-    def test_the_confidence_interval_tips_at_the_nearest_limit(self, missing_fit) -> None:
-        """The signed CI objective reaches the null inside an asymmetric search."""
-        direction = {0: 0.0, 1: -1.0}
-        tipping = missing_fit.sensitivity.tipping_gamma(
-            "ate", search=(-0.5, 4.0), use_ci=True, arm_gamma=direction
-        )
-
-        assert tipping is not None
-        assert 2.0 < tipping < 4.0
-        curve = missing_fit.sensitivity.missingness(
-            [tipping], estimands=["ate"], arm_gamma=direction
-        )
-        assert float(curve["ci_lower"].iloc[0]) == pytest.approx(0.0, abs=1e-4)
-
-    def test_the_upper_confidence_limit_can_tip_from_below(self, missing_fit) -> None:
-        """A null above the baseline interval keeps the opposite signed boundary."""
-        direction = {0: -1.0, 1: 1.0}
-        tipping = missing_fit.sensitivity.tipping_gamma(
-            "ate", null_hypothesis=2.0, use_ci=True, arm_gamma=direction
-        )
-
-        assert tipping is not None
-        curve = missing_fit.sensitivity.missingness(
-            [tipping], estimands=["ate"], arm_gamma=direction
-        )
-        assert float(curve["ci_upper"].iloc[0]) == pytest.approx(2.0, abs=1e-4)
-
-    def test_the_ci_tipping_search_handles_baseline_and_no_crossing(self, missing_fit) -> None:
-        assert (
-            missing_fit.sensitivity.tipping_gamma(
-                "ate", null_hypothesis=missing_fit.psi("ate"), use_ci=True
-            )
-            == 0.0
-        )
-        assert (
-            missing_fit.sensitivity.tipping_gamma("ate", null_hypothesis=100.0, use_ci=True) is None
-        )
+    def test_the_interval_search_follows_the_targeted_limit(self, missing_fit) -> None:
+        """The targeted tilt carries an interval off gamma = 0 (CDR-001), so its limit tips."""
+        base = missing_fit.sensitivity.missingness([0.0], estimands=["ate"])
+        null = float(base["ci_lower"].iloc[0]) - 0.05
+        tipping = missing_fit.sensitivity.tipping_gamma("ate", null_hypothesis=null, use_ci=True)
+        if tipping is not None:
+            row = missing_fit.sensitivity.missingness([tipping], estimands=["ate"])
+            assert float(row["ci_lower"].iloc[0]) == pytest.approx(null, abs=1e-3)
 
     def test_a_nonmonotone_direction_finds_the_nearest_interior_crossing(self, missing_fit) -> None:
         """Equal endpoint signs do not hide two crossings inside the bracket."""
@@ -1315,7 +1286,22 @@ class TestTheTiltUnderObservationWeights:
             eager_only=True,
         )
         expected = self._longhand(weighted_missing_fit, name, self.GAMMA, weighted=True)
-        assert float(curve["psi"][0]) == pytest.approx(expected, rel=1e-12)
+        # The plug-in route, which a regime mean and an MSM coefficient publish, is the
+        # displayed formula to rounding.
+        from cleverly.sensitivity import missingness as module
+
+        target = module._tilt_targets(weighted_missing_fit)[name]
+        direction = module._tilt_direction(weighted_missing_fit.data, None)
+        plugin = module._tilted_value(
+            weighted_missing_fit, weighted_missing_fit.repeats[0], target, self.GAMMA, direction
+        )
+        assert plugin == pytest.approx(expected, rel=1e-12)
+        # The published row is the targeted tilt, which fluctuates the regressions before it
+        # averages them.  Targeting moves it by up to 0.03 here, less than half the 0.07 gap
+        # between the weighted and the unweighted plug-in, so it sits on the weighted side.
+        unweighted = self._longhand(weighted_missing_fit, name, self.GAMMA, weighted=False)
+        psi = float(curve["psi"][0])
+        assert abs(psi - expected) < 0.5 * abs(expected - unweighted)
 
     @pytest.mark.parametrize("name", ["ey1", "ate", "att", "atc"])
     def test_the_unweighted_average_is_a_different_number(

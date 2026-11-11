@@ -33,6 +33,7 @@ import pytest
 import cleverly.longitudinal.estimator as estimator_module
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
 from cleverly._summary import vocabulary
+from cleverly._support import UNCLASSIFIED, combine_support, registered_rows
 from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
@@ -40,7 +41,12 @@ from cleverly.inference.cluster import influence_variance
 from cleverly.inference.delta import Transform
 from cleverly.inference.influence import _median_adjusted_variance, make_estimate
 from cleverly.inference.multiplier import median_bands, simultaneous_bands
-from cleverly.inference.results import estimate_covariance, median_covariance, smooth_contrast
+from cleverly.inference.results import (
+    estimate_covariance,
+    median_covariance,
+    smooth_contrast,
+    transform_estimate,
+)
 from cleverly.learners.crossfit import CrossFitPlan, check_integrity, random_partition
 from cleverly.longitudinal import IPSI, LTMLE, SDR, LongitudinalData, LongitudinalResult
 from cleverly.provenance import fold_fingerprint
@@ -438,6 +444,53 @@ def test_transformed_contrast_combines_on_the_transform_scale() -> None:
     assert abs(combined.std_error - plain.std_error) > 1e-10
 
 
+def _mean_of_two(values: np.ndarray) -> float:
+    return float((values[0] + values[1]) / 2.0)
+
+
+#: A transform that changes nothing, so any difference it makes is lost bookkeeping.
+IDENTITY = Transform("identity", lambda x: x, lambda x: x, lambda x: 1.0)
+
+
+@pytest.mark.parametrize("transform", [IDENTITY, Transform.logit()], ids=["identity", "logit"])
+def test_transformed_contrast_keeps_the_support_record(transform: Transform) -> None:
+    """Codex CDR-008: a transform of a repeated contrast kept no support record.
+
+    The repeated path rebuilt each draw's estimate without ``support=``, so the result read
+    "built outside a classified fit" although it came from a classified fit.  The witness
+    first checks that the plain contrast has a record to lose.
+    """
+    result = _fit("ltmle", repeats=3)
+    names = [LEVEL_B, REF]
+    plain = result.contrast(_mean_of_two, names, scale="level")
+    assert plain.support != UNCLASSIFIED
+    mapped = result.contrast(_mean_of_two, names, scale="level", transform=transform)
+    assert mapped.support == plain.support
+    assert mapped.to_dict()["support_reason"] == plain.support.reason
+    if transform is IDENTITY:
+        assert (mapped.psi, mapped.variance, mapped.ci) == (plain.psi, plain.variance, plain.ci)
+
+
+def test_transform_estimate_equals_the_transformed_contrast() -> None:
+    """The bit-for-bit identity ``transform_estimate`` documents, on every field."""
+    result = _fit("ltmle", repeats=3)
+    names = [LEVEL_B, REF]
+    logit = Transform.logit()
+    for draw in result.repeats:
+        natural = smooth_contrast(draw.estimates, _mean_of_two, names, n=result.n, scale="level")
+        direct = smooth_contrast(
+            draw.estimates, _mean_of_two, names, n=result.n, scale="level", transform=logit
+        )
+        mapped = transform_estimate(natural, logit)
+        assert natural.support != UNCLASSIFIED
+        for field in dataclasses.fields(direct):
+            left, right = getattr(mapped, field.name), getattr(direct, field.name)
+            if isinstance(left, np.ndarray):
+                np.testing.assert_array_equal(left, right)
+            else:
+                assert left == right, field.name
+
+
 def test_transform_refusal_names_the_draw() -> None:
     result = _fit("ltmle", repeats=3)
     values = _draw_psi(result, LEVEL_B)
@@ -768,6 +821,62 @@ def test_status_is_the_precedent_of_the_draws(monkeypatch: pytest.MonkeyPatch) -
     matrix = result.covariance([LEVEL_B, REF])
     assert matrix.shape == (2, 2) and np.all(np.isfinite(matrix))
     assert LEVEL_B not in result.simultaneous.bands
+
+
+def test_support_follows_the_precedent_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A restamped draw takes the support record of its precedent status.
+
+    Support reads the final status: a ``constant_node_plugin`` estimate needs the row's point
+    kind, an ``influence_curve`` one its Wald kind.  Row ``G39.ltmle.tau5`` has a shortfall on
+    the Wald kind only, so under it the draws' records differ (checked first).  Restamping the
+    status alone left them different, and the median refused the fit.  The second draw
+    withholds ``LEVEL_B`` and the third ``REF``, so no single draw holds both inputs of their
+    contrast under the reported status: the derived record is right only when every draw
+    reads its inputs under the reported status and record.
+    """
+    row = next(row for row in registered_rows() if row.id == "G39.ltmle.tau5")
+    classify = estimator_module.classify_longitudinal_fit
+
+    def on_the_row(*args: Any, **kwargs: Any) -> Any:
+        return replace(classify(*args, **kwargs), row=row)
+
+    monkeypatch.setattr(estimator_module, "classify_longitudinal_fit", on_the_row)
+    original = estimator_module._estimates
+    calls = {"n": 0}
+    withheld = {2: LEVEL_B, 3: REF}
+
+    def stamped(*args: Any, **kwargs: Any) -> Any:
+        reported = original(*args, **kwargs)
+        calls["n"] += 1
+        if calls["n"] not in withheld:
+            return reported
+        name = withheld[calls["n"]]
+        estimates = dict(reported.estimates)
+        status = "constant_node_plugin"
+        estimates[name] = replace(
+            estimates[name],
+            inference=status,
+            reference_df=None,
+            support=estimator_module._support_of(kwargs["classification"], status, None),
+        )
+        return replace(reported, estimates=estimates)
+
+    monkeypatch.setattr(estimator_module, "_estimates", stamped)
+    result = _quiet(support.ltmle, _rows("ltmle"), repeats=3)
+    level = [draw.estimates[LEVEL_B].support for draw in result.repeats]
+    ref = [draw.estimates[REF].support for draw in result.repeats]
+    assert level[0] == level[2] != level[1] and ref[0] == ref[1] != ref[2]
+    assert level[0].label == "experimental" and level[1].label == "supported"
+    for name, draws in ((LEVEL_B, level), (REF, ref)):
+        assert result[name].inference == "constant_node_plugin"
+        assert result[name].support == draws[1 if name == LEVEL_B else 2]
+    contrast = result.contrast(lambda v: v[0] - v[1], [LEVEL_B, REF])
+    expected = combine_support((result[LEVEL_B].support, result[REF].support), kind="derived")
+    # The record of the second draw's own inputs, which a precedent copy would report.
+    assert expected != combine_support((level[1], ref[1]), kind="derived")
+    assert contrast.support == expected
+    assert result.ratio(LEVEL_B, REF).support == expected
+    assert np.all(np.isfinite(result.covariance([LEVEL_B, REF])))
 
 
 def test_median_of_monotone_curves_is_monotone() -> None:
@@ -1613,6 +1722,12 @@ DATA_DECLARATIONS: dict[str, tuple[str, str, str | None]] = {
     "LongitudinalTreatment": _STUDY,
     "LongPanel": _witness("test_long_panel_repeats_reproduce_the_wide_fit"),
     "TimeToEvent": _witness("test_time_to_event_study_repeats_reach_the_engine"),
+    # A point design: its only method refuses repeated splits by name.
+    "TrialWithExternalData": (
+        "tests.unit.test_atmle_refusals",
+        "test_repeated_splits_are_refused",
+        None,
+    ),
 }
 
 #: Every field that ``CausalStudy`` changes on a repeated engine result.

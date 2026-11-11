@@ -256,7 +256,8 @@ def _longhand_curve(result: LongitudinalResult, msm_fit: Any) -> np.ndarray:
     """The stacked delta-method curve, assembled cell by cell from the returned steps.
 
     ``M`` is built here from the projection's own definition rather than read off the
-    solver: the weighted least-squares Gram matrix, plus the curvature term under a link.
+    solver: ``P_n sum_c h (dm/deta) phi phi'``, the Jacobian of the link's quasi-likelihood
+    estimating equation.
     """
     model = msm_fit.model
     data = result.data
@@ -271,20 +272,18 @@ def _longhand_curve(result: LongitudinalResult, msm_fit: Any) -> np.ndarray:
         h = model.weights[:, index]
         eta = phi @ beta
         if model.link == "identity":
-            mean, slope, bend = eta, np.ones(n), np.zeros(n)
+            mean, slope = eta, np.ones(n)
         else:
             assert model.link == "logit"
             mean = expit(eta)
             slope = mean * (1.0 - mean)
-            bend = slope * (1.0 - 2.0 * mean)
         first = fit.steps[0].targeted
         residual = np.zeros(n)
         for step in fit.steps:
             residual = residual + step.clever * (step.pseudo_outcome - step.targeted)
         bracket = residual + first - mean
-        curvature = slope**2 - (first - mean) * bend
-        gram += np.einsum("i,ip,iq->pq", weights * h * curvature, phi, phi)
-        contribution += (weights * h * slope * bracket)[:, None] * phi
+        gram += np.einsum("i,ip,iq->pq", weights * h * slope, phi, phi)
+        contribution += (weights * h * bracket)[:, None] * phi
     gram /= float(np.sum(weights))
     return np.asarray(contribution @ np.linalg.inv(gram).T)
 
@@ -626,52 +625,22 @@ class CountingLinear(LinearRegression):
         return super().fit(X, y, sample_weight=sample_weight)
 
 
-#: The unpatched method, for the comparisons a spy must not intercept.
-DESIGN_AT = RegimenMSM.fluctuation_design_at
-
-
-def _spy_designs(monkeypatch: pytest.MonkeyPatch) -> list[np.ndarray | None]:
-    """Record the ``beta`` of every design a pass is built at, in order."""
-    seen: list[np.ndarray | None] = []
-    real = DESIGN_AT
-
-    def spy(self: RegimenMSM, beta: Any) -> Any:
-        seen.append(None if beta is None else np.array(beta, dtype=float))
-        return real(self, beta)
-
-    monkeypatch.setattr(RegimenMSM, "fluctuation_design_at", spy)
-    return seen
-
-
-def _assert_last_design_and_rounds(result: LongitudinalResult, seen: list[Any]) -> None:
-    msm_fit = result.msm_fits[0]
-    assert msm_fit.alternation.converged
-    assert len(msm_fit.alternation.trace) >= 2
-    beta_in = seen[-1]
-    assert beta_in is not None
-    # The design of the last pass is the one at that round's *input* beta.
-    assert np.array_equal(msm_fit.fluctuation_design, DESIGN_AT(msm_fit.model, beta_in))
-    shift = np.max(np.abs(beta_in - msm_fit.beta)) / (1.0 + np.max(np.abs(beta_in)))
-    assert shift <= TOL
-
-
 @pytest.mark.parametrize("link", ["log", "logit"])
-def test_a_link_converges_on_the_last_design_and_refits_no_learner(
-    link: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    seen = _spy_designs(monkeypatch)
+def test_a_link_is_one_pass_and_fits_each_learner_once(link: str) -> None:
+    """The submodel design is ``phi`` under every link, so nothing is refitted."""
     CountingLinear.fits = 0
     learners = {"outcome_learner": CountingLinear(), "pseudo_learner": CountingLinear()}
     result = fit_dose(msm=dose_msm(link), **learners)
-    _assert_last_design_and_rounds(result, seen)
-    # One regression per fold, cell and node, whatever the round count.
+    msm_fit = result.msm_fits[0]
+    assert msm_fit.projection.converged
+    np.testing.assert_array_equal(msm_fit.fluctuation_design, msm_fit.model.design)
+    # One regression per fold, cell and node.
     cells = result.msm.cells
     assert CountingLinear.fits == K * sum(cell.horizon for cell in cells)
     _assert_curve_is_centred(result)
 
 
-def test_a_survival_grid_refits_no_learner_across_rounds(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen = _spy_designs(monkeypatch)
+def test_a_survival_grid_fits_each_learner_once() -> None:
     CountingLinear.fits = 0
     frame, _ = make_longitudinal_survival(n=1500, seed=4)
     result = LTMLE(
@@ -679,27 +648,26 @@ def test_a_survival_grid_refits_no_learner_across_rounds(monkeypatch: pytest.Mon
         msm=dose_msm("logit", horizon_trend=True),
         **settings(outcome_learner=CountingLinear(), pseudo_learner=CountingLinear()),
     ).fit(frame, outcome=("Y1", "Y2"), **SHARED)
-    _assert_last_design_and_rounds(result, seen)
+    assert result.msm_fits[0].projection.converged
     assert CountingLinear.fits == K * sum(cell.horizon for cell in result.msm.cells) == K * 6
+    _assert_curve_is_centred(result)
 
 
-def test_m6_a_frozen_beta_in_the_covariate_fails_the_design_and_the_curve(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """M6: the covariate stays at the first round's ``beta`` while ``beta`` moves."""
-    real = DESIGN_AT
-    frozen: list[np.ndarray] = []
+def test_m6_a_least_squares_covariate_fails_the_curve(monkeypatch: pytest.MonkeyPatch) -> None:
+    """M6: the submodel carries the least-squares factor ``dm/deta`` at the fitted ``beta``.
 
-    def stuck(self: RegimenMSM, beta: Any) -> Any:
-        if beta is not None and not frozen:
-            frozen.append(np.array(beta, dtype=float))
-        return real(self, frozen[0] if beta is not None else None)
+    That is the direction a least-squares projection on the mean scale would fluctuate
+    along.  The curve's numerator stays ``h phi``, so the node scores no longer cancel it
+    and the curve is not centred.
+    """
+    beta = fit_dose(msm=dose_msm("logit")).msm_fits[0].beta
 
-    monkeypatch.setattr(RegimenMSM, "fluctuation_design_at", stuck)
+    def least_squares(self: RegimenMSM) -> np.ndarray:
+        m = self.fitted(beta)
+        return np.asarray(self.design * (m * (1.0 - m))[:, :, None], dtype=float)
+
+    monkeypatch.setattr(RegimenMSM, "fluctuation_design", property(least_squares))
     mutated = fit_dose(msm=dose_msm("logit"))
-    monkeypatch.undo()
-    msm_fit = mutated.msm_fits[0]
-    assert not np.array_equal(msm_fit.fluctuation_design, real(msm_fit.model, msm_fit.beta))
     with pytest.raises(AssertionError):
         _assert_curve_is_centred(mutated)
 

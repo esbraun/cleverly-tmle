@@ -320,7 +320,8 @@ def transform_estimate(
     The arithmetic of :func:`smooth_contrast` with ``transform=``: the curve is multiplied
     by the transform's slope at the value, and the variance is read off that curve under the
     estimate's covariance rule.  So ``transform_estimate(smooth_contrast(...), T)`` equals
-    ``smooth_contrast(..., transform=T)`` bit for bit.
+    ``smooth_contrast(..., transform=T)`` bit for bit, support record included: a change of
+    inference scale does not change where the estimate came from.
 
     Parameters
     ----------
@@ -354,6 +355,7 @@ def transform_estimate(
         covariance_rule=estimate.covariance_rule,
         inference=estimate.inference,
         reference_df=estimate.reference_df,
+        support=estimate.support,
     )
     return replace(mapped, transform=transform)
 

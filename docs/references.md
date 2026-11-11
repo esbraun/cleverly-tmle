@@ -1170,11 +1170,28 @@ sizes only the cluster sum is the delta-method variance of the row mean
   data*](https://doi.org/10.1515/jci-2024-0025), *Journal of Causal Inference* 14:20240025,
   DOI 10.1515/jci-2024-0025, preprint [arXiv:2405.07186](https://arxiv.org/abs/2405.07186).
   The paper proves asymptotic normality for its adaptive working-model estimator. It is adjacent to
-  F18, and not a result for the shipped collaborative selector.
+  F18, and not a result for the shipped collaborative selector. It is the source of
+  [adaptive TMLE](technical-reference/adaptive-tmle.md): Sec 2.4 and Lemma 2 for the estimand and
+  its decomposition, Algorithm 1 and Theorem 1 for the pooled form, and Appendix B and Appendix C
+  for missing outcomes and the cross-validated form. Read first-hand in arXiv:2405.07186v2 and
+  in the journal text, which keeps v2's section, lemma, theorem, algorithm and appendix numbering,
+  so the locators hold for both. The R package [`atmle`](https://github.com/tq21/atmle) at commit
+  8452808 was read for the [differences from the algorithm](technical-reference/adaptive-tmle.md#differences-from-the-published-algorithm-and-the-atmle-package).
+  The paper does not derive the trial-population effect, the $\Pi$ fluctuation, or a lasso-specific
+  theorem. Those are stated on the technical page as extensions or as open (F40).
+- Tseng (2001), [*Convergence of a block coordinate descent method for nondifferentiable
+  minimization*](https://doi.org/10.1023/A:1017501703105), *Journal of Optimization Theory and
+  Applications* 109(3):475-494, DOI 10.1023/A:1017501703105. Its convergence result covers a smooth
+  convex loss plus a separable convex penalty, which includes the lasso: cyclic coordinate
+  descent from any start has every limit point a minimizer. It is the convergence argument of
+  the coordinate-descent fallback of the [adaptive TMLE](technical-reference/adaptive-tmle.md)
+  lasso.
 - Karim (2026), [*When Does Real-World Data Make a Randomized Trial More Efficient? Selection-Aware
   Inference for Adaptive-TMLE*](https://arxiv.org/abs/2607.02787), arXiv:2607.02787. This entry
   records a simulation caution. It reports undercoverage for selection-unaware standard errors and
-  studies a block jackknife in its RCT augmentation setting. It supplies no F18 theorem.
+  studies a block jackknife in its RCT augmentation setting. It supplies no F18 theorem. It is the
+  source of the selective-enrollment cell of the declared `adaptive-tmle-selective` study,
+  which does not reproduce its numbers.
 
   Three 2019 *SMMR* papers have Cheng Ju as first author. The Ju, Gruber et al. entry above is
   volume 28(2), DOI 10.1177/0962280217729845. The Ju, Schwab and van der Laan entry is also volume
@@ -1723,6 +1740,9 @@ sizes only the cluster sum is the delta-method variance of the row mean
   Likelihood Estimation for Dynamic and Static Longitudinal Marginal Structural Working
   Models*, DOI [10.1515/jci-2013-0007](https://doi.org/10.1515/jci-2013-0007). Section 3
   defines the pooled longitudinal TMLE; Appendix A derives its efficient influence curve.
+  Equation 5, Section 3.1, page 157, defines the logistic working-model parameter as the
+  minimiser of the weighted quasi-binomial loss, with least squares as the linear-model case.
+  Appendix B, Corollary 1, pages 179-180, gives its efficient influence curve.
   Section 3.6, journal pages 160-161, regresses each targeted later-node prediction at the next
   node. Section 3.7, journal page 162, gives inference for the completed estimator.
 - Lendle, Schwab, Petersen & van der Laan (2017), *ltmle: An R Package Implementing
@@ -1842,10 +1862,13 @@ sizes only the cluster sum is the delta-method variance of the row mean
   10.1016/j.jspi.2005.12.008.
 - Rosenblum & van der Laan (2010), [*Targeted Maximum Likelihood Estimation of the
   Parameter of a Marginal Structural Model*](https://doi.org/10.2202/1557-4679.1238),
-  DOI 10.2202/1557-4679.1238. The package cites it for the TMLE argument of a working model with
-  baseline modifiers, which a stratified fit applies inside each stratum. Its projection uses the
-  binomial deviance, so it does not define the package's least-squares parameter, which
-  [MSM projections](technical-reference/msm-projections.md) defines.
+  DOI 10.2202/1557-4679.1238. Equation 14, page 10, defines the logit-MSM parameter as the
+  maximiser of the weighted expected binomial log-likelihood, with a unique solution or none
+  because its Hessian is negative definite. Equation 17, page 11, gives the efficient influence
+  function, and pages 12-13 give the clever covariate $h\phi/g$ and a single update. The package
+  follows it for the logit projection and for the TMLE argument of a working model with baseline
+  modifiers, which a stratified fit applies inside each stratum.
+  [MSM projections](technical-reference/msm-projections.md) defines the parameter for every link.
 - Martin, Santacatterina & Díaz (2024), [*Non-parametric efficient estimation of marginal
   structural models with multi-valued time-varying treatments*](https://arxiv.org/html/2409.18782v1),
   arXiv:2409.18782v1. Definition 1 fixes a user-given transformation and projection distribution.

@@ -595,8 +595,10 @@ than one estimate.
 
 An E-value reads the estimate and its interval, so every E-value branch reports `unavailable` on these
 paths. `variable_importance()` adjusts one p-value per candidate, so it refuses at its entry point
-rather than after it has fitted one model per candidate. `tipping_gamma(use_ci=True)` follows a
-confidence limit to the null, and it returns one float that cannot name the limit a diagnostic.
+rather than after it has fitted one model per candidate. `tipping_gamma(use_ci=True)` refuses on
+these paths, and on every `CTMLE` fit, because the tilt of a collaborative fit keeps the
+missing-at-random spread off $\gamma = 0$ as a diagnostic
+([targeted missingness tilt](validation-methods.md#targeted-missingness-tilt) gives the reason).
 
 Two sweeps keep running, and each renames three columns. `truncation_curve()` and
 `missingness_tilt()` report one point estimate per grid point, which needs no influence curve. Each

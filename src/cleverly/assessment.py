@@ -44,6 +44,12 @@ from ._assessment_cache import (
 from ._declarations import declarations_pass
 from ._inference_status import is_labelled, precedent_status, status_record, supplies_inference
 from ._summary import Detail, Summary, check_detail
+from ._trial_family import (
+    AUGMENTED_TRIAL_FAMILY,
+    augmented_trial_refusal,
+    is_augmented_trial,
+    score_tolerance_refusal,
+)
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
 from .exceptions import (
@@ -323,6 +329,7 @@ _FAMILY_METHODS: dict[str, tuple[str, ...]] = {
     "point": ("tmle", "collaborative_tmle", "drtmle"),
     "longitudinal": ("tmle", "sdr", "ipsi", "gcomp", "ipw", "parametric_gformula"),
     "structural": ("snmm",),
+    AUGMENTED_TRIAL_FAMILY: ("atmle",),
     "effect_modification": ("tmle", "ep"),
 }
 
@@ -607,6 +614,62 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
             "bootstrap resampling of the panel"
         ),
     ),
+    # Adaptive TMLE of a trial with external data (X90). The fit keeps the engine's own
+    # record, so each diagnostic reads it; no mechanism bound and no refutation is derived.
+    _capability(
+        "support",
+        AUGMENTED_TRIAL_FAMILY,
+        artifacts=("cross-fitted trial-membership probabilities", "bounded trial propensities"),
+        interpretation=(
+            "whether the trial covers the external rows: P(S = 1 | W) on the external rows "
+            "(A3), and the treatment probabilities in the trial"
+        ),
+    ),
+    _capability(
+        "nuisance_models",
+        AUGMENTED_TRIAL_FAMILY,
+        artifacts=("resolved learners", "per-fold working-model selections"),
+        interpretation=(
+            "the learners of each role and the working models each fold selected, with their "
+            "cross-validated penalty and risk"
+        ),
+    ),
+    _capability(
+        "score_equations",
+        AUGMENTED_TRIAL_FAMILY,
+        artifacts=("score residuals at the end of the fit", "influence curve"),
+        interpretation=(
+            "the effect-model, bias-model and trial-membership scores, and the mean of the "
+            "influence function against the fit's stopping rule"
+        ),
+    ),
+    _capability(
+        "corrections",
+        AUGMENTED_TRIAL_FAMILY,
+        artifacts=("trial-membership fluctuations", "working-model steps"),
+        interpretation=(
+            "the Pi fluctuation epsilon and the Pi/beta_S passes after the working models "
+            "were selected"
+        ),
+    ),
+    _capability(
+        "truncation_curve",
+        AUGMENTED_TRIAL_FAMILY,
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.UNAVAILABLE,
+        refusal=augmented_trial_refusal("truncation_curve", "truncation"),
+        interpretation="estimate stability across declared mechanism bounds",
+    ),
+    _capability(
+        "refute",
+        AUGMENTED_TRIAL_FAMILY,
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.UNAVAILABLE,
+        refusal=augmented_trial_refusal("refute", "refutation"),
+        interpretation="behavior under placebo, noise, subsampling and bootstrap refits",
+    ),
     # An effect curve (P1 plan 3.5).  It shares the six operations of every family, read off
     # the producing fit, and declares four of its own, which only a curve has.
     _capability(
@@ -838,6 +901,10 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
 
     family = _family(result)
     rows = tuple(item for item in ASSESSMENT_CAPABILITIES if item.result_family == family)
+    if family == AUGMENTED_TRIAL_FAMILY:
+        # The rows read the engine's own record; none of the point-treatment or
+        # longitudinal rules below reads an adaptive TMLE fit.
+        return rows
     if family == "point" and _is_projection(result):
         rows = _refuse_on_projection(rows, {"refute"})
     if family == "point" and is_natural_course_fit(result):
@@ -1692,6 +1759,11 @@ class Replayability:
 def replayability(result: Any) -> Replayability:
     """Derive replay capabilities from stored artifacts and the normalized method."""
 
+    if _family(result) == AUGMENTED_TRIAL_FAMILY:
+        # An adaptive TMLE fit keeps its method, its split and its study, so it reruns on
+        # changed data. It stores no point-treatment targeting state or representer, and a
+        # refit selects its own working model, so nothing retargets or refits in place.
+        return Replayability(True, False, False, False, False, (), rerun_configuration=True)
     if _family(result) == "structural":
         # A structural fit keeps its settings and its split. It reruns on a changed panel;
         # it stores no targeting state or representer to retarget or evaluate.
@@ -2919,6 +2991,9 @@ class DiagnosticsFacade(_CapabilityFacade):
         arguments that decide a refusal, such as ``n_replicates`` and the generated-outcome
         and measurement-error declarations, are read from the request as it stands.
         """
+        if capability.result_family == AUGMENTED_TRIAL_FAMILY:
+            # Refused outright: no refutation is derived for an adaptive working-model fit.
+            return capability
         from .validation.refute import DEFAULT_TESTS, refute_refusal
 
         estimand = arguments.get("estimand")
@@ -2987,6 +3062,8 @@ class DiagnosticsFacade(_CapabilityFacade):
             interventions.
         """
         self._require("support")
+        if _family(self._result) == AUGMENTED_TRIAL_FAMILY:
+            return _cached(self._result, "diagnostics.support", (), {}, self._result.support_report)
         if _family(self._result) == "longitudinal":
             return _cached(
                 self._result,
@@ -3077,6 +3154,8 @@ class DiagnosticsFacade(_CapabilityFacade):
         self._require("nuisance_models")
 
         def compute() -> Any:
+            if _family(self._result) == AUGMENTED_TRIAL_FAMILY:
+                return self._result.nuisance_report()
             if _family(self._result) == "longitudinal":
                 return _longitudinal_nuisances(self._result)
             from .validation.nuisance import nuisance_diagnostics
@@ -3128,7 +3207,11 @@ class DiagnosticsFacade(_CapabilityFacade):
         def compute() -> Any:
             from .inference.sparse import influence_report
 
-            alpha = float(getattr(self._result.config, "alpha_sig", 0.05))
+            alpha = (
+                float(self._result.method.inference.alpha)
+                if _family(self._result) == AUGMENTED_TRIAL_FAMILY
+                else float(getattr(self._result.config, "alpha_sig", 0.05))
+            )
             report = influence_report(
                 self._result.estimates,
                 alpha=alpha,
@@ -3143,13 +3226,15 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         return _cached(self._result, "diagnostics.influence", (), {}, compute)
 
-    def score_equations(self, *, tolerance: float = DEFAULT_TOLERANCE) -> Any:
+    def score_equations(self, *, tolerance: float | None = None) -> Any:
         """Whether targeting solved the score equations this fit relies on.
 
         Parameters
         ----------
-        tolerance : float
-            Relative tolerance used to evaluate the fitted score equations.
+        tolerance : float or None, default=None
+            Relative tolerance used to evaluate the fitted score equations. ``None`` takes
+            :data:`~cleverly.validation.score.DEFAULT_TOLERANCE`. An adaptive TMLE fit
+            gates on its own stopping rule and refuses an explicit value.
 
         Returns
         -------
@@ -3173,19 +3258,26 @@ class DiagnosticsFacade(_CapabilityFacade):
         that score with ``tolerance``.
         """
         self._require("score_equations")
+        if tolerance is not None and _family(self._result) == AUGMENTED_TRIAL_FAMILY:
+            raise CapabilityError.from_refusal(score_tolerance_refusal())
+        resolved = DEFAULT_TOLERANCE if tolerance is None else tolerance
 
         def compute() -> Any:
+            if _family(self._result) == AUGMENTED_TRIAL_FAMILY:
+                # The fit's own stopping rule gates the report; ``tolerance`` is the
+                # point-treatment relative bound and has no meaning here.
+                return self._result.score_report()
             if _family(self._result) == "longitudinal":
-                return _longitudinal_scores(self._result, tolerance=tolerance)
+                return _longitudinal_scores(self._result, tolerance=resolved)
             from .validation.score import score_check
 
-            return score_check(self._result, tolerance=tolerance)
+            return score_check(self._result, tolerance=resolved)
 
         return _cached(
             self._result,
             "diagnostics.score_equations",
             (),
-            {"tolerance": tolerance},
+            {"tolerance": resolved},
             compute,
         )
 
@@ -3215,6 +3307,10 @@ class DiagnosticsFacade(_CapabilityFacade):
             If the fitted method does not use the correction system.
         """
         self._require("corrections")
+        if _family(self._result) == AUGMENTED_TRIAL_FAMILY:
+            return _cached(
+                self._result, "diagnostics.corrections", (), {}, self._result.corrections_report
+            )
         from .validation.drtmle import correction_check
 
         return _cached(
@@ -3454,9 +3550,74 @@ def _item_from_capability(capability: AssessmentCapability) -> AssessmentItem:
     )
 
 
+def _augmented_trial_item(operation: str, report: Any) -> AssessmentItem:
+    """The combined-report row of one adaptive TMLE diagnostic, read off its report."""
+    if operation == "support":
+        _, _, median = report.external_source_quantiles
+        low, high = report.trial_row_treatment_range
+        detail = (
+            f"smallest P(S = 1 | W) on an external row {report.external_source_min:.3g}, "
+            f"median {median:.3g}; share below {report.floor:g}: "
+            f"{report.external_source_below_floor:.3g}; treatment probability on trial rows in "
+            f"[{low:.3g}, {high:.3g}]"
+        )
+        if report.population == "trial":
+            # The trial-population effect never evaluates Q at an uncovered row (no A3).
+            detail += "; not limiting for the effect averaged over the trial rows"
+        if report.adequate:
+            return AssessmentItem(operation, AssessmentStatus.PASSED, detail)
+        return AssessmentItem(
+            operation,
+            AssessmentStatus.WARNING,
+            detail,
+            (
+                "external rows the trial does not cover rest on the bias model; inspect "
+                "result.diagnostics.support()",
+            ),
+        )
+    if operation == "score_equations":
+        detail = (
+            f"|P_n D| {report.influence:.3g} against the stopping rule {report.tolerance:.3g}; "
+            f"effect-model score {report.effect_model:.3g}, bias-model score "
+            f"{report.bias_model:.3g}, trial-membership score {report.source:.3g}"
+        )
+        if report.passed:
+            return AssessmentItem(operation, AssessmentStatus.PASSED, detail)
+        return AssessmentItem(
+            operation,
+            AssessmentStatus.WARNING,
+            detail,
+            ("inspect result.diagnostics.score_equations()",),
+        )
+    if operation == "nuisance_models":
+        effect = max(len(fold.effect_columns) for fold in report.folds)
+        bias = max(len(fold.bias_columns) for fold in report.folds)
+        learners = ", ".join(f"{role}: {name}" for role, name in report.learners)
+        detail = (
+            f"{len(report.folds)} working-model selection(s); at most {effect} effect and "
+            f"{bias} bias term(s); {learners}"
+        )
+        return AssessmentItem(operation, AssessmentStatus.PASSED, detail)
+    detail = (
+        f"{report.passes} trial-membership pass(es); last epsilon "
+        f"{report.epsilon[-1]:.3g}; stopping rule "
+        f"{'met' if report.converged else 'not met'}"
+    )
+    if report.converged:
+        return AssessmentItem(operation, AssessmentStatus.PASSED, detail)
+    return AssessmentItem(
+        operation,
+        AssessmentStatus.WARNING,
+        detail,
+        ("inspect result.diagnostics.corrections()",),
+    )
+
+
 def _score_item(
     report: Any, result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
+    if is_augmented_trial(result):
+        return _augmented_trial_item("score_equations", report)
     ratios = []
     for row in getattr(report, "rows", ()):
         if hasattr(row, "ratio"):
@@ -3577,6 +3738,8 @@ def _group_load_fact(report: Any) -> str | None:
 def _support_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
+    if is_augmented_trial(_result):
+        return _augmented_trial_item("support", report)
     warning = _support_warning(report)
     facts = _support_facts(*_support_metrics(report))
     group_fact = _group_load_fact(report)
@@ -3623,6 +3786,8 @@ def _experimental_note(result: Any) -> str:
 def _nuisance_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
+    if is_augmented_trial(_result):
+        return _augmented_trial_item("nuisance_models", report)
     findings = tuple(getattr(report, "findings", ()))
     if isinstance(report, LongitudinalNuisanceDiagnostics):
         finite = [row.loss for row in report.rows if np.isfinite(row.loss)]
@@ -3727,6 +3892,8 @@ def _nuisance_item(
 def _correction_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
+    if is_augmented_trial(_result):
+        return _augmented_trial_item("corrections", report)
     identity = [abs(float(row.residual)) for row in report.rows if np.isfinite(row.residual)]
     magnitude = [abs(float(row.reported)) for row in report.rows]
     detail = (
@@ -4158,6 +4325,19 @@ def _tipping_item(
         if report is None
         else f"tipping gamma {float(report):.4g}"
     )
+    if _arguments.get("use_ci") and report is not None:
+        from .sensitivity.missingness import tipping_interval_reading
+
+        reading = tipping_interval_reading(
+            _result,
+            _arguments.get("estimand"),
+            directed=_arguments.get("arm_gamma") is not None,
+        )
+        if reading is not None and not reading.licensed:
+            detail += (
+                "; the confidence limit it follows is descriptive: no coverage evidence "
+                "covers this configuration"
+            )
     return AssessmentItem("tipping_gamma", AssessmentStatus.COMPLETED, detail)
 
 
@@ -4639,6 +4819,29 @@ def _structural_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
 _STRUCTURAL_SENSITIVITY: tuple[AssessmentCapability, ...] = _structural_sensitivity_rows()
 
 
+def _augmented_trial_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
+    """Every sensitivity row of an adaptive TMLE fit, each refused: no bound is derived."""
+    rows = []
+    for row in _STRUCTURAL_SENSITIVITY:
+        refusal = augmented_trial_refusal(row.operation, "bound")
+        rows.append(
+            _capability(
+                row.operation,
+                AUGMENTED_TRIAL_FAMILY,
+                artifacts=row.required_artifacts,
+                interpretation=row.interpretation,
+                available=False,
+                status=AssessmentStatus.UNAVAILABLE,
+                refusal=refusal,
+            )
+        )
+    return tuple(rows)
+
+
+#: The sensitivity declarations of an adaptive TMLE fit of a trial with external data (X90).
+_AUGMENTED_TRIAL_SENSITIVITY: tuple[AssessmentCapability, ...] = _augmented_trial_sensitivity_rows()
+
+
 class SensitivityFacade(_CapabilityFacade):
     """Access sensitivity analyses supported by a fitted causal result.
 
@@ -4708,6 +4911,8 @@ class SensitivityFacade(_CapabilityFacade):
         family = _family(self._result)
         if family == "structural":
             return _STRUCTURAL_SENSITIVITY
+        if family == AUGMENTED_TRIAL_FAMILY:
+            return _AUGMENTED_TRIAL_SENSITIVITY
         if family == "point" and _is_projection(self._result):
             # Every row refuses with R9 of the P1 plan, before any fit-wide rule reads an
             # axis it has no entry for.
@@ -4977,7 +5182,10 @@ class SensitivityFacade(_CapabilityFacade):
     def _capability_for_arguments(
         self, operation: str, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
-        if operation == "evalue" and _family(self._result) != "structural":
+        if operation == "evalue" and _family(self._result) not in (
+            "structural",
+            AUGMENTED_TRIAL_FAMILY,
+        ):
             # The E-value selects for itself from a ``None`` sentinel rather than through
             # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand.
             return self._evalue_row(arguments.get("estimand"))
@@ -5096,15 +5304,14 @@ class SensitivityFacade(_CapabilityFacade):
     ) -> AssessmentCapability:
         """Resolve the ``tipping_gamma`` row for a ``use_ci=True`` request.
 
-        The interval search reads a confidence limit, and a fit that supplies no inference
-        has none, so :func:`~cleverly.sensitivity.tipping_gamma` refuses it. The row says
-        so before the call, in the sentence the call raises. The default point search
-        stays available, which is why a request without ``use_ci`` reads the row unchanged.
-        The answer reads every estimate of the fit, so a fit with one estimate that supplies
-        no inference, such as a constant-node parameter, makes the row unavailable.  The
-        row is unavailable for a parameter whose tilt claims no interval at
-        ``gamma != 0`` too, in the sentence
-        :func:`~cleverly.sensitivity.missingness.tipping_interval_refusal` gives.
+        The interval search follows the limit of the targeted tilt, which some tilted
+        parameters carry off ``gamma = 0`` and others do not.  A parameter without one makes
+        the row unavailable in the sentence
+        :func:`~cleverly.sensitivity.missingness.tipping_interval_refusal` gives, before the
+        call.  A fit with an estimate that supplies no inference, such as a constant-node
+        parameter, makes the row unavailable with the inference refusal.  The default point
+        search stays available, which is why a request without ``use_ci`` reads the row
+        unchanged.
         """
         if not arguments.get("use_ci"):
             return capability
@@ -5300,7 +5507,7 @@ class SensitivityFacade(_CapabilityFacade):
         # longitudinal fit has no covariate list to check a name against, and its row
         # refuses every request.
         args, kwargs = _single_pass(args, kwargs)
-        if _family(self._result) != "longitudinal":
+        if _family(self._result) not in ("longitudinal", AUGMENTED_TRIAL_FAMILY):
             bound = self._bind_arguments("benchmark", kwargs, partial=True, args=args)
             _validate_benchmark_arguments(self._result, bound)
         return self._dispatch("benchmark", args, kwargs)
@@ -5431,8 +5638,9 @@ class SensitivityFacade(_CapabilityFacade):
         """Refuse by the declared capability, then call the declared implementation."""
         args, kwargs = _single_pass(args, kwargs)
         explicit_evalue = operation == "evalue" and (bool(args) or "estimand" in kwargs)
-        # A structural fit declares every row refused, so an explicit estimand lifts none.
-        if not explicit_evalue or _family(self._result) == "structural":
+        # A structural or adaptive TMLE fit declares every row refused, so an explicit
+        # estimand lifts none.
+        if not explicit_evalue or _family(self._result) in ("structural", AUGMENTED_TRIAL_FAMILY):
             # The omitted-variable rows read the request, which can lift their refusal.
             self._require(
                 operation, kwargs if operation in self._CONSISTENT_MECHANISM_OPERATIONS else None

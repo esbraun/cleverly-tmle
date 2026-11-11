@@ -41,6 +41,7 @@ __all__ = [
     "STATUS_RECORDS",
     "TRIMMED_RATIO_STATUS",
     "T_REFERENCE_NOTE",
+    "WORKING_MODEL_STATUS",
     "InferenceStatus",
     "Interval",
     "StatusRecord",
@@ -67,6 +68,7 @@ InferenceStatus = Literal[
     "constant_node_plugin",
     "stack_failure_plugin",
     "low_dose_support_plugin",
+    "working_model_projection",
 ]
 
 # Below this many clusters with positive weight mass, in the fit or in the stratum an
@@ -633,6 +635,47 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             alternative=NO_ALTERNATIVE,
             code=RefusalReason.INVALID_DECLARATION,
         ),
+        "working_model_projection": StatusRecord(
+            plain_reason=(
+                "The interval is valid for the effect within the model the fit selected. It is "
+                "valid for the trial effect itself only if that model is rich enough to describe "
+                "how the external data differ from the trial, which the data cannot confirm."
+            ),
+            reason=(
+                "An adaptive TMLE fit of a trial with external data (method='atmle') reports "
+                "its interval, p-value and standard error from the influence curve of the "
+                "working-model projection, under the experimental label. The interval covers "
+                "the working-model projection of the trial effect. It covers the trial effect "
+                "itself only when the selected working model approximates the true "
+                "conditional effect and bias well enough (the oracle-approximation condition "
+                "of arXiv:2405.07186v2, Theorem 1), and no data check can confirm that. F40 "
+                "in docs/roadmap.md holds the testable condition that would reopen it."
+            ),
+            assessment_note=(
+                "the reported interval covers the working-model projection of the trial "
+                "effect, and covers the effect itself only under the oracle-approximation "
+                "condition, which no data check confirms; F40 in the roadmap holds a testable "
+                "form of that condition"
+            ),
+            bootstrap_note=(
+                "a diagnostic; no result validates the bootstrap of an adaptive working-model fit"
+            ),
+            diagnostic_noun="working-model projection interval",
+            reopened_by="F40",
+            alternative=(
+                "For an interval for the trial effect that needs no working model, fit TMLE on "
+                "the trial rows alone with PointTreatment."
+            ),
+            interval="shown",
+            shown_reason=(
+                "The interval covers the working-model projection of the trial effect. It "
+                "covers the trial effect itself only when the selected working model "
+                "approximates the true conditional effect and bias well enough (the "
+                "oracle-approximation condition of arXiv:2405.07186v2, Theorem 1), and no data "
+                "check can confirm that. F40 in docs/roadmap.md holds the testable condition "
+                "that would reopen it."
+            ),
+        ),
     }
 )
 
@@ -643,6 +686,8 @@ TRIMMED_RATIO_STATUS: Final = "trimmed_ratio_plugin"
 #: The status of a sequential g-computation or IPW fit that reads a regression fitted by a
 #: learner other than :class:`~cleverly.learners.GLM`.
 ADAPTIVE_BASELINE_STATUS: Final = "adaptive_baseline_plugin"
+#: The status of every adaptive TMLE estimate of a trial with external data.
+WORKING_MODEL_STATUS: Final = "working_model_projection"
 
 #: The status of a longitudinal parameter whose recursion read a node regression as a
 #: constant 0 or 1. The estimator stamps it by name, so the name lives here once.

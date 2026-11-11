@@ -44,10 +44,10 @@ from cleverly.datasets import make_binary_outcome, make_instrument, make_missing
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.exceptions import (
     CapabilityError,
-    inference_refusal,
 )
 from cleverly.inference.influence import spread_name
 from cleverly.sensitivity import missingness_tilt, tipping_gamma
+from cleverly.sensitivity.missingness import tipping_interval_refusal
 from cleverly.validation import CoverageStudy, refute
 from cleverly.validation.score import score_check
 from tests.conftest import SELECTOR_CONFIGS, linear_ctmle, linear_in_sample
@@ -194,13 +194,18 @@ class TestTheMissingnessTiltAgreesWithItsCapabilityRow:
         curve = missingness_tilt(selector_fit, [0.0])
         assert float(curve["psi"][0]) == pytest.approx(selector_fit["ate"].psi, abs=1e-12)
 
-    def test_an_ordinary_fit_keeps_the_inferential_columns(self, ordinary_fit: Any) -> None:
-        """The control: the swap must not reach a fit that has an interval."""
+    def test_an_ordinary_fit_keeps_the_inferential_columns_at_mar(self, ordinary_fit: Any) -> None:
+        """The control: the swap must not reach a fit with an interval.
+
+        Off gamma = 0 the ordinary fit's ATE is re-targeted with its own influence curve
+        (CDR-001), so every row keeps the inferential columns and none is a diagnostic.
+        """
         curve = missingness_tilt(ordinary_fit, [-1.0, 0.0, 1.0])
         columns = set(curve.columns)
         assert columns >= INFERENTIAL_COLUMNS
-        assert not (DIAGNOSTIC_COLUMNS & columns)
+        assert not columns & DIAGNOSTIC_COLUMNS
         assert float(curve["std_err"][1]) == ordinary_fit["ate"].std_error
+        assert all(np.isfinite(float(value)) for value in curve["ci_lower"])
 
 
 class TestTippingGammaSearchesThePointEstimateOnly:
@@ -218,16 +223,18 @@ class TestTippingGammaSearchesThePointEstimateOnly:
         assert 0.0 < float(found) <= 2.0
 
     def test_the_interval_search_is_refused_by_name(self, selector_fit: Any) -> None:
+        """A selector fit's tilt claims no interval off gamma = 0, so no limit can be followed."""
         with pytest.raises(CapabilityError) as raised:
             tipping_gamma(selector_fit, "ate", use_ci=True)
         message = str(raised.value)
-        assert message.startswith("tipping_gamma(use_ci=True) is not defined here.")
-        assert WORKING_MECHANISM.reason in message
+        assert message.startswith("tipping_gamma(use_ci=True) follows a confidence limit")
         assert ".std_error" not in message
 
-    def test_an_ordinary_fit_still_searches_its_interval(self, ordinary_fit: Any) -> None:
+    def test_the_interval_search_answers_on_an_ordinary_fit(self, ordinary_fit: Any) -> None:
+        """The control: the ordinary fit's targeted tilt has a limit to follow."""
+        assert tipping_interval_refusal(ordinary_fit, "ate") is None
         found = tipping_gamma(ordinary_fit, "ate", use_ci=True)
-        assert found is None or np.isfinite(float(found))
+        assert found is None or np.isfinite(found)
 
 
 class TestARestoredSelectorFitStillRefuses:
@@ -426,8 +433,8 @@ class TestTheArgumentAwareRowsAgreeWithTheCall:
         )
         item = report["tipping_gamma"]
         assert item.status is AssessmentStatus.UNAVAILABLE
-        refusal = inference_refusal("tipping_gamma(use_ci=True)", DIAGNOSTIC)
-        assert refusal.condition in item.detail
+        refusal = tipping_interval_refusal(selector_fit, "ate")
+        assert refusal is not None and refusal.condition in item.detail
         assert DECLINED not in item.detail
 
     def test_the_point_tipping_row_stays_available(self, selector_fit: Any) -> None:
@@ -436,11 +443,14 @@ class TestTheArgumentAwareRowsAgreeWithTheCall:
         )
         assert report["tipping_gamma"].status is not AssessmentStatus.UNAVAILABLE
 
-    def test_an_ordinary_fit_keeps_its_interval_tipping_row(self, ordinary_fit: Any) -> None:
+    def test_an_ordinary_fit_reads_the_same_interval_tipping_row(self, ordinary_fit: Any) -> None:
         report = ordinary_fit.sensitivity.run_all(
             include_retargets=True, arguments={"tipping_gamma": {"use_ci": True}}
         )
-        assert report["tipping_gamma"].status is not AssessmentStatus.UNAVAILABLE
+        item = report["tipping_gamma"]
+        # The targeted tilt carries an interval, so the row runs the interval search.
+        assert item.status is not AssessmentStatus.UNAVAILABLE
+        assert tipping_interval_refusal(ordinary_fit, "ate") is None
 
     def test_a_level_is_not_applicable_before_the_fit_is_refused(self, missing_frame: Any) -> None:
         """``ey1`` has no E-value on any fit, so the request says that, not the refusal."""

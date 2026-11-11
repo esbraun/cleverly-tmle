@@ -25,6 +25,7 @@ data-design
 estimands
 conditional-effects
 methods-learners
+trial-with-external-data
 results-assessment
 longitudinal
 survival

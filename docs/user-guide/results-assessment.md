@@ -794,9 +794,21 @@ gives the estimator, its conditions and each refusal.
 
 The `missingness()` tilt and the `tipping_gamma()` search perturb the arm means and their
 contrasts and ratios, `ey_obs`, PAR and PAF, the regime parameters, and the MSM coefficients. Away
-from $\gamma = 0$, every parameter but an arm mean or a linear contrast reports its spread under
-the `plugin_` column names, and `tipping_gamma(use_ci=True)` refuses it. The table gives each
-missing-outcome fit where both are unavailable.
+from $\gamma = 0$ on an ordinary `TMLE` fit, the arm means, their contrasts and ratios, `ey_obs`,
+PAR and PAF are re-estimated at each $\gamma$, each with its own confidence interval, and
+`tipping_gamma(use_ci=True)` finds where an interval limit reaches the null. A
+[simulation study](../technical-reference/method-evidence/missingness-tilt.md) backs those
+intervals for a binary outcome with two arms and at least 1,000 rows, fitted with the
+correctly specified logistic regressions that the study declares. The summary and the figure call
+the intervals of every other fit descriptive, a continuous outcome included.
+
+A regime parameter, an MSM coefficient, and every parameter of a `DRTMLE` or `CTMLE` fit get no
+interval off $\gamma = 0$. Their spread there is the main analysis's standard error placed around the moved
+estimate, reported under the `plugin_` column names, and it is a diagnostic: the moved estimate
+has its own sampling error, which can be much larger. For those, `tipping_gamma(use_ci=True)`
+refuses and the default point search answers.
+[The targeted tilt](../technical-reference/validation-methods.md#targeted-missingness-tilt) gives the
+reason for each. The table gives each missing-outcome fit where both methods are unavailable.
 
 | fit | reason |
 | --- | --- |

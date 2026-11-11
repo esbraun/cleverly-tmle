@@ -55,7 +55,7 @@ Two controls of the plan are not declared, because
 ``tests/unit/test_stratified_alternating_design.py`` shows on L1 that they cannot fail.  A
 mechanism that omits ``W`` is repaired by the stratum mechanism tilt, whose three covariates
 saturate the three ``W`` cells (at most 0.09 SD off).  A marginal MSM fluctuation is at most
-0.54 SD off in every stratum, so the MSM family pairs the stratified fit with the untargeted
+0.56 SD off in every stratum, so the MSM family pairs the stratified fit with the untargeted
 projection instead.  The robustness family fits ``(1, a)`` rather than ``(1, a, W)``: inside a
 stratum the logit model ``(1, a, W)`` contains ``Q``, so its both-wrong fit stays within 0.5 SD
 of the truth and that control could not fail either.

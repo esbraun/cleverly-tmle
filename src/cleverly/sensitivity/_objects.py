@@ -10,7 +10,7 @@ display, so a reader sees what the numbers answer rather than bare columns.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -19,6 +19,7 @@ from ..utils.frames import emit_frame
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._summary import Detail, Summary
+    from ..validation._interpretation import Resolution
     from ._mechanism_stack import MechanismRefusal
 
 __all__ = ["MissingnessTilt", "RobustnessValue", "SensitivityContour"]
@@ -180,11 +181,44 @@ class _Rows:
     def __len__(self) -> int:
         return len(self.rows[0][1]) if self.rows else 0
 
+    def __eq__(self, other: object) -> bool:
+        """Equal when the type and every field match, a NaN matching a NaN.
+
+        A frame that sweeps two spread contracts holds NaN where a row has no value, and
+        ``nan != nan``, so the generated comparison would call such an object unequal to its
+        own pickle.
+        """
+        if type(other) is not type(self):
+            return NotImplemented
+        return self._canonical() == other._canonical()  # type: ignore[attr-defined]
+
+    def __hash__(self) -> int:
+        return hash(self._canonical())
+
+    def _canonical(self) -> tuple[Any, ...]:
+        """Every field, with each NaN replaced by one marker that compares equal to itself."""
+        return tuple(
+            _without_nan(getattr(self, item.name)) for item in fields(self) if item.compare
+        )
+
     def _repr_html_(self) -> str:
         return self.summary().as_html()  # type: ignore[attr-defined]
 
 
-@dataclass(frozen=True, repr=False)
+#: The marker :meth:`_Rows._canonical` puts in place of a NaN.
+_NAN_MARKER = ("nan",)
+
+
+def _without_nan(value: Any) -> Any:
+    """``value`` with every NaN float, at any depth of tuples and lists, made comparable."""
+    if isinstance(value, float) and value != value:
+        return _NAN_MARKER
+    if isinstance(value, (tuple, list)):
+        return tuple(_without_nan(item) for item in value)
+    return value
+
+
+@dataclass(frozen=True, repr=False, eq=False)
 class SensitivityContour(_Rows):
     """One end of the bias-adjusted range over a grid of confounder strengths.
 
@@ -365,7 +399,7 @@ class SensitivityContour(_Rows):
         return contour_repr(self)
 
 
-@dataclass(frozen=True, repr=False)
+@dataclass(frozen=True, repr=False, eq=False)
 class MissingnessTilt(_Rows):
     """Estimates under departures from outcomes missing at random.
 
@@ -397,6 +431,13 @@ class MissingnessTilt(_Rows):
     scales : tuple of tuple of str
         Each estimand's scale (``"difference"``, ``"ratio"``, ``"level"`` or
         ``"fraction"``), as ``(estimand, scale)`` pairs, which sets its no-effect value.
+    readings : tuple of tuple
+        For each estimand whose interval off ``gamma = 0`` comes from the targeted tilt, the
+        registry's reading of that interval, as ``(estimand, Resolution)`` pairs.
+
+    Attributes
+    ----------
+    descriptive : tuple of str
     """
 
     outcome: str = ""
@@ -407,6 +448,7 @@ class MissingnessTilt(_Rows):
     statuses: tuple[tuple[str, str], ...] = field(default=())
     ratios: tuple[str, ...] = ()
     scales: tuple[tuple[str, str], ...] = ()
+    readings: tuple[tuple[str, Resolution], ...] = field(default=(), compare=False)
 
     @classmethod
     def build(
@@ -422,6 +464,7 @@ class MissingnessTilt(_Rows):
         statuses: tuple[tuple[str, str], ...],
         ratios: tuple[str, ...] = (),
         scales: tuple[tuple[str, str], ...] = (),
+        readings: tuple[tuple[str, Resolution], ...] = (),
     ) -> MissingnessTilt:
         """Build the tilt from its columns and the fit facts its summary prints.
 
@@ -447,6 +490,8 @@ class MissingnessTilt(_Rows):
             The estimands on a ratio scale.
         scales : tuple of tuple of str
             Each estimand's scale, as ``(estimand, scale)`` pairs.
+        readings : tuple of tuple
+            The registry's reading of each targeted interval off ``gamma = 0``.
 
         Returns
         -------
@@ -464,12 +509,18 @@ class MissingnessTilt(_Rows):
             statuses,
             ratios,
             scales,
+            readings,
         )
 
     @property
     def estimands(self) -> tuple[str, ...]:
         """The estimands the tilt reports, in order."""
         return tuple(dict.fromkeys(self.column("estimand")))
+
+    @property
+    def descriptive(self) -> tuple[str, ...]:
+        """The estimands whose interval off ``gamma = 0`` no validation study licenses."""
+        return tuple(name for name, reading in self.readings if not reading.licensed)
 
     def plot(self, **kwargs: Any) -> Any:
         """Plot one estimate against the tilt γ, with its interval where one is reported.

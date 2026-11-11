@@ -7,13 +7,11 @@ is an ordinary unstratified MSM, and the package fits it through its shipped pat
 independent oracle here: a stratified fit must report the same coefficients and the same
 curves, to the solver's tolerance.
 
-The marginal coefficients come from the shipped unstratified solve, so they must equal an
-unstratified fit bit for bit.
-
-Two mutations must fail the oracle comparison: blocks built at the marginal coefficients
-instead of each stratum's, and stratum estimates read from the marginal fluctuation instead of
-the nested stratum one.  The rank check refuses a design that is singular inside a stratum
-before any learner.
+Under every link the clever covariate ``h phi / g`` is free of the coefficients, so a linked
+stratified fit is the identity link's shape: one fluctuation whose covariate holds one block
+``I(V = s) h phi / g / P_n(V = s)`` per stratum.  The blocks sum to the marginal score, so the
+same fluctuation solves the marginal equation too.  The rank check refuses a design that is
+singular inside a stratum before any learner.
 """
 
 from __future__ import annotations
@@ -32,7 +30,6 @@ from cleverly.exceptions import DataError
 from cleverly.msm import MSM
 from tests import discrete_law
 from tests.studies import stratified_law as law
-from tests.unit._declaration_support import assert_every_witness_fails, tmle_module
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 from tests.unit._stratified_alternating_support import (
     PerturbedOutcome,
@@ -107,65 +104,38 @@ class TestTheStratumCoefficients:
     def test_they_equal_the_expanded_design_oracle(self, fits: dict[str, Any]) -> None:
         check_oracle(fits["stratified"], fits["oracle"])
 
-    def test_the_nested_fluctuation_solves_every_block(self, fits: dict[str, Any]) -> None:
-        nested = fits["stratified"].fluctuations["msm"].stratified
-        assert nested is not None
-        assert nested.epsilon.shape == (len(law.STRATA) * len(TERMS),)
-        assert np.min(np.abs(nested.epsilon)) > 1e-4
-        assert nested.relative_score_norm < 1e-9
-        assert nested.projection.converged
+    def test_one_fluctuation_solves_every_block(self, fits: dict[str, Any]) -> None:
+        fluctuation = fits["stratified"].fluctuations["msm"]
+        assert fluctuation.projection is None
+        assert fluctuation.epsilon.shape == (len(law.STRATA) * len(TERMS),)
+        assert np.min(np.abs(fluctuation.epsilon)) > 1e-4
+        assert fluctuation.relative_score_norm < 1e-9
 
-    def test_the_marginal_record_is_the_unstratified_fit(self, fits: dict[str, Any]) -> None:
+    def test_the_marginal_record_solves_its_equation(self, fits: dict[str, Any]) -> None:
+        """The blocks sum to the marginal score, so the marginal curve has mean zero.
+
+        The marginal coefficients are read from the stratified fluctuation, which differs
+        from the unstratified one, so they agree with an unstratified fit only to sampling
+        order, not bit for bit.
+        """
         stratified, marginal = fits["stratified"], fits["marginal"]
         for term in TERMS:
             name = f"msm[{term}]"
-            assert stratified[name].psi == marginal[name].psi
-            np.testing.assert_array_equal(
-                stratified[name].influence_curve, marginal[name].influence_curve
+            assert abs(float(np.mean(stratified[name].influence_curve))) < 1e-8
+            assert stratified[name].psi == pytest.approx(
+                marginal[name].psi, abs=3.0 * marginal[name].std_error
             )
-        np.testing.assert_array_equal(
-            stratified.fluctuations["msm"].epsilon, marginal.fluctuations["msm"].epsilon
-        )
 
-    def test_the_score_check_reads_both_records(self, fits: dict[str, Any]) -> None:
+    def test_the_score_check_passes(self, fits: dict[str, Any]) -> None:
         from cleverly.validation import score_check
 
         rows = {row.name: row for row in score_check(fits["stratified"]).rows}
-        assert {"msm", "msm (strata)"} <= set(rows)
-        assert rows["msm (strata)"].passed and rows["msm"].passed
-
-
-class TestTheMutationsFail:
-    def test_blocks_at_the_marginal_coefficients(
-        self, fits: dict[str, Any], frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        original = tmle_module.solve_with_stratified_projection
-
-        def at_the_marginal(data: Any, nuisance: Any, *args: Any, **kwargs: Any) -> Any:
-            blocks_at = kwargs.pop("blocks_at")
-            beta = tmle_module.reported_beta(nuisance, nuisance.outcome, data.weights)
-            return original(
-                data,
-                nuisance,
-                *args,
-                blocks_at=lambda betas: blocks_at([beta for _ in betas]),
-                **kwargs,
-            )
-
-        monkeypatch.setattr(tmle_module, "solve_with_stratified_projection", at_the_marginal)
-        mutated = fit(frame, model(fits["link"]))
-        assert_every_witness_fails([lambda: check_oracle(mutated, fits["oracle"])])
-
-    def test_stratum_estimates_from_the_marginal_fluctuation(
-        self, fits: dict[str, Any], frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(tmle_module, "stratum_source", lambda fluctuation: fluctuation)
-        mutated = fit(frame, model(fits["link"]))
-        assert_every_witness_fails([lambda: check_oracle(mutated, fits["oracle"])])
+        assert "msm (strata)" not in rows
+        assert rows["msm"].passed
 
 
 def test_no_effect_modification_converges() -> None:
-    """W-M2: with ``beta_s = beta`` in the population, both records converge and solve."""
+    """W-M2: with ``beta_s = beta`` in the population, the stratified fit converges."""
     rows = law.sample(2_000, SEED + 1)
     a, w = rows["A"].to_numpy(dtype=float), rows["W"].to_numpy(dtype=float)
     rng = np.random.default_rng(SEED)
@@ -184,9 +154,7 @@ def test_no_effect_modification_converges() -> None:
         .single()
     )
     fluctuation = result.fluctuations["msm"]
-    assert fluctuation.projection.converged and fluctuation.relative_score_norm < 1e-9
-    nested = fluctuation.stratified
-    assert nested.projection.converged and nested.relative_score_norm < 1e-9
+    assert fluctuation.converged and fluctuation.relative_score_norm < 1e-9
 
 
 class TestTheStratumRankCheck:
@@ -262,7 +230,7 @@ def stratum_beta(probs: Any, stratum: int, link: str) -> Any:
     steps with the exact Jacobian, as :func:`tests.discrete_law.functional` does, so a
     complex step differentiates through it.
     """
-    inverse, slope, curvature = discrete_law.MSM_LINKS[link]
+    inverse, slope = discrete_law.MSM_LINKS[link]
     p = np.asarray(probs).reshape(3, 3, 2, 2)  # (v, w, a, y)
     q = p[stratum, :, :, 1] / p[stratum].sum(axis=2)
     p_w = p[stratum].sum(axis=(1, 2))
@@ -272,10 +240,9 @@ def stratum_beta(probs: Any, stratum: int, link: str) -> Any:
     beta = np.zeros(4, dtype=p.dtype)
     for _ in range(discrete_law.MSM_NEWTON_STEPS):
         m = inverse(np.einsum("wap,p->wa", phi, beta))
-        residual = q - m
-        first, second = slope(m), curvature(m)
-        score = np.einsum("wap,wa,w->p", phi, first * residual, p_w)
-        jacobian = np.einsum("wap,waq,wa,w->pq", phi, phi, first**2 - residual * second, p_w)
+        # The link's quasi-likelihood estimating equation and its Jacobian.
+        score = np.einsum("wap,wa,w->p", phi, q - m, p_w)
+        jacobian = np.einsum("wap,waq,wa,w->pq", phi, phi, slope(m), p_w)
         beta = beta + np.linalg.solve(jacobian, score)
     return beta
 

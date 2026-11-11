@@ -1,0 +1,309 @@
+{
+  "schema_version": 2,
+  "study": "Adaptive TMLE with external data",
+  "slug": "adaptive-tmle-trial",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-adaptive-tmle",
+      "cleverly_version": "0.2.0",
+      "cleverly_commit": "c6f9e51c8b10494a83184bf128b5724e2ce194d9",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2800,
+    "n": 4000,
+    "scenario_n": {
+      "e1_k2_n1000": 1000,
+      "e1_k2_n2000": 2000
+    },
+    "seed": 20290311,
+    "resampling_seed": 20290312,
+    "publication_policy": "gated",
+    "truth_varies_by_replicate": true,
+    "failure_bound": {
+      "cleverly-adaptive-tmle": 0.01
+    },
+    "scenarios": {
+      "a0": [
+        "psi"
+      ],
+      "a1a": [
+        "psi"
+      ],
+      "a1b": [
+        "psi"
+      ],
+      "a2c": [
+        "projection"
+      ],
+      "a2d": [
+        "projection"
+      ],
+      "e1": [
+        "projection"
+      ],
+      "a3": [
+        "psi"
+      ],
+      "a3_pi": [
+        "psi"
+      ],
+      "a4": [
+        "psi"
+      ],
+      "a5": [
+        "psi"
+      ],
+      "b1y": [
+        "psi"
+      ],
+      "e1_k2_n1000": [
+        "projection"
+      ],
+      "e1_k2_n2000": [
+        "projection"
+      ],
+      "h2_pooled": [
+        "psi"
+      ],
+      "h2_trial": [
+        "psi_2"
+      ],
+      "f1a": [
+        "psi"
+      ],
+      "f1b": [
+        "psi"
+      ]
+    },
+    "fit": "CausalStudy(frame, TrialWithExternalData(outcome='Y', treatment='A', adjustment=W, source='S')).identify(TrialATE(population)).estimate(method=AdaptiveTMLEMethod(form, models=ModelSpec(spline learners), cross_fitting=CrossFitting(n_folds=5, learner_folds=5), targeting=Targeting(g_bounds=(0.01, 0.99)))) at n = 4000; default linear-plus-hinge dictionary; only the constant of each working model is unpenalized",
+    "learners": "SplineRegressor/SplineClassifier: additive cubic splines (5 knots) of W, pairwise products z_i z_j, z_i^2 z_j, z_i z_j^2, fully interacted with the arm (and trial indicator); ridge (alpha = 1) least squares or logistic (C = 10) on the standardized features. With missing outcomes (a5): Q(S, W, A) by least squares and the observation model by logistic regression (C = 1e4), each linear in W within the trial-by-arm cells",
+    "cells": {
+      "a0": {
+        "law": "a0",
+        "estimand": "psi",
+        "form": "cv",
+        "population": "pooled",
+        "learners": "spline",
+        "controls": [
+          "comparator"
+        ],
+        "fit": "default"
+      },
+      "a1a": {
+        "law": "a1a",
+        "estimand": "psi",
+        "form": "cv",
+        "population": "pooled",
+        "learners": "spline",
+        "controls": [
+          "comparator"
+        ],
+        "fit": "default"
+      },
+      "a1b": {
+        "law": "a1b",
+        "estimand": "psi",
+        "form": "cv",
+        "population": "pooled",
+        "learners": "spline",
+        "controls": [
+          "comparator",
+          "k1"
+        ],
+        "fit": "default"
+      },
+      "a2c": {
+        "law": "a2c",
+        "estimand": "projection",
+        "form": "cv",
+        "population": "pooled",
+        "learners": "spline",
+        "controls": [],
+        "fit": "default"
+      },
+      "a2d": {
+        "law": "a2d",
+        "estimand": "projection",
+        "form": "cv",
+        "population": "pooled",
+        "learners": "spline",
+        "controls": [],
+        "fit": "default"
+      },
+      "e1": {
+        "law": "e1",
+        "estimand": "projection",
+        "form": "cv",
+        "population": "pooled",
+        "learners": "spline",
+        "controls": [
+          "k2"
+        ],
+        "fit": "default"
+      },
+      "a3": {
+        "law": "a3",
+        "estimand": "psi",
+        "form": "cv",
+        "population": "pooled",
+        "learners": "spline",
+        "controls": [],
+        "fit": "default"
+      },
+      "a3_pi": {
+        "law": "a3",
+        "estimand": "psi",
+        "form": "cv",
+        "population": "pooled",
+        "learners": "pi_misspecified",
+        "controls": [
+          "k3"
+        ],
+        "fit": "default"
+      },
+      "a4": {
+        "law": "a4",
+        "estimand": "psi",
+        "form": "cv",
+        "population": "pooled",
+        "learners": "spline",
+        "controls": [],
+        "fit": "default"
+      },
+      "a5": {
+        "law": "a5",
+        "estimand": "psi",
+        "form": "cv",
+        "population": "pooled",
+        "learners": "spline",
+        "controls": [],
+        "fit": "default"
+      },
+      "b1y": {
+        "law": "b1y",
+        "estimand": "psi",
+        "form": "cv",
+        "population": "pooled",
+        "learners": "spline",
+        "controls": [],
+        "fit": "default"
+      },
+      "e1_k2_n1000": {
+        "law": "e1",
+        "estimand": "projection",
+        "form": "cv",
+        "population": "pooled",
+        "learners": "spline",
+        "controls": [],
+        "fit": "k2"
+      },
+      "e1_k2_n2000": {
+        "law": "e1",
+        "estimand": "projection",
+        "form": "cv",
+        "population": "pooled",
+        "learners": "spline",
+        "controls": [],
+        "fit": "k2"
+      },
+      "h2_pooled": {
+        "law": "h2",
+        "estimand": "psi",
+        "form": "cv",
+        "population": "pooled",
+        "learners": "spline",
+        "controls": [
+          "k5"
+        ],
+        "fit": "default"
+      },
+      "h2_trial": {
+        "law": "h2",
+        "estimand": "psi_2",
+        "form": "cv",
+        "population": "trial",
+        "learners": "spline",
+        "controls": [],
+        "fit": "default"
+      },
+      "f1a": {
+        "law": "a1a",
+        "estimand": "psi",
+        "form": "pooled",
+        "population": "pooled",
+        "learners": "spline",
+        "controls": [],
+        "fit": "default"
+      },
+      "f1b": {
+        "law": "a1b",
+        "estimand": "psi",
+        "form": "pooled",
+        "population": "pooled",
+        "learners": "spline",
+        "controls": [],
+        "fit": "default"
+      }
+    },
+    "truth": "psi and psi_2: tensor Gauss-Legendre panels (5 nodes) broken at law thresholds; projection: the fold's stored transformer applied to nodes broken at its knots, weighted Gram systems with the true g, Pi, tau; the CV form averages folds",
+    "fold_seed": "stream_seed(record, 'fold_partition', scenario, replicate)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/adaptive_tmle_trial.py": "b65375efe8c5a1993516a775b9afe723807ec7576c4e58c7f11c4fe0b1dd9537",
+    "tests/studies/adaptive_tmle_trial_properties.py": "a1881ec4a12585c2e3bf3a071d7de02b06610479f9c900bc2222be63b9e3528e",
+    "tests/studies/_atmle_laws.py": "04311fe3a4871211e44652d5787283cbe5eb07a84122120e7c2b59fcb343140d",
+    "src/cleverly/estimators/atmle.py": "5f05aaea4d5ea9901db534e16a15c819a165699bd20167bf449f433d6053139f",
+    "src/cleverly/estimators/atmle_result.py": "5efce9d8ac454fdc719a30da8f91a6e2f8ba731ee3a163f8954f8f13bae07f2f",
+    "src/cleverly/estimators/_working_basis.py": "0c4f7c990808a5af15057db1304a4b0d547bee378ca900e6114160b8a513d03d",
+    "tests/studies/evidence/performance.py": "1a4da928575bdbd0ba547b5edfbae19f85bc09e8bc9385952a08fcfd79ce5cdc",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "c23ec6ca777d6bd662b759bdf3e09bd98afef526ba9ef7f2b3527e8a83146fea",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "ed6331711c023c76463cd2cf7589b4a1ed8b74763293a905833fc0c16b78958b",
+    "summary.csv": "d23b8f47fc146266df7176d62c1d10ffd9d39d76f58da80cb29304be24b3d92f",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "3742d94c150c134900a4d86048c698d1844e8eeecb8c26fa4ea5b85d952adabd",
+    "property-replicates.parquet": "dd8a47681fd2920201f8b0d2016db74dbd4c45f019231350e31532ea17bde3d8",
+    "properties.csv": "f9941c012c9d4382c92fe56bb4f353058b90d77dd321c10ee9db895b180b293a",
+    "reported.csv": "8ee9d04ec6fc4d4706803747f214cbfb93d53d9a57c9df884668179dbaaf234c",
+    "controls.csv": "d153a900eca97cf88c7a48f5cece328e19c67196f7815f75ff758c48e03b9ca0"
+  }
+}

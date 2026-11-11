@@ -123,6 +123,17 @@ def _verdict(passed: object) -> str:
     return "pass" if bool(passed) else "**fail**"
 
 
+ACCEPTED_LABEL = "accepted (named exception)"
+
+
+def _accepted_by_exception(slug: str, implementation: str, scenario: str, estimand: str) -> bool:
+    """Whether a truth row is the one its owner accepted by a named exception."""
+    # Imported here because ``red_cells`` itself imports this module.
+    from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION, RedKey
+
+    return RedKey(slug, "truth", f"{implementation}/{scenario}/{estimand}") in ACCEPTED_BY_EXCEPTION
+
+
 def _comparison_result(row: Any) -> str:
     """Render the paired conclusion instead of hiding it behind a Boolean.
 
@@ -164,6 +175,15 @@ def _table(columns: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
     return [header, rule, *("| " + " | ".join(row) + " |" for row in rows)]
 
 
+def _accuracy_verdict(record: StudyRecord, row: Any) -> str:
+    """The result cell of a truth row: a failed row the owner accepted says so instead of ``fail``."""
+    if not bool(row.passed) and _accepted_by_exception(
+        record.slug, str(row.implementation), str(row.scenario), str(row.estimand)
+    ):
+        return ACCEPTED_LABEL
+    return _verdict(row.passed)
+
+
 def accuracy_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[str]:
     """One row per implementation-estimand test against the law's known truth."""
     frame = data["performance"].sort_values(["scenario", "estimand", "implementation"])
@@ -178,7 +198,7 @@ def accuracy_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
             _interval(row.bias_ci_lower, row.bias_ci_upper),
             render(float(row.coverage)),
             render(float(row.se_ratio)),
-            _verdict(row.passed),
+            _accuracy_verdict(record, row),
         )
         for row in frame.itertuples()
     ]

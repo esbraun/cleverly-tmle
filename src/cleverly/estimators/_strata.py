@@ -36,7 +36,6 @@ __all__ = [
     "refuse_untrainable_stratum_folds",
     "stratum_mixture",
     "stratum_probabilities",
-    "stratum_source",
     "unscale_block",
 ]
 
@@ -108,16 +107,6 @@ def companion_stratum_codes(data: CausalData, companion: CausalData) -> IntArray
         )
     mapped = np.array([lookup[levels] for levels in companion.strata_levels], dtype=np.int64)
     return np.asarray(mapped[np.asarray(companion.strata)], dtype=np.int64)
-
-
-def stratum_source(fluctuation: Any) -> Any:
-    """The fluctuation a group's stratum estimates read.
-
-    A linked working model nests its stratum fluctuation on the marginal one
-    (:attr:`~cleverly.fluctuation.Fluctuation.stratified`).  Every other group solves its
-    stratum blocks in the group's one fluctuation.
-    """
-    return fluctuation if fluctuation.stratified is None else fluctuation.stratified
 
 
 def absent_arm_error(

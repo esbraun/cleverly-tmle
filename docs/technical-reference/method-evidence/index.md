@@ -19,7 +19,8 @@ A validation study declares property cells or names a reference. A study that na
 is comparator-backed, and its agreement block names the comparison kind of each row. The
 [learned-rule boundary study](learned-rule-cvtmle-boundary.md) and the study of
 [collaborative TMLE of a risk curve](survival-ctmle.md) declare neither, so each has a page and
-no grid row.
+no grid row. The [adaptive TMLE trial study](adaptive-tmle-trial.md) and the
+[selective-enrollment study](adaptive-tmle-selective.md) are the third and fourth such studies.
 
 To register a new study, follow
 [adding a method row](../../development/method-benchmarking.md#adding-a-method-row).
@@ -95,6 +96,7 @@ targeting-curves
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 dose-response
+dose-response-npcausal
 point-modified-treatment-policies
 incremental-propensity-interventions
 ordinary-end-of-study-longitudinal-tmle
@@ -136,6 +138,8 @@ dr-tmle-foldwise
 dr-tmle-one-inconsistent-nuisance
 adaptive-iptw
 adaptive-iptw-pairing
+adaptive-tmle-trial
+adaptive-tmle-selective
 known-node-mechanisms-ltmle
 sequential-baselines
 structural-nested-mean
@@ -151,6 +155,7 @@ omitted-variable-bound-plugin-standard-error
 ovb-limit-coverage
 evalue-limit-coverage
 marginal-bound-limit-coverage
+missingness-tilt
 calibration-slope-warning
 refuter-calibration-longitudinal
 refuter-calibration-point

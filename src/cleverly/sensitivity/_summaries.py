@@ -1193,10 +1193,6 @@ def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
         else ", multiplied for each arm by its declared factor (" + direction + ")"
     )
     direction_text = TEXTS["tilt_direction" if tilt.arm_gamma is None else "tilt_direction_arms"]
-    moved = any(float(gamma) != 0.0 for gamma in payload["gamma"])
-    reused = moved and any(name not in diagnostic and name not in withheld for name in names)
-    if reused:
-        direction_text += " " + TEXTS["tilt_interval"]
     assumption = TEXTS["assumption_tilt"].format(arm_clause=arm_clause, direction=direction_text)
     notes = [note("sensitivity_assumption", assumption)]
     if withheld:
@@ -1218,13 +1214,28 @@ def tilt_summary(tilt: MissingnessTilt, detail: Detail) -> Summary:
                 TEXTS["tilt_diagnostic"].format(names=_names(diagnostic), scale=scale),
             )
         )
+    if tilt.descriptive:
+        notes.append(
+            _descriptive(f"interval off a gamma of zero for {_names(list(tilt.descriptive))}")
+        )
     sections: list[SummarySection] = []
     if detail == "full":
-        settings = [
-            f"Interval level: {_level(tilt.level)}.",
-            "Off gamma = 0 each interval is centred on the tilted estimate and reuses the "
-            "standard error of the missing-at-random analysis, with no new correction step.",
-        ]
+        targeted = [name for name in names if name not in diagnostic and name not in withheld]
+        settings = [f"Interval level: {_level(tilt.level)}."]
+        if targeted:
+            settings.append(
+                f"Off gamma = 0 the estimate and interval for {_names(targeted)} come from a "
+                "new correction step that solves the tilted parameter's own estimating "
+                "equation."
+            )
+        for name, reading in tilt.readings:
+            settings.append(f"Evidence for the interval of {name}: {_formal(reading.sentence)}")
+        if diagnostic:
+            settings.append(
+                f"Off gamma = 0 the estimate for {_names(diagnostic)} reuses the main fit "
+                "without a new correction step, and its spread, the missing-at-random "
+                "standard error, is not a confidence interval."
+            )
         if tilt.arm_gamma is not None:
             settings.append(f"Each arm's tilt is its multiplier times gamma: {direction}.")
         sections = [

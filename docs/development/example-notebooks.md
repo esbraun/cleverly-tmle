@@ -273,6 +273,7 @@ of the technical reference describes each one and says which of them is a bound.
 | a regime, or a shift whose observed and shifted doses are all declared `dose_atom` values | `omitted_confounding()` on the contrast ([X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G2c) and `simulated_confounding()` where the intervention has a known density. On a Gaussian fit that declares `q_bounds`, outcome-axis cells move the outcome on the logit scale of the bounds by default (`bounded_outcome_law=`), so read the outcome strength through `induced_outcome_association` rather than in outcome SDs | the bound reads the contrast. The surface is not a bound. A treatment-only cell, such as `ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,))`, moves the estimate by misclassification of the treatment, not by confounding. Say so in the reading |
 | a continuous-dose shift | `simulated_confounding()` only | the bound refuses a continuous-dose shift. State that limit in one sentence |
 | an incremental intervention | `simulated_confounding()` only, on a point-treatment fit | the bound refuses the `ipsi` axis, because the tilt reads the treatment mechanism. On a longitudinal `IPSI` fit the surface refuses too ([F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay)). State each limit in one sentence |
+| adaptive TMLE (`TrialWithExternalData`, `AdaptiveTMLEMethod`) | no sensitivity or `refute()` call. Every `cleverly.sensitivity` entry point and the refutation and truncation curve of `cleverly.validation` refuse. Run `result.diagnostics.support()`, `score_equations()`, `nuisance_models()`, and `corrections()` | no bound is derived for an adaptive working-model fit, and a refit selects its own working model, so the refits do not estimate the same thing. State that limit in one sentence and read the diagnostics that run |
 
 Run the checks below on the fit of the page as well, under the rule that follows the table.
 
@@ -358,6 +359,7 @@ change.
 | Collaborative TMLE | collaborative-tmle |
 | DR-TMLE | randomized-pilot |
 | Adaptive-propensity IPTW | randomized-pilot |
+| Adaptive TMLE for a trial with external data | trial-with-external-data |
 | Cross-fitting and CV-TMLE | cross-fitting, and every cross-fitted tutorial |
 | Targeting and fitting options | randomized-pilot (`Targeting(step_bound=..., iterate="best")`). `stopping=`, `outcome_by_arm=`, `patience=` and `treatment_adjustment=` carry the experimental label and stay on their reference sections |
 | Inference, diagnostics, and sensitivity | every tutorial |

@@ -26,7 +26,7 @@ from tests.unit.tutorial_semantics import (
 
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
-REFIT_CELLS = ("refute", "refute-generated")
+REFIT_CELLS = ("simulated-confounding", "refute", "refute-generated")
 
 
 NOTEBOOK = EXAMPLES / "discharge-to-readmission.ipynb"
@@ -218,6 +218,18 @@ def _check_evalue(namespace: dict[str, Any]) -> None:
 
 
 def _check_sensitivity(namespace: dict[str, Any]) -> None:
+    from cleverly.exceptions import CapabilityError
+    from cleverly.sensitivity import ConfounderStrengthGrid
+
+    # "because about half the patients were offered".
+    assert 0.4 < namespace["frame"]["offer"].mean() < 0.6
+    # "The replay refuses the team fit"; the refusal comes before any draw or refit.
+    with pytest.raises(CapabilityError, match="simulated_confounding"):
+        namespace["team_result"].sensitivity.simulated_confounding(
+            namespace["target"],
+            grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
+            latent_level="cluster",
+        )
     moves = namespace["moves"]
     by_name = {(move["fit"], move["left out"]): move["move in SEs"] for move in moves}
     # "Leaving out discharge_risk moves the team estimate ... 4.1 standard errors"; "Every other
@@ -242,13 +254,52 @@ def check(namespace: dict[str, Any]) -> None:
     _check_sensitivity(namespace)
 
 
+def _check_surface(namespace: dict[str, Any]) -> None:
+    """The made-up confounder surface on the first program's day-90 difference."""
+    surface, day90_name = namespace["surface"], namespace["day90_name"]
+    assert surface.estimand == day90_name and surface.complete and not surface.failures
+    assert surface.held_decision and surface.root_seed == 41
+    # The one treatment column gives each cell a one-entry tuple of treatment strengths.
+    cells = {(*cell.treatment_strength, cell.outcome_strength): cell for cell in surface.cells}
+    assert len(cells) == 12
+    # "With both strengths at 0 the estimate is the original -0.1753".
+    anchor = cells[0.0, 0.0]
+    assert anchor.estimate == pytest.approx(namespace["contrast_fit"][day90_name].psi, abs=1e-12)
+    assert round(anchor.estimate, 4) == -0.1753
+    # "in every cell the hidden value's correlation with the offer stays at 0.0207 or below".
+    associations = [abs(cell.induced_treatment_association[0]) for cell in cells.values()]
+    assert round(max(associations), 4) == 0.0207
+    # "0.1897 for `lives_alone` and 0.2147 for `prior_admissions`", on the outcome axis's scale.
+    calibration = surface.calibration_frame().set_index(["covariate", "role"])["strength"]
+    assert round(calibration["lives_alone", "outcome"], 4) == 0.1897
+    assert round(calibration["prior_admissions", "outcome"], 4) == 0.2147
+    methods = surface.calibration_frame().set_index("role")["method"]
+    assert all("log-odds per standard deviation" in m for m in methods.loc[["outcome"]])
+    # "The treatment rows measure something else, the share of predicted offers that change".
+    assert all("class-prediction change" in m for m in methods.loc[["treatment"]])
+    # "A hidden cause of readmission that strong (0.2) moves the estimate by 0.0011, and one five
+    # times stronger (1.0) moves it to -0.1392".
+    assert round(cells[0.0, 0.2].displacement, 4) == 0.0011
+    assert round(cells[0.0, 1.0].estimate, 4) == -0.1392
+    # "Flipping the recorded offer of 20% of patients moves it to -0.0848, and no cell reaches zero".
+    assert round(cells[0.2, 0.0].estimate, 4) == -0.0848
+    assert max(cell.estimate for cell in cells.values()) < 0.0
+    # "at outcome strength 1.0, about 36% of the replayed readmissions are new ones ..., and about
+    # 5% of the replayed patient-checks fall after a patient's last check".
+    for treatment in (0.0, 0.1, 0.2):
+        cell = cells[treatment, 1.0]
+        assert round(100 * cell.new_event_share) == 36
+        assert round(100 * cell.extended_share) == 5
+
+
 def check_refits(namespace: dict[str, Any]) -> None:
-    """The refutation and generated-outcome refits of each fit's day-90 difference."""
+    """The made-up confounder surface, and the refutation and generated-outcome refits."""
     contrast_fit, day90_name = namespace["contrast_fit"], namespace["day90_name"]
     day90 = namespace["day90"]
-    # The typed contrast that `refute` reads is the `result.contrast` difference.
+    # The typed contrast that the surface and `refute` read is the `result.contrast` difference.
     assert contrast_fit[day90_name].psi == pytest.approx(day90.psi, abs=1e-6)
     assert contrast_fit[day90_name].std_error == pytest.approx(day90.std_error, abs=1e-6)
+    _check_surface(namespace)
     reports = namespace["refutations"]
     assert list(reports) == ["first program", "team program"]
     for report in reports.values():

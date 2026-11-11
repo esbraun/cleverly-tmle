@@ -66,6 +66,7 @@ __all__ = [
     "READS_SINK",
     "TREATMENT_MECHANISM",
     "TREATMENT_OBSERVATION_MECHANISM",
+    "TRIAL_MEMBERSHIP_MECHANISM",
     "Identification",
     "Interpretation",
     "Target",
@@ -189,6 +190,9 @@ MISSINGNESS_MECHANISM = "missingness_mechanism"
 #: The nuisance estimate a treatment observation mechanism P(Delta_A = 1 | W) is recorded
 #: under, on a design with a declared missing treatment.
 TREATMENT_OBSERVATION_MECHANISM = "treatment_observation_mechanism"
+#: The nuisance estimate a trial-membership mechanism P(S = 1 | W, A) is recorded under, on
+#: a trial pooled with external data.
+TRIAL_MEMBERSHIP_MECHANISM = "trial_membership_mechanism"
 
 #: Every name a point-treatment :class:`Identification` may put in
 #: ``required_nuisances``, declared here beside the record that carries them.  Two of the
@@ -455,8 +459,9 @@ class TargetContext:
     #: values are ``phi' beta``, so neither can be recovered from ``h * phi`` alone.
     msm_design: FloatArray | None = None
     msm_weights: FloatArray | None = None
-    #: The working model's link, by name.  ``"identity"`` leaves the projection linear and
-    #: the clever covariate free of ``beta``; anything else puts ``dm/deta`` in both.
+    #: The working model's link, by name.  ``"identity"`` makes the projection least
+    #: squares; another link makes it the link's quasi-likelihood (cumulant) loss.  The
+    #: clever covariate ``h * phi / g`` is free of ``beta`` under every link.
     msm_link: str = "identity"
     #: The :class:`~cleverly.interventions.IPSISet` **as targeted**, for the ``ipsi``
     #: fluctuation; ``None`` otherwise.  The whole object rather than an array, because

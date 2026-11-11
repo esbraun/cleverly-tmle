@@ -911,6 +911,10 @@ _SH_ROWS = {
 }
 ARMS.update(_SH_ROWS)
 
+#: The one property label of ``missingness-tilt-inference`` (A2), the tilted ATE at gamma 2. It
+#: sits here because the cell-name pattern below is built from :data:`ARMS` at import.
+ARMS["ate_gamma2"] = "the tilted ATE at gamma 2, in-sample fit at n = 1,000"
+
 #: The settings of ``learned-rule-compositions`` (X11 PR A) that no other study names. Its
 #: ``weighted`` and ``clustered`` labels are shared, so :data:`STUDY_ARMS` scopes their words.
 ARMS.update(
@@ -5955,6 +5959,84 @@ def _marginal_bound_cells() -> None:
 _marginal_bound_cells()
 
 
+# ------------------------------------------------------------------ A2 targeted missingness tilt
+
+
+def _missingness_tilt_cells() -> None:
+    """The targeted missingness tilt interval study (A2): six scenarios, three tilts each.
+
+    Mirrored from ``tests.studies.missingness_tilt_inference``, which this module cannot
+    import; ``tests/unit/test_missingness_tilt_interval_registry.py`` pins that every cell a
+    registry row cites is published.
+    """
+    slug = "missingness-tilt-inference"
+    IMPLEMENTATIONS["cleverly-missingness-tilt"] = (
+        "`cleverly` targeted missingness tilt (`missingness_tilt`)"
+    )
+    law = "binary outcome missing at random given A, W1, W2; correctly specified GLMs"
+    STUDY_SCENARIOS.update(
+        {
+            (slug, "in_sample"): f"in-sample TMLE at n = 1,000; {law}",
+            (slug, "in_sample_4k"): f"in-sample TMLE at n = 4,000; {law}",
+            (slug, "cross_fit"): f"stacked CV-TMLE, 10 folds, at n = 1,000; {law}",
+            (slug, "cv_evaluation"): f"fold-evaluated CV-TMLE, 10 folds, at n = 1,000; {law}",
+            (slug, "weighted"): (
+                f"in-sample TMLE with weights exp(0.5 W1) at n = 1,000; {law}; truths of the "
+                "weight-tilted covariate law"
+            ),
+            (slug, "natural_course"): f"in-sample natural-course TMLE at n = 1,000; {law}",
+        }
+    )
+    targets = {
+        "ey1": "tilted arm-1 mean",
+        "ey0": "tilted arm-0 mean",
+        "ate": "tilted ATE",
+        "att": "tilted ATT",
+        "rr": "tilted risk ratio, on the log scale",
+        "ey_obs": "tilted observed-outcome mean under the natural course",
+        "par": "tilted PAR, natural course versus arm 0",
+    }
+    STUDY_ESTIMANDS.update(
+        {
+            (slug, f"{target}[gamma={gamma:g}]"): f"{words} at gamma {gamma:g}"
+            for target, words in targets.items()
+            for gamma in (-1.0, 1.0, 2.0)
+        }
+    )
+    STUDY_ARM_CELLS.update(
+        {
+            (slug, "interval_calibration", "ate_gamma2", "correctly_specified"): (
+                "the targeted tilt's Wald interval, every nuisance correctly specified, read",
+                "SE ratio and coverage intervals inside their calibration bands",
+            ),
+            (slug, "interval_calibration", "ate_gamma2", "shrunken_se_control"): (
+                "the reported standard error is multiplied by 0.70",
+                "the SE-ratio interval must fall below the calibration band",
+            ),
+            (slug, "interval_calibration", "ate_gamma2", "noise_control"): (
+                "one efficiency unit of independent noise is added to each estimate",
+                "the empirical efficiency-ratio interval must rise above its band",
+            ),
+            (slug, "interval_calibration", "ate_gamma2", "mar_variance_control"): (
+                "the untargeted tilted plug-in with the fit's missing-at-random standard error, "
+                "the interval the tilt published before targeting",
+                "the SE-ratio interval must fall below the calibration band",
+            ),
+            (slug, "targeting_necessity", "ate_gamma2", "targeted"): (
+                "the outcome regression omits the A W1 term and the tilt is targeted",
+                "bias equivalent to zero within the margin",
+            ),
+            (slug, "targeting_necessity", "ate_gamma2", "untargeted"): (
+                "the same regression and the untargeted tilted plug-in",
+                "bias discriminated from the targeted arm, displaced by at least 0.25 SDs",
+            ),
+        }
+    )
+
+
+_missingness_tilt_cells()
+
+
 # ------------------------------------------------------------------------------ long horizon
 #: The three long-horizon studies (X39).  Their keys follow one grammar, so the description of
 #: an estimand and of a cell is composed from its parts instead of listed row by row.
@@ -8065,6 +8147,27 @@ STUDY_ARM_CELLS.update(
 )
 
 
+#: ``dose-response-npcausal`` (X93 S2): the smoothed curve against npcausal ``ctseff`` at a law
+#: where the curve is a line.  The names are those of ``tests/studies/dose_response_npcausal.py``.
+_DOSE_NPCAUSAL_SLUG = "dose-response-npcausal"
+STUDY_SCENARIOS[(_DOSE_NPCAUSAL_SLUG, "linear_gaussian")] = (
+    "a dose with a normal location model linear in three normal covariates, and a Gaussian "
+    "outcome linear in the dose with a dose-varying covariate slope, so the curve is a line; "
+    "doses 1.5, 2.5 and 3.5 by triweight bandwidths 2.0 and 2.5, which the R pilot selected from "
+    "1.0, 1.5, 2.0 and 2.5, n = 4,000"
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_DOSE_NPCAUSAL_SLUG, f"dose_response[h={h:.10g},a={a0:.10g}]"): (
+            f"{_dose_words(h, a0)}, which equals the curve at {a0:g} because the curve is a line; "
+            "npcausal ctseff estimates the same value with a Gaussian kernel of matched roughness"
+        )
+        for h in (2.0, 2.5)
+        for a0 in (1.5, 2.5, 3.5)
+    }
+)
+
+
 #: ``survival-ctmle`` (X91 part B): collaborative TMLE of a risk curve, Stitelman and van der
 #: Laan (2010), Sections 12 to 14.  The scenario and estimand names are those of
 #: ``tests/studies/survival_ctmle.py``; the record holds its gated cells only.
@@ -8178,6 +8281,89 @@ STUDY_ARM_CELLS.update(
             "against the exact efficient influence-curve spread",
             "SE ratio and coverage intervals both inside their calibration bands, with both "
             "efficiency-ratio intervals inside their bands",
+        ),
+    }
+)
+
+
+#: ``adaptive-tmle-trial`` (X90 study A): adaptive TMLE of a trial pooled with external rows.  The
+#: laws, forms and gated targets are those of ``tests/studies/adaptive_tmle_trial.py``, which this
+#: module cannot import; ``tests/unit/test_adaptive_tmle_trial_design.py`` pins the scenario list.
+_ATMLE_SLUG = "adaptive-tmle-trial"
+IMPLEMENTATIONS["cleverly-adaptive-tmle"] = (
+    "`cleverly` adaptive TMLE of a trial pooled with external data: a lasso-selected working "
+    "model for the effect and one for the external bias, a refit, and a fluctuation of the "
+    "enrollment mechanism, with an influence-curve Wald interval"
+)
+_ATMLE_SCENARIOS = {
+    "a0": "the paper's law (a) with no external bias, cross-validated form, n = 4,000",
+    "a1a": "the paper's law (a): external bias 0.2 + 1.1 W1 (1 - A), cross-validated form",
+    "a1b": "the paper's law (b): external bias 0.5 + 3.1 W1 (1 - A) + 0.8 W3, cross-validated form",
+    "a2c": "the paper's law (c): uniform covariates, external bias with an indicator outside the "
+    "dictionary's span",
+    "a2d": "the paper's law (d): uniform covariates, external bias with a squared term outside the "
+    "dictionary's span",
+    "a3": "positivity stress: the enrollment probability depends on W and is small for some W",
+    "a3_pi": "the positivity-stress law with a plain logistic regression for the enrollment "
+    "probability, which is misspecified",
+    "a4": "the paper's law (b) with controls-only external data",
+    "a5": "the paper's law (b) with missing outcomes, the external missingness depending on the "
+    "outcome",
+    "b1y": "reported stress row, passing by declaration: a binary outcome, the external control "
+    "risk a shrunken trial risk, so the external bias passes through expit",
+    "e1": "the separating law: the selected projection differs from the trial effect by at least "
+    "three standard errors",
+    "e1_k2_n1000": "the separating law, unpenalized main-terms working model, n = 1,000 (rung of "
+    "the bias ladder)",
+    "e1_k2_n2000": "the separating law, unpenalized main-terms working model, n = 2,000 (rung of "
+    "the bias ladder)",
+    "f1a": "the paper's law (a), form='pooled' (no cross-fitting of the working model)",
+    "f1b": "the paper's law (b), form='pooled' (no cross-fitting of the working model)",
+    "h2_pooled": "a heterogeneous effect, so the effect among all rows differs from the trial's; "
+    "the pooled population",
+    "h2_trial": "the heterogeneous-effect law with the target population set to the trial rows",
+}
+for _name, _words in _ATMLE_SCENARIOS.items():
+    STUDY_SCENARIOS[(_ATMLE_SLUG, _name)] = _words
+STUDY_ESTIMANDS.update(
+    {
+        (_ATMLE_SLUG, "psi"): (
+            "the trial effect over the pooled covariate distribution, which the interval covers "
+            "when the working model approximates the external bias"
+        ),
+        (_ATMLE_SLUG, "projection"): (
+            "the working-model projection of the fit's own selected dictionary, which the "
+            "interval covers whether or not the dictionary spans the truth"
+        ),
+        (_ATMLE_SLUG, "psi_2"): "the trial effect over the trial rows' own covariate distribution",
+    }
+)
+
+
+#: ``adaptive-tmle-selective`` (X90 study S6): the adaptive TMLE of a trial pooled with external
+#: rows under selective enrollment.  The laws and forms are those of
+#: ``tests/studies/adaptive_tmle_selective.py``, which this module cannot import.  The study
+#: shares the estimands of ``adaptive-tmle-trial``, which it names again under its own slug.
+_ATMLE_SELECTIVE_SLUG = "adaptive-tmle-selective"
+IMPLEMENTATIONS["cleverly-adaptive-tmle-selective"] = (
+    "`cleverly` adaptive TMLE of a trial pooled with external data, with Super Learner nuisances "
+    "(spline GLM, shallow regularized gradient boosting, lasso): a lasso-selected working model "
+    "for the effect and one for the external bias, a refit, and a fluctuation of the enrollment "
+    "mechanism, with an influence-curve Wald interval"
+)
+STUDY_SCENARIOS[(_ATMLE_SELECTIVE_SLUG, "s6_cv")] = (
+    "selective enrollment (the enrollment probability depends on W1 and W2) with a large wiggly "
+    "external bias, cross-validated form, Super Learner nuisances, n = 3,200"
+)
+STUDY_SCENARIOS[(_ATMLE_SELECTIVE_SLUG, "s6_pooled")] = (
+    "selective enrollment with a large wiggly external bias, form='pooled' (no cross-fitting of "
+    "the working model), Super Learner nuisances, n = 3,200"
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_ATMLE_SELECTIVE_SLUG, "psi"): (
+            "the trial effect over the pooled covariate distribution, which the interval covers "
+            "when the working model approximates the external bias"
         ),
     }
 )

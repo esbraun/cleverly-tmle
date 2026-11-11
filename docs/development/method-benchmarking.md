@@ -294,7 +294,7 @@ This survey covers the intervention family. Each verdict names the evidence behi
 | candidate | parameter it reaches | verdict |
 | --- | --- | --- |
 | R `lmtp` 1.5.4 with R `ife` 0.2.3 | clustered point-treatment effects, clustered cross-fitted longitudinal regimen effects at equal cluster sizes, deterministic regimes, categorical longitudinal regimes, known stochastic regimes, modified treatment policies | Used by point and longitudinal studies. The adapters supply analytic density ratios and exact rowwise folds. The clustered study also supplies identifiers and forms contrasts from joint influence curves. Its longitudinal TMLE fits each fold's fluctuation on training rows, and `cleverly` fits one pooled fluctuation per node, so each cross-fitted longitudinal paired verdict compares two constructions under the registered margin. |
-| R `npcausal` at `56a5ac1` | point-treatment effects, counterfactual densities, continuous-treatment curves, and incremental propensity-score interventions | Used by the incremental study. Its public estimator list has no deterministic categorical longitudinal regimen. |
+| R `npcausal` at `56a5ac1` | point-treatment effects, counterfactual densities, continuous-treatment curves, and incremental propensity-score interventions | Used by the incremental study, and `ctseff` by `dose-response-npcausal` on a linear curve, where its density-weighted target equals the Lebesgue one. Its public estimator list has no deterministic categorical longitudinal regimen. |
 | R `stremr` | static, dynamic, and stochastic longitudinal regimes with categorical exposures | Not used for categorical parity. Its required long-form data introduces a second representation, while pinned `lmtp` accepts the study's node columns directly. |
 | Poulos `multi-ltmle` companion | simulation code for longitudinal multi-valued treatment | Retained as supporting source provenance. It is a simulation repository, not a versioned package entry point for rowwise paired studies. |
 | R `imtp` 0.1.0 at `d4b5204` | incremental odds curve | Rejected. Its influence curve omits that derivative, so it witnesses the point curve and cannot gate inference. |
@@ -720,3 +720,10 @@ declares `publication_policy="reporting"` and an empty `property_cells`. It keep
 with no properties block, and the red-cell ledger reads its verdicts. The validation grid does not
 list it. `tests/unit/test_method_evidence.py` checks each of these facts. The learned-rule boundary
 study is the example.
+
+A gated study off the grid validates no method, because no grid row carries its verdicts. Declare
+a property cell for each claim the study gates, before the run, so that its method earns a row.
+`GATED_OFF_GRID` in that test names each exception with its reason. `adaptive-tmle-trial` is the
+one entry: it gated its controls through its own hook and declared no property cell. The manifest
+records the policy of the run, so an entry leaves only at a regeneration or when a
+comparator-backed record puts the method on the grid.

@@ -2488,6 +2488,21 @@ def _average_effect(result: Any, binary: bool, *, several_panels: bool) -> tuple
     )
 
 
+def _declared_value(array: np.ndarray, wanted: float) -> float:
+    """The grid value that ``wanted`` names: itself when declared, else one within rounding.
+
+    Two declared values can be close in relative terms and still be different grid points,
+    so no loose tolerance applies. A value typed in decimal that differs from a declared
+    value only in the last bits (``0.3`` for ``0.1 + 0.2``) names it when exactly one
+    declared value is that close; otherwise ``wanted`` names nothing.
+    """
+    values = np.unique(array.astype(float))
+    if np.any(values == wanted):
+        return wanted
+    close = [v for v in values if math.isclose(v, wanted, rel_tol=1e-12, abs_tol=1e-12)]
+    return float(close[0]) if len(close) == 1 else math.nan
+
+
 def _matching_band_points(
     band: Any, modifier: str, by: str | None, level: Any, held: Mapping[str, Any]
 ) -> np.ndarray:
@@ -2502,7 +2517,7 @@ def _matching_band_points(
         elif name in held:
             wanted = held[name]
             if isinstance(wanted, (int, float)) and array.dtype.kind in "fiu":
-                mask &= np.isclose(array.astype(float), float(wanted))
+                mask &= array.astype(float) == _declared_value(array, float(wanted))
             else:
                 mask &= array == wanted
     return mask

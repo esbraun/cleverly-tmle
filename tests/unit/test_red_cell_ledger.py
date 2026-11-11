@@ -23,6 +23,7 @@ import pytest
 from tests.studies.evidence import failures, property_failures, red_cells
 from tests.studies.evidence.comparison import empty_equivalence
 from tests.studies.evidence.red_cells import (
+    ACCEPTED_BY_EXCEPTION,
     BLOCKS,
     EXCLUDED_HOOKS,
     FRAMES,
@@ -65,7 +66,7 @@ def rows(tables: dict[str, dict[str, pd.DataFrame]]) -> list[RedRow]:
 
 
 def test_every_red_row_has_an_owner(rows: list[RedRow]) -> None:
-    unowned = sorted({row.key for row in rows} - set(OWNERS))
+    unowned = sorted({row.key for row in rows} - set(OWNERS) - set(ACCEPTED_BY_EXCEPTION))
     assert unowned == [], (
         f"these committed verdicts are red and no roadmap ask owns them: {unowned}. Add each "
         f"to red_cells.CLAIMS under the ask that will close it"
@@ -81,8 +82,66 @@ def test_every_owner_entry_is_still_red(rows: list[RedRow]) -> None:
 
 
 def test_a_red_row_needs_the_reporting_policy(rows: list[RedRow]) -> None:
-    gated = sorted({row.key.slug for row in rows if POLICIES[row.key.slug] != "reporting"})
+    gated = sorted(
+        {
+            row.key.slug
+            for row in rows
+            if POLICIES[row.key.slug] != "reporting" and row.key not in ACCEPTED_BY_EXCEPTION
+        }
+    )
     assert gated == [], f"these studies publish a red verdict but are not `reporting`: {gated}"
+
+
+def test_the_ledger_has_no_findings(rows: list[RedRow]) -> None:
+    assert findings(rows, OWNERS, POLICIES, owner_ids(), ACCEPTED_BY_EXCEPTION) == []
+
+
+# --- the named exception: one gated study's one accepted red row --------------------------------
+
+ACCEPTED_KEY = RedKey(
+    "adaptive-tmle-selective", "truth", "cleverly-adaptive-tmle-selective/s6_cv/psi"
+)
+
+
+def test_the_exception_admits_exactly_the_selective_s6_cv_row() -> None:
+    assert set(ACCEPTED_BY_EXCEPTION) == {ACCEPTED_KEY}
+    entry = ACCEPTED_BY_EXCEPTION[ACCEPTED_KEY]
+    assert "2026-11-10" in entry.reason and "Eric" in entry.reason
+
+
+def test_the_exception_row_is_gated_and_still_red(rows: list[RedRow]) -> None:
+    """Ratchet 1: the cell turns green, or the study turns `reporting`, and the entry goes."""
+    assert ACCEPTED_KEY in {row.key for row in rows}, "the cell is green; remove the exception"
+    assert POLICIES[ACCEPTED_KEY.slug] == "gated", "the study is reporting; remove the exception"
+
+
+def test_the_exception_covers_only_the_accepted_run() -> None:
+    """Ratchet 2: a rerun writes another replicates.parquet, and the entry fails until removed."""
+    import json
+
+    manifest = json.loads(
+        BY_SLUG[ACCEPTED_KEY.slug].artifact("manifest.json").read_text(encoding="utf-8")
+    )
+    recorded = manifest["sha256"]["replicates.parquet"]
+    assert recorded == ACCEPTED_BY_EXCEPTION[ACCEPTED_KEY].replicates_sha256, (
+        "the study was rerun; the exception covered the run it names. Remove it"
+    )
+
+
+def test_the_exception_is_keyed_to_one_row_and_not_its_study(rows: list[RedRow]) -> None:
+    """A second red row of the same study, or another gated study's red row, is still refused."""
+    other = dataclasses.replace(next(r for r in rows if r.key == ACCEPTED_KEY))
+    sibling = dataclasses.replace(
+        other, key=dataclasses.replace(ACCEPTED_KEY, key="x/s6_pooled/psi")
+    )
+    problems = findings([other, sibling], {}, POLICIES, [], ACCEPTED_BY_EXCEPTION)
+    assert any("s6_pooled" in problem and "no owner" in problem for problem in problems)
+    assert not any("s6_cv" in problem for problem in problems)
+
+
+def test_a_green_exception_is_a_finding(rows: list[RedRow]) -> None:
+    problems = findings([], {}, POLICIES, [], ACCEPTED_BY_EXCEPTION)
+    assert any("accepted by exception but is not red" in problem for problem in problems)
 
 
 def test_every_owner_is_an_id_the_roadmap_lists() -> None:
@@ -90,10 +149,6 @@ def test_every_owner_is_an_id_the_roadmap_lists() -> None:
     assert len(ids) == len(set(ids)), f"the roadmap's id column repeats a name: {ids}"
     unknown = sorted(set(OWNERS.values()) - set(ids))
     assert unknown == [], f"these owners are not in the roadmap's id column: {unknown}"
-
-
-def test_the_ledger_has_no_findings(rows: list[RedRow]) -> None:
-    assert findings(rows, OWNERS, POLICIES, owner_ids()) == []
 
 
 def test_every_committed_paired_verdict_follows_its_legs(
@@ -108,13 +163,46 @@ def test_every_committed_paired_verdict_follows_its_legs(
     for study in STUDIES:
         performance = tables[study.slug]["performance"]
         valid = performance.set_index(["implementation", "scenario", "estimand"])["passed"]
+        # A cell that lost a replicate carries its failure-accounting gate, which can withdraw
+        # the conclusion its legs give (``failures.accounted_conclusion``).
+        gates = failures.cell_gates(tables[study.slug]["accounting"], "equivalence")
         for row in tables[study.slug]["equivalence"].itertuples():
             subject_valid = bool(valid.loc[(study.implementation, row.scenario, row.estimand)])
             legs = paired_legs(row, study.margins, subject_valid)
+            rebuilt = (legs.passed, legs.conclusion)
+            gate = gates.get((str(row.scenario), str(row.estimand)))
+            if gate is not None:
+                conclusion, passed = failures.accounted_conclusion(
+                    legs.conclusion,
+                    equivalent=legs.similar and legs.rmse and legs.coverage and legs.calibration,
+                    gate=gate,
+                )
+                rebuilt = (passed, conclusion)
             committed = (bool(row.passed), str(row.comparison_conclusion))
-            if (legs.passed, legs.conclusion) != committed:
+            if rebuilt != committed:
                 disagreements.append((study.slug, row.scenario, row.estimand))
     assert disagreements == []
+
+
+def test_an_accounted_paired_verdict_needs_its_gate(
+    tables: dict[str, dict[str, pd.DataFrame]],
+) -> None:
+    # The witness that the gate branch above is not vacuous: a dose-response-npcausal row
+    # whose legs conclude equivalent is committed unaccounted, and only its gate explains it.
+    study = BY_SLUG["dose-response-npcausal"]
+    frame = tables[study.slug]["equivalence"]
+    row = next(row for row in frame.itertuples() if row.estimand == "dose_response[h=2,a=2.5]")
+    legs = paired_legs(row, study.margins, True)
+    assert (legs.passed, legs.conclusion) == (True, "equivalent")
+    gate = failures.cell_gates(tables[study.slug]["accounting"], "equivalence")[
+        (str(row.scenario), str(row.estimand))
+    ]
+    assert gate == (False, failures.WORST_CASE_FAILS)
+    assert failures.accounted_conclusion(legs.conclusion, equivalent=True, gate=gate) == (
+        failures.UNACCOUNTED,
+        False,
+    )
+    assert (bool(row.passed), str(row.comparison_conclusion)) == (False, failures.UNACCOUNTED)
 
 
 # --- the published page ---------------------------------------------------------------------
@@ -358,7 +446,7 @@ def test_a_failed_probe_row_is_reported(slug: str) -> None:
     """The witness for the check above: one failed probe row must show up."""
     record = BY_SLUG[slug]
     extra = _extra(record)
-    (name,) = record.extra_artifacts
+    name = next(artifact for artifact, frame in extra.items() if "passed" in frame.columns)
     extra[name].loc[extra[name].index[0], "passed"] = False
     assert sum(_hook_rows(record, extra).values()) == 1
 
@@ -569,3 +657,26 @@ def test_findings_refuse_an_owner_the_roadmap_does_not_list() -> None:
 def test_a_row_claimed_twice_is_refused() -> None:
     with pytest.raises(ValueError, match="claimed by"):
         owners({"RM18-x": (KEY,), "RM18-y": (KEY,)})
+
+
+def test_the_accepted_row_reads_as_accepted_in_its_table_and_no_other_row_does() -> None:
+    """The exception changes one cell's label and nothing else in any accuracy table."""
+    from tests.studies.evidence.document import ACCEPTED_LABEL, accuracy_table
+
+    assert ACCEPTED_LABEL == "accepted (named exception)"
+    labelled = []
+    for study in STUDIES:
+        data = frames(study)
+        frame = data["performance"]
+        lines = accuracy_table(study, data)[2:]
+        ordered = frame.sort_values(["scenario", "estimand", "implementation"])
+        for row, line in zip(ordered.itertuples(), lines, strict=True):
+            cell = line.rstrip(" |").rsplit(" | ", 1)[1]
+            key = RedKey(study.slug, "truth", f"{row.implementation}/{row.scenario}/{row.estimand}")
+            if key in ACCEPTED_BY_EXCEPTION:
+                assert not row.passed
+                assert cell == ACCEPTED_LABEL
+                labelled.append(key)
+            else:
+                assert cell == ("pass" if row.passed else "**fail**")
+    assert labelled == [ACCEPTED_KEY]

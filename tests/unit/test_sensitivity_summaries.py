@@ -241,21 +241,25 @@ def test_the_marginal_coverage_sentence_needs_a_licence() -> None:
     assert text.endswith(TEXTS["marginal_interval"].format(level="95%"))
 
 
-def test_the_tilt_states_the_reused_standard_error() -> None:
+def test_the_tilt_claims_an_interval_only_where_it_retargets() -> None:
+    """CDR-001: a targeted tilt prints its interval; a regime mean prints the diagnostic."""
     tilt = built("tilt")
-    text = tilt.summary().note("sensitivity_assumption").text
-    direction = TEXTS["tilt_direction"] + " " + TEXTS["tilt_interval"]
-    assert text == TEXTS["assumption_tilt"].format(arm_clause="", direction=direction)
-    assert "reuses the main analysis's standard error" in text
+    summary = tilt.summary()
+    text = summary.note("sensitivity_assumption").text
+    assert text == TEXTS["assumption_tilt"].format(arm_clause="", direction=TEXTS["tilt_direction"])
+    assert "tilt_diagnostic" not in summary.note_codes
+    full = " ".join(str(tilt.summary(detail="full")).split())
+    assert "new correction step that solves the tilted parameter's own" in full
+    assert "reuses the main fit" not in full
     ratio = built("tilt_ratio").summary()
-    assert ratio.note("tilt_diagnostic").text == TEXTS["tilt_diagnostic"].format(
-        names="rr", scale=", on the log scale"
+    assert "tilt_diagnostic" not in ratio.note_codes
+    regime = built("tilt_regime")
+    assert regime.summary().note("tilt_diagnostic").text == TEXTS["tilt_diagnostic"].format(
+        names="ey_regime[ref], ey_regime[rule]", scale=""
     )
-    # The difference keeps its interval off a gamma of zero, so the sentence stays.
-    assert TEXTS["tilt_interval"] in ratio.note("sensitivity_assumption").text
-    # Mutation: no estimand of a withheld fit prints an interval, so the sentence goes.
+    assert "reuses the main fit" in " ".join(str(regime.summary(detail="full")).split())
+    # Mutation: a withheld fit names its status instead, and no diagnostic note repeats it.
     withheld = built("tilt_withheld").summary().note("sensitivity_assumption").text
-    assert TEXTS["tilt_interval"] not in withheld
     assert withheld.endswith(TEXTS["tilt_direction"])
 
 

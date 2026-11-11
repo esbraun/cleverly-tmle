@@ -72,7 +72,7 @@ from .._inference_status import (
 from .._support import UNCLASSIFIED, Classification, Support, support_for
 from .._typing import BoolArray, FloatArray, IntArray
 from .._warnings import warn as _warn
-from ..exceptions import refuse_inference
+from ..exceptions import ConvergenceWarning, refuse_inference
 from ..fluctuation.iterative import InitialFit
 from ..fluctuation.submodel import Submodel
 from ..msm import link_for, solve_projection
@@ -1439,7 +1439,11 @@ def with_precedent_status(
     of a name with :func:`~cleverly._inference_status.precedent_status` over that name's
     draws, so a parameter that withholds inference in any draw withholds it in the median.
     A re-stamped estimate that supplies no inference loses its Student t reference, as
-    :func:`make_estimate` drops it.  The inputs are not changed.
+    :func:`make_estimate` drops it, and takes the support record of a draw that holds the
+    precedent status, because a record reads the final status.  That record is right for an
+    estimate whose record follows from its own status; a derived estimate whose inputs are
+    withheld in different draws needs its inputs harmonized first, as
+    :class:`~cleverly.longitudinal.LongitudinalResult` does.  The inputs are not changed.
 
     Parameters
     ----------
@@ -1454,10 +1458,12 @@ def with_precedent_status(
     out = [dict(report) for report in per_repeat]
     names = {name for report in per_repeat for name in report}
     for name in names:
-        statuses = {report[name].inference for report in per_repeat if name in report}
+        parts = [report[name] for report in per_repeat if name in report]
+        statuses = {part.inference for part in parts}
         if len(statuses) < 2:
             continue
         stamp = precedent_status(statuses)
+        support = _record_of(parts, stamp)
         for report in out:
             if name in report and report[name].inference != stamp:
                 estimate = report[name]
@@ -1465,8 +1471,20 @@ def with_precedent_status(
                     estimate,
                     inference=stamp,
                     reference_df=estimate.reference_df if supplies_inference(stamp) else None,
+                    support=support,
                 )
     return out
+
+
+def _record_of(parts: Sequence[ParameterEstimate], status: str) -> Support:
+    """The support record of the first draw that holds ``status``.
+
+    A support record reads the final status (:func:`~cleverly._support.support_for`): a
+    withheld status needs the row's point kind, a shown one its Wald kind.  A draw restamped
+    to the precedent status therefore takes the record of a draw that already holds it.  The
+    precedent is one of the draws' statuses, so such a draw exists.
+    """
+    return next(part.support for part in parts if part.inference == status)
 
 
 def restamp_parameter_statuses(
@@ -1483,8 +1501,11 @@ def restamp_parameter_statuses(
     different fit statuses keep them, and :func:`median_estimates` refuses the
     combination: that guard finds a real defect.
 
-    The order of the stamps on a repeated fit is this restamp, then the median. A label
-    that reads the final status, such as a support row, is computed after both.
+    The order of the stamps on a repeated fit is this restamp, then the median. A support
+    record reads the final status and is stamped on each draw before the restamp, so a
+    restamped estimate takes the record of a draw that already holds the precedent status.
+    Draws that already hold it keep their own records, so the median still refuses draws
+    whose records differ for another reason.
 
     Parameters
     ----------
@@ -1508,8 +1529,10 @@ def restamp_parameter_statuses(
         if not fit_level <= {"influence_curve"}:
             continue
         status = precedent_status(statuses)
+        support = _record_of([report[name] for report in out], status)
         for report in out:
-            report[name] = replace(report[name], inference=status)
+            if report[name].inference != status:
+                report[name] = replace(report[name], inference=status, support=support)
     return out
 
 
@@ -2495,39 +2518,37 @@ def msm_coefficients(
 ) -> dict[float, ArmMean]:
     r"""A working model's coefficients and their influence curves, keyed by coefficient.
 
-    :math:`\hat\beta` solves the weighted least-squares equation
-    :math:`U(\beta, \bar Q^*) = 0` of :func:`~cleverly.msm.solve_projection`, which for
-    the identity link is the closed form
-    :math:`M^{-1} P_n[\sum_a h\,\varphi\,\bar Q^*]`, and
+    :math:`\hat\beta` minimises the link's cumulant loss over the targeted predictions,
+    so it solves :math:`U(\beta, \bar Q^*) = P_n[\sum_a h\,\varphi\,(\bar Q^* - m)] = 0`
+    (:func:`~cleverly.msm.solve_projection`).  For the identity link that is the closed
+    form :math:`M^{-1} P_n[\sum_a h\,\varphi\,\bar Q^*]`, and under every link
 
     .. math::
 
         D_\beta^*(O) = M^{-1}\Big[
             H(A, W)\,\{Y - \bar Q^*(A, W)\}
-            + \sum_a h(a, V)\,\frac{dm}{d\eta}\,\varphi(a, V)\,
+            + \sum_a h(a, V)\,\varphi(a, V)\,
               \big\{\bar Q^*(a, W) - m(a, V; \hat\beta)\big\}
-        \Big]
+        \Big],
+        \qquad
+        M = P_n\Big[\textstyle\sum_a h\,\tfrac{dm}{d\eta}\,\varphi\varphi^\top\Big],
 
     -- the standard M-estimation form, with :math:`M = -\partial U/\partial\beta` the
     matrix :func:`~cleverly.msm.solve_projection` returns.  :math:`M` carries no *further*
     term because :math:`U(\beta_0, \bar Q_0) = 0` at the truth, so the variation of
-    :math:`M^{-1}` multiplies zero; that argument is untouched by the link, but what
-    :math:`M` **contains** is not -- under a non-identity link it carries a curvature term
-    that no saturated working model can exercise.  It carries no nuisance either, because
-    :math:`h` and :math:`\varphi` are known functions; see :mod:`cleverly.msm` for the
-    estimand and for why the weights have to be known for that to hold.
+    :math:`M^{-1}` multiplies zero.  It does not involve :math:`\bar Q`, because the
+    estimating equation is linear in :math:`\bar Q`, so it carries no curvature term under
+    any link.  It carries no nuisance either, because :math:`h` and :math:`\varphi` are
+    known functions; see :mod:`cleverly.msm` for the estimand and for why the weights have
+    to be known for that to hold.  This is the curve of Rosenblum and van der Laan (2010),
+    equation (17), with their normalising matrix.
 
-    Both halves are still zero in the sample after targeting, and still for two different
-    reasons -- but under a link the first is zero only because the fluctuation was solved
-    at *this* :math:`\hat\beta`, which is what
-    :func:`~cleverly.estimators.targeting.solve_with_projection` alternates to achieve.
-
-    The first term is zero because the ``msm`` fluctuation solved its own score equation.
-    The second is zero *by construction*: :math:`\hat\beta` is the weighted least-squares
-    solution against :math:`\bar Q^*`, so the residuals it leaves are orthogonal to
-    :math:`h\,(dm/d\eta)\,\varphi`.  With the identity link the first needs no iteration
-    either, since the covariate does not mention :math:`\beta` -- which is what makes that
-    case a one-fluctuation TMLE.
+    Both halves are zero in the sample after targeting, for two different reasons.  The
+    first is zero because the ``msm`` fluctuation solved its own score equation along
+    :math:`H = h\varphi/g`, which is free of :math:`\beta`, so one fluctuation does it.
+    The second is zero *by construction*: :math:`\hat\beta` is the stationary point of the
+    projection loss against :math:`\bar Q^*`, so the residuals it leaves are orthogonal to
+    :math:`h\,\varphi`.
 
     **The projection is solved on the original outcome scale**, unlike every other
     estimand here, which works on the scaled outcome and maps back afterwards.  A
@@ -2589,13 +2610,23 @@ def msm_coefficients(
 
     spec = link_for(str(link))
     fit = solve_projection(phi, h, predictions, w, str(link))
+    if not fit.converged:
+        # Bounded targeted means inside the link's range have a finite minimiser, so this
+        # is a numerical failure: the coefficients and their curve describe an equation
+        # that was not solved.
+        _warn(
+            f"the working model's {link} projection did not converge in {fit.n_iter} "
+            f"Newton steps (relative score {fit.score:.1e}), so its coefficients "
+            "and standard errors solve its estimating equation only approximately.",
+            ConvergenceWarning,
+            stacklevel=2,
+        )
     beta = fit.beta
     fitted = np.asarray(spec.inverse(np.einsum("ijp,p->ij", phi, beta)), dtype=float)
-    # (n, K, p) -- h * dm/dbeta, which is h * phi under the identity link and so leaves
-    # that path on exactly the arithmetic it was on before links existed.
-    weighted_design = phi * (h * np.asarray(spec.slope(fitted), dtype=float))[:, :, None]
+    # (n, K, p) -- h * phi, the estimating equation's weight under every link.
+    weighted_design = phi * h[:, :, None]
 
-    # (n, p): the plug-in half, sum_a h * (dm/dbeta) * (Qbar* - m(a, V; beta)).
+    # (n, p): the plug-in half, sum_a h * phi * (Qbar* - m(a, V; beta)).
     plugin = np.einsum("ijp,ij->ip", weighted_design, predictions - fitted)
     contribution = w[:, None] * (submodel.observed * residual[:, None] + plugin)
     influence = np.linalg.solve(fit.jacobian, contribution.T).T

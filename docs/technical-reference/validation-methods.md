@@ -1566,11 +1566,12 @@ with a zero node coefficient, or the nearest held node when no node was fitted.
 | extended follow-up | a unit kept past its observed exit continues on the fitted models with plain uniforms | every replayed panel passes the panel's own sweep over random strengths, including negative $\gamma$ |
 | calibration | the outcome row is the benchmark's coefficient in the replay's event model, in event log-odds per standard deviation, the scale of $\gamma$ | the coefficient equals an in-test penalized Newton fit of the same person-node table to $10^{-6}$ |
 
-Each cell reports three weighted shares of its replayed person-nodes:
+Each cell reports three weighted shares:
 
-- `censoring_redrawn_share`: those whose observed censoring was redrawn at a changed treatment;
-- `extended_share`: those past the unit's observed follow-up;
-- `new_event_share`: those whose event came where the unit had none.
+- `censoring_redrawn_share`: replayed person-nodes whose observed censoring was redrawn at a
+  changed treatment;
+- `extended_share`: replayed person-nodes past the unit's observed follow-up;
+- `new_event_share`: replayed events at a node where the unit had no observed event.
 
 Movement includes the replay models' error at those rows, and at every at-risk row in proportion
 to $\gamma$. A correctly specified control shows that error is zero; nothing here bounds it when
@@ -2530,49 +2531,56 @@ A continuous outcome maps onto $[0, 1]$ through the declared `q_bounds`.
 Without `q_bounds`, `OutcomeScaler.from_outcome` takes the observed range and widens it by 10% on each side.
 Declare `q_bounds` to fix what one unit of $\gamma$ means for a continuous outcome.
 
-Away from $\gamma = 0$, the curve is a plug-in value.
-`_tilted_value` reuses the targeted $\bar{Q}^*$ of the $\gamma = 0$ fit and does not target again at each $\gamma$.
-The accuracy of the curve away from $\gamma = 0$ therefore depends on the outcome model.
+Away from $\gamma = 0$ the curve has two constructions. The arm means, their contrasts, `att`,
+`atc`, `rr`, `or`, `ey_obs`, `par` and `paf` are re-targeted at each $\gamma$, as
+[targeted missingness tilt](#targeted-missingness-tilt) states. A regime mean or contrast, an MSM coefficient, and every parameter of a fit
+that the targeted tilt excludes publish a plug-in value instead. `_tilted_value` reuses the
+targeted $\bar{Q}^*$ of the $\gamma = 0$ fit and the untargeted mechanism $\pi$, and does not
+target again. $\bar{Q}^*$ solves the missing-at-random score and not the tilted one, so with
+data-adaptive learners the plug-in can carry a first-order bias.
 
 This is a retarget operation and not a refit.
 
 The tilt re-mixes each reported parameter in the table below. Each row repeats the arithmetic of
-the target that reported the parameter on the tilted regressions. Each curve therefore passes
-through the reported estimate at $\gamma = 0$. $\bar{Q}_\gamma(a, W)$ is the mixture above, and
+the target that reported the parameter on the tilted regressions, so each curve passes through
+the reported estimate at $\gamma = 0$. $\bar{Q}_\gamma(a, W)$ is the mixture above, and
 $\gamma_a$ is the tilt of arm $a$.
 
 | parameter | point curve at $\gamma$ | spread at $\gamma \neq 0$ |
 | --- | --- | --- |
-| an arm mean, a contrast, `att`, `atc` | the same functional of $\bar{Q}_\gamma(a, W)$ | the reported standard error under `std_err`, `ci_lower` and `ci_upper` |
-| `rr`, `or` | the ratio of two tilted arm means | the reported log-scale standard error, centred on the log of the tilted point |
-| `ey_obs` | $P_n[\pi(A, W)\,\bar{Q}^*(A, W) + \{1 - \pi(A, W)\}\,\operatorname{expit}\{\operatorname{logit}\bar{Q}^*(A, W) + \gamma_A\}]$ | the reported standard error, centred on the tilted point |
-| `par`, `paf` | the tilted `ey_obs` and the tilted reference-arm mean | as above |
-| a regime mean or contrast | $P_n[\sum_a g^\star(a \mid W)\,\bar{Q}_\gamma(a, W)]$ | as above |
-| an MSM coefficient | the projection of $\bar{Q}_\gamma(a, W)$ onto the working model, with its design, weights and link | as above |
+| an arm mean, a contrast, `att`, `atc` | the same functional of the re-targeted $\bar{Q}_\gamma(a, W)$ | `std_err` and the interval from the tilted curve |
+| `rr`, `or` | the ratio of two re-targeted tilted arm means | `std_err` on the log scale, from the tilted curves by the delta method |
+| `ey_obs` | $P_n[\pi(A, W)\,\bar{Q}(A, W) + \{1 - \pi(A, W)\}\,\operatorname{expit}\{\operatorname{logit}\bar{Q}(A, W) + \gamma_A\}]$ at the re-targeted $\bar{Q}$ and $\pi$ | `std_err` and the interval from the tilted curve |
+| `par`, `paf` | the tilted `ey_obs` and the tilted reference-arm mean | from the two tilted curves, `paf` by the delta method |
+| a regime mean or contrast | the plug-in $P_n[\sum_a g^\star(a \mid W)\,\bar{Q}_\gamma(a, W)]$ | the reported standard error centred on the tilted point, under `plugin_std_err` |
+| an MSM coefficient | the plug-in projection of $\bar{Q}_\gamma(a, W)$ onto the working model, with its design, weights and link | as above |
 
-Every row except the first publishes its spread at $\gamma \neq 0$ under `plugin_std_err`,
-`plugin_interval_lower` and `plugin_interval_upper`. The reported influence curve is the
-missing-at-random curve, so this spread is a diagnostic and not an interval for the tilted
-parameter. At $\gamma = 0$ each row publishes the fit's own spread. A frame that mixes the two
-kinds carries both sets of columns, with NaN where a row has no value. `missingness_tilt()`
-returns a `MissingnessTilt`, whose `to_frame()` gives that frame and whose `summary()` prints one
-table per estimand.
+The `plugin_` spread of the last two rows, and of every row of an excluded fit, is a diagnostic
+and not a confidence interval. The reported influence curve is the missing-at-random curve, and
+the tilted parameter has its own. At $\gamma = 0$ each row publishes the fit's own spread. A
+frame that sweeps both kinds of row carries both sets of columns, with NaN where a row has no
+value. `missingness_tilt()` returns a `MissingnessTilt`, whose `to_frame()` gives that frame and
+whose `summary()` prints one table per estimand.
 
 The `ey_obs` row reads the natural-course fluctuation at the received arm, and the mechanism at
-that arm. It replaces the observed $\Delta Y$ by its regression $\pi \bar{Q}^*$. That form and
+that arm. It replaces the observed $\Delta Y$ by its regression $\pi \bar{Q}$. That form and
 $P_n[\Delta Y + (1 - \Delta)\bar{Q}_\gamma(A, W)]$ estimate one functional. Only the regression
 form passes through the reported estimate at $\gamma = 0$, because targeting solves the weighted
 residual equation and not the unweighted one.
 
-`tipping_gamma(use_ci=True)` follows a confidence limit, so it refuses every row but the first.
+`tests/unit/test_missingness_tilt_part_g.py` checks each plug-in row against the reported
+estimate at $\gamma = 0$ to `rtol=1e-12`, and against a hand computation at $\gamma = 1$. Two
+mutations move the plug-in: a mechanism that tilts the observed rows too, and a mechanism that
+tilts no row. A two-arm saturated MSM matches the arm-mean contrast. An MSM with an effect
+modifier matches a stacked weighted least squares. The same file checks that the re-targeted
+`rr`, `or`, `ate`, `par` and `paf` equal the arithmetic of the re-targeted arm and
+natural-course means.
+
+`tipping_gamma(use_ci=True)` follows the confidence limit of the targeted tilt, so it answers for
+every row the targeted tilt covers. It refuses a regime mean, an MSM coefficient and every row of
+an excluded fit, because their spread off $\gamma = 0$ is a diagnostic.
 `tipping_interval_refusal` gives the sentence, and the argument-aware capability row quotes it.
 The default point search answers for every row.
-
-`tests/unit/test_missingness_tilt_part_g.py` checks each row against the reported estimate at
-$\gamma = 0$ to `rtol=1e-12`, and against a hand computation at $\gamma = 1$. Two mutations move
-the curve: a mechanism that tilts the observed rows too, and a mechanism that tilts no row. A
-two-arm saturated MSM matches the arm-mean contrast. An MSM with an effect modifier matches a
-stacked weighted least squares.
 
 `fit_wide_tilt_refusal` holds every refusal that no argument lifts. `missingness_tilt()` and
 `tipping_gamma()` raise its sentence first, and both capability rows quote it. The table is
@@ -2607,9 +2615,97 @@ The curve is a point-estimate sweep, so a selector-based C-TMLE fit receives all
 three spread columns read an interval that those paths refuse. Such a fit therefore receives
 `plugin_std_err`, `plugin_interval_lower`, and `plugin_interval_upper` in place of `std_err`,
 `ci_lower`, and `ci_upper`, which is the swap the truncation curve above already makes.
-`tipping_gamma()` keeps its default point-estimate search on that fit. It refuses `use_ci=True`,
-because it returns one float and a float carries no column name.
+`tipping_gamma()` keeps its default point-estimate search on that fit, and refuses `use_ci=True`
+there because a `CTMLE` fit keeps the plug-in diagnostic off $\gamma = 0$.
 [Collaborative TMLE](collaborative-tmle.md) states the refusal these columns come from.
+
+### Targeted missingness tilt
+
+[`sensitivity/_tilt_targeting.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/sensitivity/_tilt_targeting.py)
+holds the estimator. For an arm mean
+$\psi_\gamma(a) = E_W[\pi_a \bar{Q}_a + (1 - \pi_a) h_a]$, with
+$h_a = \operatorname{expit}(\operatorname{logit} \bar{Q}_a + \gamma_a)$, the efficient influence
+function is
+
+$$
+D_a = m_a - \psi_\gamma(a) + \frac{\mathbb{1}\{A = a\}}{g_a} R_a, \qquad
+R_a = \frac{\Delta\,\kappa_a (Y - \bar{Q}_a)}{\pi_a} + (\bar{Q}_a - h_a)(\Delta - \pi_a),
+$$
+
+with $m_a = \pi_a \bar{Q}_a + (1 - \pi_a) h_a$ and
+$\kappa_a = \pi_a + (1 - \pi_a) h_a (1 - h_a) / \{\bar{Q}_a (1 - \bar{Q}_a)\}$. The outcome
+residual is weighted by $\kappa_a$, and the curve gains the mechanism term
+$(\bar{Q}_a - h_a)(\Delta - \pi_a)$. Both reduce to the missing-at-random curve only at
+$\gamma = 0$.
+
+The update starts from the fit's targeted $\bar{Q}^*$ and its bounded mechanism $\pi$, and
+fluctuates both on the logit scale: $\operatorname{logit}\bar{Q} \mathrel{+}= \varepsilon\, b\,
+\kappa / \pi$ and $\operatorname{logit}\pi \mathrel{+}= \varepsilon\, b\,(\bar{Q} - h)$, with one
+coefficient per column $b$ shared by the two submodels. Newton steps on the summed weighted log
+likelihood run until every column's score is below the fit's `tol` relative to its scale. The
+derivative of the summed loss in a column's $\varepsilon$ is the weighted sample mean of
+$b\,\mathbb{1}\{A = a\}\{\Delta\kappa_a(Y - \bar{Q}_a)/\pi_a + (\bar{Q}_a - h_a)(\Delta - \pi_a)\}$,
+which is that column's full residual block $b\,\mathbb{1}\{A = a\} R_a$. Solving it, with the
+plug-in $\psi$ centring $m_a - \psi$, gives $P_n D = 0$, so the tilted estimating equation holds.
+
+Sharing the coefficient keeps the curve continuous at $\gamma = 0$, where the mechanism covariate
+vanishes: a coefficient of its own would solve the mechanism score along that vanishing direction
+at every $\gamma \neq 0$, and the estimate would jump. At $\gamma = 0$ the row is the reported
+estimate by construction. The fit's $\bar{Q}^*$ solves the score only to the fit's own stopping
+rule, so near $\gamma = 0$ the solve may still take steps, and the row moves by about the score
+that rule left.
+
+| target | columns $b_{j,a}(W)$ | curve |
+| --- | --- | --- |
+| arm means | $\mathbb{1}\{a = j\} / g_j$, one column per arm | $D_a$ |
+| `att`, `atc` of arm $k$ against $r$ among arm $c$, share $p$ | $g_c / g_k$ at $k$ and $-g_c / g_r$ at $r$ | $[\mathbb{1}\{A = c\}(m_k - m_r - \psi) + g_c\{\mathbb{1}\{A = k\} R_k / g_k - \mathbb{1}\{A = r\} R_r / g_r\}] / p$ |
+| `ey_obs` | 1 at every arm | $m_A - \psi + R_A$ |
+
+A contrast is the difference of two arm curves. `rr` and `or` use the delta method on the log
+scale, `par` is the difference of the `ey_obs` and reference-arm curves, and `paf` uses the delta
+method on the fraction scale. Observation weights multiply each curve, and `id=` gives the cluster
+variance. `repeats=` combines the draws by the median rule of the fit's own report. On a
+stacked cross-fitted fit the update runs on the stacked out-of-fold predictions. Under
+`cv_evaluation=True` the update uses the fit's fold-normalised weights and, for `att` and `atc`,
+each validation fold's share of the conditioning arm, and the report is the equal average of the
+fold plug-ins with the cross-validated variance, which is the fit's own fold-evaluated
+construction.
+
+The tilted parameter is not doubly robust in $\bar{Q}$: $h_a$ reads $\bar{Q}_a$ directly, so a
+wrong outcome regression moves the tilted target even with a correct $g$ and $\pi$. The interval
+therefore needs consistent $\bar{Q}$, $g$ and $\pi$ with the usual product-rate condition, and it
+inherits no one-wrong-nuisance guarantee. The table lists the fits that keep the plug-in
+diagnostic, with the reason each gives.
+
+| fit | reason |
+| --- | --- |
+| `DRTMLE`, or a fit with `solved_corrections` | the tilted parameter is not doubly robust in $\bar{Q}$, so no tilted interval can inherit the fit's one-wrong-nuisance guarantee, and a plain tilted TMLE from its nuisances would claim less than the fit's label implies |
+| `CTMLE`, every strategy | a collaborative fit estimates $g$ only as far as the missing-at-random parameter needs, and that this suffices for the tilted parameter, whose clever covariates read the tilt, is not shown |
+| any other estimator than `TMLE` | no targeted tilt is derived from its nuisances |
+| a composite missing-data route (a missing treatment too) | the tilt is defined on the outcome-missingness mechanism alone |
+| a fit with an intermediate | no targeted tilt is derived for a controlled direct effect |
+
+`tests/unit/test_missingness_tilt_targeted.py` checks the estimator. On a discrete law the
+curve's mean is zero and its Gateaux derivative matches the numerical one at three values of
+$\gamma$. Two mutations break that check: $\kappa = 1$, and a curve without the mechanism term.
+
+At $\gamma = 0$ the targeted tilt equals the reported estimate and standard error in sample, on
+a stacked cross-fitted fit, under repeats, under `cv_evaluation=True` with and without weights,
+and for the natural-course targets. The curve is continuous across $\gamma = 0$. The update
+solves the score for a flexible and for a wrong outcome regression, and the untargeted start does
+not. On a law with 5,000 units per arm, no prognostic covariate, $\bar{Q} = 0.1$, $\pi = 0.3$ and
+$\gamma = 2$, the published standard error is the delta-method value 0.0174, 2.2 times the
+missing-at-random standard error of 0.0078 that the tilt published as an interval before
+CDR-001.
+
+The registered study [`missingness-tilt-inference`](method-evidence/missingness-tilt.md) measures
+these intervals at $\gamma \in \{-1, 1, 2\}$ and registers the 17 `missingness_tilt_interval`
+rules of `_tilt_rows()`. The rows cover binary outcomes only, because each scope names the
+outcome family `binomial`, so the tilt interval of a continuous outcome reads descriptive. They
+also need `TMLE` with the study's correctly specified GLM learners, two arms and $n \ge 1000$,
+and they cover the in-sample, stacked cross-fitted, fold-evaluated and weighted fits that the
+study measured. Every other fit, `atc`, `or` and `paf` among them, prints its interval as
+descriptive.
 
 ### The scope rule
 

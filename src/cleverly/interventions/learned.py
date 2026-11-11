@@ -1362,12 +1362,12 @@ def mean_over_splits(
     the split estimates estimates no defined parameter, so it is never used here.
 
     A parameter status of one split passes to the mean, as it passes to the median
-    (:func:`~cleverly.inference.influence.restamp_parameter_statuses`).  Every other
-    field is fixed before the first learner: the learned-rule target declares no case in
-    which a fold cannot evaluate it, so every split reports it, and the inference status,
-    the support record and the level scale follow from the declaration and the data,
-    which every split shares.  The guard below therefore finds a defect in the package,
-    never a property of the data.
+    (:func:`~cleverly.inference.influence.restamp_parameter_statuses`), with the support
+    record of a split that holds it.  Every other field is fixed before the first learner:
+    the learned-rule target declares no case in which a fold cannot evaluate it, so every
+    split reports it, and the fit status, the support record of that status and the level
+    scale follow from the declaration and the data, which every split shares.  The guard
+    below therefore finds a defect in the package, never a property of the data.
 
     Parameters
     ----------

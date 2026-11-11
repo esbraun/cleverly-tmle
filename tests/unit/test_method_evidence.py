@@ -53,6 +53,7 @@ from tests.studies.evidence.inference import clopper_pearson, student_interval
 from tests.studies.evidence.manifest import comparator_findings, csv_text, read_rows, write_rows
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
+from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 from tests.studies.evidence.schema import truth_on_inference_scale, validate_replicates
 from tests.studies.evidence.seeds import replicate_seed
@@ -73,6 +74,27 @@ def _on_the_grid(study: StudyRecord) -> bool:
 
 #: The studies the validation grid lists.
 VALIDATION_STUDIES = tuple(study for study in STUDIES if _on_the_grid(study))
+
+#: Off-grid studies that keep the ``gated`` policy their manifest records, each with the reason
+#: and what would put the method on the grid.  An off-grid study is otherwise ``reporting``: a
+#: gated verdict that no grid row carries validates no method, so each entry names a method with
+#: no validation row.  The manifest records the policy of the run, so the entry leaves only when
+#: the study is regenerated as ``reporting`` or with property cells, or a comparator-backed record
+#: puts the method on the grid.
+GATED_OFF_GRID: dict[str, str] = {
+    "adaptive-tmle-trial": (
+        "its primary coverage tests and its controls (controls.csv, through its own "
+        "scientific_failures hook) gated the declared run of 99eb159e, but it declared no "
+        "property cell, and the R atmle pairing record is declared and not run, so "
+        "AdaptiveTMLEMethod has no grid row"
+    ),
+    "adaptive-tmle-selective": (
+        "its primary coverage tests gated the declared run of c6f9e51c (artifacts at 8f2a91a5), "
+        "and its one red row, the s6_cv bias leg, is accepted by the named exception in "
+        "red_cells.ACCEPTED_BY_EXCEPTION. It declared no property cell and no comparator, so "
+        "AdaptiveTMLEMethod has no grid row"
+    ),
+}
 
 #: Mutation controls only need a verdict to flip, not a published endpoint, so they run the
 #: resampling at a fraction of the published budget.
@@ -783,9 +805,20 @@ class TestPublishedVerdicts:
             else pd.Series(False, index=published.index)
         )
         assert set(published.loc[point_only, "scenario"]) <= set(study.point_only_scenarios)
+        reported = (
+            published["reported"].astype(bool)
+            if "reported" in published
+            else pd.Series(False, index=published.index)
+        )
+        assert set(published.loc[reported, "scenario"]) <= set(study.reported_scenarios)
         assert published["passed"].equals(
-            published["bias_equivalent"]
-            & (point_only | (published["coverage_valid"] & published["se_calibrated"]))
+            (
+                reported
+                | (
+                    published["bias_equivalent"]
+                    & (point_only | (published["coverage_valid"] & published["se_calibrated"]))
+                )
+            )
             & accounted
         )
 
@@ -799,6 +832,16 @@ class TestPublishedVerdicts:
             failures = published.loc[~published["passed"]]
             if study.accepted_reference_failure:
                 failures = failures.loc[failures["implementation"] != study.reference]
+            # The one named exception: a row of ``ACCEPTED_BY_EXCEPTION``, keyed to its study,
+            # implementation, scenario and estimand.  Any other failed row still fails here.
+            accepted = [
+                key.key
+                for key in ACCEPTED_BY_EXCEPTION
+                if key.slug == study.slug and key.kind == "truth"
+            ]
+            if not failures.empty:
+                named = failures[["implementation", "scenario", "estimand"]].agg("/".join, axis=1)
+                failures = failures.loc[~named.isin(accepted)]
             assert failures.empty, failures.to_string()
 
     def test_the_subject_is_similar_to_and_no_worse_than_the_reference(
@@ -1236,6 +1279,7 @@ class TestPublishedVerdicts:
                     "unnormalised_curve_control",
                     "share_dropped_control",
                     "interpolating_control",
+                    "mar_variance_control",
                 ):
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
@@ -2299,6 +2343,25 @@ class TestPropertyTruthsAreTheDeclaredLawsOwn:
         assert str(clean["cell"].iloc[0]) in findings[0]
 
 
+#: Comparisons whose reference publishes no plug-in and that declare no ``targeting_necessity``
+#: family, each with the registered sibling study that measures the same subject's targeting and
+#: the reason the gate below is waived.  The waiver is narrow on purpose:
+#: :func:`test_a_plug_in_waiver_stays_honest` requires the reference's ``initial_estimate`` to be
+#: absent in every row, the subject's to be committed in every row and moved, and the sibling to
+#: run the same implementation and publish its targeting-gain clause.  A study whose reference
+#: publishes a plug-in can never be covered by an entry here.
+PLUG_IN_WAIVERS: dict[str, tuple[str, str]] = {
+    "dose-response-npcausal": (
+        "dose-response",
+        "npcausal ctseff is a one-step estimator that publishes no plug-in, so its runner writes "
+        "initial_estimate as NA; the subject's untargeted plug-in is committed beside every "
+        "targeted estimate, and the sibling dose-response study's double_robustness family "
+        "gates the targeting gain (targeting_gain and targeting_gain_past_truth) of the same "
+        "DoseResponseTMLE fit, so a targeting_necessity family here would repeat that clause",
+    ),
+}
+
+
 class TestTheStudyStillMeasuresTheCode:
     """The study declarations remain reproducible inputs to selective regeneration."""
 
@@ -2393,11 +2456,19 @@ class TestTheStudyStillMeasuresTheCode:
         the study to carry the family that can separate the two instead.  The distinction is the
         point: an absent column says the quantity does not exist, and a repeated one would say it
         exists and did not move.
+
+        A comparison whose subject's targeting another registered study already gates may name
+        that study in :data:`PLUG_IN_WAIVERS` instead of repeating the family.
         """
         if study.reference is None:
             pytest.skip("study declares no comparison implementation")
         reference = rows.loc[rows["implementation"] == study.reference]
         if reference["initial_estimate"].isna().all():
+            if study.slug in PLUG_IN_WAIVERS:
+                sibling, reason = PLUG_IN_WAIVERS[study.slug]
+                pytest.skip(
+                    f"{study.reference} publishes no plug-in; {sibling} measures it: {reason}"
+                )
             assert "targeting_necessity" in study.property_cells, (
                 f"{study.slug} publishes no plug-in for {study.reference} and declares no "
                 f"targeting_necessity family, so nothing separates targeting from a plug-in"
@@ -2414,6 +2485,39 @@ class TestTheStudyStillMeasuresTheCode:
         published = reference.loc[reference["initial_estimate"].notna()]
         moved = (published["estimate"] - published["initial_estimate"]).abs()
         assert moved.max() > 1e-3, moved.describe()
+
+    @pytest.mark.parametrize("slug", sorted(PLUG_IN_WAIVERS))
+    def test_a_plug_in_waiver_stays_honest(self, slug: str) -> None:
+        """Each :data:`PLUG_IN_WAIVERS` entry still describes a study that needs it."""
+        study = STUDY_BY_SLUG[slug]
+        sibling_slug, reason = PLUG_IN_WAIVERS[slug]
+        assert reason
+        assert study.reference is not None, f"{slug} has no reference, so it needs no waiver"
+        assert "targeting_necessity" not in study.property_cells, (
+            f"{slug} declares targeting_necessity, so the gate holds and the waiver is stale"
+        )
+        rows = _replication_rows(slug)
+        reference = rows.loc[rows["implementation"] == study.reference, "initial_estimate"]
+        assert len(reference) and reference.isna().all(), (
+            f"{study.reference} publishes a plug-in in {slug}, so the gate must read it"
+        )
+        subject = rows.loc[rows["implementation"] == study.implementation]
+        assert len(subject) and subject["initial_estimate"].notna().all(), (
+            f"{slug} must commit the subject's plug-in beside every targeted estimate"
+        )
+        assert (subject["estimate"] - subject["initial_estimate"]).abs().max() > 1e-3
+        sibling = STUDY_BY_SLUG[sibling_slug]
+        assert sibling.implementation == study.implementation, (
+            f"{sibling_slug} measures another implementation's targeting"
+        )
+        published = pd.read_csv(sibling.artifact("properties.csv"))
+        clause = published.loc[
+            published["property"] == "double_robustness",
+            ["targeting_gain", "targeting_gain_past_truth"],
+        ]
+        assert len(clause) and clause.notna().all().all(), (
+            f"{sibling_slug} publishes no targeting-gain clause, so nothing measures targeting"
+        )
 
     def test_native_interval_scales_are_recorded_instead_of_forced_to_match(
         self, study: StudyRecord, rows: pd.DataFrame
@@ -3115,13 +3219,16 @@ class TestThePublishedTestTables:
         """A study with no property cell and no reference has no grid row.
 
         Such a study still registers, publishes its verdicts under ``reporting`` and carries its
-        own page.  A comparator-backed study with no property cell has a row, which
+        own page.  :data:`GATED_OFF_GRID` names the exceptions, each with its reason.  A
+        comparator-backed study with no property cell has a row, which
         ``test_a_comparator_backed_study_with_no_property_cells_has_a_row`` exercises.
         """
         if study.property_cells or study.reference is not None:
             pytest.skip("study is on the grid")
-        assert study.publication_policy == "reporting", (
-            f"{study.slug} declares no property cell, so it cannot gate a validation claim"
+        expected = "gated" if study.slug in GATED_OFF_GRID else "reporting"
+        assert study.publication_policy == expected, (
+            f"{study.slug} declares no property cell, so it cannot gate a validation claim; "
+            f"an exception is named in GATED_OFF_GRID with its reason"
         )
         assert study.name not in _grid(), (
             f"{study.slug} declares no property cell and is not a validation row, but the grid "
@@ -3133,6 +3240,19 @@ class TestThePublishedTestTables:
         assert _OPEN.format(name="properties") not in section, (
             f"{study.slug} declares no property cell but its section carries a properties block"
         )
+
+    def test_a_gated_off_grid_exception_is_still_one(self) -> None:
+        """Each entry of :data:`GATED_OFF_GRID` is registered, off the grid, and gated.
+
+        The list can only shrink: an entry whose study left the registry, reached the grid or
+        became ``reporting`` fails until it is removed.
+        """
+        for slug, reason in GATED_OFF_GRID.items():
+            study = STUDY_BY_SLUG.get(slug)
+            assert study is not None, f"{slug} is not a registered study"
+            assert not _on_the_grid(study), f"{slug} is on the grid; remove its entry"
+            assert study.publication_policy == "gated", f"{slug} is reporting; remove its entry"
+            assert reason.strip(), slug
 
     @pytest.mark.parametrize(
         ("name", "columns", "artifact", "keys"),
@@ -3177,7 +3297,17 @@ class TestThePublishedTestTables:
         elif name == "properties":
             expected = [_committed_property_result(row) for row in frame.itertuples()]
         else:
-            expected = ["pass" if bool(passed) else "**fail**" for passed in frame["passed"]]
+            # A failed truth row the owner accepted by a named exception reads as that, and
+            # only that row.  The label is spelled out here, not imported from the renderer.
+            accepted = {key.key for key in ACCEPTED_BY_EXCEPTION if key.slug == study.slug}
+            expected = [
+                "pass"
+                if bool(row.passed)
+                else "accepted (named exception)"
+                if f"{row.implementation}/{row.scenario}/{row.estimand}" in accepted
+                else "**fail**"
+                for row in frame.itertuples()
+            ]
         assert sorted(published) == sorted(expected), (
             f"{study.slug}'s {name} results are not the committed ones"
         )

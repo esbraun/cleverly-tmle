@@ -186,6 +186,10 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "__version__",
         "load",
         "variable_importance",
+        "AdaptiveTMLEMethod",
+        "AdaptiveTMLEResult",
+        "TrialATE",
+        "TrialWithExternalData",
     }
     assert set(cleverly.__all__) == expected
 
@@ -496,6 +500,7 @@ BACKEND_ROUTES: dict[str, str] = {
     "VariableImportanceResult": "field",
     "LongitudinalResult": "container",
     "StructuralNestedMeanResult": "container",
+    "AdaptiveTMLEResult": "container",
     "CTMLESelection": "argument",
     "SurvivalSelection": "argument",
     "DriftRecord": "argument",

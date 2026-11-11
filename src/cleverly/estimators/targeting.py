@@ -88,7 +88,6 @@ from ..fluctuation.submodel import (
 )
 from ..interventions import IPSISet
 from ..learners.crossfit import Folds
-from ..msm import solve_projection
 from ..utils.bounds import OutcomeScaler
 from ._nuisance import CompanionEstimates, NuisanceEstimates, Propensity
 from ._strata import companion_stratum_codes, stratum_probabilities
@@ -116,7 +115,6 @@ __all__ = [
     "solve_with_mechanism",
     "solve_with_projection",
     "solve_with_reduction",
-    "solve_with_stratified_projection",
     "stratum_blocks",
 ]
 
@@ -419,11 +417,11 @@ def build_submodel(
     ignored by every other group.  ``None`` means the lowest arm, which is what a binary
     fit has always used and what the arm-indexed estimands default to.
 
-    ``msm_beta`` is the working model's current coefficients, which a **non-identity link**
-    puts inside the clever covariate through :math:`dm/d\\eta`.  It is ignored under the
-    identity link, where the covariate is free of :math:`\\beta`, and required under any
-    other -- which is why the ``msm`` group's targeting alternates
-    (:func:`solve_with_projection`) rather than building this once.
+    ``msm_beta`` is the current coefficients of a log-ratio conditional contrast
+    (:mod:`cleverly.effect_modification`), whose clever covariate reads them, which is why
+    that group's targeting alternates (:func:`solve_with_projection`).  Every other group
+    ignores it: an MSM's covariate :math:`h\\varphi/g` is free of :math:`\\beta` under every
+    link.
     """
     lower = float(nuisance_bound)
     if group == "msm" and nuisance.msm is not None and nuisance.msm.continuous:
@@ -441,7 +439,7 @@ def build_submodel(
                 ),
                 roadmap="X10",
             )
-        observed_numerator, grid_numerator = nuisance.msm.continuous_clever_design_at(msm_beta)
+        observed_numerator, grid_numerator = nuisance.msm.continuous_clever_design()
         observed_density = nuisance.density.density_at(data.treatment)
         grid_density = np.column_stack(
             [
@@ -524,15 +522,14 @@ def build_submodel(
         policies=(
             None if nuisance.policies is None else nuisance.policies.design_at(propensity, bounds)
         ),
-        # The covariate needs only h * (dm/deta) * phi; the factors are wanted apart one
-        # layer up, in the projection itself. See cleverly.msm.MSMSet.weighted_design_at,
-        # which is the identity link's beta-free array whenever the link is the identity.
+        # The covariate needs only h * phi, under every link; the factors are wanted apart
+        # one layer up, in the projection itself.
         msm=(
             nuisance.effect_modification.coefficients_at(msm_beta)
             if nuisance.effect_modification is not None
             else None
             if nuisance.msm is None
-            else nuisance.msm.weighted_design_at(msm_beta)
+            else nuisance.msm.weighted_design
         ),
         # The tilt's covariate, precomputed from the *untruncated* mechanism. The
         # `propensity` above still arrives bounded and the ipsi builder discards it:
@@ -672,22 +669,23 @@ class ProjectionFluctuation:
     fluctuation that was solved beside it.  It is a different *kind* of thing, though, and
     the difference is the whole reason this is a separate class rather than a reuse.  A
     mechanism fluctuation is a nuisance that was tilted, and its half of the alternation is
-    a likelihood maximisation.  This is the **reported parameter**, solved for by weighted
-    least squares -- so the two steps here maximise nothing in common and the coordinate
-    ascent argument that makes ``solve_with_mechanism`` terminate does not carry over.  See
+    a likelihood maximisation.  This is the **reported parameter** of a log-ratio
+    conditional contrast, solved for by its own risk minimisation -- so the two steps here
+    maximise nothing in common and the coordinate ascent argument that makes
+    ``solve_with_mechanism`` terminate does not carry over.  See
     :func:`solve_with_projection` for what does.
 
     Attributes
     ----------
     beta:
-        The coefficients the **report** is taken at: the projection of the targeted fit,
-        which is the same solve on the same predictions that
-        :func:`~cleverly.inference.influence.msm_coefficients` runs.  On a pooled fit it
-        is also the ``beta`` the returned covariate was built at, to within ``tol`` -- that
-        is what the alternation converges to.  Under fold-wise targeting each fold had its
-        own, recorded in :attr:`folds`, and this is still the one the coefficients are
-        reported at.  Kept so that a caller rebuilding the covariate --
-        ``res.diagnostics.support()`` does -- does not have to guess at it.
+        The coefficients the **report** is taken at: the projection of the targeted fit, which is
+        the same solve on the same predictions that
+        :func:`~cleverly.inference.influence.effect_modification_coefficients` runs.  On a pooled
+        fit it is also the ``beta`` the returned covariate was built at, to within ``tol`` -- that
+        is what the alternation converges to.  Under fold-wise targeting each fold had its own,
+        recorded in :attr:`folds`, and this is still the one the coefficients are reported at.  Kept
+        so that a caller rebuilding the covariate -- ``res.diagnostics.support()`` does -- does not
+        have to guess at it.
     trace:
         One ``(outer, relative outcome score, relative shift in beta)`` row per round.
         Kept for the reason the mechanism's trace is: a loop that stalls should be visible
@@ -713,35 +711,27 @@ class ProjectionFluctuation:
 def needs_projection(nuisance: NuisanceEstimates, group: TargetGroup) -> bool:
     """Whether this fit's targeting has a projection half to alternate with.
 
-    A property of the declared *link* rather than of the group: an identity-link working
-    model has a clever covariate free of ``beta``, so its targeting is one fluctuation and
-    goes down exactly the path it went down before links existed.
+    Only a log-ratio conditional contrast has one: its clever covariate reads its own
+    coefficients.  A working model's covariate :math:`h\\varphi/g` is free of them under
+    every link (:mod:`cleverly.msm`), so its targeting is one fluctuation.
     """
-    if group == "effect_modification_ratio":
-        return nuisance.effect_modification is not None
-    return group == "msm" and nuisance.msm is not None and nuisance.msm.link != "identity"
+    return group == "effect_modification_ratio" and nuisance.effect_modification is not None
 
 
 def reported_beta(
     nuisance: NuisanceEstimates, targeted: InitialFit, weights: FloatArray
 ) -> FloatArray | None:
-    """The coefficients a targeted fit reports, or ``None`` if it has no working model.
+    """The coefficients a targeted conditional contrast reports, or ``None`` without one.
 
     The projection of ``targeted``, which is what
-    :func:`~cleverly.inference.influence.msm_coefficients` reports and therefore the only
-    ``beta`` a diagnostic should rebuild the covariate at.  One function rather than the
-    two callers each writing the solve, for the reason there is one
-    :func:`~cleverly.msm.solve_projection`.
+    :func:`~cleverly.inference.influence.effect_modification_coefficients` reports and
+    therefore the only ``beta`` a diagnostic should rebuild the covariate at.
     """
     contrast = nuisance.effect_modification
-    if contrast is not None:
-        predictions = _raw_arms(targeted, contrast.arms, nuisance.scaler)
-        return contrast.project(predictions, weights).beta
-    msm = nuisance.msm
-    if msm is None:
+    if contrast is None:
         return None
-    predictions = _raw_arms(targeted, msm.arms, nuisance.scaler)
-    return solve_projection(msm.design, msm.weights, predictions, weights, msm.link).beta
+    predictions = _raw_arms(targeted, contrast.arms, nuisance.scaler)
+    return contrast.project(predictions, weights).beta
 
 
 def solve_with_projection(
@@ -758,14 +748,12 @@ def solve_with_projection(
     rows: IntArray | None = None,
     max_outer: int = DEFAULT_MAX_OUTER,
     warn: bool = True,
-    project: Callable[[InitialFit], FloatArray] | None = None,
-    submodel_at: Callable[[FloatArray], Submodel] | None = None,
     stop: StopContext | None = None,
 ) -> tuple[Submodel, Fluctuation]:
-    r"""Target ``Qbar`` and solve the working model's projection, alternating until both settle.
+    r"""Target ``Qbar`` and solve a log-ratio contrast's projection, alternating until both settle.
 
-    Under a non-identity link the clever covariate is
-    :math:`h\,(dm/d\eta)\,\varphi / g`, which reads :math:`\beta`; and :math:`\beta` is
+    The clever covariate of a log-ratio conditional contrast
+    (:mod:`cleverly.effect_modification`) reads :math:`\beta`; and :math:`\beta` is
     the projection of the *targeted* :math:`\bar Q^*`, which reads the covariate.  Neither
     can be solved once and left, so this alternates:
 
@@ -778,53 +766,37 @@ def solve_with_projection(
     :math:`\bar Q^*`, which is the opposite of what :func:`solve_with_mechanism` does, and
     deliberately.  That loop must continue, because its argument for terminating is that
     each step maximises its own factor of one joint likelihood and so cannot decrease it.
-    Here there is no joint criterion to preserve -- the projection is a least-squares
-    solve, not a likelihood -- so the useful thing to have instead is a clean fixed point:
-    at exit, :math:`\bar Q^*` is *the* fluctuation of :math:`\bar Q^0` along
-    :math:`H_{\hat\beta}` and :math:`\hat\beta` is *the* projection of that
-    :math:`\bar Q^*`.  ``epsilon`` stays one interpretable coefficient vector rather than a
-    running sum along a path of submodels, and the identity link is exactly the case that
-    exits after one round -- which is why it is short-circuited before this is ever called
-    rather than handled inside it.
+    Here there is no joint criterion to preserve, so the useful thing to have instead is a
+    clean fixed point: at exit, :math:`\bar Q^*` is *the* fluctuation of :math:`\bar Q^0`
+    along :math:`H_{\hat\beta}` and :math:`\hat\beta` is *the* projection of that
+    :math:`\bar Q^*`.  ``epsilon`` stays one interpretable coefficient vector rather than
+    a running sum along a path of submodels.
 
-    Convergence is judged on the shift in :math:`\beta`, relative to its size, and it is
-    fast: measured on a three-armed binomial process the shift falls by a factor of
-    ``1e-3`` per round under the log link and ``1e-4`` under the logit, so the loop exits
-    in four rounds.  That is not luck, and it is the contrast with
-    :func:`solve_with_mechanism` again -- there the two nuisances enter each other's
-    covariates directly, while here :math:`\beta` reaches the covariate only through the
-    smooth factor :math:`dm/d\eta`, which barely moves once the fluctuation is small.  The
-    stall rule inherited from :data:`_STALL_FACTOR` is therefore slack here rather than
-    load-bearing, and is kept so that a badly conditioned fit stops rather than spins.
+    Convergence is judged on the shift in :math:`\beta`, relative to its size.  The stall
+    rule inherited from :data:`_STALL_FACTOR` stops a badly conditioned fit rather than
+    letting it spin.
+
+    A working model (``msm=``) never comes here: its covariate :math:`h\varphi/g` is free
+    of :math:`\beta` under every link, because its projection minimises the link's
+    cumulant loss (:mod:`cleverly.msm`).
 
     ``rows`` restricts the whole alternation to a subset -- one validation fold, for
     ``targeting_scheme="fold"``.  Each fold then gets its *own* :math:`\beta`, which is
     what makes fold-wise targeting mean here what it means everywhere else: no row
     contributes to any coefficient that fluctuates it.  The covariate is built on the full
     sample at that fold's :math:`\beta` and then restricted, rather than rebuilt from
-    sliced nuisances, because the covariate is row-wise and the two agree -- and because
-    the sliced version would have to re-derive arm fractions and bounds from a subsample
-    that is not the population they describe.
-
-    ``project`` and ``submodel_at`` replace the projection of a targeted fit and the
-    covariate at a coefficient vector.  A fit with baseline strata passes the stacked
-    stratum coefficients ``(beta_1, ..., beta_S)``: ``project`` solves each stratum's
-    projection on its own rows, and ``submodel_at`` builds one block
-    ``I(S = s) H(beta_s) / P_n(S = s)`` per stratum.  That is the working model with the
-    expanded design ``(I(S = s) phi)_s``, whose projection loss separates by stratum.
-    Both must be given together, and without ``rows``.
+    sliced nuisances, because the covariate is row-wise and the two agree.
 
     ``stop`` is the context of a declared stopping rule over **all** the rows, and a fold's
     solves receive ``stop.restrict(rows)``.  The loop's own exit tests the shift in ``beta``
     and does not read the rule.
     """
-    if nuisance.msm is None and nuisance.effect_modification is None:  # pragma: no cover
+    contrast = nuisance.effect_modification
+    if contrast is None:  # pragma: no cover - guarded by needs_projection
         raise ValueError(
-            f"group {group!r} targets a working model's coefficients, so the fit must "
+            f"group {group!r} targets a log-ratio contrast's coefficients, so the fit must "
             "carry the model that defines them; this NuisanceEstimates has none"
         )
-    if (project is None) != (submodel_at is None) or (project is not None and rows is not None):
-        raise ValueError("project= and submodel_at= go together, and without rows=")
     index = None if rows is None else np.asarray(rows)
     initial = nuisance.outcome if index is None else _slice(nuisance.outcome, index)
     y = scaled if index is None else scaled[index]
@@ -832,31 +804,15 @@ def solve_with_projection(
     seen = observed if index is None else observed[index]
     fold_stop = stop if stop is None or index is None else stop.restrict(index)
     scaler = nuisance.scaler
-    if (project is None or submodel_at is None) and nuisance.effect_modification is not None:
-        contrast = nuisance.effect_modification
-        contrast = contrast if index is None else contrast.subset(index)
+    contrast = contrast if index is None else contrast.subset(index)
 
-        def project(fit: InitialFit) -> FloatArray:
-            return contrast.project(_raw_arms(fit, contrast.arms, scaler), w).beta
+    def project(fit: InitialFit) -> FloatArray:
+        return contrast.project(_raw_arms(fit, contrast.arms, scaler), w).beta
 
-        def submodel_at(coefficients: FloatArray) -> Submodel:
-            return _projection_submodel(
-                data, nuisance, group, bounds, nuisance_bound, coefficients, index
-            )
-
-    elif project is None or submodel_at is None:
-        assert nuisance.msm is not None
-        msm = nuisance.msm if index is None else nuisance.msm.subset(index)
-
-        def project(fit: InitialFit) -> FloatArray:
-            return solve_projection(
-                msm.design, msm.weights, _raw_arms(fit, msm.arms, scaler), w, msm.link
-            ).beta
-
-        def submodel_at(coefficients: FloatArray) -> Submodel:
-            return _projection_submodel(
-                data, nuisance, group, bounds, nuisance_bound, coefficients, index
-            )
+    def submodel_at(coefficients: FloatArray) -> Submodel:
+        return _projection_submodel(
+            data, nuisance, group, bounds, nuisance_bound, coefficients, index
+        )
 
     beta = project(initial)
     trace: list[tuple[int, float, float]] = []
@@ -890,80 +846,6 @@ def solve_with_projection(
         beta=beta, trace=tuple(trace), converged=bool(last <= spec.tol), failure=failure
     )
     return submodel, replace(fluctuation, projection=projection)
-
-
-def solve_with_stratified_projection(
-    data: CausalData,
-    nuisance: NuisanceEstimates,
-    group: TargetGroup,
-    spec: TargetingSpec,
-    *,
-    bounds: tuple[float, float],
-    nuisance_bound: float,
-    scaled: FloatArray,
-    weights: FloatArray,
-    observed: BoolArray,
-    blocks_at: Callable[[Sequence[FloatArray]], Submodel],
-    max_outer: int = DEFAULT_MAX_OUTER,
-    warn: bool = True,
-    stop: StopContext | None = None,
-) -> tuple[Submodel, Fluctuation]:
-    r"""The stratum coefficients of a linked working model, by one blocks-only alternation.
-
-    Stratum ``s``'s coefficients ``beta_s`` are the projection of the targeted fit on the
-    stratum's rows.  Its clever covariate ``H(beta_s)`` reads them, so the stacked vector
-    ``(beta_1, ..., beta_S)`` alternates with one fluctuation whose covariate is
-    ``blocks_at(betas)``, one block ``I(S = s) H(beta_s) / P_n(S = s)`` per stratum.  This
-    is :func:`solve_with_projection` for the working model with the expanded design
-    ``(I(S = s) phi)_s``: its projection loss separates by stratum, and so does the
-    fluctuation loss.  Each round restarts from ``Qbar^0``, and the stop and stall rules
-    are the marginal ones.  The returned fluctuation's ``projection.beta`` is the stacked
-    vector.
-    """
-    msm = nuisance.msm
-    if msm is None or data.strata is None:  # pragma: no cover - guarded by the caller
-        raise ValueError("a stratified projection needs a working model and baseline strata")
-    strata = data.strata
-    rows = [np.flatnonzero(strata == code) for code in range(data.n_strata)]
-    width = msm.n_terms
-    scaler = nuisance.scaler
-
-    def project(fit: InitialFit) -> FloatArray:
-        predictions = _raw_arms(fit, msm.arms, scaler)
-        return np.concatenate(
-            [
-                solve_projection(
-                    msm.design[index],
-                    msm.weights[index],
-                    predictions[index],
-                    weights[index],
-                    msm.link,
-                ).beta
-                for index in rows
-            ]
-        )
-
-    def submodel_at(coefficients: FloatArray) -> Submodel:
-        return blocks_at(
-            [coefficients[code * width : (code + 1) * width] for code in range(len(rows))]
-        )
-
-    return solve_with_projection(
-        data,
-        nuisance,
-        group,
-        spec,
-        bounds=bounds,
-        nuisance_bound=nuisance_bound,
-        scaled=scaled,
-        weights=weights,
-        observed=observed,
-        max_outer=max_outer,
-        warn=warn,
-        project=project,
-        submodel_at=submodel_at,
-        stop=stop,
-    )
 
 
 def _projection_submodel(

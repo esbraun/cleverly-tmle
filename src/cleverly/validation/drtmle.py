@@ -144,6 +144,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._summary import Detail, Summary, check_detail
+from .._trial_family import refuse_augmented_trial
 from ..estimators._strata import stratum_probabilities
 from ..estimators.composite import complement_form, composite_clipping_mask, targeting_inputs
 from ..estimators.tmle import correction_parts, reported_mechanism
@@ -599,6 +600,7 @@ def correction_check(
     :func:`~cleverly.estimators.composite.targeting_inputs`, so a composite-indicator fit is
     checked at the composite indicator and the composite mechanism it was targeted with.
     """
+    refuse_augmented_trial(result, "correction_check", "report")
     data = result.data
     weights = np.asarray(data.weights, dtype=float).reshape(-1)
     reference = _reference_se(result) if std_error is None else float(std_error)

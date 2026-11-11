@@ -1,11 +1,16 @@
 """The missingness tilt of the targets X82 part G added: ratios, natural course, regimes, MSMs.
 
-Each curve repeats the arithmetic of the reported target on the tilted regressions, so the
-tests check three things.  At ``gamma = 0`` each curve equals the reported estimate to
-``rtol=1e-12``.  At ``gamma != 0`` each curve equals a hand computation from the fit's own
+Each plug-in curve repeats the arithmetic of the reported target on the tilted regressions,
+so the tests check three things.  At ``gamma = 0`` each curve equals the reported estimate to
+``rtol=1e-12``.  At ``gamma != 0`` each plug-in equals a hand computation from the fit's own
 targeted regression and missingness mechanism, which is a nonzero witness because the
 mechanism is below one on some rows.  And a mutation that tilts the observed rows too, or
-that tilts no row, moves the curve away from the hand computation.
+that tilts no row, moves the plug-in away from the hand computation.
+
+The plug-in is what a regime mean and an MSM coefficient publish off ``gamma = 0``.  The arm,
+ratio and natural-course targets publish the targeted tilt instead, whose own checks live in
+``test_missingness_tilt_targeted.py``; here they must agree with each other the way the
+reported targets do.
 """
 
 from __future__ import annotations
@@ -26,7 +31,7 @@ from cleverly.estimators._nuisance import tilt_missingness
 from cleverly.exceptions import RefusalReason
 from cleverly.interventions import Rule, Static
 from cleverly.msm import MSM
-from cleverly.sensitivity.missingness import missingness_tilt, tipping_gamma
+from cleverly.sensitivity.missingness import _tilt_targets, missingness_tilt, tipping_gamma
 from cleverly.utils.bounds import expit, logit
 
 COVARIATES = ("W1", "W2", "W3")
@@ -102,6 +107,16 @@ def _rows(result: Any, gamma: tuple[float, ...] = (0.0, GAMMA), **kwargs: Any) -
 def _psi(result: Any, name: str, gamma: float, **kwargs: Any) -> float:
     frame = _rows(result, (gamma,), estimands=[name], **kwargs)
     return float(frame["psi"][0])
+
+
+def _plugin(
+    result: Any, name: str, gamma: float, arm_gamma: dict[float, float] | None = None
+) -> float:
+    """The untargeted plug-in of the tilted parameter from the first draw, on its own scale."""
+    target = _tilt_targets(result)[name]
+    direction = missingness_module._tilt_direction(result.data, arm_gamma)
+    value = missingness_module._tilted_value(result, result.repeats[0], target, gamma, direction)
+    return float(np.exp(value)) if target.kind == "ratio" else value
 
 
 def _tilted_arm_means(result: Any, group: str, gamma: float) -> dict[float, float]:
@@ -184,16 +199,16 @@ class TestTheCurveMatchesAHandComputation:
     def test_a_ratio_is_the_ratio_of_the_tilted_arm_means(self, ratios: Any) -> None:
         means = _tilted_arm_means(ratios, "mean", GAMMA)
         one, zero = means[1.0], means[0.0]
-        assert _psi(ratios, "rr", GAMMA) == pytest.approx(one / zero, rel=1e-12)
+        assert _plugin(ratios, "rr", GAMMA) == pytest.approx(one / zero, rel=1e-12)
         odds = (one / (1.0 - one)) / (zero / (1.0 - zero))
-        assert _psi(ratios, "or", GAMMA) == pytest.approx(odds, rel=1e-12)
+        assert _plugin(ratios, "or", GAMMA) == pytest.approx(odds, rel=1e-12)
         # The arm rows, computed by the shipped path, agree with the hand means.
-        assert _psi(ratios, "ey1", GAMMA) == pytest.approx(one, rel=1e-12)
-        assert abs(_psi(ratios, "rr", GAMMA) - ratios["rr"].psi) > 0.01
+        assert _plugin(ratios, "ey1", GAMMA) == pytest.approx(one, rel=1e-12)
+        assert abs(_plugin(ratios, "rr", GAMMA) - ratios["rr"].psi) > 0.01
 
     def test_the_natural_course_mean_tilts_the_received_arm(self, natural_course: Any) -> None:
         expected = _tilted_natural_course(natural_course, {0.0: GAMMA, 1.0: GAMMA})
-        assert _psi(natural_course, "ey_obs", GAMMA) == pytest.approx(expected, rel=1e-12)
+        assert _plugin(natural_course, "ey_obs", GAMMA) == pytest.approx(expected, rel=1e-12)
         assert abs(expected - natural_course["ey_obs"].psi) > 0.01
 
     def test_an_arm_direction_tilts_only_the_rows_that_received_that_arm(
@@ -202,7 +217,7 @@ class TestTheCurveMatchesAHandComputation:
         """The received-arm mask: tilting arm 0 alone moves only the rows with A = 0."""
         direction = {0.0: 1.0, 1.0: 0.0}
         expected = _tilted_natural_course(natural_course, {0.0: GAMMA, 1.0: 0.0})
-        psi = _psi(natural_course, "ey_obs", GAMMA, arm_gamma=direction)
+        psi = _plugin(natural_course, "ey_obs", GAMMA, direction)
         assert psi == pytest.approx(expected, rel=1e-12)
         # A mask on the counterfactual arm would tilt the A = 1 rows instead.
         swapped = _tilted_natural_course(natural_course, {0.0: 0.0, 1.0: GAMMA})
@@ -211,9 +226,9 @@ class TestTheCurveMatchesAHandComputation:
     def test_par_and_paf_read_the_tilted_natural_course_and_reference(self, joint: Any) -> None:
         observed = _tilted_natural_course(joint, {0.0: GAMMA, 1.0: GAMMA})
         reference = _tilted_arm_means(joint, "mean", GAMMA)[0.0]
-        assert _psi(joint, "ey_obs", GAMMA) == pytest.approx(observed, rel=1e-12)
-        assert _psi(joint, "par", GAMMA) == pytest.approx(observed - reference, rel=1e-12)
-        assert _psi(joint, "paf", GAMMA) == pytest.approx(1.0 - reference / observed, rel=1e-12)
+        assert _plugin(joint, "ey_obs", GAMMA) == pytest.approx(observed, rel=1e-12)
+        assert _plugin(joint, "par", GAMMA) == pytest.approx(observed - reference, rel=1e-12)
+        assert _plugin(joint, "paf", GAMMA) == pytest.approx(1.0 - reference / observed, rel=1e-12)
 
     def test_a_regime_mean_mixes_the_tilted_arms_by_the_regime(self, regime: Any) -> None:
         means = _tilted_arm_means(regime, "regime", GAMMA)
@@ -278,13 +293,13 @@ class TestEachMutationMovesTheCurve:
         self, fixture: str, name: str, request: pytest.FixtureRequest, monkeypatch: Any
     ) -> None:
         result = request.getfixturevalue(fixture)
-        honest = _psi(result, name, GAMMA)
+        honest = _plugin(result, name, GAMMA)
         monkeypatch.setattr(
             missingness_module,
             "tilt_missingness",
             lambda nuisance, bound: np.zeros_like(nuisance.missingness, dtype=float),
         )
-        assert abs(_psi(result, name, GAMMA) - honest) > 1e-3
+        assert abs(_plugin(result, name, GAMMA) - honest) > 1e-3
 
     @pytest.mark.parametrize(
         ("fixture", "name"), [("regime", "ey_regime[rule]"), ("msm", "msm[a]")]
@@ -302,44 +317,61 @@ class TestEachMutationMovesTheCurve:
         assert _psi(result, name, GAMMA) == pytest.approx(result[name].psi, rel=1e-10)
 
 
-class TestTheSpreadClaimsNoIntervalOffMar:
-    """At ``gamma != 0`` the new targets publish the ``plugin_`` columns only."""
+class TestTheTargetedRowsAgree:
+    """The arm, ratio and natural-course rows come from one targeted tilt (CDR-001, A2)."""
+
+    def test_a_ratio_is_the_ratio_of_the_published_arm_means(self, ratios: Any) -> None:
+        frame = _rows(ratios, (GAMMA,))
+        psi = dict(zip(frame["estimand"], frame["psi"], strict=True))
+        one, zero = psi["ey1"], psi["ey0"]
+        assert psi["rr"] == pytest.approx(one / zero, rel=1e-10)
+        assert psi["or"] == pytest.approx((one / (1 - one)) / (zero / (1 - zero)), rel=1e-10)
+        assert psi["ate"] == pytest.approx(one - zero, rel=1e-10)
+        # Nonzero witness: targeting moves the arm mean off the plug-in, by a little.
+        assert 1e-6 < abs(one - _plugin(ratios, "ey1", GAMMA)) < 0.05
+
+    def test_par_and_paf_read_the_published_natural_course_and_reference(self, joint: Any) -> None:
+        frame = _rows(joint, (GAMMA,))
+        psi = dict(zip(frame["estimand"], frame["psi"], strict=True))
+        observed, reference = psi["ey_obs"], psi["ey0"]
+        assert psi["par"] == pytest.approx(observed - reference, rel=1e-10)
+        assert psi["paf"] == pytest.approx(1.0 - reference / observed, rel=1e-10)
+        assert 1e-6 < abs(observed - _plugin(joint, "ey_obs", GAMMA)) < 0.05
 
     def test_the_columns_per_row(self, ratios: Any) -> None:
         frame = _rows(ratios)
+        assert "plugin_std_err" not in frame.columns
         for row in frame.iter_rows(named=True):
             estimate = ratios[row["estimand"]]
-            arm = row["estimand"] in {"ey1", "ey0", "ate"}
-            if arm or row["gamma"] == 0.0:
+            if row["gamma"] == 0.0:
                 assert row["std_err"] == pytest.approx(estimate.std_error)
-                assert np.isnan(row["plugin_std_err"])
-            else:
-                assert np.isnan(row["std_err"]) and np.isnan(row["ci_lower"])
-                assert row["plugin_std_err"] == pytest.approx(estimate.plugin_std_error)
-            if not arm and row["gamma"] == 0.0:
                 assert (row["ci_lower"], row["ci_upper"]) == pytest.approx(estimate.ci)
+            else:
+                assert np.isfinite(row["std_err"]) and row["std_err"] > 0.0
+                assert row["ci_lower"] < row["psi"] < row["ci_upper"]
 
     def test_a_ratio_interval_is_centred_on_the_log_of_the_tilted_point(self, ratios: Any) -> None:
         frame = _rows(ratios, (GAMMA,), estimands=["rr"])
-        psi = float(frame["psi"][0])
-        se = ratios["rr"].plugin_std_error
+        psi, se = float(frame["psi"][0]), float(frame["std_err"][0])
         z = 1.959963984540054
-        low, high = (
-            float(frame["plugin_interval_lower"][0]),
-            float(frame["plugin_interval_upper"][0]),
-        )
-        assert low == pytest.approx(psi * np.exp(-z * se), rel=1e-6)
-        assert high == pytest.approx(psi * np.exp(z * se), rel=1e-6)
+        assert float(frame["ci_lower"][0]) == pytest.approx(psi * np.exp(-z * se), rel=1e-6)
+        assert float(frame["ci_upper"][0]) == pytest.approx(psi * np.exp(z * se), rel=1e-6)
 
-    def test_an_arm_frame_keeps_its_columns(self, ratios: Any) -> None:
-        frame = missingness_tilt(ratios, [0.0, GAMMA], estimands=["ey1", "ate"]).to_frame()
-        assert "plugin_std_err" not in nw.from_native(frame, eager_only=True).columns
+    def test_a_regime_frame_keeps_the_diagnostic_off_mar(self, regime: Any) -> None:
+        frame = _rows(regime)
+        moved = frame.filter(nw.col("gamma") != 0.0)
+        assert moved["std_err"].is_nan().all() and moved["ci_lower"].is_nan().all()
+        assert not moved["plugin_interval_lower"].is_nan().any()
+        # Nonzero witness: the gamma = 0 rows keep the fit's own interval.
+        assert not frame.filter(nw.col("gamma") == 0.0)["ci_lower"].is_nan().any()
 
 
 class TestTippingGamma:
     @pytest.mark.parametrize(
         ("fixture", "name"),
         [
+            ("ratios", "ey1"),
+            ("ratios", "ate"),
             ("ratios", "rr"),
             ("natural_course", "ey_obs"),
             ("joint", "par"),
@@ -347,19 +379,42 @@ class TestTippingGamma:
             ("msm", "msm[a]"),
         ],
     )
-    def test_the_interval_search_refuses_and_the_point_search_answers(
+    def test_the_point_search_finds_the_moved_estimate(
         self, fixture: str, name: str, request: pytest.FixtureRequest
     ) -> None:
         result = request.getfixturevalue(fixture)
-        with pytest.raises(CapabilityError) as caught:
-            tipping_gamma(result, name, use_ci=True)
-        assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-        assert caught.value.refusal.roadmap == "X57"
         null = _psi(result, name, GAMMA)
         crossing = tipping_gamma(result, name, null_hypothesis=null)
         assert crossing is not None
         assert 0.0 < abs(crossing) <= GAMMA + 1e-3
         assert _psi(result, name, crossing) == pytest.approx(null, abs=1e-4)
 
-    def test_an_arm_contrast_keeps_its_interval_search(self, ratios: Any) -> None:
-        tipping_gamma(ratios, "ate", use_ci=True)
+    @pytest.mark.parametrize(
+        ("fixture", "name"),
+        [("ratios", "ate"), ("ratios", "rr"), ("natural_course", "ey_obs"), ("joint", "par")],
+    )
+    def test_the_interval_search_follows_the_targeted_limit(
+        self, fixture: str, name: str, request: pytest.FixtureRequest
+    ) -> None:
+        result = request.getfixturevalue(fixture)
+        base = _rows(result, (0.0, 4.0), estimands=[name])
+        rising = float(base["psi"][1]) > float(base["psi"][0])
+        # A null just outside the fit's interval, on the side the tilt moves toward.
+        field = "ci_upper" if rising else "ci_lower"
+        null = float(base[field][0]) + (1e-3 if rising else -1e-3)
+        crossing = tipping_gamma(result, name, null_hypothesis=null, use_ci=True)
+        assert crossing is not None and crossing != 0.0
+        row = _rows(result, (crossing,), estimands=[name])
+        assert float(row[field][0]) == pytest.approx(null, abs=1e-4)
+
+    @pytest.mark.parametrize(
+        ("fixture", "name"), [("regime", "ate_regime[rule vs ref]"), ("msm", "msm[a]")]
+    )
+    def test_the_interval_search_refuses_a_regime_and_an_msm(
+        self, fixture: str, name: str, request: pytest.FixtureRequest
+    ) -> None:
+        result = request.getfixturevalue(fixture)
+        with pytest.raises(CapabilityError, match="regime mean or an MSM coefficient") as caught:
+            tipping_gamma(result, name, use_ci=True)
+        assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+        assert caught.value.refusal.roadmap == "X57"

@@ -42,7 +42,7 @@ import pytest
 from cleverly.fluctuation.iterative import InitialFit
 from cleverly.fluctuation.submodel import submodel_for
 from cleverly.inference.influence import msm_coefficients
-from cleverly.msm import MSMSet, solve_projection
+from cleverly.msm import MSMSet
 from cleverly.utils.bounds import OutcomeScaler
 from tests import discrete_law as law
 
@@ -68,11 +68,8 @@ def _expansion(g_hat: np.ndarray, q_hat: np.ndarray, link: str = "identity") -> 
     )
     design, weights = law.MSM_DESIGN[covariate], law.MSM_WEIGHTS[covariate]
     model = MSMSet(law.MSM_TERMS, design, weights, (0.0, 1.0), link)  # type: ignore[arg-type]
-    # The covariate is evaluated at the beta the plug-in lands on, which is the beta the
-    # curve is taken at -- under a link those are the same solve and must be the same
-    # number, which is what the alternation exists to achieve on a real fit.
-    beta = solve_projection(design, weights, q_hat[covariate], np.ones(law.N), link).beta
-    submodel = submodel_for("msm", treatment, g_hat[covariate], msm=model.weighted_design_at(beta))
+    # The covariate h * phi / g is the same under every link.
+    submodel = submodel_for("msm", treatment, g_hat[covariate], msm=model.weighted_design)
     coefficients = msm_coefficients(
         outcome,
         initial,
@@ -156,17 +153,20 @@ class TestUnderALinkTheRemainderIsSecondOrderRatherThanZero:
     .. math::
 
         R_2 = (\hat\beta - \beta_0)
-            + M^{-1} E_0\Big[\sum_a h\,\frac{dm}{d\beta}\,
+            + M^{-1} E_0\Big[\sum_a h\,\varphi\,
               \frac{g_0}{\hat g}\,(\bar Q_0 - \bar Q)\Big],
 
     the second term being what is left of :math:`P_0 D^*` once the plug-in half is
-    cancelled by the definition of :math:`\hat\beta`.  With the identity link :math:`U` is
-    linear in :math:`\beta`, so :math:`\hat\beta - \beta_0` is *exactly*
-    :math:`M^{-1}E[\sum_a h\varphi(\bar Q - \bar Q_0)]` and the two terms collapse into the
-    remainder form above -- which is why the assertions there can be equalities.
+    cancelled by the definition of :math:`\hat\beta`.  The estimating equation is linear in
+    :math:`\bar Q` under every link, so
+    :math:`E[\sum_a h\varphi(\bar Q - \bar Q_0)] = E[\sum_a h\varphi(m(\hat\beta) -
+    m(\beta_0))]`.  With the identity link the right side is *exactly*
+    :math:`M(\hat\beta - \beta_0)`, and the two terms collapse into the remainder form
+    above -- which is why the assertions there can be equalities.
 
-    Under a link they collapse only to first order, and what is left is quadratic in
-    :math:`\hat\beta - \beta_0`, hence second order in the outcome error.  So a *correct
+    Under a link the right side is :math:`M(\hat\beta - \beta_0)` only to first order, and
+    what is left is quadratic in :math:`\hat\beta - \beta_0`, hence second order in the
+    outcome error.  So a *correct
     mechanism no longer drives the remainder to zero*, and asserting that it does would be
     asserting the identity link's algebra of a parameter that does not have it.  What is
     true, and what is checked here, is the rate: halve the errors and the remainder

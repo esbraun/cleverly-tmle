@@ -34,6 +34,8 @@ from cleverly import (
     RegimeContrast,
     RegimeMean,
     RiskRatio,
+    TrialATE,
+    TrialWithExternalData,
 )
 from cleverly.datasets import (
     make_binary_outcome,
@@ -164,6 +166,19 @@ def _quiet(build: Callable[[], Any]) -> Callable[[], Any]:
     return wrapped
 
 
+@functools.cache
+def _trial() -> CausalStudy:
+    """A randomized trial combined with external rows, marked by S."""
+    frame = make_linear_ate(n=200, seed=3)[0]
+    frame["S"] = np.random.default_rng(3).binomial(1, 0.5, len(frame))
+    return CausalStudy(
+        frame,
+        design=TrialWithExternalData(
+            outcome="Y", treatment="A", adjustment=("W1", "W2"), source="S"
+        ),
+    )
+
+
 SHIFTS = (Shift(0.0, cap=None), Shift(0.5, cap=None))
 
 QUESTIONS: dict[str, Callable[[], Any]] = {
@@ -190,6 +205,8 @@ QUESTIONS: dict[str, Callable[[], Any]] = {
         "missing_par": lambda: _missing_outcome().identify(PopulationAttributableRisk(reference=1)),
         "direct_effect": lambda: _intermediate().identify(ControlledDirectEffect(intermediate=0.0)),
         "randomized_ate": lambda: _randomized().identify(ATE()),
+        "trial_ate": lambda: _trial().identify(TrialATE(population="trial")),
+        "trial_pooled_ate": lambda: _trial().identify(TrialATE(population="pooled")),
         "uncensored_regime": lambda: _uncensored_panel().identify(
             RegimeMean({"always": 1, "never": 0}, reference="never")
         ),

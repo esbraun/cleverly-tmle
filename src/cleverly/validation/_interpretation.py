@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 import numpy as np
 
 from .._inference_status import supplies_inference
+from .._trial_family import refuse_augmented_trial
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -268,6 +269,8 @@ def fit_configuration(result: TMLEResult, estimand: str) -> FitConfiguration:
         from ._structural_refute import structural_configuration
 
         return structural_configuration(result, estimand)
+    # An adaptive working-model fit has no refutation, so no test reads its configuration.
+    refuse_augmented_trial(result, "refute", "refutation")
     data = result.data
     estimator = result.estimator
     estimate = result[estimand]
@@ -1393,6 +1396,103 @@ def _sh_rows() -> tuple[VerdictEvidence, ...]:
     )
 
 
+#: The theory line of every A2 targeted missingness tilt row.
+_TILT_THEORY = (
+    "docs/technical-reference/validation-methods.md, Targeted missingness tilt: the tilted "
+    "parameter's efficient influence curve and the shared-coefficient submodel whose score is "
+    "its residual block. Measured, not proved: 8,400 replications per cell at n = 1,000 (and "
+    "4,000 on the in-sample ladder), at gamma = -1, 1 and 2, each row's coverage, SE ratio and "
+    "standardized bias inside the shared margins, with 4,000 calibration draws at gamma = 2 "
+    "and a targeting-necessity control."
+)
+
+#: The declared GLM fingerprints of ``missingness-tilt-inference``: the outcome regression's
+#: interaction expansion and the main-terms treatment and response mechanisms.
+_TILT_LEARNERS = (
+    "Pipeline(memory=None,steps=[('polynomialfeatures', PolynomialFeatures(include_bias=False, "
+    "interaction_only=True)), ('standardscaler', StandardScaler()), ('logisticregression', "
+    "LogisticRegression(C=10000.0, max_iter=5000))],transform_input=None,verbose=False)",
+    "LogisticRegression(C=10000.0,max_iter=5000)",
+)
+
+#: The tilt rule's base kind: the estimand kinds it covers and the targets the cells name.
+_TILT_KINDS: Final[dict[str, tuple[str, ...]]] = {
+    "level": ("ey1", "ey0"),
+    "contrast": ("ate",),
+    "conditional": ("att",),
+    "ratio": ("rr",),
+    "natural_course": ("ey_obs",),
+    "par": ("par",),
+}
+
+#: The primary scenarios of ``missingness-tilt-inference``: the rule suffix, the
+#: cross-fitting the fit records, and the base kinds the scenario licenses.
+_TILT_SCENARIOS: Final[dict[str, tuple[str, str, tuple[str, ...]]]] = {
+    "in_sample": ("", "off", ("level", "contrast", "conditional", "ratio")),
+    "in_sample_4k": ("", "off", ("level", "contrast", "conditional", "ratio")),
+    "natural_course": ("", "off", ("level", "natural_course", "par")),
+    "cross_fit": ("+cross_fit", "folds=10", ("level", "contrast", "conditional", "ratio")),
+    "cv_evaluation": ("+cv_evaluation", "folds=10", ("level", "contrast", "conditional")),
+    "weighted": ("+weighted", "off", ("level", "contrast", "conditional", "ratio")),
+}
+
+#: The gammas every primary cell of ``missingness-tilt-inference`` reports.
+_TILT_GAMMAS = (-1, 1, 2)
+
+
+def _tilt_rows() -> tuple[VerdictEvidence, ...]:
+    """The rows that the passing cells of the A2 targeted missingness tilt study license."""
+    cells: dict[str, list[str]] = {}
+    folds: dict[str, str] = {}
+    for scenario, (suffix, cross_fitting, kinds) in _TILT_SCENARIOS.items():
+        for kind in kinds:
+            rule = kind + suffix
+            folds[rule] = cross_fitting
+            if kind == "level" and scenario == "natural_course":
+                targets: tuple[str, ...] = ("ey0",)
+            else:
+                targets = _TILT_KINDS[kind]
+            cells.setdefault(rule, []).extend(
+                f"primary/{scenario}/{target}[gamma={gamma}]"
+                for target in targets
+                for gamma in _TILT_GAMMAS
+            )
+    return tuple(
+        VerdictEvidence(
+            instrument="missingness_tilt_interval",
+            rule=rule,
+            rung="L2",
+            theory=_TILT_THEORY,
+            scope=CalibrationScope(
+                methods=frozenset({"TMLE"}),
+                estimand_kinds=frozenset(_TILT_KINDS[rule.split("+", 1)[0]]),
+                outcome_families=frozenset({"binomial"}),
+                treatment_kinds=frozenset({"discrete"}),
+                learners=frozenset(_TILT_LEARNERS),
+                cross_fitting=frozenset({folds[rule]}),
+                inference=frozenset({"influence_curve"}),
+                known_mechanism=frozenset({False}),
+                arms=frozenset({2}),
+                nodes=frozenset({None}),
+                n_min=1000,
+            ),
+            sentence=(
+                "The 95% interval of the targeted tilt covered the tilted parameter at the "
+                "nominal level at gamma = -1, 1 and 2 and n = 1,000 on a binary outcome missing "
+                "at random given treatment and two covariates, with correctly specified GLM "
+                "nuisances. Another learner, law or composition is not covered, and the tilted "
+                "parameter is not doubly robust in the outcome regression."
+            ),
+            study=(
+                "missingness-tilt-inference",
+                *cells[rule],
+                "interval_calibration/ate_gamma2__correctly_specified",
+            ),
+        )
+        for rule in cells
+    )
+
+
 #: The plasmode rows cover every fit, a clustered one included: the readings are exact
 #: whatever the cluster count, because whole clusters are the i.i.d. units of a draw.
 _PLASMODE_SCOPE = CalibrationScope(clusters_min=1)
@@ -1498,6 +1598,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
     *_band_rows(),
     *_sg_rows(),
     *_sh_rows(),
+    *_tilt_rows(),
 )
 
 

@@ -10,13 +10,16 @@ coefficients.
 
 .. math::
 
-    E\Big[ \sum_c h(c, V)\,\big( E[Y^{c} \mid V] - m(c, V; \beta) \big)^2 \Big]
+    E\Big[ \sum_c h(c, V)\,\big\{ B\big(\eta(c, V; \beta)\big)
+        - E[Y^{c} \mid V]\,\eta(c, V; \beta) \big\} \Big]
 
-over a *known* weight function :math:`h`, so it is well defined whether or not the
-working model is right: "the best :math:`m`-shaped summary of the counterfactual means,
-in the :math:`h`-weighted least-squares sense" (Neugebauer & van der Laan 2007, and
-Orellana, Rotnitzky & Robins 2010 for the regimen-indexed case).  Where the model happens
-to be right, :math:`\beta` is the truth; where it is wrong, the interval is still an
+over a *known* weight function :math:`h`, with :math:`B` the link's cumulant
+(:class:`cleverly.msm.Link`): least squares under the identity link, and the
+quasi-binomial loss under the logit, which is the parameter of Petersen et al. (2014),
+equation (5).  It is well defined whether or not the working model is right: "the best
+:math:`m`-shaped summary of the counterfactual means" under that loss (Neugebauer & van der
+Laan 2007, and Orellana, Rotnitzky & Robins 2010 for the regimen-indexed case).  Where the
+model happens to be right, :math:`\beta` is the truth; where it is wrong, the interval is still an
 honest interval for the projection, which is the thing that was estimated.
 
 **What a cell is.**  :math:`c` ranges over the *cells* of the parameter grid: a declared
@@ -38,7 +41,7 @@ over within a row -- a regimen is a plan, not a value some unit took -- and when
 working model has no effect modifier :math:`\varphi(c, V)` is *constant down the rows*.
 A cell's :math:`p` score equations therefore collapse to one.  Each node instead solves
 a single fluctuation over the cells stacked, :math:`C \cdot n` rows and one shared
-:math:`\epsilon`.  The submodel design is :math:`(dm/d\eta)\varphi(c,V)` and the loss
+:math:`\epsilon`.  The submodel design is :math:`\varphi(c,V)` and the loss
 weight is :math:`h(c,V)h_t^c`, where :math:`h_t^c` is the cumulative inverse treatment
 and censoring probability.  Their product is the EIF numerator.  Under a saturated
 model the stacked design is exactly block-diagonal and its loss weights are those of the
@@ -48,12 +51,10 @@ per-regimen recursion, which is why the report reduces to that one.
 cells for the regressions, then one pooled fluctuation, then every cell carried forward
 together.  The regressions themselves are unchanged; only where the update happens moved.
 
-*Under a link, one in-sample alternation round is a whole backward pass.*
-:math:`\beta` enters the covariate through :math:`dm/d\eta`, so :math:`\bar Q^*_t` moves
-with it -- and on a single-fold fit :math:`\bar Q^*_t` is node :math:`t-1`'s *regression
-target*, so every earlier node's learner has to be refit.  There is no fixed
-:math:`\bar Q^0` here to restart from; the fixed point is stated over the whole pass
-instead.  The mechanism is :math:`\beta`-free and is not refit.
+*Every link is one backward pass.*  The projection's estimating equation weights the
+residual by :math:`h\varphi` under every link, so the submodel is free of :math:`\beta`
+(Petersen et al. 2014, Section 3.5).  The pass targets every node once, and the projection
+of the first node's :math:`\bar Q^*` is read off at the end.
 
 **Cross-fitting pools the update.**  Above one fold, each outer fold runs the
 *untargeted* backward recursion of every cell on its training rows, as the per-regimen
@@ -62,9 +63,7 @@ held-out predictions are stitched into one out-of-fold initial estimate per node
 cell.  Then the lockstep pass above runs over those stitched predictions, with one
 stacked fluctuation per node over every follower of every live cell.  No fold solves a
 fluctuation, and no pooled :math:`\epsilon_t` or :math:`\beta` returns to a fold
-regression.  The stitched initial estimate is free of :math:`\beta`, so under a link a
-round re-solves the pooled update only and refits no learner.  That is the one intended
-difference from the in-sample alternation.
+regression.
 
 **A cell may be a policy.**  A regimen with a known policy node
 (:class:`~cleverly.interventions.Stochastic` inside a
@@ -99,7 +98,6 @@ import numpy as np
 from .._declarations import FunctionDeclaration, FunctionKind
 from .._summary import Detail, Summary, check_detail
 from .._typing import FloatArray, Learner
-from ..estimators.targeting import ProjectionFluctuation
 from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..fluctuation._score import StopContext
 from ..fluctuation.iterative import (
@@ -152,17 +150,6 @@ __all__ = [
 ]
 
 
-#: How much slower a round of the alternation may fall than the last before it is called
-#: stalled.  The same threshold as
-#: :data:`cleverly.estimators.targeting._STALL_FACTOR`, and read the same way: a
-#: contraction that has stopped contracting is not going to start.
-_STALL_FACTOR = 0.95
-
-#: A relative shift in ``beta`` above this at exit is reported as a failure rather than as
-#: convergence.  Beside :data:`_STALL_FACTOR`.
-_UNSOLVED = 1e-6
-
-
 _EVALUATED_FUNCTIONS_DECLARATION = FunctionDeclaration(
     field="functions_kind",
     meaning="It records whether the source MSM design and projection weights were declared known.",
@@ -206,7 +193,7 @@ class RegimenMSM:
 
     Arrays only, no callables -- the rule :class:`cleverly.msm.MSMSet` follows, and for
     the first of its two reasons: the design is evaluated once, where the fit begins, so
-    that every round of an alternation and every quantity read off the result agree on
+    that every node of the pass and every quantity read off the result agree on
     what the working model is by construction rather than by re-running the user's
     function and hoping it is deterministic.
 
@@ -268,7 +255,7 @@ class RegimenMSM:
         if not np.all(np.isfinite(weights)) or np.any(weights < 0.0):
             raise DataError(
                 "the working model's weights must be finite and non-negative; h(a-bar, V) "
-                "is a weight in a least-squares projection, not a signed contrast"
+                "is a weight in a projection, not a signed contrast"
             )
         object.__setattr__(self, "design", design)
         object.__setattr__(self, "weights", weights)
@@ -299,48 +286,31 @@ class RegimenMSM:
 
         Here for the rank check only, exactly as :attr:`cleverly.msm.MSMSet.gram` is: the
         matrix the estimate inverts is built inside :func:`cleverly.msm.solve_projection`
-        and carries the observation weights and, under a link, a curvature term.
+        and carries the observation weights and, under a link, :math:`dm/d\eta`.
         """
         return np.einsum(
             "ikp,ikq,ik->pq", self.design, self.design, self.weights, optimize=True
         ) / max(self.n, 1)
 
-    def weighted_design_at(self, beta: FloatArray | None) -> FloatArray:
-        r""":math:`h\,(dm/d\eta)\,\varphi`, the ``(n, C, p)`` numerator of the covariate.
+    @property
+    def weighted_design(self) -> FloatArray:
+        r""":math:`h\,\varphi`, the ``(n, C, p)`` numerator of the curve's covariate.
 
-        Under the identity link ``dm/deta`` is one, ``beta`` is ignored and this is the
-        array it was before links existed -- which is what keeps an identity-link fit a
-        single pass rather than an alternation.
+        The same array under every link, because the projection's estimating equation
+        weights the residual by :math:`h\varphi` alone (:mod:`cleverly.msm`).
         """
-        spec = link_for(str(self.link))
-        if spec.is_identity:
-            return self.design * self.weights[:, :, None]
-        if beta is None:
-            raise ValueError(
-                f"link={self.link!r} makes the clever covariate a function of beta, so it "
-                "cannot be built before one is available"
-            )
-        slope = np.asarray(spec.slope(self.fitted(beta)), dtype=float)
-        return self.design * (self.weights * slope)[:, :, None]
+        return np.asarray(self.design * self.weights[:, :, None], dtype=float)
 
-    def fluctuation_design_at(self, beta: FloatArray | None) -> FloatArray:
-        r""":math:`(dm/d\eta)\,\varphi`, the loss-weighted fluctuation's design.
+    @property
+    def fluctuation_design(self) -> FloatArray:
+        r""":math:`\varphi`, the loss-weighted fluctuation's design.
 
         The projection weight :math:`h` and cumulative inverse probability live in the
-        loss weight, following ``ltmle::UpdateQ``.  :meth:`weighted_design_at` retains
-        them in the EIF numerator; keeping the two arrays named separately prevents the
+        loss weight, following ``ltmle::UpdateQ``.  :attr:`weighted_design` keeps them in
+        the EIF numerator; keeping the two arrays named separately prevents the
         algebraically equivalent score from being mistaken for the same submodel path.
         """
-        spec = link_for(str(self.link))
-        if spec.is_identity:
-            return self.design
-        if beta is None:
-            raise ValueError(
-                f"link={self.link!r} makes the fluctuation design a function of beta, "
-                "so it cannot be built before one is available"
-            )
-        slope = np.asarray(spec.slope(self.fitted(beta)), dtype=float)
-        return self.design * slope[:, :, None]
+        return np.asarray(self.design, dtype=float)
 
     def fitted(self, beta: FloatArray) -> FloatArray:
         """``(n, C)`` fitted means :math:`m(c, V; \\beta)`."""
@@ -554,21 +524,18 @@ class MSMRegimenFit:
     beta: FloatArray
     influence_curves: FloatArray
     projection: ProjectionFit
-    alternation: ProjectionFluctuation
     #: Per cell, keyed as :attr:`RegimenMSM.cells` is, so that ``diagnostics()`` can
     #: report the leverage and the risk set a regimen actually had.
     fits: tuple[RegimenFit, ...]
     #: One per node, deepest first, each shared by every cell live at that node.
     nodes: tuple[Fluctuation, ...]
-    #: The ``(n, C, p)`` design the last pass fluctuated along, in sample and cross-fitted
-    #: alike.  Under a link it was built at the last round's *input* ``beta``, which differs
-    #: from the reported ``beta`` by at most ``tol`` (relative).  The pooled score has to be
-    #: taken against this covariate, so it is kept rather than rebuilt from ``beta``.
+    #: The ``(n, C, p)`` design the pass fluctuated along, in sample and cross-fitted alike:
+    #: :attr:`RegimenMSM.fluctuation_design`, under every link.
     fluctuation_design: FloatArray
 
     @property
     def converged(self) -> bool:
-        return all(node.converged for node in self.nodes) and self.alternation.converged
+        return all(node.converged for node in self.nodes) and self.projection.converged
 
     def summary(self, *, detail: Detail = "short") -> Summary:
         """The working model's link, its cells, and the coefficient of each term.
@@ -596,29 +563,6 @@ class MSMRegimenFit:
         return self.summary().as_html()
 
 
-@dataclass(frozen=True)
-class _Pass:
-    """One complete alternation: the last pass, its projection, and the round record."""
-
-    steps: list[list[SequentialStep]]
-    #: One per node, deepest first, shared by every cell live at that node.
-    nodes: list[Fluctuation]
-    projection: ProjectionFit
-    beta: FloatArray
-    #: The ``(n, C, p)`` design the *final* pass fluctuated along.  It is the covariate the
-    #: pooled score has to be taken against, so it travels rather than being rebuilt from
-    #: ``beta`` -- which differs from the one the pass used by up to ``tol``.
-    design: FloatArray
-    record: ProjectionFluctuation
-
-
-#: One backward pass at a ``beta``: the steps of every cell, the node fluctuations, and the
-#: design the pass fluctuated along.
-_OnePass = Callable[
-    [FloatArray | None], tuple[list[list[SequentialStep]], list[Fluctuation], FloatArray]
-]
-
-
 def fit_regimens_msm(
     data: LongitudinalData,
     plans: Sequence[Plan],
@@ -634,7 +578,6 @@ def fit_regimens_msm(
     alpha: float = 0.9995,
     max_iter: int = 20,
     tol: float = 1e-10,
-    max_outer: int = 50,
     n_jobs: int = 1,
     warn: bool = True,
     stopping: str = "relative",
@@ -651,27 +594,20 @@ def fit_regimens_msm(
     down the rows and the :math:`p` score equations collapse to one; stacking cells with
     distinct :math:`\varphi` is what separates them again.  As in
     ``ltmle::UpdateQ``, cumulative inverse probability and projection weights multiply
-    the loss while :math:`(dm/d\eta)\varphi` defines the submodel direction.
+    the loss while :math:`\varphi` defines the submodel direction.  That direction is free
+    of :math:`\beta` under every link, so the pass runs once and the projection is read off
+    its first node (:mod:`cleverly.msm`).
 
-    Under the identity link this runs once.  Under a link the covariate reads
-    :math:`\beta`, so the pass is repeated at each new one until the coefficients settle.
-    On a single-fold fit the recursion carries :math:`\bar Q^*` forward into the *next*
-    regression's target, so a round is the whole pass, learners included.  The mechanism
-    is free of :math:`\beta` and is fitted once, outside.
-
-    **Above one fold the update is pooled.**  Each outer fold runs the untargeted
-    recursion of every cell on its training rows
-    (:func:`~cleverly.longitudinal.sequential.untargeted_fold_recursions`), the construction
-    the per-regimen cross-fit uses (Díaz, Williams, Hoffman and Schenck 2023, Section 5.2,
-    Steps 1-4).  The held-out predictions are stitched into one out-of-fold initial
-    estimate per node and cell.  The lockstep pass then runs over those stitched
-    predictions: one stacked fluctuation per node over every follower of every live cell,
-    with the out-of-fold cumulative mechanism in the loss weight.  No fold solves a
-    fluctuation and no fold computes a :math:`\beta`.  The stitched initial estimate is free
-    of :math:`\beta`, so under a link a round re-solves the pooled update only.  A saturated
-    working model therefore reproduces the cross-fitted per-regimen report, as it
-    reproduces the single-fold one, which ``tests/e2e/test_ltmle_msm.py`` pins at both fold
-    counts.
+    **Above one fold the update is pooled.**  Each outer fold runs the untargeted recursion of every
+    cell on its training rows
+    (:func:`~cleverly.longitudinal.sequential.untargeted_fold_recursions`), the construction the
+    per-regimen cross-fit uses (Díaz, Williams, Hoffman and Schenck 2023, Section 5.2, Steps 1-4).
+    The held-out predictions are stitched into one out-of-fold initial estimate per node and cell.
+    The lockstep pass then runs over those stitched predictions: one stacked fluctuation per node
+    over every follower of every live cell, with the out-of-fold cumulative mechanism in the loss
+    weight.  No fold solves a fluctuation and no fold computes a :math:`\beta`.  A saturated working
+    model therefore reproduces the cross-fitted per-regimen report, as it reproduces the single-fold
+    one, which ``tests/e2e/test_ltmle_msm.py`` pins at both fold counts.
 
     **A declared stopping rule** (``stopping="scaled_var"`` or ``"sample_size"``) judges each
     node's stacked solve.  The stacked rows are ``C`` copies of the panel, so the unit of a
@@ -698,9 +634,7 @@ def fit_regimens_msm(
     # Above one fold these are the out-of-fold prefixes, and they are the only mechanism
     # any clever covariate divides by, as on a per-regimen cross-fitted fit.
     cumulative = {label: pair[1] for label, pair in cumulative_pairs.items()}
-    # Once per regimen for the whole alternation, not once per node per round: a link
-    # costs a further backward pass per round, so rebuilding the masks inside a pass would
-    # multiply the quadratic term by the round count as well.
+    # Once per regimen, not once per node.
     masks = {plan.label: plan.masks(data) for plan in plans}
     # ``None`` for a plan without a policy node, whose loss weight is the deterministic one.
     numerators = {plan.label: plan.cumulative_numerator(data) for plan in plans}
@@ -710,12 +644,11 @@ def fit_regimens_msm(
     subject = np.arange(data.n) if data.cluster is None else np.asarray(data.cluster)
 
     def backward_pass(
-        beta: FloatArray | None,
         node_inputs: Callable[[int, int, FloatArray], NodeInputs],
         regression_target: Callable[[int, int], FloatArray | None],
-    ) -> tuple[list[list[SequentialStep]], list[Fluctuation], FloatArray]:
-        """One lockstep pass at ``beta``, over the nodes ``node_inputs`` supplies."""
-        fluctuation_design = model.fluctuation_design_at(beta)
+    ) -> tuple[list[list[SequentialStep]], list[Fluctuation]]:
+        """One lockstep pass over the nodes ``node_inputs`` supplies."""
+        fluctuation_design = model.fluctuation_design
         carried = [seed_carried(data, scaler, horizon=cell.horizon) for cell in model.cells]
         steps: list[list[SequentialStep]] = [[] for _ in model.cells]
         nodes: list[Fluctuation] = []
@@ -820,7 +753,7 @@ def fit_regimens_msm(
             nodes.append(fluctuation)
         for cell_steps in steps:
             cell_steps.reverse()
-        return steps, nodes, fluctuation_design
+        return steps, nodes
 
     if folds.is_single:
 
@@ -842,10 +775,7 @@ def fit_regimens_msm(
                 n_jobs=n_jobs,
             )
 
-        def one_pass(
-            beta: FloatArray | None,
-        ) -> tuple[list[list[SequentialStep]], list[Fluctuation], FloatArray]:
-            return backward_pass(beta, in_sample, lambda k, time: None)
+        steps, node_fits = backward_pass(in_sample, lambda k, time: None)
 
     else:
         stitched = untargeted_fold_recursions(
@@ -876,34 +806,26 @@ def fit_regimens_msm(
                 cause,
             )
 
-        def one_pass(
-            beta: FloatArray | None,
-        ) -> tuple[list[list[SequentialStep]], list[Fluctuation], FloatArray]:
-            return backward_pass(beta, pooled, lambda k, time: stitched[k].regression_target[time])
+        steps, node_fits = backward_pass(
+            pooled, lambda k, time: stitched[k].regression_target[time]
+        )
 
-    run = _alternate(
-        one_pass,
-        lambda steps: _project(data, model, steps, scaler),
-        model,
-        tol=tol,
-        max_outer=max_outer,
-    )
-    tuned = _tuning_terms(data, model, plan_of, run.steps)
+    projection = _project(data, model, steps, scaler)
+    tuned = _tuning_terms(data, model, plan_of, steps)
     influence = _influence(
-        data, model, run.steps, scaler, run.projection, run.beta, _tuner_matrix(data, tuned)
+        data, model, steps, scaler, projection, projection.beta, _tuner_matrix(data, tuned)
     )
     return MSMRegimenFit(
         model=model,
         cause=cause,
-        beta=run.beta,
+        beta=projection.beta,
         influence_curves=influence,
-        projection=run.projection,
-        alternation=run.record,
+        projection=projection,
         fits=tuple(
             _cell_fit(
                 data,
                 model,
-                run.steps,
+                steps,
                 cause,
                 cumulative_unbounded,
                 cumulative,
@@ -914,8 +836,8 @@ def fit_regimens_msm(
             )
             for k in range(model.n_cells)
         ),
-        nodes=tuple(run.nodes),
-        fluctuation_design=run.design,
+        nodes=tuple(node_fits),
+        fluctuation_design=model.fluctuation_design,
     )
 
 
@@ -1015,75 +937,6 @@ def _cell_policy(
     return by_arm, np.where(node.at_risk, _carried(node.policy, by_arm), _FILLER)
 
 
-def _alternate(
-    one_pass: _OnePass,
-    project: Callable[[list[list[SequentialStep]]], ProjectionFit],
-    model: RegimenMSM,
-    *,
-    tol: float,
-    max_outer: int,
-) -> _Pass:
-    """Repeat ``one_pass`` at each new ``beta`` until the coefficients settle.
-
-    One loop for the in-sample and the cross-fitted fit.  Only ``one_pass`` differs: in
-    sample it refits every learner, and cross-fitted it re-solves the pooled update over
-    the fixed stitched initial estimate.
-    """
-    spec = link_for(str(model.link))
-    trace: list[tuple[int, float, float]] = []
-    failure: str | None = None
-    if spec.is_identity:
-        # ``dm/deta`` is one, so the covariate never read a beta and there is nothing to
-        # alternate with. Bit for bit the single pass it would have been before links.
-        steps, node_fits, design = one_pass(None)
-        projection = project(steps)
-        beta = projection.beta
-    else:
-        # The starting point is arbitrary because the fixed point is not: at exit every
-        # node's Qbar* is the fluctuation along the covariate at beta-hat, and beta-hat is
-        # the projection of the first node's Qbar*. Zero is as good a start as the
-        # untargeted pass would be, and costs one pass less.
-        beta = np.zeros(model.n_terms)
-        steps, node_fits, design = one_pass(beta)
-        projection = project(steps)
-        previous: float | None = None
-        for outer in range(1, max_outer + 1):
-            shift = float(np.max(np.abs(projection.beta - beta))) / (
-                1.0 + float(np.max(np.abs(beta)))
-            )
-            worst = max((node.trace[-1] for node in node_fits if node.trace), default=0.0)
-            trace.append((outer, float(worst), shift))
-            beta = projection.beta
-            if shift <= tol:
-                break
-            if previous is not None and shift > _STALL_FACTOR * previous:
-                failure = "stalled"
-                break
-            previous = shift
-            steps, node_fits, design = one_pass(beta)
-            projection = project(steps)
-        else:
-            failure = "max_iter_reached"
-        beta = projection.beta
-
-    last = trace[-1][2] if trace else 0.0
-    if failure is None and last > _UNSOLVED:
-        failure = "max_iter_reached"
-    return _Pass(
-        steps=steps,
-        nodes=node_fits,
-        projection=projection,
-        beta=beta,
-        design=design,
-        record=ProjectionFluctuation(
-            beta=beta,
-            trace=tuple(trace),
-            converged=bool(last <= tol),
-            failure=failure,
-        ),
-    )
-
-
 def _raw_first(steps: Sequence[Sequence[SequentialStep]], scaler: OutcomeScaler) -> FloatArray:
     r"""``(n, C)`` targeted :math:`\bar Q^*_1`, on the outcome's own scale.
 
@@ -1154,15 +1007,16 @@ def _influence(
 
     .. math::
 
-        D^*_\beta = M^{-1} \sum_c h\,(dm/d\eta)\,\varphi
+        D^*_\beta = M^{-1} \sum_c h\,\varphi
             \Big[ \sum_t h^c_t (Z^c_t - \bar Q^{*c}_t) + \bar Q^{*c}_1 - m(c, V; \beta) \Big]
 
     The bracket is the per-cell curve *uncentred*: :math:`m` stands where the plug-in
     mean would stand in :func:`fit_regimen`'s, because what this is a curve *for* is the
-    coefficient and not the cell.  :math:`M` is the matrix
-    :func:`~cleverly.msm.solve_projection` already returned -- under a link it carries a
-    curvature term that vanishes only where the working model fits, which is exactly what
-    a projection does not promise -- so it is read from there rather than recomputed.
+    coefficient and not the cell.
+    :math:`M = P_n \sum_c h\,(dm/d\eta)\,\varphi\varphi^\top` is the matrix
+    :func:`~cleverly.msm.solve_projection` already returned, so it is read from there
+    rather than recomputed.  This is Petersen et al. (2014), Appendix B, Corollary 1, with
+    :math:`c(Q) = M`.
 
     The observation weights multiply the whole bracket row-wise, after :math:`m` has been
     subtracted, exactly as :func:`fit_regimen` multiplies after subtracting ``psi``.  The
@@ -1185,7 +1039,7 @@ def _influence(
         ]
     )
     bracket = residual + raw - model.fitted(beta)
-    covariate = model.weighted_design_at(beta)
+    covariate = model.weighted_design
     contribution = np.einsum(
         "ikp,ik->ip",
         covariate,
@@ -1254,7 +1108,7 @@ def project_sdr_cells(
 
     .. math::
 
-        D_\beta = M^{-1} \sum_c h\,(dm/d\eta)\,x(c, V)
+        D_\beta = M^{-1} \sum_c h\,x(c, V)
             \bigl(\varphi_{1,c} - m(c, V; \beta)\bigr),
 
     with :math:`x` the design.  The steps are the conditional form of Equation (6) of Díaz,
@@ -1263,8 +1117,9 @@ def project_sdr_cells(
     working model, and ``docs/technical-reference/natural-extension-verdicts.md`` records
     the extension.
 
-    A transform can leave ``[0, 1]`` (the paper's Section 5.3), so under a logit or log
-    link the projection can have no finite solution.  When
+    A transform can leave ``[0, 1]`` (the paper's Section 5.3).  The cumulant loss stays
+    convex for any real transform, but under a logit or log link its minimum can be at
+    infinity, so the projection can have no finite solution.  When
     :func:`~cleverly.msm.solve_projection` does not converge under such a link, the fit is
     refused.
 
@@ -1325,7 +1180,7 @@ def project_sdr_cells(
         )
     beta = projection.beta
     bracket = raw - model.fitted(beta)
-    covariate = model.weighted_design_at(beta)
+    covariate = model.weighted_design
     # Each cell's population-target tuned cap adds its chain-rule term (``fit.tuning_term``,
     # already weighted), as in ``_tuning_terms``.
     tuner_terms = np.column_stack(
@@ -1344,8 +1199,7 @@ def project_sdr_cells(
         beta=beta,
         influence_curves=influence,
         projection=projection,
-        alternation=ProjectionFluctuation(beta=beta, converged=projection.converged),
         fits=tuple(fits),
         nodes=(),
-        fluctuation_design=model.fluctuation_design_at(beta),
+        fluctuation_design=model.fluctuation_design,
     )

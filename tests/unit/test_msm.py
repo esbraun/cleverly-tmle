@@ -10,10 +10,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.special import expit
 
 from cleverly.data import CausalData
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.msm import (
+    LINKS,
     MSM,
     Link,
     MSMSet,
@@ -79,7 +81,32 @@ class TestDeclaration:
 
     def test_a_link_cannot_be_registered_twice(self) -> None:
         with pytest.raises(ValueError, match="already registered"):
-            register_link(Link("logit", inverse=np.exp, slope=np.exp, curvature=np.exp))
+            register_link(Link("logit", inverse=np.exp, slope=lambda m: m, cumulant=np.exp))
+
+    def test_a_link_whose_cumulant_is_not_the_antiderivative_is_refused(self) -> None:
+        """A wrong cumulant would define another target with no error."""
+        wrong = Link(
+            "logit_wrong_cumulant", inverse=expit, slope=lambda m: m * (1.0 - m), cumulant=np.exp
+        )
+        with pytest.raises(ValueError, match="cumulant"):
+            register_link(wrong)
+        assert "logit_wrong_cumulant" not in LINKS
+
+    def test_a_link_with_a_wrong_slope_is_refused(self) -> None:
+        wrong = Link("log_wrong_slope", inverse=np.exp, slope=np.ones_like, cumulant=np.exp)
+        with pytest.raises(ValueError, match="slope"):
+            register_link(wrong)
+
+    def test_a_decreasing_inverse_is_refused(self) -> None:
+        """A decreasing mean function makes the cumulant loss concave."""
+        wrong = Link(
+            "negative",
+            inverse=lambda eta: -eta,
+            slope=lambda m: -np.ones_like(m),
+            cumulant=lambda eta: -0.5 * np.square(eta),
+        )
+        with pytest.raises(ValueError, match="strictly increasing"):
+            register_link(wrong)
 
     def test_weights_that_are_not_a_known_function_are_refused(self) -> None:
         # An array is not a function of ``(a, V)``: it is one particular evaluation, and
@@ -287,11 +314,11 @@ class TestTheGramMatrix:
 
 
 class TestTheLinkAlgebra:
-    """``dm/deta`` and ``d2m/deta2`` against a numerical derivative of ``m``.
+    """``dm/deta`` and the cumulant against numerical derivatives of ``m`` and ``B``.
 
-    Written as functions of the *mean* rather than of the linear predictor, which is
-    cheaper everywhere they are used and one substitution away from wrong -- so the check
-    is against ``m(eta)`` differentiated numerically, not against the formula restated.
+    The slope is written as a function of the *mean*, which is cheaper everywhere it is
+    used and one substitution away from wrong; the cumulant defines the projection's loss.
+    So both are checked against differences, not against the formula restated.
     """
 
     @pytest.mark.parametrize("name", ["identity", "log", "logit"])
@@ -301,9 +328,9 @@ class TestTheLinkAlgebra:
         step = 1e-5
         m = link.inverse(eta)
         first = (link.inverse(eta + step) - link.inverse(eta - step)) / (2.0 * step)
-        second = (link.inverse(eta + step) - 2.0 * m + link.inverse(eta - step)) / step**2
+        antiderivative = (link.cumulant(eta + step) - link.cumulant(eta - step)) / (2.0 * step)
         np.testing.assert_allclose(link.slope(m), first, atol=1e-8)
-        np.testing.assert_allclose(link.curvature(m), second, atol=1e-5)
+        np.testing.assert_allclose(antiderivative, m, atol=1e-8)
 
     def test_only_the_identity_calls_itself_one(self) -> None:
         assert link_for("identity").is_identity
@@ -331,9 +358,9 @@ class TestSolvingTheProjection:
 
     @staticmethod
     def _score(phi, h, q, w, link, beta):
-        """``U(beta)``, longhand."""
+        """``U(beta) = P_n sum_a h phi (q - m)``, longhand."""
         m = link.inverse(np.einsum("ijp,p->ij", phi, beta))
-        return np.einsum("ijp,ij,i->p", phi, h * link.slope(m) * (q - m), w) / w.sum()
+        return np.einsum("ijp,ij,i->p", phi, h * (q - m), w) / w.sum()
 
     @pytest.mark.parametrize("name", ["identity", "log", "logit"])
     def test_it_solves_the_estimating_equation(self, name: str) -> None:
@@ -355,14 +382,13 @@ class TestSolvingTheProjection:
         np.testing.assert_array_equal(fit.jacobian, gram)
 
     @pytest.mark.parametrize("name", ["log", "logit"])
-    def test_the_jacobian_carries_the_curvature_term(self, name: str) -> None:
-        """``M`` is ``-dU/dbeta``, checked by differentiating ``U`` numerically.
+    def test_the_jacobian_is_minus_the_score_derivative(self, name: str) -> None:
+        """``M = P_n sum_a h (dm/deta) phi phi'``, checked by differentiating ``U``.
 
-        The term that separates the two candidates is ``-(Qbar - m) d2m/deta2``, so it is
-        large only where the working model fits *badly*: the counterfactual means here are
-        ``0.95, 0.05, 0.95`` against a model linear in the dose, which cannot follow them
-        at all. A Gram-only ``M`` is then out by 0.04 (logit) and 0.39 (log), four to five
-        orders past the tolerance the numerical check uses.
+        The counterfactual means here are ``0.95, 0.05, 0.95`` against a model linear in
+        the dose, which cannot follow them at all.  A Jacobian with the least-squares
+        curvature term ``-(Qbar - m) d2m/deta2`` is then out by more than ``1e-2``, so the
+        check can tell the two candidates apart.
         """
         n = 100
         phi = np.tile(np.array([[1.0, 0.0], [1.0, 1.0], [1.0, 2.0]]), (n, 1, 1))
@@ -384,10 +410,12 @@ class TestSolvingTheProjection:
         np.testing.assert_allclose(fit.jacobian, numerical, atol=1e-6)
 
         m = link.inverse(np.einsum("ijp,p->ij", phi, fit.beta))
-        gram_only = np.einsum("ijp,ijq,ij,i->pq", phi, phi, h * link.slope(m) ** 2, w) / w.sum()
-        assert np.max(np.abs(gram_only - fit.jacobian)) > 1e-2, (
-            "the curvature term is too small here to tell the two matrices apart"
+        second = m if name == "log" else m * (1.0 - m) * (1.0 - 2.0 * m)
+        curved = (
+            np.einsum("ijp,ijq,ij,i->pq", phi, phi, h * (link.slope(m) ** 2 - (q - m) * second), w)
+            / w.sum()
         )
+        assert np.max(np.abs(curved - fit.jacobian)) > 1e-2
 
     def test_a_saturated_design_recovers_the_means_through_the_link(self) -> None:
         """One indicator per arm: ``m(a) = Qbar(a)`` exactly, so ``beta = link(mean)``."""
@@ -397,10 +425,9 @@ class TestSolvingTheProjection:
         h = np.ones((n, 3))
         w = np.ones(n)
         q = rng.uniform(0.2, 0.8, size=(n, 3))
-        fit = solve_projection(phi, h, q, w, "logit")
-        np.testing.assert_allclose(
-            1.0 / (1.0 + np.exp(-fit.beta)), q.mean(axis=0), rtol=0, atol=1e-10
-        )
+        for name, link in (("logit", lambda p: np.log(p / (1.0 - p))), ("log", np.log)):
+            fit = solve_projection(phi, h, q, w, name)
+            np.testing.assert_allclose(fit.beta, link(q.mean(axis=0)), rtol=0, atol=1e-10)
 
     def test_a_solve_that_cannot_converge_says_so_rather_than_raising(self) -> None:
         """One Newton step is not enough here, and the answer comes back labelled."""
@@ -408,6 +435,15 @@ class TestSolvingTheProjection:
         fit = solve_projection(phi, h, q, w, "logit", max_iter=1)
         assert not fit.converged
         assert fit.score > 1e-12
+
+    def test_a_projection_with_no_finite_minimiser_does_not_converge(self) -> None:
+        """Predictions at 0 and 1 separate the arms, so the logit loss has its infimum at
+        infinity and the coefficients diverge rather than converge."""
+        n = 50
+        phi = np.tile(np.array([[1.0, 0.0], [1.0, 1.0]]), (n, 1, 1))
+        q = np.tile(np.array([0.0, 1.0]), (n, 1))
+        fit = solve_projection(phi, np.ones((n, 2)), q, np.ones(n), "logit")
+        assert not fit.converged
 
 
 class TestTheLinkAndTheOutcomeMustAgree:
@@ -436,27 +472,14 @@ class TestTheLinkAndTheOutcomeMustAgree:
 
 
 class TestTheCovariateNumerator:
-    def test_the_identity_link_ignores_beta_entirely(self) -> None:
+    @pytest.mark.parametrize("link", ["identity", "log", "logit"])
+    def test_every_link_uses_h_times_phi(self, link: str) -> None:
+        """The quasi-likelihood estimating equation weights the residual by ``h phi``."""
         data = make_data(levels=(0, 1, 2))
-        evaluated = MSMSet.evaluate(MSM.linear(), data)
-        np.testing.assert_array_equal(evaluated.weighted_design_at(None), evaluated.weighted_design)
+        evaluated = MSMSet.evaluate(MSM.linear(link=link), data)  # type: ignore[arg-type]
         np.testing.assert_array_equal(
-            evaluated.weighted_design_at(np.array([3.0, -2.0])), evaluated.weighted_design
+            evaluated.weighted_design, evaluated.design * evaluated.weights[:, :, None]
         )
-
-    def test_another_link_carries_the_slope(self) -> None:
-        data = make_data(levels=(0, 1, 2))
-        evaluated = MSMSet.evaluate(MSM.linear(link="logit"), data)
-        beta = np.array([0.2, -0.5])
-        m = evaluated.fitted(beta)
-        expected = evaluated.design * (evaluated.weights * m * (1.0 - m))[:, :, None]
-        np.testing.assert_allclose(evaluated.weighted_design_at(beta), expected)
-
-    def test_a_covariate_without_a_beta_is_refused_under_a_link(self) -> None:
-        data = make_data()
-        evaluated = MSMSet.evaluate(MSM.linear(link="log"), data)
-        with pytest.raises(DataError, match="depends on beta"):
-            evaluated.weighted_design_at(None)
 
 
 class TestSubset:

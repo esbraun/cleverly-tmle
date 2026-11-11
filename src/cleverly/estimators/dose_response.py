@@ -59,6 +59,11 @@ NODE_MEMORY_BUDGET: Final[int] = 4 * 1024**3
 QUADRATURE_TOLERANCE: Final[float] = 0.05
 
 
+def _pair_cell_name(h: float, a0: float, stratum: str | None) -> str:
+    """The parameter name of one pair in one stratum, as the fit declares it."""
+    return pair_name(h, a0) if stratum is None else f"{pair_name(h, a0)}[{stratum}]"
+
+
 @dataclass(frozen=True)
 class PairSupport:
     """The support of one declared pair.
@@ -159,11 +164,27 @@ class DoseResponseResult:
         -------
         ParameterEstimate
             The estimate.
+
+        Raises
+        ------
+        KeyError
+            When no declared pair has exactly this bandwidth and dose, and no declared pair
+            has the parameter name :func:`cleverly.dose_response.pair_name` gives them.
+
+        Notes
+        -----
+        A pair matches by exact float equality first, then by its declared name, which
+        formats each number to ten significant digits and is unique within a declaration.
+        No tolerance is applied: two declared doses can be close in relative terms and
+        still be different estimands.
         """
-        for cell in self.pair_support:
-            same = np.isclose(cell.bandwidth, h) and np.isclose(cell.dose, a0)
-            if same and cell.stratum == stratum:
+        cells = [cell for cell in self.pair_support if cell.stratum == stratum]
+        for cell in cells:
+            if cell.bandwidth == h and cell.dose == a0:
                 return self.estimates[cell.name]
+        named = [cell for cell in cells if cell.name == _pair_cell_name(h, a0, stratum)]
+        if len(named) == 1:
+            return self.estimates[named[0].name]
         raise KeyError(
             f"no declared pair with bandwidth {h!r}, dose {a0!r} and stratum {stratum!r}"
         )
@@ -725,7 +746,7 @@ class DoseResponseTMLE:
             for p, (h, a0) in enumerate(curve.pairs)
         ]
         for p, h, a0, label, mask in cells:
-            name = pair_name(h, a0) if label is None else f"{pair_name(h, a0)}[{label}]"
+            name = _pair_cell_name(h, a0, label)
             row_weights = data.weights * mask
             weights = rule.weights[p]
             weight_obs = curve.weight(h, a0, data.treatment)

@@ -199,6 +199,7 @@ def test_an_inflated_standard_error_control_must_rise_above_the_band() -> None:
         "unnormalised_curve_control": "below",
         "share_dropped_control": "below",
         "interpolating_control": "below",
+        "mar_variance_control": "below",
     }
     with pytest.raises(ValueError, match="unknown side"):
         se_ratio_leaves_band(Interval(1.0, 1.1), (0.93, 1.07), "beside")  # type: ignore[arg-type]
@@ -590,19 +591,26 @@ def _biased_sample(bias: float, replicates: int, *, seed: int = 5) -> np.ndarray
 
 
 class TestVerdictsDoNotPunishEvidence:
-    """The property the framework exists to hold: more replications never lose a verdict.
+    """The framework's property: with the summary fixed, more replications keep a verdict.
 
     Each test runs the same estimator -- a fixed bias of a fifth of a standard deviation, or
     a fixed 93% coverage -- at four Monte Carlo budgets, and asserts the bounded-margin rule
     is stable while exhibiting the significance-shaped rule that flips.  The flipping rule is
     not a strawman: both were in the study this framework replaced.
+
+    The empirical summary is held fixed across budgets, so these tests show the mechanism
+    behind the limit (the interval narrowing around a fixed summary), not the probability
+    itself: a property strictly inside its margin passes with probability tending to one.
+    It is not a sample-path guarantee:
+    :meth:`test_one_more_replication_can_lose_a_realized_verdict` pins a realized verdict that
+    one added replication reverses (Codex Q2).
     """
 
     BUDGETS = (200, 800, 3200, 12800)
 
     @staticmethod
     def _never_lost(flags: list[bool]) -> bool:
-        """A verdict, once earned, is not taken away by adding replications."""
+        """A verdict, once earned, is not taken away at a larger budget with the same summary."""
         return all(later >= earlier for earlier, later in itertools.pairwise(flags))
 
     def test_standardized_bias_equivalence_survives_more_replications(self) -> None:
@@ -662,6 +670,19 @@ class TestVerdictsDoNotPunishEvidence:
         ]
         assert self._never_lost(verdicts), verdicts
         assert verdicts[-1] is True, verdicts
+
+    def test_one_more_replication_can_lose_a_realized_verdict(self) -> None:
+        """The monotonicity above holds the coverage rate fixed; one run's count does not.
+
+        376 of 400 covered clears the 0.90 floor.  Adding one replication that misses moves
+        the rate from 0.9400 to 0.9377 and the lower bound below the floor, which is why
+        ``how-to-read.md`` states the guarantee for the probability of a pass.
+        """
+        before = clopper_pearson(376, 400, confidence_level=CONFIDENCE).low
+        after = clopper_pearson(376, 401, confidence_level=CONFIDENCE).low
+        assert before == pytest.approx(0.9025959242, abs=1e-8)
+        assert after == pytest.approx(0.8997982246, abs=1e-8)
+        assert before >= 0.90 > after
 
     def test_requiring_the_interval_to_contain_nominal_coverage_flips(self) -> None:
         """The clause this replaced, on an estimator whose true coverage is 93%."""
