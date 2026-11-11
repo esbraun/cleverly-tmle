@@ -1,0 +1,1 @@
+{"command": "tests/canonical/default_bands/regenerate.py --jobs 4 --cache /root/band-wave/complete-cache --output /root/band-wave/complete/default-simultaneous-bands", "returncode": 0, "returncode_inferred": true}
