@@ -10,6 +10,7 @@ deliberate-mutation control that fails when its term is wrong.
 
 from __future__ import annotations
 
+import importlib
 import warnings
 from dataclasses import replace
 from typing import Any
@@ -19,6 +20,7 @@ import pytest
 
 import cleverly
 from cleverly._inference_status import PARAMETER_STATUSES
+from cleverly._support import registered_rows, support_for
 from cleverly.estimators import CTMLE, _oat_stack
 from cleverly.estimators import ctmle as ctmle_module
 from cleverly.estimators._oat_stack import corrected_curves, fitted_stack
@@ -29,6 +31,9 @@ from cleverly.learners import ParametricMechanism, ParametricOutcome
 from tests.studies import oat_per_arm_laws as laws
 
 pytestmark = pytest.mark.xdist_group("oat_repeated_stack")
+
+#: The module, not the ``cleverly.estimators.tmle`` function that shadows it.
+tmle_module = importlib.import_module("cleverly.estimators.tmle")
 
 ESTIMANDS = ("ey0", "ey1", "ate")
 
@@ -194,6 +199,34 @@ class TestRW2StatusPrecedence:
             for draw in (repeat.inference for repeat in failed.repeats)
         ]
         assert [draw["ey1"].status for draw in mutant] != _draw_statuses(failed, "ey1")
+
+
+def test_support_follows_the_precedent_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The restamped arm takes the support record of its precedent status.
+
+    A record reads the final status: ``stack_failure_plugin`` withholds the interval and needs
+    the row's point kind, ``influence_curve`` its Wald kind.  Row ``T16.logit_binary`` has a
+    shortfall on the Wald kind only, so under it the draws' records differ (checked first).
+    Restamping the status alone left them different, and the median refused the fit.
+    """
+    row = next(row for row in registered_rows() if row.id == "T16.logit_binary")
+    classify = tmle_module.classify_point_fit
+    seen: list[Any] = []
+
+    def on_the_row(*args: Any, **kwargs: Any) -> Any:
+        seen.append(replace(classify(*args, **kwargs), row=row))
+        return seen[-1]
+
+    monkeypatch.setattr(tmle_module, "classify_point_fit", on_the_row)
+    _fail_second_draw(monkeypatch)
+    result = _fit(laws.BINARY_ACTIVE.sample(1500, 71)[0], repeats=3)
+    classification = seen[0]
+    withheld = support_for(classification, "stack_failure_plugin")
+    assert withheld != support_for(classification, "influence_curve")
+    assert result["ey1"].inference == "stack_failure_plugin"
+    assert result["ey1"].support == withheld
+    assert result["ate"].support == withheld
+    assert result["ey0"].support == support_for(classification, "influence_curve")
 
 
 def _draw_status(

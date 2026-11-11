@@ -824,13 +824,15 @@ def test_status_is_the_precedent_of_the_draws(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_support_follows_the_precedent_status(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A draw's support record is recomputed with its status when the precedent restamps it.
+    """A restamped draw takes the support record of its precedent status.
 
     Support reads the final status: a ``constant_node_plugin`` estimate needs the row's point
     kind, an ``influence_curve`` one its Wald kind.  Row ``G39.ltmle.tau5`` has a shortfall on
-    the Wald kind only, so under it the draws' records differ.  Restamping the status alone
-    left them different, and the median refused the fit.  The witness first checks that the
-    draws' records do differ.
+    the Wald kind only, so under it the draws' records differ (checked first).  Restamping the
+    status alone left them different, and the median refused the fit.  The second draw
+    withholds ``LEVEL_B`` and the third ``REF``, so no single draw holds both inputs of their
+    contrast under the reported status: the derived record is right only when every draw
+    reads its inputs under the reported status and record.
     """
     row = next(row for row in registered_rows() if row.id == "G39.ltmle.tau5")
     classify = estimator_module.classify_longitudinal_fit
@@ -841,16 +843,18 @@ def test_support_follows_the_precedent_status(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(estimator_module, "classify_longitudinal_fit", on_the_row)
     original = estimator_module._estimates
     calls = {"n": 0}
+    withheld = {2: LEVEL_B, 3: REF}
 
     def stamped(*args: Any, **kwargs: Any) -> Any:
         reported = original(*args, **kwargs)
         calls["n"] += 1
-        if calls["n"] != 2:
+        if calls["n"] not in withheld:
             return reported
+        name = withheld[calls["n"]]
         estimates = dict(reported.estimates)
         status = "constant_node_plugin"
-        estimates[LEVEL_B] = replace(
-            estimates[LEVEL_B],
+        estimates[name] = replace(
+            estimates[name],
             inference=status,
             reference_df=None,
             support=estimator_module._support_of(kwargs["classification"], status, None),
@@ -859,17 +863,19 @@ def test_support_follows_the_precedent_status(monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr(estimator_module, "_estimates", stamped)
     result = _quiet(support.ltmle, _rows("ltmle"), repeats=3)
-    draws = [draw.estimates[LEVEL_B].support for draw in result.repeats]
-    assert draws[0] == draws[2] != draws[1]
-    assert draws[0].label == "experimental" and draws[1].label == "supported"
-    combined = result[LEVEL_B]
-    assert combined.inference == "constant_node_plugin"
-    assert combined.support == draws[1]
+    level = [draw.estimates[LEVEL_B].support for draw in result.repeats]
+    ref = [draw.estimates[REF].support for draw in result.repeats]
+    assert level[0] == level[2] != level[1] and ref[0] == ref[1] != ref[2]
+    assert level[0].label == "experimental" and level[1].label == "supported"
+    for name, draws in ((LEVEL_B, level), (REF, ref)):
+        assert result[name].inference == "constant_node_plugin"
+        assert result[name].support == draws[1 if name == LEVEL_B else 2]
     contrast = result.contrast(lambda v: v[0] - v[1], [LEVEL_B, REF])
-    assert contrast.support == combine_support(
-        (combined.support, result[REF].support), kind="derived"
-    )
-    assert result.ratio(LEVEL_B, REF).support == contrast.support
+    expected = combine_support((result[LEVEL_B].support, result[REF].support), kind="derived")
+    # The record of the second draw's own inputs, which a precedent copy would report.
+    assert expected != combine_support((level[1], ref[1]), kind="derived")
+    assert contrast.support == expected
+    assert result.ratio(LEVEL_B, REF).support == expected
     assert np.all(np.isfinite(result.covariance([LEVEL_B, REF])))
 
 

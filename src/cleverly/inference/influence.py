@@ -1439,7 +1439,8 @@ def with_precedent_status(
     of a name with :func:`~cleverly._inference_status.precedent_status` over that name's
     draws, so a parameter that withholds inference in any draw withholds it in the median.
     A re-stamped estimate that supplies no inference loses its Student t reference, as
-    :func:`make_estimate` drops it.  The inputs are not changed.
+    :func:`make_estimate` drops it, and takes the support record of a draw that holds the
+    precedent status, because a record reads the final status.  The inputs are not changed.
 
     Parameters
     ----------
@@ -1454,10 +1455,12 @@ def with_precedent_status(
     out = [dict(report) for report in per_repeat]
     names = {name for report in per_repeat for name in report}
     for name in names:
-        statuses = {report[name].inference for report in per_repeat if name in report}
+        parts = [report[name] for report in per_repeat if name in report]
+        statuses = {part.inference for part in parts}
         if len(statuses) < 2:
             continue
         stamp = precedent_status(statuses)
+        support = _record_of(parts, stamp)
         for report in out:
             if name in report and report[name].inference != stamp:
                 estimate = report[name]
@@ -1465,8 +1468,20 @@ def with_precedent_status(
                     estimate,
                     inference=stamp,
                     reference_df=estimate.reference_df if supplies_inference(stamp) else None,
+                    support=support,
                 )
     return out
+
+
+def _record_of(parts: Sequence[ParameterEstimate], status: str) -> Support:
+    """The support record of the first draw that holds ``status``.
+
+    A support record reads the final status (:func:`~cleverly._support.support_for`): a
+    withheld status needs the row's point kind, a shown one its Wald kind.  A draw restamped
+    to the precedent status therefore takes the record of a draw that already holds it.  The
+    precedent is one of the draws' statuses, so such a draw exists.
+    """
+    return next(part.support for part in parts if part.inference == status)
 
 
 def restamp_parameter_statuses(
@@ -1483,8 +1498,9 @@ def restamp_parameter_statuses(
     different fit statuses keep them, and :func:`median_estimates` refuses the
     combination: that guard finds a real defect.
 
-    The order of the stamps on a repeated fit is this restamp, then the median. A label
-    that reads the final status, such as a support row, is computed after both.
+    The order of the stamps on a repeated fit is this restamp, then the median. A support
+    record reads the final status and is stamped on each draw before the restamp, so a
+    restamped estimate takes the record of a draw that already holds the precedent status.
 
     Parameters
     ----------
@@ -1508,8 +1524,9 @@ def restamp_parameter_statuses(
         if not fit_level <= {"influence_curve"}:
             continue
         status = precedent_status(statuses)
+        support = _record_of([report[name] for report in out], status)
         for report in out:
-            report[name] = replace(report[name], inference=status)
+            report[name] = replace(report[name], inference=status, support=support)
     return out
 
 
