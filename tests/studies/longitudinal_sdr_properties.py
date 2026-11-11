@@ -126,12 +126,14 @@ from tests.studies import stochastic_categorical_ltmle_properties as policy_prop
 from tests.studies import weighted_longitudinal_properties_common as weighted
 from tests.studies.canonical_longitudinal_sdr import (
     BAND_LABEL,
+    BAND_STREAM,
     CALIBRATION_LABELS,
     CLUSTERED_POSITIVE,
     G_BOUNDS,
     LEARNER_FOLDS,
     N_FOLDS,
     PRIMARY_N,
+    PROPERTY_CELLS,
     SDR_PATTERNS,
     SDR_SIZES,
     SEPARATE_CALIBRATION,
@@ -170,9 +172,9 @@ from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY as JOINT
 from tests.studies.evidence.simultaneous import (
-    joint_cells,
-    joint_coverage_rows,
-    joint_property_cells,
+    BandOptions,
+    scale_cells,
+    scale_coverage_rows,
 )
 from tests.studies.fractional_glm import QuasiBinomialGLM
 from tests.studies.oracle_density_bins import fit_bytes, oracle_bins
@@ -187,9 +189,23 @@ NULL_REPLICATES = 800
 NULL_N = 4_000
 OVERFIT_REPLICATES = 8_000
 OVERFIT_N = 1_000
-#: The band cell's replications; ``tests/unit/test_longitudinal_sdr_design.py`` pins that they
-#: meet the RM36 control-power rule at the measured ``p0``.
-BAND_REPLICATES = 2_000
+#: The band cell's replications, sized by the arm-pooled predictive rule
+#: (``band-finite-sample-plan.md`` section 7); ``tests/unit/test_longitudinal_sdr_design.py``
+#: pins that they meet the RM36 control-power rule at the measured ``p0``.
+BAND_REPLICATES = 13_600
+#: The band the fit builds: the logit scale for the six means and the ``atanh`` scale for the
+#: five contrasts, with the Mammen multiplier at 10,000 draws.
+BAND_OPTIONS = BandOptions(band_scale="logit", kind="mammen", n_replicates=10_000, random_state=0)
+#: The bands reported beside it, without a verdict: the shipped default, and the logit band
+#: with the default multiplier.
+BAND_REPORTING: dict[str, BandOptions] = {
+    "shipped_band_reporting": BandOptions(
+        band_scale="identity", kind="rademacher", n_replicates=2_000, random_state=0
+    ),
+    "rademacher_band_reporting": BandOptions(
+        band_scale="logit", kind="rademacher", n_replicates=10_000, random_state=0
+    ),
+}
 
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
@@ -317,8 +333,12 @@ def discrete_fit(
     regimens: Any = END_REGIMENS,
     simultaneous: bool = False,
     engine: type = SDR,
+    band: BandOptions | None = None,
 ) -> Any:
-    """The fit of every family on :mod:`tests.discrete_law_longitudinal`."""
+    """The fit of every family on :mod:`tests.discrete_law_longitudinal`.
+
+    ``band`` sets the simultaneous band's options; the fit's own defaults otherwise.
+    """
     outcome, pseudo, treatment, censoring = end_properties._learners("both_correct")
     settings: dict[str, Any] = {
         "reference": "never",
@@ -328,6 +348,13 @@ def discrete_fit(
         "censoring_learner": censoring,
         "simultaneous": simultaneous,
     }
+    if band is not None:
+        settings.update(
+            band_scale=band.band_scale,
+            multiplier_kind=band.kind,
+            n_multiplier=band.n_replicates,
+            random_state=band.random_state,
+        )
     if engine is LTMLE:
         return end_properties.fit(frame)
     return _sdr(regimens, **settings).fit(frame, **COLUMNS)
@@ -895,8 +922,12 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         stream_family="interval_calibration",
     )
     cells.extend(
-        joint_property_cells(
-            BAND_LABEL, n=PRIMARY_N, replicates=BAND_REPLICATES, seed=_seed(JOINT, BAND_LABEL, 0)
+        scale_cells(
+            BAND_LABEL,
+            n=PRIMARY_N,
+            replicates=BAND_REPLICATES,
+            seed=_seed(JOINT, BAND_STREAM, 0),
+            reporting=tuple(BAND_REPORTING),
         )
     )
     return tuple(cells)
@@ -1068,13 +1099,13 @@ def _fit_set_drawn(payload: _Payload, drawn: _Drawn) -> list[dict[str, Any]]:
 
 
 def _draw_band(payload: tuple[int, int]) -> pd.DataFrame:
-    return end_properties.sample(law.PROBS, PRIMARY_N, _seed(JOINT, BAND_LABEL, payload[0]))
+    return end_properties.sample(law.PROBS, PRIMARY_N, _seed(JOINT, BAND_STREAM, payload[0]))
 
 
 def _band_rows(payload: tuple[int, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
     replicate, requested = payload
-    result = discrete_fit(frame, regimens=BAND_REGIMENS, simultaneous=True)
-    return joint_coverage_rows(
+    result = discrete_fit(frame, regimens=BAND_REGIMENS, simultaneous=True, band=BAND_OPTIONS)
+    return scale_coverage_rows(
         result,
         {name: float(law.TRUTH[name]) for name in BAND_NAMES},
         BAND_NAMES,
@@ -1083,6 +1114,9 @@ def _band_rows(payload: tuple[int, int], frame: pd.DataFrame) -> list[dict[str, 
         n=PRIMARY_N,
         requested=requested,
         pointwise_critical=CRITICAL,
+        options=BAND_OPTIONS,
+        reporting=BAND_REPORTING,
+        alpha=STUDY.margins.alpha,
     )
 
 
@@ -1132,7 +1166,7 @@ def _cells_of(key: _Key) -> list[str]:
     """The ``family/cell`` names the key's rows and derived controls fill."""
     kind, payload = key
     if kind == "band":
-        return [f"{JOINT}/{name}" for name in joint_cells(BAND_LABEL)]
+        return [f"{JOINT}/{name}" for name in PROPERTY_CELLS[JOINT]]
     family, label, configuration, _, _, _, law_name = payload
     if family == "sequential_double_robustness":
         if configuration == "controls":
@@ -1409,7 +1443,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     separate_calibration_verdicts(summary, rows)
     sequential_double_robustness_verdicts(summary)
     crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_sdr")
-    simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
+    simultaneous_coverage_verdicts(summary, margins=STUDY.margins, rows=rows, record=STUDY)
     diagnostic_rows(summary)
     return finish(summary, rates)
 

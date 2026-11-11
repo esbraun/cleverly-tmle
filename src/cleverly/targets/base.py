@@ -40,6 +40,7 @@ from ..fluctuation.iterative import InitialFit
 from ..fluctuation.submodel import Submodel, TargetGroup
 from ..inference.influence import (
     ArmMean,
+    BoundedKind,
     CovarianceRule,
     ParameterEstimate,
     Scale,
@@ -292,6 +293,12 @@ class Target:
     parameter_bounds:
         The range the parameter is defined on, where that is narrower than the real
         line.  Reported; not enforced by clipping.
+    bounded:
+        ``"mean"`` for a mean of the outcome and ``"difference"`` for a difference of two
+        such means; ``None`` for any other functional.  On a binary outcome the estimate
+        then carries :attr:`~cleverly.inference.ParameterEstimate.bounds` ``(0, 1)`` or
+        ``(-1, 1)``, which a simultaneous band with ``band_scale="logit"`` reads.  The
+        bound comes from this declaration and the outcome family, never from a name.
     undefined_when:
         Non-empty for a target that a *subsample* can legitimately fail to support --
         an ATT where a fold contains no treated units, a risk ratio where a
@@ -382,6 +389,7 @@ class Target:
     #: implicitly default-for-binary-only and need not say so twice.
     default_arms: Literal["any", "multi", "binary"] = "any"
     parameter_bounds: tuple[float, float] | None = None
+    bounded: BoundedKind | None = None
     undefined_when: str = ""
     description: str = ""
 

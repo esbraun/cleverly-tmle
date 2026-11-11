@@ -1438,6 +1438,7 @@ KEYWORDS: dict[str, tuple[str, str, str | None]] = {
     "simultaneous": _witness(EACH_DRAW, "settings"),
     "n_multiplier": _witness(EACH_DRAW, "settings"),
     "multiplier_kind": _witness(EACH_DRAW, "settings"),
+    "band_scale": _witness(EACH_DRAW, "settings"),
     "max_iter": _witness(EACH_DRAW, "settings"),
     "tol": _witness(EACH_DRAW, "settings"),
     "random_state": _witness("test_none_seed_draws_fresh_concrete_seeds"),

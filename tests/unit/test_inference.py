@@ -811,7 +811,7 @@ class TestSimultaneousBands:
             with patch.object(multiplier, "_block_size", lambda *_, b=block: b):
                 values.append(
                     multiplier_critical_value(
-                        ic, se, n=n, n_replicates=n_replicates, random_state=11
+                        ic, se, n=n, n_replicates=n_replicates, kind="rademacher", random_state=11
                     )
                 )
         np.testing.assert_allclose(values[1:], values[:-1], rtol=1e-12, atol=0.0)
@@ -842,10 +842,14 @@ class TestSimultaneousBands:
         se = ic.std(axis=0) / np.sqrt(n)
 
         def peak(n_replicates: int) -> int:
-            multiplier_critical_value(ic, se, n=n, n_replicates=n_replicates, random_state=0)
+            multiplier_critical_value(
+                ic, se, n=n, n_replicates=n_replicates, kind="rademacher", random_state=0
+            )
             tracemalloc.start()
             try:
-                multiplier_critical_value(ic, se, n=n, n_replicates=n_replicates, random_state=0)
+                multiplier_critical_value(
+                    ic, se, n=n, n_replicates=n_replicates, kind="rademacher", random_state=0
+                )
                 _, high = tracemalloc.get_traced_memory()
             finally:
                 tracemalloc.stop()

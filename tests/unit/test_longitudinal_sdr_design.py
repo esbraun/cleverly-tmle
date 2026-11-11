@@ -126,7 +126,7 @@ def test_the_declared_numbers() -> None:
     assert study.G_BOUNDS == (1e-8, 1.0)
     assert study.CONFIGURATION["construction"] == SDR_TRAINING_FOLD_RECURSION
     assert record.reference == "lmtp"
-    assert properties.BAND_REPLICATES == 2_000
+    assert properties.BAND_REPLICATES == 13_600
     assert {
         (family, label): (n, replicates)
         for family, label, _, n, replicates, _ in properties.FIT_SETS

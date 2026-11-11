@@ -192,10 +192,16 @@ from ..inference.influence import (
     median_estimates,
     missing_outcome_correction_parts,
     natural_course_mean,
+    parameter_bounds,
     reduced_correction_parts,
     stamp_inference,
 )
-from ..inference.multiplier import MultiplierKind, known_regime_estimates, simultaneous_bands
+from ..inference.multiplier import (
+    MultiplierKind,
+    known_regime_estimates,
+    out_of_range,
+    simultaneous_bands,
+)
 from ..inference.results import attach_bootstrap
 from ..interventions import (
     Incremental,
@@ -915,6 +921,11 @@ class TMLE:
         in closed form from the max-t distribution and is far cheaper, but depends on
         the influence curves only through their covariance and is biased conservative
         under weak overlap.  See :mod:`cleverly.inference.multiplier`.
+    band_scale:
+        ``"logit"`` builds the band of a probability, or of a difference of two
+        probabilities, on the logit of the estimate's position in its range; ``"identity"``
+        (default) on the estimate's own scale.  See
+        :func:`~cleverly.inference.simultaneous_bands`.
     step_size, max_iter, tol:
         Targeting-step controls.
     stopping:
@@ -1135,6 +1146,7 @@ class TMLE:
         simultaneous: bool = True,
         n_multiplier: int = 1000,
         multiplier_kind: MultiplierKind = "rademacher",
+        band_scale: str = "identity",
         step_size: float = 1e-3,
         max_iter: int = 20,
         tol: float = 1e-10,
@@ -1201,6 +1213,7 @@ class TMLE:
         self.simultaneous = simultaneous
         self.n_multiplier = n_multiplier
         self.multiplier_kind = multiplier_kind
+        self.band_scale = band_scale
         self.step_size = step_size
         self.max_iter = max_iter
         self.tol = tol
@@ -2317,6 +2330,7 @@ class TMLE:
             and supplies_inference(result.inference_status)
             and not has_t_reference(banded)
             and not known_regime_estimates(banded)
+            and not out_of_range(banded, self.band_scale)
         ):
             # A learned-rule fit reports the mean over its splits, which is linear, so the
             # band reads the mean curves as it reads the curves of one split. A learned-rule
@@ -2337,6 +2351,7 @@ class TMLE:
                 kind=self.multiplier_kind,
                 random_state=self.random_state,
                 cluster=data.cluster,
+                band_scale=self.band_scale,  # type: ignore[arg-type]
             )
             result = replace(
                 result,
@@ -6010,8 +6025,11 @@ class TMLE:
                 # One target is one functional, not one number: with K arms `ey` is a mean
                 # per arm and `ate` a contrast per non-reference arm, and each comes back
                 # under its own name.
+                bounds = parameter_bounds(target.bounded, data.family)
                 for estimate in target.build(context):
-                    out[estimate.name] = estimate
+                    out[estimate.name] = (
+                        estimate if bounds is None else replace(estimate, bounds=bounds)
+                    )
             except ValueError:
                 # A target that declares `undefined_when` may legitimately fail on a
                 # subsample; anything else failing is a bug and must not be swallowed.
@@ -6096,6 +6114,7 @@ class TMLE:
                     alpha=estimate.alpha,
                     log_psi=estimate.log_psi,
                     covariance_rule=estimate.covariance_rule,
+                    bounds=estimate.bounds,
                 )
                 codes[name] = code
         return out, codes
@@ -6501,6 +6520,7 @@ def _average_over_folds(
             # cross-validated one above, and covariance reads the curve under the centered
             # rule. docs/technical-reference/inference.md states this contract.
             covariance_rule="centered",
+            bounds=parts[0].bounds,
         )
 
     if dropped:

@@ -20,7 +20,7 @@ from ._typing import (
 from .exceptions import MethodConfigurationError, Refusal, RefusalReason
 from .fluctuation._score import check_iterate, check_step_bound, check_stopping_rule
 from .inference.bootstrap import Resampling
-from .inference.multiplier import MultiplierKind
+from .inference.multiplier import BandScale, MultiplierKind
 from .learners.crossfit import SplitPlan, _cross_fit_policy_refusal
 from .learners.library import _validate_learner
 from .longitudinal.pooled_hazards import check_hazard_pooling
@@ -783,6 +783,11 @@ class Inference:
         Multiplier draws for simultaneous bands.
     multiplier_kind : {"rademacher", "mammen", "normal"}, default="rademacher"
         Distribution of multiplier weights.
+    band_scale : {"logit", "identity"}, default="identity"
+        The scale of the band of a probability or of a difference of two probabilities.
+        ``"logit"`` builds it on the logit of the estimate's position in its range, so it
+        stays inside the range and can be asymmetric
+        (:func:`~cleverly.inference.simultaneous_bands`).
 
     See Also
     --------
@@ -823,6 +828,7 @@ class Inference:
     #: is; the stored configuration keeps ``"auto"`` so it still says "the engine's default".
     n_multiplier: int | Literal["auto"] = "auto"
     multiplier_kind: MultiplierKind = "rademacher"
+    band_scale: BandScale = "identity"
 
 
 @dataclass(frozen=True)
@@ -984,6 +990,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "simultaneous": "simultaneous",
         "n_multiplier": "n_multiplier",
         "multiplier_kind": "multiplier_kind",
+        "band_scale": "band_scale",
     },
     "runtime": {
         "random_state": "random_state",
@@ -1239,6 +1246,7 @@ class TMLEMethod:
             "simultaneous": True if inference.simultaneous is None else inference.simultaneous,
             "n_multiplier": inference.n_multiplier,
             "multiplier_kind": inference.multiplier_kind,
+            "band_scale": inference.band_scale,
             "random_state": runtime.random_state,
             "run_id": runtime.run_id,
             "n_jobs": runtime.n_jobs,

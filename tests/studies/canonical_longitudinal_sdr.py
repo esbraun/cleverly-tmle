@@ -200,6 +200,9 @@ SEPARATE_CALIBRATION: dict[str, tuple[tuple[str, ...], str]] = {
 }
 #: The joint label of the band cell.
 BAND_LABEL = "six_regimens"
+#: The band cell's seed stream, fresh for its band-finite-sample re-declaration so its rows
+#: are never pooled with the 2,000 of the identity band it replaced.
+BAND_STREAM = "six_regimens/band-finite-sample"
 #: The patterns of ``sequential_double_robustness`` and their sizes (``X4-plan.md`` 6.8).
 SDR_PATTERNS = ("both_correct", "P_A", "P_B", "P_C", "P_D")
 SDR_SIZES = (2_000, 8_000)
@@ -229,9 +232,19 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "type_i_error": ("static__sharp_null",),
     "power": ("static__alternative",),
     "crossfit_overfitting": ("cross_fitted_sdr", "in_sample_control"),
-    "simultaneous_coverage": (
-        f"{BAND_LABEL}__simultaneous_band",
-        f"{BAND_LABEL}__pointwise_joint_control",
+    # The band-finite-sample re-declaration (``band-finite-sample-plan.md`` section 7): the
+    # logit band, its pointwise control, the identity band at the same critical value, two
+    # reporting bands and the refused-band count, all on the same fits.
+    "simultaneous_coverage": tuple(
+        f"{BAND_LABEL}__{cell}"
+        for cell in (
+            "simultaneous_band",
+            "pointwise_joint_control",
+            "identity_scale_control",
+            "shipped_band_reporting",
+            "rademacher_band_reporting",
+            "refused_band",
+        )
     ),
     # Published without a verdict (``X4-plan.md`` 3.5 and 6.11).
     "construction_diagnostic": ("stitched_cross_fit", "estimated_flexible_mechanism"),

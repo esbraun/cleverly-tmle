@@ -22,6 +22,7 @@ import numpy as np
 from .._inference_status import (
     MINIMUM_INTERVAL_CLUSTERS,
     NO_KNOWN_REGIME_BANDS,
+    NO_LOGIT_RANGE_BANDS,
     NO_SIMULTANEOUS_BANDS,
     NO_T_REFERENCE_BANDS,
     T_REFERENCE_NOTE,
@@ -56,7 +57,7 @@ from ..inference.influence import (
     BOOTSTRAP_INTERVAL_LABELS,
     bootstrap_is_diagnostic,
 )
-from ..inference.multiplier import known_regime_estimates
+from ..inference.multiplier import known_regime_estimates, out_of_range
 from ..targets import TARGETS
 from ._method_summary import method_facts
 
@@ -1067,6 +1068,12 @@ def _band_settings(result: TMLEResult) -> list[str]:
         return [NO_T_REFERENCE_BANDS]
     if known_regime_estimates(estimates):
         return [NO_KNOWN_REGIME_BANDS]
+    outside = out_of_range(
+        {name: estimate for name, estimate in estimates.items() if estimate.supplies_inference},
+        str(getattr(result.estimator, "band_scale", "identity")),
+    )
+    if outside:
+        return [NO_LOGIT_RANGE_BANDS.format(names=", ".join(outside))]
     withheld = [name for name, estimate in estimates.items() if not estimate.supplies_inference]
     if withheld:
         return [

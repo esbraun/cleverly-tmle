@@ -42,6 +42,13 @@ from tests.studies.evidence.properties import (
 from tests.studies.evidence.registry import Margins, StudyRecord
 from tests.studies.evidence.replication import Witness
 from tests.studies.evidence.seeds import stream_seed
+from tests.studies.evidence.simultaneous import BAND as SIMULTANEOUS_BAND
+from tests.studies.evidence.simultaneous import FAMILY as SIMULTANEOUS_FAMILY
+from tests.studies.evidence.simultaneous import (
+    SCALE_CONTROL,
+    SCALE_GAIN_FLOOR,
+    SCALE_ROLE,
+)
 
 #: The informative-failure witness every property module declares as ``PROPERTY_WITNESS``
 #: (RM39b2 rev 3, D3'f): the most extreme observation of a lost replicate's draw, placed among
@@ -858,29 +865,79 @@ def _rate_row(
     )
 
 
-def simultaneous_coverage_verdicts(summary: pd.DataFrame, *, margins: Margins) -> None:
+def simultaneous_coverage_verdicts(
+    summary: pd.DataFrame,
+    *,
+    margins: Margins,
+    rows: pd.DataFrame | None = None,
+    record: StudyRecord | None = None,
+) -> None:
     """Read each joint-coverage cell against the rule its role answers to.
 
     The band must hold its exact joint-coverage interval inside the two-sided calibration
     coverage band, the rule every calibrated pointwise cell answers to.  The pointwise
     control must establish joint coverage below the nominal rate, which is what shows the
-    band's wider critical value does work on these laws.  A cell with the diagnostic role
-    reports its interval beside the band and declares no verdict.
+    band's wider critical value does work on these laws.  An identity-scale control (role
+    ``scale_control``) is the identity band at the band's own critical value: the 99% lower
+    bound of the band's paired coverage gain over it must reach
+    :data:`~tests.studies.evidence.simultaneous.SCALE_GAIN_FLOOR`, which is what shows the
+    band's scale does work.  It needs ``rows`` and ``record``.  A cell with the diagnostic
+    role reports its interval beside the band and declares no verdict.
+
+    Raises
+    ------
+    ValueError
+        If a scale control is read without ``rows`` and ``record``.
     """
-    joint = summary["property"] == "simultaneous_coverage"
+    joint = summary["property"] == SIMULTANEOUS_FAMILY
     for index in summary.index[joint]:
-        if summary.loc[index, "role"] == DIAGNOSTIC_ROLE:
+        role = summary.loc[index, "role"]
+        if role == DIAGNOSTIC_ROLE:
             summary.loc[index, "passed"] = True
+            continue
+        if role == SCALE_ROLE:
+            if rows is None or record is None:
+                raise ValueError("a scale control's verdict reads the rows and the record")
+            low, high = scale_gain_interval(rows, record, str(summary.loc[index, "cell"]))
+            summary.loc[index, "coverage_gain_ci_lower"] = low
+            summary.loc[index, "coverage_gain_ci_upper"] = high
+            summary.loc[index, "passed"] = bool(low >= SCALE_GAIN_FLOOR)
             continue
         coverage = Interval(
             float(summary.loc[index, "coverage_ci_lower"]),
             float(summary.loc[index, "coverage_ci_upper"]),
         )
-        if summary.loc[index, "role"] == "control":
+        if role == "control":
             passed = coverage.high < 1.0 - margins.alpha
         else:
             passed = coverage.within(*margins.calibration_coverage)
         summary.loc[index, "passed"] = bool(passed)
+
+
+def scale_band_cell(cell: str) -> str:
+    """The band cell an identity-scale control cell is paired with."""
+    suffix = f"__{SCALE_CONTROL}"
+    if not cell.endswith(suffix):
+        raise ValueError(f"{cell} is not an identity-scale control cell")
+    return f"{cell[: -len(suffix)]}__{SIMULTANEOUS_BAND}"
+
+
+def scale_gain_seed(record: StudyRecord, cell: str) -> int:
+    """The resampling seed of a scale control's gain: ``<label>/scale_gain`` in the family."""
+    label = scale_band_cell(cell).rsplit("__", 1)[0]
+    return stream_seed(record, SIMULTANEOUS_FAMILY, f"{label}/scale_gain")
+
+
+def scale_gain_interval(rows: pd.DataFrame, record: StudyRecord, cell: str) -> tuple[float, float]:
+    """The paired coverage gain of a band over its identity-scale control ``cell``."""
+    family = rows.loc[rows["property"] == SIMULTANEOUS_FAMILY]
+    return coverage_gain_interval(
+        family.loc[family["cell"] == scale_band_cell(cell)],
+        family.loc[family["cell"] == cell],
+        replicates=record.margins.bootstrap_replicates,
+        confidence_level=record.margins.confidence_level,
+        seed=scale_gain_seed(record, cell),
+    )
 
 
 def calibration_controls(
@@ -2366,7 +2423,51 @@ def _simultaneous_rule() -> pf.FamilyRule:
                 judge=pf.below_judge(lambda ctx: 1.0 - ctx.margins.alpha),
                 applies=pf.roles("control"),
             ),
+            _scale_gain_clause(),
         ),
+    )
+
+
+def _scale_gain_clause() -> pf.Clause:
+    """S7s: the band's paired gain over its identity-scale control, under the aligned fill.
+
+    The pair is the band (positive) and the ``scale_control`` cell, so the clause names its
+    arms by cell rather than by the ``positive``/``control`` roles :func:`~tests.studies.
+    evidence.property_failures.coverage_gain_clause` reads.  It feeds the scale control's own
+    verdict.
+    """
+
+    def judge(iv: Interval) -> pf.Judged:
+        return pf.Judged(iv.low - SCALE_GAIN_FLOOR, bool(iv.low >= SCALE_GAIN_FLOOR))
+
+    def read(ctx: pf.Context, row: pd.Series) -> pf.Judged:
+        return judge(
+            Interval(float(row["coverage_gain_ci_lower"]), float(row["coverage_gain_ci_upper"]))
+        )
+
+    def reads(ctx: pf.Context, row: pd.Series) -> list[tuple[str, str]]:
+        cell = str(row["cell"])
+        return [(SIMULTANEOUS_FAMILY, scale_band_cell(cell)), (SIMULTANEOUS_FAMILY, cell)]
+
+    def candidates(ctx: pf.Context, row: pd.Series) -> list[tuple[str, pf.Judged]]:
+        cell = str(row["cell"])
+        interval = pf.aligned_gain_interval(
+            ctx,
+            ctx.cell(SIMULTANEOUS_FAMILY, scale_band_cell(cell)),
+            ctx.cell(SIMULTANEOUS_FAMILY, cell),
+            scale_gain_seed(ctx.record, cell),
+        )
+        return [("lost band uncovered, lost identity control covered", judge(interval))]
+
+    return pf.Clause(
+        "joint coverage gain over the identity scale",
+        "S7s",
+        pf.roles(SCALE_ROLE),
+        read,
+        candidates,
+        target="passed",
+        imputation=pf.SUPPORT,
+        reads=reads,
     )
 
 

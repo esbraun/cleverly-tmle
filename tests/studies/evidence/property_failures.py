@@ -533,7 +533,9 @@ class Clause:
     name : str
         The leg name the accounting file publishes.
     statistic : str
-        The statistic type (rev 3 section 4): ``S1``, ``S1f`` and ``S2`` to ``S15``.
+        The statistic type (rev 3 section 4): ``S1``, ``S1f`` and ``S2`` to ``S15``, and
+        ``S7s``, the S7 gain of a band over its identity-scale control, whose pair is a
+        positive cell and a ``scale_control`` cell rather than a positive and a control.
     applies : Callable
         Whether the clause is part of a summary row's verdict.
     read : Callable
@@ -1376,6 +1378,52 @@ def _pair_arms(ctx: Context, row: pd.Series, group: str) -> tuple[pd.DataFrame, 
     return ctx.cell(family, positive.iloc[0]), ctx.cell(family, control.iloc[0])
 
 
+def aligned_gain_interval(
+    ctx: Context, positive: pd.DataFrame, control: pd.DataFrame, seed: int
+) -> Interval:
+    """The paired coverage gain of ``positive`` over ``control`` under the aligned fill.
+
+    A replicate the positive arm lost is filled uncovered, one the control lost is filled
+    covered, and a replicate an arm kept keeps its real value (b1 M2).  The S7 statistic.
+
+    Parameters
+    ----------
+    ctx : Context
+        The context whose margins set the resampling.
+    positive : pandas.DataFrame
+        The arm whose gain is read.
+    control : pandas.DataFrame
+        The arm it is read against.
+    seed : int
+        The verdict's own resampling seed.
+
+    Returns
+    -------
+    Interval
+        The percentile-bootstrap interval of the mean paired difference.
+    """
+    requested = _requested(positive)
+    kept = [int(value) for value in positive["replicate"]]
+    ids = kept + sorted(set(range(requested)) - set(kept))
+    positive_hits = dict(zip(kept, positive["covered"].to_numpy(dtype=float), strict=True))
+    control_hits = dict(
+        zip(
+            (int(value) for value in control["replicate"]),
+            control["covered"].to_numpy(dtype=float),
+            strict=True,
+        )
+    )
+    differences = np.array(
+        [positive_hits.get(index, 0.0) - control_hits.get(index, 1.0) for index in ids]
+    )
+    return mean_difference_interval(
+        differences,
+        replicates=ctx.margins.bootstrap_replicates,
+        confidence_level=ctx.margins.confidence_level,
+        seed=seed,
+    )
+
+
 def coverage_gain_clause(
     name: str,
     *,
@@ -1424,26 +1472,7 @@ def coverage_gain_clause(
 
     def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
         positive, control = _pair_arms(ctx, row, group)
-        requested = _requested(positive)
-        kept = [int(value) for value in positive["replicate"]]
-        ids = kept + sorted(set(range(requested)) - set(kept))
-        positive_hits = dict(zip(kept, positive["covered"].to_numpy(dtype=float), strict=True))
-        control_hits = dict(
-            zip(
-                (int(value) for value in control["replicate"]),
-                control["covered"].to_numpy(dtype=float),
-                strict=True,
-            )
-        )
-        differences = np.array(
-            [positive_hits.get(index, 0.0) - control_hits.get(index, 1.0) for index in ids]
-        )
-        interval = mean_difference_interval(
-            differences,
-            replicates=ctx.margins.bootstrap_replicates,
-            confidence_level=ctx.margins.confidence_level,
-            seed=seed(ctx, row),
-        )
+        interval = aligned_gain_interval(ctx, positive, control, seed(ctx, row))
         return [("lost positive arm uncovered, lost control arm covered", judge(interval))]
 
     return Clause(
