@@ -383,6 +383,28 @@ estimate. [Methods and learners](methods-learners.md#method-presets) gives the s
 [Time-to-event outcomes](../technical-reference/collaborative-tmle.md#time-to-event-outcomes)
 gives the algorithm and what it refuses.
 
+## Keep the interval when one set of models is wrong
+
+The ordinary hazard fit gives a valid confidence interval when the event model and the treatment
+and censoring models are all close to the truth. `method=DRTMLEMethod()` adds a correction, from Díaz (2019), that
+keeps the interval valid when only one side is right: the event model, or the treatment and
+censoring models together. It fits a `TimeToEvent` design with a two-level treatment and one
+event type. The side that is wrong still has to keep the ordering of people by
+risk, or by chance of treatment, that its truth gives, and no fit can check that. When you know
+the treatment and dropout probabilities, as in a randomized trial, give them to `TimeToEvent`
+(`treatment_probabilities=` and `censoring_probabilities=`): the interval
+then holds for any event model, as long as no one's chance of treatment or of staying in the
+study is tiny.
+
+A [simulation study](../technical-reference/method-evidence/survival-dr-tmle.md) with logistic
+models on one law with five check times measured this. With one side wrong the points stayed
+unbiased at 16,000 people, and with every model right the intervals covered 94% to 95% of the
+time at 1,000 to 16,000 people. The correction loop did not always settle: in about 11% of the fits at 1,000 people
+it stopped at its iteration cap with a warning, and those fits are part of the measured coverage.
+Fit flexible treatment and censoring models with cross-fitting, the default: fitted on all rows
+beside a wrong event model, the points were badly biased. [Time-to-event outcomes](../technical-reference/dr-tmle/theorem.md#time-to-event-outcomes)
+gives the estimator, the conditions and what it refuses.
+
 ## Bootstrap intervals
 
 Pass `n_bootstrap=` to refit the whole estimator on resamples of the data. Each estimate then

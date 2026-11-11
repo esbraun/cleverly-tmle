@@ -107,6 +107,7 @@ longitudinal-incremental-interventions-dropout
 eliminated-competing-events
 separable-effects
 survival-ctmle
+survival-dr-tmle
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries

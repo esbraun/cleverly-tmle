@@ -1451,6 +1451,21 @@ ARMS.update(
     }
 )
 
+#: The labels of ``survival-dr-tmle`` (X91 part F).  Mirrored from
+#: ``tests.studies.survival_dr_tmle_properties``, which this module cannot import.
+ARMS.update(
+    {
+        "a1_t5": (
+            "law L-S (two normal covariates, five time points, censoring), the risk of the event "
+            "by t = 5 under treatment, ten outer folds, n = 16,000"
+        ),
+        "both_rd": (
+            "law L-S, the difference in the risk of the event by t = 5 between treatment and no "
+            "treatment, ten outer folds, n = 16,000"
+        ),
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -8098,6 +8113,71 @@ STUDY_ESTIMANDS.update(
         ): "risk of the event by t = 2 under treatment",
         (_SURVIVAL_CTMLE_SLUG, "ate_regimen[a1 vs a0 @ t=2]"): (
             "difference in the risk of the event by t = 2 between treatment and no treatment"
+        ),
+    }
+)
+
+
+#: ``survival-dr-tmle`` (X91 part F): the drift-corrected survival TMLE of Díaz (2019),
+#: Section 5, with the corrected eq. (9).  The scenario, estimand and cell names are those of
+#: ``tests/studies/survival_dr_tmle.py`` and its properties module.
+_DRIFT_SLUG = "survival-dr-tmle"
+IMPLEMENTATIONS["cleverly-survival-dr-tmle"] = (
+    "`cleverly` SurvivalDRTMLE: hazard TMLE with the drift loop that also targets the residuals "
+    "of the treatment and censoring fits, Díaz (2019) Section 5 with the corrected eq. (9)"
+)
+_DRIFT_LAW = (
+    "two normal covariates, a binary baseline treatment, an event hazard and a censoring hazard "
+    "at five time points (law L-S)"
+)
+STUDY_SCENARIOS.update(
+    {
+        **{
+            (_DRIFT_SLUG, f"both_{k}k"): (
+                f"{_DRIFT_LAW}, an observational treatment; every nuisance a correct logistic "
+                f"model, ten outer folds, n = {k * 1000:,}"
+            )
+            for k in (1, 4, 16)
+        },
+        **{
+            (_DRIFT_SLUG, f"known_{k}k"): (
+                f"{_DRIFT_LAW}, a randomized treatment; the treatment and censoring probabilities "
+                f"declared and held, the hazard model wrong (it omits W2), ten outer folds, "
+                f"n = {k * 1000:,}"
+            )
+            for k in (1, 4, 16)
+        },
+    }
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_DRIFT_SLUG, "risk_regimen[a1 @ t=5]"): "risk of the event by t = 5 under treatment",
+        (_DRIFT_SLUG, "risk_regimen[a0 @ t=5]"): "risk of the event by t = 5 under no treatment",
+        (_DRIFT_SLUG, "ate_regimen[a1 vs a0 @ t=5]"): (
+            "difference in the risk of the event by t = 5 between treatment and no treatment"
+        ),
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_DRIFT_SLUG, "double_robustness", "a1_t5", "mechanism_correct"): (
+            "the hazard model wrong (it omits W2), with correct treatment and censoring models",
+            "bias interval inside the equivalence margin",
+        ),
+        (_DRIFT_SLUG, "double_robustness", "a1_t5", "outcome_correct"): (
+            "the hazard model correct, with the treatment model wrong (it omits W2) and a "
+            "constant censoring model",
+            "bias interval inside the equivalence margin",
+        ),
+        (_DRIFT_SLUG, "double_robustness", "a1_t5", "both_wrong"): (
+            "the hazard, treatment and censoring models all wrong: no sufficient condition holds",
+            "bias interval must fall entirely outside the margin",
+        ),
+        (_DRIFT_SLUG, "interval_calibration", "both_rd", "correctly_specified"): (
+            "every nuisance (hazard, treatment and censoring) a correct logistic model, read "
+            "against the exact efficient influence-curve spread",
+            "SE ratio and coverage intervals both inside their calibration bands, with both "
+            "efficiency-ratio intervals inside their bands",
         ),
     }
 )

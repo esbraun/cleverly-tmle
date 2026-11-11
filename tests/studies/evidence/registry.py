@@ -752,6 +752,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
     from tests.studies.separable_effects import STUDY as SEPARABLE_EFFECTS
     from tests.studies.survival_ctmle import STUDY as SURVIVAL_CTMLE
+    from tests.studies.survival_dr_tmle import STUDY as SURVIVAL_DR_TMLE
     from tests.studies.targeting_curves import STUDY as TARGETING_CURVES
 
     return (
@@ -814,6 +815,7 @@ def registered() -> tuple[StudyRecord, ...]:
         ELIMINATED_COMPETING_EVENTS,
         SEPARABLE_EFFECTS,
         SURVIVAL_CTMLE,
+        SURVIVAL_DR_TMLE,
         TARGETING_CURVES,
         DOSE_RESPONSE,
         CANONICAL_STOCHASTIC_REGIMES,

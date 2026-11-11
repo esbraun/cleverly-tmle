@@ -764,3 +764,10 @@ holds each unit's value at the arm it received, while $H_A$ divides by the reten
 arm on every row, so a retention that depends on treatment would bias $D_A$. `result.drift` holds
 one `DriftRecord` per arm and horizon: the iterations, the four $\varepsilon$ of each, the score
 means at the stop, the held factors, each auxiliary regression and the floored denominators.
+
+The registered study [drift-corrected survival TMLE](../method-evidence/survival-dr-tmle.md)
+measures the fit with ten folds and per-node logistic models on one two-covariate law at
+n = 1,000 to 16,000. It gates every nuisance estimated, every mechanism declared with the hazard
+model wrong, two robustness cells with one side wrong and an all-wrong control, and the risk
+difference's calibration. Its slow-nuisance and in-sample cells are descriptive. Those fits read
+supported from rows `G51`; every other composition reads experimental.
