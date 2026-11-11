@@ -20,13 +20,13 @@ import pytest
 
 import cleverly
 from cleverly._inference_status import PARAMETER_STATUSES
-from cleverly._support import registered_rows, support_for
+from cleverly._support import Support, registered_rows, support_for
 from cleverly.estimators import CTMLE, _oat_stack
 from cleverly.estimators import ctmle as ctmle_module
 from cleverly.estimators._oat_stack import corrected_curves, fitted_stack
 from cleverly.exceptions import DataWarning
 from cleverly.inference import influence as influence_module
-from cleverly.inference.influence import median_estimates
+from cleverly.inference.influence import make_estimate, median_estimates
 from cleverly.learners import ParametricMechanism, ParametricOutcome
 from tests.studies import oat_per_arm_laws as laws
 
@@ -227,6 +227,28 @@ def test_support_follows_the_precedent_status(monkeypatch: pytest.MonkeyPatch) -
     assert result["ey1"].support == withheld
     assert result["ate"].support == withheld
     assert result["ey0"].support == support_for(classification, "influence_curve")
+
+
+def test_draws_that_share_a_parameter_status_keep_their_own_records() -> None:
+    """The restamp copies a record only onto draws whose status it changes.
+
+    Two draws hold ``stack_failure_plugin`` under different records, which no restamp
+    explains, so the median must still refuse them.  Overwriting every draw's record with
+    the first one's would hide that.
+    """
+    first = Support("supported", "Row A covers it.", row="A")
+    second = Support("supported", "Row B covers it.", row="B")
+    curve = np.array([0.1, -0.1, 0.2, -0.2])
+    failed = "stack_failure_plugin"
+    draws = [
+        {"ey1": make_estimate("ey1", 0.4, curve, n=4)},
+        {"ey1": make_estimate("ey1", 0.45, curve, n=4, inference=failed, support=first)},
+        {"ey1": make_estimate("ey1", 0.5, curve, n=4, inference=failed, support=second)},
+    ]
+    with pytest.raises(ValueError, match="different support records"):
+        median_estimates(draws)
+    restamped = influence_module.restamp_parameter_statuses(draws)
+    assert [draw["ey1"].support for draw in restamped] == [first, first, second]
 
 
 def _draw_status(

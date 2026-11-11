@@ -1440,7 +1440,10 @@ def with_precedent_status(
     draws, so a parameter that withholds inference in any draw withholds it in the median.
     A re-stamped estimate that supplies no inference loses its Student t reference, as
     :func:`make_estimate` drops it, and takes the support record of a draw that holds the
-    precedent status, because a record reads the final status.  The inputs are not changed.
+    precedent status, because a record reads the final status.  That record is right for an
+    estimate whose record follows from its own status; a derived estimate whose inputs are
+    withheld in different draws needs its inputs harmonized first, as
+    :class:`~cleverly.longitudinal.LongitudinalResult` does.  The inputs are not changed.
 
     Parameters
     ----------
@@ -1501,6 +1504,8 @@ def restamp_parameter_statuses(
     The order of the stamps on a repeated fit is this restamp, then the median. A support
     record reads the final status and is stamped on each draw before the restamp, so a
     restamped estimate takes the record of a draw that already holds the precedent status.
+    Draws that already hold it keep their own records, so the median still refuses draws
+    whose records differ for another reason.
 
     Parameters
     ----------
@@ -1526,7 +1531,8 @@ def restamp_parameter_statuses(
         status = precedent_status(statuses)
         support = _record_of([report[name] for report in out], status)
         for report in out:
-            report[name] = replace(report[name], inference=status, support=support)
+            if report[name].inference != status:
+                report[name] = replace(report[name], inference=status, support=support)
     return out
 
 
