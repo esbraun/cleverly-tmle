@@ -32,6 +32,7 @@ from __future__ import annotations
 from ..exceptions import LongitudinalError
 from .collaborative import SurvivalCTMLE, SurvivalSelection
 from .data import LongitudinalData, Repeated
+from .drift import DriftRecord, SurvivalDRTMLE
 from .estimator import (
     IPSI,
     LTMLE,
@@ -79,6 +80,7 @@ __all__ = [
     "IPSI",
     "LTMLE",
     "SDR",
+    "DriftRecord",
     "DynamicRegimen",
     "LearnedRegimen",
     "LearnedRegimenNode",
@@ -106,6 +108,7 @@ __all__ = [
     "StructuralNestedMean",
     "StructuralNestedMeanResult",
     "SurvivalCTMLE",
+    "SurvivalDRTMLE",
     "SurvivalSelection",
     "each_node",
     "fit_mechanism",

@@ -2929,6 +2929,10 @@ LONGITUDINAL_METHOD_NAMES: Final[Mapping[str, str]] = MappingProxyType(
     {
         "tmle": "longitudinal targeted maximum likelihood (LTMLE)",
         "collaborative": "collaborative targeted maximum likelihood of a risk curve (C-TMLE)",
+        "drift": (
+            "targeted maximum likelihood of a risk curve with the drift correction of "
+            "Díaz (2019) (DR-TMLE)"
+        ),
         "msm": "longitudinal TMLE of a working model (MSM)",
         "sdr": "sequentially doubly robust estimator (SDR)",
         "ipsi": "incremental propensity score estimator (IPSI)",
@@ -2943,6 +2947,7 @@ LONGITUDINAL_SHORT_NAMES: Final[Mapping[str, str]] = MappingProxyType(
     {
         "tmle": "LTMLE",
         "collaborative": "survival C-TMLE",
+        "drift": "survival DR-TMLE",
         "msm": "LTMLE, working model",
         "sdr": "SDR",
         "ipsi": "IPSI",
