@@ -592,3 +592,15 @@ def test_the_study_route_answers_the_setup_questions_and_reads_the_band_default(
     assert fit.simultaneous is not None
     with pytest.raises(CapabilityError, match="evalue_from_rr"):
         evalue(fit)
+
+
+def test_the_initial_estimates_are_the_plug_in_before_any_step() -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = ContinuousSurvivalTMLE([0.5, 1.0], cross_fit=False, tol=10.0, random_state=0).fit(
+            _sample(), time="time", event="event", treatment="Z", baseline=["X3"]
+        )
+    assert fit.record.steps == 0
+    initial = fit.initial_estimates
+    assert set(initial) == {name for name in fit if not name.startswith("rr_regimen")}
+    assert all(abs(initial[name] - fit[name].psi) < 1e-12 for name in initial)

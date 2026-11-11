@@ -96,6 +96,8 @@ class ContinuousSurvivalRecord:
         The bound on the largest :math:`|P_n D^*| / \\hat\\sigma`.
     standardized_score : tuple of float
         Each target's final :math:`|P_n D^*| / \\hat\\sigma`.
+    initial_psi : tuple of float
+        Each target's plug-in at the initial hazards, before any step, in target order.
     bounded_share : float
         The share of (unit, time) cells of each unit's received arm, while it is followed,
         whose :math:`\\pi S_c(u^-)` was raised to the positivity floor.
@@ -122,6 +124,7 @@ class ContinuousSurvivalRecord:
     converged: bool
     cutoff: float
     standardized_score: tuple[float, ...]
+    initial_psi: tuple[float, ...]
     bounded_share: float
     last_time_floor_share: float
     off_grid_share: float
@@ -563,16 +566,21 @@ class ContinuousSurvivalTMLE:
         relevant = factual & reach
         bounded_share = float(np.mean(product[relevant] < floor)) if relevant.any() else 0.0
         last_time_floor_share = float(np.mean(product[..., -1] < floor))
+        # Each of these is (2, n, M); at n = 4,000 one is ~200 MB, so none outlives its use.
+        del survival, retention, retention_before, product, factual, reach, relevant, dgam
 
-        at_risk = (T[:, None] >= grid[None, :]).astype(float)
-        events = np.stack(
-            [((T[:, None] == grid[None, :]) & (D[:, None] == code)).astype(float) for code in codes]
-        )
+        # Indicators stay boolean: arithmetic with the float hazards promotes them on use.
+        at_risk = T[:, None] >= grid[None, :]
+        events = np.stack([(T[:, None] == grid[None, :]) & (D[:, None] == code) for code in codes])
         problem = Problem(A, at_risk, events, weight, target_index)
         cutoff = default_cutoff(n) if self.tol is None else float(self.tol)
+        # Handed over through a list so no name here keeps the initial jumps alive once the
+        # walk has replaced them (~400 MB at n = 4,000).
+        jumps = [dlam]
+        del dlam
         result = walk(
             problem,
-            dlam,
+            jumps.pop(),
             cutoff=cutoff,
             norm=self.norm,
             step=self.step_size,
@@ -598,6 +606,7 @@ class ContinuousSurvivalTMLE:
             converged=result.converged,
             cutoff=cutoff,
             standardized_score=tuple(float(v) for v in result.standardized_score),
+            initial_psi=tuple(float(v) for v in result.initial.psi),
             bounded_share=bounded_share,
             last_time_floor_share=last_time_floor_share,
             off_grid_share=off_grid,

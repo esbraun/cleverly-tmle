@@ -44,7 +44,7 @@ class Problem:
     arm : ndarray
         ``(n,)`` received arm, 0 or 1.
     at_risk : ndarray
-        ``(n, M)`` indicator that the unit's follow-up reaches :math:`u_m`.
+        ``(n, M)`` indicator, boolean or float, that the unit's follow-up reaches :math:`u_m`.
     events : ndarray
         ``(J, n, M)`` indicator of an event of each cause at :math:`u_m`.
     weight : ndarray
@@ -55,8 +55,8 @@ class Problem:
     """
 
     arm: IntArray
-    at_risk: FloatArray
-    events: FloatArray
+    at_risk: np.ndarray
+    events: np.ndarray
     weight: FloatArray
     target_index: IntArray
 
@@ -93,7 +93,8 @@ def curves(dlam: FloatArray) -> tuple[FloatArray, FloatArray]:
     """
     survival = np.cumprod(1.0 - dlam.sum(axis=1), axis=-1)
     before = np.concatenate([np.ones((*survival.shape[:-1], 1)), survival[..., :-1]], axis=-1)
-    incidence = np.cumsum(before[:, None] * dlam, axis=-1)
+    incidence = before[:, None] * dlam
+    np.cumsum(incidence, axis=-1, out=incidence)
     return survival, incidence
 
 
@@ -149,8 +150,11 @@ def evaluate(problem: Problem, dlam: FloatArray) -> Evaluation:
     plugins = np.zeros((n, 2 * J * K))
     for a in (0, 1):
         mask = (problem.arm == a).astype(float)[:, None]
-        residual = problem.events - problem.at_risk[None] * dlam[a]
-        weighted = mask[None] * problem.weight[a][None] * residual  # (J, n, M)
+        # In place, since each (J, n, M) temporary is hundreds of MB at n = 4,000.
+        weighted = problem.at_risk[None] * dlam[a]
+        np.subtract(problem.events, weighted, out=weighted)
+        weighted *= problem.weight[a][None]
+        weighted *= mask[None]  # (J, n, M)
         total = weighted.sum(axis=0)
         ratio = total / survival[a]
         cum_ratio = np.cumsum(ratio, axis=1)
@@ -215,8 +219,13 @@ def tilt_jumps(dlam: FloatArray, increment: FloatArray) -> FloatArray:
     the same score :math:`\sum_l c_l (dN_l - Y\, d\Lambda_l)` under the multinomial
     likelihood of the jumps (design rev 2.1, item 5).
     """
-    tilted = dlam * np.exp(increment)
-    return tilted / (1.0 - dlam.sum(axis=1, keepdims=True) + tilted.sum(axis=1, keepdims=True))
+    tilted = np.exp(increment)
+    tilted *= dlam
+    denominator = tilted.sum(axis=1, keepdims=True)
+    denominator += 1.0
+    denominator -= dlam.sum(axis=1, keepdims=True)
+    tilted /= denominator
+    return tilted
 
 
 def _metric(sigma: FloatArray, norm: Norm) -> FloatArray:
@@ -243,7 +252,7 @@ class WalkResult:
     evaluation : Evaluation
         The plug-in, score and influence curves at the targeted hazards.
     initial : Evaluation
-        The same at the initial hazards.
+        The same at the initial hazards, without its survival and incidence curves.
     steps : int
         Accepted steps.
     halvings : int
@@ -289,6 +298,9 @@ def standardized(evaluation: Evaluation) -> float:
     return float(np.max(np.abs(evaluation.score) / sigma))
 
 
+_EMPTY = np.zeros(0)
+
+
 def walk(
     problem: Problem,
     dlam: FloatArray,
@@ -331,7 +343,9 @@ def walk(
     """
     halving_cap = 2 * max_steps if max_halvings is None else max_halvings
     initial_step = step
-    current = np.array(dlam, dtype=float, copy=True)
+    # Never written in place: each accepted step replaces it, so no copy is held.
+    current = np.asarray(dlam, dtype=float)
+    del dlam
     initial = evaluate(problem, current)
     metric = _metric(
         np.cov(initial.influence, rowvar=False, bias=True).reshape(
@@ -339,13 +353,15 @@ def walk(
         ),
         norm,
     )
-    evaluation = initial
-    steps = halvings = 0
-    history = [standardized(evaluation)]
-    converged = history[-1] <= cutoff
     # A trial is rejected below the floor, or below the initial fit's own smallest survival
     # when that is lower, so an accepted initial fit is never rejected as a starting point.
     survival_floor = min(WALK_SURVIVAL_FLOOR, float(np.min(initial.survival[..., -1])))
+    light = Evaluation(initial.psi, initial.score, initial.influence, _EMPTY, _EMPTY)
+    evaluation = initial
+    del initial
+    steps = halvings = 0
+    history = [standardized(evaluation)]
+    converged = history[-1] <= cutoff
     if tilt == "factual":
         factual = np.stack([(problem.arm == a).astype(float) for a in (0, 1)])[:, None, :, None]
     while not converged and steps < max_steps and halvings < halving_cap and step >= MIN_STEP:
@@ -358,14 +374,18 @@ def walk(
         direction = _direction(problem, evaluation, weighted / length)
         if tilt == "factual":
             direction = direction * factual
-        candidate = tilt_jumps(current, step * direction)
+        direction *= step
+        candidate = tilt_jumps(current, direction)
+        del direction
         trial = evaluate(problem, candidate)
-        if np.min(trial.survival[..., -1]) < survival_floor:
-            step /= 2
-            halvings += 1
-            continue
         trial_length = float(np.sqrt(trial.score @ metric @ trial.score))
-        if not np.isfinite(trial_length) or trial_length >= length:
+        if (
+            np.min(trial.survival[..., -1]) < survival_floor
+            or not np.isfinite(trial_length)
+            or trial_length >= length
+        ):
+            # Freed now rather than on the next trial, which would hold two of each.
+            del candidate, trial
             step /= 2
             halvings += 1
             continue
@@ -374,9 +394,7 @@ def walk(
         steps += 1
         history.append(standardized(evaluation))
         converged = history[-1] <= cutoff
-    return WalkResult(
-        current, evaluation, initial, steps, halvings, converged, cutoff, step, history
-    )
+    return WalkResult(current, evaluation, light, steps, halvings, converged, cutoff, step, history)
 
 
 def default_cutoff(n: int) -> float:

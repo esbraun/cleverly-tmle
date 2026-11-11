@@ -207,6 +207,27 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         return len(self.estimates)
 
     @property
+    def initial_estimates(self) -> dict[str, float]:
+        """Every risk and risk difference at the initial hazard fits, before any step."""
+        psi = self.record.initial_psi
+        J, K = len(self.causes), len(self.horizons)
+        single = J == 1
+        reference, treated = self.arms
+        out: dict[str, float] = {}
+        for a, arm in enumerate(self.arms):
+            for j, cause in enumerate(self.causes):
+                for k, time in enumerate(self.horizons):
+                    name = level_name(arm, None if single else cause, time)
+                    out[name] = psi[(a * J + j) * K + k]
+        for j, cause in enumerate(self.causes):
+            for k, time in enumerate(self.horizons):
+                name = contrast_name(
+                    "ate_regimen", treated, reference, None if single else cause, time
+                )
+                out[name] = psi[(J + j) * K + k] - psi[j * K + k]
+        return out
+
+    @property
     def n_folds(self) -> int:
         """The number of cross-fitting folds, ``1`` for a full-sample fit."""
         return int(self.record.n_folds)
