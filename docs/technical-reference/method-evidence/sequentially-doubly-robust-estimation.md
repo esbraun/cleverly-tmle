@@ -189,20 +189,29 @@ Comparator-backed: a paired comparison with `lmtp` on the same samples. Each row
 | `sequential_double_robustness` | `P_A__n_8000` | positive | both outcome regressions are correct and both mechanisms are wrong, at n = 8,000 | absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | absolute bias + 2 MCSE 0.0023, SE ratio 0.7498, coverage 0.8730 | pass |
 | `sequential_double_robustness` | `P_B__n_2000` | positive | node 1 outcome regression wrong, node 2 mechanism wrong, at n = 2,000 | absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | absolute bias + 2 MCSE 0.0073, SE ratio 0.6910, coverage 0.8160 | pass |
 | `sequential_double_robustness` | `P_B__n_8000` | positive | node 1 outcome regression wrong, node 2 mechanism wrong, at n = 8,000 | absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | absolute bias + 2 MCSE 0.0023, SE ratio 0.6722, coverage 0.8260 | pass |
-| `sequential_double_robustness` | `P_C__n_2000` | positive | both mechanisms are correct and both outcome regressions are wrong, at n = 2,000 | bias inside the margin, SE ratio inside the union-model band, coverage clears the floor | bias -0.0064 to 0.0074, margin 0.0210, coverage 0.9100 to 0.9518, SE ratio 0.9868 | pass |
+| `sequential_double_robustness` | `P_C__n_2000` | positive | both mechanisms are correct and both outcome regressions are wrong, at n = 2,000 | bias inside the margin, SE ratio inside the union-model band; coverage clears the floor, a reporting clause because n is below twice the tail size of the contrast | bias -0.0064 to 0.0074, margin 0.0210, coverage 0.9100 to 0.9518, SE ratio 0.9868 | pass |
+| `sequential_double_robustness` | `P_C__n_4800` | positive | both mechanisms are correct and both outcome regressions are wrong, at n = 4,800 | bias inside the margin, SE ratio inside the union-model band, coverage clears the floor | bias -0.0049 to 0.0019, margin 0.0131, coverage 0.9371 to 0.9651, SE ratio 1.0203 | pass |
 | `sequential_double_robustness` | `P_C__n_8000` | positive | both mechanisms are correct and both outcome regressions are wrong, at n = 8,000 | bias inside the margin, SE ratio inside the union-model band, coverage clears the floor | bias -0.0014 to 0.0053, margin 0.0103, coverage 0.9307 to 0.9669, SE ratio 1.0106 | pass |
 | `sequential_double_robustness` | `P_D__n_2000` | positive | node 1 mechanism wrong, node 2 outcome regression wrong, the pattern LTMLE misses, at n = 2,000 | absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | absolute bias + 2 MCSE 0.0083, SE ratio 0.6023, coverage 0.7620 | pass |
 | `sequential_double_robustness` | `P_D__n_8000` | positive | node 1 mechanism wrong, node 2 outcome regression wrong, the pattern LTMLE misses, at n = 8,000 | absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | absolute bias + 2 MCSE 0.0036, SE ratio 0.5927, coverage 0.7650 | pass |
-| `sequential_double_robustness` | `both_correct__n_2000` | positive | every outcome regression and mechanism is correct, at n = 2,000 | bias inside the margin, SE ratio inside the union-model band, coverage clears the floor | bias 0.000011 to 0.0112, margin 0.0172, coverage 0.8853 to 0.9327, SE ratio 0.9459 | **fail** |
+| `sequential_double_robustness` | `both_correct__n_2000` | positive | every outcome regression and mechanism is correct, at n = 2,000 | bias inside the margin, SE ratio inside the union-model band; coverage clears the floor, a reporting clause because n is below twice the tail size of the contrast | bias 0.000011 to 0.0112, margin 0.0172, coverage 0.8853 to 0.9327, SE ratio 0.9459 | **fail** |
+| `sequential_double_robustness` | `both_correct__n_4800` | positive | every outcome regression and mechanism is correct, at n = 4,800 | bias inside the margin, SE ratio inside the union-model band, coverage clears the floor | bias -0.0037 to 0.0016, margin 0.0102, coverage 0.9113 to 0.9449, SE ratio 0.9884 | pass |
 | `sequential_double_robustness` | `both_correct__n_8000` | positive | every outcome regression and mechanism is correct, at n = 8,000 | bias inside the margin, SE ratio inside the union-model band, coverage clears the floor | bias -0.0018 to 0.0033, margin 0.0077, coverage 0.9295 to 0.9661, SE ratio 0.9994 | pass |
 | `sequential_double_robustness` | `ltmle_P_D_control` | control | LTMLE in pattern P_D, where its recursion needs the node 2 outcome regression | bias interval at least 3 empirical standard deviations from zero, SE ratio inside the union-model band | bias 0.2158 to 0.2235, empirical SD 0.0468, SE ratio 1.0199 | pass |
 | `sequential_double_robustness` | `node2_both_wrong_control` | control | SDR with the outcome regression and the mechanism both wrong at node 2 | bias interval at least 3 empirical standard deviations from zero, SE ratio inside the union-model band | bias 0.2158 to 0.2233, empirical SD 0.0456, SE ratio 1.0690 | pass |
-| `simultaneous_coverage` | `six_regimens__pointwise_joint_control` | control | the six regimen means and five contrasts of the two-node law: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.6739 to 0.7271 | pass |
-| `simultaneous_coverage` | `six_regimens__simultaneous_band` | positive | the six regimen means and five contrasts of the two-node law: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9085 to 0.9394 | **fail** |
+| `simultaneous_coverage` | `six_regimens__identity_scale_control` | scale_control | the six regimen means and five contrasts of the two-node law: the same band on the identity scale at the band's own critical value | the 99% lower bound of the paired coverage gain of the band over this row is at least 0.0001 | joint coverage 0.9272 to 0.9384 | pass |
+| `simultaneous_coverage` | `six_regimens__pointwise_joint_control` | control | the six regimen means and five contrasts of the two-node law: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.6904 to 0.7107 | pass |
+| `simultaneous_coverage` | `six_regimens__rademacher_band_reporting` | diagnostic | the six regimen means and five contrasts of the two-node law: the band on the logit and atanh scales with the Rademacher multiplier at 10,000 draws | none. The row is a diagnostic and states no verdict | joint coverage 0.9354 to 0.9459 | reported |
+| `simultaneous_coverage` | `six_regimens__refused_band` | diagnostic | the six regimen means and five contrasts of the two-node law: per replication, whether the fit refused the declared band because an estimate sat on its range boundary | none. The row is a diagnostic and states no verdict | joint coverage 0 to 0.000390 | reported |
+| `simultaneous_coverage` | `six_regimens__shipped_band_reporting` | diagnostic | the six regimen means and five contrasts of the two-node law: the shipped default band: identity scale, Rademacher multiplier, 2,000 draws | none. The row is a diagnostic and states no verdict | joint coverage 0.9255 to 0.9368 | reported |
+| `simultaneous_coverage` | `six_regimens__simultaneous_band` | positive | the six regimen means and five contrasts of the two-node law: the max-t band with each regimen mean on its logit scale and each contrast on its atanh scale, at the Mammen multiplier critical value from 10,000 draws; a band the fit refuses for an estimate on its range boundary counts as not covering | joint coverage interval inside the calibration coverage band | joint coverage 0.9366 to 0.9470 | pass |
 | `type_i_error` | `static__sharp_null` | positive | static plan: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0600, 0.0404 to 0.0850 | pass |
 | `weighted_calibration` | `selection_weighted__correctly_specified` | positive | contrast of always against never on the selected law, with weights: every nuisance is correct; no efficiency ratio is claimed (RM18-fixed-weights) | SE ratio and coverage intervals both inside their calibration bands | SE ratio 0.9681 to 1.0272, coverage 0.9273 to 0.9472 | pass |
 | `weighted_calibration` | `selection_weighted__noise_control` | control | contrast of always against never on the selected law, with weights: one efficiency-bound unit of independent noise is added to each estimate | the SE-ratio interval must fall below the calibration band | SE ratio 0.6900 to 0.7323, coverage 0.8093 to 0.8404 | pass |
 | `weighted_calibration` | `selection_weighted__shrunken_se_control` | control | contrast of always against never on the selected law, with weights: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | SE ratio 0.6777 to 0.7180, coverage 0.8038 to 0.8354 | pass |
+| `weighted_calibration` | `selection_weighted_n2400__correctly_specified` | positive | contrast of always against never on the selected law, with weights, at n = 2,400: every nuisance is correct; no efficiency ratio is claimed (RM18-fixed-weights) | SE ratio and coverage intervals both inside their calibration bands | SE ratio 0.9614 to 1.0113, coverage 0.9278 to 0.9447 | pass |
+| `weighted_calibration` | `selection_weighted_n2400__noise_control` | control | contrast of always against never on the selected law, with weights, at n = 2,400: one efficiency-bound unit of independent noise is added to each estimate | the SE-ratio interval must fall below the calibration band | SE ratio 0.7000 to 0.7356, coverage 0.8235 to 0.8491 | pass |
+| `weighted_calibration` | `selection_weighted_n2400__shrunken_se_control` | control | contrast of always against never on the selected law, with weights, at n = 2,400: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | SE ratio 0.6737 to 0.7088, coverage 0.8018 to 0.8287 | pass |
 <!-- /generated -->
 
 The `sequential_double_robustness` family reads the two-node law of
@@ -217,14 +226,12 @@ The `construction_diagnostic` and `sdr_tmle_agreement` cells state no verdict. T
 fits Step 2 of Section 5.3 as printed. The tree cell estimates the mechanism with trees of at
 least 50 rows a leaf, under the default bounds (0.01, 1).
 
-Two property cells fail their own rule, and the diagnosis finds no defect in `SDR`. The
-[`X4-finite-sample`](../../roadmap.md#red-cell-owners) owner holds the coverage cell. The
-[`band-finite-sample`](../../roadmap.md#red-cell-owners) owner holds the band.
+One property cell fails its own rule, and the diagnosis finds no defect in `SDR`. The
+[`X4-finite-sample`](../../roadmap.md#red-cell-owners) owner holds it.
 
 | cell | measured | reading |
 | --- | --- | --- |
 | `sequential_double_robustness/both_correct__n_2000` | coverage 0.911, 99% interval 0.885 to 0.933, against a floor of 0.90; SE ratio 0.946 | finite-sample, shared with LTMLE |
-| `simultaneous_coverage/six_regimens__simultaneous_band` | joint coverage 0.925, 99% interval 0.909 to 0.939, against a band of 0.92 to 0.98 | finite-sample, pointwise shortfall inherited |
 
 **The `both_correct` cell at n = 2,000.** The law's smallest path probability is near 0.012, so
 an inverse weight can reach about 85. At n = 2,000 the standard error then varies with the error
@@ -241,12 +248,23 @@ The two engines cover equally on the same draws. The same cell at n = 8,000 cove
 an SE ratio of 0.999. A defect in the `SDR` curve would not be shared with `LTMLE`, and would not
 disappear as $n$ grows.
 
-**The band.** The band reads every regimen mean and contrast of the six-plan law. The oracle band
-at the exact-law critical value of 2.693 covers 0.931 on the same replications. The package band
-covers 0.925 at a mean critical value of 2.683. The shortfall therefore comes from the pointwise
-intervals. The other cells that the `band-finite-sample` owner holds read the same way.
 `tests/unit/test_sdr_below_tail_size_reading.py` rebuilds the coverage reading from the committed rows.
-`tests/unit/test_band_shortfall_reading.py` rebuilds the band reading.
+
+**The band.** The band reads every regimen mean and contrast of the six-plan law. Its first
+registration, the shipped band on the identity scale, covered 0.925 (99% interval 0.909 to
+0.939) against a band of 0.92 to 0.98. A diagnosis traced the shortfall to the standard error of
+a probability moving with its estimate, so the band was re-declared before a fresh run on a new
+seed stream ([`band-finite-sample`](../../roadmap.md#red-cell-owners)). Each regimen mean is
+banded on its logit scale and each contrast on its atanh scale, at the Mammen multiplier critical
+value from 10,000 draws (`band_scale="logit"`, `multiplier_kind="mammen"`; see
+[the band scale](../inference.md#the-band-scale)). Over 13,600 replications that band covers
+0.942 (99% interval 0.937 to 0.947) and passes.
+
+The same band on the identity scale at the same critical value covers 0.933, and the paired gain of the logit band has a 99% lower bound of
+0.0068. The shipped default band (identity scale, Rademacher multiplier, 2,000 draws) covers
+0.931 (99% interval 0.926 to 0.937) on the same fits. That row states no verdict, and it is why
+a band built with the shipped default on this support row is experimental. No fit refused the
+logit band.
 
 ## Measured values and declared margins
 
@@ -261,9 +279,9 @@ the committed results and checked at the precision printed.
 | `independent_tests_total` | 60 | truth tests reported |
 | `paired_tests_passed` | 30 | paired comparisons passing |
 | `paired_tests_total` | 30 | paired comparisons reported |
-| `property_cells_passed` | 54 | property cells passing |
-| `property_cells_total` | 56 | property cells reported |
-| `property_cells_reported` | 3 | diagnostic cells with no verdict |
+| `property_cells_passed` | 61 | property cells passing |
+| `property_cells_total` | 62 | property cells reported |
+| `property_cells_reported` | 6 | diagnostic cells with no verdict |
 | `max_standardized_bias` | 0.0871 | largest primary standardized bias |
 | `min_coverage` | 0.9340 | lowest primary coverage |
 | `max_margin_utilization` | 0.0829 | largest paired similarity-margin share |

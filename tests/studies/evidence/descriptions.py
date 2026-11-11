@@ -3656,6 +3656,44 @@ STUDY_ARM_CELLS.update(
     }
 )
 
+#: The re-declared ``longitudinal-sdr`` band cell (band-finite-sample declaration): one set of
+#: cross-fitted fits read by the declared band, its two controls and three reporting rows.
+_SDR_BAND = ("longitudinal-sdr", "simultaneous_coverage", "six_regimens")
+_DIAGNOSTIC_REQUIRED = "none. The row is a diagnostic and states no verdict"
+STUDY_ARM_CELLS.update(
+    {
+        (*_SDR_BAND, "simultaneous_band"): (
+            "the max-t band with each regimen mean on its logit scale and each contrast on its "
+            "atanh scale, at the Mammen multiplier critical value from 10,000 draws; a band the "
+            "fit refuses for an estimate on its range boundary counts as not covering",
+            "joint coverage interval inside the calibration coverage band",
+        ),
+        (*_SDR_BAND, "pointwise_joint_control"): (
+            "the pointwise 95% intervals of the same fits, read jointly",
+            "joint coverage upper endpoint must fall below the nominal rate",
+        ),
+        (*_SDR_BAND, "identity_scale_control"): (
+            "the same band on the identity scale at the band's own critical value",
+            "the 99% lower bound of the paired coverage gain of the band over this row is at "
+            "least 0.0001",
+        ),
+        (*_SDR_BAND, "shipped_band_reporting"): (
+            "the shipped default band: identity scale, Rademacher multiplier, 2,000 draws",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        (*_SDR_BAND, "rademacher_band_reporting"): (
+            "the band on the logit and atanh scales with the Rademacher multiplier at 10,000 "
+            "draws",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        (*_SDR_BAND, "refused_band"): (
+            "per replication, whether the fit refused the declared band because an estimate "
+            "sat on its range boundary",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+    }
+)
+
 
 #: The ``longitudinal-repeated-ipsi`` cells, keyed by label, which only this study publishes.
 #: The labels mirror

@@ -473,7 +473,10 @@ names each row's cells, and `tests/unit/test_band_cell_mapping.py` ties every en
 `*__simultaneous_band` row of a study the row cites. The band must also use a multiplier kind and
 band scale that the row's cells measured, which is the Rademacher multiplier on the identity scale
 for every row; `G23.cross_fitted` also lists the Mammen multiplier on the logit scale at
-10,000 draws or more. Any other
+10,000 draws or more. On `G23.cross_fitted` the shipped default band is itself `experimental`:
+the row's re-declared cell measured it at joint coverage 0.931, 99% interval 0.926 to 0.937,
+against a band of 0.92 to 0.98, in a reporting row
+([`longitudinal-sdr`](method-evidence/sequentially-doubly-robust-estimation.md)). Any other
 choice makes the band `experimental` and leaves the pointwise intervals as they are, because
 pointwise inference never reads the multiplier.
 

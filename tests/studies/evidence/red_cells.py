@@ -462,11 +462,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "simultaneous_coverage/categorical_ltmle_crossfit__simultaneous_band",
             "simultaneous_coverage/cde_z0__simultaneous_band",
         ),
-        *_keys(
-            "longitudinal-sdr",
-            "property",
-            "simultaneous_coverage/six_regimens__simultaneous_band",
-        ),
     ),
     # The calibration draws of the multi-arm missing-outcome DR-TMLE study, and the band read
     # off the same fits.  ``tests/unit/test_band_shortfall_reading.py`` rebuilds the reading.

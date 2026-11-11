@@ -714,16 +714,6 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "",
     ),
     (
-        "longitudinal-sdr",
-        "property",
-        "simultaneous_coverage/six_regimens__simultaneous_band",
-        "G23.cross_fitted",
-        ("band",),
-        LIMIT,
-        "band-finite-sample: joint coverage 0.9085 to 0.9394",
-        "",
-    ),
-    (
         "weighted-ltmle-crossfit",
         "paired",
         "selected_censored_end_of_study/ey_regimen[always]",

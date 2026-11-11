@@ -1,11 +1,9 @@
-"""The reading of the red cells of ``longitudinal-sdr``, owners ``X39-below-tail-size`` and
-``band-finite-sample``.
+"""The reading of the red cell of ``longitudinal-sdr``, owner ``X39-below-tail-size``.
 
 ``both_correct__n_2000`` is a reporting cell: its n of 2,000 is below the exact-law tail size of
 its contrast, so its coverage clause reports (``BELOW_TAIL_SIZE`` of
 ``tests/studies/longitudinal_sdr_properties.py``).  Each test rebuilds a reading's numbers from
 committed rows, so the reading cannot drift from the evidence.
-``tests/unit/test_band_shortfall_reading.py`` rebuilds the band reading with the other red bands.
 """
 
 from __future__ import annotations
@@ -16,11 +14,8 @@ from tests.diagnostics.x4_both_correct import run as diagnostic
 from tests.studies import canonical_longitudinal_sdr as study
 from tests.studies import longitudinal_sdr_properties as properties
 
-#: The cells the two owners hold.
-OWNED = {
-    ("sequential_double_robustness", "both_correct__n_2000"),
-    ("simultaneous_coverage", "six_regimens__simultaneous_band"),
-}
+#: The cells the owner holds.
+OWNED = {("sequential_double_robustness", "both_correct__n_2000")}
 CELL = ("sequential_double_robustness", "both_correct__n_2000")
 
 

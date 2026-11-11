@@ -2513,8 +2513,6 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
             "0.9327, SE ratio 0.9459"
         ),
     ),
-    # TODO(band-finite-sample): replaced by the BAND_OPTION_SHORTFALLS entry of this row.
-    "G23.cross_fitted": ("band-finite-sample: joint coverage 0.9085 to 0.9394",),
     "G29.g1": ("X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",),
     "G40.tau3": (
         "mtp-pricing-learned-density: coverage 0.9473 to 0.9704, SE ratio 1.0493 to 1.1408",
@@ -2616,15 +2614,12 @@ BAND_OPTION_DRAWS: Final[Mapping[tuple[str, BandOption], int]] = {
 #: The red band readings of one band option inside one row, as ``(row id, option) -> sentence``.
 #: A band built with that option reads the sentence as a reason of its experimental label.
 BAND_OPTION_SHORTFALLS: Final[Mapping[tuple[str, BandOption], str]] = {
-    # TODO(band-finite-sample): once the fresh SDR cell has run, add the entry
-    # ("G23.cross_fitted", DEFAULT_BAND_OPTION): "Row G23.cross_fitted measured its shipped
-    # default band (Rademacher, identity scale, 2,000 draws) in the reporting row
-    # six_regimens__shipped_band_reporting: joint coverage COVERAGE with 99% Clopper-Pearson
-    # interval LOWER to UPPER, reported with no verdict (band-finite-sample)."
-    # Fill COVERAGE, LOWER and UPPER from that row of
-    # tests/canonical/longitudinal_sdr/properties.csv, and in the same change remove the
-    # band-finite-sample sentence of G23.cross_fitted from MEASURED_LIMITS and its
-    # disposition in tests/studies/evidence/support_dispositions.py (plan section 4.4).
+    ("G23.cross_fitted", DEFAULT_BAND_OPTION): (
+        "Row G23.cross_fitted measured its shipped default band (Rademacher, identity scale, "
+        "2,000 draws) in the reporting row six_regimens__shipped_band_reporting: joint coverage "
+        "0.9313 with 99% Clopper-Pearson interval 0.9255 to 0.9368, reported with no verdict "
+        "(band-finite-sample)."
+    ),
 }
 
 
