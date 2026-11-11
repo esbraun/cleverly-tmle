@@ -1,0 +1,263 @@
+{
+  "schema_version": 2,
+  "study": "targeted missingness tilt intervals",
+  "slug": "missingness-tilt-inference",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-missingness-tilt",
+      "cleverly_version": "0.2.2",
+      "cleverly_commit": "f7370b3b21a2847aa3388a472c5dafb78fdd95a0",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.18",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 8400,
+    "n": 1000,
+    "scenario_n": {
+      "in_sample_4k": 4000
+    },
+    "seed": 2026111001,
+    "resampling_seed": 2026111002,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-missingness-tilt": 0.01
+    },
+    "scenarios": {
+      "in_sample": [
+        "ey1[gamma=-1]",
+        "ey0[gamma=-1]",
+        "ate[gamma=-1]",
+        "att[gamma=-1]",
+        "rr[gamma=-1]",
+        "ey1[gamma=1]",
+        "ey0[gamma=1]",
+        "ate[gamma=1]",
+        "att[gamma=1]",
+        "rr[gamma=1]",
+        "ey1[gamma=2]",
+        "ey0[gamma=2]",
+        "ate[gamma=2]",
+        "att[gamma=2]",
+        "rr[gamma=2]"
+      ],
+      "in_sample_4k": [
+        "ey1[gamma=-1]",
+        "ey0[gamma=-1]",
+        "ate[gamma=-1]",
+        "att[gamma=-1]",
+        "rr[gamma=-1]",
+        "ey1[gamma=1]",
+        "ey0[gamma=1]",
+        "ate[gamma=1]",
+        "att[gamma=1]",
+        "rr[gamma=1]",
+        "ey1[gamma=2]",
+        "ey0[gamma=2]",
+        "ate[gamma=2]",
+        "att[gamma=2]",
+        "rr[gamma=2]"
+      ],
+      "cross_fit": [
+        "ey1[gamma=-1]",
+        "ey0[gamma=-1]",
+        "ate[gamma=-1]",
+        "att[gamma=-1]",
+        "rr[gamma=-1]",
+        "ey1[gamma=1]",
+        "ey0[gamma=1]",
+        "ate[gamma=1]",
+        "att[gamma=1]",
+        "rr[gamma=1]",
+        "ey1[gamma=2]",
+        "ey0[gamma=2]",
+        "ate[gamma=2]",
+        "att[gamma=2]",
+        "rr[gamma=2]"
+      ],
+      "cv_evaluation": [
+        "ey1[gamma=-1]",
+        "ey0[gamma=-1]",
+        "ate[gamma=-1]",
+        "att[gamma=-1]",
+        "ey1[gamma=1]",
+        "ey0[gamma=1]",
+        "ate[gamma=1]",
+        "att[gamma=1]",
+        "ey1[gamma=2]",
+        "ey0[gamma=2]",
+        "ate[gamma=2]",
+        "att[gamma=2]"
+      ],
+      "weighted": [
+        "ey1[gamma=-1]",
+        "ey0[gamma=-1]",
+        "ate[gamma=-1]",
+        "att[gamma=-1]",
+        "rr[gamma=-1]",
+        "ey1[gamma=1]",
+        "ey0[gamma=1]",
+        "ate[gamma=1]",
+        "att[gamma=1]",
+        "rr[gamma=1]",
+        "ey1[gamma=2]",
+        "ey0[gamma=2]",
+        "ate[gamma=2]",
+        "att[gamma=2]",
+        "rr[gamma=2]"
+      ],
+      "natural_course": [
+        "ey_obs[gamma=-1]",
+        "ey0[gamma=-1]",
+        "par[gamma=-1]",
+        "ey_obs[gamma=1]",
+        "ey0[gamma=1]",
+        "par[gamma=1]",
+        "ey_obs[gamma=2]",
+        "ey0[gamma=2]",
+        "par[gamma=2]"
+      ]
+    },
+    "construction": "targeted missingness tilt off gamma = 0, read by missingness_tilt",
+    "gammas": [
+      -1.0,
+      1.0,
+      2.0
+    ],
+    "n_folds": "package default (10)",
+    "scenario_settings": {
+      "in_sample": {
+        "targets": [
+          "ey1",
+          "ey0",
+          "ate",
+          "att",
+          "rr"
+        ],
+        "n": 1000,
+        "cross_fit": false,
+        "cv_evaluation": false,
+        "weighted": false
+      },
+      "in_sample_4k": {
+        "targets": [
+          "ey1",
+          "ey0",
+          "ate",
+          "att",
+          "rr"
+        ],
+        "n": 4000,
+        "cross_fit": false,
+        "cv_evaluation": false,
+        "weighted": false
+      },
+      "cross_fit": {
+        "targets": [
+          "ey1",
+          "ey0",
+          "ate",
+          "att",
+          "rr"
+        ],
+        "n": 1000,
+        "cross_fit": true,
+        "cv_evaluation": false,
+        "weighted": false
+      },
+      "cv_evaluation": {
+        "targets": [
+          "ey1",
+          "ey0",
+          "ate",
+          "att"
+        ],
+        "n": 1000,
+        "cross_fit": true,
+        "cv_evaluation": true,
+        "weighted": false
+      },
+      "weighted": {
+        "targets": [
+          "ey1",
+          "ey0",
+          "ate",
+          "att",
+          "rr"
+        ],
+        "n": 1000,
+        "cross_fit": false,
+        "cv_evaluation": false,
+        "weighted": true
+      },
+      "natural_course": {
+        "targets": [
+          "ey_obs",
+          "ey0",
+          "par"
+        ],
+        "n": 1000,
+        "cross_fit": false,
+        "cv_evaluation": false,
+        "weighted": false
+      }
+    },
+    "learners": "outcome: PolynomialFeatures(2, interaction_only) + StandardScaler + LogisticRegression(C=1e4); treatment and response: LogisticRegression(C=1e4) on main terms",
+    "weights": "exp(0.5 W1); truths of the weight-tilted covariate law",
+    "initial_estimate": "the untargeted tilted plug-in (_tilted_value) of the same fit",
+    "variance_method": "ic",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/missingness_tilt_inference.py": "aec5dd7ec3b92e6283fca6a1814709b3bb72b272ddad3fdd4b2c5fcfb8036b3c",
+    "tests/studies/missingness_tilt_properties.py": "4562e0d2cc303dd268b815c38fcab21562d8d3d4b86238f77f2d2ff316f9fde8",
+    "tests/studies/missingness_tilt_law.py": "1fc3636e3a09ac2e232d7876bf2f850b929fff35feff44c09e6275a1ae616438",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "f9bf056d5a993e3250c09ea23f94b03dd4ff5833b856da222e38c1bcf1818360",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "98099f55136956ffb5c0360a9819ffc7cee6d7b72096af5e70b08ce6daa2544b",
+    "summary.csv": "37e24a1ae534903e1123e27064bf38f37efcead852c6665e926103987df77165",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "c20bba671090dc3e0e72376ca2ef65cb5eaf1ba8111554c7831ec4fdfeefef42",
+    "property-replicates.parquet": "1e9a69c21ea56b4d4d2989f2c9290449117424f7f7fd6bc81e6ece58b2deb92d",
+    "properties.csv": "9d8ec715ecd75aab23e9feef108858e054370cdad7b67fb893cb8eb7a24b60e7"
+  }
+}

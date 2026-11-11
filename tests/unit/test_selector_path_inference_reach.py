@@ -195,17 +195,17 @@ class TestTheMissingnessTiltAgreesWithItsCapabilityRow:
         assert float(curve["psi"][0]) == pytest.approx(selector_fit["ate"].psi, abs=1e-12)
 
     def test_an_ordinary_fit_keeps_the_inferential_columns_at_mar(self, ordinary_fit: Any) -> None:
-        """The control: the swap must not reach the gamma = 0 row of a fit with an interval.
+        """The control: the swap must not reach a fit with an interval.
 
-        Off gamma = 0 every fit publishes the diagnostic (CDR-001), so only the MAR row tells
-        the two kinds of fit apart.
+        Off gamma = 0 the ordinary fit's ATE is re-targeted with its own influence curve
+        (CDR-001), so every row keeps the inferential columns and none is a diagnostic.
         """
         curve = missingness_tilt(ordinary_fit, [-1.0, 0.0, 1.0])
         columns = set(curve.columns)
-        assert columns >= INFERENTIAL_COLUMNS | DIAGNOSTIC_COLUMNS
+        assert columns >= INFERENTIAL_COLUMNS
+        assert not columns & DIAGNOSTIC_COLUMNS
         assert float(curve["std_err"][1]) == ordinary_fit["ate"].std_error
-        assert np.isfinite(float(curve["ci_lower"][1]))
-        assert np.isnan(float(curve["plugin_std_err"][1]))
+        assert all(np.isfinite(float(value)) for value in curve["ci_lower"])
 
 
 class TestTippingGammaSearchesThePointEstimateOnly:
@@ -222,17 +222,19 @@ class TestTippingGammaSearchesThePointEstimateOnly:
         assert found is not None
         assert 0.0 < float(found) <= 2.0
 
-    @pytest.mark.parametrize("fixture", ["selector_fit", "ordinary_fit"])
-    def test_the_interval_search_is_refused_by_name(
-        self, fixture: str, request: pytest.FixtureRequest
-    ) -> None:
-        """No tilt claims an interval off gamma = 0 (CDR-001), whatever the fit's status."""
-        fit = request.getfixturevalue(fixture)
+    def test_the_interval_search_is_refused_by_name(self, selector_fit: Any) -> None:
+        """A selector fit's tilt claims no interval off gamma = 0, so no limit can be followed."""
         with pytest.raises(CapabilityError) as raised:
-            tipping_gamma(fit, "ate", use_ci=True)
+            tipping_gamma(selector_fit, "ate", use_ci=True)
         message = str(raised.value)
         assert message.startswith("tipping_gamma(use_ci=True) follows a confidence limit")
         assert ".std_error" not in message
+
+    def test_the_interval_search_answers_on_an_ordinary_fit(self, ordinary_fit: Any) -> None:
+        """The control: the ordinary fit's targeted tilt has a limit to follow."""
+        assert tipping_interval_refusal(ordinary_fit, "ate") is None
+        found = tipping_gamma(ordinary_fit, "ate", use_ci=True)
+        assert found is None or np.isfinite(found)
 
 
 class TestARestoredSelectorFitStillRefuses:
@@ -446,9 +448,9 @@ class TestTheArgumentAwareRowsAgreeWithTheCall:
             include_retargets=True, arguments={"tipping_gamma": {"use_ci": True}}
         )
         item = report["tipping_gamma"]
-        assert item.status is AssessmentStatus.UNAVAILABLE
-        refusal = tipping_interval_refusal(ordinary_fit, "ate")
-        assert refusal is not None and refusal.condition in item.detail
+        # The targeted tilt carries an interval, so the row runs the interval search.
+        assert item.status is not AssessmentStatus.UNAVAILABLE
+        assert tipping_interval_refusal(ordinary_fit, "ate") is None
 
     def test_a_level_is_not_applicable_before_the_fit_is_refused(self, missing_frame: Any) -> None:
         """``ey1`` has no E-value on any fit, so the request says that, not the refusal."""

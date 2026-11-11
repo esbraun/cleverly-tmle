@@ -154,6 +154,7 @@ omitted-variable-bound-plugin-standard-error
 ovb-limit-coverage
 evalue-limit-coverage
 marginal-bound-limit-coverage
+missingness-tilt
 calibration-slope-warning
 refuter-calibration-longitudinal
 refuter-calibration-point

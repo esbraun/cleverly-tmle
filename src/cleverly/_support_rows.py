@@ -5205,6 +5205,11 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "DOSE_RESPONSE_MEASURED, not a support row, records the configurations the study "
         "licenses, and a pair below the Kish floor reads experimental (low_dose_support_plugin)."
     ),
+    "missingness-tilt-inference": (
+        "It measures the targeted missingness tilt's intervals off gamma = 0, a sensitivity "
+        "reading of a fit and no fit of a point row. The missingness_tilt_interval instrument, "
+        "not a support row, records the configurations the study licenses."
+    ),
     "dose-response-npcausal": (
         "It compares the kernel-smoothed dose-response curve of DoseResponseTMLE with npcausal "
         "ctseff, which is no Target and no fit of a point row. Each pair's interval takes its "

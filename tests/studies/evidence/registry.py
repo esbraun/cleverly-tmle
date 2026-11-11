@@ -755,6 +755,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.learned_rule_strata import STUDY as LEARNED_RULE_STRATA
     from tests.studies.longitudinal_repeated_crossfit import STUDY as LONGITUDINAL_REPEATED_CROSSFIT
     from tests.studies.marginal_bound_coverage import STUDY as MARGINAL_BOUND_LIMIT_COVERAGE
+    from tests.studies.missingness_tilt_inference import STUDY as MISSINGNESS_TILT_INFERENCE
     from tests.studies.omitted_variable_bound import STUDY as OMITTED_VARIABLE_BOUND_SE
     from tests.studies.omitted_variable_bound_plugin import (
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
@@ -832,6 +833,7 @@ def registered() -> tuple[StudyRecord, ...]:
         SURVIVAL_CTMLE,
         TARGETING_CURVES,
         DOSE_RESPONSE,
+        MISSINGNESS_TILT_INFERENCE,
         DOSE_RESPONSE_NPCAUSAL,
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,

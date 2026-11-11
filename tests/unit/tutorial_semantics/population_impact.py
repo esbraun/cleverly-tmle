@@ -231,7 +231,7 @@ def _check_tilt(namespace: dict[str, Any]) -> None:
     assert float(curve["gain"].iloc[0]) == pytest.approx(-gain_fit["par"].psi, rel=1e-9)
     assert curve["gain"].is_monotonic_decreasing
     tip = namespace["both"]
-    assert f"{tip:.3f}" == "1.950" and f"{np.exp(tip):.2f}" == "7.03"
+    assert f"{tip:.3f}" == "1.912" and f"{np.exp(tip):.2f}" == "6.77"
     direction = namespace["direction"]
     near = missingness_tilt(gain_fit, (tip - 0.1, tip, tip + 0.1), arm_gamma=direction).to_frame()
     values = near["psi"].to_numpy()
