@@ -22,14 +22,22 @@ sampling. It does not replace those instruments.
 Every rule is an equivalence rule bounded by a margin declared before the run. None of them tests
 whether a discrepancy is exactly zero, and the distinction is the design rather than a detail.
 
-A Monte Carlo study accumulates evidence by adding replications. A verdict must therefore become
-easier, or at worst stay put, as replications grow. A significance test does the reverse. It
-converges on rejecting any estimator whose finite-sample remainder is not identically zero, which
-is every estimator. The study would eventually go red for the one reason that is not a defect. An
-earlier version of the first study carried two such rules. Quadrupling its replication count would
-have failed it without a line of estimator code changing.
-`tests/unit/test_evidence_framework.py` holds both rules side by side and asserts which way each
-one moves.
+A Monte Carlo study accumulates evidence by adding replications. Under a margin rule, a property
+that holds strictly inside its margin passes with probability tending to one as replications grow,
+because the interval narrows around a summary that stays inside the margin. A significance test
+does the reverse. Its probability of rejecting tends to one for any estimator whose finite-sample
+remainder is not identically zero, which is every estimator, so the study would eventually go red
+for the one reason that is not a defect. An earlier version of the first study carried two such
+rules. Quadrupling its replication count would have failed it without a line of estimator code
+changing.
+
+The guarantee concerns the probability of a pass, not one realized run. Adding replications can
+still move a realized verdict either way. With 376 of 400 replications covered, the 99%
+Clopper-Pearson lower bound is 0.9026, which clears a 0.90 floor. One more replication that misses
+gives 376 of 401 and a lower bound of 0.8998, which does not. The tests in
+`tests/unit/test_evidence_framework.py` hold both rules side by side with the empirical bias or
+coverage rate fixed across replication counts, assert which way each one moves, and pin this
+one-replication reversal.
 
 | rule | what must hold | why it is bounded | its control |
 | --- | --- | --- | --- |

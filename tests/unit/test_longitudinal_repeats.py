@@ -33,6 +33,7 @@ import pytest
 import cleverly.longitudinal.estimator as estimator_module
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
 from cleverly._summary import vocabulary
+from cleverly._support import UNCLASSIFIED
 from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
@@ -40,7 +41,12 @@ from cleverly.inference.cluster import influence_variance
 from cleverly.inference.delta import Transform
 from cleverly.inference.influence import _median_adjusted_variance, make_estimate
 from cleverly.inference.multiplier import median_bands, simultaneous_bands
-from cleverly.inference.results import estimate_covariance, median_covariance, smooth_contrast
+from cleverly.inference.results import (
+    estimate_covariance,
+    median_covariance,
+    smooth_contrast,
+    transform_estimate,
+)
 from cleverly.learners.crossfit import CrossFitPlan, check_integrity, random_partition
 from cleverly.longitudinal import IPSI, LTMLE, SDR, LongitudinalData, LongitudinalResult
 from cleverly.provenance import fold_fingerprint
@@ -436,6 +442,53 @@ def test_transformed_contrast_combines_on_the_transform_scale() -> None:
     plain = result.contrast(mean, names, scale="level")
     assert abs(combined.psi - plain.psi) > 1e-10
     assert abs(combined.std_error - plain.std_error) > 1e-10
+
+
+def _mean_of_two(values: np.ndarray) -> float:
+    return float((values[0] + values[1]) / 2.0)
+
+
+#: A transform that changes nothing, so any difference it makes is lost bookkeeping.
+IDENTITY = Transform("identity", lambda x: x, lambda x: x, lambda x: 1.0)
+
+
+@pytest.mark.parametrize("transform", [IDENTITY, Transform.logit()], ids=["identity", "logit"])
+def test_transformed_contrast_keeps_the_support_record(transform: Transform) -> None:
+    """Codex CDR-008: a transform of a repeated contrast kept no support record.
+
+    The repeated path rebuilt each draw's estimate without ``support=``, so the result read
+    "built outside a classified fit" although it came from a classified fit.  The witness
+    first checks that the plain contrast has a record to lose.
+    """
+    result = _fit("ltmle", repeats=3)
+    names = [LEVEL_B, REF]
+    plain = result.contrast(_mean_of_two, names, scale="level")
+    assert plain.support != UNCLASSIFIED
+    mapped = result.contrast(_mean_of_two, names, scale="level", transform=transform)
+    assert mapped.support == plain.support
+    assert mapped.to_dict()["support_reason"] == plain.support.reason
+    if transform is IDENTITY:
+        assert (mapped.psi, mapped.variance, mapped.ci) == (plain.psi, plain.variance, plain.ci)
+
+
+def test_transform_estimate_equals_the_transformed_contrast() -> None:
+    """The bit-for-bit identity ``transform_estimate`` documents, on every field."""
+    result = _fit("ltmle", repeats=3)
+    names = [LEVEL_B, REF]
+    logit = Transform.logit()
+    for draw in result.repeats:
+        natural = smooth_contrast(draw.estimates, _mean_of_two, names, n=result.n, scale="level")
+        direct = smooth_contrast(
+            draw.estimates, _mean_of_two, names, n=result.n, scale="level", transform=logit
+        )
+        mapped = transform_estimate(natural, logit)
+        assert natural.support != UNCLASSIFIED
+        for field in dataclasses.fields(direct):
+            left, right = getattr(mapped, field.name), getattr(direct, field.name)
+            if isinstance(left, np.ndarray):
+                np.testing.assert_array_equal(left, right)
+            else:
+                assert left == right, field.name
 
 
 def test_transform_refusal_names_the_draw() -> None:
