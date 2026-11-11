@@ -1,0 +1,30 @@
+{
+  "band_fits": 9600,
+  "cells": {
+    "simultaneous_coverage/all_reported__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 1.0,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 50.5,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.6840854973500001
+    }
+  },
+  "cpu_seconds": 13.681709947,
+  "estimated_cpu_hours": 1.8242279929333334,
+  "keys": 20,
+  "slug": "point-treatment-survival-crossfit",
+  "strata": 1,
+  "stream": "band-finite-sample/wave2-smoke",
+  "wall_seconds": 3.665352627000175
+}

@@ -1,0 +1,48 @@
+{
+  "band_fits": 19200,
+  "cells": {
+    "simultaneous_coverage/all_reported__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.9,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 18.2,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.22900311165000004
+    },
+    "simultaneous_coverage/curve_always__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.95,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 22.0,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.18621401429999995
+    }
+  },
+  "cpu_seconds": 8.304342519,
+  "estimated_cpu_hours": 1.1072456692000001,
+  "keys": 40,
+  "slug": "canonical-ltmle-survival",
+  "strata": 2,
+  "stream": "band-finite-sample/wave2-smoke",
+  "wall_seconds": 2.3000471139999945
+}

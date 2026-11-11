@@ -1,0 +1,36 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "902d17341f072cda10ef2499460173eede08d644e220fe9dcb8232e2c231a198",
+    "manifest.json": "3fcf86824ede389a34dc10ebd37eab449f437f86403cdfa3f87a6193dba4dd01",
+    "performance-tests.csv": "b373bbd3773229628497f7e53a2e70951c5342b3ae3bda4c4b65b0af597c4749",
+    "properties.csv": "0396470a3bd44366bae420713f1ee0462fdd86f55c30b836cd417ca45b629836",
+    "property-replicates.parquet": "79fc22fe19d2acc82f18ad3ca113652c7a5ab99b22eb8a893df1e87a148b2d7f",
+    "replicates.parquet": "8cd0365de4056470f6250f51f52ce79a84151a9a61ec71fcdb06fda2d0d2e6d7",
+    "summary.csv": "53e5d6b0cc03fc54d69b6e0f5d9140eb83b726976def9242cec499382c2c78a8"
+  },
+  "band_fits": 9600,
+  "cache": "/root/band-wave/cache/point-survival-hazard/91a56e7bfa463e4bfa56bbbadc081406cef9584b/30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "point-survival-hazard",
+    "--jobs",
+    "4",
+    "--cache",
+    "/root/band-wave/cache",
+    "--output",
+    "/root/band-wave/out"
+  ],
+  "fit_seconds": 998.1694596569996,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "point-survival-hazard",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}

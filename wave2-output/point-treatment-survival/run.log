@@ -1,0 +1,37 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "5ec0fcd7ba442e772d49eb694b9987ae56b0dc70790c7a485f178d407fd79790",
+    "manifest.json": "c4a1c6844451d392a555d7e677f728b8f4210ddb5b237f27ab909462f14aec16",
+    "performance-tests.csv": "95d918486a75887852dcd15899a76d06b34bfd50c2f1c5de5a2264a4118ce5cf",
+    "properties.csv": "379ad06243350ced1878e4f27488bf01d918b5e319a1b353200799129ec53174",
+    "property-replicates.parquet": "3538e9b62ca283117bbce541de58ce8f016379f0f6900d2f0f687720674c16b4",
+    "reference-witness.csv": "b816687dcf7c6468b4f154d955b14e6a691a74aadb1701a21341da599da9af16",
+    "replicates.parquet": "9ebdfa73a7a0c710feac84013ff755e0831ae147a06cd3c05338bdb7111f3d53",
+    "summary.csv": "45ff9b9585b64635473657fba152796c45dbde11252e0816de4bd3176f6f4c63"
+  },
+  "band_fits": 9600,
+  "cache": "/root/band-wave/cache/point-treatment-survival/91a56e7bfa463e4bfa56bbbadc081406cef9584b/30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "point-treatment-survival",
+    "--jobs",
+    "4",
+    "--cache",
+    "/root/band-wave/cache",
+    "--output",
+    "/root/band-wave/out"
+  ],
+  "fit_seconds": 837.0732585080004,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "point-treatment-survival",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "band_fits": 9600,
+  "cells": {
+    "simultaneous_coverage/all_reported__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 1.0,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 63.8,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 1.2546304494999998
+    },
+    "simultaneous_coverage/curve_arm0__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.9,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 130.1,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 1.2546304494999998
+    },
+    "simultaneous_coverage/curve_arm1__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 1.0,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 63.8,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 1.2546304494999998
+    }
+  },
+  "cpu_seconds": 25.09260899,
+  "estimated_cpu_hours": 3.3456811986666666,
+  "keys": 20,
+  "slug": "point-survival-curve",
+  "strata": 1,
+  "stream": "band-finite-sample/wave2-smoke",
+  "wall_seconds": 6.9931753369999115
+}
