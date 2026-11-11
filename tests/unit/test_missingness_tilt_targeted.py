@@ -562,3 +562,70 @@ def test_an_interval_tipping_value_carries_the_reading() -> None:
     # Control: the point search follows no interval, so it carries no reading.
     point = INTERPRETERS["tipping_gamma"](1.5, result, {"estimand": "ate"})
     assert "descriptive" not in point.detail
+
+
+def test_an_update_below_the_response_bound_warns() -> None:
+    from cleverly.exceptions import DataWarning
+
+    tight = _fit(estimands=("ey1", "ey0", "ate"), nuisance_bound=0.45)
+    with pytest.warns(DataWarning, match=r"below the fit's missingness_bound 0\.45"):
+        missingness_tilt(tight, [2.0])
+    # Control: at the default bound the update stays above it, and nothing warns.
+    default = _fit(estimands=("ey1", "ey0", "ate"))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DataWarning)
+        missingness_tilt(default, [2.0])
+
+
+@pytest.mark.parametrize("cross_fit", [False, True], ids=["in sample", "stacked"])
+def test_a_scaled_outcome_reads_every_target_on_the_fits_own_scale(cross_fit: bool) -> None:
+    """On a continuous outcome the scaler is not the identity, so a scale slip would show.
+
+    ``rr``, ``or`` and ``paf`` exist only on a binary outcome, whose scaler is the identity;
+    ``par`` and the arm means are the targets a non-identity scaler reaches.
+    """
+    from cleverly.datasets import make_missing_outcome
+
+    frame, _ = make_missing_outcome(n=800, seed=3)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = (
+            TMLE(
+                outcome_learner=LinearRegression(),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                missingness_learner=LogisticRegression(max_iter=1000),
+                cross_fit=cross_fit,
+                simultaneous=False,
+                estimands=("ey_obs", "ey1", "ey0", "ate", "par"),
+                q_bounds=(-6.0, 10.0),
+                random_state=0,
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta")
+            .single()
+        )
+    assert not result.repeats[0].nuisance.scaler.is_identity
+    targets = list(_tilt_targets(result).values())
+    direction = dict.fromkeys(result.data.arm_codes, 1.0)
+    estimates, converged = targeted_tilt_estimates(
+        result, result.repeats[0], targets, 0.0, direction
+    )
+    assert converged and set(estimates) == {"ey_obs", "ey1", "ey0", "ate", "par"}
+    for name, estimate in estimates.items():
+        assert estimate.psi == pytest.approx(result[name].psi, rel=1e-9, abs=1e-12), name
+        assert estimate.std_error == pytest.approx(result[name].std_error, rel=1e-6), name
+
+
+def test_ratios_and_the_attributable_fraction_need_a_binary_outcome() -> None:
+    from cleverly.datasets import make_missing_outcome
+
+    frame, _ = make_missing_outcome(n=200, seed=3)
+    for estimands in (("ey1", "ey0", "rr"), ("ey1", "ey0", "or"), ("ey_obs", "ey0", "paf")):
+        with pytest.raises(CapabilityError, match="binary outcome"):
+            TMLE(
+                outcome_learner=LinearRegression(),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                missingness_learner=LogisticRegression(max_iter=1000),
+                cross_fit=False,
+                estimands=estimands,
+                q_bounds=(-6.0, 10.0),
+            ).fit(frame, outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta")

@@ -42,6 +42,7 @@ moves and the estimate is the reported one.  The tilted parameter is not doubly 
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -51,6 +52,7 @@ import numpy as np
 from .._typing import BoolArray, FloatArray, IntArray
 from ..data.causal_data import arm_share
 from ..estimators._nuisance import tilt_missingness
+from ..exceptions import DataWarning
 from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
 from ..inference.influence import ParameterEstimate, Scale, make_estimate, unscale
 from ..utils.bounds import expit, g_bounds_for, logit
@@ -482,6 +484,18 @@ def targeted_tilt_estimates(
                 scaled, observed, received, solve_weights, start, mechanism, tilt, columns, tol=tol
             )
             converged = converged and solved[key].converged
+            lowest = float(np.min(solved[key].mechanism[np.arange(n), received]))
+            if lowest < config.missingness_bound:
+                # Re-clipping would break the solved equation, so the update keeps its value
+                # and says that 1 / pi now exceeds the fit's bound on it.
+                warnings.warn(
+                    f"the tilt update at gamma = {gamma:g} moved the response probability "
+                    f"below the fit's missingness_bound {config.missingness_bound:g}: its "
+                    f"smallest value is {lowest:.3g}, so 1 / pi in the correction and the "
+                    "influence curve exceeds the bound the fit declared.",
+                    DataWarning,
+                    stacklevel=2,
+                )
         return solved[key]
 
     def regression(group: str) -> FloatArray:
@@ -602,7 +616,9 @@ def targeted_tilt_estimates(
                         target, psi_o - psi_arms[r], curve_o - curves[:, r], "difference"
                     )
                 else:
-                    # The fraction reads the two means on the outcome's own scale.
+                    # The fraction reads the two means on the outcome's own scale.  The fit
+                    # admits paf only on a binary outcome, whose scaler is the identity, so
+                    # this is the scale the fit's own paf target reads.
                     whole, whole_curve = unscale(psi_o, curve_o, scaler, "level")
                     base, base_curve = unscale(psi_arms[r], curves[:, r], scaler, "level")
                     psi = 1.0 - base / whole
