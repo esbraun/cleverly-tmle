@@ -641,7 +641,7 @@ def test_the_tail_sizes_are_the_exact_law_values() -> None:
 
 
 def test_an_own_curve_only_tail_size_moves_the_p_c_twin() -> None:
-    """Dropping the EIF from the maximum gives 3,200 for ``P_C``, so the 4,800 twin fails check 2."""
+    """Without the EIF in the maximum, ``P_C`` needs 3,200, so its 4,800 twin fails check 2."""
     tails = {**_tail_sizes(), "sdr/P_C": TAIL_SIZES["sdr/P_C own curve"]}
     assert _least_gated_n(tails["sdr/P_C"]) == 3_200
     problems = _declared_problems(tails=tails)
@@ -687,7 +687,7 @@ def test_an_undeclared_wald_cell_fails() -> None:
 def reporting_problems(
     keys: Collection[str], below: Collection[str], summary: pd.DataFrame
 ) -> list[str]:
-    """Check 3: each reporting cell of the ledger is below its tail size and red on coverage alone."""
+    """Check 3: each reporting cell of the ledger is below its tail size and red on coverage only."""
     problems = []
     floor = study.STUDY.margins.coverage_floor
     for key in keys:

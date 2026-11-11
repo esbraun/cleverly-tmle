@@ -110,7 +110,7 @@ def stratum(frame: pd.DataFrame) -> str:
 
 
 def strata(rows: pd.DataFrame) -> pd.DataFrame:
-    """Draws and ``SDR`` coverage in each stratum of the always-path cell, redrawn from the seeds."""
+    """Draws and ``SDR`` coverage per stratum of the always-path cell, redrawn from the seeds."""
     truth = float(law.TRUTH[base.STATIC])
     covered = np.abs(rows["sdr_estimate"] - truth) <= CRITICAL * rows["sdr_std_error"]
     labels = pd.Series(

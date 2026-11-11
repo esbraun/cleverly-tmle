@@ -84,8 +84,9 @@ clause of its cell, so a below-tail-size cell red on a Wald clause alone reads r
 **The ``sequential_double_robustness`` rule** (``X4-plan.md`` 6.8).  ``both_correct`` and
 ``P_C`` have exact ratios, so they gate the bias, the reported-error screen and the coverage
 floor at every size.  At n = 2,000 the coverage floor reports, because n is below twice the tail
-size of the contrast (:math:`n_\kappa` = 2,326); at 4,800 and 8,000 it is gated.  ``P_A``, ``P_B`` and ``P_D`` gate the absolute bias at two sizes: the
-pair passes when :math:`|\bar b| + 2\,\mathrm{MCSE}` at n = 8,000 is below
+size of the contrast (:math:`n_\kappa` = 2,326); at 4,800 and 8,000 it is gated.  ``P_A``,
+``P_B`` and ``P_D`` gate the absolute bias at two sizes: the pair passes when
+:math:`|\bar b| + 2\,\mathrm{MCSE}` at n = 8,000 is below
 :data:`SDR_TOLERANCE` and below the same bound at n = 2,000, and the SE ratio at n = 8,000 lies
 inside ``UNION_MODEL_SE_BAND``.  The MCSE halves between the sizes at a fixed replication
 count, so the second clause also holds for a constant bias: the tolerance is the clause that
