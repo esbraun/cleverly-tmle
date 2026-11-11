@@ -296,6 +296,10 @@ the committed results and checked at the precision printed.
 | `margin:overfit_control_ceiling` | 0.7500 | in-sample tree SE-ratio upper bound |
 | `margin:type_i_ceiling` | 0.1000 | type-I upper bound |
 | `margin:minimum_power` | 0.8000 | power lower bound |
+| `margin:subject_failure_bound` | 0.0100 | share of `cleverly` fits a primary cell may lose |
+| `margin:subject_failures_allowed` | 10 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | share of `lmtp` fits a primary cell may lose |
+| `margin:reference_failures_allowed` | 10 | the same bound, in primary replications |
 
 ## Limits
 
