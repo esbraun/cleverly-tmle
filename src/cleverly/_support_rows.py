@@ -18,17 +18,23 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Final
 
-from ._support import KEY_AXES, Kind, SupportKey, SupportRow
+from ._support import DEFAULT_BAND_OPTION, KEY_AXES, BandOption, Kind, SupportKey, SupportRow
 from .learners.glm import GLM
 
 __all__ = [
+    "BAND_CELLS",
+    "BAND_OPTIONS",
+    "BAND_OPTION_DRAWS",
+    "BAND_OPTION_SHORTFALLS",
     "EXEMPT_STUDIES",
     "FAMILY_THEORY",
     "LONGITUDINAL_ROWS",
     "MEASURED_LIMITS",
     "OPTION_ALLOWLIST",
     "POINT_ROWS",
+    "SDR_MEASURED_BAND_OPTION",
     "SHORTFALLS",
+    "UNMAPPED_BAND_CELLS",
     "TheoryAnchor",
     "default_options",
     "long_row",
@@ -70,7 +76,6 @@ def default_options(engine: str) -> dict[str, Any]:
         "fluctuation": "logistic",
         "targeting": "iterative",
         "target_weights": False,
-        "multiplier_kind": "rademacher",
     }
     if engine == "drtmle":
         options |= {
@@ -1578,18 +1583,21 @@ def _t_rows() -> tuple[SupportRow, ...]:
         )
     )
     attributable = ("P1", "P4")
-    for suffix, kwargs, cell in (
-        ("binary", {}, "binary_mar_attributable"),
-        ("continuous", {"outcome": BOUNDED}, "continuous_mar_attributable"),
-        ("three_arm", {"treatment": ("arms3",)}, "three_arm_mar_attributable"),
-        ("binary_stacked", {"splitting": ("stacked",)}, "binary_mar_attributable_cvtmle"),
+    # The band kind follows BAND_CELLS: the study has no band cell of the continuous or the
+    # stacked three-arm configuration (mar_attributable_properties.BAND_SCENARIOS).
+    for suffix, kwargs, cell, banded in (
+        ("binary", {}, "binary_mar_attributable", True),
+        ("continuous", {"outcome": BOUNDED}, "continuous_mar_attributable", False),
+        ("three_arm", {"treatment": ("arms3",)}, "three_arm_mar_attributable", True),
+        ("binary_stacked", {"splitting": ("stacked",)}, "binary_mar_attributable_cvtmle", True),
         (
             "three_arm_stacked",
             {"treatment": ("arms3",), "splitting": ("stacked",)},
             "three_arm_mar_attributable_cvtmle",
+            False,
         ),
-        ("weighted", {"weighting": "fixed"}, "binary_mar_attributable_weighted"),
-        ("clustered", {"dependence": "clustered"}, "binary_mar_attributable_clustered"),
+        ("weighted", {"weighting": "fixed"}, "binary_mar_attributable_weighted", True),
+        ("clustered", {"dependence": "clustered"}, "binary_mar_attributable_clustered", True),
     ):
         rows.append(
             point_row(
@@ -1597,7 +1605,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 ["mar-attributable-tmle"],
                 families=attributable,
                 missing=("outcome",),
-                kinds=frozenset({"point", "wald", "band"}),
+                kinds=frozenset({"point", "wald", "band"}) if banded else _WALD,
                 cells=[cell],
                 **kwargs,
             )
@@ -1809,7 +1817,6 @@ def _d_rows() -> tuple[SupportRow, ...]:
             missing=("outcome",),
             qualifiers=["known_mechanism"],
             options={"randomized": True},
-            kinds=frozenset({"point", "wald", "band"}),
             cells=["binary_mar_randomized", "mar_q_wrong_pi_slow"],
         ),
         point_row(
@@ -2502,10 +2509,11 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
     ),
     "G23.in_sample": (
         (
-            "X4-finite-sample: bias 0.000011 to 0.0112, margin 0.0172, coverage 0.8853 to "
-            "0.9327, SE ratio 0.9459"
+            "X39-below-tail-size: the Wald interval is validated only at n of at least twice the "
+            "exact-law tail size of the quantity. At n = 2,000, below the tail size 2,326 of "
+            "ate_regimen[always vs never], coverage is 0.911; bias 0.000011 to 0.0112, SE ratio "
+            "0.9459"
         ),
-        "band-finite-sample: joint coverage 0.9085 to 0.9394",
     ),
     "G29.g1": ("X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",),
     "G40.tau3": (
@@ -2584,15 +2592,72 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
 }
 
 
+#: The band configuration the re-declared ``longitudinal-sdr`` band cell measures
+#: (band-finite-sample plan, sections 4.1 and 7): the Mammen multiplier, with each probability
+#: level and difference banded on its logit scale, at 10,000 draws.
+SDR_MEASURED_BAND_OPTION: Final[BandOption] = ("mammen", "logit")
+
+#: The ``(multiplier_kind, band_scale)`` pairs each row's band cells measured, for the rows that
+#: list more than :data:`~cleverly._support.DEFAULT_BAND_OPTION`. Every other row that licenses
+#: ``band`` measured the shipped default alone. A band built with an unlisted pair is
+#: experimental; the fit's pointwise estimates keep their row.
+BAND_OPTIONS: Final[Mapping[str, tuple[BandOption, ...]]] = {
+    # The six_regimens cell of longitudinal_sdr is cross-fitted, so it is this row's band cell
+    # (BAND_CELLS).
+    "G23.cross_fitted": (DEFAULT_BAND_OPTION, SDR_MEASURED_BAND_OPTION),
+}
+
+#: The multiplier draws each listed band option was measured at, as ``(row id, option) ->
+#: draws``. A band with that option and fewer draws is experimental.
+BAND_OPTION_DRAWS: Final[Mapping[tuple[str, BandOption], int]] = {
+    ("G23.cross_fitted", SDR_MEASURED_BAND_OPTION): 10_000,
+}
+
+#: The red band readings of one band option inside one row, as ``(row id, option) -> sentence``.
+#: A band built with that option reads the sentence as a reason of its experimental label.
+BAND_OPTION_SHORTFALLS: Final[Mapping[tuple[str, BandOption], str]] = {
+    ("G23.cross_fitted", DEFAULT_BAND_OPTION): (
+        "Row G23.cross_fitted measured its shipped default band (Rademacher, identity scale, "
+        "2,000 draws) in the reporting row six_regimens__shipped_band_reporting: joint coverage "
+        "0.9313 with 99% Clopper-Pearson interval 0.9255 to 0.9368, reported with no verdict "
+        "(band-finite-sample). A band with band_scale='logit', multiplier_kind='mammen' and at "
+        "least 10,000 draws is supported on this row."
+    ),
+}
+
+
 def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
-    """Attach the :data:`SHORTFALLS` and :data:`MEASURED_LIMITS` sentences to their rows."""
+    """Attach the shortfall, limit and band-option tables to their rows.
+
+    The tables are :data:`SHORTFALLS`, :data:`MEASURED_LIMITS`, :data:`BAND_OPTIONS`,
+    :data:`BAND_OPTION_SHORTFALLS` and :data:`BAND_OPTION_DRAWS`.
+    """
     out = []
     for row in rows:
         pairs = tuple(
             (kind, text) for (row_id, kind), text in SHORTFALLS.items() if row_id == row.id
         )
         limits = tuple(dict.fromkeys((*row.limits, *MEASURED_LIMITS.get(row.id, ()))))
-        out.append(replace(row, shortfalls=pairs, limits=limits))
+        option_shortfalls = tuple(
+            (option, text)
+            for (row_id, option), text in BAND_OPTION_SHORTFALLS.items()
+            if row_id == row.id
+        )
+        option_draws = tuple(
+            (option, draws)
+            for (row_id, option), draws in BAND_OPTION_DRAWS.items()
+            if row_id == row.id
+        )
+        out.append(
+            replace(
+                row,
+                shortfalls=pairs,
+                limits=limits,
+                band_options=BAND_OPTIONS.get(row.id, row.band_options),
+                band_option_shortfalls=option_shortfalls,
+                band_option_draws=option_draws,
+            )
+        )
     return tuple(out)
 
 
@@ -3042,10 +3107,12 @@ POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
 _LONG_WALD: Final[frozenset[Kind]] = frozenset({"point", "wald"})
 _LONG_BAND: Final[frozenset[Kind]] = frozenset({"point", "wald", "band"})
 _LONG_T: Final[frozenset[Kind]] = frozenset({"point", "wald_t"})
-_LONG_DERIVED: Final[frozenset[Kind]] = frozenset({"point", "wald", "band", "derived"})
+_LONG_DERIVED: Final[frozenset[Kind]] = frozenset({"point", "wald", "derived"})
 _LONG_BOOTSTRAP: Final[frozenset[Kind]] = frozenset(
     {"point", "wald", "band", "bootstrap", "derived"}
 )
+#: The bootstrap kinds of a row that no band cell measures (``BAND_CELLS``).
+_LONG_BOOTSTRAP_UNBANDED: Final[frozenset[Kind]] = _LONG_BOOTSTRAP - {"band"}
 _TWO: Final[tuple[str, ...]] = ("2", "2")
 _OUTCOME_KINDS: Final[frozenset[str]] = frozenset(
     {"end_of_study", "survival", "competing", "repeated"}
@@ -3192,7 +3259,6 @@ def long_row(
         dependence=dependence,
         qualifiers=frozenset(qualifiers),
         options=(
-            ("multiplier_kind", "rademacher"),
             ("normalization", normalization),
             ("ratio", ratio),
             ("survival_model", survival_model),
@@ -3241,7 +3307,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             "G03",
             ["weighted-ltmle"],
             weighting="fixed",
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["interval_calibration"],
         ),
         long_row(
@@ -3249,7 +3315,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             ["weighted-ltmle-crossfit"],
             weighting="fixed",
             splitting=xf,
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["interval_calibration"],
         ),
         long_row(
@@ -3330,7 +3396,9 @@ def _long_rows() -> tuple[SupportRow, ...]:
                 missing=("complete",),
                 treatment=treatment,
                 splitting=splitting,
-                kinds=_LONG_BAND,
+                # Only the in-sample continuous fit of longitudinal_mtp_properties._band_rows
+                # measures the band (BAND_CELLS).
+                kinds=_LONG_BAND if suffix == "continuous" else _LONG_WALD,
                 cells=["interval_calibration"],
             )
         )
@@ -3347,7 +3415,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             [boot],
             outcome_kind="survival",
             treatment=("2",) * 4,
-            kinds=_LONG_BOOTSTRAP,
+            kinds=_LONG_BOOTSTRAP_UNBANDED,
             cells=["boot_risk2_survival", "boot_risk4_survival", "rmst_survival"],
         ),
         long_row(
@@ -3355,7 +3423,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             ["canonical-ltmle-survival-crossfit"],
             outcome_kind="survival",
             splitting=xf,
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["interval_calibration"],
         ),
         long_row(
@@ -3399,7 +3467,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             outcome_kind="competing",
             held=True,
             treatment=("2",) * 4,
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["competing_t4"],
         ),
         long_row(
@@ -3408,7 +3476,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             outcome_kind="survival",
             held=True,
             treatment=("3",) * 3,
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["three_arm_t3"],
         ),
         long_row(
@@ -3417,14 +3485,14 @@ def _long_rows() -> tuple[SupportRow, ...]:
             outcome_kind="survival",
             held=True,
             treatment=("2",) * 4,
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["continuous_t4"],
         ),
         long_row(
             "G14.end_of_study",
             [survival],
             held=True,
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["end_of_study"],
         ),
         long_row(
@@ -3465,7 +3533,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             held=True,
             treatment=("3",) * 3,
             splitting=xf,
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["three_arm_t3"],
             # Roadmap: X13.
             limits=["The three-arm cell reads a finite-sample shortfall."],
@@ -3513,7 +3581,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             held=True,
             treatment=held4,
             survival_model="hazard",
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["competing_t4"],
         ),
         long_row(
@@ -3535,7 +3603,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             treatment=held4,
             survival_model="hazard",
             targeting="one_step",
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["competing_t4"],
         ),
         long_row(
@@ -3547,7 +3615,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             treatment=("3",) * 3,
             survival_model="hazard",
             targeting="one_step",
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["rule_t3", "policy_t3"],
         ),
         long_row(
@@ -3559,7 +3627,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             weighting="fixed",
             survival_model="hazard",
             targeting="one_step",
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["weighted_t5"],
         ),
         long_row(
@@ -3570,7 +3638,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             treatment=held5,
             weighting="fixed",
             survival_model="hazard",
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["weighted_t5_per_horizon"],
         ),
         long_row(
@@ -3602,7 +3670,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             outcome_kind="survival",
             treatment=("2", "2"),
             isotonic=True,
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["isotonic_t2"],
         ),
         long_row(
@@ -3625,7 +3693,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             treatment=held5,
             splitting=xf,
             survival_model="hazard",
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["survival_t5_per_horizon"],
         ),
         long_row(
@@ -3637,7 +3705,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             splitting=xf,
             survival_model="hazard",
             targeting="one_step",
-            kinds=_LONG_BAND,
+            kinds=_LONG_WALD,
             cells=["competing_t4"],
         ),
     ]
@@ -3712,7 +3780,9 @@ def _long_rows() -> tuple[SupportRow, ...]:
     ]
     sdr = ["longitudinal-sdr"]
     rows += [
-        long_row("G23.in_sample", sdr, engine="sdr", kinds=_LONG_BAND, cells=["static"]),
+        # The band cell six_regimens is cross-fitted (longitudinal_sdr_properties._sdr), so
+        # only G23.cross_fitted licenses the band (BAND_CELLS).
+        long_row("G23.in_sample", sdr, engine="sdr", cells=["static"]),
         long_row(
             "G23.cross_fitted", sdr, engine="sdr", splitting=xf, kinds=_LONG_BAND, cells=["static"]
         ),
@@ -3858,8 +3928,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             s2,
             **ipsi_survival,
             outcome_kind="survival",
-            kinds=_LONG_BAND,
-            cells=["survival_folds_1", "survival_contrast_x2_h3_in_sample", "survival_grid"],
+            cells=["survival_folds_1", "survival_contrast_x2_h3_in_sample"],
         ),
         long_row(
             "G34.survival.cross_fitted",
@@ -4468,7 +4537,7 @@ def _structural_rows() -> list[SupportRow]:
             splitting=("cross_fitted",),
             dependence=dependence,
             qualifiers=frozenset(),
-            options=(("covariate_features", covariate_features), ("multiplier_kind", "rademacher")),
+            options=(("covariate_features", covariate_features),),
         )
         return SupportRow(
             row_id, key, _LONG_WALD, study, tuple(cells), dict(glm), (*limits, *extra)
@@ -4497,7 +4566,6 @@ def _structural_rows() -> list[SupportRow]:
 
 def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
     return (
-        ("multiplier_kind", "rademacher"),
         ("normalization", normalization),
         ("ratio", "density"),
         ("survival_model", "iterated_mean"),
@@ -4597,9 +4665,9 @@ def _lh_note(wald: Sequence[int], bca: Sequence[int], *, static_bca: bool) -> st
 
 
 _LH_SWITCH_LIMIT: Final[str] = (
-    "X39-below-tail-size: the Wald interval is not validated below the tail size of a quantity. "
-    "Coverage of ey_regimen[switch] at n = 72,000, below its n_kappa of 134,244, is 0.9133; "
-    "bias -0.0015 to 0.0038, SE ratio 0.9624"
+    "X39-below-tail-size: the Wald interval is validated only at n of at least twice the "
+    "exact-law tail size of the quantity. At n = 72,000, below the tail size 134,244 of "
+    "ey_regimen[switch], coverage is 0.9133; bias -0.0015 to 0.0038, SE ratio 0.9624"
 )
 # Roadmap: X20.
 _LH_CROSSFIT_NOTE: Final[str] = (
@@ -5405,4 +5473,144 @@ FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
         "tests/unit/test_influence_gateaux_longitudinal.py",
         "tests/unit/test_longitudinal_learned_regimen.py",
     ),
+}
+
+
+# ------------------------------------------------------------------ band cells
+
+
+def _band(study: str, setting: str) -> str:
+    return f"{study}:simultaneous_coverage/{setting}__simultaneous_band"
+
+
+#: The band cells that license each row's ``band`` kind, as ``"<study directory>:<cell>"``
+#: (band-finite-sample plan, section 4.5). A cell maps to a row only where the fit that
+#: produces the cell falls under the row's key, checked against the study's design module
+#: named beside each entry. ``tests/unit/test_band_cell_mapping.py`` requires an entry for every
+#: row that licenses ``band``, and a positive band cell of a cited study behind each entry.
+BAND_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
+    # default_bands._default_fit: the shipped TMLE() default, inherited through the study
+    # default-simultaneous-bands.
+    "T02.binary": (_band("default_bands", "default_fit"),),
+    # mar_attributable_properties.BAND_SCENARIOS: each label refits its scenario with
+    # canonical_mar_attributable.fit_cleverly, in sample unless the scenario is a CV-TMLE one.
+    "T25": (_band("tmle_mar_attributable", "attributable_binary"),),
+    # mar_arm_indexed_cvtmle_properties._fit_replication: the band reads the stacked
+    # interval_calibration fit of law l1 to l4 (mar_arm_indexed_laws.LAWS).
+    "T26.binary": (
+        _band("tmle_mar_arm_indexed_cvtmle", "l1"),
+        _band("tmle_mar_attributable", "attributable_binary_cvtmle"),
+    ),
+    "T26.continuous": (_band("tmle_mar_arm_indexed_cvtmle", "l2"),),
+    "T26.three_arm": (_band("tmle_mar_arm_indexed_cvtmle", "l3"),),
+    "T26.three_arm_continuous": (_band("tmle_mar_arm_indexed_cvtmle", "l4"),),
+    "T29.three_arm": (_band("tmle_mar_attributable", "attributable_three_arm"),),
+    "T29.weighted": (_band("tmle_mar_attributable", "attributable_weighted"),),
+    "T29.clustered": (_band("tmle_mar_attributable", "attributable_clustered"),),
+    # multi_arm_mar_drtmle_properties._fit_drawn: canonical_multi_arm_mar_drtmle.fit_cleverly,
+    # randomized in-sample DRTMLE at three arms.
+    "D09": (_band("drtmle_mar_multi_arm", "arms"),),
+    # ctmle_oat_per_arm_parametric_extensions_properties._joint_rows: one band per fit group.
+    "C11.binary": (_band("ctmle_oat_per_arm_parametric_extensions", "binary_population"),),
+    "C11.k_arms": (_band("ctmle_oat_per_arm_parametric_extensions", "three_arm"),),
+    "C11.stacked_k_arms": (_band("ctmle_oat_per_arm_parametric_extensions", "three_arm_crossfit"),),
+    # adaptive_iptw_properties._band_row: the targeted form with known arms.
+    "AI.known_arms.targeted": (_band("adaptive_iptw", "known_band"),),
+    # ltmle_properties._fit_replication: the in-sample correctly specified fit.
+    "G01": (_band("ltmle", "regimens"),),
+    # clustered_crossfit_ltmle_properties._band_rows: cross-fitted LTMLE on clusters.
+    "G05.cross_fitted": (_band("lmtp_clustered_ltmle", "clustered_regimens"),),
+    # stochastic_categorical_ltmle_properties._band_rows: in-sample static and known stochastic
+    # categorical regimens.
+    "G08.in_sample": (_band("stochastic_categorical_ltmle", "primary"),),
+    # longitudinal_mtp_properties._band_rows: in-sample two-node continuous MTP.
+    "G10.continuous": (_band("longitudinal_mtp", "primary"),),
+    # ltmle_survival_properties.fit and fit_curve: in-sample survival LTMLE.
+    "G11": (
+        _band("ltmle_survival", "all_reported"),
+        _band("ltmle_survival", "curve_always"),
+    ),
+    # ltmle_competing_properties.fit, n_folds=1, with joint_cells=True for this study.
+    "G13.in_sample": (
+        _band("lmtp_ltmle_competing", "all_reported"),
+        _band("lmtp_ltmle_competing", "curve_always"),
+    ),
+    # The point-survival studies band only the survival_t5 fit (``joint = label ==
+    # "survival_t5"`` in each properties module).
+    "G14.survival": (_band("point_survival", "all_reported"),),
+    "G17.survival": (_band("point_survival_crossfit", "all_reported"),),
+    "G30.survival": (_band("point_survival_hazard", "all_reported"),),
+    "G31.survival": (
+        _band("point_survival_curve", "all_reported"),
+        _band("point_survival_curve", "curve_arm0"),
+        _band("point_survival_curve", "curve_arm1"),
+    ),
+    "G32.survival": (
+        _band("point_survival_curve_crossfit", "all_reported"),
+        _band("point_survival_curve_crossfit", "curve_arm0"),
+        _band("point_survival_curve_crossfit", "curve_arm1"),
+    ),
+    # crossfit_longitudinal_msm_properties._band_rows: the cross-fitted MSM projection.
+    "G20": (_band("lmtp_ltmle_msm", "cross_fitted_msm"),),
+    # ltmle_repeated_properties._fit_drawn: the in-sample estimated_mechanisms fit.
+    "G27": (_band("ltmle_repeated", "all_reported"),),
+    # ipsi_repeated_properties._fit_drawn: the in_sample configuration.
+    "G37.in_sample": (_band("ipsi_repeated", "all_reported"),),
+    # longitudinal_sdr_properties._band_rows: discrete_fit runs _sdr with n_folds=N_FOLDS, a
+    # cross-fitted SDR fit, so G23.in_sample has no band cell.
+    "G23.cross_fitted": (_band("longitudinal_sdr", "six_regimens"),),
+    # longitudinal_incremental_properties._band_rows: cross-fitted IPSI.
+    "G33.cross_fitted": (_band("npcausal_longitudinal_incremental", "nine_tilts"),),
+    # longitudinal_incremental_dropout_properties._band_drawn: the band reads the five-fold
+    # fit; the one-fold fit there gives a pointwise cell only.
+    "G34.survival.cross_fitted": (_band("longitudinal_incremental_dropout", "survival_grid"),),
+    # sdr_repeated_properties._fit_drawn: the in_sample configuration.
+    "G38.in_sample": (_band("sdr_repeated", "all_reported"),),
+    # longitudinal_repeated_crossfit_properties.BANDS: each band label's fit set and scenario.
+    "G44.law_d.tmle": (_band("longitudinal_repeated_crossfit", "d_ltmle"),),
+    "G44.law_d.sdr": (_band("longitudinal_repeated_crossfit", "d_sdr"),),
+    "G44.law_s": (_band("longitudinal_repeated_crossfit", "s_ltmle"),),
+    "G44.law_c": (_band("longitudinal_repeated_crossfit", "c_ltmle"),),
+    "G44.law_m": (_band("longitudinal_repeated_crossfit", "m_ltmle"),),
+    "G44.law_i": (_band("longitudinal_repeated_crossfit", "i_ipsi"),),
+    # long_horizon_properties.fit_key: the joint arm of the K = 5 binary fit set.
+    "G46.tmle.binary_k5": (_band("long_horizon_ltmle", "k5"),),
+}
+
+_DEFAULT_BANDS_REASON = (
+    "It measures the shipped default band of the configuration of row {row}, which does not "
+    "cite default-simultaneous-bands."
+)
+
+#: The positive band cells of the studies cited by a band row that license no row, with the
+#: reason. Each default_bands cell measures another configuration's default band
+#: (default_band_properties.SOURCES); the row named is the one that configuration classifies onto.
+UNMAPPED_BAND_CELLS: Final[Mapping[str, str]] = {
+    _band("default_bands", setting): _DEFAULT_BANDS_REASON.format(row=row)
+    for setting, row in (
+        ("ordinary_binary", "T01.binary"),
+        ("fold_evaluated", "T03.binary"),
+        ("weighted", "T06"),
+        ("learned_weighted", "T07"),
+        ("missing_outcome", "T25"),
+        ("missing_outcome_drtmle", "D08"),
+        ("drtmle", "D01"),
+        ("multi_arm_drtmle", "D02"),
+        ("cde_z0", "T30"),
+        ("cde_z1", "T30"),
+        ("point_msm", "T18"),
+        ("clustered", "T10.unweighted"),
+        ("shift_grid", "T21"),
+        ("incremental_grid", "T23"),
+        ("stochastic_regimes", "T20"),
+        ("deterministic_regimes", "T19"),
+        ("ltmle_crossfit", "G02"),
+        ("survival_crossfit", "G12"),
+        ("competing_crossfit", "G13.cross_fitted"),
+        ("weighted_ltmle", "G03"),
+        ("weighted_ltmle_crossfit", "G04"),
+        ("categorical_ltmle", "G08.in_sample"),
+        ("categorical_ltmle_crossfit", "G08.cross_fitted"),
+        ("longitudinal_msm", "G19"),
+    )
 }

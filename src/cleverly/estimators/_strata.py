@@ -744,5 +744,6 @@ def stratum_mixture(
         scale=parts[0].scale,
         alpha=alpha,
         covariance_rule="centered",
+        bounds=parts[0].bounds,
     )
     return estimate, folds

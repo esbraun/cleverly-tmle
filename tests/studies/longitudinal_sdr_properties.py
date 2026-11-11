@@ -8,17 +8,20 @@ family                              cells, replications and size
 ==================================  =======================================================
 ``sequential_double_robustness``    ``ate_regimen[always vs never]`` of
                                     :mod:`tests.discrete_law_longitudinal_sdr` in the five
-                                    patterns of ``X4-plan.md`` 6.8, at n = 2,000 and 8,000;
-                                    1,000 each.  Two controls at n = 2,000: SDR with both
-                                    nuisances wrong at node 2, and LTMLE in ``P_D``
+                                    patterns of ``X4-plan.md`` 6.8.  ``both_correct`` and
+                                    ``P_C`` at n = 2,000, 4,800 and 8,000 (1,000, 1,600 and
+                                    1,000); ``P_A``, ``P_B`` and ``P_D`` at n = 2,000 and
+                                    8,000, 1,000 each.  Two controls at n = 2,000: SDR with
+                                    both nuisances wrong at node 2, and LTMLE in ``P_D``
 ``root_n_and_efficiency``           ``static`` at n = 1,000, 2,000 and 8,000; 700 each
 ``root_n_rate``                     the two rate rows of ``static``, from the ladder
 ``interval_calibration``            eight labels (below); 4,000 at n = 2,000 each, with the
                                     two derived controls of each
-``weighted_calibration``            ``selection_weighted``: the selected law of
+``weighted_calibration``            the selected law of
                                     ``weighted_longitudinal_properties_common`` with its
-                                    weights, ``always vs never``; 4,000 at n = 2,000, with
-                                    two derived controls
+                                    weights, ``always vs never``: ``selection_weighted``,
+                                    4,000 at n = 2,000, and ``selection_weighted_n2400``,
+                                    5,600 at n = 2,400, each with two derived controls
 ``clustered_calibration``           ``clustered_longitudinal_laws`` with grouped folds and
                                     GLM outcome regressions: ``clusters_200`` (200 clusters
                                     of 10) and ``clusters_20`` (20 clusters of 100,
@@ -65,10 +68,25 @@ has none either, for the reason :data:`NOISE_SD` gives.  The positive cell of ea
 SE-ratio and coverage bands only.  Its noise control adds :data:`NOISE_SD` and reads the
 SE-ratio rule.
 
+**The tail-size rule** (re-declared 2026-11, the X39 rule of ``tests/long_horizon_design.py``).
+A cell gates a Wald interval (its coverage, and for a calibration positive its SE-ratio band)
+only where its n is at least :data:`WALD_REGIME_FACTOR` times :math:`n_\kappa`, the larger of
+the tail sizes of the quantity's EIF and of the cell's own exact-law curve (``C_KAPPA`` 0.25 of
+``tests/long_horizon_sampling_sd.py``).  Below it the cell's Wald clauses report.  Each such
+cell has a gated twin of the same quantity and law at the least multiple of
+:data:`WALD_GATED_STEP` at or above twice :math:`n_\kappa`.  :data:`BELOW_TAIL_SIZE`,
+:data:`WALD_GATED_CELLS` and :data:`TAIL_SIZE_NOT_COMPUTED` classify every Wald cell, and
+``tests/unit/test_longitudinal_sdr_design.py`` derives the classification from the exact laws.
+The rule moves no bias clause, reported-error screen or control.  A verdict still reads every
+clause of its cell, so a below-tail-size cell red on a Wald clause alone reads red, as
+``reporting, below the tail size``.
+
 **The ``sequential_double_robustness`` rule** (``X4-plan.md`` 6.8).  ``both_correct`` and
 ``P_C`` have exact ratios, so they gate the bias, the reported-error screen and the coverage
-floor at both sizes.  ``P_A``, ``P_B`` and ``P_D`` gate the absolute bias at two sizes: the
-pair passes when :math:`|\bar b| + 2\,\mathrm{MCSE}` at n = 8,000 is below
+floor at every size.  At n = 2,000 the coverage floor reports, because n is below twice the tail
+size of the contrast (:math:`n_\kappa` = 2,326); at 4,800 and 8,000 it is gated.  ``P_A``,
+``P_B`` and ``P_D`` gate the absolute bias at two sizes: the pair passes when
+:math:`|\bar b| + 2\,\mathrm{MCSE}` at n = 8,000 is below
 :data:`SDR_TOLERANCE` and below the same bound at n = 2,000, and the SE ratio at n = 8,000 lies
 inside ``UNION_MODEL_SE_BAND``.  The MCSE halves between the sizes at a fixed replication
 count, so the second clause also holds for a constant bias: the tolerance is the clause that
@@ -85,6 +103,7 @@ without it with no other change.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any
 
@@ -126,14 +145,18 @@ from tests.studies import stochastic_categorical_ltmle_properties as policy_prop
 from tests.studies import weighted_longitudinal_properties_common as weighted
 from tests.studies.canonical_longitudinal_sdr import (
     BAND_LABEL,
+    BAND_STREAM,
     CALIBRATION_LABELS,
     CLUSTERED_POSITIVE,
+    EXACT_RATIO_PATTERNS,
     G_BOUNDS,
     LEARNER_FOLDS,
     N_FOLDS,
     PRIMARY_N,
+    PROPERTY_CELLS,
+    SDR_PATTERN_SIZES,
     SDR_PATTERNS,
-    SDR_SIZES,
+    SDR_TWO_SIZES,
     SEPARATE_CALIBRATION,
     STUDY,
     plans_of,
@@ -170,26 +193,57 @@ from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY as JOINT
 from tests.studies.evidence.simultaneous import (
-    joint_cells,
-    joint_coverage_rows,
-    joint_property_cells,
+    BandOptions,
+    scale_cells,
+    scale_coverage_rows,
 )
 from tests.studies.fractional_glm import QuasiBinomialGLM
 from tests.studies.oracle_density_bins import fit_bytes, oracle_bins
 
 SDR_REPLICATES = 1_000
+#: The replications of each gated exact-ratio cell at n = 4,800.  With
+#: :data:`WEIGHTED_GATED_REPLICATES` it is the smallest multiple of 400 at which the three new
+#: gated cells pass together with probability at least 0.95, read from a pilot of 2,000 draws per
+#: pattern (``tests/unit/test_longitudinal_sdr_design.py`` computes it).
+SDR_GATED_REPLICATES = 1_600
+#: The size at which each exact-ratio pattern gates its coverage floor (:data:`WALD_GATED_STEP`).
+SDR_GATED_N = 4_800
 CONTROL_N = 2_000
 RATE_REPLICATES = 700
 RATE_SIZES = (1_000, 2_000, 8_000)
 CALIBRATION_REPLICATES = 4_000
 CALIBRATION_N = 2_000
+#: The replications of the gated weighted cell at n = 2,400, sized by the rule of
+#: :data:`SDR_GATED_REPLICATES` on a probe of 8,000 draws: the three new gated cells pass together
+#: with probability 0.956.
+WEIGHTED_GATED_REPLICATES = 5_600
+#: The project's margin above the tail size: a Wald interval gates only where n is at least this
+#: many times :math:`n_\kappa` (``tests/long_horizon_design.py``).
+WALD_REGIME_FACTOR = 2
+#: The step of a gated size added under the tail-size rule.  It is the coarsest step that keeps
+#: each new gated n within 5% above twice its tail size, 80 rows per outer fold at 400.
+WALD_GATED_STEP = 400
 NULL_REPLICATES = 800
 NULL_N = 4_000
 OVERFIT_REPLICATES = 8_000
 OVERFIT_N = 1_000
-#: The band cell's replications; ``tests/unit/test_longitudinal_sdr_design.py`` pins that they
-#: meet the RM36 control-power rule at the measured ``p0``.
-BAND_REPLICATES = 2_000
+#: The band cell's replications, sized by the arm-pooled predictive rule
+#: (``band-finite-sample-plan.md`` section 7); ``tests/unit/test_longitudinal_sdr_design.py``
+#: pins that they meet the RM36 control-power rule at the measured ``p0``.
+BAND_REPLICATES = 13_600
+#: The band the fit builds: the logit scale for the six means and the ``atanh`` scale for the
+#: five contrasts, with the Mammen multiplier at 10,000 draws.
+BAND_OPTIONS = BandOptions(band_scale="logit", kind="mammen", n_replicates=10_000, random_state=0)
+#: The bands reported beside it, without a verdict: the shipped default, and the logit band
+#: with the default multiplier.
+BAND_REPORTING: dict[str, BandOptions] = {
+    "shipped_band_reporting": BandOptions(
+        band_scale="identity", kind="rademacher", n_replicates=2_000, random_state=0
+    ),
+    "rademacher_band_reporting": BandOptions(
+        band_scale="logit", kind="rademacher", n_replicates=10_000, random_state=0
+    ),
+}
 
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
@@ -252,6 +306,63 @@ CALIBRATION_LAWS: dict[str, str] = {
 }
 #: ``(clusters, sizes)`` of each ``clustered_calibration`` label, which is also its law's name.
 CLUSTER_LAYOUT = {"clusters_200": (200, "equal10"), "clusters_20": (20, "equal100")}
+#: ``(law, n, replications)`` of each label of :data:`SEPARATE_CALIBRATION`.  Both weighted labels
+#: draw the selected law; ``selection_weighted_n2400`` is the gated twin of
+#: ``selection_weighted``, whose n of 2,000 is below twice the tail size 1,159.
+SEPARATE_SIZES: dict[str, tuple[str, int, int]] = {
+    "clusters_200": ("clusters_200", CALIBRATION_N, CALIBRATION_REPLICATES),
+    "clusters_20": ("clusters_20", CALIBRATION_N, CALIBRATION_REPLICATES),
+    "selection_weighted": ("weighted", CALIBRATION_N, CALIBRATION_REPLICATES),
+    "selection_weighted_n2400": ("weighted", 2_400, WEIGHTED_GATED_REPLICATES),
+}
+
+#: The Wald cells whose n is below twice their tail size.  Their Wald clauses report; a verdict
+#: still reads them, so a red on one of them alone reads ``reporting, below the tail size``.
+BELOW_TAIL_SIZE = frozenset(
+    {
+        "sequential_double_robustness/both_correct__n_2000",
+        "sequential_double_robustness/P_C__n_2000",
+        "weighted_calibration/selection_weighted__correctly_specified",
+    }
+)
+#: The Wald cells whose n is at least twice their tail size, which gate their Wald clauses.
+WALD_GATED_CELLS = frozenset(
+    {
+        *(
+            f"sequential_double_robustness/{pattern}__n_{size}"
+            for pattern in EXACT_RATIO_PATTERNS
+            for size in (SDR_GATED_N, 8_000)
+        ),
+        *(f"root_n_and_efficiency/static__n_{size}" for size in (1_000, 2_000, 8_000)),
+        *(
+            f"interval_calibration/{label}__correctly_specified"
+            for label in CALIBRATION_LABELS
+            if label != "mtp_up"
+        ),
+        "weighted_calibration/selection_weighted_n2400__correctly_specified",
+        "type_i_error/static__sharp_null",
+        "power/static__alternative",
+        f"simultaneous_coverage/{BAND_LABEL}__simultaneous_band",
+    }
+)
+#: The Wald cells with no exact tail size, each with the reason.
+TAIL_SIZE_NOT_COMPUTED: dict[str, str] = {
+    "interval_calibration/mtp_up__correctly_specified": (
+        "the continuous-dose law of longitudinal-mtp: its bound is a quadrature, and the EIF has "
+        "no finite support to take a fourth moment over"
+    ),
+    **{
+        f"clustered_calibration/{label}__{CLUSTERED_POSITIVE}": (
+            "a latent-cluster law with misspecified GLM outcome regressions: the unit is the "
+            "cluster, the limit curve has no exact form, and the study states no bound"
+        )
+        for label in CLUSTER_LAYOUT
+    },
+    "crossfit_overfitting/cross_fitted_sdr": (
+        "make_longitudinal has continuous covariates and the outcome learner is fully grown "
+        "trees, so the cell has no exact curve"
+    ),
+}
 
 
 def _sd(probs: np.ndarray, curve: np.ndarray) -> float:
@@ -280,6 +391,7 @@ NOISE_SD: dict[str, float] = {
     "clusters_200": 1.75,
     "clusters_20": 3.6,
     "selection_weighted": weighted.EFFICIENCY_SD["static"],
+    "selection_weighted_n2400": weighted.EFFICIENCY_SD["static"],
 }
 
 #: The truth of each calibration label that does not vary by draw.
@@ -293,6 +405,7 @@ TRUTH: dict[str, float] = {
     "msm_identity": float(msm_properties.TRUTH[MSM_NAME]),
     "msm_logit": float(msm_properties.LOGIT_TRUTH),
     "selection_weighted": float(law.TRUTH[STATIC]),
+    "selection_weighted_n2400": float(law.TRUTH[STATIC]),
 }
 
 
@@ -317,8 +430,12 @@ def discrete_fit(
     regimens: Any = END_REGIMENS,
     simultaneous: bool = False,
     engine: type = SDR,
+    band: BandOptions | None = None,
 ) -> Any:
-    """The fit of every family on :mod:`tests.discrete_law_longitudinal`."""
+    """The fit of every family on :mod:`tests.discrete_law_longitudinal`.
+
+    ``band`` sets the simultaneous band's options; the fit's own defaults otherwise.
+    """
     outcome, pseudo, treatment, censoring = end_properties._learners("both_correct")
     settings: dict[str, Any] = {
         "reference": "never",
@@ -328,6 +445,13 @@ def discrete_fit(
         "censoring_learner": censoring,
         "simultaneous": simultaneous,
     }
+    if band is not None:
+        settings.update(
+            band_scale=band.band_scale,
+            multiplier_kind=band.kind,
+            n_multiplier=band.n_replicates,
+            random_state=band.random_state,
+        )
     if engine is LTMLE:
         return end_properties.fit(frame)
     return _sdr(regimens, **settings).fit(frame, **COLUMNS)
@@ -688,11 +812,11 @@ FIT_SETS: tuple[tuple[str, str, str, int, int, str], ...] = (
             f"{pattern}__n_{size}",
             pattern,
             size,
-            SDR_REPLICATES,
+            SDR_GATED_REPLICATES if size == SDR_GATED_N else SDR_REPLICATES,
             "sdr_family",
         )
         for pattern in SDR_PATTERNS
-        for size in SDR_SIZES
+        for size in SDR_PATTERN_SIZES[pattern]
     ),
     (
         "sequential_double_robustness",
@@ -718,23 +842,9 @@ FIT_SETS: tuple[tuple[str, str, str, int, int, str], ...] = (
         for stream in dict.fromkeys(CALIBRATION_LAWS.values())
     ),
     *(
-        (
-            "clustered_calibration",
-            label,
-            CLUSTERED_POSITIVE,
-            CALIBRATION_N,
-            CALIBRATION_REPLICATES,
-            label,
-        )
-        for label in CLUSTER_LAYOUT
-    ),
-    (
-        "weighted_calibration",
-        "selection_weighted",
-        "correctly_specified",
-        CALIBRATION_N,
-        CALIBRATION_REPLICATES,
-        "weighted",
+        (family, label, positive, *SEPARATE_SIZES[label][1:], SEPARATE_SIZES[label][0])
+        for family, (labels, positive) in SEPARATE_CALIBRATION.items()
+        for label in labels
     ),
     ("type_i_error", "sharp_null", "both_correct", NULL_N, NULL_REPLICATES, "discrete_null"),
     ("power", "alternative", "both_correct", NULL_N, NULL_REPLICATES, "discrete"),
@@ -790,9 +900,10 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 
     family = "sequential_double_robustness"
     for pattern in SDR_PATTERNS:
-        for size in SDR_SIZES:
+        for size in SDR_PATTERN_SIZES[pattern]:
             stream = f"{pattern}__n_{size}"
-            add(family, stream, "positive", "sdr_family", size, SDR_REPLICATES, stream, STATIC)
+            replicates = SDR_GATED_REPLICATES if size == SDR_GATED_N else SDR_REPLICATES
+            add(family, stream, "positive", "sdr_family", size, replicates, stream, STATIC)
     for control in CONTROLS:
         add(family, control, "control", "sdr_family", CONTROL_N, SDR_REPLICATES, "controls", STATIC)
     for size in RATE_SIZES:
@@ -824,22 +935,13 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             )
     for family, (labels, positive) in SEPARATE_CALIBRATION.items():
         for label in labels:
-            law_name = "weighted" if label == "selection_weighted" else label
+            law_name, n, replicates = SEPARATE_SIZES[label]
             for cell, role in (
                 (positive, "positive"),
                 ("shrunken_se_control", "control"),
                 ("noise_control", "control"),
             ):
-                add(
-                    family,
-                    f"{label}__{cell}",
-                    role,
-                    law_name,
-                    CALIBRATION_N,
-                    CALIBRATION_REPLICATES,
-                    label,
-                    STATIC,
-                )
+                add(family, f"{label}__{cell}", role, law_name, n, replicates, label, STATIC)
     add(
         "type_i_error",
         "static__sharp_null",
@@ -895,8 +997,12 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         stream_family="interval_calibration",
     )
     cells.extend(
-        joint_property_cells(
-            BAND_LABEL, n=PRIMARY_N, replicates=BAND_REPLICATES, seed=_seed(JOINT, BAND_LABEL, 0)
+        scale_cells(
+            BAND_LABEL,
+            n=PRIMARY_N,
+            replicates=BAND_REPLICATES,
+            seed=_seed(JOINT, BAND_STREAM, 0),
+            reporting=tuple(BAND_REPORTING),
         )
     )
     return tuple(cells)
@@ -1068,13 +1174,13 @@ def _fit_set_drawn(payload: _Payload, drawn: _Drawn) -> list[dict[str, Any]]:
 
 
 def _draw_band(payload: tuple[int, int]) -> pd.DataFrame:
-    return end_properties.sample(law.PROBS, PRIMARY_N, _seed(JOINT, BAND_LABEL, payload[0]))
+    return end_properties.sample(law.PROBS, PRIMARY_N, _seed(JOINT, BAND_STREAM, payload[0]))
 
 
 def _band_rows(payload: tuple[int, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
     replicate, requested = payload
-    result = discrete_fit(frame, regimens=BAND_REGIMENS, simultaneous=True)
-    return joint_coverage_rows(
+    result = discrete_fit(frame, regimens=BAND_REGIMENS, simultaneous=True, band=BAND_OPTIONS)
+    return scale_coverage_rows(
         result,
         {name: float(law.TRUTH[name]) for name in BAND_NAMES},
         BAND_NAMES,
@@ -1083,6 +1189,9 @@ def _band_rows(payload: tuple[int, int], frame: pd.DataFrame) -> list[dict[str, 
         n=PRIMARY_N,
         requested=requested,
         pointwise_critical=CRITICAL,
+        options=BAND_OPTIONS,
+        reporting=BAND_REPORTING,
+        alpha=STUDY.margins.alpha,
     )
 
 
@@ -1132,7 +1241,7 @@ def _cells_of(key: _Key) -> list[str]:
     """The ``family/cell`` names the key's rows and derived controls fill."""
     kind, payload = key
     if kind == "band":
-        return [f"{JOINT}/{name}" for name in joint_cells(BAND_LABEL)]
+        return [f"{JOINT}/{name}" for name in PROPERTY_CELLS[JOINT]]
     family, label, configuration, _, _, _, law_name = payload
     if family == "sequential_double_robustness":
         if configuration == "controls":
@@ -1263,7 +1372,7 @@ def _derived_arms(rows: pd.DataFrame, family: str, label: str, positive: str) ->
     noisy["cell"] = f"{label}__noise_control"
     noisy["role"] = "control"
     noisy["estimate"] += indexed_noise(
-        rng, base, label, scale=NOISE_SD[label] / np.sqrt(CALIBRATION_N)
+        rng, base, label, scale=NOISE_SD[label] / np.sqrt(SEPARATE_SIZES[label][1])
     )
     return [
         _recompute_interval_columns(shrunken, CRITICAL),
@@ -1271,18 +1380,34 @@ def _derived_arms(rows: pd.DataFrame, family: str, label: str, positive: str) ->
     ]
 
 
-def failure_probe(draws: int, *, n_jobs: int = 1, start: int = 0) -> dict[str, int]:
+def failure_probe(
+    draws: int,
+    *,
+    n_jobs: int = 1,
+    start: int = 0,
+    fit_sets: Collection[str] | None = None,
+) -> dict[str, int]:
     """Failed fits per fit set over streams ``start`` to ``start + draws - 1``.
 
     It records no estimate.  A fit set with any failure is dropped before the declared run.
+    ``fit_sets`` names the ``family/label`` keys to probe; ``None`` probes every fit set.
     """
+    chosen = [
+        fit_set
+        for fit_set in FIT_SETS
+        if fit_sets is None or f"{fit_set[0]}/{fit_set[1]}" in fit_sets
+    ]
+    if fit_sets is not None:
+        unknown = set(fit_sets) - {f"{family}/{label}" for family, label, *_ in chosen}
+        if unknown:
+            raise KeyError(f"no fit set is named {sorted(unknown)}")
     payloads = [
         ((family, label, configuration, r, n, draws, law_name),)
-        for family, label, configuration, n, _, law_name in FIT_SETS
+        for family, label, configuration, n, _, law_name in chosen
         for r in range(start, start + draws)
     ]
     outcomes = map_parallel(_probe_one, payloads, n_jobs=n_jobs)
-    counts = {f"{family}/{label}": 0 for family, label, *_ in FIT_SETS}
+    counts = {f"{family}/{label}": 0 for family, label, *_ in chosen}
     for (payload,), failed in zip(payloads, outcomes, strict=True):
         counts[f"{payload[0]}/{payload[1]}"] += int(failed)
     return counts
@@ -1313,9 +1438,9 @@ def sequential_double_robustness_verdicts(summary: pd.DataFrame) -> None:
     for pattern in SDR_PATTERNS:
         cells = {
             size: summary.index[family & (summary["cell"] == f"{pattern}__n_{size}")][0]
-            for size in SDR_SIZES
+            for size in SDR_PATTERN_SIZES[pattern]
         }
-        if pattern in {"both_correct", "P_C"}:
+        if pattern in EXACT_RATIO_PATTERNS:
             for index in cells.values():
                 summary.loc[index, "passed"] = bool(
                     summary.loc[index, "bias_equivalent"]
@@ -1323,8 +1448,8 @@ def sequential_double_robustness_verdicts(summary: pd.DataFrame) -> None:
                     and summary.loc[index, "coverage_ci_lower"] >= margins.coverage_floor
                 )
             continue
-        small, large = (summary.loc[cells[size], BIAS_BOUND_COLUMN] for size in SDR_SIZES)
-        verdict = bool(large < SDR_TOLERANCE and large < small and scaled[cells[SDR_SIZES[1]]])
+        small, large = (summary.loc[cells[size], BIAS_BOUND_COLUMN] for size in SDR_TWO_SIZES)
+        verdict = bool(large < SDR_TOLERANCE and large < small and scaled[cells[SDR_TWO_SIZES[1]]])
         for index in cells.values():
             summary.loc[index, "passed"] = verdict
     for control in CONTROLS:
@@ -1409,7 +1534,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     separate_calibration_verdicts(summary, rows)
     sequential_double_robustness_verdicts(summary)
     crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_sdr")
-    simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
+    simultaneous_coverage_verdicts(summary, margins=STUDY.margins, rows=rows, record=STUDY)
     diagnostic_rows(summary)
     return finish(summary, rates)
 
@@ -1428,15 +1553,14 @@ __all__ = [
 PROPERTY_GROUPS = {
     "sequential_double_robustness": (
         *(
-            tuple(f"{pattern}__n_{size}" for size in SDR_SIZES)
+            tuple(f"{pattern}__n_{size}" for size in SDR_TWO_SIZES)
             for pattern in SDR_PATTERNS
-            if pattern not in {"both_correct", "P_C"}
+            if pattern not in EXACT_RATIO_PATTERNS
         ),
         *(
             (f"{pattern}__n_{size}",)
-            for pattern in SDR_PATTERNS
-            if pattern in {"both_correct", "P_C"}
-            for size in SDR_SIZES
+            for pattern in EXACT_RATIO_PATTERNS
+            for size in SDR_PATTERN_SIZES[pattern]
         ),
         *((control,) for control in CONTROLS),
     )
@@ -1451,14 +1575,14 @@ def _sdr_rule() -> pf.FamilyRule:
     """``sequential_double_robustness`` (rev 3 section 5.2).
 
     ``both_correct`` and ``P_C``: S1 equivalent, S4 in the union band, S2 at the floor, each
-    row alone.  ``P_A``, ``P_B``, ``P_D``: S14 over :data:`SDR_SIZES` against
+    row alone.  ``P_A``, ``P_B``, ``P_D``: S14 over :data:`SDR_TWO_SIZES` against
     :data:`SDR_TOLERANCE` and the smaller size, and S4 of the larger size, written to both cells.
     A control: S1 beyond :data:`CONTROL_FLOOR` times its held ``empirical_se`` on the complete
     case's side, and S4.
     """
 
     def single(ctx: pf.Context, row: pd.Series) -> bool:
-        return _pattern(ctx, row) in {"both_correct", "P_C"}
+        return _pattern(ctx, row) in EXACT_RATIO_PATTERNS
 
     def control(ctx: pf.Context, row: pd.Series) -> bool:
         return str(row["cell"]) in CONTROLS
@@ -1489,9 +1613,9 @@ def _sdr_rule() -> pf.FamilyRule:
             strict=False,
         ),
     ]
-    small, large = SDR_SIZES
+    small, large = SDR_TWO_SIZES
     for pattern in SDR_PATTERNS:
-        if pattern in {"both_correct", "P_C"}:
+        if pattern in EXACT_RATIO_PATTERNS:
             continue
         applies = two_size(pattern)
         cells = (f"{pattern}__n_{small}", f"{pattern}__n_{large}")

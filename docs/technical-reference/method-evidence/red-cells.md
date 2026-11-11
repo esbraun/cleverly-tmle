@@ -123,11 +123,10 @@ The test fails on four states.
 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) | 6 | ordinary weighted end-of-study longitudinal TMLE |
 | [`RM18-comparator-density`](../../roadmap.md#red-cell-owners) | 1 | ordinary continuous modified treatment policies |
 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) | 5 | ordinary point-treatment TMLE with baseline strata |
-| [`band-finite-sample`](../../roadmap.md#red-cell-owners) | 6 | clustered cross-fitted end-of-study longitudinal TMLE, sequentially doubly robust longitudinal estimation, ordinary survival-curve longitudinal TMLE, default simultaneous bands across shipped fit shapes |
+| [`band-finite-sample`](../../roadmap.md#red-cell-owners) | 5 | clustered cross-fitted end-of-study longitudinal TMLE, ordinary survival-curve longitudinal TMLE, default simultaneous bands across shipped fit shapes |
 | [`F4-calibration-draws`](../../roadmap.md#red-cell-owners) | 2 | randomized multi-arm missing-outcome DR-TMLE |
 | [`composite-high-arm`](../../roadmap.md#red-cell-owners) | 2 | observational missing-data DR-TMLE with a composite indicator |
-| [`X4-finite-sample`](../../roadmap.md#red-cell-owners) | 1 | sequentially doubly robust longitudinal estimation |
-| [`X39-below-tail-size`](../../roadmap.md#red-cell-owners) | 1 | long-horizon sequentially doubly robust estimation |
+| [`X39-below-tail-size`](../../roadmap.md#red-cell-owners) | 2 | sequentially doubly robust longitudinal estimation, long-horizon sequentially doubly robust estimation |
 | [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) | 1 | stratified incremental and MSM targeting |
 | [`X8-identity-small-stratum`](../../roadmap.md#red-cell-owners) | 2 | identity-link MSM with baseline strata |
 | [`X8-drtmle-one-sided-bias`](../../roadmap.md#red-cell-owners) | 4 | DR-TMLE with baseline strata |
@@ -154,7 +153,7 @@ The test fails on four states.
 | [`X92-paired-conservative`](../../roadmap.md#red-cell-owners) | 1 | Targeting curves (TOC, cumulative gain, AUTOC, Qini) |
 | [`X93-upper-dose-calibration`](../../roadmap.md#red-cell-owners) | 1 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
 | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) | 2 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
-| total | 217 | 43 studies |
+| total | 216 | 43 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -245,8 +244,7 @@ same text as the "measured" column of its study page.
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | property | `interval_calibration/up_learned_density_tau2__correctly_specified` | positive | its own rule | coverage 0.9530 to 0.9747, SE ratio 1.0265 to 1.1162 | [`mtp-pricing-learned-density`](../../roadmap.md#red-cell-owners) |
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | property | `interval_calibration/up_learned_density_tau3__correctly_specified` | positive | its own rule | coverage 0.9473 to 0.9704, SE ratio 1.0493 to 1.1408 | [`mtp-pricing-learned-density`](../../roadmap.md#red-cell-owners) |
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | property | `interval_calibration/up_learned_density_tau5__correctly_specified` | positive | its own rule | coverage 0.9485 to 0.9713, SE ratio 1.0428 to 1.1323 | [`mtp-pricing-learned-density`](../../roadmap.md#red-cell-owners) |
-| [sequentially doubly robust longitudinal estimation](sequentially-doubly-robust-estimation.md) | property | `sequential_double_robustness/both_correct__n_2000` | positive | its own rule | bias 0.000011 to 0.0112, margin 0.0172, coverage 0.8853 to 0.9327, SE ratio 0.9459 | [`X4-finite-sample`](../../roadmap.md#red-cell-owners) |
-| [sequentially doubly robust longitudinal estimation](sequentially-doubly-robust-estimation.md) | property | `simultaneous_coverage/six_regimens__simultaneous_band` | positive | its own rule | joint coverage 0.9085 to 0.9394 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [sequentially doubly robust longitudinal estimation](sequentially-doubly-robust-estimation.md) | property | `sequential_double_robustness/both_correct__n_2000` | positive | its coverage floor; a reporting cell, with n below the tail size | bias 0.000011 to 0.0112, margin 0.0172, coverage 0.8853 to 0.9327, SE ratio 0.9459 | [`X39-below-tail-size`](../../roadmap.md#red-cell-owners) |
 | [longitudinal incremental propensity-score interventions under dropout](longitudinal-incremental-interventions-dropout.md) | property | `interval_calibration/competing_contrast_x2_h3__correctly_specified` | positive | its own rule | coverage 0.9491 to 0.9681, SE ratio 1.0124 to 1.0830, empirical efficiency ratio 0.9239 to 0.9884, reported efficiency ratio 1.0005 to 1.0007 | [`X19-competing-calibration`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | paired | `selected_censored_end_of_study/ey_regimen[always]` | paired | underpowered: coverage leg, calibration leg, calibration resolution | difference -0.000150 to 0.000202 within 0.0031, RMSE ratio bound 1.0162 vs 1.1000, coverage difference bound -0.0475 vs -0.0250, calibration excess bound 0.1050 vs 0.0500, resolution 0.1121 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | paired | `selected_censored_end_of_study/ey_regimen[never]` | paired | underpowered: coverage leg, calibration resolution | difference -0.000350 to 0.000263 within 0.0047, RMSE ratio bound 1.0245 vs 1.1000, coverage difference bound -0.0300 vs -0.0250, calibration excess bound 0.0465 vs 0.0500, resolution 0.0662 | [`RM18-fixed-weights`](../../roadmap.md#red-cell-owners) |

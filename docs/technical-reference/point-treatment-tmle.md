@@ -384,7 +384,7 @@ lists each refusal and its order.
 | folds | package-generated, `stratify_by="none"`, `n_folds` of at least 2, `repeats=1`, and `split_plan=None` |
 | targeting | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)`, with `targeting_scheme="pooled"` and `fold_evaluation=False` |
 | rows | unweighted iid rows, with no clusters and no baseline strata |
-| inference | pointwise influence-curve Wald intervals, and `n_bootstrap=0`. The simultaneous band is on by default. It admits every `multiplier_kind` and a custom `n_multiplier`. The registered study measures only the Rademacher default with 1,000 draws |
+| inference | pointwise influence-curve Wald intervals, and `n_bootstrap=0`. The simultaneous band is on by default. It admits every `multiplier_kind` and a custom `n_multiplier`. The registered study measures only the Rademacher default with 1,000 draws, so a band with another kind reads `experimental` while the pointwise intervals keep their label |
 
 `CrossFitting` defaults to `stratify_by="none"`, so this contract's fold policy needs no setting.
 The default estimand list of a two-arm fit includes `att` and `atc`, so a two-arm fit must name its

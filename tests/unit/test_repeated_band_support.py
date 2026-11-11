@@ -75,6 +75,36 @@ def test_the_engine_band_over_every_parameter_is_supported(frame) -> None:
     assert result.simultaneous.support.label == "supported"
 
 
+def test_a_band_on_an_unmeasured_multiplier_leaves_the_fit_supported(frame) -> None:
+    """The multiplier is not on the fit key: the estimates keep G27, and only the band moves."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = LTMLE(
+            {"never": 0, "always": 1},
+            reference="never",
+            outcome_learner=_logistic(),
+            pseudo_learner=LinearRegression(),
+            treatment_learner=_logistic(),
+            censoring_learner=_logistic(),
+            n_folds=1,
+            simultaneous=True,
+            multiplier_kind="mammen",
+            random_state=0,
+        ).fit(
+            frame,
+            outcome=Repeated([f"order_{week}" for week in WEEKS]),
+            treatment=[f"offer_{week}" for week in WEEKS],
+            baseline=["tenure", "order_0"],
+            time_varying=[[f"engaged_{week}"] for week in WEEKS],
+            censoring=[f"tracked_{week}" for week in WEEKS],
+        )
+    assert {estimate.support.row for estimate in result.estimates.values()} == {"G27"}
+    assert {estimate.support.label for estimate in result.estimates.values()} == {"supported"}
+    band = result.simultaneous.support
+    assert band.label == "experimental"
+    assert "multiplier_kind='mammen' with band_scale='identity'" in band.reason
+
+
 def test_a_band_narrowed_to_the_contrasts_is_experimental_and_says_why(frame) -> None:
     design = LongitudinalTreatment(
         outcome=Repeated([f"order_{week}" for week in WEEKS]),

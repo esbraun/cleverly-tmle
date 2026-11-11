@@ -2569,7 +2569,7 @@ def test_p38_each_type_s_legs_carry_its_label() -> None:
     rule = property_verdicts.FAMILY_RULES
     for item in rule:
         for clause in item.clauses:
-            bounded = clause.statistic in {"S2", "S3", "S7"}
+            bounded = clause.statistic in {"S2", "S3", "S7", "S7s"}
             assert (clause.imputation == property_failures.SUPPORT) is bounded, clause.name
 
 

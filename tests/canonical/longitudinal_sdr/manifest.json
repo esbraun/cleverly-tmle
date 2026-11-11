@@ -5,8 +5,8 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-sdr",
-      "cleverly_version": "0.2.1",
-      "cleverly_commit": "1510e6ff4c0435dc13cf3d6526ef16ce9c4da71b",
+      "cleverly_version": "0.2.2",
+      "cleverly_commit": "baf5a290af99e567bcade0e3dbfa5443954d7af8",
       "cleverly_worktree_clean": false,
       "python": "3.13.18",
       "numpy": "2.5.4",
@@ -146,8 +146,8 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_longitudinal_sdr.py": "7176077f90a49185955df200f82badd426dbcd1d0c990ef77c75f6a16d19196d",
-    "tests/studies/longitudinal_sdr_properties.py": "ebcc8cc3dfae2fd714f70ec90d4f2070cb04cc32743c4be887051e9460314ca9",
+    "tests/studies/canonical_longitudinal_sdr.py": "029dd5a3455bc5931629d1da31f65ff5b80cf421fc6cbd104b08d7956aacb23e",
+    "tests/studies/longitudinal_sdr_properties.py": "6e44c21189979addfbfbba79f8ff06f6714e191589080d57856b93b1778a9c5f",
     "tests/discrete_law_longitudinal_mtp.py": "e438c150f41088825916daa0fb3c3d835de2207271755ae1bdbb33f3524a87a7",
     "tests/longitudinal_mtp.py": "d202b9f3e3c956f9c017427b312cf51a13ec3071afda18f1fda8a53d0383d9a7",
     "tests/studies/canonical_crossfit_longitudinal_msm.py": "88a0b4dfca5210ba618fc725a736df63a302ce1efeb2a53a5ba38b2e708849c1",
@@ -175,7 +175,7 @@
     "tests/studies/oracle_density_bins.py": "b9a31fd237704d9cac446755171cdeb4cfa090b3dfbf2ae059cd5eaf25164c85",
     "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
     "tests/discrete_law_longitudinal.py": "34cd27260457f1f38e2636820cf9972b0a7cb6a83b5150be15c0391634bb6c6d",
-    "tests/discrete_law_longitudinal_sdr.py": "ca9c6bfc21dc7f9cc8732b93b18fab5c751a4b47d7e8096b5b85a24848ad4384",
+    "tests/discrete_law_longitudinal_sdr.py": "da11cdfe255da3206f780f7763cd0404c325bdbe4eaaf110be78a16ac0e1383e",
     "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
     "tests/discrete_law_longitudinal_policy.py": "85ec10a4276a8e4a013015698aca5172dfab3d110a4a3ef940e0beb6893a97e7",
     "tests/discrete_law_survival.py": "58b8175fb1a2757cb38fdfa3a73e333adf63b4fb08365284e223da38a4e948c8",
@@ -185,12 +185,12 @@
     "src/cleverly/datasets/longitudinal.py": "0da84c77c274c906645ee028a5d055c9eb16b18e93b63aaef5425f1e2cd7c950",
     "tests/studies/evidence/comparison.py": "30a584e78e19060d23638ff27704a969acb3f7799eca5b522dc4cfa0ec06a056",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
-    "tests/studies/evidence/performance.py": "9240d2569b567fc10e0db520a062ef6ae8e3f31814facbbe6fecc818bfccbb50",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
     "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
-    "tests/studies/evidence/property_verdicts.py": "36d494f7ca114cf955e4fcd6fe6b460a5b5f88ecf538cf2285b3dfff595bfd84",
+    "tests/studies/evidence/property_verdicts.py": "f7130e95147b06e2ab81f13704a921effb783b94a72a3e9a94050614d68f7699",
     "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
-    "tests/studies/evidence/simultaneous.py": "7162dbce520449fbb29623932caf0de0571295f0881457fab0fc1e3dfcb194f9",
+    "tests/studies/evidence/simultaneous.py": "48a76253044180a208b310a88a66a873ab8330617e2be29fdad68cd3f182f06e",
     "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
     "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
     "tests/canonical/lmtp_sdr_adapter.R": "bc3e42a2762f4e8a6eb4f1e29eb60e211da7d7675975f82511e454f316d7e608",
@@ -208,7 +208,7 @@
     "summary.csv": "b177231ac134f36a2a3446dbb4b98d843f12d7e43f28003c6416a54bb83700e1",
     "equivalence.csv": "4c4cb2cf793792afda47c1189d48887e14bd547032d280cc8c189a1ab9b00544",
     "performance-tests.csv": "fa2b897244d8d850a6a0dbb6a4ebd4af52cc2ade727e109da19509fd76f9ef6a",
-    "property-replicates.parquet": "7868833910b3aa3fd93ecd1444970db64eb56aa421f9894699ef8a8b9b5b7c2f",
-    "properties.csv": "d0a4f9b261586a4564714cb388f9ac3fd01e06b81571c6b5b7daab2605d98ba2"
+    "property-replicates.parquet": "a164150c04a29cb96d42763a5e3d9afd6a931718a9ef5badd104220d2bb38bb2",
+    "properties.csv": "9978f7b3f252dbb5f2330da39894d744da6281e792c837fbc0cb8fc6f7cc056c"
   }
 }

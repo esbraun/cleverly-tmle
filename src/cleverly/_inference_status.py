@@ -34,6 +34,7 @@ __all__ = [
     "MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS",
     "MINIMUM_T_REFERENCE_CLUSTERS",
     "NO_KNOWN_REGIME_BANDS",
+    "NO_LOGIT_RANGE_BANDS",
     "NO_SIMULTANEOUS_BANDS",
     "NO_T_REFERENCE_BANDS",
     "PARAMETER_STATUSES",
@@ -149,6 +150,16 @@ NO_KNOWN_REGIME_BANDS: Final[str] = (
     "value of a learned treatment rule and the fixed rules beside it, so the fit reports "
     "one-at-a-time intervals only. simultaneous_bands() refuses these rows and says what "
     "is missing."
+)
+
+#: The line a result summary prints when a fit with ``band_scale="logit"`` skips its band
+#: because a probability or a difference of probabilities sits on or outside its range.
+#: ``{names}`` lists them.
+NO_LOGIT_RANGE_BANDS: Final[str] = (
+    "No simultaneous bands: band_scale='logit' builds the band of a probability, or of a "
+    "difference of two probabilities, on the logit of its position in its range, and "
+    "{names} lies on or outside that range, so the fit reports one-at-a-time intervals only. "
+    "band_scale='identity' builds the band on the estimates' own scale."
 )
 
 

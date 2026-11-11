@@ -2294,6 +2294,17 @@ sizes only the cluster sum is the delta-method variance of the row mean
 - Benjamini & Hochberg (1995), [*Controlling the False Discovery Rate: A Practical and
   Powerful Approach to Multiple Testing*](https://doi.org/10.1111/j.2517-6161.1995.tb02031.x),
   DOI 10.1111/j.2517-6161.1995.tb02031.x.
+- Brown, Cai & DasGupta (2001), [*Interval Estimation for a Binomial
+  Proportion*](https://doi.org/10.1214/ss/1009213286), DOI 10.1214/ss/1009213286. The Wald
+  interval of a probability under-covers erratically at moderate counts, which is the reason for
+  `band_scale="logit"` ([the band scale](technical-reference/inference.md#the-band-scale)).
+- Mammen (1993), [*Bootstrap and Wild Bootstrap for High Dimensional Linear
+  Models*](https://doi.org/10.1214/aos/1176349025), DOI 10.1214/aos/1176349025. The two-point
+  multiplier of `multiplier_kind="mammen"`.
+- Chernozhukov, Chetverikov & Kato (2013), [*Gaussian Approximations and Multiplier Bootstrap for
+  Maxima of Sums of High-Dimensional Random Vectors*](https://doi.org/10.1214/13-AOS1161),
+  DOI 10.1214/13-AOS1161. First-order validity of the multiplier critical value of a max-$t$
+  band.
 
 ## Calibration of prediction models
 

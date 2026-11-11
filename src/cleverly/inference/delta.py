@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from functools import partial
 
 import numpy as np
 from scipy import stats
@@ -74,6 +75,18 @@ def _expit_scalar(value: float) -> float:
 
 def _logit_derivative(value: float) -> float:
     return 1.0 / (value * (1.0 - value))
+
+
+def _range_logit(value: float, low: float, high: float) -> float:
+    return float(_logit((value - low) / (high - low)))
+
+
+def _range_expit(value: float, low: float, high: float) -> float:
+    return float(low + (high - low) * expit(value))
+
+
+def _range_logit_derivative(value: float, low: float, high: float) -> float:
+    return (high - low) / ((value - low) * (high - value))
 
 
 @dataclass(frozen=True)
@@ -139,6 +152,43 @@ class Transform:
             The logit transform, for a contrast inside ``(0, 1)`` such as a probability.
         """
         return cls("logit", _logit_scalar, _expit_scalar, _logit_derivative)
+
+    @classmethod
+    def range_logit(cls, low: float, high: float) -> Transform:
+        """The logit of a value's position in the open interval ``(low, high)``.
+
+        The map is :math:`f(x) = \\operatorname{logit}((x - a) / (b - a))` with
+        :math:`(a, b)` = ``(low, high)``. On ``(0, 1)`` it is the logit. On ``(-1, 1)`` it is
+        :math:`2 \\operatorname{atanh}(x)`, so a symmetric interval on its scale is the
+        ``atanh`` interval of a difference of two probabilities.
+
+        Parameters
+        ----------
+        low : float
+            The lower end of the range.
+        high : float
+            The upper end of the range, above ``low``.
+
+        Returns
+        -------
+        Transform
+            The transform, named ``"logit"`` on ``(0, 1)`` and ``"range_logit"`` otherwise.
+
+        Raises
+        ------
+        ValueError
+            If ``high`` is not above ``low``, or either end is not finite.
+        """
+        if not (np.isfinite(low) and np.isfinite(high) and high > low):
+            raise ValueError(f"range_logit needs finite low < high; got ({low}, {high})")
+        if (low, high) == (0.0, 1.0):
+            return cls.logit()
+        return cls(
+            "range_logit",
+            partial(_range_logit, low=float(low), high=float(high)),
+            partial(_range_expit, low=float(low), high=float(high)),
+            partial(_range_logit_derivative, low=float(low), high=float(high)),
+        )
 
     def slope(self, value: float, *, step: float = 1e-6) -> float:
         """The derivative of :attr:`forward` at ``value``.

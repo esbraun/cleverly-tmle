@@ -58,7 +58,6 @@ LIMIT_OWNERS = frozenset(
         "mtp-point-calibration",
         "mtp-longitudinal-limits",
         "F1-power-design",
-        "X4-finite-sample",
         "F4-calibration-draws",
         "composite-high-arm",
         "RM18-ordinary-weighted",
@@ -710,17 +709,10 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "G23.in_sample",
         ("point",),
         LIMIT,
-        "X4-finite-sample: bias 0.000011 to 0.0112, margin 0.0172, coverage 0.8853 to 0.9327, SE ratio 0.9459",
-        "",
-    ),
-    (
-        "longitudinal-sdr",
-        "property",
-        "simultaneous_coverage/six_regimens__simultaneous_band",
-        "G23.in_sample",
-        ("band",),
-        LIMIT,
-        "band-finite-sample: joint coverage 0.9085 to 0.9394",
+        "X39-below-tail-size: the Wald interval is validated only at n of at least twice the "
+        "exact-law tail size of the quantity. At n = 2,000, below the tail size 2,326 of "
+        "ate_regimen[always vs never], coverage is 0.911; bias 0.000011 to 0.0112, SE ratio "
+        "0.9459",
         "",
     ),
     (
@@ -1516,9 +1508,9 @@ _X39: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] =
         "G46.sdr.sdr_categorical_k5",
         ("wald",),
         LIMIT,
-        "X39-below-tail-size: the Wald interval is not validated below the tail size of a quantity. "
-        "Coverage of ey_regimen[switch] at n = 72,000, below its n_kappa of 134,244, is 0.9133; "
-        "bias -0.0015 to 0.0038, SE ratio 0.9624",
+        "X39-below-tail-size: the Wald interval is validated only at n of at least twice the "
+        "exact-law tail size of the quantity. At n = 72,000, below the tail size 134,244 of "
+        "ey_regimen[switch], coverage is 0.9133; bias -0.0015 to 0.0038, SE ratio 0.9624",
         "",
     ),
 )

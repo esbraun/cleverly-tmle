@@ -20,11 +20,13 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import _support
 from cleverly._refusal import Refusal, RefusalReason
 from cleverly._support import (
+    DEFAULT_BAND_OPTION,
     RECORD_ENVIRONMENT_VARIABLE,
     Classification,
     Support,
     SupportKey,
     SupportRow,
+    band_support,
     classify_key,
     combine_support,
     point_key,
@@ -123,7 +125,6 @@ class TestPointKey:
             "fluctuation": "logistic",
             "targeting": "iterative",
             "target_weights": False,
-            "multiplier_kind": "rademacher",
         }
         assert learners["outcome"] is LinearRegression
         assert learners["treatment"] is LogisticRegression
@@ -195,12 +196,19 @@ class TestPointKey:
             {"fluctuation": "linear"},
             {"targeting": "one_step"},
             {"target_weights": True},
-            {"multiplier_kind": "mammen"},
         ):
             moved, _ = key_of(TMLE(**linear_in_sample(**overrides)), frame)
             assert moved != base, overrides
             assert len(base.differing_axes(moved)) == 1
             assert base.differing_axes(moved) == ("options",)
+
+    @pytest.mark.parametrize("kind", ["mammen", "normal"])
+    def test_the_band_multiplier_does_not_move_the_key(self, frame: Any, kind: str) -> None:
+        """Pointwise inference never reads the multiplier, so the fit keeps its row."""
+        base, learners = key_of(TMLE(**linear_in_sample()), frame)
+        moved, _ = key_of(TMLE(**linear_in_sample(multiplier_kind=kind)), frame)
+        assert moved == base
+        assert classify_key(moved, learners).row == classify_key(base, learners).row
 
     def test_the_outcome_bounds_axis(self, frame: Any) -> None:
         bounded = TMLE(**linear_in_sample(q_bounds=(-100.0, 100.0)))
@@ -344,6 +352,124 @@ class TestClassify:
         key, learners = key_of(TMLE(**linear_in_sample()), frame)
         with pytest.raises(RuntimeError, match="all match one fit"):
             classify_key(key, learners, rows=[make_row("A", key), make_row("B", key)])
+
+
+def band_row(key: SupportKey, **kwargs: Any) -> SupportRow:
+    kinds = frozenset({"point", "wald", "band", "bootstrap_band"})
+    return SupportRow("RB", key, kinds, ("study-b",), **kwargs)
+
+
+class TestBandSupport:
+    """A band option the row does not list turns the band experimental, never the fit."""
+
+    @pytest.fixture
+    def classification(self, frame: Any) -> Classification:
+        key, learners = key_of(TMLE(**linear_in_sample()), frame)
+        return classify_key(key, learners, rows=[band_row(key)])
+
+    @staticmethod
+    def supported() -> Support:
+        return Support("supported", "Row RB covers this configuration.", ("study-b",), row="RB")
+
+    def test_the_default_option_is_supported(self, classification: Classification) -> None:
+        band = band_support(classification, "influence_curve", [self.supported()])
+        assert band.label == "supported"
+        assert (
+            band_support(
+                classification, "influence_curve", [self.supported()], options=DEFAULT_BAND_OPTION
+            )
+            == band
+        )
+
+    @pytest.mark.parametrize("option", [("mammen", "identity"), ("rademacher", "logit")])
+    def test_an_unlisted_option_makes_the_band_experimental(
+        self, classification: Classification, option: tuple[str, str]
+    ) -> None:
+        band = band_support(classification, "influence_curve", [self.supported()], options=option)
+        assert band.label == "experimental"
+        assert f"multiplier_kind={option[0]!r} with band_scale={option[1]!r}" in band.reason
+        # The fit itself keeps its row and its label.
+        assert classification.label == "supported"
+
+    def test_a_listed_option_is_supported(self, frame: Any) -> None:
+        key, learners = key_of(TMLE(**linear_in_sample()), frame)
+        row = band_row(key, band_options=(DEFAULT_BAND_OPTION, ("mammen", "logit")))
+        classification = classify_key(key, learners, rows=[row])
+        band = band_support(
+            classification, "influence_curve", [self.supported()], options=("mammen", "logit")
+        )
+        assert band.label == "supported"
+
+    def test_an_option_shortfall_reads_for_that_option_alone(self, frame: Any) -> None:
+        key, learners = key_of(TMLE(**linear_in_sample()), frame)
+        sentence = "Row RB is red for the default band: joint coverage 0.91 to 0.94."
+        row = band_row(
+            key,
+            band_options=(DEFAULT_BAND_OPTION, ("mammen", "logit")),
+            band_option_shortfalls=((DEFAULT_BAND_OPTION, sentence),),
+        )
+        classification = classify_key(key, learners, rows=[row])
+        shipped = band_support(classification, "influence_curve", [self.supported()])
+        assert shipped.label == "experimental"
+        assert sentence in shipped.reason
+        other = band_support(
+            classification, "influence_curve", [self.supported()], options=("mammen", "logit")
+        )
+        assert other.label == "supported"
+
+    def test_the_bootstrap_band_reads_no_multiplier(self, classification: Classification) -> None:
+        band = band_support(
+            classification,
+            "influence_curve",
+            [self.supported()],
+            kind="bootstrap_band",
+            options=("normal", "identity"),
+        )
+        assert band.label == "supported"
+
+    def test_the_sdr_row_lists_the_option_its_redeclared_cell_measures(self) -> None:
+        from cleverly._support_rows import LONGITUDINAL_ROWS, SDR_MEASURED_BAND_OPTION
+
+        rows = {row.id: row for row in LONGITUDINAL_ROWS}
+        assert rows["G23.cross_fitted"].band_options == (
+            DEFAULT_BAND_OPTION,
+            SDR_MEASURED_BAND_OPTION,
+        )
+        assert SDR_MEASURED_BAND_OPTION == ("mammen", "logit")
+        others = [row for row in rows.values() if row.id != "G23.cross_fitted"]
+        assert {row.band_options for row in others} == {(DEFAULT_BAND_OPTION,)}
+        row = rows["G23.cross_fitted"]
+        classification = Classification(row.key, {}, row)
+        support = _support.support_for(classification, "influence_curve")
+        mammen = band_support(
+            classification,
+            "influence_curve",
+            [support],
+            options=SDR_MEASURED_BAND_OPTION,
+            draws=10_000,
+        )
+        normal = band_support(
+            classification, "influence_curve", [support], options=("normal", "identity")
+        )
+        assert mammen.label == "supported"
+        assert normal.label == "experimental"
+        # The cell measured 10,000 draws; fewer, or an unstated count, is experimental.
+        for draws in (2_000, None):
+            fewer = band_support(
+                classification,
+                "influence_curve",
+                [support],
+                options=SDR_MEASURED_BAND_OPTION,
+                draws=draws,
+            )
+            assert fewer.label == "experimental"
+            assert "10,000 multiplier draws" in str(fewer.reason)
+
+    def test_a_row_without_the_band_gives_one_reason(self, frame: Any) -> None:
+        key, learners = key_of(TMLE(**linear_in_sample()), frame)
+        classification = classify_key(key, learners, rows=[make_row("R1", key)])
+        band = band_support(classification, "influence_curve", [], options=("normal", "identity"))
+        assert band.reason == "Row R1 licenses no simultaneous band for this estimate."
 
 
 class TestRecordSwitch:

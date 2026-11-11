@@ -279,7 +279,7 @@ class TestLongitudinalControls:
             ("G01", "family", frozenset({"end_of_study", "regimens", "mtp"})),
             ("G01", "family", frozenset({"survival", "regimens", "static"})),
             ("G21", "qualifiers", frozenset({"A1", "A2"})),
-            ("G28.d2.ipw.hajek", "options", (("multiplier_kind", "rademacher"),)),
+            ("G28.d2.ipw.hajek", "options", (("normalization", "hajek"),)),
             ("G10.continuous", "treatment", ("continuous", "2")),
             ("G35.density", "treatment", ("continuous", "continuous")),
             ("G36.classifier", "treatment", ("mixed", "mixed")),
