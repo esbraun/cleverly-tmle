@@ -659,7 +659,7 @@ refusal raise before any learner.
 | trigger | type and code | message, or what is missing |
 | --- | --- | --- |
 | a `Separable` on `SDR`, `IPSI`, the sequential estimators, or `LTMLE(survival_model="iterated_mean")` | `CapabilityError`, `api_redirection` | the separable target needs the cause-specific hazards at two levels, which only `LTMLE(survival_model="hazard")` fits |
-| `targeting="iterative"` | `api_redirection` | the per-horizon algorithm has no factor-wise form; set `targeting="one_step"` |
+| `targeting="iterative"` | `api_redirection` | the per-horizon algorithm restarts at each horizon and does not target the two factors apart; set `targeting="one_step"` |
 | `stopping=` other than `"relative"`, `iterate="best"`, `n_bootstrap=`, `node_bounds=` | `implementation_gap`, [X91](../roadmap.md#x91-survival-targets-across-the-estimators) | the factor-wise targeting has no form of these yet |
 | a learned regimen or a marginal structural model in the same fit | `implementation_gap` | fit the separable regimens in their own fit |
 | a rule, a stochastic policy, a shift or a tilt beside a `Separable` | `implementation_gap` | the factor-wise targeting reads every arm as one level of the baseline treatment |

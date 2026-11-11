@@ -174,8 +174,10 @@ class TestTheConvergence:
                 "converged": 1,
                 "failure": "",
                 "relative_score": rows["relative_score"].iloc[0],
+                "phase": rows["phase"].iloc[0],
             }
         ]
+        assert set(rows["phase"].iloc[0].split(",")) == {"walk"}
 
     def test_the_property_summary_counts_unconverged_fits(self) -> None:
         rows = pd.DataFrame(

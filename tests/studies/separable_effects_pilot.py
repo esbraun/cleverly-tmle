@@ -73,7 +73,7 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             result = properties.robustness_fit(frame, cell) if cell else study.fit(frame, scenario)
-            converged, failure, score = study.convergence(result)
+            converged, failure, score, phase = study.convergence(result)
             rows = []
             for name in ROWS_OF.get(label, study.ESTIMANDS[scenario]):
                 estimate = result[name]
@@ -92,6 +92,7 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
                         "converged": int(converged),
                         "failure": failure,
                         "relative_score": score,
+                        "phase": phase,
                         "refusal": "",
                     }
                 )

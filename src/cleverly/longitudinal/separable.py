@@ -46,8 +46,24 @@ hazards are (design section 2a).  The shipped softmax fluctuation of
 why separable fits target here.  The targeting is the one-step walk of
 :func:`~cleverly.longitudinal.hazard.walk_curve` (Rytgaard and van der Laan 2024, Section 3.4)
 over the :math:`2M` factor scores.  When the walk's relative score stops halving over
-``_STALL`` steps, Newton steps on the same factor-wise submodel at the current covariates
-finish it, and the state with the smallest relative score is reported.
+``_STALL`` steps, the classical iterative TMLE takes over: the covariates are frozen, each
+factor's fluctuation coefficients are fitted by maximum likelihood on that factor's rows, the
+state moves, and the covariates are recomputed.  If that stops short, Newton steps on the full
+Jacobian of the factor scores, whose covariates move with the state, finish it.  Every phase
+moves each factor only along its own covariates at its own level, and the state with the
+smallest relative score is reported.
+
+The fallbacks matter for cross-fitted saturated learners.  When the targets that move a factor
+at a level span most of its cells in every fold, the score equations move those cells toward
+their own fold's empirical hazard: the root lies far from the cross-fitted start, by up to two
+logits in small cells.  The walk's fixed-length steps crawl over that distance.  A full Newton
+step at frozen covariates overshoots there, because it ignores how the covariates change with
+the state; the exact fluctuation fit of the iterative TMLE is damped by its own likelihood and
+does not.  Nearly collinear targets leave the iterative TMLE with a residual that only the full
+Jacobian's small directions solve.  Where scores have more than one root, the reported one
+depends on this path.  When the rows of a cell hold no event of a factor, the score of that
+cell is solved only at a hazard of zero, outside the bound set by ``alpha``: the fit then stops
+with ``failure="cell_separated"``, as separation stops a logistic fit.
 """
 
 from __future__ import annotations
@@ -63,6 +79,7 @@ from .._typing import BoolArray, FloatArray, IntArray
 from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, ConvergenceWarning, DataError, RefusalReason
 from ..fluctuation._score import relative_score
+from ..fluctuation.iterative import TargetingFailure
 from .data import LongitudinalData
 from .hazard import SIGMA_FLOOR, HazardFit, event_indicators
 from .regimen import Plan, Regimen, Separable
@@ -91,10 +108,25 @@ FACTORS = ("competing", "event")
 #: The shortest step before the walk gives up, as in the shipped hazard walk.
 _MIN_STEP = 1e-14
 #: Accepted walk steps over which the relative score must halve; otherwise the walk hands
-#: over to Newton steps on the factor-wise submodel.
+#: over to the iterative TMLE.
 _STALL = 50
-#: Newton steps without a new lowest relative score before the walk stops.
-_NEWTON_PATIENCE = 6
+#: Steps of each fallback phase without a lower relative score, by at least the share
+#: below, before the phase stops.
+_PATIENCE = 6
+#: The share of the best relative score a step must reach to count as progress.
+_PROGRESS = 0.9
+#: The most steps of the iterative TMLE and of the Newton steps on the full score Jacobian.
+_ITERATIVE_STEPS = 30
+_JACOBIAN_STEPS = 20
+#: The central-difference length of the full score Jacobian, per unit coefficient.
+_JACOBIAN_STEP = 1e-6
+#: The logit distance from the clip within which a row counts as heading for it.
+_BOUND_MARGIN = 1.0
+#: The share of the score norm that rows heading for the clip must carry for a stopped fit
+#: to read ``cell_separated``.
+_BOUND_SHARE = 0.5
+#: Newton-Raphson iterations of one factor's fluctuation fit at frozen covariates.
+_FIT_ITERATIONS = 100
 
 
 @dataclass(frozen=True)
@@ -694,47 +726,175 @@ def walk_loss(state: SeparableState, inputs: SeparableInputs) -> float:
     return -float(total)
 
 
-def _newton_direction(
+def _factor_fit(
+    state: SeparableState,
+    inputs: SeparableInputs,
+    targets: Sequence[SeparableTarget],
+    factor: int,
+    covariates: Sequence[tuple[FloatArray, FloatArray, FloatArray]],
+) -> FloatArray:
+    """The ``(n, T, L)`` increment of one factor's logits from its fluctuation fit at frozen
+    covariates.
+
+    With the covariates of ``state`` frozen, the factor's coefficients enter its binomial
+    log-likelihood as a logistic regression with the current logits as offset, one column per
+    target.  The likelihood is concave in the coefficients, so Newton-Raphson with step halving
+    reaches its maximum; duplicate or zero columns are resolved by the minimum-norm least-squares
+    step.  A logit at the clip contributes no gradient.  This is one step of the classical
+    iterative TMLE (van der Laan and Rubin 2006).
+    """
+    rows, observed = inputs.rows, inputs.observed
+    beta = state.beta_d if factor == 0 else state.beta_y
+    events = inputs.event_d if factor == 0 else inputs.event_y
+    factor_rows = inputs.rows_d() if factor == 0 else inputs.rows_y()
+    offset = beta[rows, :, observed]
+    used = factor_rows & np.isfinite(offset) & (inputs.weights != 0.0)[:, None]
+    offset = np.where(used, offset, 0.0)
+    weight = np.where(used, inputs.weights[:, None], 0.0)
+    design = np.stack(
+        [
+            np.where((observed == target.levels[factor])[:, None], covariates[m][factor], 0.0)
+            for m, target in enumerate(targets)
+        ]
+    )  # (M, n, T)
+    flat = design.reshape(len(targets), -1)
+    low, high = inputs.bounds
+
+    def logits(coefficients: FloatArray) -> FloatArray:
+        return np.asarray(offset + np.tensordot(coefficients, design, axes=1), dtype=float)
+
+    def loss(coefficients: FloatArray) -> float:
+        p = expit(np.clip(logits(coefficients), low, high))
+        return -float(np.sum(weight * (xlogy(events, p) + xlogy(1.0 - events, 1.0 - p))))
+
+    coefficients = np.zeros(len(targets))
+    current = loss(coefficients)
+    for _ in range(_FIT_ITERATIONS):
+        eta = logits(coefficients)
+        free = (eta > low) & (eta < high)
+        p = expit(np.clip(eta, low, high))
+        gradient = flat @ np.where(free, weight * (events - p), 0.0).reshape(-1)
+        curvature = np.where(free, weight * p * (1.0 - p), 0.0).reshape(-1)
+        information = (flat * curvature) @ flat.T
+        step = np.linalg.lstsq(information, gradient, rcond=1e-13)[0]
+        length = 1.0
+        trial = loss(coefficients + step)
+        while trial > current and length > _MIN_STEP:
+            length *= 0.5
+            trial = loss(coefficients + length * step)
+        if trial > current:
+            break
+        coefficients = coefficients + length * step
+        decrease, current = current - trial, trial
+        if decrease <= 1e-14 * max(1.0, abs(current)):
+            break
+    delta = np.zeros_like(beta)
+    for m, target in enumerate(targets):
+        delta[:, :, target.levels[factor]] += coefficients[m] * covariates[m][factor]
+    return delta
+
+
+def _iterative_direction(
     state: SeparableState,
     inputs: SeparableInputs,
     targets: Sequence[SeparableTarget],
     score: FloatArray,
 ) -> tuple[FloatArray, FloatArray]:
-    """The Newton increments of both factor logits on the factor-wise logistic submodel at
-    fixed covariates.
+    """The increments of both factor logits from their fluctuation fits at frozen covariates.
 
-    With the covariates of ``state`` held fixed, each factor's coefficients enter its
-    log-likelihood as a logistic regression offset by the current logits, so the step is
-    the least-squares solution of ``I c = s`` for that factor's information matrix ``I`` and
-    scores ``s``.  The two factors' blocks are separate, because a coefficient of one factor
-    does not move the other factor's likelihood.  The covariates move with the state, so a
-    full step can raise the score while the next lowers it; the caller takes full steps and
-    keeps the best state.
+    The two factors' fits are separate, because a coefficient of one factor does not move the
+    other factor's likelihood.
     """
-    rows, observed = inputs.rows, inputs.observed
-    weight = inputs.weights[:, None]
-    blocks = (
-        (0, inputs.rows_d(), state.lam_d[rows, :, observed]),
-        (1, inputs.rows_y(), state.h_y[rows, :, observed]),
-    )
     covariates = [_covariates(state, inputs, target) for target in targets]
-    delta_d = np.zeros_like(state.lam_d)
-    delta_y = np.zeros_like(state.h_y)
-    for j, factor_rows, p in blocks:
-        curvature = np.where(factor_rows, weight * p * (1.0 - p), 0.0)
-        design = np.stack(
-            [
-                np.where((observed == target.levels[j])[:, None], covariates[m][j], 0.0)
-                for m, target in enumerate(targets)
-            ]
-        )  # (M, n, T)
-        flat = design.reshape(len(targets), -1)
-        information = (flat * curvature.reshape(-1)) @ flat.T / inputs.n
-        coefficients = np.linalg.lstsq(information, score[j::2], rcond=1e-12)[0]
-        delta = delta_d if j == 0 else delta_y
-        for m, target in enumerate(targets):
-            delta[:, :, target.levels[j]] += coefficients[m] * covariates[m][j]
-    return delta_d, delta_y
+    return (
+        _factor_fit(state, inputs, targets, 0, covariates),
+        _factor_fit(state, inputs, targets, 1, covariates),
+    )
+
+
+def _jacobian_direction(
+    state: SeparableState,
+    inputs: SeparableInputs,
+    targets: Sequence[SeparableTarget],
+    score: FloatArray,
+) -> tuple[FloatArray, FloatArray]:
+    """The Newton increments on the full score Jacobian, with the covariates moving.
+
+    Each of the ``2M`` coefficients moves its own factor along its own covariate at its own
+    level, the change of all ``2M`` scores is read by a central difference, and the step is the
+    minimum-norm least-squares solution of ``J c = -s``.  A central difference is accurate to
+    about the square of its length, which is what lets the solve keep the Jacobian's directions
+    down to ``rcond = 1e-10``; nearly collinear targets put the root along them.  It costs
+    ``4M`` score evaluations, so the walk calls it only after the iterative TMLE stops short.
+    """
+    covariates = [_covariates(state, inputs, target) for target in targets]
+    directions: list[tuple[int, int]] = [
+        (m, factor) for m in range(len(targets)) for factor in (0, 1)
+    ]
+
+    def increments(weights: FloatArray) -> tuple[FloatArray, FloatArray]:
+        delta_d = np.zeros_like(state.lam_d)
+        delta_y = np.zeros_like(state.h_y)
+        for weight, (m, factor) in zip(weights, directions, strict=True):
+            if weight != 0.0:
+                level = targets[m].levels[factor]
+                (delta_d if factor == 0 else delta_y)[:, :, level] += weight * covariates[m][factor]
+        return delta_d, delta_y
+
+    jacobian = np.empty((score.size, len(directions)))
+    for k in range(len(directions)):
+        unit = np.zeros(len(directions))
+        unit[k] = _JACOBIAN_STEP
+        up = scores(state.moved(*increments(unit), inputs.bounds), inputs, targets)[0]
+        down = scores(state.moved(*increments(-unit), inputs.bounds), inputs, targets)[0]
+        jacobian[:, k] = (up - down) / (2.0 * _JACOBIAN_STEP)
+    coefficients = np.linalg.lstsq(jacobian, -score, rcond=1e-10)[0]
+    return increments(coefficients)
+
+
+def _separated(
+    state: SeparableState,
+    inputs: SeparableInputs,
+    targets: Sequence[SeparableTarget],
+    sigma: FloatArray,
+) -> bool:
+    """Whether rows heading for the clip carry most of the remaining score.
+
+    A row heads for the clip when its factor logit at its observed level lies within
+    :data:`_BOUND_MARGIN` of the lower clip with no event, or of the upper clip with an event:
+    its residual pushes the logit further out, and the score it leaves is solved only at a
+    hazard of zero or one.  The fit reads ``cell_separated`` when removing those rows'
+    residuals takes at least :data:`_BOUND_SHARE` of the score's :math:`\\Sigma`-norm.
+    """
+    low, high = inputs.bounds
+    rows, observed = inputs.rows, inputs.observed
+
+    def heading(beta: FloatArray, events: FloatArray, factor_rows: BoolArray) -> BoolArray:
+        logit_at = beta[rows, :, observed]
+        finite = np.isfinite(logit_at) & factor_rows
+        lower = finite & (logit_at <= low + _BOUND_MARGIN) & (events == 0.0)
+        upper = finite & (logit_at >= high - _BOUND_MARGIN) & (events == 1.0)
+        return np.asarray(lower | upper, dtype=bool)
+
+    near_d = heading(state.beta_d, inputs.event_d, inputs.rows_d())
+    near_y = heading(state.beta_y, inputs.event_y, inputs.rows_y())
+    if not (near_d.any() or near_y.any()):
+        return False
+    score, _ = scores(state, inputs, targets)
+    residual_d, residual_y = _residuals(state, inputs)
+    rest = np.zeros_like(score)
+    for m, target in enumerate(targets):
+        h_d, h_y, _ = _covariates(state, inputs, target)
+        a_d, a_y = target.levels
+        at_d = (observed == a_d)[:, None] & ~near_d
+        at_y = (observed == a_y)[:, None] & ~near_y
+        rest[2 * m] = np.mean(inputs.weights * np.where(at_d, h_d * residual_d, 0.0).sum(axis=1))
+        rest[2 * m + 1] = np.mean(
+            inputs.weights * np.where(at_y, h_y * residual_y, 0.0).sum(axis=1)
+        )
+    total = float(np.sqrt(np.sum(score**2 / sigma)))
+    remaining = float(np.sqrt(np.sum(rest**2 / sigma)))
+    return remaining <= (1.0 - _BOUND_SHARE) * total
 
 
 def walk_separable(
@@ -810,39 +970,69 @@ def walk_separable(
         losses.append(walk_loss(state, inputs))
         if steps >= _STALL and trace[-1] > 0.5 * trace[-1 - _STALL]:
             break
-    # Iterated Newton steps on the factor-wise submodel at the current covariates, the
-    # classical iterative TMLE.  The covariates move with the state, so one step can raise
-    # the score while two lower it; the walk keeps the best state and stops when the best
-    # has not improved for a few steps.
+    # The fallbacks, each from the best state so far: the classical iterative TMLE, then Newton
+    # steps on the full score Jacobian.  Both take full steps, because a step that raises the
+    # score can lead to the root; each keeps the best state and stops after a few steps
+    # without a new best.  The record describes the reported (best) state, so the steps of an
+    # abandoned tail are dropped.
     best = (trace[-1], state, score, scale, norm)
     best_steps = steps
-    since = 0
-    newton = False
-    while trace[-1] > tol and steps < max_steps and norm > 0.0 and since < _NEWTON_PATIENCE:
-        newton = True
-        delta_d, delta_y = _newton_direction(state, inputs, targets, score)
-        state = state.moved(delta_d, delta_y, bounds)
-        score, scale = scores(state, inputs, targets)
-        norm = float(np.sqrt(np.sum(score**2 / sigma)))
-        steps += 1
-        trace.append(relative_score(score, scale))
-        norms.append(norm)
-        losses.append(walk_loss(state, inputs))
-        if trace[-1] < best[0]:
-            best, best_steps, since = (trace[-1], state, score, scale, norm), steps, 0
-        else:
-            since += 1
-    # The record describes the reported (best) state: steps after it are dropped.
+    phase = "walk"
+    fallback = False
+    for name, direction, cap in (
+        ("iterative", _iterative_direction, _ITERATIVE_STEPS),
+        ("jacobian", _jacobian_direction, _JACOBIAN_STEPS),
+    ):
+        if best[0] <= tol or steps >= max_steps or best[4] <= 0.0:
+            break
+        if fallback and _separated(best[1], inputs, targets, sigma):
+            break
+        fallback = True
+        _, state, score, scale, norm = best
+        steps = best_steps
+        del trace[steps + 1 :], norms[steps + 1 :], losses[steps + 1 :]
+        mark, since, taken = best[0], 0, 0
+        while best[0] > tol and steps < max_steps and since < _PATIENCE and taken < cap:
+            delta_d, delta_y = direction(state, inputs, targets, score)
+            state = state.moved(delta_d, delta_y, bounds)
+            score, scale = scores(state, inputs, targets)
+            norm = float(np.sqrt(np.sum(score**2 / sigma)))
+            steps += 1
+            taken += 1
+            trace.append(relative_score(score, scale))
+            norms.append(norm)
+            losses.append(walk_loss(state, inputs))
+            if trace[-1] < best[0]:
+                best, best_steps, phase = (trace[-1], state, score, scale, norm), steps, name
+            if trace[-1] < _PROGRESS * mark:
+                mark, since = trace[-1], 0
+            else:
+                since += 1
     _, state, score, scale, norm = best
     steps = best_steps
     del trace[steps + 1 :], norms[steps + 1 :], losses[steps + 1 :]
     relative = relative_score(score, scale)
     converged = bool(relative <= tol)
-    if not converged and warn:
+    failure: TargetingFailure | None = None
+    if not converged:
+        if steps >= max_steps:
+            failure = "max_iter_reached"
+        elif not fallback:
+            failure = "line_search_exhausted"
+        elif _separated(state, inputs, targets, sigma):
+            failure = "cell_separated"
+        else:
+            failure = "newton_stalled"
+    if failure is not None and warn:
+        advice = (
+            "A hazard the targets move can solve its score only at zero or one, as when one "
+            "fold's cell holds no event of a cause; the bound set by alpha stops it"
+            if failure == "cell_separated"
+            else "Try a smaller step_size, or check result.diagnostics for a positivity problem"
+        )
         _warn(
             f"one-step separable targeting stopped after {steps} step(s) with a relative score "
-            f"of {relative:.3g} > {tol:g}. Try a smaller step_size, or check "
-            "result.diagnostics for a positivity problem",
+            f"of {relative:.3g} > {tol:g}. {advice}",
             ConvergenceWarning,
             stacklevel=3,
         )
@@ -864,14 +1054,9 @@ def walk_separable(
         sigma=sigma,
         norm_trace=tuple(norms),
         walk_loss_trace=tuple(losses),
-        failure=None
-        if converged
-        else "max_iter_reached"
-        if steps >= max_steps
-        else "newton_stalled"
-        if newton
-        else "line_search_exhausted",
+        failure=failure,
         tol=tol,
+        phase=phase,
     )
 
 

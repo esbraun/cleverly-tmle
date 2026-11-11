@@ -247,14 +247,18 @@ def _shifts() -> tuple[np.ndarray, np.ndarray]:
     return _shift(w, 3, (1.0, -1.0, 0.5)), _shift(w, 3, (0.8, 1.0, -1.0))
 
 
-#: The two phases of the targeting: the walk alone, and Newton steps from the start (the
-#: handover forced at once), so each robustness witness checks both.
-PHASES = pytest.mark.parametrize("phase", ["walk", "newton"])
+#: The three phases of the targeting: the walk alone, the iterative TMLE from the start (the
+#: handover forced at once), and Newton steps on the full score Jacobian from the start (the
+#: iterative TMLE skipped too), so each robustness witness checks every phase.
+FALLBACKS = ["iterative", "jacobian"]
+PHASES = pytest.mark.parametrize("phase", ["walk", *FALLBACKS])
 
 
 def _phase(monkeypatch: pytest.MonkeyPatch, phase: str) -> None:
-    if phase == "newton":
+    if phase in FALLBACKS:
         monkeypatch.setattr(separable_module, "_STALL", 0)
+    if phase == "jacobian":
+        monkeypatch.setattr(separable_module, "_ITERATIVE_STEPS", 0)
 
 
 @PHASES
@@ -290,9 +294,12 @@ def test_both_hazards_wrong_miss_the_truth(monkeypatch: pytest.MonkeyPatch, phas
     assert abs(bias) > FLOOR
 
 
-def test_the_newton_record_describes_the_reported_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    """After Newton steps the trace ends at the reported state and counts its steps."""
-    monkeypatch.setattr(separable_module, "_STALL", 0)
+@pytest.mark.parametrize("phase", FALLBACKS)
+def test_a_fallback_record_describes_the_reported_state(
+    monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
+    """After a fallback phase the trace ends at the reported state and counts its steps."""
+    _phase(monkeypatch, phase)
     _, inputs, exact = _engine()
     shift_d, _ = _shifts()
     start = SeparableState(exact.beta_d + shift_d, exact.beta_y)
@@ -301,6 +308,93 @@ def test_the_newton_record_describes_the_reported_state(monkeypatch: pytest.Monk
     assert record.trace[-1] == pytest.approx(relative_score(score, scale), rel=1e-12)
     assert len(record.trace) == record.n_iter + 1
     assert record.converged and record.failure is None
+
+
+@PHASES
+def test_every_phase_moves_each_factor_only_at_its_own_level(
+    monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
+    """The target reads lambda_D at a_D = 0 and h_Y at a_Y = 1: every phase moves those two
+    factors (the nonzero witness) and leaves lambda_D at levels 1 and 2 and h_Y at levels 0 and
+    2 exactly where they started, so the reported state lies in the factor-wise submodel."""
+    _phase(monkeypatch, phase)
+    _, inputs, exact = _engine()
+    shift_d, shift_y = _shifts()
+    start = SeparableState(exact.beta_d + shift_d, exact.beta_y + shift_y)
+    targeted, record = walk_separable(start, inputs, TARGET, step_size=0.05, tol=1e-12)
+    assert record.converged
+    assert np.max(np.abs(targeted.beta_d[:, :, 0] - start.beta_d[:, :, 0])) > 1e-3
+    assert np.max(np.abs(targeted.beta_y[:, :, 1] - start.beta_y[:, :, 1])) > 1e-3
+    np.testing.assert_array_equal(targeted.beta_d[:, :, 1:], start.beta_d[:, :, 1:])
+    np.testing.assert_array_equal(targeted.beta_y[:, :, [0, 2]], start.beta_y[:, :, [0, 2]])
+
+
+@pytest.mark.parametrize("phase", FALLBACKS)
+def test_the_fallbacks_read_observation_weights_as_duplicated_rows(
+    monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
+    """A weight of two on the units at level 1 targets as those units listed twice, through
+    each fallback: the iterative TMLE is the first code to fit a likelihood with the weights.
+
+    The walk is held in place, so both fallbacks start from the same state: its fixed
+    :math:`\\Sigma` reads the weights as sampling weights, which the duplicated panel does not.
+    """
+    _phase(monkeypatch, phase)
+
+    def still(state: SeparableState, *_: object) -> tuple[np.ndarray, np.ndarray]:
+        return np.zeros_like(state.beta_d), np.zeros_like(state.beta_y)
+
+    monkeypatch.setattr(separable_module, "separable_direction", still)
+    _, inputs, exact = _engine()
+    shift_d, shift_y = _shifts()
+    start = SeparableState(exact.beta_d + shift_d, exact.beta_y + shift_y)
+    twice = np.flatnonzero(inputs.observed == 1)
+    weights = np.where(inputs.observed == 1, 2.0, 1.0)
+    weighted = replace(inputs, weights=weights / weights.mean())
+    order = np.concatenate([np.arange(inputs.n), twice])
+    duplicated = replace(
+        inputs,
+        at_risk=inputs.at_risk[order],
+        event_d=inputs.event_d[order],
+        event_y=inputs.event_y[order],
+        observed=inputs.observed[order],
+        inverse=inputs.inverse[order],
+        weights=np.ones(order.size),
+    )
+    start_twice = SeparableState(start.beta_d[order], start.beta_y[order])
+    one, record_one = walk_separable(start, weighted, TARGET, step_size=0.05, tol=1e-10)
+    two, record_two = walk_separable(start_twice, duplicated, TARGET, step_size=0.05, tol=1e-10)
+    assert record_one.converged and record_two.converged
+    assert record_one.phase == record_two.phase == phase
+    assert influence(one, weighted, TARGET)[0][0] == pytest.approx(
+        influence(two, duplicated, TARGET)[0][0], abs=1e-10
+    )
+
+
+@pytest.mark.parametrize("phase", FALLBACKS)
+def test_a_held_cell_stays_held_through_the_fallbacks(
+    monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
+    """With no death at the last node at level 0, that cell is held at a hazard of zero: each
+    fallback leaves it there and still converges."""
+    _phase(monkeypatch, phase)
+    _, inputs, exact = _engine()
+    event_d = inputs.event_d.copy()
+    event_d[inputs.observed == 0, 2] = 0.0
+    emptied = replace(inputs, event_d=event_d)
+    none = np.zeros((3, 3), dtype=bool)
+    empty_d = none.copy()
+    empty_d[2, 0] = True
+    hazards = np.stack([exact.h_y * (1.0 - exact.lam_d), exact.lam_d], axis=3)
+    held = SeparableState.from_hazards(
+        hazards, DEATH - 1, emptied.bounds, (empty_d, none, none, none)
+    )
+    shift_d, shift_y = _shifts()
+    start = SeparableState(held.beta_d + shift_d, held.beta_y + shift_y)
+    targeted, record = walk_separable(start, emptied, TARGET, step_size=0.05, tol=1e-12)
+    assert record.converged
+    assert record.phase == phase
+    assert np.all(np.isneginf(targeted.beta_d[:, 2, 0]))
 
 
 def test_one_coefficient_shared_by_both_factors_loses_the_robustness() -> None:
@@ -548,20 +642,163 @@ def test_the_summary_names_both_components_and_the_order(fit: Any) -> None:
     assert "death counted first within a time step" in text
 
 
-def test_a_cross_fitted_separable_fit_solves_every_factor_score() -> None:
-    """From a cross-fitted start the walk hands over to Newton steps and still converges.
+def _captured(fit: Any) -> tuple[Any, dict[str, Any]]:
+    """Run ``fit()`` and keep the inputs of its one call to :func:`walk_separable`."""
+    captured: dict[str, Any] = {}
+    original = separable_module.walk_separable
 
-    The fold split is seeded.  Convergence from a cross-fitted start is not guaranteed: on a
-    few splits the out-of-fold start leaves a score along nearly redundant target directions
-    and the Newton steps stall short of ``tol`` (split 163 stops near 1e-4; the
-    separable-effects study declares the same 2% at n = 16,000).  An unseeded split drew such
-    a start on CI.  Split 0 converges in 59 steps, as do splits 0 to 59.
-    """
-    result = _fit(n_folds=2, random_state=0)
+    def recording(start: Any, inputs: Any, targets: Any, **settings: Any) -> Any:
+        captured.update(start=start, inputs=inputs, targets=targets, settings=settings)
+        return original(start, inputs, targets, **settings)
+
+    separable_module.walk_separable = recording  # type: ignore[assignment]
+    try:
+        result = fit()
+    finally:
+        separable_module.walk_separable = original  # type: ignore[assignment]
+    return result, captured
+
+
+def _rewalk(captured: dict[str, Any]) -> Any:
+    """The record of the captured walk, rerun under the module's current constants."""
+    _, record = walk_separable(
+        captured["start"],
+        captured["inputs"],
+        captured["targets"],
+        **{**captured["settings"], "warn": False},
+    )
+    return record
+
+
+def _solved(result: Any) -> Any:
     record = result.fits[next(iter(result.fits))].hazard
     assert record.converged
     assert record.tol == pytest.approx(1e-10)
     assert relative_score(record.score, record.score_scale) <= record.tol
+    return record
+
+
+def test_a_cross_fitted_separable_fit_solves_every_factor_score() -> None:
+    """From a cross-fitted start the walk hands over to the fallbacks and converges.
+
+    The fold split is seeded, so the start is the same on every run.  Split 0 converges in
+    the iterative TMLE; the two tests below cover the splits that need each fallback.
+    """
+    _solved(_fit(n_folds=2, random_state=0))
+
+
+#: A two-fold split of the exact law whose nearly collinear targets leave the iterative TMLE
+#: short of ``tol`` (near 7e-5); Newton steps on the full score Jacobian finish it.
+COLLINEAR_SPLIT = 163
+
+
+def test_nearly_collinear_targets_converge_through_the_jacobian_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Split 163 converges, and the mutation control without the Jacobian steps stalls."""
+    result, captured = _captured(lambda: _fit(n_folds=2, random_state=COLLINEAR_SPLIT))
+    _solved(result)
+    monkeypatch.setattr(separable_module, "_JACOBIAN_STEPS", 0)
+    record = _rewalk(captured)
+    assert not record.converged
+    assert record.failure == "newton_stalled"
+
+
+#: A primary draw of the ``separable-effects`` study whose 12 targets per factor and level
+#: saturate that factor's 12 cells across the two folds: solving the scores swaps the folds'
+#: cell hazards, which the walk and the Jacobian steps cannot reach (both stall near 1e-3).
+SATURATED_DRAW = 29
+
+
+def test_saturating_targets_converge_through_the_iterative_tmle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Draw 29 converges, and the mutation control without the iterative TMLE stalls."""
+    from tests.studies import separable_effects as study
+
+    frame, _ = study.draw_scenario(study.CROSS_FITTED, study.PRIMARY_N, SATURATED_DRAW)
+
+    def fit() -> Any:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return study.fit(frame, study.CROSS_FITTED)
+
+    result, captured = _captured(fit)
+    _solved(result)
+    monkeypatch.setattr(separable_module, "_ITERATIVE_STEPS", 0)
+    record = _rewalk(captured)
+    assert not record.converged
+    assert record.failure == "newton_stalled"
+    assert relative_score(record.score, record.score_scale) > 1e-4
+
+
+def _saturating_targets() -> list[SeparableTarget]:
+    """The 12 targets of ``a0`` and ``sep`` that move lambda_D at level 0: as many as that
+    factor's (W, node) cells, so solving their scores sets each cell to its own hazard."""
+    return [
+        SeparableTarget(label, levels, role, cause, horizon)
+        for label, levels in (("a0", (0, 0)), ("sep", (0, 1)))
+        for role, cause in (("competing", "death"), ("event", "relapse"))
+        for horizon in HORIZONS
+    ]
+
+
+def test_a_solution_outside_the_bound_reads_cell_separated() -> None:
+    """With no death at the last node among W = 0 units at level 0, the 12 targets that move
+    lambda_D at level 0 saturate its cells and solve only at a hazard of zero.  The cell's
+    logit stops at the clip and the fit says why."""
+    law, inputs, exact = _engine()
+    w = law.frame()["W"].to_numpy(dtype=int)
+    cell = (w == 0) & (inputs.observed == 0)
+    assert inputs.event_d[cell, 2].sum() > 0
+    event_d = inputs.event_d.copy()
+    event_d[cell, 2] = 0.0
+    emptied = replace(inputs, event_d=event_d)
+    targets = _saturating_targets()
+    targeted, record = walk_separable(
+        exact, emptied, targets, step_size=0.05, tol=1e-12, warn=False
+    )
+    assert not record.converged
+    assert record.failure == "cell_separated"
+    np.testing.assert_allclose(targeted.beta_d[cell, 2, 0], emptied.bounds[0], rtol=1e-12)
+
+
+@pytest.mark.parametrize(("offset", "separated"), [(0.5, True), (2.0, False)])
+def test_rows_heading_for_the_clip_read_as_separated_only_within_the_margin(
+    offset: float, separated: bool
+) -> None:
+    """Rows with no death whose competing logit lies 0.5 above the lower clip carry the score
+    and read as separated; the same rows 2 above the clip do not (the margin is 1)."""
+    law, inputs, exact = _engine()
+    w = law.frame()["W"].to_numpy(dtype=int)
+    cell = (w == 0) & (inputs.observed == 0)
+    event_d = inputs.event_d.copy()
+    event_d[cell, 2] = 0.0
+    emptied = replace(inputs, event_d=event_d)
+    beta_d = exact.beta_d.copy()
+    beta_d[w == 0, 2, 0] = emptied.bounds[0] + offset
+    state = SeparableState(beta_d, exact.beta_y)
+    targets = [SeparableTarget("a0", (0, 0), "competing", "death", 3)]
+    assert separable_module._separated(state, emptied, targets, np.ones(2)) is separated
+
+
+def test_the_jacobian_phase_stops_within_its_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On the separated fixture with the iterative TMLE skipped, the Newton steps on the full
+    score Jacobian stop at their cap: one walk step, then at most three."""
+    monkeypatch.setattr(separable_module, "_STALL", 0)
+    monkeypatch.setattr(separable_module, "_ITERATIVE_STEPS", 0)
+    monkeypatch.setattr(separable_module, "_JACOBIAN_STEPS", 3)
+    law, inputs, exact = _engine()
+    w = law.frame()["W"].to_numpy(dtype=int)
+    cell = (w == 0) & (inputs.observed == 0)
+    event_d = inputs.event_d.copy()
+    event_d[cell, 2] = 0.0
+    emptied = replace(inputs, event_d=event_d)
+    _, record = walk_separable(
+        exact, emptied, _saturating_targets(), step_size=0.05, tol=1e-12, warn=False
+    )
+    assert not record.converged
+    assert record.n_iter <= 1 + 3
 
 
 def test_a_study_reports_the_separable_parameters() -> None:

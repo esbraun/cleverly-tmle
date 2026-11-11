@@ -196,13 +196,18 @@ def _draw(key: _Key) -> pd.DataFrame:
 
 
 #: The per-row convergence columns, and the reported summary column they give.
-CONVERGENCE_COLUMNS = ("converged", "relative_score")
+CONVERGENCE_COLUMNS = ("converged", "relative_score", "failure", "phase")
 CONVERGENCE_SUMMARY = ("nonconverged_fits",)
 
 
 def _converged(result: Any) -> dict[str, Any]:
-    converged, _, score = study.convergence(result)
-    return {"converged": int(converged), "relative_score": score}
+    converged, failure, score, phase = study.convergence(result)
+    return {
+        "converged": int(converged),
+        "relative_score": score,
+        "failure": failure,
+        "phase": phase,
+    }
 
 
 def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
@@ -339,7 +344,7 @@ def convergence_reading(summary: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFra
     pandas.DataFrame
         ``summary`` with :data:`CONVERGENCE_SUMMARY` filled where the rows carry it.
     """
-    if not set(CONVERGENCE_COLUMNS) <= set(rows.columns):
+    if "converged" not in rows.columns:
         return summary
     out = summary.copy()
     out["nonconverged_fits"] = np.nan

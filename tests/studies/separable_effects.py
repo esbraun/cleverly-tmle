@@ -185,11 +185,12 @@ def fit(frame: pd.DataFrame, scenario: str, **learners: Any) -> Any:
 
 
 #: The per-fit convergence columns of the primary rows and of ``convergence.csv``.
-CONVERGENCE_COLUMNS = ("converged", "failure", "relative_score")
+CONVERGENCE_COLUMNS = ("converged", "failure", "relative_score", "phase")
 
 
-def convergence(result: Any) -> tuple[bool, str, float]:
-    """``(converged, failure, largest final relative score)`` over a fit's targeting records.
+def convergence(result: Any) -> tuple[bool, str, float, str]:
+    """``(converged, failure, largest final relative score, phase)`` over a fit's targeting
+    records; ``phase`` names the targeting phase that reached each record's reported state.
 
     ``result`` is an ``LTMLE`` result, or anything with a ``record`` (a robustness engine fit).
     """
@@ -199,7 +200,8 @@ def convergence(result: Any) -> tuple[bool, str, float]:
     )
     failures = [str(record.failure) for record in records if not record.converged]
     score = max(float(record.trace[-1]) for record in records)
-    return not failures, ",".join(failures), score
+    phases = ",".join(str(record.phase) for record in records)
+    return not failures, ",".join(failures), score, phases
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -218,7 +220,7 @@ def result_rows(
     plug_in: Mapping[str, float],
 ) -> list[dict[str, Any]]:
     """One row per estimand on the identity scale, with the fit's :data:`CONVERGENCE_COLUMNS`."""
-    converged, failure, score = convergence(result)
+    converged, failure, score, phase = convergence(result)
     rows = []
     for name in ESTIMANDS[scenario]:
         estimate = result[name]
@@ -243,6 +245,7 @@ def result_rows(
                 "converged": int(converged),
                 "failure": failure,
                 "relative_score": score,
+                "phase": phase,
             }
         )
     return rows
