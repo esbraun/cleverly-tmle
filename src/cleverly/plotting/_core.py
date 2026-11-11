@@ -425,8 +425,11 @@ def note_text(fig: Figure) -> str:
 # header() and notes() write on one axes, so the layout engine counts the text's width
 # against that axes' column. In a figure with several columns of panels a long title or
 # note then squeezes its column and pushes the next one off the page. The figure-level
-# pair below writes the same roles as figure texts anchored at the figure's left edge,
-# leaves them out of the layout, and reserves their height through the layout rect.
+# pair below writes the same roles as figure texts anchored at the figure's left edge and
+# reserves their height through the layout rect. The constrained layout engine never sizes
+# panels around figure texts or an anchored figure legend, so the texts stay in the layout:
+# a tight bounding box (``savefig(bbox_inches="tight")``, Jupyter's inline display) then
+# keeps them instead of cropping them away.
 
 #: Left edge of figure-level text, in figure fraction (the edge notes() uses too).
 _FIGURE_LEFT: Final = 0.015
@@ -489,9 +492,10 @@ def figure_header(
 
     The figure-level counterpart of :func:`header`, with the same roles and inks. The title,
     the subtitle and the key (the labelled artists of ``key_sources``, as :func:`legend`
-    collects them) are written at the figure's left edge, wrapped to the figure's width and
-    left out of the layout, and the layout engine's ``rect`` is lowered at the top by their
-    height, so no panel is squeezed by text wider than its column. Use it, with
+    collects them) are written at the figure's left edge and wrapped to the figure's width,
+    and the layout engine's ``rect`` is lowered at the top by their height, so no panel is
+    squeezed by text wider than its column. They count toward a tight bounding box, so
+    ``savefig(bbox_inches="tight")`` and Jupyter's inline display keep them. Use it, with
     :func:`figure_notes`, for a figure the plot created; :func:`header` stays the call for
     one axes. Call it after every labelled artist is drawn.
 
@@ -519,7 +523,7 @@ def figure_header(
             va="top",
             fontsize=size,
             **style,
-        ).set_in_layout(False)
+        )
         return _text_height(wrapped, size)
 
     cursor += place(title, TITLE_SIZE, fontweight="bold", color=INK, gid=GID_TITLE) + _GAP
@@ -544,7 +548,6 @@ def figure_header(
             handlelength=1.8,
             columnspacing=1.4,
         )
-        key.set_in_layout(False)
         key.set_gid(GID_KEY)
         cursor += math.ceil(len(handles) / columns) * TICK_SIZE * 1.45 + _GAP
     _reserve(fig, top=(cursor + _GAP) / height)
@@ -554,9 +557,9 @@ def figure_notes(fig: Figure, lines: Sequence[str]) -> None:
     """Write the note lines at the bottom of a figure with several columns of panels.
 
     The figure-level counterpart of :func:`notes`: the same roles and ink, written at the
-    figure's left edge, wrapped to the figure's width and left out of the layout, with the
-    layout engine's ``rect`` raised at the bottom by their height. :func:`note_text` reads
-    them.
+    figure's left edge and wrapped to the figure's width, with the layout engine's ``rect``
+    raised at the bottom by their height. Like the header, they count toward a tight
+    bounding box. :func:`note_text` reads them.
 
     Parameters
     ----------
@@ -585,7 +588,7 @@ def figure_notes(fig: Figure, lines: Sequence[str]) -> None:
         fontsize=NOTE_SIZE,
         color=SECONDARY_INK,
         gid=GID_NOTES,
-    ).set_in_layout(False)
+    )
     _reserve(fig, bottom=(_EDGE_PAD + _text_height(text, NOTE_SIZE) + 2.0 * _GAP) / height)
 
 

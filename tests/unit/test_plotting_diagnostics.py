@@ -1161,6 +1161,49 @@ def test_every_figure_renders_to_a_png(
         assert path.stat().st_size > 1000
 
 
+def _cropped_text(fig: Any) -> list[str]:
+    """The figure-level title, subtitle, key and notes a tight bounding box would cut."""
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    tight = fig.get_tightbbox(renderer).transformed(fig.dpi_scale_trans)
+    gids = {_core.GID_TITLE, _core.GID_SUBTITLE, _core.GID_NOTES}
+    artists = [text for text in fig.texts if text.get_gid() in gids] + list(fig.legends)
+    assert artists, "the figure has no figure-level header"
+    cut = []
+    for artist in artists:
+        box = artist.get_window_extent(renderer)
+        inside = (
+            box.x0 >= tight.x0 - 0.5
+            and box.x1 <= tight.x1 + 0.5
+            and box.y0 >= tight.y0 - 0.5
+            and box.y1 <= tight.y1 + 0.5
+        )
+        if not inside:
+            label = artist.get_text() if isinstance(artist, Text) else "key"
+            cut.append(label)
+    return cut
+
+
+def test_a_tight_save_keeps_the_figure_level_header_and_notes(
+    result: Any,
+    ensemble: Any,
+    selection: Any,
+    curve_calibration: Any,
+    library_fit: Any,
+) -> None:
+    # Jupyter's inline display and savefig(bbox_inches="tight") crop to the tight box.
+    for fig in _figures(result, ensemble, selection, curve_calibration, library_fit):
+        assert _cropped_text(fig) == [], _core.title_text(fig)
+
+
+def test_a_header_left_out_of_the_layout_is_cropped(result: Any) -> None:
+    # Mutation control: the check above must see a header the tight box drops.
+    fig = repeats(result)
+    title = next(text for text in fig.texts if text.get_gid() == _core.GID_TITLE)
+    title.set_in_layout(False)
+    assert _cropped_text(fig) == [title.get_text()]
+
+
 def test_importing_the_plotting_package_does_not_import_matplotlib() -> None:
     code = (
         "import sys, cleverly, cleverly.plotting; "
