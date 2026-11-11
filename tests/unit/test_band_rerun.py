@@ -88,6 +88,30 @@ def test_the_planned_studies_install_as_one_unit(plan: dict[str, Any]) -> None:
     assert len(states) == 1 and states <= {"baseline", "composite", "sidecar"}, states
 
 
+PLANNED = tuple(json.loads(band_rerun.PLAN_PATH.read_bytes())["studies"])
+
+
+@pytest.mark.parametrize("slug", PLANNED)
+def test_every_planned_study_smokes_on_the_smoke_stream(slug: str) -> None:
+    """The first band key of each call carries a salted seed or draws one (``--smoke``).
+
+    A seed that the driver builds into a key, a draw that takes its own and a key that carries
+    a declared seed are each read; the smoke itself refuses any key this check would fail.
+    """
+    assert band_rerun.salt_check(slug) == []
+
+
+def test_a_key_with_a_declared_seed_or_no_salt_is_refused() -> None:
+    declared, salted_seed = 2**40 + 1, 2**40 + 2
+    band_rerun.DECLARED_SEEDS.add(declared)
+    band_rerun.SALTED_SEEDS.add(salted_seed)
+    assert band_rerun.salt_findings([("a", 3, salted_seed)], [0]) == []
+    assert band_rerun.salt_findings([("a", 3)], [1]) == []
+    assert band_rerun.salt_findings([("a", 3)], [0]) == ["('a', 3) drew no salted seed"]
+    found = band_rerun.salt_findings([("a", declared, salted_seed)], [1])
+    assert found and "declared seed" in found[0]
+
+
 def test_every_blocked_sidecar_matches_its_record(plan: dict[str, Any]) -> None:
     for record in sorted((ROOT / "tests/canonical").glob(f"*/{band_rerun.SIDECAR}/record.json")):
         assert band_rerun.validate_sidecar(record.parent.parent, plan) == [], record

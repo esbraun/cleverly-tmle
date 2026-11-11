@@ -1794,27 +1794,79 @@ _ORIGINAL_SEEDS: dict[str, Callable[..., int]] = {
     "stream_seed": seeds.stream_seed,
     "replicate_seed": seeds.replicate_seed,
 }
-#: How many seeds the salted functions handed out in this process.
+#: How many seeds the salted functions handed out in this process, and their values.
 SALTED_CALLS = [0]
+SALTED_SEEDS: set[int] = set()
+#: The seeds the declared stream would have handed out for the same calls.
+DECLARED_SEEDS: set[int] = set()
+#: A seed below this is not read off a key: a replicate index or a size could equal it.
+SEED_FLOOR = 2**20
 _WORKER_SALT: list[contextlib.AbstractContextManager[None]] = []
 
 
-def _salted_stream_seed(record: StudyRecord, *labels: str | int) -> int:
+def _salt(seed: int, declared: int) -> int:
     SALTED_CALLS[0] += 1
-    return _ORIGINAL_SEEDS["stream_seed"](record, SMOKE_STREAM, *labels)
+    SALTED_SEEDS.add(int(seed))
+    DECLARED_SEEDS.add(int(declared))
+    return seed
+
+
+def _salted_stream_seed(record: StudyRecord, *labels: str | int) -> int:
+    original = _ORIGINAL_SEEDS["stream_seed"]
+    return _salt(original(record, SMOKE_STREAM, *labels), original(record, *labels))
 
 
 def _salted_replicate_seed(record: StudyRecord, scenario: str, replicate: int) -> int:
-    SALTED_CALLS[0] += 1
-    return _ORIGINAL_SEEDS["stream_seed"](record, SMOKE_STREAM, "replicate", scenario, replicate)
+    return _salt(
+        _ORIGINAL_SEEDS["stream_seed"](record, SMOKE_STREAM, "replicate", scenario, replicate),
+        _ORIGINAL_SEEDS["replicate_seed"](record, scenario, replicate),
+    )
 
 
 def _salted_pilot_seed(stream: str, replicate: int) -> int:
     from tests import long_horizon_design
 
-    SALTED_CALLS[0] += 1
     original = _ORIGINAL_SEEDS.get("pilot", long_horizon_design.stream_seed)
-    return original(f"{SMOKE_STREAM}/{stream}", replicate)
+    return _salt(original(f"{SMOKE_STREAM}/{stream}", replicate), original(stream, replicate))
+
+
+def key_seeds(key: Any) -> set[int]:
+    """Every integer a key carries that could be a seed (at least :data:`SEED_FLOOR`)."""
+    out: set[int] = set()
+    stack = [key]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, bool):
+            continue
+        if isinstance(item, int):
+            if abs(item) >= SEED_FLOOR:
+                out.add(int(item))
+        elif isinstance(item, Mapping):
+            stack.extend(item.values())
+        elif isinstance(item, tuple | list | frozenset | set):
+            stack.extend(item)
+        elif hasattr(item, "__dataclass_fields__"):
+            stack.extend(getattr(item, name) for name in item.__dataclass_fields__)
+    return out
+
+
+def salt_findings(keys: Sequence[Any], worker_salted: Sequence[int]) -> list[str]:
+    """Each smoke key not shown to run on the smoke stream.
+
+    A key runs on it when its worker drew a salted seed, or when it carries a seed the salted
+    functions handed out while the keys were built.  A key that carries a seed of the declared
+    stream (one the salted functions computed beside each salted seed) is refused whatever else
+    it carries.
+    """
+    declared = DECLARED_SEEDS
+    out = []
+    for key, drawn in zip(keys, worker_salted, strict=True):
+        carried = key_seeds(key)
+        if carried & (declared - SALTED_SEEDS):
+            out.append(f"{key!r} carries a declared seed")
+        elif drawn == 0 and not carried & SALTED_SEEDS:
+            out.append(f"{key!r} drew no salted seed")
+    return out
 
 
 @contextlib.contextmanager
@@ -1834,6 +1886,34 @@ def salted() -> Iterator[None]:
             _ORIGINAL_SEEDS.setdefault("pilot", original)
             stack.enter_context(swapped("stream_seed", original, _salted_pilot_seed))
         yield
+
+
+def salt_check(slug: str) -> list[str]:
+    """Whether the first band key of each call of a planned study runs on the smoke stream.
+
+    The keys are captured with every seed function salted.  A key passes when it carries a
+    salted seed, or when its draw takes one; a key that carries a declared seed fails.  The
+    check runs no fit, so a study whose seed is taken only inside ``fit_one`` fails it and
+    needs its seed path added here before its smoke can be trusted.
+    """
+    record = record_for(slug)
+    entry = json.loads(PLAN_PATH.read_bytes())["studies"][slug]
+    index = committed_index(read_rows(record.artifacts / "property-replicates.parquet"))
+    out = []
+    with salted():
+        calls = capture(record, entry["moved_cells"], index)
+        for call in calls:
+            if not call.selected:
+                continue
+            key = call.keys[call.selected[0]]
+            drawn = 0
+            draw = call.options.get("draw")
+            if not key_seeds(key) & SALTED_SEEDS and draw is not None:
+                before = SALTED_CALLS[0]
+                draw(key)
+                drawn = SALTED_CALLS[0] - before
+            out += [f"{call.label}: {text}" for text in salt_findings([key], [drawn])]
+    return out
 
 
 def _salt_worker(slug: str) -> None:
@@ -1921,9 +2001,14 @@ def smoke(slug: str, *, jobs: int, timing: bool = False) -> dict[str, Any]:
             )
         )
     wall = time.monotonic() - started
-    unverified = sum(result["salted_calls"] == 0 for result in results)
+    unverified = salt_findings(
+        [key for _, key in tasks], [result["salted_calls"] for result in results]
+    )
     if unverified:
-        raise SystemExit(f"refused: {unverified} smoke key(s) drew no salted seed")
+        raise SystemExit(
+            f"refused: {len(unverified)} smoke key(s) not on the smoke stream, first "
+            f"{unverified[0]}"
+        )
     cells: dict[str, dict[str, Any]] = {}
     for (call, key), result in zip(tasks, results, strict=True):
         rows = (
