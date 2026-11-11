@@ -36,7 +36,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from cleverly.inference.delta import Transform
 from cleverly.inference.multiplier import out_of_range, simultaneous_bands
 from tests.studies.evidence.properties import PropertyCell
 
@@ -167,9 +166,11 @@ def standardized_deviation(estimate: Any, truth: float, scale: str) -> float:
     elif scale in {"logit", "range_logit"}:
         if estimate.bounds is None:
             raise ValueError(f"{estimate.name} has no bounds to read on the {scale} scale")
-        ranged = Transform.range_logit(*estimate.bounds)
-        center, target = float(ranged.forward(psi)), float(ranged.forward(truth))
-        spread = se * float(ranged.slope(psi))
+        # Written from the formula rather than the package's transform, so a wrong slope in
+        # the package fails the row's own identity.
+        low, high = (float(value) for value in estimate.bounds)
+        center, target = _range_logit(psi, low, high), _range_logit(float(truth), low, high)
+        spread = se * (high - low) / ((psi - low) * (high - psi))
     elif estimate.transform is not None and estimate.transform.name == scale:
         transform = estimate.transform
         center, target, spread = (
@@ -182,6 +183,11 @@ def standardized_deviation(estimate: Any, truth: float, scale: str) -> float:
     if spread == 0.0:
         return 0.0 if center == target else math.inf
     return abs(center - target) / spread
+
+
+def _range_logit(value: float, low: float, high: float) -> float:
+    """``logit((value - low) / (high - low))``."""
+    return math.log((value - low) / (high - value))
 
 
 def _checked(statistic: float, critical: float, covered: bool, cell: str) -> None:
