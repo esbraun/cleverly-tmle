@@ -5,7 +5,7 @@
     "__shipped_curve_band_control"
   ],
   "baseline_commit": "cef2aa65ec023744523a4b239f2517e025516ed4",
-  "decision_rule": null,
+  "decision_rule": "paired",
   "default_band": {
     "band_scale": "logit",
     "kind": "mammen",
