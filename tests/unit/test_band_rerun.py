@@ -638,6 +638,7 @@ def write_regeneration(
     clean: bool = True,
     slug: str = SLUG,
     extra: tuple[str, ...] = (),
+    numpy: str = "2.0",
 ) -> bytes:
     """What ``tests/canonical/regenerate.py:main`` leaves: the artifacts and their manifest."""
     from tests.studies.evidence.manifest import write_csv, write_rows
@@ -658,7 +659,11 @@ def write_regeneration(
         "study": "Synthetic",
         "slug": slug,
         "generated_with": {
-            "subject": {"cleverly_commit": commit, "cleverly_worktree_clean": clean},
+            "subject": {
+                "cleverly_commit": commit,
+                "cleverly_worktree_clean": clean,
+                "numpy": numpy,
+            },
             "reference": None,
         },
         "sha256": {name: band_rerun.digest((directory / name).read_bytes()) for name in names},
@@ -712,9 +717,11 @@ class Wave:
 
     def complete(self, covered: list[int], summary: pd.DataFrame, **options: Any) -> Path:
         directory = self.output / band_rerun.COMPLETE
-        write_regeneration(
-            directory, study_rows(covered, options.pop("point", 1)), summary, **options
-        )
+        rows = study_rows(covered, options.pop("point", 1))
+        drop = options.pop("drop", None)
+        if drop is not None:
+            rows = rows.loc[~(band_rerun.band_mask(rows, [BAND]) & (rows["replicate"] == drop))]
+        write_regeneration(directory, rows.reset_index(drop=True), summary, **options)
         return directory
 
     def decide(self) -> dict[str, Any]:
@@ -941,3 +948,36 @@ def test_a_blocked_wave_puts_the_complete_rerun_in_the_sidecar(wave: Wave) -> No
     assert band_rerun.validate_sidecar(wave.study, wave.plan) == [
         f"{SLUG}: complete-summary.csv differs from its recorded hash"
     ]
+
+
+def test_a_replicate_the_complete_rerun_lost_is_not_covered_there(wave: Wave) -> None:
+    """A covered baseline replicate the rerun lacks adds to b, and the pairs span the union."""
+    summary = study_summary(0.95, 0.75, 0.999, band_passed=True)
+    wave.complete(BASELINE_COVERED, summary, drop=0)
+    (cell,) = wave.decide()["readings"][SLUG]["cells"]
+    assert (cell["b_covered_before_only"], cell["c_covered_now_only"]) == (1, 0)
+    assert cell["replicates"] == REPLICATES
+    assert (cell["replicates_lost_now"], cell["replicates_lost_before"]) == (1, 0)
+    # The baseline's uncovered replicate lost by the rerun moves neither count.
+    wave.complete(BASELINE_COVERED, summary, drop=REPLICATES - 1)
+    (cell,) = wave.decide()["readings"][SLUG]["cells"]
+    assert (cell["b_covered_before_only"], cell["c_covered_now_only"]) == (0, 0)
+    assert cell["replicates_lost_now"] == 1
+
+
+def test_the_targeted_route_still_requires_the_same_replicates() -> None:
+    before = committed()
+    after = before.loc[~(band_rerun.band_mask(before, [BAND]) & (before["replicate"] == 0))]
+    with pytest.raises(ValueError, match="replicates differ"):
+        band_rerun.discordant(before, after, BAND)
+    assert band_rerun.discordant_union(before, after, BAND) == (1, 0, 2, 1, 0)
+
+
+def test_a_complete_rerun_records_its_stack_against_the_baseline(wave: Wave) -> None:
+    summary = study_summary(0.95, 0.75, 0.999, band_passed=True)
+    wave.complete(BASELINE_COVERED, summary)
+    assert wave.decide()["readings"][SLUG]["stack_differences"] == {}
+    wave.complete(BASELINE_COVERED, summary, numpy="2.1")
+    assert wave.decide()["readings"][SLUG]["stack_differences"] == {
+        "numpy": {"baseline": "2.0", "ran": "2.1"}
+    }

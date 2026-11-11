@@ -47,8 +47,9 @@ and installs either every composite or, when the flip is blocked, every diagnost
 ``WAVE/<slug>/replay-miss.json``.  It reruns whole with its own regeneration driver at the
 wave's commit, and that output is copied as is to ``WAVE/<slug>/complete/``
 (:func:`validate_complete`).  ``--decide`` reads it as route ``complete_rerun`` beside the
-targeted studies (route ``targeted``): every moved band cell against the baseline rows exactly
-as for a targeted study, and every other verdict that changed listed under
+targeted studies (route ``targeted``): every moved band cell against the baseline rows as for
+a targeted study, paired over the union of replicates (a replicate one side lost is not covered
+there), the runtime versions that differ from the baseline's, and every other verdict that changed listed under
 ``complete_rerun_changes`` without blocking.  On a flip ``--install-wave`` installs the complete
 artifacts as the regeneration wrote them, with ``band_rerun/complete-rerun.json`` keeping the
 baseline manifest the plan hashed; on a block they join the study's sidecar, labelled
@@ -1548,21 +1549,43 @@ def mcnemar_less(b: int, c: int) -> float:
     return float(binom.sf(b - 1, b + c, 0.5))
 
 
-def discordant(before: pd.DataFrame, after: pd.DataFrame, name: str) -> tuple[int, int, int]:
-    """``(b, c, pairs)`` of one cell, by replicate."""
+def _covered_by_replicate(rows: pd.DataFrame, name: str) -> pd.Series:
     prop, cell = name.split("/", 1)
+    rows = rows.loc[(rows["property"] == prop) & (rows["cell"] == cell)]
+    return rows.set_index("replicate")["covered"].astype(int)
 
-    def covered(rows: pd.DataFrame) -> pd.Series:
-        rows = rows.loc[(rows["property"] == prop) & (rows["cell"] == cell)]
-        return rows.set_index("replicate")["covered"].astype(int)
 
-    old, new = covered(before), covered(after)
+def discordant(before: pd.DataFrame, after: pd.DataFrame, name: str) -> tuple[int, int, int]:
+    """``(b, c, pairs)`` of one cell, by replicate; the replicate sets must agree."""
+    old, new = _covered_by_replicate(before, name), _covered_by_replicate(after, name)
     if sorted(old.index) != sorted(new.index):
         raise ValueError(f"{name}: the replicates differ")
     new = new.loc[old.index]
     b = int(((old == 1) & (new == 0)).sum())
     c = int(((old == 0) & (new == 1)).sum())
     return b, c, len(old)
+
+
+def discordant_union(
+    before: pd.DataFrame, after: pd.DataFrame, name: str
+) -> tuple[int, int, int, int, int]:
+    """``(b, c, pairs, lost_now, lost_before)`` of one cell of a complete rerun.
+
+    The pairs run over the union of both sides' replicates.  A replicate absent on one side is
+    not covered on that side, so a covered baseline replicate the rerun lost adds to ``b``.
+    ``lost_now`` counts the replicates the rerun lacks, ``lost_before`` those the baseline lacks.
+    """
+    old, new = _covered_by_replicate(before, name), _covered_by_replicate(after, name)
+    if old.index.has_duplicates or new.index.has_duplicates:
+        raise ValueError(f"{name}: a replicate repeats")
+    union = sorted(set(old.index) | set(new.index))
+    lost_now = len(set(old.index) - set(new.index))
+    lost_before = len(set(new.index) - set(old.index))
+    old = old.reindex(union, fill_value=0)
+    new = new.reindex(union, fill_value=0)
+    b = int(((old == 1) & (new == 0)).sum())
+    c = int(((old == 0) & (new == 1)).sum())
+    return b, c, len(union), lost_now, lost_before
 
 
 def interval_red(reading: Mapping[str, Any]) -> bool | None:
@@ -1755,10 +1778,13 @@ def decide(
 
     A study that missed the replay rule is read from its complete rerun (:func:`read_output`,
     route ``complete_rerun``) under the same commit as every other study.  Its moved cells are
-    read exactly as a targeted study's, against the committed baseline rows; ``band_failures``
+    read as a targeted study's, against the committed baseline rows, but paired over the union
+    of replicates (:func:`discordant_union`): a replicate one side lost is not covered there.
+    ``band_failures``
     is the replicates the regeneration's own failure records cost the cell, and the property
     failure files it wrote are listed.  Every other ``passed`` or ``property_passed`` that
-    changed is listed under ``complete_rerun_changes`` and does not block.
+    changed is listed under ``complete_rerun_changes`` and does not block, and the runtime
+    versions that differ from the baseline's are recorded under ``stack_differences``.
     """
     plan_raw = PLAN_PATH.read_bytes() if plan_raw is None else plan_raw
     plan = json.loads(plan_raw)
@@ -1805,8 +1831,17 @@ def decide(
         for baseline in entry["cells"]:
             name = f"{BAND_FAMILY}/{baseline['cell']}"
             now = after_cells[baseline["cell"]]
-            b, c, pairs = discordant(before_rows, after_rows, name)
+            lost_counts: dict[str, int] = {}
+            if complete:
+                b, c, pairs, lost_now, lost_before = discordant_union(before_rows, after_rows, name)
+                lost_counts = {
+                    "replicates_lost_now": lost_now,
+                    "replicates_lost_before": lost_before,
+                }
+            else:
+                b, c, pairs = discordant(before_rows, after_rows, name)
             reading = {
+                **lost_counts,
                 "cell": baseline["cell"],
                 "role": baseline["role"],
                 "replicates": pairs,
@@ -1848,6 +1883,12 @@ def decide(
                 "failure_files": sorted(set(manifest["sha256"]) & set(PROPERTY_FAILURE_FILES)),
                 "manifest_sha256": source["manifest_sha256"],
                 "miss_sha256": source["miss_sha256"],
+                "stack_differences": stack_differences(
+                    json.loads((record.artifacts / "manifest.json").read_bytes())["generated_with"][
+                        "subject"
+                    ],
+                    manifest["generated_with"]["subject"],
+                ),
             }
             continue
         readings[slug] = {
