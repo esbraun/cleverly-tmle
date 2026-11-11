@@ -1,9 +1,11 @@
-"""The band-rerun plan, its replay rule, its composite manifest and its blocked sidecars.
+"""The band-rerun plan, its replay rule, its composite manifest, its wave and its sidecars.
 
 ``tests/studies/evidence/band_rerun.py`` refits only the band keys of a study after the default
 band moved (band-finite-sample plan sections 4.4, 8 and 9).  These tests hold the committed plan
-to the tree without fitting, and hold the replay rule, the splice and the composite gate to
-synthetic rows, each with a mutation that the gate must refuse.
+to the tree without fitting, hold the replay rule, the splice, the summary rule and the
+composite gate to synthetic rows, each with a mutation that the gate must refuse, and run the
+post-fit path of five studies with extra columns on their committed rows, which must publish
+the committed bytes.
 """
 
 from __future__ import annotations
@@ -13,16 +15,25 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import pytest
 
 from tests.studies.evidence import band_rerun
-from tests.studies.evidence.manifest import csv_text
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
 from tests.studies.evidence.registry import ROOT
 
 BAND = "simultaneous_coverage/a__simultaneous_band"
 POINT = "point/a"
+#: The planned studies whose committed rows carry columns beyond ``REPLICATE_COLUMNS``.
+EXTRA_COLUMN_STUDIES = (
+    "adaptive-iptw",
+    "composite-missing-drtmle",
+    "ctmle-oat-per-arm-parametric-extensions",
+    "long-horizon-categorical-ltmle",
+    "long-horizon-ltmle",
+)
 
 
 @pytest.fixture(scope="module")
@@ -46,6 +57,27 @@ def test_the_plan_excludes_the_studies_the_default_does_not_reach(plan: dict[str
         assert entry["band_fits"] > 0 and entry["moved_cells"], entry["artifact_directory"]
 
 
+def test_the_plan_records_every_moved_cell_and_the_true_draw_pins(plan: dict[str, Any]) -> None:
+    """Controls and diagnostics are moved cells; only a literal draw count is a draw pin."""
+    extensions = {
+        c["cell"]: c for c in plan["studies"]["ctmle-oat-per-arm-parametric-extensions"]["cells"]
+    }
+    for cell in ("binary_population", "three_arm"):
+        control = extensions[f"{cell}__shipped_curve_band_control"]
+        assert control["role"] == "control"
+    categorical = plan["studies"]["long-horizon-categorical-ltmle"]
+    assert categorical["moved_cells"] == ["simultaneous_coverage/k5__ic_band"]
+    assert "simultaneous_coverage/k5__simultaneous_band" in categorical["not_moved"]
+    assert plan["totals"]["pinning_draws"] == ["composite-missing-drtmle", "multi-arm-mar-drtmle"]
+
+
+def test_the_planned_studies_install_as_one_unit(plan: dict[str, Any]) -> None:
+    """Every planned study is at its baseline, or every one is a composite, or every one has a
+    sidecar beside its baseline: a wave never installs in part."""
+    states = set(band_rerun.installed_state(plan).values())
+    assert len(states) == 1 and states <= {"baseline", "composite", "sidecar"}, states
+
+
 def test_every_blocked_sidecar_matches_its_record(plan: dict[str, Any]) -> None:
     for record in sorted((ROOT / "tests/canonical").glob(f"*/{band_rerun.SIDECAR}/record.json")):
         assert band_rerun.validate_sidecar(record.parent.parent, plan) == [], record
@@ -64,6 +96,45 @@ def test_no_support_or_grid_source_reads_a_sidecar() -> None:
         )
     ]
     assert readers == []
+
+
+# ---------------------------------------------------------------------------- the post-fit path
+
+
+@pytest.mark.parametrize(
+    "slug",
+    # Each study re-summarizes its full table (ctmle-oat-per-arm-parametric-extensions takes
+    # minutes), so each is its own scheduling unit.
+    [
+        pytest.param(slug, marks=pytest.mark.xdist_group(f"band-rerun:{slug}"))
+        for slug in EXTRA_COLUMN_STUDIES
+    ],
+)
+def test_the_post_fit_path_publishes_the_committed_bytes(
+    slug: str, plan: dict[str, Any], tmp_path: Path
+) -> None:
+    """With the committed worker values handed back, every output file is the committed file.
+
+    The witness covers the columns outside ``REPLICATE_COLUMNS`` that these studies' rows
+    carry: a splice, a carried digest or a replay that dropped them would change the bytes or
+    stop the study's own summary.
+    """
+    entry = plan["studies"][slug]
+    record = band_rerun.record_for(slug)
+    committed = read_rows(record.artifacts / "property-replicates.parquet")
+    assert set(committed.columns) - set(REPLICATE_COLUMNS)
+    index = band_rerun.committed_index(committed)
+    calls = band_rerun.capture(record, entry["moved_cells"], index)
+    assert band_rerun.selection(calls, entry["moved_cells"]) == entry["selection"]
+    values = {
+        call.label: [band_rerun.committed_value(call, call.keys[i], index) for i in call.selected]
+        for call in calls
+        if call.selected
+    }
+    composite = band_rerun.post_fit(record, entry, committed, calls, values, jobs=1)
+    assert composite.summary_record["changed_rows"] == []
+    hashes = band_rerun.write_outputs(composite, record, tmp_path)
+    assert hashes == entry["artifact_sha256"]
 
 
 # ---------------------------------------------------------------------------- synthetic rows
@@ -86,12 +157,14 @@ def row(cell: str, replicate: int, estimate: float, **fields: Any) -> dict[str, 
         "rejected": 0,
     }
     out.update(fields)
-    return {column: out.get(column, 0) for column in REPLICATE_COLUMNS}
+    columns = [*REPLICATE_COLUMNS, "rounds"]
+    return {column: out.get(column, np.nan) for column in columns}
 
 
 def committed() -> pd.DataFrame:
     return pd.DataFrame(
-        [row(POINT, r, 0.3 + r) for r in range(2)] + [row(BAND, r, 1.5) for r in range(2)]
+        [row(POINT, r, 0.3 + r, rounds=3.0) for r in range(2)]
+        + [row(BAND, r, 1.5) for r in range(2)]
     )
 
 
@@ -104,33 +177,46 @@ def call() -> band_rerun.Call:
     )
 
 
-def refitted(point_shift: float = 0.0) -> list[list[dict[str, Any]]]:
+def refitted(point_shift: float = 0.0, rounds: float = 3.0) -> list[Any]:
     return [
-        [row(POINT, r, 0.3 + r + point_shift), row(BAND, r, 2.5, covered=0, std_error=1.5)]
+        [
+            row(POINT, r, 0.3 + r + point_shift, rounds=rounds),
+            row(BAND, r, 2.0, covered=0, rejected=1, std_error=1.5),
+        ]
         for r in range(2)
     ]
 
 
 def test_the_replay_rule_admits_rounding_and_refuses_a_real_change() -> None:
-    before = row(POINT, 0, 0.3)
-    assert band_rerun.compare(before, row(POINT, 0, 0.3 + 1e-12))["estimate"] < 1e-9
-    with pytest.raises(band_rerun.ReplayMiss, match="estimate moved"):
-        band_rerun.compare(before, row(POINT, 0, 0.3 + 1e-6))
+    before = row(POINT, 0, 0.3, rounds=3.0)
+    assert band_rerun.compare(before, row(POINT, 0, 0.3 + 1e-12, rounds=3.0))["estimate"] < 1e-9
+    with pytest.raises(band_rerun.ReplayMiss, match="estimate"):
+        band_rerun.compare(before, row(POINT, 0, 0.3 + 1e-6, rounds=3.0))
     with pytest.raises(band_rerun.ReplayMiss, match="covered"):
-        band_rerun.compare(before, row(POINT, 0, 0.3, covered=0))
+        band_rerun.compare(before, row(POINT, 0, 0.3, covered=0, rounds=3.0))
 
 
-def test_a_refit_replaces_only_band_rows() -> None:
+def test_a_refit_replaces_only_band_value_fields() -> None:
     rows = committed()
     refit = band_rerun.replay(
         [call()], {"properties": refitted()}, band_rerun.committed_index(rows), [BAND]
     )
     assert (refit.compared, refit.exact, len(refit.band_rows)) == (2, 2, 2)
     composite = band_rerun.splice(rows, refit.band_rows)
+    assert list(composite.columns) == list(rows.columns)
     assert band_rerun.carried_digest(composite, [BAND]) == band_rerun.carried_digest(rows, [BAND])
     mask = band_rerun.band_mask(composite, [BAND])
     assert composite.loc[mask, "covered"].tolist() == [0, 0]
-    assert composite.loc[~mask].equals(rows.loc[~mask, list(REPLICATE_COLUMNS)])
+    assert composite.loc[~mask].equals(rows.loc[~mask])
+
+
+def test_a_moved_extra_column_is_a_replay_miss() -> None:
+    """Mutation control: a column outside ``REPLICATE_COLUMNS`` is held to the rule too."""
+    rows = committed()
+    with pytest.raises(band_rerun.ReplayMiss, match="rounds"):
+        band_rerun.replay(
+            [call()], {"properties": refitted(rounds=4.0)}, band_rerun.committed_index(rows), [BAND]
+        )
 
 
 def test_a_moved_non_band_row_is_a_replay_miss() -> None:
@@ -142,9 +228,106 @@ def test_a_moved_non_band_row_is_a_replay_miss() -> None:
         )
 
 
+def failure(inside: bool) -> band_rerun.KeyFailure:
+    return band_rerun.KeyFailure(inside, "ValueError: boom", ("m:f",))
+
+
+def test_a_failure_inside_the_band_is_a_reading_and_outside_is_drift() -> None:
+    rows = committed()
+    index = band_rerun.committed_index(rows)
+    values = [failure(True), refitted()[1]]
+    refit = band_rerun.replay([call()], {"properties": values}, index, [BAND])
+    assert refit.band_failures == {BAND: 1}
+    assert [int(r["covered"]) for r in refit.band_rows] == [0, 0]
+    with pytest.raises(band_rerun.ReplayMiss, match="outside the band"):
+        band_rerun.replay([call()], {"properties": [failure(False), values[1]]}, index, [BAND])
+
+
+def test_the_classifier_reads_every_frame() -> None:
+    from cleverly.inference.multiplier import simultaneous_bands
+
+    try:
+        simultaneous_bands({}, n_replicates=10, random_state=0)  # type: ignore[call-arg]
+    except Exception as error:
+        assert band_rerun.classify(error).inside_band
+    try:
+        float("x")
+    except ValueError as error:
+        assert not band_rerun.classify(error).inside_band
+
+
+def test_refusals_count_per_row() -> None:
+    rows = committed()
+    refused = row(BAND, 0, 2.5, covered=0, rejected=1, std_error=1.5)
+    refused["estimate"] = refused["std_error"] + 1.0
+    values = [[row(POINT, 0, 0.3, rounds=3.0), refused], refitted()[1]]
+    refit = band_rerun.replay(
+        [call()], {"properties": values}, band_rerun.committed_index(rows), [BAND]
+    )
+    assert refit.refused == {BAND: 1}
+
+
 def test_the_splice_refuses_a_new_band_row() -> None:
     with pytest.raises(ValueError, match="new or repeated"):
         band_rerun.splice(committed(), [row(BAND, 7, 2.5)])
+
+
+# ---------------------------------------------------------------------------- the summary
+
+
+SUMMARY = (
+    "property,cell,role,coverage,passed,property_passed\n"
+    "point,a,positive,0.95,True,True\n"
+    "simultaneous_coverage,a__simultaneous_band,positive,0.95,True,True\n"
+)
+
+
+def test_an_unmoved_summary_row_keeps_its_bytes_and_a_moved_one_changes() -> None:
+    new = SUMMARY.replace("0.95,True,True\n", "0.9500000000000001,True,True\n", 1)
+    new = new.replace("a__simultaneous_band,positive,0.95", "a__simultaneous_band,positive,0.91")
+    text, record = band_rerun.compose_summary(SUMMARY, new, [BAND])
+    assert text.splitlines()[1] == SUMMARY.splitlines()[1]
+    assert text.splitlines()[2].endswith("0.91,True,True")
+    assert record["changed_rows"] == [BAND]
+    assert 0 < record["maximum_carried_difference"] <= band_rerun.SUMMARY_TOLERANCE
+
+
+@pytest.mark.parametrize(
+    "mutation", [("0.95,True,True\n", "0.951,True,True\n"), (",True,True\n", ",False,True\n")]
+)
+def test_a_moved_unmoved_summary_row_stops_the_study(mutation: tuple[str, str]) -> None:
+    with pytest.raises(band_rerun.SummaryMiss):
+        band_rerun.compose_summary(SUMMARY, SUMMARY.replace(*mutation, 1), [BAND])
+
+
+# ---------------------------------------------------------------------------- the decision
+
+
+def test_the_mcnemar_p_value_is_the_exact_binomial_tail() -> None:
+    assert band_rerun.mcnemar_less(0, 0) == 1.0
+    assert band_rerun.mcnemar_less(3, 0) == pytest.approx(0.125)
+    assert band_rerun.mcnemar_less(10, 2) == pytest.approx(79 / 4096)
+
+
+def test_discordant_pairs_are_read_by_replicate() -> None:
+    before = committed()
+    after = band_rerun.splice(before, [row(BAND, 1, 2.5, covered=0, rejected=1)])
+    assert band_rerun.discordant(before, after, BAND) == (1, 0, 2)
+
+
+def test_the_closed_interval_test() -> None:
+    reading = {"coverage_ci_lower": 0.92, "coverage_ci_upper": 0.98}
+    assert band_rerun.interval_red(reading) is False
+    assert band_rerun.interval_red({**reading, "coverage_ci_lower": 0.9199}) is True
+    assert band_rerun.interval_red({**reading, "coverage_ci_upper": 0.9801}) is True
+
+
+def test_a_stamped_cache_refuses_another_run(tmp_path: Path) -> None:
+    directory = band_rerun.cache_directory(tmp_path, "s", "a" * 40, "b" * 64)
+    assert directory == tmp_path / "s" / ("a" * 40) / ("b" * 64)
+    (directory / "stamp.json").write_text('{"slug": "other"}')
+    with pytest.raises(SystemExit, match="stamped"):
+        band_rerun.cache_directory(tmp_path, "s", "a" * 40, "b" * 64)
 
 
 # ---------------------------------------------------------------------------- the composite
@@ -185,7 +368,7 @@ def composite_fixture() -> tuple[dict[str, Any], bytes]:
         "moved_cells": [BAND],
         "baseline_subject": {"numpy": "8.0"},
         "carried_rows_sha256": band_rerun.carried_digest(rows, [BAND]),
-        "band_cells": [{"cell": "a__simultaneous_band", "replicates": 2}],
+        "cells": [{"cell": "a__simultaneous_band", "replicates": 2}],
     }
     plan_raw = band_rerun.json_bytes(
         {"baseline_commit": band_rerun.BASELINE_COMMIT, "studies": {"synthetic": entry}}
@@ -193,7 +376,17 @@ def composite_fixture() -> tuple[dict[str, Any], bytes]:
     refit = band_rerun.replay(
         [call()], {"properties": refitted()}, band_rerun.committed_index(rows), [BAND]
     )
-    composite = band_rerun.splice(rows, refit.band_rows)
+    composite = band_rerun.Composite(
+        rows=band_rerun.splice(rows, refit.band_rows),
+        summary="",
+        refit=refit,
+        readings=[{"cell": "a__simultaneous_band"}],
+        summary_record={
+            "summary_tolerance": band_rerun.SUMMARY_TOLERANCE,
+            "maximum_carried_difference": 0.0,
+            "changed_rows": [BAND],
+        },
+    )
     hashes = dict(baseline["sha256"], **{"property-replicates.parquet": "5" * 64})
     manifest = band_rerun.composite_manifest(
         baseline_raw,
@@ -201,9 +394,7 @@ def composite_fixture() -> tuple[dict[str, Any], bytes]:
         slug="synthetic",
         operation=operation(),
         artifact_hashes=hashes,
-        composite_raw=csv_text(composite),
-        refit=refit,
-        readings=[{"cell": "a__simultaneous_band"}],
+        composite=composite,
         command=["python", "-m", "tests.studies.evidence.band_rerun"],
     )
     return manifest, plan_raw
@@ -226,6 +417,7 @@ def test_a_composite_manifest_passes_its_gate() -> None:
         "replay_rule",
         "selection",
         "dirty_tree",
+        "summary_drift",
     ],
 )
 def test_the_composite_gate_refuses_each_mutation(mutation: str) -> None:
@@ -242,6 +434,8 @@ def test_the_composite_gate_refuses_each_mutation(mutation: str) -> None:
         section["replacement"]["replay"]["tolerance"] = 1e-6
     elif mutation == "selection":
         section["replacement"]["band_fits"] = 3
+    elif mutation == "summary_drift":
+        section["analysis"]["maximum_carried_difference"] = 1e-6
     else:
         section["analysis"]["subject"]["cleverly_worktree_clean"] = False
     with pytest.raises(ValueError):

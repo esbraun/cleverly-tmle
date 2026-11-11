@@ -27,11 +27,11 @@ computed between them.  ``support_loss``, ``learned_mechanism`` and the 4,000-un
 summary statistics and state no verdict.
 
 **The band** (plan rev 4.4).  The two studies that declare a band gate different constructions.
-S1 (``read="band"``) fits without a bootstrap and gates the Wald-curve Rademacher band of the
+S1 (``read="band"``) fits without a bootstrap and gates the Wald-curve multiplier band of the
 influence curves: ``k5__simultaneous_band`` is that band and ``k5__pointwise_joint_control`` must
 fail.  S2 (``read="boot_band"``) runs the refit bootstrap (``n_bootstrap=B_GATE``, 199) and
 writes three cells from one fit: ``k5__simultaneous_band`` (the gated studentized bootstrap sup-t
-band), ``k5__ic_band`` (the Rademacher band, a reporting row with no verdict) and
+band), ``k5__ic_band`` (the multiplier band, a reporting row with no verdict) and
 ``k5__pointwise_joint_control`` (must fail).  The SDR study has no band cell: its bootstrap band
 stays experimental.
 
@@ -80,7 +80,7 @@ from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY as JOINT
 from tests.studies.evidence.simultaneous import joint_cells, joint_coverage_rows
 
-#: The cell suffix of the reporting band: the IC-curve Rademacher band (plan rev 4.3).
+#: The cell suffix of the reporting band: the IC-curve multiplier band (plan rev 4.3).
 IC_BAND = "ic_band"
 
 
@@ -711,7 +711,9 @@ def band_rows(
     ``joint_coverage_rows`` reads the fit's Wald-curve band (``result.simultaneous``) and its
     pointwise intervals.  The gated cell replaces its critical value and its coverage by the
     studentized bootstrap sup-t band's (``result.bootstrap_band``), and the Wald-curve band
-    becomes the reporting cell :func:`ic_band_cell`.  All three share the max-t statistic.
+    becomes the reporting cell :func:`ic_band_cell`.  The gated row's statistic is the control's
+    identity-scale max-t statistic, so its coverage indicator stays ``statistic <= critical``
+    against the bootstrap critical value whatever scale the Wald-curve band reads.
     """
     truth = _band_truths(config.K, config.m, config.law, names)
     ic, control = joint_coverage_rows(
@@ -735,6 +737,7 @@ def band_rows(
         **ic,
         "cell": band_cell,
         "role": "positive",
+        "estimate": float(control["estimate"]),
         "std_error": float(boot.critical_value),
         "covered": int(covered),
         "rejected": int(not covered),
