@@ -23,8 +23,9 @@ nothing is fitted and the study's own code names the keys.
 **Fit.**  :func:`execute` fits the selected keys with their committed seeds and the new
 defaults through :func:`~tests.studies.evidence.replication.fit_replicates`, into a checkpoint
 cache nested by study, commit and plan (:func:`cache_directory`).  A key that fails is
-classified from its traceback (:func:`classify`): a failure inside the band is a Wave 2 reading,
-counted not covered, and it blocks the flip; any other failure is drift.  :func:`replay` holds
+classified from its traceback (:func:`classify`): a failure with a band entry point on its stack
+is a Wave 2 reading, its band rows not covered, which enters its cell's interval test; any other
+failure, and any failure the harness records (a draw included), is drift.  :func:`replay` holds
 every non-band row of a refitted key, and every column of it, to the committed row: numeric
 fields within :data:`REPLAY_TOLERANCE`, absolute or relative, whichever is larger, and the
 discrete fields exactly.  Drift stops the study (:class:`ReplayMiss`), which then takes a
@@ -36,8 +37,9 @@ and the producer.  Primary, reference and equivalence artifacts stay byte-identi
 container runs.
 
 **The wave is one unit.**  Every planned study fits into one wave directory from one commit.
-``--decide`` reads them all, applies the section 8 rule (:func:`decide`, ``--rule strict`` or
-``--rule paired``), and writes ``decision.json``.  ``--install-wave`` re-validates every output
+``--decide`` reads them all, applies the section 8 rule that the plan binds before the wave
+(``decision_rule``: ``strict`` or ``paired``; :func:`decide`), and writes ``decision.json``.
+While the plan's rule is ``null`` no wave fit and no decision runs.  ``--install-wave`` re-validates every output
 and installs either every composite or, when the flip is blocked, every diagnostic sidecar
 (``tests/canonical/<study>/band_rerun/``), which no support or grid row reads.
 
@@ -54,7 +56,7 @@ Every fitting command refuses to start unless each of :data:`THREAD_VARIABLES` i
 environment, so the variables precede every numpy import in the driver and in its workers::
 
     python -m tests.studies.evidence.band_rerun --study <slug> --jobs N --cache DIR --output WAVE
-    python -m tests.studies.evidence.band_rerun --decide WAVE --rule paired
+    python -m tests.studies.evidence.band_rerun --decide WAVE
     python -m tests.studies.evidence.band_rerun --install-wave WAVE
 """
 
@@ -139,7 +141,12 @@ NOT_MOVED = {
     },
 }
 SIDECAR = "band_rerun"
-SIDECAR_FILES = ("band-rows.parquet", "diagnostic-properties.csv")
+SIDECAR_FILES = (
+    "band-rows.parquet",
+    "diagnostic-properties.csv",
+    "band-rerun-decision.json",
+    "band-rerun-output-manifest.json",
+)
 DECISION = "decision.json"
 RECORD = "band-rerun-record.json"
 RUN_LOG = "run.log"
@@ -184,8 +191,27 @@ DRAWS_PIN = re.compile(
     r"""["']?\b(N_MULTIPLIER|n_multiplier|n_replicates)\b["']?\s*[=:]\s*[0-9_]+"""
 )
 #: The frames of a traceback that belong to the band.
-BAND_MODULES = ("cleverly.inference.multiplier", "tests.studies.evidence.simultaneous")
-BAND_FUNCTIONS = re.compile(r"simultaneous|_band\b|^band")
+#: Every frame of this module is the band.
+BAND_MODULE = "cleverly.inference.multiplier"
+#: The band entry points outside it, as ``(module, function)``: the harness's band readers and
+#: the estimators' own band builders.  ``bootstrap_band`` and a study's fit wrappers such as
+#: ``dose_response_properties.band_fit`` are not band entry points.
+BAND_ENTRY_POINTS = frozenset(
+    {
+        (BAND_MODULE, "simultaneous_bands"),
+        (BAND_MODULE, "median_bands"),
+        (BAND_MODULE, "multiplier_critical_value"),
+        (BAND_MODULE, "_band_endpoints"),
+        (BAND_MODULE, "_refuse_out_of_range"),
+        ("tests.studies.evidence.simultaneous", "joint_coverage_rows"),
+        ("tests.studies.evidence.simultaneous", "scale_coverage_rows"),
+        ("tests.studies.evidence.simultaneous", "refused_critical_value"),
+        ("cleverly.longitudinal.estimator", "_bands"),
+        ("cleverly.longitudinal.estimator", "_project_bands"),
+        ("cleverly.longitudinal.structural", "_bands"),
+        ("cleverly.study", "_narrow_bands"),
+    }
+)
 
 
 def digest(raw: bytes) -> str:
@@ -513,11 +539,20 @@ def build_plan() -> dict[str, Any]:
         "summary_tolerance": SUMMARY_TOLERANCE,
         "default_band": DEFAULT_BAND,
         "band_suffixes": list(BAND_SUFFIXES),
+        "decision_rule": bound_rule(),
         "excluded": excluded,
         "studies": studies,
         "totals": totals(studies),
     }
     return json.loads(json_bytes(plan))
+
+
+def bound_rule() -> str | None:
+    """The committed plan's ``decision_rule``, which a rebuilt plan keeps: the owner sets it."""
+    if not PLAN_PATH.exists():
+        return None
+    rule = json.loads(PLAN_PATH.read_bytes()).get("decision_rule")
+    return rule if rule in RULES else None
 
 
 def totals(studies: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
@@ -571,6 +606,8 @@ def validate_plan(plan: Mapping[str, Any]) -> list[str]:
     for name, value in expected.items():
         if plan.get(name) != value:
             out.append(f"the plan's {name} differs from its declaration")
+    if "decision_rule" not in plan or plan["decision_rule"] not in (None, *RULES):
+        out.append(f"the plan's decision_rule must be null or one of {RULES}")
     candidates = {record.slug: record for record in candidate_records()}
     studies = plan.get("studies", {})
     if set(studies) != set(candidates) - set(EXCLUDED):
@@ -668,16 +705,19 @@ class KeyFailure:
 
 
 def classify(error: BaseException) -> KeyFailure:
-    """Whether a refit's failure arose inside the band, from every frame of its traceback."""
+    """Whether a refit's failure arose inside the band.
+
+    The failure is inside the band when a band entry point (:data:`BAND_ENTRY_POINTS`, or any
+    frame of :data:`BAND_MODULE`) is on the stack of the raise: a frame of the traceback, which
+    runs from the worker down to the raise site.
+    """
     frames = []
     inside = False
     for frame, _ in traceback.walk_tb(error.__traceback__):
         module = str(frame.f_globals.get("__name__", ""))
         name = frame.f_code.co_name
         frames.append(f"{module}:{name}")
-        if module in BAND_MODULES or (
-            module.startswith(("cleverly", "tests")) and BAND_FUNCTIONS.search(name)
-        ):
+        if module == BAND_MODULE or (module, name) in BAND_ENTRY_POINTS:
             inside = True
     return KeyFailure(inside, f"{type(error).__name__}: {error}", tuple(frames))
 
@@ -702,8 +742,29 @@ class Guarded:
 
 
 def rows_of(value: Any, rows_at: int | None) -> list[dict[str, Any]]:
-    """A key's rows, every column, from what its worker returned."""
-    return list(replication._rows_of(value, rows_at).to_dict("records"))
+    """A key's rows, every column, from what its worker returned (as ``replication._rows_of``)."""
+    rows = value if rows_at is None else value[rows_at]
+    if isinstance(rows, pd.DataFrame):
+        return list(rows.to_dict("records"))
+    if isinstance(rows, Mapping):
+        return [dict(rows)]
+    return [dict(row) for row in rows]
+
+
+def _call_rows_valid(call: Call, fitted: Sequence[Any]) -> bool:
+    """Whether every row the call's keys returned passes the row rules, checked at once."""
+    rows = [
+        row
+        for value in fitted
+        if not isinstance(value, KeyFailure)
+        for row in rows_of(value, call.options.get("rows_at"))
+    ]
+    if not rows:
+        return True
+    extra = call.options.get("extra")
+    return replication.invalid_rows(rows, coverage=False) is None and (
+        extra is None or extra(pd.DataFrame(rows)) is None
+    )
 
 
 def _missing(value: Any) -> bool:
@@ -816,6 +877,8 @@ def replay(
         if len(fitted) != len(call.selected):
             raise ReplayMiss(f"{call.label}: {len(fitted)} values for {len(call.selected)} keys")
         extra = call.options.get("extra")
+        # The rules run once over the call; a key is checked alone only when the call breaks one.
+        valid = _call_rows_valid(call, fitted)
         for position, value in zip(call.selected, fitted, strict=True):
             key = call.keys[position]
             replicate = int(call.replicate_of(key))
@@ -843,8 +906,8 @@ def replay(
             names = {f"{row['property']}/{row['cell']}" for row in new}
             if names != written or len(new) != len(written):
                 raise ReplayMiss(f"{call.label} r{replicate}: wrote {sorted(names)}")
-            broken = replication.invalid_rows(new, coverage=False)
-            if broken is None and extra is not None:
+            broken = None if valid else replication.invalid_rows(new, coverage=False)
+            if not valid and broken is None and extra is not None:
                 broken = extra(pd.DataFrame(new))
             if broken is not None:
                 plain = [row for row in new if f"{row['property']}/{row['cell']}" not in moved]
@@ -1023,17 +1086,26 @@ def post_fit(
     values: Mapping[str, Sequence[Any]],
     *,
     jobs: int,
+    summarize: Callable[[pd.DataFrame], pd.DataFrame] | None = None,
+    index: Index | None = None,
 ) -> Composite:
-    """Replay, splice and re-summarize: every step after the fits."""
+    """Replay, splice and re-summarize: every step after the fits.
+
+    ``summarize`` replaces :func:`analysis` for a test that has shown the spliced rows are the
+    committed rows; a wave always runs the study's own summary.
+    """
     moved = entry["moved_cells"]
-    refit = replay(calls, values, committed_index(committed), moved)
+    index = committed_index(committed) if index is None else index
+    refit = replay(calls, values, index, moved)
     rows = splice(committed, refit.band_rows)
     if carried_digest(rows, moved) != entry["carried_rows_sha256"]:
         raise ReplayMiss("the splice moved a row a band does not determine")
     with (record.artifacts / "properties.csv").open(encoding="utf-8", newline="") as handle:
         baseline_text = handle.read()
     text, summary_record = compose_summary(
-        baseline_text, summary_text(analysis(record, rows, jobs=jobs)), moved
+        baseline_text,
+        summary_text(analysis(record, rows, jobs=jobs) if summarize is None else summarize(rows)),
+        moved,
     )
     readings = moved_readings(_parse(text), moved)
     for reading in readings:
@@ -1051,12 +1123,14 @@ def write_outputs(composite: Composite, record: StudyRecord, output: Path) -> di
         if name not in ("property-replicates.parquet", "properties.csv"):
             shutil.copyfile(record.artifacts / name, output / name)
     source = record.artifacts / "property-replicates.parquet"
-    if csv_text(composite.rows) == csv_text(read_rows(source)):
+    text = csv_text(composite.rows)
+    if text == csv_text(read_rows(source)):
         # Rows that did not move keep their bytes: a Parquet file also records its writer.
         shutil.copyfile(source, output / "property-replicates.parquet")
+        composite.csv_sha256 = digest(text)
     else:
         write_rows(composite.rows, output / "property-replicates.parquet")
-    composite.csv_sha256 = digest(csv_text(read_rows(output / "property-replicates.parquet")))
+        composite.csv_sha256 = digest(csv_text(read_rows(output / "property-replicates.parquet")))
     (output / "properties.csv").write_bytes(composite.summary.encode("utf-8"))
     return {name: digest((output / name).read_bytes()) for name in names}
 
@@ -1112,6 +1186,14 @@ def run_calls(
             seed_of=call.options.get("seed_of"),
             checkpoint=cache,
         )
+        if not outcomes.failures.empty:
+            first = outcomes.failures.iloc[0]
+            raise ReplayMiss(
+                f"{call.label}: {len(outcomes.failures)} recorded failure(s), first "
+                f"{first['group_id']}: {first['message']}"
+            )
+        if any(value is None for value in outcomes.fitted):
+            raise ReplayMiss(f"{call.label}: a key returned no value")
         values[call.label] = list(outcomes.fitted)
     return values
 
@@ -1321,6 +1403,8 @@ def preflight(plan: Mapping[str, Any], slug: str, *, scientific: bool) -> Mappin
     if digest((record.artifacts / "manifest.json").read_bytes()) != entry["manifest_sha256"]:
         raise SystemExit(f"refused: {slug} is not at its planned baseline")
     if scientific:
+        if plan.get("decision_rule") is None:
+            raise SystemExit("refused: the plan binds no decision_rule yet; no wave fit runs")
         require_threads()
         subject = provenance()
         if subject["cleverly_worktree_clean"] is not True:
@@ -1463,19 +1547,48 @@ def validate_output(slug: str, output: Path, plan_raw: bytes) -> dict[str, Any]:
     return log
 
 
+def breach_direction(role: str, reading: Mapping[str, Any], baseline_coverage: float) -> str:
+    """The direction a cell that lost its verdict moved: ``"less"`` or ``"more"`` coverage.
+
+    A positive cell whose lower limit is below 0.92 covers less, and one whose upper limit is
+    above 0.98 covers more.  A control loses its side in the direction its coverage moved.
+    """
+    if role == "positive":
+        lower, upper = reading["coverage_ci_lower"], reading["coverage_ci_upper"]
+        if (
+            upper is not None
+            and upper > COVERAGE_BAND[1]
+            and not (lower is not None and lower < COVERAGE_BAND[0])
+        ):
+            return "more"
+        return "less"
+    return "more" if float(reading["coverage"]) > float(baseline_coverage) else "less"
+
+
+def blocks(rule: str, lost: bool, p_value: float) -> bool:
+    """Whether a cell blocks the flip: under ``strict`` any loss, under ``paired`` a loss whose
+    exact one-sided McNemar p-value in the direction of the breach is at most 0.01."""
+    if rule not in RULES:
+        raise ValueError(f"rule must be one of {RULES}")
+    return lost and (rule == "strict" or p_value <= DECISION_ALPHA)
+
+
 def decide(
-    wave: Path, *, rule: str, studies: Sequence[str] | None = None, plan_raw: bytes | None = None
+    wave: Path, *, studies: Sequence[str] | None = None, plan_raw: bytes | None = None
 ) -> dict[str, Any]:
     """The section 8 decision over one wave: flip, or blocked with every reason.
 
-    Every planned study must have an output in ``wave/<slug>`` from one commit that descends
-    from :data:`FLIP_COMMIT`, under the current plan.  ``studies`` names a subset for a
-    rehearsal; the decision is then ``partial`` and no install reads it.
+    The rule is the plan's ``decision_rule``, bound before the wave.  Every planned study must
+    have an output in ``wave/<slug>`` from one commit that descends from :data:`FLIP_COMMIT`,
+    under the current plan.  ``studies`` names a subset for a rehearsal; the decision is then
+    ``partial`` and no install reads it.  A band key that failed inside the band is a reading:
+    its rows are not covered and enter the cell's interval test.
     """
-    if rule not in RULES:
-        raise ValueError(f"rule must be one of {RULES}")
     plan_raw = PLAN_PATH.read_bytes() if plan_raw is None else plan_raw
     plan = json.loads(plan_raw)
+    rule = plan.get("decision_rule")
+    if rule not in RULES:
+        raise ValueError("the plan binds no decision_rule: no decision runs")
     planned = list(plan["studies"])
     chosen = planned if studies is None else list(studies)
     if set(chosen) - set(planned):
@@ -1529,17 +1642,12 @@ def decide(
                 "band_failures": int(failures.get(name, 0)),
             }
             lost = baseline["passed"] is True and now["passed"] is not True
-            # A control's declared side is red; it loses that side by covering more.
-            p = (
-                reading["mcnemar_p_covers_less"]
-                if baseline["role"] == "positive"
-                else reading["mcnemar_p_covers_more"]
-            )
+            direction = breach_direction(baseline["role"], now, baseline["coverage"])
+            p = reading[f"mcnemar_p_covers_{direction}"]
+            reading["breach"] = direction if lost else None
             where = f"{slug}:{baseline['cell']}"
-            if reading["band_failures"]:
-                blocking.append(f"{where}: {reading['band_failures']} band key(s) failed")
             if lost:
-                if rule == "strict" or p <= DECISION_ALPHA:
+                if blocks(rule, lost, p):
                     blocking.append(f"{where}: previously green, now red (paired p {p:.3g})")
                 else:
                     owner_rows.append(f"{where}: now red (paired p {p:.3g}); add an owner row")
@@ -1596,6 +1704,8 @@ def write_sidecar(slug: str, output: Path, target: Path, decision_raw: bytes) ->
         columns={"passed": "diagnostic_passed", "property_passed": "diagnostic_property_passed"}
     )
     write_csv(summary, side / SIDECAR_FILES[1])
+    (side / SIDECAR_FILES[2]).write_bytes(decision_raw)
+    shutil.copyfile(output / "manifest.json", side / SIDECAR_FILES[3])
     record = {
         "mode": MODE,
         "blocked": True,
@@ -1659,7 +1769,7 @@ def install_wave(wave: Path) -> str:
     if recorded["decision"] not in ("flip", "blocked"):
         raise SystemExit(f"refused: a {recorded['decision']} decision installs nothing")
     plan_raw = PLAN_PATH.read_bytes()
-    again = decide(wave, rule=recorded["rule"], plan_raw=plan_raw)
+    again = decide(wave, plan_raw=plan_raw)
     if json_bytes(again) != json_bytes(recorded):
         raise SystemExit("refused: the wave no longer gives its recorded decision")
     if set(installed_state(json.loads(plan_raw)).values()) != {"baseline"}:
@@ -1920,7 +2030,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--cache", type=Path, help="checkpoint root; a rerun resumes from it")
     parser.add_argument("--output", type=Path, help="the wave directory, outside the repository")
     parser.add_argument("--decide", type=Path, metavar="WAVE")
-    parser.add_argument("--rule", choices=RULES, default="strict")
     parser.add_argument("--studies", nargs="+", help="rehearse --decide on these studies")
     parser.add_argument("--install-wave", type=Path, metavar="WAVE")
     parser.add_argument("--smoke", action="store_true")
@@ -1952,8 +2061,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.decide is not None:
         wave = args.decide.resolve()
-        decision = decide(wave, rule=args.rule, studies=args.studies)
-        (wave / DECISION).write_bytes(json_bytes(decision))
+        if plan.get("decision_rule") not in RULES:
+            parser.error(
+                "the plan binds no decision_rule yet; --decide runs once the owner sets it"
+            )
+        decision = decide(wave, studies=args.studies)
+        path = wave / DECISION
+        if path.exists():
+            earlier = json.loads(path.read_bytes())
+            if (earlier.get("rule"), earlier.get("plan_sha256")) != (
+                decision["rule"],
+                decision["plan_sha256"],
+            ):
+                parser.error(f"{path} holds a decision under another rule or plan; move it first")
+        path.write_bytes(json_bytes(decision))
         print(json.dumps(decision, indent=2, sort_keys=True))
         return 0
     if args.install_wave is not None:

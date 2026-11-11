@@ -34,6 +34,16 @@ EXTRA_COLUMN_STUDIES = (
     "long-horizon-categorical-ltmle",
     "long-horizon-ltmle",
 )
+#: The studies whose own summary of the full table takes minutes.  Their case shows that the
+#: spliced rows are the committed rows, every column, and hands the committed summary on;
+#: ``test_method_evidence``'s ``test_paper_property_verdicts_are_recomputed_from_the_replication_rows``
+#: already recomputes that summary from those rows in the fast suite.
+SLICE = 400
+LONG_SUMMARIES = (
+    "ctmle-oat-per-arm-parametric-extensions",
+    "long-horizon-categorical-ltmle",
+    "long-horizon-ltmle",
+)
 
 
 @pytest.fixture(scope="module")
@@ -101,15 +111,7 @@ def test_no_support_or_grid_source_reads_a_sidecar() -> None:
 # ---------------------------------------------------------------------------- the post-fit path
 
 
-@pytest.mark.parametrize(
-    "slug",
-    # Each study re-summarizes its full table (ctmle-oat-per-arm-parametric-extensions takes
-    # minutes), so each is its own scheduling unit.
-    [
-        pytest.param(slug, marks=pytest.mark.xdist_group(f"band-rerun:{slug}"))
-        for slug in EXTRA_COLUMN_STUDIES
-    ],
-)
+@pytest.mark.parametrize("slug", EXTRA_COLUMN_STUDIES)
 def test_the_post_fit_path_publishes_the_committed_bytes(
     slug: str, plan: dict[str, Any], tmp_path: Path
 ) -> None:
@@ -117,7 +119,10 @@ def test_the_post_fit_path_publishes_the_committed_bytes(
 
     The witness covers the columns outside ``REPLICATE_COLUMNS`` that these studies' rows
     carry: a splice, a carried digest or a replay that dropped them would change the bytes or
-    stop the study's own summary.
+    stop the study's own summary.  Two studies run their own summary here; the three of
+    :data:`LONG_SUMMARIES` hand on the committed one once their spliced rows are shown to be the
+    committed rows, value for value, and replay the first :data:`SLICE` band keys of
+    each call.
     """
     entry = plan["studies"][slug]
     record = band_rerun.record_for(slug)
@@ -126,12 +131,25 @@ def test_the_post_fit_path_publishes_the_committed_bytes(
     index = band_rerun.committed_index(committed)
     calls = band_rerun.capture(record, entry["moved_cells"], index)
     assert band_rerun.selection(calls, entry["moved_cells"]) == entry["selection"]
+    if slug in LONG_SUMMARIES:
+        # A slice of each call's band keys: the rows outside it are the committed rows anyway.
+        for each in calls:
+            each.selected = each.selected[:SLICE]
     values = {
         call.label: [band_rerun.committed_value(call, call.keys[i], index) for i in call.selected]
         for call in calls
         if call.selected
     }
-    composite = band_rerun.post_fit(record, entry, committed, calls, values, jobs=1)
+    summarize = None
+    if slug in LONG_SUMMARIES:
+
+        def summarize(rows: pd.DataFrame) -> pd.DataFrame:
+            pd.testing.assert_frame_equal(rows, committed, check_exact=True)
+            return pd.read_csv(record.artifacts / "properties.csv")
+
+    composite = band_rerun.post_fit(
+        record, entry, committed, calls, values, jobs=1, summarize=summarize, index=index
+    )
     assert composite.summary_record["changed_rows"] == []
     hashes = band_rerun.write_outputs(composite, record, tmp_path)
     assert hashes == entry["artifact_sha256"]
@@ -243,17 +261,36 @@ def test_a_failure_inside_the_band_is_a_reading_and_outside_is_drift() -> None:
         band_rerun.replay([call()], {"properties": [failure(False), values[1]]}, index, [BAND])
 
 
-def test_the_classifier_reads_every_frame() -> None:
+def raised(function: Any, *args: Any) -> BaseException:
+    with pytest.raises(Exception) as caught:
+        function(*args)
+    return caught.value
+
+
+def test_a_raise_inside_the_band_classifies_inside() -> None:
     from cleverly.inference.multiplier import simultaneous_bands
 
-    try:
-        simultaneous_bands({}, n_replicates=10, random_state=0)  # type: ignore[call-arg]
-    except Exception as error:
-        assert band_rerun.classify(error).inside_band
-    try:
-        float("x")
-    except ValueError as error:
-        assert not band_rerun.classify(error).inside_band
+    assert band_rerun.classify(raised(simultaneous_bands, {})).inside_band
+
+
+def test_a_learner_failure_under_a_band_fit_wrapper_classifies_outside() -> None:
+    """``dose_response_properties.band_fit`` is a fit wrapper, not a band entry point."""
+    from tests.studies import dose_response_properties
+
+    frame = pd.DataFrame({"W": [0.0, 1.0], "A": [0.5, 1.5], "Y": [0.0, 1.0]})
+    failure = band_rerun.classify(raised(dose_response_properties.band_fit, frame))
+    assert any(frame_name.endswith(":band_fit") for frame_name in failure.frames)
+    assert not failure.inside_band
+
+
+def test_a_bootstrap_band_failure_classifies_outside() -> None:
+    from cleverly.inference.bootstrap import bootstrap_band
+
+    failure = band_rerun.classify(
+        raised(lambda: bootstrap_band(None, {"a": 1.0}, {"a": 0.1}, alpha=0.05))
+    )
+    assert any(frame_name.endswith(":bootstrap_band") for frame_name in failure.frames)
+    assert not failure.inside_band
 
 
 def test_refusals_count_per_row() -> None:
@@ -313,6 +350,42 @@ def test_discordant_pairs_are_read_by_replicate() -> None:
     before = committed()
     after = band_rerun.splice(before, [row(BAND, 1, 2.5, covered=0, rejected=1)])
     assert band_rerun.discordant(before, after, BAND) == (1, 0, 2)
+
+
+def interval(lower: float, upper: float, coverage: float = 0.95) -> dict[str, float]:
+    return {"coverage_ci_lower": lower, "coverage_ci_upper": upper, "coverage": coverage}
+
+
+def test_the_paired_test_reads_the_direction_of_the_breach() -> None:
+    assert band_rerun.breach_direction("positive", interval(0.91, 0.94), 0.95) == "less"
+    assert band_rerun.breach_direction("positive", interval(0.96, 0.99), 0.95) == "more"
+    assert band_rerun.breach_direction("control", interval(0.93, 0.96, 0.95), 0.90) == "more"
+    assert band_rerun.breach_direction("control", interval(0.80, 0.86, 0.83), 0.90) == "less"
+
+
+def test_the_two_rules_block_as_declared() -> None:
+    assert band_rerun.blocks("strict", True, 0.5)
+    assert not band_rerun.blocks("paired", True, 0.5)
+    assert band_rerun.blocks("paired", True, 0.01)
+    assert not band_rerun.blocks("strict", False, 0.0)
+    with pytest.raises(ValueError):
+        band_rerun.blocks("other", True, 0.0)
+
+
+def test_no_wave_runs_before_the_owner_binds_the_rule(
+    plan: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The plan commits ``decision_rule: null`` until the owner picks the blocking clause."""
+    assert "decision_rule" in plan and plan["decision_rule"] in (None, *band_rerun.RULES)
+    if plan["decision_rule"] is not None:
+        return
+    monkeypatch.setattr(band_rerun, "validate_plan", lambda plan: [])
+    with pytest.raises(SystemExit, match="decision_rule"):
+        band_rerun.preflight(plan, "canonical-ltmle", scientific=True)
+    with pytest.raises(ValueError, match="decision_rule"):
+        band_rerun.decide(tmp_path)
+    with pytest.raises(SystemExit):
+        band_rerun.main(["--decide", str(tmp_path)])
 
 
 def test_the_closed_interval_test() -> None:
