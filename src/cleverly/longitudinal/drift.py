@@ -815,6 +815,10 @@ def corrected_curve(
 # ------------------------------------------------------------------------- the loop
 
 
+#: The printed names of :attr:`DriftRecord.scores`, in order.
+SCORE_LABELS: Final = ("efficient score", "treatment drift", "censoring drift", "hazard drift")
+
+
 @dataclass(frozen=True, eq=False)
 class DriftRecord:
     """The drift correction of one arm at one horizon.
@@ -914,9 +918,14 @@ class DriftRecord:
         Summary
             The loop, the held factors and the scores at the stop.
         """
-        from .._summary import Summary, check_detail
+        from .._summary import Cell, Summary, SummaryTable, check_detail
 
         check_detail(detail)
+        rows = tuple(
+            (Cell(label, label), Cell(float(value), f"{value:.2e}"))
+            for label, value in zip(SCORE_LABELS, self.scores, strict=True)
+        )
+        table = SummaryTable(("score", "mean at the stop"), rows, kind="other")
         header = (
             ("Arm", self.arm),
             ("Horizon", str(self.horizon)),
@@ -926,7 +935,7 @@ class DriftRecord:
             ("Regressions", f"{len(self.reductions)} ({self.degenerate} at the mean)"),
             ("Floored denominators", str(sum(count for _, count in self.denominator_hits))),
         )
-        return Summary.build(title="Drift correction", header=header, tables=())
+        return Summary.build(title="Drift correction", header=header, tables=(table,))
 
     def _repr_html_(self) -> str:
         return self.summary().as_html()
