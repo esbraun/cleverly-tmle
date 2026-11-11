@@ -214,8 +214,9 @@ The `sequential_double_robustness` family reads the two-node law of
 `tests/discrete_law_longitudinal_sdr.py`. Each of the patterns P_A to P_D makes one nuisance
 wrong at each node, and the pattern `both_correct` makes none wrong. The patterns `both_correct`
 and `P_C` keep the ratios exact, so they gate the bias and the reported-error screen at n = 2,000,
-4,800 and 8,000. They gate the coverage floor at 4,800 and 8,000 only. The patterns `P_A`, `P_B`
-and `P_D` gate the absolute bias at n = 2,000 and n = 8,000, and report their coverage only.
+4,800 and 8,000. They gate the coverage floor at 4,800 and 8,000 only.
+
+The patterns `P_A`, `P_B` and `P_D` gate the absolute bias at n = 2,000 and n = 8,000, and report their coverage only.
 Theorem 4 needs the rate product for their intervals. Both controls make the same nuisances wrong
 at one node, and their bias clears the floor of 3 empirical SDs.
 
