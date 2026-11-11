@@ -184,16 +184,18 @@ def test_the_multi_arm_missing_outcome_calibration_draws() -> None:
 def test_the_logit_slope_shortfall_in_the_smallest_stratum() -> None:
     """The ``X8-logit-small-stratum`` reading: the shipped unstratified fit shares the shortfall.
 
-    The registered cells read 0.967 and 0.862.  On fresh draws the stratified fit reads 0.867 in
-    stratum 2, and the unstratified fit on a sample of that stratum's size reads 0.896.  At four
-    times the size both read within 0.01 of one.
+    The quasi-likelihood rerun (CDR-005) reads 0.982 in stratum 1, now inside the band, and
+    0.901 in stratum 2.  The diagnostic rows predate that change: on fresh draws the stratified
+    fit read 0.867 in stratum 2 under the least-squares projection, and the unstratified fit on
+    a sample of that stratum's size read 0.896.  At four times the size both read within 0.01
+    of one.
     """
     registered = pd.read_csv(
         ROOT / "tests" / "canonical" / "npcausal_stratified_incremental" / "properties.csv",
         float_precision="round_trip",
     ).set_index("cell")
-    assert round(float(registered.loc["logit_v1_a__correctly_specified", "se_ratio"]), 3) == 0.967
-    assert round(float(registered.loc["logit_v2_a__correctly_specified", "se_ratio"]), 3) == 0.862
+    assert round(float(registered.loc["logit_v1_a__correctly_specified", "se_ratio"]), 3) == 0.982
+    assert round(float(registered.loc["logit_v2_a__correctly_specified", "se_ratio"]), 3) == 0.901
     rows = pd.read_csv(
         ROOT / "tests" / "diagnostics" / "x8_logit_small_stratum" / "rows.csv.gz",
         float_precision="round_trip",

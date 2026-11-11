@@ -8,8 +8,10 @@ shared sizing rules at the committed pilot.  Nothing here reads a study run.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from itertools import pairwise
+from pathlib import Path
 from typing import ClassVar
 
 import numpy as np
@@ -130,6 +132,117 @@ class TestTheTruths:
         outside = float(w_mass @ ((norm.sf(high - mean) + norm.cdf(low - mean)) @ e_mass))
         rows = study.PRIMARY_REPLICATES * study.PRIMARY_N
         assert outside * rows < 1e-9
+
+
+class TestTheTruthsWithAnIndependentKernel:
+    """The committed truths, recomputed without the shipped equivalent kernel.
+
+    The truth module defines each target through ``cleverly.dose_response.equivalent_kernel``.
+    This check writes the local-linear Epanechnikov weight from its definition, with the
+    kernel's moments over the declared interval in closed form, and integrates it against the
+    law's curve on each smooth piece, so a defect in the shipped weight would show here as a
+    truth that the artifact does not hold.
+    """
+
+    NAME: ClassVar[re.Pattern[str]] = re.compile(
+        r"^dose_response\[h=([^,]+),a=([^\]]+)\](?:\[V=([01])\])?$"
+    )
+
+    @staticmethod
+    def weight(a: np.ndarray, a0: float, h: float, *, local_linear: bool = True) -> np.ndarray:
+        lower, upper = law.SUPPORT
+        z_low, z_high = max(-1.0, (lower - a0) / h), min(1.0, (upper - a0) / h)
+
+        def moment(k: int) -> float:
+            # The integral of z**k * 0.75 * (1 - z**2) over [z_low, z_high].
+            def antiderivative(z: float) -> float:
+                return 0.75 * (z ** (k + 1) / (k + 1) - z ** (k + 3) / (k + 3))
+
+            return antiderivative(z_high) - antiderivative(z_low)
+
+        mu0, mu1, mu2 = moment(0), moment(1), moment(2)
+        z = (a - a0) / h
+        kernel = np.where(np.abs(z) <= 1.0, 0.75 * (1.0 - z * z), 0.0)
+        inside = (a >= lower) & (a <= upper)
+        if not local_linear:
+            return np.where(inside, kernel / (mu0 * h), 0.0)
+        return np.where(inside, (mu2 - mu1 * z) / (mu0 * mu2 - mu1 * mu1) * kernel / h, 0.0)
+
+    def truth(
+        self,
+        h: float,
+        a0: float,
+        *,
+        gaussian: bool,
+        stratum: int | None,
+        local_linear: bool = True,
+    ) -> float:
+        lower, upper = law.SUPPORT
+        points = sorted({lower, upper, *(x for x in (a0 - h, a0 + h) if lower < x < upper)})
+        nodes, weights = np.polynomial.legendre.leggauss(120)
+        total = 0.0
+        for left, right in pairwise(points):
+            half = 0.5 * (right - left)
+            a = left + half * (nodes + 1.0)
+            values = law.curve(a, gaussian=gaussian, stratum=stratum)
+            w = self.weight(a, a0, h, local_linear=local_linear)
+            total += float(np.sum(half * weights * w * values))
+        return total
+
+    def test_the_weight_is_the_local_linear_equivalent_kernel(self) -> None:
+        # It reproduces constants and linear functions on the interval, at the boundary too.
+        a = np.linspace(*law.SUPPORT, 200_001)
+        step = a[1] - a[0]
+        for h, a0 in ((1.0, 0.25), (0.5, 2.5), (1.5, 4.75)):
+            w = self.weight(a, a0, h)
+            assert np.trapezoid(w, dx=step) == pytest.approx(1.0, abs=1e-7)
+            assert np.trapezoid(w * (a - a0), dx=step) == pytest.approx(0.0, abs=1e-7)
+
+    def test_every_committed_truth_matches(self) -> None:
+        from tests.studies.evidence.manifest import read_rows
+
+        root = Path(__file__).resolve().parents[1] / "canonical" / "dose_response"
+        rows = read_rows(root / "replicates.parquet", columns=["scenario", "estimand", "truth"])
+        committed = rows.drop_duplicates(["scenario", "estimand"])
+        assert len(committed) == sum(len(names) for names in study.TRUTH.values())
+        for scenario, estimand, truth in committed.itertuples(index=False):
+            match = self.NAME.match(estimand)
+            assert match is not None, estimand
+            h, a0, stratum = float(match[1]), float(match[2]), match[3]
+            expected = self.truth(
+                h,
+                a0,
+                gaussian=study.SCENARIOS[scenario].gaussian,
+                stratum=None if stratum is None else int(stratum),
+            )
+            assert truth == pytest.approx(expected, abs=1e-12), (scenario, estimand)
+
+    def test_a_local_constant_weight_would_be_caught(self) -> None:
+        # Mutation control: dropping the local-linear correction (a Nadaraya-Watson weight)
+        # moves a boundary truth far beyond the 1e-12 the artifact check allows.
+        h, a0 = 1.0, 0.25
+        linear = self.truth(h, a0, gaussian=False, stratum=None)
+        constant = self.truth(h, a0, gaussian=False, stratum=None, local_linear=False)
+        assert abs(constant - linear) > 1e-3
+
+    def test_the_property_truths_match(self) -> None:
+        from tests.studies.evidence.manifest import read_rows
+
+        root = Path(__file__).resolve().parents[1] / "canonical" / "dose_response"
+        rows = read_rows(root / "property-replicates.parquet", columns=["cell", "truth"])
+        pairs = {
+            properties.CALIBRATION_LABEL: properties.CALIBRATION_PAIR,
+            "h1_a3_5": properties.ROBUSTNESS_PAIR,
+        }
+        checked = 0
+        for cell, truth in rows.drop_duplicates("cell").itertuples(index=False):
+            pair = next((p for label, p in pairs.items() if cell.startswith(label)), None)
+            if pair is None:
+                continue
+            expected = self.truth(*pair, gaussian=False, stratum=None)
+            assert truth == pytest.approx(expected, abs=1e-12), cell
+            checked += 1
+        assert checked >= 2
 
 
 class TestTheTailDose:

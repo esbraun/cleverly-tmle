@@ -160,10 +160,10 @@ class TestProjection:
             ours.coefficients(table, population), package.beta, rtol=0.0, atol=1e-9
         )
         # The covariate part premultiplies by the inverse of the same matrix M.
+        # The estimating equation weights the residual by h * phi under every link.
         fitted = design @ package.beta
         mean = {"identity": fitted, "log": np.exp(fitted), "logit": _expit(fitted)}[link]
-        slope = {"identity": np.ones_like(mean), "log": mean, "logit": mean * (1 - mean)}[link]
-        rows = np.einsum("ik,ikp->ip", weights * slope * (table - mean), design)
+        rows = np.einsum("ik,ikp->ip", weights * (table - mean), design)
         expected = np.linalg.solve(package.jacobian, rows.T)[1]
         np.testing.assert_allclose(
             ours.covariate_part(table, population), expected, rtol=1e-7, atol=1e-10
@@ -173,7 +173,7 @@ class TestProjection:
     def test_the_covariate_part_is_the_gateaux_derivative(self, link: str) -> None:
         # The part at row i is the derivative of the coefficient in row i's population
         # weight, times the total weight. A finite difference reads it without M, so it sees
-        # a wrong curvature term, which the identity link cannot.
+        # a wrong M, which a saturated model cannot.
         n = 60
         design, weights, covariate = _msm_arrays(n)
         table = np.column_stack([_expit(-1.0 + covariate**2), _expit(0.4 + covariate**2)])

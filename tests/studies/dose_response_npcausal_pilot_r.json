@@ -1,0 +1,36 @@
+{
+  "draws": 1000,
+  "candidate_bandwidths": [
+    1.0,
+    1.5,
+    2.0,
+    2.5
+  ],
+  "npcausal_bandwidths": {
+    "1": 0.3457676162028392,
+    "1.5": 0.5186514243042588,
+    "2": 0.6915352324056784,
+    "2.5": 0.864419040507098
+  },
+  "image": "cleverly-npcausal:0.1.0-56a5ac1",
+  "image_content": "content:08f7419018f3a0a4acb00e54819597ffa1e000557abc663bc3effb0b35185135",
+  "dockerfile_sha256": "f790996d3833b584d564202862591e9e66ad340b3639380fe964a6c8195cdc43",
+  "runner_sha256": "084de7d88b1815b3a882315b54ccf1dbad13b8456a78eec090cde587da0749b2",
+  "harness_sha256": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
+  "git": {
+    "head": "aa82fda7d9993a6ef85a555bb9609e56331db001",
+    "clean": true
+  },
+  "cores": [
+    14
+  ],
+  "wall_seconds": 5328.309706700267,
+  "cpu_seconds": 74596.33589380374,
+  "cpu_seconds_per_call": 18.649083973450935,
+  "failed_calls": {
+    "1": 77,
+    "1.5": 9,
+    "2": 1,
+    "2.5": 0
+  }
+}

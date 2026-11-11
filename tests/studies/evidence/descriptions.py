@@ -8132,6 +8132,27 @@ STUDY_ARM_CELLS.update(
 )
 
 
+#: ``dose-response-npcausal`` (X93 S2): the smoothed curve against npcausal ``ctseff`` at a law
+#: where the curve is a line.  The names are those of ``tests/studies/dose_response_npcausal.py``.
+_DOSE_NPCAUSAL_SLUG = "dose-response-npcausal"
+STUDY_SCENARIOS[(_DOSE_NPCAUSAL_SLUG, "linear_gaussian")] = (
+    "a dose with a normal location model linear in three normal covariates, and a Gaussian "
+    "outcome linear in the dose with a dose-varying covariate slope, so the curve is a line; "
+    "doses 1.5, 2.5 and 3.5 by triweight bandwidths 2.0 and 2.5, which the R pilot selected from "
+    "1.0, 1.5, 2.0 and 2.5, n = 4,000"
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_DOSE_NPCAUSAL_SLUG, f"dose_response[h={h:.10g},a={a0:.10g}]"): (
+            f"{_dose_words(h, a0)}, which equals the curve at {a0:g} because the curve is a line; "
+            "npcausal ctseff estimates the same value with a Gaussian kernel of matched roughness"
+        )
+        for h in (2.0, 2.5)
+        for a0 in (1.5, 2.5, 3.5)
+    }
+)
+
+
 #: ``survival-ctmle`` (X91 part B): collaborative TMLE of a risk curve, Stitelman and van der
 #: Laan (2010), Sections 12 to 14.  The scenario and estimand names are those of
 #: ``tests/studies/survival_ctmle.py``; the record holds its gated cells only.

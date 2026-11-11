@@ -163,13 +163,46 @@ def test_every_committed_paired_verdict_follows_its_legs(
     for study in STUDIES:
         performance = tables[study.slug]["performance"]
         valid = performance.set_index(["implementation", "scenario", "estimand"])["passed"]
+        # A cell that lost a replicate carries its failure-accounting gate, which can withdraw
+        # the conclusion its legs give (``failures.accounted_conclusion``).
+        gates = failures.cell_gates(tables[study.slug]["accounting"], "equivalence")
         for row in tables[study.slug]["equivalence"].itertuples():
             subject_valid = bool(valid.loc[(study.implementation, row.scenario, row.estimand)])
             legs = paired_legs(row, study.margins, subject_valid)
+            rebuilt = (legs.passed, legs.conclusion)
+            gate = gates.get((str(row.scenario), str(row.estimand)))
+            if gate is not None:
+                conclusion, passed = failures.accounted_conclusion(
+                    legs.conclusion,
+                    equivalent=legs.similar and legs.rmse and legs.coverage and legs.calibration,
+                    gate=gate,
+                )
+                rebuilt = (passed, conclusion)
             committed = (bool(row.passed), str(row.comparison_conclusion))
-            if (legs.passed, legs.conclusion) != committed:
+            if rebuilt != committed:
                 disagreements.append((study.slug, row.scenario, row.estimand))
     assert disagreements == []
+
+
+def test_an_accounted_paired_verdict_needs_its_gate(
+    tables: dict[str, dict[str, pd.DataFrame]],
+) -> None:
+    # The witness that the gate branch above is not vacuous: a dose-response-npcausal row
+    # whose legs conclude equivalent is committed unaccounted, and only its gate explains it.
+    study = BY_SLUG["dose-response-npcausal"]
+    frame = tables[study.slug]["equivalence"]
+    row = next(row for row in frame.itertuples() if row.estimand == "dose_response[h=2,a=2.5]")
+    legs = paired_legs(row, study.margins, True)
+    assert (legs.passed, legs.conclusion) == (True, "equivalent")
+    gate = failures.cell_gates(tables[study.slug]["accounting"], "equivalence")[
+        (str(row.scenario), str(row.estimand))
+    ]
+    assert gate == (False, failures.WORST_CASE_FAILS)
+    assert failures.accounted_conclusion(legs.conclusion, equivalent=True, gate=gate) == (
+        failures.UNACCOUNTED,
+        False,
+    )
+    assert (bool(row.passed), str(row.comparison_conclusion)) == (False, failures.UNACCOUNTED)
 
 
 # --- the published page ---------------------------------------------------------------------

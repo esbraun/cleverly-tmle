@@ -468,12 +468,11 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "interval_calibration/ate__correctly_specified",
         "simultaneous_coverage/arms__simultaneous_band",
     ),
-    # The logit-MSM slope in the two smaller strata of the stratified incremental and MSM
+    # The logit-MSM slope in the smallest stratum of the stratified incremental and MSM
     # study.  ``tests/unit/test_band_shortfall_reading.py`` rebuilds the reading.
     "X8-logit-small-stratum": _keys(
         "canonical-stratified-incremental-msm",
         "property",
-        "interval_calibration/logit_v1_a__correctly_specified",
         "interval_calibration/logit_v2_a__correctly_specified",
     ),
     # Stratum 2 of the identity-MSM study: a calibration cell and the paired W row that is
@@ -568,6 +567,22 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "targeting-curves",
         "property",
         "interval_calibration/H_S_minus_S_B_toc_0.1__correctly_specified",
+    ),
+    # X93 S2, filed after the declared run.  The pre-registered upper-dose calibration red of
+    # ``dose-response-npcausal`` (``TestThePreregisteredRedSet`` in
+    # ``tests/unit/test_dose_response_npcausal_design.py``).
+    "X93-upper-dose-calibration": _keys(
+        "dose-response-npcausal",
+        "paired",
+        "linear_gaussian/dose_response[h=2,a=3.5]",
+    ),
+    # X93 S2, post-run diagnosis: equivalent on complete cases, withdrawn by the failure
+    # accounting's worst case for the six replications ``ctseff`` failed.
+    "X93-failure-worst-case": _keys(
+        "dose-response-npcausal",
+        "paired",
+        "linear_gaussian/dose_response[h=2,a=2.5]",
+        "linear_gaussian/dose_response[h=2.5,a=3.5]",
     ),
     # The smallest-composite arm of the composite study, red in both implementations alike.
     "composite-high-arm": _keys(

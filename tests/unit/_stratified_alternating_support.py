@@ -202,13 +202,11 @@ def _dose(estimator: Any, rows: pd.DataFrame, outcome: str, *, strata: bool = Fa
     )
 
 
-#: Each golden fit, by name.  A builder takes the shared frame.
+#: Each golden fit, by name.  A builder takes the shared frame.  Linked working models are not
+#: here: the quasi-likelihood projection (CDR-005) changed their estimand on purpose, and
+#: ``tests/unit/test_stratified_msm_exact.py`` and its continuous sibling check them instead.
 GOLDEN: dict[str, Callable[[pd.DataFrame], Any]] = {
     "ipsi": lambda f: _fit(TMLE(incremental=[Incremental(2.0), Incremental(0.5)], **settings()), f),
-    "msm_logit": lambda f: _fit(
-        TMLE(msm=MSM.linear(modifiers=("W",), link="logit"), **settings()), f
-    ),
-    "msm_log": lambda f: _fit(TMLE(msm=MSM.linear(link="log"), **settings()), f),
     "continuous_msm_identity": lambda f: _dose(
         TMLE(
             msm=MSM.linear(doses=GRID),
@@ -217,9 +215,6 @@ GOLDEN: dict[str, Callable[[pd.DataFrame], Any]] = {
         ),
         f,
         "Yc",
-    ),
-    "continuous_msm_logit": lambda f: _dose(
-        TMLE(msm=MSM.linear(doses=GRID, link="logit"), density_bins=6, **settings()), f, "Yd"
     ),
     "natural_course": lambda f: _fit(
         TMLE(estimands=("ey_obs",), **settings()), f, outcome="Yobs", delta="Delta"

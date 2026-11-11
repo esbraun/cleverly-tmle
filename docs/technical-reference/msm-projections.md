@@ -16,7 +16,7 @@ working model fits.
 | many arms, or many regimens | one coefficient vector instead of one mean per level | the coefficients mean what the working model says they mean. Read them as a projection |
 | a dose you want to summarise as a trend | a slope, with an influence curve and an interval | a model linear in the arm reads the arm as a dose, so non-numeric labels are refused |
 | effect modification by a baseline variable | an interaction term in the working design | the design must be full rank on the *realized* cells |
-| repeated treatment over time | the same projection over regimen and horizon cells | the node fluctuations are pooled. Under a link, one in-sample round of the alternation is a whole backward pass |
+| repeated treatment over time | the same projection over regimen and horizon cells | the node fluctuations are pooled. Under every link the targeting is one backward pass |
 
 The projection is a fourth parameter axis. `msm=` cannot be combined with `interventions=` or
 `policies=`, because one fluctuation solves one set of score equations, and a fit reporting
@@ -60,23 +60,41 @@ and
 
 ### Under a link
 
-Three things change inside, and each is a place where the obvious generalisation is wrong.
-
-**The clever covariate reads the coefficient.** It becomes
-$h(a,V)\,(dm/d\eta)\,\phi(a,V)/g(a\mid W)$, and $dm/d\eta$ is a function of $m(a,V;\beta)$. So the
-fluctuation and the projection are solved *together*, alternating until both settle. It converges
-fast, because the coefficient reaches the covariate only through that smooth factor. The shift falls
-by a factor of $10^{-3}$ to $10^{-4}$ per round, and `res.fluctuations["msm"].projection` carries
-the per-round trace.
-
-**The matrix the influence curve is premultiplied by is no longer the Gram matrix.** It is
+Under a link $m=g^{-1}(\phi^\top\beta)$, the projection minimises the link's quasi-likelihood loss,
 
 $$
-M = E\left[\sum_a h\left\{(dm/d\eta)^2 - (\bar Q_P-m)\,d^2m/d\eta^2\right\}\phi\phi^\top\right],
+\beta(P)=\arg\min_b E_P\left[\sum_a h(a,V)\left\{B(\phi^\top b)-\bar Q_P(a,W)\,\phi^\top b\right\}\right],
 $$
 
-and the second term vanishes only where the working model *fits*, which is exactly what a
-projection does not promise. Dropping it is wrong in a way that no saturated-model check can see.
+where the cumulant $B$ has $B'=m$. The identity link has $B(\eta)=\eta^2/2$, which is the least
+squares above. The logit link has $B(\eta)=\log(1+e^\eta)$, the quasi-binomial loss, and the log
+link has $B(\eta)=e^\eta$, the quasi-Poisson loss. This is the projection of Rosenblum and van der
+Laan (2010), equation 17, and the pooled logistic regression of Petersen et al. (2014). R `ltmleMSM`
+uses the same quasi-binomial loss.
+
+The loss follows the link because least squares on the mean scale is not convex in $\beta$ under a
+link. On an eight-arm law it has a stationary point that is not its minimum, so Newton's method can
+return a coefficient that is not the declared one (`tests/unit/test_msm_quasi_likelihood.py`). The
+cumulant loss has curvature $h\,dm/d\eta\,\phi\phi^\top$, which is positive definite on a full-rank
+design, so its minimiser is unique when it exists. The solver runs Newton's method with a line
+search on the loss. When no finite minimiser exists, for example when the counterfactual means are
+separated by the design, the fit reports that the projection did not converge.
+
+Three consequences follow.
+
+**The clever covariate is the identity link's.** The projection's estimating equation is
+$E\sum_a h\,\phi\,\{\bar Q_P(a,W)-m(a,V;\beta)\}=0$, so the clever covariate is
+$h(a,V)\,\phi(a,V)/g(a\mid W)$ under every link. It does not read $\beta$, so one fluctuation
+solves the score equations, and `res.fluctuations["msm"].projection` is `None`.
+
+**The influence curve is premultiplied by the derivative of that equation.** It is
+
+$$
+M = E\left[\sum_a h\,\frac{dm}{d\eta}\,\phi\phi^\top\right],
+$$
+
+with no term in the residual $\bar Q_P-m$. The influence curve is
+$M^{-1}\{h\phi\,I(A=a)(Y-\bar Q)/g+\sum_a h\phi\,(\bar Q-m)\}$.
 
 **The remainder is second order without being zero.** With the identity link a correct mechanism
 drives the remainder to exactly zero, and that exactness is the *linearity* of the estimating
@@ -144,12 +162,11 @@ only. A cross-fitted `lmtp` 1.5.4 regimen fit differs from this construction twi
 on each training fold, and it targets each regimen with its own scalar fluctuation. Upstream
 commit `9996b04` classifies that training-fold update as a bug.
 
-**Under a link, one in-sample round of the alternation is a whole backward pass.** The coefficient
-enters the covariate through the derivative of the inverse link, so each targeted regression moves
-with it. A targeted regression is the previous node's regression *target*, so every earlier node's
-learner is refit. The fixed point is stated over the whole pass, and it costs four or five passes
-in practice. The mechanism is free of the coefficient and is fitted once. Above one fold, a round
-re-solves the pooled update only, because the stitched initial fit carries no coefficient.
+**Under a link, the targeting is still one backward pass.** The node covariate is the projection
+weight times the design, which is free of the coefficient, so each node fluctuates once. The
+pooled loss weight is the projection weight times the cumulative mechanism, the update of
+`ltmle`'s `UpdateQ`. The coefficient is the quasi-likelihood projection of the targeted cell means,
+solved after the pass.
 
 **The projection weight and the observation weight are different objects and must stay so.** The
 first says how the regimens are traded off inside the projection. The second tilts the *population*
@@ -164,11 +181,11 @@ $\varphi_{1,c}$, and `project_sdr_cells` solves the working model's equation ove
 cells. The coefficient curve is
 
 $$
-M^{-1} \sum_c h \, \frac{dm}{d\eta} \, x(c, V) \bigl(\varphi_{1,c} - m(c, V; \beta)\bigr),
+M^{-1} \sum_c h \, x(c, V) \bigl(\varphi_{1,c} - m(c, V; \beta)\bigr),
 $$
 
-with $x$ the design, $V$ the baseline covariates, and $M$ the derivative of the equation in
-$\beta$. The conditional form of Lemma 1 of Díaz, Williams, Hoffman and Schenck (2023) at $H_1$
+with $x$ the design, $V$ the baseline covariates, and $M=\sum_c h\,(dm/d\eta)\,xx^\top$ the
+derivative of the equation in $\beta$, averaged over units. The conditional form of Lemma 1 of Díaz, Williams, Hoffman and Schenck (2023) at $H_1$
 makes each cell's transform unbiased given $V$. No published result states this composition, and
 the [natural-extension verdicts](natural-extension-verdicts.md) record its steps. The identity link
 always has a solution. A transform can leave $[0, 1]$, so a logit or log projection can have no
@@ -185,11 +202,11 @@ pattern.
 | `design_kind="known"` | the declaration that a `design=` callable is a fixed function of the arm, or of the regimen and horizon, and the covariates, chosen without reading the data. `MSM.linear` takes no `design_kind`, because the design it builds is known by construction |
 | projection weights | how the arms or regimens are traded off inside the projection |
 | `weights_kind="known"` | the declaration that a `weights=` callable is a fixed function of the arm and the covariates, chosen without reading the data. `MSM.linear` forwards it. Uniform weights, `weights=None`, need no declaration |
-| `link="identity"` | the clever covariate is free of the coefficient, and a correct mechanism drives the remainder to exactly zero |
-| `link="log"`, `link="logit"` | the covariate reads the coefficient, so the fluctuation and the projection alternate. `res.coefficients(scale="ratio")` exponentiates them |
+| `link="identity"` | the least-squares projection. A correct mechanism drives the remainder to exactly zero |
+| `link="log"`, `link="logit"` | the quasi-Poisson or quasi-binomial projection, with the same clever covariate and one fluctuation. `res.coefficients(scale="ratio")` exponentiates them |
 | `MSM.linear` | a model linear in the arm. **Refused on non-numeric labels**, because it would read the sort order as a dose scale nobody chose |
 | longitudinal `msm=` | the same projection over regimen, horizon, and cause cells, with rank checked on the actual realized design. Above one fold, the fold recursions stay untargeted and one stacked fluctuation per node pools the update |
-| `targeting_scheme="fold"` | each fold solves its own coefficient, since the coefficient is something the covariate reads. This removes coupling *between* folds, and the rows inside a fold still fit both the coefficient and the fluctuation used for that fold. The pooled score is exactly zero because each fold's is zero at its own coefficient. This is a package extension and not the common-update CV-TMLE of Zheng and van der Laan |
+| `targeting_scheme="fold"` | each fold solves its own fluctuation along the same covariate, under every link. The pooled score is exactly zero because each fold's is zero. This is a package extension and not the common-update CV-TMLE of Zheng and van der Laan |
 | point-treatment `"fold"` against longitudinal `n_folds` | point-treatment fold targeting is supported. A longitudinal fit never targets inside a fold: above one fold it pools the update over every follower |
 
 ### Baseline strata
@@ -200,13 +217,12 @@ model with the expanded design $(I(S=s)\varphi)_s$.
 
 | link | stratum coefficients | marginal coefficients |
 | --- | --- | --- |
-| identity, finite arms or a dose grid | one block $I(S=s)H/P_n(S=s)$ per stratum, in one pooled fluctuation | the same fluctuation; its score is the weighted sum of the blocks |
-| log, logit | a nested fluctuation of the blocks $I(S=s)H(\beta_s)/P_n(S=s)$, alternating with the projection on each stratum's rows, recorded on `Fluctuation.stratified` | the unstratified alternation, unchanged |
+| every link, finite arms or a dose grid | one block $I(S=s)H/P_n(S=s)$ per stratum, in one pooled fluctuation | the same fluctuation; its score is the weighted sum of the blocks |
 
-The two links differ because a linked block reads its own stratum's coefficients. One
-fluctuation cannot be the stratum fluctuation for every stratum and the marginal fluctuation at
-once, so a linked fit carries two. Each estimate is asymptotically linear with its own curve, so
-the stacked-curve covariance of any marginal and stratum coefficients stays valid.
+The clever covariate $H$ is free of the coefficients under every link, so one fluctuation is the
+stratum fluctuation for every stratum and the marginal fluctuation at once. Each estimate is
+asymptotically linear with its own curve, so the stacked-curve covariance of any marginal and
+stratum coefficients stays valid.
 
 Before any learner, the fit restricts the evaluated design to each stratum's rows and reruns the
 shipped rank rule. A design singular inside a stratum refuses with the stratum named first. A
@@ -322,18 +338,14 @@ change can have either sign, and it vanishes at $\beta_W=0$. The class
 `MSM.linear`. Both keep their intervals. The code cannot detect the false `"known"` declaration: the
 fixed-centre curve and the witness curve are bitwise equal.
 
-A one-shot non-identity-link fit is also refused. The derivative of the inverse link depends on the
-coefficient, so a single pass would report a standard error for an equation it did not solve. The
-link is supported. What is refused is skipping the alternation it needs.
-
 ## Validation issues special to this method
 
 **A saturated oracle proves nothing about a projection.** A saturated working model *fits*, which
 is exactly what a projection does not promise. A check against the per-arm means therefore cannot
-see a component that vanishes when the model fits, such as the projection weight or a link's
-curvature term. The oracle's working model is therefore deliberately **not** saturated: three
-coefficients against six covariate-and-arm cells at one node, and three coefficients against twelve
-regimen cells longitudinally. Both choices are asserted on the law itself, so they are shown to be
+see a component that vanishes when the model fits, such as the projection weight. The oracle's
+working model is therefore deliberately **not** saturated: three coefficients against six
+covariate-and-arm cells at one node, and three coefficients against twelve regimen cells
+longitudinally. Both choices are asserted on the law itself, so they are shown to be
 load-bearing rather than claimed to be.
 
 **Uniform weights are equally disqualifying.** With a constant weight the design is orthogonal and
@@ -346,9 +358,10 @@ uniform.
 convergence test could not be differentiated by a complex step at all. A separate check requires
 that doubling the step count moves neither the value nor the curve.
 
-**Coefficient parity with R `ltmleMSM` is not an acceptance check.** That package uses a
-quasibinomial working-model projection. `cleverly` declares an outcome-scale weighted least-squares
-projection. Raw coefficient parity would compare different estimands.
+**The linked projection is checked against its own loss.** On the eight-arm law where least squares
+on the mean scale has a stationary point that is not its minimum, the reported coefficient
+minimises the cumulant loss from every start of an independent optimiser and differs from that
+stationary point (`tests/unit/test_msm_quasi_likelihood.py`).
 
 **Seven mutations were applied to the longitudinal projection and the tests watched.** Three passed
 on the first try and exposed real gaps. That is why deliberate mutation is part of the development

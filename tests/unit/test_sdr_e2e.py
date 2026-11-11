@@ -246,8 +246,10 @@ def _msm_fit(constant: float, family: str) -> Any:
     )
 
 
-@pytest.mark.parametrize(("constant", "family"), [(3.0, "logit"), (5.0, "log")])
+@pytest.mark.parametrize(("constant", "family"), [(3.0, "logit"), (-3.0, "log")])
 def test_a_projection_that_does_not_converge_is_refused(constant: float, family: str) -> None:
+    """Transforms far outside the link's range leave the cumulant loss without a finite
+    minimiser: above 1 for the logit, below 0 for the log."""
     with pytest.raises(CapabilityError) as raised:
         _msm_fit(constant, family)
     assert str(raised.value) == (

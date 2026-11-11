@@ -4,18 +4,36 @@ TMLE's asymptotic guarantees rest on the nuisance estimators converging fast
 enough, which in practice means "do not commit to one parametric model".  The
 Super Learner (van der Laan, Polley & Hubbard, 2007) solves this by fitting a
 library of candidates, scoring each by cross-validated risk, and combining them
-with weights on the simplex.  It is guaranteed to do asymptotically at least as
-well as the best single candidate in the library.
+with weights on the simplex.
 
-Two meta-learners are available, matching R's ``SuperLearner``:
+The oracle result behind it covers the combination that *minimises the
+cross-validated risk over the simplex*: under bounded data and a bounded loss,
+that combination does asymptotically as well as the best combination of the
+library, and so at least as well as the best single candidate.  Polley (2010,
+Theorem 1) states it for squared-error loss, which covers ``"cc_ls"`` and
+``"discrete"`` on a regression task.  ``"nnloglik"`` and ``"discrete"`` on a
+classification task minimise the cross-validated log-likelihood risk instead;
+that loss is bounded here only because every candidate prediction is clipped to
+``[1e-9, 1 - 1e-9]`` before it enters the log, and the general bounded-loss form
+of the result (van der Laan, Polley & Hubbard, 2007) then applies.
 
-* ``"nnls"`` -- non-negative least squares on the cross-validated predictions,
-  normalised to sum to one (``method.NNLS``);
+The meta-learners, matching R's ``SuperLearner``:
+
+* ``"cc_ls"`` -- least squares on the cross-validated predictions with the
+  weights constrained to the simplex (non-negative, summing to one), solved as a
+  convex quadratic programme (``method.CC_LS``).  The default for regression;
 * ``"nnloglik"`` -- non-negative log-likelihood on the simplex
-  (``method.NNloglik``), the right choice for a binary target;
+  (``method.NNloglik``), the default for a binary target;
+* ``"nnls"`` -- non-negative least squares *without* the sum-to-one constraint,
+  then divided by the sum of the weights (``method.NNLS``).  This is R's heuristic,
+  kept for comparison with R.  The division does not give the simplex minimiser, so
+  ``"nnls"`` carries no oracle guarantee: it can put all weight on a candidate
+  whose risk is far above the best one's, at every sample size;
+* ``"discrete"`` -- all weight on the single candidate of smallest cross-validated
+  risk (the "discrete Super Learner", R's ``discreteSL=TRUE``).
 
-plus ``"discrete"``, which puts all weight on the single best candidate (the
-"discrete Super Learner", R's ``discreteSL=TRUE``).
+When a constrained solver fails, ``"cc_ls"`` falls back to ``"discrete"`` and
+``"nnloglik"`` falls back to ``"cc_ls"``.
 """
 
 from __future__ import annotations
@@ -41,7 +59,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = ["MetaLearner", "SuperLearner", "SuperLearnerDiagnostics", "resolve_learner"]
 
-MetaLearner = Literal["auto", "nnls", "nnloglik", "discrete"]
+MetaLearner = Literal["auto", "cc_ls", "nnls", "nnloglik", "discrete"]
 
 # Probabilities are pulled inside this margin before entering a log-likelihood.
 _LOGLIK_EPS = 1e-9
@@ -172,9 +190,10 @@ class SuperLearner(BaseEstimator):
     task : {"classification", "regression"} or None
         ``"classification"`` for a 0/1 target, ``"regression"`` otherwise;
         ``None`` infers it from ``y`` at fit time.
-    meta_learner : {"auto", "nnls", "nnloglik", "discrete"}
+    meta_learner : {"auto", "cc_ls", "nnls", "nnloglik", "discrete"}
         How to combine candidates.  See the module docstring.  ``"auto"`` picks
-        ``"nnloglik"`` for a classification task and ``"nnls"`` otherwise.
+        ``"nnloglik"`` for a classification task and ``"cc_ls"`` otherwise.
+        ``"nnls"`` is R's normalised heuristic and has no oracle guarantee.
     n_folds : int
         Inner cross-validation folds used to score candidates.
     clip : tuple of float or None
@@ -202,6 +221,21 @@ class SuperLearner(BaseEstimator):
     cleverly.ModelSpec : Where an ensemble is passed as a nuisance learner.
     cleverly.learners.default_library : The candidates used when none are given.
     cleverly.learners.SuperLearnerDiagnostics : Per-candidate risk and weight.
+
+    Notes
+    -----
+    The Super Learner oracle result covers the weights that minimise the cross-validated risk
+    over the simplex: with bounded data and a bounded loss, the ensemble then does
+    asymptotically as well as the best weighted combination of the library, and so at least as
+    well as its best candidate.  Polley (2010, *Super Learner*, U.C. Berkeley dissertation,
+    Theorem 1) states it for squared-error loss, which ``"cc_ls"`` and ``"discrete"`` minimise
+    on a regression task.  ``"nnloglik"``, and ``"discrete"`` on a classification task,
+    minimise the log-likelihood risk; that loss is bounded here only because candidate
+    predictions are clipped to ``[1e-9, 1 - 1e-9]`` before the log, and the bounded-loss form
+    of the result (van der Laan, Polley and Hubbard 2007) then applies.  ``"nnls"`` divides
+    unconstrained non-negative weights by their sum, which is not the simplex minimiser, so it
+    has no oracle guarantee and can keep all weight on a much worse candidate at every sample
+    size.
 
     Examples
     --------
@@ -278,6 +312,7 @@ class SuperLearner(BaseEstimator):
         SuperLearner
             This object, fitted, as scikit-learn expects.
         """
+        self._clear_fitted_state()
         x = np.asarray(X, dtype=float)
         if x.ndim == 1:
             x = x.reshape(-1, 1)
@@ -366,6 +401,16 @@ class SuperLearner(BaseEstimator):
             failed=failed,
         )
         return self
+
+    def _clear_fitted_state(self) -> None:
+        """Remove every fitted attribute, so a refit carries nothing from an earlier fit.
+
+        The binary and one-vs-rest branches set different attributes, and
+        :attr:`is_multiclass` reads which ones exist.  Fitted attributes follow the
+        scikit-learn convention of a trailing underscore; constructor parameters have none.
+        """
+        for name in [key for key in vars(self) if key.endswith("_") and not key.startswith("_")]:
+            delattr(self, name)
 
     def _fit_one_vs_rest(
         self,
@@ -474,19 +519,22 @@ class SuperLearner(BaseEstimator):
         """Solve for the convex ensemble weights."""
         method = self.meta_learner
         if method == "auto":
-            method = "nnloglik" if task == "classification" else "nnls"
+            method = "nnloglik" if task == "classification" else "cc_ls"
 
+        if method not in ("cc_ls", "nnls", "nnloglik", "discrete"):
+            raise ValueError(
+                "meta_learner must be 'auto', 'cc_ls', 'nnls', 'nnloglik' or 'discrete'; "
+                f"got {method!r}"
+            )
         if z.shape[1] == 1:
             return np.ones(1)
         if method == "discrete":
             return _one_hot(int(np.argmin(risks)), z.shape[1])
+        if method == "cc_ls":
+            return _solve_cc_ls(z, y, weights, risks)
         if method == "nnls":
             return _solve_nnls(z, y, weights, risks)
-        if method == "nnloglik":
-            return _solve_nnloglik(z, y, weights, risks)
-        raise ValueError(
-            f"meta_learner must be 'auto', 'nnls', 'nnloglik' or 'discrete'; got {method!r}"
-        )
+        return _solve_nnloglik(z, y, weights, risks)
 
     # ---------------------------------------------------------------- predict
 
@@ -614,8 +662,95 @@ def _one_hot(index: int, size: int) -> FloatArray:
     return out
 
 
+def _solve_cc_ls(
+    z: FloatArray, y: FloatArray, weights: FloatArray, risks: FloatArray
+) -> FloatArray:
+    """Weighted least squares over the simplex: R's ``method.CC_LS``.
+
+    Minimises the weighted cross-validated squared error of ``z @ alpha`` over
+    ``alpha >= 0`` with ``sum(alpha) = 1``, a convex quadratic programme in the Gram
+    matrix of the stacked predictions, posed in units of the outcome's root mean square.
+    SLSQP finds the active set; the weights are then re-solved exactly on it from the
+    equality-constrained normal equations.  A
+    solver failure, or a solution whose risk exceeds the best single candidate's,
+    falls back to that candidate (the discrete selector), which is a feasible point.
+    """
+    n_candidates = z.shape[1]
+    fallback = _one_hot(int(np.argmin(risks)), n_candidates)
+    w = weights / weights.sum()
+    # The weights do not depend on the outcome's scale, but SLSQP's stopping rule is absolute,
+    # so the problem is solved in units of the outcome's root mean square.
+    scale = float(np.sqrt(np.sum(w * y * y)))
+    if not np.isfinite(scale) or scale <= 0.0:
+        scale = 1.0
+    zs, ys = z / scale, y / scale
+    gram = (zs * w[:, None]).T @ zs
+    cross = (zs * w[:, None]).T @ ys
+
+    def objective(alpha: FloatArray) -> float:
+        return float(0.5 * alpha @ gram @ alpha - cross @ alpha)
+
+    def gradient(alpha: FloatArray) -> FloatArray:
+        return np.asarray(gram @ alpha - cross, dtype=float)
+
+    ones = np.ones(n_candidates)
+    try:
+        result = optimize.minimize(
+            objective,
+            np.full(n_candidates, 1.0 / n_candidates),
+            jac=gradient,
+            method="SLSQP",
+            bounds=[(0.0, 1.0)] * n_candidates,
+            constraints=[
+                {"type": "eq", "fun": lambda a: float(np.sum(a) - 1.0), "jac": lambda a: ones}
+            ],
+            options={"maxiter": 500, "ftol": 1e-15},
+        )
+    except (ValueError, ArithmeticError):  # pragma: no cover - SLSQP raising is rare
+        return fallback
+    if not result.success or not np.all(np.isfinite(result.x)):
+        return fallback
+    alpha = np.clip(np.asarray(result.x, dtype=float), 0.0, None)
+    if alpha.sum() <= 0:  # pragma: no cover - guarded by the simplex constraint
+        return fallback
+    alpha = alpha / alpha.sum()
+    alpha = _polish_on_active_set(alpha, gram, cross, objective)
+    if objective(alpha) > objective(fallback) + 1e-12 * max(1.0, abs(objective(fallback))):
+        return fallback
+    return alpha
+
+
+def _polish_on_active_set(
+    alpha: FloatArray, gram: FloatArray, cross: FloatArray, objective: Any
+) -> FloatArray:
+    """Re-solve the simplex least squares exactly on the weights SLSQP left positive.
+
+    On the active set the problem is least squares under one equality constraint,
+    whose KKT system is linear.  The exact solution replaces SLSQP's iterate only when
+    it stays non-negative and its objective is no larger, so this step can only help.
+    """
+    active = np.flatnonzero(alpha > 1e-10)
+    k = active.size
+    system = np.zeros((k + 1, k + 1))
+    system[:k, :k] = gram[np.ix_(active, active)]
+    system[:k, k] = 1.0
+    system[k, :k] = 1.0
+    rhs = np.concatenate([cross[active], [1.0]])
+    solution = np.linalg.lstsq(system, rhs, rcond=None)[0][:k]
+    if not np.all(np.isfinite(solution)) or np.any(solution < 0.0):
+        return alpha
+    polished = np.zeros_like(alpha)
+    polished[active] = solution
+    polished = polished / polished.sum()
+    return polished if objective(polished) <= objective(alpha) else alpha
+
+
 def _solve_nnls(z: FloatArray, y: FloatArray, weights: FloatArray, risks: FloatArray) -> FloatArray:
-    """Non-negative least squares, normalised onto the simplex."""
+    """Non-negative least squares, then divided by its sum: R's ``method.NNLS`` heuristic.
+
+    The division does not give the least-squares minimiser on the simplex, so this has
+    no oracle guarantee (see the module docstring); ``"cc_ls"`` solves that problem.
+    """
     root = np.sqrt(weights)
     try:
         coefficients, _ = optimize.nnls(z * root[:, None], y * root)
@@ -655,7 +790,7 @@ def _solve_nnloglik(
         options={"maxiter": 200, "ftol": 1e-10},
     )
     if not result.success or not np.all(np.isfinite(result.x)):
-        return _solve_nnls(z, y, weights, risks)
+        return _solve_cc_ls(z, y, weights, risks)
     alpha = np.clip(np.asarray(result.x, dtype=float), 0.0, None)
     total = alpha.sum()
     if total <= 0:  # pragma: no cover - guarded by the simplex constraint

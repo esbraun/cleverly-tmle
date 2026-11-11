@@ -291,8 +291,8 @@ class TestALinkChangesTheParameterAndNotTheMachinery:
     """``link="log"`` and ``link="logit"``, end to end on a binary outcome.
 
     The exact claims are the oracle's, as above.  What only a real fit can show is that
-    the alternation between the projection and the fluctuation converges and leaves both
-    equations solved -- and that a *saturated* working model still reproduces the arm
+    one fluctuation and the projection's Newton solve leave both equations solved -- and
+    that a *saturated* working model still reproduces the arm
     report, now through the link, which is what says the link is a reparameterisation of
     the same counterfactual means rather than a second estimator.
     """
@@ -324,8 +324,7 @@ class TestALinkChangesTheParameterAndNotTheMachinery:
 
         With one indicator per arm the model fits the means exactly whatever the link, so
         this is an *identity* rather than an approximation, and it exercises the whole
-        path at once: the alternation, the covariate's ``dm/deta`` factor, the Jacobian's
-        curvature term and the projection's Newton solve.
+        path at once: the covariate, the Jacobian and the projection's Newton solve.
         """
         inverse = np.exp if link == "log" else lambda eta: 1.0 / (1.0 + np.exp(-eta))
         model = saturated_fits[link]
@@ -366,21 +365,17 @@ class TestALinkChangesTheParameterAndNotTheMachinery:
             assert abs(float(np.mean(estimate.influence_curve))) < 5e-10
 
     @pytest.mark.parametrize("link", ["log", "logit"])
-    def test_the_alternation_converges_and_records_how(self, binary, link) -> None:
+    def test_a_linked_fit_is_one_fluctuation(self, binary, link) -> None:
+        """The covariate ``h phi / g`` is free of ``beta`` under every link."""
         frame, _ = binary
         result = (
             TMLE(msm=dose_response(link=link), **SETTINGS)
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
-        projection = result.fluctuations["msm"].projection
-        assert projection is not None and projection.converged
-        assert projection.failure is None
-        # Fast: beta reaches the covariate only through a smooth factor, so the shift
-        # contracts by orders of magnitude per round rather than by a constant factor.
-        assert projection.n_outer <= 10
-        shifts = [row[2] for row in projection.trace]
-        assert shifts[-1] < shifts[0]
+        fluctuation = result.fluctuations["msm"]
+        assert fluctuation.projection is None
+        assert fluctuation.converged
 
     def test_an_identity_link_fit_records_no_projection(self, fitted) -> None:
         """The covariate is free of ``beta`` there, so there is nothing to alternate."""
@@ -409,13 +404,11 @@ class TestALinkChangesTheParameterAndNotTheMachinery:
         assert float(ratios["ci_upper"][1]) == pytest.approx(high, rel=1e-9)
 
 
-class TestFoldWiseTargetingGivesEachFoldItsOwnBeta:
-    """``targeting_scheme="fold"`` under a link, where the covariate is fold-specific.
+class TestFoldWiseTargetingUnderALink:
+    """``targeting_scheme="fold"`` under a link.
 
-    Under a link ``beta`` is one of the coefficients the covariate reads, so the
-    fold-specific extension solves it on each fold's own rows. Those rows also fit the
-    epsilon used on that fold; what is removed is coupling *between* folds. The pooled
-    score stays zero because each fold's score is zero at its own ``beta``.
+    The covariate is free of ``beta`` under every link, so each fold solves its own
+    fluctuation along the same covariate, and the pooled score stays zero.
     """
 
     @pytest.fixture(scope="class")
@@ -427,11 +420,8 @@ class TestFoldWiseTargetingGivesEachFoldItsOwnBeta:
             .single()
         )
 
-    def test_each_fold_carries_its_own_projection(self, fold_fit) -> None:
-        projection = fold_fit.fluctuations["msm"].projection
-        assert len(projection.folds) == FAST_KWARGS["n_folds"]
-        betas = np.vstack([record.beta for record in projection.folds])
-        assert np.max(np.ptp(betas, axis=0)) > 1e-6, "the folds should not agree exactly"
+    def test_no_fold_records_a_projection(self, fold_fit) -> None:
+        assert fold_fit.fluctuations["msm"].projection is None
 
     def test_the_stitched_score_is_still_zero(self, fold_fit) -> None:
         for record in fold_fit.fluctuations["msm"].folds:
@@ -440,11 +430,23 @@ class TestFoldWiseTargetingGivesEachFoldItsOwnBeta:
         for estimate in fold_fit.estimates.values():
             assert abs(float(np.mean(estimate.influence_curve))) < 1e-9
 
-    def test_the_reported_beta_is_the_projection_of_the_stitched_fit(self, fold_fit) -> None:
-        """No fold's beta is *the* answer; the report's is, and the record says so."""
-        projection = fold_fit.fluctuations["msm"].projection
-        reported = np.array([fold_fit.estimates[name].psi for name in fold_fit.estimates])
-        np.testing.assert_allclose(projection.beta, reported, rtol=1e-10)
+
+def test_an_unconverged_linked_projection_warns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A projection that stops short of its minimiser says so rather than reporting quietly."""
+    from dataclasses import replace
+
+    from cleverly.exceptions import ConvergenceWarning
+    from cleverly.inference import influence
+
+    solve = influence.solve_projection
+
+    def stalled(*args: object, **kwargs: object) -> object:
+        return replace(solve(*args, **kwargs), converged=False)
+
+    monkeypatch.setattr(influence, "solve_projection", stalled)
+    frame, _ = make_binary_multi_arm(n=400, seed=SEED)
+    with pytest.warns(ConvergenceWarning, match="projection did not converge"):
+        TMLE(msm=dose_response(link="logit"), **SETTINGS).fit(frame, outcome="Y", treatment="A")
 
 
 class TestTheExponentiatedView:

@@ -307,50 +307,17 @@ class TestItRefusesByName:
 
 
 class TestTheCovariateNumerator:
-    def test_the_identity_link_ignores_beta(self) -> None:
-        """Which is what keeps an identity-link fit one pass rather than an alternation."""
-        data = build(panel())
-        model = evaluate_regimen_msm(DOSE, data, plans_for(data), (2,))
-        expected = model.design * model.weights[:, :, None]
-        np.testing.assert_array_equal(model.weighted_design_at(None), expected)
-        np.testing.assert_array_equal(model.weighted_design_at(np.array([3.0, -1.0])), expected)
-        np.testing.assert_array_equal(model.fluctuation_design_at(None), model.design)
-        np.testing.assert_array_equal(
-            model.fluctuation_design_at(np.array([3.0, -1.0])), model.design
-        )
-
-    def test_a_link_scales_each_cell_by_dm_deta(self) -> None:
+    @pytest.mark.parametrize("link", ["identity", "logit"])
+    def test_no_link_reads_beta(self, link: str) -> None:
+        """The submodel design is ``phi`` and the curve's numerator ``h phi`` under every
+        link, which is what keeps every fit one pass."""
         data = build(panel())
         msm = RegimenMSM(
             DOSE.terms,
             evaluate_regimen_msm(DOSE, data, plans_for(data), (2,)).design,
-            np.ones((data.n, 2)),
+            np.full((data.n, 2), 2.0),
             (Cell("always", 2), Cell("never", 2)),
-            "logit",
+            link,
         )
-        beta = np.array([0.25, -0.5])
-        m = msm.fitted(beta)
-        np.testing.assert_allclose(
-            msm.weighted_design_at(beta), msm.design * (m * (1 - m))[..., None]
-        )
-        np.testing.assert_allclose(
-            msm.fluctuation_design_at(beta), msm.design * (m * (1 - m))[..., None]
-        )
-
-    def test_a_link_needs_a_beta_to_build_the_covariate_at(self) -> None:
-        data = build(panel())
-        model = evaluate_regimen_msm(
-            MSM(
-                design=dose_design,
-                terms=("(intercept)", "duration"),
-                link="logit",
-                design_kind="known",
-            ),
-            data,
-            plans_for(data),
-            (2,),
-        )
-        with pytest.raises(ValueError, match="cannot be built before one is available"):
-            model.weighted_design_at(None)
-        with pytest.raises(ValueError, match="cannot be built before one is available"):
-            model.fluctuation_design_at(None)
+        np.testing.assert_array_equal(msm.weighted_design, msm.design * 2.0)
+        np.testing.assert_array_equal(msm.fluctuation_design, msm.design)
