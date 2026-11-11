@@ -7,49 +7,67 @@ model :math:`m(a, V; \beta)` for :math:`E[Y(a) \mid V]`, with :math:`V` a subset
 baseline covariates, and the parameter is the coefficient vector :math:`\beta`.
 
 **The model does not have to be correct.**  :math:`\beta` is defined as a *projection*,
-not as the truth of an assumed regression:
+not as the truth of an assumed regression.  With :math:`\eta = \beta^\top\varphi(a, V)`,
+:math:`m = \operatorname{link}^{-1}(\eta)` and :math:`B` the link's cumulant
+(:math:`B' = m`),
 
 .. math::
 
     \beta_0 = \arg\min_\beta\;
         E\Big[\textstyle\sum_a h(a, V)\,
-              \big(E[Y(a) \mid V] - m(a, V; \beta)\big)^2 \Big]
+              \big\{B\big(\eta(a, V; \beta)\big) - E[Y(a) \mid V]\,\eta(a, V; \beta)\big\}
+        \Big]
 
-with :math:`h(a, V)` a **known** weight function.  The estimand exists whatever the true
-dose-response looks like: it is "the best :math:`m`-shaped summary of the counterfactual
-means, in the :math:`h`-weighted least-squares sense".  That is the formulation of
-Neugebauer and van der Laan (2007), and it is the reason this ships as an estimand rather
-than as a modelling assumption.  Where the working model happens to be right,
-:math:`\beta_0` is the truth; where it is wrong, :math:`\beta_0` is still a well-defined
-functional with a valid confidence interval, and the interval is *not* secretly an
-interval for a misspecified regression's coefficient.
-
-For a model linear in :math:`\beta`, :math:`m(a, V; \beta) = \beta^\top \varphi(a, V)`,
-the projection has a closed form,
+with :math:`h(a, V)` a **known** weight function.  Under the identity link
+:math:`B(\eta) = \eta^2/2` and this is the :math:`h`-weighted least-squares projection
 
 .. math::
 
-    \beta_0 = M^{-1}\, E\Big[\textstyle\sum_a h(a, V)\,\varphi(a, V)\, \bar Q(a, W)\Big],
-    \qquad
-    M = E\Big[\textstyle\sum_a h(a, V)\, \varphi(a, V)\varphi(a, V)^\top\Big],
+    \beta_0 = \arg\min_\beta\;
+        E\Big[\textstyle\sum_a h(a, V)\,
+              \big(E[Y(a) \mid V] - \beta^\top\varphi(a, V)\big)^2 \Big].
 
-which is what makes the clever covariate free of :math:`\beta` and the whole thing a
-single fluctuation.  See :func:`~cleverly.fluctuation.submodel.msm_submodel` for the
-covariate and :func:`~cleverly.inference.influence.msm_coefficients` for the influence
-curve.
+Under ``link="logit"`` it is the quasi-binomial loss,
+:math:`B(\eta) = \log(1 + e^\eta)`, and under ``link="log"`` the quasi-Poisson loss,
+:math:`B(\eta) = e^\eta`: the working-model loss of a GLM whose canonical link is the
+declared one, which is the loss R ``ltmle`` fits its working model with
+(``family = quasibinomial()``).  The estimand exists whatever the true dose-response looks
+like: it is "the best :math:`m`-shaped summary of the counterfactual means" under that
+loss.  That is the formulation of Neugebauer and van der Laan (2007), and it is the reason
+this ships as an estimand rather than as a modelling assumption.  Where the working model
+happens to be right, :math:`\beta_0` is the truth under every link; where it is wrong,
+:math:`\beta_0` is still a well-defined functional with a valid confidence interval, and
+the interval is *not* secretly an interval for a misspecified regression's coefficient.
 
-**A link puts the linear predictor inside a mean function**,
-:math:`m = \operatorname{link}^{-1}(\beta^\top\varphi)`, which is how the applied
-literature reports a binary outcome: an identity-link MSM is a linear-risk model, while
-``link="log"`` makes a coefficient a log risk ratio and ``link="logit"`` a log odds ratio.
-Three things follow, and each is a place to go wrong.  The clever covariate gains a factor
-:math:`dm/d\eta` and so *depends on* :math:`\beta`; the matrix :math:`M` gains a curvature
-term that vanishes only where the model fits, which no saturated check can catch
-(:func:`solve_projection`); and the two are solved by alternating between them
-(:func:`~cleverly.estimators.targeting.solve_with_projection`) rather than in one pass.
-:class:`Link` states a link and :func:`register_link` adds one.  The identity path is
-untouched by all of it -- its covariate is the same array and its projection the same
-``np.linalg.solve``.
+**Why the loss follows the link.**  :math:`B'' = dm/d\eta > 0`, so the loss is convex in
+:math:`\beta` for any real :math:`\bar Q`, and strictly convex with a full-rank design: a
+stationary point is the minimiser, and there is at most one.  Least squares on the scale of
+:math:`m` has no such property under a logit or log link.  Its objective can have several
+local minima, and no solver can certify which one is global, so a converged root would not
+be the declared argmin.
+
+The minimiser solves the estimating equation
+
+.. math::
+
+    U(\beta) = E\Big[\textstyle\sum_a h(a, V)\,\varphi(a, V)\,
+               \big(\bar Q(a, W) - m(a, V; \beta)\big)\Big] = 0 ,
+
+whose derivative :math:`-M = -E[\sum_a h\,(dm/d\eta)\,\varphi\varphi^\top]` does not
+involve :math:`\bar Q`.  The equation is linear in :math:`\bar Q` with the known weight
+:math:`h\varphi`, under every link, which is what makes the clever covariate
+:math:`h\varphi/g` free of :math:`\beta` and the whole fit a single fluctuation.  For the
+identity link the projection is the closed form
+:math:`\beta_0 = M^{-1} E[\sum_a h\,\varphi\,\bar Q(a, W)]`, with
+:math:`M = E[\sum_a h\,\varphi\varphi^\top]`.  See
+:func:`~cleverly.fluctuation.submodel.msm_submodel` for the covariate,
+:func:`solve_projection` for the solve, and
+:func:`~cleverly.inference.influence.msm_coefficients` for the influence curve.
+
+**A link changes what a coefficient means**: an identity-link MSM is a linear-risk model,
+while ``link="log"`` makes a coefficient a log risk ratio and ``link="logit"`` a log odds
+ratio, which is how the applied literature reports a binary outcome.  :class:`Link` states
+a link and :func:`register_link` adds one.
 
 **Why this is a fourth parameter axis.**  The counterfactuals are still the arms -- the
 fluctuation updates :math:`\bar Q(a, W)` at every one of them, exactly as the ``mean``
@@ -106,6 +124,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 import numpy as np
+import scipy.linalg
 from scipy.special import expit
 
 from ._declarations import FunctionDeclaration, FunctionKind
@@ -138,10 +157,8 @@ __all__ = [
     "working_model_means",
 ]
 
-#: The links a working model may declare.  ``"identity"`` alone keeps ``dm/dbeta`` free of
-#: :math:`\beta`; the other two make the clever covariate depend on it, which is why a fit
-#: declaring them alternates between the projection and the fluctuation
-#: (:func:`~cleverly.estimators.targeting.solve_with_projection`).
+#: The links a working model may declare.  Each defines its projection by its own
+#: cumulant loss (:class:`Link`); ``"identity"`` is least squares.
 MSMLink = Literal["identity", "log", "logit"]
 
 #: What a working model declares about its projection weight ``h(a, V)``.  ``"known"`` is a
@@ -202,28 +219,31 @@ def check_projection_rank(gram: FloatArray, terms: Sequence[str], *, axis: str =
 class Link:
     r"""How a working model's linear predictor becomes a counterfactual mean.
 
-    :math:`m(a, V; \beta) = \operatorname{inverse}(\beta^\top \varphi(a, V))`, and the
-    projection needs two derivatives of it.  **Both are given as functions of the mean
-    rather than of the linear predictor**, because for every link here they are
-    polynomials in :math:`m` -- :math:`m(1-m)` for the logit, :math:`m` for the log -- and
-    the mean has already been computed wherever they are wanted.  Writing them in
-    :math:`\eta` would recompute an exponential each time to arrive at the same number.
+    :math:`m(a, V; \beta) = \operatorname{inverse}(\beta^\top \varphi(a, V))`.  The
+    projection minimises the link's cumulant loss
+    :math:`\sum_a h\,\{B(\eta) - \bar Q\,\eta\}`, whose gradient in :math:`\eta` is
+    :math:`h\,(m - \bar Q)` and whose curvature is :math:`h\,dm/d\eta`.  A strictly
+    increasing ``inverse`` makes the loss convex in :math:`\beta`, so its stationary point
+    is its minimiser (:func:`solve_projection`).
 
-    Attributes
+    Parameters
     ----------
-    inverse:
-        :math:`m(\eta)`.
-    slope:
-        :math:`dm/d\eta`, as a function of :math:`m`.  It is what turns the clever
-        covariate :math:`h\varphi/g` into :math:`h\,(dm/d\eta)\,\varphi/g`, since
-        :math:`\partial m/\partial\beta = (dm/d\eta)\,\varphi`.
-    curvature:
-        :math:`d^2m/d\eta^2`, as a function of :math:`m`.  It appears only in the matrix
-        :func:`solve_projection` inverts, and only multiplied by the residual
-        :math:`\bar Q - m` -- so it vanishes for a working model that happens to fit, and
-        for the identity link at every fit.  See :func:`solve_projection` for why dropping
-        it is nevertheless wrong.
-    support:
+    name : str
+        The name a working model declares.
+    inverse : callable
+        :math:`m(\eta)`, strictly increasing.
+    slope : callable
+        :math:`dm/d\eta`, as a function of :math:`m`.  For every link here it is a
+        polynomial in :math:`m` (:math:`m(1-m)` for the logit, :math:`m` for the log), and
+        the mean has already been computed wherever the slope is wanted.  It weights the
+        matrix :math:`M = P_n \sum_a h\,(dm/d\eta)\,\varphi\varphi^\top` the influence
+        curve is premultiplied by the inverse of.
+    cumulant : callable
+        :math:`B(\eta)`, an antiderivative of ``inverse`` in :math:`\eta`.  It defines the
+        projection's loss.  :func:`register_link` checks numerically that its derivative is
+        ``inverse``, so that a wrong cumulant is refused rather than silently defining
+        another target.
+    support : {"unit", "nonnegative"} or None
         What the outcome must satisfy for the model to name a quantity: ``"unit"`` for the
         logit, ``"nonnegative"`` for the log, ``None`` for the identity.  Checked in
         :meth:`MSMSet.evaluate`, where the model meets the data.
@@ -232,12 +252,12 @@ class Link:
     name: str
     inverse: Callable[[FloatArray], FloatArray]
     slope: Callable[[FloatArray], FloatArray]
-    curvature: Callable[[FloatArray], FloatArray]
+    cumulant: Callable[[FloatArray], FloatArray]
     support: Literal["unit", "nonnegative"] | None = None
 
     @property
     def is_identity(self) -> bool:
-        """Whether the covariate is free of ``beta``, and so needs no alternation."""
+        """Whether the projection is the closed-form least-squares solve."""
         return self.name == "identity"
 
 
@@ -246,11 +266,65 @@ class Link:
 #: registration and an oracle branch, not an edit to the projection.
 LINKS: dict[str, Link] = {}
 
+#: Where :func:`register_link` checks a link's derivatives, on the linear-predictor scale.
+_CHECK_ETA = np.linspace(-4.0, 4.0, 33)
+
+
+def _check_link(link: Link) -> None:
+    """Refuse a link whose cumulant, slope or monotonicity disagrees with its inverse.
+
+    The projection's target is defined by the cumulant, and its Newton matrix by the slope,
+    so either one wrong would define or solve a different estimand without any error.
+    Central differences on :data:`_CHECK_ETA` catch a wrong function, not a last-digit
+    discrepancy.
+    """
+    step = 1e-5
+    eta = _CHECK_ETA
+    m = np.asarray(link.inverse(eta), dtype=float)
+    if not np.all(np.isfinite(m)) or np.any(np.diff(m) <= 0.0):
+        raise ValueError(f"link {link.name!r} needs a finite, strictly increasing inverse")
+    derivative = (
+        np.asarray(link.cumulant(eta + step), dtype=float)
+        - np.asarray(link.cumulant(eta - step), dtype=float)
+    ) / (2.0 * step)
+    slope = (
+        np.asarray(link.inverse(eta + step), dtype=float)
+        - np.asarray(link.inverse(eta - step), dtype=float)
+    ) / (2.0 * step)
+    scale = 1.0 + np.abs(m)
+    if not np.allclose(derivative / scale, m / scale, rtol=0.0, atol=1e-6):
+        raise ValueError(
+            f"link {link.name!r} has a cumulant whose derivative is not its inverse, so "
+            "the projection it defines would not be this link's quasi-likelihood"
+        )
+    if not np.allclose(
+        np.asarray(link.slope(m), dtype=float) / scale, slope / scale, rtol=0.0, atol=1e-6
+    ):
+        raise ValueError(f"link {link.name!r} has a slope that is not d inverse / d eta")
+
 
 def register_link(link: Link) -> Link:
-    """Declare a link a working model may use."""
+    """Declare a link a working model may use.
+
+    Parameters
+    ----------
+    link : Link
+        The link.  Its name must be new, its inverse strictly increasing, and its cumulant
+        and slope the antiderivative and derivative of the inverse.
+
+    Returns
+    -------
+    Link
+        ``link``, registered.
+
+    Raises
+    ------
+    ValueError
+        When the name is taken or a derivative check fails.
+    """
     if link.name in LINKS:
         raise ValueError(f"a link named {link.name!r} is already registered")
+    _check_link(link)
     LINKS[link.name] = link
     return link
 
@@ -269,17 +343,17 @@ register_link(
         "identity",
         inverse=lambda eta: eta,
         slope=np.ones_like,
-        curvature=np.zeros_like,
+        cumulant=lambda eta: 0.5 * np.square(eta),
     )
 )
 register_link(
     Link(
         "log",
         inverse=np.exp,
-        # m' = m'' = m, which is the whole of why a log-link coefficient is a log ratio:
-        # a unit of eta multiplies the mean rather than adding to it.
+        # m' = m, which is the whole of why a log-link coefficient is a log ratio: a unit
+        # of eta multiplies the mean rather than adding to it.
         slope=lambda m: m,
-        curvature=lambda m: m,
+        cumulant=np.exp,
         support="nonnegative",
     )
 )
@@ -288,7 +362,7 @@ register_link(
         "logit",
         inverse=expit,
         slope=lambda m: m * (1.0 - m),
-        curvature=lambda m: m * (1.0 - m) * (1.0 - 2.0 * m),
+        cumulant=lambda eta: np.logaddexp(0.0, eta),
         support="unit",
     )
 )
@@ -644,10 +718,11 @@ class MSM:
         which weights every arm and every unit equally.  It must be a **known** function,
         and ``weights_kind`` declares that it is.
     link : {"identity", "log", "logit"}
-        ``"identity"``, ``"log"`` or ``"logit"``.  The identity is the only one whose
-        :math:`\partial m/\partial\beta` is free of :math:`\beta`, and so the only one
-        whose fit is a single fluctuation; the others alternate.  What the coefficients
-        *mean* changes with it -- under ``"log"`` a coefficient is a log risk ratio and
+        ``"identity"``, ``"log"`` or ``"logit"``.  The link also chooses the projection's
+        loss: least squares for the identity, the quasi-Poisson loss for the log and the
+        quasi-binomial loss for the logit, each convex in :math:`\beta` (:class:`Link`).
+        Every link's fit is a single fluctuation.  What the coefficients *mean* changes
+        with it -- under ``"log"`` a coefficient is a log risk ratio and
         under ``"logit"`` a log odds ratio, which is what
         :meth:`~cleverly.estimators.base.TMLEResult.coefficients` exponentiates.
     from_linear : bool
@@ -902,7 +977,7 @@ class MSMSet:
         if not np.all(np.isfinite(weights)) or np.any(weights < 0.0):
             raise DataError(
                 "the working model's weights must be finite and non-negative; h(a, V) is "
-                "a weight in a least-squares projection, not a signed contrast"
+                "a weight in a projection, not a signed contrast"
             )
         object.__setattr__(self, "design", design)
         object.__setattr__(self, "weights", weights)
@@ -1061,8 +1136,8 @@ class MSMSet:
         step, and it is the estimate's that is checked against an oracle.
 
         Under a non-identity link this is **not** the matrix the estimate inverts -- that
-        one carries :math:`(dm/d\eta)^2` and a curvature term, and depends on
-        :math:`\bar Q` -- but it is still exactly the right thing for the rank check,
+        one carries :math:`dm/d\eta` and depends on :math:`\beta` -- but it is still
+        exactly the right thing for the rank check,
         which is a statement about the *design* being one vector's worth of directions and
         not about where the projection lands.
         """
@@ -1074,15 +1149,11 @@ class MSMSet:
     def weighted_design(self) -> FloatArray:
         r"""``(n, K, p)`` array of :math:`h(a, V)\,\varphi(a, V)`.
 
-        The only thing an identity-link clever covariate needs of a working model -- it
-        divides this by the mechanism and nothing else -- so it is what
+        The only thing the clever covariate needs of a working model, under every link --
+        it divides this by the mechanism and nothing else -- so it is what
         :func:`~cleverly.fluctuation.submodel.msm_submodel` is handed.  Passing the
         product rather than this object keeps every submodel builder taking plain arrays,
         which is what lets the registry dispatch on the group name alone.
-
-        Under another link the covariate carries a further factor :math:`dm/d\eta`, which
-        depends on :math:`\beta`: :meth:`weighted_design_at` is that array, and this is its
-        :math:`\beta`-free special case.
         """
         return np.asarray(self.design * self.weights[:, :, None], dtype=float)
 
@@ -1091,52 +1162,13 @@ class MSMSet:
         eta = np.einsum("ijp,p->ij", self.design, np.asarray(beta, dtype=float))
         return np.asarray(link_for(str(self.link)).inverse(eta), dtype=float)
 
-    def weighted_design_at(self, beta: FloatArray | None) -> FloatArray:
-        r"""``(n, K, p)`` array :math:`h\,(dm/d\eta)\,\varphi`: the clever covariate's numerator.
-
-        With the identity link this *is* :attr:`weighted_design` and ``beta`` is not read
-        at all, which is what keeps a fit declaring no link on the code path it was on
-        before links existed.  ``beta=None`` is accepted only there: under any other link
-        the covariate is not defined without one, and
-        :func:`~cleverly.estimators.targeting.solve_with_projection` is what supplies it.
-        """
-        link = link_for(str(self.link))
-        if link.is_identity:
-            return self.weighted_design
-        if beta is None:
-            raise DataError(
-                f"a working model with link={self.link!r} has a clever covariate that "
-                "depends on beta, so the coefficients have to be solved for before it can "
-                "be built. That alternation is solve_with_projection; a caller rebuilding "
-                "the covariate on its own has to say which beta it means."
-            )
-        slope = np.asarray(link.slope(self.fitted(beta)), dtype=float)
-        return np.asarray(self.design * (self.weights * slope)[:, :, None], dtype=float)
-
-    def continuous_clever_design_at(self, beta: FloatArray | None) -> tuple[FloatArray, FloatArray]:
-        """Clever-design numerators at observed and quadrature-grid doses."""
+    def continuous_clever_design(self) -> tuple[FloatArray, FloatArray]:
+        """Clever-design numerators :math:`h\\varphi` at observed and quadrature-grid doses."""
         if not self.continuous:
-            raise DataError("continuous_clever_design_at needs a continuous MSM")
+            raise DataError("continuous_clever_design needs a continuous MSM")
         assert self.observed_design is not None and self.observed_weights is not None
-        link = link_for(str(self.link))
-        grid_slope = np.ones(self.design.shape[:2])
-        observed_slope = np.ones(self.n)
-        if not link.is_identity:
-            if beta is None:
-                raise DataError(
-                    f"a continuous MSM with link={self.link!r} needs beta to build its score"
-                )
-            grid_slope = np.asarray(link.slope(self.fitted(beta)), dtype=float)
-            observed_mean = np.asarray(
-                link.inverse(np.asarray(self.observed_design) @ np.asarray(beta, dtype=float)),
-                dtype=float,
-            )
-            observed_slope = np.asarray(link.slope(observed_mean), dtype=float)
-        grid = self.design * (np.asarray(self.clever_weights) * grid_slope)[:, :, None]
-        observed = (
-            np.asarray(self.observed_design)
-            * (np.asarray(self.observed_weights) * observed_slope)[:, None]
-        )
+        grid = self.design * np.asarray(self.clever_weights)[:, :, None]
+        observed = np.asarray(self.observed_design) * np.asarray(self.observed_weights)[:, None]
         return np.asarray(observed, dtype=float), np.asarray(grid, dtype=float)
 
     def arm_column(self, code: float) -> FloatArray:
@@ -1180,24 +1212,40 @@ class MSMSet:
 #: iterate it happened to stop on without comment.
 _MIN_STEP = 1e-8
 
+#: The Armijo constant of the line search: a step is taken once the loss falls by at least
+#: this fraction of what the local quadratic model promised.
+_ARMIJO = 1e-4
+
+#: The relative change in the projection loss that is read as rounding.
+_LOSS_ROUNDING = 1e-10
+
+#: The smallest curvature of the loss, relative to the design's own Gram matrix, at which a
+#: converged linked projection counts as a finite minimiser.  Below it the slope
+#: ``dm/deta`` has collapsed along some direction of the design: the coefficients ran off
+#: towards an infimum at infinity until the score fell under the tolerance.
+_MIN_CURVATURE = 1e-9
+
 
 @dataclass(frozen=True)
 class ProjectionFit:
     r"""The solved coefficients, and how the solve went.
 
-    Attributes
+    Parameters
     ----------
-    beta:
+    beta : numpy.ndarray
         ``(p,)`` coefficients of the working model.
-    jacobian:
+    jacobian : numpy.ndarray
         ``(p, p)`` matrix :math:`M = -\partial U/\partial\beta` at ``beta``.  This is what
         the influence curve is premultiplied by the inverse of, and under the identity
         link it is the weighted Gram matrix.
-    converged, n_iter, score:
-        Whether the estimating equation was solved, in how many Newton steps, and the
-        relative size of what was left.  Reported rather than raised, on the terms every
-        other solve here reports: a sensitivity sweep that pushes a fit into bad territory
-        must still return a number and say it is bad.
+    converged : bool
+        Whether the estimating equation was solved.  Reported rather than raised, on the
+        terms every other solve here reports: a sensitivity sweep that pushes a fit into
+        bad territory must still return a number and say it is bad.
+    n_iter : int
+        The number of Newton steps taken.
+    score : float
+        The relative size of the estimating equation at ``beta``.
     """
 
     beta: FloatArray
@@ -1214,16 +1262,26 @@ def solve_projection(
     weights: FloatArray,
     link: str = "identity",
     *,
-    max_iter: int = 50,
+    max_iter: int = 100,
     tol: float = 1e-12,
 ) -> ProjectionFit:
     r"""Project ``predictions`` onto the working model: the one solver, for every link.
 
-    :math:`\hat\beta` solves the weighted least-squares normal equations
+    :math:`\hat\beta` minimises the link's cumulant loss
 
     .. math::
 
-        U(\beta) = P_n\Big[\textstyle\sum_a h(a, V)\,\frac{dm}{d\eta}\,\varphi(a, V)\,
+        L(\beta) = P_n\Big[\textstyle\sum_a h(a, V)\,
+                   \big\{B(\eta) - \bar Q(a, W)\,\eta\big\}\Big],
+        \qquad \eta = \beta^\top\varphi(a, V),
+
+    which is least squares under the identity link, the quasi-binomial loss under the
+    logit and the quasi-Poisson loss under the log (:class:`Link`).  Its stationary point
+    solves
+
+    .. math::
+
+        U(\beta) = P_n\Big[\textstyle\sum_a h(a, V)\,\varphi(a, V)\,
                    \big(\bar Q(a, W) - m(a, V; \beta)\big)\Big] = 0 ,
 
     and the matrix returned beside it is
@@ -1231,35 +1289,53 @@ def solve_projection(
     .. math::
 
         M = -\frac{\partial U}{\partial\beta}
-          = P_n\Big[\textstyle\sum_a h\,\Big(\big(\tfrac{dm}{d\eta}\big)^2
-            - \big(\bar Q - m\big)\tfrac{d^2m}{d\eta^2}\Big)\,\varphi\varphi^\top\Big].
+          = P_n\Big[\textstyle\sum_a h\,\tfrac{dm}{d\eta}\,\varphi\varphi^\top\Big].
 
-    **The curvature term is not optional.**  It vanishes for the identity link, where
-    :math:`d^2m/d\eta^2 = 0`, and for any link where the working model happens to fit
-    exactly -- which is precisely what a *projection* does not promise.  Dropping it gives
-    a matrix that is right on a saturated model and wrong on every other, so no saturated
-    check can catch it; ``tests/unit/test_influence_gateaux_msm.py`` carries the mutation
-    against the deliberately non-saturated oracle.
+    :math:`M` is positive definite for a full-rank design and nonnegative weights, so
+    :math:`L` is strictly convex: the stationary point is the minimiser, and there is at
+    most one.  :math:`M` does not involve :math:`\bar Q`, so no curvature term enters the
+    influence curve.  ``tests/unit/test_msm_quasi_likelihood.py`` carries the
+    mutation control: on a law where the least-squares objective on the mean scale has a
+    non-global stationary point, the returned coefficients minimise :math:`L` and differ
+    from that stationary point.
 
     With the identity link :math:`U` is linear in :math:`\beta` and this is one
-    ``np.linalg.solve`` of the arithmetic that has always been here -- no iteration, and
-    bit for bit what the closed form gave.  Otherwise it is damped Newton, which is where
-    the outer :math:`(\beta, \epsilon)` alternation comes from: the clever covariate reads
-    :math:`dm/d\eta`, so it moves when :math:`\beta` does.
+    ``np.linalg.solve``, no iteration.  Otherwise it is Newton's method from zero, with a
+    backtracking (Armijo) line search on :math:`L`.  On a convex objective that converges to
+    the minimiser when one is finite.  When none is -- a logit projection of predictions
+    that sit at 0 or 1 along some direction of the design, say -- the coefficients diverge
+    and the score can still fall under ``tol`` as the fitted means approach the boundary.
+    So a solve also reports ``converged=False`` when the smallest generalised eigenvalue of
+    :math:`M` against the design's Gram matrix is below :data:`_MIN_CURVATURE`: the slope
+    :math:`dm/d\eta` has collapsed along some direction.  The caller warns or refuses.
+    Under the log link :math:`dm/d\eta = m`, so this check and the relative score are in the
+    outcome's units: means of order 1e-9 can flag a sound projection, and means of order 1e6
+    or more can stop the solve short.
 
     Parameters
     ----------
-    design:
+    design : numpy.ndarray
         ``(n, K, p)`` array :math:`\varphi(a, V)`.
-    model_weights:
+    model_weights : numpy.ndarray
         ``(n, K)`` array :math:`h(a, V)`, the *working model's* weights.
-    predictions:
+    predictions : numpy.ndarray
         ``(n, K)`` counterfactual means to project, on the scale the coefficients are to
         be reported in -- the outcome's own, for the reason
         :func:`~cleverly.inference.influence.msm_coefficients` gives.
-    weights:
+    weights : numpy.ndarray
         ``(n,)`` *observation* weights, which tilt the population the projection is taken
         over rather than trading the arms off within it.
+    link : str
+        The registered link, by name.
+    max_iter : int
+        The most Newton steps to take.
+    tol : float
+        The relative score at which the solve stops.
+
+    Returns
+    -------
+    ProjectionFit
+        The coefficients, the matrix :math:`M` at them, and how the solve went.
     """
     phi = np.asarray(design, dtype=float)
     h = np.asarray(model_weights, dtype=float)
@@ -1269,44 +1345,60 @@ def solve_projection(
     spec = link_for(str(link))
 
     if spec.is_identity:
-        # The closed form, written exactly as it was before links existed so that an
-        # identity-link fit is bit for bit the fit it was.
-        #
         # These two einsums are deliberately **not** `optimize=True`, unlike every other
         # one in this module.  Reassociating a contraction changes the summation order and
-        # so the last bits: applied here it moved `beta` by 3e-15 relative and turned
-        # `test_the_identity_link_is_the_closed_form_bit_for_bit` red, which is the test
-        # that says adding link support did not move this path.  The trade is not close --
-        # the whole projection is around 1% of a fit, so the ceiling on the win is a
-        # fraction of that, against a regression pin.  `_projection_state` is where the
-        # contraction actually repeats (once per Newton step and once per line-search
-        # trial), it is reached only under a non-identity link, and it takes the speed-up.
+        # so the last bits of an identity-link fit, whose numbers registered studies pin.
+        # The whole projection is around 1% of a fit, so the ceiling on the win is a
+        # fraction of that.  `_projection_state` is where the contraction repeats (once per
+        # Newton step and once per line-search trial), it is reached only under a
+        # non-identity link, and it takes the speed-up.
         weighted_design = phi * h[:, :, None]
         gram = np.einsum("ijp,ijq,ij,i->pq", phi, phi, h, w) / mass
         moment = np.einsum("ijp,ij,i->p", weighted_design, q, w) / mass
         beta = np.asarray(np.linalg.solve(gram, moment), dtype=float)
-        _, _, relative = _projection_state(phi, h, q, w, mass, spec, beta)
+        _, _, relative, _ = _projection_state(phi, h, q, w, mass, spec, beta)
         return ProjectionFit(beta, gram, converged=True, n_iter=0, score=relative)
 
     beta = np.zeros(phi.shape[2])
-    u, jacobian, relative = _projection_state(phi, h, q, w, mass, spec, beta)
+    u, jacobian, relative, loss = _projection_state(phi, h, q, w, mass, spec, beta)
     n_iter = 0
     while n_iter < max_iter and relative > tol:
         step = _newton_step(jacobian, u)
+        # The decrease the local quadratic model promises; nonnegative because M is
+        # positive semidefinite.  A step that does not deliver a fraction of it is halved.
+        promised = float(u @ step)
+        # Near the minimiser the decrease falls below the rounding of the loss, which sums
+        # terms far larger than their total (the log link's e^eta against Q eta, say), so a
+        # step that leaves the loss within that rounding and shrinks the score is taken too.
+        rounding = _LOSS_ROUNDING * max(1.0, abs(loss))
         length = 1.0
+        accepted = False
         while True:
             candidate = beta + length * step
             trial = _projection_state(phi, h, q, w, mass, spec, candidate)
-            if trial[2] <= relative or length <= _MIN_STEP:
+            if np.isfinite(trial[3]) and (
+                trial[3] <= loss - _ARMIJO * length * promised
+                or (trial[3] <= loss + rounding and trial[2] < relative)
+            ):
+                accepted = True
+                break
+            if length <= _MIN_STEP:
                 break
             length *= 0.5
-        if trial[2] > relative:
+        if not accepted:
             break  # the line search could not improve on where it stands
         beta = candidate
-        u, jacobian, relative = trial
+        u, jacobian, relative, loss = trial
         n_iter += 1
+    gram = np.einsum("ijp,ijq,ij,i->pq", phi, phi, h, w, optimize=True) / mass
+    curvature = float(np.min(scipy.linalg.eigh(jacobian, gram, eigvals_only=True)))
+    finite = bool(np.isfinite(curvature) and curvature >= _MIN_CURVATURE)
     return ProjectionFit(
-        beta, jacobian, converged=bool(relative <= tol), n_iter=n_iter, score=float(relative)
+        beta,
+        jacobian,
+        converged=bool(relative <= tol and finite),
+        n_iter=n_iter,
+        score=float(relative),
     )
 
 
@@ -1318,8 +1410,8 @@ def _projection_state(
     mass: float,
     link: Link,
     beta: FloatArray,
-) -> tuple[FloatArray, FloatArray, float]:
-    """``(U, M, relative score)`` at one ``beta``.
+) -> tuple[FloatArray, FloatArray, float, float]:
+    """``(U, M, relative score, loss)`` at one ``beta``.
 
     The score is divided by the largest magnitude it could have had at a unit residual --
     the same dimensionless form :func:`cleverly.fluctuation._score.relative_score` puts
@@ -1329,25 +1421,20 @@ def _projection_state(
     ``optimize=True`` on the contractions, because ``np.einsum`` defaults to ``False`` and
     that means numpy's own nested-loop kernel for three or more operands rather than a
     pairwise contraction through BLAS.  The four-operand Jacobian term pays that difference
-    once per Newton step *and* once per line-search trial.  It is not free -- reassociating
-    moves the last bits -- so the identity-link closed form in :func:`solve_projection`
-    deliberately keeps the unoptimised spelling; see the comment there.
+    once per Newton step *and* once per line-search trial.
     """
-    m = np.asarray(link.inverse(np.einsum("ijp,p->ij", phi, beta)), dtype=float)
-    residual = q - m
-    slope = np.asarray(link.slope(m), dtype=float)
-    curvature = np.asarray(link.curvature(m), dtype=float)
-    u = np.einsum("ijp,ij,i->p", phi, h * slope * residual, w, optimize=True) / mass
-    jacobian = (
-        np.einsum(
-            "ijp,ijq,ij,i->pq", phi, phi, h * (slope**2 - residual * curvature), w, optimize=True
-        )
-        / mass
-    )
-    scale = np.einsum("ijp,ij,i->p", np.abs(phi), h * np.abs(slope), w, optimize=True) / mass
+    eta = np.einsum("ijp,p->ij", phi, beta)
+    with np.errstate(over="ignore", invalid="ignore"):
+        m = np.asarray(link.inverse(eta), dtype=float)
+        slope = np.asarray(link.slope(m), dtype=float)
+        loss_terms = h * (np.asarray(link.cumulant(eta), dtype=float) - q * eta)
+    loss = float(np.einsum("ij,i->", loss_terms, w) / mass)
+    u = np.einsum("ijp,ij,i->p", phi, h * (q - m), w, optimize=True) / mass
+    jacobian = np.einsum("ijp,ijq,ij,i->pq", phi, phi, h * slope, w, optimize=True) / mass
+    scale = np.einsum("ijp,ij,i->p", np.abs(phi), h, w, optimize=True) / mass
     with np.errstate(divide="ignore", invalid="ignore"):
         relative = np.where(scale > 0.0, np.abs(u) / scale, 0.0)
-    return u, jacobian, float(np.max(relative)) if relative.size else 0.0
+    return u, jacobian, float(np.max(relative)) if relative.size else 0.0, loss
 
 
 def _newton_step(jacobian: FloatArray, u: FloatArray) -> FloatArray:
@@ -1356,8 +1443,8 @@ def _newton_step(jacobian: FloatArray, u: FloatArray) -> FloatArray:
     A singular Jacobian is not the same failure as a collinear design, which
     :meth:`MSMSet._check_rank` has already refused: it means the link's slope has
     collapsed on this iterate -- every fitted value pinned at 0 or 1 under a logit, say --
-    so the minimum-norm step is the one that gets out of it, and the line search below
-    decides whether it helped.
+    so the minimum-norm step is the one that gets out of it, and the line search decides
+    whether it helped.
     """
     try:
         return np.asarray(np.linalg.solve(jacobian, u), dtype=float)
@@ -1398,8 +1485,8 @@ def _check_support(link: Link, data: CausalData) -> None:
     every targeted prediction inside the outcome's own range, so an outcome in ``[0, 1]``
     guarantees a :math:`\\bar Q^*` a logit model can match and a non-negative one
     guarantees a :math:`\\bar Q^*` a log model can.  The projection would still *run*
-    otherwise -- it would just be a least-squares fit of a curve that cannot reach its
-    target, reported under a name that says it did.
+    otherwise -- it would just be a fit of a curve that cannot reach its target, reported
+    under a name that says it did.
     """
     if link.support is None:
         return

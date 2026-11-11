@@ -217,25 +217,21 @@ MSM_TERMS: tuple[str, ...] = ("(intercept)", "a", "W")
 MSM_DESIGN = np.array([[[1.0, float(a), float(w)] for a in range(2)] for w in range(3)])
 MSM_WEIGHTS = np.array([[1.0 + 0.5 * a + 0.25 * w for a in range(2)] for w in range(3)])
 
-#: The links the ``msm`` estimand is checked under, and their mean functions written out
+#: The links the ``msm`` estimand is checked under, as ``(inverse, dm/deta)``, written out
 #: *here* rather than imported.  The whole point of an oracle is that it shares no code
-#: with what it checks, and ``dm/deta`` is the factor a linked clever covariate carries --
-#: so taking it from :mod:`cleverly.msm` would be checking that module against itself.
+#: with what it checks, and ``dm/deta`` weights the projection's Jacobian -- so taking it
+#: from :mod:`cleverly.msm` would be checking that module against itself.
 #:
 #: ``expit`` is spelled ``1 / (1 + exp(-eta))`` because :func:`gateaux` evaluates this at a
 #: *complex* argument, and ``scipy.special.expit`` is real-only.  Everything below is
 #: arithmetic and :func:`numpy.exp`, which is what keeps the whole functional analytic.
 MSM_LINKS: dict[str, Any] = {
-    "identity": (lambda eta: eta, lambda m: np.ones_like(m), lambda m: np.zeros_like(m)),
-    "log": (np.exp, lambda m: m, lambda m: m),
-    "logit": (
-        lambda eta: 1.0 / (1.0 + np.exp(-eta)),
-        lambda m: m * (1.0 - m),
-        lambda m: m * (1.0 - m) * (1.0 - 2.0 * m),
-    ),
+    "identity": (lambda eta: eta, lambda m: np.ones_like(m)),
+    "log": (np.exp, lambda m: m),
+    "logit": (lambda eta: 1.0 / (1.0 + np.exp(-eta)), lambda m: m * (1.0 - m)),
 }
 
-#: Newton steps taken to solve a linked working model's normal equations, run **without a
+#: Newton steps taken to solve a linked working model's estimating equation, run **without a
 #: convergence test** -- a comparison against a tolerance is not analytic, and a functional
 #: that branched on one could not be differentiated by a complex step.
 #:
@@ -429,29 +425,23 @@ def functional(probs: Any, estimand: str) -> Any:
         beta = msm_beta(p, MSM_WEIGHTS)
         return beta[MSM_TERMS.index(estimand[len("msm[") : -1])]
 
-    # The same projection through a link, where the normal equations are no longer linear
-    # in beta:
+    # The same projection through a link: the minimiser of the link's quasi-likelihood
+    # (cumulant) loss, whose estimating equation is no longer linear in beta:
     #
-    #   U(beta) = sum_w P(w) sum_a h phi (dm/deta) (E[Y | a, w] - m(a, w; beta)) = 0
+    #   U(beta) = sum_w P(w) sum_a h phi (E[Y | a, w] - m(a, w; beta)) = 0
     #
-    # solved by Newton with the exact Jacobian. The Jacobian carries the curvature term
-    # -(Qbar - m) d2m/deta2, which vanishes only where the model fits -- and this one is
-    # three coefficients against six cells, so it does not.
-    for name, (inverse, slope, curvature) in MSM_LINKS.items():
+    # solved by Newton with the exact Jacobian sum h (dm/deta) phi phi'. This working model
+    # is three coefficients against six cells, so it does not fit.
+    for name, (inverse, slope) in MSM_LINKS.items():
         if name == "identity" or not estimand.startswith(f"msm_{name}["):
             continue
         beta = np.zeros(len(MSM_TERMS), dtype=p.dtype)
         for _ in range(MSM_NEWTON_STEPS):
             m = inverse(np.einsum("wap,p->wa", MSM_DESIGN, beta))
             residual = q - m
-            first, second = slope(m), curvature(m)
-            score = np.einsum("wap,wa,w->p", MSM_DESIGN, MSM_WEIGHTS * first * residual, p_w)
+            score = np.einsum("wap,wa,w->p", MSM_DESIGN, MSM_WEIGHTS * residual, p_w)
             jacobian = np.einsum(
-                "wap,waq,wa,w->pq",
-                MSM_DESIGN,
-                MSM_DESIGN,
-                MSM_WEIGHTS * (first**2 - residual * second),
-                p_w,
+                "wap,waq,wa,w->pq", MSM_DESIGN, MSM_DESIGN, MSM_WEIGHTS * slope(m), p_w
             )
             beta = beta + np.linalg.solve(jacobian, score)
         return beta[MSM_TERMS.index(estimand[len(f"msm_{name}[") : -1])]

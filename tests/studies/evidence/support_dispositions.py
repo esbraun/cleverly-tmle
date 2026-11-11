@@ -236,16 +236,6 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
     (
         "canonical-stratified-incremental-msm",
         "property",
-        "interval_calibration/logit_v1_a__correctly_specified",
-        "T16.logit_binary",
-        ("wald",),
-        EXPERIMENTAL,
-        "",
-        "Q6",
-    ),
-    (
-        "canonical-stratified-incremental-msm",
-        "property",
         "interval_calibration/logit_v2_a__correctly_specified",
         "T16.logit_binary",
         ("wald",),

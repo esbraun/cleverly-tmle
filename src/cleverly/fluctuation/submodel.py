@@ -823,9 +823,11 @@ def msm_submodel(
         P_n\Big[\frac{h(A,V)\,\varphi(A,V)}{g(A \mid W)}\,\big(Y - \bar Q^*(A, W)\big)\Big] = 0 ,
 
     which is the first of the two terms of the efficient influence function for
-    :math:`\beta`; the second is solved *exactly* by the weighted least squares that reads
+    :math:`\beta`; the second is solved *exactly* by the projection that reads
     :math:`\hat\beta` off the targeted fit, so the pair is zero by construction rather than
-    by iteration.  See :mod:`cleverly.msm` for the estimand and
+    by iteration.  The covariate is the same under every link, because the projection
+    minimises the link's cumulant loss, whose estimating equation weights the residual by
+    :math:`h\varphi` alone (:mod:`cleverly.msm`).  See :mod:`cleverly.msm` for the estimand and
     :func:`~cleverly.inference.influence.msm_coefficients` for the curve.
 
     **Why the columns are coefficients and the arms are still arms.**  Exactly the
@@ -1580,12 +1582,12 @@ def restrict(submodel: Submodel, mask: BoolArray | IntArray) -> Submodel:
 def stitch(pieces: Sequence[tuple[IntArray, Submodel]], n: int) -> Submodel:
     """Reassemble one submodel from per-fold ones, each covering its own rows.
 
-    :func:`restrict`'s inverse, and needed for the same reason the targeted predictions
-    are stitched back together: under fold-wise targeting each fold gets its own
-    covariate, and the *pooled* score has to be taken against the covariate each row was
-    actually fluctuated by.  Where the covariate does not depend on anything fold-specific
-    -- every group but a linked ``msm`` -- restricting and stitching returns the array it
-    started with, value for value, which is why this can sit on the common path.
+    :func:`restrict`'s inverse, and needed for the same reason the targeted predictions are stitched
+    back together: under fold-wise targeting each fold gets its own covariate, and the *pooled*
+    score has to be taken against the covariate each row was actually fluctuated by.  Where the
+    covariate does not depend on anything fold-specific -- every group but a log-ratio conditional
+    contrast -- restricting and stitching returns the array it started with, value for value, which
+    is why this can sit on the common path.
 
     Every piece must agree about the group, the column names and which column belongs to
     which arm; only the rows differ.  The folds partition the sample, so each row is

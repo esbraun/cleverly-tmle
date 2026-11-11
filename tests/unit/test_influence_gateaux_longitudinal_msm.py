@@ -109,14 +109,10 @@ FAMILIES = list(law.MSM_NAMES)
 #: ``2e-15`` on curves reaching magnitude 18, so ``1e-12`` is already two orders of slack.
 #:
 #: Under a **link** the two sides run *independent* iterative solves -- the oracle a fixed
-#: forty Newton steps, the estimator an alternation that exits on a relative shift in
-#: ``beta`` of ``1e-10`` -- so ``beta`` itself is only settled to about ``1e-11``, and a
-#: curve of magnitude 18 inherits that. The measured gaps are ``7e-12`` on the point
-#: estimate and ``1.8e-10`` on the curve. The windows below leave two orders above the
-#: measurement and, per ``TestTheComparisonHasTeeth``, seven below the smallest wrong
-#: answer they have to reject. This is the same trade
-#: ``tests/unit/test_influence_gateaux_msm.py`` records at one time point, one order
-#: looser because there is an alternation here where there is a single solve there.
+#: forty Newton steps, the estimator a Newton solve that exits on a relative score of
+#: ``1e-12`` -- and a curve of magnitude 18 inherits what is left. The windows below leave
+#: orders of slack above that and, per ``TestTheComparisonHasTeeth``, seven below the
+#: smallest wrong answer they have to reject.
 POINT_TOLERANCE = {"identity": 1e-12, "saturated": 1e-12, "log": 1e-10, "logit": 1e-10}
 CURVE_TOLERANCE = {"identity": 1e-12, "saturated": 1e-12, "log": 1e-9, "logit": 1e-9}
 
@@ -264,21 +260,14 @@ class TestTheFitAgreesWithTheOracle:
             )
 
 
-class TestTheAlternation:
-    @pytest.mark.parametrize("family", ["log", "logit"])
-    def test_it_converged_and_the_covariate_was_built_at_the_reported_beta(
-        self, fits: dict[str, Any], family: str
-    ) -> None:
-        """The fixed point is stated over the whole pass: at exit every node's ``Qbar*``
-        is the fluctuation along the covariate at ``beta-hat``, and ``beta-hat`` is the
-        projection of the first node's."""
-        alternation = fits[family].msm_fits[0].alternation
-        assert alternation.converged and alternation.failure is None
-        assert alternation.trace[-1][2] <= 1e-10
-
-    def test_the_identity_link_does_not_alternate(self, fits: dict[str, Any]) -> None:
-        """``dm/deta`` is one, so the covariate never reads a beta and one pass suffices."""
-        assert fits["identity"].msm_fits[0].alternation.trace == ()
+class TestOnePass:
+    @pytest.mark.parametrize("family", FAMILIES)
+    def test_every_link_projects_one_pass(self, fits: dict[str, Any], family: str) -> None:
+        """The submodel design is ``phi`` under every link, so nothing reads ``beta`` and
+        the projection of the first node's ``Qbar*`` is read off one pass."""
+        msm_fit = fits[family].msm_fits[0]
+        assert msm_fit.projection.converged
+        np.testing.assert_array_equal(msm_fit.fluctuation_design, msm_fit.model.design)
 
 
 class TestTheComparisonHasTeeth:

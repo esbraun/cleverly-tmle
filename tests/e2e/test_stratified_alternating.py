@@ -112,11 +112,9 @@ def test_a_round_trip_keeps_every_stratum(fitted: tuple[str, Any]) -> None:
     back = loads(dumps(result))
     for name in stratum_names(result):
         assert back[name].psi == result[name].psi
-    nested = result.fluctuations[next(iter(result.fluctuations))].stratified
-    restored = back.fluctuations[next(iter(back.fluctuations))].stratified
-    assert (nested is None) == (restored is None)
-    if nested is not None:
-        np.testing.assert_array_equal(nested.epsilon, restored.epsilon)
+    first = result.fluctuations[next(iter(result.fluctuations))]
+    restored = back.fluctuations[next(iter(back.fluctuations))]
+    np.testing.assert_array_equal(first.epsilon, restored.epsilon)
 
 
 @pytest.mark.parametrize("name", list(COMPOSITIONS))

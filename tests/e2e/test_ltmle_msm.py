@@ -135,7 +135,7 @@ class TestItReportsTheProjection:
         independent computation of the same quantity.
         """
         model = result.msm
-        covariate = model.weighted_design_at(result.msm_fits[0].beta)
+        covariate = model.weighted_design
         weights = result.data.weights
         score = np.zeros(model.n_terms)
         for index, cell in enumerate(model.cells):
@@ -159,7 +159,7 @@ class TestItReportsTheProjection:
         frame, _ = make_longitudinal(n=3000, seed=0)
         result = LTMLE(SPEC, msm=dose_msm(), **{**FAST, "n_folds": n_folds}).fit(frame, **COLUMNS)
         model = result.msm
-        covariate = model.weighted_design_at(result.msm_fits[0].beta)
+        covariate = model.weighted_design
         scale = float(np.sum(result.data.weights * np.abs(covariate).max(axis=(1, 2))))
         for time in (1, 2):
             np.testing.assert_allclose(
@@ -173,9 +173,8 @@ class TestItReportsTheProjection:
         model's own weighted design, the right side is what the solver computed. They
         agree only if the solve stacked the cells, the loss weights and the mask as stated.
 
-        The identity link is what makes them comparable exactly -- ``weighted_design_at``
-        reads the *reported* beta, and under a link the last pass fluctuated at the previous
-        round's beta, which differs from it by up to ``tol``.
+        The model's weighted design is ``h * phi`` under every link, so this holds for a
+        linked fit too; the identity link is the one checked here.
         """
         result, _ = fitted
         assert result.msm.link == "identity"
@@ -276,17 +275,20 @@ class TestASaturatedModelIsThePerRegimenReport:
 
 class TestALink:
     @pytest.mark.parametrize("link", ["log", "logit"])
-    def test_the_alternation_converges(self, link: str) -> None:
-        """Under a link a round is a whole backward pass, so it had better be few of them."""
+    def test_one_pass_solves_every_node_score(self, link: str) -> None:
+        """Under a link the submodel is still ``phi``, so one pass solves every node."""
         frame, _ = make_longitudinal(n=1500, seed=2)
         result = LTMLE(SPEC, msm=dose_msm(link=link), **FAST).fit(frame, **COLUMNS)
-        alternation = result.msm_fits[0].alternation
-        assert alternation.converged
-        assert alternation.n_outer <= 10
-        # beta reaches the covariate only through the smooth dm/deta, so the shift falls
-        # fast; a loop that merely stopped would show a flat trace.
-        shifts = [row[2] for row in alternation.trace]
-        assert shifts[-1] < 1e-9 < shifts[0]
+        msm_fit = result.msm_fits[0]
+        assert msm_fit.converged
+        model = result.msm
+        scale = float(np.sum(result.data.weights * np.abs(model.weighted_design).max(axis=(1, 2))))
+        for time in (1, 2):
+            np.testing.assert_allclose(
+                TestItReportsTheProjection._stitched_score(result, time) / scale,
+                np.zeros(model.n_terms),
+                atol=1e-9,
+            )
 
     def test_the_exponentiated_view_names_what_each_row_is(self) -> None:
         frame, _ = make_longitudinal(n=1000, seed=3)

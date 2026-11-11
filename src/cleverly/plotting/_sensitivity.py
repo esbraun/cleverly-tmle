@@ -186,6 +186,10 @@ def truncation(
     estimands = [str(value) for value in _column(frame, "estimand")]
     chosen = _choose(estimands, estimand, "truncation curve")
     rows = [index for index, name in enumerate(estimands) if name == chosen]
+    # The guide line joins points in row order, so rows go in bound order; every array
+    # below is picked through ``rows``, which keeps each estimate with its interval.
+    bounds = _column(frame, "bound")
+    rows.sort(key=lambda index: float(bounds[index]))
 
     def pick(name: str) -> list[Any]:
         if name not in columns:
@@ -428,6 +432,11 @@ def missingness(
     estimands = [str(value) for value in tilt.column("estimand")]
     chosen = _choose(estimands, estimand, "missingness tilt")
     rows = [index for index, name in enumerate(estimands) if name == chosen]
+    # A gamma grid may arrive in any order and the guide line joins points in row order,
+    # so rows go in gamma order; every array below is picked through ``rows``, which keeps
+    # each estimate with its interval.
+    gammas = tilt.column("gamma")
+    rows.sort(key=lambda index: float(gammas[index]))
 
     def pick(name: str) -> list[Any]:
         if name not in columns:

@@ -402,11 +402,6 @@ class Fluctuation:
     absolute_score_weights : ndarray or None
         ``abs(w_i * h_ij)`` on the rows this outcome-score solve used. ``None`` only on a
         fluctuation built by hand.
-    stratified : Fluctuation or None
-        The stratum fluctuation of an ``msm`` group with baseline strata whose link makes
-        the clever covariate depend on the coefficients.  It solves one score block per
-        stratum at that stratum's coefficients, and the stratum estimates read it.  This
-        fluctuation then holds the marginal solve.  ``None`` for every other fit.
     stopping : str
         The rule that judged ``converged``: ``"relative"`` (the shipped test against
         ``tol``), ``"scaled_var"`` or ``"sample_size"``.
@@ -461,9 +456,9 @@ class Fluctuation:
     #: the initial cross-fitted mechanism, exactly as ``outcome`` stays the initial
     #: regression -- see :mod:`cleverly.fluctuation.mechanism`.
     mechanism: Any | None = None
-    #: The working model's coefficients and how the alternation that found them went, for
-    #: an ``msm`` group whose link makes the clever covariate depend on them; ``None`` for
-    #: the identity link and for every other group.  A sibling of ``mechanism`` above and
+    #: The coefficients of a log-ratio conditional contrast and how the alternation that
+    #: found them went, since its clever covariate depends on them; ``None`` for every
+    #: other group, a working model's included.  A sibling of ``mechanism`` above and
     #: carried for the same reason -- it is the other half of a targeting step that has
     #: two -- but *not* the same kind of object: the mechanism is a nuisance that was
     #: tilted, while this is the reported parameter, solved for rather than fluctuated.
@@ -479,16 +474,10 @@ class Fluctuation:
     reduction: Any | None = None
     #: Absolute per-row score weights, ``abs(w_i * h_ij)``, on exactly the rows used by
     #: this outcome-score solve.  Stored because stratified, fold-evaluated, fold-targeted,
-    #: linked-MSM, and doubly-robust fits can use a covariate or scoring measure that
+    #: log-ratio contrast, and doubly-robust fits can use a covariate or scoring measure that
     #: cannot be reconstructed from ``result.nuisance``.  ``None`` only on a fluctuation
     #: built by hand.
     absolute_score_weights: FloatArray | None = None
-    #: The stratum half of a linked working model with baseline strata.  The marginal
-    #: coefficients come from this fluctuation, which is the shipped unstratified solve, and
-    #: the stratum coefficients from this nested one, whose covariate holds one block
-    #: ``I(S = s) H(beta_s) / P_n(S = s)`` per stratum.  Each stratum block reads its own
-    #: coefficients, so one fluctuation cannot solve both.  ``None`` for every other fit.
-    stratified: Fluctuation | None = None
     #: The stopping rule that judged ``converged``.  ``"relative"`` is the shipped test of
     #: the relative score norm against ``tol``.
     stopping: str = "relative"

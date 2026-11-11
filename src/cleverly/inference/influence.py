@@ -72,7 +72,7 @@ from .._inference_status import (
 from .._support import UNCLASSIFIED, Classification, Support, support_for
 from .._typing import BoolArray, FloatArray, IntArray
 from .._warnings import warn as _warn
-from ..exceptions import refuse_inference
+from ..exceptions import ConvergenceWarning, refuse_inference
 from ..fluctuation.iterative import InitialFit
 from ..fluctuation.submodel import Submodel
 from ..msm import link_for, solve_projection
@@ -2495,39 +2495,37 @@ def msm_coefficients(
 ) -> dict[float, ArmMean]:
     r"""A working model's coefficients and their influence curves, keyed by coefficient.
 
-    :math:`\hat\beta` solves the weighted least-squares equation
-    :math:`U(\beta, \bar Q^*) = 0` of :func:`~cleverly.msm.solve_projection`, which for
-    the identity link is the closed form
-    :math:`M^{-1} P_n[\sum_a h\,\varphi\,\bar Q^*]`, and
+    :math:`\hat\beta` minimises the link's cumulant loss over the targeted predictions,
+    so it solves :math:`U(\beta, \bar Q^*) = P_n[\sum_a h\,\varphi\,(\bar Q^* - m)] = 0`
+    (:func:`~cleverly.msm.solve_projection`).  For the identity link that is the closed
+    form :math:`M^{-1} P_n[\sum_a h\,\varphi\,\bar Q^*]`, and under every link
 
     .. math::
 
         D_\beta^*(O) = M^{-1}\Big[
             H(A, W)\,\{Y - \bar Q^*(A, W)\}
-            + \sum_a h(a, V)\,\frac{dm}{d\eta}\,\varphi(a, V)\,
+            + \sum_a h(a, V)\,\varphi(a, V)\,
               \big\{\bar Q^*(a, W) - m(a, V; \hat\beta)\big\}
-        \Big]
+        \Big],
+        \qquad
+        M = P_n\Big[\textstyle\sum_a h\,\tfrac{dm}{d\eta}\,\varphi\varphi^\top\Big],
 
     -- the standard M-estimation form, with :math:`M = -\partial U/\partial\beta` the
     matrix :func:`~cleverly.msm.solve_projection` returns.  :math:`M` carries no *further*
     term because :math:`U(\beta_0, \bar Q_0) = 0` at the truth, so the variation of
-    :math:`M^{-1}` multiplies zero; that argument is untouched by the link, but what
-    :math:`M` **contains** is not -- under a non-identity link it carries a curvature term
-    that no saturated working model can exercise.  It carries no nuisance either, because
-    :math:`h` and :math:`\varphi` are known functions; see :mod:`cleverly.msm` for the
-    estimand and for why the weights have to be known for that to hold.
+    :math:`M^{-1}` multiplies zero.  It does not involve :math:`\bar Q`, because the
+    estimating equation is linear in :math:`\bar Q`, so it carries no curvature term under
+    any link.  It carries no nuisance either, because :math:`h` and :math:`\varphi` are
+    known functions; see :mod:`cleverly.msm` for the estimand and for why the weights have
+    to be known for that to hold.  This is the curve of Rosenblum and van der Laan (2010),
+    equation (17), with their normalising matrix.
 
-    Both halves are still zero in the sample after targeting, and still for two different
-    reasons -- but under a link the first is zero only because the fluctuation was solved
-    at *this* :math:`\hat\beta`, which is what
-    :func:`~cleverly.estimators.targeting.solve_with_projection` alternates to achieve.
-
-    The first term is zero because the ``msm`` fluctuation solved its own score equation.
-    The second is zero *by construction*: :math:`\hat\beta` is the weighted least-squares
-    solution against :math:`\bar Q^*`, so the residuals it leaves are orthogonal to
-    :math:`h\,(dm/d\eta)\,\varphi`.  With the identity link the first needs no iteration
-    either, since the covariate does not mention :math:`\beta` -- which is what makes that
-    case a one-fluctuation TMLE.
+    Both halves are zero in the sample after targeting, for two different reasons.  The
+    first is zero because the ``msm`` fluctuation solved its own score equation along
+    :math:`H = h\varphi/g`, which is free of :math:`\beta`, so one fluctuation does it.
+    The second is zero *by construction*: :math:`\hat\beta` is the stationary point of the
+    projection loss against :math:`\bar Q^*`, so the residuals it leaves are orthogonal to
+    :math:`h\,\varphi`.
 
     **The projection is solved on the original outcome scale**, unlike every other
     estimand here, which works on the scaled outcome and maps back afterwards.  A
@@ -2589,13 +2587,23 @@ def msm_coefficients(
 
     spec = link_for(str(link))
     fit = solve_projection(phi, h, predictions, w, str(link))
+    if not fit.converged:
+        # Bounded targeted means inside the link's range have a finite minimiser, so this
+        # is a numerical failure: the coefficients and their curve describe an equation
+        # that was not solved.
+        _warn(
+            f"the working model's {link} projection did not converge in {fit.n_iter} "
+            f"Newton steps (relative score {fit.score:.1e}), so its coefficients "
+            "and standard errors solve its estimating equation only approximately.",
+            ConvergenceWarning,
+            stacklevel=2,
+        )
     beta = fit.beta
     fitted = np.asarray(spec.inverse(np.einsum("ijp,p->ij", phi, beta)), dtype=float)
-    # (n, K, p) -- h * dm/dbeta, which is h * phi under the identity link and so leaves
-    # that path on exactly the arithmetic it was on before links existed.
-    weighted_design = phi * (h * np.asarray(spec.slope(fitted), dtype=float))[:, :, None]
+    # (n, K, p) -- h * phi, the estimating equation's weight under every link.
+    weighted_design = phi * h[:, :, None]
 
-    # (n, p): the plug-in half, sum_a h * (dm/dbeta) * (Qbar* - m(a, V; beta)).
+    # (n, p): the plug-in half, sum_a h * phi * (Qbar* - m(a, V; beta)).
     plugin = np.einsum("ijp,ij->ip", weighted_design, predictions - fitted)
     contribution = w[:, None] * (submodel.observed * residual[:, None] + plugin)
     influence = np.linalg.solve(fit.jacobian, contribution.T).T

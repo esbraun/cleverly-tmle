@@ -128,7 +128,7 @@ The test fails on four states.
 | [`composite-high-arm`](../../roadmap.md#red-cell-owners) | 2 | observational missing-data DR-TMLE with a composite indicator |
 | [`X4-finite-sample`](../../roadmap.md#red-cell-owners) | 1 | sequentially doubly robust longitudinal estimation |
 | [`X39-below-tail-size`](../../roadmap.md#red-cell-owners) | 1 | long-horizon sequentially doubly robust estimation |
-| [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) | 2 | stratified incremental and MSM targeting |
+| [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) | 1 | stratified incremental and MSM targeting |
 | [`X8-identity-small-stratum`](../../roadmap.md#red-cell-owners) | 2 | identity-link MSM with baseline strata |
 | [`X8-drtmle-one-sided-bias`](../../roadmap.md#red-cell-owners) | 4 | DR-TMLE with baseline strata |
 | [`X8-drtmle-small-stratum`](../../roadmap.md#red-cell-owners) | 3 | DR-TMLE with baseline strata |
@@ -154,7 +154,7 @@ The test fails on four states.
 | [`X92-paired-conservative`](../../roadmap.md#red-cell-owners) | 1 | Targeting curves (TOC, cumulative gain, AUTOC, Qini) |
 | [`X93-upper-dose-calibration`](../../roadmap.md#red-cell-owners) | 1 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
 | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) | 2 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
-| total | 218 | 43 studies |
+| total | 217 | 43 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -170,8 +170,7 @@ same text as the "measured" column of its study page.
 | [ordinary point-treatment TMLE with baseline strata](stratified-point-treatment-tmle.md) | property | `interval_calibration/v2_ey1__correctly_specified` | positive | its own rule | coverage 0.9056 to 0.9344, SE ratio 0.9315 to 1.0094, empirical efficiency ratio 0.9753 to 1.0552, reported efficiency ratio 0.9742 to 0.9931 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) |
 | [ordinary point-treatment TMLE with baseline strata](stratified-point-treatment-tmle.md) | property | `simultaneous_coverage/crossfit_strata__simultaneous_band` | positive | its own rule | joint coverage 0.9038 to 0.9329 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) |
 | [ordinary point-treatment TMLE with baseline strata](stratified-point-treatment-tmle.md) | property | `simultaneous_coverage/strata__simultaneous_band` | positive | its own rule | joint coverage 0.8881 to 0.9194 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) |
-| [stratified incremental and MSM targeting](stratified-incremental-msm.md) | property | `interval_calibration/logit_v1_a__correctly_specified` | positive | its own rule | coverage 0.9283 to 0.9555, SE ratio 0.9273 to 1.0105 | [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) |
-| [stratified incremental and MSM targeting](stratified-incremental-msm.md) | property | `interval_calibration/logit_v2_a__correctly_specified` | positive | its own rule | coverage 0.9289 to 0.9560, SE ratio 0.7818 to 0.9387 | [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) |
+| [stratified incremental and MSM targeting](stratified-incremental-msm.md) | property | `interval_calibration/logit_v2_a__correctly_specified` | positive | its own rule | coverage 0.9372 to 0.9626, SE ratio 0.7982 to 0.9931 | [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) |
 | [identity-link MSM with baseline strata](stratified-msm-identity.md) | paired | `stratified_msm_identity/msm[W][V=2]` | paired | inconclusive: calibration leg | difference -0.000049 to 0.000037 within 0.000694, RMSE ratio bound 1.0047 vs 1.1000, coverage difference bound -0.0220 vs -0.0250, calibration excess bound 0.0523 vs 0.0500, resolution 0.0476 | [`X8-identity-small-stratum`](../../roadmap.md#red-cell-owners) |
 | [identity-link MSM with baseline strata](stratified-msm-identity.md) | property | `interval_calibration/identity_v2_a__correctly_specified` | positive | its own rule | coverage 0.9233 to 0.9515, SE ratio 0.9264 to 1.0042, empirical efficiency ratio 0.9925 to 1.0766, reported efficiency ratio 0.9937 to 1.0005 | [`X8-identity-small-stratum`](../../roadmap.md#red-cell-owners) |
 | [DR-TMLE with baseline strata](stratified-dr-tmle.md) | truth | `cleverly-stratified-drtmle/stratified_both_correct/ey[1][V=2]` | cleverly-stratified-drtmle | its truth gate | bias 0.0023 to 0.0112, coverage 0.9000, SE ratio 0.9388 | [`X8-drtmle-small-stratum`](../../roadmap.md#red-cell-owners) |
