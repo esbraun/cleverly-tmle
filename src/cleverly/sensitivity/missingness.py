@@ -1147,14 +1147,18 @@ def tipping_interval_refusal(result: Any, estimand: str | None) -> Refusal | Non
     )
     if excluded is None and not result[estimand].supplies_inference:
         return None
-    return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
+    message = (
         f"{_TIPPING_INTERVAL_OPERATION} follows a confidence limit, and the tilt of "
         f"{estimand!r} claims no interval at gamma != 0: {reason}. Its spread off "
         "gamma = 0 is the MAR standard error centred on the tilted point, a diagnostic "
-        "published under the plugin_ names.",
-        alternative=f"Call tipping_gamma(result, {estimand!r}) for the point search.",
-        roadmap=None if "doubly robust" in reason else "X57",
+        "published under the plugin_ names."
+    )
+    alternative = f"Call tipping_gamma(result, {estimand!r}) for the point search."
+    if "doubly robust" in reason:
+        # No method gives this interval, so no roadmap item tracks it; only the point stands.
+        return Refusal(RefusalReason.INFERENCE_GAP, message, alternative=alternative)
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP, message, alternative=alternative, roadmap="X57"
     )
 
 
