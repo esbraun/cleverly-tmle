@@ -28,6 +28,9 @@ Norm = Literal["covariance", "variance", "euclidean"]
 #: Each diagonal entry of the held covariance is floored at this share of the largest one, so
 #: a target with a tiny influence-curve variance cannot dominate the direction.
 SIGMA_FLOOR: Final = 1e-8
+#: A step that takes some unit's survival at the last target time below this is rejected: the
+#: clever covariate divides by the survival, and its quotient loses every digit there.
+WALK_SURVIVAL_FLOOR: Final = 1e-8
 #: The smallest step before the walk stops unconverged.
 MIN_STEP: Final = 1e-8
 
@@ -189,6 +192,33 @@ def _direction(problem: Problem, evaluation: Evaluation, v: FloatArray) -> Float
     return out
 
 
+def tilt_jumps(dlam: FloatArray, increment: FloatArray) -> FloatArray:
+    """Tilt the cause hazard jumps of every cell along a multinomial logistic path.
+
+    Parameters
+    ----------
+    dlam : ndarray
+        ``(2, J, n, M)`` hazard jumps, each cell's sum below one.
+    increment : ndarray
+        ``(2, J, n, M)`` step times direction.
+
+    Returns
+    -------
+    ndarray
+        :math:`d\Lambda_l e^{x_l} / (1 - \sum_k d\Lambda_k + \sum_k d\Lambda_k e^{x_k})`.
+
+    Notes
+    -----
+    In continuous time the jumps are infinitesimal and this is the exponential tilt
+    :math:`d\Lambda_l e^{x_l}` of the source's submodel.  On observed jump times it keeps every
+    cell's sum below one, so the product limit stays a probability, and its derivative at zero is
+    the same score :math:`\sum_l c_l (dN_l - Y\, d\Lambda_l)` under the multinomial
+    likelihood of the jumps (design rev 2.1, item 5).
+    """
+    tilted = dlam * np.exp(increment)
+    return tilted / (1.0 - dlam.sum(axis=1, keepdims=True) + tilted.sum(axis=1, keepdims=True))
+
+
 def _metric(sigma: FloatArray, norm: Norm) -> FloatArray:
     P = sigma.shape[0]
     if norm == "euclidean":
@@ -299,6 +329,7 @@ def walk(
         The targeted hazards and the walk's record.
     """
     halving_cap = 2 * max_steps if max_halvings is None else max_halvings
+    initial_step = step
     current = np.array(dlam, dtype=float, copy=True)
     initial = evaluate(problem, current)
     metric = _metric(
@@ -323,18 +354,19 @@ def walk(
         direction = _direction(problem, evaluation, weighted / length)
         if tilt == "factual":
             direction = direction * factual
-        candidate = current * np.exp(step * direction)
-        if np.any(candidate.sum(axis=1) >= 1.0):
+        candidate = tilt_jumps(current, step * direction)
+        trial = evaluate(problem, candidate)
+        if np.min(trial.survival[..., -1]) < WALK_SURVIVAL_FLOOR:
             step /= 2
             halvings += 1
             continue
-        trial = evaluate(problem, candidate)
         trial_length = float(np.sqrt(trial.score @ metric @ trial.score))
         if not np.isfinite(trial_length) or trial_length >= length:
             step /= 2
             halvings += 1
             continue
         current, evaluation = candidate, trial
+        step = min(2.0 * step, initial_step)
         steps += 1
         history.append(standardized(evaluation))
         converged = history[-1] <= cutoff

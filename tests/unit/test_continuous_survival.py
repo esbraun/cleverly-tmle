@@ -253,15 +253,14 @@ def test_the_path_derivative_of_the_log_likelihood_is_the_score_norm(
     factual = np.stack([(problem.arm == a) for a in (0, 1)])[:, None, :, None]
 
     def loglik(step: float) -> float:
-        jumps = dlam * np.exp(step * direction)
-        own = (jumps * factual).sum(axis=0)  # (J, n, M) at the received arm
-        return (
-            float(
-                np.sum(problem.events * np.log(np.where(problem.events > 0, own, 1.0)))
-                - np.sum(problem.at_risk[None] * own)
-            )
-            / problem.n
-        )
+        # The multinomial likelihood of each cell's jumps at the received arm.
+        jumps = (_targeting.tilt_jumps(dlam, step * direction) * factual).sum(axis=0)
+        none = 1.0 - jumps.sum(axis=0)
+        stay = problem.at_risk - problem.events.sum(axis=0)
+        return float(
+            np.sum(problem.events * np.log(np.where(problem.events > 0, jumps, 1.0)))
+            + np.sum(stay * np.log(none))
+        ) / problem.n
 
     h = 1e-6
     derivative = (loglik(h) - loglik(-h)) / (2 * h)
