@@ -245,7 +245,7 @@ def test_the_refusal_names_the_kinds_of_the_allowlist(monkeypatch: Any) -> None:
     assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
     assert refusal.message() == (
         "SDR has no per-horizon reduction for a repeated outcome (outcome=Repeated([...])). "
-        "X32b in docs/roadmap.md tracks this. LTMLE fits one. Each horizon is the "
+        "X71 in docs/roadmap.md tracks this. LTMLE fits one. Each horizon is the "
         "end-of-study fit of the panel truncated after it."
     )
     monkeypatch.setattr(sequential, "REPEATED_OUTCOME_KINDS", frozenset({"tmle", "ipsi"}))
