@@ -1,0 +1,158 @@
+{
+  "schema_version": 2,
+  "study": "drift-corrected survival TMLE",
+  "slug": "survival-dr-tmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-survival-dr-tmle",
+      "cleverly_version": "0.2.1",
+      "cleverly_commit": "d3b2f139206dc15aae137ec151b44a5b589d354b",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 6000,
+    "n": 4000,
+    "scenario_n": {
+      "both_1k": 1000,
+      "both_16k": 16000,
+      "known_1k": 1000,
+      "known_16k": 16000
+    },
+    "seed": 2026911901,
+    "resampling_seed": 2026911902,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-survival-dr-tmle": 0.01
+    },
+    "scenarios": {
+      "both_1k": [
+        "risk_regimen[a1 @ t=5]",
+        "risk_regimen[a0 @ t=5]",
+        "ate_regimen[a1 vs a0 @ t=5]"
+      ],
+      "both_4k": [
+        "risk_regimen[a1 @ t=5]",
+        "risk_regimen[a0 @ t=5]",
+        "ate_regimen[a1 vs a0 @ t=5]"
+      ],
+      "both_16k": [
+        "risk_regimen[a1 @ t=5]",
+        "risk_regimen[a0 @ t=5]",
+        "ate_regimen[a1 vs a0 @ t=5]"
+      ],
+      "known_1k": [
+        "risk_regimen[a1 @ t=5]",
+        "risk_regimen[a0 @ t=5]",
+        "ate_regimen[a1 vs a0 @ t=5]"
+      ],
+      "known_4k": [
+        "risk_regimen[a1 @ t=5]",
+        "risk_regimen[a0 @ t=5]",
+        "ate_regimen[a1 vs a0 @ t=5]"
+      ],
+      "known_16k": [
+        "risk_regimen[a1 @ t=5]",
+        "risk_regimen[a0 @ t=5]",
+        "ate_regimen[a1 vs a0 @ t=5]"
+      ]
+    },
+    "construction": "D\u00edaz (2019), Section 5, with the corrected eq. (9) of cleverly.longitudinal.drift",
+    "law": "L-S (tests/studies/survival_dr_tmle_law.py)",
+    "horizon": 5,
+    "grid": [
+      1.0,
+      2.0,
+      3.0,
+      4.0,
+      5.0
+    ],
+    "n_folds": 10,
+    "g_bounds": [
+      0.01,
+      1.0
+    ],
+    "learners": {
+      "correct": "LogisticRegression(C=1e6) per node on every design column",
+      "hazard_wrong": "the same on W1 and A",
+      "declared": "treatment_probabilities p1, p0 and censoring_probabilities r1..r4"
+    },
+    "engines": {
+      "cleverly-survival-dr-tmle": "SurvivalDRTMLE, max_iter=200",
+      "cleverly-hazard-ltmle": "LTMLE(survival_model='hazard'), reported beside the subject"
+    },
+    "sizes": {
+      "both_1k": 1000,
+      "both_4k": 4000,
+      "both_16k": 16000,
+      "known_1k": 1000,
+      "known_4k": 4000,
+      "known_16k": 16000
+    },
+    "variance_method": "ic (Theorem 2 curve)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.2,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/survival_dr_tmle.py": "dea06bb4b476790f577a620e1a8670629c47adf4ea300ece24062a6a2fc50192",
+    "tests/studies/survival_dr_tmle_law.py": "84f61b9ea8d66a321ba74c5916d4d3f98328ebc508e95219d171ba45f7696bbe",
+    "tests/studies/survival_dr_tmle_properties.py": "01b626d255fe016bc64003f50ee9d62156519f12cb37f5b6b21e6b43297b149b",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "9240d2569b567fc10e0db520a062ef6ae8e3f31814facbbe6fecc818bfccbb50",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "36d494f7ca114cf955e4fcd6fe6b460a5b5f88ecf538cf2285b3dfff595bfd84",
+    "tests/studies/stratified_incremental_msm_properties.py": "bbc78b79ba8484124ae5befd24a3ce2c1e4a1ffec0fb931f8711677d6d244bcf",
+    "tests/studies/canonical_stratified_incremental_msm.py": "2ea8f4cdede46713ed7160342875c14cef70cae3a4d4f494caf8516b2229f335",
+    "tests/studies/stratified_alternating_law.py": "19d62e110b376ee2fa83832101d57f32414e49d3eff8381b3889b0accd7150fe",
+    "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/discrete_law.py": "073a7d54ecd37360eca301d42af593c724874eb969775844edea75067f9d0076",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "e0cb4481d8dee35a00de72b96aded0e35fc8d582abfeb514ad6f3b6cd81388fd",
+    "summary.csv": "f70b82564e75b5516f690448afdc9c81b3e597f77bfce46bd708e09cf8301800",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "19642930f185f48fc75d6acdec459d630a609635b41a41507a281d24ee4693a5",
+    "property-replicates.parquet": "e8b03185a528fdcb8146388e55c6e29e67baa04622a7ed20ebd1b3b159f4b7c1",
+    "properties.csv": "2b083c72dc1592e9e6736138caa03b5380d49cbc29eb5495515843f83db75155",
+    "paired-difference.csv": "34ba1d9a4911b784919aab31146e094df302d0319a3ccf2271eaf6fb07c6cb04",
+    "drift-readings.csv": "1d8cc6b0b0c7e63e26142c5a0240d7b0d945d793bedc4724b362fdc5d0ae6eb3",
+    "reported-cells.csv": "78e563f123a163c5b6f759f4567c7627d1c8093a64588beba2b284b1fdc14918",
+    "reported-replicates.csv": "23ac002cb45780b7f607b478788a038999ff0bf4811571eb17d71692dd364b5f"
+  }
+}
