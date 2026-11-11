@@ -42,7 +42,6 @@ moves and the estimate is the reported one.  The tilted parameter is not doubly 
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -50,6 +49,7 @@ from typing import Any
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
+from .._warnings import warn as _warn
 from ..data.causal_data import arm_share
 from ..estimators._nuisance import tilt_missingness
 from ..exceptions import DataWarning
@@ -488,7 +488,7 @@ def targeted_tilt_estimates(
             if lowest < config.missingness_bound:
                 # Re-clipping would break the solved equation, so the update keeps its value
                 # and says that 1 / pi now exceeds the fit's bound on it.
-                warnings.warn(
+                _warn(
                     f"the tilt update at gamma = {gamma:g} moved the response probability "
                     f"below the fit's missingness_bound {config.missingness_bound:g}: its "
                     f"smallest value is {lowest:.3g}, so 1 / pi in the correction and the "
