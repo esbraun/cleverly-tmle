@@ -1850,9 +1850,15 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         )
 
     def _draw_estimates(self) -> list[dict[str, ParameterEstimate]]:
-        """Each draw's estimates of the names this result reports."""
+        """Each draw's estimates of the names this result reports, as the median reads them.
+
+        A stored draw keeps its own status.  A derived estimate reads every draw under the
+        reported estimate's status and support record, the precedent of the draws, so its
+        draws carry one record and the median can combine them.
+        """
         return [
-            {name: repeat.estimates[name] for name in self.estimates} for repeat in self.repeats
+            {name: _as_reported(repeat.estimates[name], self.estimates[name]) for name in self}
+            for repeat in self.repeats
         ]
 
     # ------------------------------------------------------------- mapping API
@@ -4132,6 +4138,18 @@ def _estimates(
             support=_support_of(classification, status, reference_df),
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
+
+
+def _as_reported(draw: ParameterEstimate, reported: ParameterEstimate) -> ParameterEstimate:
+    """``draw`` under the status and support record of the median ``reported``."""
+    if draw.inference == reported.inference:
+        return draw
+    return replace(
+        draw,
+        inference=reported.inference,
+        reference_df=draw.reference_df if supplies_inference(reported.inference) else None,
+        support=reported.support,
+    )
 
 
 def _support_of(
