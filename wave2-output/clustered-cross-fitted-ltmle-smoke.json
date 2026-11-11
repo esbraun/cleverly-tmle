@@ -1,0 +1,30 @@
+{
+  "band_fits": 2400,
+  "cells": {
+    "simultaneous_coverage/clustered_regimens__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 1.0,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 35.2,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.1338175906
+    }
+  },
+  "cpu_seconds": 2.676351812,
+  "estimated_cpu_hours": 0.08921172706666666,
+  "keys": 20,
+  "slug": "clustered-cross-fitted-ltmle",
+  "strata": 1,
+  "stream": "band-finite-sample/wave2-smoke",
+  "wall_seconds": 0.7839720300034969
+}

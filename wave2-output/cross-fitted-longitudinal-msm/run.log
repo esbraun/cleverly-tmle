@@ -1,0 +1,36 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "8a4a4ce1052ef4bbf4672c72ffada1d4410a531c9b2fc26ca2eaee21efcc589b",
+    "manifest.json": "bc6376f98300000ce0c44380d4965eb6293d19ac6ef5f40cec845969d4181629",
+    "performance-tests.csv": "e26a60505fe2cb5d01bb54b34f101fda96ef32191c072d4ae99ae2c3b86de4fe",
+    "properties.csv": "2a4447db7f0896a96fda1106077de3cdff01bc5e399d56b903817e1c66436be8",
+    "property-replicates.parquet": "b0e77b75d2ec3b57456443cd0788c6ea57242e516ffd5f0f1f892461c473f26a",
+    "replicates.parquet": "23ad42998e9d04537dd220c1ef9968e34bb13dfe8ebd3d99ba59d486e1668195",
+    "summary.csv": "b8b182c74c39f9f2bbe76c7d7f301ec495c801b2d31c09272885f1a8d4162196"
+  },
+  "band_fits": 4000,
+  "cache": "/root/band-wave/cache/cross-fitted-longitudinal-msm/91a56e7bfa463e4bfa56bbbadc081406cef9584b/30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "cross-fitted-longitudinal-msm",
+    "--jobs",
+    "4",
+    "--cache",
+    "/root/band-wave/cache",
+    "--output",
+    "/root/band-wave/out"
+  ],
+  "fit_seconds": 326.93487591899975,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "cross-fitted-longitudinal-msm",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}

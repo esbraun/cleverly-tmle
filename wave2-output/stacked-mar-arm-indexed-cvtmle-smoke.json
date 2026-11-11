@@ -1,0 +1,84 @@
+{
+  "band_fits": 8000,
+  "cells": {
+    "simultaneous_coverage/l1__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.9,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 65.6,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.27061927310000006
+    },
+    "simultaneous_coverage/l2__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.9,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 63.1,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.24210512560000003
+    },
+    "simultaneous_coverage/l3__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 1.0,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 93.4,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.2649405946499999
+    },
+    "simultaneous_coverage/l4__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 1.0,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 61.6,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.23573547424999997
+    }
+  },
+  "cpu_seconds": 20.268009352,
+  "estimated_cpu_hours": 0.5630002597777778,
+  "keys": 80,
+  "slug": "stacked-mar-arm-indexed-cvtmle",
+  "strata": 4,
+  "stream": "band-finite-sample/wave2-smoke",
+  "wall_seconds": 5.312489954999933
+}

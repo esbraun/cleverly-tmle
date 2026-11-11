@@ -1,0 +1,102 @@
+{
+  "band_fits": 12000,
+  "cells": {
+    "simultaneous_coverage/attributable_binary__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 1.0,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 171.7,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.20033972819999998
+    },
+    "simultaneous_coverage/attributable_binary_cvtmle__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.95,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 127.9,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.24169816535000005
+    },
+    "simultaneous_coverage/attributable_clustered__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.95,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 153.3,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.02178535199999998
+    },
+    "simultaneous_coverage/attributable_three_arm__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.95,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 116.9,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.19467582205000006
+    },
+    "simultaneous_coverage/attributable_weighted__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.9,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 252.2,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.182128889
+    }
+  },
+  "cpu_seconds": 16.812559132,
+  "estimated_cpu_hours": 0.5604186377333333,
+  "keys": 100,
+  "slug": "mar-attributable-tmle",
+  "strata": 5,
+  "stream": "band-finite-sample/wave2-smoke",
+  "wall_seconds": 4.371275020999988
+}

@@ -1,0 +1,5 @@
+scenario,replicate,arm,planted_scale_lower,planted_scale_upper,unplanted_scale_lower,unplanted_scale_upper,scale_exact,unplanted_scale_differs,moved_rows_difference,rebuild_difference,rebuild_tolerance,passed
+continuous_mar_two_arm_stacked,0,both,-2,8,-1.99989510563791,7.99053040014171,True,True,0,0.0,1e-12,True
+continuous_mar_three_arm_stacked,0,high,-2,8,-1.08285418728954,7.99999847724103,True,True,0,7.105427357601e-15,1e-12,True
+continuous_mar_three_arm_stacked,0,low,-2,8,-1.990269901519,7.9166128127805,True,True,0,7.105427357601e-15,1e-12,True
+continuous_mar_three_arm_stacked,0,mid,-2,8,-1.97367359221776,7.98192920341214,True,True,0,7.105427357601e-15,1e-12,True

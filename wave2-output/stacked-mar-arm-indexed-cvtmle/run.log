@@ -1,0 +1,37 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "a411f3f585d86d841387f06529ae24bbc0cc9f54955a4b4a05c0ba4eec99bfa0",
+    "manifest.json": "4c4d7dbb0c0367f9ba5eea9ca2ace47d76d0e8c99e4e3f83605e91c326b4c9e0",
+    "performance-tests.csv": "878fe9a1398fc163af36224e411713637b961cc92c537a758dbe39bebaaa69d4",
+    "properties.csv": "f9f76b1ac49ddf288468d0dca203b51066a616d409f7b713477c1a1911471fbd",
+    "property-replicates.parquet": "fa65f807be73dc4a0dec2dc6b54e8be49566c6be5f3de862c9095b5aadffb21c",
+    "replicates.parquet": "2f58e8e6d6285585d34a46b2d65b4f6bb5bd87a27bd8f64211dd30ec370f9415",
+    "scale-probe.csv": "bfd18d70c42ac6f04a49444cdbcfa7255f4e3bd05a9b9e1eeb45b1c1ef6649ce",
+    "summary.csv": "fad5f17c3549147bcb5ba0f5dfab35cafc9cce4236aed21e56c0c8b89f503eee"
+  },
+  "band_fits": 8000,
+  "cache": "/root/band-wave/cache/stacked-mar-arm-indexed-cvtmle/91a56e7bfa463e4bfa56bbbadc081406cef9584b/30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "stacked-mar-arm-indexed-cvtmle",
+    "--jobs",
+    "4",
+    "--cache",
+    "/root/band-wave/cache",
+    "--output",
+    "/root/band-wave/out"
+  ],
+  "fit_seconds": 529.715124751,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "stacked-mar-arm-indexed-cvtmle",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}

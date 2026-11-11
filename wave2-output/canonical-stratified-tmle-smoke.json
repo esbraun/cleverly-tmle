@@ -1,0 +1,48 @@
+{
+  "band_fits": 4800,
+  "cells": {
+    "simultaneous_coverage/crossfit_strata__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 1.0,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 3.6,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.26864223855
+    },
+    "simultaneous_coverage/strata__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.95,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 3.4,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.23864408235
+    }
+  },
+  "cpu_seconds": 10.145726417999999,
+  "estimated_cpu_hours": 0.3381908806,
+  "keys": 40,
+  "slug": "canonical-stratified-tmle",
+  "strata": 2,
+  "stream": "band-finite-sample/wave2-smoke",
+  "wall_seconds": 2.722476008999365
+}

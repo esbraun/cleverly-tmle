@@ -1,0 +1,36 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "751564f7060ca194fa344ec49bcae1d3d505c5d30af8a4ee25140091cc411a97",
+    "manifest.json": "76e8b1f6075c80c6785988666b9014e5cdb0145deb49623dc522ef278e99249c",
+    "performance-tests.csv": "1787638d781e825ab80c7aaec0e83ab9e2beeb3242add003fb426ffb4e11eaa1",
+    "properties.csv": "3175b39c2651f688c64843efdfa1f0a661a3372e13d5ce8ede6dbe0fd1a28252",
+    "property-replicates.parquet": "609607e93b9cac9fb1b619847aaf3842dbe173c4fc05527d04c1769e9374b618",
+    "replicates.parquet": "a000f96bd6e851a1de64c26b357cfc093b2502d402950b9acdc2de24994c58b1",
+    "summary.csv": "78a4971bf642b8c3ac3488f5131b043843a5a19d72665b398bd776649261f203"
+  },
+  "band_fits": 2400,
+  "cache": "/root/band-wave/cache/clustered-cross-fitted-ltmle/91a56e7bfa463e4bfa56bbbadc081406cef9584b/30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "clustered-cross-fitted-ltmle",
+    "--jobs",
+    "4",
+    "--cache",
+    "/root/band-wave/cache",
+    "--output",
+    "/root/band-wave/out"
+  ],
+  "fit_seconds": 82.45583044999876,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "clustered-cross-fitted-ltmle",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}

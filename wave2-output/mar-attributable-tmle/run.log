@@ -1,0 +1,37 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "6110ef243a0de5ae892af3ce857c23c2b048ab2c37aecc5e26f87bb2b3bdb9c7",
+    "manifest.json": "9f1c48424d1b8cf28e943da948e7224e59907c0cdf60f346bd0918df0044c4c0",
+    "performance-tests.csv": "1925a1a7d3c2c3760d49ca39c5e528ccbd80197b9630c7d8ec2dee9e7e89f250",
+    "properties.csv": "52e80d0ec97cad75d5307e9c5b6e5b247e377185b2f2fc952156a99ce91eeecc",
+    "property-replicates.parquet": "cccc7a8ff168b46de7a9103e0ac8fc678116bafdf9dd1dda95e6c6ffaa2bca9a",
+    "replicates.parquet": "2ca73410cb8f9973dc770ea1826a758e0eba7f16c011063ebce526cf1cb1977f",
+    "scale-probe.csv": "b098e2a74486c956481636f0cb03d555b91ef7467c1ac683fd88b54c4921b079",
+    "summary.csv": "f74112c3b810ae39f2dbe652265311d479ee9cbbde9a7ccada19601129afa1f1"
+  },
+  "band_fits": 12000,
+  "cache": "/root/band-wave/cache/mar-attributable-tmle/91a56e7bfa463e4bfa56bbbadc081406cef9584b/30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "mar-attributable-tmle",
+    "--jobs",
+    "4",
+    "--cache",
+    "/root/band-wave/cache",
+    "--output",
+    "/root/band-wave/out"
+  ],
+  "fit_seconds": 533.828930057,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "mar-attributable-tmle",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}
