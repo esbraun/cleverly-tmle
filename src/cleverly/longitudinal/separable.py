@@ -73,7 +73,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-from scipy.special import expit, xlogy
+from scipy.special import expit, log_expit, xlogy
 
 from .._typing import BoolArray, FloatArray, IntArray
 from .._warnings import warn as _warn
@@ -740,8 +740,10 @@ def _factor_fit(
     log-likelihood as a logistic regression with the current logits as offset, one column per
     target.  The likelihood is concave in the coefficients, so Newton-Raphson with step halving
     reaches its maximum; duplicate or zero columns are resolved by the minimum-norm least-squares
-    step.  A logit at the clip contributes no gradient.  This is one step of the classical
-    iterative TMLE (van der Laan and Rubin 2006).
+    step.  The fit reads the logits without the clip, so a cell that starts at the clip (an
+    out-of-fold start from a training fold with no event) moves inward when its own rows hold
+    events, and a cell whose rows hold none heads outward until the state's clip stops it.  This
+    is one step of the classical iterative TMLE (van der Laan and Rubin 2006).
     """
     rows, observed = inputs.rows, inputs.observed
     beta = state.beta_d if factor == 0 else state.beta_y
@@ -758,36 +760,37 @@ def _factor_fit(
         ]
     )  # (M, n, T)
     flat = design.reshape(len(targets), -1)
-    low, high = inputs.bounds
 
     def logits(coefficients: FloatArray) -> FloatArray:
         return np.asarray(offset + np.tensordot(coefficients, design, axes=1), dtype=float)
 
     def loss(coefficients: FloatArray) -> float:
-        p = expit(np.clip(logits(coefficients), low, high))
-        return -float(np.sum(weight * (xlogy(events, p) + xlogy(1.0 - events, 1.0 - p))))
+        eta = logits(coefficients)
+        return -float(np.sum(weight * (events * log_expit(eta) + (1.0 - events) * log_expit(-eta))))
 
     coefficients = np.zeros(len(targets))
     current = loss(coefficients)
     for _ in range(_FIT_ITERATIONS):
-        eta = logits(coefficients)
-        free = (eta > low) & (eta < high)
-        p = expit(np.clip(eta, low, high))
-        gradient = flat @ np.where(free, weight * (events - p), 0.0).reshape(-1)
-        curvature = np.where(free, weight * p * (1.0 - p), 0.0).reshape(-1)
+        p = expit(logits(coefficients))
+        gradient = flat @ (weight * (events - p)).reshape(-1)
+        curvature = (weight * p * (1.0 - p)).reshape(-1)
         information = (flat * curvature) @ flat.T
         step = np.linalg.lstsq(information, gradient, rcond=1e-13)[0]
+        # The Newton decrement is the loss decrease the step predicts.  Near the maximum it
+        # falls below the rounding of the loss, so it, not the loss, decides convergence, and
+        # the halving test allows that rounding.
+        if float(gradient @ step) <= 1e-30 * max(1.0, abs(current)):
+            break
+        slack = 1e-12 * max(1.0, abs(current))
         length = 1.0
         trial = loss(coefficients + step)
-        while trial > current and length > _MIN_STEP:
+        while trial > current + slack and length > _MIN_STEP:
             length *= 0.5
             trial = loss(coefficients + length * step)
-        if trial > current:
+        if trial > current + slack:
             break
         coefficients = coefficients + length * step
-        decrease, current = current - trial, trial
-        if decrease <= 1e-14 * max(1.0, abs(current)):
-            break
+        current = trial
     delta = np.zeros_like(beta)
     for m, target in enumerate(targets):
         delta[:, :, target.levels[factor]] += coefficients[m] * covariates[m][factor]
@@ -863,8 +866,10 @@ def _separated(
     A row heads for the clip when its factor logit at its observed level lies within
     :data:`_BOUND_MARGIN` of the lower clip with no event, or of the upper clip with an event:
     its residual pushes the logit further out, and the score it leaves is solved only at a
-    hazard of zero or one.  The fit reads ``cell_separated`` when removing those rows'
-    residuals takes at least :data:`_BOUND_SHARE` of the score's :math:`\\Sigma`-norm.
+    hazard of zero or one.  The fit reads ``cell_separated`` when those rows' part of the
+    score has at least :data:`_BOUND_SHARE` of the whole score's :math:`\\Sigma`-norm.  The
+    solver offsets that part by moving other cells off their own solution, so the rest of the
+    score can be as large as the whole and does not decide.
     """
     low, high = inputs.bounds
     rows, observed = inputs.rows, inputs.observed
@@ -882,19 +887,19 @@ def _separated(
         return False
     score, _ = scores(state, inputs, targets)
     residual_d, residual_y = _residuals(state, inputs)
-    rest = np.zeros_like(score)
+    pinned = np.zeros_like(score)
     for m, target in enumerate(targets):
         h_d, h_y, _ = _covariates(state, inputs, target)
         a_d, a_y = target.levels
-        at_d = (observed == a_d)[:, None] & ~near_d
-        at_y = (observed == a_y)[:, None] & ~near_y
-        rest[2 * m] = np.mean(inputs.weights * np.where(at_d, h_d * residual_d, 0.0).sum(axis=1))
-        rest[2 * m + 1] = np.mean(
+        at_d = (observed == a_d)[:, None] & near_d
+        at_y = (observed == a_y)[:, None] & near_y
+        pinned[2 * m] = np.mean(inputs.weights * np.where(at_d, h_d * residual_d, 0.0).sum(axis=1))
+        pinned[2 * m + 1] = np.mean(
             inputs.weights * np.where(at_y, h_y * residual_y, 0.0).sum(axis=1)
         )
     total = float(np.sqrt(np.sum(score**2 / sigma)))
-    remaining = float(np.sqrt(np.sum(rest**2 / sigma)))
-    return remaining <= (1.0 - _BOUND_SHARE) * total
+    heading_part = float(np.sqrt(np.sum(pinned**2 / sigma)))
+    return heading_part >= _BOUND_SHARE * total
 
 
 def walk_separable(

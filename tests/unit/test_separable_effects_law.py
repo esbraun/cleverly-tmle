@@ -371,6 +371,27 @@ def test_the_fallbacks_read_observation_weights_as_duplicated_rows(
     )
 
 
+def test_a_cell_that_starts_at_the_clip_moves_in_when_its_rows_hold_events() -> None:
+    """A start at the lower clip, as an out-of-fold start gives when the training fold held no
+    death in a cell, leaves the clip in one iterative-TMLE fit when the cell's own rows hold
+    deaths: the targets span lambda_D's cells at level 0, so the cell reaches its empirical
+    hazard.  A fit that read the clipped likelihood gives those rows no gradient and leaves the
+    cell at the clip, as on the pilot draw that stopped at a relative score of 5e-3."""
+    law, inputs, exact = _engine()
+    w = law.frame()["W"].to_numpy(dtype=int)
+    rows = (w == 0) & (inputs.observed == 0) & inputs.at_risk[:, 2]
+    hazard = inputs.event_d[rows, 2].mean()
+    assert 0.0 < hazard < 1.0
+    beta_d = exact.beta_d.copy()
+    beta_d[w == 0, 2, 0] = inputs.bounds[0]
+    state = SeparableState(beta_d, exact.beta_y)
+    targets = _saturating_targets()
+    covariates = [separable_module._covariates(state, inputs, target) for target in targets]
+    delta = separable_module._factor_fit(state, inputs, targets, 0, covariates)
+    moved = state.moved(delta, np.zeros_like(delta), inputs.bounds)
+    np.testing.assert_allclose(moved.lam_d[w == 0, 2, 0], hazard, rtol=1e-6)
+
+
 @pytest.mark.parametrize("phase", FALLBACKS)
 def test_a_held_cell_stays_held_through_the_fallbacks(
     monkeypatch: pytest.MonkeyPatch, phase: str
