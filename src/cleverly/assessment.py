@@ -4325,6 +4325,19 @@ def _tipping_item(
         if report is None
         else f"tipping gamma {float(report):.4g}"
     )
+    if _arguments.get("use_ci") and report is not None:
+        from .sensitivity.missingness import tipping_interval_reading
+
+        reading = tipping_interval_reading(
+            _result,
+            _arguments.get("estimand"),
+            directed=_arguments.get("arm_gamma") is not None,
+        )
+        if reading is not None and not reading.licensed:
+            detail += (
+                "; the confidence limit it follows is descriptive: no coverage evidence "
+                "covers this configuration"
+            )
     return AssessmentItem("tipping_gamma", AssessmentStatus.COMPLETED, detail)
 
 
@@ -5291,13 +5304,14 @@ class SensitivityFacade(_CapabilityFacade):
     ) -> AssessmentCapability:
         """Resolve the ``tipping_gamma`` row for a ``use_ci=True`` request.
 
-        No tilted parameter claims an interval at ``gamma != 0``, so the interval search
-        refuses every parameter the tilt re-mixes, in the sentence
-        :func:`~cleverly.sensitivity.missingness.tipping_interval_refusal` gives, and the
-        row says so before the call.  For a name the tilt does not re-mix, a fit with an
-        estimate that supplies no inference, such as a constant-node parameter, makes the
-        row unavailable with the inference refusal.  The default point search stays
-        available, which is why a request without ``use_ci`` reads the row unchanged.
+        The interval search follows the limit of the targeted tilt, which some tilted
+        parameters carry off ``gamma = 0`` and others do not.  A parameter without one makes
+        the row unavailable in the sentence
+        :func:`~cleverly.sensitivity.missingness.tipping_interval_refusal` gives, before the
+        call.  A fit with an estimate that supplies no inference, such as a constant-node
+        parameter, makes the row unavailable with the inference refusal.  The default point
+        search stays available, which is why a request without ``use_ci`` reads the row
+        unchanged.
         """
         if not arguments.get("use_ci"):
             return capability

@@ -19,6 +19,7 @@ from ..utils.frames import emit_frame
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._summary import Detail, Summary
+    from ..validation._interpretation import Resolution
     from ._mechanism_stack import MechanismRefusal
 
 __all__ = ["MissingnessTilt", "RobustnessValue", "SensitivityContour"]
@@ -196,7 +197,9 @@ class _Rows:
 
     def _canonical(self) -> tuple[Any, ...]:
         """Every field, with each NaN replaced by one marker that compares equal to itself."""
-        return tuple(_without_nan(getattr(self, item.name)) for item in fields(self))
+        return tuple(
+            _without_nan(getattr(self, item.name)) for item in fields(self) if item.compare
+        )
 
     def _repr_html_(self) -> str:
         return self.summary().as_html()  # type: ignore[attr-defined]
@@ -428,6 +431,13 @@ class MissingnessTilt(_Rows):
     scales : tuple of tuple of str
         Each estimand's scale (``"difference"``, ``"ratio"``, ``"level"`` or
         ``"fraction"``), as ``(estimand, scale)`` pairs, which sets its no-effect value.
+    readings : tuple of tuple
+        For each estimand whose interval off ``gamma = 0`` comes from the targeted tilt, the
+        registry's reading of that interval, as ``(estimand, Resolution)`` pairs.
+
+    Attributes
+    ----------
+    descriptive : tuple of str
     """
 
     outcome: str = ""
@@ -438,6 +448,7 @@ class MissingnessTilt(_Rows):
     statuses: tuple[tuple[str, str], ...] = field(default=())
     ratios: tuple[str, ...] = ()
     scales: tuple[tuple[str, str], ...] = ()
+    readings: tuple[tuple[str, Resolution], ...] = field(default=(), compare=False)
 
     @classmethod
     def build(
@@ -453,6 +464,7 @@ class MissingnessTilt(_Rows):
         statuses: tuple[tuple[str, str], ...],
         ratios: tuple[str, ...] = (),
         scales: tuple[tuple[str, str], ...] = (),
+        readings: tuple[tuple[str, Resolution], ...] = (),
     ) -> MissingnessTilt:
         """Build the tilt from its columns and the fit facts its summary prints.
 
@@ -478,6 +490,8 @@ class MissingnessTilt(_Rows):
             The estimands on a ratio scale.
         scales : tuple of tuple of str
             Each estimand's scale, as ``(estimand, scale)`` pairs.
+        readings : tuple of tuple
+            The registry's reading of each targeted interval off ``gamma = 0``.
 
         Returns
         -------
@@ -495,12 +509,18 @@ class MissingnessTilt(_Rows):
             statuses,
             ratios,
             scales,
+            readings,
         )
 
     @property
     def estimands(self) -> tuple[str, ...]:
         """The estimands the tilt reports, in order."""
         return tuple(dict.fromkeys(self.column("estimand")))
+
+    @property
+    def descriptive(self) -> tuple[str, ...]:
+        """The estimands whose interval off ``gamma = 0`` no validation study licenses."""
+        return tuple(name for name, reading in self.readings if not reading.licensed)
 
     def plot(self, **kwargs: Any) -> Any:
         """Plot one estimate against the tilt γ, with its interval where one is reported.

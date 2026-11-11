@@ -566,11 +566,40 @@ def test_missingness_plot_marks_the_main_analysis(missing_fit: Any) -> None:
     assert drawn == pytest.approx(expected)
     (main,) = _lines(ax, "cleverly-marker")
     assert main.get_xdata()[0] == 0.0
-    # CDR-001: only the main analysis has an interval; a tilted estimate has its own sampling
-    # variance, so the gamma != 0 points are hollow and carry no interval artist.
+    # CDR-001: the ATE's tilted estimate is re-targeted with its own influence curve, so
+    # every point carries its own interval and is filled.
+    assert sorted(segment[0, 0] for segment in _interval_segments(ax)) == [-1.0, 0.0, 1.0]
+    assert all(_filled(ax))
+    assert "Hollow points" not in _core.note_text(fig)
+
+
+def test_missingness_plot_leaves_a_regime_mean_hollow_off_mar() -> None:
+    from cleverly.interventions import Rule, Static
+
+    frame, _ = make_missing_outcome(n=400, seed=61)
+    rule = Rule(lambda w: np.where(w["W1"] >= 0, 1, 0), name="rule", rule_kind="known")
+    fit = (
+        TMLE(
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            missingness_learner=LogisticRegression(max_iter=1000),
+            cross_fit=False,
+            interventions=[Static(0, name="ref"), rule],
+            estimands=("ey_regime",),
+            random_state=4,
+        )
+        .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"], delta="Delta")
+        .single()
+    )
+    tilt = fit.sensitivity.missingness(gamma=[-1.0, 0.0, 1.0])
+    name = "ey_regime[rule]"
+    fig = tilt.plot(estimand=name)
+    ax = fig.axes[0]
+    # A regime mean keeps the plug-in spread off gamma = 0: only the main analysis has an
+    # interval, and the moved points are hollow.
     (segment,) = _interval_segments(ax)
     assert segment[0, 0] == 0.0
-    assert _filled(ax) == [gamma == 0.0 for gamma in tilt.column("gamma")]
+    assert _filled(ax) == [False, True, False]
     assert "Hollow points have no interval" in _core.note_text(fig)
 
 
@@ -607,10 +636,10 @@ def test_missingness_plot_draws_no_interval_when_the_tilt_withholds_it(missing_f
     assert _interval_segments(fig.axes[0]) == []
     assert status_record(WITHHELD).plain_reason.split(".")[0] in _core.note_text(fig)
     assert not any(_filled(fig.axes[0]))
-    # Control: the tilt as computed draws the main analysis's interval with a filled point.
+    # Control: the tilt as computed draws every interval with a filled point.
     computed = tilt.plot().axes[0]
-    assert len(_interval_segments(computed)) == 1
-    assert _filled(computed) == [False, True, False]
+    assert len(_interval_segments(computed)) == 3
+    assert all(_filled(computed))
 
 
 def test_sensitivity_refuses_other_objects() -> None:

@@ -552,9 +552,9 @@ default estimand.
 
 The helper `_argument_resolved` applies this rule to four rows: `truncation_curve` on `mechanism`,
 `refute` on `tests`, `benchmark` on `covariates`, and `simulated_confounding` on `estimand`. The
-`tipping_gamma` gate refuses `use_ci=True` for every parameter the tilt re-mixes, with the call's
-sentence, and it leaves every other request unchanged. A fit-wide refusal stays in one ordered table, which the row and every
-entry point read.
+`tipping_gamma` gate refuses `use_ci=True` for every parameter whose tilt claims no interval off
+$\gamma = 0$, with the call's sentence, and it leaves every other request unchanged. A fit-wide
+refusal stays in one ordered table, which the row and every entry point read.
 
 The sweep in `tests/unit/test_capability_row_sweep.py` asks every row of each kind of fit in
 `KINDS`. Each row that a request resolves as available must run, and no row may decline or stay

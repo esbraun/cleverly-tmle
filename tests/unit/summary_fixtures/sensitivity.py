@@ -144,6 +144,24 @@ def _missing_binary() -> Any:
     )
 
 
+@functools.cache
+def _missing_regime() -> Any:
+    """A regime mean with missing outcomes, whose tilt keeps the diagnostic off MAR."""
+    import numpy as np
+
+    from cleverly.datasets import make_missing_outcome
+    from cleverly.estimators import TMLE
+    from cleverly.interventions import Rule, Static
+
+    frame = make_missing_outcome(n=300, seed=4)[0]
+    rule = Rule(lambda w: np.where(w["W1"] >= 0, 1, 0), name="rule", rule_kind="known")
+    return (
+        TMLE(**_learners(), interventions=[Static(0, name="ref"), rule], estimands=("ey_regime",))
+        .fit(frame, outcome="Y", treatment="A", delta="Delta")
+        .single()
+    )
+
+
 def _grid() -> Any:
     from cleverly.sensitivity import ConfounderStrengthGrid
 
@@ -252,9 +270,15 @@ FIXTURES = {
         names=NAMES,
         fidelity=read.tilt,
     ),
-    # tilt_diagnostic: off a gamma of zero a ratio reports a diagnostic spread.
+    # Off a gamma of zero a ratio carries its targeted interval, on the log scale.
     "tilt_ratio": Case(
         lambda: _missing_binary().sensitivity.missingness(gamma=(0.0, 1.0)),
+        names=NAMES,
+        fidelity=read.tilt,
+    ),
+    # tilt_diagnostic: off a gamma of zero a regime mean reports a diagnostic spread.
+    "tilt_regime": Case(
+        lambda: _missing_regime().sensitivity.missingness(gamma=(0.0, 1.0)),
         names=NAMES,
         fidelity=read.tilt,
     ),

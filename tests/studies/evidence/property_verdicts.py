@@ -1073,6 +1073,10 @@ SE_CONTROL_SIDES: dict[str, Literal["below", "above"]] = {
     # X11 PR F2: an interpolating learner fitted in sample, where condition C5a fails, read
     # with its own curve's SE against the value of its own rule.
     "interpolating_control": "below",
+    # A2 (CDR-001): the A1-era tilt interval, the MAR standard error centred on the untargeted
+    # tilted plug-in.  The tilted parameter's own influence curve is wider than the MAR one on
+    # the declared law, so the MAR SE understates the plug-in's spread.
+    "mar_variance_control": "below",
 }
 
 #: The calibration controls whose deliberately invalid interval misses the truth while its

@@ -1151,11 +1151,14 @@ class TestMissingnessTilt:
         # This process has a substantial effect, so no plausible tilt nulls it.
         assert tipping is None or abs(tipping) > 1.0
 
-    def test_the_interval_search_is_refused(self, missing_fit) -> None:
-        """No tilt claims an interval off gamma = 0 (CDR-001), so no limit can be followed."""
-        for estimand in ("ate", "ey1"):
-            with pytest.raises(CapabilityError, match="claims no interval at gamma != 0"):
-                missing_fit.sensitivity.tipping_gamma(estimand, use_ci=True)
+    def test_the_interval_search_follows_the_targeted_limit(self, missing_fit) -> None:
+        """The targeted tilt carries an interval off gamma = 0 (CDR-001), so its limit tips."""
+        base = missing_fit.sensitivity.missingness([0.0], estimands=["ate"])
+        null = float(base["ci_lower"].iloc[0]) - 0.05
+        tipping = missing_fit.sensitivity.tipping_gamma("ate", null_hypothesis=null, use_ci=True)
+        if tipping is not None:
+            row = missing_fit.sensitivity.missingness([tipping], estimands=["ate"])
+            assert float(row["ci_lower"].iloc[0]) == pytest.approx(null, abs=1e-3)
 
     def test_a_nonmonotone_direction_finds_the_nearest_interior_crossing(self, missing_fit) -> None:
         """Equal endpoint signs do not hide two crossings inside the bracket."""
@@ -1283,7 +1286,22 @@ class TestTheTiltUnderObservationWeights:
             eager_only=True,
         )
         expected = self._longhand(weighted_missing_fit, name, self.GAMMA, weighted=True)
-        assert float(curve["psi"][0]) == pytest.approx(expected, rel=1e-12)
+        # The plug-in route, which a regime mean and an MSM coefficient publish, is the
+        # displayed formula to rounding.
+        from cleverly.sensitivity import missingness as module
+
+        target = module._tilt_targets(weighted_missing_fit)[name]
+        direction = module._tilt_direction(weighted_missing_fit.data, None)
+        plugin = module._tilted_value(
+            weighted_missing_fit, weighted_missing_fit.repeats[0], target, self.GAMMA, direction
+        )
+        assert plugin == pytest.approx(expected, rel=1e-12)
+        # The published row is the targeted tilt, which fluctuates the regressions before it
+        # averages them.  Targeting moves it by up to 0.03 here, less than half the 0.07 gap
+        # between the weighted and the unweighted plug-in, so it sits on the weighted side.
+        unweighted = self._longhand(weighted_missing_fit, name, self.GAMMA, weighted=False)
+        psi = float(curve["psi"][0])
+        assert abs(psi - expected) < 0.5 * abs(expected - unweighted)
 
     @pytest.mark.parametrize("name", ["ey1", "ate", "att", "atc"])
     def test_the_unweighted_average_is_a_different_number(

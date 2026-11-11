@@ -1,0 +1,21 @@
+=== missingness-tilt-inference declared run
+command: /usr/local/bin/python tests/canonical/missingness_tilt_inference/regenerate.py --output /tmp/a2-run --jobs 4
+commit: f7370b3b21a2847aa3388a472c5dafb78fdd95a0; upstream f7370b3b21a2847aa3388a472c5dafb78fdd95a0
+clean tree: True
+cleverly 0.2.2 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.18; numpy 2.5.3; scipy 1.18.1; pandas 3.0.5; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 194, sha256 c8137f25d043908c8aa7d1b087e167c841520d5ff0d39033bbd17c1010609782
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-10T23:20:05+00:00
+finished: 2026-11-10T23:41:12+00:00
+wall seconds: 1266.7
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 30b7149b83b05303e3ef6d2af3e3ea03b6f24fa044926652b9d896d1923bc9a9
+sha256 performance-tests.csv: c20bba671090dc3e0e72376ca2ef65cb5eaf1ba8111554c7831ec4fdfeefef42
+sha256 properties.csv: 9d8ec715ecd75aab23e9feef108858e054370cdad7b67fb893cb8eb7a24b60e7
+sha256 property-replicates.parquet: 1e9a69c21ea56b4d4d2989f2c9290449117424f7f7fd6bc81e6ece58b2deb92d
+sha256 replicates.parquet: 98099f55136956ffb5c0360a9819ffc7cee6d7b72096af5e70b08ce6daa2544b
+sha256 summary.csv: 37e24a1ae534903e1123e27064bf38f37efcead852c6665e926103987df77165
+

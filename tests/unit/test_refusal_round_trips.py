@@ -98,29 +98,37 @@ def _unavailable_items(report: Any) -> dict[str, AssessmentItem]:
     return {item.name: item for item in report.items if item.status is AssessmentStatus.UNAVAILABLE}
 
 
-#: The interval search of ``tipping_gamma``, which the natural-course tilt refuses.
-_INTERVAL = {"tipping_gamma": {"use_ci": True}}
+@pytest.fixture(scope="module")
+def regime_result() -> Any:
+    from cleverly.datasets import make_missing_outcome_binary
+    from cleverly.interventions import Rule, Static
+
+    frame, _ = make_missing_outcome_binary(n=400, seed=5)
+    rule = Rule(lambda w: np.where(w["W1"] >= 0, 1, 0), name="rule", rule_kind="known")
+    return (
+        TMLE(
+            outcome_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            missingness_learner=LogisticRegression(max_iter=1000),
+            cross_fit=False,
+            simultaneous=False,
+            interventions=[Static(0, name="ref"), rule],
+            estimands=("ey_regime",),
+            random_state=0,
+        )
+        .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"], delta="Delta")
+        .single()
+    )
 
 
-def test_an_unavailable_item_keeps_its_refusal_record(
-    natural_course_result: Any, tmp_path: Path
-) -> None:
-    original = _unavailable_items(natural_course_result.sensitivity.run_all(arguments=_INTERVAL))
-    # The witness: the items carry records with two different codes and, for the tilt's
-    # interval search, an alternative and a roadmap id, so equality can fail on a dropped
-    # field.  The bound refuses a fit that reports no linear arm parameter.
-    assert {"omitted_confounding", "tipping_gamma"} <= set(original)
-    bound = original["omitted_confounding"].refusal
-    assert bound is not None
-    assert bound.reason is RefusalReason.INVALID_DECLARATION
-    tipping = original["tipping_gamma"].refusal
-    assert tipping is not None
-    assert tipping.reason is RefusalReason.IMPLEMENTATION_GAP
-    assert tipping.roadmap is not None
-    assert tipping.alternative and "point search" in tipping.alternative
-    assert bound != tipping
+#: The interval search of ``tipping_gamma`` on a regime mean, whose tilt keeps the
+#: diagnostic spread off gamma = 0 and so has no limit to follow.
+_INTERVAL = {"tipping_gamma": {"use_ci": True, "estimand": "ey_regime[rule]"}}
 
-    restored = _round_trip(natural_course_result, tmp_path)
+
+def _assert_round_trip(result: Any, arguments: Any, tmp_path: Path) -> dict[str, AssessmentItem]:
+    original = _unavailable_items(result.sensitivity.run_all(arguments=arguments))
+    restored = _round_trip(result, tmp_path)
     cached = next(
         value
         for key, value in restored.assessment_cache.items()
@@ -133,10 +141,40 @@ def test_an_unavailable_item_keeps_its_refusal_record(
         assert after[name].refusal is not None
         assert after[name].refusal.reason is item.refusal.reason  # type: ignore[union-attr]
     # A new call on the loaded result answers from the same record.
-    again = _unavailable_items(restored.sensitivity.run_all(arguments=_INTERVAL))
+    again = _unavailable_items(restored.sensitivity.run_all(arguments=arguments))
     assert {name: item.refusal for name, item in again.items()} == {
         name: item.refusal for name, item in original.items()
     }
+    return original
+
+
+def test_an_unavailable_item_keeps_its_refusal_record(
+    natural_course_result: Any, tmp_path: Path
+) -> None:
+    original = _assert_round_trip(natural_course_result, None, tmp_path)
+    # The witness: the items carry records with two different codes, one with an
+    # alternative, so equality can fail on a dropped field.  The bound refuses a fit that
+    # reports no linear arm parameter.
+    assert {"omitted_confounding", "marginal_bounds"} <= set(original)
+    bound = original["omitted_confounding"].refusal
+    assert bound is not None
+    assert bound.reason is RefusalReason.INVALID_DECLARATION
+    bounds = original["marginal_bounds"].refusal
+    assert bounds is not None
+    assert bounds.reason is RefusalReason.DIFFERENT_ESTIMAND
+    assert bounds.alternative
+    assert bound != bounds
+
+
+def test_a_refusal_with_a_roadmap_id_survives_the_round_trip(
+    regime_result: Any, tmp_path: Path
+) -> None:
+    original = _assert_round_trip(regime_result, _INTERVAL, tmp_path)
+    tipping = original["tipping_gamma"].refusal
+    assert tipping is not None
+    assert tipping.reason is RefusalReason.IMPLEMENTATION_GAP
+    assert tipping.roadmap == "X57"
+    assert tipping.alternative and "point search" in tipping.alternative
 
 
 def test_the_capability_row_of_a_loaded_result_keeps_its_refusal(
