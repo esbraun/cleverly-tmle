@@ -1619,6 +1619,12 @@ RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
         "test_repeated_splits_are_refused_before_a_learner",
         None,
     ),
+    # Only SurvivalDRTMLE fills it, and SurvivalDRTMLE refuses repeats > 1 at construction.
+    "drift": (
+        "tests.unit.test_survival_drtmle",
+        "test_settings_refusals",
+        None,
+    ),
     "data": _witness("test_long_panel_repeats_reproduce_the_wide_fit"),
     "config": _witness("test_config_records_repeats_and_the_multiplier_seed"),
     "scaler": _witness(EACH_DRAW, "clustered"),
