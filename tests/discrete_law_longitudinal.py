@@ -277,20 +277,16 @@ MSM_SATURATED_DESIGN = np.array(
 )
 MSM_SATURATED_WEIGHTS = np.ones((2, len(REGIMEN_ARMS)))
 
-#: ``(inverse, dm/deta, d2m/deta2)`` per link, as functions of the *mean*.  Written
+#: ``(inverse, dm/deta)`` per link, the slope as a function of the *mean*.  Written
 #: longhand rather than imported, as ``tests/discrete_law.py`` writes them: ``expit`` is
 #: spelled out because the argument here is complex and ``scipy.special.expit`` is not.
-MSM_LINKS: dict[str, tuple[Any, Any, Any]] = {
-    "identity": (lambda eta: eta, lambda m: np.ones_like(m), lambda m: np.zeros_like(m)),
-    "log": (np.exp, lambda m: m, lambda m: m),
-    "logit": (
-        lambda eta: 1.0 / (1.0 + np.exp(-eta)),
-        lambda m: m * (1.0 - m),
-        lambda m: m * (1.0 - m) * (1.0 - 2.0 * m),
-    ),
+MSM_LINKS: dict[str, tuple[Any, Any]] = {
+    "identity": (lambda eta: eta, lambda m: np.ones_like(m)),
+    "log": (np.exp, lambda m: m),
+    "logit": (lambda eta: 1.0 / (1.0 + np.exp(-eta)), lambda m: m * (1.0 - m)),
 }
 
-#: Newton steps taken to solve a linked working model's normal equations, run **without a
+#: Newton steps taken to solve a linked working model's estimating equation, run **without a
 #: convergence test** -- a comparison against a tolerance is not analytic, and a functional
 #: that branched on one could not be differentiated by a complex step at all.  Newton
 #: converges quadratically in the value and in the derivative alike, so past the point
@@ -348,7 +344,7 @@ def msm_coefficients(
         [[_conditional_mean(p, label, w) for label in REGIMEN_ARMS] for w in range(2)],
         dtype=p_w.dtype,
     )
-    inverse, slope, curvature = MSM_LINKS[link]
+    inverse, slope = MSM_LINKS[link]
     if link == "identity":
         gram = np.einsum("wcp,wcq,wc,w->pq", design, design, weights, p_w)
         moment = np.einsum("wcp,wc,wc,w->p", design, weights, q, p_w)
@@ -356,12 +352,9 @@ def msm_coefficients(
     beta = np.zeros(design.shape[2], dtype=p_w.dtype)
     for _ in range(MSM_NEWTON_STEPS if steps is None else steps):
         m = inverse(np.einsum("wcp,p->wc", design, beta))
-        residual = q - m
-        first, second = slope(m), curvature(m)
-        score = np.einsum("wcp,wc,w->p", design, weights * first * residual, p_w)
-        jacobian = np.einsum(
-            "wcp,wcq,wc,w->pq", design, design, weights * (first**2 - residual * second), p_w
-        )
+        # The link's quasi-likelihood estimating equation and its Jacobian.
+        score = np.einsum("wcp,wc,w->p", design, weights * (q - m), p_w)
+        jacobian = np.einsum("wcp,wcq,wc,w->pq", design, design, weights * slope(m), p_w)
         beta = beta + np.linalg.solve(jacobian, score)
     return beta
 

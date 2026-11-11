@@ -634,8 +634,7 @@ class TestEveryPointGroupReports:
                 assert row.passed and np.isfinite(row.residual_se)
                 assert 0.0 <= row.coverage_bound <= 1.0
             if row.kind == "fluctuation":
-                # An outcome equation reads the rule, the nested strata solve included.  A
-                # mechanism equation of the same fit keeps the default bar, which the rule does
+                # An outcome equation reads the rule.  A mechanism equation of the same fit keeps the default bar, which the rule does
                 # not govern.
                 expected = "relative" if row.name.endswith("(mechanism)") else rule
                 assert row.stopping == expected, row.name
@@ -688,17 +687,10 @@ def ruled_missing(rule: str) -> Any:
     )
 
 
-def ruled_strata(rule: str) -> Any:
-    """A stratified logit MSM whose bounded walks stop at ``rule``."""
-    frame, columns, settings, _ = engines.KINDS["msm-logit-strata"]()
-    return engines._fit(rule, frame, columns=columns, step_bound=0.01, max_iter=300, **settings)
-
-
 RULED_FITS: dict[str, Any] = {
     "drtmle": functools.cache(lambda rule: ruled_drtmle("drtmle", rule)),
     "benkeser": functools.cache(lambda rule: ruled_drtmle("benkeser", rule)),
     "missing": functools.cache(ruled_missing),
-    "strata": functools.cache(ruled_strata),
 }
 
 #: The row each fit's default bar used to fail, and the source edit that restores that bar.
@@ -706,15 +698,14 @@ RULED_ROW = {
     "drtmle": ("mean (reduced)", 'if rule != "relative" and reduction.rule_ratio is not None:'),
     "benkeser": ("mean (reduced)", 'if rule != "relative" and reduction.rule_ratio is not None:'),
     "missing": ("mean (reduced)", 'if rule != "relative" and reduction.rule_ratio is not None:'),
-    "strata": ("msm (strata)", "if _judged_by_rule(nested):"),
 }
 
 
 class TestRuleGovernedRows:
     """Rows whose equations a declared rule stopped are judged by the rule.
 
-    The ``(reduced)`` row of a doubly-robust fit, its ``D*_Q`` and ``D*_Y`` correction rows,
-    and the ``(strata)`` row of a stratified working model.  Each fit below met its rule, and
+    The ``(reduced)`` row of a doubly-robust fit and its ``D*_Q`` and ``D*_Y`` correction
+    rows.  Each fit below met its rule, and
     the default bar fails each of those rows (the witnesses), so the check reads the rule.
     """
 
@@ -732,7 +723,7 @@ class TestRuleGovernedRows:
             (e.plugin_std_error for e in result.estimates.values()), result.data.n
         )
         fluctuation = result.fluctuations[name.split(" ")[0]]
-        nested = fluctuation.stratified if kind == "strata" else fluctuation.reduction
+        nested = fluctuation.reduction
         assert nested is not None
         assert float(np.max(np.abs(nested.score))) > default
         assert "worst score" in check.one_line() and "not solved" not in check.one_line()
@@ -792,16 +783,6 @@ class TestRuleGovernedRows:
         row = next(r for r in check.rows if r.name == "mean (reduced)")
         assert not row.passed and not check.passed
         assert row in check.rule_failures
-
-    def test_a_strata_ratio_above_one_fails_the_fit(self) -> None:
-        result = RULED_FITS["strata"]("scaled_var")
-        nested = result.fluctuations["msm"].stratified
-        missed = with_fluctuation(
-            result, "msm", stratified=replace(nested, rule_ratio=1.5, converged=False)
-        )
-        check = score_check(missed)
-        row = next(r for r in check.rows if r.name == "msm (strata)")
-        assert not row.passed and not check.passed
 
     def test_the_missing_outcome_row_reads_the_ratio_its_verdict_reads(self) -> None:
         # Review finding F3: the outcome row reads the stacked ratio of the standard and

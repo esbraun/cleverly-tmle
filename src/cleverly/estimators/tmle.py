@@ -291,7 +291,6 @@ from ._strata import (
     refuse_empty_stratum_folds,
     stratum_mixture,
     stratum_probabilities,
-    stratum_source,
     unscale_block,
 )
 from ._tuned_policies import (
@@ -327,7 +326,6 @@ from .targeting import (
     solve_with_mechanism,
     solve_with_projection,
     solve_with_reduction,
-    solve_with_stratified_projection,
     stratum_blocks,
 )
 
@@ -4915,21 +4913,14 @@ class TMLE:
                     data, nuisance, group, bounds, nuisance_bound, stop=stop
                 )
             elif needs_projection(nuisance, group):
-                # A working model with a non-identity link has a clever covariate that
-                # reads its own coefficients, so the covariate and the projection are
-                # solved for together. Nothing about the nuisances moves, which is why
-                # this returns two values where the mechanism alternation returns three.
+                # A log-ratio conditional contrast has a clever covariate that reads its
+                # own coefficients, so the covariate and the projection are solved for
+                # together. Nothing about the nuisances moves, which is why this returns
+                # two values where the mechanism alternation returns three. Such a
+                # contrast refuses strata=, so there is no stratified form.
                 submodel, fluctuation = self._solve_projection(
                     data, nuisance, group, bounds, nuisance_bound, stop=stop
                 )
-                if data.has_strata:
-                    # The marginal coefficients above are the unstratified solve.  The
-                    # stratum coefficients need their own fluctuation, because each
-                    # stratum block reads its own coefficients.
-                    targeting_submodel, nested = self._solve_stratified_projection(
-                        data, nuisance, group, bounds, nuisance_bound, stop=stop
-                    )
-                    fluctuation = replace(fluctuation, stratified=nested)
             else:
                 submodel = self._submodel(
                     data,
@@ -5332,7 +5323,6 @@ class TMLE:
         missingness_override: FloatArray | None,
         nuisance_bound: float | None,
         reference: float,
-        msm_beta: Sequence[FloatArray] | None = None,
     ) -> Submodel:
         r"""One disjoint score block per baseline stratum.
 
@@ -5343,9 +5333,7 @@ class TMLE:
         marginal column is added: the marginal score is their empirical weighted sum.
 
         Arm shares are read only on an arm-coded treatment.  A continuous dose has no arm
-        shares, and the natural-course group fits no treatment model.  ``msm_beta`` holds
-        one coefficient vector per stratum, for a working model whose covariate reads its
-        coefficients.
+        shares, and the natural-course group fits no treatment model.
         """
         assert data.strata is not None
         lower = self.nuisance_bound if nuisance_bound is None else float(nuisance_bound)
@@ -5382,7 +5370,6 @@ class TMLE:
                     missingness_override=missingness_override,
                     reference=reference,
                     arm_fractions=fractions,
-                    msm_beta=None if msm_beta is None else msm_beta[code],
                 )
             )
         labels = [data.stratum_label(code) for code in range(data.n_strata)]
@@ -5399,7 +5386,7 @@ class TMLE:
 
         Returns the submodel beside the fluctuation because under fold-wise targeting the
         two are no longer independent: a covariate that reads a fold-specific quantity --
-        a linked working model's ``beta`` -- differs between folds, and the score has to be
+        a log-ratio contrast's ``beta`` -- differs between folds, and the score has to be
         taken against the covariate each row was actually fluctuated by.  For every other
         group the returned submodel is the one that went in, value for value.
 
@@ -5668,38 +5655,6 @@ class TMLE:
             )
         return alternate()
 
-    def _solve_stratified_projection(
-        self,
-        data: CausalData,
-        nuisance: NuisanceEstimates,
-        group: TargetGroup,
-        bounds: tuple[float, float],
-        nuisance_bound: float | None,
-        stop: StopContext | None = None,
-    ) -> tuple[Submodel, Fluctuation]:
-        """The stratum coefficients of a linked working model, pooled over the sample.
-
-        Fold-wise targeting and fold evaluation refuse baseline strata before any learner,
-        so this has no fold form.
-        """
-        lower = self.nuisance_bound if nuisance_bound is None else float(nuisance_bound)
-        reference = self._reference_arm(data, nuisance.regimes, nuisance.policies)
-        return solve_with_stratified_projection(
-            data,
-            nuisance,
-            group,
-            self.targeting_spec(),
-            bounds=bounds,
-            nuisance_bound=lower,
-            scaled=nuisance.scaler.scale(data.outcome),
-            weights=self._validation_weights(data, nuisance),
-            observed=data.observed,
-            blocks_at=lambda betas: self._stratified_submodel(
-                data, nuisance, group, bounds, None, None, lower, reference, msm_beta=betas
-            ),
-            stop=stop,
-        )
-
     def _solve_rows(
         self,
         scaled: FloatArray,
@@ -5763,8 +5718,8 @@ class TMLE:
         van der Laan's common-update estimator.
 
         ``per_fold`` returns that fold's *covariate* as well as its fluctuation, because
-        the two come apart when the covariate reads something fold-specific -- a linked
-        working model's ``beta``, which is solved for on the fold's own rows so that no row
+        the two come apart when the covariate reads something fold-specific -- a log-ratio
+        contrast's ``beta``, which is solved for on the fold's own rows so that no row
         contributes to any coefficient that fluctuates it.  The pieces are stitched back by
         index, so the pooled score is taken against the covariate each row was actually
         fluctuated by and stays exactly zero.  Where the covariate is the same on every
@@ -6088,13 +6043,9 @@ class TMLE:
         The second mapping gives the stratum code of each estimate, which is the row set
         it reads. :meth:`_retarget_detailed` passes it to the stamp, which sets the Student
         t reference of a clustered stratum estimate from the stratum's own cluster count.
-
-        A linked working model reads the stratum fluctuation nested on the marginal one
-        (:attr:`~cleverly.fluctuation.Fluctuation.stratified`).  Every other group solved
-        its blocks in the one fluctuation.
         """
         assert data.strata is not None
-        stratum_fluctuation = stratum_source(fluctuation)
+        stratum_fluctuation = fluctuation
         width = marginal_submodel.dim
         if targeting_submodel.dim != width * data.n_strata:
             raise RuntimeError(
@@ -6194,7 +6145,7 @@ class TMLE:
         """
         assert data.strata is not None
         strata = np.asarray(data.strata)
-        stratum_fluctuation = stratum_source(fluctuation)
+        stratum_fluctuation = fluctuation
         width = marginal_submodel.dim
         per_fold: list[dict[str, ParameterEstimate]] = [{} for _ in indices]
         names: dict[str, tuple[str, int]] = {}

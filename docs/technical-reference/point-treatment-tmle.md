@@ -514,10 +514,9 @@ Each stratum curve is $I(S=s) D_s / P_n(S=s)$. The table gives the construction 
 
 | target group | stratum construction |
 | --- | --- |
-| arm means and contrasts, ATT, ATC, PAR, regimes, shifts, identity-link MSMs, the natural-course mean in sample and stacked | the blocks in one pooled fluctuation |
+| arm means and contrasts, ATT, ATC, PAR, regimes, shifts, MSMs under every link, the natural-course mean in sample and stacked | the blocks in one pooled fluctuation |
 | incremental interventions (`incremental=`) | outcome blocks and treatment-mechanism blocks, alternating until both settle |
-| MSMs with a log or logit link | the marginal coefficients from the unstratified solve, and the stratum coefficients from a nested fluctuation of the blocks at each stratum's coefficients, recorded on `Fluctuation.stratified` |
-| continuous-dose MSMs | as the identity or linked MSM above; a dose has no arm share |
+| continuous-dose MSMs | as the MSMs above; a dose has no arm share |
 | `DRTMLE` at a non-empty `guard` | every equation and tilt in blocks, with every reduced regression fitted inside each stratum |
 
 The marginal estimate of an alternating group is the $P_n(S=s)$-weighted mixture of the stratum

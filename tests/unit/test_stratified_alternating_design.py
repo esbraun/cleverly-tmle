@@ -34,6 +34,8 @@ from tests.studies import stratified_incremental_msm_properties as properties
 from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 
 N = 2_000
+#: The displacement, in efficiency SDs, that a declared targeting control must reach.
+CONTROL_FLOOR = 1.0
 SUPPORT = np.asarray(law.SUPPORT, dtype=float)
 V, W, A, Y = SUPPORT.T
 PROBS = law.PROBS
@@ -142,7 +144,7 @@ def mechanism_wrong_limit(stratum: int) -> float:
 def _projection(
     q1: np.ndarray, q0: np.ndarray, mass: np.ndarray, *, with_w: bool = True
 ) -> np.ndarray:
-    """The logit projection of ``(q1, q0)`` on ``(1, a, W)``, or ``(1, a)``, over ``mass``."""
+    """The quasi-binomial projection of ``(q1, q0)`` on ``(1, a, W)``, or ``(1, a)``."""
     w = W[FIRST]
     cells = mass[FIRST]
     target = np.concatenate([q0[FIRST], q1[FIRST]])
@@ -152,11 +154,8 @@ def _projection(
     beta = np.zeros(design.shape[1])
     for _ in range(100):
         m = expit(design @ beta)
-        first = m * (1 - m)
-        residual = target - m
-        score = design.T @ (weights * first * residual)
-        curvature = first**2 - residual * first * (1 - 2 * m)
-        jacobian = (design * (weights * curvature)[:, None]).T @ design
+        score = design.T @ (weights * (target - m))
+        jacobian = (design * (weights * m * (1 - m))[:, None]).T @ design
         beta = beta + np.linalg.solve(jacobian, score)
     return beta
 
@@ -168,11 +167,10 @@ def _cell_mass(stratum: int | None) -> np.ndarray:
 def _msm_covariate(
     beta: np.ndarray, arm: float, share: np.ndarray, inside: np.ndarray
 ) -> np.ndarray:
-    """``I(S = s) m'(phi beta) phi(arm, W) / g(arm)`` at each support point."""
+    """``I(S = s) phi(arm, W) / g(arm)`` at each support point, free of ``beta``."""
     columns = [np.ones_like(W), np.full_like(W, arm), W][: beta.size]
-    m = expit(np.column_stack(columns) @ beta)
     phi = np.column_stack(columns)
-    return phi * (m * (1 - m) / share * inside)[:, None]
+    return phi * (inside / share)[:, None]
 
 
 def _linked_msm_limit(
@@ -184,7 +182,9 @@ def _linked_msm_limit(
     *,
     with_w: bool = True,
 ) -> float:
-    """The logit-MSM slope of an alternation over ``scope`` (``None`` is marginal).
+    """The logit-MSM slope of a fit over ``scope`` (``None`` is marginal).
+
+    The covariate is free of ``beta``, so the loop below exits after its second round.
 
     The fluctuated regression is projected on the ``report`` stratum's cells.  ``with_w``
     selects the working model ``(1, a, W)`` or ``(1, a)``.
@@ -276,7 +276,7 @@ def test_the_incremental_necessity_control_is_displaced(stratum: int) -> None:
 def test_the_untargeted_msm_control_is_displaced(stratum: int) -> None:
     name = f"msm[a][V={stratum}]"
     displacement = (untargeted_limit(stratum) - law.TRUTH_MSM["logit"][name]) / _sd(name, "logit")
-    assert abs(displacement) >= 1.0, displacement
+    assert abs(displacement) >= CONTROL_FLOOR, displacement
 
 
 def _arm_sd(name: str) -> float:
@@ -302,10 +302,14 @@ class TestTheUndeclaredControlsCouldNotFail:
     """Why three planned families are not declared: on L1 their controls stay near the truth."""
 
     def test_stratum_two_does_not_resolve_the_untargeted_control(self) -> None:
-        """Why the MSM targeting family reads strata 0 and 1."""
+        """Why the MSM targeting family reads strata 0 and 1.
+
+        In stratum 2 the untargeted control is 0.61 SD off the truth, below the floor a
+        declared control needs, so it could not resolve the pair.
+        """
         name = "msm[a][V=2]"
         displacement = (untargeted_limit(2) - law.TRUTH_MSM["logit"][name]) / _sd(name, "logit")
-        assert abs(displacement) < 0.6
+        assert abs(displacement) < CONTROL_FLOOR, displacement
 
     @pytest.mark.parametrize("stratum", law.STRATA)
     def test_the_mechanism_tilt_repairs_a_mechanism_that_omits_w(self, stratum: int) -> None:

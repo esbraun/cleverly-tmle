@@ -218,14 +218,14 @@ def _logit_parts(beta: np.ndarray, means: np.ndarray) -> tuple[np.ndarray, ...]:
     weights = np.array([PROJECTION_WEIGHT[label] for label in LABELS])
     mean = expit(design @ beta)
     slope = mean * (1.0 - mean)
-    bend = slope * (1.0 - 2.0 * mean)
-    score = design.T @ (weights * slope * (means - mean))
-    jacobian = design.T @ ((weights * (slope**2 - (means - mean) * bend))[:, None] * design)
+    # The quasi-binomial estimating equation and its Jacobian.
+    score = design.T @ (weights * (means - mean))
+    jacobian = design.T @ ((weights * slope)[:, None] * design)
     return design, weights, slope, score, jacobian
 
 
 def logit_coefficients(probs: np.ndarray) -> np.ndarray:
-    """The weighted logistic projection of the regimen means, by a longhand Newton solve.
+    """The weighted quasi-binomial projection of the regimen means, by a longhand Newton solve.
 
     Not :func:`cleverly.msm.solve_projection`: the truth of a cell must not come from the code
     the cell checks.
@@ -242,11 +242,11 @@ def logit_coefficients(probs: np.ndarray) -> np.ndarray:
 
 
 def logit_influence_curves() -> np.ndarray:
-    """``M^{-1} sum_c h dm/deta phi EIF_c`` over the support, for the logit coefficients."""
+    """``M^{-1} sum_c h phi EIF_c`` over the support, for the logit coefficients."""
     means = regimen_means(law.PROBS)
-    design, weights, slope, _, jacobian = _logit_parts(logit_coefficients(law.PROBS), means)
+    design, weights, _, _, jacobian = _logit_parts(logit_coefficients(law.PROBS), means)
     curves = np.column_stack([law.eif(f"ey_regimen[{label}]") for label in LABELS])
-    contribution = curves @ (design * (weights * slope)[:, None])
+    contribution = curves @ (design * weights[:, None])
     return np.asarray(contribution @ np.linalg.inv(jacobian).T)
 
 

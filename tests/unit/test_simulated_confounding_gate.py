@@ -212,7 +212,7 @@ def identity_copy() -> Any:
             "identity_copy",
             inverse=identity.inverse,
             slope=identity.slope,
-            curvature=identity.curvature,
+            cumulant=identity.cumulant,
         )
     )
     yield link
@@ -222,8 +222,8 @@ def identity_copy() -> Any:
 def test_a_registered_user_link_replays_as_the_link_it_equals(identity_copy: Any) -> None:
     """A user link equal to the identity gives the identity fit's cells.
 
-    The copy is not named ``"identity"``, so the projection takes the alternation path that
-    every other link takes, and only a replay under the fit's own link agrees.
+    The copy is not named ``"identity"``, so the projection takes the Newton path that every
+    other link takes, and only a replay under the fit's own link agrees.
     """
     reference = _fit_msm(saturated=True)
     user = _estimate(

@@ -106,9 +106,7 @@ def test_the_stratum_coefficients_are_the_expanded_design_ones(fits: dict[str, A
 
 
 def test_every_block_is_solved(fits: dict[str, Any]) -> None:
-    fluctuation = fits["stratified"].fluctuations["msm"]
-    solved = fluctuation if fits["link"] == "identity" else fluctuation.stratified
-    assert solved is not None
+    solved = fits["stratified"].fluctuations["msm"]
     assert solved.epsilon.shape == (len(law.STRATA) * len(TERMS),)
     assert solved.relative_score_norm < 1e-9
 
