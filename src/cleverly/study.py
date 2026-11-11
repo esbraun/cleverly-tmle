@@ -2398,8 +2398,9 @@ class RegimeMean:
         ``CausalStudy.identify`` refuses a ``Shift`` or an ``Incremental`` here.
     reference : str or None
         Regimen label used as the reference for related contrasts.
-    horizons : sequence of int or None
-        Follow-up times to report for a longitudinal outcome.
+    horizons : sequence of float or None
+        Follow-up times to report for a longitudinal outcome: grid times on a binned
+        design, any times within every arm's follow-up on ``TimeToEvent(grid="continuous")``.
     """
 
     regimens: Any
@@ -2421,8 +2422,9 @@ class RegimeContrast:
         ``CausalStudy.identify`` refuses a ``Shift`` or an ``Incremental`` here.
     reference : str or None
         Reference regimen label. ``None`` uses the first regimen.
-    horizons : sequence of int or None
-        Follow-up times to report for a longitudinal outcome.
+    horizons : sequence of float or None
+        Follow-up times to report for a longitudinal outcome: grid times on a binned
+        design, any times within every arm's follow-up on ``TimeToEvent(grid="continuous")``.
 
     See Also
     --------
@@ -5495,6 +5497,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         """
         if self.functional.axis == "trial":
             return self._trial_methods()
+        if isinstance(getattr(self._study, "data", None), ContinuousSurvivalData):
+            return self._continuous_methods()
         point = not self.functional.longitudinal
         target = self.functional.target
         blocker = (
@@ -5606,6 +5610,33 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             records = self._effect_modification_methods(records)
         from ._summary._setup import question_text
 
+        return MethodAvailabilities(records, question=question_text(self))
+
+    def _continuous_methods(self) -> MethodAvailabilities:
+        """The methods of ``TimeToEvent(grid="continuous")``: the one-step TMLE alone (X91 G).
+
+        Every other method has no continuous-time form and refuses, as the fit does.
+        """
+        from ._summary._setup import question_text
+        from .survival.data import CONTINUOUS_METHOD_REFUSAL
+
+        names = (
+            "adaptive_iptw",
+            "collaborative_tmle",
+            "drtmle",
+            "sdr",
+            "ipsi",
+            "gcomp",
+            "ipw",
+            "parametric_gformula",
+            "riesz_tmle",
+            "ep",
+            "atmle",
+        )
+        records = (
+            MethodAvailability("tmle", True, None),
+            *(MethodAvailability(name, False, CONTINUOUS_METHOD_REFUSAL) for name in names),
+        )
         return MethodAvailabilities(records, question=question_text(self))
 
     def _trial_methods(self) -> MethodAvailabilities:

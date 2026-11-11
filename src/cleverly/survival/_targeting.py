@@ -313,7 +313,8 @@ def walk(
     norm : {"covariance", "variance", "euclidean"}
         The inner product, with the covariance held at the initial fit.
     step : float
-        The first step size; halved on each rejected step, never regrown.
+        The first step size; halved on each rejected step and doubled, up to its first
+        value, after each accepted one.
     max_steps : int
         The cap on accepted steps.
     max_halvings : int or None
@@ -342,6 +343,9 @@ def walk(
     steps = halvings = 0
     history = [standardized(evaluation)]
     converged = history[-1] <= cutoff
+    # A trial is rejected below the floor, or below the initial fit's own smallest survival
+    # when that is lower, so an accepted initial fit is never rejected as a starting point.
+    survival_floor = min(WALK_SURVIVAL_FLOOR, float(np.min(initial.survival[..., -1])))
     if tilt == "factual":
         factual = np.stack([(problem.arm == a).astype(float) for a in (0, 1)])[:, None, :, None]
     while not converged and steps < max_steps and halvings < halving_cap and step >= MIN_STEP:
@@ -356,7 +360,7 @@ def walk(
             direction = direction * factual
         candidate = tilt_jumps(current, step * direction)
         trial = evaluate(problem, candidate)
-        if np.min(trial.survival[..., -1]) < WALK_SURVIVAL_FLOOR:
+        if np.min(trial.survival[..., -1]) < survival_floor:
             step /= 2
             halvings += 1
             continue

@@ -4,14 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..survival.engine import OFF_GRID_TIMES
 from . import Summary, SummarySection, check_detail, note, vocabulary
 from ._estimates import estimates_table, plain_support_reason
 from ._render import count_text, share_text
 
 __all__ = ["continuous_survival_summary"]
-
-
-_TREATMENT_MODELS = {"logistic": "logistic", "lasso_logistic": "lasso logistic"}
 
 
 def _times(horizons: tuple[float, ...]) -> str:
@@ -62,7 +60,7 @@ def continuous_survival_summary(result: Any, *, detail: str = "short") -> Summar
     treatment = (
         vocabulary.USER_TREATMENT_MODEL
         if record.propensity is None
-        else _TREATMENT_MODELS.get(name := record.propensity.names[record.propensity.chosen], name)
+        else record.propensity.names[record.propensity.chosen]
     )
     header = [
         (
@@ -98,7 +96,7 @@ def continuous_survival_summary(result: Any, *, detail: str = "short") -> Summar
         )
     sections = []
     if detail == "full":
-        first, second, third, fourth, fifth = vocabulary.CONTINUOUS_TARGETING_LINES
+        lines = vocabulary.CONTINUOUS_TARGETING_LINES
         sections = [
             SummarySection(
                 vocabulary.SECTION_ASSUMPTIONS,
@@ -107,11 +105,15 @@ def continuous_survival_summary(result: Any, *, detail: str = "short") -> Summar
             SummarySection(
                 vocabulary.SECTION_TARGETING,
                 (
-                    first.format(grid=count_text(record.grid_size)),
-                    second.format(worst=f"{worst:.3g}", cutoff=f"{record.cutoff:.3g}"),
-                    third.format(halvings=count_text(record.halvings)),
-                    fourth.format(bounded=share_text(record.bounded_share)),
-                    fifth.format(off_grid=share_text(record.off_grid_share)),
+                    lines[0].format(grid=count_text(record.grid_size)),
+                    lines[1].format(worst=f"{worst:.3g}", cutoff=f"{record.cutoff:.3g}"),
+                    lines[2].format(halvings=count_text(record.halvings)),
+                    lines[3].format(bounded=share_text(record.bounded_share)),
+                    lines[4].format(last=share_text(record.last_time_floor_share)),
+                    lines[5].format(
+                        draws=OFF_GRID_TIMES, off_grid=share_text(record.off_grid_share)
+                    ),
+                    *([vocabulary.CONTINUOUS_FIRST_FOLD] if record.cross_fitted else []),
                     *_experimental_lines(result.estimates),
                 ),
             ),

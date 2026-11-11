@@ -4665,6 +4665,16 @@ BALANCE_READINGS: Final[Mapping[str, str]] = MappingProxyType(
 
 # ------------------------------------------------- continuous-time survival (X91 part G)
 
+#: The ``checkable`` note of a question on a continuous follow-up time, whose fit reports
+#: overlap through its record rather than through a diagnostics facade.
+CONTINUOUS_CHECKABLE: Final = (
+    "The data cannot confirm these conditions. Overlap (marked partly) can be probed: after a "
+    "fit, result.record.bounded_share and result.record.last_time_floor_share give the share "
+    "of units whose chance of an arm times staying uncensored fell below the floor. They read "
+    "fitted models, so small shares do not prove overlap."
+)
+#: The design word of a time-to-event design whose follow-up time is not binned.
+CONTINUOUS_DESIGN: Final = "time to an event, continuous follow-up"
 CONTINUOUS_SURVIVAL_TITLE: Final = "Risk by time, continuous follow-up (TMLE)"
 CONTINUOUS_QUESTION: Final = "risk of {causes} by each time"
 CONTINUOUS_TIMES: Final = "Times"
@@ -4673,7 +4683,6 @@ CONTINUOUS_ARMS_TEXT: Final = "{treated} vs {reference}"
 CONTINUOUS_METHOD: Final = "one-step TMLE"
 CONTINUOUS_FOLDS: Final = ", {k} folds"
 EVENT_MODELS: Final = "Event model"
-CENSORING_MODEL: Final = "Censoring model"
 TARGETING_STEPS: Final = "Update steps"
 TARGETING_READING: Final[Mapping[bool, str]] = MappingProxyType(
     {True: "{steps}, converged", False: "{steps}, stopped early"}
@@ -4681,12 +4690,19 @@ TARGETING_READING: Final[Mapping[bool, str]] = MappingProxyType(
 USER_TREATMENT_MODEL: Final = "the learner passed in"
 SECTION_TARGETING: Final = "How the update ended"
 CONTINUOUS_TARGETING_LINES: Final[tuple[str, ...]] = (
-    "Event times in the follow-up window: {grid}",
-    "Largest |mean score| / its standard error: {worst} (stopping rule {cutoff})",
+    "Distinct follow-up times in the window: {grid}",
+    "Largest |mean influence-curve value| / its standard deviation: {worst} (stopping rule "
+    "{cutoff})",
     "Step halvings: {halvings}",
-    "Share of at-risk times where the chance of the arm times staying uncensored was raised "
-    "to its floor: {bounded}",
-    "Share of a fine time grid whose score exceeds the stopping rule: {off_grid}",
+    "Share of followed (unit, time) cells where the chance of the received arm times staying "
+    "uncensored was raised to its floor: {bounded}",
+    "Share of (unit, arm) pairs, over both arms, whose chance of that arm times staying "
+    "uncensored to the last time is below the floor: {last}",
+    "Share of {draws} random times in the window where the score equation also holds within "
+    "the stopping rule: {off_grid}",
+)
+CONTINUOUS_FIRST_FOLD: Final = (
+    "The models named above are the first fold's selections; each fold selects its own."
 )
 #: The assumptions a continuous-time survival fit states.
 CONTINUOUS_ASSUMPTIONS: Final[tuple[str, ...]] = (

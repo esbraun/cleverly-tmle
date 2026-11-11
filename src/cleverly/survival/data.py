@@ -8,7 +8,7 @@ from typing import Any, Final
 
 import numpy as np
 
-from .._refusal import RefusalReason
+from .._refusal import Refusal, RefusalReason
 from ..exceptions import CapabilityError, DataError, MethodConfigurationError
 
 __all__ = ["ContinuousSurvivalData", "continuous_kwargs", "static_arms"]
@@ -17,6 +17,13 @@ ROADMAP: Final = "X6"
 _ALTERNATIVE: Final = (
     "Declare grid= on TimeToEvent for the binned survival estimators, or estimate with "
     "TMLEMethod on the continuous design."
+)
+#: Why every method other than the one-step TMLE refuses a continuous follow-up time.
+CONTINUOUS_METHOD_REFUSAL: Final = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "on TimeToEvent(grid='continuous') only the one-step TMLE has a continuous-time form.",
+    alternative=_ALTERNATIVE,
+    roadmap=ROADMAP,
 )
 
 
@@ -204,7 +211,7 @@ _GROUPS: Final = ("models", "cross_fitting", "targeting", "inference", "runtime"
 
 
 def continuous_kwargs(method: Any) -> dict[str, Any]:
-    """Translate a :class:`~cleverly.TMLEMethod` for the continuous-time engine.
+    r"""Translate a :class:`~cleverly.TMLEMethod` for the continuous-time engine.
 
     Parameters
     ----------
@@ -216,6 +223,14 @@ def continuous_kwargs(method: Any) -> dict[str, Any]:
     dict of str to Any
         :class:`~cleverly.survival.ContinuousSurvivalTMLE` keyword arguments and the band
         settings.
+
+    Notes
+    -----
+    ``max_iter``, ``step_size`` and ``tol`` at :class:`~cleverly.TMLEMethod`'s defaults, which
+    belong to the binned walk, read as the one-step walk's own defaults: 500 steps from a
+    first step of 0.1, stopped by item 10's rule :math:`1 / (\sqrt n \log n)`.  A value equal
+    to the binned default cannot be told apart from it, so ``tol=1e-10`` given explicitly
+    also reads as item 10's rule; pass any other value to set the cutoff.
     """
     from ..methods import SHORTCUTS, TMLEMethod, _differs_from_default
 
@@ -249,7 +264,17 @@ def continuous_kwargs(method: Any) -> dict[str, Any]:
     targeting = method.targeting
     g_bounds = targeting.g_bounds
     if g_bounds != "auto":
-        g_bounds = float(g_bounds[0]) if isinstance(g_bounds, Sequence) else float(g_bounds)
+        if isinstance(g_bounds, Sequence):
+            low, high = (float(v) for v in g_bounds)
+            if high < 1.0:
+                raise MethodConfigurationError(
+                    f"g_bounds={tuple(g_bounds)!r} caps the treatment probability at {high:g}; "
+                    "the continuous-time TMLE bounds only pi * S_c(u-) from below, so pass a "
+                    "lower bound alone or a pair whose upper bound is 1."
+                )
+            g_bounds = low
+        else:
+            g_bounds = float(g_bounds)
     inference = method.inference
     return {
         "cross_fit": method.cross_fitting.enabled,
@@ -267,7 +292,9 @@ def continuous_kwargs(method: Any) -> dict[str, Any]:
         ),
         "tol": None if targeting.tol == defaults.targeting.tol else targeting.tol,
         "alpha": inference.alpha,
-        "simultaneous": bool(inference.simultaneous),
+        # None is the package default: a band whenever a fit reports several parameters,
+        # which this one always does.
+        "simultaneous": True if inference.simultaneous is None else bool(inference.simultaneous),
         "n_multiplier": (1000 if inference.n_multiplier == "auto" else int(inference.n_multiplier)),
         "multiplier_kind": inference.multiplier_kind,
         "band_scale": inference.band_scale,

@@ -433,7 +433,7 @@ def test_the_design_refuses_what_has_no_continuous_form(extra: dict[str, Any], m
 def test_other_methods_estimands_and_settings_refuse() -> None:
     study = CausalStudy(_sample(), design=_design_continuous())
     effect = study.identify(RegimeMean({"1": 1, "0": 0}, horizons=[1.0]))
-    with pytest.raises(CapabilityError, match="no continuous-time form"):
+    with pytest.raises(CapabilityError, match="only the one-step TMLE has a continuous-time"):
         effect.estimate(method="gcomp")
     with pytest.raises(MethodConfigurationError, match="q_bounds"):
         effect.estimate(q_bounds=(0.1, 0.9))
@@ -457,3 +457,138 @@ def test_a_target_before_any_event_of_a_cause_in_an_arm_is_refused() -> None:
         ContinuousSurvivalTMLE([early], cross_fit=False).fit(
             frame, time="time", event="event", treatment="Z", baseline=["X3"]
         )
+
+
+# ------------------------------------------------- the engine's own assembly (review items)
+
+
+def _exact_propensity(learner, L, A, train, predict, folds, random_state):  # type: ignore[no-untyped-def]
+    """The law's own treatment probability: the arm share at each covariate value."""
+    p = np.array([np.mean(A[L[:, 0] == w] == 1) for w in L[:, 0]])
+    return p[predict], None
+
+
+def test_the_engine_assembles_the_exact_influence_curve(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``_fit_arrays`` itself, not a hand-built problem: tie shift, S_c(u-), pi and weights.
+
+    With saturated hazards and the law's own treatment probability the engine's influence
+    curve is the Gateaux derivative.  Dropping the censoring tie shift, reading S_c(u) for
+    S_c(u-), or swapping the arms of pi each moves it far past the tolerance.
+    """
+    from cleverly.survival import engine
+
+    data = _law()
+    frame = data["frame"]
+    monkeypatch.setattr(engine, "_fit_propensity", _exact_propensity)
+    fit = ContinuousSurvivalTMLE(
+        list(HORIZONS),
+        cross_fit=False,
+        hazard_library=[StratifiedNelsonAalen((0, 1))],
+        censoring_library=[StratifiedNelsonAalen((0, 1))],
+        tol=1e-12,
+        random_state=0,
+        causes={1: "1", 2: "2"},
+        arms={"0": 0, "1": 1},
+        simultaneous=False,
+    ).fit(frame, time="time", event="event", treatment="A", baseline=["W"])
+    error = max(
+        np.max(
+            np.abs(
+                fit[f"cif_regimen[{a}, {j} @ t={h}]"].influence_curve[data["first"]]
+                - _gateaux(a, h, j)
+            )
+        )
+        for a, j, h in TARGETS
+    )
+    assert error < 1e-10
+
+
+def test_cross_fitting_trains_every_nuisance_without_the_held_out_fold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cleverly.survival import engine
+
+    frame = _sample(300)
+    sizes: list[int] = []
+    original = engine.select_hazard
+
+    def recording(library, X, time, event, folds):  # type: ignore[no-untyped-def]
+        sizes.append(len(time))
+        return original(library, X, time, event, folds)
+
+    monkeypatch.setattr(engine, "select_hazard", recording)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = ContinuousSurvivalTMLE([1.0], n_folds=3, learner_folds=3, random_state=0).fit(
+            frame, time="time", event="event", treatment="Z", baseline=["X3"]
+        )
+    assert fit.record.cross_fitted and fit.n_folds == 3
+    # Three folds, two causes and the censoring hazard: nine selections, each on two folds.
+    assert len(sizes) == 9
+    assert max(sizes) < 300 and min(sizes) >= 190
+    assert all(np.isfinite(e.psi) and e.std_error > 0 for e in fit.values())
+
+
+def test_a_walk_that_stops_early_warns_and_says_so() -> None:
+    from cleverly.exceptions import ConvergenceWarning
+
+    with pytest.warns(ConvergenceWarning, match="stopped after 1 steps"):
+        fit = ContinuousSurvivalTMLE(
+            [0.5, 1.0], cross_fit=False, max_iter=1, tol=1e-12, random_state=0
+        ).fit(_sample(), time="time", event="event", treatment="Z", baseline=["X3"])
+    assert not fit.record.converged and fit.record.steps == 1
+    assert "continuous_not_converged" in fit.summary().note_codes
+
+
+def test_a_floor_raised_until_it_binds_is_counted() -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = ContinuousSurvivalTMLE([1.0], cross_fit=False, g_bounds=0.6, random_state=0).fit(
+            _sample(), time="time", event="event", treatment="Z", baseline=["X3"]
+        )
+    assert 0.0 < fit.record.bounded_share < 1.0
+    assert 0.0 < fit.record.last_time_floor_share <= 1.0
+
+
+def test_a_target_past_one_arms_follow_up_is_refused() -> None:
+    rng = np.random.default_rng(1)
+    n = 400
+    X3 = rng.normal(size=n)
+    Z = rng.binomial(1, 0.5, n)
+    T = rng.exponential(1 / np.exp(-2 + 0.3 * X3 - 0.5 * Z))
+    C = np.where(Z == 0, 3.0, 20.0)
+    frame = pd.DataFrame(
+        {"time": np.minimum(T, C), "event": (T <= C).astype(int), "Z": Z, "X3": X3}
+    )
+    with pytest.raises(CapabilityError, match="followed only to"):
+        ContinuousSurvivalTMLE([2.0, 6.0], cross_fit=False).fit(
+            frame, time="time", event="event", treatment="Z", baseline=["X3"]
+        )
+
+
+def test_a_declared_cause_with_no_event_is_refused() -> None:
+    frame = _sample()
+    frame["event"] = np.where(frame["event"] == 2, 0, frame["event"])
+    with pytest.raises(CapabilityError, match="have no event"):
+        ContinuousSurvivalTMLE([1.0], cross_fit=False, causes={1: "relapse", 2: "death"}).fit(
+            frame, time="time", event="event", treatment="Z", baseline=["X3"]
+        )
+
+
+def test_the_study_route_answers_the_setup_questions_and_reads_the_band_default() -> None:
+    from cleverly.sensitivity import evalue
+
+    study = CausalStudy(_sample(300), design=_design_continuous())
+    effect = study.identify(RegimeContrast({"t": 1, "c": 0}, reference="c", horizons=[1.0]))
+    assert "continuous follow-up" in str(study.summary())
+    assert "result.record.bounded_share" in str(effect.summary())
+    methods = {record.name: record.available for record in effect.available_methods()}
+    assert [name for name, ok in methods.items() if ok] == ["tmle"]
+    with pytest.raises(MethodConfigurationError, match="upper bound is 1"):
+        effect.estimate(g_bounds=(0.05, 0.95))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = effect.estimate(cross_fit=False, random_state=0)
+    assert fit.simultaneous is not None
+    with pytest.raises(CapabilityError, match="evalue_from_rr"):
+        evalue(fit)

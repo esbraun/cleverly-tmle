@@ -97,9 +97,15 @@ class ContinuousSurvivalRecord:
     standardized_score : tuple of float
         Each target's final :math:`|P_n D^*| / \\hat\\sigma`.
     bounded_share : float
-        The share of (unit, time) weights at the positivity bound.
+        The share of (unit, time) cells of each unit's received arm, while it is followed,
+        whose :math:`\\pi S_c(u^-)` was raised to the positivity floor.
+    last_time_floor_share : float
+        The share of (unit, arm) pairs, over both arms whatever the unit received, whose
+        :math:`\\pi S_c(t_K^-)` at the last target time is below the floor: the
+        counterfactual reach of the positivity bound.
     off_grid_share : float
-        The share of off-grid times at which the score equation holds to the cutoff.
+        The share of random times in the window, among those where a score is not identically
+        zero, at which the score equation holds to the cutoff.
     cross_fitted : bool
         Whether the nuisances were fitted out of fold.
     n_folds : int
@@ -117,18 +123,28 @@ class ContinuousSurvivalRecord:
     cutoff: float
     standardized_score: tuple[float, ...]
     bounded_share: float
+    last_time_floor_share: float
     off_grid_share: float
     cross_fitted: bool
     n_folds: int
     grid_size: int
 
 
+#: The inverse L1 penalties of the lasso members of the treatment-model library.
+LASSO_C = (1.0, 0.1, 0.03)
+
+
 def _logistic_candidates(random_state: int | None) -> list[tuple[str, Any]]:
-    from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
+    """The treatment-model library: a main-terms logistic and three lasso penalties.
+
+    One discrete cross-validated selection over the four, so no member nests its own
+    cross-validation inside the selection's folds.
+    """
+    from sklearn.linear_model import LogisticRegression
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
 
-    return [
+    members: list[tuple[str, Any]] = [
         (
             "logistic",
             Pipeline(
@@ -137,28 +153,16 @@ def _logistic_candidates(random_state: int | None) -> list[tuple[str, Any]]:
                     ("model", LogisticRegression(C=np.inf, max_iter=2000)),
                 ]
             ),
-        ),
-        (
-            "lasso_logistic",
-            Pipeline(
-                [
-                    ("scale", StandardScaler()),
-                    (
-                        "model",
-                        LogisticRegressionCV(
-                            Cs=np.logspace(-3, 2, 8),
-                            cv=5,
-                            l1_ratios=(1.0,),
-                            solver="saga",
-                            scoring="neg_log_loss",
-                            max_iter=5000,
-                            random_state=random_state,
-                        ),
-                    ),
-                ]
-            ),
-        ),
+        )
     ]
+    for c in LASSO_C:
+        model = LogisticRegression(
+            C=c, l1_ratio=1.0, solver="saga", max_iter=5000, random_state=random_state
+        )
+        members.append(
+            (f"lasso C={c:g}", Pipeline([("scale", StandardScaler()), ("model", model)]))
+        )
+    return members
 
 
 def _fit_propensity(
@@ -370,7 +374,14 @@ class ContinuousSurvivalTMLE:
             missing = set(codes) - set(declared)
             if missing:
                 raise DataError(f"event codes {sorted(missing)} are not named by causes")
-            return {int(k): str(v) for k, v in sorted(declared.items()) if int(k) in codes}
+            absent = sorted(int(k) for k in declared if int(k) not in codes)
+            if absent:
+                raise _gap(
+                    f"The declared causes {[declared[k] for k in absent]} have no event in the "
+                    "data, so their risks are zero by construction and have no interval. Drop "
+                    "them from causes=, or check the event column."
+                )
+            return {int(k): str(v) for k, v in sorted(declared.items())}
         if codes == [1]:
             return {1: "1"}
         return {code: str(code) for code in codes}
@@ -417,6 +428,8 @@ class ContinuousSurvivalTMLE:
             raise DataError("every event code is a non-negative integer, 0 for censored")
         D = D_raw.astype(int)
         L = np.column_stack([frame[name].to_numpy().astype(float) for name in baseline])
+        if not np.all(np.isfinite(L)):
+            raise DataError("baseline covariates are finite numbers")
         arm_labels, A = self._arms(frame[treatment].to_numpy())
         causes = self._causes(D)
         return self._fit_arrays(T, D, A, L, arm_labels, causes, backend=backend_of(frame))
@@ -465,6 +478,15 @@ class ContinuousSurvivalTMLE:
                         "influence curve is zero and its interval undefined. Choose a later "
                         "first target time."
                     )
+        for a in (0, 1):
+            followed = float(T[a == A].max())
+            if followed < last:
+                raise _gap(
+                    f"Arm {arm_labels[a]!r} is followed only to {_time_text(followed)}, before "
+                    f"the last target time {_time_text(last)}, so its risk there would be an "
+                    "extrapolation of the hazard model with no data behind it. Choose target "
+                    "times within every arm's follow-up."
+                )
         grid = np.unique(T[last >= T])
         target_index = np.searchsorted(grid, self.horizons, side="right") - 1
         X = np.column_stack([A.astype(float), L])
@@ -540,6 +562,7 @@ class ContinuousSurvivalTMLE:
         reach = T[None, :, None] >= grid[None, None, :]
         relevant = factual & reach
         bounded_share = float(np.mean(product[relevant] < floor)) if relevant.any() else 0.0
+        last_time_floor_share = float(np.mean(product[..., -1] < floor))
 
         at_risk = (T[:, None] >= grid[None, :]).astype(float)
         events = np.stack(
@@ -576,6 +599,7 @@ class ContinuousSurvivalTMLE:
             cutoff=cutoff,
             standardized_score=tuple(float(v) for v in result.standardized_score),
             bounded_share=bounded_share,
+            last_time_floor_share=last_time_floor_share,
             off_grid_share=off_grid,
             cross_fitted=self.cross_fit,
             n_folds=self.n_folds if self.cross_fit else 1,
@@ -627,5 +651,8 @@ def _off_grid_share(
     shifted = Problem(problem.arm, problem.at_risk, problem.events, problem.weight, index[keep])
     evaluation = evaluate(shifted, result.dlam)
     sigma = evaluation.sigma
-    ok = np.abs(evaluation.score) <= cutoff * np.where(sigma > 0, sigma, np.inf) + (sigma == 0)
+    informative = sigma > 0
+    if not informative.any():
+        return 1.0
+    ok = np.abs(evaluation.score[informative]) <= cutoff * sigma[informative]
     return float(np.mean(ok))
