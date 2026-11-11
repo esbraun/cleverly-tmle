@@ -56,7 +56,8 @@ These are the documents no reader path introduces on its own.
 | --- | --- |
 | [Sensitivity and validation methods](technical-reference/validation-methods.md) | every instrument for reviewing an implemented method: why you use it, what it tells you, and how it tells you |
 | [Scope and refusals](technical-reference/scope-and-refusals.md) | how to read a refusal, and where a multi-valued treatment is supported |
-| [Roadmap](roadmap.md) | a remediation queue, then open work ordered by beta milestone, then hard-stopped future investigations, with implementation contracts, refusals, and evidence gates |
+| [Roadmap](roadmap.md) | the queued fixes, then open work by topic with a tier for each item, then hard-stopped future investigations, with implementation contracts, refusals, and evidence gates |
+| [Delivered roadmap items](roadmap-delivered.md) | where the record of each item that left the roadmap is kept |
 | [Architecture invariants](architecture-invariants.md) | cross-module constraints and standing decisions, each with the condition that would reopen it |
 | [Evidence](technical-reference/evidence.md) | per registered estimand: which oracle, Gateaux, remainder, identity, and variant instruments exist, plus their blind spots |
 | [Implementation validation grid](technical-reference/method-evidence/validation-grid.md) | every registered validation study in one table: the method, the canonical implementation compared, the counts, and the declared limits |

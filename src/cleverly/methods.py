@@ -179,7 +179,7 @@ REPEATED_OUTCOME_REFUSAL = Refusal(
         "{kinds} fit{verb} one. Each horizon is the end-of-study fit of the panel truncated "
         "after it."
     ),
-    roadmap="X32b",
+    roadmap="X71",
 )
 #: Why an estimator with no logistic node fluctuation refuses ``node_bounds=``. The condition
 #: holds ``{estimator}``, which :func:`node_bounds_refusal` fills in.
