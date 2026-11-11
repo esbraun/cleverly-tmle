@@ -33,9 +33,7 @@ def _rows() -> list[VerdictEvidence]:
 @cache
 def _performance() -> dict[tuple[str, str], bool]:
     table = pd.read_csv(study.STUDY.artifacts / "performance-tests.csv")
-    return {
-        (str(row.scenario), str(row.estimand)): bool(row.passed) for row in table.itertuples()
-    }
+    return {(str(row.scenario), str(row.estimand)): bool(row.passed) for row in table.itertuples()}
 
 
 @cache
