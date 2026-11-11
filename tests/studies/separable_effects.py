@@ -190,7 +190,7 @@ CONVERGENCE_COLUMNS = ("converged", "failure", "relative_score", "phase")
 
 def convergence(result: Any) -> tuple[bool, str, float, str]:
     """``(converged, failure, largest final relative score, phase)`` over a fit's targeting
-    records; ``phase`` names the targeting phase that reached each record's reported state.
+    records; ``phase`` names the targeting phases that reached the records' reported states.
 
     ``result`` is an ``LTMLE`` result, or anything with a ``record`` (a robustness engine fit).
     """
@@ -200,8 +200,9 @@ def convergence(result: Any) -> tuple[bool, str, float, str]:
     )
     failures = [str(record.failure) for record in records if not record.converged]
     score = max(float(record.trace[-1]) for record in records)
-    phases = ",".join(str(record.phase) for record in records)
-    return not failures, ",".join(failures), score, phases
+    phases = [str(record.phase) for record in records]
+    # A joint walk shares one record between every parameter, so each label is listed once.
+    return not failures, ",".join(dict.fromkeys(failures)), score, ",".join(dict.fromkeys(phases))
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
