@@ -43,6 +43,17 @@ While the plan's rule is ``null`` no wave fit and no decision runs.  ``--install
 and installs either every composite or, when the flip is blocked, every diagnostic sidecar
 (``tests/canonical/<study>/band_rerun/``), which no support or grid row reads.
 
+**A replay miss takes a complete rerun.**  A study whose targeted run missed holds only
+``WAVE/<slug>/replay-miss.json``.  It reruns whole with its own regeneration driver at the
+wave's commit, and that output is copied as is to ``WAVE/<slug>/complete/``
+(:func:`validate_complete`).  ``--decide`` reads it as route ``complete_rerun`` beside the
+targeted studies (route ``targeted``): every moved band cell against the baseline rows exactly
+as for a targeted study, and every other verdict that changed listed under
+``complete_rerun_changes`` without blocking.  On a flip ``--install-wave`` installs the complete
+artifacts as the regeneration wrote them, with ``band_rerun/complete-rerun.json`` keeping the
+baseline manifest the plan hashed; on a block they join the study's sidecar, labelled
+diagnostic.
+
 **Smoke and timing.**  ``--smoke`` fits the first :data:`SMOKE_REPLICATES` band keys of each
 moved cell on :data:`SMOKE_STREAM`, which salts every study seed function and is never the
 declared stream, and reports per cell the smallest Kish count of a banded curve, the share of
@@ -87,6 +98,8 @@ from typing import Any
 import pandas as pd
 from scipy.stats import binom
 
+from tests.canonical.regenerate import ARTIFACT_NAMES as REGENERATION_ARTIFACTS
+from tests.canonical.regenerate import PROPERTY_FAILURE_FILES
 from tests.studies.evidence import property_failures, replication, seeds, simultaneous
 from tests.studies.evidence.manifest import csv_text, provenance, read_rows, write_csv, write_rows
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
@@ -151,6 +164,15 @@ DECISION = "decision.json"
 RECORD = "band-rerun-record.json"
 RUN_LOG = "run.log"
 MISS = "replay-miss.json"
+#: A study that missed: its complete rerun's output directory, beside its ``replay-miss.json``.
+COMPLETE = "complete"
+TARGETED_ROUTE = "targeted"
+COMPLETE_ROUTE = "complete_rerun"
+#: The record a flip installs beside a complete rerun's artifacts: the baseline it replaced.
+COMPLETE_RECORD = "complete-rerun.json"
+#: The prefix of a complete rerun's artifacts in a blocked study's sidecar.
+COMPLETE_PREFIX = "complete-"
+VERDICT_LABELS = {"passed": "diagnostic_passed", "property_passed": "diagnostic_property_passed"}
 #: The section 8 rule: the closed coverage band of a positive cell at 99% Clopper-Pearson.
 COVERAGE_BAND = (0.92, 0.98)
 DECISION_ALPHA = 0.01
@@ -581,12 +603,36 @@ def totals(studies: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def baseline_manifest_raw(record: StudyRecord) -> bytes:
-    """The study's baseline manifest: the committed one, or the one a composite embeds."""
+    """The study's baseline manifest: the committed one, or the one a composite embeds, or the
+    one an installed complete rerun's record keeps (:func:`installed_complete`)."""
     raw = (record.artifacts / "manifest.json").read_bytes()
     manifest = json.loads(raw)
     if manifest.get("generation_mode") == MODE:
         return str(manifest["composite"]["baseline"]["manifest_utf8"]).encode()
+    complete = installed_complete(record.artifacts)
+    if complete is not None:
+        return str(complete["baseline"]["manifest_utf8"]).encode()
     return raw
+
+
+def installed_complete(directory: Path) -> dict[str, Any] | None:
+    """The record of a complete rerun a flip installed in ``directory``, while it holds.
+
+    The record holds while the committed manifest is the one it installed; ``None`` when no
+    record exists.
+
+    Raises
+    ------
+    ValueError
+        If a record exists but the committed manifest is another one.
+    """
+    path = directory / SIDECAR / COMPLETE_RECORD
+    if not path.exists():
+        return None
+    record = json.loads(path.read_bytes())
+    if digest((directory / "manifest.json").read_bytes()) != record.get("manifest_sha256"):
+        raise ValueError(f"{path}: the committed manifest is not the complete rerun it installed")
+    return dict(record)
 
 
 def validate_plan(plan: Mapping[str, Any]) -> list[str]:
@@ -1529,6 +1575,8 @@ def interval_red(reading: Mapping[str, Any]) -> bool | None:
 
 def validate_output(slug: str, output: Path, plan_raw: bytes) -> dict[str, Any]:
     """Re-validate one study's wave output; returns its run log."""
+    if (output / COMPLETE).exists():
+        raise ValueError(f"{slug}: the output holds both a composite and a complete rerun")
     findings = []
     manifest = json.loads((output / "manifest.json").read_bytes())
     log = json.loads((output / RUN_LOG).read_bytes())
@@ -1551,6 +1599,121 @@ def validate_output(slug: str, output: Path, plan_raw: bytes) -> dict[str, Any]:
     if findings:
         raise ValueError(f"{slug}: " + "; ".join(findings))
     return log
+
+
+def validate_complete(slug: str, output: Path, plan_raw: bytes) -> dict[str, Any]:
+    """Re-validate a study's complete rerun, the declared response to its replay miss.
+
+    ``output`` holds the targeted run's ``replay-miss.json`` and, under ``complete/``, the
+    output of the study's own regeneration driver, copied as is.  The study is planned, the
+    miss names it, the directory holds no composite, and ``complete/manifest.json`` is a normal
+    regeneration manifest of the study from a clean committed tree whose every artifact matches
+    its hash.  Returns the route, the producer commit and the digests the decision records.
+    """
+    if slug not in json.loads(plan_raw)["studies"]:
+        raise ValueError(f"{slug}: not planned")
+    if (output / "manifest.json").exists() or (output / RUN_LOG).exists():
+        raise ValueError(f"{slug}: the output holds both a composite and a complete rerun")
+    if not (output / MISS).exists():
+        raise ValueError(f"{slug}: a complete rerun answers a replay miss, and none is recorded")
+    findings = []
+    miss_raw = (output / MISS).read_bytes()
+    if json.loads(miss_raw).get("study") != slug:
+        findings.append("the replay miss names another study")
+    complete = output / COMPLETE
+    manifest_raw = (complete / "manifest.json").read_bytes()
+    manifest = json.loads(manifest_raw)
+    if "generation_mode" in manifest or "composite" in manifest:
+        findings.append("the complete manifest is not a normal regeneration manifest")
+    if manifest.get("slug") != slug:
+        findings.append("the complete rerun names another study")
+    hashes = manifest.get("sha256") or {}
+    absent = sorted(set(REGENERATION_ARTIFACTS) - set(hashes))
+    if absent:
+        findings.append(f"the complete manifest hashes no {absent}")
+    for name, expected in sorted(hashes.items()):
+        path = complete / name
+        if Path(name).name != name or not path.is_file():
+            findings.append(f"{name} is not a file of the complete rerun")
+        elif digest(path.read_bytes()) != expected:
+            findings.append(f"{name} differs from its manifest hash")
+    subject = (manifest.get("generated_with") or {}).get("subject") or {}
+    commit = str(subject.get("cleverly_commit", ""))
+    if len(commit) != 40:
+        findings.append("the complete rerun names no commit")
+    if subject.get("cleverly_worktree_clean") is not True:
+        findings.append("the complete rerun ran from an unclean tree")
+    if findings:
+        raise ValueError(f"{slug}: " + "; ".join(findings))
+    return {
+        "route": COMPLETE_ROUTE,
+        "source_commit": commit,
+        "manifest_sha256": digest(manifest_raw),
+        "miss_sha256": digest(miss_raw),
+    }
+
+
+def read_output(slug: str, output: Path, plan_raw: bytes) -> dict[str, Any]:
+    """Validate one study's output by its route; returns the route and its producer commit."""
+    if (output / COMPLETE).exists():
+        return validate_complete(slug, output, plan_raw)
+    if not (output / "manifest.json").exists():
+        state = "a replay miss and no complete rerun" if (output / MISS).exists() else "no output"
+        raise ValueError(f"the wave holds {state} for {slug}")
+    log = validate_output(slug, output, plan_raw)
+    return {"route": TARGETED_ROUTE, "source_commit": log["source_commit"]}
+
+
+def verdict(value: Any) -> str | None:
+    return None if pd.isna(value) else str(value)
+
+
+def verdict_changes(
+    before: pd.DataFrame, after: pd.DataFrame, moved: Iterable[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """Every verdict of a complete rerun that changed outside the moved cells.
+
+    ``cells`` lists each ``property/cell`` whose ``passed`` changed (a row present on one side
+    only reads ``None`` on the other), ``properties`` each property whose ``property_passed``
+    values changed.  Both are ordinary regeneration results: they are reported, never blocking.
+    """
+    moved = set(moved)
+
+    def passed(summary: pd.DataFrame) -> dict[str, str | None]:
+        names = summary["property"].astype(str) + "/" + summary["cell"].astype(str)
+        return {name: verdict(value) for name, value in zip(names, summary["passed"], strict=True)}
+
+    def property_passed(summary: pd.DataFrame) -> dict[str, list[str]]:
+        return {
+            str(prop): sorted({str(v) for v in group["property_passed"].dropna()})
+            for prop, group in summary.groupby("property", sort=True)
+        }
+
+    old, new = passed(before), passed(after)
+    cells = [
+        {"cell": name, "baseline_passed": old.get(name), "passed": new.get(name)}
+        for name in sorted((set(old) | set(new)) - moved)
+        if old.get(name) != new.get(name)
+    ]
+    old_props, new_props = property_passed(before), property_passed(after)
+    properties = [
+        {
+            "property": prop,
+            "baseline_property_passed": old_props.get(prop, []),
+            "property_passed": new_props.get(prop, []),
+        }
+        for prop in sorted(set(old_props) | set(new_props))
+        if old_props.get(prop, []) != new_props.get(prop, [])
+    ]
+    return {"cells": cells, "properties": properties}
+
+
+def failed_replicates(rows: pd.DataFrame, name: str) -> int:
+    """The replicates the regeneration's failure records cost one cell (``failed_replicates``)."""
+    prop, cell = name.split("/", 1)
+    counts = rows.loc[(rows["property"] == prop) & (rows["cell"] == cell), "failed_replicates"]
+    counts = counts.dropna()
+    return 0 if counts.empty else int(counts.max())
 
 
 def breach_direction(role: str, reading: Mapping[str, Any], baseline_coverage: float) -> str:
@@ -1589,6 +1752,13 @@ def decide(
     under the current plan.  ``studies`` names a subset for a rehearsal; the decision is then
     ``partial`` and no install reads it.  A band key that failed inside the band is a reading:
     its rows are not covered and enter the cell's interval test.
+
+    A study that missed the replay rule is read from its complete rerun (:func:`read_output`,
+    route ``complete_rerun``) under the same commit as every other study.  Its moved cells are
+    read exactly as a targeted study's, against the committed baseline rows; ``band_failures``
+    is the replicates the regeneration's own failure records cost the cell, and the property
+    failure files it wrote are listed.  Every other ``passed`` or ``property_passed`` that
+    changed is listed under ``complete_rerun_changes`` and does not block.
     """
     plan_raw = PLAN_PATH.read_bytes() if plan_raw is None else plan_raw
     plan = json.loads(plan_raw)
@@ -1599,11 +1769,11 @@ def decide(
     chosen = planned if studies is None else list(studies)
     if set(chosen) - set(planned):
         raise ValueError(f"not planned: {sorted(set(chosen) - set(planned))}")
-    missing = [slug for slug in chosen if not (wave / slug / "manifest.json").exists()]
+    missing = [slug for slug in chosen if not (wave / slug).is_dir()]
     if missing:
         raise ValueError(f"the wave has no output for {missing}")
-    logs = {slug: validate_output(slug, wave / slug, plan_raw) for slug in chosen}
-    commits = {log["source_commit"] for log in logs.values()}
+    sources = {slug: read_output(slug, wave / slug, plan_raw) for slug in chosen}
+    commits = {source["source_commit"] for source in sources.values()}
     if len(commits) != 1:
         raise ValueError(f"the wave ran from {len(commits)} commits: {sorted(commits)}")
     (commit,) = commits
@@ -1618,12 +1788,18 @@ def decide(
         record = record_for(slug)
         if digest((record.artifacts / "manifest.json").read_bytes()) != entry["manifest_sha256"]:
             raise ValueError(f"{slug}: the committed artifacts are not the baseline")
+        source = sources[slug]
+        complete = source["route"] == COMPLETE_ROUTE
+        output = wave / slug / COMPLETE if complete else wave / slug
         before_rows = read_rows(record.artifacts / "property-replicates.parquet")
-        after_rows = read_rows(wave / slug / "property-replicates.parquet")
+        after_rows = read_rows(output / "property-replicates.parquet")
         before = pd.read_csv(record.artifacts / "properties.csv")
-        after = pd.read_csv(wave / slug / "properties.csv")
-        manifest = json.loads((wave / slug / "manifest.json").read_bytes())
-        failures = manifest["composite"]["replacement"]["replay"]["band_failures"]
+        after = pd.read_csv(output / "properties.csv")
+        manifest = json.loads((output / "manifest.json").read_bytes())
+        if complete:
+            failures = {name: failed_replicates(after_rows, name) for name in entry["moved_cells"]}
+        else:
+            failures = manifest["composite"]["replacement"]["replay"]["band_failures"]
         after_cells = {cell["cell"]: cell for cell in moved_readings(after, entry["moved_cells"])}
         study = []
         for baseline in entry["cells"]:
@@ -1664,7 +1840,18 @@ def decide(
             new = after.loc[after["property"] == prop, "property_passed"].dropna()
             if old.astype(str).tolist() != new.astype(str).tolist():
                 flips.append(f"{slug}:{prop}: property_passed changed")
+        if complete:
+            readings[slug] = {
+                "route": COMPLETE_ROUTE,
+                "cells": study,
+                "complete_rerun_changes": verdict_changes(before, after, entry["moved_cells"]),
+                "failure_files": sorted(set(manifest["sha256"]) & set(PROPERTY_FAILURE_FILES)),
+                "manifest_sha256": source["manifest_sha256"],
+                "miss_sha256": source["miss_sha256"],
+            }
+            continue
         readings[slug] = {
+            "route": TARGETED_ROUTE,
             "cells": study,
             "summary": {
                 key: manifest["composite"]["analysis"][key]
@@ -1694,8 +1881,34 @@ def sidecar_record_path(directory: Path) -> Path:
     return directory / SIDECAR / "record.json"
 
 
-def write_sidecar(slug: str, output: Path, target: Path, decision_raw: bytes) -> None:
-    """A blocked wave's diagnostic files for one study, from its unblocked output."""
+def sidecar_files(route: str, output_manifest: Mapping[str, Any]) -> tuple[str, ...]:
+    """The files of a blocked study's sidecar.
+
+    A complete rerun's sidecar adds every other artifact of the rerun, as
+    ``complete-<name>``; its ``properties.csv`` is the diagnostic one.
+    """
+    if route == TARGETED_ROUTE:
+        return SIDECAR_FILES
+    if route != COMPLETE_ROUTE:
+        raise ValueError(f"unknown route {route!r}")
+    extra = sorted(name for name in output_manifest["sha256"] if name != "properties.csv")
+    return (*SIDECAR_FILES, *(COMPLETE_PREFIX + name for name in extra))
+
+
+def diagnostic_table(source: Path, target: Path) -> None:
+    """A table with its verdict columns labelled diagnostic (:data:`VERDICT_LABELS`)."""
+    write_csv(pd.read_csv(source, low_memory=False).rename(columns=VERDICT_LABELS), target)
+
+
+def write_sidecar(
+    slug: str, output: Path, target: Path, decision_raw: bytes, *, route: str = TARGETED_ROUTE
+) -> None:
+    """A blocked wave's diagnostic files for one study, from its unblocked output.
+
+    ``output`` is the directory that holds the study's ``manifest.json``: the composite's, or a
+    complete rerun's ``complete/``.  Every verdict column the sidecar carries is labelled
+    diagnostic.
+    """
     plan_raw = PLAN_PATH.read_bytes()
     entry = json.loads(plan_raw)["studies"][slug]
     side = target / SIDECAR
@@ -1705,15 +1918,20 @@ def write_sidecar(slug: str, output: Path, target: Path, decision_raw: bytes) ->
         rows.loc[band_mask(rows, entry["moved_cells"])].reset_index(drop=True),
         side / SIDECAR_FILES[0],
     )
-    summary = pd.read_csv(output / "properties.csv")
-    summary = summary.rename(
-        columns={"passed": "diagnostic_passed", "property_passed": "diagnostic_property_passed"}
-    )
-    write_csv(summary, side / SIDECAR_FILES[1])
+    diagnostic_table(output / "properties.csv", side / SIDECAR_FILES[1])
     (side / SIDECAR_FILES[2]).write_bytes(decision_raw)
     shutil.copyfile(output / "manifest.json", side / SIDECAR_FILES[3])
+    manifest = json.loads((output / "manifest.json").read_bytes())
+    names = sidecar_files(route, manifest)
+    for name in names[len(SIDECAR_FILES) :]:
+        source = output / name.removeprefix(COMPLETE_PREFIX)
+        if name.endswith(".csv"):
+            diagnostic_table(source, side / name)
+        else:
+            shutil.copyfile(source, side / name)
     record = {
         "mode": MODE,
+        "route": route,
         "blocked": True,
         "slug": slug,
         "baseline_commit": BASELINE_COMMIT,
@@ -1723,7 +1941,7 @@ def write_sidecar(slug: str, output: Path, target: Path, decision_raw: bytes) ->
             "Diagnostic only: a blocked Wave 2 leaves every committed artifact byte-identical "
             "(plan section 4.4); no support row and no grid row reads these verdicts."
         ),
-        "sha256": {name: digest((side / name).read_bytes()) for name in SIDECAR_FILES},
+        "sha256": {name: digest((side / name).read_bytes()) for name in names},
         "output_manifest_sha256": digest((output / "manifest.json").read_bytes()),
     }
     (side / "record.json").write_bytes(json_bytes(record))
@@ -1740,11 +1958,20 @@ def validate_sidecar(directory: Path, plan: Mapping[str, Any]) -> list[str]:
         return [f"{path}: not a blocked band-rerun record of a planned study"]
     if (ROOT / entry["artifact_directory"]).resolve() != directory.resolve():
         out.append(f"{slug}: the sidecar sits in another study's directory")
-    for name in SIDECAR_FILES:
-        raw = (directory / SIDECAR / name).read_bytes()
-        if digest(raw) != record["sha256"].get(name):
+    route = record.get("route", TARGETED_ROUTE)
+    if route not in (TARGETED_ROUTE, COMPLETE_ROUTE):
+        return [*out, f"{slug}: the record names no route"]
+    expected: tuple[str, ...] = SIDECAR_FILES
+    if route == COMPLETE_ROUTE:
+        output_manifest = json.loads((directory / SIDECAR / SIDECAR_FILES[3]).read_bytes())
+        if output_manifest.get("slug") != slug or "generation_mode" in output_manifest:
+            out.append(f"{slug}: the sidecar's output manifest is not the study's complete rerun")
+        expected = sidecar_files(route, output_manifest)
+    for name in expected:
+        path = directory / SIDECAR / name
+        if not path.is_file() or digest(path.read_bytes()) != record["sha256"].get(name):
             out.append(f"{slug}: {name} differs from its recorded hash")
-    if set(record["sha256"]) != set(SIDECAR_FILES):
+    if set(record["sha256"]) != set(expected):
         out.append(f"{slug}: the record hashes other files")
     committed = (directory / "manifest.json").read_bytes()
     if digest(committed) != entry["manifest_sha256"]:
@@ -1755,21 +1982,67 @@ def validate_sidecar(directory: Path, plan: Mapping[str, Any]) -> list[str]:
 
 
 def installed_state(plan: Mapping[str, Any]) -> dict[str, str]:
-    """Each planned study's state in the tree: ``baseline``, ``composite`` or ``sidecar``."""
+    """Each planned study's state in the tree: ``baseline``, ``composite`` or ``sidecar``.
+
+    A complete rerun a flip installed (:func:`installed_complete`) reads ``composite``: the
+    flip installed it in place of the study's composite.
+    """
     out = {}
     for slug, entry in plan["studies"].items():
         directory = ROOT / entry["artifact_directory"]
         manifest = json.loads((directory / "manifest.json").read_bytes())
         sidecar = sidecar_record_path(directory).exists()
-        if manifest.get("generation_mode") == MODE:
+        if manifest.get("generation_mode") == MODE or installed_complete(directory) is not None:
             out[slug] = "composite+sidecar" if sidecar else "composite"
         else:
             out[slug] = "sidecar" if sidecar else "baseline"
     return out
 
 
+def install_complete(
+    slug: str, output: Path, target: Path, decision_raw: bytes, plan_raw: bytes
+) -> None:
+    """A flip's install of a complete rerun: its artifacts as the regeneration wrote them.
+
+    ``output`` is the study's wave directory.  Every file the complete manifest hashes and the
+    manifest itself replace the committed ones, and a baseline artifact the rerun did not write
+    is removed, as a regeneration removes it; the study's own sources stay.  The record
+    ``band_rerun/complete-rerun.json`` keeps the baseline manifest the plan hashed, so the plan
+    still validates (:func:`baseline_manifest_raw`).
+    """
+    complete = output / COMPLETE
+    manifest_raw = (complete / "manifest.json").read_bytes()
+    names = json.loads(manifest_raw)["sha256"]
+    baseline_raw = (target / "manifest.json").read_bytes()
+    for name in json.loads(baseline_raw)["sha256"]:
+        if name not in names:
+            (target / name).unlink(missing_ok=True)
+    for name in (*names, "manifest.json"):
+        shutil.copyfile(complete / name, target / name)
+    record = {
+        "mode": MODE,
+        "route": COMPLETE_ROUTE,
+        "slug": slug,
+        "baseline": {
+            "commit": BASELINE_COMMIT,
+            "manifest_utf8": baseline_raw.decode(),
+            "manifest_sha256": digest(baseline_raw),
+        },
+        "plan_sha256": digest(plan_raw),
+        "decision_sha256": digest(decision_raw),
+        "manifest_sha256": digest(manifest_raw),
+        "replay_miss": json.loads((output / MISS).read_bytes()),
+    }
+    (target / SIDECAR).mkdir(exist_ok=True)
+    (target / SIDECAR / COMPLETE_RECORD).write_bytes(json_bytes(record))
+
+
 def install_wave(wave: Path) -> str:
-    """Install a decided wave: every composite, or every sidecar, after every check passes."""
+    """Install a decided wave: every composite, or every sidecar, after every check passes.
+
+    A complete rerun installs its own artifacts on a flip (:func:`install_complete`) and joins
+    the sidecars when the flip is blocked.
+    """
     decision_raw = (wave / DECISION).read_bytes()
     recorded = json.loads(decision_raw)
     if recorded["decision"] not in ("flip", "blocked"):
@@ -1784,12 +2057,16 @@ def install_wave(wave: Path) -> str:
     for slug in recorded["studies"]:
         target = ROOT / plan["studies"][slug]["artifact_directory"]
         output = wave / slug
-        if recorded["decision"] == "flip":
+        route = recorded["readings"][slug]["route"]
+        if recorded["decision"] == "flip" and route == COMPLETE_ROUTE:
+            install_complete(slug, output, target, decision_raw, plan_raw)
+        elif recorded["decision"] == "flip":
             manifest = json.loads((output / "manifest.json").read_bytes())
             for name in (*manifest["sha256"], "manifest.json"):
                 shutil.copyfile(output / name, target / name)
         else:
-            write_sidecar(slug, output, target, decision_raw)
+            source = output / COMPLETE if route == COMPLETE_ROUTE else output
+            write_sidecar(slug, source, target, decision_raw, route=route)
     return str(recorded["decision"])
 
 
