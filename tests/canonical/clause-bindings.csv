@@ -1734,3 +1734,13 @@ refuter-calibration-longitudinal,refuter_power,detections at least 38 of 50,se_l
 refuter-calibration-longitudinal,refuter_size,rejections at most 17 of 200,se_low
 refuter-calibration-point,refuter_power,detections at least 38 of 50,se_low
 refuter-calibration-point,refuter_size,rejections at most 17 of 200,se_low
+missingness-tilt-inference,interval_calibration,coverage in calibration band,bias
+missingness-tilt-inference,interval_calibration,efficiency above band,pair_collapse
+missingness-tilt-inference,interval_calibration,efficiency empirical in efficiency band,two_point/0.8892/1.03
+missingness-tilt-inference,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+missingness-tilt-inference,interval_calibration,mar variance se ratio below band,se_high
+missingness-tilt-inference,interval_calibration,se ratio below band,se_high
+missingness-tilt-inference,interval_calibration,se ratio in calibration band,se/0.95
+missingness-tilt-inference,targeting_necessity,bias discriminated,pair_collapse
+missingness-tilt-inference,targeting_necessity,bias equivalent,bias
+missingness-tilt-inference,targeting_necessity,least displacement over labels,control_concentrated
