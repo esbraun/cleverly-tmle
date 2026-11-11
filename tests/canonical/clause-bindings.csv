@@ -1124,12 +1124,13 @@ longitudinal-sdr,sequential_double_robustness,bias equivalent,bias
 longitudinal-sdr,sequential_double_robustness,coverage floor,none
 longitudinal-sdr,sequential_double_robustness,se ratio in union band,se/0.05
 longitudinal-sdr,simultaneous_coverage,joint coverage below nominal,se_high
-longitudinal-sdr,simultaneous_coverage,joint coverage in calibration band,none
+longitudinal-sdr,simultaneous_coverage,joint coverage gain over the identity scale,se_high
+longitudinal-sdr,simultaneous_coverage,joint coverage in calibration band,se_low
 longitudinal-sdr,type_i_error,coverage floor,coverage/0.5
 longitudinal-sdr,type_i_error,rejection ceiling,rejection/0.1
 longitudinal-sdr,weighted_calibration,coverage in calibration band,bias
 longitudinal-sdr,weighted_calibration,se ratio below band,se_high
-longitudinal-sdr,weighted_calibration,se ratio in calibration band,se/0.05
+longitudinal-sdr,weighted_calibration,se ratio in calibration band,affine
 mar-attributable-tmle,interval_calibration,coverage in calibration band,bias
 mar-attributable-tmle,interval_calibration,efficiency above band,pair_collapse
 mar-attributable-tmle,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
