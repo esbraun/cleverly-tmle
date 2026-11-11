@@ -590,17 +590,19 @@ def _biased_sample(bias: float, replicates: int, *, seed: int = 5) -> np.ndarray
 
 
 class TestVerdictsDoNotPunishEvidence:
-    """The property the framework exists to hold: more replications do not lose a verdict.
+    """The framework's property: with the summary fixed, more replications keep a verdict.
 
     Each test runs the same estimator -- a fixed bias of a fifth of a standard deviation, or
     a fixed 93% coverage -- at four Monte Carlo budgets, and asserts the bounded-margin rule
     is stable while exhibiting the significance-shaped rule that flips.  The flipping rule is
     not a strawman: both were in the study this framework replaced.
 
-    The empirical summary is held fixed across budgets, so these tests show the limit: a
-    property strictly inside its margin passes with probability tending to one.  It is not a
-    sample-path guarantee, and :meth:`test_one_more_replication_can_lose_a_realized_verdict`
-    pins a realized verdict that one added replication reverses (Codex Q2).
+    The empirical summary is held fixed across budgets, so these tests show the mechanism
+    behind the limit (the interval narrowing around a fixed summary), not the probability
+    itself: a property strictly inside its margin passes with probability tending to one.
+    It is not a sample-path guarantee:
+    :meth:`test_one_more_replication_can_lose_a_realized_verdict` pins a realized verdict that
+    one added replication reverses (Codex Q2).
     """
 
     BUDGETS = (200, 800, 3200, 12800)

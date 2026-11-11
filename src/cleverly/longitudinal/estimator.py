@@ -1850,9 +1850,15 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         )
 
     def _draw_estimates(self) -> list[dict[str, ParameterEstimate]]:
-        """Each draw's estimates of the names this result reports."""
+        """Each draw's estimates of the names this result reports, as the median reads them.
+
+        A stored draw keeps its own status.  A derived estimate reads every draw under the
+        reported estimate's status and support record, the precedent of the draws, so its
+        draws carry one record and the median can combine them.
+        """
         return [
-            {name: repeat.estimates[name] for name in self.estimates} for repeat in self.repeats
+            {name: _as_reported(repeat.estimates[name], self.estimates[name]) for name in self}
+            for repeat in self.repeats
         ]
 
     # ------------------------------------------------------------- mapping API
@@ -4134,6 +4140,56 @@ def _estimates(
     return _Reported(estimates=estimates, index=index, contributors=contributors)
 
 
+def _as_reported(draw: ParameterEstimate, reported: ParameterEstimate) -> ParameterEstimate:
+    """``draw`` under the status and support record of the median ``reported``."""
+    if draw.inference == reported.inference:
+        return draw
+    return replace(
+        draw,
+        inference=reported.inference,
+        reference_df=draw.reference_df if supplies_inference(reported.inference) else None,
+        support=reported.support,
+    )
+
+
+def _precedent_draws(
+    draws: Sequence[Mapping[str, ParameterEstimate]], classification: Classification | None
+) -> list[dict[str, ParameterEstimate]]:
+    """The draws stamped with the precedent of their statuses, support records included.
+
+    :func:`~cleverly.inference.influence.with_precedent_status` restamps a status, and a
+    support record reads the final status (:func:`~cleverly._support.support_for`): a
+    withheld status needs the row's point kind, a shown one its Wald kind.  So every
+    restamped estimate takes the record of its new status, and the median combines draws
+    that carry one record.
+
+    Parameters
+    ----------
+    draws : sequence of mappings
+        One estimate mapping per draw, each estimate built by :func:`_support_of`.
+    classification : Classification or None
+        The fit's classification.
+
+    Returns
+    -------
+    list of dict
+        One restamped estimate mapping per draw, in the input order.
+    """
+    stamped = with_precedent_status(draws)
+    return [
+        {
+            name: estimate
+            if estimate.inference == draw[name].inference
+            else replace(
+                estimate,
+                support=_support_of(classification, estimate.inference, estimate.reference_df),
+            )
+            for name, estimate in restamped.items()
+        }
+        for restamped, draw in zip(stamped, draws, strict=True)
+    ]
+
+
 def _support_of(
     classification: Classification | None, status: InferenceStatus, reference_df: int | None
 ) -> Support:
@@ -5240,7 +5296,7 @@ class _SequentialEstimator:
         estimates = (
             repeats[0].estimates
             if not repeated
-            else median_estimates(with_precedent_status([r.estimates for r in repeats]))
+            else median_estimates(_precedent_draws([r.estimates for r in repeats], classification))
         )
         _warn_parameter_statuses(estimates)
         if self._estimator in _RANGE_CAUSE and parameter_index is not None:

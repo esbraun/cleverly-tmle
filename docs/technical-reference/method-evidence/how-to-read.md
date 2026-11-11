@@ -24,12 +24,12 @@ whether a discrepancy is exactly zero, and the distinction is the design rather 
 
 A Monte Carlo study accumulates evidence by adding replications. Under a margin rule, a property
 that holds strictly inside its margin passes with probability tending to one as replications grow,
-because the interval narrows around a summary that stays inside the margin. A significance test
-does the reverse. Its probability of rejecting tends to one for any estimator whose finite-sample
-remainder is not identically zero, which is every estimator, so the study would eventually go red
-for the one reason that is not a defect. An earlier version of the first study carried two such
-rules. Quadrupling its replication count would have failed it without a line of estimator code
-changing.
+because the interval concentrates on the true value of the summary, which lies strictly inside the
+margin. A significance test does the reverse: its probability of rejecting tends to one for any
+estimator whose finite-sample bias, or coverage, differs at all from its nominal value, which in
+practice is every estimator. The study would eventually go red for the one reason that is not a
+defect. An earlier version of the first study carried two such rules. Quadrupling its replication
+count would have failed it without a line of estimator code changing.
 
 The guarantee concerns the probability of a pass, not one realized run. Adding replications can
 still move a realized verdict either way. With 376 of 400 replications covered, the 99%

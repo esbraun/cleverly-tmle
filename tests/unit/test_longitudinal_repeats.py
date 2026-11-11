@@ -33,7 +33,7 @@ import pytest
 import cleverly.longitudinal.estimator as estimator_module
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
 from cleverly._summary import vocabulary
-from cleverly._support import UNCLASSIFIED
+from cleverly._support import UNCLASSIFIED, combine_support, registered_rows
 from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
@@ -821,6 +821,56 @@ def test_status_is_the_precedent_of_the_draws(monkeypatch: pytest.MonkeyPatch) -
     matrix = result.covariance([LEVEL_B, REF])
     assert matrix.shape == (2, 2) and np.all(np.isfinite(matrix))
     assert LEVEL_B not in result.simultaneous.bands
+
+
+def test_support_follows_the_precedent_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A draw's support record is recomputed with its status when the precedent restamps it.
+
+    Support reads the final status: a ``constant_node_plugin`` estimate needs the row's point
+    kind, an ``influence_curve`` one its Wald kind.  Row ``G39.ltmle.tau5`` has a shortfall on
+    the Wald kind only, so under it the draws' records differ.  Restamping the status alone
+    left them different, and the median refused the fit.  The witness first checks that the
+    draws' records do differ.
+    """
+    row = next(row for row in registered_rows() if row.id == "G39.ltmle.tau5")
+    classify = estimator_module.classify_longitudinal_fit
+
+    def on_the_row(*args: Any, **kwargs: Any) -> Any:
+        return replace(classify(*args, **kwargs), row=row)
+
+    monkeypatch.setattr(estimator_module, "classify_longitudinal_fit", on_the_row)
+    original = estimator_module._estimates
+    calls = {"n": 0}
+
+    def stamped(*args: Any, **kwargs: Any) -> Any:
+        reported = original(*args, **kwargs)
+        calls["n"] += 1
+        if calls["n"] != 2:
+            return reported
+        estimates = dict(reported.estimates)
+        status = "constant_node_plugin"
+        estimates[LEVEL_B] = replace(
+            estimates[LEVEL_B],
+            inference=status,
+            reference_df=None,
+            support=estimator_module._support_of(kwargs["classification"], status, None),
+        )
+        return replace(reported, estimates=estimates)
+
+    monkeypatch.setattr(estimator_module, "_estimates", stamped)
+    result = _quiet(support.ltmle, _rows("ltmle"), repeats=3)
+    draws = [draw.estimates[LEVEL_B].support for draw in result.repeats]
+    assert draws[0] == draws[2] != draws[1]
+    assert draws[0].label == "experimental" and draws[1].label == "supported"
+    combined = result[LEVEL_B]
+    assert combined.inference == "constant_node_plugin"
+    assert combined.support == draws[1]
+    contrast = result.contrast(lambda v: v[0] - v[1], [LEVEL_B, REF])
+    assert contrast.support == combine_support(
+        (combined.support, result[REF].support), kind="derived"
+    )
+    assert result.ratio(LEVEL_B, REF).support == contrast.support
+    assert np.all(np.isfinite(result.covariance([LEVEL_B, REF])))
 
 
 def test_median_of_monotone_curves_is_monotone() -> None:
