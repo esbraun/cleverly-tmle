@@ -549,12 +549,8 @@ def test_the_summary_names_both_components_and_the_order(fit: Any) -> None:
 
 
 def test_a_cross_fitted_separable_fit_solves_every_factor_score() -> None:
-    """From a cross-fitted start the walk hands over to Newton steps and still converges.
-
-    The fold split is seeded: an unseeded split drew a new start on every run, and an unlucky
-    one stopped short of the tolerance on CI.  Seeds 0 to 39 all converge.
-    """
-    result = _fit(n_folds=2, random_state=0)
+    """From a cross-fitted start the walk hands over to Newton steps and still converges."""
+    result = _fit(n_folds=2)
     record = result.fits[next(iter(result.fits))].hazard
     assert record.converged
     assert record.tol == pytest.approx(1e-10)
