@@ -1,0 +1,6 @@
+stratum,draws,sdr_coverage
+empty,50,0.86
+one row,149,0.805369
+"two or more, all Y = 1",17,0.647059
+"two or more, all Y = 0",312,0.855769
+mixed,472,0.978814

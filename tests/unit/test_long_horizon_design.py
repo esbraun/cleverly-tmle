@@ -691,7 +691,7 @@ def test_the_declared_replicate_counts_are_the_pilot_merge_reading() -> None:
 
 def test_a_reporting_truth_row_of_the_red_cell_ledger_is_gated_by_no_list() -> None:
     """The ledger names a row ``reporting`` only while no gated list holds the row."""
-    from tests.studies.evidence.red_cells import REPORTING_TRUTH_ROWS
+    from tests.studies.evidence.red_cells import REPORTING_ROWS
 
     tags = {
         slug: tag
@@ -701,8 +701,9 @@ def test_a_reporting_truth_row_of_the_red_cell_ledger_is_gated_by_no_list() -> N
             "S3": "long-horizon-sdr",
         }.items()
     }
-    for key in REPORTING_TRUTH_ROWS:
-        assert key.kind == "truth"
+    truth_rows = [key for key in REPORTING_ROWS if key.kind == "truth"]
+    assert truth_rows
+    for key in truth_rows:
         _, scenario, estimand = key.key.split("/")
         gated = {(name, quantity) for tag, name, quantity in D.GATED_ROWS if tag == tags[key.slug]}
         assert (scenario, estimand) not in gated

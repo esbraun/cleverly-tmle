@@ -136,15 +136,23 @@ class RedRow:
     measured: str
 
 
-#: Red truth rows that no gated list holds, each with the ``fails by`` text that says so. The
-#: row reads red on its legs, and it blocks nothing.  ``tests/unit/test_long_horizon_design.py``
-#: checks that none of these rows is in ``GATED_ROWS``.
-REPORTING_TRUTH_ROWS: Mapping[RedKey, str] = {
+#: Red truth rows and property cells whose failing Wald reading is a reporting one, because n is
+#: below the tail size of the quantity, each with the ``fails by`` text that says so.  The row
+#: reads red on its own verdict, and it blocks nothing.  ``tests/unit/test_long_horizon_design.py``
+#: checks that no gated list holds a truth row here, and
+#: ``tests/unit/test_longitudinal_sdr_design.py`` checks that each property cell here is in that
+#: study's ``BELOW_TAIL_SIZE`` and fails on its coverage floor alone.
+REPORTING_ROWS: Mapping[RedKey, str] = {
     RedKey(
         "long-horizon-sdr",
         "truth",
         "cleverly-long-horizon-sdr/sdr_categorical_k5_switch/ey_regimen[switch]",
     ): "its truth legs; a reporting row, with n below the tail size",
+    RedKey(
+        "longitudinal-sdr",
+        "property",
+        "sequential_double_robustness/both_correct__n_2000",
+    ): "its coverage floor; a reporting cell, with n below the tail size",
 }
 
 
@@ -660,21 +668,20 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "interval_calibration/three_arm_t3__correctly_specified",
         ),
     ),
-    # ``tests/unit/test_sdr_shortfall_reading.py`` rebuilds the reading.
-    "X4-finite-sample": (
-        *_keys(
-            "longitudinal-sdr",
-            "property",
-            "sequential_double_robustness/both_correct__n_2000",
-        ),
-    ),
-    # The Wald row of one quantity in a scenario below its exact-law tail size, so no gated list
-    # holds it (``tests/long_horizon_design.py``).
+    # A Wald row or cell whose n is below the exact-law tail size of its quantity, so its Wald
+    # reading reports: the long-horizon row no gated list holds (``tests/long_horizon_design.py``)
+    # and the SDR cell in ``BELOW_TAIL_SIZE`` of ``tests/studies/longitudinal_sdr_properties.py``,
+    # whose reading ``tests/unit/test_sdr_below_tail_size_reading.py`` rebuilds.
     "X39-below-tail-size": (
         *_keys(
             "long-horizon-sdr",
             "truth",
             "cleverly-long-horizon-sdr/sdr_categorical_k5_switch/ey_regimen[switch]",
+        ),
+        *_keys(
+            "longitudinal-sdr",
+            "property",
+            "sequential_double_robustness/both_correct__n_2000",
         ),
     ),
     "X16-plugin-variance": (
@@ -1097,8 +1104,8 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
         )
         own = all(bool(getattr(row, leg, True)) for leg in legs)
         red_key = RedKey(record.slug, "truth", "/".join(key))
-        if red_key in REPORTING_TRUTH_ROWS:
-            fails_by = REPORTING_TRUTH_ROWS[red_key]
+        if red_key in REPORTING_ROWS:
+            fails_by = REPORTING_ROWS[red_key]
         elif gate[0] or not own:
             fails_by = "its truth gate"
         else:
@@ -1163,14 +1170,12 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
                 & (property_accounting["cell"].astype(str) == str(row.cell))
             ]
         )
-        out.append(
-            RedRow(
-                RedKey(record.slug, "property", f"{row.property}/{row.cell}"),
-                str(row.role),
-                override or ("its own rule" if not own else "the family's joint clause"),
-                measured(row) + suffix,
-            )
-        )
+        red_key = RedKey(record.slug, "property", f"{row.property}/{row.cell}")
+        if override is None and red_key in REPORTING_ROWS:
+            fails_by = REPORTING_ROWS[red_key]
+        else:
+            fails_by = override or ("its own rule" if not own else "the family's joint clause")
+        out.append(RedRow(red_key, str(row.role), fails_by, measured(row) + suffix))
 
     hooks = accounting.loc[accounting["table"] == "hook"]
     for row in hooks.itertuples():

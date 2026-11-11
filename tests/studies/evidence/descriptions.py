@@ -498,6 +498,9 @@ ARMS: dict[str, str] = {
     "msm_identity": "the duration coefficient of the identity-link working model",
     "msm_logit": "the duration coefficient of the logit-link working model",
     "selection_weighted": "contrast of always against never on the selected law, with weights",
+    "selection_weighted_n2400": (
+        "contrast of always against never on the selected law, with weights, at n = 2,400"
+    ),
     "clusters_200": "contrast of always against never, 200 clusters of 10 rows",
     "clusters_20": "contrast of always against never, 20 clusters of 100 rows",
     "six_regimens": "the six regimen means and five contrasts of the two-node law",
@@ -4940,8 +4943,9 @@ CELLS.update(
 
 
 #: The ``sequential_double_robustness`` cells of ``longitudinal-sdr``: one pattern of wrong
-#: nuisances per node, at two sizes.  Mirrored from
-#: ``tests.studies.longitudinal_sdr_properties.PATTERN_NUISANCES``.
+#: nuisances per node, at two sizes, and at a third for the exact-ratio pair.  Mirrored from
+#: ``tests.studies.longitudinal_sdr_properties.PATTERN_NUISANCES`` and the sizes of
+#: ``tests.studies.canonical_longitudinal_sdr.SDR_PATTERN_SIZES``.
 _SDR_PATTERNS = {
     "both_correct": (
         "every outcome regression and mechanism is correct",
@@ -4967,14 +4971,24 @@ _SDR_PATTERNS = {
         "inside the union-model band",
     ),
 }
+#: The exact-ratio patterns at n = 2,000, below twice the tail size of the contrast, where the
+#: coverage clause reports.
+_SDR_BELOW_TAIL_SIZE = (
+    "bias inside the margin, SE ratio inside the union-model band; coverage clears the floor, "
+    "a reporting clause because n is below twice the tail size of the contrast"
+)
 CELLS.update(
     {
         ("sequential_double_robustness", f"{pattern}__n_{size}"): (
             f"{tested}, at n = {size:,}",
-            required,
+            _SDR_BELOW_TAIL_SIZE
+            if pattern in {"both_correct", "P_C"} and size == 2_000
+            else required,
         )
         for pattern, (tested, required) in _SDR_PATTERNS.items()
-        for size in (2_000, 8_000)
+        for size in (
+            (2_000, 4_800, 8_000) if pattern in {"both_correct", "P_C"} else (2_000, 8_000)
+        )
     }
 )
 CELLS.update(
