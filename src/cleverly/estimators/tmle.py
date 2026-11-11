@@ -197,6 +197,9 @@ from ..inference.influence import (
     stamp_inference,
 )
 from ..inference.multiplier import (
+    DEFAULT_BAND_SCALE,
+    DEFAULT_KIND,
+    DEFAULT_N_REPLICATES,
     MultiplierKind,
     known_regime_estimates,
     out_of_range,
@@ -915,17 +918,17 @@ class TMLE:
         Run a full-refit bootstrap with this many replicates (R's ``B``): each replicate
         refits the nuisances and the targeting step on a resample.
     simultaneous, n_multiplier, multiplier_kind:
-        Simultaneous confidence bands across estimands via the multiplier bootstrap.
-        ``multiplier_kind="rademacher"`` (default) and ``"mammen"`` resample and so
-        stay accurate when the influence curve has leverage; ``"normal"`` is sampled
-        in closed form from the max-t distribution and is far cheaper, but depends on
-        the influence curves only through their covariance and is biased conservative
-        under weak overlap.  See :mod:`cleverly.inference.multiplier`.
+        Simultaneous confidence bands across estimands via the multiplier bootstrap, with
+        ``n_multiplier`` draws (default 10,000).  ``multiplier_kind="mammen"`` (default)
+        and ``"rademacher"`` resample and so stay accurate when the influence curve has
+        leverage; ``"normal"`` is sampled in closed form from the max-t distribution and
+        is far cheaper, but depends on the influence curves only through their covariance
+        and is biased conservative under weak overlap.  See
+        :mod:`cleverly.inference.multiplier`.
     band_scale:
-        ``"logit"`` builds the band of a probability, or of a difference of two
+        ``"logit"`` (default) builds the band of a probability, or of a difference of two
         probabilities, on the logit of the estimate's position in its range; ``"identity"``
-        (default) on the estimate's own scale.  See
-        :func:`~cleverly.inference.simultaneous_bands`.
+        on the estimate's own scale.  See :func:`~cleverly.inference.simultaneous_bands`.
     step_size, max_iter, tol:
         Targeting-step controls.
     stopping:
@@ -1144,9 +1147,9 @@ class TMLE:
         n_bootstrap: int = 0,
         bootstrap_resampling: Resampling = "auto",
         simultaneous: bool = True,
-        n_multiplier: int = 1000,
-        multiplier_kind: MultiplierKind = "rademacher",
-        band_scale: str = "identity",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: MultiplierKind = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
         step_size: float = 1e-3,
         max_iter: int = 20,
         tol: float = 1e-10,
@@ -2361,7 +2364,7 @@ class TMLE:
                         classification,
                         result.inference_status,
                         (estimate.support for estimate in banded.values()),
-                        options=(self.multiplier_kind, getattr(self, "band_scale", "identity")),
+                        options=(self.multiplier_kind, self.band_scale),
                         draws=int(self.n_multiplier),
                     ),
                 ),

@@ -37,7 +37,7 @@ from ..dose_response import (
 )
 from ..exceptions import CapabilityError, DataError, DataWarning, RefusalReason
 from ..inference.influence import ParameterEstimate, make_estimate
-from ..inference.multiplier import SimultaneousBands, simultaneous_bands
+from ..inference.multiplier import DEFAULT_N_REPLICATES, SimultaneousBands, simultaneous_bands
 from ..learners.density import ConditionalDensity, bin_edges, default_density_bins
 from ..utils.frames import frame_from_dict
 from ._nuisance import NuisanceEstimates, fit_nuisances
@@ -337,6 +337,14 @@ DOSE_RESPONSE_MEASURED: Final[Mapping[tuple[str, str, bool], str]] = {
 DOSE_RESPONSE_BAND_MEASURED: Final[tuple[str, str, bool]] = ("binary", "logistic", False)
 
 
+#: Why the measured configuration's band reads experimental until its band rows are regenerated.
+DOSE_RESPONSE_BAND_INTERIM: Final[str] = (
+    f"The registered {DOSE_RESPONSE_STUDY} study measured this band with the Rademacher "
+    "multiplier at 1,000 draws. The band now uses the Mammen multiplier at 10,000 draws, and "
+    "the study's band rows have not been regenerated with it (band-finite-sample)."
+)
+
+
 def dose_response_support(
     *,
     outcome: str,
@@ -349,9 +357,11 @@ def dose_response_support(
 
     A fit's intervals read ``supported`` when its configuration is one of
     :data:`DOSE_RESPONSE_MEASURED` and it is cross-fitted and unweighted.  Its band reads
-    ``supported`` when, in addition, the configuration is :data:`DOSE_RESPONSE_BAND_MEASURED`.
-    Otherwise each reads ``experimental``, with every reason that applies.  A pair below the
-    support floor is experimental whatever this returns (status ``low_dose_support_plugin``).
+    ``experimental`` with :data:`DOSE_RESPONSE_BAND_INTERIM` when, in addition, the configuration
+    is :data:`DOSE_RESPONSE_BAND_MEASURED`, until that band's rows are regenerated with the
+    default multiplier.  Otherwise each reads ``experimental``, with every reason that applies.
+    A pair below the support floor is experimental whatever this returns (status
+    ``low_dose_support_plugin``).
 
     Parameters
     ----------
@@ -414,7 +424,10 @@ def dose_response_support(
         limits=limits,
     )
     if configuration == DOSE_RESPONSE_BAND_MEASURED:
-        return pairs, pairs
+        # TODO(band-finite-sample Wave 2): the band cell measured the Rademacher multiplier at
+        # 1,000 draws, before the default moved to Mammen at 10,000.  Return ``pairs`` again
+        # once its regenerated rows pass under the plan's section 8 rule.
+        return pairs, Support("experimental", DOSE_RESPONSE_BAND_INTERIM, limits=limits)
     band = Support(
         "experimental",
         "The registered dose-response study measures the simultaneous band on a binary outcome "
@@ -487,8 +500,8 @@ class DoseResponseTMLE:
         A cross-fitted fit of a continuous outcome needs it, as every cross-fitted fit does.
     alpha : float
         The level of the intervals and of the band.
-    n_replicates : int
-        Multiplier draws behind the band.
+    n_replicates : int, default=10_000
+        Multiplier draws behind the band, with the Mammen multiplier.
     random_state : int or None
         Seed of the split, the learners and the band.
     n_jobs : int
@@ -508,7 +521,7 @@ class DoseResponseTMLE:
         fluctuation: Literal["logistic", "linear"] = "logistic",
         q_bounds: tuple[float, float] | None = None,
         alpha: float = 0.05,
-        n_replicates: int = 1000,
+        n_replicates: int = DEFAULT_N_REPLICATES,
         random_state: int | None = None,
         n_jobs: int = 1,
     ) -> None:

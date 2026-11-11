@@ -18,7 +18,14 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Final
 
-from ._support import DEFAULT_BAND_OPTION, KEY_AXES, BandOption, Kind, SupportKey, SupportRow
+from ._support import (
+    KEY_AXES,
+    MEASURED_BAND_OPTION,
+    BandOption,
+    Kind,
+    SupportKey,
+    SupportRow,
+)
 from .learners.glm import GLM
 
 __all__ = [
@@ -2598,13 +2605,28 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
 SDR_MEASURED_BAND_OPTION: Final[BandOption] = ("mammen", "logit")
 
 #: The ``(multiplier_kind, band_scale)`` pairs each row's band cells measured, for the rows that
-#: list more than :data:`~cleverly._support.DEFAULT_BAND_OPTION`. Every other row that licenses
-#: ``band`` measured the shipped default alone. A band built with an unlisted pair is
-#: experimental; the fit's pointwise estimates keep their row.
+#: list more than :data:`~cleverly._support.MEASURED_BAND_OPTION`. Every other row that licenses
+#: ``band`` measured that option alone. A band built with an unlisted pair is experimental; the
+#: fit's pointwise estimates keep their row.
+#:
+#: The default band is :data:`~cleverly._support.DEFAULT_BAND_OPTION` (Mammen, logit, 10,000
+#: draws) since band-finite-sample PR 2, and the committed band cells of every row but
+#: ``G23.cross_fitted`` still measure Rademacher on the identity scale.  So a default band reads
+#: experimental on every other row, with the reason that names the measured option, until the
+#: row's band rows are regenerated.
+#:
+#: TODO(band-finite-sample Wave 2): move a row to ``(SDR_MEASURED_BAND_OPTION,)`` through
+#: :data:`BAND_CELLS` when every cell mapped to it passes on the regenerated rows, under the
+#: plan's section 8 rule: the flip lands only if every previously green band cell still passes
+#: (a miss below 0.92, or an upper limit at or above 0.98, with refused bands counted as not
+#: covered, blocks it); a row with a mapped red cell keeps its shortfall on the regenerated
+#: reading; ``rademacher``, ``normal`` and ``band_scale="identity"`` then read experimental with
+#: the reason "no registered study after band-finite-sample".  A blocked Wave 2 changes nothing
+#: here and leaves the readings in the ``band_rerun/`` sidecars, which no row reads.
 BAND_OPTIONS: Final[Mapping[str, tuple[BandOption, ...]]] = {
     # The six_regimens cell of longitudinal_sdr is cross-fitted, so it is this row's band cell
     # (BAND_CELLS).
-    "G23.cross_fitted": (DEFAULT_BAND_OPTION, SDR_MEASURED_BAND_OPTION),
+    "G23.cross_fitted": (MEASURED_BAND_OPTION, SDR_MEASURED_BAND_OPTION),
 }
 
 #: The multiplier draws each listed band option was measured at, as ``(row id, option) ->
@@ -2616,9 +2638,10 @@ BAND_OPTION_DRAWS: Final[Mapping[tuple[str, BandOption], int]] = {
 #: The red band readings of one band option inside one row, as ``(row id, option) -> sentence``.
 #: A band built with that option reads the sentence as a reason of its experimental label.
 BAND_OPTION_SHORTFALLS: Final[Mapping[tuple[str, BandOption], str]] = {
-    ("G23.cross_fitted", DEFAULT_BAND_OPTION): (
-        "Row G23.cross_fitted measured its shipped default band (Rademacher, identity scale, "
-        "2,000 draws) in the reporting row six_regimens__shipped_band_reporting: joint coverage "
+    ("G23.cross_fitted", MEASURED_BAND_OPTION): (
+        "Row G23.cross_fitted measured the band that was the default before band-finite-sample "
+        "(Rademacher, identity scale, 2,000 draws) in the reporting row "
+        "six_regimens__shipped_band_reporting: joint coverage "
         "0.9313 with 99% Clopper-Pearson interval 0.9255 to 0.9368, reported with no verdict "
         "(band-finite-sample). A band with band_scale='logit', multiplier_kind='mammen' and at "
         "least 10,000 draws is supported on this row."

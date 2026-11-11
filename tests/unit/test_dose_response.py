@@ -25,6 +25,7 @@ from cleverly.dose_response import (
     pair_name,
 )
 from cleverly.estimators.dose_response import (
+    DOSE_RESPONSE_BAND_INTERIM,
     DOSE_RESPONSE_BAND_MEASURED,
     DOSE_RESPONSE_MEASURED,
     DOSE_RESPONSE_STUDY,
@@ -351,7 +352,10 @@ def test_a_measured_configuration_reads_supported(fitted) -> None:  # type: igno
     for estimate in fitted.estimates.values():
         assert estimate.support.label == "supported"
         assert estimate.support.evidence == (DOSE_RESPONSE_STUDY,)
-    assert fitted.band.support.label == "supported"
+    # The band cell measured Rademacher at 1,000 draws; the default band waits on its rows.
+    assert fitted.band.support.label == "experimental"
+    assert fitted.band.support.reason == DOSE_RESPONSE_BAND_INTERIM
+    assert (fitted.band.kind, fitted.band.n_replicates) == ("mammen", 10_000)
 
 
 def test_an_in_sample_fit_reads_experimental() -> None:
@@ -364,7 +368,7 @@ def test_an_in_sample_fit_reads_experimental() -> None:
 @pytest.mark.parametrize(
     ("outcome", "fluctuation", "strata", "pairs", "band"),
     [
-        ("binary", "logistic", False, "supported", "supported"),
+        ("binary", "logistic", False, "supported", "experimental"),
         ("binary", "logistic", True, "supported", "experimental"),
         ("continuous", "linear", False, "supported", "experimental"),
         ("continuous", "logistic", False, "experimental", "experimental"),

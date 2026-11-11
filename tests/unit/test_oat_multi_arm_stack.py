@@ -474,7 +474,8 @@ class TestBW3TheBandAfterAFailure:
 
 @pytest.fixture(scope="module")
 def banded() -> Any:
-    return _fit(laws.THREE_ARM_ACTIVE.sample(1500, 75)[0], simultaneous=True)
+    # On the identity scale the half-widths are the critical value times each standard error.
+    return _fit(laws.THREE_ARM_ACTIVE.sample(1500, 75)[0], simultaneous=True, band_scale="identity")
 
 
 def _stacked_matrix(result: Any, names: list[str]) -> np.ndarray:

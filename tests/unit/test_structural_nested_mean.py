@@ -779,7 +779,13 @@ def _cluster_standard_error(curve: np.ndarray, cluster: np.ndarray) -> float:
 
 def _clustered_fits() -> tuple[StructuralNestedMeanResult, StructuralNestedMeanResult]:
     frame = _clustered()
-    settings = {**GLMS, "n_folds": 1, "n_multiplier": 400, "simultaneous": True}
+    settings = {
+        **GLMS,
+        "n_folds": 1,
+        "n_multiplier": 400,
+        "multiplier_kind": "rademacher",
+        "simultaneous": True,
+    }
     return (
         snmm(frame, regimens=REGIMENS, id="id", **settings, **SIM),
         snmm(frame, regimens=REGIMENS, **settings, **SIM),

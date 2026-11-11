@@ -17,6 +17,7 @@ import pandas as pd
 import pytest
 from scipy import optimize, stats
 
+from cleverly.inference.multiplier import DEFAULT_KIND, DEFAULT_N_REPLICATES
 from tests import discrete_law_mar as mar
 from tests.studies import canonical_mar_arm_indexed_cvtmle as study
 from tests.studies import mar_arm_indexed_cvtmle_properties as properties
@@ -325,7 +326,8 @@ def test_a_band_at_the_pointwise_critical_value_fails_its_cell() -> None:
     assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"])
 
 
-#: The multiplier draws and the level behind each committed band critical value.
+#: The multiplier draws and the level behind each committed band critical value (the default
+#: before band-finite-sample).
 BAND_DRAWS = 1000
 BAND_LEVEL = 0.95
 
@@ -414,8 +416,12 @@ def test_the_study_bands_use_the_draws_the_target_assumes() -> None:
         missingness_learner=None,
         simultaneous=True,
     ).estimator_kwargs()
-    assert configured["n_multiplier"] == BAND_DRAWS
-    assert configured["multiplier_kind"] == "rademacher"
+    # The study's fits draw the default band.  The committed rows were drawn with the
+    # Rademacher multiplier at BAND_DRAWS draws, before band-finite-sample moved the default;
+    # TODO(band-finite-sample Wave 2): set BAND_DRAWS to the default with the regenerated rows,
+    # which also narrows CRITICAL_VALUE_TOLERANCE by sqrt(10).
+    assert configured["n_multiplier"] == DEFAULT_N_REPLICATES
+    assert configured["multiplier_kind"] == DEFAULT_KIND
 
 
 @pytest.mark.parametrize("law", LAWS, ids=IDS)

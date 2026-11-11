@@ -21,6 +21,7 @@ from cleverly import _support
 from cleverly._refusal import Refusal, RefusalReason
 from cleverly._support import (
     DEFAULT_BAND_OPTION,
+    MEASURED_BAND_OPTION,
     RECORD_ENVIRONMENT_VARIABLE,
     Classification,
     Support,
@@ -371,15 +372,22 @@ class TestBandSupport:
     def supported() -> Support:
         return Support("supported", "Row RB covers this configuration.", ("study-b",), row="RB")
 
-    def test_the_default_option_is_supported(self, classification: Classification) -> None:
-        band = band_support(classification, "influence_curve", [self.supported()])
-        assert band.label == "supported"
-        assert (
-            band_support(
-                classification, "influence_curve", [self.supported()], options=DEFAULT_BAND_OPTION
-            )
-            == band
+    def test_the_measured_option_is_supported(self, classification: Classification) -> None:
+        band = band_support(
+            classification, "influence_curve", [self.supported()], options=MEASURED_BAND_OPTION
         )
+        assert band.label == "supported"
+
+    def test_the_default_option_waits_on_its_regenerated_cells(
+        self, classification: Classification
+    ) -> None:
+        """A row whose cells measured the old band reads the default band as experimental."""
+        band = band_support(classification, "influence_curve", [self.supported()])
+        assert band == band_support(
+            classification, "influence_curve", [self.supported()], options=DEFAULT_BAND_OPTION
+        )
+        assert band.label == "experimental"
+        assert "multiplier_kind='mammen' with band_scale='logit'" in band.reason
 
     @pytest.mark.parametrize("option", [("mammen", "identity"), ("rademacher", "logit")])
     def test_an_unlisted_option_makes_the_band_experimental(
@@ -393,7 +401,7 @@ class TestBandSupport:
 
     def test_a_listed_option_is_supported(self, frame: Any) -> None:
         key, learners = key_of(TMLE(**linear_in_sample()), frame)
-        row = band_row(key, band_options=(DEFAULT_BAND_OPTION, ("mammen", "logit")))
+        row = band_row(key, band_options=(MEASURED_BAND_OPTION, ("mammen", "logit")))
         classification = classify_key(key, learners, rows=[row])
         band = band_support(
             classification, "influence_curve", [self.supported()], options=("mammen", "logit")
@@ -405,11 +413,13 @@ class TestBandSupport:
         sentence = "Row RB is red for the default band: joint coverage 0.91 to 0.94."
         row = band_row(
             key,
-            band_options=(DEFAULT_BAND_OPTION, ("mammen", "logit")),
-            band_option_shortfalls=((DEFAULT_BAND_OPTION, sentence),),
+            band_options=(MEASURED_BAND_OPTION, ("mammen", "logit")),
+            band_option_shortfalls=((MEASURED_BAND_OPTION, sentence),),
         )
         classification = classify_key(key, learners, rows=[row])
-        shipped = band_support(classification, "influence_curve", [self.supported()])
+        shipped = band_support(
+            classification, "influence_curve", [self.supported()], options=MEASURED_BAND_OPTION
+        )
         assert shipped.label == "experimental"
         assert sentence in shipped.reason
         other = band_support(
@@ -432,12 +442,12 @@ class TestBandSupport:
 
         rows = {row.id: row for row in LONGITUDINAL_ROWS}
         assert rows["G23.cross_fitted"].band_options == (
-            DEFAULT_BAND_OPTION,
+            MEASURED_BAND_OPTION,
             SDR_MEASURED_BAND_OPTION,
         )
         assert SDR_MEASURED_BAND_OPTION == ("mammen", "logit")
         others = [row for row in rows.values() if row.id != "G23.cross_fitted"]
-        assert {row.band_options for row in others} == {(DEFAULT_BAND_OPTION,)}
+        assert {row.band_options for row in others} == {(MEASURED_BAND_OPTION,)}
         row = rows["G23.cross_fitted"]
         classification = Classification(row.key, {}, row)
         support = _support.support_for(classification, "influence_curve")

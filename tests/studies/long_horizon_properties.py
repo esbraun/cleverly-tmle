@@ -755,6 +755,13 @@ def _band_truths(K: int, m: int, law: Law, names: Sequence[str]) -> dict[str, fl
     return out
 
 
+def band_names(result: Any) -> list[str]:
+    """The estimates the fit's band covers, or would cover when it refused its logit band."""
+    if result.simultaneous is not None:
+        return sorted(result.simultaneous.bands)
+    return sorted(name for name, value in result.estimates.items() if value.supplies_inference)
+
+
 def fit_key(key: Key, sample: pd.DataFrame) -> list[dict[str, Any]]:
     """Every row one key writes, fitted on its drawn sample."""
     tag, name, *_ = key
@@ -764,7 +771,7 @@ def fit_key(key: Key, sample: pd.DataFrame) -> list[dict[str, Any]]:
         config = arm.config
         if arm.joint and not arm.bootstrapped:
             result = _call(arm, sample, arm.plans, simultaneous=True, reference=None)
-            names = sorted(result.simultaneous.bands)
+            names = band_names(result)
             rows += joint_coverage_rows(
                 result,
                 _band_truths(config.K, config.m, config.law, names),
@@ -780,7 +787,7 @@ def fit_key(key: Key, sample: pd.DataFrame) -> list[dict[str, Any]]:
             result = _call(
                 arm, sample, arm.plans, simultaneous=True, reference=None, n_bootstrap=D.B_GATE
             )
-            names = sorted(result.simultaneous.bands)
+            names = band_names(result)
             rows += band_rows(
                 result,
                 config,

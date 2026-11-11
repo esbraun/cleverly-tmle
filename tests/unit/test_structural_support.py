@@ -36,7 +36,7 @@ import cleverly
 from cleverly import _support
 from cleverly._summary import vocabulary
 from cleverly._summary._estimates import plain_support_reason
-from cleverly._support import UNCLASSIFIED, SupportRow, structural_key
+from cleverly._support import DEFAULT_BAND_OPTION, UNCLASSIFIED, SupportRow, structural_key
 from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.learners import GLM
 from cleverly.longitudinal import StructuralNestedMean, snmm
@@ -253,7 +253,10 @@ def _prepared() -> Any:
 
 
 def covering_row(key: Any, *, row_id: str = "SNM-TEST", **replacements: Any) -> SupportRow:
-    """A row that names every axis of ``key``, licenses every kind and names the GLM learners."""
+    """A row that names every axis of ``key``, licenses every kind and names the GLM learners.
+
+    Its band cells measured the default band.
+    """
     from dataclasses import replace
 
     return SupportRow(
@@ -262,6 +265,7 @@ def covering_row(key: Any, *, row_id: str = "SNM-TEST", **replacements: Any) -> 
         kinds=frozenset({"point", "wald", "wald_t", "band", "derived"}),
         evidence=("structural-nested-mean-test",),
         learners={"outcome": GLM, "treatment": GLM},
+        band_options=(DEFAULT_BAND_OPTION,),
     )
 
 

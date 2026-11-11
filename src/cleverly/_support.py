@@ -41,6 +41,7 @@ __all__ = [
     "DEFAULT_BAND_OPTION",
     "KEY_AXES",
     "LEARNER_FAMILY_MARKER",
+    "MEASURED_BAND_OPTION",
     "RECORD_ENVIRONMENT_VARIABLE",
     "REGIMEN_KINDS",
     "UNCLASSIFIED",
@@ -121,8 +122,13 @@ UNCLASSIFIED: Final[Support] = Support(
 #: ``band_scale`` its limits are built on.
 BandOption = tuple[str, str]
 
-#: The band configuration of a default fit, which every row's band cells measured.
-DEFAULT_BAND_OPTION: Final[BandOption] = ("rademacher", "identity")
+#: The band configuration of a default fit: the Mammen multiplier, on the logit scale.
+DEFAULT_BAND_OPTION: Final[BandOption] = ("mammen", "logit")
+
+#: The band configuration the committed band cells measured: the Rademacher multiplier on the
+#: identity scale, the default before band-finite-sample.  Every row that licenses ``band``
+#: lists it until that row's band rows are regenerated with the default band.
+MEASURED_BAND_OPTION: Final[BandOption] = ("rademacher", "identity")
 
 _TWO_ROWS_REASON: Final[str] = "This estimate combines estimates of two support rows."
 
@@ -1074,7 +1080,7 @@ class SupportRow:
     limits: tuple[str, ...] = ()
     shortfalls: tuple[tuple[str, str], ...] = ()
     kind_families: tuple[tuple[str, frozenset[str]], ...] = ()
-    band_options: tuple[BandOption, ...] = (DEFAULT_BAND_OPTION,)
+    band_options: tuple[BandOption, ...] = (MEASURED_BAND_OPTION,)
     band_option_shortfalls: tuple[tuple[BandOption, str], ...] = ()
     band_option_draws: tuple[tuple[BandOption, int], ...] = ()
 
@@ -1395,7 +1401,7 @@ def band_support(
     kind : {"band", "bootstrap_band"}, default="band"
         The band's kind: the influence-curve multiplier band, or the studentized bootstrap
         sup-t band.
-    options : tuple of str, default ("rademacher", "identity")
+    options : tuple of str, default ("mammen", "logit")
         The band's ``(multiplier_kind, band_scale)``. Read only for ``kind="band"``.
     draws : int or None, default=None
         The band's multiplier draws. An option whose row names a measured draw count needs

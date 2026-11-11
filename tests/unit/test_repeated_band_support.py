@@ -51,6 +51,35 @@ def _logistic() -> LogisticRegression:
 
 
 def test_the_engine_band_over_every_parameter_is_supported(frame) -> None:
+    """The band the G27 cell measured: Rademacher on the identity scale."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = LTMLE(
+            {"never": 0, "always": 1},
+            reference="never",
+            outcome_learner=_logistic(),
+            pseudo_learner=LinearRegression(),
+            treatment_learner=_logistic(),
+            censoring_learner=_logistic(),
+            n_folds=1,
+            simultaneous=True,
+            multiplier_kind="rademacher",
+            band_scale="identity",
+            random_state=0,
+        ).fit(
+            frame,
+            outcome=Repeated([f"order_{week}" for week in WEEKS]),
+            treatment=[f"offer_{week}" for week in WEEKS],
+            baseline=["tenure", "order_0"],
+            time_varying=[[f"engaged_{week}"] for week in WEEKS],
+            censoring=[f"tracked_{week}" for week in WEEKS],
+        )
+    assert {estimate.support.row for estimate in result.estimates.values()} == {"G27"}
+    assert result.simultaneous.support.label == "supported"
+
+
+def test_the_default_band_waits_on_the_regenerated_cell(frame) -> None:
+    """The G27 cell measured the old band, so the default band reads experimental."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = LTMLE(
@@ -71,8 +100,10 @@ def test_the_engine_band_over_every_parameter_is_supported(frame) -> None:
             time_varying=[[f"engaged_{week}"] for week in WEEKS],
             censoring=[f"tracked_{week}" for week in WEEKS],
         )
-    assert {estimate.support.row for estimate in result.estimates.values()} == {"G27"}
-    assert result.simultaneous.support.label == "supported"
+    assert {estimate.support.label for estimate in result.estimates.values()} == {"supported"}
+    band = result.simultaneous.support
+    assert band.label == "experimental"
+    assert "multiplier_kind='mammen' with band_scale='logit'" in band.reason
 
 
 def test_a_band_on_an_unmeasured_multiplier_leaves_the_fit_supported(frame) -> None:
@@ -89,6 +120,7 @@ def test_a_band_on_an_unmeasured_multiplier_leaves_the_fit_supported(frame) -> N
             n_folds=1,
             simultaneous=True,
             multiplier_kind="mammen",
+            band_scale="identity",
             random_state=0,
         ).fit(
             frame,

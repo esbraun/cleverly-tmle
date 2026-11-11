@@ -82,7 +82,14 @@ from ..inference.influence import (
     has_t_reference,
     make_estimate,
 )
-from ..inference.multiplier import SimultaneousBands, simultaneous_bands
+from ..inference.multiplier import (
+    DEFAULT_BAND_SCALE,
+    DEFAULT_KIND,
+    DEFAULT_N_REPLICATES,
+    SimultaneousBands,
+    out_of_range,
+    simultaneous_bands,
+)
 from ..inference.results import (
     estimate_covariance,
     estimate_curves,
@@ -1267,11 +1274,11 @@ class StructuralNestedMean:
         The significance level of the intervals.
     simultaneous : bool, default=True
         Whether to report simultaneous bands.
-    n_multiplier : int, default=2000
+    n_multiplier : int, default=10_000
         Multiplier draws of the bands.
-    multiplier_kind : str, default="rademacher"
+    multiplier_kind : str, default="mammen"
         The multiplier law.
-    band_scale : str, default="identity"
+    band_scale : str, default="logit"
         The scale of the band of a bounded estimate
         (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None, default=None
@@ -1346,9 +1353,9 @@ class StructuralNestedMean:
         min_eigenvalue: float = DEFAULT_MIN_EIGENVALUE,
         alpha_sig: float = 0.05,
         simultaneous: bool = True,
-        n_multiplier: int = 2000,
-        multiplier_kind: str = "rademacher",
-        band_scale: str = "identity",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: str = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -1856,6 +1863,9 @@ class StructuralNestedMean:
         chosen = {name: estimates[name] for name in family if estimates[name].supplies_inference}
         if not self.simultaneous or len(chosen) < 2 or has_t_reference(chosen):
             return None
+        # A logit band needs every bounded estimate strictly inside its range.
+        if out_of_range(chosen, self.band_scale):
+            return None
         bands = simultaneous_bands(
             chosen,
             alpha=self.alpha_sig,
@@ -1871,7 +1881,7 @@ class StructuralNestedMean:
                 classification,
                 status,
                 (estimate.support for estimate in chosen.values()),
-                options=(self.multiplier_kind, getattr(self, "band_scale", "identity")),
+                options=(self.multiplier_kind, self.band_scale),
                 draws=int(self.n_multiplier),
             ),
         )

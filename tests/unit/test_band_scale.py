@@ -586,10 +586,10 @@ class TestTheSkipPath:
 
     def test_the_shipped_default_band_reads_its_reporting_row(self) -> None:
         """The shipped band on ``G23.cross_fitted`` is experimental, quoting its committed row."""
-        from cleverly._support import DEFAULT_BAND_OPTION
+        from cleverly._support import MEASURED_BAND_OPTION
         from cleverly._support_rows import BAND_OPTION_SHORTFALLS
 
-        sentence = BAND_OPTION_SHORTFALLS["G23.cross_fitted", DEFAULT_BAND_OPTION]
+        sentence = BAND_OPTION_SHORTFALLS["G23.cross_fitted", MEASURED_BAND_OPTION]
         shipped = _sdr_band_fit(band_scale="identity", kind="rademacher", n_replicates=2_000)
         assert shipped.simultaneous.support.label == "experimental"
         assert sentence in shipped.simultaneous.support.reason
