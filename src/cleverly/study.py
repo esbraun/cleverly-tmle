@@ -5307,6 +5307,35 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         >>> [score for score, _, _ in check.rows()]
         ['S', 'S', 'S', 'S0', 'S0', 'S0', 'S - S0']
         """
+        assessment, _, _ = self._assess_score_with_fit(
+            column,
+            computed_from=computed_from,
+            score_kind=score_kind,
+            compare=compare,
+            compare_computed_from=compare_computed_from,
+            scale=scale,
+            alpha=alpha,
+            **overrides,
+        )
+        return assessment
+
+    def _assess_score_with_fit(
+        self,
+        column: str,
+        *,
+        computed_from: Sequence[str] | None,
+        score_kind: str | None,
+        compare: str | None,
+        compare_computed_from: Sequence[str] | None,
+        scale: str | None,
+        alpha: float,
+        **overrides: Any,
+    ) -> tuple[Any, Any, Any]:
+        """:meth:`assess_score`, with the ATE fit it targeted and the rows it read.
+
+        The ``score-assessment`` study reads the fit's initial arm regressions for its
+        one-step and plug-in columns without fitting twice.
+        """
         from .effect_curves import score_assessment
         from .effect_modification import _resolve_pair, log_ratio_scale_refusal
 
@@ -5358,7 +5387,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         estimator = TMLE(**kwargs)
         _check_score_settings(estimator)
         fit = estimator.fit(data).single()
-        return score_assessment(fit, data, scores, scale=chosen, pair=pair, alpha=alpha)
+        return score_assessment(fit, data, scores, scale=chosen, pair=pair, alpha=alpha), fit, data
 
     def targeting_curve(
         self,
