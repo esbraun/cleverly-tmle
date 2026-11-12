@@ -20,7 +20,7 @@ from ._typing import (
 from .exceptions import MethodConfigurationError, Refusal, RefusalReason
 from .fluctuation._score import check_iterate, check_step_bound, check_stopping_rule
 from .inference.bootstrap import Resampling
-from .inference.multiplier import MultiplierKind
+from .inference.multiplier import BandScale, MultiplierKind
 from .learners.crossfit import SplitPlan, _cross_fit_policy_refusal
 from .learners.library import _validate_learner
 from .longitudinal.pooled_hazards import check_hazard_pooling
@@ -179,7 +179,7 @@ REPEATED_OUTCOME_REFUSAL = Refusal(
         "{kinds} fit{verb} one. Each horizon is the end-of-study fit of the panel truncated "
         "after it."
     ),
-    roadmap="X32b",
+    roadmap="X71",
 )
 #: Why an estimator with no logistic node fluctuation refuses ``node_bounds=``. The condition
 #: holds ``{estimator}``, which :func:`node_bounds_refusal` fills in.
@@ -783,6 +783,11 @@ class Inference:
         Multiplier draws for simultaneous bands.
     multiplier_kind : {"rademacher", "mammen", "normal"}, default="rademacher"
         Distribution of multiplier weights.
+    band_scale : {"logit", "identity"}, default="identity"
+        The scale of the band of a probability or of a difference of two probabilities.
+        ``"logit"`` builds it on the logit of the estimate's position in its range, so it
+        stays inside the range and can be asymmetric
+        (:func:`~cleverly.inference.simultaneous_bands`).
 
     See Also
     --------
@@ -823,6 +828,7 @@ class Inference:
     #: is; the stored configuration keeps ``"auto"`` so it still says "the engine's default".
     n_multiplier: int | Literal["auto"] = "auto"
     multiplier_kind: MultiplierKind = "rademacher"
+    band_scale: BandScale = "identity"
 
 
 @dataclass(frozen=True)
@@ -984,6 +990,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "simultaneous": "simultaneous",
         "n_multiplier": "n_multiplier",
         "multiplier_kind": "multiplier_kind",
+        "band_scale": "band_scale",
     },
     "runtime": {
         "random_state": "random_state",
@@ -1239,6 +1246,7 @@ class TMLEMethod:
             "simultaneous": True if inference.simultaneous is None else inference.simultaneous,
             "n_multiplier": inference.n_multiplier,
             "multiplier_kind": inference.multiplier_kind,
+            "band_scale": inference.band_scale,
             "random_state": runtime.random_state,
             "run_id": runtime.run_id,
             "n_jobs": runtime.n_jobs,
@@ -1728,6 +1736,10 @@ default="greedy"
         }
 
 
+#: The iteration cap of the survival drift loop, the default of ``SurvivalDRTMLE``.
+SURVIVAL_DRIFT_MAX_ITER = 200
+
+
 @dataclass(frozen=True)
 class DRTMLEMethod(TMLEMethod):
     """Configure the reduced-dimension DR-TMLE correction.
@@ -1825,22 +1837,43 @@ class DRTMLEMethod(TMLEMethod):
         Parameters
         ----------
         longitudinal : bool
-            Must be false because no longitudinal correction is supported.
+            Whether to translate for :class:`~cleverly.longitudinal.SurvivalDRTMLE`, the
+            time-to-event engine.
 
         Returns
         -------
         dict of str to Any
-            DR-TMLE engine keyword arguments.
+            DRTMLE or SurvivalDRTMLE engine keyword arguments.
+
+        Notes
+        -----
+        The time-to-event engine fits hazards and reports no band, so the unset
+        ``survival_model=None`` and ``simultaneous=None`` resolve to ``"hazard"`` and
+        ``False`` there, and the default ``Targeting.max_iter`` resolves to the drift loop's
+        cap of 200 iterations.  The engine refuses a panel with the F5 text, and every
+        point-only setting it cannot read.
         """
         if longitudinal:
-            raise MethodConfigurationError(
-                "DR-TMLE has no longitudinal derivation.",
-                reason=RefusalReason.IMPLEMENTATION_GAP,
-                alternative=(
-                    "Fit a longitudinal design with method='sdr' (sequentially doubly robust)."
-                ),
-                roadmap="F5",
-            )
+            kwargs = TMLEMethod.estimator_kwargs(self, longitudinal=True)
+            if self.models.survival_model is None:
+                kwargs["survival_model"] = "hazard"
+            if self.inference.simultaneous is None:
+                kwargs["simultaneous"] = False
+            if self.targeting.max_iter == Targeting().max_iter:
+                # The drift loop's own cap; Targeting's default caps a hazard solve.
+                kwargs["max_iter"] = SURVIVAL_DRIFT_MAX_ITER
+            return {
+                **kwargs,
+                "guard": self.guard,
+                "reduction": self.reduction,
+                "reduced_outcome_learner": self.reduced_outcome_learner,
+                "reduced_treatment_learner": self.reduced_treatment_learner,
+                "reduced_mechanism_residual_learner": self.reduced_mechanism_residual_learner,
+                "reduced_crossfit": self.reduced_crossfit,
+                "update_order": self.update_order,
+                "evaluation": self.evaluation,
+                "randomized": self.randomized,
+            }
         return {
             **super().estimator_kwargs(),
             "guard": self.guard,

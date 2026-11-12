@@ -905,6 +905,7 @@ def _atc(ctx: TargetContext) -> list[ParameterEstimate]:
 BUILTIN_TARGETS: tuple[Target, ...] = (
     Target(
         name="ate",
+        bounded="difference",
         group="mean",
         scale="difference",
         build=_ate,
@@ -914,6 +915,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="att",
+        bounded="difference",
         group="att",
         scale="difference",
         build=_att,
@@ -928,6 +930,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="atc",
+        bounded="difference",
         group="atc",
         scale="difference",
         build=_atc,
@@ -942,6 +945,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ey",
+        bounded="mean",
         group="mean",
         scale="level",
         build=_ey,
@@ -952,6 +956,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ey1",
+        bounded="mean",
         group="mean",
         scale="level",
         build=_ey1,
@@ -962,6 +967,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ey0",
+        bounded="mean",
         group="mean",
         scale="level",
         build=_ey0,
@@ -972,6 +978,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ey_obs",
+        bounded="mean",
         group="mean",
         scale="level",
         build=_ey_obs,
@@ -980,6 +987,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="par",
+        bounded="difference",
         group="mean",
         scale="difference",
         build=_par,
@@ -1022,6 +1030,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ey_regime",
+        bounded="mean",
         group="regime",
         scale="level",
         build=_ey_regime,
@@ -1032,6 +1041,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ate_regime",
+        bounded="difference",
         group="regime",
         scale="difference",
         build=_ate_regime,
@@ -1042,6 +1052,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ey_learned_rule",
+        bounded="mean",
         group="regime",
         scale="level",
         build=_ey_learned_rule,
@@ -1055,6 +1066,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ey_optimal_rule",
+        bounded="mean",
         group="regime",
         scale="level",
         build=_ey_optimal_rule,
@@ -1070,6 +1082,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ey_known_regime",
+        bounded="mean",
         group="regime",
         scale="level",
         build=_ey_known_regime,
@@ -1083,6 +1096,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ate_learned_rule",
+        bounded="difference",
         group="regime",
         scale="difference",
         build=_ate_learned_rule,
@@ -1096,6 +1110,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ey_ipsi",
+        bounded="mean",
         group="ipsi",
         scale="level",
         build=_ey_ipsi,
@@ -1109,6 +1124,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ate_ipsi",
+        bounded="difference",
         group="ipsi",
         scale="difference",
         build=_ate_ipsi,
@@ -1119,6 +1135,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ey_policy",
+        bounded="mean",
         group="mtp",
         scale="level",
         build=_ey_policy,
@@ -1129,6 +1146,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ate_policy",
+        bounded="difference",
         group="mtp",
         scale="difference",
         build=_ate_policy,
@@ -1139,6 +1157,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ey_rr_tilt",
+        bounded="mean",
         group="mtp",
         scale="level",
         build=_ey_rr_tilt,
@@ -1150,6 +1169,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
     ),
     Target(
         name="ate_rr_tilt",
+        bounded="difference",
         group="mtp",
         scale="difference",
         build=_ate_rr_tilt,

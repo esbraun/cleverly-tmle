@@ -324,6 +324,24 @@ def read_structural_diagnostics(diagnostics: Any, text: str) -> None:
     assert _fact(text, "Fits with a one-class fold") == f"{diagnostics.n_constant_fits:,}"
 
 
+def read_drift_record(record: Any, text: str) -> None:
+    """A survival drift-correction record: the scores at the stop and the header facts."""
+    labels = ("efficient score", "treatment drift", "censoring drift", "hazard drift")
+    check_rows(
+        text, [[(label, (value,)) for label, value in zip(labels, record.scores, strict=True)]]
+    )
+    stop = "stopped" if record.converged else "cap reached"
+    assert _fact(text, "Arm") == record.arm
+    assert _fact(text, "Horizon") == str(record.horizon)
+    assert _fact(text, "Iterations") == f"{record.n_iter} ({stop})"
+    assert _fact(text, "Held factors") == (", ".join(record.held_factors) or "none")
+    assert _fact(text, "Curve subtracts") == (", ".join(record.curve_terms) or "nothing")
+    degenerate = sum(fit.degenerate for fit in record.reductions)
+    assert _fact(text, "Regressions") == f"{len(record.reductions)} ({degenerate} at the mean)"
+    floored = sum(count for _, count in record.denominator_hits)
+    assert _fact(text, "Floored denominators") == str(floored)
+
+
 def read_survival_selection(record: Any, text: str) -> None:
     """A collaborative survival selection: one row per path position, and its header."""
     rows = []

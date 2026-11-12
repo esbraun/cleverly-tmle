@@ -29,7 +29,7 @@ def key(**overrides: Any) -> dict[str, Any]:
         "splitting": ["in_sample"],
         "dependence": "iid",
         "qualifiers": [],
-        "options": [["multiplier_kind", "rademacher"]],
+        "options": [["targeting", "iterative"]],
     }
     return base | overrides
 

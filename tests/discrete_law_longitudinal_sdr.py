@@ -25,6 +25,15 @@ LTMLE in pattern ``P_D``           node 1: a prior share; node 2: least squares 
 A limit is the exact-law error times :math:`\sqrt{2000}`, divided by the standard deviation of
 the misspecified fit's own influence curve.  That is the denominator the harness reads.  The
 floor is 3, and ``tests/unit/test_longitudinal_sdr_design.py`` recomputes both limits.
+
+**Tail sizes.**  The law is sparse on the always path: the cell ``W = 1, A1 = 1, C1 = 1, L2 = 1,
+A2 = 1, C2 = 1`` has probability 0.001465 and inverse weight 85.3.  The kurtosis of the contrast's
+EIF is 146.36, so its tail size :math:`n_\kappa` (``tests/long_horizon_sampling_sd.py``,
+``C_KAPPA`` 0.25) is 2,326; the arms read 1,484 (never) and 5,853 (always).  The exact-law
+curves of the patterns read 2,326 (``both_correct``), 84 (``P_A``), 150 (``P_B``), 1,572
+(``P_C``) and 730 (``P_D``), and the controls' curves 190 and 623.  The exact-ratio patterns
+therefore gate their coverage floor at n = 4,800 and 8,000, at least twice 2,326, and report it
+at n = 2,000 (the tail-size rule of ``tests/studies/longitudinal_sdr_properties.py``).
 """
 
 from __future__ import annotations

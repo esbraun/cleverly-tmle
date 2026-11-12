@@ -91,6 +91,7 @@ from .delta import (
 )
 
 __all__ = [
+    "BoundedKind",
     "ClusterReference",
     "CorrectionParts",
     "CovarianceRule",
@@ -116,6 +117,7 @@ __all__ = [
     "missing_outcome_correction_parts",
     "msm_coefficients",
     "natural_course_mean",
+    "parameter_bounds",
     "policy_means",
     "ratio_estimates",
     "reduced_correction_parts",
@@ -134,6 +136,41 @@ Scale = Literal["level", "difference", "ratio", "fraction"]
 
 #: How an estimate's joint covariance is read off its influence curve.
 CovarianceRule = Literal["centered", "second_moment"]
+
+#: What kind of bounded functional a target is: a mean of the outcome, or a difference of two
+#: such means.  :func:`parameter_bounds` turns it into the range on a binary outcome.
+BoundedKind = Literal["mean", "difference"]
+
+#: The open range of each bounded kind on a binary outcome.
+_BINARY_RANGES: dict[str, tuple[float, float]] = {
+    "mean": (0.0, 1.0),
+    "difference": (-1.0, 1.0),
+}
+
+
+def parameter_bounds(kind: BoundedKind | None, family: str) -> tuple[float, float] | None:
+    """The open range a parameter lies in, from its declared kind and the outcome family.
+
+    Parameters
+    ----------
+    kind : {"mean", "difference"} or None
+        The target's declaration: a mean of the outcome, a difference of two such means, or
+        ``None`` for any other functional.
+    family : str
+        The outcome family of the fit.
+
+    Returns
+    -------
+    tuple of float or None
+        ``(0, 1)`` for a mean and ``(-1, 1)`` for a difference of a ``"binomial"`` outcome,
+        and ``None`` otherwise.  A continuous outcome has no range here, even with declared
+        outcome bounds, because a scaled range can be data-derived and the binomial
+        mean-variance coupling the logit band corrects does not apply.
+    """
+    if kind is None or family != "binomial":
+        return None
+    return _BINARY_RANGES[kind]
+
 
 # ``InferenceStatus`` and ``supplies_inference`` live in the leaf module
 # :mod:`cleverly._inference_status`, beside the table of what each status says, and are
@@ -689,6 +726,12 @@ class ParameterEstimate:
         A fit sets it from its classification. An estimate built outside a classified fit
         is experimental. ``repr`` and ``summary()`` print the word ``experimental`` for an
         experimental estimate.
+    bounds : tuple of float or None
+        The open interval the parameter lies in, when the fit knows it: ``(0, 1)`` for a mean
+        of a binary outcome and ``(-1, 1)`` for a difference of two such means. A
+        simultaneous band with ``band_scale="logit"`` is built on the logit of the
+        estimate's position in this range. ``None`` for every other parameter, including any
+        parameter of a continuous outcome.
 
     Attributes
     ----------
@@ -755,6 +798,7 @@ class ParameterEstimate:
     transform: Transform | None = None
     reference_df: int | None = None
     support: Support = UNCLASSIFIED
+    bounds: tuple[float, float] | None = None
 
     def _plugin_std_error(self) -> float:
         """The plug-in standard error, under any inference status.
@@ -1316,6 +1360,7 @@ def make_estimate(
     inference: InferenceStatus = "influence_curve",
     reference_df: int | None = None,
     support: Support = UNCLASSIFIED,
+    bounds: tuple[float, float] | None = None,
 ) -> ParameterEstimate:
     """Assemble a :class:`ParameterEstimate`, computing its variance under its rule.
 
@@ -1359,12 +1404,14 @@ def make_estimate(
     support : Support, default=UNCLASSIFIED
         The support the estimate carries. A caller that builds an estimate inside a classified
         fit passes the support of that fit.
+    bounds : tuple of float or None, default=None
+        The open interval the parameter lies in, from :func:`parameter_bounds`.
 
     Returns
     -------
     ParameterEstimate
-        The estimate, declaring ``covariance_rule``, ``inference``, ``reference_df`` and
-        ``support``.
+        The estimate, declaring ``covariance_rule``, ``inference``, ``reference_df``,
+        ``support`` and ``bounds``.
     """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
     if covariance_rule == "second_moment":
@@ -1392,6 +1439,7 @@ def make_estimate(
         inference=inference,
         reference_df=reference_df if supplies_inference(inference) else None,
         support=support,
+        bounds=bounds,
     )
 
 
@@ -1676,6 +1724,7 @@ def median_estimates(
             transform=transform,
             reference_df=minimum_reference_df(parts),
             support=parts[0].support,
+            bounds=parts[0].bounds,
         )
     return out
 

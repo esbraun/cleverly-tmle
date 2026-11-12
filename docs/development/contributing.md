@@ -14,8 +14,9 @@ release saves loads in another release with a `VersionMismatchWarning`, and the 
 migrate it. Do not add compatibility code for an earlier release. The "Compatibility" section of
 `CLAUDE.md` states the rule.
 
-The [roadmap](../roadmap.md) is the single planning contract. It orders open work by beta
-milestone. It keeps work that needs new fundamental theory in a separate future grid. Read its
+The [roadmap](../roadmap.md) is the single planning contract. It groups open work by topic,
+with fixes first and a tier for each item. It keeps work that needs new fundamental theory in a
+separate future grid. Read its
 [eligibility rule](../roadmap.md#eligibility) before you propose a new method. `cleverly`
 accepts established methods and natural extensions of established theory.
 

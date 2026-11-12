@@ -325,10 +325,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert np.allclose(printed["mean drop"].to_numpy(), expected_drop)
     assert abs(float(printed["mean drop"].iloc[-1]) - namespace["mar_mean"]) < 0.01
     assert float(printed["mean drop"].iloc[1]) < 0.5 * namespace["mar_mean"]
-    assert (
-        figure_title(namespace["missingness_fig"])
-        == "Does the estimate depend on why outcomes are missing?"
-    )
+    assert figure_title(namespace["missingness_fig"]) == "Estimate across missingness assumptions"
 
 
 def check_refits(namespace: dict[str, Any]) -> None:

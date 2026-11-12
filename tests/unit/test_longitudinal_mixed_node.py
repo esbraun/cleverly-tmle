@@ -505,6 +505,15 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/collaborative.py", "assemble_mechanism"): (
         "after survival_design_refusal refuses a non-categorical node"
     ),
+    ("longitudinal/drift.py", "SurvivalDRTMLE._horizons"): (
+        "after drift_design_refusal refuses a non-categorical node"
+    ),
+    ("longitudinal/drift.py", "paper_view"): (
+        "after drift_design_refusal refuses a non-categorical node"
+    ),
+    ("longitudinal/drift.py", "run_drift"): (
+        "after drift_design_refusal refuses a non-categorical node"
+    ),
     ("longitudinal/data.py", "LongitudinalData.node_present"): "presence of every kind",
     ("longitudinal/data.py", "LongitudinalData.node_codes"): "raises at a mixed node",
     ("longitudinal/data.py", "LongitudinalData.node_values"): "dispatches on the kind",
@@ -577,6 +586,21 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
         "after survival_design_refusal refuses a non-categorical node"
     ),
     ("longitudinal/collaborative.py", "survival_design_refusal"): (
+        "refuses a node that is not categorical before reading its levels"
+    ),
+    ("longitudinal/drift.py", "SurvivalDRTMLE._horizons"): (
+        "after drift_design_refusal refuses a non-categorical node"
+    ),
+    ("longitudinal/drift.py", "_level_plan"): (
+        "after drift_design_refusal refuses a non-categorical node"
+    ),
+    ("longitudinal/drift.py", "paper_view"): (
+        "after drift_design_refusal refuses a non-categorical node"
+    ),
+    ("longitudinal/drift.py", "run_drift"): (
+        "after drift_design_refusal refuses a non-categorical node"
+    ),
+    ("longitudinal/drift.py", "drift_design_refusal"): (
         "refuses a node that is not categorical before reading its levels"
     ),
     ("longitudinal/data.py", "LongitudinalData._declare_known"): "a mixed node is refused first",

@@ -201,7 +201,7 @@ class TestTheKeyReadsTheFit:
         assert key.splitting == ("cross_fitted",)
         assert key.weighting == "none"
         assert key.dependence == "iid"
-        assert dict(key.options) == {"covariate_features": False, "multiplier_kind": "rademacher"}
+        assert dict(key.options) == {"covariate_features": False}
 
     def test_an_in_sample_fit_a_missing_regimen_and_a_covariate_feature(self) -> None:
         assert self.key(n_folds=1).splitting == ("in_sample",)

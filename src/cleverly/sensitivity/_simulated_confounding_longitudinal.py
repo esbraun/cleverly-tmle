@@ -171,6 +171,14 @@ def _refuse_collaborative(result: Any) -> Refusal | None:
     return SIMULATED_CONFOUNDING_REFUSAL
 
 
+def _refuse_drift(result: Any) -> Refusal | None:
+    if getattr(result, "drift", None) is None:
+        return None
+    from ..longitudinal.drift import REPLAY_REFUSAL
+
+    return REPLAY_REFUSAL
+
+
 def _refuse_eliminated(result: Any) -> Refusal | None:
     return _ELIMINATED_REFUSAL if getattr(result.data, "eliminated", ()) else None
 
@@ -237,6 +245,7 @@ LONGITUDINAL_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("result_type", _refuse_type),
     ("estimator", _refuse_estimator),
     ("collaborative", _refuse_collaborative),
+    ("drift", _refuse_drift),
     ("eliminated", _refuse_eliminated),
     ("outcome_kind", _refuse_outcome_kind),
     ("censoring", _refuse_censoring),

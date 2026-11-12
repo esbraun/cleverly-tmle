@@ -23,6 +23,29 @@ previous reader had is not a citation; a page number is.
   5.1, article pages 27–28, treats CAR-censored parameters. Its Equation (11) is the targeted influence-curve
   equation after the observed-data curve is known. It does not derive RM8's missing-outcome curve
   or response transfer.
+- Díaz (2019), [*Statistical inference for data-adaptive doubly robust estimators with survival
+  outcomes*](https://arxiv.org/abs/1709.00401), *Statistics in Medicine* 38(15):2735–2748. Read
+  first-hand in the arXiv author manuscript, arXiv:1709.00401v3, from its LaTeX source and PDF;
+  the journal version was not read. Section 5 gives the drift-corrected
+  estimator that `SurvivalDRTMLE` implements: the univariate regressions of eqs. (7) and (8), the
+  clever covariates of eq. (9), the submodels (14) to (16) and the influence curve of Theorem 2.
+
+  The printed eq. (9) and Theorem 1 carry four defects, each found by an exact finite-law check of
+  the drift identity and traced through the Supplementary proof of Theorem 1. The proof applies its
+  telescoping lemma to $G_0 - \hat G$ with $\{g_{R,0} - \hat g_R\}$ where the lemma gives
+  $\{\hat g_R - g_{R,0}\}$, so the score $D_R$ carries the wrong sign and the $e_R$ sum inside
+  $H_L$ carries the sign of the $e_A$ term where it should carry the opposite one. The products in
+  the $e_A$ term are printed $D_{t,0}(t) B_{t,0}(t-1)$, conditioned on $C_h(t)$; the term telescopes
+  to $S_0(\tau) - \hat S(\tau)$, so they condition on $C_h(0) = S(\tau)$, the index of $q_0$, and
+  are $D_{0,0}(t) B_{0,0}(t-1)$. Eq. (7) conditions $e_A$ on $M(W) = \sum_t S(t, W)$, the
+  restricted-mean index; for the survival probability it conditions on $S(\tau, W)$.
+  `cleverly.longitudinal.drift` states the corrected forms, and
+  `tests/unit/test_survival_drtmle.py` holds the exact-law checks and a mutation control for each.
+
+  Two further slips do not change the estimator. Theorem 2 prints its consistency pairs swapped:
+  $D_A = D_R = 0$ follows from a consistent hazard and $D_L = 0$ from consistent treatment and
+  censoring mechanisms, as the paper's own Lemma A and proof of Theorem 1 give. The proof's last
+  display for $D_L$ writes $S_{k,0}(t)$ where eq. (9) has $D_{k,0}(t)$.
 - Díaz Muñoz & van der Laan (2012), [*Population Intervention Causal Effects Based on
   Stochastic Interventions*](https://doi.org/10.1111/j.1541-0420.2011.01685.x), *Biometrics*
   68(2):541–549, DOI 10.1111/j.1541-0420.2011.01685.x. Read first-hand in the PubMed Central
@@ -2294,6 +2317,17 @@ sizes only the cluster sum is the delta-method variance of the row mean
 - Benjamini & Hochberg (1995), [*Controlling the False Discovery Rate: A Practical and
   Powerful Approach to Multiple Testing*](https://doi.org/10.1111/j.2517-6161.1995.tb02031.x),
   DOI 10.1111/j.2517-6161.1995.tb02031.x.
+- Brown, Cai & DasGupta (2001), [*Interval Estimation for a Binomial
+  Proportion*](https://doi.org/10.1214/ss/1009213286), DOI 10.1214/ss/1009213286. The Wald
+  interval of a probability under-covers erratically at moderate counts, which is the reason for
+  `band_scale="logit"` ([the band scale](technical-reference/inference.md#the-band-scale)).
+- Mammen (1993), [*Bootstrap and Wild Bootstrap for High Dimensional Linear
+  Models*](https://doi.org/10.1214/aos/1176349025), DOI 10.1214/aos/1176349025. The two-point
+  multiplier of `multiplier_kind="mammen"`.
+- Chernozhukov, Chetverikov & Kato (2013), [*Gaussian Approximations and Multiplier Bootstrap for
+  Maxima of Sums of High-Dimensional Random Vectors*](https://doi.org/10.1214/13-AOS1161),
+  DOI 10.1214/13-AOS1161. First-order validity of the multiplier critical value of a max-$t$
+  band.
 
 ## Calibration of prediction models
 

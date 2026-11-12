@@ -393,6 +393,7 @@ def settings(rows: pd.DataFrame, **overrides: Any) -> Any:
         "simultaneous": True,
         "n_multiplier": 500,
         "multiplier_kind": "mammen",
+        "band_scale": "logit",
         "max_iter": 5,
         "tol": 1e-8,
         "run_id": "repeat witness",

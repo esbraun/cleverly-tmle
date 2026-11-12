@@ -498,6 +498,9 @@ ARMS: dict[str, str] = {
     "msm_identity": "the duration coefficient of the identity-link working model",
     "msm_logit": "the duration coefficient of the logit-link working model",
     "selection_weighted": "contrast of always against never on the selected law, with weights",
+    "selection_weighted_n2400": (
+        "contrast of always against never on the selected law, with weights, at n = 2,400"
+    ),
     "clusters_200": "contrast of always against never, 200 clusters of 10 rows",
     "clusters_20": "contrast of always against never, 20 clusters of 100 rows",
     "six_regimens": "the six regimen means and five contrasts of the two-node law",
@@ -1451,6 +1454,21 @@ ARMS.update(
         "cross_fitted_sep01_death_t3": (
             "the separable-effects law, the risk of death by t = 3 with the relapse component at "
             "0 and the death component at 1, two outer folds, n = 16,000"
+        ),
+    }
+)
+
+#: The labels of ``survival-dr-tmle`` (X91 part F).  Mirrored from
+#: ``tests.studies.survival_dr_tmle_properties``, which this module cannot import.
+ARMS.update(
+    {
+        "a1_t5": (
+            "law L-S (two normal covariates, five time points, censoring), the risk of the event "
+            "by t = 5 under treatment, ten outer folds, n = 16,000"
+        ),
+        "both_rd": (
+            "law L-S, the difference in the risk of the event by t = 5 between treatment and no "
+            "treatment, ten outer folds, n = 16,000"
         ),
     }
 )
@@ -3653,6 +3671,43 @@ STUDY_ARM_CELLS.update(
     }
 )
 
+#: The re-declared ``longitudinal-sdr`` band cell (band-finite-sample declaration): one set of
+#: cross-fitted fits read by the declared band, its two controls and three reporting rows.
+_SDR_BAND = ("longitudinal-sdr", "simultaneous_coverage", "six_regimens")
+_DIAGNOSTIC_REQUIRED = "none. The row is a diagnostic and states no verdict"
+STUDY_ARM_CELLS.update(
+    {
+        (*_SDR_BAND, "simultaneous_band"): (
+            "the max-t band with each regimen mean on its logit scale and each contrast on its "
+            "atanh scale, at the Mammen multiplier critical value from 10,000 draws; a band the "
+            "fit refuses for an estimate on its range boundary counts as not covering",
+            "joint coverage interval inside the calibration coverage band",
+        ),
+        (*_SDR_BAND, "pointwise_joint_control"): (
+            "the pointwise 95% intervals of the same fits, read jointly",
+            "joint coverage upper endpoint must fall below the nominal rate",
+        ),
+        (*_SDR_BAND, "identity_scale_control"): (
+            "the same band on the identity scale at the band's own critical value",
+            "the 99% lower bound of the paired coverage gain of the band over this row is at "
+            "least 0.0001",
+        ),
+        (*_SDR_BAND, "shipped_band_reporting"): (
+            "the shipped default band: identity scale, Rademacher multiplier, 2,000 draws",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        (*_SDR_BAND, "rademacher_band_reporting"): (
+            "the band on the logit and atanh scales with the Rademacher multiplier at 10,000 draws",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        (*_SDR_BAND, "refused_band"): (
+            "per replication, whether the fit refused the declared band because an estimate "
+            "sat on its range boundary; its coverage column is the share of fits refused",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+    }
+)
+
 
 #: The ``longitudinal-repeated-ipsi`` cells, keyed by label, which only this study publishes.
 #: The labels mirror
@@ -4940,8 +4995,9 @@ CELLS.update(
 
 
 #: The ``sequential_double_robustness`` cells of ``longitudinal-sdr``: one pattern of wrong
-#: nuisances per node, at two sizes.  Mirrored from
-#: ``tests.studies.longitudinal_sdr_properties.PATTERN_NUISANCES``.
+#: nuisances per node, at two sizes, and at a third for the exact-ratio pair.  Mirrored from
+#: ``tests.studies.longitudinal_sdr_properties.PATTERN_NUISANCES`` and the sizes of
+#: ``tests.studies.canonical_longitudinal_sdr.SDR_PATTERN_SIZES``.
 _SDR_PATTERNS = {
     "both_correct": (
         "every outcome regression and mechanism is correct",
@@ -4967,14 +5023,24 @@ _SDR_PATTERNS = {
         "inside the union-model band",
     ),
 }
+#: The exact-ratio patterns at n = 2,000, below twice the tail size of the contrast, where the
+#: coverage clause reports.
+_SDR_BELOW_TAIL_SIZE = (
+    "bias inside the margin, SE ratio inside the union-model band; coverage clears the floor, "
+    "a reporting clause because n is below twice the tail size of the contrast"
+)
 CELLS.update(
     {
         ("sequential_double_robustness", f"{pattern}__n_{size}"): (
             f"{tested}, at n = {size:,}",
-            required,
+            _SDR_BELOW_TAIL_SIZE
+            if pattern in {"both_correct", "P_C"} and size == 2_000
+            else required,
         )
         for pattern, (tested, required) in _SDR_PATTERNS.items()
-        for size in (2_000, 8_000)
+        for size in (
+            (2_000, 4_800, 8_000) if pattern in {"both_correct", "P_C"} else (2_000, 8_000)
+        )
     }
 )
 CELLS.update(
@@ -5033,6 +5099,15 @@ CELLS.update(
             "the SE-ratio interval must fall below the calibration band",
         ),
     }
+)
+#: The weighted positive at n = 2,000 is below twice the tail size of the weighted contrast, so
+#: both of its Wald clauses report; its twin at n = 2,400 gates them.
+STUDY_ARM_CELLS[
+    ("longitudinal-sdr", "weighted_calibration", "selection_weighted", "correctly_specified")
+] = (
+    CELLS["weighted_calibration", "correctly_specified"][0],
+    "SE ratio and coverage intervals both inside their calibration bands, reporting clauses "
+    "because n is below twice the tail size of the contrast",
 )
 
 
@@ -8201,6 +8276,71 @@ STUDY_ESTIMANDS.update(
         ): "risk of the event by t = 2 under treatment",
         (_SURVIVAL_CTMLE_SLUG, "ate_regimen[a1 vs a0 @ t=2]"): (
             "difference in the risk of the event by t = 2 between treatment and no treatment"
+        ),
+    }
+)
+
+
+#: ``survival-dr-tmle`` (X91 part F): the drift-corrected survival TMLE of Díaz (2019),
+#: Section 5, with the corrected eq. (9).  The scenario, estimand and cell names are those of
+#: ``tests/studies/survival_dr_tmle.py`` and its properties module.
+_DRIFT_SLUG = "survival-dr-tmle"
+IMPLEMENTATIONS["cleverly-survival-dr-tmle"] = (
+    "`cleverly` SurvivalDRTMLE: hazard TMLE with the drift loop that also targets the residuals "
+    "of the treatment and censoring fits, Díaz (2019) Section 5 with the corrected eq. (9)"
+)
+_DRIFT_LAW = (
+    "two normal covariates, a binary baseline treatment, an event hazard and a censoring hazard "
+    "at five time points (law L-S)"
+)
+STUDY_SCENARIOS.update(
+    {
+        **{
+            (_DRIFT_SLUG, f"both_{k}k"): (
+                f"{_DRIFT_LAW}, an observational treatment; every nuisance a correct logistic "
+                f"model, ten outer folds, n = {k * 1000:,}"
+            )
+            for k in (1, 4, 16)
+        },
+        **{
+            (_DRIFT_SLUG, f"known_{k}k"): (
+                f"{_DRIFT_LAW}, a randomized treatment; the treatment and censoring probabilities "
+                f"declared and held, the hazard model wrong (it omits W2), ten outer folds, "
+                f"n = {k * 1000:,}"
+            )
+            for k in (1, 4, 16)
+        },
+    }
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_DRIFT_SLUG, "risk_regimen[a1 @ t=5]"): "risk of the event by t = 5 under treatment",
+        (_DRIFT_SLUG, "risk_regimen[a0 @ t=5]"): "risk of the event by t = 5 under no treatment",
+        (_DRIFT_SLUG, "ate_regimen[a1 vs a0 @ t=5]"): (
+            "difference in the risk of the event by t = 5 between treatment and no treatment"
+        ),
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_DRIFT_SLUG, "double_robustness", "a1_t5", "mechanism_correct"): (
+            "the hazard model wrong (it omits W2), with correct treatment and censoring models",
+            "bias interval inside the equivalence margin",
+        ),
+        (_DRIFT_SLUG, "double_robustness", "a1_t5", "outcome_correct"): (
+            "the hazard model correct, with the treatment model wrong (it omits W2) and a "
+            "constant censoring model",
+            "bias interval inside the equivalence margin",
+        ),
+        (_DRIFT_SLUG, "double_robustness", "a1_t5", "both_wrong"): (
+            "the hazard, treatment and censoring models all wrong: no sufficient condition holds",
+            "bias interval must fall entirely outside the margin",
+        ),
+        (_DRIFT_SLUG, "interval_calibration", "both_rd", "correctly_specified"): (
+            "every nuisance (hazard, treatment and censoring) a correct logistic model, read "
+            "against the exact efficient influence-curve spread",
+            "SE ratio and coverage intervals both inside their calibration bands, with both "
+            "efficiency-ratio intervals inside their bands",
         ),
     }
 )

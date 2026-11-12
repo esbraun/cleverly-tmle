@@ -1124,12 +1124,13 @@ longitudinal-sdr,sequential_double_robustness,bias equivalent,bias
 longitudinal-sdr,sequential_double_robustness,coverage floor,none
 longitudinal-sdr,sequential_double_robustness,se ratio in union band,se/0.05
 longitudinal-sdr,simultaneous_coverage,joint coverage below nominal,se_high
-longitudinal-sdr,simultaneous_coverage,joint coverage in calibration band,none
+longitudinal-sdr,simultaneous_coverage,joint coverage gain over the identity scale,se_high
+longitudinal-sdr,simultaneous_coverage,joint coverage in calibration band,se_low
 longitudinal-sdr,type_i_error,coverage floor,coverage/0.5
 longitudinal-sdr,type_i_error,rejection ceiling,rejection/0.1
 longitudinal-sdr,weighted_calibration,coverage in calibration band,bias
 longitudinal-sdr,weighted_calibration,se ratio below band,se_high
-longitudinal-sdr,weighted_calibration,se ratio in calibration band,se/0.05
+longitudinal-sdr,weighted_calibration,se ratio in calibration band,affine
 mar-attributable-tmle,interval_calibration,coverage in calibration band,bias
 mar-attributable-tmle,interval_calibration,efficiency above band,pair_collapse
 mar-attributable-tmle,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
@@ -1541,6 +1542,15 @@ stochastic-regimes,targeting_necessity,bias equivalent,bias
 stochastic-regimes,targeting_necessity,least displacement over labels,control_concentrated
 stochastic-regimes,type_i_error,coverage floor,coverage/0.5
 stochastic-regimes,type_i_error,rejection ceiling,rejection/0.1
+survival-dr-tmle,double_robustness,bias discriminated,pair_collapse
+survival-dr-tmle,double_robustness,bias equivalent,bias
+survival-dr-tmle,double_robustness,se ratio in union band,se/0.05
+survival-dr-tmle,interval_calibration,coverage in calibration band,bias
+survival-dr-tmle,interval_calibration,efficiency above band,pair_collapse
+survival-dr-tmle,interval_calibration,efficiency empirical in efficiency band,two_point/0.8892/1.03
+survival-dr-tmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+survival-dr-tmle,interval_calibration,se ratio below band,se_high
+survival-dr-tmle,interval_calibration,se ratio in calibration band,se/0.95
 survival-node-bounds,binding_witness,estimate moved share,extra|estimate_moved|binding_witness|mean_model__binding|floor
 survival-node-bounds,binding_witness,exceeds bound share,extra|exceeds_bound|binding_witness|mean_model__binding|floor
 survival-node-bounds,binding_witness,unconverged share,extra|converged|binding_witness|mean_model__binding|floor
@@ -1594,6 +1604,7 @@ tests.studies.longitudinal_sdr_properties,sequential_double_robustness,bias equi
 tests.studies.longitudinal_sdr_properties,sequential_double_robustness,coverage floor,se_low
 tests.studies.longitudinal_sdr_properties,sequential_double_robustness,se ratio in union band,se/0.05
 tests.studies.longitudinal_sdr_properties,simultaneous_coverage,joint coverage below nominal,pair_collapse
+tests.studies.longitudinal_sdr_properties,simultaneous_coverage,joint coverage gain over the identity scale,none
 tests.studies.longitudinal_sdr_properties,simultaneous_coverage,joint coverage in calibration band,se_low
 tests.studies.longitudinal_sdr_properties,type_i_error,coverage floor,coverage/0.5
 tests.studies.longitudinal_sdr_properties,type_i_error,rejection ceiling,rejection/0.1

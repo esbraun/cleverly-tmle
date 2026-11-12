@@ -18,6 +18,7 @@
 - [ ] `nox -s docs` passes, if a document or a docstring changed
 - [ ] `python -m build`, strict Twine validation, archive checks, and clean install checks pass
 - [ ] regenerated artifacts carry matching manifest hashes and line-feed endings
+- [ ] `docs/roadmap.md` is updated: a delivered item leaves it with a row in `docs/roadmap-delivered.md`, and a new item takes a topic row and a tier
 
 <!-- If implementation behavior changed, name every affected validation study and its
      regeneration command. State which artifacts moved and which stayed byte-identical. -->

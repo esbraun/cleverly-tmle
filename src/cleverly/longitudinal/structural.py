@@ -1271,6 +1271,9 @@ class StructuralNestedMean:
         Multiplier draws of the bands.
     multiplier_kind : str, default="rademacher"
         The multiplier law.
+    band_scale : str, default="identity"
+        The scale of the band of a bounded estimate
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None, default=None
         The seed of the folds, the default learners and the bands.
     run_id : str or None, default=None
@@ -1345,6 +1348,7 @@ class StructuralNestedMean:
         simultaneous: bool = True,
         n_multiplier: int = 2000,
         multiplier_kind: str = "rademacher",
+        band_scale: str = "identity",
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -1396,6 +1400,7 @@ class StructuralNestedMean:
         self.simultaneous = simultaneous
         self.n_multiplier = n_multiplier
         self.multiplier_kind = multiplier_kind
+        self.band_scale = band_scale
         self.random_state = random_state
         self.run_id = run_id
         self.n_jobs = n_jobs
@@ -1858,11 +1863,16 @@ class StructuralNestedMean:
             kind=self.multiplier_kind,  # type: ignore[arg-type]
             random_state=self.random_state,
             cluster=data.cluster,
+            band_scale=self.band_scale,  # type: ignore[arg-type]
         )
         return replace(
             bands,
             support=band_support(
-                classification, status, (estimate.support for estimate in chosen.values())
+                classification,
+                status,
+                (estimate.support for estimate in chosen.values()),
+                options=(self.multiplier_kind, getattr(self, "band_scale", "identity")),
+                draws=int(self.n_multiplier),
             ),
         )
 

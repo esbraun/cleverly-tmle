@@ -60,6 +60,7 @@ from .longitudinal import (
     SequentialGComputation,
     SequentialIPW,
     SurvivalCTMLE,
+    SurvivalDRTMLE,
 )
 from .longitudinal import estimator as _sequential
 from .longitudinal.data import check_markov_order, markov_restriction
@@ -1084,6 +1085,24 @@ def _censoring_probability_columns(supplied: Any) -> tuple[tuple[str, str], ...]
     return tuple((str(node), str(column)) for node, column in supplied.items())
 
 
+def _held_censoring(data: LongitudinalData) -> dict[float, str] | None:
+    """The column-name censoring declaration of a held container, by grid time, or ``None``.
+
+    Node :math:`j + 1`'s factor is declared at grid time :math:`g_j`, as
+    :meth:`~cleverly.longitudinal.LongitudinalData.from_time_to_event` reads it.
+    """
+    known = data.known_mechanisms
+    grid = data.time_grid
+    if known is None or grid is None or not known.censoring_columns:
+        return None
+    held = {
+        float(grid[node - 1]): column
+        for node, column in enumerate(known.censoring_columns)
+        if column is not None and node >= 1
+    }
+    return held or None
+
+
 def _held_node_columns(
     data: LongitudinalData,
 ) -> tuple[tuple[str, tuple[tuple[Any, str], ...]], ...] | None:
@@ -1477,6 +1496,11 @@ class TimeToEvent:
         then the risk of each remaining cause had the named causes been prevented (Young
         et al. 2020): their events are treated as censoring, and the fit models them beside
         the censoring.  Needs competing causes.
+    censoring_probabilities : mapping of float to str, or None
+        Known censoring probabilities: each grid time before the last mapped to the column
+        that holds the probability of still being observed after it, given the treatment
+        received, the covariates and being event-free and observed through it.  The fit then
+        divides by these probabilities at that time and fits no censoring learner there.
 
     Attributes
     ----------
@@ -1514,10 +1538,25 @@ class TimeToEvent:
     treatment_support: Any = None
     dose_atoms: Sequence[float] = ()
     eliminate: Sequence[str] = ()
+    censoring_probabilities: Mapping[float, str] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "dose_atoms", tuple(float(atom) for atom in self.dose_atoms))
         object.__setattr__(self, "eliminate", tuple(str(cause) for cause in self.eliminate))
+        if self.censoring_probabilities is not None:
+            if not isinstance(self.censoring_probabilities, Mapping) or not all(
+                isinstance(column, str) for column in self.censoring_probabilities.values()
+            ):
+                raise DataError(
+                    "TimeToEvent(censoring_probabilities=) maps each grid time to the column "
+                    "that holds the retention probability there, as every other design field "
+                    "names columns."
+                )
+            object.__setattr__(
+                self,
+                "censoring_probabilities",
+                {float(g): str(column) for g, column in self.censoring_probabilities.items()},
+            )
         if self.treatment_probabilities is not None:
             columns = probability_columns(_stored_pairs(self.treatment_probabilities))
             if columns is None:
@@ -1592,6 +1631,7 @@ class TimeToEvent:
                 None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
             ),
             eliminate=self.eliminate,
+            censoring_probabilities=self.censoring_probabilities,
         )
         return _declare_every_node(built, self.treatment_support, self.dose_atoms)
 
@@ -1600,6 +1640,7 @@ class TimeToEvent:
         held_columns = dict(_held_node_columns(data) or ()).get(self.treatment)
         expected: tuple[tuple[str, Any, Any], ...] = (
             ("treatment_probabilities", self.treatment_probabilities, held_columns),
+            ("censoring_probabilities", self.censoring_probabilities, _held_censoring(data)),
             ("time", self.time, data.time_name),
             ("event", self.event, data.event_name),
             ("treatment", (self.treatment,), tuple(data.treatment_names)),
@@ -2951,6 +2992,7 @@ def _narrow_bands(
             kind=bands.kind,
             random_state=result.config.multiplier_seed,
             cluster=result.data.cluster,
+            band_scale=bands.band_scale,
         )
     else:
         narrowed = simultaneous_bands(
@@ -2960,6 +3002,7 @@ def _narrow_bands(
             kind=bands.kind,
             random_state=getattr(method, "runtime", Runtime()).random_state,
             cluster=result.data.cluster,
+            band_scale=bands.band_scale,
         )
     # No study measures a band over a narrowed family, so the band is experimental whatever its
     # row licenses for the engine's own band.
@@ -3979,10 +4022,11 @@ def _variant_roadmap(method: str, functional: Any, design: Any) -> str:
 
     Notes
     -----
-    A longitudinal C-TMLE on a study reads its refusal from
-    :func:`~cleverly.longitudinal.collaborative.survival_design_refusal` instead, which names
-    X62 for a survival composition the source does not cover and F5 for a sequential score;
-    the F5 here is the fallback for an effect without a longitudinal panel.
+    A longitudinal C-TMLE or DR-TMLE on a study reads its refusal from
+    :func:`~cleverly.longitudinal.collaborative.survival_design_refusal` or
+    :func:`~cleverly.longitudinal.drift.drift_design_refusal` instead, which name X62 for a
+    survival composition the source does not cover and F5 for a sequential score; the F5 here
+    is the fallback for an effect without a longitudinal panel.
     """
     axis, target = functional.axis, functional.target
     # F5 keeps a longitudinal functional, a continuous dose, and ATT, ATC, incremental,
@@ -5414,6 +5458,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             alternative="Fit method='tmle'.",
             roadmap=drtmle_item,
         )
+        drtmle = variants
+        if self.functional.longitudinal and blocker is None:
+            drift_refusal = self._survival_drift_refusal()
+            drtmle = drift_refusal is None
+            if drift_refusal is not None:
+                drtmle_blocker = drift_refusal
         if isinstance(design, PointTreatment) and design.support == "vector":
             # A vector with a dose has no arms, as a continuous dose has none; each variant
             # refuses it with the reason its engine gives a continuous treatment.
@@ -5434,7 +5484,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 collaborative,
                 None if collaborative else collaborative_blocker,
             ),
-            MethodAvailability("drtmle", variants, None if variants else drtmle_blocker),
+            MethodAvailability("drtmle", drtmle, None if drtmle else drtmle_blocker),
             MethodAvailability("sdr", sdr, sdr_reason),
             MethodAvailability("ipsi", ipsi, ipsi_reason),
             MethodAvailability("gcomp", gcomp, gcomp_reason),
@@ -5513,6 +5563,33 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         if functional.target in {"ey_ipsi", "ate_ipsi"}:
             return collaborative.POLICY_REFUSAL
         return collaborative.survival_design_refusal(data, functional.interventions)
+
+    def _survival_drift_refusal(self) -> Refusal | None:
+        """Why :class:`~cleverly.longitudinal.SurvivalDRTMLE` refuses this functional, or ``None``.
+
+        Returns
+        -------
+        Refusal or None
+            The engine's refusal of the declared panel and interventions, read before any
+            learner, so ``available_methods()`` and the fit agree.
+        """
+        from .longitudinal import drift
+
+        data = getattr(self._study, "data", None)
+        functional = self.functional
+        if not isinstance(data, LongitudinalData):
+            return Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
+                "the drift-corrected TMLE fits a declared time-to-event panel, and this effect "
+                "has no panel to read.",
+                alternative="Fit method='tmle'.",
+                roadmap="F5",
+            )
+        if functional.msm is not None:
+            return drift.PROJECTION_REFUSAL
+        if functional.target in {"ey_ipsi", "ate_ipsi"}:
+            return drift.POLICY_REFUSAL
+        return drift.drift_design_refusal(data, functional.interventions)
 
     def _effect_modification_methods(
         self, records: tuple[MethodAvailability, ...]
@@ -6246,6 +6323,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             if isinstance(method, ParametricGFormulaMethod)
             else SurvivalCTMLE
             if isinstance(method, CollaborativeTMLEMethod)
+            else SurvivalDRTMLE
+            if isinstance(method, DRTMLEMethod)
             else LTMLE
         )
         estimator = engine(

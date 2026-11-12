@@ -351,7 +351,7 @@ def _narrow(text: str, ax: Axes, size: float, share: float) -> str:
     """``text`` wrapped to ``share`` of the figure's width.
 
     A colour bar sits beside the axes, and the layout places it past the widest text the
-    axes carries. A subtitle or note as wide as the figure would leave a gap.
+    axes carries. A subtitle as wide as the figure would leave a gap.
     """
     figure: Any = ax.figure
     while not hasattr(figure, "get_figwidth"):
@@ -360,22 +360,6 @@ def _narrow(text: str, ax: Axes, size: float, share: float) -> str:
     return "\n".join(
         textwrap.fill(part, characters, break_on_hyphens=False) for part in text.split("\n")
     )
-
-
-def _notes(ax: Axes, lines: Sequence[str], share: float, *, grow: bool = False) -> None:
-    """Write the notes; on a figure the plot made, ``grow`` adds height for them.
-
-    The notes sit under the axes, so without the added height a long block would squeeze
-    the map the layout engine fits above it.
-    """
-    _core.notes(ax, [_narrow(line, ax, _core.NOTE_SIZE, share) for line in lines if line])
-    if not grow:
-        return
-    block = [text for text in ax.texts if text.get_gid() == _core.GID_NOTES]
-    if block:
-        rows = block[0].get_text().count("\n") + 1
-        figure: Any = ax.figure
-        figure.set_figheight(figure.get_figheight() + rows * _core.NOTE_SIZE * 1.3 / 72.0 + 0.1)
 
 
 def _header(ax: Axes, title: str, subtitle: str, share: float) -> None:
@@ -501,8 +485,6 @@ def contour(
     benchmarks: Sequence[Any] | Any = (),
     multiples: Sequence[float] = (1.0,),
     null: float | None = None,
-    x_label: str | None = None,
-    y_label: str | None = None,
     title: str | None = None,
     ax: Axes | None = None,
 ) -> Figure:
@@ -523,18 +505,13 @@ def contour(
         two gains, read at the map's alignment.
     multiples : sequence of float, default=(1.0,)
         Multiples of both gains to mark. A multiple other than one is this plot's scaling
-        heuristic, not a bound, and the note says so. A multiple that takes a gain out of the
-        range of a share, or scales a gain clipped at one, is listed and not drawn.
+        heuristic, not a bound. A multiple that takes a gain out of the range of a share, or
+        scales a gain clipped at one, is not drawn, and :func:`~cleverly.plotting.notes`
+        lists it.
     null : float or None, default=None
         The value the bold contour marks. The robustness value's own null when ``robustness``
         is given, else the no-effect value of the estimate's scale. A level (a mean outcome)
         has none, so it needs ``null`` or ``robustness``.
-    x_label : str or None, default=None
-        Words for the x axis, the treatment-side strength ``cf_d``;
-        ``"Treatment-side strength, cf_d"`` when omitted.
-    y_label : str or None, default=None
-        Words for the y axis, the outcome-side strength ``cf_y``;
-        ``"Outcome-side strength, cf_y"`` when omitted.
     title : str or None, default=None
         The title.
     ax : Axes or None, default=None
@@ -706,17 +683,17 @@ def contour(
 
     axis.set_xlim(d_values[0], d_max)
     axis.set_ylim(y_values[0], y_max)
-    axis.set_xlabel(x_label if x_label is not None else "Treatment-side strength, cf_d")
-    axis.set_ylabel(y_label if y_label is not None else "Outcome-side strength, cf_y")
+    axis.set_xlabel("Treatment-side strength, cf_d")
+    axis.set_ylabel("Outcome-side strength, cf_y")
     words = _lower_first(_core.estimand_words(str(data.estimand)))
     estimate = _core.format_values([data.psi], [abs(vmax - vmin) / 20.0])[0]
     subtitle = (
-        f"{data.bound.capitalize()} bound of the {words} at alignment "
-        f"\u03c1\u00a0=\u00a0{data.rho:g}; estimate {estimate}"
+        f"{data.bound.capitalize()} bound of the {words} "
+        f"(\u03c1\u00a0=\u00a0{data.rho:g}); estimate {estimate}"
     )
     if rv is not None and rv <= min(d_max, y_max):
-        subtitle += f"; point robustness value {_number(rv)} (equal strengths)"
-    _header(axis, title or "How strong would hidden confounding need to be?", subtitle, 0.68)
+        subtitle += f"; point robustness value {_number(rv)}"
+    _header(axis, title or "Sensitivity to hidden confounding", subtitle, 0.68)
     lines_out = [
         f"Each cell is the bias-adjusted {data.bound} bound with no sampling error: no "
         "confidence limit is drawn, and the limit is not on this grid. Shading between "
@@ -729,7 +706,7 @@ def contour(
         from .._summary.vocabulary import NOTE_TEXTS as TEXTS
 
         lines_out.append(TEXTS["consistent_mechanism"])
-    _notes(axis, [*lines_out, *found, *_warnings(data)], 0.74, grow=ax is None)
+    _core.add_notes(axis, [*lines_out, *found, *_warnings(data)])
     return fig
 
 
@@ -912,8 +889,6 @@ def surface(
     *,
     at: Mapping[str, Any] | None = None,
     null: float | None = None,
-    x_label: str | None = None,
-    y_label: str | None = None,
     title: str | None = None,
     ax: Axes | None = None,
 ) -> Figure:
@@ -931,12 +906,6 @@ def surface(
     null : float or None, default=None
         The value outlined where the estimate crosses it. The no-effect value of the
         estimate's scale when omitted; a level (a counterfactual mean) has none.
-    x_label : str or None, default=None
-        Words for the x axis of every panel, the first strength axis; the words of its
-        perturbation law when omitted.
-    y_label : str or None, default=None
-        Words for the y axis of every panel, the outcome strength; the words of the outcome's
-        perturbation law when omitted.
     title : str or None, default=None
         The title.
     ax : Axes or None, default=None
@@ -1106,12 +1075,8 @@ def surface(
         if index == 0:
             placed, outside = got
     for index, axis_i in enumerate(axes_list):
-        x_words = x_label if x_label is not None else (x_dim.label if panels == 1 else x_dim.short)
-        y_words = (
-            y_label
-            if y_label is not None
-            else (_outcome_label(result) if panels == 1 else _outcome_short(result))
-        )
+        x_words = x_dim.label if panels == 1 else x_dim.short
+        y_words = _outcome_label(result) if panels == 1 else _outcome_short(result)
         axis_i.set_xlabel(
             textwrap.fill(x_words, 52 if panels == 1 else 26) if index + ncols >= panels else ""
         )
@@ -1130,21 +1095,20 @@ def surface(
 
     moved, laws = _surface_laws(result)
     original = _core.format_values([float(result.original_estimate)], [(vmax - vmin) / 12.0])[0]
-    subtitle = (
-        f"{words} refitted under a simulated common cause of {moved} and the outcome "
-        f"(unperturbed estimate {original})"
-    )
+    # the axes name what the simulated cause moves, so the subtitle gives the numbers
+    subtitle = f"{words}; unperturbed estimate {original}"
     if result.intermediate_name is not None and result.intermediate_value is not None:
         subtitle += f"; the target sets {result.intermediate_name} to {result.intermediate_value:g}"
     _header(
         top,
-        title or "How far does the estimate move under a simulated common cause?",
+        title or "Estimate under a simulated common cause",
         subtitle,
         0.7 if panels == 1 else 0.85,
     )
 
     found = [
         QUALITATIVE_NOTE + " No strength is a statement about the confounding in these data.",
+        f"The estimate is refitted under a simulated common cause of {moved} and the outcome.",
         laws,
     ]
     spacing = [np.diff(values) for values in (x_values, y_values) if len(values) > 2]
@@ -1182,7 +1146,7 @@ def surface(
         )
     if elsewhere:
         found.append("Observed-covariate calibrations not marked: " + "; ".join(elsewhere) + ".")
-    _notes(foot, [*found, *_warnings(result)], 0.74 if panels == 1 else 0.85, grow=ax is None)
+    _core.add_notes(foot, [*found, *_warnings(result)])
     return fig
 
 
@@ -1300,6 +1264,7 @@ def _mark_calibrations(
 # ----------------------------------------------------------------------- dispatch
 
 
+@_core.labelled
 def confounding(obj: Any, **kwargs: Any) -> Figure:
     """Plot how strong hidden confounding would need to be, or how far a simulated one moves us.
 
@@ -1317,11 +1282,12 @@ def confounding(obj: Any, **kwargs: Any) -> Figure:
     obj : SensitivityContour or SimulatedConfoundingResult
         The analysis to draw.
     **kwargs
-        For a contour: ``robustness=``, ``benchmarks=``, ``multiples=``, ``null=``,
-        ``x_label=``, ``y_label=``, ``title=`` and ``ax=``. For a surface: ``at=``, ``null=``,
-        ``x_label=``, ``y_label=``, ``title=`` and ``ax=``. ``x_label=`` and ``y_label=``
-        replace the words on the two strength axes, such as ``"Weight side"`` and
-        ``"Score side"`` for a page that names the two strengths that way.
+        For a contour: ``robustness=``, ``benchmarks=``, ``multiples=``, ``null=`` and
+        ``ax=``. For a surface: ``at=``, ``null=`` and ``ax=``. Both take the formatting
+        keywords ``title=``, ``subtitle=``, ``xlabel=``, ``ylabel=``, ``legend=`` and
+        ``figsize=``, as :func:`~cleverly.plotting.forest` describes them. ``xlabel=`` and
+        ``ylabel=`` replace the words on the two strength axes, such as ``"Weight side"``
+        and ``"Score side"`` for a page that names the two strengths that way.
 
     Returns
     -------
@@ -1338,6 +1304,15 @@ def confounding(obj: Any, **kwargs: Any) -> Figure:
     cleverly.plotting.sensitivity : Estimates across a declared sensitivity parameter.
     cleverly.sensitivity.contour_data : Build the grid of bias-adjusted bounds.
     cleverly.sensitivity.simulated_confounding : Build the simulated-confounding surface.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes define the two strengths, list
+    benchmarks or calibrations that are not marked and why, and say that a
+    simulated-confounding map is qualitative: not a bound or an interval.
 
     Examples
     --------
@@ -1363,7 +1338,7 @@ def confounding(obj: Any, **kwargs: Any) -> Figure:
     >>> grid = contour_data(result, "ate", grid_size=8)
     >>> fig = confounding(grid, robustness=robustness_value(result, "ate"))
     >>> fig.axes[0].get_title(loc="left")
-    'How strong would hidden confounding need to be?'
+    'Sensitivity to hidden confounding'
     >>> plt.close(fig)
     """
     from ..sensitivity import SensitivityContour, SimulatedConfoundingResult

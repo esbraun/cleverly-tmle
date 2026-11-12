@@ -1500,6 +1500,7 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         simultaneous: bool = False,
         n_multiplier: int = 2000,
         multiplier_kind: str = "rademacher",
+        band_scale: str = "identity",
         repeats: int = 1,
         n_bootstrap: int = 0,
         bootstrap_resampling: Any = "auto",
@@ -1567,6 +1568,7 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             simultaneous=simultaneous,
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
+            band_scale=band_scale,
             max_iter=max_iter,
             tol=tol,
             random_state=random_state,
@@ -1646,7 +1648,12 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             return ESTIMAND_REFUSAL
         if self.loss not in ("auto", "loglik"):
             return LOSS_REFUSAL
-        if self.simultaneous or self.n_multiplier != 2000 or self.multiplier_kind != "rademacher":
+        if (
+            self.simultaneous
+            or self.n_multiplier != 2000
+            or self.multiplier_kind != "rademacher"
+            or self.band_scale != "identity"
+        ):
             return BAND_REFUSAL
         if (
             self.repeats != 1

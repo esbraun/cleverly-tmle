@@ -1,0 +1,25 @@
+=== survival-dr-tmle declared run
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x91\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x91\tests\canonical\survival_dr_tmle\regenerate.py' --output C:/Users/erics/Documents/x91-run/declared --jobs 16
+commit: d3b2f139206dc15aae137ec151b44a5b589d354b; upstream d3b2f139206dc15aae137ec151b44a5b589d354b
+clean tree: True
+cleverly 0.2.1 from C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x91\src\cleverly\__init__.py
+python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 112, sha256 31cbf6ef0d5d434bec9b3af92229510289e87d448467cb9b3d70973e4b43e48c
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-11-11T03:56:30+00:00
+finished: 2026-11-11T07:37:24+00:00
+wall seconds: 13254.2
+exit code: 0
+sha256 drift-readings.csv: 1d8cc6b0b0c7e63e26142c5a0240d7b0d945d793bedc4724b362fdc5d0ae6eb3
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: e3a79b3c60c11e2ff0fc4e2d8899b04a6ebf6133e5dc1933efbb8b00ee4f3296
+sha256 paired-difference.csv: 34ba1d9a4911b784919aab31146e094df302d0319a3ccf2271eaf6fb07c6cb04
+sha256 performance-tests.csv: 19642930f185f48fc75d6acdec459d630a609635b41a41507a281d24ee4693a5
+sha256 properties.csv: 2b083c72dc1592e9e6736138caa03b5380d49cbc29eb5495515843f83db75155
+sha256 property-replicates.parquet: e8b03185a528fdcb8146388e55c6e29e67baa04622a7ed20ebd1b3b159f4b7c1
+sha256 replicates.parquet: e0cb4481d8dee35a00de72b96aded0e35fc8d582abfeb514ad6f3b6cd81388fd
+sha256 reported-cells.csv: 78e563f123a163c5b6f759f4567c7627d1c8093a64588beba2b284b1fdc14918
+sha256 reported-replicates.csv: 23ac002cb45780b7f607b478788a038999ff0bf4811571eb17d71692dd364b5f
+sha256 summary.csv: f70b82564e75b5516f690448afdc9c81b3e597f77bfce46bd708e09cf8301800
+

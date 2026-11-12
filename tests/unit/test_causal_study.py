@@ -63,6 +63,7 @@ from cleverly.methods import (
     DEFAULT_LONGITUDINAL_MULTIPLIER,
     DEFAULT_POINT_MULTIPLIER,
     SHORTCUTS,
+    SURVIVAL_DRIFT_MAX_ITER,
 )
 from cleverly.msm import MSM
 from cleverly.study import (
@@ -1351,11 +1352,12 @@ def test_repeats_reaches_the_longitudinal_engine() -> None:
     assert method.estimator_kwargs(longitudinal=True)["repeats"] == 3
 
 
-@pytest.mark.parametrize("method", [DRTMLEMethod()])
-def test_variant_longitudinal_refusals_use_the_library_error_hierarchy(method) -> None:
-    with pytest.raises(MethodConfigurationError) as raised:
-        method.estimator_kwargs(longitudinal=True)
-    assert isinstance(raised.value, CleverlyError)
+def test_drtmle_translates_for_the_time_to_event_engine() -> None:
+    kwargs = DRTMLEMethod().estimator_kwargs(longitudinal=True)
+    assert kwargs["survival_model"] == "hazard"
+    assert kwargs["simultaneous"] is False
+    assert kwargs["max_iter"] == SURVIVAL_DRIFT_MAX_ITER
+    assert kwargs["guard"] == DRTMLEMethod().guard
 
 
 def test_a_longitudinal_option_refuses_before_engine_construction(monkeypatch) -> None:

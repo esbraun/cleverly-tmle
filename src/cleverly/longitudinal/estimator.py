@@ -145,10 +145,16 @@ from ..inference.influence import (
     has_t_reference,
     make_estimate,
     median_estimates,
+    parameter_bounds,
     spread_name,
     with_precedent_status,
 )
-from ..inference.multiplier import SimultaneousBands, median_bands, simultaneous_bands
+from ..inference.multiplier import (
+    SimultaneousBands,
+    median_bands,
+    out_of_range,
+    simultaneous_bands,
+)
 from ..inference.results import (
     RatioKind,
     _named_draw,
@@ -177,6 +183,7 @@ from ..interventions import RiskRatioTilt
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
     from .collaborative import SurvivalSelection
+    from .drift import DriftRecord
 from .._summary import Detail, Summary, check_detail
 from ..interventions.policy import Support as DeclaredSupport
 from ..learners._fitting import supports_sample_weight
@@ -1636,6 +1643,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         collaborative selection of each ``(arm label, horizon)``: its path, its
         cross-validated risk and the move count it chose.  ``None`` on every other fit.
         Keyword-only.
+    drift : dict of tuple to DriftRecord or None
+        On a :class:`~cleverly.longitudinal.drift.SurvivalDRTMLE` fit, the drift correction
+        of each ``(arm label, horizon)``: its loop, its held factors and its regressions.
+        ``None`` on every other fit.  Keyword-only.
     estimator : object or None
         The estimator settings the fit ran under, with no bootstrap and no simultaneous
         band, which a refutation refits.  ``None`` on a result built by hand.  Keyword-only.
@@ -1736,6 +1747,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: On a :class:`~cleverly.longitudinal.collaborative.SurvivalCTMLE` fit, the selection
     #: record of each ``(arm label, horizon)``.  ``None`` on every other fit.
     selection: dict[tuple[str, int], SurvivalSelection] | None = field(default=None, kw_only=True)
+    #: On a :class:`~cleverly.longitudinal.drift.SurvivalDRTMLE` fit, the drift record of
+    #: each ``(arm label, horizon)``.  ``None`` on every other fit.
+    drift: dict[tuple[str, int], DriftRecord] | None = field(default=None, kw_only=True)
     #: The estimator settings the fit ran under, which :meth:`_SequentialEstimator.refit`
     #: runs again on a changed container.  ``None`` on a result built by hand.
     estimator: Any = field(default=None, kw_only=True, compare=False, repr=False)
@@ -2382,6 +2396,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         ('rmst_regimen[always vs never @ t=3]', 'difference')
         """
         self._refuse_curve_functional("RMST")
+        if self.drift is not None:
+            from .drift import RMST_REFUSAL
+
+            raise CapabilityError(refusal=RMST_REFUSAL)
         causes: tuple[str | None, ...] = self.data.cause_labels or (None,)
         node, spacings = self._restriction(horizon, "RMST")
         names = self._risk_names(regimen, node, causes, "RMST")
@@ -4112,6 +4130,7 @@ def _estimates(
             inference=status,
             reference_df=reference_df,
             support=_support_of(classification, status, reference_df),
+            bounds=parameter_bounds("mean", data.family),
         )
     for fit in fits.values():
         if fit.regimen.label == reference.label:
@@ -4136,6 +4155,7 @@ def _estimates(
             inference=status,
             reference_df=reference_df,
             support=_support_of(classification, status, reference_df),
+            bounds=parameter_bounds("difference", data.family),
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
 
@@ -4348,6 +4368,7 @@ class _SequentialEstimator:
         simultaneous: bool = True,
         n_multiplier: int = 2000,
         multiplier_kind: str = "rademacher",
+        band_scale: str = "identity",
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -4383,6 +4404,7 @@ class _SequentialEstimator:
         self.simultaneous = simultaneous
         self.n_multiplier = n_multiplier
         self.multiplier_kind = multiplier_kind
+        self.band_scale = band_scale
         self.random_state = random_state
         self.run_id = run_id
         self.n_jobs = n_jobs
@@ -6289,6 +6311,10 @@ class _SequentialEstimator:
         # Student t reference builds none either, and the summary says so.
         if has_t_reference(estimates):
             return None
+        # A logit band needs every bounded estimate strictly inside its range; the summary
+        # names the ones that are not.
+        if out_of_range(estimates, self.band_scale):
+            return None
         if len(repeats) > 1:
             bands = median_bands(
                 [repeat.estimates for repeat in repeats],
@@ -6298,6 +6324,7 @@ class _SequentialEstimator:
                 kind=self.multiplier_kind,  # type: ignore[arg-type]
                 random_state=multiplier_seed,
                 cluster=data.cluster,
+                band_scale=self.band_scale,  # type: ignore[arg-type]
             )
         else:
             bands = simultaneous_bands(
@@ -6307,11 +6334,16 @@ class _SequentialEstimator:
                 kind=self.multiplier_kind,  # type: ignore[arg-type]
                 random_state=self.random_state,
                 cluster=data.cluster,
+                band_scale=self.band_scale,  # type: ignore[arg-type]
             )
         return replace(
             bands,
             support=band_support(
-                classification, status, (estimate.support for estimate in estimates.values())
+                classification,
+                status,
+                (estimate.support for estimate in estimates.values()),
+                options=(self.multiplier_kind, getattr(self, "band_scale", "identity")),
+                draws=int(self.n_multiplier),
             ),
         )
 
@@ -6815,6 +6847,10 @@ class LTMLE(_SequentialEstimator):
         The number of multiplier draws behind each band.
     multiplier_kind : {"rademacher", "mammen", "normal"}
         The distribution of the multiplier draws.
+    band_scale : {"logit", "identity"}
+        The scale of the band of a probability or a difference of two probabilities:
+        ``"logit"`` builds it on the logit of the estimate's position in its range
+        (:func:`~cleverly.inference.simultaneous_bands`).
     max_iter : int
         Maximum targeting iterations per node.
     tol : float
@@ -6987,6 +7023,7 @@ class LTMLE(_SequentialEstimator):
         simultaneous: bool = True,
         n_multiplier: int = 2000,
         multiplier_kind: str = "rademacher",
+        band_scale: str = "identity",
         max_iter: int = 20,
         tol: float = 1e-10,
         random_state: int | None = None,
@@ -7041,6 +7078,7 @@ class LTMLE(_SequentialEstimator):
             simultaneous=simultaneous,
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
+            band_scale=band_scale,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -7167,6 +7205,10 @@ class SDR(_SequentialEstimator):
         The number of multiplier draws behind each band.
     multiplier_kind : {"rademacher", "mammen", "normal"}
         The distribution of the multiplier draws.
+    band_scale : {"logit", "identity"}
+        The scale of the band of a probability or a difference of two probabilities:
+        ``"logit"`` builds it on the logit of the estimate's position in its range
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
         The seed of the outer split, inherited by a default learner.
     run_id : str or None
@@ -7254,6 +7296,7 @@ class SDR(_SequentialEstimator):
         simultaneous: bool = True,
         n_multiplier: int = 2000,
         multiplier_kind: str = "rademacher",
+        band_scale: str = "identity",
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7290,6 +7333,7 @@ class SDR(_SequentialEstimator):
             simultaneous=simultaneous,
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
+            band_scale=band_scale,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -7447,6 +7491,10 @@ class IPSI(_SequentialEstimator):
         The number of multiplier draws behind each band.
     multiplier_kind : {"rademacher", "mammen", "normal"}
         The distribution of the multiplier draws.
+    band_scale : {"logit", "identity"}
+        The scale of the band of a probability or a difference of two probabilities:
+        ``"logit"`` builds it on the logit of the estimate's position in its range
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
         The seed of the outer split, inherited by a default learner.
     run_id : str or None
@@ -7525,6 +7573,7 @@ class IPSI(_SequentialEstimator):
         simultaneous: bool = True,
         n_multiplier: int = 2000,
         multiplier_kind: str = "rademacher",
+        band_scale: str = "identity",
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7558,6 +7607,7 @@ class IPSI(_SequentialEstimator):
             simultaneous=simultaneous,
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
+            band_scale=band_scale,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -7765,6 +7815,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
         simultaneous: bool = True,
         n_multiplier: int = 2000,
         multiplier_kind: str = "rademacher",
+        band_scale: str = "identity",
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7804,6 +7855,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
             simultaneous=simultaneous,
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
+            band_scale=band_scale,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -7905,6 +7957,10 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
         The number of multiplier draws behind each band.
     multiplier_kind : {"rademacher", "mammen", "normal"}
         The distribution of the multiplier draws.
+    band_scale : {"logit", "identity"}
+        The scale of the band of a probability or a difference of two probabilities:
+        ``"logit"`` builds it on the logit of the estimate's position in its range
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
         The seed inherited by a default learner.
     run_id : str or None
@@ -8121,6 +8177,10 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
         The number of multiplier draws behind each band.
     multiplier_kind : {"rademacher", "mammen", "normal"}
         The distribution of the multiplier draws.
+    band_scale : {"logit", "identity"}
+        The scale of the band of a probability or a difference of two probabilities:
+        ``"logit"`` builds it on the logit of the estimate's position in its range
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
         The seed inherited by a default learner.
     run_id : str or None
@@ -8393,7 +8453,7 @@ class ParametricGFormula(_Baseline):
         The settings of :class:`SequentialGComputation` that apply: ``reference``,
         ``horizons``, ``treatment_learner`` (the natural-treatment models and the diagnostic
         mechanism), ``censoring_learner``, ``competing_learner``, ``g_bounds``, ``q_bounds``,
-        ``alpha_sig``, ``simultaneous``, ``n_multiplier``, ``multiplier_kind``,
+        ``alpha_sig``, ``simultaneous``, ``n_multiplier``, ``multiplier_kind``, ``band_scale``,
         ``random_state``, ``run_id``, ``n_jobs``, ``n_bootstrap``, ``bootstrap_resampling``,
         ``density_bins`` and ``ratio``.  ``n_folds`` must be ``1``.  ``msm``, ``alpha``,
         ``max_iter`` and ``tol`` are refused.
@@ -9181,6 +9241,10 @@ def longitudinal_truncation_curve(
         from .collaborative import TRUNCATION_REFUSAL
 
         raise CapabilityError(refusal=TRUNCATION_REFUSAL)
+    if result.drift is not None:
+        from .drift import TRUNCATION_REFUSAL as DRIFT_TRUNCATION_REFUSAL
+
+        raise CapabilityError(refusal=DRIFT_TRUNCATION_REFUSAL)
     if result.config.estimator == "gcomp":
         raise CapabilityError(refusal=GCOMP_TRUNCATION_REFUSAL)
     if result.config.estimator == "parametric_gformula":

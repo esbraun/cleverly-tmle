@@ -195,7 +195,7 @@ class TestTheWeightsPlot:
         fig = plotting.weights(longitudinal)
         top, bottom = fig.axes[0], fig.axes[1]
         assert top.get_yscale() == "log"
-        assert top.get_title(loc="left") == "Where do the weights grow too large?"
+        assert top.get_title(loc="left") == "Weights over time"
         assert top.get_xlabel() == "" and bottom.get_xlabel() == "Time point"
         crosses = [c for c in top.collections if c.get_gid() == "cleverly-weight-max"]
         assert len(crosses) == 2
@@ -576,13 +576,13 @@ class TestTheLovePlot:
         self, point: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _assert_descriptive(plotting.balance(point))
-        original = _core.notes
+        original = _core.add_notes
 
-        def dropped(ax: Any, lines: Any) -> None:
-            original(ax, list(lines)[1:])
+        def dropped(target: Any, lines: Any) -> None:
+            original(target, list(lines)[1:])
 
         # the mutation control: the producer loses its first note, and the check fails
-        monkeypatch.setattr(_core, "notes", dropped)
+        monkeypatch.setattr(_core, "add_notes", dropped)
         mutated = plotting.balance(point)
         with pytest.raises(AssertionError):
             _assert_descriptive(mutated)
@@ -808,7 +808,8 @@ class TestTheEstimandsWeights:
     def test_the_subtitle_and_notes_name_the_estimand(self, att_fit: Any) -> None:
         fig = plotting.balance(att_fit)
         subtitle = _core.subtitle_text(fig.axes[0])
-        assert "weights for the effect among the treated (att)" in subtitle
+        assert "weights for the effect among the treated;" in subtitle
+        assert "(att)" not in subtitle  # the alias is a library word
         notes = _core.note_text(fig)
         assert "standard deviation in the first group, the one the effect is among" in notes
         assert "kept within [0.025, 0.975]" in notes

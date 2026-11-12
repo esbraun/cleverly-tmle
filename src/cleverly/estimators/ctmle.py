@@ -784,6 +784,7 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
     "simultaneous": (_anything, "any value; the band reads the stacked curves"),
     "n_multiplier": (_anything, "any value; the band reads the stacked curves"),
     "multiplier_kind": (_anything, "any value; the band reads the stacked curves"),
+    "band_scale": (_anything, "any value; the band reads the stacked curves"),
     "step_size": (_anything, "any value; the logistic fluctuation ignores it"),
     "max_iter": (
         _anything,
@@ -1357,7 +1358,7 @@ class CTMLESelection:
         ... ).fit(frame, outcome="Y", treatment="A").single()
         >>> fig = result.ctmle_selection.plot()
         >>> fig.texts[0].get_text()
-        'How sharp was the choice of treatment model?'
+        'Treatment model selection'
         >>> plt.close(fig)
         """
         from ..plotting import learners

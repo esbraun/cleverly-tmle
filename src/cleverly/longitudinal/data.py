@@ -1421,6 +1421,7 @@ class LongitudinalData:
         continuous_treatment: bool = False,
         treatment_probabilities: Mapping[Any, str] | None = None,
         eliminate: Sequence[str] = (),
+        censoring_probabilities: Mapping[float, str] | None = None,
     ) -> LongitudinalData:
         r"""Build a point-treatment survival container from one time and one event column.
 
@@ -1498,6 +1499,13 @@ class LongitudinalData:
         eliminate : sequence of str
             The competing causes to prevent, by the labels of ``causes=``, as
             :meth:`eliminating` describes.
+        censoring_probabilities : mapping of float to str, or None
+            Known censoring probabilities: each grid time :math:`g_j` before the last mapped
+            to the column that holds :math:`P(\text{still observed after } g_j \mid A, W,
+            \text{event-free and observed through } g_j)`, the unit's retention at its
+            received treatment.  Grid time :math:`g_j` is the censoring factor of node
+            :math:`j + 1`.  Grid times left out are estimated.  The columns are not
+            covariates.
 
         Returns
         -------
@@ -1561,7 +1569,17 @@ class LongitudinalData:
                     "LTMLE.fit(treatment_probabilities=)."
                 )
             known_columns = pairs
-        probability_names = [name for _, name in known_columns]
+        censoring_columns: dict[float, str] = {}
+        if censoring_probabilities is not None:
+            if not isinstance(censoring_probabilities, Mapping) or not all(
+                isinstance(name, str) for name in censoring_probabilities.values()
+            ):
+                raise DataError(
+                    "from_time_to_event takes censoring_probabilities as a mapping from each "
+                    "grid time to the column that holds the retention probability there."
+                )
+            censoring_columns = {float(g): str(name) for g, name in censoring_probabilities.items()}
+        probability_names = [name for _, name in known_columns] + list(censoring_columns.values())
         missing = [name for name in [*wanted, *probability_names] if name not in columns]
         if missing:
             raise DataError(f"columns not found in the frame: {missing}; available: {columns}")
@@ -1657,15 +1675,37 @@ class LongitudinalData:
             event_name=str(event),
             event_codes=tuple(int(code) for code in code_of_cause),
         )
-        if not known_columns:
+        if not known_columns and not censoring_columns:
             return built.eliminating(eliminate)
+        declared_censoring: dict[str, Any] = {}
+        declared_names: dict[str, str] = {}
+        for g, name in censoring_columns.items():
+            position = [j for j, value in enumerate(grid_values[:-1]) if float(value) == g]
+            if not position:
+                raise DataError(
+                    f"censoring_probabilities names time {g:g}, which is not a grid time before "
+                    f"the last ({', '.join(f'{v:g}' for v in grid_values[:-1])}). Grid time g_j "
+                    "declares the censoring factor of node j + 1, so the last grid time has none."
+                )
+            if not has_censoring:
+                raise DataError(
+                    "censoring_probabilities is declared, and no unit is censored before the "
+                    "last grid time, so there is no censoring factor to declare."
+                )
+            # Grid time g_j (position j - 1) is the factor of node j + 1, index j.
+            column = censoring_names[position[0] + 1]
+            declared_censoring[column] = column_array(frame, name)
+            declared_names[column] = name
         node = str(treatment)
         return built._declare_known(
-            treatment_probabilities={
-                node: {level: column_array(frame, name) for level, name in known_columns}
-            },
-            censoring_probabilities=None,
-            treatment_columns={node: known_columns},
+            treatment_probabilities=(
+                {node: {level: column_array(frame, name) for level, name in known_columns}}
+                if known_columns
+                else None
+            ),
+            censoring_probabilities=declared_censoring or None,
+            treatment_columns={node: known_columns} if known_columns else None,
+            censoring_columns=declared_names or None,
         ).eliminating(eliminate)
 
     def to_time_to_event(self) -> tuple[FloatArray, IntArray]:

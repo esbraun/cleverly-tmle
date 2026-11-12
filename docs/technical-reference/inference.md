@@ -464,6 +464,64 @@ estimates a familywise critical value.
 | `simultaneous=` | turns the familywise band on. It is on by default |
 | `n_multiplier=` | the number of draws. `"auto"` resolves per engine, because the point path draws 1000 and the sequential path draws 2000 |
 | `multiplier_kind=` | the multiplier distribution: `rademacher`, `mammen`, or `normal` |
+| `band_scale=` | the scale of the band of a probability or of a difference of two probabilities: `identity` (the default) or `logit` |
+
+A band reads `supported` only when the fit's support row lists the band kind and a registered band
+cell measured the band for that row. `BAND_CELLS` in
+[`_support_rows.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/_support_rows.py)
+names each row's cells, and `tests/unit/test_band_cell_mapping.py` ties every entry to a positive
+`*__simultaneous_band` row of a study the row cites. The band must also use a multiplier kind and
+band scale that the row's cells measured, which is the Rademacher multiplier on the identity scale
+for every row but `G23.cross_fitted`. That row's gated cell measured the Mammen multiplier on the
+logit scale, so a band there reads `supported` only with those options and 10,000 draws or more.
+Any other choice makes the band `experimental` and leaves the pointwise intervals as they are,
+because pointwise inference never reads the multiplier.
+
+The shipped default band on `G23.cross_fitted` is therefore `experimental`. The same fits report
+it at joint coverage 0.931 (99% interval 0.926 to 0.937) in a row that states no verdict, and a
+row without a verdict licenses nothing
+([`longitudinal-sdr`](method-evidence/sequentially-doubly-robust-estimation.md)).
+
+### The band scale
+
+On a binary outcome a mean of the outcome under an intervention is a probability, and the Wald
+standard error of a probability moves with the estimate: above 0.5 a high estimate has a small
+standard error. At moderate effective sample sizes this coupling makes a max-$t$ band on the
+identity scale under-cover even when every pointwise interval is calibrated
+([Brown, Cai and DasGupta 2001](../references.md#multiple-testing); the [SDR study](method-evidence/sequentially-doubly-robust-estimation.md) measures
+it). `band_scale="logit"` builds the band of each bounded estimate on
+$f(\psi) = \operatorname{logit}((\psi - a)/(b - a))$, where $(a, b)$ is its range:
+
+$$
+f^{-1}\bigl(f(\hat\psi) \pm \hat c\,\widehat{se}\,f'(\hat\psi)\bigr).
+$$
+
+For a probability that is the logit band, and for a difference of two probabilities, whose range is
+$(-1, 1)$, it is the $\operatorname{atanh}$ band. The limits stay inside the range and are
+asymmetric away from the middle of it. The max-$t$ statistic does not change when one column of the
+influence curves and its standard error are rescaled together, so $\hat c$ is the same on every
+scale and the logit band costs nothing beyond the identity band.
+
+| estimand, binary outcome | range the logit band reads |
+| --- | --- |
+| a mean under an intervention, regimen, policy, regime, tilt or the observed law | $(0, 1)$ |
+| a difference of two such means, including `att`, `atc` and `par` | $(-1, 1)$ |
+| a ratio | none: it keeps its log scale |
+| `paf`, a projection or MSM coefficient, any estimate from `contrast(..., transform=)` | none: its own scale |
+| any parameter of a continuous outcome, with or without `q_bounds` | none |
+
+Each target declares whether it is a mean, a difference of means, or neither
+(`Target.bounded`), and `ParameterEstimate.bounds` carries the range only when the outcome is
+binary. An estimate on or outside its range with a positive standard error has no logit band: a
+one-step estimator such as `SDR` can report a level outside $[0, 1]$.
+`simultaneous_bands()` and `median_bands()` then raise `CapabilityError`, and a fit skips its
+band and names the estimate in `summary()`. A zero standard error at a bound gives the point band.
+The pointwise intervals keep the identity scale on every setting.
+
+`multiplier_kind="mammen"` draws Mammen's two-point multiplier, which matches the third moment of
+the influence curves as well as the first two. The critical value keeps the standard errors fixed
+across draws. A bootstrap-$t$ that restudentizes each draw breaks on a sparse column: a draw that
+gives no weight to the few units carrying the column has a zero standard error.
 
 Ordinary and cluster resampling both preserve the declared independent unit. Whole-cluster
 resampling gives each sampled occurrence a distinct cluster code. Repeated draws of one source
