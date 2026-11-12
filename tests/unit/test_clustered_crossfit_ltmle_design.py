@@ -224,15 +224,19 @@ class TestTheFewClusterStudy:
         assert few.PRIMARY_FAILURE_PROBE == 0
 
     def test_the_control_has_design_power(self) -> None:
-        """The IID control's 99% SE-ratio upper bound sits well under its 0.80 ceiling.
+        """Both clauses of the IID control clear their bounds on the design record.
 
-        A normal approximation to the bootstrap interval of a ratio of a mean SE to an empirical
-        SD at R replications: half-width ``z_0.995 * ratio / sqrt(2 R)``.
+        Clause 1, the paired ratio of the mean IID SE to the mean cluster SE, is the IID SE ratio
+        over the cluster SE ratio of the design stream; clause 2 reads the positive arm's SE
+        ratio. A normal approximation to the bootstrap interval of an SE ratio at R
+        replications: half-width ``z_0.995 * ratio / sqrt(2 R)``. The paired ratio's interval is
+        narrower, because both SEs come from one fit, so the bound is conservative.
         """
         z = norm.ppf(0.995)
+        widen = 1.0 + z / np.sqrt(2 * few.PROPERTY_REPLICATES)
         for cell, (cluster_ratio, iid_ratio) in few.CONTROL_DESIGN.items():
-            upper = iid_ratio * (1.0 + z / np.sqrt(2 * few.PROPERTY_REPLICATES))
-            assert upper < few_properties.IID_CONTROL_CEILING - 0.05, cell
+            assert iid_ratio / cluster_ratio * widen < few_properties.IID_CONTROL_CEILING - 0.05
+            assert cluster_ratio * widen <= few.STUDY.margins.se_ratio_sanity[1], cell
             # The positive arm reads a calibrated ratio on the same stream.
             assert 0.90 < cluster_ratio < 1.10, cell
 

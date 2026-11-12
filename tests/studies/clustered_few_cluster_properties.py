@@ -30,7 +30,14 @@ parametric by design: Wang et al. (2024), Remark 3, caution against complex lear
 Each fit publishes three arms. ``t_reference`` (positive) is the reported interval, on t with
 ``J - 2`` degrees of freedom: the 99% exact coverage lower bound must reach 0.90, and the bias
 must lie within 0.25 empirical SD. ``iid_t_control`` (control) keeps the point estimate and the
-t quantile and uses the IID row standard error: its SE-ratio upper bound must fall below 0.80.
+t quantile and uses the IID row standard error. It must show that the law's clustering changes
+the fit's variance by more than any overstatement the SE screen admits, through two clauses that
+must both hold: the 99% upper bound of the paired ratio, the mean IID SE over the mean cluster SE
+of the same fits, below 0.80; and the paired ``t_reference`` arm's SE-ratio upper bound at most
+1.20, the study's SE screen. The paired ratio alone would pass a cluster SE inflated by a factor
+``c`` at about ``1/c`` on a law without a cluster effect; the second clause bounds ``c``. The
+control row still publishes the IID SE over the empirical SD, which no verdict reads.
+``PROPERTY_GROUPS`` pairs the arms of one fit, size law and count.
 ``normal_reference`` (reported) keeps the cluster-robust standard error with the normal
 quantile. Every cell also reports its SE-ratio interval and its coverage against the 0.99
 over-coverage ceiling, because at ``t_8`` excess width is as likely as under-coverage.
@@ -87,6 +94,7 @@ from tests.studies.evidence.properties import (
 )
 from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
+    FEW_CLUSTER_COLUMNS,
     FEW_CLUSTER_IID_CONTROL_CEILING,
     apply_shared_verdicts,
     few_cluster_reference_verdicts,
@@ -96,7 +104,8 @@ from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 NORMAL_CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
-#: What the ``iid_t_control`` SE-ratio upper bound must fall below.
+#: What the upper bound of the ``iid_t_control`` paired ratio, the mean IID SE over the mean
+#: cluster SE of the same fits, must fall below.
 IID_CONTROL_CEILING = FEW_CLUSTER_IID_CONTROL_CEILING
 #: The estimand each fit reports the ATE under.
 TARGET = {
@@ -173,6 +182,17 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         for sizes in SIZE_LAWS
         for arm, role in arms(fit)
     )
+
+
+#: The arms of one fit, size law and count, which pair each control with its positive arm.
+PROPERTY_GROUPS = {
+    FAMILY: tuple(
+        tuple(cell_name(fit, sizes, clusters, arm) for arm, _ in arms(fit))
+        for clusters in CLUSTER_COUNTS
+        for fit in fits_at(clusters)
+        for sizes in SIZE_LAWS
+    )
+}
 
 
 def published_cells() -> tuple[str, ...]:
@@ -346,6 +366,8 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """Apply the declared rules; the policy is ``reporting``, so red cells are published."""
-    summary, rates = apply_shared_verdicts(rows, STUDY, rate_labels=())
-    few_cluster_reference_verdicts(summary, rows, STUDY)
+    summary, rates = apply_shared_verdicts(
+        rows, STUDY, extra_columns=FEW_CLUSTER_COLUMNS, rate_labels=()
+    )
+    few_cluster_reference_verdicts(summary, rows, STUDY, PROPERTY_GROUPS[FAMILY])
     return finish(summary, rates)
