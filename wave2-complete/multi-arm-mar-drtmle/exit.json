@@ -1,0 +1,1 @@
+{"command": "python tests/canonical/drtmle_mar_multi_arm/regenerate.py --output /c/Users/erics/band-wave/complete/multi-arm-mar-drtmle --jobs 16", "returncode": 0}
