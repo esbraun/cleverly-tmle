@@ -208,41 +208,51 @@ def test_unit_b_foldwise_fit_is_a_nonzero_witness_against_the_registered_pooled_
     assert abs(float(rows[0]["estimate"]) - pooled_estimate) > FOLDWISE_WITNESS_FLOOR
 
 
-def test_unit_b_rule_sizes_the_primary_rows_and_the_cells_jointly() -> None:
+def test_unit_b_rule_sizes_the_both_correct_primary_and_the_cells_jointly() -> None:
     rule = unit_b.rule()
-    names = [f"{kind}_{scenario}" for kind in ("primary", "cell") for scenario in unit_b.SCENARIOS]
-    assert sorted(rule.pilots) == sorted(names)
+    assert sorted(rule.pilots) == [
+        "cell_outcome_correct",
+        "cell_treatment_correct",
+        "primary_both_correct",
+    ]
     assert rule.units == {
-        "primary": (("primary_outcome_correct", "primary_treatment_correct"), 1_000),
+        "primary": (("primary_both_correct",), 1_000),
         "cells": (("cell_outcome_correct", "cell_treatment_correct"), 800),
     }
+    assert rule.protected == {("cell_outcome_correct", "ate"), ("cell_treatment_correct", "ate")}
+    primary = rule.pilots["primary_both_correct"]
+    assert primary.rows == ("ey0", "ey1", "ate") and primary.calibrated
+    assert np.shape(primary.influence) == (9, 9)
+    assert primary.replicates == unit_b.PRIMARY_PLAN_REPLICATES == 200
     for scenario in unit_b.SCENARIOS:
-        primary, cell = rule.pilots[f"primary_{scenario}"], rule.pilots[f"cell_{scenario}"]
-        planned = unit_b.PLANNING_ATE_BIAS[scenario]
-        assert primary.rows == ("ey0", "ey1", "ate") and primary.se_ratio and primary.coverage
-        assert primary.bias[primary.rows.index("ate")] == cell.bias[0] == planned
-        assert cell.rows == ("ate",) and not cell.se_ratio
-        assert primary.replicates == cell.replicates == 800
-    # Two units share the family-wise target.
+        cell = rule.pilots[f"cell_{scenario}"]
+        assert (cell.rows, cell.bias) == (("ate",), (unit_b.CELL_PLAN[scenario],))
+        assert not cell.calibrated and cell.replicates == 200
+    assert unit_b.CELL_PLAN == {"outcome_correct": 0.0124, "treatment_correct": 0.1555}
+    # Two units share the family-wise target.  On the 200-replication planning values neither
+    # unit reaches its share by the ceiling, so the record cannot be declared on them.
     assert rule.unit_target == pytest.approx(0.95**0.5)
-    assert rule.budget("primary")[::2] == (3_200, True)
-    assert rule.budget("cells")[::2] == (2_800, True)
-    assert rule.unit_pass("cells", 2_400) < rule.unit_target
-    assert rule.family_pass({"primary": 3_200, "cells": 2_800}) >= 0.95
+    assert rule.budget("primary") == (8_000, pytest.approx(0.9526, abs=0.002), False)
+    assert rule.budget("cells") == (8_000, pytest.approx(0.8185, abs=0.002), False)
+    # The treatment_correct cell's bias binds the cells; it is protected, so never set aside.
+    worst = rule.ceiling_passes()[0]
+    assert worst[:3] == ("cell_treatment_correct", "ate", "bias")
 
 
-def test_unit_b_primary_is_gated_on_fresh_draws() -> None:
+def test_unit_b_primary_is_the_gated_both_correct_regime_on_fresh_draws() -> None:
     record = unit_b.STUDY
-    assert record.scenarios == dict.fromkeys(unit_b.SCENARIOS, canonical_drtmle.ESTIMANDS)
+    assert unit_b.PRIMARY_SCENARIOS == ("both_correct",)
+    assert record.scenarios == {"both_correct": canonical_drtmle.ESTIMANDS}
     assert record.reported_scenarios == frozenset()
     assert record.n == unit_b.PRIMARY_N == 1_500
     cells = {unit_b.sample_seed(scenario, r) for scenario in unit_b.SCENARIOS for r in range(50)}
-    for scenario in unit_b.SCENARIOS:
-        primary = {replicate_seed(record, scenario, r) for r in range(50)}
-        assert not primary & cells
-        assert replicate_seed(record, scenario, 0) != replicate_seed(
-            canonical_drtmle.STUDY, scenario, 0
-        )
+    primary = {replicate_seed(record, "both_correct", r) for r in range(50)}
+    assert not primary & cells
+    assert replicate_seed(record, "both_correct", 0) != replicate_seed(
+        canonical_drtmle.STUDY, "both_correct", 0
+    )
+    frame, truth = unit_b.draw_scenario("both_correct", 40, 0)
+    assert len(frame) == 40 and truth == canonical_drtmle.truth()
 
 
 # ---------------------------------------------------------------------------------- unit M
@@ -343,9 +353,9 @@ def test_unit_m_rule_sizes_the_primary_rows_and_the_cell_jointly() -> None:
         "outcome_correct": (("outcome_correct",), 600),
     }
     assert rule.unit_target == pytest.approx(0.95**0.5)
-    assert rule.budget("primary")[::2] == (1_600, True)
+    assert rule.budget("primary")[::2] == (1_200, True)
     assert rule.budget("outcome_correct")[::2] == (2_000, True)
-    assert rule.family_pass({"primary": 1_600, "outcome_correct": 2_000}) >= 0.95
+    assert rule.family_pass({"primary": 1_200, "outcome_correct": 2_000}) >= 0.95
     assert unit_m.PLANNING_BUDGETS == {"primary": 1_000, "outcome_correct": 600}
 
 
@@ -358,8 +368,7 @@ def test_the_pilot_fits_and_sizes_the_multi_arm_outcome_correct_cell() -> None:
     assert rows["seconds"].gt(0).all()
     summary = pilot.summarize(rows)
     assert list(summary["group"]) == ["m_outcome_correct"]
-    (line,) = pilot.sizing(rows)
-    assert line.startswith("unit M primary:")
+    assert pilot.sizing(rows)[0].startswith("unit M ")
     assert pilot.seed("m_outcome_correct", 0) != unit_m.registered_cell().seed
 
 
@@ -420,7 +429,7 @@ def test_unit_s_primary_rule_sizes_every_row_but_the_expected_finite_sample_row(
     assert pilots["marginal"].rows == ("ate",)
     assert pilots["marginal"].replicates == 2_000
     rule = unit_s.rule()
-    assert rule.budget("primary")[::2] == (5_200, True)
+    assert rule.budget("primary")[::2] == (4_800, True)
     # The rule drops the row from a pilot that carries it, as the sizing pilot's does.
     rows = pd.read_parquet(canonical_stratified.STUDY.artifact("replicates.parquet"))
     own = rows.loc[rows["implementation"] == canonical_stratified.STUDY.implementation]
@@ -489,21 +498,28 @@ def test_the_ladder_is_the_stratified_records_property_cells() -> None:
     ).exists()
 
 
-def test_the_ladder_budgets_reach_the_resolution_target() -> None:
+def test_the_ladder_budgets_are_sized_by_the_predictive_rule() -> None:
     budgets = ladder.PLANNING_BUDGETS
     assert budgets[ladder.POSITIVE] == (3_300, 800, 3_300)
     assert budgets[ladder.CONTROL] == (400, 400, 400)
     assert ladder.VERDICT_REPLICATES == ladder.REGISTERED_REPLICATES == budgets[ladder.POSITIVE][1]
     assert ladder.RESOLUTION_TARGET == 0.25
-    assert ladder.planned_outer_budget() == budgets[ladder.POSITIVE][0]
-    marginal = ladder.PLANNING_STANDARDIZED_BIAS["marginal_ate"]
-    assert marginal[0] == 0.2905
-    assert marginal[2] == pytest.approx(marginal[0] / 2)
-    at = slope_half_width(marginal, (3_300, 800, 3_300), ladder.SIZES, 0.99)
-    below = slope_half_width(marginal, (3_200, 800, 3_200), ladder.SIZES, 0.99)
-    assert below > ladder.RESOLUTION_TARGET >= at
+    assert (ladder.RESOLUTION_PROBABILITY, ladder.CONTROL_PROBABILITY) == (0.95, 0.99)
+    plan = ladder.POSITIVE_PLAN
+    assert plan.labels == ladder.READ_LABELS == ("marginal_ate", "v1_ate")
+    assert (plan.size, plan.standardized, plan.replicates) == (8_000, (0.1781, 0.1639), 200)
+    # On the 200-replication pilot values both slopes resolve with probability 0.77 at the
+    # ceiling, short of 0.95: the ladder cannot be declared on them.
+    assert ladder.planned_outer_budget() == (8_000, pytest.approx(0.769, abs=0.005), False)
+    # The control's first-order bias is large, so 400 per rung fails to contract surely.
+    control = ladder.control_plan()
+    assert control.labels == ladder.READ_LABELS and control.size == 2_000
+    assert control.replicates == 800
+    assert ladder.planned_control_budget() == (400, pytest.approx(1.0), True)
     # The middle rung's weight is zero, so its budget moves nothing.
-    assert slope_half_width(marginal, (3_300, 50, 3_300), ladder.SIZES, 0.99) == pytest.approx(at)
+    z = (0.3, 0.3 / np.sqrt(2), 0.15)
+    at = slope_half_width(z, (3_300, 800, 3_300), ladder.SIZES, 0.99)
+    assert slope_half_width(z, (3_300, 50, 3_300), ladder.SIZES, 0.99) == pytest.approx(at)
 
 
 def test_the_ladder_paired_rung_reads_the_x8_stream() -> None:

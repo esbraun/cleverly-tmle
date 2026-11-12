@@ -19,11 +19,13 @@ pooled-minus-fold-wise displacement at n = 1,500; it is published, not gated.  R
 and above continue the same stream.  :data:`RESAMPLING_SEED` is fresh, so every bootstrap of
 this record is drawn from a stream no other study uses.
 
-**The primary phase.**  Both regimes at n = 1,500 on this record's own fresh seed
-(:data:`SEED`): the truth, coverage and SE-ratio rows of ``ate``, ``ey0`` and ``ey1``, gated by
-the shared ``Margins()`` of ``performance-tests.csv``.  Fresh draws and the RM18 cells' own draws
-both measure the default, so a verdict selected on the red cells' draws cannot carry the RM18
-closure alone: the acceptance reads "when the primary rows and both paired cells pass".
+**The primary phase.**  The ``both_correct`` regime at n = 1,500 on this record's own fresh
+seed (:data:`SEED`): the truth, coverage and SE-ratio rows of ``ate``, ``ey0`` and ``ey1``, gated
+by the shared ``Margins()`` of ``performance-tests.csv``.  The claim RM18 needs is the two paired
+cells on the red cells' own draws; a fresh-draw copy of the one-correct measurement would double
+that claim's exposure to a row near the margin by design, so the primary measures the fit where
+both nuisances are right.  The acceptance reads "when both paired cells of
+``drtmle-foldwise-n1500`` pass, with the record's primary rows passing".
 
 **Reading, declared.**  Each cell is ``role="positive"`` in the shared ``double_robustness``
 family: its 99% interval of the standardized bias inside 0.25 empirical SD, with the reported
@@ -70,7 +72,8 @@ PRIMARY_N = 1_500
 #: The RM18 cells this record refits, in ``canonical-drtmle``'s order.
 SCENARIOS = ("outcome_correct", "treatment_correct")
 ESTIMANDS = canonical.ESTIMANDS
-PRIMARY_SCENARIOS = SCENARIOS
+#: The primary phase's regime.
+PRIMARY_SCENARIOS = ("both_correct",)
 #: The family and the cells, named as the RM18 cells are.
 FAMILY = "double_robustness"
 #: The replications each RM18 cell registered, which replications ``r < 800`` pair with.
@@ -89,60 +92,67 @@ PRIMARY_REPLICATES = BUDGETS["primary"]
 #: The seed of the rule's planning draws.
 PLANNING_SEED = 2026111221
 
-#: The planning standardized bias of each regime's ``ate`` at n = 1,500, before the sizing
-#: pilot: ``treatment_correct`` about 0.12 SD, between the fold-wise 0.156 at n = 1,000 and
-#: 0.072 at 3,000 (``drtmle-foldwise``); ``outcome_correct`` about 0.08 SD, the pooled 0.19 at
-#: n = 1,500 less a displacement of about 0.11 scaled from 0.076 at 3,000.  Each carries the
-#: planning uncertainty of 800 replications, the RM18 cells' budget.  The pilot replaces both.
-PLANNING_ATE_BIAS: Mapping[str, float] = {"outcome_correct": 0.08, "treatment_correct": 0.12}
-PLANNING_SOURCE = "Fix-6 planning values, interpolated"
+#: The cells' planning values: the Fix-6 sizing pilot's fold-wise fits at n = 1,500 (groups
+#: ``b_outcome_correct`` and ``b_treatment_correct``, 200 replications), ``ate`` at 0.0124 and
+#: 0.1555 SD.  The pilot extension replaces them.
+CELL_PLAN: Mapping[str, float] = {"outcome_correct": 0.0124, "treatment_correct": 0.1555}
+CELL_PLAN_SOURCE = "Fix-6 sizing pilot, b_<regime>, fold-wise, n = 1,500"
+CELL_PLAN_REPLICATES = 200
+#: The primary's planning summary before its pilot group (``b_both_correct``) runs:
+#: ``drtmle-foldwise``'s fold-wise ``both_correct`` primary at n = 3,000 (R = 6,000), each
+#: standardized bias scaled by ``sqrt(2)`` to n = 1,500, with the uncertainty of 200
+#: replications.
+PRIMARY_PLAN_REPLICATES = 200
 
 
 @cache
 def planning_pilots() -> dict[str, Pilot]:
-    """The planning summaries of the primary rows and the cells, before the sizing pilot.
-
-    A primary pilot is ``drtmle-foldwise``'s fold-wise primary of the regime at n = 3,000
-    (R = 6,000): its correlation, SE ratios and coverages as they are, ``ate`` at
-    :data:`PLANNING_ATE_BIAS`, and ``ey0`` and ``ey1`` scaled by ``sqrt(2)`` to n = 1,500, as a
-    second-order bias is.  A cell pilot is ``ate`` at :data:`PLANNING_ATE_BIAS`, read on its
-    bias alone.  Every planning value carries the uncertainty of 800 replications.
+    """The planning summaries of the primary rows and the cells (:data:`CELL_PLAN`).
 
     Returns
     -------
     dict
-        ``primary_<regime>`` and ``cell_<regime>`` for each regime.
+        ``primary_both_correct`` and ``cell_<regime>`` for each paired regime.
     """
     rows = pd.read_parquet(foldwise.STUDY.artifact("replicates.parquet"))
-    out: dict[str, Pilot] = {}
+    measured = pilot_from_rows(
+        rows.loc[rows["scenario"] == "both_correct"],
+        source="drtmle-foldwise replicates.parquet, both_correct, n = 3,000",
+        estimands=ESTIMANDS,
+    )
+    out = {
+        "primary_both_correct": dataclasses.replace(
+            measured,
+            source=f"{measured.source}, scaled to n = 1,500",
+            replicates=PRIMARY_PLAN_REPLICATES,
+            bias=tuple(round(value * float(np.sqrt(2)), 4) for value in measured.bias),
+        )
+    }
     for scenario in SCENARIOS:
-        measured = pilot_from_rows(
-            rows.loc[rows["scenario"] == scenario],
-            source=f"drtmle-foldwise replicates.parquet, {scenario}, n = 3,000",
-            estimands=ESTIMANDS,
+        out[f"cell_{scenario}"] = single(
+            CELL_PLAN_SOURCE.replace("<regime>", scenario),
+            CELL_PLAN_REPLICATES,
+            "ate",
+            CELL_PLAN[scenario],
         )
-        bias = tuple(
-            PLANNING_ATE_BIAS[scenario] if row == "ate" else round(value * float(np.sqrt(2)), 4)
-            for row, value in zip(measured.rows, measured.bias, strict=True)
-        )
-        out[f"primary_{scenario}"] = dataclasses.replace(
-            measured, source=f"{PLANNING_SOURCE}; {measured.source}", replicates=800, bias=bias
-        )
-        out[f"cell_{scenario}"] = single(PLANNING_SOURCE, 800, "ate", PLANNING_ATE_BIAS[scenario])
     return out
+
+
+#: The rows an acceptance text reads: both paired cells (RM18).
+PROTECTED = frozenset((f"cell_{scenario}", "ate") for scenario in SCENARIOS)
 
 
 def rule(pilots: Mapping[str, Pilot] | None = None) -> Rule:
     """The predictive rule of the record's family: the primary rows and the cells, jointly.
 
-    Two units share the family-wise target 0.95: ``primary`` (both regimes' primary rows, from
+    Two units share the family-wise target 0.95: ``primary`` (the ``both_correct`` rows, from
     the primaries' floor) and ``cells`` (both paired cells, from the paired floor).
 
     Parameters
     ----------
     pilots : Mapping or None
-        ``primary_<regime>`` and ``cell_<regime>`` summaries; :func:`planning_pilots` when
-        ``None``.
+        ``primary_both_correct`` and ``cell_<regime>`` summaries; :func:`planning_pilots`
+        when ``None``.
 
     Returns
     -------
@@ -153,16 +163,14 @@ def rule(pilots: Mapping[str, Pilot] | None = None) -> Rule:
     return Rule(
         pilots=chosen,
         units={
-            "primary": (
-                tuple(f"primary_{scenario}" for scenario in SCENARIOS),
-                PLANNING_BUDGETS["primary"],
-            ),
+            "primary": (("primary_both_correct",), PLANNING_BUDGETS["primary"]),
             "cells": (
                 tuple(f"cell_{scenario}" for scenario in SCENARIOS),
                 PLANNING_BUDGETS["cells"],
             ),
         },
         seed=PLANNING_SEED,
+        protected=PROTECTED,
     )
 
 

@@ -27,8 +27,11 @@ record, whose resampling seed is fresh.
 ``treatment_correct`` rung and 800 at the middle one, whose slope weight is zero; 400 per
 control rung.  Each ``treatment_correct`` rung's level rows are read at
 :data:`VERDICT_REPLICATES` (800, the X8 cells' budget); the extra outer replications serve the
-slope only.  :func:`planned_outer_budget` recomputes the outer budget from the planning
-standardized biases and the resolution target; the sizing pilot replaces the planning values.
+slope only.  :func:`planned_outer_budget` sizes the outer rungs so that, when the bias is second
+order, the predictive probability that the marginal's and ``v1``'s slope intervals both reach the
+resolution target is at least 0.95 (:data:`POSITIVE_PLAN`, the pilot's n = 8,000 values with their
+uncertainty); :func:`planned_control_budget` sizes the control so that it fails to contract with
+probability at least 0.99.
 The record's :func:`~tests.studies.stratified_drtmle_foldwise.assert_declared` refuses a
 declared run until then.
 
@@ -67,15 +70,20 @@ The ``X8`` acceptance (:func:`x8_acceptance`) holds when the marginal and ``v1``
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from functools import cache
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_stratified_drtmle as canonical
 from tests.studies import stratified_drtmle_foldwise as primary
-from tests.studies.drtmle_foldwise_sizing import outer_rung_budget
+from tests.studies.drtmle_foldwise_sizing import (
+    LadderPlan,
+    control_budget,
+    ladder_plan_from_rows,
+    predictive_outer_budget,
+)
 from tests.studies.evidence import property_failures as pf
 from tests.studies.evidence import property_verdicts, replication
 from tests.studies.evidence.inference import Interval
@@ -214,45 +222,98 @@ BUDGETS: Mapping[str, tuple[int, int, int]] = PLANNING_BUDGETS
 #: The replications each ``treatment_correct`` rung's level rows are read at.
 VERDICT_REPLICATES = 800
 
-#: The planning standardized biases of the read labels at each rung, before the sizing pilot:
-#: the X83 pilot's fold-wise n = 2,000 rows (``pilot_b.csv``, 200 replications), carried up the
-#: ladder by the second-order hypothesis the slope must resolve (``z`` halves per fourfold n).
-#: The pilot measures n = 2,000 and n = 8,000 directly and replaces them.
-PLANNING_STANDARDIZED_BIAS: Mapping[str, tuple[float, float, float]] = {
-    label: (z, z / np.sqrt(2.0), z / 2.0)
-    for label, z in (("marginal_ate", 0.2905), ("v1_ate", 0.3035))
-}
+#: The seed of the ladder's planning draws.
+PLANNING_SEED = 2026111224
+#: The predictive probability the outer rungs must resolve every read label with.
+RESOLUTION_PROBABILITY = 0.95
+#: The predictive probability the control must fail to contract with.
+CONTROL_PROBABILITY = 0.99
+
+#: The read labels' planning values at the top rung: the Fix-6 sizing pilot's fold-wise
+#: ``treatment_correct`` fits at n = 8,000 (group ``ladder_tc_8000``, 200 replications, marginal
+#: 0.1781 and ``v1`` 0.1639 SD, error correlation 0.4595).  The second-order hypothesis the slope
+#: must resolve carries them down the ladder (:func:`ladder_resolution_pass`).
+POSITIVE_PLAN = LadderPlan(
+    "Fix-6 sizing pilot, ladder_tc_8000, fold-wise, 200 replications",
+    READ_LABELS,
+    8_000,
+    (0.1781, 0.1639),
+    ((1.0, 0.4595), (0.4595, 1.0)),
+    200,
+)
 
 
-def planned_outer_budget(
-    standardized: Mapping[str, Sequence[float]] = PLANNING_STANDARDIZED_BIAS,
-) -> int | None:
-    """The outer-rung budget that brings every read label's projected half-width to target.
+@cache
+def control_plan() -> LadderPlan:
+    """The control's planning values: the registered pooled ``both_wrong`` cells at n = 2,000.
 
-    Parameters
-    ----------
-    standardized : Mapping
-        Label to its planning standardized bias at each rung.
+    ``canonical-stratified-drtmle``'s ``X8`` ``both_wrong`` cells of the read labels (R = 800,
+    ``reduced_crossfit="pooled"``).  The control's bias is first order, which the reduced
+    regressions' fold policy does not remove, so a pooled cell plans the fold-wise control.
 
     Returns
     -------
-    int or None
-        The largest of the labels' budgets on a 100 grid, or ``None`` when one label reaches
-        the target at no budget up to 20,000.
+    LadderPlan
+        The plan, with the labels' per-replication error correlation.
     """
-    budgets = []
-    for label in READ_LABELS:
-        budget = outer_rung_budget(
-            standardized[label],
-            SIZES,
-            BUDGETS[POSITIVE][1],
-            target=RESOLUTION_TARGET,
-            level=Margins().confidence_level,
-        )
-        if budget is None:
-            return None
-        budgets.append(budget)
-    return max(budgets)
+    rows = pd.read_parquet(canonical.STUDY.artifact("property-replicates.parquet"))
+    cells = {f"{label}__{CONTROL}": label for label in READ_LABELS}
+    own = rows.loc[rows["cell"].isin(cells)].assign(estimand=lambda f: f["cell"].map(cells))
+    return ladder_plan_from_rows(
+        own,
+        source="canonical-stratified-drtmle property-replicates.parquet, both_wrong, pooled",
+        labels={label: label for label in READ_LABELS},
+        size=2_000,
+    )
+
+
+def planned_outer_budget(plan: LadderPlan = POSITIVE_PLAN) -> tuple[int, float, bool]:
+    """The outer ``treatment_correct`` budget that resolves every read label (module docstring).
+
+    Parameters
+    ----------
+    plan : LadderPlan
+        The read labels' planning values.
+
+    Returns
+    -------
+    tuple
+        ``(R, predictive pass, sized)`` on a 400 grid from the verdict budget to 8,000, the
+        middle rung at :data:`VERDICT_REPLICATES`.
+    """
+    return predictive_outer_budget(
+        plan,
+        SIZES,
+        VERDICT_REPLICATES,
+        target=RESOLUTION_TARGET,
+        level=Margins().confidence_level,
+        probability=RESOLUTION_PROBABILITY,
+        floor=VERDICT_REPLICATES,
+        seed=PLANNING_SEED,
+    )
+
+
+def planned_control_budget(plan: LadderPlan | None = None) -> tuple[int, float, bool]:
+    """The per-rung ``both_wrong`` budget at which the control fails to contract.
+
+    Parameters
+    ----------
+    plan : LadderPlan or None
+        The control's planning values; :func:`control_plan` when ``None``.
+
+    Returns
+    -------
+    tuple
+        ``(R, predictive pass, sized)`` on a 400 grid from 400 to 8,000.
+    """
+    return control_budget(
+        control_plan() if plan is None else plan,
+        SIZES,
+        first_order=FIRST_ORDER_SLOPE,
+        level=Margins().confidence_level,
+        probability=CONTROL_PROBABILITY,
+        seed=PLANNING_SEED,
+    )
 
 
 # ----------------------------------------------------------------------------- the ladder
