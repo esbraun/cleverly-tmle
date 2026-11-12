@@ -467,13 +467,16 @@ its 12 (fold, $W$, node) cells, so solving their scores pulls those cells toward
 empirical hazard, by up to two logits. Along the one or two directions per factor that the
 targets leave free, the reported state depends on the solver's path: on 60 draws of that study,
 a prototype of two solvers that both reach `tol` gave estimates up to 0.13 standard errors
-apart. When the rows of a cell hold no event of a cause (or only such events), that cell's score
-is solved only at a hazard of zero (or one), outside the bound set by `alpha`. The fit then
+apart.
+
+When the rows of a cell hold no event of a cause (or only such events), that cell's score is
+solved only at a hazard of zero (or one), outside the bound set by `alpha`. The fit then
 stops with the cell on the bound, warns, and reports `failure="cell_separated"`, as separation
-stops a logistic regression. In the `separable-effects` pilot at n = 16,000 this happened in
-0.6% of 9,000 two-fold primary and calibration fits and in 7 of 300 fits with a wrong treatment
-model, at relative scores of at most $2.3 \times 10^{-5}$, and never in sample; no other
-two-fold fit stopped short.
+stops a logistic regression. In the `separable-effects` study at n = 16,000 this happened in
+102 of 15,600 two-fold fits (0.65%), at relative scores of at most $2.3 \times 10^{-5}$, and
+never in sample. Three more two-fold fits stopped at 1.2 to 2.4 times `tol`
+(`failure="newton_stalled"`), with the remaining score in two directions where the Jacobian of
+the scores is singular to rounding.
 
 **Robustness.** With the treatment and censoring mechanisms right, the estimate is consistent when
 $\lambda_D$ is right at both levels or $h_Y$ is right at both levels, the counterparts of
