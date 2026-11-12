@@ -2658,8 +2658,9 @@ the EP learner, and the next two for the targeting curves of a priority score.
   Examples 1 and 2 (equations (2) and (3)), define the conditional average treatment effect and
   the log conditional relative risk as the minimizers of a risk, and Lemma 16 gives the strict
   convexity of the log-ratio risk. Theorem 1, specialized in Section 3.1, gives the efficient
-  influence curve of the risk of a fixed function, which `assess_score` uses for an external
-  score. Section 4, Example 1, identifies the debiasing regression with a linear class of fixed
+  influence curve of the risk of a fixed function, from which `assess_score` estimates the risk
+  of an external score, and by linearity the paired risk difference of two, by TMLE. Section 4,
+  Example 1, identifies the debiasing regression with a linear class of fixed
   size as a TMLE of the best linear projection of the effect. The paper states no
   identification conditions; the package takes them from its point-treatment contract. The EP
   learner (`method="ep"`) follows Algorithms 2 to 4 and App C.1, Method 1. Theorems 4 and 5 give
