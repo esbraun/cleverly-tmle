@@ -1174,6 +1174,10 @@ STEP_FAILURES: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "bound_excludes_data": "the outcome bound excludes some of the data",
         "newton_stalled": "its last steps stopped reducing the error",
+        "cell_separated": (
+            "a hazard could solve its equation only at zero or one, outside its bound, as "
+            "when one group of rows held no event of a cause, or only such events"
+        ),
     }
 )
 
