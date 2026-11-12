@@ -99,6 +99,7 @@ from .._inference_status import (
 from .._support import (
     Classification,
     Preflight,
+    band_shape,
     band_support,
     classify_point_fit,
     record_fit,
@@ -197,10 +198,14 @@ from ..inference.influence import (
     stamp_inference,
 )
 from ..inference.multiplier import (
+    DEFAULT_BAND_REFERENCE,
     DEFAULT_BAND_SCALE,
     DEFAULT_KIND,
     DEFAULT_N_REPLICATES,
     MultiplierKind,
+    band_member,
+    check_band_reference,
+    constant_arm_members,
     known_regime_estimates,
     out_of_range,
     simultaneous_bands,
@@ -929,6 +934,11 @@ class TMLE:
         ``"logit"`` (default) builds the band of a probability, or of a difference of two
         probabilities, on the logit of the estimate's position in its range; ``"identity"``
         on the estimate's own scale.  See :func:`~cleverly.inference.simultaneous_bands`.
+    band_reference:
+        ``"normal"`` (default) bands every estimate at the multiplier critical value;
+        ``"t"`` bands each estimate at the same tail of its own Student t reference, with
+        degrees of freedom from its influence curve.  See
+        :func:`~cleverly.inference.simultaneous_bands`.
     step_size, max_iter, tol:
         Targeting-step controls.
     stopping:
@@ -1150,6 +1160,7 @@ class TMLE:
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: MultiplierKind = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         step_size: float = 1e-3,
         max_iter: int = 20,
         tol: float = 1e-10,
@@ -1217,6 +1228,7 @@ class TMLE:
         self.n_multiplier = n_multiplier
         self.multiplier_kind = multiplier_kind
         self.band_scale = band_scale
+        self.band_reference = band_reference
         self.step_size = step_size
         self.max_iter = max_iter
         self.tol = tol
@@ -1232,6 +1244,7 @@ class TMLE:
         return False
 
     def _validate_settings(self) -> None:
+        check_band_reference(self.band_reference)
         if self.learned_rule is not None:
             if not isinstance(self.learned_rule, LearnedRule):
                 raise DataError(
@@ -2323,12 +2336,14 @@ class TMLE:
         # An estimate whose parameter status withholds its interval stays out of the band,
         # which is then a joint statement over the others, and below two of them no band is
         # built. This is the rule of ``LTMLE._bands`` (docs/architecture-invariants.md, row
-        # "a band"), and ``summary()`` names the estimates left out.
-        banded = {
-            name: estimate for name, estimate in estimates.items() if estimate.supplies_inference
-        }
+        # "a band"), and ``summary()`` names the estimates left out. Two statuses are the
+        # exceptions (``band_member``, ``constant_arm_members``): a bounded estimate on or
+        # outside its range stays a member, and an estimate with a constant arm cell skips
+        # the whole band, because a band over the others would cover a family the data chose.
+        banded = {name: estimate for name, estimate in estimates.items() if band_member(estimate)}
         if (
             self.simultaneous
+            and not constant_arm_members(estimates)
             and len(banded) > 1
             and supplies_inference(result.inference_status)
             and not has_t_reference(banded)
@@ -2355,6 +2370,7 @@ class TMLE:
                 random_state=self.random_state,
                 cluster=data.cluster,
                 band_scale=self.band_scale,  # type: ignore[arg-type]
+                band_reference=self.band_reference,  # type: ignore[arg-type]
             )
             result = replace(
                 result,
@@ -2364,8 +2380,9 @@ class TMLE:
                         classification,
                         result.inference_status,
                         (estimate.support for estimate in banded.values()),
-                        options=(self.multiplier_kind, self.band_scale),
+                        options=(self.multiplier_kind, self.band_scale, self.band_reference),
                         draws=int(self.n_multiplier),
+                        shape=band_shape(weighted=data.is_weighted, cluster=data.cluster),
                     ),
                 ),
             )

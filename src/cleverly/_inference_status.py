@@ -33,6 +33,7 @@ __all__ = [
     "MINIMUM_INTERVAL_CLUSTERS",
     "MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS",
     "MINIMUM_T_REFERENCE_CLUSTERS",
+    "NO_CONSTANT_ARM_BANDS",
     "NO_KNOWN_REGIME_BANDS",
     "NO_LOGIT_RANGE_BANDS",
     "NO_SIMULTANEOUS_BANDS",
@@ -162,6 +163,16 @@ NO_LOGIT_RANGE_BANDS: Final[str] = (
     "band_scale='identity' builds the band on the estimates' own scale."
 )
 
+
+#: The line a result summary prints when a fit skips its band because an estimate of the band's
+#: family reads a treatment arm whose observed outcomes in its stratum take a single value
+#: (the status ``"constant_arm_cell_plugin"``, which no builder sets yet). ``{names}`` lists them.
+NO_CONSTANT_ARM_BANDS: Final[str] = (
+    "No simultaneous band is reported: the estimate {names} reads a treatment arm whose "
+    "observed outcomes in its stratum take a single value, so its standard error leaves that "
+    "arm's variance out and no critical value can cover it. A band over the remaining "
+    "estimates would be a statement about a different family."
+)
 
 #: Whether a labelled status shows an interval (``"shown"``) or withholds it (``"withheld"``).
 Interval = Literal["shown", "withheld"]

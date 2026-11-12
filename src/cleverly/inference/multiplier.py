@@ -73,6 +73,19 @@ sparse column, which makes its critical value unbounded; a multiplier keeps ever
 every draw.  Hall (1986) notes that a fixed-variance bootstrap leaves a one-sided term of
 order :math:`n^{-1/2}`, so this module claims first-order validity only.
 
+**Why a t reference is an option.**  ``band_reference="t"`` keeps :math:`\hat c` and bands
+estimate :math:`j` at :math:`c_j = F^{-1}_{t,\nu_j}(\Phi(\hat c))`, the same two-sided tail on
+its own Student t reference, with :math:`\nu_j` the Kish count of its centred curve raised to 5
+(:func:`t_critical_values`).  A coordinate whose estimate rests on a few large curve terms gets
+a low :math:`\nu_j` and a wider band.  As :math:`n` grows, :math:`\nu_j \to \infty` and the
+band tends to the default one, so it inherits the first-order results above and nothing more;
+:math:`c_j / \hat c - 1 = (\hat c^2 + 1)/(4\nu_j) + O(\nu_j^{-2})`.  The construction is a
+normal copula on univariate t margins (Pallmann, Ritz and Hothorn, 2018, section 2.4), and the
+df is Fay and Graubard's (2001, appendix B) realised-term count.  No source derives a df for an
+influence-curve estimator, so the rule is a tuning choice whose finite-sample claim rests on the
+``band-t-reference`` study alone, cell by cell, and the default stays ``"normal"``.  The claim
+is joint coverage only: a sparse coordinate can over-cover inside a band that covers jointly.
+
 Where the time goes, and why the block is sized in bytes
 --------------------------------------------------------
 
@@ -173,6 +186,7 @@ not a free one.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
@@ -182,13 +196,13 @@ import numpy as np
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._summary import Detail, Summary
 
-from .._inference_status import FEW_CLUSTER_THRESHOLD
+from .._inference_status import FEW_CLUSTER_THRESHOLD, NO_CONSTANT_ARM_BANDS
 from .._support import UNCLASSIFIED, Support, combine_support
 from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import CapabilityError, Refusal, RefusalReason, refuse_inference
 from .cluster import cluster_sums
 from .delta import Transform
-from .influence import ParameterEstimate, with_precedent_status
+from .influence import ParameterEstimate, kish_count, with_precedent_status
 
 #: Why no band covers an estimate with a Student t reference.
 T_REFERENCE_BAND_REFUSAL = Refusal(
@@ -214,16 +228,62 @@ KNOWN_REGIME_BAND_REFUSAL = Refusal(
     roadmap="X11",
 )
 
+#: The inference status of an estimate that reads a treatment arm whose observed outcomes in
+#: its stratum take a single value.  No builder sets it yet; a band refuses a family that holds
+#: one (:func:`constant_arm_members`).
+CONSTANT_ARM_CELL_STATUS: str = "constant_arm_cell_plugin"
+
+#: The inference status of a bounded estimate on or outside its range.  No builder sets it yet.
+#: Such an estimate stays a band member (:func:`band_member`): the logit band refuses it through
+#: :func:`out_of_range` as before, and the identity band is built over it.
+OUT_OF_RANGE_STATUS: str = "out_of_range_plugin"
+
+#: The name of the band status a fit records when it skips its band over a constant-cell member.
+CONSTANT_ARM_BAND_STATUS: str = "constant_arm_cell"
+
+
+def constant_arm_band_refusal(names: Sequence[str]) -> Refusal:
+    """Why no band covers a family that holds an estimate with a constant arm cell.
+
+    Parameters
+    ----------
+    names : sequence of str
+        The members whose status is :data:`CONSTANT_ARM_CELL_STATUS`.
+
+    Returns
+    -------
+    Refusal
+        The ``inference_gap`` refusal :func:`simultaneous_bands` and :func:`median_bands`
+        raise, whose condition is the line a fit's summary prints.
+    """
+    return Refusal(
+        RefusalReason.INFERENCE_GAP,
+        NO_CONSTANT_ARM_BANDS.format(names=", ".join(names)),
+        alternative=(
+            "Report the pointwise estimates; a band needs two observed outcome values in "
+            "every treatment arm of every stratum its estimates read."
+        ),
+    )
+
+
 __all__ = [
+    "BAND_DF_FLOOR",
+    "DEFAULT_BAND_REFERENCE",
     "DEFAULT_BAND_SCALE",
     "DEFAULT_KIND",
     "DEFAULT_N_REPLICATES",
+    "BandReference",
     "BandScale",
     "SimultaneousBands",
+    "band_member",
+    "check_band_reference",
+    "constant_arm_band_refusal",
+    "constant_arm_members",
     "median_bands",
     "multiplier_critical_value",
     "out_of_range",
     "simultaneous_bands",
+    "t_critical_values",
 ]
 
 MultiplierKind = Literal["rademacher", "mammen", "normal"]
@@ -235,9 +295,22 @@ BandScale = Literal["logit", "identity"]
 
 _BAND_SCALES: tuple[str, ...] = ("logit", "identity")
 
+#: The reference distribution of each estimate's band.  ``"normal"`` bands every estimate at
+#: the multiplier critical value :math:`c`; ``"t"`` bands estimate :math:`j` at
+#: :math:`c_j = F^{-1}_{t, \nu_j}(\Phi(c))`, the same two-sided tail on its own Student t
+#: reference (:func:`t_critical_values`).
+BandReference = Literal["normal", "t"]
+
+_BAND_REFERENCES: tuple[str, ...] = ("normal", "t")
+
+#: The degrees of freedom below which a ``"t"`` band does not go: :math:`\nu_j` is the Kish
+#: count of the estimate's centred curve, raised to this floor.
+BAND_DF_FLOOR: float = 5.0
+
 #: The default band: the scale, the multiplier kind and the draws every band function and
 #: estimator uses unless told otherwise (the module docstring says why).
 DEFAULT_BAND_SCALE: BandScale = "logit"
+DEFAULT_BAND_REFERENCE: BandReference = "normal"
 DEFAULT_KIND: MultiplierKind = "mammen"
 DEFAULT_N_REPLICATES: int = 10_000
 
@@ -290,6 +363,16 @@ class SimultaneousBands:
         The scale each estimand's band was built on: ``"logit"`` for a parameter in
         ``(0, 1)``, ``"range_logit"`` for one in another known range, ``"log"`` for a ratio,
         the name of an explicit transform, or ``"identity"``.
+    reference : {"normal", "t"}, default="normal"
+        The reference each band was calibrated on: the multiplier critical value for every
+        estimand, or each estimand's own Student t quantile at the same tail.
+    reference_df : dict of str to float, default={}
+        Under ``reference="t"``, each estimand's degrees of freedom :math:`\\nu_j`: the Kish
+        count of its centred curve, raised to :data:`BAND_DF_FLOOR`, or ``inf`` for a zero
+        curve. Empty under ``"normal"``.
+    critical_values : dict of str to float, default={}
+        Under ``reference="t"``, the critical value :math:`c_j` each estimand's band used.
+        Empty under ``"normal"``, where every band uses :attr:`critical_value`.
     """
 
     critical_value: float
@@ -301,6 +384,9 @@ class SimultaneousBands:
     support: Support = UNCLASSIFIED
     band_scale: str = "identity"
     scales: dict[str, str] = field(default_factory=dict)
+    reference: str = "normal"
+    reference_df: dict[str, float] = field(default_factory=dict)
+    critical_values: dict[str, float] = field(default_factory=dict)
 
     @property
     def pointwise_critical_value(self) -> float:
@@ -582,6 +668,7 @@ def simultaneous_bands(
     random_state: int | None = None,
     cluster: IntArray | None = None,
     band_scale: BandScale = DEFAULT_BAND_SCALE,
+    band_reference: BandReference = DEFAULT_BAND_REFERENCE,
 ) -> SimultaneousBands:
     """Joint confidence bands over a set of estimates.
 
@@ -614,6 +701,14 @@ def simultaneous_bands(
     band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a bounded estimate. Every other estimate keeps its own
         inference scale.
+    band_reference : {"normal", "t"}, default="normal"
+        ``"normal"`` bands every estimate at the multiplier critical value :math:`\\hat c`.
+        ``"t"`` bands estimate :math:`j` at :math:`c_j = F^{-1}_{t,\\nu_j}(\\Phi(\\hat c))`,
+        where :math:`\\nu_j` is the Kish count of its centred curve (of the centred cluster
+        sums when ``cluster`` is given) raised to :data:`BAND_DF_FLOOR`
+        (:func:`t_critical_values`). The critical value :math:`\\hat c` is the same under
+        both. With one estimate, :math:`\\hat c = 1.96` and the ``"t"`` band is a t interval,
+        wider than the estimate's own interval.
 
     Returns
     -------
@@ -624,7 +719,8 @@ def simultaneous_bands(
     ------
     ValueError
         If ``estimates`` is empty, or if the influence curves have different lengths, or
-        if ``band_scale`` is not ``"logit"`` or ``"identity"``.
+        if ``band_scale`` is not ``"logit"`` or ``"identity"``, or if ``band_reference`` is
+        not ``"normal"`` or ``"t"``.
     ValueError
         If ``cluster`` has a different length from the influence curves, or if ``kind``
         is not a supported multiplier, when two or more estimates are banded.
@@ -642,14 +738,18 @@ def simultaneous_bands(
         band over a data-adaptive value and fixed regimes (X11 (c2)). Also, with code
         ``inference_gap``, under ``band_scale="logit"``, if a bounded estimate with a
         positive standard error lies on or outside its range, where the logit band is not
-        defined.
+        defined. Also, with code ``inference_gap``, if any estimate reads a treatment arm
+        whose observed outcomes in its stratum take a single value (status
+        ``"constant_arm_cell_plugin"``): its standard error leaves that arm's variance out,
+        and a band over the other estimates would cover a different family.
     """
     _check_band_scale(band_scale)
+    check_band_reference(band_reference)
     items = _checked_items(estimates)
     _refuse_out_of_range(items, band_scale)
     n = items[0][1].n
     ic = np.column_stack([estimate.influence_curve for _, estimate in items])
-    se = np.array([estimate.std_error for _, estimate in items])
+    se = np.array([_band_std_error(estimate) for _, estimate in items])
     critical = multiplier_critical_value(
         ic,
         se,
@@ -660,16 +760,185 @@ def simultaneous_bands(
         kind=kind,
         random_state=random_state,
     )
-    bands, scales = _band_endpoints(items, critical, band_scale)
+    if band_reference == "normal":
+        bands, scales = _band_endpoints(items, critical, band_scale)
+        return SimultaneousBands(
+            critical_value=critical,
+            bands=bands,
+            alpha=alpha,
+            n_replicates=n_replicates,
+            kind=kind,
+            band_scale=band_scale,
+            scales=scales,
+        )
+    return _t_bands(
+        items,
+        critical,
+        ic,
+        cluster=cluster,
+        band_scale=band_scale,
+        alpha=alpha,
+        n_replicates=n_replicates,
+        kind=kind,
+    )
+
+
+def t_critical_values(
+    critical: float, influence_curves: FloatArray, cluster: IntArray | None = None
+) -> tuple[FloatArray, FloatArray]:
+    r"""Each estimate's degrees of freedom and critical value under ``band_reference="t"``.
+
+    Column :math:`j` reads :math:`\nu_j = \max(K_j, 5)`, where :math:`K_j` is the Kish count
+    :math:`(\sum_i d_{ij}^2)^2 / \sum_i d_{ij}^4` of the centred column (of the centred cluster
+    sums when ``cluster`` is given, the units the multiplier draws). Its critical value is
+    :math:`c_j = F^{-1}_{t,\nu_j}(\Phi(c))`: the two-sided tail :math:`2(1 - \Phi(c))` on its
+    own Student t reference, so :math:`c_j \ge c`. A zero column has :math:`\nu_j = \infty`
+    and :math:`c_j = c` exactly.
+
+    Parameters
+    ----------
+    critical : float
+        The multiplier critical value :math:`c`.
+    influence_curves : ndarray
+        ``(n, k)`` influence curves, one column per estimate, on any delta-method scale: the
+        Kish count does not change when a column is rescaled.
+    cluster : ndarray or None, default=None
+        ``(n,)`` cluster codes.
+
+    Returns
+    -------
+    tuple of ndarray
+        ``(nu, c_j)``, each of length ``k``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference.multiplier import t_critical_values
+    >>> curves = np.column_stack([np.tile([1.0, -1.0], 50), np.zeros(100)])
+    >>> nu, c = t_critical_values(2.5, curves)
+    >>> nu.tolist(), round(float(c[0]), 4), float(c[1])
+    ([100.0, inf], 2.5461, 2.5)
+    """
+    ic = np.asarray(influence_curves, dtype=float)
+    if ic.ndim != 2:
+        raise ValueError(f"expected an (n, m) influence-curve matrix; got shape {ic.shape}")
+    scores = cluster_sums(ic, cluster) if cluster is not None else ic
+    nus = np.array(
+        [max(kish_count(scores[:, j]), BAND_DF_FLOOR) for j in range(scores.shape[1])],
+        dtype=float,
+    )
+    values = np.array([_t_quantile(critical, float(nu)) for nu in nus], dtype=float)
+    return nus, values
+
+
+def _t_quantile(critical: float, nu: float) -> float:
+    """``t.isf(norm.sf(critical), nu)``: the tail of ``critical`` on a t reference with ``nu`` df.
+
+    The tail is computed as a tail, not as ``1 - small``.  An infinite ``nu`` returns
+    ``critical`` itself through an explicit branch, so a zero curve's band is the normal band
+    exactly and no scipy behaviour at ``df=inf`` is relied on.
+    """
+    if not math.isfinite(nu):
+        return float(critical)
+    from scipy import stats
+
+    return float(stats.t.isf(stats.norm.sf(critical), nu))
+
+
+def _t_bands(
+    items: Sequence[tuple[str, ParameterEstimate]],
+    critical: float,
+    ic: FloatArray,
+    *,
+    cluster: IntArray | None,
+    band_scale: str,
+    alpha: float,
+    n_replicates: int,
+    kind: str,
+    draw_critical_values: tuple[float, ...] = (),
+    support: Support = UNCLASSIFIED,
+) -> SimultaneousBands:
+    """The ``"t"`` band: the shipped band body once per estimate, at its own :math:`c_j`."""
+    nus, values = t_critical_values(critical, ic, cluster)
+    bands: dict[str, tuple[float, float]] = {}
+    scales: dict[str, str] = {}
+    for item, value in zip(items, values, strict=True):
+        band, scale = _band_endpoints([item], float(value), band_scale)
+        bands.update(band)
+        scales.update(scale)
+    names = [name for name, _ in items]
     return SimultaneousBands(
         critical_value=critical,
         bands=bands,
         alpha=alpha,
         n_replicates=n_replicates,
         kind=kind,
+        draw_critical_values=draw_critical_values,
+        support=support,
         band_scale=band_scale,
         scales=scales,
+        reference="t",
+        reference_df={name: float(nu) for name, nu in zip(names, nus, strict=True)},
+        critical_values={name: float(value) for name, value in zip(names, values, strict=True)},
     )
+
+
+def constant_arm_members(
+    estimates: Mapping[str, ParameterEstimate] | Sequence[tuple[str, ParameterEstimate]],
+) -> tuple[str, ...]:
+    """The members of a band's family whose status is ``"constant_arm_cell_plugin"``.
+
+    Such an estimate reads a treatment arm whose observed outcomes in its stratum take a single
+    value, so its standard error leaves that arm's variance out and no band covers it.  A band
+    over a family that holds one is refused rather than built over the others, because that
+    band would be a statement about a family the data chose.  No builder sets the status yet,
+    so the tuple is empty on every current fit.
+
+    Parameters
+    ----------
+    estimates : mapping of str to ParameterEstimate, or sequence of pairs
+        The band's family, before any member is filtered out.
+
+    Returns
+    -------
+    tuple of str
+        The names, in order.
+    """
+    pairs = estimates.items() if isinstance(estimates, Mapping) else estimates
+    return tuple(
+        name for name, estimate in pairs if str(estimate.inference) == CONSTANT_ARM_CELL_STATUS
+    )
+
+
+def band_member(estimate: ParameterEstimate) -> bool:
+    """Whether an estimate belongs to a fit's band family.
+
+    An estimate that supplies inference does, and so does a bounded estimate on or outside its
+    range (status ``"out_of_range_plugin"``), which keeps the band behaviour it had before the
+    status: the logit band refuses it and the identity band covers it.  Every other withheld
+    estimate leaves the band.
+
+    Parameters
+    ----------
+    estimate : ParameterEstimate
+        A reported estimate.
+
+    Returns
+    -------
+    bool
+        ``True`` for a member.
+    """
+    return bool(estimate.supplies_inference) or str(estimate.inference) == OUT_OF_RANGE_STATUS
+
+
+def _band_std_error(estimate: ParameterEstimate) -> float:
+    """The standard error a band reads: the body :attr:`ParameterEstimate.std_error` returns.
+
+    The same arithmetic on the same curve, so the band of an estimate that supplies inference
+    is unchanged, and a band member with status ``"out_of_range_plugin"`` reads its plug-in
+    standard error without the accessor's refusal.
+    """
+    return estimate._plugin_std_error()
 
 
 def _checked_items(
@@ -683,10 +952,18 @@ def _checked_items(
     )
     if not items:
         raise ValueError("no estimates supplied")
+    # A constant arm cell refuses the band itself, ahead of the estimate's own refusal, so the
+    # error names the band's status rather than the estimate's.
+    constant = constant_arm_members(items)
+    if constant:
+        raise CapabilityError.from_refusal(constant_arm_band_refusal(constant))
     # An *inferential* use, unlike the tolerance scales elsewhere in the package: a band
     # is a joint coverage claim.  Refused here, naming the operation, rather than left to
     # raise out of ``estimate.std_error`` below under an accessor the caller never wrote.
+    # A bounded estimate on or outside its range stays a member (:func:`band_member`).
     for _, estimate in items:
+        if str(estimate.inference) == OUT_OF_RANGE_STATUS:
+            continue
         refuse_inference(estimate.inference, operation="simultaneous_bands()")
     if any(estimate.reference_df is not None for _, estimate in items):
         raise CapabilityError.from_refusal(T_REFERENCE_BAND_REFUSAL)
@@ -743,6 +1020,23 @@ def _check_band_scale(band_scale: str) -> None:
         raise ValueError(f"band_scale must be 'logit' or 'identity'; got {band_scale!r}")
 
 
+def check_band_reference(band_reference: str) -> None:
+    """Refuse a band reference this module does not build.
+
+    Parameters
+    ----------
+    band_reference : str
+        The requested reference.
+
+    Raises
+    ------
+    ValueError
+        Unless it is ``"normal"`` or ``"t"``.
+    """
+    if band_reference not in _BAND_REFERENCES:
+        raise ValueError(f"band_reference must be 'normal' or 't'; got {band_reference!r}")
+
+
 def _range_transform(estimate: ParameterEstimate, band_scale: str) -> Transform | None:
     """The range-logit transform of a bounded estimate under ``band_scale="logit"``."""
     if band_scale != "logit" or estimate.bounds is None:
@@ -781,7 +1075,7 @@ def out_of_range(estimates: Mapping[str, ParameterEstimate], band_scale: str) ->
         if _range_transform(estimate, band_scale) is None:
             continue
         low, high = estimate.bounds  # type: ignore[misc]
-        if float(estimate.std_error) > 0.0 and not (low < float(estimate.psi) < high):
+        if float(_band_std_error(estimate)) > 0.0 and not (low < float(estimate.psi) < high):
             out.append(name)
     return tuple(out)
 
@@ -818,13 +1112,14 @@ def _band_endpoints(
     bands: dict[str, tuple[float, float]] = {}
     scales: dict[str, str] = {}
     for name, estimate in items:
-        half_width = critical * estimate.std_error
+        std_error = _band_std_error(estimate)
+        half_width = critical * std_error
         transform = estimate.transform
         ranged = _range_transform(estimate, band_scale)
         if ranged is not None:
             psi = float(estimate.psi)
             scales[name] = ranged.name
-            if estimate.std_error == 0.0:
+            if std_error == 0.0:
                 bands[name] = (psi, psi)
                 continue
             center = float(ranged.forward(psi))
@@ -868,6 +1163,7 @@ def median_bands(
     random_state: int | None = None,
     cluster: IntArray | None = None,
     band_scale: BandScale = DEFAULT_BAND_SCALE,
+    band_reference: BandReference = DEFAULT_BAND_REFERENCE,
 ) -> SimultaneousBands:
     r"""Joint bands of a repeated fit: the median critical value around the median estimates.
 
@@ -899,6 +1195,9 @@ def median_bands(
         ``(n,)`` cluster codes. Weights are drawn per cluster when given.
     band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a bounded estimate, as in :func:`simultaneous_bands`.
+    band_reference : {"normal", "t"}, default="normal"
+        As in :func:`simultaneous_bands`. Under ``"t"`` the median critical value is mapped to
+        each estimand's t quantile, with :math:`\nu_j` read from the curve of ``combined``.
 
     Returns
     -------
@@ -914,6 +1213,7 @@ def median_bands(
         As :func:`simultaneous_bands` raises.
     """
     _check_band_scale(band_scale)
+    check_band_reference(band_reference)
     items = _checked_items(combined)
     _refuse_out_of_range(items, band_scale)
     names = [name for name, _ in items]
@@ -924,7 +1224,7 @@ def median_bands(
         critical_values.append(
             multiplier_critical_value(
                 np.column_stack([estimate.influence_curve for _, estimate in draw_items]),
-                np.array([estimate.std_error for _, estimate in draw_items]),
+                np.array([_band_std_error(estimate) for _, estimate in draw_items]),
                 n=draw_items[0][1].n,
                 cluster=cluster,
                 alpha=alpha,
@@ -934,6 +1234,19 @@ def median_bands(
             )
         )
     critical = float(np.median(critical_values))
+    if band_reference == "t":
+        return _t_bands(
+            items,
+            critical,
+            np.column_stack([estimate.influence_curve for _, estimate in items]),
+            cluster=cluster,
+            band_scale=band_scale,
+            alpha=alpha,
+            n_replicates=n_replicates,
+            kind=kind,
+            draw_critical_values=tuple(critical_values),
+            support=combine_support([estimate.support for _, estimate in items]),
+        )
     bands, scales = _band_endpoints(items, critical, band_scale)
     return SimultaneousBands(
         critical_value=critical,

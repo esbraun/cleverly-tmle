@@ -46,6 +46,7 @@ __all__ = [
     "UNCLASSIFIED",
     "UNMEASURED_BAND_OPTION",
     "BandOption",
+    "BandShape",
     "Classification",
     "Kind",
     "Preflight",
@@ -53,6 +54,7 @@ __all__ = [
     "SupportKey",
     "SupportLabel",
     "SupportRow",
+    "band_shape",
     "classify",
     "classify_key",
     "classify_longitudinal_fit",
@@ -118,13 +120,20 @@ UNCLASSIFIED: Final[Support] = Support(
     "experimental", "This estimate was built outside a classified fit."
 )
 
-#: A band configuration: the ``multiplier_kind`` that draws its critical value and the
-#: ``band_scale`` its limits are built on.
-BandOption = tuple[str, str]
+#: A band configuration: the ``multiplier_kind`` that draws its critical value, the
+#: ``band_scale`` its limits are built on and the ``band_reference`` each band is calibrated on.
+BandOption = tuple[str, str, str]
 
-#: The band configuration of a default fit: the Mammen multiplier, on the logit scale.  It is
-#: the configuration every registered band cell measures since band-finite-sample.
-DEFAULT_BAND_OPTION: Final[BandOption] = ("mammen", "logit")
+#: The band configuration of a default fit: the Mammen multiplier, on the logit scale, with the
+#: normal reference.  It is the configuration every registered band cell measures since
+#: band-finite-sample.
+DEFAULT_BAND_OPTION: Final[BandOption] = ("mammen", "logit", "normal")
+
+#: What a band is built over, beyond one unclustered, unweighted fit: ``"clustered"`` draws its
+#: multipliers per cluster, ``"weighted"`` reads observation weights, and ``"repeated"`` takes
+#: the median critical value over the draws of a cross-fitting split.  No registered cell
+#: measures a ``"t"`` band of any shape but ``"plain"`` (:func:`band_support`).
+BandShape = Literal["plain", "clustered", "weighted", "repeated"]
 
 #: Why a band built with an option no row lists is experimental: band-finite-sample regenerated
 #: every registered band cell with :data:`DEFAULT_BAND_OPTION`, so the Rademacher and normal
@@ -1059,10 +1068,11 @@ class SupportRow:
         Pairs of a kind and the target families that kind covers. A kind with no pair covers
         every family of the row. A fit that holds a family outside the pair reads the kind as
         unlicensed.
-    band_options : tuple of tuple of str, default (("mammen", "logit"),)
-        The ``(multiplier_kind, band_scale)`` pairs the row's band cells measured. A band built
-        with another pair is experimental, and the fit's other estimates keep the row. The
-        field means nothing on a row that does not license ``band``.
+    band_options : tuple of tuple of str, default (("mammen", "logit", "normal"),)
+        The ``(multiplier_kind, band_scale, band_reference)`` triples the row's band cells
+        measured. A band built with another triple is experimental, and the fit's other
+        estimates keep the row. The field means nothing on a row that does not license
+        ``band``.
     band_option_shortfalls : tuple of tuple, default ()
         Pairs of a band option and a sentence. The sentence states the measured number of a red
         band cell for that option alone. A band built with that option is experimental, and the
@@ -1376,6 +1386,38 @@ def classify(
     return classify_key(key, learners, conditions)
 
 
+def band_shape(
+    *, cluster: object = None, weighted: bool = False, repeated: bool = False
+) -> BandShape:
+    """The shape of a band, for :func:`band_support`.
+
+    Parameters
+    ----------
+    cluster : object, default=None
+        The fit's cluster codes, or ``None``.
+    weighted : bool, default=False
+        Whether the fit reads observation weights.
+    repeated : bool, default=False
+        Whether the band takes the median critical value over the draws of a split.
+
+    Returns
+    -------
+    {"plain", "clustered", "weighted", "repeated"}
+        The first that applies, in the order repeated, clustered, weighted.
+
+    Examples
+    --------
+    >>> from cleverly._support import band_shape
+    >>> band_shape(), band_shape(weighted=True), band_shape(cluster=[0, 1], weighted=True)
+    ('plain', 'weighted', 'clustered')
+    """
+    if repeated:
+        return "repeated"
+    if cluster is not None:
+        return "clustered"
+    return "weighted" if weighted else "plain"
+
+
 def band_support(
     classification: Classification | None,
     status: str,
@@ -1383,13 +1425,15 @@ def band_support(
     kind: Kind = "band",
     options: BandOption = DEFAULT_BAND_OPTION,
     draws: int | None = None,
+    shape: BandShape = "plain",
 ) -> Support:
     """What a simultaneous band carries: its row's band kind, combined with its estimates.
 
-    A multiplier band also needs its ``(multiplier_kind, band_scale)`` pair among the row's
-    ``band_options``. An unlisted pair makes only the band experimental: the fit's
-    classification, and so the support of each pointwise estimate, does not read the
-    multiplier.
+    A multiplier band also needs its ``(multiplier_kind, band_scale, band_reference)`` triple
+    among the row's ``band_options``. An unlisted triple makes only the band experimental: the
+    fit's classification, and so the support of each pointwise estimate, does not read the
+    multiplier. A ``band_reference="t"`` band of any ``shape`` but ``"plain"`` is experimental
+    on every row, because no registered cell measures one.
 
     Parameters
     ----------
@@ -1402,11 +1446,14 @@ def band_support(
     kind : {"band", "bootstrap_band"}, default="band"
         The band's kind: the influence-curve multiplier band, or the studentized bootstrap
         sup-t band.
-    options : tuple of str, default ("mammen", "logit")
-        The band's ``(multiplier_kind, band_scale)``. Read only for ``kind="band"``.
+    options : tuple of str, default ("mammen", "logit", "normal")
+        The band's ``(multiplier_kind, band_scale, band_reference)``. Read only for
+        ``kind="band"``.
     draws : int or None, default=None
         The band's multiplier draws. An option whose row names a measured draw count needs
         at least that many; ``None`` never meets it.
+    shape : {"plain", "clustered", "weighted", "repeated"}, default="plain"
+        What the band is built over (:func:`band_shape`). Read only for a ``"t"`` band.
 
     Returns
     -------
@@ -1418,7 +1465,7 @@ def band_support(
     Examples
     --------
     >>> from cleverly._support import band_support
-    >>> band_support(None, "influence_curve", [], options=("mammen", "logit")).label
+    >>> band_support(None, "influence_curve", [], options=("mammen", "logit", "normal")).label
     'experimental'
     """
     kind_support = support_for(classification, status, None, kind=kind)
@@ -1430,15 +1477,11 @@ def band_support(
         and classification is not None
         and row.licenses(kind, classification.key.family)
     ):
-        multiplier_kind, band_scale = options
         if options not in row.band_options:
-            listed = " and ".join(
-                f"multiplier_kind={k!r} with band_scale={s!r}" for k, s in row.band_options
-            )
+            listed = " and ".join(_option_text(option) for option in row.band_options)
             option_reasons.append(
                 f"Row {row.id} measured its simultaneous band with {listed} only, and this "
-                f"band uses multiplier_kind={multiplier_kind!r} with "
-                f"band_scale={band_scale!r}, which has {UNMEASURED_BAND_OPTION}."
+                f"band uses {_option_text(options)}, which has {UNMEASURED_BAND_OPTION}."
             )
         option_reasons.extend(
             text for option, text in row.band_option_shortfalls if option == options
@@ -1449,13 +1492,26 @@ def band_support(
                     f"Row {row.id} measured this band at {measured:,} multiplier draws, and "
                     f"this band uses {'an unstated number' if draws is None else f'{draws:,}'}."
                 )
+    if kind == "band" and options[2] == "t" and shape != "plain":
+        option_reasons.append(f"No band-t-reference cell measures a {shape} t band.")
     if not option_reasons:
         return combine_support([kind_support, *supports])
-    assert row is not None
     option_support = Support(
-        "experimental", " ".join(option_reasons), row=row.id, limits=row.limits
+        "experimental",
+        " ".join(option_reasons),
+        row=None if row is None else row.id,
+        limits=() if row is None else row.limits,
     )
     return combine_support([kind_support, option_support, *supports])
+
+
+def _option_text(option: BandOption) -> str:
+    """A band triple as the keywords that build it."""
+    multiplier_kind, band_scale, band_reference = option
+    return (
+        f"multiplier_kind={multiplier_kind!r} with band_scale={band_scale!r} and "
+        f"band_reference={band_reference!r}"
+    )
 
 
 # --------------------------------------------------------------------- record switch

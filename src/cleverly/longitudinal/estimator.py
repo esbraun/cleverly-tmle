@@ -87,6 +87,7 @@ from .._support import (
     Classification,
     Support,
     SupportKey,
+    band_shape,
     band_support,
     classify_longitudinal_fit,
     combine_support,
@@ -150,10 +151,14 @@ from ..inference.influence import (
     with_precedent_status,
 )
 from ..inference.multiplier import (
+    DEFAULT_BAND_REFERENCE,
     DEFAULT_BAND_SCALE,
     DEFAULT_KIND,
     DEFAULT_N_REPLICATES,
     SimultaneousBands,
+    band_member,
+    check_band_reference,
+    constant_arm_members,
     median_bands,
     out_of_range,
     simultaneous_bands,
@@ -4372,6 +4377,7 @@ class _SequentialEstimator:
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -4408,6 +4414,8 @@ class _SequentialEstimator:
         self.n_multiplier = n_multiplier
         self.multiplier_kind = multiplier_kind
         self.band_scale = band_scale
+        self.band_reference = band_reference
+        check_band_reference(band_reference)
         self.random_state = random_state
         self.run_id = run_id
         self.n_jobs = n_jobs
@@ -5868,8 +5876,14 @@ class _SequentialEstimator:
             for name, estimate in result.estimates.items()
             if estimate.supplies_inference and name in bootstrap.std_errors
         }
-        # As for the multiplier band, no source gives a t-calibrated joint band.
-        if not self.simultaneous or len(banded) < 2 or has_t_reference(banded):
+        # As for the multiplier band, no source gives a t-calibrated joint band, and a family
+        # with a constant arm cell builds none.
+        if (
+            not self.simultaneous
+            or len(banded) < 2
+            or has_t_reference(banded)
+            or constant_arm_members(result.estimates)
+        ):
             return result
         band = bootstrap_band(
             bootstrap,
@@ -6305,8 +6319,13 @@ class _SequentialEstimator:
         # A parameter whose status withholds its interval, such as a constant-node risk, stays
         # out of the band, which is then a joint statement over the others. A parameter that
         # shows a labelled interval stays in, and its experimental label reaches the band.
+        # The two exceptions of ``TMLE.fit`` hold here too: a constant arm cell skips the
+        # band, and an estimate on or outside its range stays a member. No longitudinal
+        # builder sets either status yet.
+        if constant_arm_members(estimates):
+            return None
         estimates = {
-            name: estimate for name, estimate in estimates.items() if estimate.supplies_inference
+            name: estimate for name, estimate in estimates.items() if band_member(estimate)
         }
         if not self.simultaneous or len(estimates) < 2:
             return None
@@ -6328,6 +6347,7 @@ class _SequentialEstimator:
                 random_state=multiplier_seed,
                 cluster=data.cluster,
                 band_scale=self.band_scale,  # type: ignore[arg-type]
+                band_reference=self.band_reference,  # type: ignore[arg-type]
             )
         else:
             bands = simultaneous_bands(
@@ -6338,6 +6358,7 @@ class _SequentialEstimator:
                 random_state=self.random_state,
                 cluster=data.cluster,
                 band_scale=self.band_scale,  # type: ignore[arg-type]
+                band_reference=self.band_reference,  # type: ignore[arg-type]
             )
         return replace(
             bands,
@@ -6345,8 +6366,11 @@ class _SequentialEstimator:
                 classification,
                 status,
                 (estimate.support for estimate in estimates.values()),
-                options=(self.multiplier_kind, self.band_scale),
+                options=(self.multiplier_kind, self.band_scale, self.band_reference),
                 draws=int(self.n_multiplier),
+                shape=band_shape(
+                    weighted=data.is_weighted, repeated=len(repeats) > 1, cluster=data.cluster
+                ),
             ),
         )
 
@@ -6854,6 +6878,10 @@ class LTMLE(_SequentialEstimator):
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"t"`` bands each estimate at the critical value's tail on its own Student t
+        reference, with degrees of freedom from its influence curve
+        (:func:`~cleverly.inference.simultaneous_bands`).
     max_iter : int
         Maximum targeting iterations per node.
     tol : float
@@ -7027,6 +7055,7 @@ class LTMLE(_SequentialEstimator):
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         max_iter: int = 20,
         tol: float = 1e-10,
         random_state: int | None = None,
@@ -7082,6 +7111,7 @@ class LTMLE(_SequentialEstimator):
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
             band_scale=band_scale,
+            band_reference=band_reference,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -7212,6 +7242,10 @@ class SDR(_SequentialEstimator):
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"t"`` bands each estimate at the critical value's tail on its own Student t
+        reference, with degrees of freedom from its influence curve
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
         The seed of the outer split, inherited by a default learner.
     run_id : str or None
@@ -7300,6 +7334,7 @@ class SDR(_SequentialEstimator):
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7337,6 +7372,7 @@ class SDR(_SequentialEstimator):
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
             band_scale=band_scale,
+            band_reference=band_reference,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -7498,6 +7534,10 @@ class IPSI(_SequentialEstimator):
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"t"`` bands each estimate at the critical value's tail on its own Student t
+        reference, with degrees of freedom from its influence curve
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
         The seed of the outer split, inherited by a default learner.
     run_id : str or None
@@ -7577,6 +7617,7 @@ class IPSI(_SequentialEstimator):
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7611,6 +7652,7 @@ class IPSI(_SequentialEstimator):
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
             band_scale=band_scale,
+            band_reference=band_reference,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -7819,6 +7861,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7859,6 +7902,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
             band_scale=band_scale,
+            band_reference=band_reference,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -7963,6 +8007,10 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
     band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
+        (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"t"`` bands each estimate at the critical value's tail on its own Student t
+        reference, with degrees of freedom from its influence curve
         (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
         The seed inherited by a default learner.
@@ -8183,6 +8231,10 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
     band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
+        (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"t"`` bands each estimate at the critical value's tail on its own Student t
+        reference, with degrees of freedom from its influence curve
         (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
         The seed inherited by a default learner.
@@ -8457,9 +8509,9 @@ class ParametricGFormula(_Baseline):
         ``horizons``, ``treatment_learner`` (the natural-treatment models and the diagnostic
         mechanism), ``censoring_learner``, ``competing_learner``, ``g_bounds``, ``q_bounds``,
         ``alpha_sig``, ``simultaneous``, ``n_multiplier``, ``multiplier_kind``, ``band_scale``,
-        ``random_state``, ``run_id``, ``n_jobs``, ``n_bootstrap``, ``bootstrap_resampling``,
-        ``density_bins`` and ``ratio``.  ``n_folds`` must be ``1``.  ``msm``, ``alpha``,
-        ``max_iter`` and ``tol`` are refused.
+        ``band_reference``, ``random_state``, ``run_id``, ``n_jobs``, ``n_bootstrap``,
+        ``bootstrap_resampling``, ``density_bins`` and ``ratio``.  ``n_folds`` must be ``1``.
+        ``msm``, ``alpha``, ``max_iter`` and ``tol`` are refused.
 
     See Also
     --------

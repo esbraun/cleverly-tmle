@@ -45,7 +45,13 @@ from .exceptions import (
     Refusal,
     RefusalReason,
 )
-from .inference.multiplier import SimultaneousBands, median_bands, simultaneous_bands
+from .inference.multiplier import (
+    SimultaneousBands,
+    band_member,
+    constant_arm_members,
+    median_bands,
+    simultaneous_bands,
+)
 from .interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet, Stochastic
 from .interventions.base import InterventionKind, refuse_mixed_interventions
 from .interventions.learned import LearnedRule, refuse_learned_rule_composition
@@ -2978,7 +2984,9 @@ def _narrow_bands(
     bands = result.simultaneous
     if bands is None:
         return None
-    family = {name: estimate for name, estimate in retained.items() if estimate.supplies_inference}
+    if constant_arm_members(retained):
+        return None
+    family = {name: estimate for name, estimate in retained.items() if band_member(estimate)}
     if set(family) == set(bands.bands):
         return bands
     if len(family) < 2:
@@ -2993,6 +3001,7 @@ def _narrow_bands(
             random_state=result.config.multiplier_seed,
             cluster=result.data.cluster,
             band_scale=bands.band_scale,
+            band_reference=bands.reference,
         )
     else:
         narrowed = simultaneous_bands(
@@ -3003,6 +3012,7 @@ def _narrow_bands(
             random_state=getattr(method, "runtime", Runtime()).random_state,
             cluster=result.data.cluster,
             band_scale=bands.band_scale,
+            band_reference=bands.reference,
         )
     # No study measures a band over a narrowed family, so the band is experimental whatever its
     # row licenses for the engine's own band.
