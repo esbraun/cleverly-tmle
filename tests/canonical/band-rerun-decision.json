@@ -1,0 +1,2155 @@
+{
+  "alpha": 0.01,
+  "commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "coverage_band": [
+    0.92,
+    0.98
+  ],
+  "decision": "flip",
+  "mode": "targeted_band_rerun",
+  "owner_rows": [],
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "readings": {
+    "adaptive-iptw": {
+      "cells": [
+        {
+          "b_covered_before_only": 2,
+          "band_failures": 0,
+          "baseline_coverage": 0.9435,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 12,
+          "cell": "known_band__simultaneous_band",
+          "coverage": 0.9485,
+          "coverage_ci_lower": 0.9344140370578438,
+          "coverage_ci_upper": 0.9603985449816885,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.99908447265625,
+          "mcnemar_p_covers_more": 0.0064697265625,
+          "passed": true,
+          "replicates": 2000,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "edfd4ca340f387f71b71f2a17d5f54eebc1c5dd7a59664b07b4ea3ed242242ee",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/known_band__simultaneous_band"
+        ],
+        "maximum_carried_difference": 0.0
+      }
+    },
+    "canonical-ltmle": {
+      "cells": [
+        {
+          "b_covered_before_only": 2,
+          "band_failures": 0,
+          "baseline_coverage": 0.945,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 23,
+          "cell": "regimens__simultaneous_band",
+          "coverage": 0.95375,
+          "coverage_ci_lower": 0.9415659854520997,
+          "coverage_ci_upper": 0.964091299238283,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9999992251396179,
+          "mcnemar_p_covers_more": 9.715557098388672e-06,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "6b57ba5c93d84f55729896b30a356307e9778d6ec67a300763d2f5c27d7635b5",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/regimens__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "canonical-ltmle-competing": {
+      "cells": [
+        {
+          "b_covered_before_only": 18,
+          "band_failures": 0,
+          "baseline_coverage": 0.9466666666666667,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 35,
+          "cell": "all_reported__simultaneous_band",
+          "coverage": 0.9484375,
+          "coverage_ci_lower": 0.9423456313294519,
+          "coverage_ci_upper": 0.9540796166664045,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9936698320987929,
+          "mcnemar_p_covers_more": 0.013504158826861179,
+          "passed": true,
+          "replicates": 9600,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 4,
+          "band_failures": 0,
+          "baseline_coverage": 0.9491666666666667,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 12,
+          "cell": "curve_always__simultaneous_band",
+          "coverage": 0.9525,
+          "coverage_ci_lower": 0.9401783856366768,
+          "coverage_ci_upper": 0.9629845297217117,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9893646240234375,
+          "mcnemar_p_covers_more": 0.0384063720703125,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "98796160f8f60c6d65665b1cafbd56358f55675a0ebb85d299154b090bd96e60",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/all_reported__simultaneous_band",
+          "simultaneous_coverage/curve_always__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "canonical-ltmle-survival": {
+      "cells": [
+        {
+          "b_covered_before_only": 83,
+          "band_failures": 0,
+          "baseline_coverage": 0.9213541666666667,
+          "baseline_passed": false,
+          "breach": null,
+          "c_covered_now_only": 174,
+          "cell": "all_reported__simultaneous_band",
+          "coverage": 0.9308333333333333,
+          "coverage_ci_lower": 0.9238943506748244,
+          "coverage_ci_upper": 0.9373408855642028,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9999999967073154,
+          "mcnemar_p_covers_more": 7.047708378215978e-09,
+          "passed": true,
+          "replicates": 9600,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 77,
+          "band_failures": 0,
+          "baseline_coverage": 0.9355208333333334,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 173,
+          "cell": "curve_always__simultaneous_band",
+          "coverage": 0.9455208333333334,
+          "coverage_ci_lower": 0.9392776470963251,
+          "coverage_ci_upper": 0.951317329960777,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9999999997419875,
+          "mcnemar_p_covers_more": 5.912998026945529e-10,
+          "passed": true,
+          "replicates": 9600,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "4fe0e833ac35a4831e9d6771b76654567f103afdfce59dfd013d155ebb39fb78",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/all_reported__simultaneous_band",
+          "simultaneous_coverage/curve_always__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "canonical-multi-arm-tmle": {
+      "cells": [
+        {
+          "b_covered_before_only": 6,
+          "band_failures": 0,
+          "baseline_coverage": 0.9445833333333333,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 10,
+          "cell": "arms__simultaneous_band",
+          "coverage": 0.94625,
+          "coverage_ci_lower": 0.9332705477070563,
+          "coverage_ci_upper": 0.9574201834451311,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.8949432373046875,
+          "mcnemar_p_covers_more": 0.2272491455078125,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "7da8caee25605d8a75f89779d07bb86cbb27e90606cdf24c77895b5fcd041412",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/arms__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "canonical-stratified-incremental-msm": {
+      "cells": [
+        {
+          "b_covered_before_only": 17,
+          "band_failures": 0,
+          "baseline_coverage": 0.941,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 31,
+          "cell": "ipsi_strata__simultaneous_band",
+          "coverage": 0.948,
+          "coverage_ci_lower": 0.9338573311117297,
+          "coverage_ci_upper": 0.9599579365480955,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9853475266397353,
+          "mcnemar_p_covers_more": 0.02973168762688517,
+          "passed": true,
+          "replicates": 2000,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "9aef83b1d52e56d99f96fd57a843ee7dc2b71c374731af163577d8b25c37fd8d",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/ipsi_strata__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "canonical-stratified-tmle": {
+      "cells": [
+        {
+          "b_covered_before_only": 27,
+          "band_failures": 0,
+          "baseline_coverage": 0.9191666666666667,
+          "baseline_passed": false,
+          "breach": null,
+          "c_covered_now_only": 101,
+          "cell": "crossfit_strata__simultaneous_band",
+          "coverage": 0.95,
+          "coverage_ci_lower": 0.9374094325427813,
+          "coverage_ci_upper": 0.9607646725349679,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9999999999961107,
+          "mcnemar_p_covers_more": 1.4930429935279928e-11,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 24,
+          "band_failures": 0,
+          "baseline_coverage": 0.9045833333333333,
+          "baseline_passed": false,
+          "breach": null,
+          "c_covered_now_only": 94,
+          "cell": "strata__simultaneous_band",
+          "coverage": 0.93375,
+          "coverage_ci_lower": 0.9195817972140207,
+          "coverage_ci_upper": 0.9461633069040574,
+          "interval_red": true,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.999999999993093,
+          "mcnemar_p_covers_more": 2.7802164820019195e-11,
+          "passed": false,
+          "replicates": 2400,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "06408549c72298ccd3f1cec24fe2c35645a13d3534a2cbe9f26e1afec59a3596",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/crossfit_strata__simultaneous_band",
+          "simultaneous_coverage/strata__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "clustered-cross-fitted-ltmle": {
+      "cells": [
+        {
+          "b_covered_before_only": 20,
+          "band_failures": 0,
+          "baseline_coverage": 0.9333333333333333,
+          "baseline_passed": false,
+          "breach": null,
+          "c_covered_now_only": 34,
+          "cell": "clustered_regimens__simultaneous_band",
+          "coverage": 0.9391666666666667,
+          "coverage_ci_lower": 0.9254950162429829,
+          "coverage_ci_upper": 0.951060028558475,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9798882179521416,
+          "mcnemar_p_covers_more": 0.0379523647445507,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "76e8b1f6075c80c6785988666b9014e5cdb0145deb49623dc522ef278e99249c",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/clustered_regimens__simultaneous_band"
+        ],
+        "maximum_carried_difference": 0.0
+      }
+    },
+    "composite-missing-drtmle": {
+      "cells": [
+        {
+          "b_covered_before_only": 7,
+          "band_failures": 0,
+          "baseline_coverage": 0.93875,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 15,
+          "cell": "composite_binary__simultaneous_band",
+          "coverage": 0.9420833333333334,
+          "coverage_ci_lower": 0.928690434950883,
+          "coverage_ci_upper": 0.9536852463088058,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9737606048583984,
+          "mcnemar_p_covers_more": 0.06690025329589844,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 5,
+          "band_failures": 0,
+          "baseline_coverage": 0.9466666666666667,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 16,
+          "cell": "composite_observational__simultaneous_band",
+          "coverage": 0.95125,
+          "coverage_ci_lower": 0.9387928933094342,
+          "coverage_ci_upper": 0.9618756283484032,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.996401309967041,
+          "mcnemar_p_covers_more": 0.013301849365234375,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 11,
+          "band_failures": 0,
+          "baseline_coverage": 0.9508333333333333,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 24,
+          "cell": "composite_three_arm__simultaneous_band",
+          "coverage": 0.95625,
+          "coverage_ci_lower": 0.9443478371596284,
+          "coverage_ci_upper": 0.966298106414174,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9916630760999396,
+          "mcnemar_p_covers_more": 0.020479795755818493,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        }
+      ],
+      "complete_rerun_changes": {
+        "cells": [],
+        "properties": []
+      },
+      "failure_files": [],
+      "manifest_sha256": "499ed3b78c9a762d703c0a4966e9840029b4a59a6dd62ac7eb8931aacb8c0004",
+      "miss_sha256": "63286af4a6f6e970312208ab9b6f66b90e69cc745bd6daed87a0bf57a4d8845e",
+      "route": "complete_rerun",
+      "stack_differences": {
+        "joblib": {
+          "baseline": null,
+          "ran": "1.6.0"
+        },
+        "numpy": {
+          "baseline": "2.5.3",
+          "ran": "2.5.4"
+        },
+        "pandas": {
+          "baseline": "3.0.6",
+          "ran": "3.1.1"
+        },
+        "python": {
+          "baseline": "3.13.7",
+          "ran": "3.13.16"
+        }
+      }
+    },
+    "cross-fitted-longitudinal-msm": {
+      "cells": [
+        {
+          "b_covered_before_only": 9,
+          "band_failures": 0,
+          "baseline_coverage": 0.94875,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 9,
+          "cell": "cross_fitted_msm__simultaneous_band",
+          "coverage": 0.94875,
+          "coverage_ci_lower": 0.9390963711930035,
+          "coverage_ci_upper": 0.957316722528194,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.5927352905273438,
+          "mcnemar_p_covers_more": 0.5927352905273438,
+          "passed": true,
+          "replicates": 4000,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "bc6376f98300000ce0c44380d4965eb6293d19ac6ef5f40cec845969d4181629",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/cross_fitted_msm__simultaneous_band"
+        ],
+        "maximum_carried_difference": 0.0
+      }
+    },
+    "ctmle-oat-per-arm": {
+      "cells": [
+        {
+          "b_covered_before_only": 7,
+          "band_failures": 0,
+          "baseline_coverage": 0.87125,
+          "baseline_passed": false,
+          "breach": null,
+          "c_covered_now_only": 15,
+          "cell": "three_arm_active__simultaneous_band",
+          "coverage": 0.8745833333333334,
+          "coverage_ci_lower": 0.8562128597308845,
+          "coverage_ci_upper": 0.8914461004395168,
+          "interval_red": true,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9737606048583984,
+          "mcnemar_p_covers_more": 0.06690025329589844,
+          "passed": false,
+          "replicates": 2400,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "0475b1ee241da12354e033d988142bbe622e1445630b2bdeb05f5dde2444c391",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/three_arm_active__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "ctmle-oat-per-arm-parametric-extensions": {
+      "cells": [
+        {
+          "b_covered_before_only": 42,
+          "band_failures": 0,
+          "baseline_coverage": 0.868125,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 70,
+          "cell": "binary_population__shipped_curve_band_control",
+          "coverage": 0.870625,
+          "coverage_ci_lower": 0.8622537308652214,
+          "coverage_ci_upper": 0.8786791457604707,
+          "interval_red": null,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9970549135097934,
+          "mcnemar_p_covers_more": 0.00520460488356452,
+          "passed": true,
+          "replicates": 11200,
+          "role": "control"
+        },
+        {
+          "b_covered_before_only": 28,
+          "band_failures": 0,
+          "baseline_coverage": 0.9424107142857143,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 44,
+          "cell": "binary_population__simultaneous_band",
+          "coverage": 0.9438392857142858,
+          "coverage_ci_lower": 0.937999625005249,
+          "coverage_ci_upper": 0.9492978919827655,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9778145399959871,
+          "mcnemar_p_covers_more": 0.038184577335915695,
+          "passed": true,
+          "replicates": 11200,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 105,
+          "band_failures": 0,
+          "baseline_coverage": 0.8519520547945205,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 281,
+          "cell": "three_arm__shipped_curve_band_control",
+          "coverage": 0.8579794520547945,
+          "coverage_ci_lower": 0.8526420560041555,
+          "coverage_ci_upper": 0.8631997024548193,
+          "interval_red": null,
+          "lost": false,
+          "mcnemar_p_covers_less": 1.0,
+          "mcnemar_p_covers_more": 5.929104925789524e-20,
+          "passed": true,
+          "replicates": 29200,
+          "role": "control"
+        },
+        {
+          "b_covered_before_only": 48,
+          "band_failures": 0,
+          "baseline_coverage": 0.9438356164383561,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 186,
+          "cell": "three_arm__simultaneous_band",
+          "coverage": 0.9485616438356165,
+          "coverage_ci_lower": 0.9451410301546606,
+          "coverage_ci_upper": 0.9518350900459142,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 1.0,
+          "mcnemar_p_covers_more": 1.1570907190537857e-20,
+          "passed": true,
+          "replicates": 29200,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 29,
+          "band_failures": 0,
+          "baseline_coverage": 0.9456382978723404,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 126,
+          "cell": "three_arm_crossfit__simultaneous_band",
+          "coverage": 0.9507978723404256,
+          "coverage_ci_lower": 0.9465924655701387,
+          "coverage_ci_upper": 0.954773132057742,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9999999999999999,
+          "mcnemar_p_covers_more": 6.455952847008262e-16,
+          "passed": true,
+          "replicates": 18800,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "9aae6fc96226c7fa49f2f3420b4e348594549c71744cfbab86abc743a066513e",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/binary_population__shipped_curve_band_control",
+          "simultaneous_coverage/binary_population__simultaneous_band",
+          "simultaneous_coverage/three_arm__shipped_curve_band_control",
+          "simultaneous_coverage/three_arm__simultaneous_band",
+          "simultaneous_coverage/three_arm_crossfit__simultaneous_band"
+        ],
+        "maximum_carried_difference": 0.0
+      }
+    },
+    "default-simultaneous-bands": {
+      "cells": [
+        {
+          "b_covered_before_only": 2,
+          "band_failures": 0,
+          "baseline_coverage": 0.925,
+          "baseline_passed": false,
+          "breach": null,
+          "c_covered_now_only": 22,
+          "cell": "categorical_ltmle__simultaneous_band",
+          "coverage": 0.9333333333333333,
+          "coverage_ci_lower": 0.9191280005664021,
+          "coverage_ci_upper": 0.9457855606540037,
+          "interval_red": true,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9999985098838806,
+          "mcnemar_p_covers_more": 1.7940998077392578e-05,
+          "passed": false,
+          "regeneration_passed": false,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 3,
+          "band_failures": 0,
+          "baseline_coverage": 0.9316666666666666,
+          "baseline_passed": false,
+          "breach": null,
+          "c_covered_now_only": 28,
+          "cell": "categorical_ltmle_crossfit__simultaneous_band",
+          "coverage": 0.9420833333333334,
+          "coverage_ci_lower": 0.928690434950883,
+          "coverage_ci_upper": 0.9536852463088058,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9999997685663402,
+          "mcnemar_p_covers_more": 2.3245811462402344e-06,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 13,
+          "band_failures": 0,
+          "baseline_coverage": 0.9170833333333334,
+          "baseline_passed": false,
+          "breach": null,
+          "c_covered_now_only": 36,
+          "cell": "cde_z0__simultaneous_band",
+          "coverage": 0.9266666666666666,
+          "coverage_ci_lower": 0.9118862582829472,
+          "coverage_ci_upper": 0.9397224663220264,
+          "interval_red": true,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9997651213409959,
+          "mcnemar_p_covers_more": 0.0007013442518477575,
+          "passed": false,
+          "regeneration_passed": false,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 5,
+          "band_failures": 0,
+          "baseline_coverage": 0.9366666666666666,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 23,
+          "cell": "cde_z1__simultaneous_band",
+          "coverage": 0.9441666666666667,
+          "coverage_ci_lower": 0.9309781593081812,
+          "coverage_ci_upper": 0.9555550697690104,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9999100044369698,
+          "mcnemar_p_covers_more": 0.00045611709356307983,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 5,
+          "band_failures": 0,
+          "baseline_coverage": 0.9379166666666666,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 6,
+          "cell": "clustered__simultaneous_band",
+          "coverage": 0.9383333333333334,
+          "coverage_ci_lower": 0.9245835527968157,
+          "coverage_ci_upper": 0.9503084392714973,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.7255859375,
+          "mcnemar_p_covers_more": 0.5,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 9,
+          "band_failures": 0,
+          "baseline_coverage": 0.9370833333333334,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 24,
+          "cell": "competing_crossfit__simultaneous_band",
+          "coverage": 0.9433333333333334,
+          "coverage_ci_lower": 0.9300625234118226,
+          "coverage_ci_upper": 0.9548076917982091,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9977243079338223,
+          "mcnemar_p_covers_more": 0.0067654934246093035,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 12,
+          "band_failures": 0,
+          "baseline_coverage": 0.9491666666666667,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 13,
+          "cell": "default_fit__simultaneous_band",
+          "coverage": 0.9495833333333333,
+          "coverage_ci_lower": 0.9369487179652634,
+          "coverage_ci_upper": 0.9603939100738661,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.6549810171127319,
+          "mcnemar_p_covers_more": 0.5,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 2,
+          "band_failures": 0,
+          "baseline_coverage": 0.9433333333333334,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 10,
+          "cell": "deterministic_regimes__simultaneous_band",
+          "coverage": 0.9466666666666667,
+          "coverage_ci_lower": 0.9337296071408712,
+          "coverage_ci_upper": 0.957792618557795,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.996826171875,
+          "mcnemar_p_covers_more": 0.019287109375,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 15,
+          "band_failures": 0,
+          "baseline_coverage": 0.9583333333333334,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 8,
+          "cell": "drtmle__simultaneous_band",
+          "coverage": 0.9554166666666667,
+          "coverage_ci_lower": 0.9434195376634344,
+          "coverage_ci_upper": 0.9655635320579052,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.10501980781555176,
+          "mcnemar_p_covers_more": 0.95343017578125,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 3,
+          "band_failures": 0,
+          "baseline_coverage": 0.9533333333333334,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 10,
+          "cell": "fold_evaluated__simultaneous_band",
+          "coverage": 0.95625,
+          "coverage_ci_lower": 0.9443478371596284,
+          "coverage_ci_upper": 0.966298106414174,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.98876953125,
+          "mcnemar_p_covers_more": 0.046142578125,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 7,
+          "band_failures": 0,
+          "baseline_coverage": 0.9479166666666666,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 12,
+          "cell": "incremental_grid__simultaneous_band",
+          "coverage": 0.95,
+          "coverage_ci_lower": 0.9374094325427813,
+          "coverage_ci_upper": 0.9607646725349679,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9164657592773438,
+          "mcnemar_p_covers_more": 0.1796417236328125,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 7,
+          "band_failures": 0,
+          "baseline_coverage": 0.95625,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 7,
+          "cell": "learned_weighted__simultaneous_band",
+          "coverage": 0.95625,
+          "coverage_ci_lower": 0.9443478371596284,
+          "coverage_ci_upper": 0.966298106414174,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.604736328125,
+          "mcnemar_p_covers_more": 0.604736328125,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 6,
+          "band_failures": 0,
+          "baseline_coverage": 0.94375,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 6,
+          "cell": "longitudinal_msm__simultaneous_band",
+          "coverage": 0.94375,
+          "coverage_ci_lower": 0.9337005449906297,
+          "coverage_ci_upper": 0.952725497085699,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.61279296875,
+          "mcnemar_p_covers_more": 0.61279296875,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 4000,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 9,
+          "band_failures": 0,
+          "baseline_coverage": 0.9395833333333333,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 19,
+          "cell": "ltmle_crossfit__simultaneous_band",
+          "coverage": 0.94375,
+          "coverage_ci_lower": 0.9305202490809911,
+          "coverage_ci_upper": 0.9551814739602643,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9821509309113026,
+          "mcnemar_p_covers_more": 0.04357927665114403,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 5,
+          "band_failures": 0,
+          "baseline_coverage": 0.9370833333333334,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 12,
+          "cell": "missing_outcome__simultaneous_band",
+          "coverage": 0.94,
+          "coverage_ci_lower": 0.9264071414325922,
+          "coverage_ci_upper": 0.9518109501648624,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9754791259765625,
+          "mcnemar_p_covers_more": 0.0717315673828125,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 1,
+          "band_failures": 0,
+          "baseline_coverage": 0.9458333333333333,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 13,
+          "cell": "missing_outcome_drtmle__simultaneous_band",
+          "coverage": 0.9508333333333333,
+          "coverage_ci_lower": 0.938331517603369,
+          "coverage_ci_upper": 0.961505534333482,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.99993896484375,
+          "mcnemar_p_covers_more": 0.00091552734375,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 8,
+          "band_failures": 0,
+          "baseline_coverage": 0.9408333333333333,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 11,
+          "cell": "multi_arm_drtmle__simultaneous_band",
+          "coverage": 0.9420833333333334,
+          "coverage_ci_lower": 0.928690434950883,
+          "coverage_ci_upper": 0.9536852463088058,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.8203582763671875,
+          "mcnemar_p_covers_more": 0.3238029479980469,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 5,
+          "band_failures": 0,
+          "baseline_coverage": 0.9508333333333333,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 10,
+          "cell": "ordinary_binary__simultaneous_band",
+          "coverage": 0.9529166666666666,
+          "coverage_ci_lower": 0.9406406808516954,
+          "coverage_ci_upper": 0.9633536937357232,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.940765380859375,
+          "mcnemar_p_covers_more": 0.15087890624999997,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 4,
+          "band_failures": 0,
+          "baseline_coverage": 0.94125,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 6,
+          "cell": "point_msm__simultaneous_band",
+          "coverage": 0.9420833333333334,
+          "coverage_ci_lower": 0.928690434950883,
+          "coverage_ci_upper": 0.9536852463088058,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.828125,
+          "mcnemar_p_covers_more": 0.376953125,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 4,
+          "band_failures": 0,
+          "baseline_coverage": 0.9475,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 9,
+          "cell": "shift_grid__simultaneous_band",
+          "coverage": 0.9495833333333333,
+          "coverage_ci_lower": 0.9369487179652634,
+          "coverage_ci_upper": 0.9603939100738661,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.953857421875,
+          "mcnemar_p_covers_more": 0.1334228515625,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 10,
+          "band_failures": 0,
+          "baseline_coverage": 0.95125,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 15,
+          "cell": "stochastic_regimes__simultaneous_band",
+          "coverage": 0.9533333333333334,
+          "coverage_ci_lower": 0.9411032131240566,
+          "coverage_ci_upper": 0.9637226179274507,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.885238528251648,
+          "mcnemar_p_covers_more": 0.21217811107635498,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 10,
+          "band_failures": 0,
+          "baseline_coverage": 0.93625,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 27,
+          "cell": "survival_crossfit__simultaneous_band",
+          "coverage": 0.9433333333333334,
+          "coverage_ci_lower": 0.9300625234118226,
+          "coverage_ci_upper": 0.9548076917982091,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9987183960038237,
+          "mcnemar_p_covers_more": 0.003816039301455021,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 12,
+          "band_failures": 0,
+          "baseline_coverage": 0.9458333333333333,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 19,
+          "cell": "weighted__simultaneous_band",
+          "coverage": 0.94875,
+          "coverage_ci_lower": 0.9360279320540899,
+          "coverage_ci_upper": 0.9596517349279894,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9251936078071594,
+          "mcnemar_p_covers_more": 0.14052075752988458,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 16,
+          "band_failures": 0,
+          "baseline_coverage": 0.94125,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 27,
+          "cell": "weighted_ltmle__simultaneous_band",
+          "coverage": 0.9458333333333333,
+          "coverage_ci_lower": 0.9328116849795749,
+          "coverage_ci_upper": 0.9570475496212519,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.967002982772101,
+          "mcnemar_p_covers_more": 0.06314473719271518,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 18,
+          "band_failures": 0,
+          "baseline_coverage": 0.9404166666666667,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 24,
+          "cell": "weighted_ltmle_crossfit__simultaneous_band",
+          "coverage": 0.9429166666666666,
+          "coverage_ci_lower": 0.929604980403595,
+          "coverage_ci_upper": 0.9544337252118249,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.8600218807355304,
+          "mcnemar_p_covers_more": 0.22039953367129783,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        }
+      ],
+      "complete_rerun_changes": {
+        "cells": [],
+        "properties": []
+      },
+      "failure_files": [],
+      "manifest_sha256": "38ba7facff0c84a8f9f7f5f8cba7cbfcbbda6e5521ef61e01db9d02883124afd",
+      "miss_sha256": "1af226c9d992c02e83e2b8413d0a0822571f9428616ce488339a06e4b4b1b7ed",
+      "route": "complete_rerun",
+      "stack_differences": {
+        "joblib": {
+          "baseline": null,
+          "ran": "1.6.0"
+        },
+        "numpy": {
+          "baseline": "2.5.3",
+          "ran": "2.5.4"
+        },
+        "pandas": {
+          "baseline": "3.0.6",
+          "ran": "3.1.1"
+        },
+        "python": {
+          "baseline": "3.13.7",
+          "ran": "3.13.18"
+        }
+      }
+    },
+    "dose-response": {
+      "cells": [
+        {
+          "b_covered_before_only": 18,
+          "band_failures": 0,
+          "baseline_coverage": 0.936625,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 31,
+          "cell": "binary_curve__simultaneous_band",
+          "coverage": 0.93825,
+          "coverage_ci_lower": 0.9309908455961583,
+          "coverage_ci_upper": 0.9449816959633098,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9778079195064251,
+          "mcnemar_p_covers_more": 0.04271656657869727,
+          "passed": true,
+          "replicates": 8000,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "ec8c4c9e3a7ca55f11d45291e8dddffbcb3406becf54252225f92ce71d580304",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/binary_curve__simultaneous_band"
+        ],
+        "maximum_carried_difference": 0.0
+      }
+    },
+    "long-horizon-categorical-ltmle": {
+      "cells": [
+        {
+          "b_covered_before_only": 18,
+          "band_failures": 0,
+          "baseline_coverage": 0.9195,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 43,
+          "cell": "k5__ic_band",
+          "coverage": 0.932,
+          "coverage_ci_lower": 0.9161938207161415,
+          "coverage_ci_upper": 0.9457056467571548,
+          "interval_red": null,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9996350477445326,
+          "mcnemar_p_covers_more": 0.0009340505154876255,
+          "passed": true,
+          "replicates": 2000,
+          "role": "diagnostic"
+        }
+      ],
+      "manifest_sha256": "2cc9d58cfe68a9a10c6ff56b4b1db450b2f00e36b9880830204f8ef3f2bc5c3a",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/k5__ic_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "long-horizon-ltmle": {
+      "cells": [
+        {
+          "b_covered_before_only": 18,
+          "band_failures": 0,
+          "baseline_coverage": 0.941,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 36,
+          "cell": "k5__simultaneous_band",
+          "coverage": 0.9455,
+          "coverage_ci_lower": 0.9355865918891497,
+          "coverage_ci_upper": 0.9543349337050007,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9954633298302065,
+          "mcnemar_p_covers_more": 0.00991716336403414,
+          "passed": true,
+          "replicates": 4000,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "3e2403a55a009d0f1e24115a596b7615a466e23f30c8cdea6247e67dda0f20a5",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/k5__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "longitudinal-incremental": {
+      "cells": [
+        {
+          "b_covered_before_only": 6,
+          "band_failures": 0,
+          "baseline_coverage": 0.939,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 7,
+          "cell": "nine_tilts__simultaneous_band",
+          "coverage": 0.9395,
+          "coverage_ci_lower": 0.9244397002602118,
+          "coverage_ci_upper": 0.9524206677451729,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.70947265625,
+          "mcnemar_p_covers_more": 0.5,
+          "passed": true,
+          "replicates": 2000,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "37bd5671c1db8a5fc975258bc34f2cea27631100fc55bc835c932fff08bcc623",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/nine_tilts__simultaneous_band"
+        ],
+        "maximum_carried_difference": 0.0
+      }
+    },
+    "longitudinal-incremental-dropout": {
+      "cells": [
+        {
+          "b_covered_before_only": 2,
+          "band_failures": 0,
+          "baseline_coverage": 0.9483333333333334,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 11,
+          "cell": "survival_grid__simultaneous_band",
+          "coverage": 0.9513333333333334,
+          "coverage_ci_lower": 0.9403090659030299,
+          "coverage_ci_upper": 0.9608954931599786,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.998291015625,
+          "mcnemar_p_covers_more": 0.01123046875,
+          "passed": true,
+          "replicates": 3000,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "08eb6b9ea3fa51177623828d998d8b06bd1df192b64ebd85a25e750ddf1d0d0d",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/survival_grid__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "longitudinal-mtp": {
+      "cells": [
+        {
+          "b_covered_before_only": 2,
+          "band_failures": 0,
+          "baseline_coverage": 0.9415,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 6,
+          "cell": "primary__simultaneous_band",
+          "coverage": 0.9435,
+          "coverage_ci_lower": 0.928861072939662,
+          "coverage_ci_upper": 0.9559781926240958,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.96484375,
+          "mcnemar_p_covers_more": 0.14453125,
+          "passed": true,
+          "replicates": 2000,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "ce479f61c7bd88d36520dc325f14c34ce4b21a8b50c42ff86f5cacaa674753a2",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/primary__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "longitudinal-repeated-crossfit": {
+      "cells": [
+        {
+          "b_covered_before_only": 4,
+          "band_failures": 0,
+          "baseline_coverage": 0.9533333333333334,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 8,
+          "cell": "c_ltmle__simultaneous_band",
+          "coverage": 0.955,
+          "coverage_ci_lower": 0.9429557737653412,
+          "coverage_ci_upper": 0.9651958542591993,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.927001953125,
+          "mcnemar_p_covers_more": 0.19384765625,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 4,
+          "band_failures": 0,
+          "baseline_coverage": 0.9466666666666667,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 8,
+          "cell": "d_ltmle__simultaneous_band",
+          "coverage": 0.9483333333333334,
+          "coverage_ci_lower": 0.9355678558078399,
+          "coverage_ci_upper": 0.959280327247183,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.927001953125,
+          "mcnemar_p_covers_more": 0.19384765625,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 4,
+          "band_failures": 0,
+          "baseline_coverage": 0.9470833333333334,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 7,
+          "cell": "d_sdr__simultaneous_band",
+          "coverage": 0.9483333333333334,
+          "coverage_ci_lower": 0.9355678558078399,
+          "coverage_ci_upper": 0.959280327247183,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.88671875,
+          "mcnemar_p_covers_more": 0.2744140625,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 5,
+          "band_failures": 0,
+          "baseline_coverage": 0.9458333333333333,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 3,
+          "cell": "i_ipsi__simultaneous_band",
+          "coverage": 0.945,
+          "coverage_ci_lower": 0.9318945412003574,
+          "coverage_ci_upper": 0.9563016944311247,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.36328125,
+          "mcnemar_p_covers_more": 0.85546875,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 4,
+          "band_failures": 0,
+          "baseline_coverage": 0.9604166666666667,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 4,
+          "cell": "m_ltmle__simultaneous_band",
+          "coverage": 0.9604166666666667,
+          "coverage_ci_lower": 0.9490057220169463,
+          "coverage_ci_upper": 0.9699543792557522,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.63671875,
+          "mcnemar_p_covers_more": 0.63671875,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 8,
+          "band_failures": 0,
+          "baseline_coverage": 0.9516666666666667,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 13,
+          "cell": "s_ltmle__simultaneous_band",
+          "coverage": 0.95375,
+          "coverage_ci_lower": 0.9415659854520997,
+          "coverage_ci_upper": 0.964091299238283,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9053764343261719,
+          "mcnemar_p_covers_more": 0.19165515899658203,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "2912f086f49ed7d5a7e2bf9c0b491f90b95659d7f3a690cb68e1f65bcd5e12a9",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/c_ltmle__simultaneous_band",
+          "simultaneous_coverage/d_ltmle__simultaneous_band",
+          "simultaneous_coverage/d_sdr__simultaneous_band",
+          "simultaneous_coverage/i_ipsi__simultaneous_band",
+          "simultaneous_coverage/m_ltmle__simultaneous_band",
+          "simultaneous_coverage/s_ltmle__simultaneous_band"
+        ],
+        "maximum_carried_difference": 0.0
+      }
+    },
+    "longitudinal-repeated-ipsi": {
+      "cells": [
+        {
+          "b_covered_before_only": 32,
+          "band_failures": 0,
+          "baseline_coverage": 0.9488235294117647,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 25,
+          "cell": "all_reported__simultaneous_band",
+          "coverage": 0.9477941176470588,
+          "coverage_ci_lower": 0.9404526333503622,
+          "coverage_ci_upper": 0.9545002564686452,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.21352142825162762,
+          "mcnemar_p_covers_more": 0.8553781264454897,
+          "passed": true,
+          "replicates": 6800,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "3b48130a4d7f0562033cb724de0ddad504e4f939a0c6a25b35db910ce85ca3c4",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/all_reported__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "longitudinal-repeated-outcome": {
+      "cells": [
+        {
+          "b_covered_before_only": 42,
+          "band_failures": 0,
+          "baseline_coverage": 0.941,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 84,
+          "cell": "all_reported__simultaneous_band",
+          "coverage": 0.94625,
+          "coverage_ci_lower": 0.9394224998365158,
+          "coverage_ci_upper": 0.9525399784614795,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9999448943444408,
+          "mcnemar_p_covers_more": 0.00011498882273707576,
+          "passed": true,
+          "replicates": 8000,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "3f84b0b4790d31420278084f10883b0d34ecaad796ebbc04e023de667c291e0a",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/all_reported__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "longitudinal-repeated-sdr": {
+      "cells": [
+        {
+          "b_covered_before_only": 143,
+          "band_failures": 0,
+          "baseline_coverage": 0.946,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 179,
+          "cell": "all_reported__simultaneous_band",
+          "coverage": 0.9469473684210526,
+          "coverage_ci_lower": 0.9439160725006497,
+          "coverage_ci_upper": 0.9498660903157141,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9804755518674161,
+          "mcnemar_p_covers_more": 0.025475404575968273,
+          "passed": true,
+          "replicates": 38000,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "fd1947a8e8a1efd336e35e99fbdebacb1ff09997ab4d8d3a33f081641b260cf2",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/all_reported__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "mar-attributable-tmle": {
+      "cells": [
+        {
+          "b_covered_before_only": 8,
+          "band_failures": 0,
+          "baseline_coverage": 0.9458333333333333,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 14,
+          "cell": "attributable_binary__simultaneous_band",
+          "coverage": 0.9483333333333334,
+          "coverage_ci_lower": 0.9355678558078399,
+          "coverage_ci_upper": 0.959280327247183,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9330997467041016,
+          "mcnemar_p_covers_more": 0.14313936233520508,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 6,
+          "band_failures": 0,
+          "baseline_coverage": 0.9525,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 9,
+          "cell": "attributable_binary_cvtmle__simultaneous_band",
+          "coverage": 0.95375,
+          "coverage_ci_lower": 0.9415659854520997,
+          "coverage_ci_upper": 0.964091299238283,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.84912109375,
+          "mcnemar_p_covers_more": 0.30361938476562494,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 2,
+          "band_failures": 0,
+          "baseline_coverage": 0.9416666666666667,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 8,
+          "cell": "attributable_clustered__simultaneous_band",
+          "coverage": 0.9441666666666667,
+          "coverage_ci_lower": 0.9309781593081812,
+          "coverage_ci_upper": 0.9555550697690104,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9892578125,
+          "mcnemar_p_covers_more": 0.0546875,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 5,
+          "band_failures": 0,
+          "baseline_coverage": 0.9429166666666666,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 16,
+          "cell": "attributable_three_arm__simultaneous_band",
+          "coverage": 0.9475,
+          "coverage_ci_lower": 0.934648324815863,
+          "coverage_ci_upper": 0.9585368838070835,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.996401309967041,
+          "mcnemar_p_covers_more": 0.013301849365234375,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 6,
+          "band_failures": 0,
+          "baseline_coverage": 0.9491666666666667,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 9,
+          "cell": "attributable_weighted__simultaneous_band",
+          "coverage": 0.9504166666666667,
+          "coverage_ci_lower": 0.9378703648939837,
+          "coverage_ci_upper": 0.9611352148326837,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.84912109375,
+          "mcnemar_p_covers_more": 0.30361938476562494,
+          "passed": true,
+          "replicates": 2400,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "9f1c48424d1b8cf28e943da948e7224e59907c0cdf60f346bd0918df0044c4c0",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/attributable_binary__simultaneous_band",
+          "simultaneous_coverage/attributable_binary_cvtmle__simultaneous_band",
+          "simultaneous_coverage/attributable_clustered__simultaneous_band",
+          "simultaneous_coverage/attributable_three_arm__simultaneous_band",
+          "simultaneous_coverage/attributable_weighted__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "multi-arm-mar-drtmle": {
+      "cells": [
+        {
+          "b_covered_before_only": 8,
+          "band_failures": 0,
+          "baseline_coverage": 0.93375,
+          "baseline_passed": false,
+          "breach": null,
+          "c_covered_now_only": 15,
+          "cell": "arms__simultaneous_band",
+          "coverage": 0.9366666666666666,
+          "coverage_ci_lower": 0.9227625618549589,
+          "coverage_ci_upper": 0.9488033076994103,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.95343017578125,
+          "mcnemar_p_covers_more": 0.10501980781555176,
+          "passed": true,
+          "regeneration_passed": true,
+          "replicates": 2400,
+          "replicates_lost_before": 0,
+          "replicates_lost_now": 0,
+          "role": "positive"
+        }
+      ],
+      "complete_rerun_changes": {
+        "cells": [],
+        "properties": [
+          {
+            "baseline_property_passed": [
+              "False",
+              "True"
+            ],
+            "property": "simultaneous_coverage",
+            "property_passed": [
+              "True"
+            ]
+          }
+        ]
+      },
+      "failure_files": [],
+      "manifest_sha256": "2d19d154ae65e12f9e1200266bcfc8ed06bbd5f7eb7dcd3e26ec19bd3867d6d5",
+      "miss_sha256": "5dd39edc6e52e66388851f4855491dd7e85bdf9c5702ac54cbe0b98cd87be04a",
+      "route": "complete_rerun",
+      "stack_differences": {
+        "joblib": {
+          "baseline": null,
+          "ran": "1.6.0"
+        },
+        "numpy": {
+          "baseline": "2.5.3",
+          "ran": "2.5.4"
+        },
+        "pandas": {
+          "baseline": "3.0.6",
+          "ran": "3.1.1"
+        },
+        "python": {
+          "baseline": "3.13.7",
+          "ran": "3.13.16"
+        }
+      }
+    },
+    "point-survival-curve": {
+      "cells": [
+        {
+          "b_covered_before_only": 59,
+          "band_failures": 0,
+          "baseline_coverage": 0.9455208333333334,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 104,
+          "cell": "all_reported__simultaneous_band",
+          "coverage": 0.9502083333333333,
+          "coverage_ci_lower": 0.9442108261281252,
+          "coverage_ci_upper": 0.9557542223928311,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9998559252290735,
+          "mcnemar_p_covers_more": 0.0002641009771453017,
+          "passed": true,
+          "replicates": 9600,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 45,
+          "band_failures": 0,
+          "baseline_coverage": 0.9472916666666666,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 78,
+          "cell": "curve_arm0__simultaneous_band",
+          "coverage": 0.9507291666666666,
+          "coverage_ci_lower": 0.9447597883820841,
+          "coverage_ci_upper": 0.9562463768737767,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9989774802090783,
+          "mcnemar_p_covers_more": 0.001865722877549075,
+          "passed": true,
+          "replicates": 9600,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 74,
+          "band_failures": 0,
+          "baseline_coverage": 0.945625,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 114,
+          "cell": "curve_arm1__simultaneous_band",
+          "coverage": 0.9497916666666667,
+          "coverage_ci_lower": 0.9437717807984181,
+          "coverage_ci_upper": 0.9553603739778366,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9986542614987166,
+          "mcnemar_p_covers_more": 0.0021624014305888836,
+          "passed": true,
+          "replicates": 9600,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "1026e2680ba221cccfcef9f134f81fdd2b81b65ebb1b648154ddb995b01490f3",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/all_reported__simultaneous_band",
+          "simultaneous_coverage/curve_arm0__simultaneous_band",
+          "simultaneous_coverage/curve_arm1__simultaneous_band"
+        ],
+        "maximum_carried_difference": 0.0
+      }
+    },
+    "point-survival-curve-crossfit": {
+      "cells": [
+        {
+          "b_covered_before_only": 57,
+          "band_failures": 0,
+          "baseline_coverage": 0.9455208333333334,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 102,
+          "cell": "all_reported__simultaneous_band",
+          "coverage": 0.9502083333333333,
+          "coverage_ci_lower": 0.9442108261281252,
+          "coverage_ci_upper": 0.9557542223928311,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9998798161856185,
+          "mcnemar_p_covers_more": 0.0002236737587268521,
+          "passed": true,
+          "replicates": 9600,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 37,
+          "band_failures": 0,
+          "baseline_coverage": 0.9475,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 93,
+          "cell": "curve_arm0__simultaneous_band",
+          "coverage": 0.9533333333333334,
+          "coverage_ci_lower": 0.9475072836300568,
+          "coverage_ci_upper": 0.9587044574095234,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9999998133101634,
+          "mcnemar_p_covers_more": 4.850967554557384e-07,
+          "passed": true,
+          "replicates": 9600,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 68,
+          "band_failures": 0,
+          "baseline_coverage": 0.9466666666666667,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 106,
+          "cell": "curve_arm1__simultaneous_band",
+          "coverage": 0.950625,
+          "coverage_ci_lower": 0.9446499819908626,
+          "coverage_ci_upper": 0.9561479599582067,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9985000275942467,
+          "mcnemar_p_covers_more": 0.002443889441941568,
+          "passed": true,
+          "replicates": 9600,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "c002d7b504cacc6ba27d3727e7f344e4fb524c12ba3c7e9bb2aeb11f094ebb97",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/all_reported__simultaneous_band",
+          "simultaneous_coverage/curve_arm0__simultaneous_band",
+          "simultaneous_coverage/curve_arm1__simultaneous_band"
+        ],
+        "maximum_carried_difference": 0.0
+      }
+    },
+    "point-survival-hazard": {
+      "cells": [
+        {
+          "b_covered_before_only": 52,
+          "band_failures": 0,
+          "baseline_coverage": 0.9454166666666667,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 113,
+          "cell": "all_reported__simultaneous_band",
+          "coverage": 0.9517708333333333,
+          "coverage_ci_lower": 0.9458582414731,
+          "coverage_ci_upper": 0.957230155716245,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9999994803259608,
+          "mcnemar_p_covers_more": 1.1641070240869355e-06,
+          "passed": true,
+          "replicates": 9600,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "3fcf86824ede389a34dc10ebd37eab449f437f86403cdfa3f87a6193dba4dd01",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/all_reported__simultaneous_band"
+        ],
+        "maximum_carried_difference": 0.0
+      }
+    },
+    "point-treatment-survival": {
+      "cells": [
+        {
+          "b_covered_before_only": 53,
+          "band_failures": 0,
+          "baseline_coverage": 0.94625,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 101,
+          "cell": "all_reported__simultaneous_band",
+          "coverage": 0.95125,
+          "coverage_ci_lower": 0.9453089259420748,
+          "coverage_ci_upper": 0.9567383555410589,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.999965673833209,
+          "mcnemar_p_covers_more": 6.790437171722611e-05,
+          "passed": true,
+          "replicates": 9600,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "c4a1c6844451d392a555d7e677f728b8f4210ddb5b237f27ab909462f14aec16",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/all_reported__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "point-treatment-survival-crossfit": {
+      "cells": [
+        {
+          "b_covered_before_only": 58,
+          "band_failures": 0,
+          "baseline_coverage": 0.9479166666666666,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 102,
+          "cell": "all_reported__simultaneous_band",
+          "coverage": 0.9525,
+          "coverage_ci_lower": 0.9466275874320595,
+          "coverage_ci_upper": 0.9579183708439653,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9998280712134459,
+          "mcnemar_p_covers_more": 0.00031467353737534416,
+          "passed": true,
+          "replicates": 9600,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "11fb03f5794657de61486c6fdf27ce1be7c323cb9ed76402f28b4e7fa3a41d4a",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/all_reported__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "stacked-mar-arm-indexed-cvtmle": {
+      "cells": [
+        {
+          "b_covered_before_only": 3,
+          "band_failures": 0,
+          "baseline_coverage": 0.9405,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 9,
+          "cell": "l1__simultaneous_band",
+          "coverage": 0.9435,
+          "coverage_ci_lower": 0.928861072939662,
+          "coverage_ci_upper": 0.9559781926240958,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.980712890625,
+          "mcnemar_p_covers_more": 0.072998046875,
+          "passed": true,
+          "replicates": 2000,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 6,
+          "band_failures": 0,
+          "baseline_coverage": 0.9555,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 8,
+          "cell": "l2__simultaneous_band",
+          "coverage": 0.9565,
+          "coverage_ci_lower": 0.9433694191746773,
+          "coverage_ci_upper": 0.9673995490449468,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.78802490234375,
+          "mcnemar_p_covers_more": 0.395263671875,
+          "passed": true,
+          "replicates": 2000,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 9,
+          "band_failures": 0,
+          "baseline_coverage": 0.9485,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 15,
+          "cell": "l3__simultaneous_band",
+          "coverage": 0.9515,
+          "coverage_ci_lower": 0.937761339435795,
+          "coverage_ci_upper": 0.9630350377180684,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9242051839828491,
+          "mcnemar_p_covers_more": 0.15372812747955322,
+          "passed": true,
+          "replicates": 2000,
+          "role": "positive"
+        },
+        {
+          "b_covered_before_only": 2,
+          "band_failures": 0,
+          "baseline_coverage": 0.951,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 10,
+          "cell": "l4__simultaneous_band",
+          "coverage": 0.955,
+          "coverage_ci_lower": 0.9416829024512422,
+          "coverage_ci_upper": 0.9660943471274117,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.996826171875,
+          "mcnemar_p_covers_more": 0.019287109375,
+          "passed": true,
+          "replicates": 2000,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "4c4d7dbb0c0367f9ba5eea9ca2ace47d76d0e8c99e4e3f83605e91c326b4c9e0",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/l1__simultaneous_band",
+          "simultaneous_coverage/l2__simultaneous_band",
+          "simultaneous_coverage/l3__simultaneous_band",
+          "simultaneous_coverage/l4__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    },
+    "stochastic-categorical-ltmle": {
+      "cells": [
+        {
+          "b_covered_before_only": 4,
+          "band_failures": 0,
+          "baseline_coverage": 0.9405,
+          "baseline_passed": true,
+          "breach": null,
+          "c_covered_now_only": 10,
+          "cell": "primary__simultaneous_band",
+          "coverage": 0.9435,
+          "coverage_ci_lower": 0.928861072939662,
+          "coverage_ci_upper": 0.9559781926240958,
+          "interval_red": false,
+          "lost": false,
+          "mcnemar_p_covers_less": 0.9713134765625,
+          "mcnemar_p_covers_more": 0.08978271484375,
+          "passed": true,
+          "replicates": 2000,
+          "role": "positive"
+        }
+      ],
+      "manifest_sha256": "2eb21b6768194591ad1344fc6115d8ff5801e6c74072de18da45865a973b9ad2",
+      "route": "targeted",
+      "summary": {
+        "changed_rows": [
+          "simultaneous_coverage/primary__simultaneous_band"
+        ],
+        "maximum_carried_difference": 1.1102230246251565e-16
+      }
+    }
+  },
+  "rule": "paired",
+  "studies": [
+    "adaptive-iptw",
+    "canonical-ltmle",
+    "canonical-ltmle-competing",
+    "canonical-ltmle-survival",
+    "canonical-multi-arm-tmle",
+    "canonical-stratified-incremental-msm",
+    "canonical-stratified-tmle",
+    "clustered-cross-fitted-ltmle",
+    "composite-missing-drtmle",
+    "cross-fitted-longitudinal-msm",
+    "ctmle-oat-per-arm",
+    "ctmle-oat-per-arm-parametric-extensions",
+    "default-simultaneous-bands",
+    "dose-response",
+    "long-horizon-categorical-ltmle",
+    "long-horizon-ltmle",
+    "longitudinal-incremental",
+    "longitudinal-incremental-dropout",
+    "longitudinal-mtp",
+    "longitudinal-repeated-crossfit",
+    "longitudinal-repeated-ipsi",
+    "longitudinal-repeated-outcome",
+    "longitudinal-repeated-sdr",
+    "mar-attributable-tmle",
+    "multi-arm-mar-drtmle",
+    "point-survival-curve",
+    "point-survival-curve-crossfit",
+    "point-survival-hazard",
+    "point-treatment-survival",
+    "point-treatment-survival-crossfit",
+    "stacked-mar-arm-indexed-cvtmle",
+    "stochastic-categorical-ltmle"
+  ],
+  "study_verdict_flips": [
+    "canonical-ltmle-survival:simultaneous_coverage: property_passed changed",
+    "canonical-stratified-tmle:simultaneous_coverage: property_passed changed",
+    "clustered-cross-fitted-ltmle:simultaneous_coverage: property_passed changed",
+    "default-simultaneous-bands:simultaneous_coverage: property_passed changed",
+    "multi-arm-mar-drtmle:simultaneous_coverage: property_passed changed"
+  ],
+  "would_block": []
+}
