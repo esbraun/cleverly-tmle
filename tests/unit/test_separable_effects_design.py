@@ -154,6 +154,138 @@ class TestTheRobustnessCells:
         np.testing.assert_allclose(inputs.inverse, law.exact_inverse(frame))
 
 
+def _fits(cell: str, failures: list[str], phase: str = "iterative") -> pd.DataFrame:
+    """One row per fit: ``""`` converged, any other failure stopped short at 1e-5."""
+    return pd.DataFrame(
+        {
+            "cell": cell,
+            "converged": [int(f == "") for f in failures],
+            "failure": [f or np.nan for f in failures],
+            "relative_score": [1e-12 if f == "" else 1e-5 for f in failures],
+            "phase": phase,
+        }
+    )
+
+
+class TestTheDeclaredSuspects:
+    """The declared readings of fits that stop short, read by code (``regenerate.py``)."""
+
+    def test_separated_fits_within_the_share_are_no_suspect(self) -> None:
+        fits = _fits("c", ["cell_separated"] + [""] * 99)
+        assert study.convergence_suspects(fits, {"c": True}) == []
+
+    def test_each_declared_suspect_is_found(self) -> None:
+        crowded = _fits("crowded", ["cell_separated"] * 2 + [""] * 98)
+        stalled = _fits("stalled", ["newton_stalled"] + [""] * 99)
+        high = _fits("high", ["cell_separated"] + [""] * 99)
+        high.loc[0, "relative_score"] = 2e-4
+        walked = _fits("walked", [""] * 10, phase="walk")
+        left = _fits("left", [""] * 10)
+        short = _fits("short", ["max_iter_reached"] + [""] * 9, phase="walk")
+        fits = pd.concat([crowded, stalled, high, walked, left, short], ignore_index=True)
+        flags = dict.fromkeys(["crowded", "stalled", "high"], True)
+        flags |= dict.fromkeys(["walked", "left", "short"], False)
+        found = study.convergence_suspects(fits, flags)
+        assert [line.split(":")[0] for line in found] == [
+            "crowded",
+            "high",
+            "left",
+            "short",
+            "stalled",
+        ]
+
+    def test_an_investigated_stall_passes_only_as_recorded(self) -> None:
+        """A listed fit passes while it stalls at its recorded score; a listed fit that
+        converges or stalls elsewhere is a suspect, and an unlisted stall still is one."""
+        fits = _fits("c", ["newton_stalled", "newton_stalled"] + [""] * 98)
+        fits["replicate"] = range(len(fits))
+        fits.loc[0, "relative_score"] = 1.5e-10
+        listed = {("c", 0): 1.5e-10}
+        assert study.convergence_suspects(fits, {"c": True}, {**listed, ("c", 1): 1e-5}) == []
+        assert study.convergence_suspects(fits, {"c": True}, listed) == [
+            "c: 1 fits stopped short with ['newton_stalled']"
+        ]
+        moved = {("c", 0): 1.6e-10, ("c", 1): 1e-5}
+        assert study.convergence_suspects(fits, {"c": True}, moved) == [
+            "c: 1 investigated fits no longer stall as recorded"
+        ]
+        healed = {("c", 0): 1.5e-10, ("c", 1): 1e-5, ("c", 2): 1e-10}
+        assert study.convergence_suspects(fits, {"c": True}, healed) == [
+            "c: 1 investigated fits no longer stall as recorded"
+        ]
+        separated = fits.copy()
+        separated.loc[0, "failure"] = "cell_separated"
+        both = {**listed, ("c", 1): 1e-5}
+        assert study.convergence_suspects(separated, {"c": True}, both) == [
+            "c: 1 investigated fits no longer stall as recorded"
+        ]
+
+    def test_the_property_check_counts_fitted_cells_only(self) -> None:
+        base = "cross_fitted_sep01_death_t3__correctly_specified"
+        derived = "cross_fitted_sep01_death_t3__noise_control"
+        fits = pd.concat(
+            [_fits(base, [""] * 100), _fits(derived, ["newton_stalled"] * 100)],
+            ignore_index=True,
+        )
+        assert properties.convergence_suspects(fits) == []
+
+    def test_the_rerun_pilot_holds_no_suspect(self) -> None:
+        """The readings were declared from the cross-fitted pilot labels.
+
+        ``dr_mechanism_16k`` stopped short in 7 of 300 fits (2.3%), above the share; refitted
+        with the right treatment model the same 7 draws still separate, so the label's rate is
+        a fluctuation of its 300 draws, and the share reads the declared cells of 2,000 fits.
+        """
+        labels = ["cross_fitted_16k", "calibration_cross_fitted_16k"]
+        pilot_rows = pd.read_csv(pilot.OUTPUT, low_memory=False)
+        fits = (
+            pilot_rows.loc[pilot_rows["label"].isin(labels)]
+            .drop_duplicates(["label", "replicate"])
+            .rename(columns={"label": "cell"})
+        )
+        assert study.convergence_suspects(fits, dict.fromkeys(labels, True)) == []
+
+    def test_the_refit_check_counts_clipped_rows_that_pull_inward(self) -> None:
+        """A targeted cell held at the lower clip over rows with deaths is counted, and so is
+        one held at the upper clip over rows without; the same clip at a level no target reads
+        is not, since that factor enters no score."""
+        from cleverly.longitudinal.separable import SeparableState
+        from tests.studies.separable_effects_separation import inward_rows
+
+        inputs, start = law.engine_inputs(law.sample(4_000, 3))
+        low = inputs.bounds[0]
+        rows = (inputs.observed == 0) & inputs.at_risk[:, 2]
+        deaths = int(inputs.event_d[rows, 2].sum())
+        assert deaths > 0
+        targeted = start.beta_d.copy()
+        targeted[:, 2, 0] = low
+        untargeted = start.beta_d.copy()
+        untargeted[:, 2, 2] = low
+        target = [properties.TARGET]
+        assert inward_rows(SeparableState(targeted, start.beta_y), inputs, target) == deaths
+        assert inward_rows(SeparableState(untargeted, start.beta_y), inputs, target) == 0
+        survivors = int(np.sum(rows & inputs.rows_d()[:, 2] & (inputs.event_d[:, 2] == 0.0)))
+        assert survivors > 0
+        upper = start.beta_d.copy()
+        upper[:, 2, 0] = inputs.bounds[1]
+        assert inward_rows(SeparableState(upper, start.beta_y), inputs, target) == survivors
+
+    def test_the_committed_run_holds_no_suspect(self) -> None:
+        """The declared run's own artifacts pass every declared reading."""
+        root = study.STUDY.artifacts
+        assert study.primary_suspects(pd.read_csv(root / "convergence.csv")) == []
+        rows = pd.read_parquet(root / "property-replicates.parquet")
+        assert properties.convergence_suspects(rows) == []
+        # Every listed stall is a fit of this run that stalled, and every stall is listed.
+        primary = pd.read_csv(root / "convergence.csv").rename(columns={"scenario": "cell"})
+        fitted = rows.loc[rows["cell"].isin(list(properties.CROSS_FITTED_CELLS))]
+        fits = pd.concat([primary, fitted.drop_duplicates(["cell", "replicate"])])
+        stalled = fits.loc[fits["failure"].eq("newton_stalled"), ["cell", "replicate"]]
+        assert set(study.INVESTIGATED_STALLS) == {
+            (str(cell), int(replicate)) for cell, replicate in stalled.itertuples(index=False)
+        }
+
+
 class TestTheConvergence:
     def test_the_convergence_file_holds_one_row_per_fit(self) -> None:
         frame = law.sample(4_000, 3)
@@ -174,8 +306,10 @@ class TestTheConvergence:
                 "converged": 1,
                 "failure": "",
                 "relative_score": rows["relative_score"].iloc[0],
+                "phase": rows["phase"].iloc[0],
             }
         ]
+        assert set(rows["phase"].iloc[0].split(",")) == {"walk"}
 
     def test_the_property_summary_counts_unconverged_fits(self) -> None:
         rows = pd.DataFrame(
@@ -268,8 +402,8 @@ ROBUSTNESS_PILOTS = {
 class TestTheSizes:
     """The declared sizes read the pilot by the shared rules.
 
-    The pilot's unconverged fits (2.6% of the cross-fitted draws) are read as drawn, as the
-    declared run keeps them.
+    The pilot's unconverged fits (0.6% of the rerun cross-fitted draws, all
+    ``cell_separated``) are read as drawn, as the declared run keeps them.
     """
 
     def test_the_pilot_lost_no_fit(self) -> None:

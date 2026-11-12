@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -96,6 +96,7 @@ def _end_labels(ax: Axes, x: float, items: list[tuple[float, str, str]]) -> None
         _core.end_label(ax, x, y + shift, text, color)
 
 
+@_core.labelled
 def weights(
     result: Any,
     *,
@@ -105,7 +106,12 @@ def weights(
     repeat: int = 1,
     labels: dict[str, str] | None = None,
     time_label: str = "Time point",
-    title: str | None = None,
+    title: str | Literal[False] | None = None,
+    subtitle: str | Literal[False] | None = None,
+    xlabel: str | Sequence[str] | None = None,
+    ylabel: str | Sequence[str] | None = None,
+    legend: str | Literal[False] = "top",
+    figsize: tuple[float, float] | None = None,
 ) -> Figure:
     """Plot how the weights are spread at each time point, and how many units they leave.
 
@@ -144,8 +150,22 @@ def weights(
         Words for each regimen, keyed by its label.
     time_label : str, default="Time point"
         Words for a node on the x axis.
-    title : str or None, default=None
-        The title.
+    title : str, False or None, default=None
+        The title; a short description of the figure when omitted, and none when ``False``.
+    subtitle : str, False or None, default=None
+        The line under the title; the plot's own, which names the estimate and its headline
+        number, when omitted, and none when ``False``.
+    xlabel : str, sequence of str or None, default=None
+        The x-axis label. A string replaces the first labelled panel's label and the same
+        label wherever it repeats; a sequence gives each labelled panel its own, in reading
+        order.
+    ylabel : str, sequence of str or None, default=None
+        The y-axis label, given as for ``xlabel``.
+    legend : {"top", "right", "bottom"} or False, default="top"
+        Where the key goes: above the axes, right of them, or under the figure; ``False``
+        draws no key.
+    figsize : tuple of float or None, default=None
+        Width and height in inches of a figure the plot creates.
 
     Returns
     -------
@@ -201,7 +221,7 @@ def weights(
     ... )
     >>> fig = weights(result)
     >>> fig.axes[0].get_title(loc="left")
-    'Where do the weights grow too large?'
+    'Weights over time'
     >>> plt.close(fig)
     """
     from ..exceptions import DataError
@@ -376,7 +396,7 @@ def weights(
     cause_words = f", cause {first.cause}" if first.cause is not None else ""
     _core.header(
         top,
-        title or "Where do the weights grow too large?",
+        title or "Weights over time",
         f"Weights used at each {time_label.lower()} by units still followed, regimen "
         + ", ".join(shown_names),
         key_sources=[top],
@@ -546,13 +566,19 @@ def _shown_covariates(summary: Any, max_covariates: int) -> tuple[list[str], int
     return order, len(covariates) - len(order)
 
 
+@_core.labelled
 def balance(
     source: Any,
     *,
     max_covariates: int = 30,
     treatment_label: str | None = None,
     labels: dict[str, str] | None = None,
-    title: str | None = None,
+    title: str | Literal[False] | None = None,
+    subtitle: str | Literal[False] | None = None,
+    xlabel: str | Sequence[str] | None = None,
+    ylabel: str | Sequence[str] | None = None,
+    legend: str | Literal[False] = "top",
+    figsize: tuple[float, float] | None = None,
 ) -> Figure:
     """Plot each covariate's absolute standardized difference before and after weighting.
 
@@ -584,8 +610,22 @@ def balance(
         (read ``"Offer = 1 vs Offer = 0"``); its column name when omitted.
     labels : dict or None, default=None
         Words for each covariate, keyed by its name.
-    title : str or None, default=None
-        The title.
+    title : str, False or None, default=None
+        The title; a short description of the figure when omitted, and none when ``False``.
+    subtitle : str, False or None, default=None
+        The line under the title; the plot's own, which names the estimate and its headline
+        number, when omitted, and none when ``False``.
+    xlabel : str, sequence of str or None, default=None
+        The x-axis label. A string replaces the first labelled panel's label and the same
+        label wherever it repeats; a sequence gives each labelled panel its own, in reading
+        order.
+    ylabel : str, sequence of str or None, default=None
+        The y-axis label, given as for ``xlabel``.
+    legend : {"top", "right", "bottom"} or False, default="top"
+        Where the key goes: above the axes, right of them, or under the figure; ``False``
+        draws no key.
+    figsize : tuple of float or None, default=None
+        Width and height in inches of a figure the plot creates.
 
     Returns
     -------
@@ -758,7 +798,8 @@ def balance(
     pieces = [
         (f"Treatment {name}" if len(contrasts) > 1 else said(contrasts[0]))
         + ", weights for "
-        + vocabulary.BALANCE_ESTIMAND_WORDS[summary.estimand]
+        # the printed summary keeps the alias; the figure carries the words alone
+        + vocabulary.BALANCE_ESTIMAND_WORDS[summary.estimand].rsplit(" (", 1)[0]
     ]
     if worst is not None:
         pieces.append(

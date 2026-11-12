@@ -36,9 +36,7 @@ def _check_estimate(namespace: dict[str, Any]) -> None:
     assert estimates.loc["weighting only", ["ci_lower", "ci_upper"]].isna().all()
     assert estimates.loc["TMLE", ["ci_lower", "ci_upper"]].notna().all()
     assert weighting["ate"].support.label == "experimental"
-    assert (
-        figure_title(namespace["forest_fig"]) == "How large is each estimate, and how sure is it?"
-    )
+    assert figure_title(namespace["forest_fig"]) == "Estimates and intervals"
 
 
 def _check_overlap_and_balance(namespace: dict[str, Any]) -> None:
@@ -75,7 +73,7 @@ def _check_truncation(namespace: dict[str, Any]) -> None:
     )
     assert frame["truncated_fraction"].iloc[-1] > 0.3
     title = figure_title(namespace["truncation_fig"])
-    assert title == "Does the estimate depend on the limits on the probabilities?"
+    assert title == "Estimate across probability limits"
 
 
 def _check_policy(namespace: dict[str, Any]) -> None:
@@ -85,9 +83,7 @@ def _check_policy(namespace: dict[str, Any]) -> None:
     assert -0.2 < half < -0.05 < 0.05 < double < 0.2
     assert double < four < 0.3
     assert (table["ci_lower"] * table["ci_upper"] > 0).all(), "no interval crosses zero"
-    assert (
-        figure_title(namespace["policy_fig"]) == "How does the effect change as the policy shifts?"
-    )
+    assert figure_title(namespace["policy_fig"]) == "Effect by policy"
 
 
 def _check_evalue(namespace: dict[str, Any]) -> None:
@@ -121,7 +117,7 @@ def _check_gamma(namespace: dict[str, Any]) -> None:
     assert width.is_monotonic_increasing
     assert last["gamma"] == 3.0 and 0.0 < last["lower_limit"] < last["lower"] < 0.5
     assert last["upper"] > 1.5
-    assert figure_title(namespace["gamma_fig"]) == "Does the conclusion survive hidden confounding?"
+    assert figure_title(namespace["gamma_fig"]) == "Bounds under hidden confounding"
 
 
 def _check_survey(namespace: dict[str, Any]) -> None:
@@ -140,10 +136,7 @@ def _check_survey(namespace: dict[str, Any]) -> None:
     assert 2.0 < tipping < 3.0
     assert (frame["psi"][frame["gamma"] < tipping] > 0.0).all()
     assert (frame["psi"][frame["gamma"] > tipping] < 0.0).all()
-    assert (
-        figure_title(namespace["tilt_fig"])
-        == "Does the estimate depend on why outcomes are missing?"
-    )
+    assert figure_title(namespace["tilt_fig"]) == "Estimate across missingness assumptions"
 
 
 def _check_zipper(namespace: dict[str, Any]) -> None:
@@ -158,7 +151,7 @@ def _check_zipper(namespace: dict[str, Any]) -> None:
     assert (records["low"] > truth).sum() == 0
     assert (records["high"] < truth).sum() == (~inside).sum() > 30
     assert abs(study.summaries["ate"].truth - truth) < 1e-12
-    assert figure_title(namespace["zipper_fig"]) == "Do the intervals cover the true value?"
+    assert figure_title(namespace["zipper_fig"]) == "Interval coverage"
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -184,4 +177,4 @@ def check_refits(namespace: dict[str, Any]) -> None:
     calibration = namespace["surface"].calibration_frame().set_index("role")
     assert 0.2 < calibration.loc["treatment", "strength"] < 0.4
     title = figure_title(namespace["surface_fig"])
-    assert title == "How far does the estimate move under a simulated common cause?"
+    assert title == "Estimate under a simulated common cause"

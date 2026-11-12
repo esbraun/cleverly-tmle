@@ -2,10 +2,12 @@
 
 It draws no declared sample: every draw takes ``stream_seed(STUDY, "pilot", label, r)``, a
 stream no declared cell reads.  It writes one row per fit and estimand to
-``separable_effects_pilot.csv.gz`` beside this module, with the fit's refusal when it had one.  Every row also carries the targeting's convergence
-(``converged``, ``failure``, ``relative_score``), so the pilot measures how often a fit stops
-short of ``tol`` as well as the spread.
-Run it as ``python -m tests.studies.separable_effects_pilot --jobs N``.
+``separable_effects_pilot.csv.gz`` beside this module, with the fit's refusal when it had one.
+Every row also carries the targeting's convergence (``converged``, ``failure``,
+``relative_score``, and the ``phase`` that reached the reported state), so the pilot measures
+how often a fit stops short of ``tol`` as well as the spread.
+Run it as ``python -m tests.studies.separable_effects_pilot --jobs N``; ``--labels`` picks labels,
+and ``--checkpoint PATH`` (outside the repository) lets an interrupted run resume.
 
 =====================  ======================================================================
 label                  what it sizes
@@ -34,6 +36,24 @@ from tests.studies import separable_effects_properties as properties
 from tests.studies.evidence.seeds import stream_seed
 
 OUTPUT = Path(__file__).with_name("separable_effects_pilot.csv.gz")
+
+#: The fits a checkpointed run collects between writes, and the columns it writes.
+CHUNK = 200
+COLUMNS = (
+    "label",
+    "replicate",
+    "n",
+    "estimand",
+    "truth",
+    "estimate",
+    "std_error",
+    "covered",
+    "converged",
+    "failure",
+    "relative_score",
+    "phase",
+    "refusal",
+)
 
 #: ``label -> (scenario, n, draws, robustness cell or "")``.
 PILOTS: dict[str, tuple[str, int, int, str]] = {
@@ -73,7 +93,7 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             result = properties.robustness_fit(frame, cell) if cell else study.fit(frame, scenario)
-            converged, failure, score = study.convergence(result)
+            converged, failure, score, phase = study.convergence(result)
             rows = []
             for name in ROWS_OF.get(label, study.ESTIMANDS[scenario]):
                 estimate = result[name]
@@ -92,6 +112,7 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
                         "converged": int(converged),
                         "failure": failure,
                         "relative_score": score,
+                        "phase": phase,
                         "refusal": "",
                     }
                 )
@@ -100,16 +121,43 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
         return [{"label": label, "replicate": replicate, "n": n, "refusal": type(error).__name__}]
 
 
-def run(n_jobs: int, labels: list[str] | None = None, draws: int | None = None) -> pd.DataFrame:
+def run(
+    n_jobs: int,
+    labels: list[str] | None = None,
+    draws: int | None = None,
+    checkpoint: Path | None = None,
+) -> pd.DataFrame:
     """Run ``labels`` (every label by default) and replace their rows in the CSV.
 
-    ``draws`` caps each label for a smoke run, which writes nothing.
+    ``draws`` caps each label for a smoke run, which writes nothing.  ``checkpoint`` names a
+    CSV that collects the rows in chunks of :data:`CHUNK` fits: a restarted run skips the
+    fits it already holds, so an interrupted pilot resumes where it stopped.
     """
     chosen = labels if labels else list(PILOTS)
     count = {label: PILOTS[label][2] if draws is None else draws for label in chosen}
     jobs = [(label, r) for label in chosen for r in range(count[label])]
-    outcomes = map_parallel(_one, [(job,) for job in jobs], n_jobs=n_jobs)
-    frame = pd.DataFrame([row for rows in outcomes for row in rows])
+    if checkpoint is None or draws is not None:
+        outcomes = map_parallel(_one, [(job,) for job in jobs], n_jobs=n_jobs)
+        frame = pd.DataFrame([row for rows in outcomes for row in rows])
+    else:
+        done: set[tuple[str, int]] = set()
+        if checkpoint.exists():
+            held = pd.read_csv(checkpoint, usecols=["label", "replicate"])
+            done = set(zip(held["label"], held["replicate"].astype(int), strict=True))
+        todo = [job for job in jobs if job not in done]
+        for start in range(0, len(todo), CHUNK):
+            chunk = todo[start : start + CHUNK]
+            outcomes = map_parallel(_one, [(job,) for job in chunk], n_jobs=n_jobs)
+            rows = pd.DataFrame([row for rows in outcomes for row in rows], columns=COLUMNS)
+            rows.to_csv(checkpoint, mode="a", header=not checkpoint.exists(), index=False)
+        frame = pd.read_csv(checkpoint, keep_default_na=False, na_values=[""])
+        wanted = set(jobs)
+        frame = frame.loc[
+            [
+                (label, int(r)) in wanted
+                for label, r in zip(frame["label"], frame["replicate"], strict=True)
+            ]
+        ]
     if draws is not None:
         return frame
     if OUTPUT.exists():
@@ -124,5 +172,6 @@ if __name__ == "__main__":
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument("--labels", nargs="*", default=None)
     parser.add_argument("--draws", type=int, default=None)
+    parser.add_argument("--checkpoint", type=Path, default=None)
     arguments = parser.parse_args()
-    run(arguments.jobs, arguments.labels, arguments.draws)
+    run(arguments.jobs, arguments.labels, arguments.draws, arguments.checkpoint)

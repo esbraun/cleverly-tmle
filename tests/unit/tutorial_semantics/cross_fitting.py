@@ -263,10 +263,7 @@ def check(namespace: dict[str, Any]) -> None:
         atol=1e-15,
     )
     assert mutation_witness.variance != draw_estimates[0].variance
-    assert (
-        figure_title(namespace["repeats_fig"])
-        == "Does the estimate depend on how the data were split?"
-    )
+    assert figure_title(namespace["repeats_fig"]) == "Estimate across repeated splits"
     spread = namespace["repeated_nuisance"].repeat_spread
     assert [row.n_repeats for row in spread] == [3]
     assert np.isclose(spread[0].standard_deviation, np.std(points, ddof=1))

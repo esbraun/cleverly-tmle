@@ -4606,9 +4606,9 @@ class _SequentialEstimator:
             )
         if getattr(self, "targeting", None) != "one_step":
             refuse(
-                "a Separable regimen is targeted by the one-step walk over the two hazard "
-                "factors; the per-horizon algorithm restarts at each horizon and has no "
-                "factor-wise form.",
+                "a Separable regimen targets the two hazard factors at every horizon at "
+                "once, in the separable engine behind targeting='one_step'; the per-horizon "
+                "algorithm restarts at each horizon and does not target the factors apart.",
                 "Set targeting='one_step'.",
                 reason=RefusalReason.API_REDIRECTION,
             )

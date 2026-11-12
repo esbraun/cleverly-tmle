@@ -9,7 +9,8 @@ panel, that arm against the rest.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -106,12 +107,18 @@ def _absolute_percent() -> Any:
     return FuncFormatter(lambda value, _: f"{round(abs(value) * 100, 2):g}%")
 
 
+@_core.labelled
 def overlap(
     result: Any,
     *,
     treatment_label: str | None = None,
     labels: dict[Any, str] | None = None,
-    title: str | None = None,
+    title: str | Literal[False] | None = None,
+    subtitle: str | Literal[False] | None = None,
+    xlabel: str | Sequence[str] | None = None,
+    ylabel: str | Sequence[str] | None = None,
+    legend: str | Literal[False] = "top",
+    figsize: tuple[float, float] | None = None,
 ) -> Figure:
     """Plot the predicted probability of treatment for treated and untreated units.
 
@@ -136,8 +143,22 @@ def overlap(
     labels : dict or None, default=None
         Words for each arm, keyed by the arm's level as in the data, such as
         ``{1: "offered", 0: "not offered"}``. Each names its group of units on its own.
-    title : str or None, default=None
-        The title.
+    title : str, False or None, default=None
+        The title; a short description of the figure when omitted, and none when ``False``.
+    subtitle : str, False or None, default=None
+        The line under the title; the plot's own, which names the estimate and its headline
+        number, when omitted, and none when ``False``.
+    xlabel : str, sequence of str or None, default=None
+        The x-axis label. A string replaces the first labelled panel's label and the same
+        label wherever it repeats; a sequence gives each labelled panel its own, in reading
+        order.
+    ylabel : str, sequence of str or None, default=None
+        The y-axis label, given as for ``xlabel``.
+    legend : {"top", "right", "bottom"} or False, default="top"
+        Where the key goes: above the axes, right of them, or under the figure; ``False``
+        draws no key.
+    figsize : tuple of float or None, default=None
+        Width and height in inches of a figure the plot creates.
 
     Returns
     -------
@@ -227,6 +248,9 @@ def overlap(
         # A caller's label names a group of units, so the axis names the group after a
         # colon: the treatment's words lead when given, being in the group otherwise.
         own = labelled(code)
+        if own is not None and treatment_label and binary:
+            # one panel: the treatment's words name the probability, and the key the groups
+            return f"Predicted probability of {treatment_label}"
         if own is not None:
             lead = treatment_label or "being in the group"
             return f"Predicted probability of {lead}: {_core.mid_phrase(own)}"
@@ -263,7 +287,7 @@ def overlap(
     predictions = (
         "Out-of-fold predictions"
         if getattr(result.config, "cross_fit", True)
-        else "In-sample predictions (the fit was not cross-fitted)"
+        else "In-sample predictions (not cross-fitted)"
     )
     weighted = float(np.ptp(weights_all)) != 0.0
     _core.header(
