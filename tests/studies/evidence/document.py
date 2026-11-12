@@ -470,9 +470,10 @@ def measured(row: Any) -> str:
             f"SE ratio {render(float(row.se_ratio))}"
         )
     if family == "few_cluster_reference":
-        if str(row.role) == "control":
+        if str(row.role) == "control" and pd.notna(getattr(row, "paired_se_ratio_ci_upper", None)):
             # The verdict reads the paired ratio and the positive arm's SE-ratio endpoint, not
-            # the control's own IID SE over the empirical SD.
+            # the control's own IID SE over the empirical SD. A table summarised before the
+            # two-clause rule has no paired columns and prints the row's own reading below.
             return (
                 "paired IID/cluster SE ratio "
                 f"{_interval(row.paired_se_ratio_ci_lower, row.paired_se_ratio_ci_upper)}, "
