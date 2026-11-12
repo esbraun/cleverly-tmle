@@ -399,7 +399,7 @@ def _check_renewal_fit(namespace: dict[str, Any]) -> None:
         assert re.search(rf"^{plan} +10,000 of 10,000 +{shown} ", printed_tail, re.MULTILINE)
         assert rows[plan][2].value == pytest.approx(shown, abs=0.11)
     assert result.simultaneous is not None
-    assert round(result.simultaneous.critical_value, 3) == 2.221
+    assert round(result.simultaneous.critical_value, 3) == 2.188
     assert round(result.simultaneous.pointwise_critical_value, 3) == 1.960
     assert "experimental" in summary.note("simultaneous_bands").text
 

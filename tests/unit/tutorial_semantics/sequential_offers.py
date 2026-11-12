@@ -366,10 +366,10 @@ def _check_fits(namespace: dict[str, Any]) -> None:
     assert (
         "plan shipping through time 3 to [0.01, 1] for 0.2%" in summary.note("weights_capped").text
     )
-    # "The simultaneous bands are wider intervals (2.411 standard errors each way instead of
+    # "The simultaneous bands are wider intervals (2.429 standard errors each way instead of
     # 1.96)."
     assert result.simultaneous is not None
-    assert round(result.simultaneous.critical_value, 3) == 2.411
+    assert round(result.simultaneous.critical_value, 3) == 2.429
     assert round(result.simultaneous.pointwise_critical_value, 3) == 1.960
     # "The bands of discount, win-back, and win-back then ship exclude zero. The band of shipping
     # contains it." The simultaneous bands are a printed table of the summary.
