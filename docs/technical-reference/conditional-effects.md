@@ -12,7 +12,7 @@ a declared grid, and a Wald test of the non-constant terms all carry intervals.
 | output | interval | why |
 | --- | --- | --- |
 | projection coefficients on either scale, with or without missing outcomes | Wald, with the joint covariance | a pathwise-differentiable parameter of fixed dimension whose remainder is a product of nuisance errors |
-| heterogeneity test | joint Wald chi-square, df the number of non-constant terms | a fixed-dimension stack of the coefficients |
+| heterogeneity test | joint Wald chi-square, df the number of non-constant terms; below 40 clusters, the Hotelling $F$ reference | a fixed-dimension stack of the coefficients |
 | curve $\varphi(v)^\top\beta$ at declared points; band over a declared finite grid | pointwise Wald; multiplier band | linear in $\beta$; the shipped multiplier band over a fixed finite set |
 | risk difference and calibration of a fixed external score, and the paired risk difference of two (`assess_score`, `compare=`), on either scale | Wald, from one TMLE fit | the efficient influence curve of the risk at a fixed function, and its difference for two; the calibration is a projection onto $(1, s(V))$ |
 | the conditional effect itself, with no basis (`model=None`), by `method="ep"` | none: `predict(interval=True)` refuses | not pathwise differentiable; the EP learner's theorems give rates, not a limit law |
@@ -131,8 +131,8 @@ $(\widehat{\mathrm{ATE}} - \mathrm{ATE})^2$. On the log-ratio scale $c_n$ minimi
 risk among constants, so the row is biased upward by about
 $\operatorname{Var}(R_n'(c_0))/(2R''(c_0))$, which is $O(1/n)$, and its curve evaluated at $c_n$
 overstates the SE slightly. The [score-assessment study](method-evidence/score-assessment.md)
-measured 0.09 to 0.13 SD of bias on the log-ratio rows at n = 4,000 and 0.05 SD on the
-difference scale at 2,000. The paired row carries neither term, because the constant cancels.
+measured 0.09 to 0.13 SD of bias on the calibration groups' log-ratio rows at n = 4,000 (0.08
+to 0.10 under a wrong outcome regression) and 0.03 to 0.05 SD on the difference scale at 2,000. The paired row carries neither term, because the constant cancels.
 
 ## Curve, band and heterogeneity test
 
@@ -147,8 +147,11 @@ outside a declared domain is refused unless `Modifiers(outside="clip")` maps it 
 end, for the fit and for prediction alike.
 
 `heterogeneity_test()` tests $\beta_j = 0$ for every term except the intercept, a Wald
-chi-square on as many degrees of freedom. It tests the absence of variation along the basis, not
-the absence of heterogeneity.
+chi-square on as many degrees of freedom $q$. A clustered fit with $J < 40$ clusters, whose
+coefficients read $t$ on $\nu = J - 2$ degrees of freedom, reads the statistic $T$ by the
+Hotelling law instead: $T(\nu - q + 1)/(\nu q)$ against $F(q, \nu - q + 1)$, the square of
+that $t$ at $q = 1$. A basis with $q > \nu$ has no such reference and is refused. The test is of
+the absence of variation along the basis, not the absence of heterogeneity.
 
 ## The EP learner
 
@@ -496,6 +499,7 @@ each reading against its formula.
 | missing treatments, an intermediate, a continuous or vector treatment, `strata=`, `repeats` above 1, the full-refit bootstrap | the projection's clever covariate, covariance or study cell for the composition is not built | `implementation_gap`, roadmap P1 |
 | a sensitivity analysis or refutation of a projection fit | each is defined for a mean or a contrast of means | `implementation_gap`, roadmap P1 |
 | `heterogeneity_test()` on a basis without an intercept column | its coefficients being zero says the contrast is zero, not that it is constant | `invalid_declaration` |
+| `heterogeneity_test()` on a clustered fit with fewer than 40 clusters and more than $J - 2$ non-constant terms | the Hotelling reference on $J - 2$ degrees of freedom has no law for more terms | `inference_gap` |
 | `method="ep"` for an estimand other than `ConditionalContrast` | it estimates a different target | `different_estimand` |
 | `predict(interval=True)` on an EP curve, or a non-default `Inference` on `EPMethod` | EPL proves rates, not a limit law for the curve | `inference_gap` |
 | `method="ep"` with `model=Sieve(basis)` sized by cross-validation | the model is a declared projection target; pass the sieve as `sieve=` with `model=None` | `invalid_declaration` |
@@ -504,7 +508,7 @@ each reading against its formula.
 | `EPMethod` with `cross_fit=False`, `repeats` above 1, `cv_evaluation=True`, a non-default targeting scheme, or a fluctuation setting | the debiasing pools every row with its own out-of-fold nuisances and fits no fluctuation | `invalid_declaration` |
 | `assess_score` without `score_kind="external"`, with `computed_from` outside the adjustment set, or on an in-sample curve | the interval needs a fixed function of adjustment columns | `invalid_declaration` |
 | `assess_score` with `compare=` naming the score column, or a column with the same value on every row | the paired risk is 0 with no spread | `DataError` |
-| `assess_score` with `compare=` a sequence of columns | a joint interval over every pair of three or more scores is not built | `implementation_gap` |
+| `assess_score` with `compare=` a sequence of two or more columns | a joint interval over every pair of three or more scores is not built | `implementation_gap` |
 | `assess_score` with `repeats` above 1 | a median over splits of jointly targeted risks has no reviewed joint covariance | `inference_gap` |
 | `assess_score` with `n_bootstrap` above 0, `target_weights=True`, a declared stopping rule, a non-pooled targeting scheme or `cv_evaluation=True` | the refit bootstrap is not built; every row loads several score columns, which the weighted submodel cannot carry; the fluctuation is one pooled solve under the relative stopping test | `implementation_gap` |
 | `targeting_curve` under the same three conditions, for the score or the `compare=` column | as `assess_score` | `invalid_declaration` |
@@ -615,8 +619,9 @@ complete outcomes, cross-fitted nuisances and a fluctuation settled on the full 
 and `tests/unit/test_score_assessment_tmle.py` checks that every group it names ran and passed.
 Weights, clusters, missing outcomes, a pair of arms of a multi-arm treatment, an ATE fit without
 cross-fitting, a reduced-span fit and every other configuration read `experimental`. The
-difference-scale groups run at n = 2,000 and the log-ratio groups at 4,000, where the
-best-constant term of a single score's risk difference no longer breaks the calibration rule.
+difference-scale groups run at n = 2,000 and the log-ratio groups at 4,000: at 2,000 rows the
+pilot's SE ratio of 1.047, the best-constant term plus an unexplained excess, predicted that no
+replication count up to 50,000 meets the calibration rule, and no interval was measured there.
 The study page gives that term's measured size, the reduced-span counts, and the limits of what
 the study can see.
 

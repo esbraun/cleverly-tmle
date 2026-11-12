@@ -88,7 +88,9 @@ result gives an interval after that choice. A fixed `Sieve(basis, size=3)` is ac
 slope to a ratio per unit of its modifier.
 
 `fit.heterogeneity_test()` tests whether every coefficient but the intercept is zero, with a
-chi-square test on as many degrees of freedom as there are such terms. A small p-value says the
+chi-square test on as many degrees of freedom as there are such terms. With fewer than 40
+clusters it uses an $F$ reference that allows for the few clusters, and it refuses a basis with
+more non-constant terms than the number of clusters minus 2. A small p-value says the
 effect changes along the basis. A large one does not say the effect is constant: it can change
 in a way the basis cannot draw.
 

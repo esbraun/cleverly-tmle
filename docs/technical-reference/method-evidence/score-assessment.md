@@ -9,10 +9,15 @@ with a Wald interval from its influence curve. Both the difference scale and the
 are measured. [External scores](../conditional-effects.md#external-scores) gives the estimands,
 the estimator and its conditions.
 
-**No canonical implementation is compared.** EconML's `RScorer` (0.16.0) and `DRTester`
-(v0.17.0) score one model at a time and report neither an interval nor a paired risk, so no
-published implementation computes these quantities. Its absence does not block the row. A
-zero-row equivalence artifact records it.
+**No canonical implementation is compared.** EconML 0.16.0 comes closest. Its `RScorer`
+returns a point score per CATE model, an R-square analogue of the R-loss against a
+constant-effect baseline, with no interval. Its `DRTester.evaluate_blp` regresses doubly robust
+pseudo-outcomes on one model's predictions by OLS and reports the slope with a standard error
+and a p-value (the classical OLS error for a binary treatment, HC1 for each arm of a categorical
+one): one score's calibration slope on the difference scale, from a one-step regression rather
+than a TMLE. Neither reports a risk difference against the best constant, a paired risk
+difference of two scores or a log-ratio calibration, and no comparison was run. The absence
+does not block the row, and a zero-row equivalence artifact records it.
 
 ## What was tested
 
@@ -47,12 +52,13 @@ The n rule moved both log-ratio calibration groups from 2,000 to 4,000 rows. The
 declaration is commit `804cfea`, which raised the bias budget to 2,000, and the declared run
 ran at that commit. `tests/canonical/score_assessment/regenerate.py` lists every change.
 
-**Why the log-ratio rows run at n = 4,000.** At 2,000 rows the pilot's SE ratio on the
-log-ratio risk differences agreed with the oracle's within its 99% interval (pooled 1.047
-against 1.026). But no replication count up to 50,000 met the calibration rule there, because
-the best-constant term below still inflates the SE ratio at that size. The pre-run n rule
-(`score_assessment.n_rule`) therefore moved both groups to 4,000 rows, with a fresh pilot and
-oracle on new streams.
+**Why the log-ratio rows run at n = 4,000.** At 2,000 rows the pilot's pooled SE ratio on the
+log-ratio risk differences was 1.047, within the 99% interval of the oracle's 1.026. That 1.047
+is the oracle's best-constant term plus the unexplained excess below (R1). At that ratio the
+sizing predicted that no replication count up to 50,000 meets the family-wise calibration rule
+(0.920 at the cap). The pre-run n rule (`score_assessment.n_rule`) therefore moved both groups
+to 4,000 rows, with a fresh pilot and oracle on new streams. No interval was measured at 2,000
+rows; the move rests on that prediction.
 
 ## Accuracy against known truth
 
@@ -66,7 +72,7 @@ oracle on new streams.
 
 | family | what it asks | how it fails |
 | --- | --- | --- |
-| `interval_calibration` | for each parameter of the seven calibration groups (R = 15,200), does the SE-ratio interval lie inside 0.93 to 1.07 and the coverage interval inside 0.92 to 0.98 | the paired row with the SE $\sqrt{SE_1^2 + SE_2^2}$ of the two single risk differences, which ignores their covariance, must lie above the band on `paired_2k` and `paired_cont_2k`; the paired row with the SE of its plug-in part alone, without the residual term, must lie below it on `equal_cont_2k` |
+| `interval_calibration` | for each parameter of the six calibration groups (R = 15,200), does the SE-ratio interval lie inside 0.93 to 1.07 and the coverage interval inside 0.92 to 0.98 | the paired row with the SE $\sqrt{SE_1^2 + SE_2^2}$ of the two single risk differences, which ignores their covariance, must lie above the band on `paired_2k` and `paired_cont_2k`; the paired row with the SE of its plug-in part alone, without the residual term, must lie below it on `equal_cont_2k` |
 | `bias` | under the declared wrong outcome regression with an estimated $g$ (R = 2,000), is each risk difference's standardized-bias interval inside $\pm 0.25$ | the plug-in at that initial outcome regression, without targeting, must lie wholly outside $\pm 0.25$ |
 | `type_i_error` | on `equal_cont_2k`, where the two risks are equal, is the 99% upper end of the paired Wald test's rejection rate at most 0.10 | paired with the power cell |
 | `power` | on `power_cont_2k` (R = 1,000), is the lower end of the paired test's rejection rate at least 0.80 | an inert test fails it |
@@ -85,9 +91,10 @@ SD on the three log-ratio risk differences at n = 4,000 and 0.051 SD on the diff
 differences the pilot's SE ratio exceeded the oracle's by about 0.024 at 2,000 rows and 0.021
 at 4,000. The oracle's own excess over 1 halves as $n$ doubles, as the best-constant term
 predicts, and this gap does not, so the term does not explain it. No defect was found before
-the run, and the gap was recorded rather than priced. In the run the three rows read SE ratios
-of 1.004, 1.017 and 1.006, at or below the oracle's 1.015, 1.013 and 1.004, so the run does not
-reproduce the pilot's excess. Its source is not established.
+the run. The sizing read the pilot's ratios, so the calibration count of 15,200 prices the
+excess. In the run the three rows read SE ratios of 1.004, 1.017 and 1.006 against the oracle's
+1.015, 1.013 and 1.004, within about 0.01 of it, so the run does not reproduce the pilot's 0.02
+excess. Its source is not established.
 
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
@@ -174,8 +181,14 @@ counts these fits by group and their coverage, ungated:
 | `paired_crr_4k` | 49 of 15,200 | 0.918 on each $S$ row; 0.898, 0.939 and 0.959 on the $S_B$ rows; 0.857 on the paired row |
 | `paired_crr_dr_4k` | 155 of 2,000 | 0.981, 0.942 and 0.974 on the $S$ rows; 0.981, 0.968 and 0.974 on the $S_B$ rows; 0.948 on the paired row |
 
-No difference-scale fit reduces its span. The counts are too small to measure coverage on these
-fits, and such a fit reads `experimental`.
+No difference-scale fit reduces its span. These fits are a selected set, the draws on which the
+full span would not settle, so nominal coverage is not expected on them, and such a fit reads
+`experimental`. The paired row of `paired_crr_4k` covers on 42 of its 49 (99% Clopper-Pearson
+interval 0.685 to 0.957, one-sided binomial p of 0.011 against 0.95), which is consistent with
+under-coverage on that subset. The gated cells include these fits: 0.18% and 0.32% of the
+supported log-ratio groups' replications, and 7.8% of `paired_crr_dr_4k`'s gated bias cells.
+Removing 49 fits from 15,200 moves a coverage by at most 0.003, so no calibration verdict rests
+on them.
 
 The status rule was declared before the run. Every gated verdict passed, so an assessment whose
 configuration a measured group covers reads `supported`. The measured configurations are
@@ -253,12 +266,12 @@ from the committed results and checked at the precision printed.
 
 | limitation | what it means for use |
 | --- | --- |
-| There is no cross-implementation evidence | No published implementation reports an interval for a score's risk or a paired risk. The row rests on accuracy against the truth and on the theory properties |
+| There is no cross-implementation evidence | EconML 0.16.0's `DRTester` reports one score's difference-scale calibration slope from a one-step OLS regression, but no published implementation reports a score's risk difference or a paired risk, and no comparison was run. The row rests on accuracy against the truth and on the theory properties |
 | The measured configurations | A binary outcome with an estimated mechanism on either scale, a binary outcome with a known mechanism on the difference scale, and a continuous outcome with an estimated mechanism on the difference scale, each with a binary treatment, iid unweighted rows, complete outcomes, one split and cross-fitted nuisances. The paired row is measured in the same four. Weights, clusters, missing outcomes, a pair of arms of a multi-arm treatment, an ATE fit without cross-fitting, and every other scale, outcome and mechanism read `experimental` |
-| Sizes, laws and learners | The difference-scale groups run at n = 2,000 and the log-ratio groups at 4,000; at 2,000 rows the log-ratio intervals did not meet the calibration rule. Every law is smooth on $[-1, 1]^3$, and the nuisances are spline or logistic GLMs; the default learner library is not measured. The status does not read $n$ or the learner, so such a fit within a measured configuration reads `supported` and rests on the theory |
-| The best-constant term | A single score's risk difference is biased upward by a second-order term, measured with correct nuisances at 0.09 to 0.13 SD on the log-ratio scale at n = 4,000 and 0.05 SD on the difference scale at 2,000. It is largest when the score is close to the best constant. The paired row does not carry it |
+| Sizes, laws and learners | The difference-scale groups run at n = 2,000 and the log-ratio groups at 4,000; at 2,000 rows the pilot's SE ratio of 1.047 (the best-constant term plus the R1 excess) predicted that no count up to 50,000 meets the calibration rule, and no interval was measured there. Every law is smooth on $[-1, 1]^3$, and the nuisances are spline or logistic GLMs; the default learner library is not measured. The status does not read $n$ or the learner, so such a fit within a measured configuration reads `supported` and rests on the theory |
+| The best-constant term | A single score's risk difference is biased upward by a second-order term, measured with consistent nuisances at 0.09 to 0.13 SD on the calibration groups' log-ratio rows at n = 4,000 (0.08 to 0.10 on the `dr` rows) and 0.03 to 0.05 SD on the difference scale at 2,000. It is largest when the score is close to the best constant. The paired row does not carry it |
 | The pilot's unexplained excess (R1) | On the log-ratio risk differences the pilot's SE ratio exceeded the oracle's by about 0.02 at both sizes, which the best-constant term does not explain. The run did not reproduce it, and its source is not established |
-| Reduced-span fits | 231 log-ratio fits settled only on a reduced span, too few to measure their coverage, which ranged from 0.857 to 1.000 by row. Such a fit reads `experimental`. Coverage at a true calibration slope near 0 or 0.5, where the retry keeps firing as $n$ grows, is not measured: the study's true slopes are 0.73, 0.83 and 0.26 |
+| Reduced-span fits | 231 log-ratio fits settled only on a reduced span. Their coverage ranged from 0.857 to 1.000 by row, and the paired row's 42 of 49 is consistent with under-coverage on these selected draws. Such a fit reads `experimental`; the gated cells include these fits, and no verdict rests on them. Coverage at a true calibration slope near 0 or 0.5, where the retry keeps firing as $n$ grows, is not measured: the study's true slopes are 0.73, 0.83 and 0.26 |
 | One check is blind on law `H` | On law `H` the effect $1 + W_1$ is linear in $W_1$, so for a score linear in $W_1$ (`paired_cont_2k`'s and `equal_cont_2k`'s $S$) the plug-in part of the calibration's influence curve is identically 0, and an error in it would go unseen there. The binary groups, whose effect is not in the span of $(1, S)$, measure that part |
 | One wrong nuisance | The `dr` groups gate the bias under a wrong outcome regression with an estimated $g$, and `comparison.csv` publishes their coverage ungated. An interval under one inconsistent nuisance is not claimed |
 | The scores and their selection | Every score is a fixed function fitted outside the sample. A score fitted on these rows, out-of-fold predictions included, is not external, and the interval covers one pair named before the fit, not the best of several |
