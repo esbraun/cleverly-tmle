@@ -2549,14 +2549,6 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the identical rows, point estimates, and influence curves treated as independent",
         "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
     ),
-    ("clustered_inference", "cluster_robust_fold_evaluated"): (
-        "fold-evaluated CV-TMLE at unequal cluster sizes, centered cluster variance per fold",
-        "SE-ratio and coverage intervals both stay inside their calibration bands",
-    ),
-    ("clustered_inference", "iid_control_fold_evaluated"): (
-        "the fold-evaluated fit's curve treated as independent rows",
-        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
-    ),
     ("clustered_inference", "cluster_robust_drtmle"): (
         "cross-fitted DR-TMLE at unequal cluster sizes with cluster-robust inference",
         "SE-ratio and coverage intervals both stay inside their calibration bands",
@@ -4905,13 +4897,15 @@ _FEW_CLUSTER_SIZES = {
 }
 _FEW_CLUSTER_ARMS = {
     "t_reference": (
-        "the reported interval, t with J - 2 degrees of freedom, or min(J - 2, J - V) for the "
+        "the reported interval, t with J - 2 degrees of freedom, or J - V for the "
         "fold-evaluated fit",
         "exact coverage lower bound clears the floor, bias inside the margin",
     ),
     "iid_t_control": (
         "the same point and t quantile with the IID row standard error",
-        "the SE-ratio upper endpoint falls below 0.80",
+        "the paired ratio of mean IID SE to mean cluster SE on the same fits has its upper "
+        "endpoint below 0.80, and the paired t_reference arm's SE-ratio upper endpoint is at "
+        "most 1.20",
     ),
     "normal_reference": (
         "the cluster-robust standard error with the normal quantile",
@@ -4937,6 +4931,8 @@ CELLS.update(
         for arm, (arm_text, required) in _FEW_CLUSTER_ARMS.items()
         if arm != "t_j_minus_2_reference" or fit == "tmle_cv_evaluation"
         if fit != "ltmle_in_sample" or clusters >= 20
+        # ``cv_evaluation=True`` refuses clusters of unequal size (Fix-4).
+        if (fit, sizes) != ("tmle_cv_evaluation", "unequal_informative")
     }
 )
 

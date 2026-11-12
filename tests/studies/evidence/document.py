@@ -470,6 +470,15 @@ def measured(row: Any) -> str:
             f"SE ratio {render(float(row.se_ratio))}"
         )
     if family == "few_cluster_reference":
+        if str(row.role) == "control":
+            # The verdict reads the paired ratio and the positive arm's SE-ratio endpoint, not
+            # the control's own IID SE over the empirical SD.
+            return (
+                "paired IID/cluster SE ratio "
+                f"{_interval(row.paired_se_ratio_ci_lower, row.paired_se_ratio_ci_upper)}, "
+                "paired positive SE-ratio upper endpoint "
+                f"{render(float(row.paired_positive_se_ratio_ci_upper))}"
+            )
         return (
             f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
