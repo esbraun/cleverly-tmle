@@ -93,6 +93,7 @@ ep-crr
 ep-assessment
 learned-rule-ep
 targeting-curves
+score-assessment
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 dose-response

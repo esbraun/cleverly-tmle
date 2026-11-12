@@ -1842,8 +1842,9 @@ declared `sieve=` or `learner=`; and scalar aggregates of an EP curve.
 
 Evidence stays open too. The `hte3` comparator runs of the `ep-cate`, `ep-crr` and
 `ep-assessment` studies are pending, and the EP curve carries no interval. The projection band,
-the external-score check, a pooled outcome regression, a cross-validated sieve size and a declared
-final learner read experimental until a registered study measures them. The EP rule's interval
+an external-score check outside the configurations the `score-assessment` study measured, a pooled
+outcome regression, a cross-validated sieve size and a declared final learner read experimental
+until a registered study measures them. The EP rule's interval
 under-covers at the exceptional law (coverage 0.901 at n = 2,000).
 Other losses and contrasts need their own derivations. An aggregate of an EP curve is a separate
 parameter and receives scalar inference only after its influence contribution is implemented and

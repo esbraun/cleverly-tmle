@@ -4411,6 +4411,20 @@ BASIS: Final = "Basis"
 CURVE_STATUS: Final = "Status"
 SIEVE: Final = "Sieve"
 SCORE_ASSESSMENT_TITLE: Final = "Check of an external score"
+SCORE_ASSESSMENT_METHOD: Final = "TMLE: an ATE fit's outcome model, updated once for all rows"
+SCORE_ASSESSMENT_COLUMNS: Final[tuple[str, ...]] = (
+    "score",
+    "parameter",
+    "estimate",
+    "std err",
+    "lower",
+    "upper",
+    "status",
+)
+SCORE_ASSESSMENT_SPAN_TITLE: Final = "Model update"
+SCORE_ASSESSMENT_SPAN_LINE: Final = (
+    "{rank} directions from {columns} columns; score equations solved to {norm}"
+)
 
 #: The notes an effect-curve summary can print.
 EFFECT_CURVE_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
@@ -4420,6 +4434,9 @@ EFFECT_CURVE_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "curve_band": "note",
         "curve_experimental": "note",
         "score_external": "note",
+        "score_paired": "note",
+        "score_experimental": "note",
+        "score_withheld": "note",
         "ep_target": "note",
         "ep_no_interval": "note",
         "ep_experimental": "note",
@@ -4467,6 +4484,20 @@ EFFECT_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "difference says the score predicts the conditional effect better than the "
             "average effect does; a calibration line with no intercept and unit slope says "
             "it is calibrated."
+        ),
+        "score_paired": (
+            "The risk difference of {column} - {compare} is the risk of {column} minus the "
+            "risk of {compare}: negative when {column} predicts the conditional effect "
+            "better. Its interval covers this one pair, named before the fit, and not the "
+            "best of several pairs tried."
+        ),
+        "score_experimental": (
+            "{reason} The intervals are computed as for a validated fit; read them with more "
+            "caution."
+        ),
+        "score_withheld": (
+            "Rows marked {mark} report the estimate with no interval: fewer than three "
+            "clusters leave no degrees of freedom for the variance."
         ),
     }
 )

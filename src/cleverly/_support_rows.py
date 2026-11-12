@@ -5325,6 +5325,12 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "of a point row. cleverly.targeting_curves.TARGETING_MEASURED, not a support row, "
         "records the configurations the study licenses."
     ),
+    "score-assessment": (
+        "It measures the score assessment of an external score, which is no Target and no fit "
+        "of a point row. cleverly.effect_curves.SCORE_ASSESSMENT_MEASURED and "
+        "SCORE_PAIRED_MEASURED, not a support row, record the configurations the study "
+        "licenses."
+    ),
     "dose-response": (
         "It measures the kernel-smoothed dose-response curve of DoseResponseTMLE, which is no "
         "Target and no fit of a point row. cleverly.estimators.dose_response."

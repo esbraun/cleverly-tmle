@@ -563,6 +563,27 @@ enters the registry-gated table.
 | the oracle design computation (`tests/studies/targeting_curves_oracle.py`) | the half-sample SE against the estimator's SD with the true nuisances, for every calibration row at its cell's size and for cell H at 4,000 and 8,000 | the nuisance fits, which the study adds |
 | the registered [`targeting-curves` study](method-evidence/targeting-curves.md) (`tests/studies/targeting_curves.py`) | calibration of 34 rows over eight cells at n = 2,000, the band's joint coverage, size and power, and seven controls. 47 of 48 cells pass; the red one is the reporting row, H's paired TOC(0.1), conservative with SE ratio 1.060 (99% interval 1.035 to 1.086) and coverage 0.963, which clears its one-sided gate | a comparator: the `grf` comparison is pending. Configurations outside the eight cells, which read `experimental`, and calibration below 200 rows in a top fraction |
 
+## Assessment and comparison of external scores
+
+`assess_score` estimates the risk difference and calibration of a fixed external score and,
+with `compare=`, the paired risk difference of two
+([external scores](conditional-effects.md#external-scores)). None is a `Target`, so none enters
+the registry-gated table.
+
+| instrument | what it checks | what it cannot see |
+| --- | --- | --- |
+| `tests/unit/test_score_assessment_tmle.py`, three-cell law (T1, T3 to T6, T10) | the paired point equals the functional and its curve the Gâteaux derivative on both scales; swapping the scores negates the row; the point without the second moments, the curve without its residual term and a comparator term left in the paired curve each fail, with a witness that each term is not small; missing outcomes enter through the response mechanism | the limit theory, which an exact law cannot test, and the paired curve at $s_1 = s_2$, where every term vanishes |
+| `tests/unit/test_score_assessment_tmle.py`, six-cell law (T2, T7, T8, T17, T18) | on a law where the span does not saturate the cells, the paired row equals the difference of the single rows of one fit; every targeted estimate equals the functional under a wrong outcome regression and the oracle mechanism, and dropping the second score from the span, contrast numerators on the log-ratio scale, or calibration columns frozen at the initial coefficients each miss it; the substitution equals the one-step at the targeted fit, and an untruncated $g$ breaks that identity; an alternation that cannot settle raises; a fit at a collinear slope settles on the reduced span, solves every original score equation and reads `experimental`, while a wrong outcome regression on the same draw is refused | the solver tolerance in production, and coverage on reduced-span fits |
+| `tests/unit/test_score_assessment_tmle.py`, range and compositions (T9, T11, T12) | the targeted regressions stay in range where the one-step's weights turn negative, and the log-ratio calibration is the unique minimizer of a convex loss; integer weights equal a duplicated frame; clustered rows sum the curve within clusters and take the few-cluster reference in each of its three cases | coverage under weights, clusters or missing outcomes, which no study measures |
+| `tests/unit/test_score_assessment_tmle.py`, support and report (T14, T16) | each measured configuration reads `supported` with its studies, each departure reads `experimental` with its reason, a paired row outside its table reads `experimental` beside supported single rows, and every group a table names ran and passed in the committed `properties.csv`; the frame, the report and the repr | whether a configuration outside the tables would pass |
+| `tests/unit/test_conditional_contrast.py`, refusals (T13) | each `compare=` and fit-setting refusal before any learner, with its text | none beyond the text |
+| the oracle design computation (`tests/studies/score_assessment_oracle.py`) | the SE ratio and bias of the log-ratio risk differences with the true nuisances, from a first-principles one-step that shares no estimator code, at 2,000 and 4,000 rows | the nuisance fits, which the study adds |
+| the registered [`score-assessment` study](method-evidence/score-assessment.md) (`tests/studies/score_assessment.py`) | calibration of 32 rows over six groups at R = 15,200 on both scales, the paired Wald test's size and power, the bias of six rows under a wrong outcome regression, and nine control rows. All 49 cells pass | a comparator: EconML 0.16.0's `DRTester` reports a one-step calibration slope of one score, and nothing reports a risk difference or a paired risk; configurations outside its groups, which read `experimental`; and the plug-in part of the calibration curve on law `H`'s scores linear in $W_1$, which the binary groups cover |
+
+T15, the bit-equality of the targeting curves across the refactor onto the shared pooled
+fluctuation, is a one-time record; `tests/unit/test_targeting_curves.py` keeps the curves'
+identity tests.
+
 ## A simulated law is an instrument too, and it can be wrong the same way
 
 A coverage study is only evidence if the number it calls the truth is the number an adjusted
