@@ -50,6 +50,7 @@ statement of :math:`\Psi(P_w)`.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, fields, replace
 from types import MappingProxyType
@@ -97,6 +98,7 @@ __all__ = [
     "CovarianceRule",
     "ICParts",
     "InferenceStatus",
+    "OutcomeFamily",
     "ParameterEstimate",
     "Scale",
     "WaldTest",
@@ -105,12 +107,14 @@ __all__ = [
     "bootstrap_column",
     "bootstrap_is_diagnostic",
     "bootstrap_line",
+    "constant_outcome_cells",
     "counterfactual_mean_parts",
     "counterfactual_means",
     "effect_modification_coefficients",
     "has_t_reference",
     "ipsi_means",
     "is_labelled",
+    "kish_count",
     "make_estimate",
     "median_estimates",
     "minimum_reference_df",
@@ -125,6 +129,7 @@ __all__ = [
     "reference_label",
     "regime_means",
     "restamp_parameter_statuses",
+    "satterthwaite_df",
     "spread_name",
     "stamp_inference",
     "supplies_inference",
@@ -133,6 +138,9 @@ __all__ = [
 ]
 
 Scale = Literal["level", "difference", "ratio", "fraction"]
+
+#: The outcome family a builder records on an estimate: a binary outcome or a continuous one.
+OutcomeFamily = Literal["binomial", "gaussian"]
 
 #: How an estimate's joint covariance is read off its influence curve.
 CovarianceRule = Literal["centered", "second_moment"]
@@ -668,6 +676,164 @@ def minimum_reference_df(estimates: Sequence[ParameterEstimate]) -> int | None:
     return min(values) if values else None
 
 
+def _curve_squares(curve: FloatArray, rows: Any, centered: bool) -> FloatArray:
+    """The squared terms of ``curve`` over ``rows``, centred within them when asked."""
+    values = np.asarray(curve, dtype=float).reshape(-1)
+    if rows is not None:
+        values = values[np.asarray(rows)]
+    if centered and values.size:
+        values = values - values.mean()
+    return np.asarray(values**2, dtype=float)
+
+
+def kish_count(curve: FloatArray, *, rows: Any = None, centered: bool = True) -> float:
+    r"""The Kish count of an influence curve, :math:`(\sum u_i^2)^2 / \sum u_i^4`.
+
+    The count is the number of equal terms that would carry the same share of the variance as
+    the curve's terms ``u`` do. It equals the number of terms when every term has the same
+    magnitude and falls toward 1 as one term dominates. It has no floor.
+
+    Parameters
+    ----------
+    curve : ndarray
+        The per-observation influence curve.
+    rows : array-like or None, default=None
+        A boolean mask or integer indices of the terms to read. ``None`` reads every term.
+    centered : bool, default=True
+        Whether to centre the terms at their mean over ``rows`` first.
+
+    Returns
+    -------
+    float
+        The count, ``inf`` when every term is 0.
+
+    See Also
+    --------
+    satterthwaite_df : The moment-matched degrees of freedom of the same terms.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference import kish_count
+    >>> kish_count(np.array([1.0, -1.0, 1.0, -1.0]))
+    4.0
+    >>> round(kish_count(np.array([3.0, -1.0, -1.0, -1.0])), 4)
+    1.7143
+    """
+    squares = _curve_squares(curve, rows, centered)
+    fourth = float(np.sum(squares**2))
+    return math.inf if fourth == 0.0 else float(np.sum(squares) ** 2 / fourth)
+
+
+def satterthwaite_df(curve: FloatArray, *, rows: Any = None, centered: bool = True) -> float:
+    r"""The moment-matched degrees of freedom of the plug-in variance of an influence curve.
+
+    With ``u`` the curve's ``m`` terms over ``rows``, the plug-in variance is proportional to
+    :math:`\sum u_i^2`. Matching a scaled chi-squared law to its first two moments, with the
+    variance of the sum estimated from the terms themselves, gives
+
+    .. math::
+
+        \nu = \frac{2 (\sum u_i^2)^2}{\sum (u_i^2 - \overline{u^2})^2}
+            = \frac{2 K}{1 - K / m},
+
+    with :math:`K` the :func:`kish_count` of the same terms. It is the Satterthwaite (1946)
+    value of Bell and McCaffrey (2002) for a variance that is a sum of squared terms, and
+    :math:`2 m / (\hat\kappa - 1)` in the terms' sample kurtosis :math:`\hat\kappa`. It is at
+    least :math:`2 m / (m - 1)` and has no floor.
+
+    Parameters
+    ----------
+    curve : ndarray
+        The per-observation influence curve.
+    rows : array-like or None, default=None
+        A boolean mask or integer indices of the terms to read. ``None`` reads every term.
+        An estimate reads the rows where its curve is not 0, so a stratum's degrees of
+        freedom count the stratum's rows.
+    centered : bool, default=True
+        Whether to centre the terms at their mean over ``rows`` first.
+
+    Returns
+    -------
+    float
+        The degrees of freedom, ``inf`` when every squared term is equal.
+
+    See Also
+    --------
+    kish_count : The count :math:`K` the value is written in.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference import satterthwaite_df
+    >>> satterthwaite_df(np.array([3.0, -1.0, -1.0, -1.0]))
+    6.0
+    """
+    squares = _curve_squares(curve, rows, centered)
+    if not squares.size:
+        return math.inf
+    spread = float(np.sum((squares - squares.mean()) ** 2))
+    return math.inf if spread == 0.0 else float(2.0 * np.sum(squares) ** 2 / spread)
+
+
+def constant_outcome_cells(
+    outcome: Any,
+    treatment: Any,
+    rows: Any,
+    *,
+    weights: Any = None,
+    observed: Any = None,
+) -> frozenset[Any]:
+    """The treatment arms whose observed outcomes over ``rows`` take a single value.
+
+    An arm counts when it has at least one qualifying row: a row of ``rows`` with positive
+    weight and an observed outcome. An arm with no qualifying row is not returned.
+
+    Parameters
+    ----------
+    outcome : array-like
+        ``(n,)`` outcomes. Values on unobserved rows are not read.
+    treatment : array-like
+        ``(n,)`` treatment levels.
+    rows : array-like
+        A boolean mask or integer indices of the rows an estimate reads, such as one stratum.
+    weights : array-like or None, default=None
+        ``(n,)`` observation weights. A row of weight 0 is not read. ``None`` reads every row.
+    observed : array-like or None, default=None
+        ``(n,)`` booleans, ``True`` where the outcome is observed. ``None`` reads every row as
+        observed.
+
+    Returns
+    -------
+    frozenset
+        The treatment levels, as Python scalars, of the arms whose qualifying rows all show
+        one outcome value.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference import constant_outcome_cells
+    >>> outcome = np.array([1, 1, 1, 0, 1, 0])
+    >>> treatment = np.array([1, 1, 1, 0, 0, 0])
+    >>> sorted(constant_outcome_cells(outcome, treatment, np.ones(6, dtype=bool)))
+    [1]
+    """
+    y = np.asarray(outcome).reshape(-1)
+    a = np.asarray(treatment).reshape(-1)
+    keep = np.zeros(a.shape[0], dtype=bool)
+    keep[np.asarray(rows)] = True
+    if weights is not None:
+        keep &= np.asarray(weights, dtype=float).reshape(-1) > 0.0
+    if observed is not None:
+        keep &= np.asarray(observed, dtype=bool).reshape(-1)
+    arms = []
+    for level in np.unique(a[keep]):
+        values = y[keep & (a == level)]
+        if np.unique(values).size == 1:
+            arms.append(level.item() if hasattr(level, "item") else level)
+    return frozenset(arms)
+
+
 @dataclass(frozen=True)
 class ParameterEstimate:
     """A point estimate with everything needed to do inference on it.
@@ -732,9 +898,22 @@ class ParameterEstimate:
         simultaneous band with ``band_scale="logit"`` is built on the logit of the
         estimate's position in this range. ``None`` for every other parameter, including any
         parameter of a continuous outcome.
+    outcome_family : {"binomial", "gaussian"} or None
+        The family of the outcome the estimate is a functional of, when its builder records
+        it: ``"binomial"`` for a binary outcome and ``"gaussian"`` for a continuous one.
+        ``None`` when the builder does not record it. A contrast keeps the family its inputs
+        share. It decides :attr:`effective_df`.
 
     Attributes
     ----------
+    small_sample_df : float or None
+        The :func:`satterthwaite_df` of :attr:`influence_curve` over the rows where it is not
+        0, centred there under the ``"centered"`` covariance rule. Computed when the estimate
+        is built, so :func:`dataclasses.replace` recomputes it. ``None`` for a clustered
+        estimate, whose reference is :attr:`reference_df`, and when :attr:`variance` is not
+        positive and finite.
+    effective_df : float or None
+    interval_scale : str
     std_error : float
     plugin_std_error : float
     inference_value : float
@@ -775,6 +954,19 @@ class ParameterEstimate:
     ('ate', 80)
     >>> estimate.ci[0] < estimate.ci[1]
     True
+    >>> estimate.interval_scale
+    'identity'
+
+    The small-sample reference applies a Student t only where the builder records a
+    continuous outcome:
+
+    >>> import numpy as np
+    >>> from cleverly.inference import make_estimate
+    >>> curve = np.array([3.0, -1.0, -1.0, -1.0])
+    >>> make_estimate("ey1", 0.5, curve, n=4).effective_df is None
+    True
+    >>> make_estimate("ey1", 0.5, curve, n=4, outcome_family="gaussian").effective_df
+    6.0
 
     Test the estimate against a declared null value:
 
@@ -799,6 +991,49 @@ class ParameterEstimate:
     reference_df: int | None = None
     support: Support = UNCLASSIFIED
     bounds: tuple[float, float] | None = None
+    outcome_family: OutcomeFamily | None = None
+    small_sample_df: float | None = field(init=False, compare=False, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "small_sample_df", self._small_sample_df())
+
+    def _small_sample_df(self) -> float | None:
+        """:attr:`small_sample_df`, from the curve's non-zero rows; no status is read or set."""
+        if self.n_clusters < self.n:
+            return None
+        if not (np.isfinite(self.variance) and self.variance > 0.0):
+            return None
+        curve = np.asarray(self.influence_curve, dtype=float).reshape(-1)
+        return satterthwaite_df(
+            curve, rows=curve != 0.0, centered=self.covariance_rule == "centered"
+        )
+
+    @property
+    def effective_df(self) -> float | None:
+        """The degrees of freedom the small-sample reference rule assigns this estimate.
+
+        :attr:`reference_df` on a clustered estimate. On an unclustered one,
+        ``max(small_sample_df, 5)`` when :attr:`outcome_family` is ``"gaussian"``, and
+        ``None``, the normal reference, otherwise: for a binary outcome and for an estimate
+        whose family is not recorded alike. :attr:`ci` reads :attr:`reference_df`, not this
+        value.
+        """
+        if self.n_clusters < self.n:
+            return self.reference_df
+        if self.outcome_family != "gaussian" or self.small_sample_df is None:
+            return None
+        return max(self.small_sample_df, 5.0)
+
+    @property
+    def interval_scale(self) -> str:
+        """The scale :attr:`ci` is formed on.
+
+        The transform's name for a transformed estimate, ``"log"`` for a ratio and
+        ``"identity"`` otherwise.
+        """
+        if self.transform is not None:
+            return self.transform.name
+        return "log" if self.scale == "ratio" else "identity"
 
     def _plugin_std_error(self) -> float:
         """The plug-in standard error, under any inference status.
@@ -1361,6 +1596,7 @@ def make_estimate(
     reference_df: int | None = None,
     support: Support = UNCLASSIFIED,
     bounds: tuple[float, float] | None = None,
+    outcome_family: OutcomeFamily | None = None,
 ) -> ParameterEstimate:
     """Assemble a :class:`ParameterEstimate`, computing its variance under its rule.
 
@@ -1406,12 +1642,14 @@ def make_estimate(
         fit passes the support of that fit.
     bounds : tuple of float or None, default=None
         The open interval the parameter lies in, from :func:`parameter_bounds`.
+    outcome_family : {"binomial", "gaussian"} or None, default=None
+        The family of the outcome, when the caller knows it.
 
     Returns
     -------
     ParameterEstimate
         The estimate, declaring ``covariance_rule``, ``inference``, ``reference_df``,
-        ``support`` and ``bounds``.
+        ``support``, ``bounds`` and ``outcome_family``.
     """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
     if covariance_rule == "second_moment":
@@ -1440,6 +1678,7 @@ def make_estimate(
         reference_df=reference_df if supplies_inference(inference) else None,
         support=support,
         bounds=bounds,
+        outcome_family=outcome_family,
     )
 
 
