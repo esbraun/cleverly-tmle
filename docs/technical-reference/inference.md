@@ -482,14 +482,20 @@ band scale that the row's cells measured. Any other choice makes the band `exper
 leaves the pointwise intervals as they are, because pointwise inference never reads the
 multiplier.
 
-The committed band cells of every row but `G23.cross_fitted` measured the Rademacher multiplier on
-the identity scale, which was the default before the change. Until those cells are regenerated,
-the default band on such a row reads `experimental` with a reason that names the measured option,
-and `multiplier_kind="rademacher", band_scale="identity"` reads `supported`. The gated cell of
-`G23.cross_fitted` measured the Mammen multiplier on the logit scale, so the default band reads
-`supported` there at 10,000 draws or more. The Rademacher band on the identity scale reads
-`experimental` on that row: the same fits report it at joint coverage 0.931 (99% interval 0.926 to
-0.937) in a row that states no verdict
+Every committed band cell of a fit's multiplier band measures the default band. (The curve bands of
+`targeting-curves` and the bootstrap band of `long-horizon-categorical-ltmle` are other objects.)
+The band-finite-sample rerun re-measured each cell the change moved on its committed fits
+(`tests/canonical/band-rerun-plan.json` lists them, and
+`tests/canonical/band-rerun-decision.json` records each reading). Every cell that `BAND_CELLS` maps
+to a row passes, so each row that lists the band kind lists `multiplier_kind="mammen"` with
+`band_scale="logit"`.
+
+Two studies pin 1,000 draws by design, so row `D09` needs at least 1,000 and
+every other row at least 10,000. Fewer draws make the band `experimental`. The `rademacher` and
+`normal` multipliers and `band_scale="identity"` read `experimental` on every row, with the reason
+"no registered study after band-finite-sample". The `longitudinal-sdr` study still reports the
+former default band (Rademacher, identity scale, 2,000 draws) on its own fits, at joint coverage
+0.931 (99% interval 0.926 to 0.937), in a row that states no verdict
 ([`longitudinal-sdr`](method-evidence/sequentially-doubly-robust-estimation.md)).
 
 ### The band scale
@@ -593,11 +599,12 @@ The band cell passes when its 99% joint-coverage interval lies inside $[0.92, 0.
 cell reads the pointwise intervals jointly and passes when its 99% upper endpoint is below 0.95.
 The control shows that the band's wider critical value does work.
 `tests/unit/test_simultaneous_cell_design.py` checks before any run that each control can fail.
-Each study page gives the measured coverage. Every committed band cell but the `longitudinal-sdr`
-cells measured the default before the change (Rademacher, identity scale, 1,000 or 2,000 draws),
-so it measures `multiplier_kind="rademacher", band_scale="identity"` until its band rows are
-regenerated. `tests/canonical/band-rerun-plan.json` lists those cells and the fits that write
-them.
+
+Each study page gives the measured coverage. Every committed multiplier band cell of a fit measures
+the default band. The `longitudinal-sdr` cell was declared on it, and the band-finite-sample rerun re-measured every
+other cell on its committed fits. `tests/canonical/band-rerun-plan.json` lists those cells and the
+fits that write them. The two studies that pin `N_MULTIPLIER = 1_000`, `composite-missing-drtmle`
+and `multi-arm-mar-drtmle`, measure the Mammen logit band at 1,000 draws.
 
 | registered study | shapes it measures |
 | --- | --- |

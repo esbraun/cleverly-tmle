@@ -2064,8 +2064,10 @@ mutation control that fails it.
 Two registered studies measure the fit, and both publish under `reporting`. The
 [clustered cross-fitted study](method-evidence/clustered-cross-fitted-longitudinal-tmle.md) pairs
 the fit with R `lmtp` 1.5.4 at 100 clusters of 40 rows. Its four cluster-robust pairs and five
-paired comparisons pass. Its band covers 0.933, and the lower end of that coverage's 99% interval,
-0.919, falls below 0.92, the lower edge of the calibration band. The `band-finite-sample` owner holds that cell. The
+paired comparisons pass. Its band, on the default since band-finite-sample (Mammen multiplier,
+logit scale, 10,000 draws), covers 0.939 with a 99% interval of 0.926 to 0.951, inside the
+calibration band. The former Rademacher identity-scale band covered 0.933 on the same fits and
+was red. The
 [few-cluster study](method-evidence/few-cluster-cross-fitted-longitudinal-tmle.md) measures the
 $t$ reference at 20 and 30 clusters, and all 8 scored cells pass.
 
