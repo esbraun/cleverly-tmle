@@ -16,6 +16,8 @@ label                   what it sizes
 ``calibration_both``    the calibration cell's risk difference at 4,000, 2,000 draws (fewer
                         than the shared 8,000, at about a minute per fit)
 ``positivity_4k``       the reported positivity cell, 100 draws
+``dr_<config>_1k``      each double-robustness configuration at 1,000, 300 draws
+``calibration_1k``      the calibration cell's risk difference at 1,000, the shared 8,000 draws
 ======================  ======================================================================
 
 It also reads the design's pilot gates: the initial plug-in of the treated arm's cause-1 risk in
@@ -57,9 +59,18 @@ PILOTS: dict[str, tuple[str, str, int, int]] = {
     },
     "calibration_both": ("primary", "both_cf_4k", properties.CALIBRATION_N, 2_000),
     "positivity_4k": ("configured", "positivity", 4_000, 100),
+    # The n = 1,000 property pilots, for a record gated at that size.
+    **{
+        f"dr_{configuration}_1k": ("configured", configuration, 1_000, 300)
+        for configuration, _ in properties.ROBUSTNESS_CELLS.values()
+    },
+    "calibration_1k": ("primary", "both_cf_1k", 1_000, 8_000),
 }
-#: The calibration label writes only the estimand its cell reads.
-ROWS_OF: dict[str, tuple[str, ...]] = {"calibration_both": (properties.RD,)}
+#: The calibration labels write only the estimand their cell reads.
+ROWS_OF: dict[str, tuple[str, ...]] = {
+    "calibration_both": (properties.RD,),
+    "calibration_1k": (properties.RD,),
+}
 
 
 def _one(label: str, replicate: int) -> list[dict[str, Any]]:
