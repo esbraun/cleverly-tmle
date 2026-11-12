@@ -80,6 +80,12 @@ def default_options(engine: str) -> dict[str, Any]:
         "fluctuation": "logistic",
         "targeting": "iterative",
         "target_weights": False,
+        "stopping": "relative",
+        "step_bound": "none",
+        "iterate": "last",
+        "outcome_by_arm": False,
+        "patience": False,
+        "treatment_adjustment": False,
     }
     if engine == "drtmle":
         options |= {
@@ -3052,6 +3058,7 @@ def _projection_rows() -> tuple[SupportRow, ...]:
                     ["conditional-projection"],
                     families=(family,),
                     splitting=("stacked",),
+                    options={"outcome_by_arm": True},
                     cells=measured,
                     # Roadmap: P1.
                     limits=[*common, *variant_limits[suffix]],
@@ -3059,6 +3066,25 @@ def _projection_rows() -> tuple[SupportRow, ...]:
                 )
             )
     return tuple(rows)
+
+
+# The point rows of the X76 option studies, one function per part, each empty until its study
+# passes: a declared stopping rule (T52), outcome_by_arm=True (T53), patience= on the greedy
+# path (C12) and treatment_adjustment= (T54).
+def _x76_stopping_point_rows() -> tuple[SupportRow, ...]:
+    return ()
+
+
+def _x76_by_arm_rows() -> tuple[SupportRow, ...]:
+    return ()
+
+
+def _x76_patience_rows() -> tuple[SupportRow, ...]:
+    return ()
+
+
+def _x76_adjustment_rows() -> tuple[SupportRow, ...]:
+    return ()
 
 
 POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
@@ -3069,6 +3095,10 @@ POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_categorical_point_rows(),
         *_adaptive_iptw_rows(),
         *_projection_rows(),
+        *_x76_stopping_point_rows(),
+        *_x76_by_arm_rows(),
+        *_x76_patience_rows(),
+        *_x76_adjustment_rows(),
     )
 )
 
@@ -3099,20 +3129,31 @@ HAZARD_BOUNDS_RARELY_BIND: Final[str] = (
 
 
 def _x33_options(
-    *, node_bounds: bool = False, hazard_pooling: str = "node", tuned_cap: bool = False
+    *,
+    node_bounds: bool = False,
+    hazard_pooling: str = "node",
+    ratio_trim: bool = False,
+    markov_order: bool = False,
+    tuned_cap: bool = False,
+    stopping: str = "relative",
+    step_bound: str = "none",
+    iterate: str = "last",
 ) -> tuple[tuple[str, Any], ...]:
     """The fitting options of a longitudinal key that change the fit's arithmetic.
 
-    No row declares ``ratio_trim=`` or a Markov order: no registered study fits either one,
-    so a fit that declares one matches no row. Only the ``mtp-tuning`` rows (``G41``) declare
-    a cap tuned on the data.
+    The defaults are those of a fit that declares none of them, in the order
+    :func:`cleverly._support.longitudinal_key` records them. Only the ``mtp-tuning`` rows
+    (``G41``) declare a cap tuned on the data.
     """
     return (
         ("node_bounds", node_bounds),
         ("hazard_pooling", hazard_pooling),
-        ("ratio_trim", False),
-        ("markov_order", None),
+        ("ratio_trim", ratio_trim),
+        ("markov_order", markov_order),
         ("tuned_cap", tuned_cap),
+        ("stopping", stopping),
+        ("step_bound", step_bound),
+        ("iterate", iterate),
     )
 
 
@@ -3140,6 +3181,11 @@ def long_row(
     node_bounds: bool = False,
     hazard_pooling: str = "node",
     tuned_cap: bool = False,
+    ratio_trim: bool = False,
+    markov_order: bool = False,
+    stopping: str = "relative",
+    step_bound: str = "none",
+    iterate: str = "last",
     kinds: frozenset[Kind] = _LONG_WALD,
     cells: Sequence[str] = (),
     limits: Sequence[str] = (),
@@ -3195,6 +3241,18 @@ def long_row(
         How the row's fits pool the censoring and hazard regressions over the nodes.
     tuned_cap : bool, default False
         Whether the row's fits declare a policy cap tuned on the data.
+    ratio_trim : bool, default False
+        Whether the row's fits declare ``ratio_trim=``.
+    markov_order : bool, default False
+        Whether the row's data declare a Markov order.
+    stopping : {"relative", "scaled_var", "sample_size"}, default "relative"
+        The stopping rule of the row's fits.
+    step_bound : {"none", "search", "fixed"}, default "none"
+        The step bound of the row's fits under a declared stopping rule: none, a bound with a
+        line search, or the whole bound. It reads ``"none"`` under ``"relative"``.
+    iterate : {"last", "best"}, default "last"
+        The iterate the row's fits report under a declared stopping rule. It reads ``"last"``
+        under ``"relative"``.
     kinds : frozenset of str, default Wald
         What the row licenses.
     cells : sequence of str, default ()
@@ -3236,7 +3294,14 @@ def long_row(
             ("targeting", targeting),
             ("isotonic", isotonic),
             *_x33_options(
-                node_bounds=node_bounds, hazard_pooling=hazard_pooling, tuned_cap=tuned_cap
+                node_bounds=node_bounds,
+                hazard_pooling=hazard_pooling,
+                ratio_trim=ratio_trim,
+                markov_order=markov_order,
+                tuned_cap=tuned_cap,
+                stopping=stopping,
+                step_bound=step_bound,
+                iterate=iterate,
             ),
         ),
     )
@@ -5241,6 +5306,20 @@ def _survival_dr_tmle_rows() -> tuple[SupportRow, ...]:
     )
 
 
+# The longitudinal rows of the X76 option studies, one function per part, each empty until its
+# study passes: a declared stopping rule (G55), ratio_trim= (G56) and a Markov order (G57).
+def _x76_stopping_long_rows() -> tuple[SupportRow, ...]:
+    return ()
+
+
+def _x76_trim_rows() -> tuple[SupportRow, ...]:
+    return ()
+
+
+def _x76_markov_rows() -> tuple[SupportRow, ...]:
+    return ()
+
+
 #: A learned two-node regimen (``LearnedRegimen``, X11 (b)) keys the regimen kind ``learned``.
 #: The row ``G47`` of the ``learned-regimen-ltmle`` study covers the cross-fitted censored
 #: two-node fit with every option at its default; every other composition of that kind matches
@@ -5255,6 +5334,9 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_separable_rows(),
         *_survival_ctmle_rows(),
         *_survival_dr_tmle_rows(),
+        *_x76_stopping_long_rows(),
+        *_x76_trim_rows(),
+        *_x76_markov_rows(),
     )
 )
 

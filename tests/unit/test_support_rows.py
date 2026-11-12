@@ -58,6 +58,28 @@ KINDS = {
     "derived",
 }
 OUTCOME_KINDS = {"end_of_study", "survival", "competing", "repeated"}
+#: The options of X76 in a point key, at the values of a fit that declares none of them.
+X76_POINT_DEFAULTS: dict[str, Any] = {
+    "stopping": "relative",
+    "step_bound": "none",
+    "iterate": "last",
+    "outcome_by_arm": False,
+    "patience": False,
+    "treatment_adjustment": False,
+}
+#: The rows, by id prefix, whose study declares an X76 option.  ``conditional-projection``
+#: fits one outcome regression per arm.
+X76_POINT_ROW_OPTIONS: dict[str, dict[str, Any]] = {
+    "T49": {"outcome_by_arm": True},
+    "T50": {"outcome_by_arm": True},
+}
+X76_LONGITUDINAL_DEFAULTS: dict[str, Any] = {
+    "ratio_trim": False,
+    "markov_order": False,
+    "stopping": "relative",
+    "step_bound": "none",
+    "iterate": "last",
+}
 
 
 def classified(case: RowCase) -> Any:
@@ -344,13 +366,18 @@ class TestLongitudinalControls:
             ("node_bounds", True),
             ("hazard_pooling", "pooled"),
             ("ratio_trim", True),
-            ("markov_order", 1),
+            ("markov_order", True),
             ("tuned_cap", True),
+            ("stopping", "scaled_var"),
+            ("stopping", "sample_size"),
+            ("step_bound", "search"),
+            ("iterate", "best"),
         ],
     )
     def test_an_x33_option_leaves_a_default_row(self, name: str, value: Any) -> None:
-        # No registered study fits a ratio trim or a Markov order, and the bounded and pooled
-        # fits have rows of their own, so each option moves a default fit off its row.
+        # No registered study fits a ratio trim, a Markov order or a stopping rule, and the
+        # bounded and pooled fits have rows of their own, so each option moves a default fit
+        # off its row.
         for row in ("G01", "G14.survival"):
             built = self.observed(row)
             assert classify_key(built.key, built.learners).row.id == row  # type: ignore[union-attr]
@@ -485,6 +512,23 @@ class TestTheoryAndOptions:
     def test_no_allowlisted_option_is_a_key_option(self) -> None:
         keyed = {name for row in ALL_ROWS for name, _ in row.key.options}
         assert keyed & set(OPTION_ALLOWLIST) == set()
+
+    def test_every_point_row_keys_the_x76_options_at_the_defaults_unless_it_declares_them(
+        self,
+    ) -> None:
+        # A row that lost an option from its key would cover a fit that declares it.
+        for row in POINT_ROWS:
+            options = dict(row.key.options)
+            expected = X76_POINT_DEFAULTS | X76_POINT_ROW_OPTIONS.get(row.id.split(".")[0], {})
+            assert {name: options.get(name) for name in expected} == expected, row.id
+
+    def test_every_longitudinal_row_keys_the_x76_options_at_the_defaults(self) -> None:
+        for row in LONGITUDINAL_ROWS:
+            if row.key.engine == ("snmm",):
+                continue  # A structural key holds no fitting option (structural_key).
+            options = dict(row.key.options)
+            expected = X76_LONGITUDINAL_DEFAULTS
+            assert {name: options.get(name) for name in expected} == expected, row.id
 
     def test_the_allowlist_holds_the_declared_options(self) -> None:
         declared = {"g_bounds", "n_folds", "learner_folds", "random_state", "n_jobs", "run_id"}

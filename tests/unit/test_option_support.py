@@ -5,17 +5,20 @@ run, and their estimates carry the experimental label with roadmap X76 as the ev
 (``cleverly.estimators._option_support``).  ``iterate="best"`` and ``step_bound=`` under
 ``stopping="relative"`` keep the label of the fit without them.  The witness for each
 experimental case is the same fit without the option, which a registered row covers, and a
-mutation that removes the preflight hook returns the supported label.
+mutation that removes both the preflight hook and the key's stopping options returns the
+supported label.
 """
 
 from __future__ import annotations
 
 import importlib
 import warnings
+from dataclasses import replace
 from typing import Any
 
 import pytest
 
+from cleverly import _support as support_module
 from cleverly._summary._estimates import plain_support_reason
 from cleverly.estimators._option_support import OPTION_STUDIES_ROADMAP
 from tests.unit import test_patience as patience_module
@@ -23,6 +26,7 @@ from tests.unit import test_stopping_rule_engines as engines
 from tests.unit import test_stopping_rule_longitudinal as longitudinal
 
 tmle_module = importlib.import_module("cleverly.estimators.tmle")
+REGISTERED_ROWS = support_module.registered_rows()
 
 
 def point(**settings: Any) -> Any:
@@ -108,10 +112,35 @@ def test_best_iterate_and_step_bound_keep_the_label_under_relative(
     assert labels(result) == {"supported"}
 
 
-def test_the_mutation_that_drops_the_preflight_hook_restores_the_supported_label(
+def test_the_key_and_the_preflight_hook_each_keep_a_rule_fit_experimental(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # The key records the rule (Fix-8 PR 0), so dropping the hook leaves the fit off every
+    # row. The mutation that drops both the hook and the key's stopping options restores
+    # the supported label.
     monkeypatch.setattr(tmle_module, "point_option_conditions", lambda estimator, data: [])
+    result = point(stopping="scaled_var")
+    assert labels(result) == {"experimental"}
+    assert "options (stopping='scaled_var')" in result.estimates["ate"].support.reason
+    monkeypatch.setattr(support_module, "_stopping_options", lambda estimator: {})
+    monkeypatch.setattr(
+        support_module,
+        "registered_rows",
+        lambda: tuple(
+            replace(
+                row,
+                key=replace(
+                    row.key,
+                    options=tuple(
+                        item
+                        for item in row.key.options
+                        if item[0] not in {"stopping", "step_bound", "iterate"}
+                    ),
+                ),
+            )
+            for row in REGISTERED_ROWS
+        ),
+    )
     assert labels(point(stopping="scaled_var")) == {"supported"}
 
 
