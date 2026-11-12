@@ -946,8 +946,9 @@ class ScoreAssessment:
     status_reason : str
         The reasons for an ``experimental`` status, joined by ``"; "``; empty otherwise.
     span : dict of str to float
-        The fluctuation's span record: ``columns``, ``rank``, ``out_of_span`` and
-        ``score_norm``.
+        The fluctuation's span record: ``columns``, ``rank``, ``out_of_span``,
+        ``score_norm`` and ``reduced``, the number of thinnest directions a log-ratio fit
+        dropped to settle (0 on the full span).
     compare : str or None
         The second score column, or ``None``.
     compared : ScoreAssessment or None
