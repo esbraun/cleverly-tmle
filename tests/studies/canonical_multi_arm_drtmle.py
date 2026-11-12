@@ -243,7 +243,13 @@ def fit_cleverly(
     *,
     simultaneous: bool = False,
     require_unbounded: bool = True,
+    reduced_crossfit: str = str(CONFIGURATION["reduced_crossfit"]),
 ) -> Any:
+    """The registered fit of one replication.
+
+    ``reduced_crossfit`` is a keyword so that ``multi-arm-drtmle-foldwise`` (Fix-6) fits this
+    construction rather than a copy of it.  Every row this study publishes uses the default.
+    """
     del scenario
     result = (
         FixedFoldDRTMLE(
@@ -266,7 +272,7 @@ def fit_cleverly(
             random_state=0,
             guard=("Q", "g"),
             reduction="univariate",
-            reduced_crossfit="pooled",
+            reduced_crossfit=reduced_crossfit,
             update_order="drtmle",
         )
         .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
