@@ -3678,7 +3678,8 @@ STUDY_ARM_CELLS.update(
             "least 0.0001",
         ),
         (*_SDR_BAND, "shipped_band_reporting"): (
-            "the shipped default band: identity scale, Rademacher multiplier, 2,000 draws",
+            "the default band before band-finite-sample: identity scale, Rademacher multiplier, "
+            "2,000 draws",
             _DIAGNOSTIC_REQUIRED,
         ),
         (*_SDR_BAND, "rademacher_band_reporting"): (

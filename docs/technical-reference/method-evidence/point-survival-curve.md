@@ -160,11 +160,11 @@ Comparator-backed: a paired comparison with `tmle3` on the same samples. Each ro
 | `root_n_rate` | `survival_t5__empirical_sd` | positive | difference of arm 1 and arm 0 at visit 5, five-visit held law: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5740 to -0.4845 | pass |
 | `root_n_rate` | `survival_t5__reported_se` | positive | difference of arm 1 and arm 0 at visit 5, five-visit held law: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5026 to -0.5013 | pass |
 | `simultaneous_coverage` | `all_reported__pointwise_joint_control` | control | every parameter the calibration fit reports: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.6469 to 0.6719 | pass |
-| `simultaneous_coverage` | `all_reported__simultaneous_band` | positive | every parameter the calibration fit reports: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9393 to 0.9513 | pass |
+| `simultaneous_coverage` | `all_reported__simultaneous_band` | positive | every parameter the calibration fit reports: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9442 to 0.9558 | pass |
 | `simultaneous_coverage` | `curve_arm0__pointwise_joint_control` | control | the arm-0 risk curve alone, at the five visits: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8247 to 0.8443 | pass |
-| `simultaneous_coverage` | `curve_arm0__simultaneous_band` | positive | the arm-0 risk curve alone, at the five visits: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9411 to 0.9530 | pass |
+| `simultaneous_coverage` | `curve_arm0__simultaneous_band` | positive | the arm-0 risk curve alone, at the five visits: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9448 to 0.9562 | pass |
 | `simultaneous_coverage` | `curve_arm1__pointwise_joint_control` | control | the arm-1 risk curve alone, at the five visits: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8284 to 0.8479 | pass |
-| `simultaneous_coverage` | `curve_arm1__simultaneous_band` | positive | the arm-1 risk curve alone, at the five visits: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9394 to 0.9514 | pass |
+| `simultaneous_coverage` | `curve_arm1__simultaneous_band` | positive | the arm-1 risk curve alone, at the five visits: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9438 to 0.9554 | pass |
 | `targeting_necessity` | `survival_t5__targeted` | positive | difference of arm 1 and arm 0 at visit 5, five-visit held law: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.000485 to 0.0032, margin 0.0062 | pass |
 | `targeting_necessity` | `survival_t5__untargeted` | control | difference of arm 1 and arm 0 at visit 5, five-visit held law: the identical fit with every fluctuation step removed | bias interval must fall entirely outside the margin | bias 0.1405 to 0.1405, margin 0 | pass |
 <!-- /generated -->
@@ -201,8 +201,10 @@ each node and both arms, so its plug-in contrast is zero in every sample.
 
 The per-horizon calibration, weighted and clustered cells use `targeting="iterative"` with
 `max_iter=100`. They run the per-horizon algorithm with weights and with clusters. The primary
-study does not use it. The curve bands are the shipped multiplier band (`simultaneous_bands`, 2,000
-rademacher draws, `random_state=0`) over the five risks of one arm. This is the band a fit of that
+study does not use it. The curve bands are the shipped multiplier band (`simultaneous_bands`, 10,000
+Mammen draws on the logit scale, `random_state=0`) over the five risks of one arm. The band rows are
+those of the band-finite-sample rerun, which re-measured the committed fits with this band when it
+replaced the Rademacher band on the identity scale at 2,000 draws. This is the band a fit of that
 one regimen reports.
 
 **The isotonic cell does not exercise a binding projection.** The `isotonic_t2` cell fits
