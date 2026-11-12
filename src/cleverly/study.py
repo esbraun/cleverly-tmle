@@ -4156,6 +4156,7 @@ SCORE_MANY_REFUSAL = Refusal(
     "assess_score compares one score with one other; a simultaneous comparison of three or "
     "more scores, with a joint interval over every pair, is not built.",
     alternative="Pass one column as compare=. Intervals from separate calls do not hold jointly.",
+    roadmap="X98",
 )
 
 #: Why the assessment fits one cross-fitting split.
@@ -4169,7 +4170,7 @@ SCORE_REPEATS_REFUSAL = Refusal(
 
 #: Why the assessment reports Wald intervals only.
 SCORE_BOOTSTRAP_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
+    RefusalReason.INFERENCE_GAP,
     "The refit bootstrap of the score assessment is not built; its intervals come from the "
     "influence curves.",
     alternative="Fit with n_bootstrap=0; the Wald intervals are reported.",
@@ -4181,6 +4182,7 @@ SCORE_TARGET_WEIGHTS_REFUSAL = Refusal(
     "The assessment fluctuates along several score columns at once, and every row loads "
     "several of them, which the weighted form of the fluctuation cannot carry.",
     alternative="Fit with target_weights=False.",
+    roadmap="X98",
 )
 
 #: Why the assessment solves under the relative stopping test.
@@ -4189,6 +4191,7 @@ SCORE_STOPPING_REFUSAL = Refusal(
     "The assessment solves its fluctuation under the shipped relative stopping test; a "
     "declared stopping rule needs a stopping context the assessment does not build.",
     alternative="Fit with stopping='relative'.",
+    roadmap="X98",
 )
 
 #: Why the assessment refuses fold-wise targeting and fold evaluation.
@@ -4197,6 +4200,7 @@ SCORE_SCHEME_REFUSAL = Refusal(
     "The assessment fits one pooled fluctuation over every row from the cross-fitted "
     "nuisances, so fold-wise targeting or fold evaluation of the ATE fit would be ignored.",
     alternative="Fit with targeting_scheme='pooled' and cv_evaluation=False.",
+    roadmap="X98",
 )
 
 

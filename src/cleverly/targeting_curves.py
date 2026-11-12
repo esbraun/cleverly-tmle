@@ -98,11 +98,12 @@ TARGETING_SCHEME_REFUSAL = Refusal(
     "cross-fitted nuisances, so fold-wise targeting or fold evaluation of the ATE fit would be "
     "ignored.",
     alternative="Fit with targeting_scheme='pooled' and cv_evaluation=False.",
+    roadmap="X92",
 )
 
 #: Why a targeting curve refuses a refit bootstrap of its ATE fit.
 TARGETING_BOOTSTRAP_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
+    RefusalReason.INFERENCE_GAP,
     "A targeting curve's intervals come from its half-sample bootstrap; a refit bootstrap of "
     "the ATE fit would be computed and ignored.",
     alternative="Fit with n_bootstrap=0; n_half_samples= sets the curve's own draws.",

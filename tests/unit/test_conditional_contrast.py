@@ -899,7 +899,7 @@ class TestScoreRefusalsBeforeAnyLearner:
         record = caught.value.refusal
         assert record == SCORE_MANY_REFUSAL
         assert record.reason is RefusalReason.IMPLEMENTATION_GAP
-        assert record.roadmap is None
+        assert record.roadmap == "X98"
         assert record.condition == (
             "assess_score compares one score with one other; a simultaneous comparison of "
             "three or more scores, with a joint interval over every pair, is not built."
@@ -922,7 +922,7 @@ class TestScoreRefusalsBeforeAnyLearner:
             ),
             (
                 {"n_bootstrap": 20},
-                RefusalReason.IMPLEMENTATION_GAP,
+                RefusalReason.INFERENCE_GAP,
                 "The refit bootstrap of the score assessment is not built; its intervals come "
                 "from the influence curves.",
                 "Fit with n_bootstrap=0; the Wald intervals are reported.",
@@ -979,7 +979,9 @@ class TestScoreRefusalsBeforeAnyLearner:
         assert record.reason is reason
         assert record.condition == condition
         assert record.alternative == alternative
-        assert record.roadmap is None
+        # An implementation gap names the roadmap item that tracks it; an inference gap names none.
+        expected = "X98" if reason is RefusalReason.IMPLEMENTATION_GAP else None
+        assert record.roadmap == expected
         assert NeverFit.calls == 0
 
     def test_an_effect_registers_the_curves_fitted_from_it(self) -> None:

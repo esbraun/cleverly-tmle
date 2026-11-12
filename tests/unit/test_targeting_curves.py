@@ -898,6 +898,10 @@ _DROPPED_SETTINGS = [
     ({"n_bootstrap": 20}, "TARGETING_BOOTSTRAP_REFUSAL"),
 ]
 
+#: The roadmap item each dropped setting's refusal names: the fold settings are an
+#: implementation gap tracked by X92, the refit bootstrap an inference gap that names none.
+_DROPPED_ROADMAP = {"TARGETING_SCHEME_REFUSAL": "X92", "TARGETING_BOOTSTRAP_REFUSAL": None}
+
 
 @pytest.mark.parametrize(("change", "refusal"), _DROPPED_SETTINGS)
 def test_route_one_refuses_settings_the_curve_would_drop_before_any_learner(
@@ -906,7 +910,7 @@ def test_route_one_refuses_settings_the_curve_would_drop_before_any_learner(
     with pytest.raises(CapabilityError) as caught:
         _route_one(**{**change, "outcome_learner": _NeverFitted()})
     assert caught.value.refusal is getattr(tc, refusal)
-    assert caught.value.refusal.roadmap is None
+    assert caught.value.refusal.roadmap == _DROPPED_ROADMAP[refusal]
 
 
 @pytest.mark.parametrize(("change", "refusal"), _DROPPED_SETTINGS)

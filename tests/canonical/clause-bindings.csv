@@ -1428,6 +1428,15 @@ repeated-crossfit-tmle,root_n_and_efficiency,se ratio sanity,se_high
 repeated-crossfit-tmle,root_n_rate,slope in root-n band,contract
 repeated-crossfit-tmle,type_i_error,coverage floor,coverage/0.5
 repeated-crossfit-tmle,type_i_error,rejection ceiling,rejection/0.1
+score-assessment,bias,bias discriminated,pair_collapse
+score-assessment,bias,bias equivalent,bias
+score-assessment,interval_calibration,coverage in calibration band,shift/0.7
+score-assessment,interval_calibration,se ratio above band,pair_collapse
+score-assessment,interval_calibration,se ratio in calibration band,affine
+score-assessment,interval_calibration,term dropped se ratio below band,pair_collapse
+score-assessment,power,rejection floor,se_high
+score-assessment,type_i_error,coverage floor,coverage/0.5
+score-assessment,type_i_error,rejection ceiling,rejection/0.1
 separable-effects,double_robustness,bias discriminated,pair_collapse
 separable-effects,double_robustness,bias equivalent,bias
 separable-effects,double_robustness,se ratio in union band,se/0.05
