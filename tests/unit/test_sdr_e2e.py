@@ -493,8 +493,27 @@ def test_the_simultaneous_bands_cover_every_estimate(panel: Any) -> None:
     assert bands.critical_value > 1.959
     assert set(bands.bands) == set(fit.estimates)
     for name, (low, high) in bands.bands.items():
-        pointwise = fit[name].ci
+        # The band holds the pointwise interval built on its own scale.  Under the default
+        # band_scale="logit" that is the logit-scale interval of a bounded estimate, which near
+        # a bound can end inside the identity-scale Wald interval.
+        pointwise = _same_scale_interval(
+            fit[name], bands.scales[name], bands.pointwise_critical_value
+        )
         assert low <= pointwise[0] and pointwise[1] <= high
+        assert low <= fit[name].psi <= high
+
+
+def _same_scale_interval(estimate: Any, scale: str, critical: float) -> tuple[float, float]:
+    """``critical`` standard errors either side of ``psi`` on the band's ``scale``."""
+    psi, half = float(estimate.psi), critical * float(estimate.std_error)
+    if scale == "identity":
+        return psi - half, psi + half
+    assert scale in ("logit", "range_logit"), scale
+    a, b = estimate.bounds
+    centre = np.log((psi - a) / (b - psi))
+    spread = half * (b - a) / ((psi - a) * (b - psi))
+    low, high = (a + (b - a) / (1 + np.exp(-(centre + sign * spread))) for sign in (-1, 1))
+    return float(low), float(high)
 
 
 # ------------------------------------------------------------------ T9: the workflow
