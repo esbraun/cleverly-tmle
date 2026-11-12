@@ -1,0 +1,36 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "2963e798e3da2af850c2a798b44aad6f37cd29d55f64332b0cbb76ef70061677",
+    "manifest.json": "98796160f8f60c6d65665b1cafbd56358f55675a0ebb85d299154b090bd96e60",
+    "performance-tests.csv": "577b973202789782002f145027452f7c8910fc2a4fa34be14dd1e0756550fbb5",
+    "properties.csv": "50cf74f660c397342b2332bea129bb53cc2b48d30f370cb03b4006cf0e4bd5ff",
+    "property-replicates.parquet": "dfbc27b8e147be6ecbc4267ed9e58ae8ae70798f4230d7f73ea42e4dff21bee4",
+    "replicates.parquet": "5d75a2981fbdaec97f5bd36782969d54761136d3b444df55531d63d456c2a699",
+    "summary.csv": "901c15b52d6aeefe73d6a1dad246df800b2e703cc24cfbb36b01b7d37ba1c4f9"
+  },
+  "band_fits": 12000,
+  "cache": "/root/band-wave-l3/cache/canonical-ltmle-competing/91a56e7bfa463e4bfa56bbbadc081406cef9584b/30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "canonical-ltmle-competing",
+    "--jobs",
+    "4",
+    "--cache",
+    "/root/band-wave-l3/cache",
+    "--output",
+    "/root/band-wave-l3/out"
+  ],
+  "fit_seconds": 9145.661892179001,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "canonical-ltmle-competing",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}
