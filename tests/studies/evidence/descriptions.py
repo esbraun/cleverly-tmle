@@ -1420,6 +1420,72 @@ ARMS.update(
     }
 )
 
+#: The arms of ``score-assessment`` (X97): each fit group's law, scores and size, and each
+#: parameter the group reports, ``<group>_<label>``, and the paired Wald test, ``paired_wald``.
+#: They sit here because the cell-name pattern below is built from :data:`ARMS` at import.
+#: Mirrored from ``tests.studies.score_assessment``, which this module cannot import;
+#: ``tests/unit/test_score_assessment_design.py`` pins the two equal.
+_SCORE_GROUPS = {
+    "paired_2k": (
+        "the observational binary law, difference scale, S = 0.2 + 0.3 W1 against "
+        "SB = S + 0.15 sin(pi W3), n = 2,000",
+        True,
+    ),
+    "paired_trial_2k": (
+        "the randomized binary law with P(A = 1) = 0.5 declared known, difference scale, the "
+        "scores of paired_2k, n = 2,000",
+        True,
+    ),
+    "paired_cont_2k": (
+        "law H (continuous outcome, effect 1 + W1), S = 1 + 0.8 W1 against SB = S + 0.3 W3, "
+        "n = 2,000",
+        True,
+    ),
+    "equal_cont_2k": (
+        "law H, S = 1 + 1.5 W1 against SB = 1 + W1 + 0.5 W3, whose risks are equal, n = 2,000",
+        True,
+    ),
+    "single_crr_4k": (
+        "the observational binary law, log-ratio scale, S = 0.15 + 0.25 W1 alone, n = 4,000",
+        False,
+    ),
+    "paired_crr_4k": (
+        "the observational binary law, log-ratio scale, S = 0.15 + 0.25 W1 against "
+        "SB = S + 0.2 sin(pi W3), n = 4,000",
+        True,
+    ),
+    "paired_dr_4k": (
+        "the wide-overlap binary law with a declared wrong outcome regression, difference "
+        "scale, S = 0.2 + 0.3 W1 against SB = 0.1 + 0.1 W1 + 0.4 W1^2, n = 4,000",
+        True,
+    ),
+    "paired_crr_dr_4k": (
+        "the wide-overlap binary law with a declared wrong outcome regression, log-ratio "
+        "scale, S = 0.15 + 0.25 W1 against SB = 0.05 + 0.1 W1 + 0.4 W1^2, n = 4,000",
+        True,
+    ),
+}
+_SCORE_LABELS = {
+    "S_risk_difference": "S's risk minus the risk of the best constant",
+    "S_calibration_intercept": "the intercept of S's calibration line",
+    "S_calibration_slope": "the slope of S's calibration line",
+    "SB_risk_difference": "SB's risk minus the risk of the best constant",
+    "SB_calibration_intercept": "the intercept of SB's calibration line",
+    "SB_calibration_slope": "the slope of SB's calibration line",
+    "paired": "S's risk minus SB's risk",
+}
+ARMS.update(
+    {
+        **{
+            f"{group}_{label}": f"{law}: {words}"
+            for group, (law, paired) in _SCORE_GROUPS.items()
+            for label, words in _SCORE_LABELS.items()
+            if paired or not label.startswith(("SB_", "paired"))
+        },
+        "paired_wald": "law H: the two-sided 95% Wald test that S's risk minus SB's is 0, n = 2,000",
+    }
+)
+
 #: The labels of ``dose-response`` (X93 S1).  Mirrored from
 #: ``tests.studies.dose_response_properties``, which this module cannot import.
 ARMS.update(
@@ -8033,6 +8099,83 @@ STUDY_ARM_CELLS.update(
             "whether the band excludes 0 at some grid point, at the slope where its power is 0.90",
             "the rejection rate's lower end at least 0.80",
         ),
+    }
+)
+
+
+#: ``score-assessment`` (X97): the TMLE score assessment of ``IdentifiedEffect.assess_score``.
+#: The groups, labels and cells are those of ``tests/studies/score_assessment.py``.
+_SCORE_SLUG = "score-assessment"
+IMPLEMENTATIONS["cleverly-score-assessment-tmle"] = (
+    "`cleverly` score assessment: one pooled TMLE fluctuation of the cross-fitted ATE fit along "
+    "the span of the scores' features, with substitution estimates of each score's risk "
+    "difference, calibration and the paired risk difference, and influence-curve Wald intervals"
+)
+STUDY_SCENARIOS[(_SCORE_SLUG, "paired_2k")] = (
+    "the observational binary law, S = 0.2 + 0.3 W1 against SB = S + 0.15 sin(pi W3), "
+    "difference scale, a spline GLM per arm and a logistic treatment model, n = 2,000"
+)
+STUDY_ESTIMANDS[(_SCORE_SLUG, "risk_difference[S - SB]")] = (
+    "the paired risk difference: S's mean squared error for the CATE minus SB's"
+)
+_SCORE_CALIBRATED = "the influence-curve Wald interval"
+_SCORE_DR_BIAS = "the TMLE under the declared wrong outcome regression and a fitted mechanism"
+_SCORE_UNTARGETED = "the plug-in at the declared wrong outcome regression, with no targeting"
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_SCORE_SLUG, "interval_calibration", f"{group}_{label}", "correctly_specified"): (
+                f"{_SCORE_CALIBRATED}, with a spline GLM per arm (a linear spline on law H) and "
+                "a logistic treatment model, or the known mechanism on the randomized law",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for group, (_, paired) in _SCORE_GROUPS.items()
+            if not group.endswith("dr_4k")
+            for label in _SCORE_LABELS
+            if (paired or not label.startswith(("SB_", "paired")))
+            and (group != "equal_cont_2k" or label == "paired")
+        },
+        **{
+            (_SCORE_SLUG, "interval_calibration", f"{group}_paired", "inflated_se_control"): (
+                "the same paired estimate with the SE sqrt(SE_S^2 + SE_SB^2) of the two "
+                "single-score risk differences, which ignores their covariance",
+                "the SE-ratio interval must lie above the calibration band",
+            )
+            for group in ("paired_2k", "paired_cont_2k")
+        },
+        (_SCORE_SLUG, "interval_calibration", "equal_cont_2k_paired", "term_dropped_control"): (
+            "the same paired estimate with the SE of its influence curve's plug-in part alone, "
+            "without the residual term",
+            "the SE-ratio interval must lie below the calibration band",
+        ),
+        (_SCORE_SLUG, "type_i_error", "paired_wald", "equal_risks"): (
+            "S = 1 + 1.5 W1 against SB = 1 + W1 + 0.5 W3, whose risks are equal",
+            "the 99% upper end of the rejection rate at most 0.10",
+        ),
+        (_SCORE_SLUG, "power", "paired_wald", "c_0.13"): (
+            "S = 1 + W1 + 0.13 W3 against SB = 1 + W1, where the test's power is 0.90",
+            "the rejection rate's lower end at least 0.80",
+        ),
+    }
+)
+CELLS.update(
+    {
+        **{
+            ("bias", f"{group}_{label}"): (
+                f"{_SCORE_GROUPS[group][0]}: {_SCORE_DR_BIAS}, {_SCORE_LABELS[label]}",
+                "the 99% interval of the standardized bias inside +-0.25",
+            )
+            for group in ("paired_dr_4k", "paired_crr_dr_4k")
+            for label in ("paired", "S_risk_difference", "SB_risk_difference")
+        },
+        **{
+            ("bias", f"untargeted_{group[len('paired_') :]}_{label}"): (
+                f"{_SCORE_GROUPS[group][0]}: {_SCORE_UNTARGETED}, {_SCORE_LABELS[label]}",
+                "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+            )
+            for group in ("paired_dr_4k", "paired_crr_dr_4k")
+            for label in ("paired", "S_risk_difference", "SB_risk_difference")
+        },
     }
 )
 

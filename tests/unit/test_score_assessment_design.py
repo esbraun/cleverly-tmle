@@ -413,3 +413,16 @@ def test_the_manifest_will_hash_every_study_module() -> None:
     record = study.STUDY
     required = _required_from(record.runner_module, record.properties_module)
     assert required <= set(record.modules)
+
+
+def test_the_cell_descriptions_name_the_study_groups() -> None:
+    """The evidence descriptions word each group's law; a renamed or added group must reach them."""
+    from tests.studies.evidence.descriptions import _SCORE_GROUPS
+
+    described = {label: paired for label, (_, paired) in _SCORE_GROUPS.items()}
+    declared = {
+        label: group.paired
+        for label, group in study.GROUP_BY_LABEL.items()
+        if label != "power_cont_2k"
+    }
+    assert described == declared

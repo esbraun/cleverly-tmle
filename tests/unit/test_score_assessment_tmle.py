@@ -1042,21 +1042,29 @@ def test_t14_every_group_a_table_names_ran_and_passed(slug: str, group: str) -> 
     from tests.studies.evidence.registry import registered
 
     records = {record.slug: record for record in registered()}
-    pending = slug == "score-assessment" and (
-        slug not in records or not (records[slug].artifacts / "properties.csv").exists()
-    )
-    if pending:
-        pytest.skip(f"{slug} has no committed properties.csv yet (X97 plan, section 7 step 7)")
     assert slug in records, f"{slug} is not a registered study"
     record = records[slug]
-    cells = [
-        cell for names in record.property_cells.values() for cell in names if cell.startswith(group)
-    ]
+    if slug == "score-assessment":
+        from tests.studies import score_assessment as sa
+
+        # A group's cells by the study's own naming: the paired Wald cells carry no group prefix.
+        cells = [
+            cell for names in sa.group_cells(sa.GROUP_BY_LABEL[group]).values() for cell in names
+        ]
+    else:
+        cells = [
+            cell
+            for names in record.property_cells.values()
+            for cell in names
+            if cell.startswith(group)
+        ]
     assert cells, f"{slug} declares no property cell of group {group}"
     table = pd.read_csv(record.artifacts / "properties.csv")
-    rows = table[table["cell"].isin(cells) & (table["role"] == "positive")]
+    rows = table[table["cell"].isin(cells)]
     assert set(rows["cell"]) == set(cells)
+    assert (rows["role"] == "positive").any()
     assert rows["passed"].astype(bool).all(), rows[["cell", "passed"]]
+    assert rows["property_passed"].astype(bool).all(), rows[["cell", "property_passed"]]
 
 
 # ----------------------------------------------------------------- report, frame, repr (T16)
