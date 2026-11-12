@@ -5,7 +5,9 @@ band moved (band-finite-sample plan sections 4.4, 8 and 9).  These tests hold th
 to the tree without fitting, hold the replay rule, the splice, the summary rule and the
 composite gate to synthetic rows, each with a mutation that the gate must refuse, and run the
 post-fit path of five studies with extra columns on their committed rows, which must publish
-the committed bytes.
+the committed bytes.  Once a wave is installed, the committed rows are its composite and the
+post-fit path must reproduce the composite; a study a complete rerun replaced is held to its
+own manifest instead.
 """
 
 from __future__ import annotations
@@ -164,9 +166,19 @@ def test_the_post_fit_path_publishes_the_committed_bytes(
     :data:`LONG_SUMMARIES` hand on the committed one once their spliced rows are shown to be the
     committed rows, value for value, and replay the first :data:`SLICE` band keys of
     each call.
+
+    At the baseline the committed bytes are the plan's ``artifact_sha256``.  After a flip they
+    are the installed composite's, which keeps every row its band does not determine, so the
+    same path must reproduce the composite manifest's hashes.  A complete rerun is not a
+    composite: :func:`test_an_installed_study_is_the_run_its_manifest_records` holds it.
     """
     entry = plan["studies"][slug]
     record = band_rerun.record_for(slug)
+    if band_rerun.installed_complete(record.artifacts) is not None:
+        pytest.skip(f"{slug}: a complete rerun replaced the composite this path writes")
+    expected = json.loads((record.artifacts / "manifest.json").read_bytes())["sha256"]
+    if band_rerun.installed_state(plan)[slug] == "baseline":
+        assert expected == entry["artifact_sha256"]
     committed = read_rows(record.artifacts / "property-replicates.parquet")
     assert set(committed.columns) - set(REPLICATE_COLUMNS)
     index = band_rerun.committed_index(committed)
@@ -193,7 +205,35 @@ def test_the_post_fit_path_publishes_the_committed_bytes(
     )
     assert composite.summary_record["changed_rows"] == []
     hashes = band_rerun.write_outputs(composite, record, tmp_path)
-    assert hashes == entry["artifact_sha256"]
+    assert hashes == expected
+
+
+@pytest.mark.parametrize("slug", PLANNED)
+def test_an_installed_study_is_the_run_its_manifest_records(
+    slug: str, plan: dict[str, Any]
+) -> None:
+    """After a flip, each committed file hashes to its manifest, and the manifest is the one
+    the install wrote: a targeted composite carries the plan's baseline rows outside its bands;
+    a complete rerun's record names the plan, the plan's baseline and the committed manifest."""
+    if band_rerun.installed_state(plan)[slug] == "baseline":
+        pytest.skip(f"{slug} is at its baseline: the plan itself holds it")
+    entry = plan["studies"][slug]
+    directory = ROOT / entry["artifact_directory"]
+    manifest = json.loads((directory / "manifest.json").read_bytes())
+    for name, recorded in manifest["sha256"].items():
+        assert band_rerun.digest((directory / name).read_bytes()) == recorded, name
+    complete = band_rerun.installed_complete(directory)
+    if complete is None:
+        assert manifest["generation_mode"] == band_rerun.MODE
+        rows = read_rows(directory / "property-replicates.parquet")
+        carried = band_rerun.carried_digest(rows, entry["moved_cells"])
+        assert carried == entry["carried_rows_sha256"]
+        assert manifest["composite"]["carried_property_rows_sha256"] == carried
+    else:
+        assert "generation_mode" not in manifest and manifest["slug"] == slug
+        assert complete["route"] == band_rerun.COMPLETE_ROUTE and complete["slug"] == slug
+        assert complete["plan_sha256"] == band_rerun.digest(band_rerun.PLAN_PATH.read_bytes())
+        assert complete["baseline"]["manifest_sha256"] == entry["manifest_sha256"]
 
 
 # ---------------------------------------------------------------------------- synthetic rows
@@ -559,7 +599,6 @@ def test_the_composite_gate_refuses_each_mutation(mutation: str) -> None:
 def test_a_sidecar_with_an_altered_file_is_refused(tmp_path: Path, plan: dict[str, Any]) -> None:
     """Mutation control on the blocked sidecar: its files are held to their recorded hashes."""
     slug, entry = next(iter(plan["studies"].items()))
-    directory = ROOT / entry["artifact_directory"]
     side = tmp_path / band_rerun.SIDECAR
     side.mkdir()
     for name in band_rerun.SIDECAR_FILES:
@@ -573,7 +612,10 @@ def test_a_sidecar_with_an_altered_file_is_refused(tmp_path: Path, plan: dict[st
         "sha256": {name: band_rerun.digest(b"rows\n") for name in band_rerun.SIDECAR_FILES},
     }
     (side / "record.json").write_text(json.dumps(record))
-    (tmp_path / "manifest.json").write_bytes((directory / "manifest.json").read_bytes())
+    # The manifest the plan hashed: a blocked wave leaves it committed, whatever the tree holds.
+    baseline = band_rerun.baseline_manifest_raw(band_rerun.record_for(slug))
+    assert band_rerun.digest(baseline) == entry["manifest_sha256"]
+    (tmp_path / "manifest.json").write_bytes(baseline)
     findings = band_rerun.validate_sidecar(tmp_path, plan)
     assert findings == [f"{slug}: the sidecar sits in another study's directory"]
     (side / band_rerun.SIDECAR_FILES[0]).write_bytes(b"other rows\n")
