@@ -326,18 +326,23 @@ def test_a_band_at_the_pointwise_critical_value_fails_its_cell() -> None:
     assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"])
 
 
-#: The multiplier draws and the level behind each committed band critical value (the default
-#: before band-finite-sample).
-BAND_DRAWS = 1000
+#: The multiplier draws and the level behind each committed band critical value: the default
+#: band, which band-finite-sample Wave 2 regenerated the band rows with (Mammen, logit scale).
+#: The critical value does not depend on the scale, and the Mammen and Rademacher multipliers
+#: share the limiting max-t law.
+BAND_DRAWS = DEFAULT_N_REPLICATES
 BAND_LEVEL = 0.95
 
 #: How far the mean committed critical value of a law may sit from its limiting target.
 #: Each critical value is ``np.quantile`` of ``BAND_DRAWS`` multiplier max-t draws, so its
-#: Monte Carlo standard deviation is ``sqrt(0.95 * 0.05 / 1000) / f`` for the max-t density
-#: ``f`` at the quantile.  Here ``f`` is 0.125 to 0.131, which gives 0.053 to 0.055, and the
-#: standard error of a mean over 2,000 replications is 0.0012 to 0.0013.  The tolerance is
-#: four of those.  A band that ignores the correlation (Sidak or Bonferroni) sits at least
-#: 0.08 above the target, sixteen tolerances away.
+#: Monte Carlo standard deviation is ``sqrt(0.95 * 0.05 / 10000) / f`` for the max-t density
+#: ``f`` at the quantile.  Here ``f`` is 0.125 to 0.131, which gives 0.0166 to 0.0174, and the
+#: standard error of a mean over 2,000 replications is 0.00037 to 0.00039.  The committed means
+#: sit 0.0020 to 0.0028 below the target: each band reads the correlation of the fit's own
+#: influence curves at n, not the limit.  At 1,000 draws the Monte Carlo error hid that offset;
+#: at 10,000 it is five to seven standard errors.  The tolerance covers the offset plus four
+#: standard errors.  A band that ignores the correlation (Sidak or Bonferroni) sits at least
+#: 0.075 above the target, fifteen tolerances away.
 CRITICAL_VALUE_TOLERANCE = 0.005
 
 
@@ -378,12 +383,13 @@ def _quantile(cdf: Any, level: float) -> float:
 
 
 def _band_target(law: laws.Law) -> float:
-    """Where a 1,000-draw ``np.quantile`` of the limiting max-t statistic lands on average.
+    """Where a ``BAND_DRAWS``-draw ``np.quantile`` of the limiting max-t statistic lands on average.
 
     ``np.quantile`` interpolates between order statistics at position ``(B - 1) p``, and
     the ``k``-th of ``B`` uniform order statistics has mean ``k / (B + 1)``.  So the
-    expected probability level is ``((B - 1) p + 1) / (B + 1) = 0.94910``, not 0.95, and
-    the correct band's mean critical value sits 0.007 below the limiting quantile.
+    expected probability level is ``((B - 1) p + 1) / (B + 1) = 0.94991`` at 10,000 draws,
+    not 0.95, and the correct band's mean critical value sits about 0.0007 below the limiting
+    quantile.
     """
     cdf = _max_t_cdf(law)
     level = ((BAND_DRAWS - 1) * BAND_LEVEL + 1) / (BAND_DRAWS + 1)
@@ -416,24 +422,25 @@ def test_the_study_bands_use_the_draws_the_target_assumes() -> None:
         missingness_learner=None,
         simultaneous=True,
     ).estimator_kwargs()
-    # The study's fits draw the default band.  The committed rows were drawn with the
-    # Rademacher multiplier at BAND_DRAWS draws, before band-finite-sample moved the default;
-    # TODO(band-finite-sample Wave 2): set BAND_DRAWS to the default with the regenerated rows,
-    # which also narrows CRITICAL_VALUE_TOLERANCE by sqrt(10).
-    assert configured["n_multiplier"] == DEFAULT_N_REPLICATES
+    # The study's fits draw the default band, which the committed band rows were drawn with.
+    assert configured["n_multiplier"] == BAND_DRAWS
     assert configured["multiplier_kind"] == DEFAULT_KIND
 
 
 @pytest.mark.parametrize("law", LAWS, ids=IDS)
-def test_the_tolerance_is_four_monte_carlo_standard_errors(law: laws.Law) -> None:
-    """The tolerance's justification, recomputed from each law's max-t density."""
+def test_the_tolerance_clears_the_offset_by_four_monte_carlo_standard_errors(
+    law: laws.Law,
+) -> None:
+    """The tolerance's justification, recomputed from each law's max-t density and rows."""
     cdf = _max_t_cdf(law)
     quantile = _quantile(cdf, BAND_LEVEL)
     density = (cdf(quantile + 1e-4) - cdf(quantile - 1e-4)) / 2e-4
-    replicates = len(_band_critical_values(_committed_property_rows(), law.key))
+    critical = _band_critical_values(_committed_property_rows(), law.key)
     spread = math.sqrt(BAND_LEVEL * (1 - BAND_LEVEL) / BAND_DRAWS) / density
-    standard_errors = CRITICAL_VALUE_TOLERANCE / (spread / math.sqrt(replicates))
-    assert 3.5 < standard_errors < 4.5
+    standard_error = spread / math.sqrt(len(critical))
+    offset = float(critical.mean()) - _band_target(law)
+    assert -0.003 < offset < 0.0
+    assert (CRITICAL_VALUE_TOLERANCE - abs(offset)) / standard_error > 4
 
 
 def test_the_band_critical_values_match_the_limiting_max_t_quantile() -> None:
@@ -458,7 +465,7 @@ def test_a_diagonal_covariance_band_fails_the_critical_value_check(rule: str) ->
         rows.loc[band, "std_error"] = float(stats.norm.ppf(1 - tail / 2))
     assert _band_misses(rows) == list(laws.LAWS)
     for key, law in laws.LAWS.items():
-        assert _band_critical_values(rows, key).mean() - _band_target(law) > 0.08
+        assert _band_critical_values(rows, key).mean() - _band_target(law) > 0.075
 
 
 #: The largest ``|cleverly - R| / |targeting move|`` the parity check admits in any
