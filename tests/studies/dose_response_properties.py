@@ -17,9 +17,11 @@ coverage interval must lie inside [0.92, 0.98]; the control's upper endpoint mus
 family's exact efficient-influence correlation off the law
 (:func:`tests.studies.dose_response_law.efficiency_covariance`), so ``p0`` is not a design
 estimate.  The fit seeds the multiplier draws with ``random_state=0``, so every replicate reads
-the same 1,000 multiplier draws, and the cell measures the band's coverage conditional on that
-one draw.  Its critical value is the oracle's to about 0.02 (the pilot's mean is 2.733 against
-the exact 2.751), which moves the joint coverage by about 0.003.
+the same multiplier draws, and the cell measures the band's coverage conditional on that one
+draw: since band-finite-sample, 10,000 Mammen draws on the identity scale (the curve's estimates
+carry no range, so the logit scale maps nothing), and before it 1,000 draws.  At 1,000 draws the
+critical value was the oracle's to about 0.02 (the pilot's mean is 2.733 against the exact
+2.751), which moves the joint coverage by about 0.003.
 
 **Interval calibration** (``interior_h1_a2_5``, R = :data:`CURVE_REPLICATES`).  The pair
 ``h = 1.0, a0 = 2.5`` of each band fit, an interior pair at the curve's curvature, with the two
