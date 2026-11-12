@@ -17,13 +17,13 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
   truths are exact identification-(8) formulas and the fits are saturated.  Diagnose it against
   ``tests/unit/test_separable_effects_law.py``.  A red coverage row of ``cross_fitted`` reads
   as the stopped-short fits only when the coverage among that cell's converged fits, joined
-  from ``convergence.csv``, reaches the coverage band; the pilot's 2.6% of unconverged
-  cross-fitted fits covered at 0.953.  With no defect found it takes the route above with the
-  count stated.
+  from ``convergence.csv``, reaches the coverage band.  With no defect found it takes the
+  route above with the count stated.
 * A red positive ``double_robustness`` cell is a defect suspect: its exact-law limit is the
   truth (``test_a_wrong_factor_with_the_exact_mechanism_has_the_truth_as_limit``,
   ``test_the_wrong_mechanism_cell_lands_near_the_truth``).  The cross-fitted
-  ``mechanism_wrong`` cell stopped short in 3.3% of its pilot fits; its ``nonconverged_fits``
+  ``mechanism_wrong`` cell stopped short in 2.3% of its rerun pilot fits, all
+  ``cell_separated``; its ``nonconverged_fits``
   is reported and decides nothing, and a red verdict there is read against the converged rows
   of ``property-replicates.parquet`` as for ``cross_fitted`` above.
 * The control ``both_hazards_wrong`` that does not clear the margin is read against its
@@ -33,10 +33,20 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
 * A calibration cell red on its SE ratio while its coverage is green and its efficiency ratios
   sit inside the band reads as a finite-sample variance finding at that n: the route above,
   with the measured ratio stated.  Red on coverage, or with an efficiency ratio outside the
-  band, is a variance defect suspect.  ``cross_fitted_sep01_death_t3`` stopped short in 2.2% of
+  band, is a variance defect suspect.  ``cross_fitted_sep01_death_t3`` stopped short in 0.55% of
   its pilot fits and is read against its converged rows in the same way.
 * A derived control (``shrunken_se_control``, ``noise_control``) that does not leave the band is
   an instrument defect, and the run is void.
+* Unconverged fits (declared after the rerun pilot under the stall fix, plan rev 2.1).  The
+  expected share is about 0.6% of cross-fitted fits, every one ``failure="cell_separated"`` at a
+  relative score of at most about 2e-5, read from ``convergence.csv`` and the ``failure`` and
+  ``phase`` columns of ``property-replicates.parquet``.  Each of these is a defect suspect of the
+  targeting, diagnosed before registration: a ``newton_stalled`` fit with a relative score
+  above 1e-6; ``cell_separated`` in more than 1.5% of the primary cross-fitted fits or 5% of a
+  property cell's fits; and any in-sample fit whose ``phase`` is not ``walk``.  After the run
+  every ``cell_separated`` primary fit is refitted from its seed, and one whose logits at the
+  clip sit on rows that hold an event of that cause (lower clip) or a row without one (upper
+  clip), which separation does not explain, is a defect suspect too.  ``FAILURE_BOUND`` counts fits that raise, not fits that stop short.
 * A replication that raises is never redrawn.  The pilot lost no fit at the declared size, so
   any recorded failure is a defect suspect.
 """

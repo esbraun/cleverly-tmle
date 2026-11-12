@@ -16,7 +16,7 @@ scenario               law, engine and estimands
                        against ``a0``
 ``cross_fitted``       the same law, size and estimands with two outer folds, so the
                        targeting starts away from the truth and the walk hands over to
-                       Newton steps
+                       the iterative TMLE
 =====================  ====================================================================
 
 Every nuisance is a saturated cell mean (``CellMeans``, ``CellProbabilities``), the
@@ -33,18 +33,22 @@ properties module on the engine with the exact mechanism.
 ``t = 3``.  :data:`PRIMARY_REPLICATES` is the shared rule
 :func:`~tests.studies.repeated_sizing.primary_replicates` on the pilot in
 ``tests/studies/separable_effects_pilot.py``, read by the design test.  The cross-fitted
-scenario's lowest pilot coverage, 0.924, sets it.
+scenario's lowest pilot coverage, 0.923, sets it.  The three cross-fitted pilot labels were
+rerun under the stall fix of the targeting (plan ``X91-D-stall-plan.md`` rev 2.1), which moves
+every cross-fitted fit; the sizes read that rerun.
 
-**Unconverged fits** (declared after the pilot, before any declared draw).  A fit whose
+**Unconverged fits** (declared after the rerun pilot, before any declared draw).  A fit whose
 targeting stops short of ``tol`` is kept: the shipped fit warns and reports the state with the
-smallest relative score, and the study measures what it returns.  The pilot found none in sample
-and 2.6% of cross-fitted fits, at relative scores of about 1e-3, with coverage 0.953 among them.
-They are the draws where a fold's out-of-fold start leaves a score along nearly redundant
-target directions (12 targets per factor and level against 6 saturated cells), so no nearby
-state the solvers tried reaches ``tol``.  We read the residual as a product of two fold
-differences, a second-order term; the pilot does not establish that.  ``convergence.csv``
-records every primary fit's convergence, and the property summary reports the unconverged
-fits of each cell; neither decides a verdict.  A
+smallest relative score, and the study measures what it returns.  Every in-sample pilot fit
+converged in the walk, which the fix leaves unchanged, so those labels were not rerun.  In the
+rerun, 0.6% of cross-fitted fits (50 of 9,000 across the
+primary and calibration labels) stopped short, every one ``failure="cell_separated"``: a
+fold-cell whose own rows hold no event of a cause, so its score is solved only at a hazard of
+zero, beyond the bound set by ``alpha``.  Their relative scores are at most about 2e-5.  The
+cross-fitted ``mechanism_wrong`` robustness label stopped short in 2.3% of its fits, also all
+``cell_separated``.  ``convergence.csv`` records every primary fit's convergence, failure and
+targeting phase, and the property summary reports the unconverged fits of each cell; neither
+decides a verdict.  ``FAILURE_BOUND`` counts fits that raise, not fits that stop short.  A
 dropped horizon would raise ``KeyError`` and stop the run; on this law at n = 16,000 every
 horizon keeps units at risk.
 
@@ -70,7 +74,7 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 #: :func:`~tests.studies.repeated_sizing.primary_replicates` on the pilot (design test).
-PRIMARY_REPLICATES = 8_400
+PRIMARY_REPLICATES = 9_200
 PRIMARY_N = 16_000
 #: The declared share of replicates one cell may lose to recordable fitting failures.
 FAILURE_BOUND = 0.01

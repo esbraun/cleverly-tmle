@@ -270,8 +270,8 @@ ROBUSTNESS_PILOTS = {
 class TestTheSizes:
     """The declared sizes read the pilot by the shared rules.
 
-    The pilot's unconverged fits (2.6% of the cross-fitted draws) are read as drawn, as the
-    declared run keeps them.
+    The pilot's unconverged fits (0.6% of the rerun cross-fitted draws, all
+    ``cell_separated``) are read as drawn, as the declared run keeps them.
     """
 
     def test_the_pilot_lost_no_fit(self) -> None:
