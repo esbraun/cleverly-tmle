@@ -1,0 +1,23 @@
+=== composite-missing-drtmle declared run
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\.venv\Scripts\python.exe' tests/canonical/drtmle_composite/regenerate.py --output C:/Users/erics/band-wave/complete/composite-missing-drtmle --jobs 16
+commit: 91a56e7bfa463e4bfa56bbbadc081406cef9584b; upstream 91a56e7bfa463e4bfa56bbbadc081406cef9584b
+clean tree: True
+cleverly 0.2.3 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\src\cleverly\__init__.py
+python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 112, sha256 abd701a921e373fce350777589111aafe00d4dd021197fb228e5726e03d9d302
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-11-12T01:21:38+00:00
+note: resumed from /cache/composite-missing-drtmle/b4a4ba108ff8/run_study__reference-results, reused 0 groups
+finished: 2026-11-12T02:06:34+00:00
+wall seconds: 2696.4
+exit code: 0
+sha256 equivalence.csv: 9be4cd33a6c66a06136eaf3042948f4ca230ec079631d3081363e32003386ae7
+sha256 fit-exits.csv: 1d5a2529b965a610dad0fca58e5a1589df2da8549e9f1f23d6d5d3ffd8102ae5
+sha256 manifest.json: 499ed3b78c9a762d703c0a4966e9840029b4a59a6dd62ac7eb8931aacb8c0004
+sha256 performance-tests.csv: 6c683138a759d2d98305e02ce80de737d2f38a3011bacaf76dd48b0fcd2f29dd
+sha256 properties.csv: 4245aadd56da5bac6d720864d438f4637d549b21123121ef2e269f6e38e11dff
+sha256 property-replicates.parquet: 793f3a6a07943a07ee8597aede51268428e99a83de1f24d402f4935c54c093dc
+sha256 replicates.parquet: b481544e00514797ba1f44c4320bd28af4284b46280fa6090ad4b8bbb9816f85
+sha256 summary.csv: 363cc53e2490837d7c37f849947d6deec2a0c40a159a49913c85d8115b5b78e1
+
