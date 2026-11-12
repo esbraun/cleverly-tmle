@@ -2,9 +2,10 @@
 
 It draws no declared sample: every draw takes ``stream_seed(STUDY, "pilot", label, r)``, a
 stream no declared cell reads.  It writes one row per fit and estimand to
-``separable_effects_pilot.csv.gz`` beside this module, with the fit's refusal when it had one.  Every row also carries the targeting's convergence
-(``converged``, ``failure``, ``relative_score``), so the pilot measures how often a fit stops
-short of ``tol`` as well as the spread.
+``separable_effects_pilot.csv.gz`` beside this module, with the fit's refusal when it had one.
+Every row also carries the targeting's convergence (``converged``, ``failure``,
+``relative_score``, and the ``phase`` that reached the reported state), so the pilot measures
+how often a fit stops short of ``tol`` as well as the spread.
 Run it as ``python -m tests.studies.separable_effects_pilot --jobs N``; ``--labels`` picks labels,
 and ``--checkpoint PATH`` (outside the repository) lets an interrupted run resume.
 
@@ -150,7 +151,13 @@ def run(
             rows = pd.DataFrame([row for rows in outcomes for row in rows], columns=COLUMNS)
             rows.to_csv(checkpoint, mode="a", header=not checkpoint.exists(), index=False)
         frame = pd.read_csv(checkpoint, keep_default_na=False, na_values=[""])
-        frame = frame.loc[frame["label"].isin(chosen)]
+        wanted = set(jobs)
+        frame = frame.loc[
+            [
+                (label, int(r)) in wanted
+                for label, r in zip(frame["label"], frame["replicate"], strict=True)
+            ]
+        ]
     if draws is not None:
         return frame
     if OUTPUT.exists():

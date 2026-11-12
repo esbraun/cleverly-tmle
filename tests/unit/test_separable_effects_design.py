@@ -220,8 +220,9 @@ class TestTheDeclaredSuspects:
         assert study.convergence_suspects(fits, dict.fromkeys(labels, True)) == []
 
     def test_the_refit_check_counts_clipped_rows_that_pull_inward(self) -> None:
-        """A targeted cell held at the lower clip over rows with deaths is counted; the same
-        clip at a level no target reads is not, since that factor enters no score."""
+        """A targeted cell held at the lower clip over rows with deaths is counted, and so is
+        one held at the upper clip over rows without; the same clip at a level no target reads
+        is not, since that factor enters no score."""
         from cleverly.longitudinal.separable import SeparableState
         from tests.studies.separable_effects_separation import inward_rows
 
@@ -237,6 +238,11 @@ class TestTheDeclaredSuspects:
         target = [properties.TARGET]
         assert inward_rows(SeparableState(targeted, start.beta_y), inputs, target) == deaths
         assert inward_rows(SeparableState(untargeted, start.beta_y), inputs, target) == 0
+        survivors = int(np.sum(rows & inputs.rows_d()[:, 2] & (inputs.event_d[:, 2] == 0.0)))
+        assert survivors > 0
+        upper = start.beta_d.copy()
+        upper[:, 2, 0] = inputs.bounds[1]
+        assert inward_rows(SeparableState(upper, start.beta_y), inputs, target) == survivors
 
     def test_the_committed_run_holds_no_suspect(self) -> None:
         """The declared run's own artifacts pass every declared reading."""

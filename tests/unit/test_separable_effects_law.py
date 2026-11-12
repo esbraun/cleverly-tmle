@@ -784,12 +784,10 @@ def test_a_solution_outside_the_bound_reads_cell_separated() -> None:
     np.testing.assert_allclose(targeted.beta_d[cell, 2, 0], emptied.bounds[0], rtol=1e-12)
 
 
-@pytest.mark.parametrize(("offset", "separated"), [(0.5, True), (2.0, False)])
-def test_rows_heading_for_the_clip_read_as_separated_only_within_the_margin(
-    offset: float, separated: bool
-) -> None:
-    """Rows with no death whose competing logit lies 0.5 above the lower clip carry the score
-    and read as separated; the same rows 2 above the clip do not (the margin is 1)."""
+@pytest.mark.parametrize(("offset", "separated"), [(0.0, True), (0.5, False)])
+def test_rows_read_as_separated_only_on_the_clip(offset: float, separated: bool) -> None:
+    """Rows with no death whose competing logit sits on the lower clip carry the score and read
+    as separated; the same rows half a logit above the clip do not."""
     law, inputs, exact = _engine()
     w = law.frame()["W"].to_numpy(dtype=int)
     cell = (w == 0) & (inputs.observed == 0)
@@ -801,6 +799,73 @@ def test_rows_heading_for_the_clip_read_as_separated_only_within_the_margin(
     state = SeparableState(beta_d, exact.beta_y)
     targets = [SeparableTarget("a0", (0, 0), "competing", "death", 3)]
     assert separable_module._separated(state, emptied, targets, np.ones(2)) is separated
+
+
+def test_a_rare_cell_with_an_event_near_the_clip_is_not_separated() -> None:
+    """One death in a cell of W = 0 units at level 0 puts the cell's root at a hazard of one in
+    its size less one, and alpha sets the clip half a logit below it.  The fit reaches the root
+    inside the clip.  The iterative TMLE leaves a residual of rounding size there, and the Newton
+    steps solve it.  A rule that read the non-events near the clip alone would call the state
+    separated and skip them."""
+    law, inputs, exact = _engine()
+    w = law.frame()["W"].to_numpy(dtype=int)
+    cell = np.flatnonzero((w == 0) & (inputs.observed == 0) & inputs.at_risk[:, 2])
+    event_d = inputs.event_d.copy()
+    event_y = inputs.event_y.copy()
+    event_d[cell, 2] = 0.0
+    event_d[cell[0], 2] = 1.0
+    event_y[cell[0], 2] = 0.0
+    root = np.log(1.0 / (len(cell) - 1.0))
+    rare = replace(
+        inputs, event_d=event_d, event_y=event_y, alpha=float(1.0 / (1.0 + np.exp(root - 0.5)))
+    )
+    targets = _saturating_targets()
+    solved, record = walk_separable(exact, rare, targets, step_size=0.05, tol=1e-13, warn=False)
+    assert record.converged
+    np.testing.assert_allclose(solved.beta_d[cell, 2, 0], root, rtol=1e-8)
+    assert not separable_module._separated(solved, rare, targets, record.sigma)
+
+
+def test_a_cell_whose_rows_all_die_reads_cell_separated_at_the_upper_clip() -> None:
+    """When every W = 0 unit at level 0 at risk at the last node dies there, the cell solves only
+    at a hazard of one.  Its logit stops at the upper clip and the fit says why."""
+    law, inputs, exact = _engine()
+    w = law.frame()["W"].to_numpy(dtype=int)
+    cell = (w == 0) & (inputs.observed == 0) & inputs.at_risk[:, 2]
+    event_d = inputs.event_d.copy()
+    event_y = inputs.event_y.copy()
+    event_d[cell, 2] = 1.0
+    event_y[cell, 2] = 0.0
+    filled = replace(inputs, event_d=event_d, event_y=event_y)
+    targeted, record = walk_separable(
+        exact, filled, _saturating_targets(), step_size=0.05, tol=1e-12, warn=False
+    )
+    assert record.failure == "cell_separated"
+    np.testing.assert_allclose(targeted.beta_d[cell, 2, 0], filled.bounds[1], rtol=1e-12)
+
+
+def test_a_separated_fit_skips_the_jacobian_phase(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Once the iterative TMLE stops on a separated state, the Newton steps cannot reach a root
+    the clip excludes, so the walk does not take them."""
+    calls: list[int] = []
+
+    def counted(*args: Any) -> Any:
+        calls.append(1)
+        raise AssertionError("the Newton steps ran on a separated state")
+
+    monkeypatch.setattr(separable_module, "_jacobian_direction", counted)
+    law, inputs, exact = _engine()
+    w = law.frame()["W"].to_numpy(dtype=int)
+    cell = (w == 0) & (inputs.observed == 0)
+    event_d = inputs.event_d.copy()
+    event_d[cell, 2] = 0.0
+    emptied = replace(inputs, event_d=event_d)
+    _, record = walk_separable(
+        exact, emptied, _saturating_targets(), step_size=0.05, tol=1e-12, warn=False
+    )
+    assert record.failure == "cell_separated"
+    assert record.phase == "iterative"
+    assert not calls
 
 
 def test_the_jacobian_phase_stops_within_its_cap(monkeypatch: pytest.MonkeyPatch) -> None:

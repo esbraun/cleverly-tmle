@@ -453,7 +453,7 @@ without a 10% fall in the relative score), and the fit reports the state with th
 relative score; `HazardFit.phase` names the phase that reached it. Every phase moves each factor
 only along its own covariates at its own level, so the robustness below holds whichever phase
 converges. The reported state is a finite number of finite-dimensional fluctuations of the
-initial fit, so the cross-fitted argument of Zheng and van der Laan (2011) applies to it; that
+initial fit, so the structure of the cross-fitted argument of Zheng and van der Laan (2011) applies to it; that
 needs the caps.
 
 The static arms of the same fit go through the same walk as separable interventions with equal levels, so one pair of
@@ -461,19 +461,19 @@ factors carries every reported curve. At the truth this is the shipped static es
 From a fitted start it is a different TMLE of the same static parameter. The initial hazards are
 fitted in the declared order.
 
-With cross-fitted initial hazards, the scores sit far from an out-of-fold start. When the
-targets that move a factor at a level span most of its cells, as the 12 targets of the
-`separable-effects` study span 10 or 11 of the 12 (fold, $W$, node) cells of each factor and
-level, solving the scores puts each spanned cell at its own fold's empirical hazard, up to two
-logits from the start. Along the one or two directions per factor that the targets leave free,
-the reported state depends on the solver's path: on 60 draws of that study, two solvers that
-both reach `tol` gave estimates up to 0.13 standard errors apart. When the rows of a cell hold no
-event of a cause, that cell's score is solved only at a hazard of zero, beyond the bound set by
-`alpha`. The fit then stops at the bound, warns, and reports `failure="cell_separated"`, as
-separation stops a logistic regression. In the `separable-effects` pilot at n = 16,000 this
-happened in 0.6% of 9,000 two-fold primary and calibration fits and in 7 of 300 fits with a
-wrong treatment model, at relative scores of at most $2.3 \times 10^{-5}$, and never in sample;
-no other two-fold fit stopped short.
+With cross-fitted initial hazards, the root lies far from an out-of-fold start. In the
+`separable-effects` study the 12 targets that move a factor at a level have rank 10 or 11 among
+its 12 (fold, $W$, node) cells, so solving their scores pulls those cells toward their own fold's
+empirical hazard, by up to two logits. Along the one or two directions per factor that the
+targets leave free, the reported state depends on the solver's path: on 60 draws of that study,
+a prototype of two solvers that both reach `tol` gave estimates up to 0.13 standard errors
+apart. When the rows of a cell hold no event of a cause (or only such events), that cell's score
+is solved only at a hazard of zero (or one), outside the bound set by `alpha`. The fit then
+stops with the cell on the bound, warns, and reports `failure="cell_separated"`, as separation
+stops a logistic regression. In the `separable-effects` pilot at n = 16,000 this happened in
+0.6% of 9,000 two-fold primary and calibration fits and in 7 of 300 fits with a wrong treatment
+model, at relative scores of at most $2.3 \times 10^{-5}$, and never in sample; no other
+two-fold fit stopped short.
 
 **Robustness.** With the treatment and censoring mechanisms right, the estimate is consistent when
 $\lambda_D$ is right at both levels or $h_Y$ is right at both levels, the counterparts of

@@ -743,7 +743,7 @@ class HazardFit:
     best_iterate: int | None = None
     bound_excludes_data: tuple[tuple[int, int, int], ...] = ()
     share_clipped: tuple[tuple[int, int, float], ...] = ()
-    phase: str | None = None
+    phase: Literal["walk", "iterative", "jacobian"] | None = None
 
     @property
     def relative_score(self) -> float:

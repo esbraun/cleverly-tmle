@@ -1,10 +1,11 @@
 """Refit every fit that read ``cell_separated`` and check that separation explains it.
 
-A fit reads ``cell_separated`` when rows heading for the clip carry most of its remaining score.
-Separation explains that only when no clipped logit sits on a row that pulls it inward: an event
-of that cause at the lower clip, or a row without one at the upper clip.  Such a row is the
-defect fixed in the iterative TMLE's inner fit (plan ``X91-D-stall-plan.md`` rev 2.1), and the
-declared readings of ``tests/canonical/separable_effects/regenerate.py`` name it a defect suspect.
+A fit reads ``cell_separated`` when rows the clip holds carry most of its remaining score, read
+as the net residual of their cells.  Separation explains that only when no clipped logit sits on
+a row that pulls it inward: an event of that cause at the lower clip, or a row without one at the
+upper clip.  Such a row is the defect fixed in the iterative TMLE's inner fit (plan
+``X91-D-stall-plan.md`` rev 2.1), and the declared readings of
+``tests/canonical/separable_effects/regenerate.py`` name it a defect suspect.
 
 Run it as ``python -m tests.studies.separable_effects_separation pilot --jobs N`` on the rerun
 pilot, or ``python -m tests.studies.separable_effects_separation run DIR --jobs N`` on a declared

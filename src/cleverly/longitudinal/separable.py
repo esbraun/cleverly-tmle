@@ -70,7 +70,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from scipy.special import expit, log_expit, xlogy
@@ -120,13 +120,16 @@ _ITERATIVE_STEPS = 30
 _JACOBIAN_STEPS = 20
 #: The central-difference length of the full score Jacobian, per unit coefficient.
 _JACOBIAN_STEP = 1e-6
-#: The logit distance from the clip within which a row counts as heading for it.
-_BOUND_MARGIN = 1.0
-#: The share of the score norm that rows heading for the clip must carry for a stopped fit
-#: to read ``cell_separated``.
+#: The logit distance from the clip within which a row counts as at the clip: rounding only,
+#: because the state's clip sets a pinned logit to the bound itself.
+_AT_CLIP = 1e-9
+#: The share of the score norm that rows at the clip must carry for a stopped fit to read
+#: ``cell_separated``.
 _BOUND_SHARE = 0.5
-#: Newton-Raphson iterations of one factor's fluctuation fit at frozen covariates.
+#: Newton-Raphson iterations of one factor's fluctuation fit at frozen covariates, and the
+#: largest logit move of a full step that ends the fit.
 _FIT_ITERATIONS = 100
+_FIT_CHANGE = 1e-9
 
 
 @dataclass(frozen=True)
@@ -776,10 +779,7 @@ def _factor_fit(
         curvature = (weight * p * (1.0 - p)).reshape(-1)
         information = (flat * curvature) @ flat.T
         step = np.linalg.lstsq(information, gradient, rcond=1e-13)[0]
-        # The Newton decrement is the loss decrease the step predicts.  Near the maximum it
-        # falls below the rounding of the loss, so it, not the loss, decides convergence, and
-        # the halving test allows that rounding.
-        if float(gradient @ step) <= 1e-30 * max(1.0, abs(current)):
+        if float(gradient @ step) <= 0.0:
             break
         slack = 1e-12 * max(1.0, abs(current))
         length = 1.0
@@ -791,6 +791,12 @@ def _factor_fit(
             break
         coefficients = coefficients + length * step
         current = trial
+        # Newton's steps shrink quadratically, so once a full step moves no logit by more than
+        # _FIT_CHANGE the next would move them by about its square: the fit has converged,
+        # whatever the scale of the weights.  The halving test allows the rounding of the loss.
+        moved = np.abs(np.tensordot(step, design, axes=1))[used]
+        if length == 1.0 and (moved.size == 0 or float(moved.max()) <= _FIT_CHANGE):
+            break
     delta = np.zeros_like(beta)
     for m, target in enumerate(targets):
         delta[:, :, target.levels[factor]] += coefficients[m] * covariates[m][factor]
@@ -861,28 +867,31 @@ def _separated(
     targets: Sequence[SeparableTarget],
     sigma: FloatArray,
 ) -> bool:
-    """Whether rows heading for the clip carry most of the remaining score.
+    """Whether rows the clip holds carry most of the remaining score.
 
-    A row heads for the clip when its factor logit at its observed level lies within
-    :data:`_BOUND_MARGIN` of the lower clip with no event, or of the upper clip with an event:
-    its residual pushes the logit further out, and the score it leaves is solved only at a
-    hazard of zero or one.  The fit reads ``cell_separated`` when those rows' part of the
-    score has at least :data:`_BOUND_SHARE` of the whole score's :math:`\\Sigma`-norm.  The
-    solver offsets that part by moving other cells off their own solution, so the rest of the
-    score can be as large as the whole and does not decide.
+    The rows whose factor logit at their observed level sits on either clip are read together,
+    events and non-events, so their part of the score is the net residual of the cells the clip
+    holds.  The fluctuation fit of the iterative TMLE reads the logits without the clip, so it
+    takes a cell whose root lies inside the clip off the clip, and leaves on it only a cell whose
+    rows hold no event (or only events), whose root lies at a hazard of zero (or one).  A cell
+    near the clip but inside it is not counted: at its root its net residual vanishes, and only
+    rounding is left.  The fit reads ``cell_separated`` when that part has at least
+    :data:`_BOUND_SHARE` of the whole score's :math:`\\Sigma`-norm.  The solver offsets that
+    part by moving other cells off their own solution, so the rest of the score can be as large
+    as the whole and does not decide.
     """
     low, high = inputs.bounds
     rows, observed = inputs.rows, inputs.observed
 
-    def heading(beta: FloatArray, events: FloatArray, factor_rows: BoolArray) -> BoolArray:
+    def near(beta: FloatArray, factor_rows: BoolArray) -> BoolArray:
         logit_at = beta[rows, :, observed]
         finite = np.isfinite(logit_at) & factor_rows
-        lower = finite & (logit_at <= low + _BOUND_MARGIN) & (events == 0.0)
-        upper = finite & (logit_at >= high - _BOUND_MARGIN) & (events == 1.0)
-        return np.asarray(lower | upper, dtype=bool)
+        lower = logit_at <= low + _AT_CLIP
+        upper = logit_at >= high - _AT_CLIP
+        return np.asarray(finite & (lower | upper), dtype=bool)
 
-    near_d = heading(state.beta_d, inputs.event_d, inputs.rows_d())
-    near_y = heading(state.beta_y, inputs.event_y, inputs.rows_y())
+    near_d = near(state.beta_d, inputs.rows_d())
+    near_y = near(state.beta_y, inputs.rows_y())
     if not (near_d.any() or near_y.any()):
         return False
     score, _ = scores(state, inputs, targets)
@@ -932,7 +941,7 @@ def walk_separable(
     tol : float
         Relative-score tolerance.
     max_steps : int
-        The step cap.
+        The cap on steps taken, counting the steps of an abandoned fallback tail.
     warn : bool
         Whether a walk that stops short raises a ``ConvergenceWarning``.
 
@@ -981,14 +990,15 @@ def walk_separable(
     # without a new best.  The record describes the reported (best) state, so the steps of an
     # abandoned tail are dropped.
     best = (trace[-1], state, score, scale, norm)
-    best_steps = steps
-    phase = "walk"
+    best_steps = spent = steps
+    phase: Literal["walk", "iterative", "jacobian"] = "walk"
     fallback = False
-    for name, direction, cap in (
+    fallbacks: tuple[tuple[Literal["iterative", "jacobian"], Any, int], ...] = (
         ("iterative", _iterative_direction, _ITERATIVE_STEPS),
         ("jacobian", _jacobian_direction, _JACOBIAN_STEPS),
-    ):
-        if best[0] <= tol or steps >= max_steps or best[4] <= 0.0:
+    )
+    for name, direction, cap in fallbacks:
+        if best[0] <= tol or spent >= max_steps or best[4] <= 0.0:
             break
         if fallback and _separated(best[1], inputs, targets, sigma):
             break
@@ -997,12 +1007,13 @@ def walk_separable(
         steps = best_steps
         del trace[steps + 1 :], norms[steps + 1 :], losses[steps + 1 :]
         mark, since, taken = best[0], 0, 0
-        while best[0] > tol and steps < max_steps and since < _PATIENCE and taken < cap:
+        while best[0] > tol and spent < max_steps and since < _PATIENCE and taken < cap:
             delta_d, delta_y = direction(state, inputs, targets, score)
             state = state.moved(delta_d, delta_y, bounds)
             score, scale = scores(state, inputs, targets)
             norm = float(np.sqrt(np.sum(score**2 / sigma)))
             steps += 1
+            spent += 1
             taken += 1
             trace.append(relative_score(score, scale))
             norms.append(norm)
@@ -1020,7 +1031,7 @@ def walk_separable(
     converged = bool(relative <= tol)
     failure: TargetingFailure | None = None
     if not converged:
-        if steps >= max_steps:
+        if spent >= max_steps:
             failure = "max_iter_reached"
         elif not fallback:
             failure = "line_search_exhausted"
@@ -1029,11 +1040,17 @@ def walk_separable(
         else:
             failure = "newton_stalled"
     if failure is not None and warn:
-        advice = (
-            "A hazard the targets move can solve its score only at zero or one, as when one "
-            "fold's cell holds no event of a cause; the bound set by alpha stops it"
-            if failure == "cell_separated"
-            else "Try a smaller step_size, or check result.diagnostics for a positivity problem"
+        advice = {
+            "cell_separated": (
+                "A hazard the targets move can solve its score only at zero or one, as when "
+                "one fold's cell holds no event of a cause; the bound set by alpha stops it"
+            ),
+            "newton_stalled": (
+                "The iterative TMLE and the Newton steps stopped short of the root; check "
+                "result.diagnostics for a positivity problem"
+            ),
+        }.get(
+            failure, "Try a smaller step_size, or check result.diagnostics for a positivity problem"
         )
         _warn(
             f"one-step separable targeting stopped after {steps} step(s) with a relative score "
