@@ -1,0 +1,30 @@
+{
+  "band_fits": 2000,
+  "cells": {
+    "simultaneous_coverage/primary__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 1.0,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 88.2,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 0.21424332375000002
+    }
+  },
+  "cpu_seconds": 4.284866475,
+  "estimated_cpu_hours": 0.11902406875000002,
+  "keys": 20,
+  "slug": "stochastic-categorical-ltmle",
+  "strata": 1,
+  "stream": "band-finite-sample/wave2-smoke",
+  "wall_seconds": 1.1501386939999065
+}

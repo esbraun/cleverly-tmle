@@ -1,0 +1,36 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "9af8be97a7e6114237b6bf5363202e03dca7796154c854e822d0fcf2a19a47b0",
+    "manifest.json": "2eb21b6768194591ad1344fc6115d8ff5801e6c74072de18da45865a973b9ad2",
+    "performance-tests.csv": "e5067742310908a5275a55f9dcc859c42ff40de715e2ac9a0fc38928cba5d544",
+    "properties.csv": "5dfae78b81e36074a8840449c2c0c25d22ea519b8514325fb478ab40ee9d1ed5",
+    "property-replicates.parquet": "8ca5d10a0731f21929d822886c7d53173d3034f1aca41e484d0350d73b211e0a",
+    "replicates.parquet": "b20f25c26f86fdc54a66b52684925d1da5d0adbe69440709d7789b37350ecd21",
+    "summary.csv": "29e18c5c832ac0cee484142f123690dd9e57dd0e112b0c828c791a638f6ab475"
+  },
+  "band_fits": 2000,
+  "cache": "/root/band-wave-c2/cache/stochastic-categorical-ltmle/91a56e7bfa463e4bfa56bbbadc081406cef9584b/30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "stochastic-categorical-ltmle",
+    "--jobs",
+    "4",
+    "--cache",
+    "/root/band-wave-c2/cache",
+    "--output",
+    "/root/band-wave-c2/out"
+  ],
+  "fit_seconds": 105.69211351500053,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "stochastic-categorical-ltmle",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "manifest.json": "37bd5671c1db8a5fc975258bc34f2cea27631100fc55bc835c932fff08bcc623",
+    "performance-tests.csv": "a84ecf51fd27241c0df204a52588af391e1c3ddb88500a693a75286711f31c17",
+    "properties.csv": "af9bcb20d2f77816a7460c0e21b623a5a3ca44e7090f3be6190902f37ac75e2a",
+    "property-replicates.parquet": "821234b083d7671d6f93a2bf3ee5daa15b3626a1a237fdd4465ac2660afbabbf",
+    "replicates.parquet": "acdc291749393c453caaff8c58b4025054d9a76da830b337a376f587238263f6",
+    "summary.csv": "cb042fd9fed8d03e2bb07799e61a3abe1aa6363df8ccfcd5aab32b0139a7ecab"
+  },
+  "band_fits": 2000,
+  "cache": "/root/band-wave-c2/cache/longitudinal-incremental/91a56e7bfa463e4bfa56bbbadc081406cef9584b/30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "longitudinal-incremental",
+    "--jobs",
+    "4",
+    "--cache",
+    "/root/band-wave-c2/cache",
+    "--output",
+    "/root/band-wave-c2/out"
+  ],
+  "fit_seconds": 1485.18936407,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "longitudinal-incremental",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}

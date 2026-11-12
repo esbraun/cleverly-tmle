@@ -1,0 +1,30 @@
+{
+  "band_fits": 3000,
+  "cells": {
+    "simultaneous_coverage/survival_grid__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.95,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 5759.9,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 23.016694711100005
+    }
+  },
+  "cpu_seconds": 460.333894222,
+  "estimated_cpu_hours": 19.180578925916667,
+  "keys": 20,
+  "slug": "longitudinal-incremental-dropout",
+  "strata": 1,
+  "stream": "band-finite-sample/wave2-smoke",
+  "wall_seconds": 116.54349594500013
+}
