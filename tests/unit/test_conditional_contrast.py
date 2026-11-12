@@ -748,6 +748,157 @@ class TestScoreRefusalsBeforeAnyLearner:
             )
         assert NeverFit.calls == 0
 
+    def compare_effect(self) -> Any:
+        """The three-cell study with a second score and a copy of the first."""
+        frame = law.frame()
+        frame["S"] = SCORE[frame["W"].astype(int)]
+        frame["SB"] = np.array([1.0, 0.0, 1.0])[frame["W"].astype(int)]
+        frame["S_copy"] = frame["S"]
+        study = CausalStudy(
+            frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+        )
+        return study.identify(linear_contrast())
+
+    def compare(self, compare: Any = "SB", **settings: Any) -> Any:
+        return self.compare_effect().assess_score(
+            "S",
+            computed_from=["W"],
+            score_kind="external",
+            compare=compare,
+            compare_computed_from=["W"],
+            **settings,
+            **never(),
+        )
+
+    def test_x97_compare_names_the_score_column(self) -> None:
+        with pytest.raises(DataError, match=r"^compare= names the same column as the score$"):
+            self.compare("S")
+        assert NeverFit.calls == 0
+
+    def test_x97_compare_holds_the_same_values(self) -> None:
+        text = (
+            "the score column 'S' and the compare= column 'S_copy' hold the same value on "
+            "every row, so their risk difference is 0 with no spread"
+        )
+        with pytest.raises(DataError) as caught:
+            self.compare("S_copy")
+        assert str(caught.value) == text
+        assert NeverFit.calls == 0
+
+    def test_x97_the_compare_column_passes_the_r13_checks(self) -> None:
+        with pytest.raises(CapabilityError, match="known function of adjustment columns"):
+            self.compare_effect().assess_score(
+                "S", computed_from=["W"], score_kind="external", compare="SB", **never()
+            )
+        assert NeverFit.calls == 0
+        frame = law.frame()
+        frame["S"] = SCORE[frame["W"].astype(int)]
+        frame["effect_curve:cate"] = frame["S"] + 1.0
+        study = CausalStudy(
+            frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+        )
+        with pytest.raises(CapabilityError, match="fitted on the rows it would be assessed on"):
+            study.identify(linear_contrast()).assess_score(
+                "S",
+                computed_from=["W"],
+                score_kind="external",
+                compare="effect_curve:cate",
+                compare_computed_from=["W"],
+                **never(),
+            )
+        assert NeverFit.calls == 0
+
+    def test_x97_several_compare_columns(self) -> None:
+        from cleverly.study import SCORE_MANY_REFUSAL
+
+        with pytest.raises(CapabilityError) as caught:
+            self.compare(["SB", "M"])
+        record = caught.value.refusal
+        assert record == SCORE_MANY_REFUSAL
+        assert record.reason is RefusalReason.IMPLEMENTATION_GAP
+        assert record.roadmap is None
+        assert record.condition == (
+            "assess_score compares one score with one other; a simultaneous comparison of "
+            "three or more scores, with a joint interval over every pair, is not built."
+        )
+        assert record.alternative == (
+            "Pass one column as compare=. Intervals from separate calls do not hold jointly."
+        )
+        assert NeverFit.calls == 0
+
+    @pytest.mark.parametrize(
+        ("settings", "reason", "condition", "alternative"),
+        [
+            (
+                {"repeats": 2},
+                RefusalReason.INFERENCE_GAP,
+                "The assessment targets one cross-fitting split's outcome regression; a median "
+                "over repeated splits of jointly targeted risks has no reviewed joint covariance, "
+                "and no study measures it.",
+                "Fit with repeats=1.",
+            ),
+            (
+                {"n_bootstrap": 20},
+                RefusalReason.IMPLEMENTATION_GAP,
+                "The refit bootstrap of the score assessment is not built; its intervals come "
+                "from the influence curves.",
+                "Fit with n_bootstrap=0; the Wald intervals are reported.",
+            ),
+            (
+                {"target_weights": True},
+                RefusalReason.IMPLEMENTATION_GAP,
+                "The assessment fluctuates along several score columns at once, and every row "
+                "loads several of them, which the weighted form of the fluctuation cannot carry.",
+                "Fit with target_weights=False.",
+            ),
+            (
+                {"stopping": "sample_size"},
+                RefusalReason.IMPLEMENTATION_GAP,
+                "The assessment solves its fluctuation under the shipped relative stopping test; "
+                "a declared stopping rule needs a stopping context the assessment does not build.",
+                "Fit with stopping='relative'.",
+            ),
+            (
+                {"targeting_scheme": "fold"},
+                RefusalReason.IMPLEMENTATION_GAP,
+                "The assessment fits one pooled fluctuation over every row from the cross-fitted "
+                "nuisances, so fold-wise targeting or fold evaluation of the ATE fit would be "
+                "ignored.",
+                "Fit with targeting_scheme='pooled' and cv_evaluation=False.",
+            ),
+            (
+                {"cv_evaluation": True},
+                RefusalReason.IMPLEMENTATION_GAP,
+                "The assessment fits one pooled fluctuation over every row from the cross-fitted "
+                "nuisances, so fold-wise targeting or fold evaluation of the ATE fit would be "
+                "ignored.",
+                "Fit with targeting_scheme='pooled' and cv_evaluation=False.",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("paired", [False, True])
+    def test_x97_settings_the_assessment_cannot_honour(
+        self,
+        settings: dict[str, Any],
+        reason: RefusalReason,
+        condition: str,
+        alternative: str,
+        paired: bool,
+    ) -> None:
+        with pytest.raises(CapabilityError) as caught:
+            if paired:
+                self.compare(**settings)
+            else:
+                self.effect().assess_score(
+                    "S", computed_from=["W"], score_kind="external", **settings, **never()
+                )
+        record = caught.value.refusal
+        assert record.reason is reason
+        assert record.condition == condition
+        assert record.alternative == alternative
+        assert record.roadmap is None
+        assert NeverFit.calls == 0
+
     def test_an_effect_registers_the_curves_fitted_from_it(self) -> None:
         effect = self.effect()
         curve = effect.estimate(**oracle()).effect_curve()
