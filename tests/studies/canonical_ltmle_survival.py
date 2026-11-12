@@ -14,7 +14,7 @@ at the lower edge (``static_t2`` 0.934, ``dynamic_t2`` 0.937), so the shortfall 
 The default band stays on, the one-plan curve band passes, and the red cell's owner was
 ``band-finite-sample``.  When the default band moved to the Mammen multiplier at 10,000 draws on
 the logit scale, the targeted rerun re-measured both band cells on the committed fits
-(``tests/canonical/band-rerun-decision.json``): ``all_reported`` covers 0.9308, 99% interval
+(its Wave 2 decision record): ``all_reported`` covers 0.9308, 99% interval
 0.9239 to 0.9373, and passes, so the cell left the owner.
 """
 
@@ -177,7 +177,7 @@ CONFIGURATION = {
     "cross_fit": False,
     "simultaneous_intervals": False,
     # The manifest records this configuration as the baseline run declared it, and the
-    # band-finite-sample composite must keep it (band_rerun.validate_composite_manifest), so
+    # band-finite-sample composite gate compares it with that baseline, so
     # the text still names the former band.  The band rows now read the default band (Mammen,
     # logit scale, 10,000 draws); the composite's replacement record names it.
     "band_cells": (

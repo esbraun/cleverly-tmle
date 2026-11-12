@@ -43,7 +43,7 @@ The re-run reused the R ``lmtp`` rows that the first run wrote, with
 
 **The band-finite-sample rerun.** When the default band moved to the Mammen multiplier at 10,000
 draws on the logit scale, the targeted rerun re-measured the band on the committed fits
-(``tests/canonical/band-rerun-decision.json``).  The cell covers 0.9392, 99% interval 0.926 to
+(its Wave 2 decision record).  The cell covers 0.9392, 99% interval 0.926 to
 0.951, and passes, so it left ``band-finite-sample`` and the study has no red cell.
 """
 

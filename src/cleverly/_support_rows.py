@@ -2603,7 +2603,7 @@ DEFAULT_BAND_DRAWS: Final[int] = 10_000
 #: Every row that licenses ``band`` lists :data:`~cleverly._support.DEFAULT_BAND_OPTION`, the
 #: configuration band-finite-sample Wave 2 regenerated every band cell with (Mammen, logit), and
 #: every cell :data:`BAND_CELLS` maps to such a row passes on the regenerated rows
-#: (``tests/canonical/band-rerun-decision.json``).  Any other multiplier or scale reads
+#: (the Wave 2 decision record).  Any other multiplier or scale reads
 #: experimental with :data:`~cleverly._support.UNMEASURED_BAND_OPTION`.
 BAND_OPTION_DRAWS: Final[Mapping[str, int]] = {
     # multi-arm-mar-drtmle keeps N_MULTIPLIER = 1_000 (canonical_multi_arm_mar_drtmle.py, a
