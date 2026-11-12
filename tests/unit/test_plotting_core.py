@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from matplotlib.colors import to_hex
+from matplotlib.text import Text
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
@@ -34,6 +35,7 @@ from cleverly.plotting import (
     PALETTE,
     _core,
     forest,
+    notes,
     overlap,
     sensitivity,
     style,
@@ -140,12 +142,31 @@ def test_a_plot_leaves_the_callers_settings_alone(binary_fit: Any) -> None:
     assert dict(matplotlib.rcParams) == before
 
 
+def assert_no_note_text(fig: Any) -> None:
+    """No text the figure draws carries a note the plot recorded.
+
+    Notes live in :func:`cleverly.plotting.notes` and the plot's docstring, never on the
+    figure. Each note is compared by its first 40 characters, its words joined by spaces.
+    """
+    drawn = [
+        " ".join(text.get_text().split())
+        for text in fig.findobj(Text)
+        if text.get_visible() and text.get_text().strip()
+    ]
+    for note in notes(fig):
+        head = " ".join(note.split())[:40]
+        for text in drawn:
+            assert head not in text, f"the figure draws its note {head!r}"
+
+
 def _style_checks(fig: Any) -> None:
     """Every figure: opaque white face, a title, labelled axes, at most three palette colours.
 
     Every coloured (not grey) artist must wear a palette colour, so an off-palette series
-    fails too, and an axes needs a y label or row labels in its ticks.
+    fails too, and an axes needs a y label or row labels in its ticks. No figure draws a
+    note.
     """
+    assert_no_note_text(fig)
     assert to_hex(fig.get_facecolor(), keep_alpha=True) == "#ffffffff"
     assert _title(fig)
     positions = [tuple(np.round(ax.get_position().bounds, 6)) for ax in fig.axes]
@@ -827,7 +848,7 @@ def test_forest_skips_the_null_a_transform_cannot_reach(binary_fit: Any) -> None
     assert len(_lines(forest(plain, include_null=True).axes[0], "cleverly-reference")) == 1
 
 
-def test_notes_sit_inside_the_figure_after_drawing(binary_fit: Any) -> None:
+def test_notes_are_recorded_and_never_drawn(binary_fit: Any) -> None:
     withheld = dataclasses.replace(binary_fit["ate"], inference=WITHHELD)
     figures = (
         forest(withheld),
@@ -835,14 +856,25 @@ def test_notes_sit_inside_the_figure_after_drawing(binary_fit: Any) -> None:
         binary_fit.diagnostics.truncation_curve().plot(),
     )
     for fig in figures:
-        fig.canvas.draw()
-        renderer = fig.canvas.get_renderer()
-        notes = [text for ax in fig.axes for text in ax.texts if text.get_gid() == _core.GID_NOTES]
-        for text in notes:
-            extent = text.get_window_extent(renderer)
-            assert extent.x0 >= fig.bbox.x0 - 1
-            assert extent.x1 <= fig.bbox.x1 + 1
-            assert extent.y0 >= fig.bbox.y0 - 1
+        assert notes(fig), "the plot recorded no notes"
+        assert_no_note_text(fig)
+
+
+def test_the_note_check_rejects_a_drawn_note(binary_fit: Any) -> None:
+    """Control: a recorded note drawn under the axes must fail the check."""
+    fig = forest(dataclasses.replace(binary_fit["ate"], inference=WITHHELD))
+    fig.text(0.01, 0.01, notes(fig)[0], fontsize=8)
+    with pytest.raises(AssertionError, match="draws its note"):
+        assert_no_note_text(fig)
+
+
+def test_notes_drop_repeats_and_blank_lines() -> None:
+    fig, ax = plt.subplots()
+    _core.add_notes(ax, ["first", "", "second"])
+    _core.add_notes(fig, ["second", "third"])
+    assert notes(fig) == ("first", "second", "third")
+    assert _core.note_text(fig) == "first second third"
+    assert notes(plt.figure()) == ()
 
 
 def _nearest_row_reason(qualifiers: str) -> Support:

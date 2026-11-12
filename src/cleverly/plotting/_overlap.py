@@ -122,7 +122,8 @@ def overlap(
     beyond each. Bars are shares of all units, weighted by the data's weights.
 
     The probabilities are the out-of-fold predictions before the limits were applied. A fit
-    with several cross-fitting repeats draws the first repeat, and the note says so.
+    with several cross-fitting repeats draws the first repeat, and
+    :func:`~cleverly.plotting.notes` says so.
 
     Parameters
     ----------
@@ -153,6 +154,14 @@ def overlap(
     See Also
     --------
     cleverly.sensitivity.positivity_report : The same overlap as numbers.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes say which cross-fitting repeat
+    is drawn and that the share of units beyond each limit is printed at its foot.
 
     Examples
     --------
@@ -278,7 +287,7 @@ def overlap(
             "Each panel compares one arm with the rest; blue is that arm and orange the rest "
             "in every panel."
         )
-    _core.notes(axes[-1], found)
+    _core.add_notes(axes[-1], found)
     return fig
 
 

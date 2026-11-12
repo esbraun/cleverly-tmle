@@ -43,6 +43,7 @@ from cleverly.plotting import (
     repeats,
 )
 from cleverly.plotting import _diagnostics as diagnostics_module
+from tests.unit.test_plotting_core import assert_no_note_text
 
 pytestmark = pytest.mark.xdist_group("plotting_diagnostics")
 
@@ -272,10 +273,8 @@ def test_v16_draws_no_interval_and_says_descriptive(result: Any) -> None:
     assert not ax.patches and not [c for c in ax.collections if "PolyCollection" in str(type(c))]
     assert len(ax.get_lines()) == 1  # the 45-degree line only: no error bars
     assert _has_descriptive_note(fig)
-    # mutation control: with the note removed the check must fail
-    for text in fig.texts:
-        if text.get_gid() == _core.GID_NOTES:
-            text.set_text("")
+    # mutation control: with the notes removed the check must fail
+    fig._cleverly_notes = []  # type: ignore[attr-defined]
     assert not _has_descriptive_note(fig)
 
 
@@ -1053,8 +1052,10 @@ def _style_checks(fig: Any) -> None:
     """Opaque white face, a title, labelled axes, and only palette colours.
 
     Every coloured (not grey) line, collection and patch, whatever its gid, must wear a
-    palette colour, and an axes needs a y label or row labels in its ticks.
+    palette colour, and an axes needs a y label or row labels in its ticks. No figure draws
+    a note.
     """
+    assert_no_note_text(fig)
     assert to_hex(fig.get_facecolor(), keep_alpha=True) == "#ffffffff"
     assert _title(fig)
     positions = [tuple(np.round(ax.get_position().bounds, 6)) for ax in fig.axes]
@@ -1162,11 +1163,11 @@ def test_every_figure_renders_to_a_png(
 
 
 def _cropped_text(fig: Any) -> list[str]:
-    """The figure-level title, subtitle, key and notes a tight bounding box would cut."""
+    """The figure-level title, subtitle and key a tight bounding box would cut."""
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
     tight = fig.get_tightbbox(renderer).transformed(fig.dpi_scale_trans)
-    gids = {_core.GID_TITLE, _core.GID_SUBTITLE, _core.GID_NOTES}
+    gids = {_core.GID_TITLE, _core.GID_SUBTITLE}
     artists = [text for text in fig.texts if text.get_gid() in gids] + list(fig.legends)
     assert artists, "the figure has no figure-level header"
     cut = []
@@ -1184,7 +1185,7 @@ def _cropped_text(fig: Any) -> list[str]:
     return cut
 
 
-def test_a_tight_save_keeps_the_figure_level_header_and_notes(
+def test_a_tight_save_keeps_the_figure_level_header(
     result: Any,
     ensemble: Any,
     selection: Any,

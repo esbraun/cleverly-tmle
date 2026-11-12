@@ -1,12 +1,12 @@
 """V7: how much treating by a priority score first gains over treating at random.
 
 Three views of one :class:`~cleverly.targeting_curves.TargetingCurve`. The TOC view draws the
-targeting operator characteristic at each grid point against 0, with its pointwise intervals
-and the sup-t band as bracket marks at the grid points (the band holds there only). The gain
-view draws the cumulative gain against the random-targeting line ``q * ATE``; the interval on
-each gain is the TOC interval scaled by ``q``, the uncertainty of the gap to that line, and a
-note says so. The difference view draws ``TOC_A(q) - TOC_B(q)`` of a paired comparison with
-pointwise intervals against 0 and no band.
+targeting operator characteristic at each grid point against 0, with its pointwise intervals and the
+sup-t band as bracket marks at the grid points (the band holds there only). The gain view draws the
+cumulative gain against the random-targeting line ``q * ATE``; the interval on each gain is the TOC
+interval scaled by ``q``, the uncertainty of the gap to that line, and
+:func:`~cleverly.plotting.notes` says so. The difference view draws ``TOC_A(q) - TOC_B(q)`` of a
+paired comparison with pointwise intervals against 0 and no band.
 
 The curve is estimated at the grid points only, so nothing is drawn between them except a thin
 guide line through the points.
@@ -187,6 +187,15 @@ def targeting(
     ValueError
         For an unknown view or score, or the difference view of a curve with no comparison.
 
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes mark the experimental top
+    fractions, say that each interval is for the gap to the random line, and say where the
+    band holds.
+
     Examples
     --------
     >>> import numpy as np
@@ -322,5 +331,5 @@ def targeting(
         title or question,
         _subtitle(curve, name),
     )
-    _core.notes(axis, lines)
+    _core.add_notes(axis, lines)
     return fig

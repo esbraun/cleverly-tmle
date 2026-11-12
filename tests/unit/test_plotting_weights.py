@@ -576,13 +576,13 @@ class TestTheLovePlot:
         self, point: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _assert_descriptive(plotting.balance(point))
-        original = _core.notes
+        original = _core.add_notes
 
-        def dropped(ax: Any, lines: Any) -> None:
-            original(ax, list(lines)[1:])
+        def dropped(target: Any, lines: Any) -> None:
+            original(target, list(lines)[1:])
 
         # the mutation control: the producer loses its first note, and the check fails
-        monkeypatch.setattr(_core, "notes", dropped)
+        monkeypatch.setattr(_core, "add_notes", dropped)
         mutated = plotting.balance(point)
         with pytest.raises(AssertionError):
             _assert_descriptive(mutated)

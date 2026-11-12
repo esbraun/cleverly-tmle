@@ -28,6 +28,7 @@ from cleverly import targeting_curves as tc
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.plotting import _core, _targeting, targeting
+from tests.unit.test_plotting_core import assert_no_note_text
 
 pytestmark = pytest.mark.xdist_group("plotting_core")
 
@@ -217,6 +218,7 @@ def test_withheld_rows_draw_hollow_points_and_say_why(small: Any) -> None:
     assert "Hollow points have no interval: fewer than 50 rows" in text
     assert "Experimental:" in text
     assert not _band_marks(ax)
+    assert_no_note_text(ax.figure)
 
 
 def test_the_views_and_scores_it_refuses(small: Any) -> None:

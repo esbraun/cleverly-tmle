@@ -61,6 +61,7 @@ from cleverly.plotting import _core, _curves, curve
 from cleverly.plotting import _forest as forest_module
 from cleverly.plotting._curves import _Point, _select
 from cleverly.validation.longitudinal import _longitudinal_stagewise
+from tests.unit.test_plotting_core import assert_no_note_text
 
 pytestmark = pytest.mark.xdist_group("plotting_curves")
 
@@ -588,8 +589,9 @@ def assert_style(fig: Any) -> None:
 
     White face, a title, no overlaid axes, a y label or row labels on every axes, an x label
     on the bottom axes, and every coloured artist (lines, markers, collections, patches) in
-    a palette colour, at most three per axes.
+    a palette colour, at most three per axes. No figure draws a note.
     """
+    assert_no_note_text(fig)
     assert matplotlib.colors.to_hex(fig.get_facecolor(), keep_alpha=True) == "#ffffffff"
     positions = [tuple(np.round(ax.get_position().bounds, 6)) for ax in fig.axes]
     assert len(set(positions)) == len(positions), "two axes overlay each other"

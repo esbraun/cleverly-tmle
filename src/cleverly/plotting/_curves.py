@@ -215,8 +215,8 @@ def curve(
     gets step ribbons, because the curve is constant between time points, and the last time
     point, where a step has no width, gets a bar and bracket marks; a fit that reports only
     some horizons gets points and bracket marks at those horizons. A result
-    that withholds inference draws points only and the note under the figure gives the
-    reason; an experimental result or band says so there.
+    that withholds inference draws points only, and :func:`~cleverly.plotting.notes` gives
+    the reason.
 
     Parameters
     ----------
@@ -230,11 +230,11 @@ def curve(
         Longitudinal fits: the curve over time, or the restricted mean survival time or time
         lost up to each horizon (points joined by a thin line, pointwise intervals only).
     band : {"multiplier", "bootstrap", "none"}, False or None, default=None
-        Which simultaneous band to draw. ``None`` draws the multiplier band when the fit
-        holds one, else the bootstrap band; the other is named in the note. ``"none"`` (or
-        ``False``) draws no band, so a figure need not show a band its page does not discuss.
-        A point-treatment fit of per-level means or of policies, and a conditional effect
-        curve, hold a multiplier band at most.
+        Which simultaneous band to draw. ``None`` draws the multiplier band when the fit holds one,
+        else the bootstrap band; :func:`~cleverly.plotting.notes` names the other. ``"none"`` (or
+        ``False``) draws no band, so a figure need not show a band its page does not discuss. A
+        point-treatment fit of per-level means or of policies, and a conditional effect curve, hold
+        a multiplier band at most.
     cause : str or None, default=None
         Longitudinal fits with several causes: the cause to draw.
     regimens : sequence of str or None, default=None
@@ -317,6 +317,16 @@ def curve(
     cleverly.plotting.forest : The estimates of one or several fits as a forest plot.
     cleverly.longitudinal.estimator.LongitudinalResult.plot : This plot for a longitudinal fit.
     cleverly.effect_curves.EffectCurveResult.plot : This plot for a conditional effect curve.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes say which estimates or bands
+    are experimental, why an interval is withheld, which band the fit also holds, the values
+    other modifiers are held at, which horizons a fit reports, and what a working model or
+    projection means for the drawn curve.
 
     Examples
     --------
@@ -1150,7 +1160,7 @@ def _over_time(
             "The monotone projection moved some estimates. The raw values are not marked, "
             f"because they belong to one of the {result.n_repeats} repeats this curve combines."
         )
-    _core.notes(count_ax, note_list)
+    _core.add_notes(count_ax, note_list)
     return fig
 
 
@@ -1497,7 +1507,7 @@ def _restricted(
         "Each point is a separate restricted mean with its own pointwise interval; the fit "
         "computes no band across horizons, and the thin line only joins the points."
     )
-    _core.notes(panels[-1], notes)
+    _core.add_notes(panels[-1], notes)
     return fig
 
 
@@ -1833,7 +1843,7 @@ def _dose(
     )
     _truth.draw(truth, spots, known=list(means.estimates))
     _core.header(axis, title or _level_title(means, msm_fit), subtitle)
-    _core.notes(axis, notes)
+    _core.add_notes(axis, notes)
     return fig
 
 
@@ -1921,7 +1931,7 @@ def _dose_response(
     if by is not None:
         subtitle += f", within {by}"
     _core.header(axis, title or "Smoothed dose-response curve", subtitle)
-    _core.notes(axis, notes)
+    _core.add_notes(axis, notes)
     return fig
 
 
@@ -2102,7 +2112,7 @@ def _policies(
     axis.set_xlabel(f"{axis_words} ({treatment})" if not log else axis_words)
     _truth.draw(truth, spots, known=list(result.estimates))
     _core.header(axis, title or heading, subtitle)
-    _core.notes(axis, notes)
+    _core.add_notes(axis, notes)
     return fig
 
 
@@ -2378,7 +2388,7 @@ def _effect_curve(
         _effect_subtitle(result, ratio, binary),
         key_sources=[panels[0]],
     )
-    _core.notes(panels[-1], notes)
+    _core.add_notes(panels[-1], notes)
     return fig
 
 

@@ -118,14 +118,14 @@ def weights(
     carry the same information, against the number still followed (dashed). A gap that
     widens at a time point is where the regimen loses its support.
 
-    A fit with several horizons draws the largest, a fit with several cross-fitting repeats
-    the first, and the note says which. A time point whose weight the limit does not cap
-    has no dotted line: one with an incremental or modified policy at it or at an earlier
-    time point, whose factor the weight carries, or any time point when the data's weights
-    are not all one. A log axis cannot show a weight of zero, which a modified treatment
-    policy at that or an earlier time point gives a unit when the shifted treatment cannot
-    produce the one it received; the note counts the units still followed with a weight of
-    zero at each time point, and the boxes describe the other weights.
+    A fit with several horizons draws the largest, a fit with several cross-fitting repeats the
+    first, and :func:`~cleverly.plotting.notes` says which. A time point whose weight the limit does
+    not cap has no dotted line: one with an incremental or modified policy at it or at an earlier
+    time point, whose factor the weight carries, or any time point when the data's weights are not
+    all one. A log axis cannot show a weight of zero, which a modified treatment policy at that or
+    an earlier time point gives a unit when the shifted treatment cannot produce the one it
+    received; :func:`~cleverly.plotting.notes` counts the units still followed with a weight of zero
+    at each time point, and the boxes describe the other weights.
 
     Parameters
     ----------
@@ -164,6 +164,15 @@ def weights(
     See Also
     --------
     cleverly.longitudinal.node_weights : The same weights as numbers.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes say which horizon and repeat
+    are drawn, where no limit line applies and why, and how many units carry a weight of
+    zero.
 
     Examples
     --------
@@ -408,7 +417,7 @@ def weights(
     if not all(item.unit_weights for item in series):
         found.append("The data's weights multiply the limit, so no limit line is drawn.")
     found.append("Descriptive: the weights are read from the fit, with no interval.")
-    _core.notes(bottom, found)
+    _core.add_notes(bottom, found)
     _end_labels(bottom, float(times[-1]), ends)
     return fig
 
@@ -596,6 +605,14 @@ def balance(
     --------
     cleverly.sensitivity.covariate_balance : The same differences as numbers.
 
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes give the standardized
+    difference and the weights used, and name the covariates not drawn.
+
     Examples
     --------
     >>> import matplotlib
@@ -642,7 +659,7 @@ def balance(
     columns = min(len(contrasts), 3)
     panel_height = 0.27 * len(shown) + 0.45
     longest = max(len((labels or {}).get(name, name)) for name in shown)
-    fig, head, axes, foot = strip_figure(
+    fig, head, axes = strip_figure(
         len(contrasts),
         columns,
         panel=(3.6, panel_height),
@@ -768,7 +785,7 @@ def balance(
     )
     if undefined:
         found.append(f"No difference is drawn for {', '.join(undefined)}, which does not vary.")
-    _core.notes(foot, found)
+    _core.add_notes(fig, found)
     fit_height(fig, axes, columns, panel_height)
     return fig
 

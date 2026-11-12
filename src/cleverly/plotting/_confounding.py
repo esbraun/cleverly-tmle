@@ -351,7 +351,7 @@ def _narrow(text: str, ax: Axes, size: float, share: float) -> str:
     """``text`` wrapped to ``share`` of the figure's width.
 
     A colour bar sits beside the axes, and the layout places it past the widest text the
-    axes carries. A subtitle or note as wide as the figure would leave a gap.
+    axes carries. A subtitle as wide as the figure would leave a gap.
     """
     figure: Any = ax.figure
     while not hasattr(figure, "get_figwidth"):
@@ -360,22 +360,6 @@ def _narrow(text: str, ax: Axes, size: float, share: float) -> str:
     return "\n".join(
         textwrap.fill(part, characters, break_on_hyphens=False) for part in text.split("\n")
     )
-
-
-def _notes(ax: Axes, lines: Sequence[str], share: float, *, grow: bool = False) -> None:
-    """Write the notes; on a figure the plot made, ``grow`` adds height for them.
-
-    The notes sit under the axes, so without the added height a long block would squeeze
-    the map the layout engine fits above it.
-    """
-    _core.notes(ax, [_narrow(line, ax, _core.NOTE_SIZE, share) for line in lines if line])
-    if not grow:
-        return
-    block = [text for text in ax.texts if text.get_gid() == _core.GID_NOTES]
-    if block:
-        rows = block[0].get_text().count("\n") + 1
-        figure: Any = ax.figure
-        figure.set_figheight(figure.get_figheight() + rows * _core.NOTE_SIZE * 1.3 / 72.0 + 0.1)
 
 
 def _header(ax: Axes, title: str, subtitle: str, share: float) -> None:
@@ -523,8 +507,9 @@ def contour(
         two gains, read at the map's alignment.
     multiples : sequence of float, default=(1.0,)
         Multiples of both gains to mark. A multiple other than one is this plot's scaling
-        heuristic, not a bound, and the note says so. A multiple that takes a gain out of the
-        range of a share, or scales a gain clipped at one, is listed and not drawn.
+        heuristic, not a bound. A multiple that takes a gain out of the range of a share, or
+        scales a gain clipped at one, is not drawn, and :func:`~cleverly.plotting.notes`
+        lists it.
     null : float or None, default=None
         The value the bold contour marks. The robustness value's own null when ``robustness``
         is given, else the no-effect value of the estimate's scale. A level (a mean outcome)
@@ -729,7 +714,7 @@ def contour(
         from .._summary.vocabulary import NOTE_TEXTS as TEXTS
 
         lines_out.append(TEXTS["consistent_mechanism"])
-    _notes(axis, [*lines_out, *found, *_warnings(data)], 0.74, grow=ax is None)
+    _core.add_notes(axis, [*lines_out, *found, *_warnings(data)])
     return fig
 
 
@@ -1182,7 +1167,7 @@ def surface(
         )
     if elsewhere:
         found.append("Observed-covariate calibrations not marked: " + "; ".join(elsewhere) + ".")
-    _notes(foot, [*found, *_warnings(result)], 0.74 if panels == 1 else 0.85, grow=ax is None)
+    _core.add_notes(foot, [*found, *_warnings(result)])
     return fig
 
 
@@ -1338,6 +1323,15 @@ def confounding(obj: Any, **kwargs: Any) -> Figure:
     cleverly.plotting.sensitivity : Estimates across a declared sensitivity parameter.
     cleverly.sensitivity.contour_data : Build the grid of bias-adjusted bounds.
     cleverly.sensitivity.simulated_confounding : Build the simulated-confounding surface.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes define the two strengths, list
+    benchmarks or calibrations that are not marked and why, and say that a
+    simulated-confounding map is qualitative: not a bound or an interval.
 
     Examples
     --------
