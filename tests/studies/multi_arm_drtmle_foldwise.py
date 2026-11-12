@@ -14,11 +14,17 @@ scenario, so replication ``r < 800`` is that study's registered replication ``r`
 and the same fold vector.  Replications 800 and above continue the stream.
 :data:`RESAMPLING_SEED` is fresh.
 
-**No comparator and no property cell.**  R ``drtmle`` has no fold-wise construction.  The
-one-correct evidence the support row cites is the registered ``drtmle-foldwise`` cell
-``double_robustness/multi_arm_drtmle__treatment_correct``, so no new one-correct cell runs.
-The multi-arm law is not H1, and no theory claim is made for it: the record is read on its rows
-alone.
+**The property cell.**  ``double_robustness/outcome_correct`` refits
+``canonical-multi-arm-drtmle``'s registered ``double_robustness/outcome_correct`` cell (its
+law, nuisances, n = 1,000 and stream root, :func:`registered_cell`) with
+``reduced_crossfit="foldwise"`` (:func:`cell_settings`).  The registered cell's sample seeds are
+the head of this cell's stream, so replication ``r < 600`` is its replication ``r``.  With the
+registered ``drtmle-foldwise`` cell ``double_robustness/multi_arm_drtmle__treatment_correct``,
+both one-correct branches of the multi-arm default are measured.  The cell reads the shared
+``double_robustness`` rule.
+
+**No comparator.**  R ``drtmle`` has no fold-wise construction.  The multi-arm law is not H1,
+and no theory claim is made for it: the record is read on its rows alone.
 
 **Reading, declared.**  ``publication_policy="gated"``.  Every row answers to the shared
 ``Margins()`` of ``performance-tests.csv``.  A red bias row is a defect suspect; a red
@@ -26,25 +32,30 @@ calibration row is read under the finite-sample rule (the 99% SE-ratio interval 
 the coverage is consistent with 0.95), and only then can it become a ``reporting`` row with an
 owner named in the declaration.
 
-**Budgets are planning values.**  :data:`PLANNING_REPLICATES` is the primaries' floor, and
-:func:`assert_declared` refuses a declared run until the declaration commit sets the budget
-from the arm-pooled predictive rule (:func:`rule`) over the sizing pilot's rows.
+**Budgets are planning values.**  :data:`PLANNING_BUDGETS` holds them, and
+:func:`assert_declared` refuses a declared run until the declaration commit sets the budgets
+from the arm-pooled predictive rule (:func:`rule`), which sizes the primary rows and the cell as
+one family, over the sizing pilot's rows.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from functools import cache
 from typing import Any
 
 import pandas as pd
 
+from cleverly.estimators import DRTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_multi_arm_drtmle as canonical
 from tests.studies import drtmle_foldwise as foldwise
 from tests.studies import multi_arm_common
-from tests.studies.drtmle_foldwise_sizing import Pilot, Rule, pilot_from_rows
+from tests.studies import multi_arm_drtmle_properties as registered_properties
+from tests.studies.drtmle_foldwise_sizing import Pilot, Rule, pilot_from_rows, single
 from tests.studies.evidence import property_verdicts, replication
-from tests.studies.evidence.properties import REPLICATE_COLUMNS
+from tests.studies.evidence.properties import REPLICATE_COLUMNS, PropertyBatch, PropertyCell
+from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS as PRIMARY_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
@@ -62,15 +73,19 @@ ESTIMANDS = multi_arm_common.ALL_ESTIMANDS
 REGISTERED_REPLICATES = canonical.PRIMARY_REPLICATES
 FOLDWISE = foldwise.FOLDWISE
 
+#: The property family and the cell, named as the registered cell is.
+FAMILY = "double_robustness"
+CELL = "outcome_correct"
+
 # --------------------------------------------------------------------------------- the sizes
-#: A planning budget, not a declared one: the primaries' floor of 1,000 (plan section 5 plans
-#: 1,200 to 2,400).
-PLANNING_REPLICATES = 1_000
-#: ``False`` until the declaration commit sets the budget from :func:`rule` and the pilot.
+#: Planning budgets, not declared ones: ``primary`` at the primaries' floor of 1,000 (the plan
+#: plans 1,200 to 2,400) and ``outcome_correct`` at the registered cell's 600.
+PLANNING_BUDGETS: Mapping[str, int] = {"primary": 1_000, CELL: 600}
+#: ``False`` until the declaration commit sets the budgets from :func:`rule` and the pilot.
 BUDGETS_DECLARED = False
-PRIMARY_REPLICATES = PLANNING_REPLICATES
-#: The floor of the primary budget.
-PRIMARY_FLOOR = 1_000
+#: The budgets the run uses.  They equal :data:`PLANNING_BUDGETS` until the declaration.
+BUDGETS: Mapping[str, int] = PLANNING_BUDGETS
+PRIMARY_REPLICATES = BUDGETS["primary"]
 #: The seed of the rule's planning draws.
 PLANNING_SEED = 2026111222
 
@@ -98,29 +113,63 @@ def registered_pilot() -> Pilot:
     )
 
 
-def rule(pilot: Pilot | None = None) -> Rule:
-    """The arm-pooled predictive rule of this record's one unit, every estimand jointly.
+@cache
+def registered_cell_pilot() -> Pilot:
+    """The planning summary of the registered pooled ``outcome_correct`` cell.
+
+    ``canonical-multi-arm-drtmle``'s ``double_robustness/outcome_correct`` rows at n = 1,000,
+    R = 600, fitted with ``reduced_crossfit="pooled"``, read on the bias alone.
+
+    Returns
+    -------
+    Pilot
+        One row, the cell's estimand.
+    """
+    rows = pd.read_parquet(canonical.STUDY.artifact("property-replicates.parquet"))
+    own = rows.loc[(rows["property"] == FAMILY) & (rows["cell"] == CELL)]
+    error = own["estimate"] - own["truth"]
+    return single(
+        "canonical-multi-arm-drtmle property-replicates.parquet, "
+        "double_robustness/outcome_correct, pooled, n = 1,000",
+        len(own),
+        CELL,
+        round(float(error.mean() / own["estimate"].std(ddof=1)), 4),
+    )
+
+
+def rule(pilot: Pilot | None = None, cell: Pilot | None = None) -> Rule:
+    """The predictive rule of the record's family: the primary rows and the cell, jointly.
+
+    Two units share the family-wise target 0.95: ``primary`` (every estimand, from the
+    primaries' floor) and ``outcome_correct`` (the cell's bias, from its registered 600).
 
     Parameters
     ----------
     pilot : Pilot or None
-        The planning summary; the registered pooled rows when ``None``.
+        The primary rows' summary; the registered pooled rows when ``None``.
+    cell : Pilot or None
+        The cell's summary; the registered pooled cell when ``None``.
 
     Returns
     -------
     Rule
-        The rule, with the record's family-wise target 0.95 on its single unit.
+        The rule.
     """
-    chosen = registered_pilot() if pilot is None else pilot
     return Rule(
-        pilots={"primary": chosen},
-        units={"primary": (("primary",), PRIMARY_FLOOR)},
+        pilots={
+            "primary": registered_pilot() if pilot is None else pilot,
+            CELL: registered_cell_pilot() if cell is None else cell,
+        },
+        units={
+            "primary": (("primary",), PLANNING_BUDGETS["primary"]),
+            CELL: ((CELL,), PLANNING_BUDGETS[CELL]),
+        },
         seed=PLANNING_SEED,
     )
 
 
 def assert_declared() -> None:
-    """Refuse a declared run while the budget is a planning value.
+    """Refuse a declared run while the budgets are planning values.
 
     Raises
     ------
@@ -129,8 +178,8 @@ def assert_declared() -> None:
     """
     if not BUDGETS_DECLARED:
         raise RuntimeError(
-            "multi-arm-drtmle-foldwise's budget is a planning value; the sizing pilot and the "
-            "declaration commit set it before any declared run"
+            "multi-arm-drtmle-foldwise's budgets are planning values; the sizing pilot and "
+            "the declaration commit set them before any declared run"
         )
 
 
@@ -171,6 +220,7 @@ STUDY = StudyRecord(
     ),
     runner_module="tests.studies.multi_arm_drtmle_foldwise",
     properties_module="tests.studies.multi_arm_drtmle_foldwise",
+    property_cells={FAMILY: (CELL,)},
     calibration_efficiency_ratio=False,
     publication_policy="gated",
 )
@@ -184,7 +234,8 @@ CONFIGURATION: dict[str, Any] = {
     ),
     "draws": (
         "canonical-multi-arm-drtmle's seed and scenario, so replication r < 800 is that "
-        "study's registered replication r"
+        "study's registered replication r; the outcome_correct cell draws the registered "
+        "cell's stream, so replication r < 600 is that cell's replication r"
     ),
     "comparator": "none: Python evidence, no comparator",
     "comparator_reason": "R drtmle has no fold-wise reduced-regression construction",
@@ -259,30 +310,82 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
     return replication.result(outcomes, built.loc[:, list(PRIMARY_COLUMNS)])
 
 
-# ------------------------------------------------------------------- no property cell
-#: The share of a cell's requested replications the accounting lets a run lose.
+# ------------------------------------------------------------------------- the property cell
+def registered_cell() -> PropertyCell:
+    """``canonical-multi-arm-drtmle``'s registered ``double_robustness/outcome_correct`` cell."""
+    (cell,) = [
+        cell
+        for cell in registered_properties.cells()
+        if (cell.property, cell.cell) == (FAMILY, CELL)
+    ]
+    return cell
+
+
+def property_cell(budget: int | None = None) -> PropertyCell:
+    """The cell: the registered cell's law, nuisances, size and root, at this record's budget.
+
+    Parameters
+    ----------
+    budget : int or None
+        A smoke run's cap on the replications; the declared budget when ``None``.
+
+    Returns
+    -------
+    PropertyCell
+        The cell.
+    """
+    registered = registered_cell()
+    declared = BUDGETS[CELL]
+    return PropertyCell(
+        FAMILY,
+        CELL,
+        registered.dgp,
+        registered.outcome_learner,
+        registered.treatment_learner,
+        registered.n,
+        declared if budget is None else min(budget, declared),
+        registered.seed,
+        role="positive",
+        estimand=registered.estimand,
+    )
+
+
+def cell_settings(cell: PropertyCell) -> dict[str, Any]:
+    """The registered cell's estimator arguments, with the fold-wise reduced regressions."""
+    return {**registered_properties._settings(cell), "reduced_crossfit": FOLDWISE}
+
+
+def _cell_estimator(cell: PropertyCell) -> Any:
+    return lambda: DRTMLE(**cell_settings(cell))
+
+
+def declared_cells() -> tuple[PropertyCell, ...]:
+    """The cells :func:`generate_property_rows` runs, named for the truth-binding check."""
+    return (property_cell(),)
+
+
+#: The share of a cell's requested replications the accounting lets a run lose, declared
+#: before the record's first run.
 FAILURE_BOUND = 0.01
 
 #: The draw-level statistic the accounting reports for each lost replicate.
 PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
-def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    """No property cell, so no row."""
-    del n_jobs
-    return pd.DataFrame(columns=list(REPLICATE_COLUMNS))
+def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
+    """Fit every replication of the cell; ``budget`` caps it for a smoke run.
+
+    A declared run (``budget=None``) passes :func:`assert_declared` first.
+    """
+    if budget is None:
+        assert_declared()
+    rows = PropertyBatch(CELL, (property_cell(budget),), _cell_estimator).run(n_jobs=n_jobs)
+    return rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
+        ["property", "cell", "replicate"], ignore_index=True
+    )
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    """No property cell, so no verdict."""
-    if not rows.empty:
-        raise ValueError(f"{STUDY.slug} declares no property cell, and it received rows")
-    return pd.DataFrame(
-        {
-            "property": pd.Series(dtype=str),
-            "cell": pd.Series(dtype=str),
-            "role": pd.Series(dtype=str),
-            "passed": pd.Series(dtype=bool),
-            "property_passed": pd.Series(dtype=bool),
-        }
-    )
+    """The shared ``double_robustness`` rule."""
+    summary, rates = apply_shared_verdicts(rows, STUDY, rate_labels=())
+    return finish(summary, rates)

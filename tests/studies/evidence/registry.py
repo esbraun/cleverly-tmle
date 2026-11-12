@@ -772,9 +772,6 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.score_assessment import STUDY as SCORE_ASSESSMENT
     from tests.studies.separable_effects import STUDY as SEPARABLE_EFFECTS
     from tests.studies.stratified_drtmle_foldwise import STUDY as STRATIFIED_DRTMLE_FOLDWISE
-    from tests.studies.stratified_drtmle_foldwise_ladder import (
-        STUDY as STRATIFIED_DRTMLE_FOLDWISE_LADDER,
-    )
     from tests.studies.survival_ctmle import STUDY as SURVIVAL_CTMLE
     from tests.studies.survival_dr_tmle import STUDY as SURVIVAL_DR_TMLE
     from tests.studies.targeting_curves import STUDY as TARGETING_CURVES
@@ -895,7 +892,6 @@ def registered() -> tuple[StudyRecord, ...]:
         DRTMLE_FOLDWISE_N1500,
         MULTI_ARM_DRTMLE_FOLDWISE,
         STRATIFIED_DRTMLE_FOLDWISE,
-        STRATIFIED_DRTMLE_FOLDWISE_LADDER,
         KNOWN_NODE_MECHANISMS,
         SEQUENTIAL_BASELINES,
         STRUCTURAL_NESTED_MEAN,

@@ -18,25 +18,34 @@ scenario, so replication ``r < 800`` is that study's registered replication ``r`
 and the same fold vector.  Replications 800 and above continue the stream.
 :data:`RESAMPLING_SEED` is fresh.
 
-**No comparator and no property cell.**  The one-correct evidence the support row cites is the
-registered ``drtmle-foldwise`` stratified ``outcome_correct`` cells.  The stratified
-``treatment_correct`` reading is the ``reporting`` record ``stratified-drtmle-foldwise-ladder``
-(:mod:`tests.studies.stratified_drtmle_foldwise_ladder`), which is not this record's evidence.
+**The contraction property cells.**  The fold-wise default's stratified ``treatment_correct``
+regime on a size ladder, with the ``both_wrong`` control: :data:`FAMILY`, fitted and judged by
+:mod:`tests.studies.stratified_drtmle_foldwise_ladder` (the record's properties module, which
+holds the design, the pairing with the X8 cells' stream and the declared reading).  Each rung's
+level row is judged on coverage and SE ratio only, its bias published; the marginal ATE's and
+``v1``'s rate rows are gated by the declared slope reading, and the control's by its failure to
+contract.
 
-**Reading, declared.**  ``publication_policy="gated"``.  Every row answers to the shared
-``Margins()`` of ``performance-tests.csv``.  A red bias row is a defect suspect.  A red
-calibration row is read under the finite-sample rule (the 99% SE-ratio interval contains 1 and
-the coverage is consistent with 0.95): ``ey[1][V=2]`` then goes to ``X8-drtmle-small-stratum``,
-which owns that interval in the pooled study, and any other to a new owner named in the
-declaration.
+**No comparator.**  R ``drtmle`` has no fold-wise reduced-regression construction.
+
+**Reading, declared.**  ``publication_policy="gated"``.  Every primary row answers to the shared
+``Margins()`` of ``performance-tests.csv``.  A red bias row is a defect suspect.
+:data:`EXPECTED_FINITE_SAMPLE` names ``ey[1][V=2]`` before the run: its pooled coverage
+(:data:`POOLED_SMALL_STRATUM_COVERAGE`) is below the floor, so no budget makes it pass, and the
+budget is sized over the other rows.  If it is red, :func:`small_stratum_reading` reads it: an
+SE-ratio interval containing 1, a coverage interval containing the pooled coverage and a bias
+row that passes make it ``expected finite-sample``, owned by ``X8-drtmle-small-stratum``;
+anything else is a defect suspect.
 
 **Budgets are planning values.**  :data:`PLANNING_REPLICATES` is the primaries' floor, and
-:func:`assert_declared` refuses a declared run until the declaration commit sets the budget
-from the arm-pooled predictive rule (:func:`rule`) over the sizing pilot's rows.
+:func:`assert_declared` refuses a declared run, of the primary phase or of the ladder, until
+the declaration commit sets the budgets from the arm-pooled predictive rule (:func:`rule`) and
+the ladder's outer-rung rule over the sizing pilot's rows.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from functools import cache
 from typing import Any
 
@@ -45,9 +54,9 @@ import pandas as pd
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_stratified_drtmle as canonical
 from tests.studies import drtmle_foldwise as foldwise
-from tests.studies.drtmle_foldwise_sizing import Pilot, Rule, pilot_from_rows
-from tests.studies.evidence import property_verdicts, replication
-from tests.studies.evidence.properties import REPLICATE_COLUMNS
+from tests.studies.drtmle_foldwise_sizing import Pilot, Rule, pilot_from_rows, without
+from tests.studies.evidence import replication
+from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS as PRIMARY_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
@@ -68,6 +77,83 @@ ESTIMANDS: tuple[str, ...] = (*canonical.ESTIMANDS, MARGINAL)
 REGISTERED_REPLICATES = canonical.PRIMARY_REPLICATES
 FOLDWISE = foldwise.FOLDWISE
 
+#: The primary row declared before the run as an expected finite-sample row (module docstring).
+EXPECTED_FINITE_SAMPLE = ("ey[1][V=2]",)
+#: The rows the primary budget is sized over.
+SIZED_ESTIMANDS = tuple(name for name in ESTIMANDS if name not in EXPECTED_FINITE_SAMPLE)
+#: ``ey[1][V=2]``'s coverage in ``canonical-stratified-drtmle``'s ``performance-tests.csv``
+#: (pooled, n = 2,000, R = 800), the reading a fold-wise red row must be consistent with.
+POOLED_SMALL_STRATUM_COVERAGE = 0.9
+SMALL_STRATUM_CLEAN = "clean"
+SMALL_STRATUM_FINITE_SAMPLE = "expected finite-sample"
+SMALL_STRATUM_DEFECT = "defect suspect"
+
+
+def small_stratum_reading(row: Mapping[str, Any]) -> str:
+    """The declared reading of an :data:`EXPECTED_FINITE_SAMPLE` row of ``performance-tests.csv``.
+
+    Parameters
+    ----------
+    row : Mapping
+        The row: ``passed``, ``bias_equivalent``, ``coverage_ci_lower``, ``coverage_ci_upper``,
+        ``se_ratio_ci_lower`` and ``se_ratio_ci_upper``.
+
+    Returns
+    -------
+    str
+        :data:`SMALL_STRATUM_CLEAN` when the row passes; else
+        :data:`SMALL_STRATUM_FINITE_SAMPLE` when its bias passes, its SE-ratio interval
+        contains 1 and its coverage interval contains
+        :data:`POOLED_SMALL_STRATUM_COVERAGE`; else :data:`SMALL_STRATUM_DEFECT`.
+    """
+    if bool(row["passed"]):
+        return SMALL_STRATUM_CLEAN
+    se_ratio = Interval(float(row["se_ratio_ci_lower"]), float(row["se_ratio_ci_upper"]))
+    coverage = Interval(float(row["coverage_ci_lower"]), float(row["coverage_ci_upper"]))
+    if (
+        bool(row["bias_equivalent"])
+        and se_ratio.contains(1.0)
+        and coverage.contains(POOLED_SMALL_STRATUM_COVERAGE)
+    ):
+        return SMALL_STRATUM_FINITE_SAMPLE
+    return SMALL_STRATUM_DEFECT
+
+
+# ---------------------------------------------------------------------- the ladder's cells
+FAMILY = "stratified_contraction"
+SIZES = (2_000, 4_000, 8_000)
+POSITIVE = "treatment_correct"
+CONTROL = "both_wrong"
+REGIMES = (POSITIVE, CONTROL)
+LABELS = canonical.ATE_LABELS
+#: The labels the slope reading always reads; the X8 acceptance names both.
+READ_LABELS = ("marginal_ate", "v1_ate")
+
+
+def level_cell(label: str, regime: str, size: int) -> str:
+    """The level cell of one label, regime and rung."""
+    return f"{label}__{regime}_n{size}"
+
+
+def rate_cell(label: str, regime: str) -> str:
+    """The rate cell of one label and regime."""
+    return f"{label}__rate_{regime}"
+
+
+PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
+    FAMILY: tuple(
+        sorted(
+            [
+                level_cell(label, regime, size)
+                for label in LABELS
+                for regime in REGIMES
+                for size in SIZES
+            ]
+            + [rate_cell(label, regime) for label in LABELS for regime in REGIMES]
+        )
+    )
+}
+
 # --------------------------------------------------------------------------------- the sizes
 #: A planning budget, not a declared one: the primaries' floor of 1,000 (plan section 5 plans
 #: 1,200 to 2,400).
@@ -85,8 +171,8 @@ PLANNING_SEED = 2026111223
 def registered_pilots() -> dict[str, Pilot]:
     """The planning summaries of the registered pooled rows, before the sizing pilot.
 
-    ``primary``: ``canonical-stratified-drtmle``'s subject rows of the nine stratum names at
-    n = 2,000, R = 800.  ``marginal``: the marginal ATE of that study's calibration fits
+    ``primary``: ``canonical-stratified-drtmle``'s subject rows of the stratum names at
+    n = 2,000, R = 800, less :data:`EXPECTED_FINITE_SAMPLE`.  ``marginal``: the marginal ATE of that study's calibration fits
     (``interval_calibration/marginal_ate__correctly_specified``, the same both-correct fit at
     n = 2,000, R = 2,000), which are other draws, so the two summaries are independent.  Both
     fit ``reduced_crossfit="pooled"``; the X83 probe P1 read fold-wise ``|bias|`` at or below
@@ -103,7 +189,7 @@ def registered_pilots() -> dict[str, Pilot]:
     primary = pilot_from_rows(
         own,
         source="canonical-stratified-drtmle replicates.parquet, pooled, n = 2,000",
-        estimands=canonical.ESTIMANDS,
+        estimands=tuple(name for name in canonical.ESTIMANDS if name in SIZED_ESTIMANDS),
     )
     calibration = pd.read_parquet(canonical.STUDY.artifact("property-replicates.parquet"))
     marginal = calibration.loc[
@@ -124,7 +210,9 @@ def registered_pilots() -> dict[str, Pilot]:
 
 
 def rule(pilots: dict[str, Pilot] | None = None) -> Rule:
-    """The arm-pooled predictive rule of this record's one unit, every estimand jointly.
+    """The arm-pooled predictive rule of the primary unit, every sized estimand jointly.
+
+    A pilot's :data:`EXPECTED_FINITE_SAMPLE` rows are dropped before the rule reads it.
 
     Parameters
     ----------
@@ -138,6 +226,10 @@ def rule(pilots: dict[str, Pilot] | None = None) -> Rule:
         The rule, with the record's family-wise target 0.95 on its single unit.
     """
     chosen = registered_pilots() if pilots is None else pilots
+    chosen = {
+        name: without(pilot, [row for row in EXPECTED_FINITE_SAMPLE if row in pilot.rows])
+        for name, pilot in chosen.items()
+    }
     return Rule(
         pilots=chosen,
         units={"primary": (tuple(chosen), PRIMARY_FLOOR)},
@@ -146,7 +238,7 @@ def rule(pilots: dict[str, Pilot] | None = None) -> Rule:
 
 
 def assert_declared() -> None:
-    """Refuse a declared run while the budget is a planning value.
+    """Refuse a declared run while the budgets are planning values.
 
     Raises
     ------
@@ -155,8 +247,8 @@ def assert_declared() -> None:
     """
     if not BUDGETS_DECLARED:
         raise RuntimeError(
-            "stratified-drtmle-foldwise's budget is a planning value; the sizing pilot and the "
-            "declaration commit set it before any declared run"
+            "stratified-drtmle-foldwise's budgets are planning values; the sizing pilot and "
+            "the declaration commit set them before any declared run"
         )
 
 
@@ -194,9 +286,11 @@ STUDY = StudyRecord(
         "tests/studies/multi_arm_common.py",
         "tests/studies/multi_arm_drtmle_properties.py",
         "tests/studies/multi_arm_properties.py",
+        "tests/studies/stratified_drtmle_foldwise_ladder.py",
     ),
     runner_module="tests.studies.stratified_drtmle_foldwise",
-    properties_module="tests.studies.stratified_drtmle_foldwise",
+    properties_module="tests.studies.stratified_drtmle_foldwise_ladder",
+    property_cells=PROPERTY_CELLS,
     calibration_efficiency_ratio=False,
     publication_policy="gated",
 )
@@ -217,6 +311,13 @@ CONFIGURATION: dict[str, Any] = {
         "study's registered replication r"
     ),
     "added_rows": "the marginal ATE, against the law's exact mixture truth",
+    "expected_finite_sample": list(EXPECTED_FINITE_SAMPLE),
+    "ladder": (
+        "treatment_correct and both_wrong at n = 2,000, 4,000 and 8,000; the treatment_correct "
+        "n = 2,000 rung draws canonical-stratified-drtmle's X8 stream (property_sample, "
+        "treatment_correct), so replication r < 800 is the X8 cells' replication r; every "
+        "other rung draws a fresh named stream of this record"
+    ),
     "comparator": "none: Python evidence, no comparator",
     "comparator_reason": "R drtmle has no fold-wise reduced-regression construction",
 }
@@ -287,32 +388,3 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
     )
     built = pd.DataFrame([row for rows in outcomes.kept for row in rows])
     return replication.result(outcomes, built.loc[:, list(PRIMARY_COLUMNS)])
-
-
-# ------------------------------------------------------------------- no property cell
-#: The share of a cell's requested replications the accounting lets a run lose.
-FAILURE_BOUND = 0.01
-
-#: The draw-level statistic the accounting reports for each lost replicate.
-PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
-
-
-def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    """No property cell, so no row."""
-    del n_jobs
-    return pd.DataFrame(columns=list(REPLICATE_COLUMNS))
-
-
-def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    """No property cell, so no verdict."""
-    if not rows.empty:
-        raise ValueError(f"{STUDY.slug} declares no property cell, and it received rows")
-    return pd.DataFrame(
-        {
-            "property": pd.Series(dtype=str),
-            "cell": pd.Series(dtype=str),
-            "role": pd.Series(dtype=str),
-            "passed": pd.Series(dtype=bool),
-            "property_passed": pd.Series(dtype=bool),
-        }
-    )

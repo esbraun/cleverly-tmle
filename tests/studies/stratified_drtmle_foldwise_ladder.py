@@ -1,12 +1,14 @@
-r"""Fix-6 unit S, ladder: the fold-wise default's stratified ``treatment_correct`` bias rate.
+r"""The contraction property cells of ``stratified-drtmle-foldwise`` (Fix-6 unit S, ladder).
 
 The four ``X8-drtmle-one-sided-bias`` cells of ``canonical-stratified-drtmle`` fit
 ``reduced_crossfit="pooled"`` and read the stratified paper law's ``treatment_correct`` regime
 at n = 2,000.  The X83 sizing pilot put the fold-wise default's rows at 0.29 (marginal), 0.04
 (``v0``), 0.30 (``v1``) and 0.18 SD (``v2``), the marginal and ``v1`` outside the 0.25 SD margin
 on 200 replications.  The law is H1 per stratum, so its conditioning terms vanish and a red
-one-correct row is a second-order term that has not decayed, or a defect.  This record fits the
-default on a size ladder and reads the rate.
+one-correct row is a second-order term that has not decayed, or a defect.  These cells fit the
+default on a size ladder and read the rate; they are the property cells of the gated record
+``stratified-drtmle-foldwise`` (:mod:`tests.studies.stratified_drtmle_foldwise`), which names
+them, and this module is its properties module.
 
 **Design.**  :func:`tests.studies.canonical_stratified_drtmle.fit_cleverly` with
 ``reduced_crossfit="foldwise"``, at ``"treatment_correct"`` and at the ``"both_wrong"``
@@ -18,8 +20,8 @@ rate cell ``<label>__rate_<regime>`` (log |bias| on log n, its 99% bootstrap int
 **Pairing.**  The ``treatment_correct`` n = 2,000 rung draws
 ``stream_seed(canonical-stratified-drtmle, "property_sample", "treatment_correct", r)``, the X8
 cells' stream, so replication ``r < 800`` is the X8 cells' registered replication ``r``, and
-later replications continue that stream.  Every other rung draws a fresh named stream of this
-record.  :data:`RESAMPLING_SEED` is fresh.
+later replications continue that stream.  Every other rung draws a fresh named stream of the
+record, whose resampling seed is fresh.
 
 **Budgets.**  Planning values (:data:`PLANNING_BUDGETS`): 3,300 at each outer
 ``treatment_correct`` rung and 800 at the middle one, whose slope weight is zero; 400 per
@@ -27,6 +29,8 @@ control rung.  Each ``treatment_correct`` rung's level rows are read at
 :data:`VERDICT_REPLICATES` (800, the X8 cells' budget); the extra outer replications serve the
 slope only.  :func:`planned_outer_budget` recomputes the outer budget from the planning
 standardized biases and the resolution target; the sizing pilot replaces the planning values.
+The record's :func:`~tests.studies.stratified_drtmle_foldwise.assert_declared` refuses a
+declared run until then.
 
 **Reading, declared before the run** (:func:`slope_reading`, :func:`calibration_reading`,
 :func:`x8_acceptance`).  The marginal and ``v1`` ``treatment_correct`` slopes are always read:
@@ -50,16 +54,14 @@ interval clears the 0.90 floor and its SE-ratio interval lies inside 0.8 to 1.2,
 ``finite-sample`` when it is red but its SE-ratio interval contains 1 and its coverage interval
 contains 0.95, and ``defect suspect`` otherwise.  The control's level rows are ``not read``.
 
-The ``X8`` acceptance holds when the marginal and ``v1`` read ``consistent with second order``,
-the control fails to contract, and no level row is a ``defect suspect``.  Otherwise the red is
-a defect suspect and is diagnosed.  ``publication_policy="reporting"``.
+**Verdicts.**  The record is gated.  A ``treatment_correct`` level row passes when it is
+``clean``: it is judged on coverage and SE ratio only, and its bias is published.  A read
+label's ``treatment_correct`` rate row passes when it reads ``consistent with second order``, and
+its control rate row when it fails to contract.  The ``not read`` rows pass by declaration.
 
-**The primary phase is open.**  The registry and the regeneration driver require one, and the
-Fix-6 plan names none for this record: its rows are property cells on the X8 stream, which a
-primary phase cannot draw.  :data:`PRIMARY_SCENARIO` is a placeholder: the
-``treatment_correct`` fit at n = 2,000 on this record's own fresh seed, reported rows that pass
-by declaration.  :func:`assert_declared` refuses a declared run while
-:data:`PRIMARY_DESIGN_OPEN` is set; the design review rules on it.
+The ``X8`` acceptance (:func:`x8_acceptance`) holds when the marginal and ``v1`` read
+``consistent with second order``, the control fails to contract, and no level row is a
+``defect suspect``.  Otherwise the red is a defect suspect and is diagnosed.
 """
 
 from __future__ import annotations
@@ -72,7 +74,6 @@ import pandas as pd
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_stratified_drtmle as canonical
-from tests.studies import drtmle_foldwise as foldwise
 from tests.studies import stratified_drtmle_foldwise as primary
 from tests.studies.drtmle_foldwise_sizing import outer_rung_budget
 from tests.studies.evidence import property_failures as pf
@@ -89,32 +90,20 @@ from tests.studies.evidence.property_verdicts import (
     finish,
     fitted_rate_row,
 )
-from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
-from tests.studies.evidence.schema import REPLICATE_COLUMNS as PRIMARY_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_seed
-from tests.studies.point_study_helpers import primary_rows
+from tests.studies.evidence.registry import Margins
+from tests.studies.evidence.seeds import stream_seed
+from tests.studies.stratified_drtmle_foldwise import (
+    CONTROL,
+    FAMILY,
+    LABELS,
+    POSITIVE,
+    READ_LABELS,
+    REGIMES,
+    SIZES,
+    level_cell,
+    rate_cell,
+)
 
-IMPLEMENTATION = foldwise.IMPLEMENTATION
-#: The placeholder primary phase's own seed, fresh: no registered study draws from it.
-SEED = 2026111204
-#: Fresh entropy for every bootstrap and every fresh rung stream of this record.
-RESAMPLING_SEED = 2026111214
-PRIMARY_N = 2_000
-PRIMARY_SCENARIO = "stratified_treatment_correct"
-ESTIMANDS = primary.ESTIMANDS
-FOLDWISE = foldwise.FOLDWISE
-
-#: Set while the plan names no primary phase for this record (module docstring).
-PRIMARY_DESIGN_OPEN = True
-
-FAMILY = "stratified_contraction"
-SIZES = (2_000, 4_000, 8_000)
-POSITIVE = "treatment_correct"
-CONTROL = "both_wrong"
-REGIMES = (POSITIVE, CONTROL)
-LABELS = canonical.ATE_LABELS
-#: The labels the reading always reads; the X8 acceptance names both.
-READ_LABELS = ("marginal_ate", "v1_ate")
 #: The rung whose stream is the X8 cells' stream.
 PAIRED_RUNG = (POSITIVE, 2_000)
 #: The X8 cells' registered budget, which the paired rung's first replications reproduce.
@@ -219,13 +208,11 @@ PLANNING_BUDGETS: Mapping[str, tuple[int, int, int]] = {
     POSITIVE: (3_300, 800, 3_300),
     CONTROL: (400, 400, 400),
 }
-#: ``False`` until the declaration commit sets the budgets from the sizing pilot.
-BUDGETS_DECLARED = False
+#: The budgets the run uses.  They equal :data:`PLANNING_BUDGETS` until the declaration commit,
+#: and the record's guard refuses a declared run until then.
 BUDGETS: Mapping[str, tuple[int, int, int]] = PLANNING_BUDGETS
 #: The replications each ``treatment_correct`` rung's level rows are read at.
 VERDICT_REPLICATES = 800
-#: The placeholder primary phase's planning budget, the primaries' floor.
-PRIMARY_REPLICATES = 1_000
 
 #: The planning standardized biases of the read labels at each rung, before the sizing pilot:
 #: the X83 pilot's fold-wise n = 2,000 rows (``pilot_b.csv``, 200 replications), carried up the
@@ -268,162 +255,6 @@ def planned_outer_budget(
     return max(budgets)
 
 
-def assert_declared() -> None:
-    """Refuse a declared run while the design or the budgets are open.
-
-    Raises
-    ------
-    RuntimeError
-        While :data:`PRIMARY_DESIGN_OPEN` is set or :data:`BUDGETS_DECLARED` is ``False``.
-    """
-    if PRIMARY_DESIGN_OPEN:
-        raise RuntimeError(
-            "stratified-drtmle-foldwise-ladder has a placeholder primary phase; the design "
-            "review rules on it before any declared run"
-        )
-    if not BUDGETS_DECLARED:
-        raise RuntimeError(
-            "stratified-drtmle-foldwise-ladder budgets are planning values; the sizing pilot "
-            "and the declaration commit set them before any declared run"
-        )
-
-
-# ------------------------------------------------------------------------- the registration
-def level_cell(label: str, regime: str, size: int) -> str:
-    """The level cell of one label, regime and rung."""
-    return f"{label}__{regime}_n{size}"
-
-
-def rate_cell(label: str, regime: str) -> str:
-    """The rate cell of one label and regime."""
-    return f"{label}__rate_{regime}"
-
-
-PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
-    FAMILY: tuple(
-        sorted(
-            [
-                level_cell(label, regime, size)
-                for label in LABELS
-                for regime in REGIMES
-                for size in SIZES
-            ]
-            + [rate_cell(label, regime) for label in LABELS for regime in REGIMES]
-        )
-    )
-}
-
-STUDY = StudyRecord(
-    name="stratified DR-TMLE fold-wise one-correct ladder",
-    slug="stratified-drtmle-foldwise-ladder",
-    artifacts=ROOT / "tests" / "canonical" / "stratified_drtmle_foldwise_ladder",
-    document="docs/technical-reference/method-evidence/stratified-dr-tmle-foldwise-ladder.md",
-    anchor="stratified-dr-tmle-fold-wise-one-correct-ladder",
-    scenarios={PRIMARY_SCENARIO: ESTIMANDS},
-    replicates=PRIMARY_REPLICATES,
-    n=PRIMARY_N,
-    seed=SEED,
-    resampling_seed=RESAMPLING_SEED,
-    margins=Margins(),
-    implementation=IMPLEMENTATION,
-    reference=None,
-    failure_bound={IMPLEMENTATION: 0.01},
-    reported_scenarios=frozenset({PRIMARY_SCENARIO}),
-    modules=(
-        "tests/studies/stratified_drtmle_foldwise_ladder.py",
-        "tests/studies/stratified_drtmle_foldwise.py",
-        "tests/studies/drtmle_foldwise_sizing.py",
-        "tests/studies/canonical_stratified_drtmle.py",
-        "tests/studies/stratified_alternating_law.py",
-        "tests/studies/stratified_law.py",
-        "tests/discrete_law.py",
-        "tests/studies/drtmle_foldwise.py",
-        "tests/studies/canonical_drtmle.py",
-        "tests/studies/point_study_helpers.py",
-        "tests/studies/evidence/inference.py",
-        "tests/studies/evidence/performance.py",
-        "tests/studies/evidence/properties.py",
-        "tests/studies/evidence/property_failures.py",
-        "tests/studies/evidence/property_verdicts.py",
-        "tests/studies/evidence/schema.py",
-        "tests/studies/evidence/seeds.py",
-        "tests/studies/canonical_multi_arm_drtmle.py",
-        "tests/studies/drtmle_foldwise_properties.py",
-        "tests/studies/multi_arm_common.py",
-        "tests/studies/multi_arm_drtmle_properties.py",
-        "tests/studies/multi_arm_properties.py",
-    ),
-    runner_module="tests.studies.stratified_drtmle_foldwise_ladder",
-    properties_module="tests.studies.stratified_drtmle_foldwise_ladder",
-    property_cells=PROPERTY_CELLS,
-    calibration_efficiency_ratio=False,
-    publication_policy="reporting",
-)
-
-CONFIGURATION: dict[str, Any] = {
-    **primary.CONFIGURATION,
-    "draws": (
-        "the treatment_correct n = 2,000 rung draws canonical-stratified-drtmle's X8 stream "
-        "(property_sample, treatment_correct), so replication r < 800 is the X8 cells' "
-        "replication r; every other rung draws a fresh named stream of this record"
-    ),
-    "rungs": list(SIZES),
-    "resolution_target": RESOLUTION_TARGET,
-    "verdict_replicates": VERDICT_REPLICATES,
-    "primary_design": "open: placeholder reported rows, pending the design review",
-}
-
-
-# --------------------------------------------------------------------- the primary phase
-def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
-    """One sample of the stratified paper law with its supplied fold vector."""
-    if scenario not in STUDY.scenarios:
-        raise KeyError(f"{STUDY.slug} has no scenario {scenario!r}")
-    return canonical.draw_from_seed(canonical.SCENARIO, n, seed)
-
-
-def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
-    """Draw one primary replication from this record's declared seed."""
-    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
-
-
-def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
-    scenario, replicate, n = key
-    return draw_scenario(scenario, n, replicate)
-
-
-def _replicate(
-    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
-) -> list[dict[str, Any]]:
-    scenario, replicate, _ = key
-    frame, truth = drawn
-    return primary_rows(
-        result=primary.fit_cleverly(frame, POSITIVE),
-        truth=truth,
-        implementation=IMPLEMENTATION,
-        scenario=scenario,
-        replicate=replicate,
-        estimands=ESTIMANDS,
-    )
-
-
-def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
-    """Draw and fit every primary replication; a declared budget passes the guard first."""
-    if replicates >= PRIMARY_REPLICATES:
-        assert_declared()
-    outcomes = replication.fit_primary(
-        [(PRIMARY_SCENARIO, r, n) for r in range(replicates)],
-        _replicate,
-        draw=_draw,
-        rows_at=None,
-        n_jobs=n_jobs,
-        implementation=STUDY.implementation,
-        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
-    )
-    built = pd.DataFrame([row for rows in outcomes.kept for row in rows])
-    return replication.result(outcomes, built.loc[:, list(PRIMARY_COLUMNS)])
-
-
 # ----------------------------------------------------------------------------- the ladder
 def sample_seed(regime: str, size: int, replicate: int) -> int:
     """The sample seed of one replication of one rung.
@@ -433,7 +264,7 @@ def sample_seed(regime: str, size: int, replicate: int) -> int:
     """
     if (regime, size) == PAIRED_RUNG:
         return stream_seed(canonical.STUDY, "property_sample", POSITIVE, replicate)
-    return stream_seed(STUDY, "property_sample", f"{regime}_n{size}", replicate)
+    return stream_seed(primary.STUDY, "property_sample", f"{regime}_n{size}", replicate)
 
 
 _Key = tuple[tuple[str, int, int, int]]
@@ -478,7 +309,7 @@ def _fit_key(key: _Key, drawn: _Drawn) -> list[dict[str, Any]]:
             requested=requested,
             truth=float(truth[canonical.ate_name(label)]),
             estimate=result[canonical.ate_name(label)],
-            alpha=STUDY.margins.alpha,
+            alpha=primary.STUDY.margins.alpha,
         )
         for label in LABELS
     ]
@@ -510,10 +341,10 @@ def generate_property_rows(
 ) -> pd.DataFrame:
     """Fit every ladder replication; ``budget`` and ``sizes`` cut a smoke run.
 
-    A declared run (``budget=None``) passes :func:`assert_declared` first.
+    A declared run (``budget=None``) passes the record's guard first.
     """
     if budget is None:
-        assert_declared()
+        primary.assert_declared()
     outcomes = replication.fit_properties(
         payloads(budget, sizes),
         _fit_key,
@@ -572,7 +403,7 @@ def at_verdict_budget(
 
 def _level_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
     """Write each level row's SE-ratio interval, reading and verdict, in place."""
-    margins = STUDY.margins
+    margins = primary.STUDY.margins
     for index in summary.index[summary["property"] == FAMILY]:
         row = summary.loc[index]
         cell = str(row["cell"])
@@ -581,7 +412,7 @@ def _level_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
             group,
             replicates=margins.bootstrap_replicates,
             confidence_level=margins.confidence_level,
-            seed=stream_seed(STUDY, FAMILY, cell),
+            seed=stream_seed(primary.STUDY, FAMILY, cell),
         )["se_ratio"]
         summary.loc[index, "se_ratio_ci_lower"] = ratio.low
         summary.loc[index, "se_ratio_ci_upper"] = ratio.high
@@ -604,7 +435,7 @@ def _rate_rows(rows: pd.DataFrame, columns: Any) -> list[dict[str, Any]]:
             cells = [level_cell(label, regime, size) for size in SIZES]
             row = fitted_rate_row(
                 ladder.loc[ladder["cell"].isin(cells)],
-                STUDY,
+                primary.STUDY,
                 columns,
                 ladder_property=FAMILY,
                 property_name=FAMILY,
@@ -647,7 +478,7 @@ def summarize_properties(
     """
     levels = at_verdict_budget(rows, verdict_replicates)
     summary, rates = apply_shared_verdicts(
-        levels, STUDY, extra_columns=EXTRA_COLUMNS, rate_labels=()
+        levels, primary.STUDY, extra_columns=EXTRA_COLUMNS, rate_labels=()
     )
     summary["reading"] = summary["reading"].astype(object)
     _level_verdicts(summary, levels)

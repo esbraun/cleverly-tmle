@@ -19,37 +19,39 @@ pooled-minus-fold-wise displacement at n = 1,500; it is published, not gated.  R
 and above continue the same stream.  :data:`RESAMPLING_SEED` is fresh, so every bootstrap of
 this record is drawn from a stream no other study uses.
 
+**The primary phase.**  Both regimes at n = 1,500 on this record's own fresh seed
+(:data:`SEED`): the truth, coverage and SE-ratio rows of ``ate``, ``ey0`` and ``ey1``, gated by
+the shared ``Margins()`` of ``performance-tests.csv``.  Fresh draws and the RM18 cells' own draws
+both measure the default, so a verdict selected on the red cells' draws cannot carry the RM18
+closure alone: the acceptance reads "when the primary rows and both paired cells pass".
+
 **Reading, declared.**  Each cell is ``role="positive"`` in the shared ``double_robustness``
 family: its 99% interval of the standardized bias inside 0.25 empirical SD, with the reported
-SE inside the union-model band.  ``publication_policy="gated"``.  A red cell is a defect
-suspect, diagnosed and fixed under a fresh declaration; no replication is added after a
-verdict.
-
-**The primary phase is open.**  The registry and the regeneration driver require one, and the
-Fix-6 plan names none for this record: its two cells pair with the RM18 *property* streams,
-which a primary phase cannot draw (``replicate_seed`` is the only stream a primary may read,
-``tests/unit/test_method_evidence.py``).  :data:`PRIMARY_SCENARIOS` is a placeholder: both
-regimes at n = 1,500 on this record's own fresh seed, reported rows that pass by declaration
-(``reported_scenarios``) so that they gate nothing.  :func:`assert_declared` refuses a declared
-run while :data:`PRIMARY_DESIGN_OPEN` is set; the design review rules on it.
+SE inside the union-model band.  The pooled-minus-fold-wise displacement is published, not
+gated.  ``publication_policy="gated"``.  A red row is a defect suspect, diagnosed and fixed
+under a fresh declaration; no replication is added after a verdict.
 
 **Budgets are planning values.**  :data:`PLANNING_BUDGETS` holds them, and
 :func:`assert_declared` refuses a declared run until the declaration commit sets
-:data:`BUDGETS_DECLARED` from the sizing rule (:data:`RULE`).
+:data:`BUDGETS_DECLARED` from the sizing rule (:func:`rule`), which sizes the primary rows and
+the paired cells as one family.
 """
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping
+from functools import cache
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_drtmle as canonical
 from tests.studies import drtmle_foldwise as foldwise
 from tests.studies import drtmle_properties as rm18
-from tests.studies.drtmle_foldwise_sizing import Rule, single
+from tests.studies.drtmle_foldwise_sizing import Pilot, Rule, pilot_from_rows, single
 from tests.studies.evidence import property_verdicts, replication
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, replicate_row
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
@@ -60,7 +62,7 @@ from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_
 from tests.studies.point_study_helpers import initial_estimates, primary_rows
 
 IMPLEMENTATION = foldwise.IMPLEMENTATION
-#: The placeholder primary phase's own seed, fresh: no registered study draws from it.
+#: The primary phase's own seed, fresh: no registered study draws from it.
 SEED = 2026111201
 #: Fresh entropy for every bootstrap of this record.
 RESAMPLING_SEED = 2026111211
@@ -74,50 +76,104 @@ FAMILY = "double_robustness"
 #: The replications each RM18 cell registered, which replications ``r < 800`` pair with.
 REGISTERED_REPLICATES = rm18.DOUBLE_ROBUST_REPLICATES
 
-#: Set while the plan names no primary phase for this record (module docstring).
-PRIMARY_DESIGN_OPEN = True
-
 # --------------------------------------------------------------------------------- the sizes
-#: Planning budgets, not declared ones.  ``cells`` is the paired floor of plan section 5 (each
-#: RM18 cell's 800); the sizing rule may raise it.  ``primary`` is the primaries' floor.
-PLANNING_BUDGETS: Mapping[str, int] = {"cells": 800, "primary": 1_000}
-#: ``False`` until the declaration commit sets the budgets from :data:`RULE` and the pilot.
+#: Planning budgets, not declared ones: ``primary`` per regime at the primaries' floor, and
+#: ``cells`` per cell at the paired floor (each RM18 cell's 800).  The sizing rule may raise
+#: either.
+PLANNING_BUDGETS: Mapping[str, int] = {"primary": 1_000, "cells": 800}
+#: ``False`` until the declaration commit sets the budgets from :func:`rule` and the pilot.
 BUDGETS_DECLARED = False
 #: The budgets the run uses.  They equal :data:`PLANNING_BUDGETS` until the declaration.
 BUDGETS: Mapping[str, int] = PLANNING_BUDGETS
 PRIMARY_REPLICATES = BUDGETS["primary"]
+#: The seed of the rule's planning draws.
+PLANNING_SEED = 2026111221
 
-#: The planning values of plan section 5, before the sizing pilot: ``treatment_correct`` about
-#: 0.12 SD, between the fold-wise 0.156 at n = 1,000 and 0.072 at 3,000 (``drtmle-foldwise``);
-#: ``outcome_correct`` about 0.08 SD, the pooled 0.19 at n = 1,500 less a displacement of about
-#: 0.11 scaled from 0.076 at 3,000.  Each carries the planning uncertainty of 800 replications,
-#: the RM18 cells' budget.  The pilot replaces both.
-PILOTS = {
-    "outcome_correct": single("Fix-6 plan section 5, interpolated", 800, "ate", 0.08),
-    "treatment_correct": single("Fix-6 plan section 5, interpolated", 800, "ate", 0.12),
-}
-#: The rule: one unit, both cells, from the paired floor.  The record's family-wise target is
-#: 0.95.
-RULE = Rule(
-    pilots=PILOTS,
-    units={"cells": (("outcome_correct", "treatment_correct"), PLANNING_BUDGETS["cells"])},
-    seed=2026111221,
-)
+#: The planning standardized bias of each regime's ``ate`` at n = 1,500, before the sizing
+#: pilot: ``treatment_correct`` about 0.12 SD, between the fold-wise 0.156 at n = 1,000 and
+#: 0.072 at 3,000 (``drtmle-foldwise``); ``outcome_correct`` about 0.08 SD, the pooled 0.19 at
+#: n = 1,500 less a displacement of about 0.11 scaled from 0.076 at 3,000.  Each carries the
+#: planning uncertainty of 800 replications, the RM18 cells' budget.  The pilot replaces both.
+PLANNING_ATE_BIAS: Mapping[str, float] = {"outcome_correct": 0.08, "treatment_correct": 0.12}
+PLANNING_SOURCE = "Fix-6 planning values, interpolated"
+
+
+@cache
+def planning_pilots() -> dict[str, Pilot]:
+    """The planning summaries of the primary rows and the cells, before the sizing pilot.
+
+    A primary pilot is ``drtmle-foldwise``'s fold-wise primary of the regime at n = 3,000
+    (R = 6,000): its correlation, SE ratios and coverages as they are, ``ate`` at
+    :data:`PLANNING_ATE_BIAS`, and ``ey0`` and ``ey1`` scaled by ``sqrt(2)`` to n = 1,500, as a
+    second-order bias is.  A cell pilot is ``ate`` at :data:`PLANNING_ATE_BIAS`, read on its
+    bias alone.  Every planning value carries the uncertainty of 800 replications.
+
+    Returns
+    -------
+    dict
+        ``primary_<regime>`` and ``cell_<regime>`` for each regime.
+    """
+    rows = pd.read_parquet(foldwise.STUDY.artifact("replicates.parquet"))
+    out: dict[str, Pilot] = {}
+    for scenario in SCENARIOS:
+        measured = pilot_from_rows(
+            rows.loc[rows["scenario"] == scenario],
+            source=f"drtmle-foldwise replicates.parquet, {scenario}, n = 3,000",
+            estimands=ESTIMANDS,
+        )
+        bias = tuple(
+            PLANNING_ATE_BIAS[scenario] if row == "ate" else round(value * float(np.sqrt(2)), 4)
+            for row, value in zip(measured.rows, measured.bias, strict=True)
+        )
+        out[f"primary_{scenario}"] = dataclasses.replace(
+            measured, source=f"{PLANNING_SOURCE}; {measured.source}", replicates=800, bias=bias
+        )
+        out[f"cell_{scenario}"] = single(PLANNING_SOURCE, 800, "ate", PLANNING_ATE_BIAS[scenario])
+    return out
+
+
+def rule(pilots: Mapping[str, Pilot] | None = None) -> Rule:
+    """The predictive rule of the record's family: the primary rows and the cells, jointly.
+
+    Two units share the family-wise target 0.95: ``primary`` (both regimes' primary rows, from
+    the primaries' floor) and ``cells`` (both paired cells, from the paired floor).
+
+    Parameters
+    ----------
+    pilots : Mapping or None
+        ``primary_<regime>`` and ``cell_<regime>`` summaries; :func:`planning_pilots` when
+        ``None``.
+
+    Returns
+    -------
+    Rule
+        The rule.
+    """
+    chosen = planning_pilots() if pilots is None else dict(pilots)
+    return Rule(
+        pilots=chosen,
+        units={
+            "primary": (
+                tuple(f"primary_{scenario}" for scenario in SCENARIOS),
+                PLANNING_BUDGETS["primary"],
+            ),
+            "cells": (
+                tuple(f"cell_{scenario}" for scenario in SCENARIOS),
+                PLANNING_BUDGETS["cells"],
+            ),
+        },
+        seed=PLANNING_SEED,
+    )
 
 
 def assert_declared() -> None:
-    """Refuse a declared run while the design or the budgets are open.
+    """Refuse a declared run while the budgets are planning values.
 
     Raises
     ------
     RuntimeError
-        While :data:`PRIMARY_DESIGN_OPEN` is set or :data:`BUDGETS_DECLARED` is ``False``.
+        While :data:`BUDGETS_DECLARED` is ``False``.
     """
-    if PRIMARY_DESIGN_OPEN:
-        raise RuntimeError(
-            "drtmle-foldwise-n1500 has a placeholder primary phase; the design review rules on "
-            "it before any declared run"
-        )
     if not BUDGETS_DECLARED:
         raise RuntimeError(
             "drtmle-foldwise-n1500 budgets are planning values; the sizing pilot and the "
@@ -143,7 +199,6 @@ STUDY = StudyRecord(
     implementation=IMPLEMENTATION,
     reference=None,
     failure_bound={IMPLEMENTATION: 0.01},
-    reported_scenarios=frozenset(PRIMARY_SCENARIOS),
     modules=(
         "tests/studies/drtmle_foldwise_n1500.py",
         "tests/studies/drtmle_foldwise_sizing.py",
@@ -182,10 +237,9 @@ CONFIGURATION: dict[str, Any] = {
     },
     "draws": (
         "each cell draws the canonical-drtmle RM18 cell's property stream, so replication "
-        "r < 800 is that cell's registered replication r; the placeholder primary phase draws "
-        "this record's own seed"
+        "r < 800 is that cell's registered replication r; the primary phase draws this "
+        "record's own fresh seed"
     ),
-    "primary_design": "open: placeholder reported rows, pending the design review",
     "comparator_reason": "R drtmle has no fold-wise reduced-regression construction",
 }
 
