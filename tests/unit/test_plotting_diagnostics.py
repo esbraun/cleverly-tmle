@@ -43,6 +43,7 @@ from cleverly.plotting import (
     repeats,
 )
 from cleverly.plotting import _diagnostics as diagnostics_module
+from tests.unit.test_plotting_core import assert_no_note_text
 
 pytestmark = pytest.mark.xdist_group("plotting_diagnostics")
 
@@ -225,7 +226,7 @@ def test_v16_points_are_the_report_bins(result: Any) -> None:
     points = _offsets(ax, "cleverly-calibration-points")
     np.testing.assert_allclose(points[:, 0], table["mean_predicted"])
     np.testing.assert_allclose(points[:, 1], table["mean_observed"])
-    assert _title(fig) == "Are the predicted probabilities calibrated?"
+    assert _title(fig) == "Calibration of predicted probabilities"
     assert ax.get_title(loc="left") == "Treatment model"
     assert ax.get_xlabel() == "Mean predicted probability"
     assert ax.get_ylabel() == "Observed rate"
@@ -240,7 +241,7 @@ def test_v16_has_a_45_degree_line_and_the_logistic_slope(result: Any) -> None:
     np.testing.assert_allclose(x, y)
     assert x[1] > x[0]
     slope = report.metrics["calibration_slope"]
-    assert "Logistic calibration slope of the out-of-fold predictions" in _subtitle(fig)
+    assert "Out-of-fold calibration slope" in _subtitle(fig)
     assert f"{slope:.2f}" in _subtitle(fig)
     # the slope is read from the report, not recomputed from the drawn bins
     moved = replace(report, metrics={**report.metrics, "calibration_slope": 0.4321})
@@ -272,10 +273,8 @@ def test_v16_draws_no_interval_and_says_descriptive(result: Any) -> None:
     assert not ax.patches and not [c for c in ax.collections if "PolyCollection" in str(type(c))]
     assert len(ax.get_lines()) == 1  # the 45-degree line only: no error bars
     assert _has_descriptive_note(fig)
-    # mutation control: with the note removed the check must fail
-    for text in fig.texts:
-        if text.get_gid() == _core.GID_NOTES:
-            text.set_text("")
+    # mutation control: with the notes removed the check must fail
+    fig._cleverly_notes = []  # type: ignore[attr-defined]
     assert not _has_descriptive_note(fig)
 
 
@@ -378,7 +377,7 @@ def test_v8_points_are_the_bins_and_the_slope_is_the_objects(curve_calibration: 
     points = _offsets(ax, "cleverly-calibration-points")
     np.testing.assert_allclose(points[:, 0], curve_calibration.bins["mean_prediction"])
     np.testing.assert_allclose(points[:, 1], curve_calibration.bins["pseudo_outcome_contrast"])
-    assert _title(fig) == "Do the predicted effects match the measured ones?"
+    assert _title(fig) == "Predicted and measured effects"
     assert ax.get_xlabel() == "Mean predicted effect in the bin"
     assert ax.get_ylabel() == "Measured effect (doubly robust contrast)"
     x, y = _diagonal(ax).get_xdata(), _diagonal(ax).get_ydata()
@@ -461,7 +460,7 @@ def test_v15_super_learner_draws_risk_and_weight_in_the_same_order(ensemble: Any
     np.testing.assert_allclose(risks, np.asarray(ensemble.cv_risk)[order])
     np.testing.assert_allclose(weights, np.asarray(ensemble.weights)[order])
     assert [t.get_text() for t in left.get_yticklabels()] == [ensemble.names[i] for i in order]
-    assert _title(fig) == "Which learners carry the fit?"
+    assert _title(fig) == "Learner risks and weights"
     assert left.get_xlabel() == "Cross-validated risk (squared error)"
     assert right.get_xlabel() == "Ensemble weight"
     assert _has_descriptive_note(fig)
@@ -528,7 +527,7 @@ def test_v15_ctmle_draws_the_risk_along_the_sequence(selection: Any) -> None:
         chosen.get_offsets()[0], [selection.selected, selection.cv_risk[selection.selected]]
     )
     assert to_hex(chosen.get_facecolor()[0]) == PALETTE[0]  # filled, not the hollow no-interval
-    assert _title(fig) == "How sharp was the choice of treatment model?"
+    assert _title(fig) == "Treatment model selection"
     assert ax.get_xlabel() == "Candidate along the search path (0 = first)"
     assert _has_descriptive_note(fig)
 
@@ -584,10 +583,10 @@ def test_v17_repeats_points_are_the_per_repeat_estimates(result: Any) -> None:
     reference = _lines(ax, _core.GID_REFERENCE)
     assert len(reference) == 1
     assert reference[0].get_xdata()[0] == pytest.approx(result["ate"].psi)
-    assert _title(fig) == "Does the estimate depend on how the data were split?"
+    assert _title(fig) == "Estimate across repeated splits"
     assert [t.get_text() for t in ax.get_yticklabels()] == ["Repeat 1", "Repeat 2", "Repeat 3"]
     assert f"{float(result.repeat_spread()['ate']):.3g}" in _subtitle(fig)
-    assert _subtitle(fig).startswith("Average effect (ate):")
+    assert _subtitle(fig).startswith("Average effect:")
     assert _has_descriptive_note(fig)
 
 
@@ -657,7 +656,7 @@ def test_v17_bootstrap_histogram_is_a_density_of_the_draws(result: Any) -> None:
     draws = np.asarray(result.bootstrap.draws["ate"], dtype=float)
     assert bars[0].get_x() == pytest.approx(draws.min())
     assert bars[-1].get_x() + bars[-1].get_width() == pytest.approx(draws.max())
-    assert _title(fig) == "Is the bootstrap distribution close to normal?"
+    assert _title(fig) == "Bootstrap replicates"
     assert ax.get_ylabel() == "Density of replicates"
 
 
@@ -838,7 +837,7 @@ def test_v19_exact_check_on_a_hand_influence_curve() -> None:
     (top,) = [c for c in ax.collections if c.get_gid() == "cleverly-influence-top"]
     np.testing.assert_allclose(top.get_offsets()[0], [0.01, 9.0 / 116.0])
     assert "the top 1% of rows (1 of 100) carry 7.8%" in _subtitle(fig)
-    assert _title(fig) == "How concentrated is the uncertainty?"
+    assert _title(fig) == "Concentration of the uncertainty"
     assert ax.get_xlabel() == "Top share of rows, largest squared influence first"
     assert ax.get_ylabel() == "Share of the sum of squared influence values"
     diagonal = _diagonal(ax)
@@ -1001,11 +1000,11 @@ def test_plot_methods_call_the_functions(
     curve_calibration: Any,
 ) -> None:
     report = result.diagnostics.nuisance_models().models[0]
-    assert _title(report.plot()) == "Are the predicted probabilities calibrated?"
-    assert _title(curve_calibration.plot()) == "Do the predicted effects match the measured ones?"
-    assert _title(ensemble.plot()) == "Which learners carry the fit?"
-    assert _title(selection.plot()) == "How sharp was the choice of treatment model?"
-    assert _title(result.bootstrap.plot("ate")) == "Is the bootstrap distribution close to normal?"
+    assert _title(report.plot()) == "Calibration of predicted probabilities"
+    assert _title(curve_calibration.plot()) == "Predicted and measured effects"
+    assert _title(ensemble.plot()) == "Learner risks and weights"
+    assert _title(selection.plot()) == "Treatment model selection"
+    assert _title(result.bootstrap.plot("ate")) == "Bootstrap replicates"
 
 
 def test_a_callers_axes_takes_the_header_and_notes(result: Any) -> None:
@@ -1013,7 +1012,7 @@ def test_a_callers_axes_takes_the_header_and_notes(result: Any) -> None:
     fig, ax = plt.subplots()
     returned = repeats(result, ax=ax)
     assert returned is fig and not fig.texts
-    assert ax.get_title(loc="left") == "Does the estimate depend on how the data were split?"
+    assert ax.get_title(loc="left") == "Estimate across repeated splits"
     assert _core.subtitle_text(ax) and _has_descriptive_note(fig)
 
 
@@ -1053,8 +1052,10 @@ def _style_checks(fig: Any) -> None:
     """Opaque white face, a title, labelled axes, and only palette colours.
 
     Every coloured (not grey) line, collection and patch, whatever its gid, must wear a
-    palette colour, and an axes needs a y label or row labels in its ticks.
+    palette colour, and an axes needs a y label or row labels in its ticks. No figure draws
+    a note.
     """
+    assert_no_note_text(fig)
     assert to_hex(fig.get_facecolor(), keep_alpha=True) == "#ffffffff"
     assert _title(fig)
     positions = [tuple(np.round(ax.get_position().bounds, 6)) for ax in fig.axes]
@@ -1159,6 +1160,49 @@ def test_every_figure_renders_to_a_png(
         path = tmp_path / f"figure-{index}.png"
         fig.savefig(path, dpi=60)
         assert path.stat().st_size > 1000
+
+
+def _cropped_text(fig: Any) -> list[str]:
+    """The figure-level title, subtitle and key a tight bounding box would cut."""
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    tight = fig.get_tightbbox(renderer).transformed(fig.dpi_scale_trans)
+    gids = {_core.GID_TITLE, _core.GID_SUBTITLE}
+    artists = [text for text in fig.texts if text.get_gid() in gids] + list(fig.legends)
+    assert artists, "the figure has no figure-level header"
+    cut = []
+    for artist in artists:
+        box = artist.get_window_extent(renderer)
+        inside = (
+            box.x0 >= tight.x0 - 0.5
+            and box.x1 <= tight.x1 + 0.5
+            and box.y0 >= tight.y0 - 0.5
+            and box.y1 <= tight.y1 + 0.5
+        )
+        if not inside:
+            label = artist.get_text() if isinstance(artist, Text) else "key"
+            cut.append(label)
+    return cut
+
+
+def test_a_tight_save_keeps_the_figure_level_header(
+    result: Any,
+    ensemble: Any,
+    selection: Any,
+    curve_calibration: Any,
+    library_fit: Any,
+) -> None:
+    # Jupyter's inline display and savefig(bbox_inches="tight") crop to the tight box.
+    for fig in _figures(result, ensemble, selection, curve_calibration, library_fit):
+        assert _cropped_text(fig) == [], _core.title_text(fig)
+
+
+def test_a_header_left_out_of_the_layout_is_cropped(result: Any) -> None:
+    # Mutation control: the check above must see a header the tight box drops.
+    fig = repeats(result)
+    title = next(text for text in fig.texts if text.get_gid() == _core.GID_TITLE)
+    title.set_in_layout(False)
+    assert _cropped_text(fig) == [title.get_text()]
 
 
 def test_importing_the_plotting_package_does_not_import_matplotlib() -> None:

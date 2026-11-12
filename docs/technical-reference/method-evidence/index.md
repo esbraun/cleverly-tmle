@@ -93,6 +93,7 @@ ep-crr
 ep-assessment
 learned-rule-ep
 targeting-curves
+score-assessment
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 dose-response
@@ -109,6 +110,7 @@ longitudinal-incremental-interventions-dropout
 eliminated-competing-events
 separable-effects
 survival-ctmle
+survival-dr-tmle
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries

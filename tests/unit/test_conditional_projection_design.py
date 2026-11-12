@@ -215,6 +215,11 @@ def test_the_family_wise_rate_at_the_piloted_ratios(numbers: dict) -> None:
     per ensemble row at 960) counts as miscalibration.  The rows of each learner spread no
     more than that noise (Cochran's Q), so the pooled reading shrinks each row to its
     learner's common ratio.  Both numbers are recorded here; the declaration is unchanged.
+
+    The ``assess_score_2k`` rows are the TMLE score assessment of X97, piloted at 2,400 draws
+    on the same stream for the fresh declaration (they held the one-step's ratios before).  At
+    ``R_GLM = 4,800`` the pooled family reads 0.9617 (0.962 with the one-step rows too), so
+    ``R_GLM`` stays.
     """
     for cell, row in numbers["calibration"].items():
         assert 0.0 <= row["pass_at_pilot"] <= 1.0, cell
@@ -225,8 +230,21 @@ def test_the_family_wise_rate_at_the_piloted_ratios(numbers: dict) -> None:
     assert numbers["pilot_homogeneity"]["ensemble"]["common_ratio"] == pytest.approx(
         1.0120, abs=1e-4
     )
-    assert numbers["calibration_family_pilot"] == pytest.approx(0.779, abs=1e-3)
-    assert numbers["calibration_family_pooled"] == pytest.approx(0.962, abs=1e-3)
+    assert numbers["calibration_family_pilot"] == pytest.approx(0.7792, abs=1e-4)
+    assert numbers["calibration_family_pooled"] == pytest.approx(0.9617, abs=1e-4)
+    assess = {
+        cell: row["pilot_ratio"]
+        for cell, row in numbers["calibration"].items()
+        if cell.startswith("assess_score_2k_")
+    }
+    assert assess == pytest.approx(
+        {
+            "assess_score_2k_risk_difference__correctly_specified": 1.00854,
+            "assess_score_2k_calibration_intercept__correctly_specified": 1.00609,
+            "assess_score_2k_calibration_S__correctly_specified": 1.00494,
+        },
+        abs=1e-5,
+    )
     assert numbers["calibration_family_pooled"] >= 0.95
 
 

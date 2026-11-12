@@ -2,7 +2,10 @@
 
 Each function draws numbers the object already holds, labels them in words, and never draws
 an interval or band the fit did not compute. A result whose inference is withheld draws its
-points and says why in the note under the figure; an experimental result says so there.
+points with no interval. The figure carries no notes: :func:`notes` returns what a reader of
+one fit may need, such as why an interval is missing or that the fit or its band is
+experimental (its interval has no checked coverage), and ``summary()`` prints the same
+statements for the result. Check one of them before you publish a figure.
 
 matplotlib is an optional dependency (``pip install "cleverly[plot]"``). Importing
 :mod:`cleverly` or this module does not import it; the first plot does.
@@ -33,7 +36,7 @@ function                question
 from __future__ import annotations
 
 from ._confounding import confounding
-from ._core import PALETTE, style
+from ._core import PALETTE, notes, style
 from ._curves import curve
 from ._diagnostics import bootstrap, calibration, influence, learners, repeats
 from ._forest import forest
@@ -53,6 +56,7 @@ __all__ = [
     "forest",
     "influence",
     "learners",
+    "notes",
     "overlap",
     "repeats",
     "sensitivity",

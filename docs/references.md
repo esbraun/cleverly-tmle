@@ -23,6 +23,29 @@ previous reader had is not a citation; a page number is.
   5.1, article pages 27–28, treats CAR-censored parameters. Its Equation (11) is the targeted influence-curve
   equation after the observed-data curve is known. It does not derive RM8's missing-outcome curve
   or response transfer.
+- Díaz (2019), [*Statistical inference for data-adaptive doubly robust estimators with survival
+  outcomes*](https://arxiv.org/abs/1709.00401), *Statistics in Medicine* 38(15):2735–2748. Read
+  first-hand in the arXiv author manuscript, arXiv:1709.00401v3, from its LaTeX source and PDF;
+  the journal version was not read. Section 5 gives the drift-corrected
+  estimator that `SurvivalDRTMLE` implements: the univariate regressions of eqs. (7) and (8), the
+  clever covariates of eq. (9), the submodels (14) to (16) and the influence curve of Theorem 2.
+
+  The printed eq. (9) and Theorem 1 carry four defects, each found by an exact finite-law check of
+  the drift identity and traced through the Supplementary proof of Theorem 1. The proof applies its
+  telescoping lemma to $G_0 - \hat G$ with $\{g_{R,0} - \hat g_R\}$ where the lemma gives
+  $\{\hat g_R - g_{R,0}\}$, so the score $D_R$ carries the wrong sign and the $e_R$ sum inside
+  $H_L$ carries the sign of the $e_A$ term where it should carry the opposite one. The products in
+  the $e_A$ term are printed $D_{t,0}(t) B_{t,0}(t-1)$, conditioned on $C_h(t)$; the term telescopes
+  to $S_0(\tau) - \hat S(\tau)$, so they condition on $C_h(0) = S(\tau)$, the index of $q_0$, and
+  are $D_{0,0}(t) B_{0,0}(t-1)$. Eq. (7) conditions $e_A$ on $M(W) = \sum_t S(t, W)$, the
+  restricted-mean index; for the survival probability it conditions on $S(\tau, W)$.
+  `cleverly.longitudinal.drift` states the corrected forms, and
+  `tests/unit/test_survival_drtmle.py` holds the exact-law checks and a mutation control for each.
+
+  Two further slips do not change the estimator. Theorem 2 prints its consistency pairs swapped:
+  $D_A = D_R = 0$ follows from a consistent hazard and $D_L = 0$ from consistent treatment and
+  censoring mechanisms, as the paper's own Lemma A and proof of Theorem 1 give. The proof's last
+  display for $D_L$ writes $S_{k,0}(t)$ where eq. (9) has $D_{k,0}(t)$.
 - Díaz Muñoz & van der Laan (2012), [*Population Intervention Causal Effects Based on
   Stochastic Interventions*](https://doi.org/10.1111/j.1541-0420.2011.01685.x), *Biometrics*
   68(2):541–549, DOI 10.1111/j.1541-0420.2011.01685.x. Read first-hand in the PubMed Central
@@ -2635,8 +2658,9 @@ the EP learner, and the next two for the targeting curves of a priority score.
   Examples 1 and 2 (equations (2) and (3)), define the conditional average treatment effect and
   the log conditional relative risk as the minimizers of a risk, and Lemma 16 gives the strict
   convexity of the log-ratio risk. Theorem 1, specialized in Section 3.1, gives the efficient
-  influence curve of the risk of a fixed function, which `assess_score` uses for an external
-  score. Section 4, Example 1, identifies the debiasing regression with a linear class of fixed
+  influence curve of the risk of a fixed function, from which `assess_score` estimates the risk
+  of an external score, and by linearity the paired risk difference of two, by TMLE. Section 4,
+  Example 1, identifies the debiasing regression with a linear class of fixed
   size as a TMLE of the best linear projection of the effect. The paper states no
   identification conditions; the package takes them from its point-treatment contract. The EP
   learner (`method="ep"`) follows Algorithms 2 to 4 and App C.1, Method 1. Theorems 4 and 5 give

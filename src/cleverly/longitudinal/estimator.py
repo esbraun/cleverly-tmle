@@ -186,6 +186,7 @@ from ..interventions import RiskRatioTilt
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
     from .collaborative import SurvivalSelection
+    from .drift import DriftRecord
 from .._summary import Detail, Summary, check_detail
 from ..interventions.policy import Support as DeclaredSupport
 from ..learners._fitting import supports_sample_weight
@@ -1645,6 +1646,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         collaborative selection of each ``(arm label, horizon)``: its path, its
         cross-validated risk and the move count it chose.  ``None`` on every other fit.
         Keyword-only.
+    drift : dict of tuple to DriftRecord or None
+        On a :class:`~cleverly.longitudinal.drift.SurvivalDRTMLE` fit, the drift correction
+        of each ``(arm label, horizon)``: its loop, its held factors and its regressions.
+        ``None`` on every other fit.  Keyword-only.
     estimator : object or None
         The estimator settings the fit ran under, with no bootstrap and no simultaneous
         band, which a refutation refits.  ``None`` on a result built by hand.  Keyword-only.
@@ -1745,6 +1750,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: On a :class:`~cleverly.longitudinal.collaborative.SurvivalCTMLE` fit, the selection
     #: record of each ``(arm label, horizon)``.  ``None`` on every other fit.
     selection: dict[tuple[str, int], SurvivalSelection] | None = field(default=None, kw_only=True)
+    #: On a :class:`~cleverly.longitudinal.drift.SurvivalDRTMLE` fit, the drift record of
+    #: each ``(arm label, horizon)``.  ``None`` on every other fit.
+    drift: dict[tuple[str, int], DriftRecord] | None = field(default=None, kw_only=True)
     #: The estimator settings the fit ran under, which :meth:`_SequentialEstimator.refit`
     #: runs again on a changed container.  ``None`` on a result built by hand.
     estimator: Any = field(default=None, kw_only=True, compare=False, repr=False)
@@ -2391,6 +2399,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         ('rmst_regimen[always vs never @ t=3]', 'difference')
         """
         self._refuse_curve_functional("RMST")
+        if self.drift is not None:
+            from .drift import RMST_REFUSAL
+
+            raise CapabilityError(refusal=RMST_REFUSAL)
         causes: tuple[str | None, ...] = self.data.cause_labels or (None,)
         node, spacings = self._restriction(horizon, "RMST")
         names = self._risk_names(regimen, node, causes, "RMST")
@@ -4597,9 +4609,9 @@ class _SequentialEstimator:
             )
         if getattr(self, "targeting", None) != "one_step":
             refuse(
-                "a Separable regimen is targeted by the one-step walk over the two hazard "
-                "factors; the per-horizon algorithm restarts at each horizon and has no "
-                "factor-wise form.",
+                "a Separable regimen targets the two hazard factors at every horizon at "
+                "once, in the separable engine behind targeting='one_step'; the per-horizon "
+                "algorithm restarts at each horizon and does not target the factors apart.",
                 "Set targeting='one_step'.",
                 reason=RefusalReason.API_REDIRECTION,
             )
@@ -9232,6 +9244,10 @@ def longitudinal_truncation_curve(
         from .collaborative import TRUNCATION_REFUSAL
 
         raise CapabilityError(refusal=TRUNCATION_REFUSAL)
+    if result.drift is not None:
+        from .drift import TRUNCATION_REFUSAL as DRIFT_TRUNCATION_REFUSAL
+
+        raise CapabilityError(refusal=DRIFT_TRUNCATION_REFUSAL)
     if result.config.estimator == "gcomp":
         raise CapabilityError(refusal=GCOMP_TRUNCATION_REFUSAL)
     if result.config.estimator == "parametric_gformula":

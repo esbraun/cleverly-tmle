@@ -445,21 +445,40 @@ $\tilde S(k-1)/S(k-1 \mid a)$ does not cancel, and `g_bounds=` does not bound th
 **Targeting.** `cleverly.longitudinal.separable` targets each factor apart, on the logit scale of
 $\lambda_D$ and of $h_Y$, with one coefficient per factor and per target, along the one-step walk
 of the hazard engine. When the walk's relative score stops halving over 50 steps, the fit
-continues with Newton steps on the same factor-wise submodel at the current covariates, the
-classical iterative TMLE, and reports the state with the smallest relative score. Both phases
-solve the same factor scores, so the robustness below holds for either.
+continues with the classical iterative TMLE (van der Laan and Rubin 2006): it freezes the clever
+covariates, fits each factor's coefficients by maximum likelihood on that factor's rows, and
+recomputes the covariates. If that stops short, Newton steps on the full Jacobian of the factor
+scores finish the fit. Each phase is capped (30 iterative updates, 20 Newton steps, and six steps
+without a 10% fall in the relative score), and the fit reports the state with the smallest
+relative score; `HazardFit.phase` names the phase that reached it. Every phase moves each factor
+only along its own covariates at its own level, so the robustness below holds whichever phase
+converges. The reported state is a finite number of finite-dimensional fluctuations of the
+initial fit, so the structure of the cross-fitted argument of Zheng and van der Laan (2011) applies to it; that
+needs the caps.
 
 The static arms of the same fit go through the same walk as separable interventions with equal levels, so one pair of
 factors carries every reported curve. At the truth this is the shipped static estimate and curve.
 From a fitted start it is a different TMLE of the same static parameter. The initial hazards are
 fitted in the declared order.
 
-With cross-fitted initial hazards, a separable fit can stop short of `tol` and warn. An
-out-of-fold start does not solve the cell scores, and when targets outnumber the free cells of a
-factor at a level, part of the remaining score lies along nearly redundant target directions,
-which none of the solvers tried brings within `tol`. In the `separable-effects` pilot at
-n = 16,000 this happened in 2.6% of two-fold primary fits and 2.2% of 8,000 calibration fits, at
-relative scores between $10^{-3}$ and $2 \times 10^{-2}$, and never in sample.
+With cross-fitted initial hazards, the root lies far from an out-of-fold start. In the
+`separable-effects` study the 12 targets that move a factor at a level have rank 10 or 11 among
+its 12 (fold, $W$, node) cells, so solving their scores pulls those cells toward their own fold's
+empirical hazard, by up to two logits. Along the one or two directions per factor that the
+targets leave free, the reported state depends on the solver's path: on 60 draws of that study,
+a prototype of two solvers that both reach `tol` gave estimates up to 0.13 standard errors
+apart.
+
+When the rows of a cell hold no event of a cause (or only such events), that cell's score is
+solved only at a hazard of zero (or one), outside the bound set by `alpha`. The fit then
+stops with the cell on the bound, warns, and reports `failure="cell_separated"`, as separation
+stops a logistic regression. In the `separable-effects` study at n = 16,000 this happened in
+102 of 15,600 two-fold fits (0.65%), at relative scores of at most $2.3 \times 10^{-5}$, and
+never in sample. Three more two-fold fits stopped at 1.2 to 2.4 times `tol`
+(`failure="newton_stalled"`): their remaining score lies in two directions where the Jacobian of
+the scores is singular to rounding, which the Newton steps discard. Steps forced along them reach
+a root within `tol` that moves no estimate by more than 0.0015 standard errors
+(`tests/studies/separable_effects_stalls.py`).
 
 **Robustness.** With the treatment and censoring mechanisms right, the estimate is consistent when
 $\lambda_D$ is right at both levels or $h_Y$ is right at both levels, the counterparts of

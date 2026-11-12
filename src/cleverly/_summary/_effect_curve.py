@@ -245,14 +245,14 @@ def _ep_summary(result: Any, *, detail: str) -> Summary:
 
 
 def score_assessment_summary(result: Any, *, detail: str = "short") -> Summary:
-    """Build the summary of the check of an external score.
+    """Build the summary of the check of an external score, or of the comparison of two.
 
     Parameters
     ----------
     result : ScoreAssessment
         The check.
     detail : {"short", "full"}
-        ``"full"`` adds the p-value of each estimate.
+        ``"full"`` adds the p-value of each estimate and the fluctuation's span record.
 
     Returns
     -------
@@ -261,46 +261,113 @@ def score_assessment_summary(result: Any, *, detail: str = "short") -> Summary:
     """
     detail = check_detail(detail)
     scale = "difference (CATE)" if result.scale == "difference" else "log ratio (log CRR)"
-    estimates = list(result.estimates.items())
-    level = share_text(1.0 - estimates[0][1].alpha)
+    rows_of = result.rows()
+    estimates = [estimate for _, _, estimate in rows_of]
+    level = share_text(1.0 - estimates[0].alpha)
+    question = f"how well {result.column} predicts the conditional effect"
+    if result.compare is not None:
+        question += f", compared with {result.compare}"
     header = [
-        (vocabulary.QUESTION, f"how well {result.column} predicts the conditional effect"),
+        (vocabulary.QUESTION, question),
         (vocabulary.CURVE_SCALE, scale),
-        (vocabulary.METHOD, "one-step estimates from an ATE fit's models"),
+        (vocabulary.METHOD, vocabulary.SCORE_ASSESSMENT_METHOD),
+        (vocabulary.CURVE_STATUS, result.status),
     ]
-    values = [abs(float(v)) for _, e in estimates for v in (e.psi, e.std_error, *e.ci)]
+    shown = [e for e in estimates if e.supplies_inference]
+    values = [abs(float(e.psi)) for e in estimates] + [
+        abs(float(v)) for e in shown for v in (e.std_error, *e.ci)
+    ]
     places = decimals_for(np.asarray(values))
-    columns = ("parameter", "estimate", "std err", "lower", "upper")
     rows = []
-    for name, estimate in estimates:
-        low, high = (float(v) for v in estimate.ci)
-        row = [
-            Cell(name, name),
+    for score, name, estimate in rows_of:
+        # The score column names the pair, so the paired row prints its parameter bare.
+        parameter = "risk_difference" if name == result.paired_name else name
+        cells = [
+            Cell(score, score),
+            Cell(parameter, parameter),
             Cell(float(estimate.psi), number_text(float(estimate.psi), places)),
-            Cell(float(estimate.std_error), number_text(float(estimate.std_error), places)),
-            Cell(low, number_text(low, places)),
-            Cell(high, number_text(high, places)),
         ]
-        rows.append(tuple(row))
+        if estimate.supplies_inference:
+            low, high = (float(v) for v in estimate.ci)
+            error = float(estimate.std_error)
+            cells += [
+                Cell(error, number_text(error, places)),
+                Cell(low, number_text(low, places)),
+                Cell(high, number_text(high, places)),
+            ]
+        else:
+            cells += [Cell(None, vocabulary.NO_INFERENCE_MARK)] * 3
+        label = estimate.support.label
+        cells.append(Cell(label, label))
+        rows.append(tuple(cells))
+    columns = f"each of {result.column} and {result.compare}" if result.compare else result.column
     notes = [
         note(
             "score_external",
-            vocabulary.NOTE_TEXTS["score_external"].format(column=result.column),
+            vocabulary.NOTE_TEXTS["score_external"].format(column=columns),
         )
     ]
+    if result.compare is not None:
+        notes.append(
+            note(
+                "score_paired",
+                vocabulary.NOTE_TEXTS["score_paired"].format(
+                    column=result.column, compare=result.compare
+                ),
+            )
+        )
+    if not all(e.supplies_inference for e in estimates):
+        notes.append(
+            note(
+                "score_withheld",
+                vocabulary.NOTE_TEXTS["score_withheld"].format(mark=vocabulary.NO_INFERENCE_MARK),
+            )
+        )
+    if result.status == "experimental":
+        reason = " ".join(
+            part[:1].upper() + part[1:] + "." for part in result.status_reason.split("; ") if part
+        )
+        notes.append(
+            note(
+                "score_experimental",
+                vocabulary.NOTE_TEXTS["score_experimental"].format(reason=reason),
+            )
+        )
+    sections = []
+    if detail == "full":
+        sections.append(
+            SummarySection(
+                "P-values against 0",
+                tuple(
+                    f"{score}, {'risk_difference' if name == result.paired_name else name}: "
+                    + (f"{float(e.pvalue):.3g}" if e.supplies_inference else vocabulary.MISSING)
+                    for score, name, e in rows_of
+                ),
+            )
+        )
+        span = result.span
+        sections.append(
+            SummarySection(
+                vocabulary.SCORE_ASSESSMENT_SPAN_TITLE,
+                (
+                    vocabulary.SCORE_ASSESSMENT_SPAN_LINE.format(
+                        rank=count_text(int(span["rank"])),
+                        columns=count_text(int(span["columns"])),
+                        norm=f"{float(span['score_norm']):.2g}",
+                    ),
+                ),
+            )
+        )
     return Summary.build(
         title=vocabulary.SCORE_ASSESSMENT_TITLE,
         header=header,
-        tables=[SummaryTable(columns, tuple(rows), title=f"Estimates with {level} intervals")],
+        tables=[
+            SummaryTable(
+                vocabulary.SCORE_ASSESSMENT_COLUMNS,
+                tuple(rows),
+                title=f"Estimates with {level} intervals",
+            )
+        ],
         notes=notes,
-        sections=(
-            [
-                SummarySection(
-                    "P-values against 0",
-                    tuple(f"{name}: {float(e.pvalue):.3g}" for name, e in estimates),
-                )
-            ]
-            if detail == "full"
-            else []
-        ),
+        sections=sections,
     )

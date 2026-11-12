@@ -5,14 +5,16 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-projection-tmle",
-      "cleverly_version": "0.2.0",
-      "cleverly_commit": "00a9c83955e9c046adcff9f27780c375530f8c24",
+      "cleverly_version": "0.2.3",
+      "cleverly_commit": "c449be6fafafea063e54d0ed380c2121f3c66683",
       "cleverly_worktree_clean": true,
-      "python": "3.13.18",
-      "numpy": "2.5.3",
+      "python": "3.13.16",
+      "numpy": "2.5.4",
       "scipy": "1.18.1",
-      "pandas": "3.0.5",
-      "scikit_learn": "1.9.1"
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
     },
     "reference": null
   },
@@ -78,20 +80,20 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/conditional_projection.py": "d377dbb8e6ab03f3f61092bc2e52a05404c825e6a40f6b3bdfb99788bbdabb05",
-    "tests/studies/conditional_projection_properties.py": "35fa09dabeb48a7874ff92c7ad35f1eb5bb8a27dbf3a7963842b1ce754de9630",
+    "tests/studies/conditional_projection.py": "1a144ff826cc69afb1b8ab92979a7de0ee6c06fb98df7baf0709f4d99688364f",
+    "tests/studies/conditional_projection_properties.py": "a8d05fa79bbce3087ed7fc50b2a85a41d6b53991b8db66a602997719c179b466",
     "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
-    "tests/studies/evidence/property_verdicts.py": "c23ec6ca777d6bd662b759bdf3e09bd98afef526ba9ef7f2b3527e8a83146fea",
-    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "tests/studies/evidence/property_verdicts.py": "f7130e95147b06e2ab81f13704a921effb783b94a72a3e9a94050614d68f7699",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.parquet": "43ec63b5b7600a4e4c2bf706da6ee412ffe629b5704e0fac1536a550e066bde6",
-    "summary.csv": "09e84c57c747926bc1db42e7c4c1fd7ef948b42a515bcf79d252105ae9223d22",
+    "replicates.parquet": "f14f29c2d11d8a9675e318b6904880eecdc8d4e9b510cfe0f480b216670372c3",
+    "summary.csv": "298420aa05cb9d04befa93b2ae89f119a79567567766e60dfd7c49429e353c37",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "37292b5c4cf03608c06b64825eeda5f517d57d683cf15fb4d5856c7d531e6cf3",
-    "property-replicates.parquet": "2941058d19c60a40255db7a942741cee40b6ba9cbaf42a1c02f4ea248128bbce",
-    "properties.csv": "7a49ba9bdd5a2c7b529f5e2dbe2430fb25ea8889b16c61b8a7acc452406d09fe"
+    "performance-tests.csv": "ae7f0fcd159defbc1445d468b1a9213993aa491b7ed36f09e174a88f8a19d786",
+    "property-replicates.parquet": "5e4d4c792fa39559218827f8473480e07b6a955bb892bdeaefc548e7f82f691a",
+    "properties.csv": "a9a87dcf212f0ad135161b045af52b4fca75826fcc4b0473a55286c96a56352f"
   }
 }

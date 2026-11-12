@@ -241,22 +241,20 @@ def truncation(
     decimals = [fitted_bound / 10.0]
     low_text, high_text = _core.format_values([fitted_bound, fitted_upper], decimals * 2)
     if symmetric:
-        bottom.set_xlabel("Lower limit on each arm's probability (log scale)")
-        # Non-breaking spaces keep the interval on one line when the subtitle wraps.
-        how = "each arm's probability capped to [limit,\u00a01\u00a0-\u00a0limit]"
+        bottom.set_xlabel(
+            "Lower limit; each arm's probability capped to [limit, 1 - limit] (log scale)"
+        )
         used = f"the fit used [{low_text}, {high_text}]"
     elif one_sided:
         bottom.set_xlabel("Lower limit on the probability in the weight (log scale)")
-        how = "the probability in the weight held at or above the limit"
         used = f"the fit used {low_text}"
     else:
-        bottom.set_xlabel("Lower limit of each pair of limits (log scale)")
-        how = "the probabilities capped to each declared pair of limits"
+        bottom.set_xlabel("Lower limit of each declared pair of limits (log scale)")
         used = f"the fit used [{low_text}, {high_text}]"
     _core.header(
         top,
-        title or "Does the estimate depend on the limits on the probabilities?",
-        f"{_core.estimand_words(chosen)}, re-estimated with {how}; {used}",
+        title or "Estimate across probability limits",
+        f"{_core.estimand_words(chosen)} re-estimated at each limit; {used}",
     )
     found = []
     supports = pick("support")
@@ -277,7 +275,7 @@ def truncation(
         )
     if not any(fitted):
         found.append("The limit the fit used is not on this grid.")
-    _core.notes(bottom, [*found, *_warnings(curve), _others(estimands, chosen) or ""])
+    _core.add_notes(bottom, [*found, *_warnings(curve), _others(estimands, chosen) or ""])
     return fig
 
 
@@ -351,17 +349,17 @@ def marginal(
     words = _core.estimand_words(str(bounds.estimand))
     if words != str(bounds.estimand):
         words = "the " + words[:1].lower() + words[1:]
-    subtitle = f"Range of {words} as treatment odds may shift by up to a factor gamma"
+    subtitle = _core.estimand_words(str(bounds.estimand))
     if bounds.null is not None:
-        subtitle += "; " + _breakdowns(bounds, level)
+        subtitle += ": " + _breakdowns(bounds, level)
     ax.set_xlabel("gamma, the largest factor by which hidden confounding may change treatment odds")
     if outcome_label:
         named = _core.estimand_axis_label(str(bounds.estimand), outcome_label)
         ax.set_ylabel(_with_units(f"Range of the {_core.mid_phrase(named)}", units))
     else:
         ax.set_ylabel(_with_units(f"Range of {words}", units))
-    _core.header(ax, title or "Does the conclusion survive hidden confounding?", subtitle)
-    _core.notes(ax, _warnings(bounds))
+    _core.header(ax, title or "Bounds under hidden confounding", subtitle)
+    _core.add_notes(ax, _warnings(bounds))
     return fig
 
 
@@ -376,18 +374,15 @@ def _breakdowns(bounds: Any, level: float) -> str:
     interval = f"its {_core.level_text(level)} interval"
     range_at, limit_at = bounds.breakdown, bounds.limit_breakdown
     if range_at is None and limit_at is None:
-        return f"neither the range nor {interval} includes no effect at any gamma up to {last:g}"
+        return f"range and {interval} clear of no effect up to gamma = {last:g}"
     if range_at is None:
         return (
-            f"the range excludes no effect at every gamma up to {last:g}, and {interval} "
-            f"first includes it at gamma = {limit_at:g}"
+            f"range clear of no effect up to gamma = {last:g}; {interval} reaches it at "
+            f"gamma = {limit_at:g}"
         )
     if limit_at is None:  # pragma: no cover - the interval holds the range
-        return f"the range first includes no effect at gamma = {range_at:g}"
-    return (
-        f"the range first includes no effect at gamma = {range_at:g}, and {interval} "
-        f"at gamma = {limit_at:g}"
-    )
+        return f"range reaches no effect at gamma = {range_at:g}"
+    return f"range reaches no effect at gamma = {range_at:g}, {interval} at gamma = {limit_at:g}"
 
 
 # ----------------------------------------------------------------------- missingness tilt
@@ -466,18 +461,17 @@ def missingness(
         label="Missing at random (the main analysis)",
         kind="marker",
     )
-    axis.set_xlabel("gamma, how far missing outcomes differ from recorded ones (log-odds scale)")
-    axis.set_ylabel(_with_units(_core.estimand_axis_label(chosen, outcome_label), units))
     direction = (
-        f"positive gamma means the missing {tilt.outcome} values were higher"
+        f"above 0, missing {tilt.outcome} values higher"
         if tilt.arm_gamma is None
-        else "each arm's tilt is gamma times its declared factor"
+        else "each arm's tilt is gamma times its factor"
     )
+    axis.set_xlabel(f"gamma, log-odds tilt of missing outcomes ({direction})")
+    axis.set_ylabel(_with_units(_core.estimand_axis_label(chosen, outcome_label), units))
     _core.header(
         axis,
-        title or "Does the estimate depend on why outcomes are missing?",
-        f"{_core.estimand_words(chosen)}; {tilt.n_missing} of {tilt.n} outcomes missing; "
-        f"{direction}",
+        title or "Estimate across missingness assumptions",
+        f"{_core.estimand_words(chosen)}; {tilt.n_missing} of {tilt.n} outcomes missing",
     )
     found = []
     if not supplies_inference(status):
@@ -492,7 +486,7 @@ def missingness(
             )
     if tilt.arm_gamma is not None:
         found.append(vocabulary.NOTE_TEXTS["tilt_direction_arms"])
-    _core.notes(axis, [*found, *_warnings(tilt), _others(estimands, chosen) or ""])
+    _core.add_notes(axis, [*found, *_warnings(tilt), _others(estimands, chosen) or ""])
     return fig
 
 
@@ -503,6 +497,7 @@ def _or_none(value: Any) -> float | None:
 # ----------------------------------------------------------------------- dispatch
 
 
+@_core.labelled
 def sensitivity(obj: Any, **kwargs: Any) -> Figure:
     """Plot one estimate across a declared sensitivity parameter.
 
@@ -517,7 +512,10 @@ def sensitivity(obj: Any, **kwargs: Any) -> Figure:
     obj : TruncationCurve, MarginalSensitivityBounds or MissingnessTilt
         The analysis to draw.
     **kwargs
-        ``estimand=`` (truncation and missingness), ``outcome_label=``, ``units=`` and ``title=``.
+        ``estimand=`` (truncation and missingness), ``outcome_label=``, ``units=``, ``ax=``
+        (bounds and missingness), and the formatting keywords ``title=``, ``subtitle=``,
+        ``xlabel=``, ``ylabel=``, ``legend=`` and ``figsize=``, as
+        :func:`~cleverly.plotting.forest` describes them.
 
     Returns
     -------
@@ -533,6 +531,15 @@ def sensitivity(obj: Any, **kwargs: Any) -> Figure:
     --------
     cleverly.plotting.forest : The estimates of a fit with their intervals.
     cleverly.assessment.TruncationCurve.plot : This plot for a truncation curve.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes name the estimands not drawn,
+    say when no validation study licenses an interval (read it as descriptive), and give the
+    sign convention of the sensitivity parameter.
 
     Examples
     --------

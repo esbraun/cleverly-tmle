@@ -4927,8 +4927,8 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``), the
 #: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
 #: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``) and the learned two-node
-#: regimen (``G47``), the eliminated competing event (``G48``), separable effects (``G49``) and
-#: collaborative TMLE of a risk curve (``G50``).
+#: regimen (``G47``), the eliminated competing event (``G48``), separable effects (``G49``),
+#: collaborative TMLE of a risk curve (``G50``) and the drift-corrected survival TMLE (``G51``).
 #:
 def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
@@ -5184,6 +5184,63 @@ def _survival_ctmle_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _survival_dr_tmle_rows() -> tuple[SupportRow, ...]:
+    """The drift-corrected survival TMLE of ``survival-dr-tmle`` (X91 part F): ``G51``.
+
+    ``SurvivalDRTMLE`` records the engine ``("drtmle", "univariate")`` on the hazard ``LTMLE``
+    key, with a two-level baseline treatment held over the five nodes.  The rows were added
+    because every declared verdict passed: 18 of 18 primary tests and all six property cells
+    (``double_robustness`` and ``interval_calibration`` with its controls), with no failed fit.
+    The numbers are the committed results (``tests/canonical/survival_dr_tmle``).
+    """
+    slug = ["survival-dr-tmle"]
+    shared = (
+        "Law L-S: two normal covariates, a binary baseline treatment, censoring and five grid "
+        "times, the risk at t = 5. Per-node logistic models, ten outer folds, n = 1,000 to "
+        "16,000; another law, a flexible learner or an in-sample fit rests on the theory alone "
+        "(an in-sample gradient-boosting mechanism read a standardized bias near -4). One event "
+        "type, baseline covariates only; no weights, clusters or comparator (none was located)."
+    )
+    common: dict[str, Any] = {
+        "outcome_kind": "survival",
+        "engine": ("drtmle", "univariate"),
+        "held": True,
+        "treatment": ("2",) * 5,
+        "survival_model": "hazard",
+        "splitting": ("cross_fitted",),
+    }
+    return (
+        long_row(
+            "G51.estimated",
+            slug,
+            cells=["both_1k", "both_4k", "both_16k", "a1_t5", "both_rd"],
+            limits=[
+                "Every nuisance estimated. The primary rows read coverage 0.942 to 0.953 over "
+                "6,000 draws per size, and the risk difference's calibration cell reads SE ratio "
+                "0.995 and coverage 0.946 over 3,600 draws. The drift loop stops at max_iter in "
+                "10.7% of the fits at n = 1,000 and 2.8% at 16,000, with a warning; those fits are "
+                "kept in every row.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G51.declared",
+            slug,
+            qualifiers=("A", "time>=2", "time>=3", "time>=4", "time>=5"),
+            cells=["known_1k", "known_4k", "known_16k"],
+            limits=[
+                "The treatment and retention probabilities declared on a randomized law, with "
+                "the hazard model wrong. The arm rows read coverage 0.946 to 0.955 over 6,000 "
+                "draws per size. With every factor declared the drift block is zero and the fit "
+                "equals hazard LTMLE.",
+                shared,
+            ],
+            **common,
+        ),
+    )
+
+
 #: A learned two-node regimen (``LearnedRegimen``, X11 (b)) keys the regimen kind ``learned``.
 #: The row ``G47`` of the ``learned-regimen-ltmle`` study covers the cross-fitted censored
 #: two-node fit with every option at its default; every other composition of that kind matches
@@ -5197,6 +5254,7 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_eliminated_rows(),
         *_separable_rows(),
         *_survival_ctmle_rows(),
+        *_survival_dr_tmle_rows(),
     )
 )
 
@@ -5237,6 +5295,12 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "It measures the targeting curves of a priority score, which are no Target and no fit "
         "of a point row. cleverly.targeting_curves.TARGETING_MEASURED, not a support row, "
         "records the configurations the study licenses."
+    ),
+    "score-assessment": (
+        "It measures the score assessment of an external score, which is no Target and no fit "
+        "of a point row. cleverly.effect_curves.SCORE_ASSESSMENT_MEASURED and "
+        "SCORE_PAIRED_MEASURED, not a support row, record the configurations the study "
+        "licenses."
     ),
     "dose-response": (
         "It measures the kernel-smoothed dose-response curve of DoseResponseTMLE, which is no "

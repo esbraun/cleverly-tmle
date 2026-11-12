@@ -135,6 +135,14 @@ def survival_selection() -> Any:
     return survival_ctmle().selection[("a1", 2)]
 
 
+@_quiet
+def drift_record() -> Any:
+    """The drift-correction record of one arm at one horizon of a survival DR-TMLE."""
+    from tests.unit.test_survival_drtmle import container, fit, sample_frame
+
+    return fit(container(sample_frame(600, 11))).drift[("a1", 3)]
+
+
 FIXTURES: dict[str, Any] = {
     "snmm": snmm,
     "snmm_in_sample": snmm_in_sample,
@@ -144,6 +152,9 @@ FIXTURES: dict[str, Any] = {
         names=("a1",),
         fidelity=read.read_survival_selection,
         sectioned=False,
+    ),
+    "drift_record": Case(
+        drift_record, names=("a1",), fidelity=read.read_drift_record, sectioned=False
     ),
     "structural_diagnostics": Case(
         structural_diagnostics, fidelity=read.read_structural_diagnostics

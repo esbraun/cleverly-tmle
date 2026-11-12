@@ -34,6 +34,7 @@ from cleverly.sensitivity import (
     simulated_confounding,
 )
 from cleverly.validation.simulation import ReplicationFailure
+from tests.unit.test_plotting_core import assert_no_note_text
 
 pytestmark = pytest.mark.xdist_group("plotting_confounding")
 
@@ -127,12 +128,13 @@ class TestContour:
     def test_title_subtitle_and_axes(self, grid_data: Any, rv: Any) -> None:
         fig = grid_data.plot(robustness=rv)
         ax = fig.axes[0]
-        assert ax.get_title(loc="left") == "How strong would hidden confounding need to be?"
+        assert ax.get_title(loc="left") == "Sensitivity to hidden confounding"
         subtitle = subtitle_text(ax)
         assert subtitle is not None
-        assert "Lower bound of the average effect (ate)" in subtitle
+        assert "Lower bound of the average effect (" in subtitle
+        assert "(ate)" not in subtitle  # no library word on the figure
         assert "\u03c1 = 1" in subtitle
-        assert f"{rv['rv']:.3g}" in subtitle and "equal strengths" in subtitle
+        assert f"point robustness value {rv['rv']:.3g}" in subtitle
         assert ax.get_xlabel() == "Treatment-side strength, cf_d"
         assert ax.get_ylabel() == "Outcome-side strength, cf_y"
         d, y, _ = module._grid(grid_data)
@@ -333,12 +335,14 @@ class TestContour:
 
     def test_png_render(self, grid_data: Any, rv: Any, tmp_path: Any) -> None:
         path = tmp_path / "v13.png"
-        grid_data.plot(robustness=rv).savefig(path, dpi=60)
+        fig = grid_data.plot(robustness=rv)
+        fig.savefig(path, dpi=60)
         assert path.stat().st_size > 5_000
+        assert_no_note_text(fig)
 
     def test_dispatch(self, grid_data: Any) -> None:
         fig = confounding(grid_data)
-        assert fig.axes[0].get_title(loc="left").startswith("How strong")
+        assert fig.axes[0].get_title(loc="left") == "Sensitivity to hidden confounding"
         with pytest.raises(TypeError, match="SensitivityContour"):
             confounding(object())
 
@@ -467,8 +471,7 @@ class TestSurface:
         fig = surface_result.plot()
         ax = fig.axes[0]
         assert (
-            " ".join(ax.get_title(loc="left").split())
-            == "How far does the estimate move under a simulated common cause?"
+            " ".join(ax.get_title(loc="left").split()) == "Estimate under a simulated common cause"
         )
         heat = _heat(ax)
         assert heat.shape == (3, 4)  # outcome strengths (rows) by treatment strengths (columns)
@@ -652,11 +655,16 @@ class TestSurface:
 
     def test_png_render(self, surface_result: Any, tmp_path: Any) -> None:
         path = tmp_path / "v14.png"
-        surface_result.plot().savefig(path, dpi=60)
+        fig = surface_result.plot()
+        fig.savefig(path, dpi=60)
         assert path.stat().st_size > 5_000
+        assert_no_note_text(fig)
 
     def test_dispatch(self, surface_result: Any) -> None:
-        assert confounding(surface_result).axes[0].get_title(loc="left").startswith("How far")
+        assert (
+            confounding(surface_result).axes[0].get_title(loc="left")
+            == "Estimate under a simulated common cause"
+        )
         with pytest.raises(TypeError, match="SimulatedConfoundingResult"):
             confounding(1)
 
@@ -759,7 +767,8 @@ def test_a_controlled_direct_effect_moves_the_intermediate(cde_surface: Any) -> 
     )
     assert [t.get_text() for t in ax.get_xticklabels()] == ["0", "0.1", "0.25"]
     subtitle = subtitle_text(ax) or ""
-    assert "common cause of the intermediate and the outcome" in subtitle
+    assert "unperturbed estimate" in subtitle
+    assert "common cause of the intermediate and the outcome" in note_text(fig)
     assert "the target sets Z to 1" in subtitle
     assert "treatment is flipped" not in note_text(fig)
     heat = _heat(ax)
@@ -864,8 +873,10 @@ class TestSmallMultiples:
 
     def test_panel_figure_renders(self, surface_result: Any, tmp_path: Any) -> None:
         path = tmp_path / "panels.png"
-        _vector(surface_result).plot().savefig(path, dpi=60)
+        fig = _vector(surface_result).plot()
+        fig.savefig(path, dpi=60)
         assert path.stat().st_size > 5_000
+        assert_no_note_text(fig)
 
     def test_no_estimate_refuses(self, surface_result: Any) -> None:
         failure = ReplicationFailure(0, 0, "ValueError", "boom")
@@ -878,10 +889,10 @@ class TestSmallMultiples:
 
 
 class TestAxisWords:
-    """x_label= and y_label= name the two strengths in a page's own words."""
+    """xlabel= and ylabel= name the two strengths in a page's own words."""
 
     def test_the_contour_takes_its_axis_words(self, grid_data: Any) -> None:
-        ax = confounding(grid_data, x_label="Weight side", y_label="Score side").axes[0]
+        ax = confounding(grid_data, xlabel="Weight side", ylabel="Score side").axes[0]
         assert ax.get_xlabel() == "Weight side" and ax.get_ylabel() == "Score side"
         # the control: the defaults stay when the words are omitted
         plain = confounding(grid_data).axes[0]
@@ -889,13 +900,17 @@ class TestAxisWords:
         assert plain.get_ylabel() == "Outcome-side strength, cf_y"
 
     def test_the_surface_takes_its_axis_words(self, surface_result: Any) -> None:
-        ax = confounding(surface_result, x_label="Weight side", y_label="Score side").axes[0]
+        fig = confounding(surface_result, xlabel="Weight side", ylabel="Score side")
+        ax = fig.axes[0]
         assert ax.get_xlabel() == "Weight side" and ax.get_ylabel() == "Score side"
+        # The colour bar keeps its own label: it is not a panel's axis.
+        bars = [axis for axis in fig.axes if axis.get_gid() == "cleverly-colorbar"]
+        assert bars and all(bar.get_ylabel() != "Score side" for bar in bars)
         plain = confounding(surface_result).axes[0]
         assert plain.get_xlabel() != "Weight side" and plain.get_ylabel() != "Score side"
 
     def test_every_panel_of_small_multiples_takes_them(self, surface_result: Any) -> None:
-        fig = _vector(surface_result).plot(x_label="Weight side", y_label="Score side")
+        fig = _vector(surface_result).plot(xlabel="Weight side", ylabel="Score side")
         panels = [axis for axis in fig.axes if _by_gid(axis, "cleverly-heatmap")]
         assert len(panels) == 3
         assert {axis.get_xlabel() for axis in panels} <= {"Weight side", ""}

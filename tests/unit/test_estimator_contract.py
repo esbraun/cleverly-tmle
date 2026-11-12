@@ -503,6 +503,7 @@ BACKEND_ROUTES: dict[str, str] = {
     "AdaptiveTMLEResult": "container",
     "CTMLESelection": "argument",
     "SurvivalSelection": "argument",
+    "DriftRecord": "argument",
     "StudyResult": "argument",
     "RefutationTest": "argument",
     "MethodAvailabilities": "argument",

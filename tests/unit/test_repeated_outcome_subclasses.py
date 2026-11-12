@@ -71,7 +71,10 @@ def _every_subclass() -> list[type[_SequentialEstimator]]:
 #: Subclasses that fit a survival design only and take no mechanism learner, so neither the
 #: reduction nor the allowlist refusal applies: their own design check refuses the panel
 #: before any learner, which ``test_a_survival_only_estimator_refuses_the_panel`` checks.
-_SURVIVAL_ONLY = {"SurvivalCTMLE": "one baseline treatment held over every node (X91 part B)"}
+_SURVIVAL_ONLY = {
+    "SurvivalCTMLE": "one baseline treatment held over every node (X91 part B)",
+    "SurvivalDRTMLE": "one baseline treatment held over every node (X91 part F)",
+}
 
 
 class _Untouchable(LogisticRegression):
@@ -242,7 +245,7 @@ def test_the_refusal_names_the_kinds_of_the_allowlist(monkeypatch: Any) -> None:
     assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
     assert refusal.message() == (
         "SDR has no per-horizon reduction for a repeated outcome (outcome=Repeated([...])). "
-        "X32b in docs/roadmap.md tracks this. LTMLE fits one. Each horizon is the "
+        "X71 in docs/roadmap.md tracks this. LTMLE fits one. Each horizon is the "
         "end-of-study fit of the panel truncated after it."
     )
     monkeypatch.setattr(sequential, "REPEATED_OUTCOME_KINDS", frozenset({"tmle", "ipsi"}))
@@ -251,12 +254,14 @@ def test_the_refusal_names_the_kinds_of_the_allowlist(monkeypatch: Any) -> None:
     assert "IPSI, LTMLE and SDR fit one." in sequential.repeated_outcome_refusal("X").message()
 
 
-def test_a_survival_only_estimator_refuses_the_panel() -> None:
-    """``SurvivalCTMLE`` refuses the repeated-outcome panel before its outcome learner runs."""
-    from cleverly.longitudinal import SurvivalCTMLE
+@pytest.mark.parametrize("name", ["SurvivalCTMLE", "SurvivalDRTMLE"])
+def test_a_survival_only_estimator_refuses_the_panel(name: str) -> None:
+    """A survival-only estimator refuses the repeated-outcome panel before its learner runs."""
+    from cleverly import longitudinal
 
-    assert set(_SURVIVAL_ONLY) == {"SurvivalCTMLE"}
-    with pytest.raises(CapabilityError, match=r"^SurvivalCTMLE"):
-        SurvivalCTMLE(
-            {"a1": 1, "a0": 0}, reference="a0", outcome_learner=_Untouchable(), n_folds=1
-        ).fit(panel(), **ROLES)
+    assert set(_SURVIVAL_ONLY) == {"SurvivalCTMLE", "SurvivalDRTMLE"}
+    kind = getattr(longitudinal, name)
+    with pytest.raises(CapabilityError, match=rf"^{name}"):
+        kind({"a1": 1, "a0": 0}, reference="a0", outcome_learner=_Untouchable(), n_folds=1).fit(
+            panel(), **ROLES
+        )

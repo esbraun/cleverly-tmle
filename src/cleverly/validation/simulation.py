@@ -651,7 +651,7 @@ class StudyResult:
         ... ).run()
         >>> fig = study.plot()
         >>> fig.axes[1].get_xlabel().splitlines()[0]
-        'Average effect (ate)'
+        'Average effect'
         >>> plt.close(fig)
         """
         from ..plotting import zipper

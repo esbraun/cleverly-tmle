@@ -60,6 +60,7 @@ from .longitudinal import (
     SequentialGComputation,
     SequentialIPW,
     SurvivalCTMLE,
+    SurvivalDRTMLE,
 )
 from .longitudinal import estimator as _sequential
 from .longitudinal.data import check_markov_order, markov_restriction
@@ -1084,6 +1085,24 @@ def _censoring_probability_columns(supplied: Any) -> tuple[tuple[str, str], ...]
     return tuple((str(node), str(column)) for node, column in supplied.items())
 
 
+def _held_censoring(data: LongitudinalData) -> dict[float, str] | None:
+    """The column-name censoring declaration of a held container, by grid time, or ``None``.
+
+    Node :math:`j + 1`'s factor is declared at grid time :math:`g_j`, as
+    :meth:`~cleverly.longitudinal.LongitudinalData.from_time_to_event` reads it.
+    """
+    known = data.known_mechanisms
+    grid = data.time_grid
+    if known is None or grid is None or not known.censoring_columns:
+        return None
+    held = {
+        float(grid[node - 1]): column
+        for node, column in enumerate(known.censoring_columns)
+        if column is not None and node >= 1
+    }
+    return held or None
+
+
 def _held_node_columns(
     data: LongitudinalData,
 ) -> tuple[tuple[str, tuple[tuple[Any, str], ...]], ...] | None:
@@ -1477,6 +1496,11 @@ class TimeToEvent:
         then the risk of each remaining cause had the named causes been prevented (Young
         et al. 2020): their events are treated as censoring, and the fit models them beside
         the censoring.  Needs competing causes.
+    censoring_probabilities : mapping of float to str, or None
+        Known censoring probabilities: each grid time before the last mapped to the column
+        that holds the probability of still being observed after it, given the treatment
+        received, the covariates and being event-free and observed through it.  The fit then
+        divides by these probabilities at that time and fits no censoring learner there.
 
     Attributes
     ----------
@@ -1514,10 +1538,25 @@ class TimeToEvent:
     treatment_support: Any = None
     dose_atoms: Sequence[float] = ()
     eliminate: Sequence[str] = ()
+    censoring_probabilities: Mapping[float, str] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "dose_atoms", tuple(float(atom) for atom in self.dose_atoms))
         object.__setattr__(self, "eliminate", tuple(str(cause) for cause in self.eliminate))
+        if self.censoring_probabilities is not None:
+            if not isinstance(self.censoring_probabilities, Mapping) or not all(
+                isinstance(column, str) for column in self.censoring_probabilities.values()
+            ):
+                raise DataError(
+                    "TimeToEvent(censoring_probabilities=) maps each grid time to the column "
+                    "that holds the retention probability there, as every other design field "
+                    "names columns."
+                )
+            object.__setattr__(
+                self,
+                "censoring_probabilities",
+                {float(g): str(column) for g, column in self.censoring_probabilities.items()},
+            )
         if self.treatment_probabilities is not None:
             columns = probability_columns(_stored_pairs(self.treatment_probabilities))
             if columns is None:
@@ -1592,6 +1631,7 @@ class TimeToEvent:
                 None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
             ),
             eliminate=self.eliminate,
+            censoring_probabilities=self.censoring_probabilities,
         )
         return _declare_every_node(built, self.treatment_support, self.dose_atoms)
 
@@ -1600,6 +1640,7 @@ class TimeToEvent:
         held_columns = dict(_held_node_columns(data) or ()).get(self.treatment)
         expected: tuple[tuple[str, Any, Any], ...] = (
             ("treatment_probabilities", self.treatment_probabilities, held_columns),
+            ("censoring_probabilities", self.censoring_probabilities, _held_censoring(data)),
             ("time", self.time, data.time_name),
             ("event", self.event, data.event_name),
             ("treatment", (self.treatment,), tuple(data.treatment_names)),
@@ -3981,10 +4022,11 @@ def _variant_roadmap(method: str, functional: Any, design: Any) -> str:
 
     Notes
     -----
-    A longitudinal C-TMLE on a study reads its refusal from
-    :func:`~cleverly.longitudinal.collaborative.survival_design_refusal` instead, which names
-    X62 for a survival composition the source does not cover and F5 for a sequential score;
-    the F5 here is the fallback for an effect without a longitudinal panel.
+    A longitudinal C-TMLE or DR-TMLE on a study reads its refusal from
+    :func:`~cleverly.longitudinal.collaborative.survival_design_refusal` or
+    :func:`~cleverly.longitudinal.drift.drift_design_refusal` instead, which name X62 for a
+    survival composition the source does not cover and F5 for a sequential score; the F5 here
+    is the fallback for an effect without a longitudinal panel.
     """
     axis, target = functional.axis, functional.target
     # F5 keeps a longitudinal functional, a continuous dose, and ATT, ATC, incremental,
@@ -4107,6 +4149,73 @@ SCORE_IN_SAMPLE_REFUSAL = Refusal(
         "score on a held-out study."
     ),
 )
+
+#: Why assess_score compares two scores and no more (X97 plan, section 8 question 1).
+SCORE_MANY_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "assess_score compares one score with one other; a simultaneous comparison of three or "
+    "more scores, with a joint interval over every pair, is not built.",
+    alternative="Pass one column as compare=. Intervals from separate calls do not hold jointly.",
+)
+
+#: Why the assessment fits one cross-fitting split.
+SCORE_REPEATS_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "The assessment targets one cross-fitting split's outcome regression; a median over "
+    "repeated splits of jointly targeted risks has no reviewed joint covariance, and no study "
+    "measures it.",
+    alternative="Fit with repeats=1.",
+)
+
+#: Why the assessment reports Wald intervals only.
+SCORE_BOOTSTRAP_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "The refit bootstrap of the score assessment is not built; its intervals come from the "
+    "influence curves.",
+    alternative="Fit with n_bootstrap=0; the Wald intervals are reported.",
+)
+
+#: Why the assessment's fluctuation carries no observation weight in the covariate.
+SCORE_TARGET_WEIGHTS_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "The assessment fluctuates along several score columns at once, and every row loads "
+    "several of them, which the weighted form of the fluctuation cannot carry.",
+    alternative="Fit with target_weights=False.",
+)
+
+#: Why the assessment solves under the relative stopping test.
+SCORE_STOPPING_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "The assessment solves its fluctuation under the shipped relative stopping test; a "
+    "declared stopping rule needs a stopping context the assessment does not build.",
+    alternative="Fit with stopping='relative'.",
+)
+
+#: Why the assessment refuses fold-wise targeting and fold evaluation.
+SCORE_SCHEME_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "The assessment fits one pooled fluctuation over every row from the cross-fitted "
+    "nuisances, so fold-wise targeting or fold evaluation of the ATE fit would be ignored.",
+    alternative="Fit with targeting_scheme='pooled' and cv_evaluation=False.",
+)
+
+
+def _check_score_settings(estimator: Any) -> None:
+    """Refuse the ATE fit's settings the score assessment cannot honour, before any learner."""
+    spec = estimator.targeting_spec()
+    for refused, refusal in (
+        (int(estimator.repeats) > 1, SCORE_REPEATS_REFUSAL),
+        (int(estimator.n_bootstrap) > 0, SCORE_BOOTSTRAP_REFUSAL),
+        (bool(spec.target_weights), SCORE_TARGET_WEIGHTS_REFUSAL),
+        (spec.stopping != "relative", SCORE_STOPPING_REFUSAL),
+        (
+            estimator.targeting_scheme != "pooled" or bool(estimator.cv_evaluation),
+            SCORE_SCHEME_REFUSAL,
+        ),
+    ):
+        if refused:
+            raise CapabilityError.from_refusal(refusal)
+
 
 #: Why a modifier must be an adjustment column (R6 of the P1 plan).
 MODIFIER_ADJUSTMENT_REFUSAL = Refusal(
@@ -5087,11 +5196,13 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         *,
         computed_from: Sequence[str] | None = None,
         score_kind: str | None = None,
+        compare: str | None = None,
+        compare_computed_from: Sequence[str] | None = None,
         scale: str | None = None,
         alpha: float = 0.05,
         **overrides: Any,
     ) -> Any:
-        """Assess a fixed external score of the modifiers, with intervals.
+        """Assess a fixed external score of the modifiers, or compare two, with intervals.
 
         The score ``s`` is a column of the study's data that was computed from adjustment
         columns by a rule fitted on other rows.  Two parameters are estimated, each with a
@@ -5100,9 +5211,20 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         :math:`E[s^2] - 2E[s\\tau] + ATE^2`, which is negative when the score predicts
         the conditional effect better than the constant does.  The calibration is the
         projection of the conditional contrast onto ``(1, s)``: a slope of 1 and an
-        intercept of 0 say the score is calibrated.  Both are one-step estimates from the
-        cross-fitted nuisances of an ATE fit, with the influence curves of
-        ``docs/technical-reference/conditional-effects.md``.
+        intercept of 0 say the score is calibrated.
+
+        With ``compare=``, a second external score is assessed on the same rows, and the
+        paired risk difference ``risk_difference[<column> - <compare>]`` is the risk of
+        ``column`` minus that of ``compare``.  On the difference scale it is the difference of
+        the two scores' mean squared errors for the conditional effect, so a negative value
+        says ``column`` predicts it better.  Its interval covers that difference for this one
+        pair, named before the fit; it does not cover the best of several pairs tried.
+
+        Every estimate is a TMLE: one pooled fluctuation of the cross-fitted outcome regression
+        of an ATE fit along the span of the scores' columns, and a substitution from the
+        targeted fit, with the influence curves of
+        ``docs/technical-reference/conditional-effects.md``.  The column's own rows can differ
+        slightly with and without ``compare=``, because the span grows; both are valid.
 
         The interval rests on ``score_kind="external"``, a declaration no code can check:
         a score fitted on these rows is a regression on an estimated index.  A column whose
@@ -5116,9 +5238,13 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         computed_from : sequence of str
             The adjustment columns the score was computed from.
         score_kind : {"external"}
-            The declaration that the score was fitted on other rows.
+            The declaration that the scores were fitted on other rows.
+        compare : str or None
+            A second external score to compare with ``column`` on the same rows.
+        compare_computed_from : sequence of str or None
+            The adjustment columns ``compare`` was computed from.
         scale : {"difference", "log_ratio"} or None
-            The scale the score predicts.  ``None`` takes the estimand's.
+            The scale the scores predict.  ``None`` takes the estimand's.
         alpha : float
             The intervals hold at ``1 - alpha``.
         **overrides : Any
@@ -5127,13 +5253,88 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         Returns
         -------
         ScoreAssessment
-            ``risk_difference``, ``calibration[(intercept)]`` and ``calibration[<column>]``.
+            ``risk_difference``, ``calibration[(intercept)]`` and ``calibration[<column>]``;
+            with ``compare=``, also the paired row, and the second score's parameters in
+            ``compared``.
 
         Raises
         ------
         CapabilityError
-            If the estimand is not a :class:`ConditionalContrast`, or the score is not
-            declared external (R13).
+            If the estimand is not a :class:`ConditionalContrast`, a score is not declared
+            external (R13), ``compare=`` names several columns, or the ATE fit repeats its
+            split, bootstraps, weights its targeting, declares a stopping rule, or targets by
+            fold.
+        DataError
+            If ``compare=`` names the score column or holds the same values.
+
+        See Also
+        --------
+        targeting_curve : How much treating by a score first gains over treating at random.
+        cleverly.effect_curves.ScoreAssessment : The result.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import pandas as pd
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import CausalStudy, ConditionalContrast, PointTreatment
+        >>> from cleverly.bases import Modifiers
+        >>> rng = np.random.default_rng(0)
+        >>> n = 500
+        >>> w1, w2 = rng.uniform(-1, 1, n), rng.uniform(-1, 1, n)
+        >>> a = rng.binomial(1, 0.5, n)
+        >>> y = w2 + a * (1 + w1) + rng.normal(0, 0.5, n)
+        >>> frame = pd.DataFrame({"Y": y, "A": a, "W1": w1, "W2": w2})
+        >>> frame["S"], frame["S0"] = 1 + w1, 1 + w2
+        >>> study = CausalStudy(
+        ...     frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2"))
+        ... )
+        >>> effect = study.identify(ConditionalContrast(Modifiers(["W1"])))
+        >>> check = effect.assess_score(
+        ...     "S",
+        ...     computed_from=["W1"],
+        ...     score_kind="external",
+        ...     compare="S0",
+        ...     compare_computed_from=["W2"],
+        ...     random_state=0,
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(),
+        ...     outcome_by_arm=True,
+        ...     q_bounds=(-5.0, 6.0),
+        ... )
+        >>> bool(check["risk_difference[S - S0]"].psi < 0)
+        True
+        >>> [score for score, _, _ in check.rows()]
+        ['S', 'S', 'S', 'S0', 'S0', 'S0', 'S - S0']
+        """
+        assessment, _, _ = self._assess_score_with_fit(
+            column,
+            computed_from=computed_from,
+            score_kind=score_kind,
+            compare=compare,
+            compare_computed_from=compare_computed_from,
+            scale=scale,
+            alpha=alpha,
+            **overrides,
+        )
+        return assessment
+
+    def _assess_score_with_fit(
+        self,
+        column: str,
+        *,
+        computed_from: Sequence[str] | None,
+        score_kind: str | None,
+        compare: str | None,
+        compare_computed_from: Sequence[str] | None,
+        scale: str | None,
+        alpha: float,
+        **overrides: Any,
+    ) -> tuple[Any, Any, Any]:
+        """:meth:`assess_score`, with the ATE fit it targeted and the rows it read.
+
+        The ``score-assessment`` study reads the fit's initial arm regressions for its
+        one-step and plug-in columns without fitting twice.
         """
         from .effect_curves import score_assessment
         from .effect_modification import _resolve_pair, log_ratio_scale_refusal
@@ -5146,7 +5347,25 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 reason=RefusalReason.INVALID_DECLARATION,
                 alternative="Identify ConditionalContrast(modifiers=...) on a CausalStudy.",
             )
-        score = self._external_score(column, computed_from, score_kind)
+        scores = {column: self._external_score(column, computed_from, score_kind)}
+        if compare is not None:
+            if not isinstance(compare, str):
+                if not isinstance(compare, Sequence):
+                    raise DataError(f"compare= takes one column name as a string; got {compare!r}.")
+                if len(compare) < 2:
+                    raise DataError(
+                        f"compare= takes one column name; got {list(compare)!r}. Pass the "
+                        "column itself."
+                    )
+                raise CapabilityError.from_refusal(SCORE_MANY_REFUSAL)
+            if compare == column:
+                raise DataError("compare= names the same column as the score")
+            scores[compare] = self._external_score(compare, compare_computed_from, score_kind)
+            if np.array_equal(scores[column], scores[compare]):
+                raise DataError(
+                    f"the score column {column!r} and the compare= column {compare!r} hold the "
+                    "same value on every row, so their risk difference is 0 with no spread"
+                )
         data = self._study.data
         assert isinstance(data, CausalData)
         chosen = estimand.scale if scale is None else scale
@@ -5167,18 +5386,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         if refusal is not None:
             raise CapabilityError.from_refusal(refusal)
         kwargs.update({"estimands": ("ate",), "reference": pair[1]})
-        fit = TMLE(**kwargs).fit(data).single()
-        return score_assessment(
-            fit.nuisance,
-            data,
-            score,
-            column,
-            scale=chosen,
-            pair=pair,
-            alpha=alpha,
-            g_bounds=(float(fit.config.g_bounds[0]), float(fit.config.g_bounds[1])),
-            missingness_bound=float(fit.config.missingness_bound),
-        )
+        estimator = TMLE(**kwargs)
+        _check_score_settings(estimator)
+        fit = estimator.fit(data).single()
+        return score_assessment(fit, data, scores, scale=chosen, pair=pair, alpha=alpha), fit, data
 
     def targeting_curve(
         self,
@@ -5242,7 +5453,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         ------
         CapabilityError
             If the estimand is not a :class:`ConditionalContrast` bound to a study, a score is
-            not declared external (R13), or the fit repeats its cross-fitting split.
+            not declared external (R13), or the fit repeats its cross-fitting split, targets
+            by fold, evaluates by fold or bootstraps.
 
         Examples
         --------
@@ -5280,7 +5492,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         from .effect_modification import _resolve_pair
         from .targeting_curves import (
             TARGETING_REPEATS_REFUSAL,
-            check_targeting_spec,
+            check_targeting_settings,
             targeting_fit,
         )
 
@@ -5316,7 +5528,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         if random_state is not None:
             kwargs["random_state"] = random_state
         estimator = TMLE(**kwargs)
-        check_targeting_spec(estimator.targeting_spec())
+        check_targeting_settings(estimator)
         fit = estimator.fit(data).single()
         return targeting_fit(
             fit,
@@ -5416,6 +5628,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             alternative="Fit method='tmle'.",
             roadmap=drtmle_item,
         )
+        drtmle = variants
+        if self.functional.longitudinal and blocker is None:
+            drift_refusal = self._survival_drift_refusal()
+            drtmle = drift_refusal is None
+            if drift_refusal is not None:
+                drtmle_blocker = drift_refusal
         if isinstance(design, PointTreatment) and design.support == "vector":
             # A vector with a dose has no arms, as a continuous dose has none; each variant
             # refuses it with the reason its engine gives a continuous treatment.
@@ -5436,7 +5654,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 collaborative,
                 None if collaborative else collaborative_blocker,
             ),
-            MethodAvailability("drtmle", variants, None if variants else drtmle_blocker),
+            MethodAvailability("drtmle", drtmle, None if drtmle else drtmle_blocker),
             MethodAvailability("sdr", sdr, sdr_reason),
             MethodAvailability("ipsi", ipsi, ipsi_reason),
             MethodAvailability("gcomp", gcomp, gcomp_reason),
@@ -5515,6 +5733,33 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         if functional.target in {"ey_ipsi", "ate_ipsi"}:
             return collaborative.POLICY_REFUSAL
         return collaborative.survival_design_refusal(data, functional.interventions)
+
+    def _survival_drift_refusal(self) -> Refusal | None:
+        """Why :class:`~cleverly.longitudinal.SurvivalDRTMLE` refuses this functional, or ``None``.
+
+        Returns
+        -------
+        Refusal or None
+            The engine's refusal of the declared panel and interventions, read before any
+            learner, so ``available_methods()`` and the fit agree.
+        """
+        from .longitudinal import drift
+
+        data = getattr(self._study, "data", None)
+        functional = self.functional
+        if not isinstance(data, LongitudinalData):
+            return Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
+                "the drift-corrected TMLE fits a declared time-to-event panel, and this effect "
+                "has no panel to read.",
+                alternative="Fit method='tmle'.",
+                roadmap="F5",
+            )
+        if functional.msm is not None:
+            return drift.PROJECTION_REFUSAL
+        if functional.target in {"ey_ipsi", "ate_ipsi"}:
+            return drift.POLICY_REFUSAL
+        return drift.drift_design_refusal(data, functional.interventions)
 
     def _effect_modification_methods(
         self, records: tuple[MethodAvailability, ...]
@@ -6248,6 +6493,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             if isinstance(method, ParametricGFormulaMethod)
             else SurvivalCTMLE
             if isinstance(method, CollaborativeTMLEMethod)
+            else SurvivalDRTMLE
+            if isinstance(method, DRTMLEMethod)
             else LTMLE
         )
         estimator = engine(

@@ -88,7 +88,9 @@ result gives an interval after that choice. A fixed `Sieve(basis, size=3)` is ac
 slope to a ratio per unit of its modifier.
 
 `fit.heterogeneity_test()` tests whether every coefficient but the intercept is zero, with a
-chi-square test on as many degrees of freedom as there are such terms. A small p-value says the
+chi-square test on as many degrees of freedom as there are such terms. With fewer than 40
+clusters it uses an $F$ reference that allows for the few clusters, and it refuses a basis with
+more non-constant terms than the number of clusters minus 2. A small p-value says the
 effect changes along the basis. A large one does not say the effect is constant: it can change
 in a way the basis cannot draw.
 
@@ -210,8 +212,37 @@ the average does. `calibration[(intercept)]` and `calibration[risk_score]` are t
 score to the effect; an intercept of 0 and a slope of 1 mean the score is calibrated. Both carry
 intervals.
 
-The intervals hold only for a score that was not fitted on this study's outcomes or
-treatments. `score_kind="external"` states that, and no code can check it. A column that
+To choose between two scores, pass the second as `compare=`:
+
+```python
+both = effect.assess_score(
+    "risk_score",
+    computed_from=["age", "W2"],
+    score_kind="external",
+    compare="age_score",
+    compare_computed_from=["age"],
+    outcome_learner=LogisticRegression(max_iter=1000),
+    treatment_learner=LogisticRegression(max_iter=1000),
+)
+both["risk_difference[risk_score - age_score]"]
+```
+
+The paired row is `risk_score`'s mean squared error for the CATE minus `age_score`'s. A negative
+value means `risk_score` predicts the conditional effect better, and an interval that excludes
+0 means the data can tell the two apart. The result also holds each score's own three numbers.
+They come from the same fit as the paired row, so they can differ slightly from a call without
+`compare=`; both are valid. The interval covers this one pair, named before you looked at the
+results. Trying many scores and reporting the best one is a selection the interval does not
+account for.
+
+`check.status` reads `supported` for a check like the ones a simulation study ran and
+`experimental` otherwise; [Status and evidence](../technical-reference/conditional-effects.md#status-and-evidence)
+lists them. The check works on the difference scale or, with `scale="log_ratio"`, on the log
+risk ratio scale.
+
+The intervals hold only for scores that were not fitted on this study's outcomes or
+treatments, which applies to both columns. Out-of-fold predictions from a model trained on these
+rows do not count as external. `score_kind="external"` states that, and no code can check it. A column that
 matches a curve fitted from this effect, or that carries the `effect_curve:` prefix of
 `curve.to_frame()`, is refused.
 

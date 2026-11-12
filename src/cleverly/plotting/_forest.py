@@ -11,7 +11,7 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from . import _core, _truth
 
@@ -22,7 +22,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: The panel order and the x-axis words of each scale.
 _SCALE_ORDER = ("difference", "ratio", "level", "fraction")
 #: The default title, a question as every plot's title is.
-TITLE = "How large is each estimate, and how sure is it?"
+TITLE = "Estimates and intervals"
 #: How far, as a share of the drawn data's span, the no-effect value may lie from the data and
 #: still widen the axis to show it, so the rows keep at least half the axis. A null further
 #: out would squeeze them into a corner.
@@ -181,11 +181,16 @@ def _starts_with_a_name(text: str, result: Any) -> bool:
     return first in names or not first.isalpha()
 
 
+@_core.labelled
 def forest(
     *items: Any,
     labels: Sequence[str] | None = None,
-    title: str | None = None,
-    subtitle: str | None = None,
+    title: str | Literal[False] | None = None,
+    subtitle: str | Literal[False] | None = None,
+    xlabel: str | Sequence[str] | None = None,
+    ylabel: str | Sequence[str] | None = None,
+    legend: str | Literal[False] = "top",
+    figsize: tuple[float, float] | None = None,
     outcome_label: str | None = None,
     units: str | None = None,
     truth: float | Mapping[str, float] | None = None,
@@ -200,12 +205,12 @@ def forest(
     the printed summary uses. Estimates on different scales go in separate panels:
     differences around 0, ratios on a log axis around 1, and arm means with no null line.
     The no-effect line is drawn when it lies near the intervals; when it lies far from them,
-    the axis keeps to the intervals and the note under the figure says on which side no
-    effect lies.
+    the axis keeps to the intervals and :func:`~cleverly.plotting.notes` says on which side
+    no effect lies.
 
-    An estimate whose inference the package withholds is drawn as a point with no interval,
-    and the note under the figure gives the reason. An experimental estimate says so in the
-    note.
+    An estimate whose inference the package withholds is drawn as a hollow point with no
+    interval, and its value column reads "(no interval)"; :func:`~cleverly.plotting.notes`
+    gives the reason.
 
     Parameters
     ----------
@@ -215,10 +220,22 @@ def forest(
     labels : sequence of str or None, default=None
         One label per item. A result's default label is its method's short name when
         several items are drawn, and nothing when one is.
-    title : str or None, default=None
-        The title; ``"How large is each estimate, and how sure is it?"`` when omitted.
-    subtitle : str or None, default=None
-        The line under the title; the printed summary's question for a single result.
+    title : str, False or None, default=None
+        The title; a short description of the figure when omitted, and none when ``False``.
+    subtitle : str, False or None, default=None
+        The line under the title; the plot's own, which names the estimate and its headline
+        number, when omitted, and none when ``False``.
+    xlabel : str, sequence of str or None, default=None
+        The x-axis label. A string replaces the first labelled panel's label and the same
+        label wherever it repeats; a sequence gives each labelled panel its own, in reading
+        order.
+    ylabel : str, sequence of str or None, default=None
+        The y-axis label, given as for ``xlabel``.
+    legend : {"top", "right", "bottom"} or False, default="top"
+        Where the key goes: above the axes, right of them, or under the figure; ``False``
+        draws no key.
+    figsize : tuple of float or None, default=None
+        Width and height in inches of a figure the plot creates.
     outcome_label : str or None, default=None
         Words for the quantity on the axis of differences and means, such as ``"orders in
         the third month"``: the labels read ``"Difference in orders in the third month"``
@@ -235,14 +252,14 @@ def forest(
         row's label; a row it does not name gets no cross. A forest draws every estimate
         of each fit it is given, so a name that matches no row is refused.
     include_null : bool or None, default=None
-        Whether the axis reaches the no-effect value (0 for a difference, 1 for a ratio)
-        and draws its line. ``None`` draws it when it lies no further from the drawn
-        intervals than their own span (a ratio's measured on the log axis), so the rows
-        keep at least half the axis; otherwise it leaves no effect off the axis and the
-        note says on which side it lies. A panel with a row that has no finite interval
-        always draws it under ``None``. ``True`` draws it wherever the estimates' scale has
-        a no-effect value (a transform with no finite null draws no line); ``False`` leaves
-        it off the axis unless the intervals cross it.
+        Whether the axis reaches the no-effect value (0 for a difference, 1 for a ratio) and draws
+        its line. ``None`` draws it when it lies no further from the drawn intervals than their own
+        span (a ratio's measured on the log axis), so the rows keep at least half the axis;
+        otherwise it leaves no effect off the axis and :func:`~cleverly.plotting.notes` says on
+        which side it lies. A panel with a row that has no finite interval always draws it under
+        ``None``. ``True`` draws it wherever the estimates' scale has a no-effect value (a transform
+        with no finite null draws no line); ``False`` leaves it off the axis unless the intervals
+        cross it.
     ax : Axes or None, default=None
         Axes to draw on. Only a plot with one scale can draw on a caller's axes.
 
@@ -264,6 +281,15 @@ def forest(
     --------
     cleverly.estimators.TMLEResult.plot : This plot for one fit.
     cleverly.plotting.sensitivity : One estimate across a declared sensitivity parameter.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes give the reason for each
+    withheld interval, which rows are experimental and why, and on which side a no-effect
+    line left off the axis lies.
 
     Examples
     --------
@@ -287,7 +313,7 @@ def forest(
     >>> tmle = study.identify(ATE()).estimate(**learners)
     >>> fig = forest(tmle["ate"], labels=["TMLE"])
     >>> fig.axes[0].get_title(loc="left")
-    'How large is each estimate, and how sure is it?'
+    'Estimates and intervals'
     >>> [text.get_text() for text in fig.axes[0].get_yticklabels()]
     ['TMLE']
     >>> import matplotlib.pyplot as plt
@@ -355,10 +381,10 @@ def forest(
         _draw_truth(truths, axes, groups)
     for axis, side, null, edge, log in clamps:
         _keep_off(axis, side, null, edge, log=log)
-    question = subtitle if subtitle is not None else _question(items)
+    question = subtitle or _question(items)
     # The number column sits right of the axes, so the key keeps to two columns.
     _core.header(axes[0], title or TITLE, question, key_sources=axes, key_columns=2)
-    _core.notes(axes[-1], [*_merged_notes(rows), *off_axis])
+    _core.add_notes(axes[-1], [*_merged_notes(rows), *off_axis])
     return fig
 
 

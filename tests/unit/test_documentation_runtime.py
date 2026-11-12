@@ -263,7 +263,8 @@ _monkeypatch.setattr(pd, "read_csv", lambda *args, **kwargs: _pooled)
 
 #: A trial-like frame for ``docs/user-guide/conditional-effects.md``: an ``age`` modifier inside
 #: the declared domain (18, 90), an effect that grows with age, and an external ``risk_score``
-#: that is a fixed function of ``age`` and ``W2``.
+#: that is a fixed function of ``age`` and ``W2``, with a second external score ``age_score`` of
+#: ``age`` alone for the ``compare=`` example.
 _CONDITIONAL = """
 import numpy as np
 import pandas as pd
@@ -279,6 +280,7 @@ Y = _rng.binomial(1, expit(-0.5 + 0.4 * W2 + A * (age - 50) / 40))
 frame = pd.DataFrame(
     {"Y": Y, "A": A, "age": age, "W2": W2, "W3": W3, "risk_score": 0.01 * (age - 50) + 0.05 * W2}
 )
+frame["age_score"] = 0.012 * (age - 50)
 """
 
 #: Document -> the code its fences assume was already run.  An empty string means the document
@@ -287,6 +289,7 @@ frame = pd.DataFrame(
 #: shared registry.
 PRELUDES: dict[str, str] = {
     "README.md": "",
+    "docs/api/plotting.md": _RESULT,
     "docs/getting-started/installation.md": "",
     "docs/getting-started/quickstart.md": "",
     "docs/technical-reference/adaptive-iptw.md": "",
