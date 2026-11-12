@@ -111,6 +111,7 @@ __all__ = [
     "has_t_reference",
     "ipsi_means",
     "is_labelled",
+    "kish_count",
     "make_estimate",
     "median_estimates",
     "minimum_reference_df",
@@ -666,6 +667,52 @@ def minimum_reference_df(estimates: Sequence[ParameterEstimate]) -> int | None:
     """
     values = [estimate.reference_df for estimate in estimates if estimate.reference_df is not None]
     return min(values) if values else None
+
+
+def kish_count(
+    curve: FloatArray, *, rows: BoolArray | IntArray | None = None, centered: bool = True
+) -> float:
+    """The Kish effective count ``(sum u^2)^2 / sum u^4`` of an influence curve.
+
+    ``u`` is the curve over ``rows``, minus its mean over those rows when ``centered``.  The
+    count is ``m`` divided by the sample kurtosis of ``u``, where ``m`` is the number of rows
+    read: ``m`` for terms of one size, and near 1 when one term carries the square mass.  It
+    is unchanged by rescaling the curve, so it reads the same on every delta-method scale.
+    No floor is applied; each caller applies its own.
+
+    Parameters
+    ----------
+    curve : ndarray
+        ``(n,)`` influence curve, or the cluster sums of one.
+    rows : ndarray or None, default=None
+        A boolean mask or integer index of the rows to read; ``None`` reads every row.
+    centered : bool, default=True
+        Subtract the mean of the rows read before squaring.
+
+    Returns
+    -------
+    float
+        The count, or ``inf`` when every term read is zero.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference import kish_count
+    >>> kish_count(np.array([1.0, -1.0, 1.0, -1.0]))
+    4.0
+    >>> round(kish_count(np.array([3.0, -1.0, -1.0, -1.0])), 6)
+    1.714286
+    """
+    values = np.asarray(curve, dtype=float).reshape(-1)
+    if rows is not None:
+        values = values[np.asarray(rows)]
+    if centered and values.size:
+        values = values - values.mean()
+    squares = values**2
+    fourth = float(np.sum(squares**2))
+    if fourth == 0.0:
+        return float("inf")
+    return float(np.sum(squares) ** 2 / fourth)
 
 
 @dataclass(frozen=True)
