@@ -38,8 +38,9 @@ depends on comes before it.
 | f | an investigation, a declared design that moves no verdict, or a shipped output that no registered study measures |
 | g | a published method needed to resolve a shipped refusal |
 
-The queued fixes, in order. Each closes by its owner's acceptance in [Red-cell owners](#red-cell-owners)
-or by the registered studies its item names.
+The owner put fixes ahead of every feature on 2026-11-11 and set the order below. Each fix closes
+by its owner's acceptance in [Red-cell owners](#red-cell-owners) or by the registered studies its
+item names.
 
 | order | fix | owners or item |
 | ---: | --- | --- |
@@ -61,17 +62,17 @@ Each red verdict stays red under a `reporting` policy, so no verdict is hidden a
 
 ## Main roadmap
 
-The tables group the open items by topic. The tier gives the coarse order across topics, and an
-item that another one depends on goes first. The project's tracker sets the exact order inside a
-tier.
+The tables group the open items by topic. The tier gives the order across topics, and an item that
+another one depends on goes first. The owner set the tiers on 2026-11-05 and the order inside each
+tier is the one the legend lists.
 
 | tier | what it holds |
 | --- | --- |
 | fix | evidence for an option or an interval that already ships; see [Fixes](#fixes) |
-| 2 | survival targets: most trial endpoints are times to an event |
-| 3 | gaps in shipped functionality |
+| 2 | survival targets, in this order: X91, X70, X6. Most trial endpoints are times to an event |
+| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e), (h) and (i), X77, X35, X71, X73, X11, X81, X80, X75 |
 | 4 | one engine for the Riesz representer of later targets |
-| 5 | further estimands and designs |
+| 5 | further estimands and designs, in this order: X5, X2, X7 |
 | 6 | compositions of advanced options. An item here starts when a user or a higher item needs it |
 
 The readiness labels are defined under
@@ -81,7 +82,7 @@ The readiness labels are defined under
 
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
-| [X91](#x91-survival-targets-across-the-estimators) Survival targets across the estimators | 2 | in progress; parts (b), (c), (d) and (f) shipped; part (e) refused | the shipped survival and competing-risk paths of `LTMLE` |
+| [X91](#x91-survival-targets-across-the-estimators) Survival targets across the estimators | 2 | published support for part (b); natural extension for parts (c) and (d); audited source for part (f); all four shipped; part (e) refused; the R `lmtp` comparator runs of the eliminated-competing-events study are pending | the shipped survival and competing-risk paths of `LTMLE` |
 | [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read | the shipped hazard targeting on a held baseline treatment |
 | [X6](#x6-continuous-time-survival-and-competing-risks) Continuous-time survival and competing risks | 2 | published support; pending source read | continuous-time intensity and targeting contracts |
 | [X80](#x80-ratio-trimming-on-the-hazard-path) Ratio trimming on the hazard path | 3 | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` |
@@ -91,13 +92,13 @@ The readiness labels are defined under
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X77](#x77-censored-data-for-continuous-price-policies) Censored data for continuous price policies | 3 | no new theory; Díaz, Williams, Hoffman and Schenck (2023) include censoring | the shipped continuous-node modified treatment policies and the learned censoring factor |
-| [X71](#x71-repeated-outcomes-for-the-sequential-baselines) Repeated outcomes for the sequential baselines | 3 | no new theory | the shipped `LTMLE` repeated outcome |
+| [X71](#x71-repeated-outcomes-for-the-sequential-baselines) Repeated outcomes for the sequential baselines | 3 | no new theory | the shipped `LTMLE` repeated outcome and the shipped sequential baselines |
 | [X73](#x73-pooled-over-time-parametric-g-formula-models) Pooled-over-time parametric g-formula models | 3 | no new theory; the stacked equations of the shipped `ParametricGFormula`, with unit-summed scores | the shipped `ParametricGFormula` |
 | [X75](#x75-data-tuned-policies-beyond-the-shipped-tuned-caps) Data-tuned policies beyond the shipped tuned caps | 3 | published support for the shipped caps; source audit for the other tuned policies | the shipped data-tuned caps of modified treatment policies |
 | [X60](#x60-settings-of-the-stacked-and-natural-course-contracts) Settings of the stacked and natural-course contracts | 6 | no new theory for part (a); natural extension for parts (b) to (d) | the shipped stacked and natural-course contracts; the shipped controlled direct effect for part (d) |
 | [X72](#x72-static-regimen-values-from-structural-blips-with-time-varying-features) Static regimen values from structural blips with time-varying features | 6 | published support for identification; the inference result is a preprint | the shipped `StructuralNestedMean`; the shipped `LTMLE` |
 | [X74](#x74-assessment-and-study-integration-for-the-structural-nested-mean-model) Assessment and study integration for the structural nested mean model | 6 | no new theory | X82 part D; the shipped `StructuralNestedMean` |
-| [X78](#x78-bounded-node-fits-under-a-working-model) Bounded node fits under a working model | 6 | no source read; the bounded form of a pooled fluctuation is not written | the shipped `node_bounds=` and `msm=` of `LTMLE` |
+| [X78](#x78-bounded-node-fits-under-a-working-model) Bounded node fits under a working model | 6 | the bounded form of a pooled fluctuation is not written | the shipped `node_bounds=` and `msm=` of `LTMLE` |
 
 ### Policies and conditional effects
 
@@ -130,8 +131,8 @@ The readiness labels are defined under
 | --- | --- | --- | --- |
 | [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) Small-sample evidence for clustered intervals and boundary nodes | fix for parts (d), (f) and (g); 3 for the rest | [no new theory](technical-reference/hard-stop-review.md) | the shipped clustered intervals and `constant_node_plugin` status |
 | [X76](#x76-studies-of-the-targeting-and-fitting-options) Studies of the targeting and fitting options | fix | no new theory | the shipped `stopping=`, `outcome_by_arm=`, `patience=` and `treatment_adjustment=` |
-| [X81](#x81-adaptiveiptw-follow-ups) AdaptiveIPTW follow-ups | 3 | parts (b) to (d) adapt a shipped base result; no read source covers part (a) | the shipped `AdaptiveIPTW` |
-| [X36](#x36-projected-variance-for-adaptiveiptw-with-a-declared-parametric-mechanism) Projected variance for AdaptiveIPTW with a declared parametric mechanism | 6 | natural extension of the projection theorem of van der Laan (2012), WP302 | the shipped `AdaptiveIPTW` |
+| [X81](#x81-adaptiveiptw-follow-ups) AdaptiveIPTW follow-ups | 3 | natural extension for parts (b) to (d); no read source for part (a) | the shipped `AdaptiveIPTW` |
+| [X36](#x36-projected-variance-for-adaptiveiptw-with-a-declared-parametric-mechanism) Projected variance for AdaptiveIPTW with a declared parametric mechanism | 6 | natural extension; the base result is van der Laan (2012), WP302, Section 2.1 | the shipped `AdaptiveIPTW` |
 | [X55](#x55-bootstrap-extensions) Bootstrap extensions | 6 | [published support](technical-reference/hard-stop-review.md); the book chapter of part (c) is not read | the shipped full-refit bootstrap; a HAL learner for part (b) |
 
 ### Sensitivity and refutation
@@ -148,7 +149,7 @@ The readiness labels are defined under
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X35](#x35-efficient-known-score-att-and-atc) Efficient known-score ATT and ATC | 3 | published support; pending source read | the shipped known treatment mechanism |
-| [X5](#x5-natural-and-interventional-mediation-effects) Natural and interventional mediation effects | 5 | published support; pending source read | target-specific identification and evidence; R1 where it helps |
+| [X5](#x5-natural-and-interventional-mediation-effects) Natural and interventional mediation effects | 5 | published support; pending source read | target-specific identification and evidence |
 | [X2](#x2-replicate-weight-designs) Replicate-weight designs | 5 | source audit | weighted-law variance construction |
 | [X7](#x7-two-phase-and-outcome-dependent-sampling) Two-phase and outcome-dependent sampling | 5 | published support; pending source read | observed-data likelihood and influence correction |
 | [X63](#x63-missing-data-intermediates-and-designs) Missing data, intermediates and designs | 6 | natural extension for parts (a) and (b); no new theory for parts (c) and (d) | the shipped controlled direct effect and known treatment mechanism |
@@ -1565,7 +1566,7 @@ treatments cover censored fits.
 | --- | --- |
 | a censoring draw on the `mtp-pricing` law, with the censoring factor learned beside the classifier price ratio | a registered study cell per engine at three nodes, with its red cells reported, and support rows with `missing=("censoring",)` |
 
-Acceptance: the registered cells, and a support case in `tests/studies/support_cases.py`. 
+Acceptance: the registered cells, and a support case in `tests/studies/support_cases.py`.
 
 ### X78. Bounded node fits under a working model
 
@@ -1834,8 +1835,16 @@ the rule learner of the learned-rule value
 
 What stays here is the compositions the shipped refusals name with this item: missing
 treatments, an intermediate, a continuous or vector treatment, `strata=`, `repeats` above 1 and
-the full-refit bootstrap for `ConditionalContrast`; sensitivity analyses and refutations of a
-curve; a declared final learner on the log-ratio scale; and scalar aggregates of an EP curve.
+the full-refit bootstrap for `ConditionalContrast`; a conditional contrast from a method other
+than `method="tmle"`; the truncation curve and the sensitivity analyses and refutations of a
+curve; a declared final learner on the log-ratio scale; an interval for an EP rule fitted with a
+declared `sieve=` or `learner=`; and scalar aggregates of an EP curve.
+
+Evidence stays open too. The `hte3` comparator runs of the `ep-cate`, `ep-crr` and
+`ep-assessment` studies are pending, and the EP curve carries no interval. The projection band,
+the external-score check, a pooled outcome regression, a cross-validated sieve size and a declared
+final learner read experimental until a registered study measures them. The EP rule's interval
+under-covers at the exceptional law (coverage 0.901 at n = 2,000).
 Other losses and contrasts need their own derivations. An aggregate of an EP curve is a separate
 parameter and receives scalar inference only after its influence contribution is implemented and
 tested.
@@ -1910,7 +1919,11 @@ Three requests stay open, and each refusal names this item:
 - a targeting curve fitted with `target_weights=True` or a declared stopping rule. The curve's
   fluctuation carries one weight column under the relative stopping test only.
 
-The `grf` comparator runs of the targeting-curve study are pending.
+The `grf` comparator runs of the targeting-curve study are pending. The red cell of that study,
+the conservative paired TOC(0.1) row, is owned by `X92-paired-conservative`. The area estimates
+rest on Yadlowsky, Fleming, Shah, Brunskill and Wager (arXiv:2111.07966, Theorem 3 and
+Corollary 7); the pointwise TOC at a fixed fraction and a band over the grid are not covered by
+that proof.
 
 Acceptance: structural tests that read the plot's artists, one honesty test with a mutation
 control per applicable rule, a docstring example and a render check.
