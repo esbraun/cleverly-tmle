@@ -213,6 +213,12 @@ class TestTheDeclaredSuspects:
         assert study.convergence_suspects(fits, {"c": True}, healed) == [
             "c: 1 investigated fits no longer stall as recorded"
         ]
+        separated = fits.copy()
+        separated.loc[0, "failure"] = "cell_separated"
+        both = {**listed, ("c", 1): 1e-5}
+        assert study.convergence_suspects(separated, {"c": True}, both) == [
+            "c: 1 investigated fits no longer stall as recorded"
+        ]
 
     def test_the_property_check_counts_fitted_cells_only(self) -> None:
         base = "cross_fitted_sep01_death_t3__correctly_specified"
@@ -270,6 +276,14 @@ class TestTheDeclaredSuspects:
         assert study.primary_suspects(pd.read_csv(root / "convergence.csv")) == []
         rows = pd.read_parquet(root / "property-replicates.parquet")
         assert properties.convergence_suspects(rows) == []
+        # Every listed stall is a fit of this run that stalled, and every stall is listed.
+        primary = pd.read_csv(root / "convergence.csv").rename(columns={"scenario": "cell"})
+        fitted = rows.loc[rows["cell"].isin(list(properties.CROSS_FITTED_CELLS))]
+        fits = pd.concat([primary, fitted.drop_duplicates(["cell", "replicate"])])
+        stalled = fits.loc[fits["failure"].eq("newton_stalled"), ["cell", "replicate"]]
+        assert set(study.INVESTIGATED_STALLS) == {
+            (str(cell), int(replicate)) for cell, replicate in stalled.itertuples(index=False)
+        }
 
 
 class TestTheConvergence:

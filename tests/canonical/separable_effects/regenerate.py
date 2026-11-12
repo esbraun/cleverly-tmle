@@ -62,9 +62,11 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
   found no inward-pulling clipped row, the in-sample rows of replicates 0 to 8,399 equal the
   previous run's within 5e-16, and no cell's separated share passed 1.5%.  Three cross-fitted
   fits (two primary, one ``cross_fitted_sep01_death_t3`` calibration fit) stopped with
-  ``newton_stalled`` at 1.2 to 2.4 times ``tol``.  They were investigated: the remaining score
-  lies in two directions in which the Jacobian of the factor scores is singular to rounding
-  (``python -m tests.studies.separable_effects_stalls``).  Eric chose to keep the run and record
+  ``newton_stalled`` at 1.2 to 2.4 times ``tol``.  They were investigated
+  (``python -m tests.studies.separable_effects_stalls``): the remaining score lies in two
+  directions in which the Jacobian of the factor scores is singular to rounding, which the Newton
+  phase discards, and steps forced along them reach a root within ``tol`` that moves no estimate
+  by more than 0.0015 standard errors.  Eric chose to keep the run and record
   them in :data:`tests.studies.separable_effects.INVESTIGATED_STALLS`, which the suspect check
   passes only while each stalls at its recorded score.
 * A replication that raises is never redrawn.  The pilot lost no fit at the declared size, so

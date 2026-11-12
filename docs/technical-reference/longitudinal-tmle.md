@@ -475,8 +475,9 @@ stops with the cell on the bound, warns, and reports `failure="cell_separated"`,
 stops a logistic regression. In the `separable-effects` study at n = 16,000 this happened in
 102 of 15,600 two-fold fits (0.65%), at relative scores of at most $2.3 \times 10^{-5}$, and
 never in sample. Three more two-fold fits stopped at 1.2 to 2.4 times `tol`
-(`failure="newton_stalled"`), with the remaining score in two directions where the Jacobian of
-the scores is singular to rounding, because the targets are nearly collinear there
+(`failure="newton_stalled"`): their remaining score lies in two directions where the Jacobian of
+the scores is singular to rounding, which the Newton steps discard. Steps forced along them reach
+a root within `tol` that moves no estimate by more than 0.0015 standard errors
 (`tests/studies/separable_effects_stalls.py`).
 
 **Robustness.** With the treatment and censoring mechanisms right, the estimate is consistent when

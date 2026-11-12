@@ -313,9 +313,13 @@ INVESTIGATED_STALLS: Mapping[tuple[str, int], float] = MappingProxyType(
         ("cross_fitted_sep01_death_t3__correctly_specified", 3264): 2.356290182224947e-10,
     }
 )
+#: How closely a listed fit must stop at its recorded relative score: refits of one draw on two
+#: machines differ by about 4e-6 of it.
+STALL_RTOL = 1e-3
 STALL_FINDING = (
     "the remaining score lies in two directions in which the Jacobian of the factor scores is "
-    "singular to rounding (nearly collinear targets), not in a defect of the targeting"
+    "singular to rounding, which the Newton phase discards; steps forced along them reach a "
+    "root within tol that moves no estimate by more than 0.0015 standard errors"
 )
 
 
@@ -346,7 +350,7 @@ def convergence_suspects(
             )
             listed = recorded.notna()
             same = short & failure.eq("newton_stalled")
-            same &= np.isclose(group["relative_score"], recorded, rtol=1e-6, atol=0.0)
+            same &= np.isclose(group["relative_score"], recorded, rtol=STALL_RTOL, atol=0.0)
             if (listed & ~same).any():
                 found.append(
                     f"{cell}: {int((listed & ~same).sum())} investigated fits no longer stall "
