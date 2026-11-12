@@ -182,6 +182,15 @@ def event_time_quartiles(n: int = 2_000_000, seed: int = 2026911951) -> tuple[fl
 
 
 TRUTH: Mapping[str, float] = truth()
+#: The first target time.  Its rows are published but not gated: at n = 4,000 the
+#: influence-curve standard error of the treated arm's risk of cause 2 there reads about 6% below
+#: the sampling spread (13% at 1,000), so coverage sits at 0.88 to 0.92 although the estimate is
+#: unbiased and efficient (pilot at 1756bf8; X91-G-design.md section 15).
+EARLY_TIME = TIMES[0]
+#: The targets the record gates: every one at the two later times.
+GATED: tuple[str, ...] = tuple(name for name in TRUTH if f"@ t={EARLY_TIME:g}]" not in name)
+#: The first target time's targets, published as measured.
+EARLY: tuple[str, ...] = tuple(name for name in TRUTH if name not in GATED)
 
 
 def _x3_rule(nodes: int = 200) -> tuple[np.ndarray, np.ndarray]:

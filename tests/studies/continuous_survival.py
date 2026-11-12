@@ -20,7 +20,12 @@ and the reported positivity cell are in :mod:`tests.studies.continuous_survival_
 of the observed event times, :data:`~tests.studies.continuous_survival_law.TIMES`.
 
 **Gates.** Every row of the record is gated: standardized bias under :data:`MARGINS`,
-coverage and the SE ratio, for each arm's risk of each cause and each risk difference.
+coverage and the SE ratio, for each arm's risk of each cause and each risk difference at the
+two later times (:data:`~tests.studies.continuous_survival_law.GATED`).  The first time's six
+targets come from the same fits and publish as ``early-time.csv`` with no verdict
+(:data:`~tests.studies.continuous_survival_law.EARLY`): the pilot read their standard error
+below the sampling spread, a finite-sample finding the record states rather than gates
+(Eric's decision, 2026-11-12).
 
 **Size and seeds.** :data:`PRIMARY_REPLICATES` follows from the pilot
 (``tests/studies/continuous_survival_pilot.py``) by the shared rule.  :data:`SEED` and
@@ -49,8 +54,9 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.stratified_incremental_msm_properties import Columns
 
-#: The pilot's draws per cell; the primary count follows from it.
-PILOT_REPLICATES = 300
+#: The pilot's draws per cell; the primary count follows from it.  The first 300 ran at
+#: 4b232921; draws 300 to 999 extend the same streams (Eric's decision, 2026-11-12).
+PILOT_REPLICATES = 1_000
 #: The declared primary replicate count, set from the committed pilot by the shared rule
 #: before any declared draw.  Provisional until the pilot is read.
 PRIMARY_REPLICATES = 1_000
@@ -68,10 +74,16 @@ SUBJECT = "cleverly-continuous-survival-tmle"
 SCENARIOS: dict[str, tuple[bool, int]] = {
     f"both_{mode}_{n // 1000}k": (mode == "cf", n) for mode in ("fs", "cf") for n in (1_000, 4_000)
 }
-ESTIMANDS: dict[str, tuple[str, ...]] = dict.fromkeys(SCENARIOS, tuple(law.TRUTH))
+ESTIMANDS: dict[str, tuple[str, ...]] = dict.fromkeys(SCENARIOS, law.GATED)
 MARGINS = Margins(standardized_bias=0.2)
 
 READINGS_FILE = "targeting-readings.csv"
+EARLY_FILE = "early-time.csv"
+#: The per-fit columns that carry the first time's targets on every gated row of the fit.
+EARLY_FIELDS = ("estimate", "std_error", "covered")
+EARLY_COLUMNS = tuple(
+    f"early{index}_{field}" for index in range(len(law.EARLY)) for field in EARLY_FIELDS
+)
 
 STUDY = StudyRecord(
     name="continuous-time survival TMLE",
@@ -90,7 +102,7 @@ STUDY = StudyRecord(
     reference=None,
     failure_bound={SUBJECT: FAILURE_BOUND},
     nuisance_count=3,
-    extra_artifacts=(READINGS_FILE,),
+    extra_artifacts=(READINGS_FILE, EARLY_FILE),
     modules=(
         "tests/studies/continuous_survival.py",
         "tests/studies/continuous_survival_law.py",
@@ -223,7 +235,7 @@ def result_rows(
     """One row per estimand on the identity scale."""
     rows = []
     initial = result.initial_estimates
-    for name in law.TRUTH:
+    for name in law.GATED:
         estimate = result[name]
         low, high = estimate.ci
         reference = float(truth[name])
@@ -258,7 +270,21 @@ EXTRA_COLUMNS = (
     "last_time_floor_share",
     "frozen_share",
     "off_grid_share",
+    *EARLY_COLUMNS,
 )
+
+
+def early_readings(result: Any) -> dict[str, float]:
+    """The first time's targets of one fit, as :data:`EARLY_COLUMNS`."""
+    out: dict[str, float] = {}
+    for index, name in enumerate(law.EARLY):
+        estimate = result[name]
+        low, high = estimate.ci
+        truth = float(law.TRUTH[name])
+        out[f"early{index}_estimate"] = float(estimate.psi)
+        out[f"early{index}_std_error"] = float(estimate.std_error)
+        out[f"early{index}_covered"] = float(low <= truth <= high)
+    return out
 
 
 def readings(result: Any) -> dict[str, float]:
@@ -290,7 +316,7 @@ def _replicate(
         start = time.perf_counter()
         result = fit(frame, scenario)
         seconds = time.perf_counter() - start
-    extra = {"seconds": seconds, **readings(result)}
+    extra = {"seconds": seconds, **readings(result), **early_readings(result)}
     return [{**row, **extra} for row in result_rows(result, truth, scenario, replicate)]
 
 
@@ -351,6 +377,34 @@ def account_failures(
     return evidence_failures.audits({}, missing={})
 
 
+def early_time(rows: pd.DataFrame) -> pd.DataFrame:
+    """Per cell and first-time target: bias, spread, SE ratio and coverage, with no verdict."""
+    fits = rows.drop_duplicates(["scenario", "replicate"])
+    records = []
+    for scenario, group in fits.groupby("scenario", sort=True):
+        for index, name in enumerate(law.EARLY):
+            estimate = group[f"early{index}_estimate"].to_numpy(dtype=float)
+            std_error = group[f"early{index}_std_error"].to_numpy(dtype=float)
+            covered = group[f"early{index}_covered"].to_numpy(dtype=float)
+            truth = float(law.TRUTH[name])
+            spread = float(np.std(estimate, ddof=1))
+            records.append(
+                {
+                    "scenario": scenario,
+                    "estimand": name,
+                    "fits": int(estimate.size),
+                    "truth": truth,
+                    "bias": float(np.mean(estimate) - truth),
+                    "standardized_bias": float((np.mean(estimate) - truth) / spread),
+                    "empirical_se": spread,
+                    "mean_std_error": float(np.mean(std_error)),
+                    "se_ratio": float(np.mean(std_error) / spread),
+                    "coverage": float(np.mean(covered)),
+                }
+            )
+    return pd.DataFrame.from_records(records)
+
+
 def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """The reported table; it is not a verdict."""
-    return {READINGS_FILE: targeting_readings(rows)}
+    """The reported tables; neither is a verdict."""
+    return {READINGS_FILE: targeting_readings(rows), EARLY_FILE: early_time(rows)}

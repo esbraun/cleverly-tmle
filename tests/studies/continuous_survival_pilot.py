@@ -8,8 +8,9 @@ raised.  Run it as ``python -m tests.studies.continuous_survival_pilot --jobs N`
 ======================  ======================================================================
 label                   what it sizes
 ======================  ======================================================================
-``<cell>``              each primary cell of the record at its size, 300 draws: the primary
-                        replicate count by the shared rule
+``<cell>``              each primary cell of the record at its size, 1,000 draws (300 at
+                        4b232921, extended on the same streams): the primary replicate count
+                        by the shared rule
 ``dr_<configuration>``  each double-robustness configuration at 4,000, 300 draws: the
                         positives' bias and the control's gap, stated before the run
 ``calibration_both``    the calibration cell's risk difference at 4,000, 2,000 draws (fewer
@@ -102,19 +103,25 @@ def _one(label: str, replicate: int) -> list[dict[str, Any]]:
         return [{"label": label, "replicate": replicate, "n": n, "refusal": type(error).__name__}]
 
 
-def run(n_jobs: int, labels: list[str] | None = None, draws: int | None = None) -> pd.DataFrame:
-    """Run ``labels`` (every cell by default) and replace their rows in the CSV."""
+def run(
+    n_jobs: int, labels: list[str] | None = None, draws: int | None = None, first: int = 0
+) -> pd.DataFrame:
+    """Run draws ``first`` onwards of ``labels`` (every cell by default) and replace their rows.
+
+    Rows of the chosen labels below ``first`` are kept, so a label extends on its own streams.
+    """
     chosen = labels if labels else list(PILOTS)
     jobs = [
         (label, r)
         for label in chosen
-        for r in range(PILOTS[label][3] if draws is None else min(draws, PILOTS[label][3]))
+        for r in range(first, PILOTS[label][3] if draws is None else min(draws, PILOTS[label][3]))
     ]
     outcomes = map_parallel(_one, jobs, n_jobs=n_jobs)
     frame = pd.DataFrame([row for rows in outcomes for row in rows])
     if OUTPUT.exists():
-        kept = pd.read_csv(OUTPUT)
-        frame = pd.concat([kept.loc[~kept["label"].isin(chosen)], frame], ignore_index=True)
+        kept = pd.read_csv(OUTPUT, low_memory=False)
+        keep = ~kept["label"].isin(chosen) | (kept["replicate"] < first)
+        frame = pd.concat([kept.loc[keep], frame], ignore_index=True)
     frame.to_csv(OUTPUT, index=False)
     return frame
 
@@ -124,5 +131,6 @@ if __name__ == "__main__":
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument("--labels", nargs="*", default=None)
     parser.add_argument("--draws", type=int, default=None)
+    parser.add_argument("--first", type=int, default=0)
     arguments = parser.parse_args()
-    run(arguments.jobs, arguments.labels, arguments.draws)
+    run(arguments.jobs, arguments.labels, arguments.draws, arguments.first)
