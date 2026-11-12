@@ -33,6 +33,7 @@ from scipy.special import expit
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import CausalStudy, ConditionalContrast, PointTreatment
+from cleverly import _pooled_targeting as pt
 from cleverly import targeting_curves as tc
 from cleverly.bases import Linear, Modifiers
 from cleverly.data import CausalData
@@ -445,9 +446,9 @@ def test_dropping_the_autoc_column_breaks_its_identity(monkeypatch: pytest.Monke
 def test_an_untruncated_mechanism_in_the_clever_covariate_breaks_the_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    propensity = tc._clever_propensity
+    propensity = pt.clever_propensity
     monkeypatch.setattr(
-        tc, "_clever_propensity", lambda nuisance, bounds: propensity(nuisance, (1e-6, 1 - 1e-6))
+        pt, "clever_propensity", lambda nuisance, bounds: propensity(nuisance, (1e-6, 1 - 1e-6))
     )
     assert _identity_gap(_continuous_curve()) > MUTATION_FLOOR
 
@@ -468,7 +469,7 @@ def test_skipping_the_reduction_fails_as_a_singular_fluctuation(
 ) -> None:
     fit, data, w = _misspecified()
     score = np.floor(2.0 * (w[:, 0] + 1.0))
-    monkeypatch.setattr(tc, "_span_basis", lambda columns: (columns, 0.0))
+    monkeypatch.setattr(tc, "span_basis", lambda columns: (columns, 0.0))
     with pytest.raises(DataError, match="singular_hessian"):
         tc.targeting_fit(fit, data, {"S": score}, pair=(1.0, 0.0), n_half_samples=5)
 
@@ -982,13 +983,13 @@ def test_a_known_mechanism_is_read_from_the_data_and_divides_the_clever_covariat
     )
     effect = study.identify(ConditionalContrast(Modifiers(["W1"])))
     seen: list[np.ndarray] = []
-    clever = tc._clever_propensity
+    clever = pt.clever_propensity
 
     def spy(nuisance: Any, g_bounds: tuple[float, float]) -> Any:
         seen.append(clever(nuisance, g_bounds))
         return seen[-1]
 
-    monkeypatch.setattr(tc, "_clever_propensity", spy)
+    monkeypatch.setattr(pt, "clever_propensity", spy)
     status = tc.targeting_status
     declared: list[bool] = []
 
