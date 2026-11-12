@@ -201,3 +201,116 @@ class TestMutationControls:
     def test_pointing_an_entry_elsewhere_fails_the_cell_check(self, cell: str) -> None:
         mutated = {**BAND_CELLS, "G23.cross_fitted": (cell,)}
         assert missing_cells(mutated) == [("G23.cross_fitted", cell)]
+
+
+# ------------------------------------------------------------------ the t band (Fix-2 plan 4.9)
+
+T_OPTION = ("mammen", "logit", "t")
+T_SUFFIX = "__t_band"
+T_STUDY = "band_t_reference"
+
+
+def t_band_rows(rows: Mapping[str, SupportRow] = ROWS) -> set[str]:
+    """The ids of the rows that list the ``t`` triple."""
+    return {row_id for row_id, row in rows.items() if T_OPTION in row.band_options}
+
+
+def t_mapping_problems(
+    mapping: Mapping[str, tuple[str, ...]],
+    rows: Mapping[str, SupportRow],
+    passed: Mapping[str, bool],
+    controls_passed: Mapping[str, bool],
+) -> list[str]:
+    """Every way ``mapping`` breaks the licence rule, as short sentences.
+
+    A row lists the triple exactly when it has an entry; each cell is written by ``_t_band``,
+    is a positive ``__t_band`` row of band-t-reference that passed, and every clause of its
+    paired controls passed; a row only in this mapping lists the ``t`` triple and not the
+    default; a ``t`` row licenses ``band``.
+    """
+    problems = []
+    for row_id in t_band_rows(rows) ^ {row_id for row_id, cells in mapping.items() if cells}:
+        problems.append(f"{row_id}: lists the t triple without cells, or cells without it")
+    for row_id, cells in mapping.items():
+        row = rows[row_id]
+        if "band" not in row.kinds:
+            problems.append(f"{row_id}: maps t cells but licenses no band")
+        if row_id not in BAND_CELLS and DEFAULT_BAND_OPTION in row.band_options:
+            problems.append(f"{row_id}: only t cells, but lists the default band")
+        for cell in cells:
+            directory, name = cell.split(":", 1)
+            if directory != T_STUDY or not (
+                name.startswith(f"{PHASE}/") and name.endswith(T_SUFFIX)
+            ):
+                problems.append(f"{row_id}: {cell} is not written by _t_band")
+            if not passed.get(cell, False):
+                problems.append(f"{row_id}: {cell} did not pass")
+            if not controls_passed.get(cell, False):
+                problems.append(f"{row_id}: a control clause of {cell} did not pass")
+    return problems
+
+
+class TestTheTBandMapping:
+    def test_the_committed_mapping_and_rows_agree(self) -> None:
+        from cleverly._support_rows import T_BAND_CELLS
+
+        # No band-t-reference verdict is committed yet, so no row lists the triple.
+        assert t_mapping_problems(T_BAND_CELLS, ROWS, {}, {}) == []
+        assert t_band_rows() == set()
+
+    def test_a_t_band_cell_cannot_sit_in_the_default_mapping(self) -> None:
+        for cells in BAND_CELLS.values():
+            for cell in cells:
+                assert not cell.endswith(T_SUFFIX), cell
+
+    def test_t14_licenses_the_default_band_from_the_committed_cross_fitted_cell(self) -> None:
+        cell = "tmle3_stratified:simultaneous_coverage/crossfit_strata__simultaneous_band"
+        assert BAND_CELLS["T14"] == (cell,)
+        assert positive_band_cells("tmle3_stratified")[cell] is True
+        unmapped = "tmle3_stratified:simultaneous_coverage/strata__simultaneous_band"
+        assert positive_band_cells("tmle3_stratified")[unmapped] is False
+        assert unmapped in UNMAPPED_BAND_CELLS
+
+
+class TestTheTBandMutationControls:
+    """A fixture in which T30 holds its two cells, both passing with their controls."""
+
+    CELLS = (
+        f"{T_STUDY}:{PHASE}/cde_z0{T_SUFFIX}",
+        f"{T_STUDY}:{PHASE}/cde_z0_n8000{T_SUFFIX}",
+    )
+
+    def fixture(self) -> tuple[dict, dict, dict, dict]:
+        from dataclasses import replace
+
+        rows = dict(ROWS)
+        rows["T30"] = replace(
+            rows["T30"], kinds=rows["T30"].kinds | {"band"}, band_options=(T_OPTION,)
+        )
+        mapping = {"T30": self.CELLS}
+        passed = dict.fromkeys(self.CELLS, True)
+        return mapping, rows, passed, dict(passed)
+
+    def test_the_fixture_is_clean(self) -> None:
+        assert t_mapping_problems(*self.fixture()) == []
+
+    def test_deleting_an_entry_fails(self) -> None:
+        _, rows, passed, controls = self.fixture()
+        assert t_mapping_problems({}, rows, passed, controls) != []
+
+    def test_redirecting_an_entry_fails(self) -> None:
+        _, rows, passed, controls = self.fixture()
+        moved = {"T30": (f"{T_STUDY}:{PHASE}/cde_z0__simultaneous_band",)}
+        assert t_mapping_problems(moved, rows, passed, controls) != []
+
+    def test_one_failed_control_clause_fails(self) -> None:
+        mapping, rows, passed, controls = self.fixture()
+        controls[self.CELLS[1]] = False
+        assert t_mapping_problems(mapping, rows, passed, controls) != []
+
+    def test_listing_the_default_on_a_t_only_row_fails(self) -> None:
+        from dataclasses import replace
+
+        mapping, rows, passed, controls = self.fixture()
+        rows["T30"] = replace(rows["T30"], band_options=(DEFAULT_BAND_OPTION, T_OPTION))
+        assert t_mapping_problems(mapping, rows, passed, controls) != []

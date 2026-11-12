@@ -38,6 +38,7 @@ __all__ = [
     "OPTION_ALLOWLIST",
     "POINT_ROWS",
     "SHORTFALLS",
+    "T_BAND_CELLS",
     "UNMAPPED_BAND_CELLS",
     "TheoryAnchor",
     "default_options",
@@ -560,6 +561,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
             families=("P1",),
             splitting=("stacked",),
             qualifiers=["strata"],
+            kinds=_WALD | {"band"},
             cells=["stratified_binary"],
         )
     )
@@ -5535,6 +5537,10 @@ def _band(study: str, setting: str) -> str:
     return f"{study}:simultaneous_coverage/{setting}__simultaneous_band"
 
 
+def _t_band(study: str, setting: str) -> str:
+    return f"{study}:simultaneous_coverage/{setting}__t_band"
+
+
 #: The band cells that license each row's ``band`` kind, as ``"<study directory>:<cell>"``
 #: (band-finite-sample plan, section 4.5). A cell maps to a row only where the fit that
 #: produces the cell falls under the row's key, checked against the study's design module
@@ -5627,7 +5633,21 @@ BAND_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
     "G44.law_i": (_band("longitudinal_repeated_crossfit", "i_ipsi"),),
     # long_horizon_properties.fit_key: the joint arm of the K = 5 binary fit set.
     "G46.tmle.binary_k5": (_band("long_horizon_ltmle", "k5"),),
+    # stratified_tmle_properties._calibration with crossfit=True: the default cross-fitted fit
+    # with baseline strata, ("ey", "ate"), under the row's key (stacked, strata).
+    "T14": (_band("tmle3_stratified", "crossfit_strata"),),
 }
+
+#: The ``band-t-reference`` cells that license ``("mammen", "logit", "t")`` on each row, written
+#: by :func:`_t_band` (Fix-2 plan, section 1.1 item 4). A row lists the triple only when every
+#: cell mapped to it passed with every clause of its paired controls, and each licence covers
+#: the whole row key, as a :data:`BAND_CELLS` licence does. Empty until the study's run: the
+#: declared entries are ``G08.in_sample`` (categorical_ltmle, categorical_ltmle_n8000),
+#: ``G23.cross_fitted`` (six_regimens), ``G08.cross_fitted`` (categorical_ltmle_crossfit),
+#: ``T30`` (cde_z0, cde_z0_n8000), ``T01.binary`` (ordinary_binary), ``T18`` (point_msm),
+#: ``T13`` (strata, strata_n8000) and ``T14`` (crossfit_strata). The held-out strata_n1000
+#: cell licenses no row.
+T_BAND_CELLS: Final[Mapping[str, tuple[str, ...]]] = {}
 
 _DEFAULT_BANDS_REASON = (
     "It measures the shipped default band of the configuration of row {row}, which does not "
@@ -5672,5 +5692,10 @@ UNMAPPED_BAND_CELLS: Final[Mapping[str, str]] = {
     _band("default_bands", "categorical_ltmle"): (
         "It measures the default band of the configuration of row G08.in_sample and it is red; "
         "the row carries the reading as a band shortfall."
+    ),
+    # canonical-stratified-tmle is cited by T14's band since its crossfit_strata cell licenses it.
+    _band("tmle3_stratified", "strata"): (
+        "It measures the default band of the configuration of row T13, which licenses no band, "
+        "and it is red; band-t-reference measures the t band on that configuration."
     ),
 }
