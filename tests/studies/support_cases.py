@@ -544,7 +544,7 @@ def _t_cases() -> tuple[RowCase, ...]:
             "T10.unweighted",
             "clustered-unequal-cvtmle",
             "unequal_informative",
-            _ST + "clustered_unequal_cvtmle.py:228",
+            _ST + "clustered_unequal_cvtmle.py:237",
             _tmle(cross_fit=True, n_folds=5),
             {"clusters": 200, "n": 1200},
             ATE,
@@ -555,7 +555,7 @@ def _t_cases() -> tuple[RowCase, ...]:
             "T10.cluster_average",
             "clustered-unequal-cvtmle",
             "unequal_informative_cluster_average",
-            _ST + "clustered_unequal_cvtmle.py:228",
+            _ST + "clustered_unequal_cvtmle.py:237",
             _tmle(cross_fit=True, n_folds=5),
             {"clusters": 200, "n": 1200, "weights": True},
             ATE,
@@ -565,11 +565,11 @@ def _t_cases() -> tuple[RowCase, ...]:
         _case(
             "T10.fold_evaluated",
             "clustered-unequal-cvtmle",
-            "fold_evaluated_property",
-            _ST + "clustered_unequal_properties.py:168",
-            _tmle(cross_fit=True, n_folds=5, cv_evaluation=True),
-            {"clusters": 200, "n": 1200},
-            ("ate",),
+            "cluster_robust_fold_evaluated_cluster_covariate",
+            _ST + "clustered_unequal_properties.py:198",
+            _tmle(cross_fit=True, n_folds=10, cv_evaluation=True),
+            {"clusters": 40, "n": 1200},
+            ("ey1",),
         )
     )
     for suffix, settings in (
@@ -1015,7 +1015,7 @@ def _d_cases() -> tuple[RowCase, ...]:
             "D04",
             "clustered-unequal-cvtmle",
             "unequal_informative",
-            _ST + "clustered_unequal_properties.py:203",
+            _ST + "clustered_unequal_properties.py:235",
             _drtmle(**stacked),
             {"clusters": 200, "n": 1200},
             ("ate",),

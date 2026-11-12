@@ -42,11 +42,12 @@ control row still publishes the IID SE over the empirical SD, which no verdict r
 quantile. Every cell also reports its SE-ratio interval and its coverage against the 0.99
 over-coverage ceiling, because at ``t_8`` excess width is as likely as under-coverage.
 
-The fold-evaluated fit reports t with ``min(J - 2, J - V)`` degrees of freedom: its variance
-centres the cluster totals in each of the ``V = 5`` folds, so it has ``J - V``. Its
-``t_reference`` cells measure that rule, and a fourth, reported arm,
-``t_j_minus_2_reference``, keeps ``J - 2`` on the same fits, so the run shows what the rule buys
-at 2, 4 and 6 clusters per fold.
+The fold-evaluated fit reports t with ``J - V`` degrees of freedom at every cluster count: its
+variance centres the cluster totals in each of the ``V = 5`` folds. Its ``t_reference`` cells
+measure that rule, and a fourth, reported arm, ``t_j_minus_2_reference``, keeps ``J - 2`` on the
+same fits, so the run shows what the rule buys at 2, 4 and 6 clusters per fold. The fit runs at
+equal sizes only: at informative sizes ``cv_evaluation=True`` refuses (Fix-4), so those cells
+are not in the grid (:data:`~tests.studies.clustered_few_cluster_tmle.REFUSED`).
 
 A fit that raises a recordable error, or that returns a non-finite estimate or standard error,
 is a failed replication. Each fit of a draw is its own key, so one failed fit costs that fit's
@@ -75,6 +76,7 @@ from tests.studies.canonical_drtmle import ColumnLogistic
 from tests.studies.clustered_few_cluster_tmle import (
     CLUSTER_COUNTS,
     FAMILY,
+    FITS,
     N_FOLDS,
     PROPERTY_REPLICATES,
     SIZE_LAWS,
@@ -178,8 +180,9 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             estimand=TARGET[fit],
         )
         for clusters in CLUSTER_COUNTS
-        for fit in fits_at(clusters)
+        for fit in FITS
         for sizes in SIZE_LAWS
+        if fit in fits_at(clusters, sizes)
         for arm, role in arms(fit)
     )
 
@@ -189,8 +192,9 @@ PROPERTY_GROUPS = {
     FAMILY: tuple(
         tuple(cell_name(fit, sizes, clusters, arm) for arm, _ in arms(fit))
         for clusters in CLUSTER_COUNTS
-        for fit in fits_at(clusters)
+        for fit in FITS
         for sizes in SIZE_LAWS
+        if fit in fits_at(clusters, sizes)
     )
 }
 
@@ -350,7 +354,7 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
         for sizes in SIZE_LAWS
         for clusters in CLUSTER_COUNTS
         for replicate in range(replicates)
-        for fit in fits_at(clusters)
+        for fit in fits_at(clusters, sizes)
     ]
     outcomes = fit_properties(
         keys,

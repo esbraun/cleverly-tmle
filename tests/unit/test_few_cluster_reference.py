@@ -676,6 +676,31 @@ class TestAFortyClusterFoldEvaluatedFit:
             rel=1e-12,
         )
 
+    def test_the_support_row_licenses_the_t_reference(self, forty: Any) -> None:
+        """T10.fold_evaluated licenses wald_t; its F28 shortfall labels the fit until the rerun."""
+        support = forty["ate"].support
+        assert support.row == "T10.fold_evaluated"
+        assert support.label == "experimental"
+        assert "cluster-covariate interval" in support.reason
+        assert "licenses no" not in support.reason
+
+    def test_a_row_without_wald_t_licenses_no_interval(
+        self, forty: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import dataclasses
+
+        from cleverly import _support
+
+        rows = [
+            dataclasses.replace(row, kinds=frozenset({"point", "wald"}))
+            if row.id == "T10.fold_evaluated"
+            else row
+            for row in _support.registered_rows()
+        ]
+        monkeypatch.setattr(_support, "registered_rows", lambda: tuple(rows))
+        result = _fold_evaluated(40, 5, estimands=("ate",))
+        assert "licenses no" in result["ate"].support.reason
+
     def test_the_omitted_variable_quantile_reads_t_35(
         self, forty: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:

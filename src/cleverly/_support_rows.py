@@ -521,9 +521,12 @@ def _t_rows() -> tuple[SupportRow, ...]:
             # A clustered fold-evaluated estimate takes t with J - V degrees of freedom at
             # every cluster count.
             kinds=_WALD_T,
-            cells=["fold_evaluated_property"],
+            cells=["cluster_robust_fold_evaluated_cluster_covariate"],
             # Roadmap: F28.
-            limits=["The cluster-covariate cell is red."],
+            limits=[
+                "The cluster-covariate cell is red.",
+                "Equal cluster sizes only: cv_evaluation=True refuses clusters of unequal size.",
+            ],
         ),
         "weighting",
         {"fold_evaluated": "none"},
@@ -536,8 +539,10 @@ def _t_rows() -> tuple[SupportRow, ...]:
             dependence="t",
             kinds=_WALD_T,
             cells=["few_cluster_reference"],
-            # Roadmap: F28.
-            limits=["The informative-size cells at 10 to 30 clusters include red cells."],
+            limits=[
+                "The fold-evaluated cells use equal cluster sizes only, because "
+                "cv_evaluation=True refuses clusters of unequal size."
+            ],
         ),
         "splitting",
         {
@@ -2393,12 +2398,6 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
         "Row T10.fold_evaluated is red for the fold-evaluated cluster-covariate interval: "
         # Roadmap: F28.
         "coverage 0.9182 to 0.9450 and SE ratio 0.9453 to 1.0187."
-    ),
-    ("T11.fold_evaluated", "wald_t"): (
-        "Row T11.fold_evaluated is red when cluster sizes are informative at 10 to 30 clusters: "
-        "at 10 clusters bias 0.1146 to 0.1310, coverage 0.8940 to 0.9180 and SE ratio "
-        # Roadmap: F28.
-        "0.8297 to 0.8849."
     ),
     ("T16.logit_binary", "wald"): (
         "Row T16.logit_binary is red for the logit slope at the smallest stratum: coverage "

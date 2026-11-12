@@ -82,7 +82,10 @@ FLAGGED_EXPERIMENTAL = {
     "X8-logit-small-stratum": "the logit slope at a small stratum reads an SE ratio of 0.78 to 0.94",
     "X8-drtmle-one-sided-bias": "the one-sided bias of the DR-TMLE cell",
     "RM18-one-sided-bias": "the one-sided bias of the DR-TMLE cell",
-    "F28": "the informative-size t cells read a bias of 0.11 to 0.13 and an SE ratio of 0.83",
+    "F28": (
+        "the fold-evaluated cluster-covariate cell reads a coverage of 0.9325 and an SE ratio of "
+        "0.98 under the normal reference it had before Fix-4"
+    ),
     "F27": "the boundary truth rows read a coverage of 0.894 and an SE ratio of 0.82",
     "mtp-pricing-calibration": (
         "X40: the five-node price_down rows read a coverage of 0.916 to 0.923 and an SE ratio of "
@@ -317,36 +320,6 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "property",
         "clustered_inference/cluster_robust_fold_evaluated_cluster_covariate",
         "T10.fold_evaluated",
-        ("wald_t",),
-        EXPERIMENTAL,
-        "",
-        "Q6",
-    ),
-    (
-        "clustered-few-cluster-tmle",
-        "property",
-        "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j10__t_reference",
-        "T11.fold_evaluated",
-        ("wald_t",),
-        EXPERIMENTAL,
-        "",
-        "Q6",
-    ),
-    (
-        "clustered-few-cluster-tmle",
-        "property",
-        "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j20__t_reference",
-        "T11.fold_evaluated",
-        ("wald_t",),
-        EXPERIMENTAL,
-        "",
-        "Q6",
-    ),
-    (
-        "clustered-few-cluster-tmle",
-        "property",
-        "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j30__t_reference",
-        "T11.fold_evaluated",
         ("wald_t",),
         EXPERIMENTAL,
         "",

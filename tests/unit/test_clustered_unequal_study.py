@@ -9,9 +9,14 @@ truths, its declared parameters and the nominal row count are checked here too.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
+from scipy.special import gammaln
+from scipy.stats import beta, binom, kurtosis, norm
+from scipy.stats import t as t_dist
 
 from cleverly.datasets import clustered_dgp
+from cleverly.exceptions import CapabilityError, RefusalReason
 from tests.studies import clustered_few_cluster_properties as few_properties
 from tests.studies import clustered_few_cluster_tmle as few_study
 from tests.studies import clustered_unequal_cvtmle as unequal_study
@@ -130,15 +135,135 @@ class TestTheDraws:
         assert informative.equals(average)
         assert truth["ate"] == pytest.approx(laws.informative_truth()["ate_cluster"])
 
-    def test_every_few_cluster_fit_reads_its_t_reference(self) -> None:
-        frame = few_properties.draw("unequal_informative", 10, 11)
-        assert "ltmle_in_sample" not in few_study.fits_at(10)
-        for fit in few_study.fits_at(10):
+    @pytest.mark.parametrize("sizes", ["equal10", "unequal_informative"])
+    def test_every_few_cluster_fit_reads_its_t_reference(self, sizes: str) -> None:
+        frame = few_properties.draw(sizes, 10, 11)
+        assert "ltmle_in_sample" not in few_study.fits_at(10, sizes)
+        for fit in few_study.fits_at(10, sizes):
             estimate = few_properties.fit_estimate(fit, frame, 10)
             expected = 5 if fit == "tmle_cv_evaluation" else 8
             assert estimate.reference_df == expected == few_study.expected_reference_df(fit, 10)
+
+    def test_the_fold_evaluated_fit_at_informative_sizes_is_refused_and_absent(self) -> None:
+        fit, sizes = few_study.REFUSED
+        assert fit not in few_study.fits_at(10, sizes)
+        assert fit in few_study.fits_at(10, "equal10")
+        assert not any(f"{fit}__{sizes}__" in cell for cell in few_study.PUBLISHED_CELLS)
+        assert not any(f"{fit}__{sizes}__" in cell.cell for cell in few_properties.declared_cells())
+        frame = few_properties.draw(sizes, 10, 11)
+        with pytest.raises(CapabilityError) as raised:
+            few_properties.fit_estimate(fit, frame, 10)
+        assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+        assert "their sizes differ" in str(raised.value)
 
     def test_the_descriptions_mirror_the_grid(self) -> None:
         from tests.studies.evidence import descriptions
 
         assert descriptions._FEW_CLUSTER_COUNTS == few_study.CLUSTER_COUNTS
+
+
+def _se_ratio_pass(ratio: float, replicates: int, band: tuple[float, float]) -> float:
+    """P(the 99% SE-ratio interval lies in ``band``): normal estimate, SD ``0.707 / sqrt(R)``."""
+    sd = 0.707 / np.sqrt(replicates)
+    half = norm.ppf(0.995) * sd
+    low, high = band[0] + half, band[1] - half
+    return float(norm.cdf((high - ratio) / sd) - norm.cdf((low - ratio) / sd))
+
+
+def _coverage_pass(coverage: float, replicates: int, band: tuple[float, float]) -> float:
+    """P(the 99% Clopper-Pearson coverage interval lies in ``band``)."""
+    k = np.arange(replicates + 1)
+    lower = np.where(k > 0, beta.ppf(0.005, k, replicates - k + 1), 0.0)
+    upper = np.where(k < replicates, beta.ppf(0.995, k + 1, replicates - k), 1.0)
+    inside = (lower >= band[0]) & (upper <= band[1])
+    return float(binom.pmf(k[inside], replicates, coverage).sum())
+
+
+def covariate_pass_probability(ratio: float, replicates: int) -> float:
+    """The covariate positive cell's joint pass probability at SE ratio ``ratio``.
+
+    The rule is the SE-ratio and coverage calibration bands
+    (``property_verdicts.clustered_inference_verdicts``). Coverage 0.945 is a conservative
+    reading under ``t_30``.
+    """
+    margins = unequal_study.STUDY.margins
+    return _se_ratio_pass(ratio, replicates, margins.calibration_se_ratio) * _coverage_pass(
+        0.945, replicates, margins.calibration_coverage
+    )
+
+
+#: ``E sqrt(chi2_k / k)`` at ``k = J - V = 30``: the ratio of a perfectly calibrated SE from a
+#: 30-df variance to the true SD, under normal cluster totals.
+JENSEN_RATIO = 0.9917
+#: The pre-declaration re-score of the committed covariate positive cell (Fix-4 plan 2.1).
+#: Recorded, not a forecast: the registered pair runs on a fresh stream.
+COMMITTED_COVERAGE = {"normal": 0.9325, "t30": 0.9425}
+
+
+class TestTheCovariatePairDesign:
+    """``clustered-unequal-cvtmle``'s covariate pair: R, its stream, and the planning ratio."""
+
+    def test_the_declared_replications_and_stream(self) -> None:
+        assert unequal_study.COVARIATE_REPLICATES == 4_000
+        cells = {cell.cell: cell for cell in unequal_properties.declared_cells()}
+        for name in (
+            "cluster_robust_fold_evaluated_cluster_covariate",
+            "iid_control_fold_evaluated_cluster_covariate",
+        ):
+            assert cells[name].replicates == 4_000
+            assert cells[name].seed == unequal_properties._seed(
+                unequal_properties.CLUSTERED, unequal_properties.COVARIATE_STREAM, 0
+            )
+        assert "cluster_robust_fold_evaluated" not in cells
+        assert "iid_control_fold_evaluated" not in cells
+        # The other pairs keep their streams and R.
+        assert cells["cluster_robust"].replicates == unequal_study.PROPERTY_REPLICATES
+        assert cells["cluster_robust"].seed == unequal_properties._seed(
+            unequal_properties.CLUSTERED, "stacked", 0
+        )
+
+    def test_the_jensen_ratio(self) -> None:
+        k = unequal_properties.COVARIATE_CLUSTERS - unequal_properties.COVARIATE_FOLDS
+        exact = float(np.sqrt(2.0 / k) * np.exp(gammaln((k + 1) / 2) - gammaln(k / 2)))
+        assert exact == pytest.approx(JENSEN_RATIO, abs=5e-5)
+
+    @pytest.mark.parametrize("ratio", [1.0, JENSEN_RATIO, 0.98])
+    def test_r_4000_passes_with_probability_at_least_095(self, ratio: float) -> None:
+        assert covariate_pass_probability(ratio, unequal_study.COVARIATE_REPLICATES) >= 0.95
+
+    def test_the_planning_table(self) -> None:
+        """The plan's table, so a change of model or margin shows here."""
+        expected = {(2_400, 1.0): 0.967, (2_400, 0.98): 0.804, (4_000, 0.98): 0.971}
+        for (replicates, ratio), value in expected.items():
+            assert covariate_pass_probability(ratio, replicates) == pytest.approx(value, abs=2e-3)
+
+    def test_the_law_s_own_ratio_passes(self) -> None:
+        """The kurtosis of the law's cluster totals lowers the ratio; R still clears 0.95.
+
+        No fit: each row carries the exact efficient curve of ``ey1``,
+        ``A / g (Y - Q1) + Q1 - psi``, and a cluster its total. With fold-centred totals,
+        ``rho = 1 - (2 / k + kappa / J) / 8``.
+        """
+        rng = np.random.default_rng(20261112)
+        frame = laws.draw_cluster_covariate(40_000, rng)
+        w1, w2 = frame["W1"].to_numpy(), frame["W2"].to_numpy()
+        a, y = frame["A"].to_numpy(), frame["Y"].to_numpy()
+        q1 = laws.covariate_mean(w1, w2, 1.0)
+        g = laws.covariate_propensity(w1, w2)
+        curve = a / g * (y - q1) + q1 - laws.covariate_truth()["ey1"]
+        totals = np.bincount(frame["cluster"].to_numpy(), weights=curve)
+        kappa = float(kurtosis(totals, fisher=True))
+        clusters = unequal_properties.COVARIATE_CLUSTERS
+        k = clusters - unequal_properties.COVARIATE_FOLDS
+        ratio = 1.0 - (2.0 / k + kappa / clusters) / 8.0
+        assert ratio > 0.98
+        assert covariate_pass_probability(ratio, unequal_study.COVARIATE_REPLICATES) >= 0.95
+
+    def test_the_committed_rescore(self) -> None:
+        rows = pd.read_parquet(unequal_study.STUDY.artifact("property-replicates.parquet"))
+        cell = rows[rows["cell"] == "cluster_robust_fold_evaluated_cluster_covariate"]
+        error = (cell["estimate"] - cell["truth"]).abs() / cell["std_error"]
+        for name, critical in (("normal", norm.ppf(0.975)), ("t30", t_dist.ppf(0.975, 30))):
+            assert float((error <= critical).mean()) == pytest.approx(
+                COMMITTED_COVERAGE[name], abs=1e-12
+            )
