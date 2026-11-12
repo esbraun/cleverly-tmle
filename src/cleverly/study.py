@@ -5350,6 +5350,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         scores = {column: self._external_score(column, computed_from, score_kind)}
         if compare is not None:
             if not isinstance(compare, str):
+                if not isinstance(compare, Sequence):
+                    raise DataError(f"compare= takes one column name as a string; got {compare!r}.")
                 if len(compare) < 2:
                     raise DataError(
                         f"compare= takes one column name; got {list(compare)!r}. Pass the "

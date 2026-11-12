@@ -65,7 +65,7 @@ PREDICTION_PREFIX = "effect_curve:"
 
 @dataclass(frozen=True)
 class HeterogeneityTest:
-    """The joint Wald test that every non-constant coefficient of the projection is zero.
+    r"""The joint Wald test that every non-constant coefficient of the projection is zero.
 
     It tests "no heterogeneity that the declared basis can express", not "no
     heterogeneity": a contrast that varies orthogonally to the basis leaves every
@@ -73,9 +73,11 @@ class HeterogeneityTest:
 
     On a clustered fit with fewer than
     :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters, where each coefficient's
-    interval reads a Student t reference on :math:`J - 2` degrees of freedom, the statistic
-    divided by its degrees of freedom :math:`q` is read against :math:`F(q, J - 2)`.  At one
-    term this is the square of that t reference.
+    interval reads a Student t reference on :math:`\nu = J - 2` degrees of freedom, the
+    statistic :math:`T` is read by the Hotelling law: :math:`T(\nu - q + 1)/(\nu q)` against
+    :math:`F(q, \nu - q + 1)`, with :math:`q` the number of tested terms.  At one term this
+    is the square of that t reference.  A basis with more tested terms than :math:`\nu` has no
+    reference and is refused.
 
     Parameters
     ----------
@@ -90,8 +92,8 @@ class HeterogeneityTest:
     scale : {"difference", "log_ratio"}
         The scale of the projected contrast.
     reference_df : int or None
-        The denominator degrees of freedom of the F reference, :math:`J - 2`, or ``None`` for
-        the chi-square reference.
+        The degrees of freedom :math:`\nu = J - 2` of the covariance, which the Hotelling
+        reference reads, or ``None`` for the chi-square reference.
     """
 
     statistic: float
@@ -105,7 +107,7 @@ class HeterogeneityTest:
         reference = (
             ""
             if self.reference_df is None
-            else f", F reference on {self.df} and {self.reference_df} df"
+            else (f", Hotelling F reference on {self.df} and {self.reference_df - self.df + 1} df")
         )
         return (
             f"Wald chi-square = {self.statistic:.3f} on {self.df} df, p = {self.p_value:.4g} "
@@ -148,7 +150,7 @@ def heterogeneity_test(
     ------
     CapabilityError
         If the basis has no intercept column, or no non-constant term, or a clustered fit has
-        too few clusters to estimate the joint covariance of the tested terms.
+        more tested terms than the J - 2 degrees of freedom of its Hotelling reference.
     """
     if not intercepts:
         raise CapabilityError(
@@ -175,25 +177,29 @@ def heterogeneity_test(
     # stamped on each estimate; None reads the asymptotic reference.
     stamped = [estimates[name].reference_df for name in selected]
     reference_df = min((d for d in stamped if d is not None), default=None)
-    if cluster is not None and reference_df is not None and df > reference_df + 1:
+    if cluster is not None and reference_df is not None and df > reference_df:
         raise CapabilityError(
             f"the test reads the joint covariance of {df} coefficients from "
-            f"{reference_df + 2} clusters, and the cluster-summed covariance has rank at most "
-            f"{reference_df + 1}, so it cannot be inverted",
+            f"{reference_df + 2} clusters; the Hotelling reference on {reference_df} degrees "
+            f"of freedom needs at most {reference_df} tested terms, and with more there is no "
+            "reference law",
             reason=RefusalReason.INFERENCE_GAP,
             alternative=(
-                "Declare a basis with fewer non-constant terms than clusters, or read each "
-                "coefficient's own interval."
+                "Declare a basis with at most J - 2 non-constant terms for J clusters, or read "
+                "each coefficient's own interval."
             ),
         )
     covariance = estimate_covariance(estimates, list(selected), cluster=cluster)
     beta = np.array([estimates[name].psi for name in selected])
     statistic = float(beta @ np.linalg.solve(covariance, beta))
-    p_value = (
-        float(chi2.sf(statistic, df))
-        if reference_df is None
-        else float(f_distribution.sf(statistic / df, df, reference_df))
-    )
+    if reference_df is None:
+        p_value = float(chi2.sf(statistic, df))
+    else:
+        # Hotelling: T (nu - q + 1) / (nu q) ~ F(q, nu - q + 1), with nu = J - 2.
+        denominator = reference_df - df + 1
+        p_value = float(
+            f_distribution.sf(statistic * denominator / (reference_df * df), df, denominator)
+        )
     return HeterogeneityTest(
         statistic=statistic,
         df=df,

@@ -419,11 +419,11 @@ class TestTheClusteredProjection:
         ("clusters", "status", "df"),
         [(5, "few_cluster_plugin", 3), (20, "influence_curve", 18)],
     )
-    def test_a_few_cluster_heterogeneity_test_reads_an_f_reference(
+    def test_a_few_cluster_heterogeneity_test_reads_the_hotelling_reference(
         self, clusters: int, status: str, df: int
     ) -> None:
-        """Below 40 clusters the coefficients read t(J - 2); the joint test reads F(q, J - 2),
-        whose one-term case is that t squared."""
+        """Below 40 clusters the coefficients read t(nu), nu = J - 2; the joint test reads the
+        Hotelling law, T (nu - q + 1) / (nu q) against F(q, nu - q + 1)."""
         labels = np.random.default_rng(clusters).permutation(LDISC_N) % clusters
         fit = ldisc_fit(cluster="C", columns={"C": labels})
         assert {e.inference for e in fit.estimates.values()} == {status}
@@ -431,11 +431,12 @@ class TestTheClusteredProjection:
         test = fit.heterogeneity_test()
         assert test.reference_df == df and test.df == 2
         assert test.p_value == pytest.approx(
-            float(stats.f.sf(test.statistic / 2, 2, df)), rel=1e-12
+            float(stats.f.sf(test.statistic * (df - 1) / (2 * df), 2, df - 1)), rel=1e-12
         )
-        # The chi-square reference it replaces is anticonservative here.
+        # The chi-square and the F(q, nu) readings it replaces are both anticonservative.
+        assert test.p_value > float(stats.f.sf(test.statistic / 2, 2, df))
         assert test.p_value > float(stats.chi2.sf(test.statistic, 2))
-        assert f"F reference on 2 and {df} df" in str(test)
+        assert f"Hotelling F reference on 2 and {df - 1} df" in str(test)
 
     def test_a_many_cluster_heterogeneity_test_keeps_the_chi_square(
         self, ldisc_clustered: Any
@@ -444,17 +445,19 @@ class TestTheClusteredProjection:
         assert test.reference_df is None
         assert test.p_value == pytest.approx(float(stats.chi2.sf(test.statistic, 2)), rel=1e-12)
 
-    def test_a_basis_with_as_many_terms_as_clusters_is_refused(self) -> None:
+    @pytest.mark.parametrize("nu", [0, 1])
+    def test_a_basis_with_more_terms_than_the_reference_df_is_refused(self, nu: int) -> None:
+        """Two tested terms need nu = J - 2 >= 2: at nu = 1 (three clusters) the Hotelling
+        law has no denominator degrees of freedom, and at nu = 0 no covariance either."""
         from cleverly.effect_curves import heterogeneity_test
 
         labels = np.random.default_rng(5).permutation(LDISC_N) % 5
         fit = ldisc_fit(cluster="C", columns={"C": labels})
         names = tuple(fit.estimates)
-        # Two clusters' reference, J - 2 = 0: the summed covariance has rank 1 < 2 terms.
         estimates = {
-            name: replace(estimate, reference_df=0) for name, estimate in fit.estimates.items()
+            name: replace(estimate, reference_df=nu) for name, estimate in fit.estimates.items()
         }
-        with pytest.raises(CapabilityError, match="cannot be inverted") as caught:
+        with pytest.raises(CapabilityError, match="no reference law") as caught:
             heterogeneity_test(
                 estimates,
                 names,
@@ -464,6 +467,26 @@ class TestTheClusteredProjection:
                 cluster=fit.data.cluster,
             )
         assert caught.value.refusal.reason is RefusalReason.INFERENCE_GAP
+
+    def test_the_hotelling_reference_at_one_term_is_the_squared_t(self) -> None:
+        """At q = 1 the reference is F(1, nu), the square of the coefficients' t(nu)."""
+        test = _null_cluster_test(np.random.default_rng(3), clusters=5, terms=1)
+        t = np.sqrt(test.statistic)
+        assert test.reference_df == 3
+        assert test.p_value == pytest.approx(2 * float(stats.t.sf(t, 3)), rel=1e-12)
+
+    def test_the_few_cluster_test_holds_its_size_at_five_clusters_and_three_terms(self) -> None:
+        """Normal cluster totals under the null, J = 5 and q = 3 (nu = 3).  The Hotelling
+        reference on nu = J - 2 holds the 5% size; the F(q, J - 2) reading it replaces rejects
+        about three times too often (0.18 under the exact law at J - 1)."""
+        rng = np.random.default_rng(20261112)
+        draws = 4_000
+        tests = [_null_cluster_test(rng, clusters=5, terms=3) for _ in range(draws)]
+        size = np.mean([test.p_value < 0.05 for test in tests])
+        old = np.mean([stats.f.sf(test.statistic / 3, 3, 3) < 0.05 for test in tests])
+        # 99% binomial margin at 0.05 over 4,000 draws is about 0.009.
+        assert size <= 0.05 + 0.009
+        assert old > 0.10
 
     def test_the_band_draws_one_multiplier_per_cluster(self, ldisc_clustered: Any) -> None:
         from cleverly.inference.multiplier import multiplier_critical_value
@@ -863,6 +886,11 @@ class TestScoreRefusalsBeforeAnyLearner:
             self.compare(["SB"])
         assert NeverFit.calls == 0
 
+    def test_x97_compare_given_as_a_non_string_scalar(self) -> None:
+        with pytest.raises(DataError, match="compare= takes one column name as a string; got 5"):
+            self.compare(5)
+        assert NeverFit.calls == 0
+
     def test_x97_several_compare_columns(self) -> None:
         from cleverly.study import SCORE_MANY_REFUSAL
 
@@ -1041,3 +1069,39 @@ def test_a_learned_fit_runs_end_to_end() -> None:
         )
         assert fit.heterogeneity_test().df == 1
         assert np.isfinite(fit.effect_curve().in_sample).all()
+
+
+def _null_cluster_test(rng: np.random.Generator, *, clusters: int, terms: int) -> Any:
+    """The heterogeneity test of ``terms`` null coefficients from normal cluster totals.
+
+    Every row of a cluster carries the cluster's total, so the estimate is the mean of the
+    totals and the cluster-summed covariance is their sample covariance.
+    """
+    from cleverly.effect_curves import heterogeneity_test
+    from cleverly.inference.influence import make_estimate
+
+    rows = 4
+    labels = np.repeat(np.arange(clusters), rows)
+    totals = rng.normal(size=(clusters, terms + 1))
+    curves = totals[labels]
+    names = tuple(f"b{j}" for j in range(terms + 1))
+    estimates = {
+        name: make_estimate(
+            name,
+            float(curves[:, j].mean()),
+            curves[:, j] - curves[:, j].mean(),
+            n=len(labels),
+            cluster=labels,
+            inference="few_cluster_plugin",
+            reference_df=clusters - 2,
+        )
+        for j, name in enumerate(names)
+    }
+    return heterogeneity_test(
+        estimates,
+        names,
+        ("(intercept)", *(f"t{j}" for j in range(terms))),
+        (0,),
+        scale="difference",
+        cluster=labels,
+    )
