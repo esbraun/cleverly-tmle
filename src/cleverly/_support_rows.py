@@ -525,7 +525,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             # Roadmap: F28.
             limits=[
                 "The cluster-covariate cell is red.",
-                "Equal cluster sizes only: cv_evaluation=True refuses clusters of unequal size.",
+                "Equal cluster sizes only: cv_evaluation=True refuses clusters whose size (or "
+                "total weight, or treated count for att) differs.",
             ],
         ),
         "weighting",
@@ -541,7 +542,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             cells=["few_cluster_reference"],
             limits=[
                 "The fold-evaluated cells use equal cluster sizes only, because "
-                "cv_evaluation=True refuses clusters of unequal size."
+                "cv_evaluation=True refuses clusters whose size (or total weight, or treated "
+                "count for att) differs."
             ],
         ),
         "splitting",
@@ -2397,7 +2399,8 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
     ("T10.fold_evaluated", "wald_t"): (
         "Row T10.fold_evaluated is red for the fold-evaluated cluster-covariate interval: "
         # Roadmap: F28.
-        "coverage 0.9182 to 0.9450 and SE ratio 0.9453 to 1.0187."
+        "coverage 0.9182 to 0.9450 and SE ratio 0.9453 to 1.0187, under the normal reference "
+        "it had before Fix-4."
     ),
     ("T16.logit_binary", "wald"): (
         "Row T16.logit_binary is red for the logit slope at the smallest stratum: coverage "
