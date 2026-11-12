@@ -28,6 +28,7 @@ progress log; ``tests/unit/test_targeting_curves.py`` keeps the curves' identity
 from __future__ import annotations
 
 import functools
+import math
 import warnings
 from typing import Any
 
@@ -586,7 +587,7 @@ class TestTheSixCellWitnessLaw:
         from tests.studies import score_assessment as sa
         from tests.studies.evidence.seeds import stream_seed
 
-        group = sa.GROUP_BY_LABEL["single_crr_2k"]
+        group = sa.PILOT_GROUP_BY_LABEL["single_crr_2k"]
         seed = stream_seed(sa.STUDY, "se_ratio_pilot", group.label, 198)
         frame, truths = sa.draw_from_seed(group.label, group.n, seed)
         effect = CausalStudy(sa.with_scores(group, frame), design=sa.design(group)).identify(
@@ -611,6 +612,72 @@ class TestTheSixCellWitnessLaw:
         monkeypatch.setattr(ec, "_REDUCED_SPAN_BOUND", -1.0)
         with pytest.raises(DataError, match="did not settle"):
             assess()
+
+    @_quiet
+    def test_t18_a_reduced_span_fit_solves_every_score_equation_and_reads_experimental(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The T7a witness: the accepted reduced fit meets ``scaled_var`` on every original
+        numerator and reads experimental.  Mutation: a retry that keeps one direction leaves
+        the others' equations unsolved.  On the same draw from the declared wrong outcome
+        regression of ``noweight_law``, whose full span also cycles, and with the geometric
+        bound loosened, only the score test refuses it; skipping the test accepts it."""
+        from sklearn.linear_model import LogisticRegression
+
+        from tests.studies import conditional_projection as cp
+        from tests.studies import score_assessment as sa
+        from tests.studies.evidence.seeds import stream_seed
+
+        group = sa.PILOT_GROUP_BY_LABEL["single_crr_2k"]
+        seed = stream_seed(sa.STUDY, "se_ratio_pilot", group.label, 198)
+        frame, _ = sa.draw_from_seed(group.label, group.n, seed)
+        effect = CausalStudy(sa.with_scores(group, frame), design=sa.design(group)).identify(
+            ConditionalContrast(sa.MODIFIERS, scale="log_ratio", model=sa.BASIS)
+        )
+
+        def assess(**learners: Any) -> Any:
+            return effect.assess_score(
+                "S",
+                computed_from=["W1"],
+                score_kind="external",
+                **(learners or sa.learners(group)),
+                random_state=198,
+            )
+
+        judged: list[float] = []
+        ratio = ec._numerator_score_ratio
+
+        def spy(*arguments: Any) -> float:
+            judged.append(ratio(*arguments))
+            return judged[-1]
+
+        monkeypatch.setattr(ec, "_numerator_score_ratio", spy)
+        settled = assess()
+        assert settled.span["reduced"] >= 1
+        assert judged and judged[-1] <= 1.0
+        assert settled.status == "experimental"
+        assert "dropping a collinear direction" in settled.status_reason
+        for _, _, estimate in settled.rows():
+            assert estimate.support.label == "experimental"
+            assert "collinear direction" in estimate.support.reason
+
+        basis = ec.arm_span_basis
+
+        def one_direction(at_t: Any, at_r: Any, rank: int | None = None) -> Any:
+            return basis(at_t, at_r, None if rank is None else 1)
+
+        wrong = {
+            "outcome_learner": cp.DeclaredOutcome("noweight"),
+            "treatment_learner": LogisticRegression(max_iter=2_000),
+        }
+        monkeypatch.setattr(ec, "arm_span_basis", one_direction)
+        monkeypatch.setattr(ec, "_REDUCED_SPAN_BOUND", math.inf)
+        judged.clear()
+        with pytest.raises(DataError, match="did not settle"):
+            assess(**wrong)
+        assert judged and min(judged) > 1.0
+        monkeypatch.setattr(ec, "_numerator_score_ratio", lambda *arguments: 0.0)
+        assert assess(**wrong).span["rank"] == 1
 
     @pytest.mark.parametrize("scale", ["difference", "log_ratio"])
     @_quiet
@@ -864,6 +931,7 @@ def test_t14_each_measured_configuration_reads_supported_with_its_studies(
         ({"missing": True}, "missing outcomes"),
         ({"arms": 3}, "multi-arm"),
         ({"cross_fitted": False}, "not cross-fitted"),
+        ({"reduced_span": True, "scale": "log_ratio"}, "collinear direction"),
         ({"outcome": "continuous", "scale": "log_ratio"}, "measures this configuration"),
         ({"known_mechanism": True, "scale": "log_ratio"}, "measures this configuration"),
     ],

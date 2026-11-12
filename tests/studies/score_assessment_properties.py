@@ -19,7 +19,9 @@ test's decision as the rejection.
 
 Besides the rows, the run writes ``comparison.csv`` (:func:`comparison`): for every parameter
 of every group, the TMLE's and the one-step's mean, SD and standardized bias at the initial
-fit, and the TMLE's coverage.  It is published ungated.
+fit, and the TMLE's coverage; and each group's count of fits that settled only on a reduced
+span (``cleverly.effect_curves._alternate_log_ratio``, plan rev 2.2, S2) with the TMLE's
+coverage among them.  It is published ungated.
 """
 
 from __future__ import annotations
@@ -156,6 +158,7 @@ def _replicate(
                 "tmle": float(estimate.psi),
                 "one_step": float(fitted["one_step"][name]),
                 "covered": int(low <= float(truths[name]) <= high),
+                "reduced": int(fitted["reduced"]),
             }
         )
     return rows, records
@@ -219,14 +222,15 @@ def comparison(records: pd.DataFrame) -> pd.DataFrame:
     Parameters
     ----------
     records : pandas.DataFrame
-        The comparison records: ``group``, ``parameter``, ``truth``, ``tmle``, ``one_step``
-        and ``covered``, one per replicate.
+        The comparison records: ``group``, ``parameter``, ``truth``, ``tmle``, ``one_step``,
+        ``covered`` and ``reduced`` (the directions the fit dropped), one per replicate.
 
     Returns
     -------
     pandas.DataFrame
         One row per group and parameter: the replicate count, the truth, each estimator's mean,
-        SD and standardized bias, and the TMLE's coverage.
+        SD and standardized bias, the TMLE's coverage, the count of reduced-span fits and the
+        TMLE's coverage among them (NaN when there is none).
     """
     out = []
     for (group, parameter), block in records.groupby(["group", "parameter"], sort=False):
@@ -244,6 +248,9 @@ def comparison(records: pd.DataFrame) -> pd.DataFrame:
             row[f"{column}_sd"] = sd
             row[f"{column}_standardized_bias"] = (float(values.mean()) - truth) / sd
         row["tmle_coverage"] = float(np.mean(block["covered"]))
+        reduced = block.loc[block["reduced"] > 0, "covered"]
+        row["reduced_fits"] = len(reduced)
+        row["reduced_coverage"] = float(np.mean(reduced)) if len(reduced) else float("nan")
         out.append(row)
     return pd.DataFrame(out)
 

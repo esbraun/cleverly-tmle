@@ -33,6 +33,7 @@ from ._typing import FloatArray, IntArray
 from .bases import Modifiers
 from .estimators.targeting import _STALL_FACTOR, _UNSOLVED, DEFAULT_MAX_OUTER
 from .exceptions import CapabilityError, DataError, RefusalReason
+from .fluctuation._score import StopContext, rule_ratio_at
 from .inference.cluster import cluster_inference_status, cluster_reference_df
 from .inference.delta import reference_quantile
 from .inference.influence import ParameterEstimate, make_estimate
@@ -706,7 +707,7 @@ SCORE_ASSESSMENT_MEASURED: Final[Mapping[tuple[str, str, str], str]] = {
     ),
     ("difference", "binary", "known"): "score-assessment: paired_trial_2k",
     ("difference", "continuous", "estimated"): "score-assessment: paired_cont_2k",
-    ("log_ratio", "binary", "estimated"): "score-assessment: single_crr_2k, paired_crr_2k",
+    ("log_ratio", "binary", "estimated"): "score-assessment: single_crr_4k, paired_crr_4k",
 }
 
 #: The configurations whose paired risk difference of two scores a validation study measures,
@@ -718,7 +719,7 @@ SCORE_PAIRED_MEASURED: Final[Mapping[tuple[str, str, str], str]] = {
     ("difference", "continuous", "estimated"): (
         "score-assessment: paired_cont_2k, equal_cont_2k, power_cont_2k"
     ),
-    ("log_ratio", "binary", "estimated"): "score-assessment: paired_crr_2k",
+    ("log_ratio", "binary", "estimated"): "score-assessment: paired_crr_4k",
 }
 
 #: The reasons an estimate of a score assessment reads experimental, in the order they are
@@ -734,13 +735,17 @@ SCORE_REASONS: Final[Mapping[str, str]] = {
     "missing": "missing outcomes: the fluctuation divides by the response mechanism, with no study",
     "multi_arm": "a pair of arms of a multi-arm treatment, with no study",
     "not_cross_fitted": "the ATE fit is not cross-fitted, which no study measures",
+    "reduced_span": (
+        "the log-ratio fluctuation settled only after dropping a collinear direction; no study "
+        "measures coverage there"
+    ),
 }
 
 #: The limits every supported score assessment states.
 SCORE_LIMITS: Final[tuple[str, ...]] = (
     "The studies fit declared parametric or spline nuisances; the default learner library is "
     "not measured.",
-    "Sample size 2,000 for the intervals.",
+    "Sample size 2,000 for the intervals on the difference scale and 4,000 on the log-ratio scale.",
     "The scores are fixed functions fitted on other rows; the interval covers one pair named "
     "before the fit, not the best of several.",
 )
@@ -786,6 +791,7 @@ def score_assessment_codes(
     missing: bool,
     arms: int,
     cross_fitted: bool,
+    reduced_span: bool = False,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """The reason codes of a score assessment's single-score rows and of its paired row.
 
@@ -807,6 +813,9 @@ def score_assessment_codes(
         The number of treatment arms.
     cross_fitted : bool
         Whether the ATE fit cross-fitted its nuisances.
+    reduced_span : bool, default False
+        Whether the log-ratio fluctuation settled only on a reduced span (the span record's
+        ``reduced`` is positive).
 
     Returns
     -------
@@ -822,6 +831,7 @@ def score_assessment_codes(
         (missing, "missing"),
         (arms > 2, "multi_arm"),
         (not cross_fitted, "not_cross_fitted"),
+        (reduced_span, "reduced_span"),
     ):
         if flag:
             single.append(code)
@@ -841,16 +851,17 @@ def score_assessment_support(
     missing: bool,
     arms: int,
     cross_fitted: bool,
+    reduced_span: bool = False,
 ) -> tuple[Support, Support]:
     """The support of a score assessment's single-score rows and of its paired row.
 
     A single-score row reads ``supported`` when its configuration is one of
     :data:`SCORE_ASSESSMENT_MEASURED` and the fit has a binary treatment, iid unweighted rows,
-    complete outcomes and cross-fitted nuisances.  The paired row also needs its
-    configuration in :data:`SCORE_PAIRED_MEASURED`.  Otherwise a row reads ``experimental``,
-    with every reason of :data:`SCORE_REASONS` that applies.  Whether ``compare=`` was passed
-    does not enter: the single-score rows are the same TMLE along a span that holds their
-    features.
+    complete outcomes and cross-fitted nuisances, and its fluctuation settled on the full span.
+    The paired row also needs its configuration in :data:`SCORE_PAIRED_MEASURED`.  Otherwise a
+    row reads ``experimental``, with every reason of :data:`SCORE_REASONS` that applies.
+    Whether ``compare=`` was passed does not enter: the single-score rows are the same TMLE
+    along a span that holds their features.
 
     Parameters
     ----------
@@ -870,6 +881,9 @@ def score_assessment_support(
         The number of treatment arms.
     cross_fitted : bool
         Whether the ATE fit cross-fitted its nuisances.
+    reduced_span : bool, default False
+        Whether the log-ratio fluctuation settled only on a reduced span, which no study
+        measures.
 
     Returns
     -------
@@ -901,6 +915,7 @@ def score_assessment_support(
         missing=missing,
         arms=arms,
         cross_fitted=cross_fitted,
+        reduced_span=reduced_span,
     )
     key = (scale, outcome, "known" if known_mechanism else "estimated")
     return (
@@ -1141,13 +1156,14 @@ class _TargetedScores:
 
 
 def _span_record(
-    columns: int, rank: int, out_of_span: float, pooled: PooledFit
+    columns: int, rank: int, out_of_span: float, pooled: PooledFit, reduced: int = 0
 ) -> dict[str, float]:
     return {
         "columns": float(columns),
         "rank": float(rank),
         "out_of_span": out_of_span,
         "score_norm": pooled.score_norm,
+        "reduced": float(reduced),
     }
 
 
@@ -1171,8 +1187,32 @@ def _target_scores(
 
 #: The largest relative distance of a numerator from the span, after the thinnest direction is
 #: dropped, at which a log-ratio fit still reports.  Each numerator's score equation then holds
-#: up to that fraction of the column's norm times the residual's.
+#: up to that fraction of the column's norm times the residual's; :func:`_numerator_score_ratio`
+#: judges the equations themselves.
 _REDUCED_SPAN_BOUND: Final = 1e-3
+
+
+def _numerator_score_ratio(
+    pooled: PooledFit, numerators_t: FloatArray, numerators_r: FloatArray, data: Any
+) -> float:
+    r"""The largest score equation of the numerators over its ``scaled_var`` threshold.
+
+    Numerator :math:`j`'s score at the targeted fit is
+    :math:`P_n w\{w_t(Y - \bar Q^*_t)\,a_{tj} + w_r(Y - \bar Q^*_r)\,a_{rj}\}`, and its threshold
+    is :math:`\widehat{sd}_j / (\sqrt{n_u}\min(\log n_u, 10))` with :math:`\widehat{sd}_j` the
+    SD of the per-unit contributions (:func:`cleverly.fluctuation._score.rule_ratio_at`).  At
+    most 1 means every equation holds to :math:`o_P(n^{-1/2})` in SE units.
+    """
+    w = np.asarray(data.weights, dtype=float)
+    w = w / w.mean()
+    residual_t = w * pooled.weight_t * (pooled.y - pooled.q_t)
+    residual_r = w * pooled.weight_r * (pooled.y - pooled.q_r)
+    contributions = residual_t[:, None] * numerators_t + residual_r[:, None] * numerators_r
+    units = None if data.cluster is None else np.asarray(data.cluster)
+    _, ratio = rule_ratio_at(
+        contributions.mean(axis=0), contributions, StopContext(units, 1.0), "scaled_var"
+    )
+    return ratio
 
 
 def _alternate_log_ratio(
@@ -1197,9 +1237,13 @@ def _alternate_log_ratio(
     span jumps as :math:`\beta` crosses the slope, so the rounds cycle without settling (12 of
     the ``score-assessment`` pilot's 1,600 log-ratio fits).  Such a fit runs the rounds again
     from its best one along the span without its thinnest direction, at that fixed rank, then
-    without its two thinnest, up to one per score, and reports the first that settles with every
+    without its two thinnest, up to one per score.  It reports the first that settles with every
     numerator within :data:`_REDUCED_SPAN_BOUND` of the span (the span record's
-    ``out_of_span``); otherwise it refuses.  Every fit the first rounds settle is unchanged.
+    ``out_of_span``) **and** every numerator's score equation, the dropped directions' included,
+    inside its ``scaled_var`` threshold (:func:`_numerator_score_ratio`), so the remainder stays
+    :math:`o_P(n^{-1/2})` at every n; otherwise it refuses.  The span record's ``reduced`` counts
+    the dropped directions, and such a fit reads ``experimental``.  Every fit the first rounds
+    settle is unchanged.
     """
     w = np.asarray(data.weights, dtype=float)
     w = w / w.mean()
@@ -1210,7 +1254,9 @@ def _alternate_log_ratio(
         at_t, at_r = _log_ratio_numerators(scores, betas)
         basis_t, basis_r, out_of_span = arm_span_basis(at_t, at_r, rank)
         pooled = solve_pooled(fit, data, basis_t, basis_r, pair, what=_WHAT)
-        return pooled, _span_record(at_t.shape[1], basis_t.shape[1], out_of_span, pooled)
+        return pooled, _span_record(
+            at_t.shape[1], basis_t.shape[1], out_of_span, pooled, 0 if rank is None else dropped
+        )
 
     def rounds_from(
         betas: tuple[FloatArray, ...], rank: int | None
@@ -1235,6 +1281,11 @@ def _alternate_log_ratio(
             pooled, span = solve(betas, rank)
         return shift, rounds, betas, pooled, span, best[1]
 
+    def scores_hold(betas: tuple[FloatArray, ...], pooled: PooledFit) -> bool:
+        at_t, at_r = _log_ratio_numerators(scores, betas)
+        return _numerator_score_ratio(pooled, at_t, at_r, data) <= 1.0
+
+    dropped = 0
     start = tuple(_log_ratio_projection(initial_t, initial_r, s, w) for s in scores)
     shift, rounds, betas, pooled, span, best = rounds_from(start, None)
     full = int(span["rank"])
@@ -1244,7 +1295,11 @@ def _alternate_log_ratio(
             break
         reduced = rounds_from(best, full - dropped)
         rounds += reduced[1]
-        if reduced[0] <= _UNSOLVED and reduced[4]["out_of_span"] <= _REDUCED_SPAN_BOUND:
+        if (
+            reduced[0] <= _UNSOLVED
+            and reduced[4]["out_of_span"] <= _REDUCED_SPAN_BOUND
+            and scores_hold(reduced[2], reduced[3])
+        ):
             shift, _, betas, pooled, span, _ = reduced
     # As in solve_with_projection: a shift above _UNSOLVED fails even under a declared tol above
     # it, and after a cap exit the last round's projection is not compared with its beta again.
@@ -1507,6 +1562,7 @@ def score_assessment(
         "missing": bool(not np.all(np.asarray(data.observed, dtype=bool))),
         "arms": len(tuple(fit.nuisance.arms)),
         "cross_fitted": bool(getattr(fit.config, "cross_fit", True)),
+        "reduced_span": targeted.span["reduced"] > 0,
     }
     single_codes, paired_codes = score_assessment_codes(**configuration)
     single_support, paired_support = score_assessment_support(**configuration)

@@ -18,20 +18,30 @@ Everything a run reads is fixed here before it starts:
 - the fit groups (:data:`GROUPS`), each a law, ``n``, ``R``, the scores and the cells its fits
   fill, with the controls that share its fits;
 - the design numbers (:func:`design_numbers`): the calibration replication count by the
-  arm-pooled predictive rule at the pilot's SE ratios, each control's SE ratio or standardized
-  displacement and its detection probability, the paired Wald test's exact-law power and size
-  pass probabilities, and the cost of one run, computed from the efficient influence curves
-  rather than copied;
+  pooled predictive rule at the pilot's SE ratios, with the log-ratio risk-difference rows in a
+  pool of their own; each positive bias row's second-order bias (:func:`theory_bias`) and the
+  bias replication count it sets; each control's SE ratio or standardized displacement and its
+  detection probability; the paired Wald test's exact-law power and size pass probabilities;
+  and the cost of one run, computed from the influence curves rather than copied;
+- the pre-run n rule (:func:`n_rule`), which compared the log-ratio groups' pilot at 2,000 rows
+  with the oracle reference (:mod:`tests.studies.score_assessment_oracle`) and moved them to
+  4,000;
 - the study record (:data:`STUDY`) with its margins, failure bound, publication policy and
   per-group seed streams keyed by label.
 
 The run is ``python -m tests.canonical.score_assessment.regenerate`` (the declared form of
-:mod:`tests.canonical.declared_run`); its docstring holds the red-cell reading.  The pilot
-(:mod:`tests.studies.score_assessment_pilot`) ran before this declaration on its own stream.
-Its first run found 12 of 1,600 log-ratio fits whose alternation did not settle, all with a
-calibration slope near a point where the log-ratio numerators are collinear; the estimator's
-reduced-span retry (``cleverly.effect_curves._alternate_log_ratio``) was added before the
-committed pilot, which reran both log-ratio groups with no failure.
+:mod:`tests.canonical.declared_run`); its docstring holds the red-cell reading and the changes
+since the first declaration.  The pilot (:mod:`tests.studies.score_assessment_pilot`) ran before
+this declaration on its own stream, 2,400 draws of every calibration group.  Its first run
+found 12 of 1,600 log-ratio fits whose alternation did not settle, all with a calibration slope
+near a point where the log-ratio numerators are collinear; the estimator's reduced-span retry
+(``cleverly.effect_curves._alternate_log_ratio``), which also requires every original score
+equation to meet ``scaled_var``, was added before the committed pilot, which has no failure.
+
+The single-score log-ratio risk differences carry a second-order term from estimating the best
+constant (plan section 2.6): an upward bias of about ``Var(R_n'(c_0)) / (2 R''(c_0))`` and an
+SE ratio above 1.  The design prices it (plan rev 2.2): the bias rows at their
+:func:`theory_bias`, the calibration rows in their own pool against the oracle reference.
 
 What the controls read, and where they differ from the plan's wording:
 
@@ -52,8 +62,8 @@ from __future__ import annotations
 import functools
 import math
 import warnings
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -409,15 +419,21 @@ class Group:
         return SCORES[self.kind].second is not None
 
 
-#: The calibration replication count: the arm-pooled predictive rule at the pilot's SE ratios
+#: The calibration replication count: the pooled predictive rule at the pilot's SE ratios
 #: (:func:`calibration_replicates`), which ``tests/unit/test_score_assessment_design.py``
-#: recomputes.  The plan's provisional 4,000 reads a family-wise pass probability of 0.62 at the
-#: pilot; 7,600 reads 0.950.
-R_CAL = 7_600
+#: recomputes.  The log-ratio risk-difference rows pool apart (plan rev 2.2, B2); at their
+#: 4,000-row pilot (mean SE ratio 1.032) 15,200 reads a family-wise pass probability of 0.952
+#: and 0.978 for each of those rows.
+R_CAL = 15_200
 
-#: Replications of the power group and of the two bias groups (plan 5.1).
+#: Replications of the power group (plan 5.1).
 R_POWER = 1_000
-R_BIAS = 1_000
+
+#: Replications of the two bias groups: the smallest multiple of 400 at which every positive
+#: bias row passes with probability at least 0.99 at its theory bias (:func:`bias_replicates`,
+#: plan rev 2.2, B1).  The log-ratio rows' second-order bias is about 0.12 SD at ``n = 4,000``,
+#: where the plan's 1,000 reads 0.94 and 0.95.
+R_BIAS = 1_600
 
 PAIRED = parameter_labels(True)
 SINGLE = parameter_labels(False)
@@ -437,7 +453,7 @@ GROUPS: tuple[Group, ...] = (
         "spline",
         calibration=PAIRED,
         controls=("unpaired_se",),
-        seconds=0.15,
+        seconds=0.143,
     ),
     Group(
         "paired_trial_2k",
@@ -448,7 +464,7 @@ GROUPS: tuple[Group, ...] = (
         "binary_paired",
         "spline",
         calibration=PAIRED,
-        seconds=0.127,
+        seconds=0.125,
     ),
     Group(
         "paired_cont_2k",
@@ -460,7 +476,7 @@ GROUPS: tuple[Group, ...] = (
         "linear_spline",
         calibration=PAIRED,
         controls=("unpaired_se",),
-        seconds=0.106,
+        seconds=0.103,
     ),
     Group(
         "equal_cont_2k",
@@ -473,7 +489,7 @@ GROUPS: tuple[Group, ...] = (
         calibration=("paired",),
         controls=("no_residual_se",),
         wald="size",
-        seconds=0.107,
+        seconds=0.109,
     ),
     Group(
         "power_cont_2k",
@@ -487,26 +503,26 @@ GROUPS: tuple[Group, ...] = (
         seconds=0.105,
     ),
     Group(
-        "single_crr_2k",
+        "single_crr_4k",
         "observational",
-        2_000,
+        4_000,
         R_CAL,
         "log_ratio",
         "crr_single",
         "spline",
         calibration=SINGLE,
-        seconds=0.157,
+        seconds=0.201,
     ),
     Group(
-        "paired_crr_2k",
+        "paired_crr_4k",
         "observational",
-        2_000,
+        4_000,
         R_CAL,
         "log_ratio",
         "crr_paired",
         "spline",
         calibration=PAIRED,
-        seconds=0.167,
+        seconds=0.241,
     ),
     Group(
         "paired_dr_4k",
@@ -534,8 +550,24 @@ GROUPS: tuple[Group, ...] = (
 
 GROUP_BY_LABEL: Mapping[str, Group] = {group.label: group for group in GROUPS}
 
-#: The groups the pilot fits: every group with calibration rows.
-PILOT_GROUPS: tuple[str, ...] = tuple(group.label for group in GROUPS if group.calibration)
+#: The two log-ratio calibration groups as first declared, at ``n = 2,000``.  The pre-run n rule
+#: of plan rev 2.2 (:func:`n_rule`) read their 2,400-draw pilot against the oracle reference and
+#: moved both to ``n = 4,000`` (``single_crr_4k``, ``paired_crr_4k``).  They are not run; their
+#: pilot and oracle rows stay committed as the record of that decision.
+N_RULE_GROUPS: tuple[Group, ...] = tuple(
+    replace(GROUP_BY_LABEL[label.replace("_2k", "_4k")], label=label, n=2_000)
+    for label in ("single_crr_2k", "paired_crr_2k")
+)
+
+#: Every group a pilot or the oracle reference draws, the run's and the n rule's.
+PILOT_GROUP_BY_LABEL: Mapping[str, Group] = {
+    group.label: group for group in (*GROUPS, *N_RULE_GROUPS)
+}
+
+#: The groups the pilot fits: every group with calibration rows, then the n rule's.
+PILOT_GROUPS: tuple[str, ...] = tuple(
+    group.label for group in (*GROUPS, *N_RULE_GROUPS) if group.calibration
+)
 
 #: What each control computes from its group's fit, and the rule it must fail.
 CONTROL_CLAIMS: Mapping[str, str] = {
@@ -669,7 +701,8 @@ def fit_group(group: Group, frame: pd.DataFrame, *, random_state: int) -> dict[s
         ``"estimates"``: the reported estimate of each label; ``"one_step"`` and
         ``"plug_in"``: each label's one-step and plug-in at the initial fit;
         ``"unpaired_se"`` and ``"no_residual_se"``: the controls' standard errors of the
-        paired row, or ``None`` on a single-score group.
+        paired row, or ``None`` on a single-score group; ``"reduced"``: the directions the
+        log-ratio fluctuation dropped (the span record's ``reduced``), 0 on a full span.
     """
     frame = with_scores(group, frame)
     pair = SCORES[group.kind]
@@ -713,6 +746,7 @@ def fit_group(group: Group, frame: pd.DataFrame, *, random_state: int) -> dict[s
         "plug_in": plug_in,
         "unpaired_se": None,
         "no_residual_se": None,
+        "reduced": int(assessment.span["reduced"]),
     }
     if group.paired:
         first = estimates[f"{FIRST}_risk_difference"]
@@ -800,7 +834,7 @@ def _group_truth(law: str, scale: str, kind: str) -> tuple[tuple[str, float], ..
 
 def draw_from_seed(group_label: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
     """Draw one sample of a group from an explicit seed, with the group's truths."""
-    group = GROUP_BY_LABEL[group_label]
+    group = PILOT_GROUP_BY_LABEL[group_label]
     frame = sample(group.law, n, np.random.default_rng(seed))
     return frame, dict(_group_truth(group.law, group.scale, group.kind))
 
@@ -982,6 +1016,94 @@ def untargeted_moments(group: Group, label: str, *, nodes: int = 32) -> tuple[fl
     return limit - true, math.sqrt(float(mass @ curve**2) / group.n)
 
 
+def design_limits(group: Group, w: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The limits of ``group``'s fitted arm regressions: the declared wrong ones, or the law's."""
+    if group.learner == "declared":
+        return (
+            expit(cp.outcome_logit(w, 1) + cp.declared_error("noweight", w, 1)),
+            expit(cp.outcome_logit(w, 0) + cp.declared_error("noweight", w, 0)),
+        )
+    return arm_means(group.law, w)
+
+
+def limit_variance(
+    group: Group,
+    a: np.ndarray,
+    b_t: np.ndarray | float,
+    b_r: np.ndarray | float,
+    w: np.ndarray,
+    mass: np.ndarray,
+) -> float:
+    r"""The variance of the curve ``a + b_t (D_t - m_t) + b_r (D_r - m_r)`` at the design's limits.
+
+    ``D_a`` is the AIPW pseudo-outcome at the limit ``m_a`` of the fitted arm regression
+    (:func:`design_limits`) and the true mechanism.  Its conditional mean is ``q_a`` and, with
+    ``e_a = q_a - m_a``, ``Var(D_t | W) = v_t / g + e_t^2 (1 - g) / g``, ``Var(D_r | W) =
+    v_r / (1 - g) + e_r^2 g / (1 - g)`` and ``Cov(D_t, D_r | W) = -e_t e_r``.  Where the
+    mechanism is fitted (every law but ``trial``), the logistic regression on ``(1, W)`` is
+    correct, so the curve loses its projection on that model's score, whose covariance with
+    the curve is ``E[x ((1 - g) b_t e_t - g b_r e_r)]``.  With ``m = q`` the projection is 0 and
+    this is the efficient variance.
+    """
+    m_t, m_r = design_limits(group, w)
+    q_t, q_r = arm_means(group.law, w)
+    g = mechanism(group.law, w)
+    v_t, v_r = outcome_variances(group.law, w)
+    e_t, e_r = q_t - m_t, q_r - m_r
+    mean = a + b_t * e_t + b_r * e_r
+    mean = mean - float(mass @ mean)
+    conditional = (
+        b_t**2 * (v_t / g + e_t**2 * (1.0 - g) / g)
+        + b_r**2 * (v_r / (1.0 - g) + e_r**2 * g / (1.0 - g))
+        - 2.0 * b_t * b_r * e_t * e_r
+    )
+    variance = float(mass @ (mean**2 + conditional))
+    if group.law != "trial":
+        x = np.column_stack([np.ones(len(mass)), w])
+        information = (x * (mass * g * (1.0 - g))[:, None]).T @ x
+        covariance = x.T @ (mass * ((1.0 - g) * b_t * e_t - g * b_r * e_r))
+        variance -= float(covariance @ np.linalg.solve(information, covariance))
+    return variance
+
+
+def limit_sd(group: Group, label: str, *, nodes: int = 32) -> float:
+    """The SD at ``group.n`` rows of ``label``'s estimate at the design's nuisance limits."""
+    w, mass = grid(nodes)
+    curves = _curves(group, w, mass, arms=design_limits(group, w))
+    a, b_t, b_r = curves[f"{label}:a"], curves[f"{label}:t"], curves[f"{label}:r"]
+    return math.sqrt(limit_variance(group, a, b_t, b_r, w, mass) / group.n)
+
+
+def theory_bias(group: Group, label: str, *, nodes: int = 32) -> float:
+    r"""The second-order bias of ``label``'s estimate, in SDs (plan rev 2.2, section 2.6).
+
+    A single-score risk difference is :math:`R(s) - R(c)` at the estimated best constant
+    :math:`c_n`, which minimises the estimated risk, so it is biased upward by about
+    :math:`\operatorname{Var}(R_n'(c_0)) / (2 R''(c_0))`.  On the log-ratio scale
+    :math:`R_n'(c) = -\operatorname{expit}(-c) P_n D_t + \operatorname{expit}(c) P_n D_r` and
+    :math:`R''(c) = (E Y_t + E Y_r)\operatorname{expit}(c)\operatorname{expit}(-c)`; on the
+    difference scale the term is :math:`(\widehat{\mathrm{ATE}} - \mathrm{ATE})^2`, whose mean
+    is :math:`\operatorname{Var}(\widehat{\mathrm{ATE}})`.  Both variances are read at the
+    design's nuisance limits (:func:`limit_variance`).  The paired row has no such term: the
+    constant cancels.  The SD is :func:`limit_sd`.
+    """
+    if label == "paired":
+        return 0.0
+    w, mass = grid(nodes)
+    m_t, m_r = design_limits(group, w)
+    q_t, q_r = arm_means(group.law, w)
+    if group.scale == "log_ratio":
+        mean_t, mean_r = float(mass @ q_t), float(mass @ q_r)
+        c = math.log(mean_t / mean_r)
+        b_t, b_r = -float(expit(-c)), float(expit(c))
+        curvature = (mean_t + mean_r) * float(expit(c) * expit(-c))
+        variance = limit_variance(group, b_t * m_t + b_r * m_r, b_t, b_r, w, mass) / group.n
+        bias = variance / (2.0 * curvature)
+    else:
+        bias = limit_variance(group, m_t - m_r, 1.0, -1.0, w, mass) / group.n
+    return bias / limit_sd(group, label, nodes=nodes)
+
+
 def bias_pass_probability(standardized: float, replicates: int, *, control: bool) -> float:
     """P(the 99% interval of a standardized bias is inside, or wholly outside, +-0.25)."""
     return cp.bias_pass_probability(standardized, replicates, control=control)
@@ -1003,6 +1125,11 @@ def type_i_pass_probability(size: float, replicates: int) -> float:
 #: The SE-ratio pilot's committed summary (:mod:`tests.studies.score_assessment_pilot`): a
 #: pilot on its own seed stream, read by :func:`design_numbers`, not a result of the run.
 PILOT_CSV = ROOT / "tests" / "studies" / "score_assessment_pilot.csv"
+
+#: The oracle reference (:mod:`tests.studies.score_assessment_oracle`): the one-step of the
+#: single-score risk differences at the law's own nuisances, and of the DR rows at the declared
+#: nuisance limits, on its own seed stream.  The declared finite-sample prediction of rev 2.2.
+ORACLE_CSV = ROOT / "tests" / "studies" / "score_assessment_oracle.csv"
 
 #: The pilot's correlation of every two estimates of a group, which the sizing rule reads as
 #: the correlation of their SE ratios' noise (squared).
@@ -1026,7 +1153,7 @@ def pilot_correlations() -> dict[tuple[str, str], float]:
     return out
 
 
-def label_correlations(labels: list[str] | tuple[str, ...]) -> np.ndarray:
+def label_correlations(labels: Sequence[str]) -> np.ndarray:
     """The correlation of the estimates of the cells ``labels``: the pilot's within a group, 0
     across groups (their draws are independent)."""
     known = pilot_correlations()
@@ -1036,6 +1163,21 @@ def label_correlations(labels: list[str] | tuple[str, ...]) -> np.ndarray:
             if i != j:
                 matrix[i, j] = known.get((a, b), 0.0)
     return matrix
+
+
+def label_correlations_at(labels: Mapping[str, str]) -> Callable[[Sequence[str]], np.ndarray]:
+    """:func:`label_correlations` with each group of ``labels`` read from its pilot source."""
+
+    def correlations(names: Sequence[str]) -> np.ndarray:
+        renamed = []
+        for name in names:
+            for target, source in labels.items():
+                if name.startswith(f"{target}_"):
+                    name = source + name[len(target) :]
+            renamed.append(name)
+        return label_correlations(renamed)
+
+    return correlations
 
 
 def calibration_parameters() -> list[tuple[Group, str, str]]:
@@ -1056,25 +1198,189 @@ def pilot_ratios() -> dict[str, float]:
     }
 
 
-def pilot_replicates() -> int:
-    """The smallest count of good pilot fits behind any calibration ratio."""
+#: The single-score log-ratio risk-difference rows, which carry the best-constant term (plan
+#: rev 2.2, B2): their sizing pool is their own.
+LOG_RATIO_RD: tuple[tuple[str, str], ...] = (
+    ("single_crr_4k", f"{FIRST}_risk_difference"),
+    ("paired_crr_4k", f"{FIRST}_risk_difference"),
+    ("paired_crr_4k", f"{SECOND}_risk_difference"),
+)
+
+#: The sizing pool of the rows in :data:`LOG_RATIO_RD`.
+LOG_RATIO_POOL = "log_ratio_risk_difference"
+
+#: The least pass probability of each row in :data:`LOG_RATIO_RD` that the calibration rule
+#: requires beside the family-wise 0.95 (plan rev 2.2, B2).
+LOG_RATIO_ROW_PASS = 0.90
+
+
+def sizing_ratios() -> dict[str, float]:
+    """:func:`pilot_ratios` by sizing name: ``<group>_<label>__<pool>``.
+
+    The rows of :data:`LOG_RATIO_RD` sit in the pool :data:`LOG_RATIO_POOL` and every other
+    positive calibration cell in the pool of its kind, so the rule pools each set apart.
+    """
+    return _sizing_ratios_at({})
+
+
+def pilot_replicates(labels: Mapping[str, str] | None = None) -> int:
+    """The smallest count of good pilot fits behind any calibration ratio.
+
+    ``labels`` maps a group to the group whose pilot rows stand for it, as :func:`n_rule` reads
+    the log-ratio groups' 2,000-row pilot.
+    """
     pilot = pilot_rows()
+    source = labels or {}
     return min(
-        int(pilot[(g.label, label)]["replicates"]) for g, _, label in calibration_parameters()
+        int(pilot[(source.get(g.label, g.label), label)]["replicates"])
+        for g, _, label in calibration_parameters()
     )
+
+
+def _sizing_groups() -> tuple[list[sizing.PilotGroup], float, list[str]]:
+    ratios = sizing_ratios()
+    groups = sizing.calibration_groups(ratios, pilot_replicates(), label_correlations)
+    names = [name for pool in sizing.calibration_arms(ratios).values() for name in pool]
+    return groups, sizing.heterogeneity_bound(groups), names
+
+
+def _row_pass(
+    groups: list[sizing.PilotGroup], tau: float, names: list[str], replicates: int
+) -> dict[str, float]:
+    cell = sizing._calibration_cell(Margins(), replicates)
+
+    def passes(values: np.ndarray) -> np.ndarray:
+        return np.ones_like(values)
+
+    out = {}
+    for group_label, label in LOG_RATIO_RD:
+        target = f"{group_label}_{label}__{LOG_RATIO_POOL}"
+        cells = [cell if name == target else passes for name in names]
+        out[target.split("__")[0]] = sizing.pooled_pass_probability(groups, tau, cells)
+    return out
+
+
+def log_ratio_row_pass(replicates: int) -> dict[str, float]:
+    """Each :data:`LOG_RATIO_RD` row's pass probability at ``replicates`` under the pooled reading.
+
+    The row's true SE ratio is its pool's pilot mean, with that mean's noise, plus the
+    heterogeneity spread, as :func:`tests.studies.repeated_sizing.pooled_pass_probability`
+    reads every cell; the other cells count as passing.
+    """
+    groups, tau, names = _sizing_groups()
+    return _row_pass(groups, tau, names, replicates)
 
 
 def calibration_replicates() -> int:
-    """The declared rule for :data:`R_CAL`: the arm-pooled predictive rule at the pilot.
+    """The declared rule for :data:`R_CAL`: the pooled predictive rule at the pilot.
 
-    :func:`tests.studies.repeated_sizing.calibration_replicates`: the smallest multiple of 400
-    at which every gated calibration cell passes with family-wise probability at least 0.95,
-    with each cell's true SE ratio drawn about the arm's pilot mean, the pilot's own noise, and
-    the heterogeneity bound between cells.  Every positive cell is in one arm.
+    The smallest multiple of 400 at which every gated calibration cell passes with family-wise
+    probability at least 0.95 (:func:`tests.studies.repeated_sizing.calibration_replicates`)
+    and each row of :data:`LOG_RATIO_RD` passes with probability at least
+    :data:`LOG_RATIO_ROW_PASS` (:func:`log_ratio_row_pass`).  Each cell's true SE ratio is
+    drawn about its pool's pilot mean, with the pilot's own noise and the heterogeneity bound
+    between cells.  The log-ratio risk-difference rows form one pool and every other positive
+    cell the other (plan rev 2.2, B2).
     """
-    return sizing.calibration_replicates(
-        Margins(), pilot_ratios(), pilot_replicates(), label_correlations
+    replicates = sizing.calibration_replicates(
+        Margins(), sizing_ratios(), pilot_replicates(), label_correlations
     )
+    while min(log_ratio_row_pass(replicates).values()) < LOG_RATIO_ROW_PASS:
+        replicates += sizing.BUDGET_STEP
+        if replicates > sizing.MAXIMUM_REPLICATES:
+            raise ValueError("no budget up to 50,000 replications meets the log-ratio row rule")
+    return replicates
+
+
+def bias_replicates() -> int:
+    """The declared rule for :data:`R_BIAS`: the smallest multiple of 400 at which every
+    positive bias row passes with probability at least 0.99 at its :func:`theory_bias`."""
+    biases = [theory_bias(group, label) for group in GROUPS for label in group.bias]
+    replicates = sizing.BUDGET_STEP
+    while min(bias_pass_probability(b, replicates, control=False) for b in biases) < 0.99:
+        replicates += sizing.BUDGET_STEP
+    return replicates
+
+
+def oracle_rows() -> dict[tuple[str, str], dict[str, Any]]:
+    """The oracle reference's row of each ``(group, label)`` (:data:`ORACLE_CSV`)."""
+    frame = pd.read_csv(ORACLE_CSV)
+    return {(str(row["group"]), str(row["label"])): row for row in frame.to_dict("records")}
+
+
+#: The confidence of the n rule's comparison of the pilot with the oracle reference.
+N_RULE_Z = float(stats.norm.ppf(0.995))
+
+
+def oracle_agreement(single: str, paired: str) -> dict[str, float]:
+    """The pilot's pooled ``S`` risk-difference SE ratio against the oracle reference's.
+
+    The pilot rows of the groups ``single`` and ``paired`` are pooled by inverse variance and
+    compared with the oracle row of ``paired`` (the same law, score and ``n``).  ``excess`` is
+    the pilot minus the reference and ``interval`` the 99% half-width of their difference.
+    """
+    pilot = pilot_rows()
+    oracle = oracle_rows()[(paired, f"{FIRST}_risk_difference")]
+    rows = [pilot[(label, f"{FIRST}_risk_difference")] for label in (single, paired)]
+    precision = [1.0 / float(row["se_ratio_se"]) ** 2 for row in rows]
+    pooled = sum(p * float(row["se_ratio"]) for p, row in zip(precision, rows, strict=True))
+    pooled /= sum(precision)
+    pooled_se = 1.0 / math.sqrt(sum(precision))
+    return {
+        "pilot": pooled,
+        "pilot_se": pooled_se,
+        "oracle": float(oracle["se_ratio"]),
+        "oracle_se": float(oracle["se_ratio_se"]),
+        "excess": pooled - float(oracle["se_ratio"]),
+        "interval": N_RULE_Z * math.hypot(pooled_se, float(oracle["se_ratio_se"])),
+    }
+
+
+def _sizing_ratios_at(labels: Mapping[str, str]) -> dict[str, float]:
+    """:func:`sizing_ratios` with the log-ratio groups read from the pilot rows of ``labels``."""
+    pilot = pilot_rows()
+    out = {}
+    for group, _, label in calibration_parameters():
+        source = labels.get(group.label, group.label)
+        pool = LOG_RATIO_POOL if (group.label, label) in LOG_RATIO_RD else POSITIVE
+        out[f"{group.label}_{label}__{pool}"] = float(pilot[(source, label)]["se_ratio"])
+    return out
+
+
+def n_rule() -> dict[str, Any]:
+    """The pre-run n rule of plan rev 2.2 (B2), read at the first declaration's ``n = 2,000``.
+
+    - ``"stop"``: the pilot's pooled ``S`` risk-difference SE ratio exceeds the oracle
+      reference by more than the 99% interval of their difference
+      (:func:`oracle_agreement`).  The excess is not the theory term, so the work stops for a
+      diagnosis; n does not move to absorb it.
+    - ``"move"``: the pilot agrees, but no ``R`` up to the sizing cap of 50,000 meets the
+      calibration rule (:func:`calibration_replicates`: family-wise 0.95 and each
+      :data:`LOG_RATIO_RD` row :data:`LOG_RATIO_ROW_PASS`) with the log-ratio groups at their
+      2,000-row pilot: both groups move to ``n = 4,000``.
+    - ``"stay"``: otherwise both stay at 2,000.
+
+    Returns the agreement, the family-wise and row pass probabilities at the cap, and the
+    decision.
+    """
+    agreement = oracle_agreement("single_crr_2k", "paired_crr_2k")
+    labels = {group.label.replace("_2k", "_4k"): group.label for group in N_RULE_GROUPS}
+    ratios = _sizing_ratios_at(labels)
+    groups = sizing.calibration_groups(
+        ratios, pilot_replicates(labels), label_correlations_at(labels)
+    )
+    tau = sizing.heterogeneity_bound(groups)
+    cap = sizing.MAXIMUM_REPLICATES
+    family = sizing.calibration_family_pass_probability(Margins(), cap, groups, tau)
+    names = [name for pool in sizing.calibration_arms(ratios).values() for name in pool]
+    rows = _row_pass(groups, tau, names, cap)
+    if agreement["excess"] > agreement["interval"]:
+        decision = "stop"
+    elif family < sizing.FAMILY_WISE_PASS or min(rows.values()) < LOG_RATIO_ROW_PASS:
+        decision = "move"
+    else:
+        decision = "stay"
+    return {**agreement, "family_at_cap": family, "rows_at_cap": rows, "decision": decision}
 
 
 def design_numbers() -> dict[str, Any]:
@@ -1087,17 +1393,18 @@ def design_numbers() -> dict[str, Any]:
         family-wise pass probability at :data:`R_CAL`); ``per_row_pass`` at ratio 1;
         ``controls``: each SE control's ratio and detection probability, and each
         ``untargeted`` row's standardized displacement and detection probability;
-        ``bias_pass``: each positive bias row's pass probability at zero bias; ``power``,
+        ``log_ratio_row_pass``: each log-ratio risk-difference row's pass probability at
+        :data:`R_CAL`; ``bias_replicates`` (the rule's count), ``theory_bias``: each positive
+        bias row's second-order bias in SDs, and ``bias_pass``: its pass probability there;
+        ``power``,
         ``power_pass``, ``size_pass``; ``truths``: the paired truths; ``cost``.
     """
     margins = Margins()
-    ratios = pilot_ratios()
-    replicates = pilot_replicates()
-    groups = sizing.calibration_groups(ratios, replicates, label_correlations)
-    tau = sizing.heterogeneity_bound(groups)
+    groups, tau, _ = _sizing_groups()
     family = sizing.calibration_family_pass_probability(margins, R_CAL, groups, tau)
     controls: dict[str, dict[str, float]] = {}
     bias_pass: dict[str, float] = {}
+    biases: dict[str, float] = {}
     for group in GROUPS:
         for control in group.controls:
             ratio = se_control_ratio(group, control)
@@ -1111,8 +1418,9 @@ def design_numbers() -> dict[str, Any]:
                 "standardized": shift / sd,
                 "detection": bias_pass_probability(shift / sd, group.replicates, control=True),
             }
+            biases[bias_cell(group, label)] = theory_bias(group, label)
             bias_pass[bias_cell(group, label)] = bias_pass_probability(
-                0.0, group.replicates, control=False
+                biases[bias_cell(group, label)], group.replicates, control=False
             )
     power_group = GROUP_BY_LABEL["power_cont_2k"]
     power = wald_power(power_group)
@@ -1121,7 +1429,10 @@ def design_numbers() -> dict[str, Any]:
     return {
         "calibration_replicates": calibration_replicates(),
         "calibration_family": family,
+        "log_ratio_row_pass": log_ratio_row_pass(R_CAL),
         "heterogeneity_bound": tau,
+        "bias_replicates": bias_replicates(),
+        "theory_bias": biases,
         "per_row_pass": float(sizing.calibration_pass(margins, R_CAL, np.array(1.0))),
         "controls": controls,
         "bias_pass": bias_pass,

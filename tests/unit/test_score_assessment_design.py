@@ -2,10 +2,12 @@
 
 The truths are checked against an independent quasi-Monte Carlo integration and a different
 solver, and against the closed form on law ``H``.  The design numbers the declaration fixes are
-computed here, not copied: the calibration replication count by the arm-pooled predictive rule
-at the pilot's SE ratios, each control's SE ratio or standardized displacement and its detection
-probability, the paired Wald test's exact-law power and the pass probabilities of the power,
-size and bias cells, and the cost of one run.  One replication of every group runs through the
+computed here, not copied: the calibration replication count by the pooled predictive rule at
+the pilot's SE ratios, with the log-ratio risk-difference rows in a pool of their own; the pre-run
+n rule that read the oracle reference; each bias row's second-order bias, checked against the
+oracle, and the bias replication count it sets; each control's SE ratio or standardized
+displacement and its detection probability; the paired Wald test's exact-law power and the pass
+probabilities of the power and size cells; and the cost of one run (plan rev 2.2).  One replication of every group runs through the
 declared property rows.  The run itself is not started here.
 """
 
@@ -14,6 +16,7 @@ from __future__ import annotations
 import functools
 import math
 import warnings
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -117,7 +120,7 @@ def test_the_quadrature_error_is_negligible(law: str, scale: str, kind: str) -> 
 def test_the_plan_paired_truths() -> None:
     truths = numbers()["truths"]
     assert truths["paired_2k"] == pytest.approx(0.0022, abs=5e-5)
-    assert truths["paired_crr_2k"] == pytest.approx(0.0019, abs=5e-5)
+    assert truths["paired_crr_4k"] == pytest.approx(0.0019, abs=5e-5)
 
 
 # --------------------------------------------------------------------------- the record
@@ -154,27 +157,65 @@ def test_the_seed_streams_are_keyed_by_label() -> None:
 def test_the_sizes_of_the_plan() -> None:
     sizes = {group.label: (group.n, group.replicates) for group in study.GROUPS}
     assert sizes["power_cont_2k"] == (2_000, 1_000)
-    assert sizes["paired_dr_4k"] == sizes["paired_crr_dr_4k"] == (4_000, 1_000)
+    assert sizes["paired_dr_4k"] == sizes["paired_crr_dr_4k"] == (4_000, study.R_BIAS)
     calibrated = [group for group in study.GROUPS if group.calibration]
     assert {group.replicates for group in calibrated} == {study.R_CAL}
-    assert {group.n for group in calibrated} == {2_000}
+    assert {group.n for group in calibrated if group.scale == "difference"} == {2_000}
+    # The n rule moved the log-ratio calibration groups to 4,000 (test_the_n_rule_moves...).
+    assert {group.n for group in calibrated if group.scale == "log_ratio"} == {4_000}
 
 
 # ------------------------------------------------------------------------------- sizing
 
 
 def test_the_pilot_covers_every_calibration_row_on_its_own_stream() -> None:
+    """Every calibration group, the n rule's 2,000-row log-ratio groups included, at one
+    pilot length (plan rev 2.2, S3)."""
     rows = study.pilot_rows()
-    for group, _, label in study.calibration_parameters():
-        row = rows[(group.label, label)]
-        assert int(row["replicates"]) + int(row["failed"]) == pilot.REPLICATES
-        assert int(row["failed"]) == 0
+    for label in study.PILOT_GROUPS:
+        group = study.PILOT_GROUP_BY_LABEL[label]
+        for name in group.calibration:
+            row = rows[(label, name)]
+            assert int(row["replicates"]) + int(row["failed"]) == pilot.REPLICATES == 2_400
+            assert int(row["failed"]) == 0
     assert pilot.STREAM != "property_sample"
 
 
-def test_the_calibration_count_is_the_arm_pooled_rule() -> None:
+def test_the_calibration_count_is_the_pooled_rule() -> None:
     assert numbers()["calibration_replicates"] == study.R_CAL
     assert numbers()["calibration_family"] >= 0.95
+    rows = numbers()["log_ratio_row_pass"]
+    assert len(rows) == 3 and min(rows.values()) >= study.LOG_RATIO_ROW_PASS
+
+
+def test_the_log_ratio_risk_differences_pool_apart() -> None:
+    """The rows that carry the best-constant term form their own sizing pool (rev 2.2, B2)."""
+    pools: dict[str, list[str]] = {}
+    for name in study.sizing_ratios():
+        cell, pool = name.split("__")
+        pools.setdefault(pool, []).append(cell)
+    assert sorted(pools[study.LOG_RATIO_POOL]) == sorted(
+        f"{group}_{label}" for group, label in study.LOG_RATIO_RD
+    )
+    assert len(pools[study.POSITIVE]) == 29
+
+
+def test_the_n_rule_moved_the_log_ratio_groups_to_4k() -> None:
+    """At 2,000 rows the pilot agrees with the oracle reference, but no R up to the cap meets
+    the calibration rule, so both log-ratio calibration groups moved to 4,000 before the run."""
+    rule = study.n_rule()
+    assert rule["excess"] <= rule["interval"]
+    assert rule["family_at_cap"] < 0.95
+    assert rule["decision"] == "move"
+    assert {group.label for group in study.N_RULE_GROUPS} == {"single_crr_2k", "paired_crr_2k"}
+    assert {group.n for group in study.N_RULE_GROUPS} == {2_000}
+
+
+def test_the_4k_pilot_agrees_with_the_oracle_reference() -> None:
+    """At the moved n the pilot's excess is still the theory term, not a defect."""
+    agreement = study.oracle_agreement("single_crr_4k", "paired_crr_4k")
+    assert agreement["excess"] <= agreement["interval"]
+    assert agreement["oracle"] > 1.0
 
 
 def test_a_perfectly_calibrated_row_passes_at_the_count() -> None:
@@ -191,8 +232,46 @@ def test_the_size_cell() -> None:
     assert numbers()["size_pass"] > 0.999
 
 
-def test_each_positive_bias_row_passes_at_zero_bias() -> None:
-    assert min(numbers()["bias_pass"].values()) > 0.999
+def test_each_positive_bias_row_passes_at_its_theory_bias() -> None:
+    """Rev 2.2, B1: priced at the second-order bias, each row passes with at least 0.99, and
+    ``R_BIAS`` is the smallest multiple of 400 that achieves it."""
+    biases = numbers()["theory_bias"]
+    assert min(numbers()["bias_pass"].values()) >= 0.99
+    assert numbers()["bias_replicates"] == study.R_BIAS == 1_600
+    assert biases["paired_crr_dr_4k_S_risk_difference"] == pytest.approx(0.120, abs=5e-3)
+    assert biases["paired_dr_4k_paired"] == biases["paired_crr_dr_4k_paired"] == 0.0
+    fewer = [
+        study.bias_pass_probability(b, study.R_BIAS - 400, control=False) for b in biases.values()
+    ]
+    assert min(fewer) < 0.99
+
+
+def _oracle_rows() -> list[tuple[str, str]]:
+    return [(group, label) for group, label in study.oracle_rows() if label != "paired"]
+
+
+@pytest.mark.parametrize(("group", "label"), _oracle_rows())
+def test_the_theory_bias_lies_in_the_oracle_interval(group: str, label: str) -> None:
+    """The analytic second-order bias inside the oracle simulation's 99% interval."""
+    row = study.oracle_rows()[(group, label)]
+    predicted = study.theory_bias(study.PILOT_GROUP_BY_LABEL[group], label)
+    half = float(stats.norm.ppf(0.995)) * float(row["standardized_bias_se"])
+    assert abs(predicted - float(row["standardized_bias"])) <= half
+
+
+def test_the_oracle_reference_does_not_share_the_estimator_code() -> None:
+    from tests.studies import score_assessment_oracle as oracle
+
+    source = Path(oracle.__file__).read_text()
+    imported = {
+        line.split()[1].split(".")[0]
+        for line in source.splitlines()
+        if line.startswith(("import ", "from "))
+    }
+    assert "cleverly" not in imported
+    assert "_one_step_estimates(" not in source
+    row = study.oracle_rows()[("paired_crr_4k", "S_risk_difference")]
+    assert int(row["replicates"]) == oracle.REPLICATES
 
 
 # ----------------------------------------------------------------------------- controls
@@ -271,9 +350,10 @@ def test_one_run_fits_the_budget() -> None:
 
 def test_the_declared_seconds_are_the_pilot_seconds() -> None:
     rows = study.pilot_rows()
-    for label in study.PILOT_GROUPS:
-        measured = float(rows[(label, "S_risk_difference")]["seconds"])
-        assert study.GROUP_BY_LABEL[label].seconds == pytest.approx(measured, abs=0.01)
+    for group in study.GROUPS:
+        if group.calibration:
+            measured = float(rows[(group.label, "S_risk_difference")]["seconds"])
+            assert group.seconds == pytest.approx(measured, abs=0.01)
 
 
 # ------------------------------------------------------------------------ one replication
@@ -292,10 +372,11 @@ def test_one_replication_fills_its_declared_cells(label: str) -> None:
     assert {row["n"] for row in rows} == {group.n}
     table = properties.comparison(pd.DataFrame(records))
     assert set(table["parameter"]) == set(study.parameter_labels(group.paired))
+    assert {"reduced_fits", "reduced_coverage"} <= set(table.columns)
 
 
 def test_the_private_twin_returns_the_public_assessment() -> None:
-    group = study.GROUP_BY_LABEL["paired_crr_2k"]
+    group = study.GROUP_BY_LABEL["paired_crr_4k"]
     frame = study.with_scores(group, study.draw_from_seed(group.label, group.n, 3)[0])
     from cleverly import CausalStudy, ConditionalContrast
 

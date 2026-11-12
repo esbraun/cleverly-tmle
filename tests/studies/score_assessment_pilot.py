@@ -7,7 +7,8 @@ from the run's ``property_sample`` streams and from its primary ``SEED``.  For e
 parameter the pilot records the ratio of the mean reported SE to the empirical SD of the
 estimates with its bootstrap standard error, the SE's coefficient of variation, the estimates'
 kurtosis, the Wald coverage and the standardized bias; on the paired row it records the two SE
-controls' ratios too; and for every group the single-thread seconds per fit.  A second table
+controls' ratios too; and for every group the count of fits that settled only on a reduced span
+and the single-thread seconds per fit.  A second table
 holds the correlation of every two estimates of a group, which the sizing rule reads.
 
 The committed summaries are ``score_assessment_pilot.csv`` and
@@ -43,8 +44,8 @@ from tests.studies.evidence.seeds import stream_seed
 #: The stream the pilot draws from.
 STREAM = "se_ratio_pilot"
 
-#: Replications of each calibration group (plan 5.1).
-REPLICATES = 800
+#: Replications of each calibration group (plan 5.1, rev 2.2: every group at one length).
+REPLICATES = 2_400
 
 #: Bootstrap resamples of each ratio's standard error.
 BOOTSTRAP = 400
@@ -62,13 +63,14 @@ COLUMNS = (
     "standardized_bias",
     "unpaired_se_ratio",
     "no_residual_se_ratio",
+    "reduced",
     "seconds",
 )
 
 
 def _one(key: tuple[str, int]) -> dict[str, Any]:
     label, replicate = key
-    group = study.GROUP_BY_LABEL[label]
+    group = study.PILOT_GROUP_BY_LABEL[label]
     seed = stream_seed(study.STUDY, STREAM, label, replicate)
     frame, truths = study.draw_from_seed(label, group.n, seed)
     start = time.perf_counter()
@@ -88,6 +90,7 @@ def _one(key: tuple[str, int]) -> dict[str, Any]:
         "se": {k: float(v.std_error) for k, v in estimates.items()},
         "unpaired_se": fitted["unpaired_se"],
         "no_residual_se": fitted["no_residual_se"],
+        "reduced": fitted["reduced"],
     }
 
 
@@ -147,6 +150,7 @@ def summarize(raw: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
                     )
                     if paired
                     else math.nan,
+                    "reduced": sum(record.get("reduced", 0) > 0 for record in good),
                     "seconds": seconds,
                 }
             )
