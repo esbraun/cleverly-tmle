@@ -3040,7 +3040,6 @@ def _long_horizon_cases() -> tuple[RowCase, ...]:
     return tuple(cases)
 
 
-#: The point-treatment cases: ordinary TMLE, DR-TMLE and C-TMLE.
 # The cases of the X76 option studies' rows, one function per part beside its row function in
 # cleverly._support_rows, each empty until its study passes.
 def _x76_stopping_point_cases() -> tuple[RowCase, ...]:
@@ -3071,6 +3070,7 @@ def _x76_markov_cases() -> tuple[RowCase, ...]:
     return ()
 
 
+#: The point-treatment cases: ordinary TMLE, DR-TMLE and C-TMLE.
 CASES: tuple[RowCase, ...] = (
     *_t_cases(),
     *_d_cases(),
