@@ -341,8 +341,10 @@ BAND_LEVEL = 0.95
 #: sit 0.0020 to 0.0028 below the target: each band reads the correlation of the fit's own
 #: influence curves at n, not the limit.  At 1,000 draws the Monte Carlo error hid that offset;
 #: at 10,000 it is five to seven standard errors.  The tolerance covers the offset plus four
-#: standard errors.  A band that ignores the correlation (Sidak or Bonferroni) sits at least
-#: 0.075 above the target, fifteen tolerances away.
+#: standard errors.  The offset bound in the test below (``-0.003 < offset < 0``) and this
+#: justification were set after observing the 10,000-draw offsets; the 0.005 tolerance itself
+#: predates them.  A band that ignores the correlation (Sidak or Bonferroni) sits more than
+#: 0.07 above the target (the smallest gap, at l2, is 0.0754), fourteen tolerances away.
 CRITICAL_VALUE_TOLERANCE = 0.005
 
 
@@ -431,7 +433,11 @@ def test_the_study_bands_use_the_draws_the_target_assumes() -> None:
 def test_the_tolerance_clears_the_offset_by_four_monte_carlo_standard_errors(
     law: laws.Law,
 ) -> None:
-    """The tolerance's justification, recomputed from each law's max-t density and rows."""
+    """The tolerance's justification, recomputed from each law's max-t density and rows.
+
+    The offset bound was set after observing the 10,000-draw offsets, so it records them; the
+    second assertion is the check that the tolerance still clears them.
+    """
     cdf = _max_t_cdf(law)
     quantile = _quantile(cdf, BAND_LEVEL)
     density = (cdf(quantile + 1e-4) - cdf(quantile - 1e-4)) / 2e-4
@@ -465,7 +471,7 @@ def test_a_diagonal_covariance_band_fails_the_critical_value_check(rule: str) ->
         rows.loc[band, "std_error"] = float(stats.norm.ppf(1 - tail / 2))
     assert _band_misses(rows) == list(laws.LAWS)
     for key, law in laws.LAWS.items():
-        assert _band_critical_values(rows, key).mean() - _band_target(law) > 0.075
+        assert _band_critical_values(rows, key).mean() - _band_target(law) > 0.07
 
 
 #: The largest ``|cleverly - R| / |targeting move|`` the parity check admits in any

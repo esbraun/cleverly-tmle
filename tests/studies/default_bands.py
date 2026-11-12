@@ -306,15 +306,17 @@ CONFIGURATION = {
         "TMLE() with outcome_learner and treatment_learner LogisticRegression(C=1e6, "
         "max_iter=2000) on W1..W3, random_state=0, and every other argument at its shipped "
         "default: cross_fit=True, n_folds=10, pooled targeting, the default binary estimands, "
-        "simultaneous=True with 1000 rademacher draws"
+        "simultaneous=True with the default band: since band-finite-sample the Mammen "
+        "multiplier at 10,000 draws on the logit scale (1000 rademacher draws before it)"
     ),
     "primary_law": "the canonical-tmle binary law (binary_outcome_dgp)",
     "simultaneous_intervals": True,
     "band_cells": (
         "each shape refits its source study's subject fit_cleverly with simultaneous=True at "
         "the source study's primary law and size; the band covers every estimate the fit "
-        "reports, with the engine's default draws (1000 point, 2000 sequential), rademacher "
-        "multipliers and the subject fit's random_state"
+        "reports, with the engine's default band and the subject fit's random_state: since "
+        "band-finite-sample the Mammen multiplier at 10,000 draws on the logit scale (before "
+        "it, rademacher multipliers at 1000 point and 2000 sequential draws)"
     ),
     "shapes": {
         shape.label: {

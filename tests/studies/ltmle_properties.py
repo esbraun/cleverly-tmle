@@ -5,8 +5,9 @@ Declared before any run:
 
 * the cells reuse the ``interval_calibration/correctly_specified`` fits (n = 2,000,
   R = 2,400, saturated cell-mean learners, one fold).  Those fits alone pass
-  ``simultaneous=True``, with the engine's defaults: 2000 rademacher draws seeded by
-  ``random_state=0``.  The band draws from its own generator, so every pointwise number of
+  ``simultaneous=True``, with the engine's defaults seeded by ``random_state=0``: since
+  band-finite-sample the Mammen multiplier at 10,000 draws on the logit scale (2,000
+  Rademacher draws on the identity scale before it).  The band draws from its own generator, so every pointwise number of
   those fits is unchanged;
 * the band covers the five reported parameters: ``ey_regimen`` under ``never``, ``always``
   and ``treat_if_l2``, and the two contrasts against ``never``.  The truth is
