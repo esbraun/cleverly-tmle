@@ -1,8 +1,10 @@
 r"""The arm-pooled joint predictive sizing rule of the Fix-6 fold-wise DR-TMLE records.
 
-Three gated records of Fix-6 are sized by this rule: ``drtmle-foldwise-n1500`` (its two paired
-property cells), ``multi-arm-drtmle-foldwise`` and ``stratified-drtmle-foldwise`` (their primary
-phases).  The rule is the one :mod:`tests.studies.drtmle_foldwise_properties` declared for
+The three gated records of Fix-6 are sized by this rule: ``drtmle-foldwise-n1500`` (its primary
+rows and its two paired property cells, jointly), ``multi-arm-drtmle-foldwise`` (its primary rows
+and its ``outcome_correct`` cell, jointly) and ``stratified-drtmle-foldwise`` (its primary rows
+less the declared finite-sample row ``ey[1][V=2]``; its contraction ladder is sized by
+:func:`outer_rung_budget`).  The rule is the one :mod:`tests.studies.drtmle_foldwise_properties` declared for
 X83, written once here for any set of planning summaries, so that a sizing pilot only has to
 supply numbers.
 
@@ -117,6 +119,45 @@ def single(source: str, replicates: int, row: str, bias: float) -> Pilot:
         A one-row summary with no SE-ratio or coverage clause.
     """
     return Pilot(source, replicates, (row,), (bias,), ((1.0,),))
+
+
+def without(pilot: Pilot, rows: Sequence[str]) -> Pilot:
+    """A pilot with ``rows`` dropped, its correlation restricted to the rows it keeps.
+
+    A record sizes its budget over the rows the budget can make pass.  A row declared before
+    the run as an expected finite-sample row is read under its own rule, so its record drops it
+    from the sizing family with this.
+
+    Parameters
+    ----------
+    pilot : Pilot
+        The planning summary.
+    rows : sequence of str
+        The rows to drop; each must be a row of ``pilot``.
+
+    Returns
+    -------
+    Pilot
+        The summary of the remaining rows.
+    """
+    unknown = set(rows) - set(pilot.rows)
+    if unknown:
+        raise ValueError(f"{pilot.source}: no rows {sorted(unknown)} to drop")
+    keep = [index for index, row in enumerate(pilot.rows) if row not in set(rows)]
+
+    def pick(values: tuple[float, ...]) -> tuple[float, ...]:
+        return tuple(values[index] for index in keep) if values else ()
+
+    return Pilot(
+        pilot.source,
+        pilot.replicates,
+        tuple(pilot.rows[index] for index in keep),
+        pick(pilot.bias),
+        tuple(tuple(pilot.correlation[i][j] for j in keep) for i in keep),
+        controls=tuple(row for row in pilot.controls if row not in set(rows)),
+        se_ratio=pick(pilot.se_ratio),
+        coverage=pick(pilot.coverage),
+    )
 
 
 def pilot_from_rows(
