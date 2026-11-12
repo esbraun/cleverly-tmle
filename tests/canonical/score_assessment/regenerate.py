@@ -24,9 +24,10 @@ design review ``rows/X97/design-review.md``):
   rule, so ``single_crr_2k`` and ``paired_crr_2k`` became ``single_crr_4k`` and
   ``paired_crr_4k`` (``n = 4,000``, new seed streams by label), with a fresh pilot and oracle.
 * ``R_CAL`` = 15,200 (family-wise pass 0.952; each log-ratio risk-difference row 0.978).
-* Every positive bias row is priced at its second-order theory bias (B1), which the oracle
-  confirms; ``R_BIAS`` = 1,600, the smallest multiple of 400 at which each row passes with
-  probability at least 0.99.
+* Every positive bias row is priced at the larger of its second-order theory bias and its
+  oracle bias (B1, and the re-review's nit R2: at the oracle's 0.128 the first redeclaration's
+  1,600 read 0.9895); ``R_BIAS`` = 2,000, the smallest multiple of 400 at which each row passes
+  with probability at least 0.99.
 * The finite-sample red-cell route below (S4), and the reduced-span counts in
   ``comparison.csv`` (S2).
 
@@ -47,6 +48,11 @@ Red-cell reading (declared before any run; X97 plan section 5.1 and ``guide/stud
   ratio of ``tests/studies/score_assessment_oracle.csv`` at the row's group; (c) the diagnosis
   finds no defect. It then goes to ``reporting`` with an owner in the Red-cell owners table. Any
   other red, the paired rows and the calibration coefficients included, is a defect suspect.
+  On the log-ratio risk-difference rows the pilot's SE ratio exceeds the oracle's by about
+  0.024 at 2,000 rows and 0.021 at 4,000; the oracle's own excess halves with n and this gap
+  does not, so it is not the best-constant term. A calibration red there needs a point above
+  about 1.055, whose interval excludes the oracle's 1.013: it reads as a defect suspect, not
+  through this route.
 * A control that does not fail (an ``__inflated_se_control`` or ``__term_dropped_control``
   row inside or across the band, or an ``untargeted`` row not wholly outside +-0.25 of its own
   SD) is a red of the study, not of the estimator. The claim of the cell it guards is withheld

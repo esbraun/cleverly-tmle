@@ -233,16 +233,21 @@ def test_the_size_cell() -> None:
 
 
 def test_each_positive_bias_row_passes_at_its_theory_bias() -> None:
-    """Rev 2.2, B1: priced at the second-order bias, each row passes with at least 0.99, and
-    ``R_BIAS`` is the smallest multiple of 400 that achieves it."""
+    """Rev 2.2, B1: priced at the larger of the second-order and the oracle bias, each row
+    passes with at least 0.99, and ``R_BIAS`` is the smallest multiple of 400 that achieves it."""
     biases = numbers()["theory_bias"]
     assert min(numbers()["bias_pass"].values()) >= 0.99
-    assert numbers()["bias_replicates"] == study.R_BIAS == 1_600
+    assert numbers()["bias_replicates"] == study.R_BIAS == 2_000
+    oracle = study.oracle_rows()[("paired_crr_dr_4k", "S_risk_difference")]
+    group = study.GROUP_BY_LABEL["paired_crr_dr_4k"]
+    priced = study.priced_bias(group, "S_risk_difference")
+    assert (
+        priced == float(oracle["standardized_bias"]) > biases["paired_crr_dr_4k_S_risk_difference"]
+    )
     assert biases["paired_crr_dr_4k_S_risk_difference"] == pytest.approx(0.120, abs=5e-3)
     assert biases["paired_dr_4k_paired"] == biases["paired_crr_dr_4k_paired"] == 0.0
-    fewer = [
-        study.bias_pass_probability(b, study.R_BIAS - 400, control=False) for b in biases.values()
-    ]
+    priced_all = [study.priced_bias(g, label) for g in study.GROUPS for label in g.bias]
+    fewer = [study.bias_pass_probability(b, study.R_BIAS - 400, control=False) for b in priced_all]
     assert min(fewer) < 0.99
 
 

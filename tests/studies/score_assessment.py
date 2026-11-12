@@ -41,7 +41,7 @@ equation to meet ``scaled_var``, was added before the committed pilot, which has
 The single-score log-ratio risk differences carry a second-order term from estimating the best
 constant (plan section 2.6): an upward bias of about ``Var(R_n'(c_0)) / (2 R''(c_0))`` and an
 SE ratio above 1.  The design prices it (plan rev 2.2): the bias rows at their
-:func:`theory_bias`, the calibration rows in their own pool against the oracle reference.
+:func:`priced_bias`, the calibration rows in their own pool against the oracle reference.
 
 What the controls read, and where they differ from the plan's wording:
 
@@ -430,10 +430,11 @@ R_CAL = 15_200
 R_POWER = 1_000
 
 #: Replications of the two bias groups: the smallest multiple of 400 at which every positive
-#: bias row passes with probability at least 0.99 at its theory bias (:func:`bias_replicates`,
-#: plan rev 2.2, B1).  The log-ratio rows' second-order bias is about 0.12 SD at ``n = 4,000``,
-#: where the plan's 1,000 reads 0.94 and 0.95.
-R_BIAS = 1_600
+#: bias row passes with probability at least 0.99 at the larger of its theory bias and its
+#: oracle bias (:func:`bias_replicates`, plan rev 2.2, B1, and the re-review's nit R2).  The
+#: log-ratio rows' second-order bias is about 0.12 SD at ``n = 4,000`` (oracle 0.128 and
+#: 0.121), where the plan's 1,000 reads 0.94 and 0.95 and 1,600 reads 0.9895 at the oracle.
+R_BIAS = 2_000
 
 PAIRED = parameter_labels(True)
 SINGLE = parameter_labels(False)
@@ -1292,10 +1293,18 @@ def calibration_replicates() -> int:
     return replicates
 
 
+def priced_bias(group: Group, label: str) -> float:
+    """The standardized bias a bias row is priced at: the larger of its :func:`theory_bias`
+    and the oracle reference's bias (:data:`ORACLE_CSV`), where the oracle has the row."""
+    oracle = oracle_rows().get((group.label, label))
+    theory = theory_bias(group, label)
+    return theory if oracle is None else max(theory, float(oracle["standardized_bias"]))
+
+
 def bias_replicates() -> int:
     """The declared rule for :data:`R_BIAS`: the smallest multiple of 400 at which every
-    positive bias row passes with probability at least 0.99 at its :func:`theory_bias`."""
-    biases = [theory_bias(group, label) for group in GROUPS for label in group.bias]
+    positive bias row passes with probability at least 0.99 at its :func:`priced_bias`."""
+    biases = [priced_bias(group, label) for group in GROUPS for label in group.bias]
     replicates = sizing.BUDGET_STEP
     while min(bias_pass_probability(b, replicates, control=False) for b in biases) < 0.99:
         replicates += sizing.BUDGET_STEP
@@ -1395,7 +1404,8 @@ def design_numbers() -> dict[str, Any]:
         ``untargeted`` row's standardized displacement and detection probability;
         ``log_ratio_row_pass``: each log-ratio risk-difference row's pass probability at
         :data:`R_CAL`; ``bias_replicates`` (the rule's count), ``theory_bias``: each positive
-        bias row's second-order bias in SDs, and ``bias_pass``: its pass probability there;
+        bias row's second-order bias in SDs, and ``bias_pass``: its pass probability at the larger
+        of that and the oracle bias (:func:`priced_bias`);
         ``power``,
         ``power_pass``, ``size_pass``; ``truths``: the paired truths; ``cost``.
     """
@@ -1420,7 +1430,7 @@ def design_numbers() -> dict[str, Any]:
             }
             biases[bias_cell(group, label)] = theory_bias(group, label)
             bias_pass[bias_cell(group, label)] = bias_pass_probability(
-                biases[bias_cell(group, label)], group.replicates, control=False
+                priced_bias(group, label), group.replicates, control=False
             )
     power_group = GROUP_BY_LABEL["power_cont_2k"]
     power = wald_power(power_group)
