@@ -545,8 +545,10 @@ class ContinuousSurvivalTMLE:
                 propensity_record = chosen
         assert censoring_record is not None
 
+        # Both checks read the fitted hazards on these data, so a draw that trips one is a
+        # data failure (recorded by a study), not an unsupported composition.
         if np.any(dlam.sum(axis=1) >= 1.0):
-            raise _gap(
+            raise DataError(
                 "An initial hazard fit puts a combined jump of one or more at some time, so the "
                 "product-limit survival is not a probability there. A Breslow jump can exceed "
                 "one where few units are at risk; choose earlier target times or a smaller "
@@ -554,7 +556,7 @@ class ContinuousSurvivalTMLE:
             )
         survival = np.cumprod(1.0 - dlam.sum(axis=1), axis=-1)
         if np.any(survival[..., -1] <= SURVIVAL_FLOOR):
-            raise _gap(
+            raise DataError(
                 "The initial survival reaches zero before the last target time for some unit "
                 "and arm, so the clever covariate divides by zero. The estimator needs "
                 "S(t_K | a, L) bounded away from zero; choose an earlier last target time."

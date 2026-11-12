@@ -51,13 +51,13 @@ OUTPUT = Path(__file__).with_name("continuous_survival_pilot.csv.gz")
 PILOTS: dict[str, tuple[str, str, int, int]] = {
     **{
         cell: ("primary", cell, n, study.PILOT_REPLICATES)
-        for cell, (_, n) in study.SCENARIOS.items()
+        for cell, (_, n) in study.PILOT_CELLS.items()
     },
     **{
-        f"dr_{configuration}": ("configured", configuration, properties.ROBUSTNESS_N, 300)
+        f"dr_{configuration}": ("configured", configuration, 4_000, 300)
         for configuration, _ in properties.ROBUSTNESS_CELLS.values()
     },
-    "calibration_both": ("primary", "both_cf_4k", properties.CALIBRATION_N, 2_000),
+    "calibration_both": ("primary", "both_cf_4k", 4_000, 2_000),
     "positivity_4k": ("configured", "positivity", 4_000, 100),
     # The n = 1,000 property pilots, for a record gated at that size.
     **{
@@ -83,7 +83,7 @@ def _one(label: str, replicate: int) -> list[dict[str, Any]]:
             warnings.simplefilter("ignore")
             start = time.perf_counter()
             if kind == "primary":
-                result = study.fit(frame, name)
+                result = study.fit_with(frame, study.engine(cross_fit=study.PILOT_CELLS[name][0]))
             else:
                 result = properties.configured_fit(frame, name)
             seconds = time.perf_counter() - start

@@ -7,14 +7,18 @@ both arms tilted for every unit (``X91-G-design.md`` section 4.2).  The law is H
 two causes, constant cause-specific hazards, and an arm-specific term :math:`\beta Z X_4` that
 only the Cox ``"interaction"`` model holds.
 
-``both_<mode>_<n>`` fits the default libraries on the base law at :math:`n = 1{,}000` and
+``both_<mode>_<n>`` fits the default libraries on the base law at :math:`n = 1{,}000` or
 :math:`4{,}000`.  ``<mode>`` is ``fs`` (every nuisance fitted on all rows, ``cross_fit=False``)
-or ``cf`` (the default: 10 outer folds, selection inside 5 inner folds).  The default hazard
+or ``cf`` (the default: 10 outer folds, selection inside 5 inner folds).  The record gates
+``both_cf_1k`` alone (:data:`GATED_CELL`); ``both_fs_1k``, ``both_fs_4k`` and ``both_cf_4k`` are
+reported cells of :mod:`tests.studies.continuous_survival_properties`, published as measured.
+At 4,000 a fit takes 60 to 120 seconds against 5 at 1,000, and the shared rules asked for about
+800 core-hours there (Eric's decision, 2026-11-12).  The default hazard
 library is the unstratified Cox models on the treatment alone, on main terms and with treatment
 interactions (:func:`cleverly.survival.cox.default_library`), selected by cross-validated
 partial likelihood; the default treatment library is a main-terms logistic and three lasso
 penalties, selected by cross-validated log loss.  The wrong-model cells, the calibration cell
-and the reported positivity cell are in :mod:`tests.studies.continuous_survival_properties`.
+and the reported cells are in :mod:`tests.studies.continuous_survival_properties`.
 
 **Targets.** Each arm's risk of each cause, and each cause's risk difference, at the quartiles
 of the observed event times, :data:`~tests.studies.continuous_survival_law.TIMES`.
@@ -60,7 +64,7 @@ PILOT_REPLICATES = 1_000
 #: The declared primary replicate count, set from the committed pilot by the shared rule
 #: before any declared draw.  Provisional until the pilot is read.
 PRIMARY_REPLICATES = 1_000
-PRIMARY_N = 4_000
+PRIMARY_N = 1_000
 #: The declared share of replicates one cell may lose to recordable fitting failures.
 FAILURE_BOUND = 0.01
 SEED = 2026911961
@@ -70,10 +74,14 @@ LEARNER_FOLDS = 5
 
 SUBJECT = "cleverly-continuous-survival-tmle"
 
-#: ``cell -> (cross-fitted, n)``.
-SCENARIOS: dict[str, tuple[bool, int]] = {
+#: ``cell -> (cross-fitted, n)`` of every default-library cell the pilot sized.
+PILOT_CELLS: dict[str, tuple[bool, int]] = {
     f"both_{mode}_{n // 1000}k": (mode == "cf", n) for mode in ("fs", "cf") for n in (1_000, 4_000)
 }
+#: The record gates the default fit, cross-fitted, at n = 1,000 (Eric's decision, 2026-11-12).
+#: The other three publish as reported cells of the properties module.
+GATED_CELL = "both_cf_1k"
+SCENARIOS: dict[str, tuple[bool, int]] = {GATED_CELL: PILOT_CELLS[GATED_CELL]}
 ESTIMANDS: dict[str, tuple[str, ...]] = dict.fromkeys(SCENARIOS, law.GATED)
 MARGINS = Margins(standardized_bias=0.2)
 

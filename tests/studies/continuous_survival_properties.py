@@ -6,7 +6,7 @@ the event hazards from the Cox model on the treatment alone (it ignores every co
 treatment model the unpenalized logistic on
 :math:`X_1, X_2`, and the censoring hazard the Cox model on the treatment alone.
 
-**Double robustness** (:data:`ROBUSTNESS_REPLICATES` each, :math:`n = 4{,}000`, on the
+**Double robustness** (:data:`ROBUSTNESS_REPLICATES` each, :math:`n = 1{,}000`, on the
 dependent-censoring law, so a wrong censoring model is wrong).
 
 =====================================  ========  ============================================
@@ -23,18 +23,19 @@ Each reads the treated arm's risk of cause 1 at the middle target time, the risk
 arm-specific term moves.  The control's gap is read from the pilot and stated in
 ``tests/canonical/continuous_survival/regenerate.py`` before the run.
 
-**Calibration** (:data:`CALIBRATION_REPLICATES`, :math:`n = 4{,}000`).  The positive cell
-``both_rd__correctly_specified`` fits the record's ``both_cf_4k`` configuration on the base law
+**Calibration** (:data:`CALIBRATION_REPLICATES`, :math:`n = 1{,}000`).  The positive cell
+``both_rd__correctly_specified`` fits the record's ``both_cf_1k`` configuration on the base law
 and reads cause 1's risk difference at the middle time; its SE ratio is read against the shared
 calibration band and its efficiency ratio against :data:`EFFICIENCY_RATIO_BAND`, with the
 efficient spread of :func:`~tests.studies.continuous_survival_law.efficiency_sd`.  The two
 shared controls are derived from its rows.
 
-**Reported cell** (no verdict; :data:`REPORTED_REPLICATES`, on the stream
-``stream_seed(STUDY, "reported", cell, r)``).  ``positivity_4k`` fits the default libraries on
-Hage's S2 treatment law, :math:`\omega = (6, -1, 1)`, where a third of the units have a
-treatment probability below 0.025 or above 0.975.  It is expected to under-cover and publishes
-as ``reported-cells.csv`` and ``reported-replicates.csv``.
+**Reported cells** (no verdict; each cell's count in :data:`REPORTED_CELLS`, on the stream
+``stream_seed(STUDY, "reported", cell, r)``).  ``both_fs_1k``, ``both_fs_4k`` and ``both_cf_4k``
+fit the default libraries on the base law in the settings the record does not gate.
+``positivity_4k`` fits them on Hage's S2 treatment law, :math:`\omega = (6, -1, 1)`, where a
+third of the units have a treatment probability below 0.025 or above 0.975; it is expected to
+under-cover.  All four publish as ``reported-cells.csv`` and ``reported-replicates.csv``.
 
 A replication that raises is never redrawn.
 """
@@ -70,13 +71,14 @@ STUDY = study.STUDY
 ROBUSTNESS = "double_robustness"
 CALIBRATION = "interval_calibration"
 
-ROBUSTNESS_N = 4_000
-#: Provisional until the pilot is read.
+#: The property cells run at the record's gated size (Eric's decision, 2026-11-12: at 4,000
+#: the shared rules asked for about 800 core-hours).
+ROBUSTNESS_N = 1_000
+#: Provisional until the n = 1,000 pilot is read.
 ROBUSTNESS_REPLICATES = 1_000
-CALIBRATION_N = 4_000
-#: Provisional until the pilot is read.
+CALIBRATION_N = 1_000
+#: Provisional until the n = 1,000 pilot is read.
 CALIBRATION_REPLICATES = 2_000
-REPORTED_REPLICATES = 400
 
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
@@ -96,8 +98,14 @@ CALIBRATION_LABELS = ("both_rd",)
 EFFICIENCY_SD = {"both_rd": law.efficiency_sd(1, MIDDLE)["difference"]}
 DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS)
 
-#: ``cell -> (configuration, n)`` of the reported cells.
-REPORTED_CELLS: dict[str, tuple[str, int]] = {"positivity_4k": ("positivity", 4_000)}
+#: ``cell -> (configuration, n, replicates)`` of the reported cells: the default fit in the
+#: settings the record does not gate, and the positivity law.
+REPORTED_CELLS: dict[str, tuple[str, int, int]] = {
+    "both_fs_1k": ("default_fs", 1_000, 1_000),
+    "both_fs_4k": ("default_fs", 4_000, 400),
+    "both_cf_4k": ("default_cf", 4_000, 400),
+    "positivity_4k": ("positivity", 4_000, 400),
+}
 CELLS_FILE = "reported-cells.csv"
 REPLICATES_FILE = "reported-replicates.csv"
 
@@ -116,6 +124,8 @@ CONFIGURATIONS: dict[str, tuple[str, dict[str, bool]]] = {
         {"hazard_wrong": True, "propensity_wrong": True, "censoring_wrong": True},
     ),
     "positivity": ("positivity", {}),
+    "default_fs": ("base", {"cross_fit": False}),
+    "default_cf": ("base", {}),
 }
 
 
@@ -175,7 +185,7 @@ def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
                     alpha=alpha,
                 )
             ]
-        estimate = study.fit(frame, "both_cf_4k")[RD]
+        estimate = study.fit(frame, study.GATED_CELL)[RD]
     return [
         replicate_row(
             property_name=CALIBRATION,
@@ -285,7 +295,7 @@ def reported_seed(cell: str, replicate: int) -> int:
 
 
 def _reported(cell: str, replicate: int) -> list[dict[str, Any]]:
-    configuration, n = REPORTED_CELLS[cell]
+    configuration, n, _ = REPORTED_CELLS[cell]
     law_name, _ = CONFIGURATIONS[configuration]
     frame = study.sample(n, reported_seed(cell, replicate), law_name=law_name)
     base = {"scenario": cell, "replicate": replicate, "n": n}
@@ -326,11 +336,13 @@ def _reported(cell: str, replicate: int) -> list[dict[str, Any]]:
     return rows
 
 
-def reported_rows(
-    *, replicates: int = REPORTED_REPLICATES, n_jobs: int = STUDY_JOBS
-) -> pd.DataFrame:
+def reported_rows(*, budget: int | None = None, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """Every reported cell's replicate rows, in a fixed order."""
-    jobs = [(cell, r) for cell in REPORTED_CELLS for r in range(replicates)]
+    jobs = [
+        (cell, r)
+        for cell, (_, _, count) in REPORTED_CELLS.items()
+        for r in range(count if budget is None else min(budget, count))
+    ]
     outcomes = map_parallel(_reported, jobs, n_jobs=n_jobs)
     rows = pd.DataFrame([row for rows in outcomes for row in rows])
     return rows.sort_values(["scenario", "replicate", "estimand"], ignore_index=True)
@@ -365,10 +377,7 @@ def generate_property_artifacts(
     *, n_jobs: int = STUDY_JOBS, budget: int | None = None
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """The property rows and the reported cell's two artifacts."""
-    rows = reported_rows(
-        replicates=REPORTED_REPLICATES if budget is None else min(budget, REPORTED_REPLICATES),
-        n_jobs=n_jobs,
-    )
+    rows = reported_rows(budget=budget, n_jobs=n_jobs)
     return (
         generate_property_rows(n_jobs=n_jobs, budget=budget),
         {CELLS_FILE: summarize_cells(rows), REPLICATES_FILE: rows},
