@@ -7,8 +7,10 @@ ratio and its coverage, the per-replication error correlation, and the seconds e
 =========================  ===================================================================
 group                      fit
 =========================  ===================================================================
-``b_outcome_correct``      unit B: the paper law at n = 1,500, ``outcome_correct``, fold-wise,
-                           every primary row; its ``ate`` also plans the paired cell
+``b_both_correct``         unit B primary: the paper law at n = 1,500, ``both_correct``,
+                           fold-wise, every primary row
+``b_outcome_correct``      unit B: the same law, ``outcome_correct``; its ``ate`` plans the
+                           paired cell
 ``b_treatment_correct``    unit B: the same, ``treatment_correct``
 ``m_primary``              unit M: the multi-arm primary at n = 2,000, every estimand
 ``m_outcome_correct``      unit M: the ``double_robustness/outcome_correct`` cell, fold-wise
@@ -18,24 +20,30 @@ group                      fit
 =========================  ===================================================================
 
 Replication ``r`` of a group draws ``stream_seed(<record>, "sizing_pilot", <group>, r)`` with
-the record's fresh resampling entropy, a label no study stream uses, so the pilot shares no
-draw with a declared run and cannot change a verdict.  The summary goes to ``--output``, one
-row per group and estimand, and the per-draw rows beside it as ``<stem>-rows.csv.gz``.  The
-script prints what each record's sizing rule returns from the pilot's values.
+the record's fresh resampling entropy (:func:`seed`), a label no study stream uses, so the pilot
+shares no draw with a declared run and cannot change a verdict.  The ladder groups keep the
+entropy their first 200 replications drew with, the retired ladder record's
+(:data:`LADDER_PILOT_ENTROPY`).  ``--start`` sets the first replicate index, so a later run
+continues a group's stream on new indices, and ``--rows`` (repeatable) adds earlier per-draw
+rows to the summary and the sizing.  The summary goes to ``--output``, one row per group and
+estimand, and this run's per-draw rows beside it as ``<stem>-rows.csv.gz``.  The script prints
+what each record's sizing rule returns, and the rows each rule would set aside.
 
     python -m tests.diagnostics.fix6_foldwise_sizing.run --output /scratch/pilot.csv --jobs 4
     python -m tests.diagnostics.fix6_foldwise_sizing.run --output /scratch/p.csv \\
-        --replicates 2 --group ladder_tc_8000
+        --start 200 --replicates 800 --group b_both_correct
+    python -m tests.diagnostics.fix6_foldwise_sizing.run --output /scratch/all.csv \\
+        --replicates 0 --rows /scratch/p-rows.csv.gz --rows /scratch/q-rows.csv.gz
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import time
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from cleverly.estimators import DRTMLE
@@ -48,12 +56,20 @@ from tests.studies import drtmle_foldwise_n1500 as unit_b
 from tests.studies import multi_arm_drtmle_foldwise as unit_m
 from tests.studies import stratified_drtmle_foldwise as unit_s
 from tests.studies import stratified_drtmle_foldwise_ladder as ladder
-from tests.studies.drtmle_foldwise_sizing import as_rows, pilot_from_rows
+from tests.studies.drtmle_foldwise_sizing import (
+    SET_ASIDE_THRESHOLD,
+    Rule,
+    as_rows,
+    ladder_plan_from_rows,
+    pilot_from_rows,
+    set_aside_rows,
+)
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.point_study_helpers import primary_rows
 
 #: ``group -> (record module, n)``.
 GROUPS: dict[str, tuple[Any, int]] = {
+    "b_both_correct": (unit_b, unit_b.PRIMARY_N),
     "b_outcome_correct": (unit_b, unit_b.PRIMARY_N),
     "b_treatment_correct": (unit_b, unit_b.PRIMARY_N),
     "m_primary": (unit_m, unit_m.PRIMARY_N),
@@ -68,10 +84,19 @@ LADDER_ESTIMANDS = tuple(stratified.ate_name(label) for label in unit_s.LABELS)
 REPLICATES = 200
 
 
+#: The entropy the ladder groups' streams draw with: the retired
+#: ``stratified-drtmle-foldwise-ladder`` record's resampling seed, which their first 200
+#: replications used, so a continued run extends the same streams.
+LADDER_PILOT_ENTROPY = 2026111214
+
+
 def seed(group: str, replicate: int) -> int:
     """The sample seed of one pilot replication: a stream no study reads."""
     module, _ = GROUPS[group]
-    return stream_seed(module.STUDY, "sizing_pilot", group, replicate)
+    record = module.STUDY
+    if group.startswith("ladder_"):
+        record = dataclasses.replace(record, resampling_seed=LADDER_PILOT_ENTROPY)
+    return stream_seed(record, "sizing_pilot", group, replicate)
 
 
 def fit(group: str, replicate: int) -> list[dict[str, Any]]:
@@ -221,19 +246,32 @@ def sizing(rows: pd.DataFrame) -> list[str]:
         for name, frame in rows.groupby("group", sort=False)
     }
     lines = []
+
+    def report(name: str, rule: Rule) -> None:
+        lines.append(f"{name}: " + ", ".join(f"{u} {rule.budget(u)}" for u in rule.units))
+        aside, chosen = set_aside_rows(rule)
+        if chosen:
+            named = "; ".join(f"{p}/{r} {c} {v:.3f}" for p, r, c, v in chosen)
+            lines.append(f"  set aside below {SET_ASIDE_THRESHOLD} at the ceiling: {named}")
+            lines.append(
+                f"  {name} without them: "
+                + ", ".join(f"{u} {aside.budget(u)}" for u in aside.units)
+            )
+
     if {"b_outcome_correct", "b_treatment_correct"} <= set(groups):
-        pilots = {}
+        pilots = dict(unit_b.planning_pilots())
         for scenario in unit_b.SCENARIOS:
-            frame = groups[f"b_{scenario}"]
-            present = [name for name in unit_b.ESTIMANDS if name in set(frame["estimand"])]
-            pilots[f"primary_{scenario}"] = pilot_from_rows(
-                frame, source=f"pilot b_{scenario}", estimands=present
-            )
             pilots[f"cell_{scenario}"] = pilot_from_rows(
-                frame, source=f"pilot b_{scenario}", estimands=("ate",), calibration=False
+                groups[f"b_{scenario}"],
+                source=f"pilot b_{scenario}",
+                estimands=("ate",),
+                calibration=False,
             )
-        rule = unit_b.rule(pilots)
-        lines.append(f"unit B primary: {rule.budget('primary')}, cells: {rule.budget('cells')}")
+        if "b_both_correct" in groups:
+            pilots["primary_both_correct"] = pilot_from_rows(
+                groups["b_both_correct"], source="pilot b_both_correct", estimands=unit_b.ESTIMANDS
+            )
+        report("unit B (a primary not piloted keeps its planning value)", unit_b.rule(pilots))
     if groups.keys() & {"m_primary", "m_outcome_correct"}:
         primary = (
             pilot_from_rows(groups["m_primary"], source="pilot m_primary")
@@ -247,29 +285,25 @@ def sizing(rows: pd.DataFrame) -> list[str]:
             if "m_outcome_correct" in groups
             else None
         )
-        rule = unit_m.rule(primary, cell)
-        lines.append(
-            f"unit M primary: {rule.budget('primary')}, "
-            f"{unit_m.CELL}: {rule.budget(unit_m.CELL)} (a group not piloted keeps its "
-            "registered planning value)"
+        report(
+            "unit M (a group not piloted keeps its registered planning value)",
+            unit_m.rule(primary, cell),
         )
     if "s_primary" in groups:
         pilot = pilot_from_rows(groups["s_primary"], source="pilot s_primary")
-        lines.append(
-            f"unit S primary (less {', '.join(unit_s.EXPECTED_FINITE_SAMPLE)}): "
-            f"{unit_s.rule({'primary': pilot}).budget('primary')}"
+        report(
+            f"unit S primary (less {', '.join(unit_s.EXPECTED_FINITE_SAMPLE)})",
+            unit_s.rule({"primary": pilot}),
         )
-    if {"ladder_tc_2000", "ladder_tc_8000"} <= set(groups):
-        low = pilot_from_rows(groups["ladder_tc_2000"], source="pilot ladder 2,000")
-        high = pilot_from_rows(groups["ladder_tc_8000"], source="pilot ladder 8,000")
-        standardized = {}
-        for label in unit_s.READ_LABELS:
-            name = stratified.ate_name(label)
-            z_low = abs(low.bias[low.rows.index(name)])
-            z_high = abs(high.bias[high.rows.index(name)])
-            # The middle rung carries no slope weight; its value only fills the triple.
-            standardized[label] = (z_low, float(np.sqrt(z_low * z_high)), z_high)
-        lines.append(f"ladder outer rungs: {ladder.planned_outer_budget(standardized)}")
+    if "ladder_tc_8000" in groups:
+        plan = ladder_plan_from_rows(
+            groups["ladder_tc_8000"],
+            source="pilot ladder_tc_8000",
+            labels={label: stratified.ate_name(label) for label in unit_s.READ_LABELS},
+            size=8_000,
+        )
+        lines.append(f"ladder outer rungs: {ladder.planned_outer_budget(plan)}")
+        lines.append(f"ladder control per rung: {ladder.planned_control_budget()}")
     return lines
 
 
@@ -284,23 +318,35 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--output", type=Path, required=True, help="the summary CSV")
     parser.add_argument("--replicates", type=int, default=REPLICATES)
+    parser.add_argument("--start", type=int, default=0, help="the first replicate index")
+    parser.add_argument(
+        "--rows", type=Path, action="append", default=[], help="earlier per-draw rows (repeatable)"
+    )
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument(
         "--group", action="append", choices=sorted(GROUPS), help="a group to run (repeatable)"
     )
     args = parser.parse_args(argv)
     chosen = args.group or list(GROUPS)
-    payloads = [(group, r) for group in chosen for r in range(args.replicates)]
-    outcomes = map_parallel(fit, payloads, n_jobs=args.jobs)
-    rows = pd.DataFrame([row for rows in outcomes for row in rows])
+    stop = args.start + args.replicates
+    payloads = [(group, r) for group in chosen for r in range(args.start, stop)]
+    outcomes = map_parallel(fit, payloads, n_jobs=args.jobs) if payloads else []
+    fresh = pd.DataFrame([row for rows in outcomes for row in rows])
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    rows.to_csv(output.with_name(f"{output.stem}-rows.csv.gz"), index=False)
+    if not fresh.empty:
+        fresh.to_csv(output.with_name(f"{output.stem}-rows.csv.gz"), index=False)
+    rows = pd.concat([*(pd.read_csv(path) for path in args.rows), fresh], ignore_index=True)
+    if rows.empty:
+        raise SystemExit("no rows: pass --replicates above 0 or --rows")
+    repeated = rows.duplicated(["group", "replicate", "estimand"])
+    if repeated.any():
+        raise SystemExit(f"{int(repeated.sum())} rows repeat a (group, replicate, estimand)")
     summary = summarize(rows)
     summary.to_csv(output, index=False)
     with pd.option_context("display.width", 200, "display.max_columns", 20):
         print(summary.drop(columns="source").to_string(index=False))
-    if args.replicates >= 3:
+    if rows.groupby("group")["replicate"].nunique().min() >= 3:
         for line in sizing(rows):
             print(line)
 
