@@ -1,0 +1,36 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "manifest.json": "3b48130a4d7f0562033cb724de0ddad504e4f939a0c6a25b35db910ce85ca3c4",
+    "performance-tests.csv": "1a885c123747f4361cd11637ee09f2e54401b6b3ad53cc82bc6b5be6b5866ec6",
+    "properties.csv": "020b2e227b92dce6a582c5fc01226827a21468ac23aa55636040253fee8878a1",
+    "property-replicates.parquet": "4786c58070f5165cbfb481f2ebb91b8d6636e62a4fed97dfbc33e1f7ae97b746",
+    "replicates.parquet": "6a80cc00642aa631cb3d399c8099eaf3a07ba5b44430fa2af097c4e357474091",
+    "summary.csv": "7291d4cc8073c83b30a53c1bb51b1e91a80a21836c4820e2688d7de3559e3bd8"
+  },
+  "band_fits": 6800,
+  "cache": "/root/band-wave-l2/cache/longitudinal-repeated-ipsi/91a56e7bfa463e4bfa56bbbadc081406cef9584b/30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "longitudinal-repeated-ipsi",
+    "--jobs",
+    "4",
+    "--cache",
+    "/root/band-wave-l2/cache",
+    "--output",
+    "/root/band-wave-l2/out"
+  ],
+  "fit_seconds": 3197.793985901997,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "longitudinal-repeated-ipsi",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}

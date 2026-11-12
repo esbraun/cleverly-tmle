@@ -1,0 +1,36 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "0bced2828fab841a22abb7eaca6547a1ff7b783eb861f2d0acc73f57f3e3222f",
+    "manifest.json": "3f84b0b4790d31420278084f10883b0d34ecaad796ebbc04e023de667c291e0a",
+    "performance-tests.csv": "6dc230f6f858fd0c7eb01a289324ee76cce0a8e0f8a63b07e1b1d6b4a3447bd8",
+    "properties.csv": "b630434344079cf36dea566cf0c05db013876534e3c0c79fea9d6cdc2d1be86c",
+    "property-replicates.parquet": "3cbc6fc5429bfc796cd9a06bea599e62f0b4390c32d4decc19d12838cfd05e75",
+    "replicates.parquet": "9fb55cab6459c1ae791fb044c45ec71be4d214a0644239788436178084d4a872",
+    "summary.csv": "f1728d341232e92f55511948d18ac707e9bc344e8ab747f59556db1d497aee06"
+  },
+  "band_fits": 8000,
+  "cache": "/root/band-wave-l2/cache/longitudinal-repeated-outcome/91a56e7bfa463e4bfa56bbbadc081406cef9584b/30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "longitudinal-repeated-outcome",
+    "--jobs",
+    "4",
+    "--cache",
+    "/root/band-wave-l2/cache",
+    "--output",
+    "/root/band-wave-l2/out"
+  ],
+  "fit_seconds": 1651.4287396969994,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "longitudinal-repeated-outcome",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}
