@@ -112,6 +112,7 @@ The readiness labels are defined under
 | [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) Typed study requests for the risk-ratio tilt | 6 | natural extension | the shipped `RiskRatioTilt` fit and the shipped typed policy requests |
 | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) Continuous-dose MSM with a second mechanism | 6 | source audit | the shipped continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting |
 | [X95](#x95-dose-response-intervals-below-the-support-floor) Dose-response intervals below the support floor | 6 | no new theory for part (a), a support diagnostic that tracks the interval's error and a registered study at small bandwidths and tail doses; part (b), clustered rows, needs a few-cluster rule for the multiplier band | the shipped `DoseResponseTMLE` and its support report |
+| [X98](#x98-score-assessment-compositions) Score assessment compositions | 6 | natural extension for part (a), a joint band over the pairs and a registered study; no new theory for parts (b) and (c); source audit for part (d) | the shipped `assess_score` and its pooled fluctuation |
 
 ### Collaborative and doubly robust TMLE
 
@@ -1907,6 +1908,27 @@ Kish size of 141 with an SE ratio of 0.93. This item has two parts.
   binned dose density and refuses both: a known density would replace the fitted one in the
   clever covariate, and an atom would need a point mass in the quadrature and the band.
 
+### X98. Score assessment compositions
+
+`study.assess_score` targets the risk of one external CATE score, or the paired risk difference
+of two (`compare=`), by one pooled logistic fluctuation along the score columns. The
+[score-assessment evidence](technical-reference/method-evidence/score-assessment.md) gives the
+measured configurations. Four requests stay open, and each refusal names this item:
+
+- (a) Three or more scores with a joint interval over every pair. Each pairwise difference's
+  influence curve is the difference of two single-score curves (van der Laan, Carone and
+  Luedtke, arXiv:2402.01972v2, Theorem 1), so the joint law of the differences follows by
+  linearity. A max-$t$ band over the pairs and its registered study remain.
+- (b) `target_weights=True`. Every row loads several score columns, which the weighted form of
+  the fluctuation cannot carry.
+- (c) A declared stopping rule, which needs a stopping context the assessment does not build.
+- (d) `targeting_scheme="fold"` or `cv_evaluation=True` on the ATE fit. The assessment fits one
+  pooled fluctuation over every row; [X61](#x61-fold-targeting-and-fold-evaluation) records the
+  sources for fold-specific updates.
+
+Acceptance: a pre-fit refusal test for each request that stays refused, and a registered study
+for each interval claim.
+
 ### X92. Plots and visualizations
 
 `cleverly.plotting` ships the figures of a result
@@ -1915,12 +1937,14 @@ numbers the object already holds and never draws an interval or band the fit did
 The figure carries no notes: `cleverly.plotting.notes(fig)` gives the reason for a withheld
 interval and says when a result is experimental.
 
-Three requests stay open, and each refusal names this item:
+Four requests stay open, and each refusal names this item:
 
 - the truncation curve of a longitudinal fit, whose limits bound a cumulative probability;
 - the overlap of a longitudinal fit's treatment probabilities, one per time point; and
 - a targeting curve fitted with `target_weights=True` or a declared stopping rule. The curve's
   fluctuation carries one weight column under the relative stopping test only.
+- a targeting curve on an ATE fit with `targeting_scheme="fold"` or `cv_evaluation=True`. The
+  curve fits one pooled fluctuation over every evaluation row.
 
 The `grf` comparator runs of the targeting-curve study are pending. The red cell of that study,
 the conservative paired TOC(0.1) row, is owned by `X92-paired-conservative`. The area estimates

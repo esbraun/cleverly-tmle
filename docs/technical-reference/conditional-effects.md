@@ -508,13 +508,16 @@ each reading against its formula.
 | `EPMethod` with `cross_fit=False`, `repeats` above 1, `cv_evaluation=True`, a non-default targeting scheme, or a fluctuation setting | the debiasing pools every row with its own out-of-fold nuisances and fits no fluctuation | `invalid_declaration` |
 | `assess_score` without `score_kind="external"`, with `computed_from` outside the adjustment set, or on an in-sample curve | the interval needs a fixed function of adjustment columns | `invalid_declaration` |
 | `assess_score` with `compare=` naming the score column, or a column with the same value on every row | the paired risk is 0 with no spread | `DataError` |
-| `assess_score` with `compare=` a sequence of two or more columns | a joint interval over every pair of three or more scores is not built | `implementation_gap` |
+| `assess_score` with `compare=` a sequence of two or more columns | a joint interval over every pair of three or more scores is not built | `implementation_gap`, roadmap X98 |
 | `assess_score` with `repeats` above 1 | a median over splits of jointly targeted risks has no reviewed joint covariance | `inference_gap` |
-| `assess_score` with `n_bootstrap` above 0, `target_weights=True`, a declared stopping rule, a non-pooled targeting scheme or `cv_evaluation=True` | the refit bootstrap is not built; every row loads several score columns, which the weighted submodel cannot carry; the fluctuation is one pooled solve under the relative stopping test | `implementation_gap` |
-| `targeting_curve` under the same three conditions, for the score or the `compare=` column | as `assess_score` | `invalid_declaration` |
+| `assess_score` with `n_bootstrap` above 0 | the refit bootstrap is not built; the influence-curve intervals are reported | `inference_gap` |
+| `assess_score` with `target_weights=True`, a declared stopping rule, a non-pooled targeting scheme or `cv_evaluation=True` | every row loads several score columns, which the weighted submodel cannot carry; the fluctuation is one pooled solve under the relative stopping test | `implementation_gap`, roadmap X98 |
+| `targeting_curve` without `score_kind="external"`, with `computed_from` outside the adjustment set, or on an in-sample curve, for the score or the `compare=` column | as `assess_score` | `invalid_declaration` |
 | `curve.diagnostics.targeting_curve(split=...)` with a split that is not a fraction in $(0, 1)$ | a fold average of fold-specific curves is a property of the learning algorithm; its only source (Imai and Li 2023, Section 4) covers difference-in-means scores in a randomized experiment | `invalid_declaration` |
 | a targeting curve with `repeats` above 1 | a median over splits of a whole curve has no reviewed joint law | `inference_gap` |
 | a targeting curve with `target_weights=True` or a declared stopping rule | every row loads several weight columns, which the weighted submodel cannot carry; a declared stopping rule needs a stopping context no curve builds | `implementation_gap`, roadmap X92 |
+| a targeting curve on an ATE fit with a non-pooled targeting scheme or `cv_evaluation=True` | the curve fits one pooled fluctuation over every evaluation row | `implementation_gap`, roadmap X92 |
+| a targeting curve on an ATE fit with `n_bootstrap` above 0 | the curve's intervals come from its half-sample bootstrap | `inference_gap` |
 | `compare=` on route 2 of an engine fit | the column is read from the producing study, which an engine fit does not keep | `invalid_declaration` |
 
 Each one is raised before any learner is fitted, and `tests/unit/test_conditional_contrast.py`
