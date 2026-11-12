@@ -24,33 +24,34 @@ nonparametric model on this support.  The static arms of a separable fit go thro
 factor-wise engine, a different TMLE from the shipped static one, so their rows are measured
 here too.
 
-**Scope** (declared before any run).  The record measures hazard ``LTMLE`` with saturated
+**Scope** (declared before the first run).  The record measures hazard ``LTMLE`` with saturated
 learners at one and two folds.  Robustness to a wrong hazard factor is measured by the
 properties module on the engine with the exact mechanism.
 
-**Size** (declared before any run).  16,000, as the held-baseline scenario of
-``eliminated-competing-events`` on the same law, where n = 4,000 left Kish sizes of 29 to 60 at
-``t = 3``.  :data:`PRIMARY_REPLICATES` is the shared rule
+**Size** (declared before the first run, re-read before the rerun).  16,000, as the
+held-baseline scenario of ``eliminated-competing-events`` on the same law, where n = 4,000 left
+Kish sizes of 29 to 60 at ``t = 3``.  :data:`PRIMARY_REPLICATES` is the shared rule
 :func:`~tests.studies.repeated_sizing.primary_replicates` on the pilot in
 ``tests/studies/separable_effects_pilot.py``, read by the design test.  The cross-fitted
 scenario's lowest pilot coverage, 0.923, sets it.  The three cross-fitted pilot labels were
 rerun under the stall fix of the targeting (plan ``X91-D-stall-plan.md`` rev 2.1), which moves
-every cross-fitted fit; the sizes read that rerun.
+every cross-fitted fit; the sizes read that rerun.  The rule sits on an edge there: a covered
+count of 924 in that cell gives 8,400, the 923 observed gives 9,200, and 922 would give 10,800.
 
-**Unconverged fits** (declared after the rerun pilot, before any declared draw).  A fit whose
-targeting stops short of ``tol`` is kept: the shipped fit warns and reports the state with the
-smallest relative score, and the study measures what it returns.  Every in-sample pilot fit
-converged in the walk, which the fix leaves unchanged, so those labels were not rerun.  In the
-rerun, 0.6% of cross-fitted fits (50 of 9,000 across the
-primary and calibration labels) stopped short, every one ``failure="cell_separated"``: a
-fold-cell whose own rows hold no event of a cause, so its score is solved only at a hazard of
-zero, beyond the bound set by ``alpha``.  Their relative scores are at most about 2e-5.  The
-cross-fitted ``mechanism_wrong`` robustness label stopped short in 2.3% of its fits, also all
-``cell_separated``.  ``convergence.csv`` records every primary fit's convergence, failure and
-targeting phase, and the property summary reports the unconverged fits of each cell; neither
-decides a verdict.  ``FAILURE_BOUND`` counts fits that raise, not fits that stop short.  A
-dropped horizon would raise ``KeyError`` and stop the run; on this law at n = 16,000 every
-horizon keeps units at risk.
+**Unconverged fits** (declared after the rerun pilot, before the rerun).  A fit whose targeting
+stops short of ``tol`` is kept: the shipped fit warns and reports the state with the smallest
+relative score, and the study measures what it returns.  Every in-sample pilot fit converged in
+the walk, which the fix leaves unchanged up to rounding, so those labels were not rerun.  In the
+rerun, 0.6% of the cross-fitted primary and calibration fits (50 of 9,000) stopped short, every
+one ``failure="cell_separated"``: a fold-cell whose own rows hold no event of a cause, so its
+score is solved only at a hazard of zero, beyond the bound set by ``alpha``.  Their relative
+scores are at most 2.3e-5.  The cross-fitted ``mechanism_wrong`` robustness label stopped short
+in 7 of 300 fits, also all ``cell_separated``.  ``convergence.csv`` records every primary fit's
+convergence, failure and targeting phase, and the property summary reports the unconverged fits
+of each cell; neither decides a verdict.  :func:`primary_suspects` reads the declared defect
+suspects (``regenerate.py``).  ``FAILURE_BOUND`` counts fits that raise, not fits that stop
+short.  A dropped horizon would raise ``KeyError`` and stop the run; on this law at n = 16,000
+every horizon keeps units at risk.
 
 **Comparator.** None.  No separable-effects TMLE implementation was located; the evidence is
 the exact-law truth.
@@ -290,6 +291,52 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
     rows = pd.DataFrame([row for result in outcomes.kept for row in result])
     # The convergence columns ride along for :func:`extra_artifacts`; the driver drops them.
     return replication.result(outcomes, rows.loc[:, [*REPLICATE_COLUMNS, *CONVERGENCE_COLUMNS]])
+
+
+#: The declared readings of fits that stop short (``regenerate.py``): the largest share of a
+#: cross-fitted cell's fits that may read ``cell_separated``, and the largest relative score an
+#: unconverged fit may keep.
+SEPARATED_SHARE = 0.015
+UNCONVERGED_SCORE = 1e-4
+
+
+def convergence_suspects(fits: pd.DataFrame, cross_fitted: Mapping[str, bool]) -> list[str]:
+    """The declared defect suspects among fits, one row per fit, grouped by ``cell``.
+
+    ``cross_fitted`` maps each cell to whether its fits are cross-fitted.  An in-sample fit is a
+    suspect unless it converged in the walk.  In a cross-fitted cell, a fit that stops short for
+    any reason but ``cell_separated``, or above :data:`UNCONVERGED_SCORE`, is a suspect, and so
+    is a ``cell_separated`` share above :data:`SEPARATED_SHARE`.  Empty failures read back from a
+    file as missing, so they are filled first.
+    """
+    found: list[str] = []
+    for cell, group in fits.groupby("cell", sort=True):
+        failure = group["failure"].fillna("").astype(str)
+        short = group["converged"].astype(int) == 0
+        if not cross_fitted[str(cell)]:
+            off = short | group["phase"].fillna("").astype(str).ne("walk")
+            if off.any():
+                found.append(
+                    f"{cell}: {int(off.sum())} in-sample fits left the walk or stopped short"
+                )
+            continue
+        other = short & failure.ne("cell_separated")
+        if other.any():
+            labels = sorted(set(failure[other]))
+            found.append(f"{cell}: {int(other.sum())} fits stopped short with {labels}")
+        high = short & (group["relative_score"] > UNCONVERGED_SCORE)
+        if high.any():
+            found.append(f"{cell}: {int(high.sum())} unconverged fits above {UNCONVERGED_SCORE}")
+        share = float((short & failure.eq("cell_separated")).mean())
+        if share > SEPARATED_SHARE:
+            found.append(f"{cell}: cell_separated in {share:.2%} of fits")
+    return found
+
+
+def primary_suspects(convergence: pd.DataFrame) -> list[str]:
+    """:func:`convergence_suspects` on ``convergence.csv``, one cell per scenario."""
+    fits = convergence.rename(columns={"scenario": "cell"})
+    return convergence_suspects(fits, {name: folds > 1 for name, folds in SCENARIOS.items()})
 
 
 def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:

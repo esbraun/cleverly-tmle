@@ -329,6 +329,23 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     return convergence_reading(finish(summary, rates), rows)
 
 
+#: Whether each fitted property cell's fits are cross-fitted; the derived calibration controls
+#: reuse their base cell's fits and are not counted again.
+CROSS_FITTED_CELLS: dict[str, bool] = {
+    **{cell: spec is None for cell, spec in ROBUSTNESS_CELLS.items()},
+    **{
+        f"{label}__correctly_specified": scenario == study.CROSS_FITTED
+        for label, (scenario, _) in CALIBRATION_CELLS.items()
+    },
+}
+
+
+def convergence_suspects(rows: pd.DataFrame) -> list[str]:
+    """:func:`~tests.studies.separable_effects.convergence_suspects` on the fitted cells."""
+    fits = rows.loc[rows["cell"].isin(list(CROSS_FITTED_CELLS))]
+    return study.convergence_suspects(fits, CROSS_FITTED_CELLS)
+
+
 def convergence_reading(summary: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
     """Report each cell's unconverged fits; the column decides no verdict.
 

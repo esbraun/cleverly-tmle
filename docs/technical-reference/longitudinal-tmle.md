@@ -471,8 +471,9 @@ both reach `tol` gave estimates up to 0.13 standard errors apart. When the rows 
 event of a cause, that cell's score is solved only at a hazard of zero, beyond the bound set by
 `alpha`. The fit then stops at the bound, warns, and reports `failure="cell_separated"`, as
 separation stops a logistic regression. In the `separable-effects` pilot at n = 16,000 this
-happened in 0.6% of 9,000 two-fold fits, at relative scores of at most about $2 \times 10^{-5}$,
-and never in sample; no other cross-fitted fit stopped short.
+happened in 0.6% of 9,000 two-fold primary and calibration fits and in 7 of 300 fits with a
+wrong treatment model, at relative scores of at most $2.3 \times 10^{-5}$, and never in sample;
+no other two-fold fit stopped short.
 
 **Robustness.** With the treatment and censoring mechanisms right, the estimate is consistent when
 $\lambda_D$ is right at both levels or $h_Y$ is right at both levels, the counterparts of
