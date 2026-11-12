@@ -224,6 +224,8 @@ from the committed results and checked at the precision printed.
 | `margin:root_n_slope_lower` | -0.6250 | accepted root-n slope band, lower limit |
 | `margin:root_n_slope_upper` | -0.3750 | accepted root-n slope band, upper limit |
 | `margin:excluded_slope` | -0.2500 | slower rate a root-n interval must exclude |
+| `margin:subject_failure_bound` | 0.0100 | share of `cleverly` fits a cell may lose |
+| `margin:subject_failures_allowed` | 10 | `cleverly` fits a cell may lose |
 
 ## Limitations
 

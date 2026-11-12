@@ -157,6 +157,10 @@ red, with a joint-coverage interval ending at 0.9196 against 0.92. With the new 
 | `margin:shrunken_se_factor` | 0.7000 | negative-control SE multiplier |
 | `margin:correction_score_ratio` | 0.0100 | maximum closed-to-initial score-endpoint ratio |
 | `margin:uncorrected_score_floor` | 0.0010 | unresolved initial-score floor |
+| `margin:reference_failure_bound` | 0.0100 | share of drtmle fits a cell may lose |
+| `margin:reference_failures_allowed` | 8 | drtmle fits a cell may lose |
+| `margin:subject_failure_bound` | 0.0100 | share of `cleverly` fits a cell may lose |
+| `margin:subject_failures_allowed` | 8 | `cleverly` fits a cell may lose |
 
 ## Limits
 

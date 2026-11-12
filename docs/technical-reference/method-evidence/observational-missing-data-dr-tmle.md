@@ -240,6 +240,10 @@ verdict changed (`tests/canonical/band-rerun-decision.json`).
 | `margin:uncorrected_score_floor` | 0.0010 | unresolved initial-score floor |
 | `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit. No cell of this study reads it |
 | `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit. No cell of this study reads it |
+| `margin:reference_failure_bound` | 0.0100 | share of drtmle fits a cell may lose |
+| `margin:reference_failures_allowed` | 8 | drtmle fits a cell may lose |
+| `margin:subject_failure_bound` | 0.0100 | share of `cleverly` fits a cell may lose |
+| `margin:subject_failures_allowed` | 8 | `cleverly` fits a cell may lose |
 
 ## Limits
 
