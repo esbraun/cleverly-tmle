@@ -1,33 +1,37 @@
-"""Design of the four Fix-6 records of the fold-wise DR-TMLE default.
+"""Design of the three gated Fix-6 records of the fold-wise DR-TMLE default.
 
-``drtmle-foldwise-n1500`` (unit B), ``multi-arm-drtmle-foldwise`` (unit M),
-``stratified-drtmle-foldwise`` (unit S, primary) and ``stratified-drtmle-foldwise-ladder``
-(unit S, ladder).  Each test names the part of the declaration it pins: the record, the
-pairing of its draws with the registered study they re-read, the fresh streams, the planning
-budgets and their sizing rule, the guard that refuses a declared run while they are planning
-values, and, for unit B, the nonzero witness that its fold-wise path is not wired pooled.  No
-test runs a study; the witness fits two samples.
+``drtmle-foldwise-n1500`` (unit B), ``multi-arm-drtmle-foldwise`` (unit M) and
+``stratified-drtmle-foldwise`` (unit S, whose contraction ladder is its property cells).  Each
+test names the part of the declaration it pins: the record, the pairing of its draws with the
+registered study they re-read, the fresh streams, the planning budgets and their sizing rule,
+the guard that refuses a declared run while they are planning values, and, for unit B, the
+nonzero witness that its fold-wise path is not wired pooled.  No test runs a study; the witness
+and the pilot check fit a few samples.
 """
 
 from __future__ import annotations
 
 import inspect
 from types import ModuleType
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from cleverly.validation._seeds import sample_seed_streams
+from tests.diagnostics.fix6_foldwise_sizing import run as pilot
 from tests.studies import canonical_drtmle, drtmle_properties, stratified_alternating_law
 from tests.studies import canonical_multi_arm_drtmle as canonical_multi_arm
 from tests.studies import canonical_stratified_drtmle as canonical_stratified
 from tests.studies import drtmle_foldwise as foldwise
 from tests.studies import drtmle_foldwise_n1500 as unit_b
 from tests.studies import multi_arm_drtmle_foldwise as unit_m
+from tests.studies import multi_arm_drtmle_properties as registered_multi_arm
 from tests.studies import stratified_drtmle_foldwise as unit_s
 from tests.studies import stratified_drtmle_foldwise_ladder as ladder
 from tests.studies import stratified_drtmle_properties as x8
-from tests.studies.drtmle_foldwise_sizing import slope_half_width
+from tests.studies.drtmle_foldwise_sizing import Rule, pilot_from_rows, slope_half_width
 from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
@@ -36,19 +40,17 @@ MODULES: dict[str, ModuleType] = {
     "drtmle-foldwise-n1500": unit_b,
     "multi-arm-drtmle-foldwise": unit_m,
     "stratified-drtmle-foldwise": unit_s,
-    "stratified-drtmle-foldwise-ladder": ladder,
 }
-POLICIES = {
-    "drtmle-foldwise-n1500": "gated",
-    "multi-arm-drtmle-foldwise": "gated",
-    "stratified-drtmle-foldwise": "gated",
-    "stratified-drtmle-foldwise-ladder": "reporting",
+#: Each record's properties module.
+PROPERTIES: dict[str, ModuleType] = {
+    "drtmle-foldwise-n1500": unit_b,
+    "multi-arm-drtmle-foldwise": unit_m,
+    "stratified-drtmle-foldwise": ladder,
 }
 DIRECTORIES = {
     "drtmle-foldwise-n1500": "drtmle_foldwise_n1500",
     "multi-arm-drtmle-foldwise": "multi_arm_drtmle_foldwise",
     "stratified-drtmle-foldwise": "stratified_drtmle_foldwise",
-    "stratified-drtmle-foldwise-ladder": "stratified_drtmle_foldwise_ladder",
 }
 
 #: The smallest |fold-wise - pooled| difference the unit B witness accepts on its draw.  The
@@ -65,23 +67,27 @@ def _record(slug: str) -> StudyRecord:
 
 # ------------------------------------------------------------------------------ every record
 @pytest.mark.parametrize("slug", sorted(MODULES))
-def test_the_record_registers_with_its_declared_policy_and_no_comparator(slug: str) -> None:
+def test_the_record_registers_gated_with_property_cells_and_no_comparator(slug: str) -> None:
     module = MODULES[slug]
+    properties = PROPERTIES[slug]
     record = _record(slug)
     assert record is module.STUDY
     assert record.reference is None
     assert record.pending_reference is None
     assert record.comparator_state == "none"
-    assert record.publication_policy == POLICIES[slug]
+    assert record.publication_policy == "gated"
+    assert record.property_cells
+    assert not record.reported_scenarios
     assert record.implementation == foldwise.IMPLEMENTATION
     assert dict(record.failure_bound) == {foldwise.IMPLEMENTATION: 0.01}
-    assert module.FAILURE_BOUND == 0.01
-    assert module.PROPERTY_WITNESS is property_verdicts.SAMPLE_WITNESS
+    assert properties.FAILURE_BOUND == 0.01
+    assert properties.PROPERTY_WITNESS is property_verdicts.SAMPLE_WITNESS
     assert record.artifacts == ROOT / "tests" / "canonical" / DIRECTORIES[slug]
     assert (record.artifacts / "__init__.py").is_file()
     assert (record.artifacts / "regenerate.py").is_file()
     assert record.runner() is module
-    assert record.properties() is module
+    assert record.properties() is properties
+    assert not hasattr(module, "PRIMARY_DESIGN_OPEN")
     assert record.replicates == module.PRIMARY_REPLICATES
     assert module.CONFIGURATION["reduced_crossfit"] == "foldwise"
 
@@ -95,9 +101,9 @@ def test_the_resampling_seeds_are_fresh_and_distinct() -> None:
     resampling = [record.resampling_seed for record in ours.values()]
     assert len(set(resampling)) == len(resampling)
     assert not set(resampling) & taken
-    # The two records with their own primary stream draw a seed no other study uses.
-    for slug in ("drtmle-foldwise-n1500", "stratified-drtmle-foldwise-ladder"):
-        assert ours[slug].seed not in taken
+    # Unit B's primary draws a seed no other study uses.
+    assert ours["drtmle-foldwise-n1500"].seed not in taken
+    assert not any(study.slug == "stratified-drtmle-foldwise-ladder" for study in registered())
     # The two paired primaries share their canonical study's seed on purpose.
     assert unit_m.SEED == canonical_multi_arm.SEED
     assert unit_s.SEED == canonical_stratified.SEED
@@ -109,18 +115,13 @@ def test_a_declared_run_is_refused_while_the_budgets_are_planning_values(
 ) -> None:
     module = MODULES[slug]
     assert module.BUDGETS_DECLARED is False
-    with pytest.raises(RuntimeError, match=r"planning|placeholder"):
+    with pytest.raises(RuntimeError, match="planning"):
         module.assert_declared()
-    # The guard runs before any draw, at the declared primary budget.
-    with pytest.raises(RuntimeError, match=r"planning|placeholder"):
+    # The guard runs before any draw, in the primary phase and in the property phase.
+    with pytest.raises(RuntimeError, match="planning"):
         module.draw_and_fit(replicates=module.PRIMARY_REPLICATES, n=40, n_jobs=1)
-    if hasattr(module, "PRIMARY_DESIGN_OPEN"):
-        assert module.PRIMARY_DESIGN_OPEN is True
-        monkeypatch.setattr(module, "PRIMARY_DESIGN_OPEN", False)
-        with pytest.raises(RuntimeError, match="planning"):
-            module.assert_declared()
-        with pytest.raises(RuntimeError, match="planning"):
-            module.generate_property_rows(n_jobs=1)
+    with pytest.raises(RuntimeError, match="planning"):
+        PROPERTIES[slug].generate_property_rows(n_jobs=1)
     monkeypatch.setattr(module, "BUDGETS_DECLARED", True)
     module.assert_declared()
 
@@ -139,6 +140,7 @@ def test_unit_b_refits_the_two_rm18_cells_at_their_size_and_budget() -> None:
     assert unit_b.registered_cell("treatment_correct").seed_offset == 12_000
     assert unit_b.PLANNING_BUDGETS["cells"] == unit_b.REGISTERED_REPLICATES
     assert unit_b.PLANNING_BUDGETS["primary"] == unit_b.PRIMARY_REPLICATES == 1_000
+    assert unit_b.BUDGETS is unit_b.PLANNING_BUDGETS
     names = {f"double_robustness/{s}" for s in unit_b.SCENARIOS}
     produced = {name for key in unit_b.payloads(2) for name in unit_b._cells_of(key)}
     assert produced == names
@@ -206,29 +208,38 @@ def test_unit_b_foldwise_fit_is_a_nonzero_witness_against_the_registered_pooled_
     assert abs(float(rows[0]["estimate"]) - pooled_estimate) > FOLDWISE_WITNESS_FLOOR
 
 
-def test_unit_b_rule_records_its_budget() -> None:
-    rule = unit_b.RULE
-    assert {name: pilot.bias for name, pilot in rule.pilots.items()} == {
-        "outcome_correct": (0.08,),
-        "treatment_correct": (0.12,),
+def test_unit_b_rule_sizes_the_primary_rows_and_the_cells_jointly() -> None:
+    rule = unit_b.rule()
+    names = [f"{kind}_{scenario}" for kind in ("primary", "cell") for scenario in unit_b.SCENARIOS]
+    assert sorted(rule.pilots) == sorted(names)
+    assert rule.units == {
+        "primary": (("primary_outcome_correct", "primary_treatment_correct"), 1_000),
+        "cells": (("cell_outcome_correct", "cell_treatment_correct"), 800),
     }
-    assert all(pilot.replicates == 800 for pilot in rule.pilots.values())
-    assert all(not pilot.se_ratio for pilot in rule.pilots.values())
-    assert rule.units == {"cells": (("outcome_correct", "treatment_correct"), 800)}
-    assert rule.unit_target == pytest.approx(0.95)
-    replicates, value, sized = rule.budget("cells")
-    # The planning values of plan section 5 size the cells at 2,000, above the paired floor.
-    assert (replicates, sized) == (2_000, True)
-    assert value == pytest.approx(0.955, abs=0.003)
-    assert rule.unit_pass("cells", 1_600) < rule.unit_target
+    for scenario in unit_b.SCENARIOS:
+        primary, cell = rule.pilots[f"primary_{scenario}"], rule.pilots[f"cell_{scenario}"]
+        planned = unit_b.PLANNING_ATE_BIAS[scenario]
+        assert primary.rows == ("ey0", "ey1", "ate") and primary.se_ratio and primary.coverage
+        assert primary.bias[primary.rows.index("ate")] == cell.bias[0] == planned
+        assert cell.rows == ("ate",) and not cell.se_ratio
+        assert primary.replicates == cell.replicates == 800
+    # Two units share the family-wise target.
+    assert rule.unit_target == pytest.approx(0.95**0.5)
+    assert rule.budget("primary")[::2] == (3_200, True)
+    assert rule.budget("cells")[::2] == (2_800, True)
+    assert rule.unit_pass("cells", 2_400) < rule.unit_target
+    assert rule.family_pass({"primary": 3_200, "cells": 2_800}) >= 0.95
 
 
-def test_unit_b_placeholder_primary_gates_nothing() -> None:
+def test_unit_b_primary_is_gated_on_fresh_draws() -> None:
     record = unit_b.STUDY
     assert record.scenarios == dict.fromkeys(unit_b.SCENARIOS, canonical_drtmle.ESTIMANDS)
-    assert record.reported_scenarios == frozenset(unit_b.SCENARIOS)
-    assert record.n == unit_b.PRIMARY_N
+    assert record.reported_scenarios == frozenset()
+    assert record.n == unit_b.PRIMARY_N == 1_500
+    cells = {unit_b.sample_seed(scenario, r) for scenario in unit_b.SCENARIOS for r in range(50)}
     for scenario in unit_b.SCENARIOS:
+        primary = {replicate_seed(record, scenario, r) for r in range(50)}
+        assert not primary & cells
         assert replicate_seed(record, scenario, 0) != replicate_seed(
             canonical_drtmle.STUDY, scenario, 0
         )
@@ -245,7 +256,7 @@ def test_unit_m_is_the_canonical_multi_arm_primary_with_foldwise_reduced_regress
         ]
     }
     assert record.n == canonical_multi_arm.PRIMARY_N == 2_000
-    assert record.property_cells == {}
+    assert record.property_cells == {"double_robustness": ("outcome_correct",)}
     calls: list[tuple[str, str]] = []
 
     def spy(frame: pd.DataFrame, scenario: str, *, reduced_crossfit: str) -> str:
@@ -274,18 +285,82 @@ def test_unit_m_draws_are_the_registered_multi_arm_draws() -> None:
     )
 
 
-def test_unit_m_rule_on_the_registered_pooled_rows() -> None:
+def test_unit_m_cell_reads_the_registered_outcome_correct_draws_and_settings() -> None:
+    registered_cell = unit_m.registered_cell()
+    cell = unit_m.property_cell()
+    assert (registered_cell.property, registered_cell.cell) == (
+        "double_robustness",
+        "outcome_correct",
+    )
+    assert (cell.property, cell.cell, cell.role) == (
+        "double_robustness",
+        "outcome_correct",
+        "positive",
+    )
+    assert cell.n == registered_cell.n == 1_000
+    assert cell.seed == registered_cell.seed
+    assert cell.estimand == registered_cell.estimand
+    assert cell.dgp == registered_cell.dgp
+    assert cell.replicates == unit_m.BUDGETS["outcome_correct"] == registered_cell.replicates
+    assert unit_m.property_cell(2).replicates == 2
+    ours = unit_m.cell_settings(cell)
+    theirs = registered_multi_arm._settings(registered_cell)
+    assert theirs["reduced_crossfit"] == "pooled"
+    assert ours["reduced_crossfit"] == "foldwise"
+    assert set(ours) == set(theirs)
+    for key in set(ours) - {"outcome_learner", "treatment_learner", "reduced_crossfit"}:
+        assert repr(ours[key]) == repr(theirs[key]), key
+    for key in ("outcome_learner", "treatment_learner"):
+        assert repr(ours[key]) == repr(theirs[key]), key
+    # The registered cell's sample seeds are the head of this cell's stream.
+    budgets: dict[int, int] = {}
+    for other in registered_multi_arm.cells():
+        budgets[other.seed] = max(budgets.get(other.seed, 0), other.replicates)
+    registered_seeds = sample_seed_streams(budgets)[registered_cell.seed]
+    own_seeds = sample_seed_streams({cell.seed: cell.replicates + 200})[cell.seed]
+    assert own_seeds[: registered_cell.replicates] == registered_seeds
+    (declared,) = unit_m.declared_cells()
+    assert (declared.property, declared.cell, declared.seed, declared.replicates) == (
+        cell.property,
+        cell.cell,
+        cell.seed,
+        cell.replicates,
+    )
+
+
+def test_unit_m_rule_sizes_the_primary_rows_and_the_cell_jointly() -> None:
     pilot = unit_m.registered_pilot()
     assert pilot.rows == unit_m.ESTIMANDS
     assert pilot.replicates == canonical_multi_arm.PRIMARY_REPLICATES
     assert pilot.bias[:3] == (0.046, 0.0332, 0.0168)
     assert pilot.se_ratio[:3] == (0.999, 1.0413, 1.0366)
+    cell = unit_m.registered_cell_pilot()
+    assert (cell.rows, cell.bias, cell.replicates) == (("outcome_correct",), (0.0921,), 600)
+    assert not cell.se_ratio
     rule = unit_m.rule()
-    assert next(iter(rule.grid("primary"))) == 1_200
-    replicates, value, sized = rule.budget("primary")
-    assert (replicates, sized) == (1_200, True)
-    assert value == pytest.approx(0.960, abs=0.003)
-    assert unit_m.PLANNING_REPLICATES == unit_m.PRIMARY_FLOOR == 1_000
+    assert rule.units == {
+        "primary": (("primary",), 1_000),
+        "outcome_correct": (("outcome_correct",), 600),
+    }
+    assert rule.unit_target == pytest.approx(0.95**0.5)
+    assert rule.budget("primary")[::2] == (1_600, True)
+    assert rule.budget("outcome_correct")[::2] == (2_000, True)
+    assert rule.family_pass({"primary": 1_600, "outcome_correct": 2_000}) >= 0.95
+    assert unit_m.PLANNING_BUDGETS == {"primary": 1_000, "outcome_correct": 600}
+
+
+def test_the_pilot_fits_and_sizes_the_multi_arm_outcome_correct_cell() -> None:
+    assert pilot.GROUPS["m_outcome_correct"] == (unit_m, 1_000)
+    rows = pd.DataFrame(
+        [row for replicate in range(3) for row in pilot.fit("m_outcome_correct", replicate)]
+    )
+    assert set(rows["estimand"]) == {"outcome_correct"}
+    assert rows["seconds"].gt(0).all()
+    summary = pilot.summarize(rows)
+    assert list(summary["group"]) == ["m_outcome_correct"]
+    (line,) = pilot.sizing(rows)
+    assert line.startswith("unit M primary:")
+    assert pilot.seed("m_outcome_correct", 0) != unit_m.registered_cell().seed
 
 
 # ------------------------------------------------------------------------- unit S, primary
@@ -298,7 +373,7 @@ def test_unit_s_primary_adds_the_marginal_ate_to_the_canonical_rows(
     }
     assert "ate" not in canonical_stratified.ESTIMANDS
     assert record.n == canonical_stratified.PRIMARY_N == 2_000
-    assert record.property_cells == {}
+    assert record.property_cells == unit_s.PROPERTY_CELLS
     truths = stratified_alternating_law.paper_truths()
     mixture = sum(
         mass * truths[f"ate[V={stratum}]"]
@@ -332,27 +407,71 @@ def test_unit_s_primary_draws_are_the_registered_stratified_draws() -> None:
     )
 
 
-def test_unit_s_primary_rule_on_the_registered_pooled_rows() -> None:
-    """The pooled rows do not size the unit: ``ey[1][V=2]``'s pooled coverage reads 0.90.
+def test_unit_s_primary_rule_sizes_every_row_but_the_expected_finite_sample_row() -> None:
+    """``ey[1][V=2]``'s pooled coverage reads 0.90, so no budget makes it pass.
 
-    That is ``X8-drtmle-small-stratum``'s finite-sample red, carried here as a planning value.
-    The rule refuses to size it, so the sizing pilot's fold-wise rows decide the budget.
+    It is declared before the run as an expected finite-sample row and left out of the sizing
+    family; with it in, the rule sizes nothing up to its ceiling.
     """
+    assert unit_s.EXPECTED_FINITE_SAMPLE == ("ey[1][V=2]",)
+    assert set(unit_s.SIZED_ESTIMANDS) == set(unit_s.ESTIMANDS) - {"ey[1][V=2]"}
     pilots = unit_s.registered_pilots()
-    assert pilots["primary"].rows == canonical_stratified.ESTIMANDS
+    assert "ey[1][V=2]" not in pilots["primary"].rows
     assert pilots["marginal"].rows == ("ate",)
     assert pilots["marginal"].replicates == 2_000
-    index = pilots["primary"].rows.index("ey[1][V=2]")
-    assert pilots["primary"].coverage[index] == pytest.approx(0.90)
     rule = unit_s.rule()
-    assert rule.budget("primary")[2] is False
-    assert rule.unit_pass("primary", 2_400, ("bias", "se_ratio")) > 0.9
-    assert rule.unit_pass("primary", 8_000, ("coverage",)) < 0.5
+    assert rule.budget("primary")[::2] == (5_200, True)
+    # The rule drops the row from a pilot that carries it, as the sizing pilot's does.
+    rows = pd.read_parquet(canonical_stratified.STUDY.artifact("replicates.parquet"))
+    own = rows.loc[rows["implementation"] == canonical_stratified.STUDY.implementation]
+    full = pilot_from_rows(own, source="test", estimands=canonical_stratified.ESTIMANDS)
+    assert full.coverage[full.rows.index("ey[1][V=2]")] == pytest.approx(0.90)
+    assert "ey[1][V=2]" not in unit_s.rule({"primary": full}).pilots["primary"].rows
+    kept = Rule(pilots={"primary": full}, units={"primary": (("primary",), 1_000)}, seed=1)
+    assert kept.budget("primary")[2] is False
+
+
+def test_the_pooled_small_stratum_coverage_is_the_committed_one() -> None:
+    performance = pd.read_csv(canonical_stratified.STUDY.artifact("performance-tests.csv"))
+    (coverage,) = performance.loc[
+        (performance["implementation"] == canonical_stratified.STUDY.implementation)
+        & (performance["estimand"] == "ey[1][V=2]"),
+        "coverage",
+    ]
+    assert coverage == pytest.approx(unit_s.POOLED_SMALL_STRATUM_COVERAGE)
+
+
+SMALL_STRATUM_RED: dict[str, Any] = {
+    "passed": False,
+    "bias_equivalent": True,
+    "coverage_ci_lower": 0.87,
+    "coverage_ci_upper": 0.93,
+    "se_ratio_ci_lower": 0.88,
+    "se_ratio_ci_upper": 1.01,
+}
+
+
+@pytest.mark.parametrize(
+    ("change", "reading"),
+    [
+        ({"passed": True}, unit_s.SMALL_STRATUM_CLEAN),
+        ({}, unit_s.SMALL_STRATUM_FINITE_SAMPLE),
+        ({"bias_equivalent": False}, unit_s.SMALL_STRATUM_DEFECT),
+        ({"se_ratio_ci_upper": 0.99}, unit_s.SMALL_STRATUM_DEFECT),
+        ({"coverage_ci_lower": 0.91}, unit_s.SMALL_STRATUM_DEFECT),
+        ({"coverage_ci_upper": 0.89}, unit_s.SMALL_STRATUM_DEFECT),
+    ],
+)
+def test_the_small_stratum_reading_follows_its_declaration(
+    change: dict[str, Any], reading: str
+) -> None:
+    assert unit_s.small_stratum_reading({**SMALL_STRATUM_RED, **change}) == reading
 
 
 # --------------------------------------------------------------------------- unit S, ladder
-def test_the_ladder_declares_every_level_and_rate_cell() -> None:
-    cells = ladder.STUDY.property_cells[ladder.FAMILY]
+def test_the_ladder_is_the_stratified_records_property_cells() -> None:
+    assert unit_s.STUDY.properties_module == ladder.__name__
+    cells = unit_s.STUDY.property_cells[ladder.FAMILY]
     assert len(cells) == len(ladder.LABELS) * len(ladder.REGIMES) * (len(ladder.SIZES) + 1) == 32
     assert ladder.SIZES == (2_000, 4_000, 8_000)
     assert ladder.READ_LABELS == ("marginal_ate", "v1_ate")
@@ -364,7 +483,10 @@ def test_the_ladder_declares_every_level_and_rate_cell() -> None:
     }
     assert produced | rates == set(cells)
     assert ladder.PROPERTY_RULES[0].families == frozenset({ladder.FAMILY})
-    assert ladder.STUDY.reported_scenarios == frozenset({ladder.PRIMARY_SCENARIO})
+    assert not hasattr(ladder, "STUDY")
+    assert not (
+        ROOT / "tests" / "canonical" / "stratified_drtmle_foldwise_ladder" / "regenerate.py"
+    ).exists()
 
 
 def test_the_ladder_budgets_reach_the_resolution_target() -> None:
@@ -424,7 +546,7 @@ def test_every_other_ladder_rung_draws_a_fresh_stream() -> None:
     assert not union & paired
     for rung in fresh:
         assert ladder.sample_seed(*rung, 0) == stream_seed(
-            ladder.STUDY, "property_sample", f"{rung[0]}_n{rung[1]}", 0
+            unit_s.STUDY, "property_sample", f"{rung[0]}_n{rung[1]}", 0
         )
 
 

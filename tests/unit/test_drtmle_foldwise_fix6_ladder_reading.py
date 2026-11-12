@@ -1,4 +1,4 @@
-"""Mutation controls for the Fix-6 ladder's declared reading.
+"""Mutation controls for the declared reading of ``stratified-drtmle-foldwise``'s ladder.
 
 Each branch of :func:`slope_reading`, :func:`control_reading`, :func:`calibration_reading` and
 :func:`x8_acceptance` in :mod:`tests.studies.stratified_drtmle_foldwise_ladder` is pinned on a
@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.studies import stratified_drtmle_foldwise as primary
 from tests.studies import stratified_drtmle_foldwise_ladder as ladder
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
@@ -215,8 +216,8 @@ def constant(z: float = 0.6) -> Callable[[int], float]:
 @pytest.fixture
 def cheap_bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
     """The record with fewer bootstrap draws, so a synthetic summary runs in seconds."""
-    margins = dataclasses.replace(ladder.STUDY.margins, bootstrap_replicates=1_000)
-    monkeypatch.setattr(ladder, "STUDY", dataclasses.replace(ladder.STUDY, margins=margins))
+    margins = dataclasses.replace(primary.STUDY.margins, bootstrap_replicates=1_000)
+    monkeypatch.setattr(primary, "STUDY", dataclasses.replace(primary.STUDY, margins=margins))
 
 
 def law(
