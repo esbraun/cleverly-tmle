@@ -17,4 +17,8 @@ python -m tests.canonical.few_cluster_crossfit_ltmle.regenerate
 python -m tests.studies.evidence.document --slug few-cluster-cross-fitted-ltmle
 ```
 
+Each `iid_t_control` cell passes only when two clauses hold, as in `clustered-few-cluster-tmle`:
+the 99% upper endpoint of the paired ratio, the mean IID SE over the mean cluster-robust SE of the
+same fits, below 0.80, and the paired `t_reference` arm's SE-ratio upper endpoint at most 1.20.
+
 The policy is `reporting`. Every red cell is published, and F28 owns it.

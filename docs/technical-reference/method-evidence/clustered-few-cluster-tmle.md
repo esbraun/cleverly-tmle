@@ -3,9 +3,9 @@
 This study measures the Student $t$ reference that a clustered fit takes below 40 clusters with
 positive weight mass. An estimate that reads $J$ such clusters uses $J-2$ degrees of freedom, as
 Nugent et al. (2024), Section 2.2, last paragraph, recommend. A fold-evaluated estimate over $V$
-folds uses $\min(J-2, J-V)$, because its variance centers the cluster totals inside each fold.
-Below 10 clusters a fit reports no interval, and an `LTMLE` fit below 20, because no registered
-study measures one there.
+folds uses $J-V$ at every cluster count, because its variance centers the cluster totals inside
+each fold. Below 10 clusters a fit carries the experimental label, and an `LTMLE` fit below 20,
+because no registered study measures an interval there.
 [Clusters](../inference.md#clusters) states the rules.
 
 The publication policy is `reporting`. Every cell may read red, and
@@ -155,25 +155,65 @@ Comparator-backed: a paired comparison with `ltmle` on the same samples. Each ro
 The `few_cluster_reference` family shares each draw among five fits, four at 10 clusters: stacked CV-TMLE,
 fold-evaluated CV-TMLE, in-sample TMLE, cross-fitted DR-TMLE and in-sample LTMLE. It crosses 10, 20
 and 30 clusters with two size laws: clusters of 10 rows from the law of
-`clustered_dgp(10, "binomial")`, and the informative law. Each fit publishes three arms. The
-`t_reference` arm is the reported interval. The `iid_t_control` arm keeps the point and the
-quantile and treats the rows as independent. The `normal_reference` arm keeps the cluster-robust
-standard error with the normal quantile and is reported only.
+`clustered_dgp(10, "binomial")`, and the informative law. The fold-evaluated fit runs at equal
+sizes only, because `cv_evaluation=True` refuses clusters of unequal size.
+
+Each fit publishes three arms. The `t_reference` arm is the reported interval. The `iid_t_control` arm keeps the
+point and the quantile and treats the rows as independent. The `normal_reference` arm keeps the
+cluster-robust standard error with the normal quantile and is reported only.
+
+The `iid_t_control` arm shows that the law's clustering changes the variance of the fit by more
+than any overstatement the SE screen admits. Its verdict needs two clauses. The 99% upper
+endpoint of the paired ratio, the mean IID SE over the mean cluster-robust SE of the same fits,
+must fall below 0.80. The paired `t_reference` arm's SE-ratio upper endpoint must be at most
+1.20, the study's SE screen. The paired ratio alone would pass a cluster SE inflated by a factor
+$c$ at about $1/c$ on a law with no cluster effect, and the second clause bounds $c$.
+
+Under the second clause, a
+paired ratio below 0.80 implies an IID SE more than 4% below the empirical SD at the upper
+endpoints. The control row still publishes the IID SE over the empirical SD, and no verdict reads
+it. `tests/unit/test_few_cluster_control.py` holds the witness, the inflated-SE mutation and the
+lost-replicate worst case.
 
 The fold-evaluated fit adds a
 reported `t_j_minus_2_reference` arm, which keeps $J-2$ on the same fits. Every learner is
 parametric. Wang, Park, Small and Li (2024), Remark 3, caution against complex learners at about
 20 clusters.
 
-## Readings of the red cells
+## Changes since the first run
 
-The run publishes seven red cells under the `reporting` policy, and
-[F28](../../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns each one.
+The first run, at cleverly 0.1.2, published seven red cells. The study is regenerated with the
+same seeds after three changes, and
+[F28](../../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns any cell that still
+reads red.
 
-| cells | reading |
-| --- | --- |
-| `tmle_cv_evaluation__unequal_informative__j10`, `j20` and `j30`, `t_reference` | the fold-evaluated point is biased by 0.61, 0.43 and 0.32 empirical standard deviations. It takes the equal $1/V$ average of one ratio estimate per validation fold, and each fold holds 2, 4 or 6 clusters of informative size. The ratio bias of a fold is of order $V/J$, so the average carries about $V$ times the bias of the stacked fit. The stacked fit reads 0.14, 0.10 and 0.06 on the same draws. `tests/unit/test_fold_evaluated_ratio_bias.py` rebuilds the measured bias from the exact law with no fit, and finds no bias at equal sizes. At 10 clusters the coverage lower endpoint is 0.894 |
-| `drtmle_crossfit__equal10__j10`, `j20` and `j30`, and `drtmle_crossfit__unequal_informative__j10`, `iid_t_control` | the cluster-robust SE of the cross-fitted DR-TMLE overstates the empirical SD by 19%, 14% and 12% at 10, 20 and 30 equal clusters. The IID SE comes from the same curve and rises with it. It stays 23% to 28% below the cluster-robust SE, so the control separates the two variances. The ceiling compares the IID SE with the empirical SD, and the IID SE ratio reads 0.92, 0.85 and 0.83 at equal sizes and 0.75 at 10 informative clusters. Their upper endpoints reach 0.80 or more. The cluster-robust `t_reference` arms cover 0.93 to 0.95 |
+The fold-evaluated fit at informative sizes left the grid: 12 cells, three counts by four arms,
+three of them red. Its point was biased by 0.61, 0.43 and 0.32 empirical standard deviations at
+10, 20 and 30 clusters, against 0.14, 0.10 and 0.06 for the stacked fit on the same draws. It
+takes the equal $1/V$ average of one ratio estimate per validation fold, each over 2, 4 or 6
+clusters of informative size, so it carries about $V$ times the ratio bias of the stacked fit.
+`tests/unit/test_fold_evaluated_ratio_bias.py` rebuilds that bias from the exact law with no fit.
+`cv_evaluation=True` now refuses such clusters and redirects to the stacked report, which
+estimates the same ATE ([clusters of unequal mass](../cv-tmle.md#clusters-of-unequal-mass)).
+
+The fold-evaluated fit reports $t_{J-V}$ at every cluster count. At 10 to 30 clusters in 5 folds
+that equals the earlier $\min(J-2, J-V)$, so no retained cell moves with it.
+
+The `iid_t_control` verdict reads the two clauses above. The first run compared the IID SE with
+the empirical SD, and its four cross-fitted DR-TMLE controls read red: the IID SE ratio was 0.92,
+0.85 and 0.83 at 10, 20 and 30 equal clusters and 0.75 at 10 informative clusters, with upper
+endpoints at 0.80 or more. On those fits the cluster-robust SE overstated the empirical SD by 19%,
+14% and 12%, and the IID SE, read from the same curve, rose with it while staying 23% to 28%
+below the cluster-robust SE. A ratio to the empirical SD moves with any noise in the SE, not with
+the clustering alone; the paired ratio reads the clustering, and the second clause keeps a wide
+cluster SE from helping the control.
+
+The committed DR-TMLE rows do not describe the shipped estimator. Refitting the first run's
+replicates with its own seeds reproduces the stacked `TMLE` rows bit for bit and does not
+reproduce the `DRTMLE` rows, ordinary replicates as well as the tail draws. The `foldwise`
+reduced regressions changed between 0.1.2 and 0.1.5. The `pooled` path of `canonical-drtmle`,
+also run at 0.1.2, still reproduces, and no other `foldwise` artifact predates 0.1.5, so this
+study was the only stale one. The regenerated DR-TMLE cells give the shipped reading.
 
 ## Measured values and declared margins
 
@@ -218,7 +258,7 @@ The run publishes seven red cells under the `reporting` policy, and
 
 | limit | what it means for use |
 | --- | --- |
-| 10 to 30 clusters | 4 to 9 clusters are unmeasured, and a fit there reports no interval. At 4 clusters a pre-run probe found 0.25% to 9% of draws on which a fit cannot run. In-sample `LTMLE` starts at 20 clusters: the first full run lost 1 `LTMLE` fit in 4,000 at 10 clusters in each size law, so those cells left the grid before any verdict was read, and the package floor for `LTMLE` is 20 |
+| 10 to 30 clusters | 4 to 9 clusters are unmeasured, and a fit there carries the experimental label. At 4 clusters a pre-run probe found 0.25% to 9% of draws on which a fit cannot run. In-sample `LTMLE` starts at 20 clusters: the first full run lost 1 `LTMLE` fit in 4,000 at 10 clusters in each size law, so those cells left the grid before any verdict was read, and the package floor for `LTMLE` is 20 |
 | parametric learners | the study does not establish flexible learners at few clusters |
 | binary outcome and treatment, exact propensity | the study isolates targeting and inference |
 | one primary cluster count | the paired comparison runs at 20 clusters only |

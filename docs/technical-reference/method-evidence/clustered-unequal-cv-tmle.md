@@ -33,7 +33,7 @@ aggregates a clustered curve by cluster sums, and it does not cross-fit. The
 | treatment mechanism | exact propensity from the law |
 | outcome regression | unpenalized logistic regression, `C=1e6` |
 | independent unit | the cluster, aggregated as cluster sums |
-| intervals | pointwise 95% Wald, normal reference at 200 clusters |
+| intervals | pointwise 95% Wald, normal reference at 200 clusters for the stacked and DR-TMLE fits; the fold-evaluated covariate pair takes $t_{30}$, with $J-V$ degrees of freedom at 40 clusters in 10 folds |
 
 Every row publishes the nominal `n = 2000`, because the schema requires each row to carry the
 record's size. The realized row count varies by draw.
@@ -75,11 +75,26 @@ record's size. The realized row count varies by draw.
 | `estimand_weighting` | `individual_average_truth` | control | the weighted interval against the row-weighted mean | exact coverage upper bound falls below 0.50 | coverage 0 to 0.0022 | pass |
 <!-- /generated -->
 
-The `clustered_inference` family fits four pairs. Each pair reads one fit and changes only the
-variance aggregation. The stacked, fold-evaluated and DR-TMLE pairs read the informative law. The
-fourth pair reads a law with a covariate shared within each cluster, at 40 clusters of 30 rows in
-10 folds, for the treated mean. That pair is the configuration of the fold-evaluated variance
-defect this release fixes.
+The `clustered_inference` family fits three pairs. Each pair reads one fit and changes only the
+variance aggregation. The stacked and DR-TMLE pairs read the informative law. The third pair
+reads a law with a covariate shared within each cluster, at 40 equal clusters of 30 rows in 10
+folds, for the treated mean. That pair is the configuration of the fold-evaluated variance defect
+that commit 6c237420 fixed.
+
+The covariate pair first read coverage 0.9325, lower endpoint 0.918 against the 0.92 floor, on the
+normal reference. Its variance has $J-V = 30$ degrees of freedom, and the fit now reports $t_{30}$
+at 40 clusters, as at every cluster count. The pair is re-measured on a fresh stream at 4,000
+replications. `tests/unit/test_clustered_unequal_study.py` sizes that count without the first
+reading: it keeps the pass probability at 0.95 or more down to a planning ratio of 0.98, below
+the 0.9917 that normal-theory Jensen gives for a $t_{30}$ standard error, to cover the kurtosis of
+binary cluster totals.
+
+The first run also fitted a fold-evaluated pair on the informative law at 200 clusters. It passed,
+with a point biased by 0.13 empirical SDs against 0.02 for the stacked fit. That pair left the
+study, because `cv_evaluation=True` now refuses clusters of unequal size and redirects to the
+stacked report, which the `cluster_robust` pair measures on the same law
+([clusters of unequal mass](../cv-tmle.md#clusters-of-unequal-mass)). Every retained pair other
+than the covariate pair keeps its seeds.
 
 The `estimand_weighting` family fits each draw twice, unweighted and
 with weights one over the size. Each interval must cover its own estimand and must miss the other.
@@ -131,7 +146,8 @@ beside the cluster sum.
 | limit | what it means for use |
 | --- | --- |
 | one size law | sizes uniform on 2 to 18. The study does not cover heavy-tailed sizes or a size that confounds |
-| 200 clusters | the intervals use the normal reference. The [few-cluster study](clustered-few-cluster-tmle.md) measures the $t$ reference below 40 clusters |
+| 200 clusters | the stacked and DR-TMLE intervals use the normal reference. The [few-cluster study](clustered-few-cluster-tmle.md) measures the $t$ reference below 40 clusters |
+| fold evaluation at equal sizes only | `cv_evaluation=True` refuses clusters of unequal size, so the only fold-evaluated pair is the covariate pair at 40 equal clusters |
 | binary outcome and treatment, exact propensity | the study isolates targeting and inference. It does not compare learned propensity models |
 | main-terms outcome learner | the study does not establish flexible learners under clustering |
 | no comparator | no pinned implementation cross-fits with cluster sums at unequal sizes |

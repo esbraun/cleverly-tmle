@@ -144,6 +144,11 @@ stacked one, about 0.11 stacked SDs, and its standardized bias is -0.107. That b
 the 0.25 margin, and its interval reads an SE ratio of 0.986 and coverage of 0.9433, so at 200
 clusters it would pass the same bands. The oracle puts its bias at about -0.29 SD at 40 clusters.
 
+The first run read that coverage on the normal reference. A fold-evaluated fit now takes $t$ with
+$J - V$ degrees of freedom at every cluster count, $t_{190}$ here, and the study is regenerated on
+the same draws. The learned-rule value keeps the equal fold average at unequal sizes, because its
+target is defined by it ([clusters of unequal mass](../cv-tmle.md#clusters-of-unequal-mass)).
+
 ### The variance terms
 
 The stacked variance is not guaranteed to be at least the fold-evaluated second moment, because

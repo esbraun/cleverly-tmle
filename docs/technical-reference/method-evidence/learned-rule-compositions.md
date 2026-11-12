@@ -42,7 +42,7 @@ The table gives the three primary settings and the few-cluster property cell.
 | `fold_targeted` | `non_exceptional`, $0.1 + W_1$ | `targeting_scheme="fold"`: each validation fold fits its own fluctuation on its own rows | 2,000 |
 | `weighted` | `misspecified_limit`, $0.8 W_1 + W_1^2 - 0.3$ | the known weight $w = 1 + 1.5 \cdot 1\{W_1 > 0\}$ through `weights=`. The rule is the plug-in of the weighted outcome regression, and the target is the value in the weighted population | 2,000 |
 | `clustered` | `non_exceptional` plus a cluster effect $u \sim N(0, 1.5^2)$ on the logit scale, shared by the rows of a cluster | `id=` with 200 clusters of 10 rows. Folds move whole clusters, and the variance sums the curve within clusters | 2,000 |
-| `clustered_few` | as `clustered` | 30 clusters of 34 rows, so the fit reports a t interval with $\min(J - 2, J - V) = 20$ degrees of freedom | 1,020 |
+| `clustered_few` | as `clustered` | 30 clusters of 34 rows, so the fit reports a t interval with $J - V = 20$ degrees of freedom | 1,020 |
 
 The outcome learner has no $W_1^2$ term, so at `misspecified_limit` the weighted and the
 unweighted rules have different limits. `tests/unit/test_learned_rule_compositions.py` checks the
@@ -227,7 +227,7 @@ the committed results and checked at the precision printed.
 | Equal cluster sizes only | The study draws 200 clusters of 10 and 30 clusters of 34. A learned-rule fit with unequal sizes reads experimental, because sizes that depend on the outcome put a ratio bias in the fold-evaluated point |
 | Known weights only | The weight is a fixed function of $W_1$. Estimated weights refuse, and a fit with both weights and clusters reads experimental |
 | One learner class for coverage | The primary and calibration cells use a logistic outcome model with treatment interactions. The learner that omits $W_1$ enters a bias verdict only, so the row does not claim coverage with it |
-| Two cluster counts in ten folds | The t reference is measured at 30 clusters with 20 degrees of freedom, and the normal reference at 200 clusters. Fewer clusters are not tested |
+| Two cluster counts in ten folds | The t reference is measured at 30 clusters with 20 degrees of freedom and at 200 clusters with 190, since a fold-evaluated fit takes $J - V$ at every cluster count. The first run read the 200-cluster cells on the normal reference. Fewer clusters are not tested |
 | One primary size | The primary settings run at n = 2,000, and this study has no root-n ladder. The [gated study](learned-rule-cvtmle.md) measures the rate of the pooled fit |
 | A binary treatment and a binary outcome | A continuous outcome with declared `q_bounds` is not tested. The package refuses more than two arms, missing outcomes, strata, repeats and the full-refit bootstrap for the learned rule |
 | The truth harness needs deterministic learners | The truth refits each fold's learner with the fit's weights. A learner that draws its own randomness cannot give the same rule again |

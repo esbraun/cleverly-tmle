@@ -62,6 +62,14 @@ Each cell reads one fit per draw and publishes three arms on `ate_regimen[always
 quantile and treats the rows as independent. The `normal_reference` arm keeps the cluster-robust
 standard error with the normal quantile and is reported only. Every learner is parametric.
 
+The `iid_t_control` verdict is the one the [few-cluster study](clustered-few-cluster-tmle.md)
+declares, and it needs two clauses. The 99% upper endpoint of the paired ratio, the mean IID SE
+over the mean cluster-robust SE of the same fits, must fall below 0.80. The paired `t_reference`
+arm's SE-ratio upper endpoint must be at most 1.20, the study's SE screen, so that a cluster SE
+that is too wide cannot pass the control. The control row still publishes the IID SE over the
+empirical SD, and no verdict reads it. The study is regenerated with the same seeds under that
+rule, because the harness reads the paired columns from the replication rows.
+
 ## Measured values and declared margins
 
 | quantity | value | source |
