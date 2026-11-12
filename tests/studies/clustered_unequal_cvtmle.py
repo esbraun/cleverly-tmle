@@ -41,6 +41,17 @@ in ``tests/unit/test_clustered_unequal_study.py`` without the committed reading.
 fold-evaluated pair at informative sizes left the study: ``cv_evaluation=True`` now refuses
 clusters of unequal size and redirects to the stacked report, which the ``cluster_robust`` pair
 measures on the same law. Every retained pair keeps its seeds and reproduces.
+
+The covariate fits also publish a reported arm, ``normal_reference_fold_evaluated_cluster_covariate``:
+the same point and standard error with the normal quantile, so the run shows on the same draws
+what ``t_30`` buys over the reference the fit reported before Fix-4. It states no verdict.
+
+Declared reading of the covariate positive cell, before the run: red with a 99% SE-ratio
+interval that contains 1 and a coverage interval that contains 0.95 is ``finite-sample`` and
+stays under F28. A red on the low side of the SE ratio is first compared with the design test's
+kurtosis ratio (above 0.98) and with the committed 0.981, because under perfect calibration the
+statistic reads below 1 (0.9917 under normal theory at 30 df); it is then routed by the guide's
+rule. Any other red cell is a defect suspect and is diagnosed before anything else.
 """
 
 from __future__ import annotations
@@ -90,6 +101,7 @@ PROPERTY_CELLS = {
         "iid_control_drtmle",
         "cluster_robust_fold_evaluated_cluster_covariate",
         "iid_control_fold_evaluated_cluster_covariate",
+        "normal_reference_fold_evaluated_cluster_covariate",
     ),
     "estimand_weighting": (
         "individual_average",

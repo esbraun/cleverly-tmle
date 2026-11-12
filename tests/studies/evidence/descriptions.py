@@ -2591,12 +2591,17 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("clustered_inference", "cluster_robust_fold_evaluated_cluster_covariate"): (
         "fold-evaluated CV-TMLE of the treated mean, 40 clusters in 10 folds, a covariate "
-        "shared within a cluster",
+        "shared within a cluster, on t with J - V = 30 degrees of freedom",
         "SE-ratio and coverage intervals both stay inside their calibration bands",
     ),
     ("clustered_inference", "iid_control_fold_evaluated_cluster_covariate"): (
-        "the same fold-evaluated curve treated as independent rows",
+        "the same fold-evaluated curve treated as independent rows, with the normal quantile",
         "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("clustered_inference", "normal_reference_fold_evaluated_cluster_covariate"): (
+        "the same fold-evaluated point and cluster-robust standard error with the normal "
+        "quantile, the reference before Fix-4",
+        "reported only",
     ),
     ("estimand_weighting", "individual_average"): (
         "the unweighted interval against the row-weighted mean",

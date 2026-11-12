@@ -209,6 +209,7 @@ class TestTheCovariatePairDesign:
         for name in (
             "cluster_robust_fold_evaluated_cluster_covariate",
             "iid_control_fold_evaluated_cluster_covariate",
+            unequal_properties.COVARIATE_NORMAL_CELL,
         ):
             assert cells[name].replicates == 4_000
             assert cells[name].seed == unequal_properties._seed(
@@ -226,6 +227,38 @@ class TestTheCovariatePairDesign:
         k = unequal_properties.COVARIATE_CLUSTERS - unequal_properties.COVARIATE_FOLDS
         exact = float(np.sqrt(2.0 / k) * np.exp(gammaln((k + 1) / 2) - gammaln(k / 2)))
         assert exact == pytest.approx(JENSEN_RATIO, abs=5e-5)
+
+    def test_the_normal_arm_reads_the_positive_fit_with_the_normal_quantile(self) -> None:
+        """One covariate fit gives three rows; the reported arm differs only in its quantile."""
+        cell = unequal_properties.COVARIATE_NORMAL_CELL
+        assert unequal_properties.declared_cells()[0].property == unequal_properties.CLUSTERED
+        roles = {c.cell: c.role for c in unequal_properties.declared_cells()}
+        assert roles[cell] == "diagnostic"
+        assert (
+            "cluster_robust_fold_evaluated_cluster_covariate",
+            "iid_control_fold_evaluated_cluster_covariate",
+            cell,
+        ) in unequal_properties.PROPERTY_GROUPS[unequal_properties.CLUSTERED]
+        payload = (
+            0,
+            2,
+            unequal_properties._seed(
+                unequal_properties.CLUSTERED, unequal_properties.COVARIATE_STREAM, 0
+            ),
+            "cluster_robust_fold_evaluated_cluster_covariate",
+            "iid_control_fold_evaluated_cluster_covariate",
+            unequal_properties.COVARIATE_KIND,
+        )
+        rows = unequal_properties._pair_rows(payload, unequal_properties._draw_pair(payload))
+        robust, _, normal = rows
+        assert normal["cell"] == cell
+        assert normal["role"] == "diagnostic"
+        assert (normal["estimate"], normal["std_error"]) == (
+            robust["estimate"],
+            robust["std_error"],
+        )
+        error = abs(normal["estimate"] - normal["truth"]) / normal["std_error"]
+        assert normal["covered"] == int(error <= norm.ppf(0.975))
 
     @pytest.mark.parametrize("ratio", [1.0, JENSEN_RATIO, 0.98])
     def test_r_4000_passes_with_probability_at_least_095(self, ratio: float) -> None:

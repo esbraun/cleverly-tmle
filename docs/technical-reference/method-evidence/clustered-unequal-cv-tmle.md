@@ -87,7 +87,10 @@ at 40 clusters, as at every cluster count. The pair is re-measured on a fresh st
 replications. `tests/unit/test_clustered_unequal_study.py` sizes that count without the first
 reading: it keeps the pass probability at 0.95 or more down to a planning ratio of 0.98, below
 the 0.9917 that normal-theory Jensen gives for a $t_{30}$ standard error, to cover the kurtosis of
-binary cluster totals.
+binary cluster totals. The same fits publish a reported arm,
+`normal_reference_fold_evaluated_cluster_covariate`, with the same point and standard error and the
+normal quantile, so the run shows on the same draws what $t_{30}$ adds over the earlier reference.
+That arm states no verdict.
 
 The first run also fitted a fold-evaluated pair on the informative law at 200 clusters. It passed,
 with a point biased by 0.13 empirical SDs against 0.02 for the stacked fit. That pair left the

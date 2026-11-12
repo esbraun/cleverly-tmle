@@ -456,6 +456,12 @@ def measured(row: Any) -> str:
             )
         return measured
     if family == "clustered_inference":
+        if str(row.role) == property_verdicts.DIAGNOSTIC_ROLE:
+            # A reported arm is paired with no control, so it has no coverage gain.
+            return (
+                f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+                f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+            )
         return (
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
