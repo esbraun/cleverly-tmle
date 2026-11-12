@@ -170,7 +170,7 @@ Comparator-backed: a paired comparison with `survtmle` on the same samples. Each
 | `root_n_rate` | `survival_t5__empirical_sd` | positive | difference of arm 1 and arm 0 at visit 5, five-visit held law: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5236 to -0.4440 | pass |
 | `root_n_rate` | `survival_t5__reported_se` | positive | difference of arm 1 and arm 0 at visit 5, five-visit held law: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5007 to -0.4993 | pass |
 | `simultaneous_coverage` | `all_reported__pointwise_joint_control` | control | every parameter the calibration fit reports: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.6526 to 0.6775 | pass |
-| `simultaneous_coverage` | `all_reported__simultaneous_band` | positive | every parameter the calibration fit reports: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9400 to 0.9520 | pass |
+| `simultaneous_coverage` | `all_reported__simultaneous_band` | positive | every parameter the calibration fit reports: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9453 to 0.9567 | pass |
 <!-- /generated -->
 
 The positive cells fit the saturated cell means, which are correct on these finite laws. Each

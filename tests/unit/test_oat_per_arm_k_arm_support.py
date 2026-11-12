@@ -338,10 +338,19 @@ class TestThePopulationTargets:
 
 class TestTheBand:
     def test_the_band_is_built_and_supported(self) -> None:
+        """The band the row's cell measured, the default Mammen logit band, is supported."""
         result = _fit(_three_arm(), simultaneous=True)
         assert result.simultaneous is not None
         assert set(result.simultaneous.bands) == set(result.estimates)
         assert result.simultaneous.support.label == "supported"
+
+    def test_the_band_before_band_finite_sample_is_experimental(self) -> None:
+        result = _fit(
+            _three_arm(), simultaneous=True, multiplier_kind="rademacher", band_scale="identity"
+        )
+        assert result.simultaneous is not None
+        assert result.simultaneous.support.label == "experimental"
+        assert "no registered study after band-finite-sample" in result.simultaneous.support.reason
 
     def test_one_held_estimate_builds_no_band_and_says_so(
         self, monkeypatch: pytest.MonkeyPatch

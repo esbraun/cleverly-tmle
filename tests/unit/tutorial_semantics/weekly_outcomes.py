@@ -132,8 +132,8 @@ def _check_fits(namespace: dict[str, Any]) -> None:
     assert {estimate.support.label for estimate in result.estimates.values()} == {"supported"}
     # The simultaneous bands hold the truth that the pointwise interval misses, marked experimental.
     printed = stored_output(NOTEBOOK, "ltmle")
-    assert "ate_regimen[win_back vs never @ t=3]   [0.0000, 0.0915]" in printed
-    assert truth[_key("win_back", 3)] <= 0.0915
+    assert "ate_regimen[win_back vs never @ t=3]   [0.0004, 0.0910]" in printed
+    assert truth[_key("win_back", 3)] <= 0.0910
     assert "cleverly marks them experimental" in " ".join(printed.split())
     # The plan table: followers through week 3 and their weights.
     assert "never     1,623 of 12,000        45.1" in printed

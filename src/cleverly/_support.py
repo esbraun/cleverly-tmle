@@ -44,6 +44,7 @@ __all__ = [
     "RECORD_ENVIRONMENT_VARIABLE",
     "REGIMEN_KINDS",
     "UNCLASSIFIED",
+    "UNMEASURED_BAND_OPTION",
     "BandOption",
     "Classification",
     "Kind",
@@ -121,8 +122,14 @@ UNCLASSIFIED: Final[Support] = Support(
 #: ``band_scale`` its limits are built on.
 BandOption = tuple[str, str]
 
-#: The band configuration of a default fit, which every row's band cells measured.
-DEFAULT_BAND_OPTION: Final[BandOption] = ("rademacher", "identity")
+#: The band configuration of a default fit: the Mammen multiplier, on the logit scale.  It is
+#: the configuration every registered band cell measures since band-finite-sample.
+DEFAULT_BAND_OPTION: Final[BandOption] = ("mammen", "logit")
+
+#: Why a band built with an option no row lists is experimental: band-finite-sample regenerated
+#: every registered band cell with :data:`DEFAULT_BAND_OPTION`, so the Rademacher and normal
+#: multipliers and ``band_scale="identity"`` keep no gated cell.
+UNMEASURED_BAND_OPTION: Final[str] = "no registered study after band-finite-sample"
 
 _TWO_ROWS_REASON: Final[str] = "This estimate combines estimates of two support rows."
 
@@ -1052,7 +1059,7 @@ class SupportRow:
         Pairs of a kind and the target families that kind covers. A kind with no pair covers
         every family of the row. A fit that holds a family outside the pair reads the kind as
         unlicensed.
-    band_options : tuple of tuple of str, default (("rademacher", "identity"),)
+    band_options : tuple of tuple of str, default (("mammen", "logit"),)
         The ``(multiplier_kind, band_scale)`` pairs the row's band cells measured. A band built
         with another pair is experimental, and the fit's other estimates keep the row. The
         field means nothing on a row that does not license ``band``.
@@ -1395,7 +1402,7 @@ def band_support(
     kind : {"band", "bootstrap_band"}, default="band"
         The band's kind: the influence-curve multiplier band, or the studentized bootstrap
         sup-t band.
-    options : tuple of str, default ("rademacher", "identity")
+    options : tuple of str, default ("mammen", "logit")
         The band's ``(multiplier_kind, band_scale)``. Read only for ``kind="band"``.
     draws : int or None, default=None
         The band's multiplier draws. An option whose row names a measured draw count needs
@@ -1431,7 +1438,7 @@ def band_support(
             option_reasons.append(
                 f"Row {row.id} measured its simultaneous band with {listed} only, and this "
                 f"band uses multiplier_kind={multiplier_kind!r} with "
-                f"band_scale={band_scale!r}."
+                f"band_scale={band_scale!r}, which has {UNMEASURED_BAND_OPTION}."
             )
         option_reasons.extend(
             text for option, text in row.band_option_shortfalls if option == options

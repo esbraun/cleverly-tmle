@@ -462,24 +462,40 @@ estimates a familywise critical value.
 | choice | what it does |
 | --- | --- |
 | `simultaneous=` | turns the familywise band on. It is on by default |
-| `n_multiplier=` | the number of draws. `"auto"` resolves per engine, because the point path draws 1000 and the sequential path draws 2000 |
-| `multiplier_kind=` | the multiplier distribution: `rademacher`, `mammen`, or `normal` |
-| `band_scale=` | the scale of the band of a probability or of a difference of two probabilities: `identity` (the default) or `logit` |
+| `n_multiplier=` | the number of draws: 10,000 by default on every engine |
+| `multiplier_kind=` | the multiplier distribution: `mammen` (the default), `rademacher`, or `normal` |
+| `band_scale=` | the scale of the band of a probability or of a difference of two probabilities: `logit` (the default) or `identity` |
+
+The default band (Mammen multiplier, logit scale, 10,000 draws) is the same for `simultaneous_bands()`,
+`median_bands()`, every estimator and `Inference`. The module docstring of
+[`inference/multiplier.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/multiplier.py)
+says why each choice holds, and `tests/unit/test_band_defaults.py` pins every signature to it. A
+projection curve's band (`ProjectionCurve.band()`, `TMLEResult.effect_curve()`) is a different
+object and keeps the Rademacher multiplier at 1,000 draws.
 
 A band reads `supported` only when the fit's support row lists the band kind and a registered band
 cell measured the band for that row. `BAND_CELLS` in
 [`_support_rows.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/_support_rows.py)
 names each row's cells, and `tests/unit/test_band_cell_mapping.py` ties every entry to a positive
 `*__simultaneous_band` row of a study the row cites. The band must also use a multiplier kind and
-band scale that the row's cells measured, which is the Rademacher multiplier on the identity scale
-for every row but `G23.cross_fitted`. That row's gated cell measured the Mammen multiplier on the
-logit scale, so a band there reads `supported` only with those options and 10,000 draws or more.
-Any other choice makes the band `experimental` and leaves the pointwise intervals as they are,
-because pointwise inference never reads the multiplier.
+band scale that the row's cells measured. Any other choice makes the band `experimental` and
+leaves the pointwise intervals as they are, because pointwise inference never reads the
+multiplier.
 
-The shipped default band on `G23.cross_fitted` is therefore `experimental`. The same fits report
-it at joint coverage 0.931 (99% interval 0.926 to 0.937) in a row that states no verdict, and a
-row without a verdict licenses nothing
+Every committed band cell of a fit's multiplier band measures the default band. (The curve bands of
+`targeting-curves` and the bootstrap band of `long-horizon-categorical-ltmle` are other objects.)
+The band-finite-sample rerun re-measured each cell the change moved on its committed fits
+(`tests/canonical/band-rerun-plan.json` lists them, and
+`tests/canonical/band-rerun-decision.json` records each reading). Every cell that `BAND_CELLS` maps
+to a row passes, so each row that lists the band kind lists `multiplier_kind="mammen"` with
+`band_scale="logit"`.
+
+Two studies pin 1,000 draws by design, so row `D09` needs at least 1,000 and
+every other row at least 10,000. Fewer draws make the band `experimental`. The `rademacher` and
+`normal` multipliers and `band_scale="identity"` read `experimental` on every row, with the reason
+"no registered study after band-finite-sample". The `longitudinal-sdr` study still reports the
+former default band (Rademacher, identity scale, 2,000 draws) on its own fits, at joint coverage
+0.931 (99% interval 0.926 to 0.937), in a row that states no verdict
 ([`longitudinal-sdr`](method-evidence/sequentially-doubly-robust-estimation.md)).
 
 ### The band scale
@@ -583,7 +599,12 @@ The band cell passes when its 99% joint-coverage interval lies inside $[0.92, 0.
 cell reads the pointwise intervals jointly and passes when its 99% upper endpoint is below 0.95.
 The control shows that the band's wider critical value does work.
 `tests/unit/test_simultaneous_cell_design.py` checks before any run that each control can fail.
-Each study page gives the measured coverage.
+
+Each study page gives the measured coverage. Every committed multiplier band cell of a fit measures
+the default band. The `longitudinal-sdr` cell was declared on it, and the band-finite-sample rerun re-measured every
+other cell on its committed fits. `tests/canonical/band-rerun-plan.json` lists those cells and the
+fits that write them. The two studies that pin `N_MULTIPLIER = 1_000`, `composite-missing-drtmle`
+and `multi-arm-mar-drtmle`, measure the Mammen logit band at 1,000 draws.
 
 | registered study | shapes it measures |
 | --- | --- |

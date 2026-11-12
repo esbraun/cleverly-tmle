@@ -240,7 +240,7 @@ canonical-ltmle-survival,root_n_and_efficiency,coverage floor,coverage/0.5
 canonical-ltmle-survival,root_n_and_efficiency,se ratio sanity,se_high
 canonical-ltmle-survival,root_n_rate,slope in root-n band,contract
 canonical-ltmle-survival,simultaneous_coverage,joint coverage below nominal,se_low
-canonical-ltmle-survival,simultaneous_coverage,joint coverage in calibration band,none
+canonical-ltmle-survival,simultaneous_coverage,joint coverage in calibration band,se_low
 canonical-ltmle-survival,survival_recursion_necessity,bias discriminated,pair_collapse
 canonical-ltmle-survival,survival_recursion_necessity,bias equivalent,bias
 canonical-ltmle-survival,survival_recursion_necessity,least displacement over labels,control_concentrated
@@ -422,7 +422,7 @@ clustered-cross-fitted-ltmle,clustered_inference,coverage gain,coverage/0.94
 clustered-cross-fitted-ltmle,clustered_inference,coverage in calibration band,shift/0.7
 clustered-cross-fitted-ltmle,clustered_inference,se ratio in calibration band,affine
 clustered-cross-fitted-ltmle,simultaneous_coverage,joint coverage below nominal,se_low
-clustered-cross-fitted-ltmle,simultaneous_coverage,joint coverage in calibration band,none
+clustered-cross-fitted-ltmle,simultaneous_coverage,joint coverage in calibration band,se_low
 clustered-few-cluster-tmle,few_cluster_reference,bias equivalent,none
 clustered-few-cluster-tmle,few_cluster_reference,coverage floor,se_low
 clustered-few-cluster-tmle,few_cluster_reference,iid se ratio under its ceiling,none
@@ -1267,7 +1267,7 @@ multi-arm-mar-drtmle,root_n_and_efficiency,coverage floor,coverage/0.5
 multi-arm-mar-drtmle,root_n_and_efficiency,se ratio sanity,se_high
 multi-arm-mar-drtmle,root_n_rate,slope in root-n band,contract
 multi-arm-mar-drtmle,simultaneous_coverage,joint coverage below nominal,se_low
-multi-arm-mar-drtmle,simultaneous_coverage,joint coverage in calibration band,none
+multi-arm-mar-drtmle,simultaneous_coverage,joint coverage in calibration band,se_low
 multi-arm-mar-drtmle,type_i_error,coverage floor,coverage/0.5
 multi-arm-mar-drtmle,type_i_error,rejection ceiling,rejection/0.1
 omitted-variable-bound-plugin-se,interval_calibration,coverage in calibration band,bias

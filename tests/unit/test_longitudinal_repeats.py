@@ -611,7 +611,8 @@ def test_band_uses_split_adjusted_se_and_median_critical_value(design: str, repe
     On the three-draw law-D fit draw 1's critical value is the median, so a regression to
     draw 1 would pass there.  Both fixtures here have a draw-1 value away from the median.
     """
-    result = _fit(design, repeats=repeats)
+    # On the identity scale the band is symmetric around the estimate, which the loop reads.
+    result = _fit(design, repeats=repeats, band_scale="identity")
     band = result.simultaneous
     draws = np.array(band.draw_critical_values)
     assert len(draws) == repeats and len(set(draws.tolist())) == repeats

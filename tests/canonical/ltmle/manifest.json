@@ -1,32 +1,1577 @@
 {
-  "schema_version": 2,
-  "study": "ordinary end-of-study longitudinal TMLE",
-  "slug": "canonical-ltmle",
-  "generated_with": {
-    "subject": {
-      "implementation": "cleverly",
-      "cleverly_version": "0.1.2",
-      "cleverly_commit": "c283b55d88cc65948f9f9e1eb92fa6e8a2c55042",
-      "cleverly_worktree_clean": false,
-      "python": "3.13.7",
-      "numpy": "2.5.3",
-      "scipy": "1.18.1",
-      "pandas": "3.0.6",
-      "scikit_learn": "1.9.1"
+  "composite": {
+    "analysis": {
+      "cells": [
+        {
+          "band_failures": 0,
+          "cell": "regimens__simultaneous_band",
+          "coverage": 0.95375,
+          "coverage_ci_lower": 0.9415659854520997,
+          "coverage_ci_upper": 0.964091299238283,
+          "n": 2000,
+          "passed": true,
+          "refused_rows": 0,
+          "refused_share": 0.0,
+          "replicates": 2400,
+          "role": "positive"
+        }
+      ],
+      "changed_rows": [
+        "simultaneous_coverage/regimens__simultaneous_band"
+      ],
+      "distribution_versions": [
+        [
+          "Jinja2",
+          "3.1.6"
+        ],
+        [
+          "MarkupSafe",
+          "3.0.4"
+        ],
+        [
+          "Pygments",
+          "2.21.0"
+        ],
+        [
+          "SecretStorage",
+          "3.5.0"
+        ],
+        [
+          "Sphinx",
+          "9.2.0"
+        ],
+        [
+          "alabaster",
+          "1.0.0"
+        ],
+        [
+          "argcomplete",
+          "3.7.2"
+        ],
+        [
+          "asttokens",
+          "3.0.2"
+        ],
+        [
+          "attrs",
+          "26.1.0"
+        ],
+        [
+          "babel",
+          "2.18.0"
+        ],
+        [
+          "build",
+          "1.6.1"
+        ],
+        [
+          "certifi",
+          "2026.10.23"
+        ],
+        [
+          "cffi",
+          "2.1.1"
+        ],
+        [
+          "charset-normalizer",
+          "3.5.2"
+        ],
+        [
+          "cleverly",
+          "0.2.3"
+        ],
+        [
+          "cloudpickle",
+          "3.1.2"
+        ],
+        [
+          "colorlog",
+          "6.12.0"
+        ],
+        [
+          "comm",
+          "0.2.3"
+        ],
+        [
+          "contourpy",
+          "1.4.0"
+        ],
+        [
+          "cryptography",
+          "50.0.2"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "debugpy",
+          "1.8.22"
+        ],
+        [
+          "dependency-groups",
+          "1.3.2"
+        ],
+        [
+          "distlib",
+          "0.4.4"
+        ],
+        [
+          "docutils",
+          "0.22.4"
+        ],
+        [
+          "execnet",
+          "2.1.2"
+        ],
+        [
+          "executing",
+          "2.3.0"
+        ],
+        [
+          "fastjsonschema",
+          "2.22.3"
+        ],
+        [
+          "filelock",
+          "4.2.9"
+        ],
+        [
+          "fonttools",
+          "4.68.0"
+        ],
+        [
+          "humanize",
+          "4.16.0"
+        ],
+        [
+          "id",
+          "1.6.1"
+        ],
+        [
+          "idna",
+          "3.20"
+        ],
+        [
+          "imagesize",
+          "2.0.1"
+        ],
+        [
+          "iniconfig",
+          "2.3.1"
+        ],
+        [
+          "ipykernel",
+          "7.4.0"
+        ],
+        [
+          "ipython",
+          "9.18.1"
+        ],
+        [
+          "ipython_pygments_lexers",
+          "1.1.1"
+        ],
+        [
+          "jaraco.classes",
+          "3.4.0"
+        ],
+        [
+          "jaraco.context",
+          "6.1.2"
+        ],
+        [
+          "jaraco.functools",
+          "4.6.0"
+        ],
+        [
+          "jedi",
+          "0.20.1"
+        ],
+        [
+          "jeepney",
+          "0.9.0"
+        ],
+        [
+          "joblib",
+          "1.6.0"
+        ],
+        [
+          "jsonschema",
+          "4.26.0"
+        ],
+        [
+          "jsonschema-specifications",
+          "2025.9.1"
+        ],
+        [
+          "jupyter_client",
+          "8.10.0"
+        ],
+        [
+          "jupyter_core",
+          "5.9.1"
+        ],
+        [
+          "keyring",
+          "25.7.0"
+        ],
+        [
+          "kiwisolver",
+          "1.5.1"
+        ],
+        [
+          "librt",
+          "0.16.0"
+        ],
+        [
+          "markdown-it-py",
+          "4.2.0"
+        ],
+        [
+          "matplotlib",
+          "3.11.2"
+        ],
+        [
+          "matplotlib-inline",
+          "0.2.2"
+        ],
+        [
+          "mdurl",
+          "0.1.2"
+        ],
+        [
+          "more-itertools",
+          "11.2.1"
+        ],
+        [
+          "mypy",
+          "1.19.1"
+        ],
+        [
+          "mypy_extensions",
+          "1.2.0"
+        ],
+        [
+          "narwhals",
+          "2.28.0"
+        ],
+        [
+          "nbclient",
+          "0.11.0"
+        ],
+        [
+          "nbformat",
+          "5.11.1"
+        ],
+        [
+          "nest-asyncio2",
+          "1.7.4"
+        ],
+        [
+          "nh3",
+          "0.3.7"
+        ],
+        [
+          "nox",
+          "2026.10.20"
+        ],
+        [
+          "numpy",
+          "2.5.4"
+        ],
+        [
+          "numpydoc",
+          "1.11.0"
+        ],
+        [
+          "packaging",
+          "26.3"
+        ],
+        [
+          "pandas",
+          "3.1.1"
+        ],
+        [
+          "parso",
+          "0.8.7"
+        ],
+        [
+          "pathspec",
+          "1.1.1"
+        ],
+        [
+          "pexpect",
+          "4.9.0"
+        ],
+        [
+          "pillow",
+          "13.0.0"
+        ],
+        [
+          "platformdirs",
+          "4.14.5"
+        ],
+        [
+          "pluggy",
+          "1.7.0"
+        ],
+        [
+          "polars",
+          "2.1.0"
+        ],
+        [
+          "polars-runtime-32",
+          "2.1.0"
+        ],
+        [
+          "prompt_toolkit",
+          "3.0.53"
+        ],
+        [
+          "psutil",
+          "7.2.2"
+        ],
+        [
+          "ptyprocess",
+          "0.7.0"
+        ],
+        [
+          "pure_eval",
+          "0.2.4"
+        ],
+        [
+          "pyarrow",
+          "26.0.1"
+        ],
+        [
+          "pycparser",
+          "3.12"
+        ],
+        [
+          "pyparsing",
+          "3.3.3"
+        ],
+        [
+          "pyproject_hooks",
+          "1.3.3"
+        ],
+        [
+          "pytest",
+          "9.2.0"
+        ],
+        [
+          "pytest-xdist",
+          "3.8.0"
+        ],
+        [
+          "python-dateutil",
+          "4.0.0"
+        ],
+        [
+          "python-discovery",
+          "1.9.4"
+        ],
+        [
+          "pyzmq",
+          "27.3.0"
+        ],
+        [
+          "readme_renderer",
+          "46.0"
+        ],
+        [
+          "referencing",
+          "0.37.0"
+        ],
+        [
+          "requests",
+          "2.34.2"
+        ],
+        [
+          "requests-toolbelt",
+          "1.0.0"
+        ],
+        [
+          "rfc3986",
+          "2.0.0"
+        ],
+        [
+          "rich",
+          "15.0.0"
+        ],
+        [
+          "roman-numerals",
+          "4.1.0"
+        ],
+        [
+          "rpds-py",
+          "2026.9.1"
+        ],
+        [
+          "ruff",
+          "0.16.1"
+        ],
+        [
+          "scikit-learn",
+          "1.9.1"
+        ],
+        [
+          "scipy",
+          "1.18.1"
+        ],
+        [
+          "snowballstemmer",
+          "3.1.1"
+        ],
+        [
+          "sphinxcontrib-applehelp",
+          "2.0.0"
+        ],
+        [
+          "sphinxcontrib-devhelp",
+          "2.0.0"
+        ],
+        [
+          "sphinxcontrib-htmlhelp",
+          "2.1.0"
+        ],
+        [
+          "sphinxcontrib-jsmath",
+          "2.0.0"
+        ],
+        [
+          "sphinxcontrib-qthelp",
+          "2.0.0"
+        ],
+        [
+          "sphinxcontrib-serializinghtml",
+          "2.0.0"
+        ],
+        [
+          "stack-data",
+          "0.6.3"
+        ],
+        [
+          "threadpoolctl",
+          "3.8.0"
+        ],
+        [
+          "tornado",
+          "6.6"
+        ],
+        [
+          "traitlets",
+          "5.16.1"
+        ],
+        [
+          "twine",
+          "7.0.0"
+        ],
+        [
+          "typing_extensions",
+          "4.16.0"
+        ],
+        [
+          "tzdata",
+          "2026.6"
+        ],
+        [
+          "urllib3",
+          "2.8.0"
+        ],
+        [
+          "virtualenv",
+          "21.15.5"
+        ],
+        [
+          "wcwidth",
+          "0.9.4"
+        ]
+      ],
+      "distribution_versions_sha256": "a5789bfce24ae530002dbf72714b94be1a45a656dcf3bb581285808c4b4df226",
+      "maximum_carried_difference": 1.1102230246251565e-16,
+      "producer_sha256": "4b04f331d05a7edacce52b74e5618d8be828f0108a73e96eee33fa2d1d8eb804",
+      "source_sha256": {
+        "src/cleverly/__init__.py": "c74474567be9c275c2351adb949c1d83c870d5c10896c8ec547a5a841700671e",
+        "src/cleverly/_assessment_cache.py": "ee8887162c8ae41c2d219229680da2e13071df0f887bae3d925cf6e466984759",
+        "src/cleverly/_assessment_summary.py": "530ee303bab3a03ce2fc441e2cf90fd0451feebbba0c8257073c5393fb6b0c2c",
+        "src/cleverly/_curve_assessment.py": "6db8e8e685a564ba4ebf1df522628ee92570a52a49aba766452fb94c21f371e9",
+        "src/cleverly/_declarations.py": "5be22d12234cc4c77906ccfd7dc83360c50261e9687e677c07e500833a41039e",
+        "src/cleverly/_inference_status.py": "80c89334a8b1f0031e73fd7853a9ff9a396fe90f12d9e341710abd78dbb1b20a",
+        "src/cleverly/_refusal.py": "850cf5a2aedc2b7d29eecee16afed6035a7e537a6fef72d9c1c115098f563caf",
+        "src/cleverly/_saved_version.py": "9d5b06ac8807eee0c688b54015debf1946712a1be135acaf4d50af473720355c",
+        "src/cleverly/_summary/__init__.py": "371f63d90dd3fcfd65d7e594c8ff26829e22919e0766510b5bfca35f4e0f5cd5",
+        "src/cleverly/_summary/_balance.py": "7530f89aa577185e5f5c87053e6d9db23586497d404fe1b12da4db845016fc0c",
+        "src/cleverly/_summary/_cells.py": "c452c9553333f3e6f660bbd06369acd2229f56c5445ebaf3b0e45a597176a7c1",
+        "src/cleverly/_summary/_data.py": "29ac79d188eeb0c0ed862e5f274ac31f86122bc672b53029551e2855800dc21c",
+        "src/cleverly/_summary/_effect_curve.py": "60890df5f5344f604e9c5c87526541a5250a87e3626f5fb4f8bd951399b31f8c",
+        "src/cleverly/_summary/_estimates.py": "51fab3c40fcbc5565ae2de6296efea21d1ce0b4db36a816efa351449dc210a39",
+        "src/cleverly/_summary/_learners.py": "e7d2977e9a3cad76f25613722a3126b32a8624ef1f9c6ced70ee910f653d252c",
+        "src/cleverly/_summary/_render.py": "f4f2459e59b86bdec0b140401ea9141143bb5c1390c032fc8854618cdb1c776d",
+        "src/cleverly/_summary/_setup.py": "9b8f111cd82c3874c0a82b3e94765a854c89d6cfdd671859f37aefcd766c8510",
+        "src/cleverly/_summary/_targeting.py": "f1896fba31f2b8a3827e24892c35f6b0a425fed23cba6b2a13d4e7c34199e05d",
+        "src/cleverly/_summary/vocabulary.py": "b87e907ebb1a94752a67cd0263efdf944eff73e9d74834fa9d7ddfa542f99991",
+        "src/cleverly/_support.py": "9ba9bcb2c1df9126c042c1e949d337ba4797755bb9dfb9471f507e0672c9daba",
+        "src/cleverly/_support_rows.py": "8e2e1ac0d47cf4f958e208dcbd524fcbfdbb3b57572db4edb06c202757d99625",
+        "src/cleverly/_trial_family.py": "71d0d08ac1eccb745013979f3d1387e75cee36d5430ce14b4d583297a1c77495",
+        "src/cleverly/_truncation_summary.py": "ffbc9f0317e1cee167ec491df7eb2edc50d27f546e02f6dd289871d288ba6316",
+        "src/cleverly/_typing.py": "00fc1c1f1c0f096938f78df96b6e830d4031245dd2586b132c92459b52c25878",
+        "src/cleverly/_version.py": "fdc5fa72825b8a7985f3de8c2933549d6cfc6d548135b2db39bc7dae661efe69",
+        "src/cleverly/_warnings.py": "e2f0994a5d1e7d1494396e5bc8c8222d1867d2ba10bd92f05b5d654ce82bef9b",
+        "src/cleverly/assessment.py": "4f87308dfbdc5f00bc166e42dad66b52db6edf378e761867682301b6fa298465",
+        "src/cleverly/bases.py": "e771d1243f25406489d36da6f2edfe5c51e2912ec7285de7bdc9ca23f04f6908",
+        "src/cleverly/data/__init__.py": "d95f96382a21f659135b7b6410b3bbb9652d4646a25b833a800de58e6d56f6c0",
+        "src/cleverly/data/_weight_summary.py": "f6652a1c77056777fed34d1ba19fc2c5324369c2544f7f01a04c04e3b23bc87c",
+        "src/cleverly/data/causal_data.py": "c51256c21cae578678cd6acaadb23717075aeb488e4cf5403bacb3b9470ac454",
+        "src/cleverly/data/known_mechanism.py": "525445c259ba6890e5d6b36765f294d82955463654c52c58605bc71a11597299",
+        "src/cleverly/data/treatment_covariates.py": "a8076aaf5f3d0571d6d4662e08269d161b564530698ef7c487ce24525867d055",
+        "src/cleverly/data/validate.py": "79ffe3be9d1c4a42b2e5e4720d7323c68a55206a7f843dbf590da9d545ef41f3",
+        "src/cleverly/data/weighting.py": "168c643637e6d75b1e00c68c7efa60320be62aee2c03a250337d38a4410a1646",
+        "src/cleverly/datasets/__init__.py": "727e5580c2708d74bbfa2669ae290941ba2b06bcaba225beb94ea5b48cdc6d4a",
+        "src/cleverly/datasets/heart_failure.py": "1e234b817b113567f1db9479edeeb6e0b9612984540475b25eb58bbd0de5d57d",
+        "src/cleverly/datasets/longitudinal.py": "0da84c77c274c906645ee028a5d055c9eb16b18e93b63aaef5425f1e2cd7c950",
+        "src/cleverly/datasets/navigation.py": "e018648a79d6b9b22ba0ef0df0be5ebc618f7fc5f3844f5d1fa2667ddc39acfc",
+        "src/cleverly/datasets/offers.py": "b577b8f495e2b294dc95227ddbfa73847b585be41d8add04864e39078766b262",
+        "src/cleverly/datasets/pilot.py": "cac6c862b112044d316487134fac7baa202d1c14ca5c3bade88ab656813f3016",
+        "src/cleverly/datasets/population_impact.py": "3a481938fed22691d1000cb627605319811b4818ccc30e578afd62c71545291b",
+        "src/cleverly/datasets/pricing.py": "3fbe7e65854a781be0062443ac6ca23683dbd397d1c23966ad1e20c6d845a3ad",
+        "src/cleverly/datasets/readmission.py": "befa2dedf78d68a7d36a1403d5962e9fbd91c3728ead96a62ac46a5a96c9dcdd",
+        "src/cleverly/datasets/recovery.py": "3be0f07d2ef88877027c58676482812e38116259331de2de5c9ab9acc6b75cbd",
+        "src/cleverly/datasets/schedules.py": "adcc845cd34f255b9a8f2d7af4e07e6c40fd15978835443435c87a82695270f3",
+        "src/cleverly/datasets/survival_point.py": "138e133d67043844d55aa179dc2676eea7449672ddbc0cd6bac888c2739577e2",
+        "src/cleverly/datasets/synthetic.py": "338cc66744bf9dcea88b182a0dc3b54dbca587d7dde3e5d7081d0c4678f652b3",
+        "src/cleverly/datasets/treatment_rules.py": "048488428b4f6dd169ba8040b63399e64e36fbdb885a22dcd54eaee379929303",
+        "src/cleverly/datasets/weekly_orders.py": "7d8c8462a4e168b3b6eb00b403b1da61cf6f6f35a4bcecc5485edabc2a8b6113",
+        "src/cleverly/dose_response.py": "8766aba67a7665f532f1011fb67965b0a5196b2878b96adc08d96be3067a4782",
+        "src/cleverly/effect_curves.py": "8d16336870e084a8594885e4064c8ea12b2b1627a90abf711c2bb71a3245de2a",
+        "src/cleverly/effect_modification.py": "2591c35cf2fdafadbd44fece1b4af2bb2ed1eda2bc7e3d9aaa517c06addd70c5",
+        "src/cleverly/estimators/__init__.py": "4a04c383f44318a33135b87769fdb780bd41af8d00d39d888285e637c5087819",
+        "src/cleverly/estimators/_atmle_summary.py": "f640e917ac6ba3e13d5ff911cea290299e8118244c3eee366f56ce7609c6df71",
+        "src/cleverly/estimators/_ctmle_derivative.py": "5cca101e6f128df502ad2c9611e6a7f860c4ac816c73e5da81bedaa58c319c48",
+        "src/cleverly/estimators/_mechanism_fit.py": "d89a828761d6ada57bf77d28fe05f7f73f3cb9070dd938d5bbcd9fad5d598284",
+        "src/cleverly/estimators/_method_summary.py": "7398e504a776519bf2bd8c23b7cd67e9fb26dd526f28db31168694e6eaf5bf2c",
+        "src/cleverly/estimators/_nuisance.py": "ec5a9f35c449602c5fe612ad8bd9948f701f4a1c53550123a0c57d2b0e706fe4",
+        "src/cleverly/estimators/_oat_stack.py": "1dcbe7fd49d1f5e51f56fe0f859ca688c7799c10042fd92c700410f73f55b603",
+        "src/cleverly/estimators/_option_support.py": "1b5a5bb058997d5130703d4144ca642c013f3055fb5bb5910df8af32244bfc60",
+        "src/cleverly/estimators/_point_summary.py": "c1d1b28f4292f1a368d08332b90ed5f7cada43aa033f3c8797eeb6d3156cf047",
+        "src/cleverly/estimators/_strata.py": "766e42540cd67aff2cae67c4e4d5988597951490851b586dc5c51b9c45d556b8",
+        "src/cleverly/estimators/_tuned_policies.py": "b794bc6c45e429c698f84a95f2130e36aeb36ec90616ced5e64f4090b9877154",
+        "src/cleverly/estimators/_working_basis.py": "0c4f7c990808a5af15057db1304a4b0d547bee378ca900e6114160b8a513d03d",
+        "src/cleverly/estimators/atmle.py": "5f05aaea4d5ea9901db534e16a15c819a165699bd20167bf449f433d6053139f",
+        "src/cleverly/estimators/atmle_result.py": "6b86d208aa70b30384a048671e15b25434d26d665001d999ef4c06dae0a783f0",
+        "src/cleverly/estimators/base.py": "5d0b2f70248f85cd6c4e596d46afe4d3467167ba682345d10ad62ba8174a8054",
+        "src/cleverly/estimators/composite.py": "d6bbcb2a0c416030247b4042fffb864104d13bbaa4af59fb616c155c88084c56",
+        "src/cleverly/estimators/ctmle.py": "f1758bf1520ff6d967a3c8c7dce302a320451d0f66376f3a5c53f1e48672b22e",
+        "src/cleverly/estimators/direct_effect.py": "dea143d6f015dd6085fcf05c0c7787c0bfd1c1e7859c4cfe6809901b1076f9c9",
+        "src/cleverly/estimators/dose_response.py": "d3ef3fc7fc348dad32b577a55336e868df6f6767c3fc999a77955341be3b3482",
+        "src/cleverly/estimators/drtmle.py": "dabf8c13c2f5fa50aeb0ceedbe62c77246d9ef6ef933678eae3ec4b980aadbb5",
+        "src/cleverly/estimators/ep.py": "4d2dfc05b7726f899dff86811f2ebda85167fff6dc3b0b08b00b77a4f9908776",
+        "src/cleverly/estimators/iptw.py": "154d3d9ed2e68f5e49d86e2ec6a08a8fc3cdec31233c50622d481f9fe25de4fc",
+        "src/cleverly/estimators/reduced.py": "8c97816f6866b5fcd14c01de438c5e9c2711060c2a7f0bf492421838b9f28901",
+        "src/cleverly/estimators/serialize.py": "a4950c9a6fc1f7dbb679df142a0582b7c72f2fa5339b03de958afbc4c5771aff",
+        "src/cleverly/estimators/targeting.py": "279f71207a0c42522b8cb5bb5e537f8d520f9d7b6f7b2f3064d1074d7b23095d",
+        "src/cleverly/estimators/tmle.py": "9b3222e03ef7b5c1a8b79a3042937b07c0ccf14004224cbfc885607f52252c2b",
+        "src/cleverly/exceptions.py": "336d2d7f3f938915542f7a2b153d75990baa1ac29abfb38bf66c069b6bcb9642",
+        "src/cleverly/fluctuation/__init__.py": "1107eef9605d85c8b7bb0ad5c3d3088e468aa5a6a6408481283b795233f4de15",
+        "src/cleverly/fluctuation/_score.py": "b738670e64c17e45ae41d5a02a369990321d16770c2adc1bd61bdc7026118bfb",
+        "src/cleverly/fluctuation/iterative.py": "74aecfdca5697a860f6075ee14f683e8231fbcf7543de42822d74064b1fcd1b2",
+        "src/cleverly/fluctuation/mechanism.py": "72829cce87c33cb651b2aa21c0a2a364531e51470fd0271a67f6178afc9f4d42",
+        "src/cleverly/fluctuation/one_step.py": "8fd74258cc8c584ca86d241c927eb9da03fae1e8277fe04cb27db9461634e5bf",
+        "src/cleverly/fluctuation/reduced.py": "6131908c92e093f49561c2106b646081de882dcb0253ee8320fdf7be20d7a065",
+        "src/cleverly/fluctuation/submodel.py": "a2734c85038c43a1145eb902bf3d21e5ffa934c00040e95300cbd743305db692",
+        "src/cleverly/inference/__init__.py": "0a2f1f6a4241b2581976231a801f1d9c83e7cec78eb8d16777d7a280f3a1ca4a",
+        "src/cleverly/inference/_sparse_summary.py": "5e78bd5941c5b893c39a777b9f0fd2c18e7d0fd5c62cd4e83e9331f98dd9e073",
+        "src/cleverly/inference/_summaries.py": "45fe4f73f01d544662604317745594e5e7f167fb7cf6154d4a6c498323c56fee",
+        "src/cleverly/inference/bootstrap.py": "2b56a657d368e23a298e3c5c8f503a90f05a0bfb0a5c4435e56c7f3f6ab6455e",
+        "src/cleverly/inference/cluster.py": "67fdf6bb2b744eb7c9109c66c707970afc633e42077c0c596d4a3c9e3c35671a",
+        "src/cleverly/inference/delta.py": "f1db66b63f69db404e1086d1d9007bf5e4de5ec10cb61bda0b5fd6b34981b17a",
+        "src/cleverly/inference/influence.py": "a4a27391d72088292bd92b5220780b7510e26bfe928d2903fb194cb47b0b2886",
+        "src/cleverly/inference/multiplier.py": "80eed10feb585be0e0b43f2623d138cd52359bc9afc970ea61c522eacae64af5",
+        "src/cleverly/inference/results.py": "3f4fc9a27e4c69dda185f428f7c21d928b6b7632ffb4d5b4cfd4d76421817c01",
+        "src/cleverly/inference/sparse.py": "ed9e00876b3e5440139c32e064fcfdc7a18aa5165baf7dda1a8c0d726bc0aa4a",
+        "src/cleverly/interventions/__init__.py": "0b923fa2702471adc60d7648a25f1e94e16a7c15697a72dd260002df74234f95",
+        "src/cleverly/interventions/_rule_learners.py": "961daa8147c63178aba137ba9c3827f14cd8c3d6ffcdb8d8b7f3a57101dc16a7",
+        "src/cleverly/interventions/_support_summary.py": "dc41042b2c623ddf3a1b13281afc45f1a6053964d66b469dbc451a6d3faa30b2",
+        "src/cleverly/interventions/base.py": "9655e2bf2519f313fc13ae1085d080888e480d32e4a799344c95f7af987c7d9d",
+        "src/cleverly/interventions/incremental.py": "32ea36d88794486e334634c36e6e5ce222b87708a0cc0d9203ff77cdad3f42a7",
+        "src/cleverly/interventions/joint_density.py": "1d66dc13d29f13ad1703d5970a3bbfe5e216ca2b8bf6b6169375e3c11f1e2dbb",
+        "src/cleverly/interventions/learned.py": "b481c500c4e92b70aef6bb13496d641d5d6754e530e05978f55b4295ffadcae0",
+        "src/cleverly/interventions/policy.py": "16593bafee35742175e123e8f7652f8ad191b5af6577c86521e47e061a20f12d",
+        "src/cleverly/interventions/support.py": "5655493de7aec8a417715259ab2e55f4e70608560321f76c5810e5cd492677b6",
+        "src/cleverly/interventions/tuning.py": "e764d7da25599d22f64b3a5ede368ebe99d62fac515b396b9712f2649b537ff0",
+        "src/cleverly/learners/__init__.py": "700d25756c3b1856f11571b2951e971719edbf6586a6957ecc04a0bdf0570671",
+        "src/cleverly/learners/_ensemble_summary.py": "1bbbd45d5548ec0c50b2cf82c0d68b7a5398f7b8bcc73a1cba64ed146862c456",
+        "src/cleverly/learners/_fitting.py": "3b6e8a9bd6d8b1499c3a86b6980929c3454147b9992e613744b3cbb87657f817",
+        "src/cleverly/learners/_l1_logistic.py": "720a7b9d5550edbfb11882853c0c19656f66471f0226cd7cf767f854846a16e3",
+        "src/cleverly/learners/_threads.py": "e3dda0cf9a870654fb6c525675e42078c6406bc845c4d7ea69308567ec042bde",
+        "src/cleverly/learners/crossfit.py": "5adc6d48078dfb36ac328b02ddeeef0845af11d9d7b4a51ca1a15293137e8eb3",
+        "src/cleverly/learners/density.py": "1278e64f91108235f8bea6b4b5dfb4fe227ebf8cb18554301fb1214aa6b66d90",
+        "src/cleverly/learners/density_ratio.py": "8fc91f9ac0df548fd30a64ce05eb91bbf4e4e568d3c5e60276821ac22035766e",
+        "src/cleverly/learners/glm.py": "5e45e82d34cec54a2b66b754492ee2c4f39a356c5d87a803f52d171956cda01f",
+        "src/cleverly/learners/library.py": "491eedc4e633dcac74c2ccaa73e98d30f0cac2513a18b5b3668f4cfa06489944",
+        "src/cleverly/learners/parametric.py": "76818d5acc52797534d73c6a2039a7e5ade790e6e86e028c91c3e5e61b391f30",
+        "src/cleverly/learners/screeners.py": "10e41b108a1c987e11774a24b159591e776c50b3beab26952d22d36041b3e907",
+        "src/cleverly/learners/super_learner.py": "4635441012346016e7647f68b70efb8b85be77d9f496f6bfe6609c90586de0aa",
+        "src/cleverly/longitudinal/__init__.py": "54689c0c6e9864f9697c97c60706e7e0fcfb98555903b13914a8cae38525f52d",
+        "src/cleverly/longitudinal/_gformula_summary.py": "7856e5ab347700e851281fb7e2a0f4c278f8685e7e12907f5ae6a03b82817711",
+        "src/cleverly/longitudinal/_record_summary.py": "2a545cf007793277b9d0b64a1bf30109b48c337c93e0f04c55d511159c9e868a",
+        "src/cleverly/longitudinal/_structural_summary.py": "c6a777663fc8281f1dd501d81efe87d34b4ad64a300a6ac57652be65e6e9274d",
+        "src/cleverly/longitudinal/_summary.py": "a84478f7361179c3b60575c3168b866f917e0aa286f6a8d99a36297977505662",
+        "src/cleverly/longitudinal/baselines.py": "c6bf8713c417687b2bcd723ba67dc6a61aaf13577a41086596235c779e376d82",
+        "src/cleverly/longitudinal/collaborative.py": "b41f241f715778484650ef20e4a1ed543e1bcea5f65a13af5a336c5698033982",
+        "src/cleverly/longitudinal/data.py": "b764b3e89086c9d36b809b7f2f8d6c1adfd504b5042809743042559ae33a4849",
+        "src/cleverly/longitudinal/estimator.py": "07e1c62efc2c8c2af01a1788e93ca8d839c52babf19ab3a245ae16c9b978ec57",
+        "src/cleverly/longitudinal/frequency.py": "2fc4b0fff8f0b62d39c98f0d460382406286936bf1d825aa8231ff65e5e0a9f2",
+        "src/cleverly/longitudinal/gformula.py": "2993637e23e6fe84b5feaabf57a355c9f160e698c031874b513bf3996db62b21",
+        "src/cleverly/longitudinal/hazard.py": "82ed2f9ef086703e11a308cd31f9cf86ee200e9152656bec646269ebd48b9902",
+        "src/cleverly/longitudinal/ipsi.py": "1e5b8b2015ce75fdf14487cf48f19f812bdbe86b4b9348fe9b4638f2c0fc7d5e",
+        "src/cleverly/longitudinal/learned.py": "2ee2d6e126774cba8d2d605ba752e27286a5aea85dc1ce0b1f46a89f39af82cd",
+        "src/cleverly/longitudinal/msm.py": "0ded1a65680a85726821cdbcaf3419e2f19971a102a2af1e4d626514d82f6bc0",
+        "src/cleverly/longitudinal/panel.py": "6eb520ee136a3142d35655b32fbad9a43ad24713d99e315d8d76c512bc03bc3c",
+        "src/cleverly/longitudinal/pooled_hazards.py": "a8e029e79026d9039efa5a3ac7bc9032ba195828f85560d4873e03e10db59ec1",
+        "src/cleverly/longitudinal/ratio_trim.py": "96979cf10eb781871239186862f0ce47a88c0f8886a7bc7fcc7ff9bad46f9307",
+        "src/cleverly/longitudinal/regimen.py": "ccc6e2bbf8052bc3ba9ec42c2e2ac86330234d92ce09879a96052ce8fc4fb2f5",
+        "src/cleverly/longitudinal/sdr.py": "9e0910e7d91e5210fabd3b53199fe4ccf4df5d48652a7c703f7441ce03e1a7cd",
+        "src/cleverly/longitudinal/separable.py": "a16e9221cf61be8011b08542ae34c0d6747374186207a3ef7c9dc6d64c812ba1",
+        "src/cleverly/longitudinal/sequential.py": "f592d02ebcf1170dea4e0cb89c67ef6fcccbe7c84da87d88ed3b38b29640b645",
+        "src/cleverly/longitudinal/structural.py": "a7619319afc4ae87fe208a499c9ba38baf477770bc552f988a201a2ebb6069bb",
+        "src/cleverly/longitudinal/weights.py": "1eee7612a01c3b53b0da2eb8d2d46bea0c645b3126d7ca906006489a8118ca4f",
+        "src/cleverly/methods.py": "c10bd399ca3ad99edebc7bd4863838fe755ee32bb371e8436b3a4a61da209d33",
+        "src/cleverly/msm.py": "2846a29655dd80c6850917229c84afe4d6195094d5b07511e4a4dfc5fba08721",
+        "src/cleverly/plotting/__init__.py": "2f1f5defa4a3cb5c7b985b52c03e2afae38e9077aa75d58af03da6d1f623b9c8",
+        "src/cleverly/plotting/_confounding.py": "1bc72fe091047dcc3d00564bc7882c00de1ef3ffc23f5b46378b7dfb4bd2ac2c",
+        "src/cleverly/plotting/_core.py": "0594c290bb967e1c7c7293c880258d625a7989445592539bb09dd90ec675f066",
+        "src/cleverly/plotting/_curves.py": "eb85a1729dc4c0fa8e75a8ee8939e545bb43c63713f5d7edba43fd3dd649be4d",
+        "src/cleverly/plotting/_diagnostics.py": "99383a4d9b88bfefc91d38e7975a1280654750af211c6ef0dd1f61d687dd0844",
+        "src/cleverly/plotting/_forest.py": "fe998df76e5599762f50bb7df4f05f27a92788da29ec4ece0ffaf9148873cb5e",
+        "src/cleverly/plotting/_overlap.py": "65c0dcbc82eec566bc25dc63554311dfdcb3ab7a5abcaab35ca3d50aadcc4a01",
+        "src/cleverly/plotting/_sensitivity.py": "85bdb1e70dcde5cbc49cbe43209a286b85bb39c1a856c4de8ca332816a92cf58",
+        "src/cleverly/plotting/_strips.py": "beb92ab65564413e7faf7bd203c093c41997cd85008219e23c0c3b5d405d8673",
+        "src/cleverly/plotting/_targeting.py": "ecc0d6567f4dda67d5553db4b3a0e825ae919af475b942f68e9ced8b7f86a0df",
+        "src/cleverly/plotting/_truth.py": "4f858554d000c9e429eb8eac4b0adbfb41a478706fb642f348388c51bddb14a6",
+        "src/cleverly/plotting/_weights.py": "8f69944022f18db04634b6a6cf65a4726cdc5a4af7b7137ad2515a2d5434e92c",
+        "src/cleverly/plotting/_zipper.py": "18ff122160c829b14b024bd13e071b1a158a3317c77784ec1e10bfdfaf7ee0f3",
+        "src/cleverly/protocol.py": "43487c03ec5c07a279562562386c7d1613923fde8d0217830c02ac87e4740379",
+        "src/cleverly/provenance.py": "e8a60d88379ef1993d2d89e308f92036886209417014ad2b5b2687ede9081d0d",
+        "src/cleverly/sensitivity/__init__.py": "ae35360fb6e50ba7dbc87addc019f71d4c16b86f06894ee297da111ace241992",
+        "src/cleverly/sensitivity/_derived.py": "491bc29173ced79a59ebaca469e516328e553183d3ab77b57f8de366c8e10e0c",
+        "src/cleverly/sensitivity/_mechanism_stack.py": "ace6bfa368c8a6fa0c33ebea8d7576cc68a66328e5d995103a14ddf59460f31c",
+        "src/cleverly/sensitivity/_objects.py": "0e275dc92c5e2d21fe1425399bba2286e8a5834e01dab2e5c313521520d1c77f",
+        "src/cleverly/sensitivity/_outcome_moments.py": "4bbd0c8ac732fe4fbfa78371220828475abf9da1691a9c80ca6840c28e010915",
+        "src/cleverly/sensitivity/_parameters.py": "e316c3825f3d44d1c71784ce250d3b2314c53770487190d943d6a8cc0b2713a1",
+        "src/cleverly/sensitivity/_positivity_summary.py": "8de81467d3e2ebc0612296d233bbe8fb8a59af693002cd2a5709d8f3d71e4c14",
+        "src/cleverly/sensitivity/_second_order.py": "993a9902820371fdb4bd8a81bd1873002deca21c50d710a6763b306862f15785",
+        "src/cleverly/sensitivity/_simulated_confounding_common.py": "e68a45ad0199e28b2ca3d79fb04850706242abf8bb3b05fbcc29f61993f9b504",
+        "src/cleverly/sensitivity/_simulated_confounding_fixed.py": "22d0caa0f085d2972444bbf4775847398691f164c9fd394f03315b9cbce217d0",
+        "src/cleverly/sensitivity/_simulated_confounding_incremental.py": "4df545a36e65ec86fb518469d0f7652f36e9b95a1d6868c9bb112434ce0c6ad2",
+        "src/cleverly/sensitivity/_simulated_confounding_learned.py": "6ec953b2d35c7c7045b584d5ad46a9c51894fbdb50ba7de1d2bfe64606a2d85f",
+        "src/cleverly/sensitivity/_simulated_confounding_longitudinal.py": "56864f60f7161303420770a6e90deeb605b9665535578e774ff1b49e560f2df5",
+        "src/cleverly/sensitivity/_simulated_confounding_request.py": "1ccff87c9e225ae5d413358e7ee35d17ba7f63b7e560928a8e8952d641d65071",
+        "src/cleverly/sensitivity/_simulated_confounding_survival.py": "366340bb7f2ac092856551b983177ef88bf027029157c1ed86ad7ebace342da3",
+        "src/cleverly/sensitivity/_summaries.py": "8298709f6e486ebab6ff5206e16960968a47745e7d0dd2a39580310052b3a242",
+        "src/cleverly/sensitivity/_tilt_targeting.py": "73c7296cb74e93f8a42ede67af2c1e0b7392bd30387a425962b299374cea065e",
+        "src/cleverly/sensitivity/balance.py": "987ac1ee097f547a338e8d9c610248b4f6025e6d009bd078be19275d964cd3a6",
+        "src/cleverly/sensitivity/evalue.py": "db18e82c25f953a407cacc991ab532bf9b9e355cdaac9ff268476d4d53e53fc2",
+        "src/cleverly/sensitivity/marginal.py": "07d58dddc36d6206ead0fc34e9feea83e4f2838dbfe7264a1330154d3365078f",
+        "src/cleverly/sensitivity/missingness.py": "7b747bde77da76791a6c1cd414c0c40ad65e2ba1d1bf3fde0d37486e569d5ce6",
+        "src/cleverly/sensitivity/omitted_variable.py": "9d8778556d8ddfa0e75bf986fe8a5612cc30e83b4348041c21160c060afdd2a2",
+        "src/cleverly/sensitivity/positivity.py": "aaa0ee3ea543fc787d07a0f8dfadd343c66e7801f5934c726dc81d95fcafbeac",
+        "src/cleverly/sensitivity/simulated_confounding.py": "b978fccd3e10cc2264531414dc464b3c6388493f99ccccc9bdae5703450bef62",
+        "src/cleverly/study.py": "0d63a437c3682080e77e7cddb6b1e7bbc75a51df471622a8879563d16c72d3d7",
+        "src/cleverly/targeting_curves.py": "6511f764b6a802c776d4d37104ef6840d74c9c942ed80eec41b20c128a1c6647",
+        "src/cleverly/targets/__init__.py": "f3993cf132fc05d2d30fde9e6bc8d2e56bcae24234f230c437b11fbb5a56b5a8",
+        "src/cleverly/targets/base.py": "e5ba50a480f73c3e901b4cc310c67c8f144a46e2fdd3f250e33ce9b7bfbfdbeb",
+        "src/cleverly/targets/builtin.py": "bd0a3fb4a85352798de2e8f61308c36da8ccb8c9ed58c842ff9985177ab90113",
+        "src/cleverly/targets/population_intervention.py": "a54511f04d1475ad13376c0ab5e18a4170bade4599434c7b1b2c54d6919e3fbe",
+        "src/cleverly/utils/__init__.py": "cee403e19353509b0daf0b747a8739696de1178b6d6dd1776db2a9e4a440cb22",
+        "src/cleverly/utils/bounds.py": "82543a0bfc70ef046314cf2570a332b584ccb23374643e26584cf62f42e8ab08",
+        "src/cleverly/utils/frames.py": "73642b2e61a6fc54d6395b2715240a34ea27720bd45e1fba8cb0d7df980d9302",
+        "src/cleverly/utils/memory.py": "f6cff474ba4cdb98a6d37aba526e2c92d73f72b8f37838adc8872bb478058ef4",
+        "src/cleverly/utils/memos.py": "082cc34268038cf7938fcefd258ce51bead4f578d167047772a58712f01fd3d9",
+        "src/cleverly/utils/parallel.py": "1bcd721d0fa1b057a77de59566f7f7b70aaf03da4f0eb75586aceb692c842026",
+        "src/cleverly/utils/phases.py": "9ec540f5245398b61be2dcf9257e9c49cd63eb352fa26b1f71c2045cf6c4ec98",
+        "src/cleverly/utils/random.py": "dc3f8f43767a49a4d55895a88e33bbb2a51b71c3b758544c5d165fe8a8dda4aa",
+        "src/cleverly/utils/records.py": "0c626dcc9f3ad8e107c49faa8295b279324c7a496b20425260cacac559d44ecc",
+        "src/cleverly/utils/text.py": "0f49de63022583e6d247b8c77714c3386246fae0db0eb157cc1c2ce2a19df2f8",
+        "src/cleverly/validation/__init__.py": "d535f2e33725e218b4313307abb34bc95c379f13dc92cfcee6883c9776847e04",
+        "src/cleverly/validation/_band_placebo.py": "928a808b1f0747732d8e1527c863159db6582b15b4c1c938df129703684e6c57",
+        "src/cleverly/validation/_failures.py": "dd7c9b2b7ee22577b2b48b1d8df90b342bf6ec3c81a4e1471dfdaeda203ceb79",
+        "src/cleverly/validation/_interpretation.py": "6097004d293d9a15473f1ce510000e72e47345ba2288edcb6d7e6e4102ba84a3",
+        "src/cleverly/validation/_longitudinal_plasmode.py": "95141f4193818df0cfc5e94af9ce0f6eb6b2468f84a147b354962732abd53859",
+        "src/cleverly/validation/_longitudinal_summary.py": "49753e61534e78874accc2eb1ad3cecb0d7794c553892d3cf22006a0057bf842",
+        "src/cleverly/validation/_markov_placebo.py": "cc5244a03c037ab7691eea158e0bfab9d160b722b7f55816479b99d38049a95b",
+        "src/cleverly/validation/_nuisance_summary.py": "b2242c4b468ec95eb110635c467848d74e08418456bfa4636c13f4519526e562",
+        "src/cleverly/validation/_point_generated.py": "48371c30887ad4c863858d24ba13e65df4bd7ca428c6dd4ada37f65934aba70d",
+        "src/cleverly/validation/_readings.py": "732f75c0287cced7c1230d1fc5721642b2714b38ad210cc24ef336b5885b78b2",
+        "src/cleverly/validation/_refute_summary.py": "67dab436ee7aa5ce1e892cc086199becb5b71dff60843776afbc8d47424641c4",
+        "src/cleverly/validation/_score_summary.py": "53dfe896ebcd439eba3a4b1d205a05949d0eb812b8cf469a9acd225a9612ee60",
+        "src/cleverly/validation/_seeds.py": "7a006b6a2547307de123e2f3add56eaeb979a431d6108bce06ab3a26dbfb9993",
+        "src/cleverly/validation/_structural_refute.py": "6d6a3848b485919d32f44a7aab72c5336b2d195c984c8afa8a68f23c38766423",
+        "src/cleverly/validation/drtmle.py": "18880517b1f9a9b9bbc01a94fb7985c891cc91400d6fd06bd3a0e32ddf036f28",
+        "src/cleverly/validation/longitudinal.py": "b3ad7daa99201183114635e6fa5b38c9275f8b919e847d0934995fbbed391321",
+        "src/cleverly/validation/nuisance.py": "3f4c8d5cbadedd337f66664b277395e91bd86531f8a5e1e13bb87964f5cdb46a",
+        "src/cleverly/validation/outcome_processes.py": "355ff5923953f5d9c0ec0cd015ac4b067e41e21fc4801e5f87b80fe6c500f8f7",
+        "src/cleverly/validation/refute.py": "be3cbc18c5fd816d63d4e7da95dfb264ebacf1e3bc2250ad3605c6d480c66300",
+        "src/cleverly/validation/score.py": "9b7b115773a7ee465959050967ffc1a553d4e25117555d4f052d86af884909b6",
+        "src/cleverly/validation/simulation.py": "711d6100efb9bdcf72c9b67bfbf92a66075035853541273d833d8c0aeca4397a",
+        "src/cleverly/variable_importance.py": "1383c9e84b1f04d5a0ccea37b880b489e99661e29c653bb8bf73d4cd805b03e6",
+        "tests/studies/evidence/band_rerun.py": "1d14c45a64da148ae0a99d43b7c362282028e2e8bb2e2d9cc4440476689db25f"
+      },
+      "subject": {
+        "cleverly_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+        "cleverly_version": "0.2.3",
+        "cleverly_worktree_clean": true,
+        "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22",
+        "joblib": "1.6.0",
+        "numpy": "2.5.4",
+        "pandas": "3.1.1",
+        "python": "3.13.18",
+        "scikit_learn": "1.9.1",
+        "scipy": "1.18.1"
+      },
+      "summary_tolerance": 1e-12
     },
-    "reference": {
-      "implementation": "ltmle",
-      "ltmle_version": "1.3-0",
-      "ltmle_source_commit": "338c029dae9692ef20714125773da7037688993b",
-      "ltmle_tarball_sha256": "fb31d0dd6ab81687b81f3279b414c21e91c655e10aac12f73fc6723efd848aad",
-      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+    "artifact_attribution": {
+      "equivalence.csv": "baseline",
+      "performance-tests.csv": "baseline",
+      "properties.csv": "analysis",
+      "property-replicates.parquet": "composite_replicates",
+      "replicates.parquet": "baseline",
+      "summary.csv": "baseline"
+    },
+    "baseline": {
+      "commit": "cef2aa65ec023744523a4b239f2517e025516ed4",
+      "manifest_sha256": "7dcc9c9c8bad66b42673cc8e22efa47b44eca9d70c33db23daf3f9a8241a4046",
+      "manifest_utf8": "{\n  \"schema_version\": 2,\n  \"study\": \"ordinary end-of-study longitudinal TMLE\",\n  \"slug\": \"canonical-ltmle\",\n  \"generated_with\": {\n    \"subject\": {\n      \"implementation\": \"cleverly\",\n      \"cleverly_version\": \"0.1.2\",\n      \"cleverly_commit\": \"c283b55d88cc65948f9f9e1eb92fa6e8a2c55042\",\n      \"cleverly_worktree_clean\": false,\n      \"python\": \"3.13.7\",\n      \"numpy\": \"2.5.3\",\n      \"scipy\": \"1.18.1\",\n      \"pandas\": \"3.0.6\",\n      \"scikit_learn\": \"1.9.1\"\n    },\n    \"reference\": {\n      \"implementation\": \"ltmle\",\n      \"ltmle_version\": \"1.3-0\",\n      \"ltmle_source_commit\": \"338c029dae9692ef20714125773da7037688993b\",\n      \"ltmle_tarball_sha256\": \"fb31d0dd6ab81687b81f3279b414c21e91c655e10aac12f73fc6723efd848aad\",\n      \"r_base_image\": \"rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c\"\n    }\n  },\n  \"configuration\": {\n    \"replicates\": 1600,\n    \"n\": 2000,\n    \"seed\": 20260822,\n    \"publication_policy\": \"gated\",\n    \"scenarios\": {\n      \"censored_end_of_study\": [\n        \"ey_regimen[never]\",\n        \"ey_regimen[always]\",\n        \"ey_regimen[treat then continue if l2 positive]\",\n        \"ate_regimen[always vs never]\",\n        \"ate_regimen[treat then continue if l2 positive vs never]\"\n      ]\n    },\n    \"construction\": \"ordinary\",\n    \"outcome_kind\": \"end_of_study\",\n    \"horizon_mode\": \"terminal_only\",\n    \"r_survival_outcome\": false,\n    \"cross_fit\": false,\n    \"simultaneous_intervals\": false,\n    \"band_cells\": \"the interval_calibration fits declare simultaneous=True with the engine's default 2000 rademacher draws seeded by random_state=0, which leaves every pointwise result unchanged and attaches the band over all five reported parameters\",\n    \"variance_method\": \"ic\",\n    \"stratify\": true,\n    \"g_bounds\": [\n      1e-08,\n      1.0\n    ],\n    \"regimens\": [\n      \"never\",\n      \"always\",\n      \"treat then continue if l2 positive\"\n    ],\n    \"q_formulas\": [\n      \"Q.kplus1 ~ W1 + W2\",\n      \"Q.kplus1 ~ W1 + W2 + L2\"\n    ],\n    \"margins\": {\n      \"confidence_level\": 0.99,\n      \"alpha\": 0.05,\n      \"bootstrap_replicates\": 10000,\n      \"standardized_bias_margin\": 0.25,\n      \"coverage_floor\": 0.9,\n      \"over_coverage_ceiling\": 0.99,\n      \"se_ratio_sanity_band\": [\n        0.8,\n        1.2\n      ],\n      \"calibration_se_ratio_band\": [\n        0.93,\n        1.07\n      ],\n      \"calibration_coverage_band\": [\n        0.92,\n        0.98\n      ],\n      \"type_i_margin\": 0.05,\n      \"paired_difference_margin_sd\": 0.15,\n      \"rmse_ratio_noninferiority_margin\": 1.1,\n      \"coverage_difference_noninferiority_margin\": -0.025,\n      \"calibration_excess_noninferiority_margin\": 0.05\n    }\n  },\n  \"study_module_sha256\": {\n    \"tests/studies/canonical_ltmle.py\": \"db44a0fabb57fc19f37e94b9229f1f425de28745d6b109d4d1600eb60d0678f1\",\n    \"tests/studies/ltmle_properties.py\": \"7972ef77042837eb5939bd9e7ff0526e1c5c909732cfd17c27e4748fc81ddcca\",\n    \"tests/discrete_law_longitudinal.py\": \"acc9eaaf056050dae69e7bdbe203797e0dc6fe2502423c15369f69dbcc41d59c\",\n    \"tests/studies/fractional_glm.py\": \"5570ff1756acad859e627be9d155e1b43f789ffb8626ac3c53a049bb0662488e\",\n    \"tests/studies/evidence/comparison.py\": \"653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217\",\n    \"tests/studies/evidence/inference.py\": \"357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d\",\n    \"tests/studies/evidence/performance.py\": \"571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00\",\n    \"tests/studies/evidence/properties.py\": \"9c8e6a923bb16fd6637dbec77492c43aef29d9a5f825799a20ce5002ca5e9590\",\n    \"tests/studies/evidence/property_verdicts.py\": \"6bddb3468d8135bc663df0d92fc52aadea539efdee0cd1ed84ef0e3e12658076\",\n    \"tests/studies/evidence/schema.py\": \"dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9\",\n    \"tests/studies/evidence/seeds.py\": \"34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9\",\n    \"tests/studies/evidence/simultaneous.py\": \"7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15\"\n  },\n  \"reference_sha256\": {\n    \"tests/canonical/ltmle/Dockerfile\": \"8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044\",\n    \"tests/canonical/ltmle/run_study.R\": \"4cec49c5a875aa06fbd5203aca63c61c843d2fdcf1b507d518fcabec63346b41\",\n    \"tests/canonical/ltmle/generate_reference.R\": \"e0af7e8bc867c4db5558be65ee452ce0d90e1e123fead6e45fef9562c1f74743\",\n    \"tests/canonical/study_harness.R\": \"63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878\",\n    \"tests/canonical/ltmle_regimen_adapter.R\": \"d0edd452d315cb6b3c19e4c1ef4794a618031d6f2a9a3f13ec5a7b08b45362c6\"\n  },\n  \"sha256\": {\n    \"replicates.parquet\": \"e3a0ae1ad95567d7e3855c0f6c7a4136867dc541ea72d0b9af647610dc427cf9\",\n    \"summary.csv\": \"7ec0defc754c3e89a0c5d0611be8379a0d3991efcc1eb29b29fc9bfd42df9d77\",\n    \"equivalence.csv\": \"4c2df4a90ea0285b4205ba90dd757dabd1f195d89b8afe1f0eacc1ea7a2efc5d\",\n    \"performance-tests.csv\": \"94cd077727ffdde1c7647f86647760a3ec1a125b0bcd5153649277fc2492c9a8\",\n    \"property-replicates.parquet\": \"d01b96487f520d3916596edcbda548df24080c931421ab0076eb18b62520354d\",\n    \"properties.csv\": \"7485d887b9c2793d096d50bdfcf708d7708c1aaf42a53f496e704d329d46a0df\"\n  }\n}\n"
+    },
+    "carried_property_rows_sha256": "1f9ab72910d8106e350d4e233391c6fb18219dbfab73e6ea7b7dd81fe8955c82",
+    "composite_property_csv_sha256": "2c2bcbfca951507eac79180b875e17fe67e881944109638d043013c9a0485ed0",
+    "operation_plan": {
+      "path": "tests/canonical/band-rerun-plan.json",
+      "sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308"
+    },
+    "replacement": {
+      "band_fits": 2400,
+      "command": [
+        "band_rerun.py",
+        "--study",
+        "canonical-ltmle",
+        "--jobs",
+        "4",
+        "--cache",
+        "/root/band-wave-c2/cache",
+        "--output",
+        "/root/band-wave-c2/out"
+      ],
+      "declared_stack": {
+        "joblib": {
+          "baseline": null,
+          "ran": "1.6.0"
+        },
+        "numpy": {
+          "baseline": "2.5.3",
+          "ran": "2.5.4"
+        },
+        "pandas": {
+          "baseline": "3.0.6",
+          "ran": "3.1.1"
+        },
+        "python": {
+          "baseline": "3.13.7",
+          "ran": "3.13.18"
+        }
+      },
+      "distribution_versions": [
+        [
+          "Jinja2",
+          "3.1.6"
+        ],
+        [
+          "MarkupSafe",
+          "3.0.4"
+        ],
+        [
+          "Pygments",
+          "2.21.0"
+        ],
+        [
+          "SecretStorage",
+          "3.5.0"
+        ],
+        [
+          "Sphinx",
+          "9.2.0"
+        ],
+        [
+          "alabaster",
+          "1.0.0"
+        ],
+        [
+          "argcomplete",
+          "3.7.2"
+        ],
+        [
+          "asttokens",
+          "3.0.2"
+        ],
+        [
+          "attrs",
+          "26.1.0"
+        ],
+        [
+          "babel",
+          "2.18.0"
+        ],
+        [
+          "build",
+          "1.6.1"
+        ],
+        [
+          "certifi",
+          "2026.10.23"
+        ],
+        [
+          "cffi",
+          "2.1.1"
+        ],
+        [
+          "charset-normalizer",
+          "3.5.2"
+        ],
+        [
+          "cleverly",
+          "0.2.3"
+        ],
+        [
+          "cloudpickle",
+          "3.1.2"
+        ],
+        [
+          "colorlog",
+          "6.12.0"
+        ],
+        [
+          "comm",
+          "0.2.3"
+        ],
+        [
+          "contourpy",
+          "1.4.0"
+        ],
+        [
+          "cryptography",
+          "50.0.2"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "debugpy",
+          "1.8.22"
+        ],
+        [
+          "dependency-groups",
+          "1.3.2"
+        ],
+        [
+          "distlib",
+          "0.4.4"
+        ],
+        [
+          "docutils",
+          "0.22.4"
+        ],
+        [
+          "execnet",
+          "2.1.2"
+        ],
+        [
+          "executing",
+          "2.3.0"
+        ],
+        [
+          "fastjsonschema",
+          "2.22.3"
+        ],
+        [
+          "filelock",
+          "4.2.9"
+        ],
+        [
+          "fonttools",
+          "4.68.0"
+        ],
+        [
+          "humanize",
+          "4.16.0"
+        ],
+        [
+          "id",
+          "1.6.1"
+        ],
+        [
+          "idna",
+          "3.20"
+        ],
+        [
+          "imagesize",
+          "2.0.1"
+        ],
+        [
+          "iniconfig",
+          "2.3.1"
+        ],
+        [
+          "ipykernel",
+          "7.4.0"
+        ],
+        [
+          "ipython",
+          "9.18.1"
+        ],
+        [
+          "ipython_pygments_lexers",
+          "1.1.1"
+        ],
+        [
+          "jaraco.classes",
+          "3.4.0"
+        ],
+        [
+          "jaraco.context",
+          "6.1.2"
+        ],
+        [
+          "jaraco.functools",
+          "4.6.0"
+        ],
+        [
+          "jedi",
+          "0.20.1"
+        ],
+        [
+          "jeepney",
+          "0.9.0"
+        ],
+        [
+          "joblib",
+          "1.6.0"
+        ],
+        [
+          "jsonschema",
+          "4.26.0"
+        ],
+        [
+          "jsonschema-specifications",
+          "2025.9.1"
+        ],
+        [
+          "jupyter_client",
+          "8.10.0"
+        ],
+        [
+          "jupyter_core",
+          "5.9.1"
+        ],
+        [
+          "keyring",
+          "25.7.0"
+        ],
+        [
+          "kiwisolver",
+          "1.5.1"
+        ],
+        [
+          "librt",
+          "0.16.0"
+        ],
+        [
+          "markdown-it-py",
+          "4.2.0"
+        ],
+        [
+          "matplotlib",
+          "3.11.2"
+        ],
+        [
+          "matplotlib-inline",
+          "0.2.2"
+        ],
+        [
+          "mdurl",
+          "0.1.2"
+        ],
+        [
+          "more-itertools",
+          "11.2.1"
+        ],
+        [
+          "mypy",
+          "1.19.1"
+        ],
+        [
+          "mypy_extensions",
+          "1.2.0"
+        ],
+        [
+          "narwhals",
+          "2.28.0"
+        ],
+        [
+          "nbclient",
+          "0.11.0"
+        ],
+        [
+          "nbformat",
+          "5.11.1"
+        ],
+        [
+          "nest-asyncio2",
+          "1.7.4"
+        ],
+        [
+          "nh3",
+          "0.3.7"
+        ],
+        [
+          "nox",
+          "2026.10.20"
+        ],
+        [
+          "numpy",
+          "2.5.4"
+        ],
+        [
+          "numpydoc",
+          "1.11.0"
+        ],
+        [
+          "packaging",
+          "26.3"
+        ],
+        [
+          "pandas",
+          "3.1.1"
+        ],
+        [
+          "parso",
+          "0.8.7"
+        ],
+        [
+          "pathspec",
+          "1.1.1"
+        ],
+        [
+          "pexpect",
+          "4.9.0"
+        ],
+        [
+          "pillow",
+          "13.0.0"
+        ],
+        [
+          "platformdirs",
+          "4.14.5"
+        ],
+        [
+          "pluggy",
+          "1.7.0"
+        ],
+        [
+          "polars",
+          "2.1.0"
+        ],
+        [
+          "polars-runtime-32",
+          "2.1.0"
+        ],
+        [
+          "prompt_toolkit",
+          "3.0.53"
+        ],
+        [
+          "psutil",
+          "7.2.2"
+        ],
+        [
+          "ptyprocess",
+          "0.7.0"
+        ],
+        [
+          "pure_eval",
+          "0.2.4"
+        ],
+        [
+          "pyarrow",
+          "26.0.1"
+        ],
+        [
+          "pycparser",
+          "3.12"
+        ],
+        [
+          "pyparsing",
+          "3.3.3"
+        ],
+        [
+          "pyproject_hooks",
+          "1.3.3"
+        ],
+        [
+          "pytest",
+          "9.2.0"
+        ],
+        [
+          "pytest-xdist",
+          "3.8.0"
+        ],
+        [
+          "python-dateutil",
+          "4.0.0"
+        ],
+        [
+          "python-discovery",
+          "1.9.4"
+        ],
+        [
+          "pyzmq",
+          "27.3.0"
+        ],
+        [
+          "readme_renderer",
+          "46.0"
+        ],
+        [
+          "referencing",
+          "0.37.0"
+        ],
+        [
+          "requests",
+          "2.34.2"
+        ],
+        [
+          "requests-toolbelt",
+          "1.0.0"
+        ],
+        [
+          "rfc3986",
+          "2.0.0"
+        ],
+        [
+          "rich",
+          "15.0.0"
+        ],
+        [
+          "roman-numerals",
+          "4.1.0"
+        ],
+        [
+          "rpds-py",
+          "2026.9.1"
+        ],
+        [
+          "ruff",
+          "0.16.1"
+        ],
+        [
+          "scikit-learn",
+          "1.9.1"
+        ],
+        [
+          "scipy",
+          "1.18.1"
+        ],
+        [
+          "snowballstemmer",
+          "3.1.1"
+        ],
+        [
+          "sphinxcontrib-applehelp",
+          "2.0.0"
+        ],
+        [
+          "sphinxcontrib-devhelp",
+          "2.0.0"
+        ],
+        [
+          "sphinxcontrib-htmlhelp",
+          "2.1.0"
+        ],
+        [
+          "sphinxcontrib-jsmath",
+          "2.0.0"
+        ],
+        [
+          "sphinxcontrib-qthelp",
+          "2.0.0"
+        ],
+        [
+          "sphinxcontrib-serializinghtml",
+          "2.0.0"
+        ],
+        [
+          "stack-data",
+          "0.6.3"
+        ],
+        [
+          "threadpoolctl",
+          "3.8.0"
+        ],
+        [
+          "tornado",
+          "6.6"
+        ],
+        [
+          "traitlets",
+          "5.16.1"
+        ],
+        [
+          "twine",
+          "7.0.0"
+        ],
+        [
+          "typing_extensions",
+          "4.16.0"
+        ],
+        [
+          "tzdata",
+          "2026.6"
+        ],
+        [
+          "urllib3",
+          "2.8.0"
+        ],
+        [
+          "virtualenv",
+          "21.15.5"
+        ],
+        [
+          "wcwidth",
+          "0.9.4"
+        ]
+      ],
+      "distribution_versions_sha256": "a5789bfce24ae530002dbf72714b94be1a45a656dcf3bb581285808c4b4df226",
+      "moved_cells": [
+        "simultaneous_coverage/regimens__simultaneous_band"
+      ],
+      "producer_sha256": "4b04f331d05a7edacce52b74e5618d8be828f0108a73e96eee33fa2d1d8eb804",
+      "reason": "band-finite-sample PR 2: the default band moved to {'band_scale': 'logit', 'kind': 'mammen', 'n_replicates': 10000}",
+      "replay": {
+        "band_failures": {},
+        "baseline_lost_keys": 0,
+        "failure_messages": [],
+        "maximum_absolute_differences": {
+          "estimate": 1.3322676295501878e-14,
+          "other_columns": 0.0,
+          "std_error": 1.3877787807814457e-17,
+          "truth": 0.0
+        },
+        "rows_compared": 7200,
+        "rows_exact": 6877,
+        "rule": "every non-band row of a refitted key: abs(new - committed) <= 1e-9 * max(1, abs(committed)) on truth, estimate, std_error and every other numeric column; property, cell, role, replicate, n, requested_replicates, failed_replicates, covered, rejected and every non-numeric column exactly.  A band row keeps every field but truth, estimate, std_error, covered and rejected",
+        "structural_fields_and_decisions_exact": true,
+        "tolerance": 1e-09
+      },
+      "selection": [
+        {
+          "band_keys": 2400,
+          "cells": {
+            "simultaneous_coverage/regimens__simultaneous_band": 2400
+          },
+          "keys": 12400,
+          "label": "properties"
+        }
+      ],
+      "source_sha256": {
+        "src/cleverly/__init__.py": "c74474567be9c275c2351adb949c1d83c870d5c10896c8ec547a5a841700671e",
+        "src/cleverly/_assessment_cache.py": "ee8887162c8ae41c2d219229680da2e13071df0f887bae3d925cf6e466984759",
+        "src/cleverly/_assessment_summary.py": "530ee303bab3a03ce2fc441e2cf90fd0451feebbba0c8257073c5393fb6b0c2c",
+        "src/cleverly/_curve_assessment.py": "6db8e8e685a564ba4ebf1df522628ee92570a52a49aba766452fb94c21f371e9",
+        "src/cleverly/_declarations.py": "5be22d12234cc4c77906ccfd7dc83360c50261e9687e677c07e500833a41039e",
+        "src/cleverly/_inference_status.py": "80c89334a8b1f0031e73fd7853a9ff9a396fe90f12d9e341710abd78dbb1b20a",
+        "src/cleverly/_refusal.py": "850cf5a2aedc2b7d29eecee16afed6035a7e537a6fef72d9c1c115098f563caf",
+        "src/cleverly/_saved_version.py": "9d5b06ac8807eee0c688b54015debf1946712a1be135acaf4d50af473720355c",
+        "src/cleverly/_summary/__init__.py": "371f63d90dd3fcfd65d7e594c8ff26829e22919e0766510b5bfca35f4e0f5cd5",
+        "src/cleverly/_summary/_balance.py": "7530f89aa577185e5f5c87053e6d9db23586497d404fe1b12da4db845016fc0c",
+        "src/cleverly/_summary/_cells.py": "c452c9553333f3e6f660bbd06369acd2229f56c5445ebaf3b0e45a597176a7c1",
+        "src/cleverly/_summary/_data.py": "29ac79d188eeb0c0ed862e5f274ac31f86122bc672b53029551e2855800dc21c",
+        "src/cleverly/_summary/_effect_curve.py": "60890df5f5344f604e9c5c87526541a5250a87e3626f5fb4f8bd951399b31f8c",
+        "src/cleverly/_summary/_estimates.py": "51fab3c40fcbc5565ae2de6296efea21d1ce0b4db36a816efa351449dc210a39",
+        "src/cleverly/_summary/_learners.py": "e7d2977e9a3cad76f25613722a3126b32a8624ef1f9c6ced70ee910f653d252c",
+        "src/cleverly/_summary/_render.py": "f4f2459e59b86bdec0b140401ea9141143bb5c1390c032fc8854618cdb1c776d",
+        "src/cleverly/_summary/_setup.py": "9b8f111cd82c3874c0a82b3e94765a854c89d6cfdd671859f37aefcd766c8510",
+        "src/cleverly/_summary/_targeting.py": "f1896fba31f2b8a3827e24892c35f6b0a425fed23cba6b2a13d4e7c34199e05d",
+        "src/cleverly/_summary/vocabulary.py": "b87e907ebb1a94752a67cd0263efdf944eff73e9d74834fa9d7ddfa542f99991",
+        "src/cleverly/_support.py": "9ba9bcb2c1df9126c042c1e949d337ba4797755bb9dfb9471f507e0672c9daba",
+        "src/cleverly/_support_rows.py": "8e2e1ac0d47cf4f958e208dcbd524fcbfdbb3b57572db4edb06c202757d99625",
+        "src/cleverly/_trial_family.py": "71d0d08ac1eccb745013979f3d1387e75cee36d5430ce14b4d583297a1c77495",
+        "src/cleverly/_truncation_summary.py": "ffbc9f0317e1cee167ec491df7eb2edc50d27f546e02f6dd289871d288ba6316",
+        "src/cleverly/_typing.py": "00fc1c1f1c0f096938f78df96b6e830d4031245dd2586b132c92459b52c25878",
+        "src/cleverly/_version.py": "fdc5fa72825b8a7985f3de8c2933549d6cfc6d548135b2db39bc7dae661efe69",
+        "src/cleverly/_warnings.py": "e2f0994a5d1e7d1494396e5bc8c8222d1867d2ba10bd92f05b5d654ce82bef9b",
+        "src/cleverly/assessment.py": "4f87308dfbdc5f00bc166e42dad66b52db6edf378e761867682301b6fa298465",
+        "src/cleverly/bases.py": "e771d1243f25406489d36da6f2edfe5c51e2912ec7285de7bdc9ca23f04f6908",
+        "src/cleverly/data/__init__.py": "d95f96382a21f659135b7b6410b3bbb9652d4646a25b833a800de58e6d56f6c0",
+        "src/cleverly/data/_weight_summary.py": "f6652a1c77056777fed34d1ba19fc2c5324369c2544f7f01a04c04e3b23bc87c",
+        "src/cleverly/data/causal_data.py": "c51256c21cae578678cd6acaadb23717075aeb488e4cf5403bacb3b9470ac454",
+        "src/cleverly/data/known_mechanism.py": "525445c259ba6890e5d6b36765f294d82955463654c52c58605bc71a11597299",
+        "src/cleverly/data/treatment_covariates.py": "a8076aaf5f3d0571d6d4662e08269d161b564530698ef7c487ce24525867d055",
+        "src/cleverly/data/validate.py": "79ffe3be9d1c4a42b2e5e4720d7323c68a55206a7f843dbf590da9d545ef41f3",
+        "src/cleverly/data/weighting.py": "168c643637e6d75b1e00c68c7efa60320be62aee2c03a250337d38a4410a1646",
+        "src/cleverly/datasets/__init__.py": "727e5580c2708d74bbfa2669ae290941ba2b06bcaba225beb94ea5b48cdc6d4a",
+        "src/cleverly/datasets/heart_failure.py": "1e234b817b113567f1db9479edeeb6e0b9612984540475b25eb58bbd0de5d57d",
+        "src/cleverly/datasets/longitudinal.py": "0da84c77c274c906645ee028a5d055c9eb16b18e93b63aaef5425f1e2cd7c950",
+        "src/cleverly/datasets/navigation.py": "e018648a79d6b9b22ba0ef0df0be5ebc618f7fc5f3844f5d1fa2667ddc39acfc",
+        "src/cleverly/datasets/offers.py": "b577b8f495e2b294dc95227ddbfa73847b585be41d8add04864e39078766b262",
+        "src/cleverly/datasets/pilot.py": "cac6c862b112044d316487134fac7baa202d1c14ca5c3bade88ab656813f3016",
+        "src/cleverly/datasets/population_impact.py": "3a481938fed22691d1000cb627605319811b4818ccc30e578afd62c71545291b",
+        "src/cleverly/datasets/pricing.py": "3fbe7e65854a781be0062443ac6ca23683dbd397d1c23966ad1e20c6d845a3ad",
+        "src/cleverly/datasets/readmission.py": "befa2dedf78d68a7d36a1403d5962e9fbd91c3728ead96a62ac46a5a96c9dcdd",
+        "src/cleverly/datasets/recovery.py": "3be0f07d2ef88877027c58676482812e38116259331de2de5c9ab9acc6b75cbd",
+        "src/cleverly/datasets/schedules.py": "adcc845cd34f255b9a8f2d7af4e07e6c40fd15978835443435c87a82695270f3",
+        "src/cleverly/datasets/survival_point.py": "138e133d67043844d55aa179dc2676eea7449672ddbc0cd6bac888c2739577e2",
+        "src/cleverly/datasets/synthetic.py": "338cc66744bf9dcea88b182a0dc3b54dbca587d7dde3e5d7081d0c4678f652b3",
+        "src/cleverly/datasets/treatment_rules.py": "048488428b4f6dd169ba8040b63399e64e36fbdb885a22dcd54eaee379929303",
+        "src/cleverly/datasets/weekly_orders.py": "7d8c8462a4e168b3b6eb00b403b1da61cf6f6f35a4bcecc5485edabc2a8b6113",
+        "src/cleverly/dose_response.py": "8766aba67a7665f532f1011fb67965b0a5196b2878b96adc08d96be3067a4782",
+        "src/cleverly/effect_curves.py": "8d16336870e084a8594885e4064c8ea12b2b1627a90abf711c2bb71a3245de2a",
+        "src/cleverly/effect_modification.py": "2591c35cf2fdafadbd44fece1b4af2bb2ed1eda2bc7e3d9aaa517c06addd70c5",
+        "src/cleverly/estimators/__init__.py": "4a04c383f44318a33135b87769fdb780bd41af8d00d39d888285e637c5087819",
+        "src/cleverly/estimators/_atmle_summary.py": "f640e917ac6ba3e13d5ff911cea290299e8118244c3eee366f56ce7609c6df71",
+        "src/cleverly/estimators/_ctmle_derivative.py": "5cca101e6f128df502ad2c9611e6a7f860c4ac816c73e5da81bedaa58c319c48",
+        "src/cleverly/estimators/_mechanism_fit.py": "d89a828761d6ada57bf77d28fe05f7f73f3cb9070dd938d5bbcd9fad5d598284",
+        "src/cleverly/estimators/_method_summary.py": "7398e504a776519bf2bd8c23b7cd67e9fb26dd526f28db31168694e6eaf5bf2c",
+        "src/cleverly/estimators/_nuisance.py": "ec5a9f35c449602c5fe612ad8bd9948f701f4a1c53550123a0c57d2b0e706fe4",
+        "src/cleverly/estimators/_oat_stack.py": "1dcbe7fd49d1f5e51f56fe0f859ca688c7799c10042fd92c700410f73f55b603",
+        "src/cleverly/estimators/_option_support.py": "1b5a5bb058997d5130703d4144ca642c013f3055fb5bb5910df8af32244bfc60",
+        "src/cleverly/estimators/_point_summary.py": "c1d1b28f4292f1a368d08332b90ed5f7cada43aa033f3c8797eeb6d3156cf047",
+        "src/cleverly/estimators/_strata.py": "766e42540cd67aff2cae67c4e4d5988597951490851b586dc5c51b9c45d556b8",
+        "src/cleverly/estimators/_tuned_policies.py": "b794bc6c45e429c698f84a95f2130e36aeb36ec90616ced5e64f4090b9877154",
+        "src/cleverly/estimators/_working_basis.py": "0c4f7c990808a5af15057db1304a4b0d547bee378ca900e6114160b8a513d03d",
+        "src/cleverly/estimators/atmle.py": "5f05aaea4d5ea9901db534e16a15c819a165699bd20167bf449f433d6053139f",
+        "src/cleverly/estimators/atmle_result.py": "6b86d208aa70b30384a048671e15b25434d26d665001d999ef4c06dae0a783f0",
+        "src/cleverly/estimators/base.py": "5d0b2f70248f85cd6c4e596d46afe4d3467167ba682345d10ad62ba8174a8054",
+        "src/cleverly/estimators/composite.py": "d6bbcb2a0c416030247b4042fffb864104d13bbaa4af59fb616c155c88084c56",
+        "src/cleverly/estimators/ctmle.py": "f1758bf1520ff6d967a3c8c7dce302a320451d0f66376f3a5c53f1e48672b22e",
+        "src/cleverly/estimators/direct_effect.py": "dea143d6f015dd6085fcf05c0c7787c0bfd1c1e7859c4cfe6809901b1076f9c9",
+        "src/cleverly/estimators/dose_response.py": "d3ef3fc7fc348dad32b577a55336e868df6f6767c3fc999a77955341be3b3482",
+        "src/cleverly/estimators/drtmle.py": "dabf8c13c2f5fa50aeb0ceedbe62c77246d9ef6ef933678eae3ec4b980aadbb5",
+        "src/cleverly/estimators/ep.py": "4d2dfc05b7726f899dff86811f2ebda85167fff6dc3b0b08b00b77a4f9908776",
+        "src/cleverly/estimators/iptw.py": "154d3d9ed2e68f5e49d86e2ec6a08a8fc3cdec31233c50622d481f9fe25de4fc",
+        "src/cleverly/estimators/reduced.py": "8c97816f6866b5fcd14c01de438c5e9c2711060c2a7f0bf492421838b9f28901",
+        "src/cleverly/estimators/serialize.py": "a4950c9a6fc1f7dbb679df142a0582b7c72f2fa5339b03de958afbc4c5771aff",
+        "src/cleverly/estimators/targeting.py": "279f71207a0c42522b8cb5bb5e537f8d520f9d7b6f7b2f3064d1074d7b23095d",
+        "src/cleverly/estimators/tmle.py": "9b3222e03ef7b5c1a8b79a3042937b07c0ccf14004224cbfc885607f52252c2b",
+        "src/cleverly/exceptions.py": "336d2d7f3f938915542f7a2b153d75990baa1ac29abfb38bf66c069b6bcb9642",
+        "src/cleverly/fluctuation/__init__.py": "1107eef9605d85c8b7bb0ad5c3d3088e468aa5a6a6408481283b795233f4de15",
+        "src/cleverly/fluctuation/_score.py": "b738670e64c17e45ae41d5a02a369990321d16770c2adc1bd61bdc7026118bfb",
+        "src/cleverly/fluctuation/iterative.py": "74aecfdca5697a860f6075ee14f683e8231fbcf7543de42822d74064b1fcd1b2",
+        "src/cleverly/fluctuation/mechanism.py": "72829cce87c33cb651b2aa21c0a2a364531e51470fd0271a67f6178afc9f4d42",
+        "src/cleverly/fluctuation/one_step.py": "8fd74258cc8c584ca86d241c927eb9da03fae1e8277fe04cb27db9461634e5bf",
+        "src/cleverly/fluctuation/reduced.py": "6131908c92e093f49561c2106b646081de882dcb0253ee8320fdf7be20d7a065",
+        "src/cleverly/fluctuation/submodel.py": "a2734c85038c43a1145eb902bf3d21e5ffa934c00040e95300cbd743305db692",
+        "src/cleverly/inference/__init__.py": "0a2f1f6a4241b2581976231a801f1d9c83e7cec78eb8d16777d7a280f3a1ca4a",
+        "src/cleverly/inference/_sparse_summary.py": "5e78bd5941c5b893c39a777b9f0fd2c18e7d0fd5c62cd4e83e9331f98dd9e073",
+        "src/cleverly/inference/_summaries.py": "45fe4f73f01d544662604317745594e5e7f167fb7cf6154d4a6c498323c56fee",
+        "src/cleverly/inference/bootstrap.py": "2b56a657d368e23a298e3c5c8f503a90f05a0bfb0a5c4435e56c7f3f6ab6455e",
+        "src/cleverly/inference/cluster.py": "67fdf6bb2b744eb7c9109c66c707970afc633e42077c0c596d4a3c9e3c35671a",
+        "src/cleverly/inference/delta.py": "f1db66b63f69db404e1086d1d9007bf5e4de5ec10cb61bda0b5fd6b34981b17a",
+        "src/cleverly/inference/influence.py": "a4a27391d72088292bd92b5220780b7510e26bfe928d2903fb194cb47b0b2886",
+        "src/cleverly/inference/multiplier.py": "80eed10feb585be0e0b43f2623d138cd52359bc9afc970ea61c522eacae64af5",
+        "src/cleverly/inference/results.py": "3f4fc9a27e4c69dda185f428f7c21d928b6b7632ffb4d5b4cfd4d76421817c01",
+        "src/cleverly/inference/sparse.py": "ed9e00876b3e5440139c32e064fcfdc7a18aa5165baf7dda1a8c0d726bc0aa4a",
+        "src/cleverly/interventions/__init__.py": "0b923fa2702471adc60d7648a25f1e94e16a7c15697a72dd260002df74234f95",
+        "src/cleverly/interventions/_rule_learners.py": "961daa8147c63178aba137ba9c3827f14cd8c3d6ffcdb8d8b7f3a57101dc16a7",
+        "src/cleverly/interventions/_support_summary.py": "dc41042b2c623ddf3a1b13281afc45f1a6053964d66b469dbc451a6d3faa30b2",
+        "src/cleverly/interventions/base.py": "9655e2bf2519f313fc13ae1085d080888e480d32e4a799344c95f7af987c7d9d",
+        "src/cleverly/interventions/incremental.py": "32ea36d88794486e334634c36e6e5ce222b87708a0cc0d9203ff77cdad3f42a7",
+        "src/cleverly/interventions/joint_density.py": "1d66dc13d29f13ad1703d5970a3bbfe5e216ca2b8bf6b6169375e3c11f1e2dbb",
+        "src/cleverly/interventions/learned.py": "b481c500c4e92b70aef6bb13496d641d5d6754e530e05978f55b4295ffadcae0",
+        "src/cleverly/interventions/policy.py": "16593bafee35742175e123e8f7652f8ad191b5af6577c86521e47e061a20f12d",
+        "src/cleverly/interventions/support.py": "5655493de7aec8a417715259ab2e55f4e70608560321f76c5810e5cd492677b6",
+        "src/cleverly/interventions/tuning.py": "e764d7da25599d22f64b3a5ede368ebe99d62fac515b396b9712f2649b537ff0",
+        "src/cleverly/learners/__init__.py": "700d25756c3b1856f11571b2951e971719edbf6586a6957ecc04a0bdf0570671",
+        "src/cleverly/learners/_ensemble_summary.py": "1bbbd45d5548ec0c50b2cf82c0d68b7a5398f7b8bcc73a1cba64ed146862c456",
+        "src/cleverly/learners/_fitting.py": "3b6e8a9bd6d8b1499c3a86b6980929c3454147b9992e613744b3cbb87657f817",
+        "src/cleverly/learners/_l1_logistic.py": "720a7b9d5550edbfb11882853c0c19656f66471f0226cd7cf767f854846a16e3",
+        "src/cleverly/learners/_threads.py": "e3dda0cf9a870654fb6c525675e42078c6406bc845c4d7ea69308567ec042bde",
+        "src/cleverly/learners/crossfit.py": "5adc6d48078dfb36ac328b02ddeeef0845af11d9d7b4a51ca1a15293137e8eb3",
+        "src/cleverly/learners/density.py": "1278e64f91108235f8bea6b4b5dfb4fe227ebf8cb18554301fb1214aa6b66d90",
+        "src/cleverly/learners/density_ratio.py": "8fc91f9ac0df548fd30a64ce05eb91bbf4e4e568d3c5e60276821ac22035766e",
+        "src/cleverly/learners/glm.py": "5e45e82d34cec54a2b66b754492ee2c4f39a356c5d87a803f52d171956cda01f",
+        "src/cleverly/learners/library.py": "491eedc4e633dcac74c2ccaa73e98d30f0cac2513a18b5b3668f4cfa06489944",
+        "src/cleverly/learners/parametric.py": "76818d5acc52797534d73c6a2039a7e5ade790e6e86e028c91c3e5e61b391f30",
+        "src/cleverly/learners/screeners.py": "10e41b108a1c987e11774a24b159591e776c50b3beab26952d22d36041b3e907",
+        "src/cleverly/learners/super_learner.py": "4635441012346016e7647f68b70efb8b85be77d9f496f6bfe6609c90586de0aa",
+        "src/cleverly/longitudinal/__init__.py": "54689c0c6e9864f9697c97c60706e7e0fcfb98555903b13914a8cae38525f52d",
+        "src/cleverly/longitudinal/_gformula_summary.py": "7856e5ab347700e851281fb7e2a0f4c278f8685e7e12907f5ae6a03b82817711",
+        "src/cleverly/longitudinal/_record_summary.py": "2a545cf007793277b9d0b64a1bf30109b48c337c93e0f04c55d511159c9e868a",
+        "src/cleverly/longitudinal/_structural_summary.py": "c6a777663fc8281f1dd501d81efe87d34b4ad64a300a6ac57652be65e6e9274d",
+        "src/cleverly/longitudinal/_summary.py": "a84478f7361179c3b60575c3168b866f917e0aa286f6a8d99a36297977505662",
+        "src/cleverly/longitudinal/baselines.py": "c6bf8713c417687b2bcd723ba67dc6a61aaf13577a41086596235c779e376d82",
+        "src/cleverly/longitudinal/collaborative.py": "b41f241f715778484650ef20e4a1ed543e1bcea5f65a13af5a336c5698033982",
+        "src/cleverly/longitudinal/data.py": "b764b3e89086c9d36b809b7f2f8d6c1adfd504b5042809743042559ae33a4849",
+        "src/cleverly/longitudinal/estimator.py": "07e1c62efc2c8c2af01a1788e93ca8d839c52babf19ab3a245ae16c9b978ec57",
+        "src/cleverly/longitudinal/frequency.py": "2fc4b0fff8f0b62d39c98f0d460382406286936bf1d825aa8231ff65e5e0a9f2",
+        "src/cleverly/longitudinal/gformula.py": "2993637e23e6fe84b5feaabf57a355c9f160e698c031874b513bf3996db62b21",
+        "src/cleverly/longitudinal/hazard.py": "82ed2f9ef086703e11a308cd31f9cf86ee200e9152656bec646269ebd48b9902",
+        "src/cleverly/longitudinal/ipsi.py": "1e5b8b2015ce75fdf14487cf48f19f812bdbe86b4b9348fe9b4638f2c0fc7d5e",
+        "src/cleverly/longitudinal/learned.py": "2ee2d6e126774cba8d2d605ba752e27286a5aea85dc1ce0b1f46a89f39af82cd",
+        "src/cleverly/longitudinal/msm.py": "0ded1a65680a85726821cdbcaf3419e2f19971a102a2af1e4d626514d82f6bc0",
+        "src/cleverly/longitudinal/panel.py": "6eb520ee136a3142d35655b32fbad9a43ad24713d99e315d8d76c512bc03bc3c",
+        "src/cleverly/longitudinal/pooled_hazards.py": "a8e029e79026d9039efa5a3ac7bc9032ba195828f85560d4873e03e10db59ec1",
+        "src/cleverly/longitudinal/ratio_trim.py": "96979cf10eb781871239186862f0ce47a88c0f8886a7bc7fcc7ff9bad46f9307",
+        "src/cleverly/longitudinal/regimen.py": "ccc6e2bbf8052bc3ba9ec42c2e2ac86330234d92ce09879a96052ce8fc4fb2f5",
+        "src/cleverly/longitudinal/sdr.py": "9e0910e7d91e5210fabd3b53199fe4ccf4df5d48652a7c703f7441ce03e1a7cd",
+        "src/cleverly/longitudinal/separable.py": "a16e9221cf61be8011b08542ae34c0d6747374186207a3ef7c9dc6d64c812ba1",
+        "src/cleverly/longitudinal/sequential.py": "f592d02ebcf1170dea4e0cb89c67ef6fcccbe7c84da87d88ed3b38b29640b645",
+        "src/cleverly/longitudinal/structural.py": "a7619319afc4ae87fe208a499c9ba38baf477770bc552f988a201a2ebb6069bb",
+        "src/cleverly/longitudinal/weights.py": "1eee7612a01c3b53b0da2eb8d2d46bea0c645b3126d7ca906006489a8118ca4f",
+        "src/cleverly/methods.py": "c10bd399ca3ad99edebc7bd4863838fe755ee32bb371e8436b3a4a61da209d33",
+        "src/cleverly/msm.py": "2846a29655dd80c6850917229c84afe4d6195094d5b07511e4a4dfc5fba08721",
+        "src/cleverly/plotting/__init__.py": "2f1f5defa4a3cb5c7b985b52c03e2afae38e9077aa75d58af03da6d1f623b9c8",
+        "src/cleverly/plotting/_confounding.py": "1bc72fe091047dcc3d00564bc7882c00de1ef3ffc23f5b46378b7dfb4bd2ac2c",
+        "src/cleverly/plotting/_core.py": "0594c290bb967e1c7c7293c880258d625a7989445592539bb09dd90ec675f066",
+        "src/cleverly/plotting/_curves.py": "eb85a1729dc4c0fa8e75a8ee8939e545bb43c63713f5d7edba43fd3dd649be4d",
+        "src/cleverly/plotting/_diagnostics.py": "99383a4d9b88bfefc91d38e7975a1280654750af211c6ef0dd1f61d687dd0844",
+        "src/cleverly/plotting/_forest.py": "fe998df76e5599762f50bb7df4f05f27a92788da29ec4ece0ffaf9148873cb5e",
+        "src/cleverly/plotting/_overlap.py": "65c0dcbc82eec566bc25dc63554311dfdcb3ab7a5abcaab35ca3d50aadcc4a01",
+        "src/cleverly/plotting/_sensitivity.py": "85bdb1e70dcde5cbc49cbe43209a286b85bb39c1a856c4de8ca332816a92cf58",
+        "src/cleverly/plotting/_strips.py": "beb92ab65564413e7faf7bd203c093c41997cd85008219e23c0c3b5d405d8673",
+        "src/cleverly/plotting/_targeting.py": "ecc0d6567f4dda67d5553db4b3a0e825ae919af475b942f68e9ced8b7f86a0df",
+        "src/cleverly/plotting/_truth.py": "4f858554d000c9e429eb8eac4b0adbfb41a478706fb642f348388c51bddb14a6",
+        "src/cleverly/plotting/_weights.py": "8f69944022f18db04634b6a6cf65a4726cdc5a4af7b7137ad2515a2d5434e92c",
+        "src/cleverly/plotting/_zipper.py": "18ff122160c829b14b024bd13e071b1a158a3317c77784ec1e10bfdfaf7ee0f3",
+        "src/cleverly/protocol.py": "43487c03ec5c07a279562562386c7d1613923fde8d0217830c02ac87e4740379",
+        "src/cleverly/provenance.py": "e8a60d88379ef1993d2d89e308f92036886209417014ad2b5b2687ede9081d0d",
+        "src/cleverly/sensitivity/__init__.py": "ae35360fb6e50ba7dbc87addc019f71d4c16b86f06894ee297da111ace241992",
+        "src/cleverly/sensitivity/_derived.py": "491bc29173ced79a59ebaca469e516328e553183d3ab77b57f8de366c8e10e0c",
+        "src/cleverly/sensitivity/_mechanism_stack.py": "ace6bfa368c8a6fa0c33ebea8d7576cc68a66328e5d995103a14ddf59460f31c",
+        "src/cleverly/sensitivity/_objects.py": "0e275dc92c5e2d21fe1425399bba2286e8a5834e01dab2e5c313521520d1c77f",
+        "src/cleverly/sensitivity/_outcome_moments.py": "4bbd0c8ac732fe4fbfa78371220828475abf9da1691a9c80ca6840c28e010915",
+        "src/cleverly/sensitivity/_parameters.py": "e316c3825f3d44d1c71784ce250d3b2314c53770487190d943d6a8cc0b2713a1",
+        "src/cleverly/sensitivity/_positivity_summary.py": "8de81467d3e2ebc0612296d233bbe8fb8a59af693002cd2a5709d8f3d71e4c14",
+        "src/cleverly/sensitivity/_second_order.py": "993a9902820371fdb4bd8a81bd1873002deca21c50d710a6763b306862f15785",
+        "src/cleverly/sensitivity/_simulated_confounding_common.py": "e68a45ad0199e28b2ca3d79fb04850706242abf8bb3b05fbcc29f61993f9b504",
+        "src/cleverly/sensitivity/_simulated_confounding_fixed.py": "22d0caa0f085d2972444bbf4775847398691f164c9fd394f03315b9cbce217d0",
+        "src/cleverly/sensitivity/_simulated_confounding_incremental.py": "4df545a36e65ec86fb518469d0f7652f36e9b95a1d6868c9bb112434ce0c6ad2",
+        "src/cleverly/sensitivity/_simulated_confounding_learned.py": "6ec953b2d35c7c7045b584d5ad46a9c51894fbdb50ba7de1d2bfe64606a2d85f",
+        "src/cleverly/sensitivity/_simulated_confounding_longitudinal.py": "56864f60f7161303420770a6e90deeb605b9665535578e774ff1b49e560f2df5",
+        "src/cleverly/sensitivity/_simulated_confounding_request.py": "1ccff87c9e225ae5d413358e7ee35d17ba7f63b7e560928a8e8952d641d65071",
+        "src/cleverly/sensitivity/_simulated_confounding_survival.py": "366340bb7f2ac092856551b983177ef88bf027029157c1ed86ad7ebace342da3",
+        "src/cleverly/sensitivity/_summaries.py": "8298709f6e486ebab6ff5206e16960968a47745e7d0dd2a39580310052b3a242",
+        "src/cleverly/sensitivity/_tilt_targeting.py": "73c7296cb74e93f8a42ede67af2c1e0b7392bd30387a425962b299374cea065e",
+        "src/cleverly/sensitivity/balance.py": "987ac1ee097f547a338e8d9c610248b4f6025e6d009bd078be19275d964cd3a6",
+        "src/cleverly/sensitivity/evalue.py": "db18e82c25f953a407cacc991ab532bf9b9e355cdaac9ff268476d4d53e53fc2",
+        "src/cleverly/sensitivity/marginal.py": "07d58dddc36d6206ead0fc34e9feea83e4f2838dbfe7264a1330154d3365078f",
+        "src/cleverly/sensitivity/missingness.py": "7b747bde77da76791a6c1cd414c0c40ad65e2ba1d1bf3fde0d37486e569d5ce6",
+        "src/cleverly/sensitivity/omitted_variable.py": "9d8778556d8ddfa0e75bf986fe8a5612cc30e83b4348041c21160c060afdd2a2",
+        "src/cleverly/sensitivity/positivity.py": "aaa0ee3ea543fc787d07a0f8dfadd343c66e7801f5934c726dc81d95fcafbeac",
+        "src/cleverly/sensitivity/simulated_confounding.py": "b978fccd3e10cc2264531414dc464b3c6388493f99ccccc9bdae5703450bef62",
+        "src/cleverly/study.py": "0d63a437c3682080e77e7cddb6b1e7bbc75a51df471622a8879563d16c72d3d7",
+        "src/cleverly/targeting_curves.py": "6511f764b6a802c776d4d37104ef6840d74c9c942ed80eec41b20c128a1c6647",
+        "src/cleverly/targets/__init__.py": "f3993cf132fc05d2d30fde9e6bc8d2e56bcae24234f230c437b11fbb5a56b5a8",
+        "src/cleverly/targets/base.py": "e5ba50a480f73c3e901b4cc310c67c8f144a46e2fdd3f250e33ce9b7bfbfdbeb",
+        "src/cleverly/targets/builtin.py": "bd0a3fb4a85352798de2e8f61308c36da8ccb8c9ed58c842ff9985177ab90113",
+        "src/cleverly/targets/population_intervention.py": "a54511f04d1475ad13376c0ab5e18a4170bade4599434c7b1b2c54d6919e3fbe",
+        "src/cleverly/utils/__init__.py": "cee403e19353509b0daf0b747a8739696de1178b6d6dd1776db2a9e4a440cb22",
+        "src/cleverly/utils/bounds.py": "82543a0bfc70ef046314cf2570a332b584ccb23374643e26584cf62f42e8ab08",
+        "src/cleverly/utils/frames.py": "73642b2e61a6fc54d6395b2715240a34ea27720bd45e1fba8cb0d7df980d9302",
+        "src/cleverly/utils/memory.py": "f6cff474ba4cdb98a6d37aba526e2c92d73f72b8f37838adc8872bb478058ef4",
+        "src/cleverly/utils/memos.py": "082cc34268038cf7938fcefd258ce51bead4f578d167047772a58712f01fd3d9",
+        "src/cleverly/utils/parallel.py": "1bcd721d0fa1b057a77de59566f7f7b70aaf03da4f0eb75586aceb692c842026",
+        "src/cleverly/utils/phases.py": "9ec540f5245398b61be2dcf9257e9c49cd63eb352fa26b1f71c2045cf6c4ec98",
+        "src/cleverly/utils/random.py": "dc3f8f43767a49a4d55895a88e33bbb2a51b71c3b758544c5d165fe8a8dda4aa",
+        "src/cleverly/utils/records.py": "0c626dcc9f3ad8e107c49faa8295b279324c7a496b20425260cacac559d44ecc",
+        "src/cleverly/utils/text.py": "0f49de63022583e6d247b8c77714c3386246fae0db0eb157cc1c2ce2a19df2f8",
+        "src/cleverly/validation/__init__.py": "d535f2e33725e218b4313307abb34bc95c379f13dc92cfcee6883c9776847e04",
+        "src/cleverly/validation/_band_placebo.py": "928a808b1f0747732d8e1527c863159db6582b15b4c1c938df129703684e6c57",
+        "src/cleverly/validation/_failures.py": "dd7c9b2b7ee22577b2b48b1d8df90b342bf6ec3c81a4e1471dfdaeda203ceb79",
+        "src/cleverly/validation/_interpretation.py": "6097004d293d9a15473f1ce510000e72e47345ba2288edcb6d7e6e4102ba84a3",
+        "src/cleverly/validation/_longitudinal_plasmode.py": "95141f4193818df0cfc5e94af9ce0f6eb6b2468f84a147b354962732abd53859",
+        "src/cleverly/validation/_longitudinal_summary.py": "49753e61534e78874accc2eb1ad3cecb0d7794c553892d3cf22006a0057bf842",
+        "src/cleverly/validation/_markov_placebo.py": "cc5244a03c037ab7691eea158e0bfab9d160b722b7f55816479b99d38049a95b",
+        "src/cleverly/validation/_nuisance_summary.py": "b2242c4b468ec95eb110635c467848d74e08418456bfa4636c13f4519526e562",
+        "src/cleverly/validation/_point_generated.py": "48371c30887ad4c863858d24ba13e65df4bd7ca428c6dd4ada37f65934aba70d",
+        "src/cleverly/validation/_readings.py": "732f75c0287cced7c1230d1fc5721642b2714b38ad210cc24ef336b5885b78b2",
+        "src/cleverly/validation/_refute_summary.py": "67dab436ee7aa5ce1e892cc086199becb5b71dff60843776afbc8d47424641c4",
+        "src/cleverly/validation/_score_summary.py": "53dfe896ebcd439eba3a4b1d205a05949d0eb812b8cf469a9acd225a9612ee60",
+        "src/cleverly/validation/_seeds.py": "7a006b6a2547307de123e2f3add56eaeb979a431d6108bce06ab3a26dbfb9993",
+        "src/cleverly/validation/_structural_refute.py": "6d6a3848b485919d32f44a7aab72c5336b2d195c984c8afa8a68f23c38766423",
+        "src/cleverly/validation/drtmle.py": "18880517b1f9a9b9bbc01a94fb7985c891cc91400d6fd06bd3a0e32ddf036f28",
+        "src/cleverly/validation/longitudinal.py": "b3ad7daa99201183114635e6fa5b38c9275f8b919e847d0934995fbbed391321",
+        "src/cleverly/validation/nuisance.py": "3f4c8d5cbadedd337f66664b277395e91bd86531f8a5e1e13bb87964f5cdb46a",
+        "src/cleverly/validation/outcome_processes.py": "355ff5923953f5d9c0ec0cd015ac4b067e41e21fc4801e5f87b80fe6c500f8f7",
+        "src/cleverly/validation/refute.py": "be3cbc18c5fd816d63d4e7da95dfb264ebacf1e3bc2250ad3605c6d480c66300",
+        "src/cleverly/validation/score.py": "9b7b115773a7ee465959050967ffc1a553d4e25117555d4f052d86af884909b6",
+        "src/cleverly/validation/simulation.py": "711d6100efb9bdcf72c9b67bfbf92a66075035853541273d833d8c0aeca4397a",
+        "src/cleverly/variable_importance.py": "1383c9e84b1f04d5a0ccea37b880b489e99661e29c653bb8bf73d4cd805b03e6",
+        "tests/studies/evidence/band_rerun.py": "1d14c45a64da148ae0a99d43b7c362282028e2e8bb2e2d9cc4440476689db25f"
+      },
+      "subject": {
+        "cleverly_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+        "cleverly_version": "0.2.3",
+        "cleverly_worktree_clean": true,
+        "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22",
+        "joblib": "1.6.0",
+        "numpy": "2.5.4",
+        "pandas": "3.1.1",
+        "python": "3.13.18",
+        "scikit_learn": "1.9.1",
+        "scipy": "1.18.1"
+      }
     }
   },
   "configuration": {
-    "replicates": 1600,
+    "band_cells": "the interval_calibration fits declare simultaneous=True with the engine's default 2000 rademacher draws seeded by random_state=0, which leaves every pointwise result unchanged and attaches the band over all five reported parameters",
+    "construction": "ordinary",
+    "cross_fit": false,
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "horizon_mode": "terminal_only",
+    "margins": {
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "calibration_excess_noninferiority_margin": 0.05,
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "confidence_level": 0.99,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "standardized_bias_margin": 0.25,
+      "type_i_margin": 0.05
+    },
     "n": 2000,
-    "seed": 20260822,
+    "outcome_kind": "end_of_study",
     "publication_policy": "gated",
+    "q_formulas": [
+      "Q.kplus1 ~ W1 + W2",
+      "Q.kplus1 ~ W1 + W2 + L2"
+    ],
+    "r_survival_outcome": false,
+    "regimens": [
+      "never",
+      "always",
+      "treat then continue if l2 positive"
+    ],
+    "replicates": 1600,
     "scenarios": {
       "censored_end_of_study": [
         "ey_regimen[never]",
@@ -36,59 +1581,53 @@
         "ate_regimen[treat then continue if l2 positive vs never]"
       ]
     },
-    "construction": "ordinary",
-    "outcome_kind": "end_of_study",
-    "horizon_mode": "terminal_only",
-    "r_survival_outcome": false,
-    "cross_fit": false,
+    "seed": 20260822,
     "simultaneous_intervals": false,
-    "band_cells": "the interval_calibration fits declare simultaneous=True with the engine's default 2000 rademacher draws seeded by random_state=0, which leaves every pointwise result unchanged and attaches the band over all five reported parameters",
-    "variance_method": "ic",
     "stratify": true,
-    "g_bounds": [
-      1e-08,
-      1.0
-    ],
-    "regimens": [
-      "never",
-      "always",
-      "treat then continue if l2 positive"
-    ],
-    "q_formulas": [
-      "Q.kplus1 ~ W1 + W2",
-      "Q.kplus1 ~ W1 + W2 + L2"
-    ],
-    "margins": {
-      "confidence_level": 0.99,
-      "alpha": 0.05,
-      "bootstrap_replicates": 10000,
-      "standardized_bias_margin": 0.25,
-      "coverage_floor": 0.9,
-      "over_coverage_ceiling": 0.99,
-      "se_ratio_sanity_band": [
-        0.8,
-        1.2
-      ],
-      "calibration_se_ratio_band": [
-        0.93,
-        1.07
-      ],
-      "calibration_coverage_band": [
-        0.92,
-        0.98
-      ],
-      "type_i_margin": 0.05,
-      "paired_difference_margin_sd": 0.15,
-      "rmse_ratio_noninferiority_margin": 1.1,
-      "coverage_difference_noninferiority_margin": -0.025,
-      "calibration_excess_noninferiority_margin": 0.05
+    "variance_method": "ic"
+  },
+  "generated_with": {
+    "reference": {
+      "implementation": "ltmle",
+      "ltmle_source_commit": "338c029dae9692ef20714125773da7037688993b",
+      "ltmle_tarball_sha256": "fb31d0dd6ab81687b81f3279b414c21e91c655e10aac12f73fc6723efd848aad",
+      "ltmle_version": "1.3-0",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+    },
+    "subject": {
+      "cleverly_commit": "c283b55d88cc65948f9f9e1eb92fa6e8a2c55042",
+      "cleverly_version": "0.1.2",
+      "cleverly_worktree_clean": false,
+      "implementation": "cleverly",
+      "numpy": "2.5.3",
+      "pandas": "3.0.6",
+      "python": "3.13.7",
+      "scikit_learn": "1.9.1",
+      "scipy": "1.18.1"
     }
   },
+  "generation_mode": "targeted_band_rerun",
+  "reference_sha256": {
+    "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
+    "tests/canonical/ltmle/generate_reference.R": "e0af7e8bc867c4db5558be65ee452ce0d90e1e123fead6e45fef9562c1f74743",
+    "tests/canonical/ltmle/run_study.R": "4cec49c5a875aa06fbd5203aca63c61c843d2fdcf1b507d518fcabec63346b41",
+    "tests/canonical/ltmle_regimen_adapter.R": "d0edd452d315cb6b3c19e4c1ef4794a618031d6f2a9a3f13ec5a7b08b45362c6",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "schema_version": 2,
+  "sha256": {
+    "equivalence.csv": "4c2df4a90ea0285b4205ba90dd757dabd1f195d89b8afe1f0eacc1ea7a2efc5d",
+    "performance-tests.csv": "94cd077727ffdde1c7647f86647760a3ec1a125b0bcd5153649277fc2492c9a8",
+    "properties.csv": "6001d8f68bc39c565c831eb1fe8305897feefa9e14c989b61b8bbcd7f5833ee9",
+    "property-replicates.parquet": "2f2c7712c617362f48acb397eb56bfb3f4e9cc83c567420f5e96bcd7cfb13926",
+    "replicates.parquet": "e3a0ae1ad95567d7e3855c0f6c7a4136867dc541ea72d0b9af647610dc427cf9",
+    "summary.csv": "7ec0defc754c3e89a0c5d0611be8379a0d3991efcc1eb29b29fc9bfd42df9d77"
+  },
+  "slug": "canonical-ltmle",
+  "study": "ordinary end-of-study longitudinal TMLE",
   "study_module_sha256": {
-    "tests/studies/canonical_ltmle.py": "db44a0fabb57fc19f37e94b9229f1f425de28745d6b109d4d1600eb60d0678f1",
-    "tests/studies/ltmle_properties.py": "7972ef77042837eb5939bd9e7ff0526e1c5c909732cfd17c27e4748fc81ddcca",
     "tests/discrete_law_longitudinal.py": "acc9eaaf056050dae69e7bdbe203797e0dc6fe2502423c15369f69dbcc41d59c",
-    "tests/studies/fractional_glm.py": "5570ff1756acad859e627be9d155e1b43f789ffb8626ac3c53a049bb0662488e",
+    "tests/studies/canonical_ltmle.py": "db44a0fabb57fc19f37e94b9229f1f425de28745d6b109d4d1600eb60d0678f1",
     "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
@@ -96,21 +1635,8 @@
     "tests/studies/evidence/property_verdicts.py": "6bddb3468d8135bc663df0d92fc52aadea539efdee0cd1ed84ef0e3e12658076",
     "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
     "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
-    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
-  },
-  "reference_sha256": {
-    "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
-    "tests/canonical/ltmle/run_study.R": "4cec49c5a875aa06fbd5203aca63c61c843d2fdcf1b507d518fcabec63346b41",
-    "tests/canonical/ltmle/generate_reference.R": "e0af7e8bc867c4db5558be65ee452ce0d90e1e123fead6e45fef9562c1f74743",
-    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
-    "tests/canonical/ltmle_regimen_adapter.R": "d0edd452d315cb6b3c19e4c1ef4794a618031d6f2a9a3f13ec5a7b08b45362c6"
-  },
-  "sha256": {
-    "replicates.parquet": "e3a0ae1ad95567d7e3855c0f6c7a4136867dc541ea72d0b9af647610dc427cf9",
-    "summary.csv": "7ec0defc754c3e89a0c5d0611be8379a0d3991efcc1eb29b29fc9bfd42df9d77",
-    "equivalence.csv": "4c2df4a90ea0285b4205ba90dd757dabd1f195d89b8afe1f0eacc1ea7a2efc5d",
-    "performance-tests.csv": "94cd077727ffdde1c7647f86647760a3ec1a125b0bcd5153649277fc2492c9a8",
-    "property-replicates.parquet": "d01b96487f520d3916596edcbda548df24080c931421ab0076eb18b62520354d",
-    "properties.csv": "7485d887b9c2793d096d50bdfcf708d7708c1aaf42a53f496e704d329d46a0df"
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15",
+    "tests/studies/fractional_glm.py": "5570ff1756acad859e627be9d155e1b43f789ffb8626ac3c53a049bb0662488e",
+    "tests/studies/ltmle_properties.py": "7972ef77042837eb5939bd9e7ff0526e1c5c909732cfd17c27e4748fc81ddcca"
   }
 }

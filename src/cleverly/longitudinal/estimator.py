@@ -150,6 +150,9 @@ from ..inference.influence import (
     with_precedent_status,
 )
 from ..inference.multiplier import (
+    DEFAULT_BAND_SCALE,
+    DEFAULT_KIND,
+    DEFAULT_N_REPLICATES,
     SimultaneousBands,
     median_bands,
     out_of_range,
@@ -4366,9 +4369,9 @@ class _SequentialEstimator:
         q_bounds: tuple[float, float] | None = None,
         alpha_sig: float = 0.05,
         simultaneous: bool = True,
-        n_multiplier: int = 2000,
-        multiplier_kind: str = "rademacher",
-        band_scale: str = "identity",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: str = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -6342,7 +6345,7 @@ class _SequentialEstimator:
                 classification,
                 status,
                 (estimate.support for estimate in estimates.values()),
-                options=(self.multiplier_kind, getattr(self, "band_scale", "identity")),
+                options=(self.multiplier_kind, self.band_scale),
                 draws=int(self.n_multiplier),
             ),
         )
@@ -6843,11 +6846,11 @@ class LTMLE(_SequentialEstimator):
         correlated parameters, which is what the bands are for; see
         :mod:`cleverly.inference.multiplier`.  A fit whose inference status supplies no
         inference builds no band, and :meth:`LongitudinalResult.summary` says so.
-    n_multiplier : int
+    n_multiplier : int, default=10_000
         The number of multiplier draws behind each band.
-    multiplier_kind : {"rademacher", "mammen", "normal"}
+    multiplier_kind : {"rademacher", "mammen", "normal"}, default="mammen"
         The distribution of the multiplier draws.
-    band_scale : {"logit", "identity"}
+    band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
@@ -7021,9 +7024,9 @@ class LTMLE(_SequentialEstimator):
         alpha: float = 0.9995,
         alpha_sig: float = 0.05,
         simultaneous: bool = True,
-        n_multiplier: int = 2000,
-        multiplier_kind: str = "rademacher",
-        band_scale: str = "identity",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: str = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
         max_iter: int = 20,
         tol: float = 1e-10,
         random_state: int | None = None,
@@ -7201,11 +7204,11 @@ class SDR(_SequentialEstimator):
         Significance level for confidence intervals.
     simultaneous : bool
         Whether to report simultaneous confidence bands, as for :class:`LTMLE`.
-    n_multiplier : int
+    n_multiplier : int, default=10_000
         The number of multiplier draws behind each band.
-    multiplier_kind : {"rademacher", "mammen", "normal"}
+    multiplier_kind : {"rademacher", "mammen", "normal"}, default="mammen"
         The distribution of the multiplier draws.
-    band_scale : {"logit", "identity"}
+    band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
@@ -7294,9 +7297,9 @@ class SDR(_SequentialEstimator):
         q_bounds: tuple[float, float] | None = None,
         alpha_sig: float = 0.05,
         simultaneous: bool = True,
-        n_multiplier: int = 2000,
-        multiplier_kind: str = "rademacher",
-        band_scale: str = "identity",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: str = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7487,11 +7490,11 @@ class IPSI(_SequentialEstimator):
     simultaneous : bool
         Whether to report simultaneous confidence bands over the plans and horizons.  The
         band covers the declared plans only, not a continuum of :math:`\delta`.
-    n_multiplier : int
+    n_multiplier : int, default=10_000
         The number of multiplier draws behind each band.
-    multiplier_kind : {"rademacher", "mammen", "normal"}
+    multiplier_kind : {"rademacher", "mammen", "normal"}, default="mammen"
         The distribution of the multiplier draws.
-    band_scale : {"logit", "identity"}
+    band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
@@ -7571,9 +7574,9 @@ class IPSI(_SequentialEstimator):
         q_bounds: tuple[float, float] | None = None,
         alpha_sig: float = 0.05,
         simultaneous: bool = True,
-        n_multiplier: int = 2000,
-        multiplier_kind: str = "rademacher",
-        band_scale: str = "identity",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: str = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7813,9 +7816,9 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
         q_bounds: tuple[float, float] | None = None,
         alpha_sig: float = 0.05,
         simultaneous: bool = True,
-        n_multiplier: int = 2000,
-        multiplier_kind: str = "rademacher",
-        band_scale: str = "identity",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: str = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7953,11 +7956,11 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
         Significance level for confidence intervals.
     simultaneous : bool
         Whether to report simultaneous confidence bands, as for :class:`LTMLE`.
-    n_multiplier : int
+    n_multiplier : int, default=10_000
         The number of multiplier draws behind each band.
-    multiplier_kind : {"rademacher", "mammen", "normal"}
+    multiplier_kind : {"rademacher", "mammen", "normal"}, default="mammen"
         The distribution of the multiplier draws.
-    band_scale : {"logit", "identity"}
+    band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
@@ -8173,11 +8176,11 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
         Significance level for confidence intervals.
     simultaneous : bool
         Whether to report simultaneous confidence bands, as for :class:`LTMLE`.
-    n_multiplier : int
+    n_multiplier : int, default=10_000
         The number of multiplier draws behind each band.
-    multiplier_kind : {"rademacher", "mammen", "normal"}
+    multiplier_kind : {"rademacher", "mammen", "normal"}, default="mammen"
         The distribution of the multiplier draws.
-    band_scale : {"logit", "identity"}
+    band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).

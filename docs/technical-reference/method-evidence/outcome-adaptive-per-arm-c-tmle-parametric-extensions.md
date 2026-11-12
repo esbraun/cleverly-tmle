@@ -169,12 +169,12 @@ probability of 0.9844. The primary phase pilot passed all 11 rows at 1,600 repli
 | `interval_calibration` | `weighted_crossfit__ey0__corrected` | positive | the cross-fitted stacked curve on the two-arm law under the known weight, five folds: arm-0 mean | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9435 to 0.9541, SE ratio 0.9892 to 1.0231 | pass |
 | `interval_calibration` | `weighted_crossfit__ey1__corrected` | positive | the cross-fitted stacked curve on the two-arm law under the known weight, five folds: arm-1 mean | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9479 to 0.9581, SE ratio 0.9856 to 1.0195 | pass |
 | `simultaneous_coverage` | `binary_population__pointwise_joint_control` | control | the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8237 to 0.8419 | pass |
-| `simultaneous_coverage` | `binary_population__shipped_curve_band_control` | control | the max-t band built from the shipped adaptive-propensity curves of the same estimates | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8597 to 0.8762 | pass |
-| `simultaneous_coverage` | `binary_population__simultaneous_band` | positive | the max-t multiplier band over the declared set of stacked estimates, from the same-row stacked influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9365 to 0.9479 | pass |
+| `simultaneous_coverage` | `binary_population__shipped_curve_band_control` | control | the max-t band built from the shipped adaptive-propensity curves of the same estimates | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8623 to 0.8787 | pass |
+| `simultaneous_coverage` | `binary_population__simultaneous_band` | positive | the max-t multiplier band over the declared set of stacked estimates, from the same-row stacked influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9380 to 0.9493 | pass |
 | `simultaneous_coverage` | `three_arm__pointwise_joint_control` | control | the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8102 to 0.8219 | pass |
-| `simultaneous_coverage` | `three_arm__shipped_curve_band_control` | control | the max-t band built from the shipped adaptive-propensity curves of the same estimates | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8465 to 0.8573 | pass |
-| `simultaneous_coverage` | `three_arm__simultaneous_band` | positive | the max-t multiplier band over the declared set of stacked estimates, from the same-row stacked influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9403 to 0.9473 | pass |
-| `simultaneous_coverage` | `three_arm_crossfit__simultaneous_band` | positive | the max-t multiplier band over the declared set of stacked estimates, from the same-row stacked influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9412 to 0.9498 | pass |
+| `simultaneous_coverage` | `three_arm__shipped_curve_band_control` | control | the max-t band built from the shipped adaptive-propensity curves of the same estimates | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8526 to 0.8632 | pass |
+| `simultaneous_coverage` | `three_arm__simultaneous_band` | positive | the max-t multiplier band over the declared set of stacked estimates, from the same-row stacked influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9451 to 0.9518 | pass |
+| `simultaneous_coverage` | `three_arm_crossfit__simultaneous_band` | positive | the max-t multiplier band over the declared set of stacked estimates, from the same-row stacked influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9466 to 0.9548 | pass |
 | `type_i_error` | `three_arm_null__ate_0_vs_1` | positive | the three-arm law whose arms share one outcome index, so every contrast is zero: ATE, arm 0 versus arm 1 | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0563, 0.0424 to 0.0728 | pass |
 | `type_i_error` | `three_arm_null__ate_2_vs_1` | positive | the three-arm law whose arms share one outcome index, so every contrast is zero: ATE, arm 2 versus arm 1 | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0612, 0.0468 to 0.0784 | pass |
 <!-- /generated -->
@@ -358,16 +358,16 @@ the committed results and checked at the precision printed.
 | `properties[interval_calibration/three_arm__ey_1__shipped_curve__shrunken_se_control]:se_ratio_ci_upper` | 0.7868 | its 99% upper endpoint |
 | `properties[simultaneous_coverage/three_arm__pointwise_joint_control]:coverage` | 0.8161 | joint coverage, pointwise control, three arms |
 | `properties[simultaneous_coverage/three_arm__pointwise_joint_control]:coverage_ci_upper` | 0.8219 | its 99% upper endpoint |
-| `properties[simultaneous_coverage/three_arm__shipped_curve_band_control]:coverage` | 0.8520 | joint coverage, shipped band control, three arms |
-| `properties[simultaneous_coverage/three_arm__shipped_curve_band_control]:coverage_ci_upper` | 0.8573 | its 99% upper endpoint |
+| `properties[simultaneous_coverage/three_arm__shipped_curve_band_control]:coverage` | 0.8580 | joint coverage, shipped band control, three arms |
+| `properties[simultaneous_coverage/three_arm__shipped_curve_band_control]:coverage_ci_upper` | 0.8632 | its 99% upper endpoint |
 | `properties[interval_calibration/three_arm_shared__ate_0_vs_1__cross_term_dropped__inflated_se_control]:se_ratio` | 1.1464 | SE ratio, cross-term control |
 | `properties[interval_calibration/three_arm_shared__ate_0_vs_1__cross_term_dropped__inflated_se_control]:se_ratio_ci_lower` | 1.1287 | its 99% lower endpoint |
 | `properties[interval_calibration/binary_population__par__shipped_curve__shrunken_se_control]:se_ratio` | 0.7677 | SE ratio, shipped-curve control, `par` |
 | `properties[interval_calibration/binary_population__par__shipped_curve__shrunken_se_control]:se_ratio_ci_upper` | 0.7810 | its 99% upper endpoint |
 | `properties[simultaneous_coverage/binary_population__pointwise_joint_control]:coverage` | 0.8329 | joint coverage, pointwise control, population targets |
 | `properties[simultaneous_coverage/binary_population__pointwise_joint_control]:coverage_ci_upper` | 0.8419 | its 99% upper endpoint |
-| `properties[simultaneous_coverage/binary_population__shipped_curve_band_control]:coverage` | 0.8681 | joint coverage, shipped band control, population targets |
-| `properties[simultaneous_coverage/binary_population__shipped_curve_band_control]:coverage_ci_upper` | 0.8762 | its 99% upper endpoint |
+| `properties[simultaneous_coverage/binary_population__shipped_curve_band_control]:coverage` | 0.8706 | joint coverage, shipped band control, population targets |
+| `properties[simultaneous_coverage/binary_population__shipped_curve_band_control]:coverage_ci_upper` | 0.8787 | its 99% upper endpoint |
 | `properties[interval_calibration/three_arm_crossfit__ey_1__shipped_curve__shrunken_se_control]:se_ratio` | 0.7914 | SE ratio, shipped-curve control, cross-fitted |
 | `properties[interval_calibration/three_arm_crossfit__ey_1__shipped_curve__shrunken_se_control]:se_ratio_ci_upper` | 0.8021 | its 99% upper endpoint |
 | `properties[interval_calibration/weighted__ey0__shipped_curve__shrunken_se_control]:se_ratio` | 0.8188 | SE ratio, shipped-curve control, weighted |
@@ -379,9 +379,9 @@ the committed results and checked at the precision printed.
 | `properties[generated_design/three_arm_active__estimated__ate_1_vs_0]:se_ratio_deficit_upper` | -0.0102 | paired SE-ratio deficit, contrast 1 versus 0, upper endpoint |
 | `properties[generated_design/three_arm_active__estimated__ate_2_vs_0]:se_ratio_deficit_lower` | -0.0203 | paired SE-ratio deficit, contrast 2 versus 0, lower endpoint |
 | `properties[generated_design/three_arm_active__estimated__ate_2_vs_0]:se_ratio_deficit_upper` | -0.0116 | paired SE-ratio deficit, contrast 2 versus 0, upper endpoint |
-| `properties[simultaneous_coverage/three_arm__simultaneous_band]:coverage` | 0.9438 | joint coverage of the band, three arms, in sample |
-| `properties[simultaneous_coverage/three_arm_crossfit__simultaneous_band]:coverage` | 0.9456 | joint coverage of the band, three arms, cross-fitted |
-| `properties[simultaneous_coverage/binary_population__simultaneous_band]:coverage` | 0.9424 | joint coverage of the band, population targets |
+| `properties[simultaneous_coverage/three_arm__simultaneous_band]:coverage` | 0.9486 | joint coverage of the band, three arms, in sample |
+| `properties[simultaneous_coverage/three_arm_crossfit__simultaneous_band]:coverage` | 0.9508 | joint coverage of the band, three arms, cross-fitted |
+| `properties[simultaneous_coverage/binary_population__simultaneous_band]:coverage` | 0.9438 | joint coverage of the band, population targets |
 | `properties[type_i_error/three_arm_null__ate_0_vs_1]:rejection_rate` | 0.0563 | rejection rate, arm 0 against arm 1 |
 | `properties[type_i_error/three_arm_null__ate_0_vs_1]:rejection_ci_upper` | 0.0728 | its 99% upper endpoint |
 | `properties[type_i_error/three_arm_null__ate_2_vs_1]:rejection_rate` | 0.0612 | rejection rate, arm 2 against arm 1 |

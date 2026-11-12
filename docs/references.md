@@ -456,8 +456,8 @@ previous reader had is not a citation; a page number is.
 
   No reviewed source states the K-arm contrast curve. Each contrast curve is a standard consequence
   of the joint expansion and the Appendix A delta-method form, and the papers do not state it. The
-  default simultaneous band uses Rademacher multiplier draws on the centered curves of the same rows
-  (`src/cleverly/methods.py:329`). Its validity follows from the joint expansion and a conditional
+  default simultaneous band uses Mammen multiplier draws on the centered curves of the same rows
+  (`src/cleverly/inference/multiplier.py`). Its validity follows from the joint expansion and a conditional
   multiplier central limit theorem for a fixed number of estimands. That step is also a standard
   consequence that the papers do not state. The registered joint-coverage cells that measure the
   band are listed under [simultaneous bands](technical-reference/inference.md#simultaneous-bands).
@@ -485,7 +485,7 @@ previous reader had is not a citation; a page number is.
   | bounded continuous outcome with a fixed `q_bounds`; `ey`, `ey0`, `ey1`, `ate` | source-supported | Zheng and van der Laan, Theorem 2 with the `(W, T_a, U)` reduction; their Theorem 4 and Gruber and van der Laan (2010), Section 2 and Lemma 1, for the transform |
   | continuous outcome with `q_bounds=None` | no reviewed interval result | the scale depends on held-out outcomes, as the next paragraph states; the [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules) require prespecified bounds |
   | three or more arms, with a binary outcome or a bounded continuous outcome with a fixed `q_bounds`; `ey`, and `ate` against the reference arm; `rr` and `or` against the reference arm for a binary outcome | source-supported | the three-arm table above, with the contrast curve as a standard consequence; the planned R comparator runs the population-mean path once for each arm |
-  | simultaneous bands over the reported estimands, with the centered rule | source-supported via the vector expansion | Zheng and van der Laan, Theorem 2, give a joint expansion of the vector with curve `D`, so the estimates are jointly asymptotically normal; the default Rademacher multiplier band then follows from a conditional multiplier central limit theorem for a fixed number of estimands, a standard consequence that the paper does not state |
+  | simultaneous bands over the reported estimands, with the centered rule | source-supported via the vector expansion | Zheng and van der Laan, Theorem 2, give a joint expansion of the vector with curve `D`, so the estimates are jointly asymptotically normal; the default multiplier band then follows from a conditional multiplier central limit theorem for a fixed number of estimands, a standard consequence that the paper does not state |
   | ATT or ATC | no source read | the clever covariate carries an empirical arm share, so the Levy overlap statement does not cover it |
   | more than one repeat, or fold-specific targeting | no source read | no direct interval result |
   | fold-evaluated construction | source-supported, separate estimator | Zheng and van der Laan, Sections 2 and 2.1 |

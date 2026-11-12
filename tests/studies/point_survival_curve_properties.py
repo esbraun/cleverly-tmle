@@ -59,13 +59,20 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from functools import partial
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from cleverly.inference.multiplier import simultaneous_bands
+from cleverly.inference.multiplier import (
+    DEFAULT_BAND_SCALE,
+    DEFAULT_KIND,
+    DEFAULT_N_REPLICATES,
+    out_of_range,
+    simultaneous_bands,
+)
 from cleverly.interventions import Stochastic
 from cleverly.longitudinal import LTMLE
 from cleverly.longitudinal.regimen import DynamicRegimen
@@ -137,8 +144,14 @@ CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 #: arm's empirical standard deviations.  The plug-in contrast is zero in every sample.
 TARGETING_DISPLACEMENT = 0.25
 CONFIGURATIONS = ("both_correct", "outcome_correct", "mechanism_correct", "both_wrong")
-#: The shipped band's settings, which the curve bands repeat.
-MULTIPLIER = {"n_replicates": 2000, "kind": "rademacher", "random_state": 0}
+#: The shipped band's settings, which the curve bands repeat: the library's default band, at
+#: the seed every fit of the study passes.
+MULTIPLIER = {
+    "n_replicates": DEFAULT_N_REPLICATES,
+    "kind": DEFAULT_KIND,
+    "band_scale": DEFAULT_BAND_SCALE,
+    "random_state": 0,
+}
 CURVE_ARMS = ("arm1", "arm0")
 JOINT_LABEL = "all_reported"
 ISOTONIC_DIAGNOSTIC = "isotonic_t2__moved"
@@ -519,15 +532,34 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 
 
 class _Family:
-    """One fit's estimates with a band over a subfamily, as :func:`joint_coverage_rows` reads."""
+    """One fit's estimates with a band over a subfamily, as :func:`joint_coverage_rows` reads.
+
+    A subfamily with an estimate outside its range has no logit band, as a fit skips its own,
+    and :func:`joint_coverage_rows` counts it as not covered.
+    """
 
     def __init__(self, result: Any, names: Sequence[str], cluster: Any = None) -> None:
         self._result = result
-        self.simultaneous = simultaneous_bands(
-            {name: result[name] for name in names},
-            alpha=STUDY.margins.alpha,
-            cluster=cluster,
-            **MULTIPLIER,
+        # The band's own settings, which the refused band's critical value reads.
+        self.estimator = SimpleNamespace(
+            alpha_sig=STUDY.margins.alpha,
+            n_multiplier=MULTIPLIER["n_replicates"],
+            multiplier_kind=MULTIPLIER["kind"],
+            band_scale=MULTIPLIER["band_scale"],
+            random_state=MULTIPLIER["random_state"],
+        )
+        self.data = SimpleNamespace(cluster=cluster)
+        family = {name: result[name] for name in names}
+        self.estimates = family
+        self.simultaneous = (
+            None
+            if out_of_range(family, str(MULTIPLIER["band_scale"]))
+            else simultaneous_bands(
+                family,
+                alpha=STUDY.margins.alpha,
+                cluster=cluster,
+                **MULTIPLIER,  # type: ignore[arg-type]
+            )
         )
 
     def __getitem__(self, name: str) -> Any:

@@ -63,6 +63,7 @@ from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._typing import BoolArray, FloatArray, Learner
 from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, ConvergenceWarning, LongitudinalError
+from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
 from ..learners.crossfit import Folds, make_folds
 from ..learners.glm import _active_columns
 from ..utils.bounds import bound
@@ -1498,9 +1499,9 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         survival_model: str = "hazard",
         targeting: str = "iterative",
         simultaneous: bool = False,
-        n_multiplier: int = 2000,
-        multiplier_kind: str = "rademacher",
-        band_scale: str = "identity",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: str = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
         repeats: int = 1,
         n_bootstrap: int = 0,
         bootstrap_resampling: Any = "auto",
@@ -1650,9 +1651,9 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             return LOSS_REFUSAL
         if (
             self.simultaneous
-            or self.n_multiplier != 2000
-            or self.multiplier_kind != "rademacher"
-            or self.band_scale != "identity"
+            or self.n_multiplier != DEFAULT_N_REPLICATES
+            or self.multiplier_kind != DEFAULT_KIND
+            or self.band_scale != DEFAULT_BAND_SCALE
         ):
             return BAND_REFUSAL
         if (

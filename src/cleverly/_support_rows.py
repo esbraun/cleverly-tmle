@@ -18,21 +18,25 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Final
 
-from ._support import DEFAULT_BAND_OPTION, KEY_AXES, BandOption, Kind, SupportKey, SupportRow
+from ._support import (
+    DEFAULT_BAND_OPTION,
+    KEY_AXES,
+    Kind,
+    SupportKey,
+    SupportRow,
+)
 from .learners.glm import GLM
 
 __all__ = [
     "BAND_CELLS",
-    "BAND_OPTIONS",
     "BAND_OPTION_DRAWS",
-    "BAND_OPTION_SHORTFALLS",
+    "DEFAULT_BAND_DRAWS",
     "EXEMPT_STUDIES",
     "FAMILY_THEORY",
     "LONGITUDINAL_ROWS",
     "MEASURED_LIMITS",
     "OPTION_ALLOWLIST",
     "POINT_ROWS",
-    "SDR_MEASURED_BAND_OPTION",
     "SHORTFALLS",
     "UNMAPPED_BAND_CELLS",
     "TheoryAnchor",
@@ -2447,7 +2451,6 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
             "empirical efficiency ratio 0.9994 to 1.0751, reported efficiency ratio 0.9980 to"
             " 1.0008"
         ),
-        "F4-calibration-draws: joint coverage 0.9196 to 0.9462",
     ),
     "D10.outcome": (
         "composite-high-arm: bias -0.0054 to 0.0013, coverage 0.9225, SE ratio 0.9342",
@@ -2483,7 +2486,6 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
             " 1.0442"
         ),
     ),
-    "G05.cross_fitted": ("band-finite-sample: joint coverage 0.9191 to 0.9458",),
     "G10.continuous": (
         (
             "mtp-longitudinal-limits: coverage 0.9289 to 0.9560, SE ratio 0.9432 to 1.0214, "
@@ -2492,7 +2494,6 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
         ),
         "mtp-pricing-learned-density: coverage 0.9530 to 0.9747, SE ratio 1.0265 to 1.1162",
     ),
-    "G11": ("band-finite-sample: joint coverage 0.9140 to 0.9283",),
     "G14.survival": (
         (
             "X13-finite-sample: coverage 0.9421 to 0.9689, SE ratio 0.9807 to 1.0762, "
@@ -2530,9 +2531,8 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
         ),
     ),
     "T02.binary": (
-        "band-finite-sample: joint coverage 0.9101 to 0.9382",
-        "band-finite-sample: joint coverage 0.9173 to 0.9443",
-        "band-finite-sample: joint coverage 0.9015 to 0.9309",
+        "band-finite-sample: joint coverage 0.9191 to 0.9458",
+        "band-finite-sample: joint coverage 0.9119 to 0.9397",
     ),
     "T13": (
         "strata-boundary-mean: bias -0.0027 to 0.000813, coverage 0.9170, SE ratio 0.9850",
@@ -2592,45 +2592,30 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
 }
 
 
-#: The band configuration the re-declared ``longitudinal-sdr`` band cell measures
-#: (band-finite-sample plan, sections 4.1 and 7): the Mammen multiplier, with each probability
-#: level and difference banded on its logit scale, at 10,000 draws.
-SDR_MEASURED_BAND_OPTION: Final[BandOption] = ("mammen", "logit")
+#: The multiplier draws a registered band cell measured unless its study pins fewer: the default
+#: ``n_multiplier`` since band-finite-sample (``tests/unit/test_band_defaults.py`` ties the two).
+DEFAULT_BAND_DRAWS: Final[int] = 10_000
 
-#: The ``(multiplier_kind, band_scale)`` pairs each row's band cells measured, for the rows that
-#: list more than :data:`~cleverly._support.DEFAULT_BAND_OPTION`. Every other row that licenses
-#: ``band`` measured the shipped default alone. A band built with an unlisted pair is
-#: experimental; the fit's pointwise estimates keep their row.
-BAND_OPTIONS: Final[Mapping[str, tuple[BandOption, ...]]] = {
-    # The six_regimens cell of longitudinal_sdr is cross-fitted, so it is this row's band cell
-    # (BAND_CELLS).
-    "G23.cross_fitted": (DEFAULT_BAND_OPTION, SDR_MEASURED_BAND_OPTION),
-}
-
-#: The multiplier draws each listed band option was measured at, as ``(row id, option) ->
-#: draws``. A band with that option and fewer draws is experimental.
-BAND_OPTION_DRAWS: Final[Mapping[tuple[str, BandOption], int]] = {
-    ("G23.cross_fitted", SDR_MEASURED_BAND_OPTION): 10_000,
-}
-
-#: The red band readings of one band option inside one row, as ``(row id, option) -> sentence``.
-#: A band built with that option reads the sentence as a reason of its experimental label.
-BAND_OPTION_SHORTFALLS: Final[Mapping[tuple[str, BandOption], str]] = {
-    ("G23.cross_fitted", DEFAULT_BAND_OPTION): (
-        "Row G23.cross_fitted measured its shipped default band (Rademacher, identity scale, "
-        "2,000 draws) in the reporting row six_regimens__shipped_band_reporting: joint coverage "
-        "0.9313 with 99% Clopper-Pearson interval 0.9255 to 0.9368, reported with no verdict "
-        "(band-finite-sample). A band with band_scale='logit', multiplier_kind='mammen' and at "
-        "least 10,000 draws is supported on this row."
-    ),
+#: The rows whose band cells measured fewer than :data:`DEFAULT_BAND_DRAWS` draws, by row id.  A
+#: band with :data:`~cleverly._support.DEFAULT_BAND_OPTION` and fewer draws than its row's count
+#: is experimental.
+#:
+#: Every row that licenses ``band`` lists :data:`~cleverly._support.DEFAULT_BAND_OPTION`, the
+#: configuration band-finite-sample Wave 2 regenerated every band cell with (Mammen, logit), and
+#: every cell :data:`BAND_CELLS` maps to such a row passes on the regenerated rows
+#: (the Wave 2 decision record).  Any other multiplier or scale reads
+#: experimental with :data:`~cleverly._support.UNMEASURED_BAND_OPTION`.
+BAND_OPTION_DRAWS: Final[Mapping[str, int]] = {
+    # multi-arm-mar-drtmle keeps N_MULTIPLIER = 1_000 (canonical_multi_arm_mar_drtmle.py, a
+    # fixed design), so its arms band cell measured the Mammen logit band at 1,000 draws.
+    "D09": 1_000,
 }
 
 
 def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
-    """Attach the shortfall, limit and band-option tables to their rows.
+    """Attach the shortfall, limit and band-draw tables to their rows.
 
-    The tables are :data:`SHORTFALLS`, :data:`MEASURED_LIMITS`, :data:`BAND_OPTIONS`,
-    :data:`BAND_OPTION_SHORTFALLS` and :data:`BAND_OPTION_DRAWS`.
+    The tables are :data:`SHORTFALLS`, :data:`MEASURED_LIMITS` and :data:`BAND_OPTION_DRAWS`.
     """
     out = []
     for row in rows:
@@ -2638,26 +2623,12 @@ def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
             (kind, text) for (row_id, kind), text in SHORTFALLS.items() if row_id == row.id
         )
         limits = tuple(dict.fromkeys((*row.limits, *MEASURED_LIMITS.get(row.id, ()))))
-        option_shortfalls = tuple(
-            (option, text)
-            for (row_id, option), text in BAND_OPTION_SHORTFALLS.items()
-            if row_id == row.id
+        draws = (
+            ((DEFAULT_BAND_OPTION, BAND_OPTION_DRAWS.get(row.id, DEFAULT_BAND_DRAWS)),)
+            if "band" in row.kinds
+            else ()
         )
-        option_draws = tuple(
-            (option, draws)
-            for (row_id, option), draws in BAND_OPTION_DRAWS.items()
-            if row_id == row.id
-        )
-        out.append(
-            replace(
-                row,
-                shortfalls=pairs,
-                limits=limits,
-                band_options=BAND_OPTIONS.get(row.id, row.band_options),
-                band_option_shortfalls=option_shortfalls,
-                band_option_draws=option_draws,
-            )
-        )
+        out.append(replace(row, shortfalls=pairs, limits=limits, band_option_draws=draws))
     return tuple(out)
 
 

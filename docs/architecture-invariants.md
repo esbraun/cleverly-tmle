@@ -282,7 +282,7 @@ node, which would remove the one status that reads a fitted quantity.
 
 Where a configuration group serves more than one engine, a default that differs between them is
 a sentinel resolved per engine, never a literal that silently picks one engine's answer for the
-other. `g_bounds="auto"` and `n_multiplier="auto"` are the two current cases. A restated engine
+other. `g_bounds="auto"` is the current case. A restated engine
 default is pinned against that engine's signature by a test, because a restatement that nothing
 compares is free to drift. *Reconsider when* the engines agree, at which point the sentinel
 should be deleted rather than kept.

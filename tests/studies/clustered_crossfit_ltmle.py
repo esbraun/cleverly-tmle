@@ -40,6 +40,11 @@ the oracle band shows. R ``lmtp`` shows the same pointwise shortfall on the same
 0.978 to 1.000). So ``band-finite-sample`` owns the cell, and no verdict, margin or budget moved.
 The re-run reused the R ``lmtp`` rows that the first run wrote, with
 ``python -m tests.canonical.lmtp_clustered_ltmle.regenerate --skip-reference``, and refit the Python and property phases. The red cell reads no R input.
+
+**The band-finite-sample rerun.** When the default band moved to the Mammen multiplier at 10,000
+draws on the logit scale, the targeted rerun re-measured the band on the committed fits
+(its Wave 2 decision record).  The cell covers 0.9392, 99% interval 0.926 to
+0.951, and passes, so it left ``band-finite-sample`` and the study has no red cell.
 """
 
 from __future__ import annotations
