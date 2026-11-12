@@ -57,6 +57,16 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
   is a defect suspect too.  The in-sample primary rows of replicates 0 to 8,399 must equal the
   previous run's within 1e-12, since the fix leaves the walk unchanged.  ``FAILURE_BOUND``
   counts fits that raise, not fits that stop short.
+
+  Read after the run (2026-11-12): the separation check refitted 102 ``cell_separated`` fits and
+  found no inward-pulling clipped row, the in-sample rows of replicates 0 to 8,399 equal the
+  previous run's within 5e-16, and no cell's separated share passed 1.5%.  Three cross-fitted
+  fits (two primary, one ``cross_fitted_sep01_death_t3`` calibration fit) stopped with
+  ``newton_stalled`` at 1.2 to 2.4 times ``tol``.  They were investigated: the remaining score
+  lies in two directions in which the Jacobian of the factor scores is singular to rounding
+  (``python -m tests.studies.separable_effects_stalls``).  Eric chose to keep the run and record
+  them in :data:`tests.studies.separable_effects.INVESTIGATED_STALLS`, which the suspect check
+  passes only while each stalls at its recorded score.
 * A replication that raises is never redrawn.  The pilot lost no fit at the declared size, so
   any recorded failure is a defect suspect.
 """

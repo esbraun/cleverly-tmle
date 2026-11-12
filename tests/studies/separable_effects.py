@@ -60,8 +60,10 @@ the exact-law truth.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from cleverly.longitudinal import LTMLE
@@ -299,20 +301,57 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
 SEPARATED_SHARE = 0.015
 UNCONVERGED_SCORE = 1e-4
 
+#: The suspects the declared run flagged, read after it and investigated (2026-11-12): each
+#: fit's ``(cell, replicate)`` and the relative score it stopped at, with
+#: ``failure="newton_stalled"``, 1.2 to 2.4 times ``tol = 1e-10``.  The finding, which
+#: ``python -m tests.studies.separable_effects_stalls`` reproduces, is :data:`STALL_FINDING`.
+#: Eric chose to keep the run and record them here rather than change the solver and rerun.
+INVESTIGATED_STALLS: Mapping[tuple[str, int], float] = MappingProxyType(
+    {
+        ("cross_fitted", 2716): 1.3930364321250592e-10,
+        ("cross_fitted", 4377): 1.2182806251151364e-10,
+        ("cross_fitted_sep01_death_t3__correctly_specified", 3264): 2.356290182224947e-10,
+    }
+)
+STALL_FINDING = (
+    "the remaining score lies in two directions in which the Jacobian of the factor scores is "
+    "singular to rounding (nearly collinear targets), not in a defect of the targeting"
+)
 
-def convergence_suspects(fits: pd.DataFrame, cross_fitted: Mapping[str, bool]) -> list[str]:
+
+def convergence_suspects(
+    fits: pd.DataFrame,
+    cross_fitted: Mapping[str, bool],
+    investigated: Mapping[tuple[str, int], float] = INVESTIGATED_STALLS,
+) -> list[str]:
     """The declared defect suspects among fits, one row per fit, grouped by ``cell``.
 
     ``cross_fitted`` maps each cell to whether its fits are cross-fitted.  An in-sample fit is a
     suspect unless it converged in the walk.  In a cross-fitted cell, a fit that stops short for
     any reason but ``cell_separated``, or above :data:`UNCONVERGED_SCORE`, is a suspect, and so
-    is a ``cell_separated`` share above :data:`SEPARATED_SHARE`.  Empty failures read back from a
+    is a ``cell_separated`` share above :data:`SEPARATED_SHARE`.  A fit listed in
+    ``investigated`` (by ``cell`` and ``replicate``) is passed only while it stops short with
+    ``newton_stalled`` at its recorded relative score; a listed fit that does anything else is a
+    suspect, so the list cannot outlive the run it describes.  Empty failures read back from a
     file as missing, so they are filled first.
     """
     found: list[str] = []
     for cell, group in fits.groupby("cell", sort=True):
         failure = group["failure"].fillna("").astype(str)
         short = group["converged"].astype(int) == 0
+        listed = pd.Series(False, index=group.index)
+        if "replicate" in group:
+            recorded = group["replicate"].map(
+                lambda r, cell=str(cell): investigated.get((cell, int(r)), np.nan)
+            )
+            listed = recorded.notna()
+            same = short & failure.eq("newton_stalled")
+            same &= np.isclose(group["relative_score"], recorded, rtol=1e-6, atol=0.0)
+            if (listed & ~same).any():
+                found.append(
+                    f"{cell}: {int((listed & ~same).sum())} investigated fits no longer stall "
+                    "as recorded"
+                )
         if not cross_fitted[str(cell)]:
             off = short | group["phase"].fillna("").astype(str).ne("walk")
             if off.any():
@@ -320,7 +359,7 @@ def convergence_suspects(fits: pd.DataFrame, cross_fitted: Mapping[str, bool]) -
                     f"{cell}: {int(off.sum())} in-sample fits left the walk or stopped short"
                 )
             continue
-        other = short & failure.ne("cell_separated")
+        other = short & failure.ne("cell_separated") & ~listed
         if other.any():
             labels = sorted(set(failure[other]))
             found.append(f"{cell}: {int(other.sum())} fits stopped short with {labels}")

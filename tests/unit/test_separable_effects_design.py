@@ -194,6 +194,26 @@ class TestTheDeclaredSuspects:
             "stalled",
         ]
 
+    def test_an_investigated_stall_passes_only_as_recorded(self) -> None:
+        """A listed fit passes while it stalls at its recorded score; a listed fit that
+        converges or stalls elsewhere is a suspect, and an unlisted stall still is one."""
+        fits = _fits("c", ["newton_stalled", "newton_stalled"] + [""] * 98)
+        fits["replicate"] = range(len(fits))
+        fits.loc[0, "relative_score"] = 1.5e-10
+        listed = {("c", 0): 1.5e-10}
+        assert study.convergence_suspects(fits, {"c": True}, {**listed, ("c", 1): 1e-5}) == []
+        assert study.convergence_suspects(fits, {"c": True}, listed) == [
+            "c: 1 fits stopped short with ['newton_stalled']"
+        ]
+        moved = {("c", 0): 1.6e-10, ("c", 1): 1e-5}
+        assert study.convergence_suspects(fits, {"c": True}, moved) == [
+            "c: 1 investigated fits no longer stall as recorded"
+        ]
+        healed = {("c", 0): 1.5e-10, ("c", 1): 1e-5, ("c", 2): 1e-10}
+        assert study.convergence_suspects(fits, {"c": True}, healed) == [
+            "c: 1 investigated fits no longer stall as recorded"
+        ]
+
     def test_the_property_check_counts_fitted_cells_only(self) -> None:
         base = "cross_fitted_sep01_death_t3__correctly_specified"
         derived = "cross_fitted_sep01_death_t3__noise_control"

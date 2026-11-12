@@ -36,7 +36,8 @@ $10^{-10}$, and warned. In 64 of them a fold's cell held no event of a cause, so
 is solved only at a hazard of zero, outside the bound set by `alpha` (`cell_separated`), at
 relative scores of at most $2.3 \times 10^{-5}$. The other two stopped at $1.2$ and
 $1.4 \times 10^{-10}$ (`newton_stalled`), with the remaining score in two directions where the
-Jacobian of the scores is singular to rounding. The study keeps every such fit, as the shipped
+Jacobian of the scores is singular to rounding (`tests/studies/separable_effects_stalls.py`
+refits them and reads this). The study keeps every such fit, as the shipped
 fit returns them, and `convergence.csv` records every fit; no in-sample fit stopped short.
 
 ## Accuracy against known truth
