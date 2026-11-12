@@ -5,13 +5,13 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-separable-ltmle",
-      "cleverly_version": "0.2.0",
-      "cleverly_commit": "b29490dc3631660d2643d9046f725c441d385404",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "31f57ebaf437e726808c360a77eac1d4026dc2b5",
       "cleverly_worktree_clean": true,
-      "python": "3.13.18",
-      "numpy": "2.5.3",
+      "python": "3.13.16",
+      "numpy": "2.5.4",
       "scipy": "1.18.1",
-      "pandas": "3.0.5",
+      "pandas": "3.1.1",
       "scikit_learn": "1.9.1",
       "joblib": "1.6.0",
       "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
@@ -19,7 +19,7 @@
     "reference": null
   },
   "configuration": {
-    "replicates": 8400,
+    "replicates": 9200,
     "n": 16000,
     "seed": 20261194,
     "resampling_seed": 2026119401,
@@ -172,11 +172,11 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/separable_effects.py": "c1e8243c47e10c4890019227f10dde28a5464631d5e8243bbf9cad2c69e17351",
-    "tests/studies/separable_effects_properties.py": "332f2156ec60bb10440c245f6c6f0095c0a88d28b3a08f2778288d447621d025",
+    "tests/studies/separable_effects.py": "1a351fc07d7711bc9913f219725063b5215946ade04e0ff1d9ca7e1f977e8e18",
+    "tests/studies/separable_effects_properties.py": "f71e2447a673c4430b6ebce7965b1c4b35d9c0cba0008eda220c16f92cc2c257",
     "tests/studies/separable_effects_law.py": "ec1c4ba9a77c865376528c522bce2a1fce4c9c2ae92a674ec5a26ce3cc4783f4",
     "tests/discrete_law_point_survival.py": "291adeeb88e0a34c768aa722966ec03a8dc0727775afed742a54159afb09f388",
-    "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
+    "tests/discrete_law_longitudinal.py": "34cd27260457f1f38e2636820cf9972b0a7cb6a83b5150be15c0391634bb6c6d",
     "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
     "tests/studies/canonical_point_survival_hazard.py": "0370b0482d3f428ab76080d9a6b312426644bcf81c155da1274407ee011e75ee",
     "tests/studies/canonical_point_survival.py": "dedd35c5ee735ee4ebf8a93acb090bf921d5890ae568ad838dc8892146f077ee",
@@ -184,20 +184,20 @@
     "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
     "tests/studies/point_survival_common.py": "62af3d7ffb412864671a6bf2d0b5eda54420a0ca98775f7c657bf5fe160dac2b",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
-    "tests/studies/evidence/performance.py": "9240d2569b567fc10e0db520a062ef6ae8e3f31814facbbe6fecc818bfccbb50",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
     "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
-    "tests/studies/evidence/property_verdicts.py": "36d494f7ca114cf955e4fcd6fe6b460a5b5f88ecf538cf2285b3dfff595bfd84",
+    "tests/studies/evidence/property_verdicts.py": "f7130e95147b06e2ab81f13704a921effb783b94a72a3e9a94050614d68f7699",
     "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.parquet": "0582954405156dd748be167abad4e6fd0e9f0af884c967045ea921c30e021e91",
-    "summary.csv": "2149be2802b2f54bfee9d044da9e2189908208b70ca7521da04470a904b2b273",
+    "replicates.parquet": "8aa18da20d9460839faa3bec1d5ac5d38917c3e5449e75a801fc8d970398ce63",
+    "summary.csv": "9f597406a9e25e7628ece0b62a9f046ee85c5ca2c522a079ec2dfb4944d281c6",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "fe6de10f36840062d97b1cb2d603726de246e11a864ac9e9881e73b9cebd7c9d",
-    "property-replicates.parquet": "f05058effdceda5e17896e6cb016135515338131bc8d0fc01b2f3db0b1738dda",
-    "properties.csv": "35f7aed4296d2c865271fc0fc4f5795af11346c9318f266332aee0adb82ea800",
-    "convergence.csv": "07e9320d30844b4c41151ca3d93048a78900b2d45e5c64325b8e15c1245c6c66"
+    "performance-tests.csv": "bfe6e8e02ed68a61298b16eaab1c59c5a1dad9bd48f962214c0396368c15edb0",
+    "property-replicates.parquet": "403defa9836e50be28f1d37856b8f728bcc04f0fd64248390ea242ba174a4942",
+    "properties.csv": "8e5062f6bc2c7ba01191d2dac5c656643b3f6d7059abe02a8fab588250b8019b",
+    "convergence.csv": "5fb1760469ec9a96fd05be293d83f8d7c4276009ff16a0005d5b92ff11629ce4"
   }
 }
