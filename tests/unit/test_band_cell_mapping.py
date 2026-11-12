@@ -11,19 +11,23 @@ The mutation controls at the end delete or redirect one entry and require a chec
 from __future__ import annotations
 
 import csv
+import json
 from collections.abc import Mapping
 from functools import cache
+from pathlib import Path
 
 import pytest
 
-from cleverly._support import SupportRow
+from cleverly._support import DEFAULT_BAND_OPTION, SupportRow
 from cleverly._support_rows import (
     BAND_CELLS,
+    BAND_OPTION_DRAWS,
+    DEFAULT_BAND_DRAWS,
     LONGITUDINAL_ROWS,
     POINT_ROWS,
     UNMAPPED_BAND_CELLS,
 )
-from tests.studies.evidence.registry import registered
+from tests.studies.evidence.registry import ROOT, registered
 
 ROWS: dict[str, SupportRow] = {row.id: row for row in (*POINT_ROWS, *LONGITUDINAL_ROWS)}
 BAND_SUFFIX = "__simultaneous_band"
@@ -141,19 +145,38 @@ class TestTheMoveRule:
         passed = {cell: True for cells in self.MAPPING.values() for cell in cells}
         assert rows_that_move(passed, self.MAPPING) == set(self.MAPPING)
 
-    def test_the_committed_verdicts_hold_back_the_rows_with_a_red_cell(self) -> None:
+    def test_the_committed_verdicts_move_every_row_and_the_rows_list_the_default(self) -> None:
+        """Wave 2 regenerated every mapped cell with the default band, and every one passes.
+
+        So every band row lists the default option alone, with no option shortfall.  A red
+        mapped cell after a regeneration fails here until its row keeps a shortfall.
+        """
         passed = {
             cell: verdict
             for directory in set(directories().values())
             for cell, verdict in positive_band_cells(directory).items()
         }
-        moved = rows_that_move(passed)
-        red = {
-            row_id
-            for row_id, cells in BAND_CELLS.items()
-            if any(not passed[cell] for cell in cells)
+        assert rows_that_move(passed) == set(BAND_CELLS)
+        for row_id in BAND_CELLS:
+            assert ROWS[row_id].band_options == (DEFAULT_BAND_OPTION,), row_id
+            assert ROWS[row_id].band_option_shortfalls == (), row_id
+
+    def test_each_row_reads_the_draws_its_cells_measured(self) -> None:
+        """1,000 draws where the study pins ``N_MULTIPLIER = 1_000``; the default elsewhere."""
+        plan = json.loads((ROOT / "tests" / "canonical" / "band-rerun-plan.json").read_text())
+        pinned = {
+            Path(entry["artifact_directory"]).name
+            for entry in plan["studies"].values()
+            if any("N_MULTIPLIER = 1_000" in pin for pin in entry["pinned_draws"])
         }
-        assert red and moved == set(BAND_CELLS) - red
+        assert pinned == {"drtmle_composite", "drtmle_mar_multi_arm"}
+        assert plan["default_band"]["n_replicates"] == DEFAULT_BAND_DRAWS
+        for row_id, cells in BAND_CELLS.items():
+            measured = min(
+                1_000 if cell.split(":", 1)[0] in pinned else DEFAULT_BAND_DRAWS for cell in cells
+            )
+            assert ROWS[row_id].band_option_draws == ((DEFAULT_BAND_OPTION, measured),), row_id
+            assert BAND_OPTION_DRAWS.get(row_id, DEFAULT_BAND_DRAWS) == measured, row_id
 
 
 class TestMutationControls:

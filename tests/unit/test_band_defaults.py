@@ -124,3 +124,13 @@ def test_the_multiplier_module_states_the_default() -> None:
     text = multiplier.__doc__ or ""
     for topic in ("Why the transform", "Why Mammen", "same on either scale", "Why no bootstrap-t"):
         assert topic in text, topic
+
+
+def test_the_support_tables_read_the_default_band() -> None:
+    """The option and draws every band row lists are the library default (band-finite-sample)."""
+    from cleverly._support import DEFAULT_BAND_OPTION
+    from cleverly._support_rows import DEFAULT_BAND_DRAWS
+    from cleverly.estimators.dose_response import DOSE_RESPONSE_BAND_DRAWS
+
+    assert DEFAULT_BAND_OPTION == (DEFAULT_KIND, DEFAULT_BAND_SCALE)
+    assert DEFAULT_BAND_DRAWS == DOSE_RESPONSE_BAND_DRAWS == DEFAULT_N_REPLICATES

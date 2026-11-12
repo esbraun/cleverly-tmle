@@ -425,7 +425,7 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "paired",
         "continuous_modified_policy/ate_policy[+0.25 vs natural course]",
     ),
-    # The arm mean near 0.94 in the smallest stratum, and the two bands that include it.
+    # The arm mean near 0.94 in the smallest stratum, and the in-sample band that includes it.
     "strata-boundary-mean": (
         *_keys(
             "canonical-stratified-tmle",
@@ -438,38 +438,22 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "property",
             "interval_calibration/v2_ey1__correctly_specified",
             "simultaneous_coverage/strata__simultaneous_band",
-            "simultaneous_coverage/crossfit_strata__simultaneous_band",
         ),
     ),
-    # Four default bands and the cluster multiplier band of the cross-fitted clustered LTMLE,
-    # which cover just under the band, read as finite-sample by
-    # ``tests/unit/test_band_shortfall_reading.py``.
-    "band-finite-sample": (
-        *_keys(
-            "clustered-cross-fitted-ltmle",
-            "property",
-            "simultaneous_coverage/clustered_regimens__simultaneous_band",
-        ),
-        *_keys(
-            "canonical-ltmle-survival",
-            "property",
-            "simultaneous_coverage/all_reported__simultaneous_band",
-        ),
-        *_keys(
-            "default-simultaneous-bands",
-            "property",
-            "simultaneous_coverage/categorical_ltmle__simultaneous_band",
-            "simultaneous_coverage/categorical_ltmle_crossfit__simultaneous_band",
-            "simultaneous_coverage/cde_z0__simultaneous_band",
-        ),
+    # Two default bands that cover just under the band on the Mammen logit band of Wave 2, read
+    # as finite-sample by ``tests/unit/test_band_shortfall_reading.py``.
+    "band-finite-sample": _keys(
+        "default-simultaneous-bands",
+        "property",
+        "simultaneous_coverage/categorical_ltmle__simultaneous_band",
+        "simultaneous_coverage/cde_z0__simultaneous_band",
     ),
-    # The calibration draws of the multi-arm missing-outcome DR-TMLE study, and the band read
-    # off the same fits.  ``tests/unit/test_band_shortfall_reading.py`` rebuilds the reading.
+    # The calibration draws of the multi-arm missing-outcome DR-TMLE study.
+    # ``tests/unit/test_band_shortfall_reading.py`` rebuilds the reading.
     "F4-calibration-draws": _keys(
         "multi-arm-mar-drtmle",
         "property",
         "interval_calibration/ate__correctly_specified",
-        "simultaneous_coverage/arms__simultaneous_band",
     ),
     # The logit-MSM slope in the smallest stratum of the stratified incremental and MSM
     # study.  ``tests/unit/test_band_shortfall_reading.py`` rebuilds the reading.

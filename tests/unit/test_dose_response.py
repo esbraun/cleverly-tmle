@@ -25,7 +25,7 @@ from cleverly.dose_response import (
     pair_name,
 )
 from cleverly.estimators.dose_response import (
-    DOSE_RESPONSE_BAND_INTERIM,
+    DOSE_RESPONSE_BAND_DRAWS,
     DOSE_RESPONSE_BAND_MEASURED,
     DOSE_RESPONSE_MEASURED,
     DOSE_RESPONSE_STUDY,
@@ -352,10 +352,35 @@ def test_a_measured_configuration_reads_supported(fitted) -> None:  # type: igno
     for estimate in fitted.estimates.values():
         assert estimate.support.label == "supported"
         assert estimate.support.evidence == (DOSE_RESPONSE_STUDY,)
-    # The band cell measured Rademacher at 1,000 draws; the default band waits on its rows.
-    assert fitted.band.support.label == "experimental"
-    assert fitted.band.support.reason == DOSE_RESPONSE_BAND_INTERIM
-    assert (fitted.band.kind, fitted.band.n_replicates) == ("mammen", 10_000)
+    # The band cell measured the default band: Mammen, logit scale, 10,000 draws.
+    assert fitted.band.support.label == "supported"
+    assert fitted.band.support.evidence == (DOSE_RESPONSE_STUDY,)
+    assert (fitted.band.kind, fitted.band.band_scale) == ("mammen", "logit")
+    assert fitted.band.n_replicates == DOSE_RESPONSE_BAND_DRAWS == 10_000
+
+
+def test_a_band_with_fewer_draws_than_its_cell_reads_experimental() -> None:
+    measured = {"outcome": "binary", "fluctuation": "logistic", "strata": False}
+    common = {"cross_fitted": True, "weighted": False}
+    pairs, band = dose_response_support(**measured, **common, n_replicates=1_000)
+    assert (pairs.label, band.label) == ("supported", "experimental")
+    assert "10,000 multiplier draws" in band.reason and "1,000" in band.reason
+    # The control: the measured draw count is supported.
+    assert dose_response_support(**measured, **common)[1].label == "supported"
+
+
+def test_the_band_reads_its_measured_cell() -> None:
+    """The committed band cell is green and read the estimator's default band."""
+    import pandas as pd
+
+    from tests.studies import dose_response as study
+    from tests.studies.evidence.registry import ROOT
+
+    properties = pd.read_csv(ROOT / "tests" / "canonical" / "dose_response" / "properties.csv")
+    cell = properties.set_index("cell").loc["binary_curve__simultaneous_band"]
+    assert bool(cell["passed"])
+    band = study.estimator("binary")
+    assert band.n_replicates == DOSE_RESPONSE_BAND_DRAWS
 
 
 def test_an_in_sample_fit_reads_experimental() -> None:
@@ -368,7 +393,7 @@ def test_an_in_sample_fit_reads_experimental() -> None:
 @pytest.mark.parametrize(
     ("outcome", "fluctuation", "strata", "pairs", "band"),
     [
-        ("binary", "logistic", False, "supported", "experimental"),
+        ("binary", "logistic", False, "supported", "supported"),
         ("binary", "logistic", True, "supported", "experimental"),
         ("continuous", "linear", False, "supported", "experimental"),
         ("continuous", "logistic", False, "experimental", "experimental"),

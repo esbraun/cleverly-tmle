@@ -584,22 +584,19 @@ class TestTheSkipPath:
             e.support.label for e in measured.estimates.values()
         }
 
-    def test_the_shipped_default_band_reads_its_reporting_row(self) -> None:
-        """The shipped band on ``G23.cross_fitted`` is experimental, quoting its committed row."""
-        from cleverly._support import MEASURED_BAND_OPTION
-        from cleverly._support_rows import BAND_OPTION_SHORTFALLS
+    def test_the_band_before_band_finite_sample_names_why_it_is_experimental(self) -> None:
+        """The Rademacher identity band at 2,000 draws has no registered study any longer.
 
-        sentence = BAND_OPTION_SHORTFALLS["G23.cross_fitted", MEASURED_BAND_OPTION]
-        shipped = _sdr_band_fit(band_scale="identity", kind="rademacher", n_replicates=2_000)
-        assert shipped.simultaneous.support.label == "experimental"
-        assert sentence in shipped.simultaneous.support.reason
-        # The sentence's numbers are the committed reporting row's, so a regeneration that
-        # moves them fails here rather than leaving the label quoting stale coverage.
+        ``six_regimens__shipped_band_reporting`` reads it with no verdict, so no row lists it.
+        """
+        from cleverly._support import UNMEASURED_BAND_OPTION
+
+        old = _sdr_band_fit(band_scale="identity", kind="rademacher", n_replicates=2_000)
+        assert old.simultaneous.support.label == "experimental"
+        assert UNMEASURED_BAND_OPTION in old.simultaneous.support.reason
         summary = pd.read_csv(ROOT / "tests" / "canonical" / "longitudinal_sdr" / "properties.csv")
         row = summary.set_index("cell").loc["six_regimens__shipped_band_reporting"]
-        quoted = f"joint coverage {row['coverage']:.4f} with 99% Clopper-Pearson interval "
-        quoted += f"{row['coverage_ci_lower']:.4f} to {row['coverage_ci_upper']:.4f}"
-        assert quoted in sentence
+        assert row["role"] != "positive"
 
 
 # --------------------------------------------- the scale-control verdict (review M3)
