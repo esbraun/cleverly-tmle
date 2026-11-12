@@ -1,0 +1,36 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "e2aa4bcf4de15957e79304266428a0802b4fa6788fb715dae0e9c20e80ed0789",
+    "manifest.json": "fd1947a8e8a1efd336e35e99fbdebacb1ff09997ab4d8d3a33f081641b260cf2",
+    "performance-tests.csv": "eb5cb2d14f4a5a3a7cc381b1ae8b6401b5a3a1e068683f1c27537a691617dcf7",
+    "properties.csv": "55ac8cfd82e21c8eac8db474df3e28cee6fa4e7ff454ff69cc29a60a563ad04a",
+    "property-replicates.parquet": "268e3ff493b94653595d83dcd0558c1d640cb1652852f1cd5641e331fda09dab",
+    "replicates.parquet": "da98bb7349861cf35efbfd4b52307c7a214ad8df6c3b880a90a70a41fa8de796",
+    "summary.csv": "110b88456be6b6225f55b4adbafea0a65ec25fef84fc985ddfe47fec17f50917"
+  },
+  "band_fits": 38000,
+  "cache": "C:\\Users\\erics\\band-wave\\cache\\longitudinal-repeated-sdr\\91a56e7bfa463e4bfa56bbbadc081406cef9584b\\30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "longitudinal-repeated-sdr",
+    "--jobs",
+    "16",
+    "--cache",
+    "C:/Users/erics/band-wave/cache",
+    "--output",
+    "C:/Users/erics/band-wave/out"
+  ],
+  "fit_seconds": 18221.3940266,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "longitudinal-repeated-sdr",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}

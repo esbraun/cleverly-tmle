@@ -1,0 +1,38 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "f7396a606d9453061db69c55b5d8d7d5d9653117eaaf6ef1cb22192822d9f395",
+    "manifest.json": "3e2403a55a009d0f1e24115a596b7615a466e23f30c8cdea6247e67dda0f20a5",
+    "parity-replicates.csv": "104e6985bf57805979d3ce7bb7343e76fc8173c1fe39f0eac9e3b6e1c481bb8f",
+    "parity.csv": "5eb45a60470695c1888bb7466e264c6c5b9f4ae597812abbac314030dec6240d",
+    "performance-tests.csv": "b22c90c4e36c959d29720ec3dd28d0fb2f8d5e1f7d9a93e54fc8c9b98c2f8c1e",
+    "properties.csv": "16b2ef4a39adf493448dc9d69d7cc0a5604304e7f8a3c9a6276f3100f6a5f6d2",
+    "property-replicates.parquet": "bcb7992a797be7fd6492069bb7c14f313d33df7fe741eb371e76fc484d133c1a",
+    "replicates.parquet": "b325aeacf9963ba507f99450d9ca952e1ba1266d11d1ee33e4cac953d1d0d3f6",
+    "summary.csv": "0563bf98c5043caab7e6f7b2f594ebd50dcdc10500a3decab2d11f73aa74d39f"
+  },
+  "band_fits": 4000,
+  "cache": "C:\\Users\\erics\\band-wave\\cache\\long-horizon-ltmle\\91a56e7bfa463e4bfa56bbbadc081406cef9584b\\30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "long-horizon-ltmle",
+    "--jobs",
+    "16",
+    "--cache",
+    "C:/Users/erics/band-wave/cache",
+    "--output",
+    "C:/Users/erics/band-wave/out"
+  ],
+  "fit_seconds": 5098.251573400004,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "long-horizon-ltmle",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}

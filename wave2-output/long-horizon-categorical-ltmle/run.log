@@ -1,0 +1,38 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "4ac748fcb2e30c3bed929d4cec8810f57c1b3007a6b94f3428c6ffe561de0a09",
+    "manifest.json": "2cc9d58cfe68a9a10c6ff56b4b1db450b2f00e36b9880830204f8ef3f2bc5c3a",
+    "parity-replicates.csv": "ac27915741c0b4b6dc390bd0fba883ee625e5a909a116dbf0de7d667f03b784e",
+    "parity.csv": "7dc619d03117cb8c093086a3732ee9251a15b774c632a6cb5940b8bc74892bf5",
+    "performance-tests.csv": "c3b8c80f3ceb513de5941e1405026e87fdfcdc56136ee0be2439a0c61e0b6444",
+    "properties.csv": "6668931f79b181f18390c9db9ddff2d0d7596269c313ecf22d8d2776249280f0",
+    "property-replicates.parquet": "f5ae4052afe529b9096adc72cb5c39592cce45e0e4ee10fafe91a39a1d7ae210",
+    "replicates.parquet": "ed51c61b5a3ec97588d97d14a282b03f42d7562d4d9f52e0d26b8eccf4283611",
+    "summary.csv": "a8f32d64e0ce09426804d79249dbbe61a0af708115dee055154af8d73cc06cc0"
+  },
+  "band_fits": 2000,
+  "cache": "C:\\Users\\erics\\band-wave\\cache\\long-horizon-categorical-ltmle\\91a56e7bfa463e4bfa56bbbadc081406cef9584b\\30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "command": [
+    "band_rerun.py",
+    "--study",
+    "long-horizon-categorical-ltmle",
+    "--jobs",
+    "16",
+    "--cache",
+    "C:/Users/erics/band-wave/cache",
+    "--output",
+    "C:/Users/erics/band-wave/out"
+  ],
+  "fit_seconds": 14236.062407200006,
+  "operation": "targeted_band_rerun",
+  "plan_sha256": "30d7b18e0d37572bdb837d35cdd65519a02ae45e758d6baa3288248e70b67308",
+  "slug": "long-horizon-categorical-ltmle",
+  "source_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  }
+}

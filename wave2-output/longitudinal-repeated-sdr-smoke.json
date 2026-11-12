@@ -1,0 +1,30 @@
+{
+  "band_fits": 38000,
+  "cells": {
+    "simultaneous_coverage/all_reported__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 1.0,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 401.5,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 6.92265625
+    }
+  },
+  "cpu_seconds": 138.453125,
+  "estimated_cpu_hours": 73.07248263888889,
+  "keys": 20,
+  "slug": "longitudinal-repeated-sdr",
+  "strata": 1,
+  "stream": "band-finite-sample/wave2-smoke",
+  "wall_seconds": 43.41972479999822
+}
