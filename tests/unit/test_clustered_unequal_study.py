@@ -274,11 +274,14 @@ class TestTheCovariatePairDesign:
 #: ``stream_seed(STUDY, "pilot", f"{sizes}/J{J}", r)``, with the study's own fit
 #: (``clustered_few_cluster_properties._cell_rows``), and no failed fit. Pass probabilities at
 #: R = 4,000 come from 400 resamples of 4,000 pilot fits each, scored with the study's rules,
-#: margins and 10,000 inner bootstrap replicates. The scripts are ``rows/Fix-4/diag/s2_pilot.py``
-#: and ``s2_pilot_power.py`` in the plans repository. Per cell: the pass probabilities of the
-#: positive arm (coverage floor and bias margin), of clause 1 (paired IID/cluster ratio upper
-#: endpoint below 0.80) and of clause 2 (positive SE-ratio upper endpoint at most 1.20); then
-#: the pilot's coverage, paired ratio, SE ratio and largest SE over the empirical SD.
+#: margins and 10,000 inner bootstrap replicates. They are plug-in values: the resampling treats
+#: the 400 pilot fits as the population, so they leave out the pilot's own uncertainty, which
+#: :data:`PAIRED_DIFFERENCE` accounts for at J = 10. The scripts are
+#: ``rows/Fix-4/diag/s2_pilot.py`` and ``s2_pilot_power.py`` in the plans repository. Per cell:
+#: the pass probabilities of the positive arm (coverage floor and bias margin), of clause 1
+#: (paired IID/cluster ratio upper endpoint below 0.80) and of clause 2 (positive SE-ratio upper
+#: endpoint at most 1.20); then the pilot's coverage, paired ratio, SE ratio and largest SE over
+#: the empirical SD.
 FEW_CLUSTER_PILOT: dict[tuple[str, int], tuple[float, ...]] = {
     ("equal10", 10): (0.9075, 1.0, 1.0, 0.9175, 0.7776, 0.9941, 7.23),
     ("equal10", 20): (1.0, 1.0, 1.0, 0.9550, 0.7318, 1.0617, 3.60),
@@ -290,9 +293,38 @@ FEW_CLUSTER_PILOT: dict[tuple[str, int], tuple[float, ...]] = {
 PILOT_DRAWS = 400
 #: The plan's bar for every pass probability of a DR-TMLE cell.
 PILOT_FLOOR = 0.90
-#: The cells whose positive arm clears the bar by resampling but not by the exact binomial
-#: probability at the pilot coverage.
-MARGINAL_PILOT_CELLS = {("equal10", 10)}
+#: The cells whose exact binomial pass probability at the 400-draw pilot coverage misses the
+#: bar. Equal sizes at J = 10 read 0.9175 on a low block: the next 800 draws of the same stream
+#: read 0.9463 (:data:`EQUAL10_J10_EXTENSION`).
+PLUG_IN_BELOW_BAR = {("equal10", 10)}
+#: The design review's extension of the equal10 J = 10 pilot (``rows/Fix-4/design-review.md``,
+#: finding 3; script ``rows/Fix-4/diag/s2_pilot_extension.py``, rows in
+#: ``diag/pilot/extension/``): 1,200 draws of the pilot stream (r = 0 to 1199), each fitted with
+#: ``drtmle_crossfit`` and ``tmle_crossfit``. DR-TMLE coverage, TMLE coverage on the same draws,
+#: DR-TMLE SE ratio and paired IID/cluster ratio.
+EQUAL10_J10_EXTENSION = {
+    "draws": 1_200,
+    "drtmle_coverage": 0.9367,
+    "tmle_coverage": 0.9325,
+    "se_ratio": 1.016,
+    "paired_ratio": 0.7732,
+}
+#: The DR-TMLE minus ``tmle_crossfit`` coverage, paired on the pilot draws: the mean
+#: difference of the covered indicators, its SE, and the draws. Every fit of a draw reads the
+#: same sample, and the ``tmle_crossfit`` rows reproduce bit for bit, so the run's DR-TMLE
+#: coverage is the committed ``tmle_crossfit`` coverage on the same 4,000 draws plus this
+#: difference.
+PAIRED_DIFFERENCE = {
+    ("equal10", 10): (0.0042, 0.0055, 1_200),
+    ("unequal_informative", 10): (0.0, 0.0100, 400),
+}
+
+
+def _coverage_threshold(replicates: int, floor: float) -> int:
+    """The smallest covered count whose 99% Clopper-Pearson lower bound reaches ``floor``."""
+    k = np.arange(replicates + 1)
+    lower = np.where(k > 0, beta.ppf(0.005, k, replicates - k + 1), 0.0)
+    return int(k[lower >= floor][0])
 
 
 class TestTheFewClusterPilot:
@@ -312,15 +344,16 @@ class TestTheFewClusterPilot:
         from tests.studies.evidence.seeds import stream_seed
 
         for sizes, clusters in FEW_CLUSTER_PILOT:
+            draws = EQUAL10_J10_EXTENSION["draws"] if clusters == 10 else PILOT_DRAWS
             pilot = {
                 stream_seed(few_study.STUDY, "pilot", f"{sizes}/J{clusters}", r)
-                for r in range(PILOT_DRAWS)
+                for r in range(int(draws))
             }
             study = {few_properties._seed(sizes, clusters, r) for r in range(4_000)}
             assert not pilot & study
 
     @pytest.mark.parametrize("cell", sorted(FEW_CLUSTER_PILOT))
-    def test_each_pass_probability_clears_the_bar(self, cell: tuple[str, int]) -> None:
+    def test_each_plug_in_pass_probability_clears_the_bar(self, cell: tuple[str, int]) -> None:
         positive, clause1, clause2 = FEW_CLUSTER_PILOT[cell][:3]
         assert min(positive, clause1, clause2) >= PILOT_FLOOR
 
@@ -330,16 +363,50 @@ class TestTheFewClusterPilot:
 
         The positive arm also needs its bias inside 0.25 SD, which every pilot cell meets by a
         wide margin, so the resampled pass probability sits near this one. At equal sizes and
-        J = 10 the two straddle the bar: 0.9075 resampled (Monte Carlo SE about 0.015) against
-        0.891 here, at a pilot coverage of 0.9175 whose own SE is about 0.014. That cell is
-        marginal (:data:`MARGINAL_PILOT_CELLS`), and the plan does not change R, a margin or the
-        law after a pilot result.
+        J = 10 the two straddle the bar, 0.9075 resampled against 0.891 here, because the
+        400-draw coverage of 0.9175 was a low block (:data:`PLUG_IN_BELOW_BAR`).
         """
         positive, coverage = FEW_CLUSTER_PILOT[cell][0], FEW_CLUSTER_PILOT[cell][3]
         replicates = few_study.PROPERTY_REPLICATES
-        floor = few_study.STUDY.margins.coverage_floor
-        k = np.arange(replicates + 1)
-        lower = np.where(k > 0, beta.ppf(0.005, k, replicates - k + 1), 0.0)
-        exact = float(binom.pmf(k[lower >= floor], replicates, coverage).sum())
+        threshold = _coverage_threshold(replicates, few_study.STUDY.margins.coverage_floor)
+        exact = float(binom.sf(threshold - 1, replicates, coverage))
         assert exact == pytest.approx(positive, abs=0.05)
-        assert (exact < PILOT_FLOOR) == (cell in MARGINAL_PILOT_CELLS)
+        assert (exact < PILOT_FLOOR) == (cell in PLUG_IN_BELOW_BAR)
+
+    def test_the_extension_reads_the_whole_stream(self) -> None:
+        """1,200 draws, the 400 of the pilot included, at the pilot's own coverage scale."""
+        extension = EQUAL10_J10_EXTENSION
+        assert extension["drtmle_coverage"] - extension["tmle_coverage"] == pytest.approx(
+            PAIRED_DIFFERENCE[("equal10", 10)][0], abs=1e-4
+        )
+        # The first 400 draws read 0.9175; the 1,200 read 0.9367, so the other 800 read 0.9463.
+        rest = 1_200 * extension["drtmle_coverage"] - 400 * FEW_CLUSTER_PILOT[("equal10", 10)][3]
+        assert rest / 800 == pytest.approx(0.9463, abs=1e-4)
+        assert extension["paired_ratio"] < few_properties.IID_CONTROL_CEILING
+        assert extension["se_ratio"] <= few_study.STUDY.margins.se_ratio_sanity[1]
+
+    @pytest.mark.parametrize("cell", sorted(PAIRED_DIFFERENCE))
+    def test_the_paired_prediction_clears_the_bar(self, cell: tuple[str, int]) -> None:
+        """The run's coverage, predicted from the committed TMLE and the paired difference.
+
+        The predictive SD adds the pilot difference's SE and the spread of the run's own
+        difference over 4,000 draws. The threshold is the 99% Clopper-Pearson rule: 3,649 of
+        4,000 covered, 0.91225. Equal sizes predict 0.9392 and pass with probability about 1;
+        informative sizes predict 0.931 and pass with probability about 0.96.
+        """
+        sizes, clusters = cell
+        replicates = few_study.PROPERTY_REPLICATES
+        threshold = _coverage_threshold(replicates, few_study.STUDY.margins.coverage_floor)
+        assert threshold == 3_649
+        rows = pd.read_parquet(few_study.STUDY.artifact("property-replicates.parquet"))
+        name = few_study.cell_name("tmle_crossfit", sizes, clusters, "t_reference")
+        committed = float(rows.loc[rows["cell"] == name, "covered"].mean())
+        difference, se, draws = PAIRED_DIFFERENCE[cell]
+        per_draw = se * np.sqrt(draws)
+        spread = float(np.hypot(se, per_draw / np.sqrt(replicates)))
+        predicted = committed + difference
+        probability = float(norm.cdf((predicted - threshold / replicates) / spread))
+        assert probability >= PILOT_FLOOR
+        expected = {("equal10", 10): (0.9392, 0.9999), ("unequal_informative", 10): (0.931, 0.96)}
+        assert predicted == pytest.approx(expected[cell][0], abs=1e-4)
+        assert probability == pytest.approx(expected[cell][1], abs=0.01)
