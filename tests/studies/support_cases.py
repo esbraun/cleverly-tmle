@@ -2110,6 +2110,23 @@ def _gap_cases() -> tuple[RowCase, ...]:
             400,
         )
     )
+    # default_band_properties.SOURCES refits each source study's subject fit with the default
+    # band; these two configurations classify onto rows that cite the study for a red reading.
+    for row, setting, where, n in (
+        ("T30", "cde_z0", "default_band_properties.py:149", 2000),
+        ("G08.in_sample", "categorical_ltmle", "default_band_properties.py:110", 400),
+    ):
+        cases.append(
+            _observed(
+                row,
+                "default-simultaneous-bands",
+                setting,
+                where,
+                "default_band_properties",
+                lambda study, setting=setting, n=n: study.SOURCES[setting].draw(n, 0)[0],
+                lambda study, frame, setting=setting: study.SOURCES[setting].fit(frame),
+            )
+        )
     return tuple(cases)
 
 

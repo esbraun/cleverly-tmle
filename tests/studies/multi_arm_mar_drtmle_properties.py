@@ -10,7 +10,9 @@ the only evidence for the K-arm band: ``default-simultaneous-bands`` measures th
 missing-outcome DR-TMLE band alone. Declared before any run:
 
 * the cells read the interval-calibration fits themselves. Each requests all nine estimands
-  with ``simultaneous=True`` and the defaults (1000 rademacher draws, ``random_state=0``), and
+  with ``simultaneous=True``, the study's pinned 1,000 draws and ``random_state=0``: since
+  band-finite-sample the Mammen multiplier on the logit scale (the Rademacher multiplier on the
+  identity scale before it), and
   the calibration row reads ``ate[low vs high]`` of the same fit;
 * the band cell ``arms__simultaneous_band`` passes when its 99% joint-coverage interval lies
   inside ``[0.92, 0.98]``. Its control ``arms__pointwise_joint_control`` passes when the 99%

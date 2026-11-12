@@ -770,10 +770,16 @@ class TestW10TheJointStack:
                     (np.exp(centre - half), np.exp(centre + half)), rel=1e-12
                 )
             else:
-                half = bands.critical_value * estimate.std_error
-                assert (low, high) == pytest.approx(
-                    (estimate.psi - half, estimate.psi + half), rel=1e-12
-                )
+                # The default band_scale="logit" builds a bounded estimate's band on the logit
+                # of its position in its range (a, b), with the delta-method standard error.
+                assert estimate.bounds is not None
+                assert bands.scales[name] in ("logit", "range_logit")
+                a, b = estimate.bounds
+                psi = estimate.psi
+                centre = np.log((psi - a) / (b - psi))
+                half = bands.critical_value * estimate.std_error * (b - a) / ((psi - a) * (b - psi))
+                ends = [a + (b - a) / (1 + np.exp(-(centre + sign * half))) for sign in (-1, 1)]
+                assert (low, high) == pytest.approx(tuple(ends), rel=1e-12)
 
     def test_the_status_supplies_inference(self, banded_fit) -> None:
         assert banded_fit.inference_status == "influence_curve"

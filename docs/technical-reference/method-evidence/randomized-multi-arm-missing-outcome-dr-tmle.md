@@ -107,8 +107,14 @@ Bartlett test across the cells gives p = 0.20, so the draw set differs by no mor
 The band reads the same 2,400 fits. The study fixes `n_multiplier=1_000` by design, so its band is
 the Mammen multiplier on the logit scale at 1,000 draws rather than the default 10,000. The band
 rows are those of the band-finite-sample rerun: the default band moved from the Rademacher
-multiplier on the identity scale, and the study was rerun whole on its own seeds with the new one
-(`tests/canonical/band-rerun-decision.json`). Under the former band `arms__simultaneous_band` was
+multiplier on the identity scale. A targeted rerun of the band fits alone missed the replay rule
+(tolerance 1e-9): one estimate of the pointwise control at replication r75 moved by 5.7e-9, with the
+baseline run under Python 3.13.7 and NumPy 2.5.3 and the rerun under 3.13.16 and 2.5.4. So the
+study was rerun whole on its own seeds with the new band
+(`tests/canonical/drtmle_mar_multi_arm/band_rerun/complete-rerun.json` records the miss, and
+`tests/canonical/band-rerun-decision.json` the readings).
+
+Under the former band `arms__simultaneous_band` was
 red, with a joint-coverage interval ending at 0.9196 against 0.92. With the new band it covers
 0.9367, with a 99% interval from 0.9228 to 0.9488, and passes.
 

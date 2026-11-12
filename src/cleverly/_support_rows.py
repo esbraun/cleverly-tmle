@@ -1623,11 +1623,17 @@ def _t_rows() -> tuple[SupportRow, ...]:
     rows.append(
         point_row(
             "T30",
-            ["cde-tmle"],
+            # default_bands:cde_z0 refits cde-tmle's z = 0 fit with its default band
+            # (default_band_properties.SOURCES), so it measures this configuration's band.
+            ["cde-tmle", "default-simultaneous-bands"],
             families=("P1", "P2"),
             missing=("outcome", "intermediate"),
             cells=["binary_cde_z0_mar", "binary_cde_z1_mar"],
-            limits=["The simultaneous band at z = 0 is red."],
+            limits=[
+                "The simultaneous band at z = 0 is red.",
+                "band-finite-sample: the default band at z = 0 reads joint coverage 0.9119 to "
+                "0.9397 (default-simultaneous-bands, cde_z0).",
+            ],
         )
     )
     rows.append(
@@ -2423,6 +2429,12 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
         "Row G39.sdr.tau5 is red for the price_down plan at five nodes and n = 5,000: "
         "coverage 0.9190 to 0.9230 and SE ratio 0.9339 to 0.9518 (mtp-pricing-calibration)."
     ),
+    # band-finite-sample: default_bands:categorical_ltmle measures this configuration's default
+    # band; stochastic-categorical-ltmle's primary band cell, which BAND_CELLS maps here, passes.
+    ("G08.in_sample", "band"): (
+        "Row G08.in_sample is red for the default band of its configuration: joint coverage "
+        "0.9191 to 0.9458 (default-simultaneous-bands, categorical_ltmle; band-finite-sample)."
+    ),
 }
 
 
@@ -2536,10 +2548,6 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
             " 1.0007"
         ),
     ),
-    "T02.binary": (
-        "band-finite-sample: joint coverage 0.9191 to 0.9458",
-        "band-finite-sample: joint coverage 0.9119 to 0.9397",
-    ),
     "T13": (
         "strata-boundary-mean: bias -0.0027 to 0.000813, coverage 0.9170, SE ratio 0.9850",
         (
@@ -2608,9 +2616,12 @@ DEFAULT_BAND_DRAWS: Final[int] = 10_000
 #:
 #: Every row that licenses ``band`` lists :data:`~cleverly._support.DEFAULT_BAND_OPTION`, the
 #: configuration band-finite-sample Wave 2 regenerated every band cell with (Mammen, logit), and
-#: every cell :data:`BAND_CELLS` maps to such a row passes on the regenerated rows
-#: (the Wave 2 decision record).  Any other multiplier or scale reads
-#: experimental with :data:`~cleverly._support.UNMEASURED_BAND_OPTION`.
+#: every cell :data:`BAND_CELLS` maps to such a row passes on the regenerated rows (the Wave 2
+#: decision record).  A red cell that measures a row's configuration without licensing it still
+#: binds the row: ``G08.in_sample`` carries the ``categorical_ltmle`` reading of
+#: default-simultaneous-bands as a band shortfall (:data:`SHORTFALLS`), and ``T30``, which
+#: licenses no band, states the ``cde_z0`` reading as a limit.  Any other multiplier or scale
+#: reads experimental with :data:`~cleverly._support.UNMEASURED_BAND_OPTION`.
 BAND_OPTION_DRAWS: Final[Mapping[str, int]] = {
     # multi-arm-mar-drtmle keeps N_MULTIPLIER = 1_000 (canonical_multi_arm_mar_drtmle.py, a
     # fixed design), so its arms band cell measured the Mammen logit band at 1,000 draws.
@@ -3409,7 +3420,13 @@ def _long_rows() -> tuple[SupportRow, ...]:
             kinds=_LONG_BAND if suffix == "in_sample" else _LONG_WALD,
             cells=["interval_calibration"],
         )
-        rows.append(merge_rows(categorical.id, categorical, policy))
+        merged = merge_rows(categorical.id, categorical, policy)
+        if suffix == "in_sample":
+            # default_bands:categorical_ltmle refits canonical-categorical-ltmle's in-sample fit
+            # with its default band (default_band_properties.SOURCES), so it measures this
+            # configuration's band, and it is red: SHORTFALLS states the reading.
+            merged = replace(merged, evidence=(*merged.evidence, "default-simultaneous-bands"))
+        rows.append(merged)
     # X40: the two-node continuous fit on the density route also stands for the declared supports,
     # branches and atoms of ``mtp-boundaries`` and the learned density of ``mtp-pricing`` at
     # two nodes. The key reads none of them, so they share this row.
@@ -5713,7 +5730,6 @@ UNMAPPED_BAND_CELLS: Final[Mapping[str, str]] = {
         ("missing_outcome_drtmle", "D08"),
         ("drtmle", "D01"),
         ("multi_arm_drtmle", "D02"),
-        ("cde_z0", "T30"),
         ("cde_z1", "T30"),
         ("point_msm", "T18"),
         ("clustered", "T10.unweighted"),
@@ -5726,8 +5742,17 @@ UNMAPPED_BAND_CELLS: Final[Mapping[str, str]] = {
         ("competing_crossfit", "G13.cross_fitted"),
         ("weighted_ltmle", "G03"),
         ("weighted_ltmle_crossfit", "G04"),
-        ("categorical_ltmle", "G08.in_sample"),
         ("categorical_ltmle_crossfit", "G08.cross_fitted"),
         ("longitudinal_msm", "G19"),
     )
+} | {
+    # Rows that cite default-simultaneous-bands for a red reading of their own default band.
+    _band("default_bands", "cde_z0"): (
+        "It measures the default band of the configuration of row T30, which licenses no band, "
+        "and it is red; the row states the reading as a limit."
+    ),
+    _band("default_bands", "categorical_ltmle"): (
+        "It measures the default band of the configuration of row G08.in_sample and it is red; "
+        "the row carries the reading as a band shortfall."
+    ),
 }

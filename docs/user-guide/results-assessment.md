@@ -230,7 +230,8 @@ Use `Inference(simultaneous=True)` when the reported family, rather than each in
 needs error control. The band it adds holds for all the estimates at once, so it is wider than
 each interval. For a probability of a binary outcome the band is built on the log-odds scale, and
 for a difference of two probabilities on the matching scale for differences. Its limits then stay
-inside the possible range and can sit unevenly around the estimate.
+inside the possible range and can sit unevenly around the estimate. The dose-response curve is the
+exception: its band stays on the share scale itself, so a limit can fall below 0 or above 1.
 [Simultaneous bands](../technical-reference/inference.md#simultaneous-bands) gives the options and
 which of them registered studies measure.
 

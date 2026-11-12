@@ -152,9 +152,12 @@ every number in the table from the committed rows.
 
 The rows are those of the band-finite-sample rerun, which moved the default band from the
 Rademacher multiplier on the identity scale (1,000 draws on the point path and 2,000 on the
-sequential path) to the band above. A targeted rerun of the band fits missed the replay rule by
-6.3e-8 in one estimate of one replication, which the baseline drew on another platform, so the
-study was rerun whole on its own seeds (`tests/canonical/band-rerun-decision.json`). No verdict
+sequential path) to the band above. A targeted rerun of the band fits missed the replay rule
+(tolerance 1e-9): one estimate of the `missing_outcome_drtmle` pointwise control at replication
+r111 moved by 6.3e-8, with the baseline run under Python 3.13.7 and NumPy 2.5.3 and the rerun under
+3.13.18 and 2.5.4. So the study was rerun whole on its own seeds
+(`tests/canonical/default_bands/band_rerun/complete-rerun.json` records the miss, and
+`tests/canonical/band-rerun-decision.json` the readings). No verdict
 outside the band cells changed. The `categorical_ltmle_crossfit` band, red at 0.9317 before, covers
 0.9421 and left the owner.
 
