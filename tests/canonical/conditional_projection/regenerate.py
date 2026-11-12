@@ -6,6 +6,18 @@ describes the guard, the run log and the copy into this directory. The study has
 comparator, so the run starts no container. The groups, sizes, learners, controls and design
 numbers are those of :mod:`tests.studies.conditional_projection`, fixed before the run.
 
+Fresh declaration for X97 (plan section 5.2, rev 2.2), before any run. ``assess_score_2k``
+now measures the TMLE score assessment of X97, which replaces the one-step that its three cells
+measured before (plan section 2.4: one pooled fluctuation along the span of the score's
+features, whose substitution estimates respect the parameter space and share one targeted fit
+with the paired comparison). That is a result-determining change, so the whole study is rerun
+under this declaration. The three ``assess_score_2k`` pilot rows of
+``tests/studies/conditional_projection_pilot.csv`` were re-read on the TMLE (2,400 draws on
+``se_ratio_pilot``: SE ratios 1.0085, 1.0061 and 1.0049, against the one-step's 1.0083, 1.0059
+and 1.0046); every other pilot row is unchanged. At ``R_GLM = 4,800`` the pooled family-wise
+pass probability is 0.9617 and the row-by-row one 0.7792, so ``R_GLM`` stays at 4,800, and the
+study's budget is about 51 CPU-hours.
+
 Red-cell reading (declared before any run; P1 plan section 5.0, and the design review of the
 declaration).
 
