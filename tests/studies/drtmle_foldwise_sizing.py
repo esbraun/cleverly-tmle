@@ -1,12 +1,12 @@
 r"""The arm-pooled joint predictive sizing rule of the Fix-6 fold-wise DR-TMLE records.
 
-The three gated records of Fix-6 are sized by this rule: ``drtmle-foldwise-n1500`` (its primary
-rows and its two paired property cells, jointly), ``multi-arm-drtmle-foldwise`` (its primary rows
-and its ``outcome_correct`` cell, jointly) and ``stratified-drtmle-foldwise`` (its primary rows
-less the declared finite-sample row ``ey[1][V=2]``; its contraction ladder is sized by
-:func:`outer_rung_budget`).  The rule is the one :mod:`tests.studies.drtmle_foldwise_properties` declared for
-X83, written once here for any set of planning summaries, so that a sizing pilot only has to
-supply numbers.
+The three gated records of Fix-6 are sized here: ``drtmle-foldwise-n1500`` (its ``both_correct``
+primary rows and its two paired property cells, jointly), ``multi-arm-drtmle-foldwise`` (its
+primary rows and its ``outcome_correct`` cell, jointly) and ``stratified-drtmle-foldwise`` (its
+primary rows less the declared finite-sample row ``ey[1][V=2]``, and its contraction ladder by
+:func:`predictive_outer_budget` and :func:`control_budget`).  The rule extends the one
+:mod:`tests.studies.drtmle_foldwise_properties` declared for X83 so that a sizing pilot only has
+to supply rows.
 
 **The rows each budget is judged by.**  A primary row reads the shared ``Margins()`` of
 ``performance-tests.csv``: the 99% Student interval of the standardized bias inside 0.25
@@ -15,24 +15,45 @@ SE ratio inside the 0.8 to 1.2 sanity band.  A ``double_robustness`` property ce
 bias clause alone, because its union-model SE band (0.1 to 10) never binds a fit whose SE ratio
 lies near one.  A control row must put its bias interval wholly outside the margin.
 
-**The predictive rule.**  Each :class:`Pilot` is the planning summary of the rows one fit
-estimates on one draw: each row's standardized bias ``mean(error) / sd(error)`` with Monte Carlo
-SE ``1 / sqrt(R_pilot)``, the rows' per-replication error correlation, and for a primary row its
-SE ratio and coverage.  Separate pilots are independent.  Rows that the same mechanism drives
-may be declared as the arms of a regime (:attr:`Rule.regimes`): their mean and between-arm SD
-``tau`` are estimated together, ``tau`` at its one-sided 80% Q-profile upper bound, and each
-arm's planning value is its normal-normal posterior; every other row of an arm's pilot moves
-with the arm by its conditional regression.  :meth:`Rule.planning_draws` integrates over this
-planning uncertainty with :attr:`Rule.draws` joint draws from :attr:`Rule.seed`.  At each draw
-the study's own Monte Carlo error is drawn too, and a unit passes when every clause of every
-row passes.  A unit's budget is the smallest multiple of :attr:`Rule.step` at or above its floor
-whose predictive pass reaches the unit share ``target ** (1 / len(units))``.  A unit that no
-budget up to :attr:`Rule.ceiling` sizes is reported unsized, and its record's guard refuses the
-declared run.
+**One fit's rows are drawn jointly.**  Each :class:`Pilot` summarizes the rows one fit
+estimates on one draw.  For each replication and row it forms the influence of that
+replication on the row's standardized bias, its coverage and its SE ratio,
+
+.. math::
+
+    \phi_b = d - b\,(d^2 - 1)/2, \quad \phi_c = c - \bar c, \quad
+    \phi_\rho = (s - \bar s)/\mathrm{sd} - \rho\,(d^2 - 1)/2,
+
+with ``d`` the centred error in SD units, ``c`` the coverage indicator and ``s`` the reported
+SE, and keeps their covariance :attr:`Pilot.influence` across every row and statistic.  An
+estimate over ``R`` replications then has covariance ``influence / R``: the planning values are
+drawn from it at the pilot's ``R``, and the study's own realization at the candidate budget, so
+the bias, coverage and SE-ratio rows of every estimand of one fit move together as they do in a
+run.
+
+**Shared configurations and regimes.**  Two pilots of one configuration share their planning
+draw (:attr:`Rule.shares`): the second reads the first's planning values row by row and draws
+only its own study noise.  Rows that the same mechanism drives may be declared as the arms of a
+regime (:attr:`Rule.regimes`): their mean and between-arm SD ``tau`` are estimated together,
+``tau`` at its one-sided 80% Q-profile upper bound, and each arm's planning value is its
+normal-normal posterior; every other statistic of an arm's pilot moves with the arm by its
+conditional regression on the influence covariance.
+
+**Budgets.**  A unit passes at a planning draw when every clause of every row passes.  A unit's
+budget is the smallest multiple of :attr:`Rule.step` at or above its floor whose predictive pass
+reaches the unit share ``target ** (1 / len(units))``.  A unit that no budget up to
+:attr:`Rule.ceiling` sizes is reported unsized, and its record's guard refuses the declared run.
+
+**Rows set aside.**  A coverage or SE-ratio row of a primary whose predictive pass at the
+ceiling is below :data:`SET_ASIDE_THRESHOLD`, and which no acceptance text reads
+(:attr:`Rule.protected`), may be set aside (:func:`set_aside_rows`): it is declared before the
+run as an expected finite-sample row, read under the finite-sample rule, and the budget is sized
+over the other rows.  A bias row is never set aside, and no margin moves.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -51,6 +72,10 @@ from tests.studies.evidence.schema import truth_on_inference_scale
 #: The clauses the rule reads.  ``se_ratio`` and ``coverage`` bind only the rows whose pilot
 #: gives them.
 CLAUSES = ("bias", "se_ratio", "coverage")
+#: The clauses a row may be set aside on; a bias row never is.
+SET_ASIDE_CLAUSES = ("se_ratio", "coverage")
+#: A calibration row is set aside only when its predictive pass at the ceiling is below this.
+SET_ASIDE_THRESHOLD = 0.80
 
 
 @dataclass(frozen=True)
@@ -60,7 +85,7 @@ class Pilot:
     Parameters
     ----------
     source : str
-        Where the summary comes from: a committed artifact or a sizing pilot's CSV.
+        Where the summary comes from: a committed artifact or a sizing pilot's rows.
     replicates : int
         The replications the summary reads.
     rows : tuple of str
@@ -75,6 +100,11 @@ class Pilot:
         Each row's mean reported SE over its error SD; empty for a property cell.
     coverage : tuple of float
         Each row's 95% Wald coverage; empty for a property cell.
+    influence : tuple of tuple of float
+        The covariance of one replication's influence on the statistics, ordered as every
+        row's bias, then (when the pilot has them) every row's coverage, then every row's SE
+        ratio.  Empty for a summary without rows, which then falls back on ``correlation`` for
+        the bias and on independent rows for the calibration.
     """
 
     source: str
@@ -85,6 +115,7 @@ class Pilot:
     controls: tuple[str, ...] = ()
     se_ratio: tuple[float, ...] = ()
     coverage: tuple[float, ...] = ()
+    influence: tuple[tuple[float, ...], ...] = ()
 
     def __post_init__(self) -> None:
         size = len(self.rows)
@@ -94,9 +125,64 @@ class Pilot:
             self.se_ratio and len(self.se_ratio) != size
         ):
             raise ValueError(f"{self.source}: give an SE ratio and a coverage for every row")
+        if self.influence and np.shape(self.influence) != (self.width, self.width):
+            raise ValueError(f"{self.source}: the influence covariance must be {self.width} wide")
         unknown = set(self.controls) - set(self.rows)
         if unknown:
             raise ValueError(f"{self.source}: controls name unknown rows {sorted(unknown)}")
+
+    @property
+    def calibrated(self) -> bool:
+        """Whether the pilot carries coverage and SE-ratio rows."""
+        return bool(self.se_ratio)
+
+    @property
+    def width(self) -> int:
+        """The length of the statistic vector: ``k`` rows, or ``3 k`` with calibration."""
+        return len(self.rows) * (3 if self.calibrated else 1)
+
+    def index(self, statistic: str, row: str) -> int:
+        """The position of one row's statistic in the statistic vector.
+
+        Parameters
+        ----------
+        statistic : str
+            ``bias``, ``coverage`` or ``se_ratio``.
+        row : str
+            A row of the pilot.
+
+        Returns
+        -------
+        int
+            The position.
+        """
+        block = {"bias": 0, "coverage": 1, "se_ratio": 2}[statistic]
+        if block and not self.calibrated:
+            raise KeyError(f"{self.source} has no {statistic} rows")
+        return block * len(self.rows) + self.rows.index(row)
+
+    @property
+    def point(self) -> np.ndarray:
+        """The statistic vector at the pilot's values."""
+        values = list(self.bias)
+        if self.calibrated:
+            values += list(self.coverage) + list(self.se_ratio)
+        return np.asarray(values, dtype=float)
+
+    @property
+    def covariance(self) -> np.ndarray:
+        """One replication's covariance of the statistics (``influence``, or its fallback)."""
+        if self.influence:
+            return np.asarray(self.influence, dtype=float)
+        k = len(self.rows)
+        out = np.zeros((self.width, self.width))
+        out[:k, :k] = np.asarray(self.correlation, dtype=float)
+        if self.calibrated:
+            covered = np.asarray(self.coverage)
+            ratio = np.asarray(self.se_ratio)
+            out[k : 2 * k, k : 2 * k] = np.diag(covered * (1 - covered))
+            out[2 * k :, 2 * k :] = np.diag(ratio**2 / 2)
+        return out
 
 
 def single(source: str, replicates: int, row: str, bias: float) -> Pilot:
@@ -122,7 +208,7 @@ def single(source: str, replicates: int, row: str, bias: float) -> Pilot:
 
 
 def without(pilot: Pilot, rows: Sequence[str]) -> Pilot:
-    """A pilot with ``rows`` dropped, its correlation restricted to the rows it keeps.
+    """A pilot with ``rows`` dropped, its covariances restricted to the rows it keeps.
 
     A record sizes its budget over the rows the budget can make pass.  A row declared before
     the run as an expected finite-sample row is read under its own rule, so its record drops it
@@ -144,6 +230,9 @@ def without(pilot: Pilot, rows: Sequence[str]) -> Pilot:
     if unknown:
         raise ValueError(f"{pilot.source}: no rows {sorted(unknown)} to drop")
     keep = [index for index, row in enumerate(pilot.rows) if row not in set(rows)]
+    k = len(pilot.rows)
+    blocks = 3 if pilot.calibrated else 1
+    wide = [block * k + index for block in range(blocks) for index in keep]
 
     def pick(values: tuple[float, ...]) -> tuple[float, ...]:
         return tuple(values[index] for index in keep) if values else ()
@@ -157,6 +246,11 @@ def without(pilot: Pilot, rows: Sequence[str]) -> Pilot:
         controls=tuple(row for row in pilot.controls if row not in set(rows)),
         se_ratio=pick(pilot.se_ratio),
         coverage=pick(pilot.coverage),
+        influence=(
+            tuple(tuple(pilot.influence[i][j] for j in wide) for i in wide)
+            if pilot.influence
+            else ()
+        ),
     )
 
 
@@ -172,7 +266,7 @@ def pilot_from_rows(
     The errors are read on each row's inference scale, as ``performance-tests.csv`` reads them:
     ``inference_estimate`` minus the truth on that scale, so a ratio contrast is planned on its
     log scale.  Rows without ``inference_estimate`` (property rows) read ``estimate`` on the
-    identity scale.  Only replications that report every estimand enter the correlation.
+    identity scale.  Only replications that report every estimand enter.
 
     Parameters
     ----------
@@ -190,11 +284,11 @@ def pilot_from_rows(
     Returns
     -------
     Pilot
-        The summary.
+        The summary, with the influence covariance of its statistics.
     """
     names = tuple(sorted(rows["estimand"].unique())) if estimands is None else tuple(estimands)
     frame = rows.loc[rows["estimand"].isin(names)].copy()
-    if "inference_estimate" in frame:
+    if "inference_estimate" in frame and frame["inference_estimate"].notna().all():
         frame["value"] = frame["inference_estimate"].astype(float)
         frame["target"] = [
             truth_on_inference_scale(str(name), float(truth), str(scale))
@@ -206,46 +300,50 @@ def pilot_from_rows(
         frame["value"] = frame["estimate"].astype(float)
         frame["target"] = frame["truth"].astype(float)
     frame["error"] = frame["value"] - frame["target"]
-    errors = frame.pivot(index="replicate", columns="estimand", values="error").loc[:, list(names)]
-    errors = errors.dropna()
-    if len(errors) < 3:
+
+    def wide(column: str) -> pd.DataFrame:
+        return frame.pivot(index="replicate", columns="estimand", values=column).loc[:, list(names)]
+
+    complete = wide("error").dropna().index
+    if len(complete) < 3:
         raise ValueError(f"{source}: fewer than three complete replications")
-    bias: list[float] = []
-    se_ratio: list[float] = []
-    coverage: list[float] = []
-    for name in names:
-        group = frame.loc[frame["estimand"] == name]
-        error = group["error"].to_numpy(dtype=float)
-        spread = float(np.std(group["value"].to_numpy(dtype=float), ddof=1))
-        bias.append(float(np.mean(error) / spread))
-        se_ratio.append(float(group["std_error"].astype(float).mean() / spread))
-        coverage.append(float(group["covered"].astype(float).mean()))
-    correlation = np.corrcoef(errors.to_numpy(dtype=float), rowvar=False).reshape(
-        len(names), len(names)
+    error = wide("error").loc[complete].to_numpy(dtype=float)
+    value = wide("value").loc[complete].to_numpy(dtype=float)
+    spread = value.std(axis=0, ddof=1)
+    centred = (error - error.mean(axis=0)) / spread
+    bias = error.mean(axis=0) / spread
+    square = (centred**2 - 1) / 2
+    blocks = [centred - bias * square]
+    se_ratio: tuple[float, ...] = ()
+    coverage: tuple[float, ...] = ()
+    if calibration:
+        covered = wide("covered").loc[complete].to_numpy(dtype=float)
+        reported = wide("std_error").loc[complete].to_numpy(dtype=float)
+        ratio = reported.mean(axis=0) / spread
+        blocks.append(covered - covered.mean(axis=0))
+        blocks.append((reported - reported.mean(axis=0)) / spread - ratio * square)
+        se_ratio = tuple(round(float(v), 4) for v in ratio)
+        coverage = tuple(round(float(v), 4) for v in covered.mean(axis=0))
+    influence = np.cov(np.hstack(blocks), rowvar=False).reshape(
+        len(names) * len(blocks), len(names) * len(blocks)
     )
+    correlation = np.corrcoef(error, rowvar=False).reshape(len(names), len(names))
     return Pilot(
         source,
-        len(errors),
+        len(complete),
         names,
-        tuple(round(value, 4) for value in bias),
-        tuple(tuple(round(float(value), 4) for value in row) for row in correlation),
-        se_ratio=tuple(round(value, 4) for value in se_ratio) if calibration else (),
-        coverage=tuple(round(value, 4) for value in coverage) if calibration else (),
+        tuple(round(float(v), 4) for v in bias),
+        tuple(tuple(round(float(v), 4) for v in row) for row in correlation),
+        se_ratio=se_ratio,
+        coverage=coverage,
+        influence=tuple(tuple(round(float(v), 6) for v in row) for row in influence),
     )
 
 
-def _factor(correlation: Sequence[Sequence[float]]) -> np.ndarray:
-    """A square root of a correlation matrix that may be singular (``ate = ey1 - ey0``)."""
-    values, vectors = np.linalg.eigh(np.asarray(correlation, dtype=float))
+def _factor(covariance: np.ndarray) -> np.ndarray:
+    """A square root of a covariance matrix that may be singular (``ate = ey1 - ey0``)."""
+    values, vectors = np.linalg.eigh(np.asarray(covariance, dtype=float))
     return np.asarray(vectors * np.sqrt(np.clip(values, 0.0, None)))
-
-
-@dataclass(frozen=True)
-class _Draws:
-    bias: Mapping[str, np.ndarray]
-    se_ratio: Mapping[str, np.ndarray]
-    coverage: Mapping[str, np.ndarray]
-    noise: Mapping[str, tuple[np.ndarray, np.ndarray, np.ndarray]]
 
 
 @dataclass(frozen=True)
@@ -263,6 +361,13 @@ class Rule:
         The seed of the planning draws.  Fixed, so every number the rule returns is exact.
     regimes : tuple
         Each regime is a tuple of arms ``(pilot name, row)`` that one mechanism drives.
+    shares : Mapping
+        Pilot name to the pilot of the same configuration whose planning draw it reads.
+    protected : frozenset
+        ``(pilot name, row)`` pairs an acceptance text reads; never set aside.
+    set_aside : frozenset
+        ``(pilot name, row, clause)`` triples declared as expected finite-sample rows, which
+        the budget is not sized against (:func:`set_aside_rows`).
     margins : Margins
         The margins every row is judged by.
     target : float
@@ -281,6 +386,9 @@ class Rule:
     units: Mapping[str, tuple[tuple[str, ...], int]]
     seed: int
     regimes: tuple[tuple[tuple[str, str], ...], ...] = ()
+    shares: Mapping[str, str] = field(default_factory=dict)
+    protected: frozenset[tuple[str, str]] = frozenset()
+    set_aside: frozenset[tuple[str, str, str]] = frozenset()
     margins: Margins = field(default_factory=Margins)
     target: float = 0.95
     step: int = 400
@@ -301,6 +409,18 @@ class Rule:
             for name, row in regime:
                 if row not in self.pilots[name].rows:
                     raise ValueError(f"regime arm {(name, row)!r} names no pilot row")
+        for name, source in self.shares.items():
+            if name not in self.pilots or source not in self.pilots or source in self.shares:
+                raise ValueError(f"share {name!r} -> {source!r} names no unshared pilot pair")
+            if not set(self.pilots[name].rows) <= set(self.pilots[source].rows):
+                raise ValueError(f"{name!r} has rows {source!r} does not plan")
+        for name, row, clause in self.set_aside:
+            if clause not in SET_ASIDE_CLAUSES:
+                raise ValueError(f"a {clause} row is never set aside")
+            if (name, row) in self.protected:
+                raise ValueError(f"{(name, row)!r} is read by an acceptance text")
+            if not self.pilots[name].calibrated or row not in self.pilots[name].rows:
+                raise ValueError(f"{(name, row)!r} has no calibration row to set aside")
 
     @property
     def unit_target(self) -> float:
@@ -345,27 +465,26 @@ class Rule:
         return math.sqrt(t2), float(np.sum(w * y) / np.sum(w)), float(1.0 / math.sqrt(np.sum(w)))
 
     @cached_property
-    def planning_draws(self) -> _Draws:
-        """The joint planning draws and the study's own Monte Carlo noise, from one seed.
+    def planning_draws(self) -> Mapping[str, np.ndarray]:
+        """Each pilot's statistic vector at every planning draw, from one seed.
 
-        Each pilot's rows are drawn jointly normal around their summary with covariance
-        ``correlation / replicates``.  Each regime's arms are then replaced by their
+        Each unshared pilot's statistics are drawn jointly normal around its summary with
+        covariance ``covariance / replicates``.  Each regime's arms are then replaced by their
         normal-normal posterior at the bounded ``tau``, with the pooled mean drawn once per
-        planning draw, so the arms share its error.  The other rows of an arm's pilot follow
-        the arms by the conditional regression of the pilot's correlation.  The SE ratio and
-        coverage of a primary row are drawn around the pilot's value with SEs
-        ``ratio / sqrt(2 R)`` and ``sqrt(c (1 - c) / R)``.
+        planning draw, so the arms share its error; the other statistics of an arm's pilot
+        follow by their conditional regression on the arms.  A shared pilot then reads its
+        source's values row by row.
 
         Returns
         -------
-        _Draws
-            The planning values and standard normal noise for the study's realization.
+        Mapping
+            Pilot name to a ``(draws, width)`` array.
         """
         rng = np.random.default_rng(self.seed)
-        bias: dict[str, np.ndarray] = {}
+        values: dict[str, np.ndarray] = {}
         for name, pilot in self.pilots.items():
-            shocks = rng.standard_normal((self.draws, len(pilot.rows)))
-            bias[name] = np.asarray(pilot.bias) + shocks @ _factor(pilot.correlation).T / math.sqrt(
+            shocks = rng.standard_normal((self.draws, pilot.width))
+            values[name] = pilot.point + shocks @ _factor(pilot.covariance).T / math.sqrt(
                 pilot.replicates
             )
         for regime in self.regimes:
@@ -374,53 +493,50 @@ class Rule:
             moved: dict[str, dict[int, np.ndarray]] = {}
             for name, row in regime:
                 pilot = self.pilots[name]
-                index = pilot.rows.index(row)
+                index = pilot.index("bias", row)
                 v = 1.0 / pilot.replicates
                 shrink = tau**2 / (v + tau**2)
                 arm = (
                     mu
-                    + shrink * (pilot.bias[index] - mu)
+                    + shrink * (pilot.bias[pilot.rows.index(row)] - mu)
                     + math.sqrt(v * shrink) * rng.standard_normal(self.draws)
                 )
-                moved.setdefault(name, {})[index] = arm - bias[name][:, index]
+                moved.setdefault(name, {})[index] = arm - values[name][:, index]
             for name, shifts in moved.items():
-                correlation = np.asarray(self.pilots[name].correlation, dtype=float)
+                covariance = self.pilots[name].covariance
                 arms = sorted(shifts)
-                others = [i for i in range(correlation.shape[0]) if i not in shifts]
+                others = [i for i in range(covariance.shape[0]) if i not in shifts]
                 delta = np.column_stack([shifts[i] for i in arms])
                 if others:
-                    gain = correlation[np.ix_(others, arms)] @ np.linalg.pinv(
-                        correlation[np.ix_(arms, arms)]
+                    gain = covariance[np.ix_(others, arms)] @ np.linalg.pinv(
+                        covariance[np.ix_(arms, arms)]
                     )
-                    bias[name][:, others] += delta @ gain.T
-                bias[name][:, arms] += delta
-        se_ratio: dict[str, np.ndarray] = {}
-        coverage: dict[str, np.ndarray] = {}
-        for name, pilot in self.pilots.items():
-            if not pilot.se_ratio:
-                continue
-            ratio = np.asarray(pilot.se_ratio)
-            covered = np.asarray(pilot.coverage)
-            shape = (self.draws, len(pilot.rows))
-            se_ratio[name] = ratio + rng.standard_normal(shape) * ratio / math.sqrt(
-                2 * pilot.replicates
-            )
-            coverage[name] = np.clip(
-                covered
-                + rng.standard_normal(shape) * np.sqrt(covered * (1 - covered) / pilot.replicates),
-                0.0,
-                1.0,
-            )
-        noise = {
-            name: tuple(rng.standard_normal((self.draws, len(pilot.rows))) for _ in range(3))
+                    values[name][:, others] += delta @ gain.T
+                values[name][:, arms] += delta
+        for name, source in self.shares.items():
+            pilot, origin = self.pilots[name], self.pilots[source]
+            for statistic in ("bias", "coverage", "se_ratio"):
+                if statistic != "bias" and not (pilot.calibrated and origin.calibrated):
+                    continue
+                for row in pilot.rows:
+                    values[name][:, pilot.index(statistic, row)] = values[source][
+                        :, origin.index(statistic, row)
+                    ]
+        return values
+
+    @cached_property
+    def _noise(self) -> Mapping[str, np.ndarray]:
+        """Standard normal draws of each pilot's study realization, one block per pilot."""
+        rng = np.random.default_rng([self.seed, 1])
+        return {
+            name: rng.standard_normal((self.draws, pilot.width))
             for name, pilot in self.pilots.items()
         }
-        return _Draws(bias, se_ratio, coverage, noise)  # type: ignore[arg-type]
 
-    def pilot_passes(
+    def row_clauses(
         self, name: str, replicates: int, clauses: tuple[str, ...] = CLAUSES
-    ) -> np.ndarray:
-        """Whether one pilot's rows all pass at ``replicates``, at each planning draw.
+    ) -> dict[tuple[str, str], np.ndarray]:
+        """Whether each row's clause passes at ``replicates``, at each planning draw.
 
         Parameters
         ----------
@@ -433,35 +549,63 @@ class Rule:
 
         Returns
         -------
+        dict
+            ``(row, clause)`` to one boolean per planning draw.
+        """
+        pilot = self.pilots[name]
+        covariance = pilot.covariance
+        realized = self.planning_draws[name] + self._noise[name] @ _factor(
+            covariance
+        ).T / math.sqrt(replicates)
+        level = self.margins.confidence_level
+        half = float(student.ppf(0.5 + level / 2, replicates - 1)) / math.sqrt(replicates)
+        margin = self.margins.standardized_bias
+        out: dict[tuple[str, str], np.ndarray] = {}
+        for row in pilot.rows:
+            if "bias" in clauses:
+                size = np.abs(realized[:, pilot.index("bias", row)])
+                out[(row, "bias")] = (
+                    size - half > margin if row in pilot.controls else size + half <= margin
+                )
+            if not pilot.calibrated:
+                continue
+            if "se_ratio" in clauses:
+                index = pilot.index("se_ratio", row)
+                read = realized[:, index]
+                width = self.z * math.sqrt(max(covariance[index, index], 0.0) / replicates)
+                low, high = self.margins.se_ratio_sanity
+                out[(row, "se_ratio")] = (read - width >= low) & (read + width <= high)
+            if "coverage" in clauses:
+                read = np.clip(realized[:, pilot.index("coverage", row)], 0.0, 1.0)
+                floor = read - self.z * np.sqrt(read * (1 - read) / replicates)
+                out[(row, "coverage")] = floor >= self.margins.coverage_floor
+        return out
+
+    def pilot_passes(
+        self, name: str, replicates: int, clauses: tuple[str, ...] = CLAUSES
+    ) -> np.ndarray:
+        """Whether one pilot's rows all pass at ``replicates``, at each planning draw.
+
+        The clauses in :attr:`set_aside` are not read.
+
+        Parameters
+        ----------
+        name : str
+            A key of :attr:`pilots`.
+        replicates : int
+            The budget.
+        clauses : tuple of str
+            The clauses read.
+
+        Returns
+        -------
         numpy.ndarray
             One boolean per planning draw.
         """
-        pilot = self.pilots[name]
-        draws = self.planning_draws
-        bias_noise, ratio_noise, coverage_noise = draws.noise[name]
-        root = math.sqrt(replicates)
-        level = self.margins.confidence_level
-        half = float(student.ppf(0.5 + level / 2, replicates - 1)) / root
-        estimate = draws.bias[name] + bias_noise @ _factor(pilot.correlation).T / root
-        margin = self.margins.standardized_bias
         passed = np.ones(self.draws, dtype=bool)
-        if "bias" in clauses:
-            for index, row in enumerate(pilot.rows):
-                size = np.abs(estimate[:, index])
-                passed &= size - half > margin if row in pilot.controls else size + half <= margin
-        if pilot.se_ratio and "se_ratio" in clauses:
-            ratio = draws.se_ratio[name]
-            read = ratio + ratio_noise * ratio / math.sqrt(2 * replicates)
-            width = self.z * read / math.sqrt(2 * replicates)
-            low, high = self.margins.se_ratio_sanity
-            passed &= ((read - width >= low) & (read + width <= high)).all(axis=1)
-        if pilot.coverage and "coverage" in clauses:
-            covered = draws.coverage[name]
-            read = np.clip(
-                covered + coverage_noise * np.sqrt(covered * (1 - covered) / replicates), 0.0, 1.0
-            )
-            floor = read - self.z * np.sqrt(read * (1 - read) / replicates)
-            passed &= (floor >= self.margins.coverage_floor).all(axis=1)
+        for (row, clause), value in self.row_clauses(name, replicates, clauses).items():
+            if (name, row, clause) not in self.set_aside:
+                passed &= value
         return passed
 
     def unit_passes(
@@ -563,8 +707,58 @@ class Rule:
             passed &= self.unit_passes(unit, budgets[unit])
         return float(passed.mean())
 
+    def ceiling_passes(self) -> list[tuple[str, str, str, float]]:
+        """Every row clause's own predictive pass at the ceiling, lowest first.
+
+        Returns
+        -------
+        list of tuple
+            ``(pilot, row, clause, pass)``.
+        """
+        out = []
+        for name in self.pilots:
+            for (row, clause), value in self.row_clauses(name, self.ceiling).items():
+                out.append((name, row, clause, float(value.mean())))
+        return sorted(out, key=lambda item: item[3])
+
+
+def set_aside_rows(
+    rule: Rule, threshold: float = SET_ASIDE_THRESHOLD
+) -> tuple[Rule, tuple[tuple[str, str, str, float], ...]]:
+    """The rule with every eligible row below ``threshold`` at the ceiling set aside.
+
+    A row is eligible when its clause is a coverage or SE-ratio clause and no acceptance text
+    reads it (:attr:`Rule.protected`).  Each set-aside row is returned with its pass at the
+    ceiling, which the declaration names.
+
+    Parameters
+    ----------
+    rule : Rule
+        The rule.
+    threshold : float
+        The predictive pass at the ceiling below which a row is set aside.
+
+    Returns
+    -------
+    tuple
+        The rule with :attr:`Rule.set_aside` filled, and the rows set aside.
+    """
+    chosen = tuple(
+        (name, row, clause, value)
+        for name, row, clause, value in rule.ceiling_passes()
+        if clause in SET_ASIDE_CLAUSES and (name, row) not in rule.protected and value < threshold
+    )
+    aside = frozenset((name, row, clause) for name, row, clause, _ in chosen)
+    return dataclasses.replace(rule, set_aside=rule.set_aside | aside), chosen
+
 
 # --------------------------------------------------------------- the contraction ladder
+def _slope_weights(sizes: Sequence[int]) -> np.ndarray:
+    x = np.log(np.asarray(sizes, dtype=float))
+    centred = x - x.mean()
+    return np.asarray(centred / np.sum(centred**2))
+
+
 def slope_half_width(
     standardized: Sequence[float], replicates: Sequence[int], sizes: Sequence[int], level: float
 ) -> float:
@@ -579,7 +773,7 @@ def slope_half_width(
     Parameters
     ----------
     standardized : sequence of float
-        Each rung's planning standardized bias.
+        Each rung's standardized bias.
     replicates : sequence of int
         Each rung's replications.
     sizes : sequence of int
@@ -592,56 +786,306 @@ def slope_half_width(
     float
         The projected half-width.
     """
-    x = np.log(np.asarray(sizes, dtype=float))
-    centred = x - x.mean()
-    weights = centred / np.sum(centred**2)
+    weights = _slope_weights(sizes)
     z = np.asarray(standardized, dtype=float)
     r = np.asarray(replicates, dtype=float)
     variance = float(np.sum(weights**2 / (z**2 * r)))
     return float(norm.ppf(0.5 + level / 2)) * math.sqrt(variance)
 
 
-def outer_rung_budget(
-    standardized: Sequence[float],
+@dataclass(frozen=True)
+class LadderPlan:
+    """The planning values of a ladder's read labels at one rung, with their uncertainty.
+
+    Parameters
+    ----------
+    source : str
+        Where the values come from.
+    labels : tuple of str
+        The read labels.
+    size : int
+        The rung the values were measured at.
+    standardized : tuple of float
+        Each label's standardized bias at that rung.
+    correlation : tuple of tuple of float
+        The labels' per-replication error correlation at that rung.
+    replicates : int
+        The replications behind the values.
+    """
+
+    source: str
+    labels: tuple[str, ...]
+    size: int
+    standardized: tuple[float, ...]
+    correlation: tuple[tuple[float, ...], ...]
+    replicates: int
+
+    def __post_init__(self) -> None:
+        k = len(self.labels)
+        if len(self.standardized) != k or np.shape(self.correlation) != (k, k):
+            raise ValueError(f"{self.source}: values and correlation must match the labels")
+
+
+def ladder_plan_from_rows(
+    rows: pd.DataFrame, *, source: str, labels: Mapping[str, str], size: int
+) -> LadderPlan:
+    """A ladder plan from one rung's per-replication rows.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The rung's rows: ``replicate``, ``estimand``, ``truth`` and ``estimate``.
+    source : str
+        Where the rows come from.
+    labels : Mapping
+        Read label to its estimand name in ``rows``.
+    size : int
+        The rung.
+
+    Returns
+    -------
+    LadderPlan
+        The plan.
+    """
+    pilot = pilot_from_rows(
+        rows.drop(columns=["inference_estimate"], errors="ignore"),
+        source=source,
+        estimands=tuple(labels.values()),
+        calibration=False,
+    )
+    return LadderPlan(source, tuple(labels), size, pilot.bias, pilot.correlation, pilot.replicates)
+
+
+def ladder_resolution_pass(
+    plan: LadderPlan,
+    sizes: Sequence[int],
+    budgets: Sequence[int],
+    *,
+    target: float,
+    level: float,
+    draws: int = 20_000,
+    seed: int = 0,
+) -> float:
+    """The predictive probability that every read label's slope interval reaches ``target``.
+
+    The bias is second order: each label's standardized bias at rung ``n`` is its planning value
+    at the plan's rung times ``sqrt(plan.size / n)``.  The planning values are drawn jointly
+    with covariance ``correlation / replicates``; at each rung the study's standardized bias is
+    the planned one plus its own error, jointly across labels with the same correlation and
+    variance ``1 / R``; the half-width is the delta-method one at the realized values.
+
+    Parameters
+    ----------
+    plan : LadderPlan
+        The planning values.
+    sizes : sequence of int
+        The rungs.
+    budgets : sequence of int
+        Each rung's replications.
+    target : float
+        The declared half-width.
+    level : float
+        The interval's two-sided confidence level.
+    draws : int
+        The joint planning draws.
+    seed : int
+        Their seed.
+
+    Returns
+    -------
+    float
+        The share of draws at which every label's half-width is at most ``target``.
+    """
+    rng = np.random.default_rng(seed)
+    factor = _factor(np.asarray(plan.correlation, dtype=float))
+    k = len(plan.labels)
+    planned = np.asarray(plan.standardized) + rng.standard_normal((draws, k)) @ factor.T / (
+        math.sqrt(plan.replicates)
+    )
+    weights = _slope_weights(sizes)
+    critical = float(norm.ppf(0.5 + level / 2))
+    variance = np.zeros((draws, k))
+    for size, budget, weight in zip(sizes, budgets, weights, strict=True):
+        scale = math.sqrt(plan.size / size)
+        realized = planned * scale + rng.standard_normal((draws, k)) @ factor.T / math.sqrt(budget)
+        variance += weight**2 / (realized**2 * budget)
+    return float((critical * np.sqrt(variance) <= target).all(axis=1).mean())
+
+
+def predictive_outer_budget(
+    plan: LadderPlan,
     sizes: Sequence[int],
     middle: int,
     *,
     target: float,
     level: float,
-    step: int = 100,
-    ceiling: int = 20_000,
-) -> int | None:
-    """The smallest outer-rung budget whose projected slope half-width reaches ``target``.
+    probability: float = 0.95,
+    floor: int = 800,
+    step: int = 400,
+    ceiling: int = 8_000,
+    draws: int = 20_000,
+    seed: int = 0,
+) -> tuple[int, float, bool]:
+    """The smallest outer-rung budget whose predictive resolution reaches ``probability``.
 
-    Both outer rungs take the same budget, and the middle rung keeps ``middle``.
+    Both outer rungs take the budget and the middle rung keeps ``middle``.
 
     Parameters
     ----------
-    standardized : sequence of float
-        Each rung's planning standardized bias.
+    plan : LadderPlan
+        The planning values.
     sizes : sequence of int
-        The three rungs' n.
+        The three rungs.
     middle : int
         The middle rung's replications.
     target : float
-        The declared resolution target, a half-width.
+        The declared half-width.
     level : float
-        The two-sided confidence level of the interval.
+        The interval's two-sided confidence level.
+    probability : float
+        The predictive probability every read label must reach the target with.
+    floor : int
+        The smallest budget tried.
     step : int
         The budget grid.
     ceiling : int
         The largest budget tried.
+    draws : int
+        The joint planning draws.
+    seed : int
+        Their seed.
 
     Returns
     -------
-    int or None
-        The budget, or ``None`` when no budget up to ``ceiling`` reaches the target.
+    tuple
+        ``(R, predictive pass, sized)``; the ceiling and ``False`` when no budget reaches it.
     """
-    for budget in range(step, ceiling + 1, step):
-        width = slope_half_width(standardized, (budget, middle, budget), sizes, level)
-        if width <= target:
-            return budget
-    return None
+    value = 0.0
+    for budget in range(step * math.ceil(floor / step), ceiling + 1, step):
+        value = ladder_resolution_pass(
+            plan,
+            sizes,
+            (budget, middle, budget),
+            target=target,
+            level=level,
+            draws=draws,
+            seed=seed,
+        )
+        if value >= probability:
+            return budget, value, True
+    return ceiling, value, False
+
+
+def control_fails_pass(
+    plan: LadderPlan,
+    sizes: Sequence[int],
+    budget: int,
+    *,
+    first_order: float,
+    level: float,
+    draws: int = 20_000,
+    seed: int = 0,
+) -> float:
+    """The predictive probability that every read label's control slope fails to contract.
+
+    The control's bias does not decay: its standardized bias grows as ``sqrt(n / plan.size)``.
+    A label fails to contract when its slope interval's upper end is at or above
+    ``first_order``; the slope and its half-width are the delta-method ones at the realized
+    values.
+
+    Parameters
+    ----------
+    plan : LadderPlan
+        The control's planning values.
+    sizes : sequence of int
+        The rungs.
+    budget : int
+        Every rung's replications.
+    first_order : float
+        The slope the upper end must reach, -1/2.
+    level : float
+        The interval's two-sided confidence level.
+    draws : int
+        The joint planning draws.
+    seed : int
+        Their seed.
+
+    Returns
+    -------
+    float
+        The share of draws at which every label fails to contract.
+    """
+    rng = np.random.default_rng(seed)
+    factor = _factor(np.asarray(plan.correlation, dtype=float))
+    k = len(plan.labels)
+    planned = np.asarray(plan.standardized) + rng.standard_normal((draws, k)) @ factor.T / (
+        math.sqrt(plan.replicates)
+    )
+    weights = _slope_weights(sizes)
+    critical = float(norm.ppf(0.5 + level / 2))
+    slope = np.zeros((draws, k))
+    variance = np.zeros((draws, k))
+    for size, weight in zip(sizes, weights, strict=True):
+        truth = planned * math.sqrt(size / plan.size)
+        realized = truth + rng.standard_normal((draws, k)) @ factor.T / math.sqrt(budget)
+        # log |bias| in SD units at the rung; the SD's own sqrt(n) scaling enters the slope.
+        slope += weight * (np.log(np.abs(realized)) - 0.5 * math.log(size))
+        variance += weight**2 / (realized**2 * budget)
+    upper = slope + critical * np.sqrt(variance)
+    return float((upper >= first_order).all(axis=1).mean())
+
+
+def control_budget(
+    plan: LadderPlan,
+    sizes: Sequence[int],
+    *,
+    first_order: float,
+    level: float,
+    probability: float = 0.99,
+    floor: int = 400,
+    step: int = 400,
+    ceiling: int = 8_000,
+    draws: int = 20_000,
+    seed: int = 0,
+) -> tuple[int, float, bool]:
+    """The smallest per-rung control budget whose failure to contract reaches ``probability``.
+
+    Parameters
+    ----------
+    plan : LadderPlan
+        The control's planning values.
+    sizes : sequence of int
+        The rungs.
+    first_order : float
+        The slope the upper end must reach, -1/2.
+    level : float
+        The interval's two-sided confidence level.
+    probability : float
+        The predictive probability the control must fail to contract with.
+    floor : int
+        The smallest budget tried.
+    step : int
+        The budget grid.
+    ceiling : int
+        The largest budget tried.
+    draws : int
+        The joint planning draws.
+    seed : int
+        Their seed.
+
+    Returns
+    -------
+    tuple
+        ``(R, predictive pass, sized)``.
+    """
+    value = 0.0
+    for budget in range(step * math.ceil(floor / step), ceiling + 1, step):
+        value = control_fails_pass(
+            plan, sizes, budget, first_order=first_order, level=level, draws=draws, seed=seed
+        )
+        if value >= probability:
+            return budget, value, True
+    return ceiling, value, False
 
 
 def as_rows(pilot: Pilot) -> list[dict[str, Any]]:
