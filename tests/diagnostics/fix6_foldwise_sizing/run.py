@@ -7,10 +7,12 @@ ratio and its coverage, the per-replication error correlation, and the seconds e
 =========================  ===================================================================
 group                      fit
 =========================  ===================================================================
-``b_outcome_correct``      unit B: the paper law at n = 1,500, ``outcome_correct``, fold-wise
+``b_outcome_correct``      unit B: the paper law at n = 1,500, ``outcome_correct``, fold-wise,
+                           every primary row; its ``ate`` also plans the paired cell
 ``b_treatment_correct``    unit B: the same, ``treatment_correct``
 ``m_primary``              unit M: the multi-arm primary at n = 2,000, every estimand
-``s_primary``              unit S primary: the stratified primary at n = 2,000, ten rows
+``m_outcome_correct``      unit M: the ``double_robustness/outcome_correct`` cell, fold-wise
+``s_primary``              unit S: the stratified primary at n = 2,000, ten rows
 ``ladder_tc_2000``         unit S ladder: stratified ``treatment_correct`` at n = 2,000
 ``ladder_tc_8000``         unit S ladder: the same at n = 8,000, which times the costliest fit
 =========================  ===================================================================
@@ -36,7 +38,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from cleverly.estimators import DRTMLE
 from cleverly.utils.parallel import map_parallel
+from cleverly.validation import CoverageStudy, ReplicationFailure
 from tests.studies import canonical_drtmle, multi_arm_common
 from tests.studies import canonical_stratified_drtmle as stratified
 from tests.studies import drtmle_foldwise as foldwise
@@ -44,7 +48,7 @@ from tests.studies import drtmle_foldwise_n1500 as unit_b
 from tests.studies import multi_arm_drtmle_foldwise as unit_m
 from tests.studies import stratified_drtmle_foldwise as unit_s
 from tests.studies import stratified_drtmle_foldwise_ladder as ladder
-from tests.studies.drtmle_foldwise_sizing import Rule, as_rows, pilot_from_rows
+from tests.studies.drtmle_foldwise_sizing import as_rows, pilot_from_rows
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.point_study_helpers import primary_rows
 
@@ -53,12 +57,13 @@ GROUPS: dict[str, tuple[Any, int]] = {
     "b_outcome_correct": (unit_b, unit_b.PRIMARY_N),
     "b_treatment_correct": (unit_b, unit_b.PRIMARY_N),
     "m_primary": (unit_m, unit_m.PRIMARY_N),
+    "m_outcome_correct": (unit_m, unit_m.registered_cell().n),
     "s_primary": (unit_s, unit_s.PRIMARY_N),
-    "ladder_tc_2000": (ladder, 2_000),
-    "ladder_tc_8000": (ladder, 8_000),
+    "ladder_tc_2000": (unit_s, 2_000),
+    "ladder_tc_8000": (unit_s, 8_000),
 }
 #: The ladder's rows, by package name.
-LADDER_ESTIMANDS = tuple(stratified.ate_name(label) for label in ladder.LABELS)
+LADDER_ESTIMANDS = tuple(stratified.ate_name(label) for label in unit_s.LABELS)
 #: The pilot's default draws per group.
 REPLICATES = 200
 
@@ -99,8 +104,39 @@ def fit(group: str, replicate: int) -> list[dict[str, Any]]:
             implementation=group,
             scenario=scenario,
             replicate=replicate,
-            estimands=("ate",),
+            estimands=unit_b.ESTIMANDS,
         )
+    elif group == "m_outcome_correct":
+        cell = unit_m.property_cell()
+        study = CoverageStudy(
+            dgp=cell.dgp,
+            estimator=lambda: DRTMLE(**unit_m.cell_settings(cell)),
+            n=n,
+            # A budget that holds the replication asked for; only that one is fitted.
+            n_replicates=max(2, replicate + 1),
+            estimands=(cell.estimand,),
+            fit_kwargs=dict(cell.fit_kwargs),
+            seed=drawn,
+            n_jobs=1,
+        )
+        start = time.perf_counter()
+        outcome = study.run_replication(replicate, drawn)
+        if isinstance(outcome, ReplicationFailure):
+            raise RuntimeError(f"{group} replication {replicate} failed: {outcome}")
+        (record,) = [r for r in outcome if r.estimand == cell.estimand]
+        seconds = time.perf_counter() - start
+        rows = [
+            {
+                "implementation": group,
+                "scenario": unit_m.CELL,
+                "replicate": replicate,
+                "estimand": unit_m.CELL,
+                "truth": record.truth,
+                "estimate": record.estimate,
+                "std_error": record.std_error,
+                "covered": int(record.covered),
+            }
+        ]
     elif group == "m_primary":
         frame, truth = unit_m.draw_from_seed(unit_m.SCENARIO, n, drawn)
         start = time.perf_counter()
@@ -117,7 +153,7 @@ def fit(group: str, replicate: int) -> list[dict[str, Any]]:
         )
     else:
         frame, truth = stratified.draw_from_seed(stratified.SCENARIO, n, drawn)
-        configuration = "both_correct" if group == "s_primary" else ladder.POSITIVE
+        configuration = "both_correct" if group == "s_primary" else unit_s.POSITIVE
         estimands = unit_s.ESTIMANDS if group == "s_primary" else LADDER_ESTIMANDS
         start = time.perf_counter()
         result = unit_s.fit_cleverly(frame, configuration)
@@ -149,7 +185,9 @@ def summarize(rows: pd.DataFrame) -> pd.DataFrame:
         The summary.
     """
     out = []
-    for group, frame in rows.groupby("group", sort=False):
+    for group, grouped in rows.groupby("group", sort=False):
+        # A property group's rows carry no inference-scale columns of the primary groups.
+        frame = grouped.dropna(axis=1, how="all")
         pilot = pilot_from_rows(frame, source=f"Fix-6 sizing pilot, {group}")
         seconds = frame.drop_duplicates("replicate")["seconds"]
         for row in as_rows(pilot):
@@ -178,32 +216,54 @@ def sizing(rows: pd.DataFrame) -> list[str]:
     list of str
         One line per rule whose groups the pilot ran.
     """
-    groups = dict(list(rows.groupby("group", sort=False)))
+    groups = {
+        str(name): frame.dropna(axis=1, how="all")
+        for name, frame in rows.groupby("group", sort=False)
+    }
     lines = []
     if {"b_outcome_correct", "b_treatment_correct"} <= set(groups):
-        pilots = {
-            name.removeprefix("b_"): pilot_from_rows(
-                groups[name], source=f"pilot {name}", calibration=False
+        pilots = {}
+        for scenario in unit_b.SCENARIOS:
+            frame = groups[f"b_{scenario}"]
+            present = [name for name in unit_b.ESTIMANDS if name in set(frame["estimand"])]
+            pilots[f"primary_{scenario}"] = pilot_from_rows(
+                frame, source=f"pilot b_{scenario}", estimands=present
             )
-            for name in ("b_outcome_correct", "b_treatment_correct")
-        }
-        rule = Rule(
-            pilots=pilots,
-            units={"cells": (tuple(pilots), unit_b.PLANNING_BUDGETS["cells"])},
-            seed=unit_b.RULE.seed,
+            pilots[f"cell_{scenario}"] = pilot_from_rows(
+                frame, source=f"pilot b_{scenario}", estimands=("ate",), calibration=False
+            )
+        rule = unit_b.rule(pilots)
+        lines.append(f"unit B primary: {rule.budget('primary')}, cells: {rule.budget('cells')}")
+    if groups.keys() & {"m_primary", "m_outcome_correct"}:
+        primary = (
+            pilot_from_rows(groups["m_primary"], source="pilot m_primary")
+            if "m_primary" in groups
+            else None
         )
-        lines.append(f"unit B cells: {rule.budget('cells')}")
-    if "m_primary" in groups:
-        pilot = pilot_from_rows(groups["m_primary"], source="pilot m_primary")
-        lines.append(f"unit M primary: {unit_m.rule(pilot).budget('primary')}")
+        cell = (
+            pilot_from_rows(
+                groups["m_outcome_correct"], source="pilot m_outcome_correct", calibration=False
+            )
+            if "m_outcome_correct" in groups
+            else None
+        )
+        rule = unit_m.rule(primary, cell)
+        lines.append(
+            f"unit M primary: {rule.budget('primary')}, "
+            f"{unit_m.CELL}: {rule.budget(unit_m.CELL)} (a group not piloted keeps its "
+            "registered planning value)"
+        )
     if "s_primary" in groups:
         pilot = pilot_from_rows(groups["s_primary"], source="pilot s_primary")
-        lines.append(f"unit S primary: {unit_s.rule({'primary': pilot}).budget('primary')}")
+        lines.append(
+            f"unit S primary (less {', '.join(unit_s.EXPECTED_FINITE_SAMPLE)}): "
+            f"{unit_s.rule({'primary': pilot}).budget('primary')}"
+        )
     if {"ladder_tc_2000", "ladder_tc_8000"} <= set(groups):
         low = pilot_from_rows(groups["ladder_tc_2000"], source="pilot ladder 2,000")
         high = pilot_from_rows(groups["ladder_tc_8000"], source="pilot ladder 8,000")
         standardized = {}
-        for label in ladder.READ_LABELS:
+        for label in unit_s.READ_LABELS:
             name = stratified.ate_name(label)
             z_low = abs(low.bias[low.rows.index(name)])
             z_high = abs(high.bias[high.rows.index(name)])
