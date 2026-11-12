@@ -1,22 +1,21 @@
 === conditional-projection declared run
-command: /usr/local/bin/python /home/user/cleverly-tmle/tests/canonical/conditional_projection/regenerate.py --output /home/user/runout6 --jobs 4
-commit: 00a9c83955e9c046adcff9f27780c375530f8c24; upstream 00a9c83955e9c046adcff9f27780c375530f8c24
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\tests\canonical\conditional_projection\regenerate.py' --output 'C:\Users\erics\cp-x97-run-1' --jobs 16
+commit: c449be6fafafea063e54d0ed380c2121f3c66683; upstream c449be6fafafea063e54d0ed380c2121f3c66683
 clean tree: True
-cleverly 0.2.0 from /home/user/cleverly-tmle/src/cleverly/__init__.py
-python 3.13.18; numpy 2.5.3; scipy 1.18.1; pandas 3.0.5; scikit-learn 1.9.1; joblib 1.6.0
-installed distributions: 194, sha256 d17335c3eaf7b79105c54254a7046d27928378d490092089a83a0a1fa1dc3ade
+cleverly 0.2.3 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\src\cleverly\__init__.py
+python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 129, sha256 2695d826d2ec8c5b7bf3b40edac42eb6f8c862f210a7a47d308511a1afcd561d
 threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-cores: 4
-started: 2026-11-05T23:02:52+00:00
-note: resumed from /root/.cache/cleverly/runs/conditional-projection/1fa43a0088e6, reused the Python phase
-finished: 2026-11-05T23:21:41+00:00
-wall seconds: 1128.2
+cores: 16
+started: 2026-11-12T12:33:13+00:00
+finished: 2026-11-12T16:01:22+00:00
+wall seconds: 12484.7
 exit code: 0
 sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
-sha256 manifest.json: afb0120c15f7464206d591571f3532f1ed713c2836c413e5df6793cdca2a1e84
-sha256 performance-tests.csv: 37292b5c4cf03608c06b64825eeda5f517d57d683cf15fb4d5856c7d531e6cf3
-sha256 properties.csv: 7a49ba9bdd5a2c7b529f5e2dbe2430fb25ea8889b16c61b8a7acc452406d09fe
-sha256 property-replicates.parquet: 2941058d19c60a40255db7a942741cee40b6ba9cbaf42a1c02f4ea248128bbce
-sha256 replicates.parquet: 43ec63b5b7600a4e4c2bf706da6ee412ffe629b5704e0fac1536a550e066bde6
-sha256 summary.csv: 09e84c57c747926bc1db42e7c4c1fd7ef948b42a515bcf79d252105ae9223d22
+sha256 manifest.json: 70d075f0c3af597c9a848c5adbd1b125b3757195cb36da98cb44dc6aba6c2f69
+sha256 performance-tests.csv: ae7f0fcd159defbc1445d468b1a9213993aa491b7ed36f09e174a88f8a19d786
+sha256 properties.csv: a9a87dcf212f0ad135161b045af52b4fca75826fcc4b0473a55286c96a56352f
+sha256 property-replicates.parquet: 5e4d4c792fa39559218827f8473480e07b6a955bb892bdeaefc548e7f82f691a
+sha256 replicates.parquet: f14f29c2d11d8a9675e318b6904880eecdc8d4e9b510cfe0f480b216670372c3
+sha256 summary.csv: 298420aa05cb9d04befa93b2ae89f119a79567567766e60dfd7c49429e353c37
 
