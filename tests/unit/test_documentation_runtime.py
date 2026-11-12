@@ -287,6 +287,7 @@ frame = pd.DataFrame(
 #: shared registry.
 PRELUDES: dict[str, str] = {
     "README.md": "",
+    "docs/api/plotting.md": _RESULT,
     "docs/getting-started/installation.md": "",
     "docs/getting-started/quickstart.md": "",
     "docs/technical-reference/adaptive-iptw.md": "",
