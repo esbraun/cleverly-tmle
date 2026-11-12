@@ -40,7 +40,7 @@ from cleverly._support import Support, combine_support
 from cleverly.data.causal_data import CausalData
 from cleverly.datasets import make_binary_outcome, make_clustered, make_linear_ate
 from cleverly.estimators import DRTMLE, TMLE
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import CapabilityError
 from cleverly.inference import results as results_module
 from cleverly.inference.delta import wald_ci
 from cleverly.longitudinal import LTMLE, SequentialGComputation
@@ -537,9 +537,19 @@ class TestFewClusterT:
             _ = result["ate"].ci
 
     def test_fold_evaluated_targeting_at_five_clusters_keeps_its_refusal(self) -> None:
-        """Five whole-cluster folds leave one cluster per fold, which the preflight refuses."""
-        with pytest.raises((CapabilityError, DataError, ValueError)):
-            self.fit(5, cross_fit=True, n_folds=5, cv_evaluation=True, q_bounds=(-15.0, 15.0))
+        """Five whole-cluster folds leave one cluster per fold, which the preflight refuses.
+
+        The ATE alone at equal sizes, so the unequal-mass refusal of ``att`` cannot answer first.
+        """
+        with pytest.raises(CapabilityError, match="needs at least 2 clusters in every validation"):
+            self.fit(
+                5,
+                cross_fit=True,
+                n_folds=5,
+                cv_evaluation=True,
+                q_bounds=(-15.0, 15.0),
+                estimands=("ate",),
+            )
 
     def test_a_floor_of_ten_fails_the_five_cluster_witness(
         self, monkeypatch: pytest.MonkeyPatch

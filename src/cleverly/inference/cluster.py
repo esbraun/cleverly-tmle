@@ -55,6 +55,7 @@ __all__ = [
     "stacked_second_moment_covariance",
     "stacked_second_moment_variance",
     "unequal_cluster_sizes",
+    "unequal_positive_cluster_mass",
 ]
 
 
@@ -474,6 +475,60 @@ def unequal_cluster_sizes(cluster: IntArray, weights: FloatArray | None = None) 
         return False
     mass = cluster_weight_mass(cluster, weights)
     return bool(float(np.ptp(mass)) > WEIGHT_MASS_RTOL * float(np.max(np.abs(mass))))
+
+
+def unequal_positive_cluster_mass(
+    cluster: IntArray, mass: FloatArray, total: FloatArray
+) -> tuple[float, float, int] | None:
+    """The spread of a per-cluster mass over the clusters with positive total mass.
+
+    ``mass`` and ``total`` are per-row arrays. ``total`` is the observation weight of each
+    row, or ones on an unweighted fit; ``mass`` is ``total`` restricted to the rows that one
+    estimand's denominator reads, such as the treated rows of the ATT. Both are summed by
+    cluster. Only the clusters with positive total mass count, and among them a cluster whose
+    ``mass`` sums to zero counts with mass 0. The masses differ when their range exceeds
+    :data:`WEIGHT_MASS_RTOL` times the largest. Unlike :func:`unequal_cluster_sizes`, row
+    counts do not enter: equal mass from unequal row counts is equal.
+
+    Parameters
+    ----------
+    cluster : ndarray of int
+        The cluster label of each row.
+    mass : ndarray of float
+        The denominator mass of each row.
+    total : ndarray of float
+        The total weight mass of each row.
+
+    Returns
+    -------
+    tuple of (float, float, int) or None
+        The smallest and largest per-cluster mass and the number of clusters with positive
+        total mass when the masses differ, and ``None`` when they are equal.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference.cluster import unequal_positive_cluster_mass
+    >>> cluster = np.repeat(np.arange(4), 3)
+    >>> ones = np.ones(12)
+    >>> unequal_positive_cluster_mass(cluster, ones, ones) is None
+    True
+    >>> treated = np.array([1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0], dtype=float)
+    >>> unequal_positive_cluster_mass(cluster, treated, ones)
+    (1.0, 2.0, 4)
+    """
+    _, inverse = np.unique(np.asarray(cluster).reshape(-1), return_inverse=True)
+    inverse = inverse.reshape(-1)
+    totals = np.bincount(inverse, weights=np.asarray(total, dtype=float).reshape(-1))
+    masses = np.bincount(
+        inverse, weights=np.asarray(mass, dtype=float).reshape(-1), minlength=totals.size
+    )[totals > 0.0]
+    if masses.size == 0:
+        return None
+    low, high = float(masses.min()), float(masses.max())
+    if high - low <= WEIGHT_MASS_RTOL * max(abs(low), abs(high)):
+        return None
+    return low, high, int(masses.size)
 
 
 def fewest_clusters(
