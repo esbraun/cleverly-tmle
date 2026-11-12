@@ -729,6 +729,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.dose_response import STUDY as DOSE_RESPONSE
     from tests.studies.dose_response_npcausal import STUDY as DOSE_RESPONSE_NPCAUSAL
     from tests.studies.drtmle_foldwise import STUDY as DRTMLE_FOLDWISE
+    from tests.studies.drtmle_foldwise_n1500 import STUDY as DRTMLE_FOLDWISE_N1500
     from tests.studies.drtmle_one_wrong import STUDY as DRTMLE_ONE_WRONG
     from tests.studies.eliminated_competing_events import STUDY as ELIMINATED_COMPETING_EVENTS
     from tests.studies.ep_assessment import STUDY as EP_ASSESSMENT
@@ -756,6 +757,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.longitudinal_repeated_crossfit import STUDY as LONGITUDINAL_REPEATED_CROSSFIT
     from tests.studies.marginal_bound_coverage import STUDY as MARGINAL_BOUND_LIMIT_COVERAGE
     from tests.studies.missingness_tilt_inference import STUDY as MISSINGNESS_TILT_INFERENCE
+    from tests.studies.multi_arm_drtmle_foldwise import STUDY as MULTI_ARM_DRTMLE_FOLDWISE
     from tests.studies.omitted_variable_bound import STUDY as OMITTED_VARIABLE_BOUND_SE
     from tests.studies.omitted_variable_bound_plugin import (
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
@@ -769,6 +771,10 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
     from tests.studies.score_assessment import STUDY as SCORE_ASSESSMENT
     from tests.studies.separable_effects import STUDY as SEPARABLE_EFFECTS
+    from tests.studies.stratified_drtmle_foldwise import STUDY as STRATIFIED_DRTMLE_FOLDWISE
+    from tests.studies.stratified_drtmle_foldwise_ladder import (
+        STUDY as STRATIFIED_DRTMLE_FOLDWISE_LADDER,
+    )
     from tests.studies.survival_ctmle import STUDY as SURVIVAL_CTMLE
     from tests.studies.survival_dr_tmle import STUDY as SURVIVAL_DR_TMLE
     from tests.studies.targeting_curves import STUDY as TARGETING_CURVES
@@ -886,6 +892,10 @@ def registered() -> tuple[StudyRecord, ...]:
         KNOWN_MECHANISM_DRTMLE,
         DRTMLE_ONE_WRONG,
         DRTMLE_FOLDWISE,
+        DRTMLE_FOLDWISE_N1500,
+        MULTI_ARM_DRTMLE_FOLDWISE,
+        STRATIFIED_DRTMLE_FOLDWISE,
+        STRATIFIED_DRTMLE_FOLDWISE_LADDER,
         KNOWN_NODE_MECHANISMS,
         SEQUENTIAL_BASELINES,
         STRUCTURAL_NESTED_MEAN,
