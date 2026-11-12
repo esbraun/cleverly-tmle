@@ -575,6 +575,43 @@ class TestTheSixCellWitnessLaw:
         truth = six_truth(SIX_Q, "log_ratio", scores)
         assert np.max(np.abs(values(six_assess("log_ratio", names)) - truth)) > MUTATION_FLOOR
 
+    @_quiet
+    def test_t7_a_slope_at_a_collinear_point_settles_on_the_reduced_span(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A ``score-assessment`` pilot draw whose calibration slope lands near 0.5, where the
+        log-ratio numerators are collinear to about 2e-6 (relative): the full-span rounds cycle,
+        and the rounds without the thinnest direction settle with every numerator within
+        ``_REDUCED_SPAN_BOUND`` of the span."""
+        from tests.studies import score_assessment as sa
+        from tests.studies.evidence.seeds import stream_seed
+
+        group = sa.GROUP_BY_LABEL["single_crr_2k"]
+        seed = stream_seed(sa.STUDY, "se_ratio_pilot", group.label, 198)
+        frame, truths = sa.draw_from_seed(group.label, group.n, seed)
+        effect = CausalStudy(sa.with_scores(group, frame), design=sa.design(group)).identify(
+            ConditionalContrast(sa.MODIFIERS, scale="log_ratio", model=sa.BASIS)
+        )
+
+        def assess() -> Any:
+            return effect.assess_score(
+                "S",
+                computed_from=["W1"],
+                score_kind="external",
+                **sa.learners(group),
+                random_state=198,
+            )
+
+        settled = assess()
+        assert settled.span["rank"] == settled.span["columns"] - 1
+        assert 0.0 < settled.span["out_of_span"] <= ec._REDUCED_SPAN_BOUND
+        slope = settled["calibration[S]"]
+        assert abs(slope.psi - 0.5) < 0.01
+        assert abs(slope.psi - truths["S_calibration_slope"]) < 4.0 * slope.std_error
+        monkeypatch.setattr(ec, "_REDUCED_SPAN_BOUND", -1.0)
+        with pytest.raises(DataError, match="did not settle"):
+            assess()
+
     @pytest.mark.parametrize("scale", ["difference", "log_ratio"])
     @_quiet
     def test_t8_the_substitution_equals_the_one_step_at_the_targeted_fit(self, scale: str) -> None:
@@ -640,7 +677,8 @@ class TestTheSixCellWitnessLaw:
         monkeypatch.setattr(ec, "DEFAULT_MAX_OUTER", 1)
         with pytest.raises(DataError, match="did not settle") as caught:
             six_assess("log_ratio")
-        assert "after 1 rounds" in str(caught.value)
+        # One round on the full span, then one on each reduced span (one per score).
+        assert "after 3 rounds" in str(caught.value)
 
     @pytest.mark.parametrize("scale", ["difference", "log_ratio"])
     @_quiet

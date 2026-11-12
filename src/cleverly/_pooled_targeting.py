@@ -43,13 +43,15 @@ TARGETING_SPAN_RTOL: Final = 1e-10
 _SINGULAR_HESSIAN: Final = 1e12
 
 
-def span_basis(columns: FloatArray) -> tuple[FloatArray, float]:
+def span_basis(columns: FloatArray, rank: int | None = None) -> tuple[FloatArray, float]:
     """An orthonormal basis of the column span, scaled to ``B'B = n I``, and the residual.
 
     Parameters
     ----------
     columns : ndarray
         ``(n, p)`` columns.
+    rank : int or None
+        Keep at most this many leading directions.
 
     Returns
     -------
@@ -60,6 +62,8 @@ def span_basis(columns: FloatArray) -> tuple[FloatArray, float]:
     n = columns.shape[0]
     u, singular, _ = np.linalg.svd(columns, full_matrices=False)
     keep = singular > TARGETING_SPAN_RTOL * singular[0]
+    if rank is not None:
+        keep &= np.arange(singular.size) < rank
     basis = u[:, keep] * math.sqrt(n)
     residual = columns - basis @ (basis.T @ columns) / n
     norms = np.linalg.norm(columns, axis=0)
@@ -68,7 +72,7 @@ def span_basis(columns: FloatArray) -> tuple[FloatArray, float]:
 
 
 def arm_span_basis(
-    numerators_t: FloatArray, numerators_r: FloatArray
+    numerators_t: FloatArray, numerators_r: FloatArray, rank: int | None = None
 ) -> tuple[FloatArray, FloatArray, float]:
     """A basis of the span of arm-specific numerator pairs, split back into its two arms.
 
@@ -82,6 +86,8 @@ def arm_span_basis(
         ``(n, p)`` numerators at arm ``t``.
     numerators_r : ndarray
         ``(n, p)`` numerators at arm ``r``.
+    rank : int or None
+        Keep at most this many leading directions.
 
     Returns
     -------
@@ -90,7 +96,7 @@ def arm_span_basis(
         relative norm of a column's component outside the span.
     """
     n = numerators_t.shape[0]
-    basis, out_of_span = span_basis(np.vstack([numerators_t, numerators_r]))
+    basis, out_of_span = span_basis(np.vstack([numerators_t, numerators_r]), rank)
     return basis[:n], basis[n:], out_of_span
 
 

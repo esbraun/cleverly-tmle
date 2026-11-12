@@ -17,6 +17,7 @@ one pooled fluctuation of the cross-fitted outcome regression of an ATE fit.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
@@ -1168,6 +1169,12 @@ def _target_scores(
     return _alternate_log_ratio(fit, data, scores, pair)
 
 
+#: The largest relative distance of a numerator from the span, after the thinnest direction is
+#: dropped, at which a log-ratio fit still reports.  Each numerator's score equation then holds
+#: up to that fraction of the column's norm times the residual's.
+_REDUCED_SPAN_BOUND: Final = 1e-3
+
+
 def _alternate_log_ratio(
     fit: Any, data: Any, scores: Sequence[FloatArray], pair: tuple[float, float]
 ) -> _TargetedScores:
@@ -1180,33 +1187,65 @@ def _alternate_log_ratio(
     :math:`\bar Q^0`, it stops when the relative shift in :math:`\beta` is at most the fit's
     ``tol`` or a round no longer improves it materially, and at most
     :data:`~cleverly.estimators.targeting.DEFAULT_MAX_OUTER` rounds run.
+
+    Expanded to second order in :math:`s`, a score's numerators (the arm constants, the risk
+    pair and the two calibration pairs) are linearly dependent at two calibration slopes:
+    where :math:`e' = 0` and where :math:`e'` is half of :math:`\operatorname{expit}'` at the
+    score's centre (about :math:`\beta_1 = 0.5` when :math:`e(s)` sits near
+    :math:`\operatorname{expit}(s)`).  A fit whose slope lands there has a direction of the
+    span only third-order thin, and the
+    span jumps as :math:`\beta` crosses the slope, so the rounds cycle without settling (12 of
+    the ``score-assessment`` pilot's 1,600 log-ratio fits).  Such a fit runs the rounds again
+    from its best one along the span without its thinnest direction, at that fixed rank, then
+    without its two thinnest, up to one per score, and reports the first that settles with every
+    numerator within :data:`_REDUCED_SPAN_BOUND` of the span (the span record's
+    ``out_of_span``); otherwise it refuses.  Every fit the first rounds settle is unchanged.
     """
     w = np.asarray(data.weights, dtype=float)
     w = w / w.mean()
     tol = float(fit.config.targeting_spec.tol)
     initial_t, initial_r, _, _ = _pseudo_outcomes(fit.nuisance, data, pair)
 
-    def solve(betas: Sequence[FloatArray]) -> tuple[PooledFit, dict[str, float]]:
+    def solve(betas: Sequence[FloatArray], rank: int | None) -> tuple[PooledFit, dict[str, float]]:
         at_t, at_r = _log_ratio_numerators(scores, betas)
-        basis_t, basis_r, out_of_span = arm_span_basis(at_t, at_r)
+        basis_t, basis_r, out_of_span = arm_span_basis(at_t, at_r, rank)
         pooled = solve_pooled(fit, data, basis_t, basis_r, pair, what=_WHAT)
         return pooled, _span_record(at_t.shape[1], basis_t.shape[1], out_of_span, pooled)
 
-    betas = tuple(_log_ratio_projection(initial_t, initial_r, s, w) for s in scores)
-    pooled, span = solve(betas)
-    shift, previous, rounds = 0.0, None, 0
-    while rounds < DEFAULT_MAX_OUTER:
-        rounds += 1
-        solved = tuple(_log_ratio_projection(pooled.q_t, pooled.q_r, s, w) for s in scores)
-        old, new = np.concatenate(betas), np.concatenate(solved)
-        shift = float(np.max(np.abs(new - old))) / (1.0 + float(np.max(np.abs(old))))
-        if shift <= tol:
+    def rounds_from(
+        betas: tuple[FloatArray, ...], rank: int | None
+    ) -> tuple[
+        float, int, tuple[FloatArray, ...], PooledFit, dict[str, float], tuple[FloatArray, ...]
+    ]:
+        pooled, span = solve(betas, rank)
+        shift, previous, rounds = 0.0, None, 0
+        best: tuple[float, tuple[FloatArray, ...]] = (math.inf, betas)
+        while rounds < DEFAULT_MAX_OUTER:
+            rounds += 1
+            solved = tuple(_log_ratio_projection(pooled.q_t, pooled.q_r, s, w) for s in scores)
+            old, new = np.concatenate(betas), np.concatenate(solved)
+            shift = float(np.max(np.abs(new - old))) / (1.0 + float(np.max(np.abs(old))))
+            best = min(best, (shift, betas), key=lambda item: item[0])
+            if shift <= tol:
+                break
+            if previous is not None and shift > _STALL_FACTOR * previous:
+                break
+            previous = shift
+            betas = solved
+            pooled, span = solve(betas, rank)
+        return shift, rounds, betas, pooled, span, best[1]
+
+    start = tuple(_log_ratio_projection(initial_t, initial_r, s, w) for s in scores)
+    shift, rounds, betas, pooled, span, best = rounds_from(start, None)
+    full = int(span["rank"])
+    # Each score has one risk pair, so at most one thin direction each.
+    for dropped in range(1, len(scores) + 1):
+        if shift <= _UNSOLVED or full - dropped < 1:
             break
-        if previous is not None and shift > _STALL_FACTOR * previous:
-            break
-        previous = shift
-        betas = solved
-        pooled, span = solve(betas)
+        reduced = rounds_from(best, full - dropped)
+        rounds += reduced[1]
+        if reduced[0] <= _UNSOLVED and reduced[4]["out_of_span"] <= _REDUCED_SPAN_BOUND:
+            shift, _, betas, pooled, span, _ = reduced
     # As in solve_with_projection: a shift above _UNSOLVED fails even under a declared tol above
     # it, and after a cap exit the last round's projection is not compared with its beta again.
     if shift > _UNSOLVED:
