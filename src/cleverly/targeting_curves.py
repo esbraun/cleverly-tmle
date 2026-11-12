@@ -53,17 +53,20 @@ from .utils.frames import frame_from_dict
 __all__ = [
     "DEFAULT_GRID",
     "TARGETING_ATOM_SHARE",
+    "TARGETING_BOOTSTRAP_REFUSAL",
     "TARGETING_MEASURED",
     "TARGETING_MEASURED_TOP_ROWS",
     "TARGETING_MIN_CLUSTERS",
     "TARGETING_MIN_TOP_ROWS",
     "TARGETING_PAIRED_MEASURED",
     "TARGETING_REPEATS_REFUSAL",
+    "TARGETING_SCHEME_REFUSAL",
     "TARGETING_SPAN_RTOL",
     "TARGETING_SPLIT_REFUSAL",
     "TargetingCurve",
     "TargetingEvaluation",
     "block_weights",
+    "check_targeting_settings",
     "check_targeting_spec",
     "half_sample_draws",
     "targeting_fit",
@@ -86,6 +89,23 @@ TARGETING_SPLIT_REFUSAL = Refusal(
     "experiments with difference-in-means scores, and no result covers doubly robust scores "
     "from estimated nuisances.",
     alternative="Pass split=0.5.",
+)
+
+#: Why a targeting curve refuses fold-wise targeting and fold evaluation of its ATE fit.
+TARGETING_SCHEME_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "A targeting curve fits one pooled fluctuation over every evaluation row from the "
+    "cross-fitted nuisances, so fold-wise targeting or fold evaluation of the ATE fit would be "
+    "ignored.",
+    alternative="Fit with targeting_scheme='pooled' and cv_evaluation=False.",
+)
+
+#: Why a targeting curve refuses a refit bootstrap of its ATE fit.
+TARGETING_BOOTSTRAP_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "A targeting curve's intervals come from its half-sample bootstrap; a refit bootstrap of "
+    "the ATE fit would be computed and ignored.",
+    alternative="Fit with n_bootstrap=0; n_half_samples= sets the curve's own draws.",
 )
 
 #: The default grid of treated fractions, as grf's ``rank_average_treatment_effect``.
@@ -984,6 +1004,31 @@ def check_targeting_spec(spec: Any) -> None:
             alternative="Fit with stopping='relative'.",
             roadmap="X92",
         )
+
+
+def check_targeting_settings(estimator: Any) -> None:
+    """Refuse an ATE estimator's settings that a targeting curve would silently drop.
+
+    Both routes call it before the ATE fit: the targeting settings of
+    :func:`check_targeting_spec`, then fold-wise targeting, fold evaluation and a refit
+    bootstrap, none of which the pooled fluctuation and the half-sample bootstrap read.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The ATE estimator, before it fits.
+
+    Raises
+    ------
+    CapabilityError
+        For ``target_weights=True``, a declared stopping rule, ``targeting_scheme="fold"``,
+        ``cv_evaluation=True`` or ``n_bootstrap`` above 0.
+    """
+    check_targeting_spec(estimator.targeting_spec())
+    if estimator.targeting_scheme != "pooled" or bool(estimator.cv_evaluation):
+        raise CapabilityError(refusal=TARGETING_SCHEME_REFUSAL)
+    if int(estimator.n_bootstrap) > 0:
+        raise CapabilityError(refusal=TARGETING_BOOTSTRAP_REFUSAL)
 
 
 def targeting_fit(

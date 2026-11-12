@@ -5321,6 +5321,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         scores = {column: self._external_score(column, computed_from, score_kind)}
         if compare is not None:
             if not isinstance(compare, str):
+                if len(compare) < 2:
+                    raise DataError(
+                        f"compare= takes one column name; got {list(compare)!r}. Pass the "
+                        "column itself."
+                    )
                 raise CapabilityError.from_refusal(SCORE_MANY_REFUSAL)
             if compare == column:
                 raise DataError("compare= names the same column as the score")
@@ -5417,7 +5422,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         ------
         CapabilityError
             If the estimand is not a :class:`ConditionalContrast` bound to a study, a score is
-            not declared external (R13), or the fit repeats its cross-fitting split.
+            not declared external (R13), or the fit repeats its cross-fitting split, targets
+            by fold, evaluates by fold or bootstraps.
 
         Examples
         --------
@@ -5455,7 +5461,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         from .effect_modification import _resolve_pair
         from .targeting_curves import (
             TARGETING_REPEATS_REFUSAL,
-            check_targeting_spec,
+            check_targeting_settings,
             targeting_fit,
         )
 
@@ -5491,7 +5497,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         if random_state is not None:
             kwargs["random_state"] = random_state
         estimator = TMLE(**kwargs)
-        check_targeting_spec(estimator.targeting_spec())
+        check_targeting_settings(estimator)
         fit = estimator.fit(data).single()
         return targeting_fit(
             fit,

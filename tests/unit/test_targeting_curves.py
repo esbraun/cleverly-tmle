@@ -892,6 +892,43 @@ def test_route_two_refuses_its_fluctuation_settings_before_any_learner(
         curve.diagnostics.targeting_curve(n_half_samples=10, random_state=0)
 
 
+_DROPPED_SETTINGS = [
+    ({"targeting_scheme": "fold"}, "TARGETING_SCHEME_REFUSAL"),
+    ({"cv_evaluation": True}, "TARGETING_SCHEME_REFUSAL"),
+    ({"n_bootstrap": 20}, "TARGETING_BOOTSTRAP_REFUSAL"),
+]
+
+
+@pytest.mark.parametrize(("change", "refusal"), _DROPPED_SETTINGS)
+def test_route_one_refuses_settings_the_curve_would_drop_before_any_learner(
+    change: dict[str, Any], refusal: str
+) -> None:
+    with pytest.raises(CapabilityError) as caught:
+        _route_one(**{**change, "outcome_learner": _NeverFitted()})
+    assert caught.value.refusal is getattr(tc, refusal)
+    assert caught.value.refusal.roadmap is None
+
+
+@pytest.mark.parametrize(("change", "refusal"), _DROPPED_SETTINGS)
+def test_route_two_refuses_settings_the_curve_would_drop_before_any_learner(
+    change: dict[str, Any], refusal: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cleverly import _curve_assessment as ca
+
+    curve = _split_curve_fit()
+    kwargs = ca._ate_kwargs
+    monkeypatch.setattr(ca, "_ate_kwargs", lambda *a, **k: {**kwargs(*a, **k), **change})
+
+    def never(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("a learner was fitted before the refusal")
+
+    monkeypatch.setattr(LinearRegression, "fit", never)
+    monkeypatch.setattr(LogisticRegression, "fit", never)
+    with pytest.raises(CapabilityError) as caught:
+        curve.diagnostics.targeting_curve(n_half_samples=10, random_state=0)
+    assert caught.value.refusal is getattr(tc, refusal)
+
+
 @_quiet
 def test_an_outcome_on_a_tiny_scale_keeps_its_intervals() -> None:
     """The zero-spread guard is relative: the same law with Y in units of 1e-13 keeps every

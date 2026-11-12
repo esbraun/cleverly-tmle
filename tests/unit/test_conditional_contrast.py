@@ -415,6 +415,56 @@ class TestTheClusteredProjection:
         # The row-level test reads about twice the statistic.
         assert ldisc.heterogeneity_test().statistic / test.statistic > 1.5
 
+    @pytest.mark.parametrize(
+        ("clusters", "status", "df"),
+        [(5, "few_cluster_plugin", 3), (20, "influence_curve", 18)],
+    )
+    def test_a_few_cluster_heterogeneity_test_reads_an_f_reference(
+        self, clusters: int, status: str, df: int
+    ) -> None:
+        """Below 40 clusters the coefficients read t(J - 2); the joint test reads F(q, J - 2),
+        whose one-term case is that t squared."""
+        labels = np.random.default_rng(clusters).permutation(LDISC_N) % clusters
+        fit = ldisc_fit(cluster="C", columns={"C": labels})
+        assert {e.inference for e in fit.estimates.values()} == {status}
+        assert {e.reference_df for e in fit.estimates.values()} == {df}
+        test = fit.heterogeneity_test()
+        assert test.reference_df == df and test.df == 2
+        assert test.p_value == pytest.approx(
+            float(stats.f.sf(test.statistic / 2, 2, df)), rel=1e-12
+        )
+        # The chi-square reference it replaces is anticonservative here.
+        assert test.p_value > float(stats.chi2.sf(test.statistic, 2))
+        assert f"F reference on 2 and {df} df" in str(test)
+
+    def test_a_many_cluster_heterogeneity_test_keeps_the_chi_square(
+        self, ldisc_clustered: Any
+    ) -> None:
+        test = ldisc_clustered.heterogeneity_test()
+        assert test.reference_df is None
+        assert test.p_value == pytest.approx(float(stats.chi2.sf(test.statistic, 2)), rel=1e-12)
+
+    def test_a_basis_with_as_many_terms_as_clusters_is_refused(self) -> None:
+        from cleverly.effect_curves import heterogeneity_test
+
+        labels = np.random.default_rng(5).permutation(LDISC_N) % 5
+        fit = ldisc_fit(cluster="C", columns={"C": labels})
+        names = tuple(fit.estimates)
+        # Two clusters' reference, J - 2 = 0: the summed covariance has rank 1 < 2 terms.
+        estimates = {
+            name: replace(estimate, reference_df=0) for name, estimate in fit.estimates.items()
+        }
+        with pytest.raises(CapabilityError, match="cannot be inverted") as caught:
+            heterogeneity_test(
+                estimates,
+                names,
+                ("(intercept)", "V", "W2"),
+                (0,),
+                scale="difference",
+                cluster=fit.data.cluster,
+            )
+        assert caught.value.refusal.reason is RefusalReason.INFERENCE_GAP
+
     def test_the_band_draws_one_multiplier_per_cluster(self, ldisc_clustered: Any) -> None:
         from cleverly.inference.multiplier import multiplier_critical_value
 
@@ -806,6 +856,11 @@ class TestScoreRefusalsBeforeAnyLearner:
                 compare_computed_from=["W"],
                 **never(),
             )
+        assert NeverFit.calls == 0
+
+    def test_x97_compare_given_as_a_list_of_one(self) -> None:
+        with pytest.raises(DataError, match=r"compare= takes one column name; got \['SB'\]"):
+            self.compare(["SB"])
         assert NeverFit.calls == 0
 
     def test_x97_several_compare_columns(self) -> None:

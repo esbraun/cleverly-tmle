@@ -266,6 +266,10 @@ class TestTheThreeCellLaw:
         expected = law.contamination_eif(functional, mar.PROBS, mar.SUPPORT)
         reported = law_curves(assessment, mar.first_row_of())
         np.testing.assert_allclose(reported, expected, atol=1e-11, rtol=0)
+        assert assessment.status == "experimental"
+        assert "missing outcomes" in assessment.status_reason
+        for _, _, estimate in assessment.rows():
+            assert "Missing outcomes" in estimate.support.reason
         # Mutation: the paired residual term without 1 / Pi, which varies with (A, W) here.
         w, a, k = (np.array(column) for column in zip(*mar.SUPPORT, strict=True))
         observed = k != mar.UNOBSERVED
@@ -543,7 +547,30 @@ class TestTheSixCellWitnessLaw:
     def test_t7_mutation_c_calibration_columns_frozen_at_the_initial_coefficients(
         self, names: tuple[str, ...], monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """One fluctuation with the calibration columns at beta^0, and the projection of that
+        frozen fit as the calibration: the alternation is what makes it exact."""
+        fit, data, frame = six()
+        arrays = [frame[name].to_numpy(float) for name in names]
+        exact = [ec._target_scores(fit, data, arrays, scale="log_ratio", pair=(1.0, 0.0))]
         monkeypatch.setattr(ec, "DEFAULT_MAX_OUTER", 0)
+        frozen = ec._target_scores(fit, data, arrays, scale="log_ratio", pair=(1.0, 0.0))
+        weights = np.ones(data.n)
+        for targeted, floor in ((exact[0], None), (frozen, MUTATION_FLOOR)):
+            pooled = targeted.pooled
+            misses = [
+                np.max(
+                    np.abs(
+                        ec._log_ratio_projection(pooled.q_t, pooled.q_r, s, weights)
+                        - six_calibration(SIX_Q, s[::PER_CELL])
+                    )
+                )
+                for s in arrays
+            ]
+            if floor is None:
+                assert max(misses) < 1e-8
+            else:
+                assert max(misses) > floor
+        # The reported calibration of the frozen loop is beta^0 itself, the plug-in's.
         scores = tuple(S6 if name == "S" else S6B for name in names)
         truth = six_truth(SIX_Q, "log_ratio", scores)
         assert np.max(np.abs(values(six_assess("log_ratio", names)) - truth)) > MUTATION_FLOOR
@@ -846,6 +873,54 @@ def test_t14_a_fitted_assessment_carries_its_support_on_every_row() -> None:
     assert assessment.compared.status == "experimental"
 
 
+def _trial_effect(scale: str) -> Any:
+    """A binary trial with the mechanism declared known, cross-fitted, iid and unweighted."""
+    rng = np.random.default_rng(7)
+    n = 600
+    w = rng.uniform(-1, 1, n)
+    a = rng.binomial(1, 0.5, n)
+    y = rng.binomial(1, expit(-0.3 + 0.6 * w + a * (0.3 + 0.5 * w)))
+    frame = pd.DataFrame(
+        {"Y": y, "A": a, "W": w, "p0": 0.5, "p1": 0.5, "S": 0.1 + 0.1 * w, "SB": 0.1 * w**2}
+    )
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W",),
+            treatment_probabilities={0: "p0", 1: "p1"},
+        ),
+    )
+    effect = study.identify(ConditionalContrast(Modifiers(["W"])))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return effect.assess_score(
+            "S",
+            computed_from=["W"],
+            score_kind="external",
+            compare="SB",
+            compare_computed_from=["W"],
+            scale=scale,
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            random_state=0,
+        )
+
+
+def test_t14_a_fitted_known_mechanism_reads_its_own_configuration() -> None:
+    difference = _trial_effect("difference")
+    assert difference.status == "supported"
+    for _, name, estimate in difference.rows():
+        assert estimate.support.label == "supported"
+        assert estimate.support.evidence == ("score-assessment",)
+        assert "paired_trial_2k" in estimate.support.reason, name
+    log_ratio = _trial_effect("log_ratio")
+    assert log_ratio.status == "experimental"
+    assert "measures this configuration" in log_ratio.status_reason
+    assert {e.support.label for _, _, e in log_ratio.rows()} == {"experimental"}
+
+
 def _measured_cells() -> list[tuple[str, str]]:
     cells = []
     for table in (ec.SCORE_ASSESSMENT_MEASURED, ec.SCORE_PAIRED_MEASURED):
@@ -861,8 +936,12 @@ def test_t14_every_group_a_table_names_ran_and_passed(slug: str, group: str) -> 
     from tests.studies.evidence.registry import registered
 
     records = {record.slug: record for record in registered()}
-    if slug not in records or not (records[slug].artifacts / "properties.csv").exists():
+    pending = slug == "score-assessment" and (
+        slug not in records or not (records[slug].artifacts / "properties.csv").exists()
+    )
+    if pending:
         pytest.skip(f"{slug} has no committed properties.csv yet (X97 plan, section 7 step 7)")
+    assert slug in records, f"{slug} is not a registered study"
     record = records[slug]
     cells = [
         cell for names in record.property_cells.values() for cell in names if cell.startswith(group)

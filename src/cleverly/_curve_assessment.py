@@ -767,7 +767,7 @@ class CurveDiagnostics:
         from .targeting_curves import (
             TARGETING_REPEATS_REFUSAL,
             TARGETING_SPLIT_REFUSAL,
-            check_targeting_spec,
+            check_targeting_settings,
             targeting_fit,
         )
 
@@ -784,7 +784,7 @@ class CurveDiagnostics:
         if int(kwargs.get("repeats", 1)) > 1:
             raise CapabilityError(refusal=TARGETING_REPEATS_REFUSAL)
         ate_estimator = TMLE(**kwargs)
-        check_targeting_spec(ate_estimator.targeting_spec())
+        check_targeting_settings(ate_estimator)
         other = None
         if compare is not None:
             effect = getattr(self.curve, "identified_effect", None)

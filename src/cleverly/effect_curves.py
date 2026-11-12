@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 import numpy as np
 from scipy.special import expit
 from scipy.stats import chi2
+from scipy.stats import f as f_distribution
 
 from ._pooled_targeting import PooledFit, arm_span_basis, solve_pooled, span_basis
 from ._support import Support
@@ -68,6 +69,12 @@ class HeterogeneityTest:
     heterogeneity": a contrast that varies orthogonally to the basis leaves every
     coefficient but the intercept at zero.
 
+    On a clustered fit with fewer than
+    :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters, where each coefficient's
+    interval reads a Student t reference on :math:`J - 2` degrees of freedom, the statistic
+    divided by its degrees of freedom :math:`q` is read against :math:`F(q, J - 2)`.  At one
+    term this is the square of that t reference.
+
     Parameters
     ----------
     statistic : float
@@ -75,11 +82,14 @@ class HeterogeneityTest:
     df : int
         Its degrees of freedom, the number of non-constant terms.
     p_value : float
-        The upper-tail chi-square probability.
+        The upper-tail probability of the reference.
     terms : tuple of str
         The tested terms.
     scale : {"difference", "log_ratio"}
         The scale of the projected contrast.
+    reference_df : int or None
+        The denominator degrees of freedom of the F reference, :math:`J - 2`, or ``None`` for
+        the chi-square reference.
     """
 
     statistic: float
@@ -87,11 +97,17 @@ class HeterogeneityTest:
     p_value: float
     terms: tuple[str, ...]
     scale: str
+    reference_df: int | None = None
 
     def __str__(self) -> str:
+        reference = (
+            ""
+            if self.reference_df is None
+            else f", F reference on {self.df} and {self.reference_df} df"
+        )
         return (
             f"Wald chi-square = {self.statistic:.3f} on {self.df} df, p = {self.p_value:.4g} "
-            f"(terms {', '.join(self.terms)})"
+            f"(terms {', '.join(self.terms)}{reference})"
         )
 
 
@@ -129,7 +145,8 @@ def heterogeneity_test(
     Raises
     ------
     CapabilityError
-        If the basis has no intercept column, or no non-constant term.
+        If the basis has no intercept column, or no non-constant term, or a clustered fit has
+        too few clusters to estimate the joint covariance of the tested terms.
     """
     if not intercepts:
         raise CapabilityError(
@@ -151,16 +168,37 @@ def heterogeneity_test(
             alternative="Declare a basis with at least one term that varies with the modifiers.",
         )
     selected = tuple(names[j] for j in keep)
+    df = len(keep)
+    # The coefficients' own t reference, J - 2 below the few-cluster threshold, which the fit
+    # stamped on each estimate; None reads the asymptotic reference.
+    stamped = [estimates[name].reference_df for name in selected]
+    reference_df = min((d for d in stamped if d is not None), default=None)
+    if cluster is not None and reference_df is not None and df > reference_df + 1:
+        raise CapabilityError(
+            f"the test reads the joint covariance of {df} coefficients from "
+            f"{reference_df + 2} clusters, and the cluster-summed covariance has rank at most "
+            f"{reference_df + 1}, so it cannot be inverted",
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative=(
+                "Declare a basis with fewer non-constant terms than clusters, or read each "
+                "coefficient's own interval."
+            ),
+        )
     covariance = estimate_covariance(estimates, list(selected), cluster=cluster)
     beta = np.array([estimates[name].psi for name in selected])
     statistic = float(beta @ np.linalg.solve(covariance, beta))
-    df = len(keep)
+    p_value = (
+        float(chi2.sf(statistic, df))
+        if reference_df is None
+        else float(f_distribution.sf(statistic / df, df, reference_df))
+    )
     return HeterogeneityTest(
         statistic=statistic,
         df=df,
-        p_value=float(chi2.sf(statistic, df)),
+        p_value=p_value,
         terms=tuple(terms[j] for j in keep),
         scale=scale,
+        reference_df=reference_df,
     )
 
 
@@ -1169,6 +1207,8 @@ def _alternate_log_ratio(
         previous = shift
         betas = solved
         pooled, span = solve(betas)
+    # As in solve_with_projection: a shift above _UNSOLVED fails even under a declared tol above
+    # it, and after a cap exit the last round's projection is not compared with its beta again.
     if shift > _UNSOLVED:
         raise DataError(
             "the score assessment's log-ratio fluctuation and its calibration projection did "
@@ -1419,23 +1459,18 @@ def score_assessment(
             psi,
             w * ((augmented_1 - augmented_2) - psi),
         )
-    single_codes, paired_codes = score_assessment_codes(
-        scale=scale,
-        outcome="binary" if getattr(data, "family", "") == "binomial" else "continuous",
-        known_mechanism=getattr(data, "known_treatment", None) is not None,
-        weighted=bool(np.any(np.abs(raw - 1.0) > 1e-12)),
-        clustered=data.cluster is not None,
-        missing=bool(not np.all(np.asarray(data.observed, dtype=bool))),
-        arms=len(tuple(fit.nuisance.arms)),
-        cross_fitted=bool(getattr(fit.config, "cross_fit", True)),
-    )
-    key = (
-        scale,
-        "binary" if getattr(data, "family", "") == "binomial" else "continuous",
-        "known" if getattr(data, "known_treatment", None) is not None else "estimated",
-    )
-    single_support = _score_support(single_codes, SCORE_ASSESSMENT_MEASURED.get(key))
-    paired_support = _score_support(paired_codes, SCORE_PAIRED_MEASURED.get(key))
+    configuration: dict[str, Any] = {
+        "scale": scale,
+        "outcome": "binary" if getattr(data, "family", "") == "binomial" else "continuous",
+        "known_mechanism": getattr(data, "known_treatment", None) is not None,
+        "weighted": bool(np.any(np.abs(raw - 1.0) > 1e-12)),
+        "clustered": data.cluster is not None,
+        "missing": bool(not np.all(np.asarray(data.observed, dtype=bool))),
+        "arms": len(tuple(fit.nuisance.arms)),
+        "cross_fitted": bool(getattr(fit.config, "cross_fit", True)),
+    }
+    single_codes, paired_codes = score_assessment_codes(**configuration)
+    single_support, paired_support = score_assessment_support(**configuration)
     inference, reference_df = _cluster_inference(data.cluster, raw)
 
     def estimate(name: str, psi: float, curve: FloatArray, support: Support) -> ParameterEstimate:
