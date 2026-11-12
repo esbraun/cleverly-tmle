@@ -1,0 +1,120 @@
+{
+  "band_fits": 12000,
+  "cells": {
+    "simultaneous_coverage/c_ltmle__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 1.0,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 114.3,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 1.346228141749998
+    },
+    "simultaneous_coverage/d_ltmle__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.95,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 124.2,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 5.3182134407
+    },
+    "simultaneous_coverage/d_sdr__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.95,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 123.2,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 5.3182134407
+    },
+    "simultaneous_coverage/i_ipsi__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.9,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 15802.7,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 60.03926792
+    },
+    "simultaneous_coverage/m_ltmle__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 1.0,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 190.5,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 2.2707216929000054
+    },
+    "simultaneous_coverage/s_ltmle__simultaneous_band": {
+      "band_options": [
+        [
+          "logit",
+          "mammen",
+          10000
+        ]
+      ],
+      "covered_share": 0.9,
+      "errors": [],
+      "failed": 0,
+      "keys": 20,
+      "kish_min": 74.4,
+      "out_of_range_levels": 0,
+      "refused_rows": 0,
+      "refused_share": 0.0,
+      "seconds_per_key": 2.7686224136999984
+    }
+  },
+  "cpu_seconds": 1434.8610721809998,
+  "estimated_cpu_hours": 47.82870240603334,
+  "keys": 100,
+  "slug": "longitudinal-repeated-crossfit",
+  "strata": 5,
+  "stream": "band-finite-sample/wave2-smoke",
+  "wall_seconds": 361.2947178070026
+}
