@@ -12,6 +12,21 @@ has no checked coverage. The figure does not mark an experimental result, so rea
 the result's `summary()`, before you publish a figure. Each function's documentation says what
 its notes cover.
 
+Every plot takes the same formatting keywords. `title=` and `subtitle=` replace the short default
+title and the subtitle under it, which names the estimate and its headline number; `False`
+removes either. `xlabel=` and `ylabel=` rename the axes: a string renames every panel that shares
+the first panel's label, and a list gives each labelled panel its own. `legend=` puts the key
+above the axes (`"top"`, the default), to their right (`"right"`), under the figure
+(`"bottom"`), or nowhere (`False`). `figsize=` sets the size in inches of a figure the plot
+creates, and `ax=` draws a one-panel plot on your own axes.
+
+```python
+from cleverly.plotting import forest
+
+fig = forest(result, title="Effect of the offer", xlabel="Change in score", legend="right")
+fig.savefig("effect.png", bbox_inches="tight")
+```
+
 On simulated data, pass the known true values as `truth=` to `forest` or `curve`. Each is drawn
 as a cross beside its estimate, or as a line along a conditional effect curve, and the key names
 it "True value (simulated data only)".

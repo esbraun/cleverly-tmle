@@ -139,7 +139,7 @@ class TestIntervalLimitsOnTheRecords:
             assert record.upper == pytest.approx(record.estimate + half)
             assert record.support == "supported" and record.support_reason == ""
         fig = plotting.zipper(real)
-        assert fig.axes[1].get_xlabel().splitlines()[0] == "Average effect (ate)"
+        assert fig.axes[1].get_xlabel().splitlines()[0] == "Average effect"
         assert "experimental" not in _core.note_text(fig)
         _close(fig)
 
@@ -210,7 +210,7 @@ class TestTheZipper:
     def test_the_subtitle_and_labels_state_coverage_and_the_target(self, study: Any) -> None:
         fig = plotting.zipper(study, estimand="rd", labels={"rd": "Risk difference"})
         head = fig.axes[0]
-        assert head.get_title(loc="left") == "Do the intervals cover the true value?"
+        assert head.get_title(loc="left") == "Interval coverage"
         records = [r for r in study.replications if r.estimand == "rd"]
         coverage = 100 * np.mean([r.covered for r in records])
         subtitle = _core.subtitle_text(head)
@@ -390,6 +390,21 @@ class TestTheLayout:
         assert long.get_figheight() > one.get_figheight() + 0.3
         _close(one)
         _close(long)
+
+    def test_a_chosen_size_is_kept_and_the_panels_take_what_the_header_leaves(
+        self, study: Any
+    ) -> None:
+        fig = plotting.zipper(study, estimand="rd", figsize=(6.0, 5.0))
+        assert tuple(fig.get_size_inches()) == (6.0, 5.0)
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        title = fig.axes[0]._left_title
+        assert title.get_window_extent(renderer).y1 / fig.dpi <= 5.0
+        # Control: without figsize= the strip figure sizes itself from its text.
+        plain = plotting.zipper(study, estimand="rd")
+        assert tuple(plain.get_size_inches()) != (6.0, 5.0)
+        _close(fig)
+        _close(plain)
 
 
 class TestTheChecksThemselves:

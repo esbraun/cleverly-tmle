@@ -226,7 +226,7 @@ def test_v16_points_are_the_report_bins(result: Any) -> None:
     points = _offsets(ax, "cleverly-calibration-points")
     np.testing.assert_allclose(points[:, 0], table["mean_predicted"])
     np.testing.assert_allclose(points[:, 1], table["mean_observed"])
-    assert _title(fig) == "Are the predicted probabilities calibrated?"
+    assert _title(fig) == "Calibration of predicted probabilities"
     assert ax.get_title(loc="left") == "Treatment model"
     assert ax.get_xlabel() == "Mean predicted probability"
     assert ax.get_ylabel() == "Observed rate"
@@ -241,7 +241,7 @@ def test_v16_has_a_45_degree_line_and_the_logistic_slope(result: Any) -> None:
     np.testing.assert_allclose(x, y)
     assert x[1] > x[0]
     slope = report.metrics["calibration_slope"]
-    assert "Logistic calibration slope of the out-of-fold predictions" in _subtitle(fig)
+    assert "Out-of-fold calibration slope" in _subtitle(fig)
     assert f"{slope:.2f}" in _subtitle(fig)
     # the slope is read from the report, not recomputed from the drawn bins
     moved = replace(report, metrics={**report.metrics, "calibration_slope": 0.4321})
@@ -377,7 +377,7 @@ def test_v8_points_are_the_bins_and_the_slope_is_the_objects(curve_calibration: 
     points = _offsets(ax, "cleverly-calibration-points")
     np.testing.assert_allclose(points[:, 0], curve_calibration.bins["mean_prediction"])
     np.testing.assert_allclose(points[:, 1], curve_calibration.bins["pseudo_outcome_contrast"])
-    assert _title(fig) == "Do the predicted effects match the measured ones?"
+    assert _title(fig) == "Predicted and measured effects"
     assert ax.get_xlabel() == "Mean predicted effect in the bin"
     assert ax.get_ylabel() == "Measured effect (doubly robust contrast)"
     x, y = _diagonal(ax).get_xdata(), _diagonal(ax).get_ydata()
@@ -460,7 +460,7 @@ def test_v15_super_learner_draws_risk_and_weight_in_the_same_order(ensemble: Any
     np.testing.assert_allclose(risks, np.asarray(ensemble.cv_risk)[order])
     np.testing.assert_allclose(weights, np.asarray(ensemble.weights)[order])
     assert [t.get_text() for t in left.get_yticklabels()] == [ensemble.names[i] for i in order]
-    assert _title(fig) == "Which learners carry the fit?"
+    assert _title(fig) == "Learner risks and weights"
     assert left.get_xlabel() == "Cross-validated risk (squared error)"
     assert right.get_xlabel() == "Ensemble weight"
     assert _has_descriptive_note(fig)
@@ -527,7 +527,7 @@ def test_v15_ctmle_draws_the_risk_along_the_sequence(selection: Any) -> None:
         chosen.get_offsets()[0], [selection.selected, selection.cv_risk[selection.selected]]
     )
     assert to_hex(chosen.get_facecolor()[0]) == PALETTE[0]  # filled, not the hollow no-interval
-    assert _title(fig) == "How sharp was the choice of treatment model?"
+    assert _title(fig) == "Treatment model selection"
     assert ax.get_xlabel() == "Candidate along the search path (0 = first)"
     assert _has_descriptive_note(fig)
 
@@ -583,10 +583,10 @@ def test_v17_repeats_points_are_the_per_repeat_estimates(result: Any) -> None:
     reference = _lines(ax, _core.GID_REFERENCE)
     assert len(reference) == 1
     assert reference[0].get_xdata()[0] == pytest.approx(result["ate"].psi)
-    assert _title(fig) == "Does the estimate depend on how the data were split?"
+    assert _title(fig) == "Estimate across repeated splits"
     assert [t.get_text() for t in ax.get_yticklabels()] == ["Repeat 1", "Repeat 2", "Repeat 3"]
     assert f"{float(result.repeat_spread()['ate']):.3g}" in _subtitle(fig)
-    assert _subtitle(fig).startswith("Average effect (ate):")
+    assert _subtitle(fig).startswith("Average effect:")
     assert _has_descriptive_note(fig)
 
 
@@ -656,7 +656,7 @@ def test_v17_bootstrap_histogram_is_a_density_of_the_draws(result: Any) -> None:
     draws = np.asarray(result.bootstrap.draws["ate"], dtype=float)
     assert bars[0].get_x() == pytest.approx(draws.min())
     assert bars[-1].get_x() + bars[-1].get_width() == pytest.approx(draws.max())
-    assert _title(fig) == "Is the bootstrap distribution close to normal?"
+    assert _title(fig) == "Bootstrap replicates"
     assert ax.get_ylabel() == "Density of replicates"
 
 
@@ -837,7 +837,7 @@ def test_v19_exact_check_on_a_hand_influence_curve() -> None:
     (top,) = [c for c in ax.collections if c.get_gid() == "cleverly-influence-top"]
     np.testing.assert_allclose(top.get_offsets()[0], [0.01, 9.0 / 116.0])
     assert "the top 1% of rows (1 of 100) carry 7.8%" in _subtitle(fig)
-    assert _title(fig) == "How concentrated is the uncertainty?"
+    assert _title(fig) == "Concentration of the uncertainty"
     assert ax.get_xlabel() == "Top share of rows, largest squared influence first"
     assert ax.get_ylabel() == "Share of the sum of squared influence values"
     diagonal = _diagonal(ax)
@@ -1000,11 +1000,11 @@ def test_plot_methods_call_the_functions(
     curve_calibration: Any,
 ) -> None:
     report = result.diagnostics.nuisance_models().models[0]
-    assert _title(report.plot()) == "Are the predicted probabilities calibrated?"
-    assert _title(curve_calibration.plot()) == "Do the predicted effects match the measured ones?"
-    assert _title(ensemble.plot()) == "Which learners carry the fit?"
-    assert _title(selection.plot()) == "How sharp was the choice of treatment model?"
-    assert _title(result.bootstrap.plot("ate")) == "Is the bootstrap distribution close to normal?"
+    assert _title(report.plot()) == "Calibration of predicted probabilities"
+    assert _title(curve_calibration.plot()) == "Predicted and measured effects"
+    assert _title(ensemble.plot()) == "Learner risks and weights"
+    assert _title(selection.plot()) == "Treatment model selection"
+    assert _title(result.bootstrap.plot("ate")) == "Bootstrap replicates"
 
 
 def test_a_callers_axes_takes_the_header_and_notes(result: Any) -> None:
@@ -1012,7 +1012,7 @@ def test_a_callers_axes_takes_the_header_and_notes(result: Any) -> None:
     fig, ax = plt.subplots()
     returned = repeats(result, ax=ax)
     assert returned is fig and not fig.texts
-    assert ax.get_title(loc="left") == "Does the estimate depend on how the data were split?"
+    assert ax.get_title(loc="left") == "Estimate across repeated splits"
     assert _core.subtitle_text(ax) and _has_descriptive_note(fig)
 
 
