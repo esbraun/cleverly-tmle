@@ -256,6 +256,7 @@ EXTRA_COLUMNS = (
     "converged",
     "bounded_share",
     "last_time_floor_share",
+    "frozen_share",
     "off_grid_share",
 )
 
@@ -269,6 +270,7 @@ def readings(result: Any) -> dict[str, float]:
         "converged": float(record.converged),
         "bounded_share": float(record.bounded_share),
         "last_time_floor_share": float(record.last_time_floor_share),
+        "frozen_share": float(record.frozen_share),
         "off_grid_share": float(record.off_grid_share),
     }
 
@@ -334,6 +336,7 @@ def targeting_readings(rows: pd.DataFrame) -> pd.DataFrame:
             converged_share=("converged", "mean"),
             mean_bounded_share=("bounded_share", "mean"),
             mean_last_time_floor_share=("last_time_floor_share", "mean"),
+            mean_frozen_share=("frozen_share", "mean"),
             mean_off_grid_share=("off_grid_share", "mean"),
             mean_seconds=("seconds", "mean"),
         )

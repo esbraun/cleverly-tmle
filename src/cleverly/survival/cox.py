@@ -25,7 +25,7 @@ from scipy.linalg import cho_factor, cho_solve
 from .._refusal import NO_ALTERNATIVE, RefusalReason
 from .._typing import FloatArray, IntArray
 from .._warnings import warn as _warn
-from ..exceptions import CapabilityError, ConvergenceWarning
+from ..exceptions import CapabilityError, ConvergenceWarning, DataError
 
 __all__ = [
     "CoxHazard",
@@ -49,6 +49,8 @@ CoxTerms = Literal["treatment", "main", "interaction"]
 #: this value.
 _SCORE_TOL: Final = 1e-10
 _MAX_NEWTON: Final = 100
+#: A Newton step below this share of the coefficients' size is below rounding: converged.
+_STEP_TOL: Final = 1e-12
 
 
 def _design(X: FloatArray, terms: CoxTerms) -> FloatArray:
@@ -184,6 +186,9 @@ class CoxHazard:
             loglik, grad, info = _loglik_parts(beta, Zs, sets)
             grad = grad - self.penalty * beta
             info = info + self.penalty * np.eye(beta.size)
+            if not (np.all(np.isfinite(grad)) and np.all(np.isfinite(info))):
+                # A risk set's weights underflowed: the same monotone-likelihood boundary.
+                break
             if np.max(np.abs(grad)) < _SCORE_TOL:
                 converged = True
                 break
@@ -191,14 +196,26 @@ class CoxHazard:
                 step = cho_solve(cho_factor(info), grad)
             except np.linalg.LinAlgError:
                 step = np.linalg.lstsq(info, grad, rcond=None)[0]
+            # At n in the thousands the summed score can stall just above its tolerance while
+            # the Newton step is already below rounding; that is convergence, not a boundary,
+            # where the step grows instead.
+            if np.max(np.abs(step)) <= _STEP_TOL * (1.0 + np.max(np.abs(beta))):
+                converged = True
+                break
             # Halve until the penalized likelihood does not fall.
             target = loglik - 0.5 * self.penalty * beta @ beta
+            accepted = False
             for _halving in range(30):
                 trial = beta + step
                 value = _loglik_parts(trial, Zs, sets)[0] - 0.5 * self.penalty * trial @ trial
-                if value >= target - 1e-12:
+                if value >= target - 1e-12:  # False for a non-finite value
+                    accepted = True
                     break
                 step = step / 2
+            if not accepted:
+                # No step keeps the likelihood finite and not lower: the coefficients run to a
+                # monotone-likelihood boundary, so they stay at the last finite fit.
+                break
             beta = beta + step
         if not converged:
             _warn(
@@ -471,7 +488,16 @@ def select_hazard(
                 fitted, X[train], time[train], event[train]
             )
         losses.append(total)
-    chosen = int(np.argmin(losses))
+    # A member whose held-out likelihood is not finite (coefficients at a monotone-likelihood
+    # boundary) cannot win; np.argmin would pick a nan.
+    ranked = np.where(np.isfinite(losses), losses, np.inf)
+    if not np.isfinite(ranked).any():
+        raise DataError(
+            "Every member of the hazard library has a non-finite cross-validated loss: each one's "
+            "coefficients run to a monotone-likelihood boundary on some training fold. Add a "
+            "penalized member, such as CoxHazard('main', penalty=1.0)."
+        )
+    chosen = int(np.argmin(ranked))
     model = _clone(library[chosen]).fit(X, time, event)
     return HazardSelection(names, tuple(float(v) for v in losses), chosen, model)
 

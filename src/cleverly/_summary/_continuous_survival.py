@@ -110,7 +110,8 @@ def continuous_survival_summary(result: Any, *, detail: str = "short") -> Summar
                     lines[2].format(halvings=count_text(record.halvings)),
                     lines[3].format(bounded=share_text(record.bounded_share)),
                     lines[4].format(last=share_text(record.last_time_floor_share)),
-                    lines[5].format(
+                    lines[5].format(frozen=share_text(record.frozen_share)),
+                    lines[6].format(
                         draws=OFF_GRID_TIMES, off_grid=share_text(record.off_grid_share)
                     ),
                     *([vocabulary.CONTINUOUS_FIRST_FOLD] if record.cross_fitted else []),

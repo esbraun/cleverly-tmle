@@ -105,6 +105,9 @@ class ContinuousSurvivalRecord:
         The share of (unit, arm) pairs, over both arms whatever the unit received, whose
         :math:`\\pi S_c(t_K^-)` at the last target time is below the floor: the
         counterfactual reach of the positivity bound.
+    frozen_share : float
+        The share of (unit, arm) pairs, over both arms, that the walk held in place once a step
+        would have taken their survival at the last target time below its floor.
     off_grid_share : float
         The share of random times in the window, among those where a score is not identically
         zero, at which the score equation holds to the cutoff.
@@ -127,6 +130,7 @@ class ContinuousSurvivalRecord:
     initial_psi: tuple[float, ...]
     bounded_share: float
     last_time_floor_share: float
+    frozen_share: float
     off_grid_share: float
     cross_fitted: bool
     n_folds: int
@@ -609,6 +613,7 @@ class ContinuousSurvivalTMLE:
             initial_psi=tuple(float(v) for v in result.initial.psi),
             bounded_share=bounded_share,
             last_time_floor_share=last_time_floor_share,
+            frozen_share=result.frozen_share,
             off_grid_share=off_grid,
             cross_fitted=self.cross_fit,
             n_folds=self.n_folds if self.cross_fit else 1,

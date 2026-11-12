@@ -4698,6 +4698,8 @@ CONTINUOUS_TARGETING_LINES: Final[tuple[str, ...]] = (
     "uncensored was raised to its floor: {bounded}",
     "Share of (unit, arm) pairs, over both arms, whose chance of that arm times staying "
     "uncensored to the last time is below the floor: {last}",
+    "Share of (unit, arm) pairs the update stopped moving because their chance of no event by the "
+    "last time reached its floor: {frozen}",
     "Share of {draws} random times in the window where the score equation also holds within "
     "the stopping rule: {off_grid}",
 )

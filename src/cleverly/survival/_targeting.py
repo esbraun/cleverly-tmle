@@ -263,6 +263,11 @@ class WalkResult:
         The bound on :math:`\\max_p |P_n D_p| / \\hat\\sigma_p`.
     final_step : float
         The step size at the end.
+    frozen_share : float
+        The share of (unit, arm) pairs held in place on at least one step, because that step
+        would have taken their survival at the last target time below the floor.
+    history : list of float
+        The stopping statistic after each accepted step, the initial fit's first.
     """
 
     dlam: FloatArray
@@ -273,6 +278,7 @@ class WalkResult:
     converged: bool
     cutoff: float
     final_step: float
+    frozen_share: float = 0.0
     history: list[float] = field(default_factory=list)
 
     @property
@@ -359,6 +365,9 @@ def walk(
     light = Evaluation(initial.psi, initial.score, initial.influence, _EMPTY, _EMPTY)
     evaluation = initial
     del initial
+    # Pairs held on the step being tried, and pairs held on any step, for the record.
+    frozen = np.zeros((2, problem.n), dtype=bool)
+    ever = np.zeros((2, problem.n), dtype=bool)
     steps = halvings = 0
     history = [standardized(evaluation)]
     converged = history[-1] <= cutoff
@@ -374,27 +383,46 @@ def walk(
         direction = _direction(problem, evaluation, weighted / length)
         if tilt == "factual":
             direction = direction * factual
+        if frozen.any():
+            direction *= ~frozen[:, None, :, None]
         direction *= step
         candidate = tilt_jumps(current, direction)
         del direction
         trial = evaluate(problem, candidate)
+        low = trial.survival[..., -1] < survival_floor
+        if low.any():
+            # Pairs the step takes below the floor are held for this step and the same step is
+            # tried again; they move again on the next step, whose direction is recomputed.
+            del candidate, trial
+            frozen |= low
+            ever |= low
+            continue
         trial_length = float(np.sqrt(trial.score @ metric @ trial.score))
-        if (
-            np.min(trial.survival[..., -1]) < survival_floor
-            or not np.isfinite(trial_length)
-            or trial_length >= length
-        ):
+        if not np.isfinite(trial_length) or trial_length >= length:
             # Freed now rather than on the next trial, which would hold two of each.
             del candidate, trial
             step /= 2
             halvings += 1
+            frozen[:] = False
             continue
         current, evaluation = candidate, trial
+        frozen[:] = False
         step = min(2.0 * step, initial_step)
         steps += 1
         history.append(standardized(evaluation))
         converged = history[-1] <= cutoff
-    return WalkResult(current, evaluation, light, steps, halvings, converged, cutoff, step, history)
+    return WalkResult(
+        current,
+        evaluation,
+        light,
+        steps,
+        halvings,
+        converged,
+        cutoff,
+        step,
+        float(ever.mean()),
+        history,
+    )
 
 
 def default_cutoff(n: int) -> float:

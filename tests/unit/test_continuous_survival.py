@@ -18,7 +18,12 @@ import pandas as pd
 import pytest
 
 from cleverly import CausalStudy, RegimeContrast, RegimeMean, TimeToEvent
-from cleverly.exceptions import CapabilityError, DataError, MethodConfigurationError
+from cleverly.exceptions import (
+    CapabilityError,
+    ConvergenceWarning,
+    DataError,
+    MethodConfigurationError,
+)
 from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard, StratifiedNelsonAalen, _targeting
 from cleverly.survival._targeting import Problem, evaluate, walk
 from cleverly.survival.cox import (
@@ -362,6 +367,45 @@ def test_the_selector_compares_like_with_like_and_refuses_a_mixed_library() -> N
         select_hazard([CoxHazard("main"), StratifiedNelsonAalen((0,))], X, time, event, folds)
 
 
+def test_a_member_with_a_non_finite_loss_never_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cleverly.survival import cox
+
+    X, time, event = _cox_sample()
+    folds = np.arange(time.size) % 5
+    library = [CoxHazard("treatment"), CoxHazard("main"), CoxHazard("interaction")]
+    original = cox.partial_log_likelihood
+
+    def broken(model: Any, *args: Any) -> float:
+        return float("nan") if model.terms != "treatment" else original(model, *args)
+
+    monkeypatch.setattr(cox, "partial_log_likelihood", broken)
+    assert select_hazard(library, X, time, event, folds).chosen_name == "CoxHazard('treatment')"
+    monkeypatch.setattr(cox, "partial_log_likelihood", lambda *args: float("nan"))
+    with pytest.raises(DataError, match="non-finite cross-validated loss"):
+        select_hazard(library, X, time, event, folds)
+
+
+def test_a_newton_step_that_fails_every_halving_is_not_taken(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Away from zero the likelihood is not finite, as when a risk set's weights underflow at a
+    # monotone-likelihood boundary: the fit stays at its last finite coefficients and warns.
+    from cleverly.survival import cox
+
+    X, time, event = _cox_sample()
+    original = cox._loglik_parts
+
+    def overflowing(beta: np.ndarray, *args: Any) -> tuple[float, np.ndarray, np.ndarray]:
+        loglik, grad, info = original(beta, *args)
+        return (loglik if not np.any(beta) else float("nan")), grad, info
+
+    monkeypatch.setattr(cox, "_loglik_parts", overflowing)
+    with pytest.warns(ConvergenceWarning, match="monotone-likelihood boundary"):
+        model = CoxHazard("main").fit(X, time, event)
+    assert not model.converged_
+    np.testing.assert_array_equal(model.coef_, 0.0)
+
+
 # --------------------------------------------------------- end to end and refusals
 
 
@@ -604,3 +648,22 @@ def test_the_initial_estimates_are_the_plug_in_before_any_step() -> None:
     initial = fit.initial_estimates
     assert set(initial) == {name for name in fit if not name.startswith("rr_regimen")}
     assert all(abs(initial[name] - fit[name].psi) < 1e-12 for name in initial)
+
+
+@pytest.mark.parametrize("seed", [0, 1])
+def test_pairs_that_reach_the_survival_floor_are_held_and_the_walk_still_converges(
+    seed: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The floor is raised to the initial fit's smallest survival at the last target, so a step
+    # that lowers that unit's survival meets it at once.  Rejecting such steps left the walk
+    # halving to its minimum step unconverged (10 to 14 steps, 34 to 38 halvings); holding those
+    # pairs for the step lets the others bring every score under the cutoff.
+    from tests.studies import continuous_survival as study
+
+    monkeypatch.setattr(_targeting, "WALK_SURVIVAL_FLOOR", 1.0)
+    frame = study.sample(600, seed, law_name="dependent_censoring")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = study.fit_with(frame, study.engine(cross_fit=False, hazard_wrong=True))
+    assert fit.record.frozen_share > 0.0
+    assert fit.record.converged
