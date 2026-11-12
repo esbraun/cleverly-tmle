@@ -110,7 +110,8 @@ T_REFERENCE_NOTE: Final[str] = (
     f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass reports its interval and "
     "p-value on a Student t reference with J - 2 degrees of freedom, where J is that cluster "
     "count (Nugent et al. (2024), Section 2.2); an estimate averaged over V cross-fitting "
-    "folds takes min(J - 2, J - V). The fit has {clusters} clusters with positive weight "
+    "folds takes J - V at every cluster count. The fit has {clusters} clusters with positive "
+    "weight "
     "mass{stratum}. The df "
     "column gives each estimate's degrees of freedom, and 'normal' marks the normal "
     "reference. The validation evidence for few clusters uses parametric models for the "
@@ -136,10 +137,10 @@ NO_SIMULTANEOUS_BANDS: Final[str] = (
 #: The line a result summary prints when a fit skips its default band because an estimate
 #: carries a Student t reference.
 NO_T_REFERENCE_BANDS: Final[str] = (
-    "No simultaneous bands: an estimate of this fit is based on fewer than "
-    f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass and uses a t reference, and "
-    "no source gives a band calibrated to a t reference, so the fit reports one-at-a-time "
-    "intervals only."
+    "No simultaneous bands: an estimate of this fit uses a t reference, because it is based on "
+    f"fewer than {FEW_CLUSTER_THRESHOLD} clusters with positive weight mass or because it is "
+    "averaged over cross-fitting folds, and no source gives a band calibrated to a t "
+    "reference, so the fit reports one-at-a-time intervals only."
 )
 
 #: The line a result summary prints when a learned-rule fit with known regimes skips its

@@ -5100,7 +5100,8 @@ class TMLE:
         headline_reference: ClusterReference | None = cluster_reference
         if cluster_reference is not None and self.cv_evaluation and indices:
             # The headline is the fold-evaluated report, whose variance has J - V degrees of
-            # freedom (ClusterReference). The stacked report keeps J - 2.
+            # freedom at every cluster count (ClusterReference). The stacked report keeps
+            # J - 2 below 40 clusters and the normal reference from 40.
             headline_reference = cluster_reference.with_fold_evaluated(
                 fold_evaluated_report, len(indices)
             )

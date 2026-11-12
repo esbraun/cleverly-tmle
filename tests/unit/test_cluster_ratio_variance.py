@@ -278,10 +278,12 @@ class TestUnequalSizesKeepTheInterval:
             .single()
         )
         assert result.inference_status == "influence_curve"
+        # A fold-evaluated estimate takes J - V = 55 at every cluster count.
+        expected = 55 if settings.get("cv_evaluation") else None
         for estimate in result.estimates.values():
             low, high = estimate.ci
             assert low < estimate.psi < high or estimate.scale == "ratio"
-            assert estimate.reference_df is None
+            assert estimate.reference_df == expected
 
     def test_unequal_weight_mass_and_a_drtmle_fit_keep_the_interval(
         self, sixty_clusters: Any

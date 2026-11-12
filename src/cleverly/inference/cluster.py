@@ -49,6 +49,7 @@ __all__ = [
     "cluster_weight_mass",
     "cross_validated_variance",
     "fewest_clusters",
+    "fold_evaluated_reference_df",
     "influence_variance",
     "positive_mass_clause",
     "stacked_second_moment_covariance",
@@ -692,3 +693,75 @@ def cluster_reference_df(
             "interval reads the reference"
         )
     return count - 2
+
+
+def fold_evaluated_reference_df(
+    cluster: IntArray,
+    validation_folds: int,
+    weights: FloatArray | None = None,
+    rows: BoolArray | None = None,
+) -> int:
+    r"""The degrees of freedom of the Student t reference of one fold-evaluated estimate.
+
+    :math:`J - V`, where :math:`J` counts the clusters with positive weight mass among
+    ``rows`` and :math:`V` is the number of validation folds, at every cluster count. The
+    fold-evaluated variance of :func:`cross_validated_variance` centres the cluster totals
+    inside each fold, so it pools :math:`J_v - 1` degrees of freedom from each fold. Under
+    the normal one-way model with equal folds the studentised estimate is exactly
+    :math:`t_{J - V}`; otherwise the count is an approximation. With :math:`V` fixed,
+    :math:`t_{J - V}` tends to the normal as :math:`J` grows, so the rule needs no cutoff.
+
+    Parameters
+    ----------
+    cluster : ndarray of int
+        The cluster label of each row.
+    validation_folds : int
+        The number of validation folds the estimate averages over.
+    weights : ndarray of float or None, default None
+        The observation weight of each row. ``None`` counts every cluster.
+    rows : ndarray of bool or None, default None
+        The rows the estimate reads, such as one baseline stratum. ``None`` reads all.
+
+    Returns
+    -------
+    int
+        The degrees of freedom :math:`J - V`.
+
+    Raises
+    ------
+    ValueError
+        When ``validation_folds`` is below 2, or when :math:`J - V` is below 1. A fit
+        reaches neither: it refuses fewer than two realised folds, and it refuses a
+        validation fold with fewer than two positive-mass clusters, so :math:`J \ge 2V`.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference.cluster import fold_evaluated_reference_df
+    >>> fold_evaluated_reference_df(np.repeat(np.arange(40), 3), validation_folds=10)
+    30
+    >>> fold_evaluated_reference_df(np.repeat(np.arange(12), 3), validation_folds=3)
+    9
+    >>> cluster = np.repeat(np.arange(12), 3)
+    >>> fold_evaluated_reference_df(
+    ...     cluster, validation_folds=3, weights=np.where(cluster < 2, 0.0, 1.0)
+    ... )
+    7
+    """
+    folds = int(validation_folds)
+    if folds < 2:
+        raise ValueError(
+            f"a fold-evaluated estimate averages over at least 2 validation folds; got {folds}"
+        )
+    labels = np.asarray(cluster).reshape(-1)
+    keep = np.ones(labels.size, dtype=bool) if rows is None else np.asarray(rows, dtype=bool)
+    if weights is not None:
+        keep = keep & (np.asarray(weights, dtype=float).reshape(-1) > 0.0)
+    df = int(np.unique(labels[keep]).size) - folds
+    if df < 1:
+        raise ValueError(
+            f"a fold-evaluated estimate over {folds} validation folds needs more than {folds} "
+            f"clusters with positive weight mass; these rows hold {df + folds}. A fit refuses "
+            "a validation fold with fewer than two such clusters"
+        )
+    return df

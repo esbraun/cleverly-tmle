@@ -518,6 +518,9 @@ def _t_rows() -> tuple[SupportRow, ...]:
             families=("P1",),
             splitting=("fold_evaluated",),
             dependence="clustered",
+            # A clustered fold-evaluated estimate takes t with J - V degrees of freedom at
+            # every cluster count.
+            kinds=_WALD_T,
             cells=["fold_evaluated_property"],
             # Roadmap: F28.
             limits=["The cluster-covariate cell is red."],
@@ -723,6 +726,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             families=("P11",),
             splitting=("fold_evaluated",),
             dependence="clustered",
+            # J - V degrees of freedom at every cluster count: t_190 at 200 clusters in 10 folds.
+            kinds=_WALD_T,
             cells=["clustered"],
             # Roadmap: X11.
             limits=[equal_sizes],
@@ -2384,7 +2389,7 @@ def _c_rows() -> tuple[SupportRow, ...]:
 #: A fit that reads the kind from the row is experimental, and the sentence gives the measured
 #: number (``tests/studies/evidence/support_dispositions.py`` holds the decision of each cell).
 SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
-    ("T10.fold_evaluated", "wald"): (
+    ("T10.fold_evaluated", "wald_t"): (
         "Row T10.fold_evaluated is red for the fold-evaluated cluster-covariate interval: "
         # Roadmap: F28.
         "coverage 0.9182 to 0.9450 and SE ratio 0.9453 to 1.0187."

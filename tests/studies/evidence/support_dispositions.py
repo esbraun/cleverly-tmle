@@ -317,7 +317,7 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "property",
         "clustered_inference/cluster_robust_fold_evaluated_cluster_covariate",
         "T10.fold_evaluated",
-        ("wald",),
+        ("wald_t",),
         EXPERIMENTAL,
         "",
         "Q6",
