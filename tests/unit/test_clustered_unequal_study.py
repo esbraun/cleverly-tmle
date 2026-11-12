@@ -267,3 +267,79 @@ class TestTheCovariatePairDesign:
             assert float((error <= critical).mean()) == pytest.approx(
                 COMMITTED_COVERAGE[name], abs=1e-12
             )
+
+
+#: The S2 pilot of ``clustered-few-cluster-tmle`` (Fix-4 plan 5.2), run before the declaration
+#: under the shipped code: 400 fits of each cross-fitted DR-TMLE cell, on the stream
+#: ``stream_seed(STUDY, "pilot", f"{sizes}/J{J}", r)``, with the study's own fit
+#: (``clustered_few_cluster_properties._cell_rows``), and no failed fit. Pass probabilities at
+#: R = 4,000 come from 400 resamples of 4,000 pilot fits each, scored with the study's rules,
+#: margins and 10,000 inner bootstrap replicates. The scripts are ``rows/Fix-4/diag/s2_pilot.py``
+#: and ``s2_pilot_power.py`` in the plans repository. Per cell: the pass probabilities of the
+#: positive arm (coverage floor and bias margin), of clause 1 (paired IID/cluster ratio upper
+#: endpoint below 0.80) and of clause 2 (positive SE-ratio upper endpoint at most 1.20); then
+#: the pilot's coverage, paired ratio, SE ratio and largest SE over the empirical SD.
+FEW_CLUSTER_PILOT: dict[tuple[str, int], tuple[float, ...]] = {
+    ("equal10", 10): (0.9075, 1.0, 1.0, 0.9175, 0.7776, 0.9941, 7.23),
+    ("equal10", 20): (1.0, 1.0, 1.0, 0.9550, 0.7318, 1.0617, 3.60),
+    ("equal10", 30): (1.0, 1.0, 1.0, 0.9675, 0.7295, 1.0391, 1.63),
+    ("unequal_informative", 10): (1.0, 1.0, 1.0, 0.9300, 0.6748, 0.9758, 3.55),
+    ("unequal_informative", 20): (1.0, 1.0, 1.0, 0.9500, 0.6246, 0.9540, 1.78),
+    ("unequal_informative", 30): (1.0, 1.0, 1.0, 0.9525, 0.6112, 0.9942, 2.61),
+}
+PILOT_DRAWS = 400
+#: The plan's bar for every pass probability of a DR-TMLE cell.
+PILOT_FLOOR = 0.90
+#: The cells whose positive arm clears the bar by resampling but not by the exact binomial
+#: probability at the pilot coverage.
+MARGINAL_PILOT_CELLS = {("equal10", 10)}
+
+
+class TestTheFewClusterPilot:
+    """``clustered-few-cluster-tmle``'s DR-TMLE cells clear the plan's pilot bar at R = 4,000."""
+
+    def test_the_pilot_covers_every_dr_tmle_cell(self) -> None:
+        declared = {
+            (sizes, clusters)
+            for sizes in few_study.SIZE_LAWS
+            for clusters in few_study.CLUSTER_COUNTS
+            if "drtmle_crossfit" in few_study.fits_at(clusters, sizes)
+        }
+        assert set(FEW_CLUSTER_PILOT) == declared
+        assert few_study.PROPERTY_REPLICATES == 4_000
+
+    def test_the_pilot_stream_is_not_the_study_s(self) -> None:
+        from tests.studies.evidence.seeds import stream_seed
+
+        for sizes, clusters in FEW_CLUSTER_PILOT:
+            pilot = {
+                stream_seed(few_study.STUDY, "pilot", f"{sizes}/J{clusters}", r)
+                for r in range(PILOT_DRAWS)
+            }
+            study = {few_properties._seed(sizes, clusters, r) for r in range(4_000)}
+            assert not pilot & study
+
+    @pytest.mark.parametrize("cell", sorted(FEW_CLUSTER_PILOT))
+    def test_each_pass_probability_clears_the_bar(self, cell: tuple[str, int]) -> None:
+        positive, clause1, clause2 = FEW_CLUSTER_PILOT[cell][:3]
+        assert min(positive, clause1, clause2) >= PILOT_FLOOR
+
+    @pytest.mark.parametrize("cell", sorted(FEW_CLUSTER_PILOT))
+    def test_the_coverage_clause_agrees_with_the_resampling(self, cell: tuple[str, int]) -> None:
+        """The exact binomial pass probability of the coverage floor at the pilot coverage.
+
+        The positive arm also needs its bias inside 0.25 SD, which every pilot cell meets by a
+        wide margin, so the resampled pass probability sits near this one. At equal sizes and
+        J = 10 the two straddle the bar: 0.9075 resampled (Monte Carlo SE about 0.015) against
+        0.891 here, at a pilot coverage of 0.9175 whose own SE is about 0.014. That cell is
+        marginal (:data:`MARGINAL_PILOT_CELLS`), and the plan does not change R, a margin or the
+        law after a pilot result.
+        """
+        positive, coverage = FEW_CLUSTER_PILOT[cell][0], FEW_CLUSTER_PILOT[cell][3]
+        replicates = few_study.PROPERTY_REPLICATES
+        floor = few_study.STUDY.margins.coverage_floor
+        k = np.arange(replicates + 1)
+        lower = np.where(k > 0, beta.ppf(0.005, k, replicates - k + 1), 0.0)
+        exact = float(binom.pmf(k[lower >= floor], replicates, coverage).sum())
+        assert exact == pytest.approx(positive, abs=0.05)
+        assert (exact < PILOT_FLOOR) == (cell in MARGINAL_PILOT_CELLS)
