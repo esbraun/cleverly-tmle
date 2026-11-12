@@ -29,6 +29,7 @@ from cleverly import ATE, CausalStudy, CrossFitting, PointTreatment, TMLEMethod
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.inference import cluster as cluster_module
+from cleverly.interventions import Static
 from tests.unit import _learned_rule_support as learned
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
@@ -47,19 +48,19 @@ ALTERNATIVE = (
 SIZES = (
     "cv_evaluation=True cannot be used with these clusters: their sizes differ (from 10 to 20 "
     "rows across 40 clusters). With clusters of different sizes, giving every fold the same "
-    "weight biases the estimate, and the bias is largest when bigger clusters have different "
+    "weight can bias the estimate, and the bias is largest when bigger clusters have different "
     f"outcomes. {ALTERNATIVE}"
 )
 WEIGHT = (
-    "cv_evaluation=True cannot be used with these clusters: their total weight differs (from 5 "
-    "to 15 across 40 clusters). With clusters of different total weight, giving every fold the "
-    "same weight biases the estimate, and the bias is largest when heavier clusters have "
+    "cv_evaluation=True cannot be used with these clusters: their total weight differs (from 10 "
+    "to 30 across 40 clusters). With clusters of different total weight, giving every fold the "
+    "same weight can bias the estimate, and the bias is largest when heavier clusters have "
     f"different outcomes. {ALTERNATIVE}"
 )
 TREATED = (
     "cv_evaluation=True cannot be used with these clusters for att: the number of treated rows "
     "per cluster differs (from 3 to 7 across 40 clusters). With clusters that differ in their "
-    "number of treated rows, giving every fold the same weight biases the estimate, and the "
+    "number of treated rows, giving every fold the same weight can bias the estimate, and the "
     "bias is largest when clusters with more treated rows have different outcomes. "
     f'{ALTERNATIVE} Or leave out att: estimands=("ate", "ey1", "ey0") can use '
     "cv_evaluation=True with these clusters."
@@ -67,13 +68,13 @@ TREATED = (
 CONTROL = (
     "cv_evaluation=True cannot be used with these clusters for atc: the number of control rows "
     "per cluster differs (from 5 to 9 across 40 clusters). With clusters that differ in their "
-    "number of control rows, giving every fold the same weight biases the estimate, and the "
+    "number of control rows, giving every fold the same weight can bias the estimate, and the "
     f"bias is largest when clusters with more control rows have different outcomes. {ALTERNATIVE}"
 )
 ARM_TWO = (
     "cv_evaluation=True cannot be used with these clusters for att[c vs a]: the number of rows "
     "in arm c per cluster differs (from 2 to 6 across 40 clusters). With clusters that differ in "
-    "their number of rows in arm c, giving every fold the same weight biases the estimate, and "
+    "their number of rows in arm c, giving every fold the same weight can bias the estimate, and "
     "the bias is largest when clusters with more rows in arm c have different outcomes. "
     f'{ALTERNATIVE} Or leave out att: estimands=("ate", "ey") can use cv_evaluation=True with '
     "these clusters."
@@ -164,6 +165,21 @@ class TestTheRefusalText:
 
     def test_unequal_control_counts_refuse_atc(self) -> None:
         assert str(refusal(law(alternate([5, 5], [9, 5])), estimands=("atc",))) == CONTROL
+
+    def test_the_hint_names_every_arm_estimand_that_differs(self) -> None:
+        raised = refusal(law(UNEQUAL_TREATED), estimands=("att", "atc"))
+        assert str(raised).startswith(TREATED.split(" Or leave out")[0])
+        assert str(raised).endswith(
+            ' Or leave out att and atc: estimands=("ate", "ey1", "ey0") can use '
+            "cv_evaluation=True with these clusters."
+        )
+
+    def test_weights_print_on_the_supplied_scale(self) -> None:
+        frame = law(EQUAL)
+        # The same relative weights, ten times larger: the stored weights are equal, the
+        # message is not.
+        frame = frame.assign(w=np.where(frame["cluster"] % 2 == 0, 10.0, 30.0))
+        assert "(from 100 to 300 across 40 clusters)" in str(refusal(frame))
 
     def test_a_three_arm_att_reads_each_arm(self) -> None:
         frame = law(alternate([6, 4, 2], [2, 4, 6]))
@@ -265,7 +281,8 @@ class TestDefaultAndAllRequests:
         frame = law(UNEQUAL_TREATED, continuous=True)
         with pytest.raises(CapabilityError) as raised:
             estimator(continuous=True, estimands=None).fit(frame, **FIT)
-        assert str(raised.value) == TREATED
+        # The default request holds atc too, whose control counts also differ.
+        assert str(raised.value) == TREATED.replace("leave out att:", "leave out att and atc:")
 
     def test_all_drops_att_and_atc(self) -> None:
         frame = law(UNEQUAL_TREATED, continuous=True)
@@ -300,8 +317,11 @@ class TestEveryRoute:
 
     def test_retarget_refuses_new_weights_and_a_new_estimand(self) -> None:
         result = fit(law(UNEQUAL_TREATED))
+        # Supplied weights 1 and 3: stored at mean one, with the scale that recovers them.
         weights = np.where(result.data.cluster % 2 == 0, 0.5, 1.5)
-        reweighted = dataclasses.replace(result.data, weights=weights)
+        reweighted = dataclasses.replace(
+            result.data, weights=weights, weight_spec=result.data.weight_spec.rescaled(2.0)
+        )
         with pytest.raises(CapabilityError) as raised:
             result.estimator.retarget(reweighted, result.nuisance, estimands=("ate",))
         assert str(raised.value) == WEIGHT
@@ -313,13 +333,24 @@ class TestEveryRoute:
         assert estimates["ate"].psi == pytest.approx(result["ate"].psi, rel=1e-12)
 
     def test_a_learned_rule_fit_keeps_its_experimental_label(self) -> None:
+        """Every learned-rule target carries the ratio term at unequal sizes and is admitted
+        experimental, the known-regime value and the contrast as well as the learned value."""
         frame = learned.law_frame(600, 3)
         sizes = np.tile([10, 20], 20)
         frame = frame.assign(cluster=np.repeat(np.arange(40), sizes))
-        result = learned.learned_tmle().fit(frame, **{**FIT, "covariates": learned.COVARIATES})
-        estimate = result.single()[learned.NAME]
-        assert estimate.support.label == "experimental"
-        assert estimate.reference_df == 35
+        result = learned.learned_tmle(interventions=[Static(1)]).fit(
+            frame, **{**FIT, "covariates": learned.COVARIATES}
+        )
+        estimates = result.single().estimates
+        assert {name.split("[")[0] for name in estimates} == {
+            "ey_learned_rule",
+            "ey_known_regime",
+            "ate_learned_rule",
+        }
+        for estimate in estimates.values():
+            assert estimate.support.label == "experimental"
+            assert "unequal_clusters" in estimate.support.reason
+            assert estimate.reference_df == 35
 
     def test_unclustered_weighted_and_att_fits_keep_the_equal_average(self) -> None:
         frame = law(UNEQUAL_SIZES).drop(columns="cluster")

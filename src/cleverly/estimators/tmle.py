@@ -702,9 +702,19 @@ def fold_evaluated_cluster_refusal(
     estimates the same parameter. So the fit refuses and redirects there, before any learner,
     for the first requested estimand in report order whose mass differs.
 
-    A learned-rule fit is exempt: its target is defined by the :math:`1/V` average. An
-    unclustered fit keeps the equal average, whose ratio term is :math:`O(V/\sqrt{n})` over
-    :math:`n/V` independent rows per fold.
+    Weighted masses print on the scale of the weights as supplied (``data.weight_spec.scale``
+    times the stored mean-one weights).
+
+    A learned-rule fit is not refused, although every fold estimate it reports carries the
+    same ratio term at unequal masses: the learned-rule value averages the values of ``V``
+    different fold rules with equal weight, and the pooled ratio would weight those rules by
+    fold mass, a different target, so no fold aggregation avoids the term. The known-regime
+    value (``ey_known_regime``) is reported on the same folds so that the contrast
+    (``ate_learned_rule``) differences two estimates of one fold set. All three stay
+    experimental at unequal sizes (the ``unequal_clusters`` support qualifier), and a regime
+    fit without ``learned_rule=`` and with ``cv_evaluation=False`` estimates the known-regime
+    value without the term. An unclustered fit keeps the equal average, whose ratio term is
+    :math:`O(V/\sqrt{n})` over :math:`n/V` independent rows per fold.
 
     Parameters
     ----------
@@ -732,6 +742,8 @@ def fold_evaluated_cluster_refusal(
     weighted = data.is_weighted
     total = np.asarray(data.weights, dtype=float) if weighted else np.ones(data.n)
     binary = data.n_arms == 2 and reference == data.arm_codes[0]
+    treatment = np.asarray(data.treatment)
+    triggered: list[tuple[str, float | None, tuple[float, float, int]]] = []
     for name in estimands:
         stem = parameter_stem(name)
         arms: list[float | None]
@@ -742,62 +754,64 @@ def fold_evaluated_cluster_refusal(
         else:
             arms = [None]
         for arm in arms:
-            mass = total if arm is None else total * (np.asarray(data.treatment) == arm)
+            mass = total if arm is None else total * (treatment == arm)
             spread = unequal_positive_cluster_mass(data.cluster, mass, total)
-            if spread is None:
-                continue
-            low, high, clusters = (
-                _mass_text(spread[0], not weighted),
-                _mass_text(spread[1], not weighted),
-                spread[2],
-            )
-            span = f"from {low} to {high}"
-            if arm is None:
-                target = ""
-                if weighted:
-                    differs = f"their total weight differs ({span} across {clusters} clusters)"
-                    kind, larger = "clusters of different total weight", "heavier clusters"
-                else:
-                    differs = f"their sizes differ ({span} rows across {clusters} clusters)"
-                    kind, larger = "clusters of different sizes", "bigger clusters"
-            else:
-                rows = (
-                    ("treated rows" if stem == "att" else "control rows")
-                    if binary
-                    else f"rows in arm {data.arm_label(arm)}"
-                )
-                target = f" for {stem}"
-                if stem == "att" and not binary:
-                    label, versus = data.arm_label(arm), data.arm_label(reference)
-                    target = f" for {parameter_name(stem, arm=label, versus=versus)}"
-                noun = f"total weight of {rows}" if weighted else f"number of {rows}"
-                differs = f"the {noun} per cluster differs ({span} across {clusters} clusters)"
-                kind = f"clusters that differ in their {noun}"
-                larger = (
-                    f"clusters with more {rows}"
-                    if not weighted
-                    else f"clusters with more weight in {rows}"
-                )
-            alternative = _CLUSTER_FOLD_ALTERNATIVE
-            if (
-                arm is not None
-                and unequal_positive_cluster_mass(data.cluster, total, total) is None
-            ):
-                keep = '("ate", "ey1", "ey0")' if data.n_arms == 2 else '("ate", "ey")'
-                alternative += (
-                    f" Or leave out {stem}: estimands={keep} can use cv_evaluation=True with "
-                    "these clusters."
-                )
-            return CapabilityError.from_refusal(
-                Refusal(
-                    RefusalReason.API_REDIRECTION,
-                    f"cv_evaluation=True cannot be used with these clusters{target}: {differs}. "
-                    f"With {kind}, giving every fold the same weight biases the estimate, and "
-                    f"the bias is largest when {larger} have different outcomes.",
-                    alternative=alternative,
-                )
-            )
-    return None
+            if spread is not None:
+                triggered.append((stem, arm, spread))
+    if not triggered:
+        return None
+    stem, arm, spread = triggered[0]
+    # The stored weights average one; the message speaks in the weights the user supplied.
+    scale = float(data.weight_spec.scale) if weighted else 1.0
+    low, high, clusters = (
+        _mass_text(spread[0] * scale, not weighted),
+        _mass_text(spread[1] * scale, not weighted),
+        spread[2],
+    )
+    span = f"from {low} to {high}"
+    if arm is None:
+        target = ""
+        if weighted:
+            differs = f"their total weight differs ({span} across {clusters} clusters)"
+            kind, larger = "clusters of different total weight", "heavier clusters"
+        else:
+            differs = f"their sizes differ ({span} rows across {clusters} clusters)"
+            kind, larger = "clusters of different sizes", "bigger clusters"
+    else:
+        rows = (
+            ("treated rows" if stem == "att" else "control rows")
+            if binary
+            else f"rows in arm {data.arm_label(arm)}"
+        )
+        target = f" for {stem}"
+        if stem == "att" and not binary:
+            label, versus = data.arm_label(arm), data.arm_label(reference)
+            target = f" for {parameter_name(stem, arm=label, versus=versus)}"
+        noun = f"total weight of {rows}" if weighted else f"number of {rows}"
+        differs = f"the {noun} per cluster differs ({span} across {clusters} clusters)"
+        kind = f"clusters that differ in their {noun}"
+        larger = (
+            f"clusters with more {rows}" if not weighted else f"clusters with more weight in {rows}"
+        )
+    alternative = _CLUSTER_FOLD_ALTERNATIVE
+    if unequal_positive_cluster_mass(data.cluster, total, total) is None:
+        # Only att or atc triggered: name every one of them, so the hint does not lead to a
+        # second refusal.
+        stems = " and ".join(dict.fromkeys(item[0] for item in triggered))
+        keep = '("ate", "ey1", "ey0")' if data.n_arms == 2 else '("ate", "ey")'
+        alternative += (
+            f" Or leave out {stems}: estimands={keep} can use cv_evaluation=True with these "
+            "clusters."
+        )
+    return CapabilityError.from_refusal(
+        Refusal(
+            RefusalReason.API_REDIRECTION,
+            f"cv_evaluation=True cannot be used with these clusters{target}: {differs}. "
+            f"With {kind}, giving every fold the same weight can bias the estimate, and the "
+            f"bias is largest when {larger} have different outcomes.",
+            alternative=alternative,
+        )
+    )
 
 
 class TMLE:
