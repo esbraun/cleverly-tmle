@@ -1,0 +1,92 @@
+{
+  "schema_version": 2,
+  "study": "Score assessment by TMLE",
+  "slug": "score-assessment",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-score-assessment-tmle",
+      "cleverly_version": "0.2.3",
+      "cleverly_commit": "804cfea970f9c8b7d48a71952d2354f0cd79ef6d",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2000,
+    "n": 2000,
+    "seed": 20261297,
+    "resampling_seed": 20261298,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-score-assessment-tmle": 0.01
+    },
+    "scenarios": {
+      "paired_2k": [
+        "risk_difference[S - SB]"
+      ]
+    },
+    "paired_2k": "observational law, n=2000, R=15200, learner spline, scale difference, scores binary_paired",
+    "paired_trial_2k": "trial law, n=2000, R=15200, learner spline, scale difference, scores binary_paired",
+    "paired_cont_2k": "H law, n=2000, R=15200, learner linear_spline, scale difference, scores cont_paired",
+    "equal_cont_2k": "H law, n=2000, R=15200, learner linear_spline, scale difference, scores cont_equal",
+    "power_cont_2k": "H law, n=2000, R=1000, learner linear_spline, scale difference, scores cont_power",
+    "single_crr_4k": "observational law, n=4000, R=15200, learner spline, scale log_ratio, scores crr_single",
+    "paired_crr_4k": "observational law, n=4000, R=15200, learner spline, scale log_ratio, scores crr_paired",
+    "paired_dr_4k": "noweight_law law, n=4000, R=2000, learner declared, scale difference, scores dr",
+    "paired_crr_dr_4k": "noweight_law law, n=4000, R=2000, learner declared, scale log_ratio, scores crr_dr",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/score_assessment.py": "f8be66532e625f3d614d7f4183fcb83dfaac2c9833fd6d284d2aeb747c32e24d",
+    "tests/studies/score_assessment_properties.py": "a2115d37339c79fa3d52098d45ac03fa74eee929e3fbdffaca88ed7735979ae8",
+    "tests/studies/conditional_projection.py": "1a144ff826cc69afb1b8ab92979a7de0ee6c06fb98df7baf0709f4d99688364f",
+    "tests/studies/targeting_curves.py": "c9f146996a97b803a8c6f31ed5628c42d2f1693d746cce044b349dcce0862540",
+    "tests/studies/repeated_sizing.py": "22ea0fd4b646ca559ca497ccc2116e5c8c45fb1b5c89670437212736a03fdaed",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "f7130e95147b06e2ab81f13704a921effb783b94a72a3e9a94050614d68f7699",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "23c3fc28f67240b7750cae3b77920f4bc7a00ed256486ee58ce4630185efd0d7",
+    "summary.csv": "dde90864fc63edf7ffe3f4e5bdb3747550ee0e386b5f3379955809182e427b3e",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "dc0dc532a8249e58fc1798928627ffefed4bcb53106f11488786d12087de7808",
+    "property-replicates.parquet": "6d699ee1669249a401c8541fc7f4e40e2d2e5cc159abe075482bc191b09ac01a",
+    "properties.csv": "01095d902ca3e6f5f5db4ca907bf2113872f72379f8fcf5e9015bc63bd3db58c",
+    "comparison.csv": "f67b41b77ee1b265c9a3ac576cf6a79d185c3ed2852ed7b38cd3db73da745edf"
+  }
+}
