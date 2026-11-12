@@ -1358,7 +1358,7 @@ class CTMLESelection:
         ... ).fit(frame, outcome="Y", treatment="A").single()
         >>> fig = result.ctmle_selection.plot()
         >>> fig.texts[0].get_text()
-        'How sharp was the choice of treatment model?'
+        'Treatment model selection'
         >>> plt.close(fig)
         """
         from ..plotting import learners

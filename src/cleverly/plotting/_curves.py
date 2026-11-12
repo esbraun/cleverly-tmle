@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -174,6 +174,7 @@ def _band_note(support: Any, what: str) -> list[str]:
 # ----------------------------------------------------------------------- dispatch
 
 
+@_core.labelled
 def curve(
     obj: Any,
     *,
@@ -195,7 +196,12 @@ def curve(
     units: str | None = None,
     time_label: str | None = None,
     truth: Any = None,
-    title: str | None = None,
+    title: str | Literal[False] | None = None,
+    subtitle: str | Literal[False] | None = None,
+    xlabel: str | Sequence[str] | None = None,
+    ylabel: str | Sequence[str] | None = None,
+    legend: str | Literal[False] = "top",
+    figsize: tuple[float, float] | None = None,
     ax: Axes | None = None,
 ) -> Figure:
     """Plot a result as a curve: over time, over a treatment level, or over a modifier.
@@ -289,8 +295,22 @@ def curve(
         a sequence in increasing order of the level or a mapping of level to value. A
         conditional effect curve takes a function of the modifier's values, drawn as a
         dash-dot line. Values are on the scale the plot draws.
-    title : str or None, default=None
-        The title.
+    title : str, False or None, default=None
+        The title; a short description of the figure when omitted, and none when ``False``.
+    subtitle : str, False or None, default=None
+        The line under the title; the plot's own, which names the estimate and its headline
+        number, when omitted, and none when ``False``.
+    xlabel : str, sequence of str or None, default=None
+        The x-axis label. A string replaces the first labelled panel's label and the same
+        label wherever it repeats; a sequence gives each labelled panel its own, in reading
+        order.
+    ylabel : str, sequence of str or None, default=None
+        The y-axis label, given as for ``xlabel``.
+    legend : {"top", "right", "bottom"} or False, default="top"
+        Where the key goes: above the axes, right of them, or under the figure; ``False``
+        draws no key.
+    figsize : tuple of float or None, default=None
+        Width and height in inches of a figure the plot creates.
     ax : Axes or None, default=None
         Axes to draw on. Only a one-panel plot can use it.
 
@@ -372,7 +392,7 @@ def curve(
             treatment_label=treatment_label,
             units=units,
             truth=truth,
-            title=title,
+            title=title or None,
             ax=ax,
         )
     if isinstance(obj, LongitudinalResult):
@@ -390,7 +410,7 @@ def curve(
                 units=units,
                 time_label=time_label,
                 truth=truth,
-                title=title,
+                title=title or None,
             )
         return _restricted(
             obj,
@@ -401,7 +421,7 @@ def curve(
             units=units,
             time_label=time_label,
             truth=truth,
-            title=title,
+            title=title or None,
         )
     if isinstance(obj, EffectCurveResult):
         return _effect_curve(
@@ -415,7 +435,7 @@ def curve(
             treatment_label=treatment_label,
             units=units,
             truth=truth,
-            title=title,
+            title=title or None,
             ax=ax,
         )
     keys = getattr(obj, "parameter_keys", None)
@@ -436,7 +456,7 @@ def curve(
                 treatment_label=treatment_label,
                 units=units,
                 truth=truth,
-                title=title,
+                title=title or None,
                 ax=ax,
             )
         if axes == {"regime"} or (axes == {"arm"} and _level_means(keys.values())):
@@ -449,7 +469,7 @@ def curve(
                 treatment_label=treatment_label,
                 units=units,
                 truth=truth,
-                title=title,
+                title=title or None,
                 ax=ax,
             )
         if axes <= {"policy", "ipsi"}:
@@ -460,7 +480,7 @@ def curve(
                 treatment_label=treatment_label,
                 units=units,
                 truth=truth,
-                title=title,
+                title=title or None,
                 ax=ax,
             )
     raise TypeError(
@@ -617,7 +637,7 @@ def _band_choice(result: Any, band: str | None) -> tuple[Any, str | None, list[s
         other_name, hint = "bootstrap sup-t band", "bootstrap"
     if chosen is None:
         return None, None, []
-    notes = []
+    notes = [f"The simultaneous band drawn is the {kind} band."]
     if other is not None:
         notes.append(f"The fit also holds a {other_name}; pass band={hint!r} to draw it.")
     return chosen, kind, notes
@@ -980,7 +1000,7 @@ def _over_time(
     name_of = (lambda s: str(labels.get(s, s))) if labels else str
     step = _nodes_reported(result, rows)
     level = 1.0 - float(rows[0].estimate.alpha)
-    band_obj, band_kind, band_notes = _band_choice(result, band)
+    band_obj, _, band_notes = _band_choice(result, band)
     psi_risk: dict[str, float] = {}
     if band_obj is not None or result.isotonic_moves:
         base = rows if view != "survival" else _read_curve(result, "risk", chosen_cause)[0]
@@ -998,9 +1018,7 @@ def _over_time(
             if pair is not None:
                 found[row.parameter] = pair
         limits = found or None
-    band_text = (
-        None if band_obj is None else _core.band_label(1.0 - float(band_obj.alpha), band_kind or "")
-    )
+    band_text = None if band_obj is None else _core.band_label(1.0 - float(band_obj.alpha))
 
     tall = (
         ([3.4] if has_levels else [])
@@ -1706,7 +1724,7 @@ def _level_title(means: Any, msm_fit: Any) -> str:
     dose = any(
         bool(getattr(getattr(fit, "data", None), "is_continuous_treatment", False)) for fit in fits
     )
-    return f"How does the mean outcome change with the {'dose' if dose else 'treatment level'}?"
+    return f"Mean outcome by {'dose' if dose else 'treatment level'}"
 
 
 def _dose(
@@ -1784,9 +1802,7 @@ def _dose(
             else _core.pointwise_label(level)
         ),
         box=box,
-        band_text=None
-        if bands is None
-        else _core.band_label(1.0 - float(bands.alpha), "multiplier"),
+        band_text=None if bands is None else _core.band_label(1.0 - float(bands.alpha)),
         extent=extent,
         spots=spots,
         names=[e[2] for e in entries],
@@ -1898,7 +1914,7 @@ def _dose_response(
             count=len(bandwidths),
             interval_text=_core.pointwise_label(level) if index == 0 else "_nolegend_",
             box=box,
-            band_text=_core.band_label(level, "multiplier") if index == 0 else None,
+            band_text=_core.band_label(level) if index == 0 else None,
             extent=extent,
             spots=spots,
             names=[c.name for c in cells],
@@ -2033,9 +2049,7 @@ def _policies(
             _core.interval_label(level) if bands is None else _core.pointwise_label(level)
         ),
         box=box,
-        band_text=None
-        if bands is None
-        else _core.band_label(1.0 - float(bands.alpha), "multiplier"),
+        band_text=None if bands is None else _core.band_label(1.0 - float(bands.alpha)),
         extent=extent,
         guide_through=() if anchor is None else (anchor,),
         spots=spots,
@@ -2093,13 +2107,13 @@ def _policies(
         _core.reference_line(axis, 0.0, label="No effect")
         axis.set_ylabel(" ".join(_core.quantity(outcome_label, outcome, units, difference=True)))
         subtitle = f"Each policy compared with {reference}{cap_note}"
-        heading = "How does the effect change as the policy shifts?"
+        heading = "Effect by policy"
     else:
         axis.set_ylabel(
             " ".join(_core.quantity(outcome_label, outcome, units, difference=False)).strip()
         )
         subtitle = f"Mean outcome under each policy{cap_note}"
-        heading = "How does the mean outcome change as the policy shifts?"
+        heading = "Mean outcome by policy"
     ticks = sorted(set(shown))
     if log:
         _core.log_axis(axis, "x")
@@ -2555,7 +2569,7 @@ def _band_marks(
         transform(np.asarray(band.lower, dtype=float)[mask]).tolist(),
         transform(np.asarray(band.upper, dtype=float)[mask]).tolist(),
         color=color,
-        label=_core.band_label(1.0 - float(band.alpha), "multiplier"),
+        label=_core.band_label(1.0 - float(band.alpha)),
         band=True,
     )
 

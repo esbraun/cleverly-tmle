@@ -24,6 +24,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 _HEAD_GUESS = 0.9
 #: The least height of the strip's own (empty) axes, in inches.
 _STRIP = 0.02
+#: The attribute that marks a figure whose size the caller chose, which keeps its height.
+_FIXED = "_cleverly_fixed_size"
 
 
 def strip_figure(
@@ -62,7 +64,12 @@ def strip_figure(
     rows = math.ceil(panels / columns)
     width = max(6.4, panel[0] * columns + left + 0.8)
     middle_height = (panel[1] + 0.7) * rows
+    chosen = _core.label_options().figsize
+    if chosen is not None:
+        width, total = chosen
+        middle_height = max(total - _HEAD_GUESS, 0.5)
     fig = plt.figure(figsize=(width, _HEAD_GUESS + middle_height), layout="constrained")
+    setattr(fig, _FIXED, chosen is not None)
     fig.set_facecolor(_core.FACE)
     top, middle = fig.subfigures(2, 1, height_ratios=[_HEAD_GUESS, middle_height])
     head = top.add_subplot()
@@ -88,7 +95,8 @@ def fit_height(fig: Figure, axes: list[Axes], columns: int, panel_height: float)
 
     Each row of panels gets ``panel_height`` inches of plotting area. Call it last: the
     header is wrapped to the figure's width, which does not change, so a few layout passes
-    settle the heights.
+    settle the heights. A figure whose size the caller chose keeps it: the header takes the
+    room its text needs and the panels the rest.
 
     Parameters
     ----------
@@ -120,6 +128,10 @@ def fit_height(fig: Figure, axes: list[Axes], columns: int, panel_height: float)
         middle_height = _inches(fig, middle.bbox.height)
         drawn = sum(_inches(fig, axis.get_window_extent(renderer).height) for axis in first_column)
         middle_height += panel_height * len(first_column) - drawn
+        if getattr(fig, _FIXED, False):
+            total = float(fig.get_figheight())
+            spec.set_height_ratios([head_height, max(total - head_height, 0.1)])
+            return
         ratios = [head_height, middle_height]
         total = sum(ratios)
         if (

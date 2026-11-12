@@ -702,7 +702,8 @@ class SimulatedConfoundingResult:
         ----------
         **kwargs
             Passed to :func:`cleverly.plotting.confounding`: ``at=``, ``null=``,
-            ``x_label=``, ``y_label=``, ``title=`` and ``ax=``.
+            ``ax=`` and the formatting keywords ``title=``, ``subtitle=``, ``xlabel=``,
+            ``ylabel=``, ``legend=`` and ``figsize=``.
 
         Returns
         -------
@@ -733,7 +734,7 @@ class SimulatedConfoundingResult:
         >>> surface = simulated_confounding(result, "ate", grid=grid, random_state=0)
         >>> fig = surface.plot()
         >>> fig.axes[0].get_title(loc="left").replace("\\n", " ")
-        'How far does the estimate move under a simulated common cause?'
+        'Estimate under a simulated common cause'
         >>> plt.close(fig)
         """
         from ..plotting import confounding

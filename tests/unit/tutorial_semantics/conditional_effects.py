@@ -158,10 +158,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_targeting(namespace)
     _check_score(namespace)
     _check_ranking(namespace)
-    assert (
-        figure_title(namespace["ranking_fig"])
-        == "How much does treating by predicted effect first gain over treating at random?"
-    )
+    assert figure_title(namespace["ranking_fig"]) == "Gain from treating by predicted effect first"
     _check_trial(namespace)
 
 

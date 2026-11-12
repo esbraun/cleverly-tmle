@@ -11,13 +11,15 @@ callers who want their own figures to match.
 
 from __future__ import annotations
 
+import functools
 import math
 import textwrap
 import weakref
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, TypeVar
 
 from .._summary._render import decimals_for, number_text
 
@@ -96,6 +98,176 @@ def pyplot() -> Any:
     except ImportError as error:  # pragma: no cover - exercised by the minimal-install job
         raise ImportError(INSTALL_HINT) from error
     return plt
+
+
+# --------------------------------------------------------------------- caller's label options
+#
+# Every public plot takes the same formatting keywords. :func:`labelled` reads them off the
+# call, keeps them in a context variable while the plot draws, so :func:`header`,
+# :func:`figure_header` and :func:`new_figure` honour them wherever a plot calls those, and
+# sets the axis labels on the finished figure.
+
+#: The formatting keywords :func:`labelled` takes off a plot's call.
+LABEL_KEYWORDS: Final = ("title", "subtitle", "xlabel", "ylabel", "legend", "figsize")
+#: Where the key may go.
+LEGEND_PLACES: Final = ("top", "right", "bottom")
+
+
+@dataclass(frozen=True)
+class LabelOptions:
+    """The caller's formatting choices for the plot being drawn.
+
+    Parameters
+    ----------
+    title : str, bool or None
+        A replacement title, ``False`` to drop it, or ``None`` for the plot's own.
+    subtitle : str, bool or None
+        A replacement subtitle, ``False`` to drop it, or ``None`` for the plot's own.
+    legend : str or bool
+        ``"top"``, ``"right"``, ``"bottom"``, or ``False`` for no key.
+    figsize : tuple of float or None
+        The size of a figure the plot creates, in inches.
+    """
+
+    title: str | bool | None = None
+    subtitle: str | bool | None = None
+    legend: str | bool = "top"
+    figsize: tuple[float, float] | None = None
+
+
+_DEFAULT_OPTIONS: Final = LabelOptions()
+_OPTIONS: ContextVar[LabelOptions | None] = ContextVar("cleverly_plot_options", default=None)
+
+_Plot = TypeVar("_Plot", bound=Callable[..., Any])
+
+
+def labelled(plot: _Plot) -> _Plot:
+    """Give a public plot the shared formatting keywords.
+
+    The wrapped function declares ``title``, ``subtitle``, ``xlabel``, ``ylabel``,
+    ``legend`` and ``figsize`` in its signature for the reader; the wrapper takes them off
+    the call, so the plot's own code sees their defaults, and applies them: the title and
+    subtitle through :func:`header` or :func:`figure_header`, the key's place there too, the
+    size through :func:`new_figure` and the strip figures, and the axis labels on the
+    finished figure through :func:`relabel`. In a plot called by another plot, the
+    choices made on the outer call win.
+
+    Parameters
+    ----------
+    plot : callable
+        A public plot that returns a ``Figure``.
+
+    Returns
+    -------
+    callable
+        The plot with the keywords applied.
+    """
+
+    @functools.wraps(plot)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        chosen = {key: kwargs.pop(key) for key in LABEL_KEYWORDS if key in kwargs}
+        for key in ("title", "subtitle"):
+            value = chosen.get(key)
+            if value is True or not isinstance(value, (str, bool, type(None))):
+                raise TypeError(f"{key} must be a string, False or None, not {value!r}")
+        title, subtitle = chosen.get("title"), chosen.get("subtitle")
+        place = chosen.get("legend", "top")
+        if place is not False and place not in LEGEND_PLACES:
+            raise ValueError(f"legend must be one of {LEGEND_PLACES} or False, not {place!r}")
+        size = chosen.get("figsize")
+        options = LabelOptions(
+            title=title,
+            subtitle=subtitle,
+            legend=place,
+            figsize=None if size is None else (float(size[0]), float(size[1])),
+        )
+        outer = _OPTIONS.get()
+        if outer is not None:
+            # one plot drawn by another (curve's forest fallback): the reader's choices on the
+            # outer call win over the words the outer plot passes on
+            options = LabelOptions(
+                title=options.title if outer.title is None else outer.title,
+                subtitle=options.subtitle if outer.subtitle is None else outer.subtitle,
+                legend=options.legend if outer.legend == "top" else outer.legend,
+                figsize=outer.figsize or options.figsize,
+            )
+        token = _OPTIONS.set(options)
+        try:
+            fig = plot(*args, **kwargs)
+        finally:
+            _OPTIONS.reset(token)
+        relabel(fig, "x", chosen.get("xlabel"))
+        relabel(fig, "y", chosen.get("ylabel"))
+        return fig
+
+    return wrapper  # type: ignore[return-value]
+
+
+def label_options() -> LabelOptions:
+    """The formatting choices of the plot being drawn; the defaults outside a plot.
+
+    Returns
+    -------
+    LabelOptions
+        The current choices.
+    """
+    return _OPTIONS.get() or _DEFAULT_OPTIONS
+
+
+def _labelled_panels(fig: Figure, which: str) -> list[Axes]:
+    """The panels of ``fig`` with a label on axis ``which``, colour bars left out."""
+    found = []
+    for axis in fig.axes:
+        if getattr(axis, "_colorbar", None) is not None or not axis.axison:
+            continue
+        label = axis.get_xlabel() if which == "x" else axis.get_ylabel()
+        if label:
+            found.append(axis)
+    return found
+
+
+def relabel(fig: Figure, which: str, label: str | Sequence[str] | None) -> None:
+    """Replace the axis labels of a finished figure.
+
+    A string replaces the label of the first labelled panel and the same label wherever
+    it repeats, so a column of panels that share one label is renamed at once. A sequence
+    gives every labelled panel its own label, in reading order.
+
+    Parameters
+    ----------
+    fig : Figure
+        The figure a plot drew.
+    which : {"x", "y"}
+        The axis.
+    label : str, sequence of str or None
+        The new label or labels; ``None`` keeps the plot's own.
+
+    Raises
+    ------
+    ValueError
+        When a sequence does not give one label per labelled panel.
+    """
+    if label is None:
+        return
+    panels = _labelled_panels(fig, which)
+    if not panels:
+        return
+    read = (lambda axis: axis.get_xlabel()) if which == "x" else (lambda axis: axis.get_ylabel())
+    if isinstance(label, str):
+        first = read(panels[0])
+        targets = [(axis, label) for axis in panels if read(axis) == first]
+    else:
+        words = list(label)
+        if len(words) != len(panels):
+            raise ValueError(
+                f"{which}label gives {len(words)} labels for {len(panels)} labelled panels"
+            )
+        targets = list(zip(panels, words, strict=True))
+    for axis, words_for in targets:
+        if which == "x":
+            axis.set_xlabel(words_for)
+        else:
+            axis.set_ylabel(words_for)
 
 
 @contextmanager
@@ -191,7 +363,7 @@ def new_figure(
     fig, axes = plt.subplots(
         nrows,
         ncols,
-        figsize=figsize or FIGSIZE,
+        figsize=label_options().figsize or figsize or FIGSIZE,
         sharex=sharex,
         squeeze=False,
         layout="constrained",
@@ -280,6 +452,51 @@ def wrap(text: str, ax: Axes, size: float) -> str:
     )
 
 
+def _side_key(
+    ax: Axes,
+    handles: Sequence[Any],
+    labels: Sequence[str],
+    place: str,
+    sources: Sequence[Axes] | None,
+) -> Any:
+    """Draw the key right of ``ax`` or under the figure, as the caller chose.
+
+    Right of the axes it is one column; under the figure it is a row of up to three
+    columns, placed outside the panels by the constrained layout engine, or under ``ax``
+    when the figure has another layout engine.
+    """
+    style: dict[str, Any] = {
+        "handler_map": _key_handlers(handles),
+        "frameon": False,
+        "fontsize": TICK_SIZE,
+        "labelcolor": INK,
+        "borderpad": 0.0,
+        "handlelength": 1.8,
+        "columnspacing": 1.4,
+    }
+    if place == "right":
+        key = ax.legend(
+            handles, labels, loc="upper left", bbox_to_anchor=(1.02, 1.0), ncol=1, **style
+        )
+    else:
+        holder: Any = (list(sources) if sources else [ax])[-1].figure
+        engine = _root(ax).get_layout_engine()
+        columns = min(len(handles), 3)
+        if type(engine).__name__ == "ConstrainedLayoutEngine":
+            key = holder.legend(handles, labels, loc="outside lower left", ncol=columns, **style)
+        else:
+            key = ax.legend(
+                handles,
+                labels,
+                loc="upper left",
+                bbox_to_anchor=(0.0, -0.2),
+                ncol=columns,
+                **style,
+            )
+    key.set_gid(GID_KEY)
+    return key
+
+
 def header(
     ax: Axes,
     title: str,
@@ -308,9 +525,20 @@ def header(
     key_columns : int, default=3
         The most columns the key may take, for a plot with text beside its axes.
     """
-    if ax.get_legend() is None:
+    options = label_options()
+    if options.subtitle is not None:
+        subtitle = options.subtitle if isinstance(options.subtitle, str) else None
+    if options.title is not None:
+        title = options.title if isinstance(options.title, str) else ""
+    if ax.get_legend() is None and options.legend:
         legend(ax, sources=key_sources, max_columns=key_columns)
     key = ax.get_legend()
+    if key is not None and options.legend != "top":
+        handles, labels = list(key.legend_handles), [text.get_text() for text in key.get_texts()]
+        key.remove()
+        key = None
+        if options.legend:
+            _side_key(ax, handles, labels, str(options.legend), key_sources)
     key_height = 0.0
     if key is not None:
         names = [text.get_text() for text in key.get_texts()]
@@ -322,7 +550,7 @@ def header(
         sub_lines = subtitle.count("\n") + 1
     pad = 6.0 + key_height + sub_lines * SUBTITLE_SIZE * 1.35
     ax.set_title(
-        wrap(title, ax, TITLE_SIZE),
+        wrap(title, ax, TITLE_SIZE) if title else "",
         loc="left",
         fontsize=TITLE_SIZE,
         fontweight="bold",
@@ -523,11 +751,20 @@ def figure_header(
         )
         return _text_height(wrapped, size)
 
-    cursor += place(title, TITLE_SIZE, fontweight="bold", color=INK, gid=GID_TITLE) + _GAP
+    options = label_options()
+    if options.subtitle is not None:
+        subtitle = options.subtitle if isinstance(options.subtitle, str) else None
+    if options.title is not None:
+        title = options.title if isinstance(options.title, str) else ""
+    if title:
+        cursor += place(title, TITLE_SIZE, fontweight="bold", color=INK, gid=GID_TITLE) + _GAP
     if subtitle:
         cursor += place(subtitle, SUBTITLE_SIZE, color=SECONDARY_INK, gid=GID_SUBTITLE) + _GAP
-    handles, labels = _key_entries(key_sources if key_sources is not None else fig.axes)
-    if handles:
+    sources = key_sources if key_sources is not None else fig.axes
+    handles, labels = _key_entries(sources)
+    if handles and options.legend in ("right", "bottom"):
+        _side_key(sources[0], handles, labels, str(options.legend), sources)
+    elif handles and options.legend:
         columns = min(len(handles), 3)
         key = fig.legend(
             handles,
@@ -547,7 +784,8 @@ def figure_header(
         )
         key.set_gid(GID_KEY)
         cursor += math.ceil(len(handles) / columns) * TICK_SIZE * 1.45 + _GAP
-    _reserve(fig, top=(cursor + _GAP) / height)
+    if cursor > _EDGE_PAD:
+        _reserve(fig, top=(cursor + _GAP) / height)
 
 
 def title_text(fig: Figure) -> str:
@@ -585,7 +823,12 @@ def key_labels(fig: Figure) -> list[str]:
         The entries in drawing order.
     """
     keys = [axis.get_legend() for axis in fig.axes]
-    found = [key for key in keys if key is not None] + list(fig.legends)
+    found = [key for key in keys if key is not None]
+    figures: list[Any] = [fig]
+    while figures:
+        part = figures.pop(0)
+        found += list(part.legends)
+        figures += list(getattr(part, "subfigs", []))
     return [text.get_text() for key in found for text in key.get_texts()]
 
 
@@ -1231,22 +1474,23 @@ def interval_label(level: float) -> str:
     return f"{level_text(level)} confidence interval"
 
 
-def band_label(level: float, kind: str) -> str:
+def band_label(level: float) -> str:
     """The legend entry of a simultaneous band.
+
+    How the band was computed (multiplier or bootstrap) is a note and a docstring fact, not
+    a word on the figure.
 
     Parameters
     ----------
     level : float
         The coverage level.
-    kind : {"multiplier", "bootstrap sup-t"}
-        How the band was computed.
 
     Returns
     -------
     str
-        For example ``"95% simultaneous band (multiplier)"``.
+        For example ``"95% simultaneous band"``.
     """
-    return f"{level_text(level)} simultaneous band ({kind})"
+    return f"{level_text(level)} simultaneous band"
 
 
 def format_values(values: Sequence[float], spreads: Sequence[float]) -> list[str]:
@@ -1364,7 +1608,7 @@ _ESTIMAND_WORDS: Final = {
 
 
 def estimand_words(name: str) -> str:
-    """An estimand alias in words, with the alias kept in parentheses.
+    """An estimand alias in words, keeping the alias only where it names more than the words.
 
     Parameters
     ----------
@@ -1374,12 +1618,16 @@ def estimand_words(name: str) -> str:
     Returns
     -------
     str
-        For example ``"Average effect (ate)"``, or the alias alone when no words are known.
+        The words alone for a bare alias (``"Average effect"`` for ``"ate"``), the words
+        with the alias in parentheses for a qualified one (``"Average effect
+        (ate[high vs low])"``), and the alias alone when no words are known.
     """
     import re
 
+    if name in _ESTIMAND_WORDS:
+        return str(_ESTIMAND_WORDS[name])
     stem = re.split(r"[\[_]", name, maxsplit=1)[0]
-    words = _ESTIMAND_WORDS.get(name) or _ESTIMAND_WORDS.get(stem)
+    words = _ESTIMAND_WORDS.get(stem)
     return f"{words} ({name})" if words else name
 
 
@@ -1446,7 +1694,8 @@ def quantity(
 
     ``outcome_label=`` names the quantity on the axis in the caller's words, so it takes no
     ``"mean"``: ``("Difference in", "order share")``. Without it the outcome column's name
-    follows ``"mean"``: ``("Difference in", "mean Y")`` and ``("", "Mean Y")``.
+    follows ``"mean"``, with underscores read as spaces: ``("Difference in", "mean Y")`` and
+    ``("", "Mean order share")`` for a column ``order_share``.
 
     Parameters
     ----------
@@ -1469,9 +1718,10 @@ def quantity(
         if difference:
             return "Difference in", f"{mid_phrase(outcome_label)}{unit}"
         return "", f"{outcome_label}{unit}"
+    words = outcome.replace("_", " ")  # a column name reads as words on the figure
     if difference:
-        return "Difference in", f"mean {outcome}{unit}"
-    return "", f"Mean {outcome}{unit}"
+        return "Difference in", f"mean {words}{unit}"
+    return "", f"Mean {words}{unit}"
 
 
 def null_for(scale: str) -> float | None:
@@ -1537,12 +1787,15 @@ __all__ = [
     "INK",
     "INSTALL_HINT",
     "INTERVAL_ALPHA",
+    "LABEL_KEYWORDS",
+    "LEGEND_PLACES",
     "MAX_SERIES",
     "PALETTE",
     "REFERENCE",
     "SECONDARY_INK",
     "TRUTH_LABEL",
     "Interval",
+    "LabelOptions",
     "add_notes",
     "band_label",
     "brackets",
@@ -1557,6 +1810,8 @@ __all__ = [
     "header",
     "interval_label",
     "key_labels",
+    "label_options",
+    "labelled",
     "legend",
     "level_text",
     "log_axis",
@@ -1568,6 +1823,7 @@ __all__ = [
     "pointwise_label",
     "pyplot",
     "reference_line",
+    "relabel",
     "ribbon",
     "series_color",
     "style",
