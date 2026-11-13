@@ -7,16 +7,21 @@ The fits below are of the five-node pricing law (``tests/studies/mtp_pricing_com
 wins for the moved plans and the natural plan's diagonal is its influence-curve variance, so
 both sources are exercised.
 
-Witnesses, by number: 3b the residual at the observed dose, 4 the fallback, 5 the finite-sample value on law B, 7 the refusals before any learner, 8 the support kind,
+Witnesses, by number: 3b the residual at the observed dose, 4 the fallback, 5 the
+finite-sample value on law B (``p4``'s variance and its covariance with ``p1``, with the control
+of reading the source plan's ratio), 7 the refusals before any learner, 8 the support kind,
 11 nesting, 12 ``contrast()`` and ``ratio()``, 13 ``transform=``, 14 repeats, 15 the
 downstream refusals, 16 the diagnostics and the warning text, plus the save and load round
-trip and the composed interval of a Student-t default.  Witness 6 reproduces the measured probe
+trip, the composed interval of a Student-t default, the natural level on a rescaled outcome,
+the density route's ratios at the policy doses, and the exact covariance of two drawn plans at
+a categorical node.  Witness 6 reproduces the measured probe
 on committed draws (``tests/diagnostics/fix5_heavy_ratios/probe_variance.csv``).
 """
 
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import warnings
 from functools import cache
 from pathlib import Path
@@ -26,7 +31,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+import sklearn
 from scipy.stats import norm, t
+from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.linear_model import LinearRegression
 
 from cleverly import load
@@ -44,7 +51,9 @@ from cleverly.inference.results import (
     transform_estimate,
 )
 from cleverly.inference.sparse import warn_sparse_influence
+from cleverly.interventions import Stochastic
 from cleverly.longitudinal import LTMLE, SDR
+from cleverly.longitudinal import estimator as estimator_module
 from cleverly.longitudinal import policy_variance as policy_module
 from cleverly.longitudinal.estimator import POLICY_VARIANCE_REFUSALS
 from cleverly.msm import MSM
@@ -158,6 +167,28 @@ def test_both_sources_win_somewhere() -> None:
     natural = result[NATURAL].policy
     assert natural.policy_variance == pytest.approx(natural.influence_variance, rel=1e-12)
     assert result[DOWN].policy.policy_variance > 1.05 * result[DOWN].policy.influence_variance
+
+
+@pytest.mark.parametrize("estimator", [LTMLE, SDR])
+def test_the_natural_plan_reads_its_curve_on_a_rescaled_outcome(estimator: type) -> None:
+    """On an outcome of range 0.37 the natural level's two variances are one number.
+
+    Its diagonal is written from the same curve as its influence-curve variance, so the
+    natural level never reads ``"policy_weighted"`` from a last-bit difference.  Rescaling the
+    targeting-scale entry by ``range**2`` instead differed by 3.4e-21 here.
+    """
+    frame = common.sample(1_500, 11, TAU)
+    frame = frame.assign(Y=0.37 * frame["Y"] + 0.2)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = estimator(
+            common.regimens(pricing.LABELS, TAU),
+            **_settings(variance="policy_weighted", q_bounds=(0.2, 0.37 + 0.2)),
+        ).fit(frame, outcome="Y", **pricing.roles(TAU))
+    natural = result[NATURAL]
+    assert natural.policy.policy_variance == natural.policy.influence_variance
+    assert natural.variance_source == "influence_curve"
+    assert result.diagnostics.influence()[NATURAL].variance_source == "influence_curve"
 
 
 def test_the_test_interval_and_frame_read_the_stored_variance() -> None:
@@ -659,6 +690,18 @@ def _probe_draws() -> pd.DataFrame:
     return pd.read_csv(PROBE)
 
 
+#: The scikit-learn release under which the shipped variance reproduces the probe to 1e-10.
+#: The variance regressions are ``HistGradientBoostingRegressor`` fits, whose binning and
+#: split ties can move between releases, so another release is held to 1e-3: far inside the
+#: 1.4% to 8% that a defect of the residual or the ratio moves the variance (witness 3b).
+PROBE_SKLEARN = "1.9.1"
+
+
+def _probe_tolerance() -> tuple[float, float]:
+    """The relative tolerances of ``psi`` and of the variance entries under this release."""
+    return (1e-10, 1e-10) if sklearn.__version__ == PROBE_SKLEARN else (1e-8, 1e-3)
+
+
 @pytest.mark.parametrize(("estimator", "rep"), [("ltmle", 0), ("sdr", 0)])
 def test_the_shipped_variance_reproduces_the_probe(estimator: str, rep: int) -> None:
     """The fast-tier slice of witness 6; ``run.py`` checks all 48 committed draws."""
@@ -682,27 +725,76 @@ def test_the_shipped_variance_reproduces_the_probe(estimator: str, rep: int) -> 
     covariance = estimate.policy.covariance
     matrix = covariance.matrix * int(reference["n"])
     down, natural = covariance.names.index(DOWN), covariance.names.index(NATURAL)
-    assert estimate.psi == pytest.approx(reference["psi"], rel=1e-10)
-    assert matrix[down, down] == pytest.approx(reference["variance"], rel=1e-10)
-    assert matrix[down, natural] == pytest.approx(reference["covariance"], rel=1e-10)
+    exact, regression = _probe_tolerance()
+    assert estimate.psi == pytest.approx(reference["psi"], rel=exact)
+    assert matrix[down, down] == pytest.approx(reference["variance"], rel=regression)
+    assert matrix[down, natural] == pytest.approx(reference["covariance"], rel=regression)
 
 
 # ----------------------------------------------------------------------------- witness 5
 
-#: The Monte Carlo SE of ``n * Sigma[p4, p4]`` at 200,000 law-B rows, from a pilot of three
-#: draws (seeds 1 to 3 read 3.205, 3.237 and 3.142, SD 0.048), declared before this test.
-#: The influence-curve variance of the same draws read 3.60, 3.50 and 2.69.
-LAW_B_MC_SE = 0.05
+#: The Monte Carlo SEs of ``n * Sigma[p4, p4]`` and ``n * Sigma[p1, p4]`` at 200,000 law-B
+#: rows: the SD over seeds 2 to 11, disjoint from the tested seed 1 (0.0703 and 0.0057; means
+#: 3.157 and 0.580 against the exact 3.1357 and 0.5818).  The influence-curve variance of
+#: ``p4`` read 2.69 to 5.27 on the same draws.
+LAW_B_MC_SE = {"p4": 0.07, "p1p4": 0.0057}
+#: The rows and the SE of ``n * Sigma[p1, p4]`` of the mutation control: the SD over seeds 2
+#: to 13 at 20,000 rows (0.0115).  The mutated entry read 0.388 to 0.394 on the same seeds.
+CROSS_CONTROL_N = 20_000
+CROSS_CONTROL_SE = 0.0115
+
+
+def _entries(result: Any, n: int) -> dict[str, float]:
+    """``n Sigma[p4, p4]`` and ``n Sigma[p1, p4]`` of a law-B fit over natural, p1 and p4."""
+    covariance = result["ey_regimen[p4]"].policy.covariance
+    p1, p4 = covariance.names.index("ey_regimen[p1]"), covariance.names.index("ey_regimen[p4]")
+    return {"p4": n * covariance.matrix[p4, p4], "p1p4": n * covariance.matrix[p1, p4]}
 
 
 def test_the_finite_sample_variance_meets_the_exact_law() -> None:
-    """Witness 5: one 200,000-row law-B draw lands within 3 MC SE of the quadrature value."""
+    """Witness 5: one 200,000-row law-B draw lands within 3 MC SE of the quadrature values.
+
+    ``p4``'s variance and its covariance with ``p1``, a pair that both move the dose.  The
+    tolerance is 6.7% of ``p4``'s variance and 2.9% of the covariance, so this detects a gross
+    error only.  The exact witnesses of the change of measure are in
+    ``tests/unit/test_mtp_tail_size.py``, and the density route is checked below.  The order-24
+    quadrature meets the order-40 one to 1e-12.
+    """
     n = 200_000
-    result = _law_b_fit(law_b.sample_b(n, 1), ("natural", "p4"))
-    covariance = result["ey_regimen[p4]"].policy.covariance
-    index = covariance.names.index("ey_regimen[p4]")
-    exact = tail.diagonal_variance("p4")
-    assert abs(n * covariance.matrix[index, index] - exact) < 3 * LAW_B_MC_SE
+    entries = _entries(_law_b_fit(law_b.sample_b(n, 1), ("natural", "p1", "p4")), n)
+    exact = {
+        "p4": tail.diagonal_variance("p4", order=24),
+        "p1p4": tail.diagonal_variance("p4", "p1", order=24),
+    }
+    for key, value in entries.items():
+        assert abs(value - exact[key]) < 3 * LAW_B_MC_SE[key], key
+
+
+def test_the_covariance_of_two_moved_plans_reads_the_other_plans_ratio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control of witness 5's covariance: read the source plan's own ratio.
+
+    For the pair ``(p1, p4)`` the change of measure pushes forward through ``p1`` and reads
+    ``p4``'s ratio at ``p1``'s policy doses.  The defect reads ``p1``'s ratio there instead,
+    whose exact value is 0.392 against 0.582: on a 20,000-row draw it lands more than 10 MC SE
+    from the exact covariance.
+    """
+    measure = policy_module._measure
+
+    def source_ratio(data: Any, mechanism: Any, left: Any, right: Any, time: int) -> Any:
+        ratios = dict(mechanism.shifted_ratios)
+        ratios[left.label] = mechanism.shifted_ratios[right.label]
+        ratios[right.label] = mechanism.shifted_ratios[left.label]
+        return measure(
+            data, dataclasses.replace(mechanism, shifted_ratios=ratios), left, right, time
+        )
+
+    monkeypatch.setattr(policy_module, "_measure", source_ratio)
+    frame = law_b.sample_b(CROSS_CONTROL_N, 1)
+    mutated = _entries(_law_b_fit(frame, ("natural", "p1", "p4")), CROSS_CONTROL_N)["p1p4"]
+    exact = tail.diagonal_variance("p4", "p1", order=24)
+    assert abs(mutated - exact) > 10 * CROSS_CONTROL_SE
 
 
 # ----------------------------------------------------------------------------- witness 3b
@@ -769,3 +861,267 @@ def test_a_residual_at_the_policy_dose_moves_the_paired_sample(
     assert mutated["ey_regimen[natural]"] == shipped["ey_regimen[natural]"]
     for name in ("ey_regimen[p1]", "ey_regimen[p4]"):
         assert mutated[name] / shipped[name] - 1.0 > 0.005
+
+
+# ------------------------------------------------------------- the density route (rev 3.3)
+
+#: The median relative error the oracle binned density's ratio may have against the exact
+#: ratio at the policy dose: the binning error.  On law B at 3,000 rows it measured 0.005.
+DENSITY_ROUTE_TOLERANCE = 0.02
+
+
+def test_the_density_route_reads_each_ratio_at_the_policy_dose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ratios the variance reads on the density route are the exact ratios at the doses.
+
+    ``shifted_ratios[plan][t][(source, branch)]`` must be ``plan``'s ratio at ``source``'s
+    policy dose of that branch.  The gated ``p4`` cells read this route with the oracle hazard,
+    so each entry is checked against ``law.node_ratio`` within the binning error.  The control
+    is the defect of reading the ratio at the observed dose: it misses by far more.
+    """
+    from tests.studies.oracle_density_bins import oracle_bins
+
+    captured: dict[str, Any] = {}
+    shipped = estimator_module.policy_weighted_variance
+
+    def spy(data: Any, fits: Any, plans: Any, mechanism: Any, *, seed: Any = None) -> Any:
+        captured["mechanism"], captured["plans"] = mechanism, plans
+        return shipped(data, fits, plans, mechanism, seed=seed)
+
+    monkeypatch.setattr(estimator_module, "policy_weighted_variance", spy)
+    n = 2_000
+    frame = law_b.sample_b(n, 5)
+    outcome, pseudo, hazard = boundaries.learners(frame, "correct")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        LTMLE(
+            law_b.regimens(("natural", "p1", "p4")),
+            reference="natural",
+            outcome_learner=outcome,
+            pseudo_learner=pseudo,
+            treatment_learner=hazard,
+            n_folds=1,
+            g_bounds=boundaries.G_BOUNDS,
+            density_bins=oracle_bins(n),
+            ratio="density",
+            simultaneous=False,
+            random_state=0,
+            max_iter=100,
+            tol=1e-10,
+            variance="policy_weighted",
+        ).fit(
+            frame,
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            continuous_treatment={"A1": law_b.SUPPORT, "A2": law_b.SUPPORT},
+        )
+    mechanism, plans = captured["mechanism"], captured["plans"]
+    w1, w2 = frame["W1"].to_numpy(), frame["W2"].to_numpy()
+    a1, l2, a2 = frame["A1"].to_numpy(), frame["L2"].to_numpy(), frame["A2"].to_numpy()
+    u = law_b.upper(w2)
+    nodes = {1: (a1, law_b.mean1(w1, w2)), 2: (a2, law_b.mean2(w1, w2, a1, l2))}
+    checked = 0
+    for node, (dose, mean) in nodes.items():
+        expected = {
+            (source, branch)
+            for source in ("natural", "p1", "p4")
+            for branch in range(len(plans[source].carry_targets(node)))
+        }
+        for label in ("p1", "p4"):
+            assert set(mechanism.shifted_ratios[label][node]) == expected
+            for (source, branch), value in mechanism.shifted_ratios[label][node].items():
+                target = plans[source].carry_targets(node)[branch]
+                exact = law_b.node_ratio(label, node, target, mean, u)
+                at_dose = law_b.node_ratio(label, node, dose, mean, u)
+                weight = np.maximum(exact, 1e-9)
+                error = float(np.median(np.abs(value - exact) / weight))
+                assert error < DENSITY_ROUTE_TOLERANCE, (label, node, source, branch, error)
+                if source != "natural":
+                    # The control: the ratio at the observed dose is far from the target's.
+                    assert float(np.median(np.abs(at_dose - exact) / weight)) > 0.1
+                checked += 1
+        # The natural plan moves nothing: its ratio is one at every plan's dose in the
+        # support and zero outside it.  The binned support's edge can disagree with the exact
+        # one at a dose on the boundary, which is a row or two.
+        for (source, branch), value in mechanism.shifted_ratios["natural"][node].items():
+            target = plans[source].carry_targets(node)[branch]
+            exact = law_b.node_ratio("natural", node, target, mean, u)
+            assert set(np.unique(value)) <= {0.0, 1.0}
+            assert np.mean(value != exact) < 0.005, (node, source, branch)
+    assert checked >= 2 * 2 * 3
+
+
+# ------------------------------------------- two drawn plans at a categorical node (exact)
+# A two-node binary law with every conditional law known, and two stochastic plans that draw
+# the arm with probability 0.2 and 0.8 at both nodes.  The efficient influence function of
+# each plan's mean is enumerated over the 32 cells, so E[D^L D^R] is exact.  The fit reads
+# the cells by their training means, so its regressions are saturated.
+
+
+def _cat_g1(w: Any) -> Any:
+    return 0.3 + 0.4 * w
+
+
+def _cat_q(w: Any, a1: Any) -> Any:
+    return 0.2 + 0.3 * w + 0.3 * a1
+
+
+def _cat_g2(w: Any, a1: Any, l2: Any) -> Any:
+    return 0.25 + 0.2 * a1 + 0.3 * l2
+
+
+def _cat_m(w: Any, a1: Any, l2: Any, a2: Any) -> Any:
+    return 0.1 + 0.2 * w + 0.2 * a1 + 0.15 * l2 + 0.25 * a2
+
+
+#: Each plan's probability of drawing arm 1, at both nodes.
+CAT_PLANS = {"low": 0.2, "high": 0.8}
+#: The rows of the tested draw, its seed, and the Monte Carlo SE of ``n Sigma[low, high]``
+#: there: the SD over seeds 2 to 11, disjoint from the tested seed (0.00193; mean 0.1481
+#: against the exact 0.14928).
+CAT_N = 20_000
+CAT_SEED = 1
+CAT_MC_SE = 0.0019
+
+
+def _bernoulli(p: float, x: int) -> float:
+    return p if x else 1.0 - p
+
+
+def _cat_curve(label: str) -> Any:
+    """The efficient influence function of ``E[Y^label]`` as a function of one cell."""
+    s = CAT_PLANS[label]
+
+    def carried2(w: int, a1: int, l2: int) -> float:
+        return s * _cat_m(w, a1, l2, 1) + (1 - s) * _cat_m(w, a1, l2, 0)
+
+    def q1(w: int, a1: int) -> float:
+        return _cat_q(w, a1) * carried2(w, a1, 1) + (1 - _cat_q(w, a1)) * carried2(w, a1, 0)
+
+    def carried1(w: int) -> float:
+        return s * q1(w, 1) + (1 - s) * q1(w, 0)
+
+    psi = 0.5 * carried1(0) + 0.5 * carried1(1)
+
+    def curve(w: int, a1: int, l2: int, a2: int, y: int) -> float:
+        r1 = _bernoulli(s, a1) / _bernoulli(_cat_g1(w), a1)
+        r2 = _bernoulli(s, a2) / _bernoulli(_cat_g2(w, a1, l2), a2)
+        return (
+            carried1(w)
+            - psi
+            + r1 * (carried2(w, a1, l2) - q1(w, a1))
+            + r1 * r2 * (y - _cat_m(w, a1, l2, a2))
+        )
+
+    return curve
+
+
+def _cat_exact(left: str, right: str) -> float:
+    """:math:`E[D^L D^R]` by enumeration of the 32 cells."""
+    first, second = _cat_curve(left), _cat_curve(right)
+    total = 0.0
+    for w, a1, l2, a2, y in itertools.product((0, 1), repeat=5):
+        mass = (
+            0.5
+            * _bernoulli(_cat_g1(w), a1)
+            * _bernoulli(_cat_q(w, a1), l2)
+            * _bernoulli(_cat_g2(w, a1, l2), a2)
+            * _bernoulli(_cat_m(w, a1, l2, a2), y)
+        )
+        total += mass * first(w, a1, l2, a2, y) * second(w, a1, l2, a2, y)
+    return total
+
+
+def _cat_sample(n: int, seed: int) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    w = rng.binomial(1, 0.5, n)
+    a1 = rng.binomial(1, _cat_g1(w))
+    l2 = rng.binomial(1, _cat_q(w, a1))
+    a2 = rng.binomial(1, _cat_g2(w, a1, l2))
+    y = rng.binomial(1, _cat_m(w, a1, l2, a2))
+    return pd.DataFrame({"W": w, "A1": a1, "L2": l2, "A2": a2, "Y": y}).astype(float)
+
+
+def _cell_table(design: Any, target: Any) -> dict[tuple[float, ...], float]:
+    keys, inverse = np.unique(np.asarray(design, dtype=float), axis=0, return_inverse=True)
+    values = np.asarray(target, dtype=float)
+    inverse = inverse.reshape(-1)
+    return {tuple(key): float(values[inverse == i].mean()) for i, key in enumerate(keys)}
+
+
+class _CellMean(RegressorMixin, BaseEstimator):
+    """The training mean of the target in each design cell."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _CellMean:
+        self.table_ = _cell_table(X, y)
+        return self
+
+    def predict(self, X: Any) -> np.ndarray:
+        return np.array([self.table_[tuple(row)] for row in np.asarray(X, dtype=float)])
+
+
+class _CellMeanClassifier(ClassifierMixin, BaseEstimator):
+    """The training share of arm 1 in each design cell."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _CellMeanClassifier:
+        self.classes_ = np.array([0.0, 1.0])
+        self.table_ = _cell_table(X, y)
+        return self
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        one = np.array([self.table_[tuple(row)] for row in np.asarray(X, dtype=float)])
+        return np.column_stack([1.0 - one, one])
+
+
+def _cat_cross(frame: pd.DataFrame) -> float:
+    """``n Sigma[low, high]`` of the option fit of ``frame``."""
+    regimens = {
+        label: Stochastic(
+            lambda h, s=s: np.tile([1.0 - s, s], (len(h), 1)), label, density_kind="known"
+        )
+        for label, s in CAT_PLANS.items()
+    }
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = LTMLE(
+            regimens,
+            reference="low",
+            outcome_learner=_CellMean(),
+            pseudo_learner=_CellMean(),
+            treatment_learner=_CellMeanClassifier(),
+            n_folds=1,
+            simultaneous=False,
+            random_state=0,
+            variance="policy_weighted",
+        ).fit(frame, outcome="Y", treatment=["A1", "A2"], baseline=["W"], time_varying=[[], ["L2"]])
+    covariance = result["ey_regimen[low]"].policy.covariance
+    low, high = (
+        covariance.names.index("ey_regimen[low]"),
+        covariance.names.index("ey_regimen[high]"),
+    )
+    return len(frame) * float(covariance.matrix[low, high])
+
+
+def test_two_drawn_plans_meet_the_exact_categorical_covariance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """At a categorical node two drawn plans weigh each level by ``g^L g^R / g``.
+
+    The fit's ``n Sigma[low, high]`` lands within 3 MC SE of the enumerated
+    :math:`E[D^{low} D^{high}]`.  The control reads the source plan's draw law twice,
+    ``(g^L)^2 / g``: on the same draw it moves the entry by more than 100 MC SE.
+    """
+    exact = _cat_exact("low", "high")
+    frame = _cat_sample(CAT_N, CAT_SEED)
+    shipped = _cat_cross(frame)
+    assert abs(shipped - exact) < 3 * CAT_MC_SE
+    measure = policy_module._measure
+
+    def source_twice(data: Any, mechanism: Any, left: Any, right: Any, time: int) -> Any:
+        return measure(data, mechanism, left, left, time)
+
+    monkeypatch.setattr(policy_module, "_measure", source_twice)
+    assert abs(_cat_cross(frame) - exact) > 100 * CAT_MC_SE
