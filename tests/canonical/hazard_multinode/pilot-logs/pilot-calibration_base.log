@@ -1,0 +1,4 @@
+/home/user/venv/lib/python3.13/site-packages/joblib/externals/loky/backend/resource_tracker.py:444: UserWarning: resource_tracker: There appear to be 10 leaked semlock objects to clean up at shutdown: {'/loky-555-910gm19d': 1, '/loky-555-bnl_wwa1': 1, '/loky-555-wmr3e52y': 1, '/loky-555-d8rad062': 1, '/loky-555-2dzfwlo2': 1, '/loky-555-_eakx8eh': 1, '/loky-555-ps_7zuli': 1, '/loky-555-iaxgq09p': 1, '/loky-555-2iilwbol': 1, '/loky-555-nstbc8o8': 1}
+  warnings.warn(
+/home/user/venv/lib/python3.13/site-packages/joblib/externals/loky/backend/resource_tracker.py:444: UserWarning: resource_tracker: There appear to be 2 leaked folder objects to clean up at shutdown: {'/dev/shm/joblib_memmapping_folder_555_102fe7d87637480887c662753a09ad62_6637ae58b86743d793fc4f59cef9b501': 1, '/dev/shm/joblib_memmapping_folder_555_102fe7d87637480887c662753a09ad62_859a0798128043819af709bd3b00a70e': 1}
+  warnings.warn(
