@@ -33,10 +33,30 @@ Three readings, written to this directory:
     the shipped code reproduces each number to 1e-10 (the fast tier checks two draws,
     ``tests/unit/test_policy_variance.py``).
 
-``tests/unit/test_heavy_ratio_reading.py`` rebuilds ``reading.csv`` and checks the other two
-files against the code that produced them.
+``law_p_moments.csv`` (``--law-p``)
+    The tail sizes of the pricing law's own curves (:func:`~tests.studies.mtp_tail_size_common.law_p_moments`):
+    for each ``tau``, each fit of ``LAW_P_FITS`` and each mean and contrast, the SD, skewness and
+    kurtosis of the curve on :math:`10^8` fresh draws with the limit nuisances of a
+    :math:`10^7`-row fit, the 1% and 99% chunk-bootstrap quantiles of the kurtosis, and the tail
+    size declared at the 99% bound.  About two CPU-hours; ``--checkpoint`` keeps each fit and
+    each chunk, so a stopped run resumes.
 
-    python -m tests.diagnostics.fix5_heavy_ratios.run [--probe]
+``law_p_quadrature.csv`` (``--law-p``)
+    The same limit curves at ``tau = 2`` integrated on a grid at two orders, the check of the
+    Monte Carlo where the law admits one.
+
+``law_b_own_moments.csv`` (``--law-b``)
+    The tail sizes of the boundaries fits' own curves
+    (:func:`~tests.studies.mtp_tail_size_common.law_b_own_moments`): the primary learners and
+    the calibration cells' learners, ``LTMLE`` and ``SDR``, on law B and B', with the limit
+    nuisances from the population normal equations on the quadrature grid, at two orders.
+    About an hour.
+
+``tests/unit/test_heavy_ratio_reading.py`` rebuilds ``reading.csv`` and checks the other
+files against the code that produced them; ``tests/unit/test_mtp_tail_size.py`` reads the
+law-P files.
+
+    python -m tests.diagnostics.fix5_heavy_ratios.run [--probe] [--law-p --checkpoint DIR] [--law-b]
 """
 
 from __future__ import annotations
@@ -214,10 +234,96 @@ def check_probe() -> float:
     return worst
 
 
+#: The quadrature orders of ``law_p_quadrature.csv``.
+LAW_P_ORDERS = (24, 40)
+
+
+def law_p(checkpoint: Path | None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """``law_p_moments.csv`` and ``law_p_quadrature.csv``."""
+    rows, grid = [], []
+    for tau in (2, 3, 5):
+        for (learners, estimator, quantity), reading in tail.law_p_moments(
+            tau, checkpoint=checkpoint
+        ).items():
+            rows.append(
+                {
+                    "tau": tau,
+                    "learners": learners,
+                    "estimator": estimator,
+                    "quantity": quantity,
+                    "draws": reading.draws,
+                    "sd": reading.sd,
+                    "skewness": reading.skewness,
+                    "kappa": reading.kappa,
+                    "kappa_lower": reading.kappa_lower,
+                    "kappa_upper": reading.kappa_upper,
+                    "n_kappa": reading.n_kappa,
+                }
+            )
+    for (learners, estimator), curve in tail.law_p_curves(2, checkpoint=checkpoint).items():
+        for order in LAW_P_ORDERS:
+            for quantity, moments in tail.law_p_quadrature(curve, order).items():
+                grid.append(
+                    {
+                        "tau": 2,
+                        "learners": learners,
+                        "estimator": estimator,
+                        "quantity": quantity,
+                        "order": order,
+                        "mass": moments.mass,
+                        "sd": moments.sd,
+                        "skewness": moments.skewness,
+                        "kappa": moments.kappa,
+                    }
+                )
+    return pd.DataFrame(rows), pd.DataFrame(grid)
+
+
+#: The quadrature orders of ``law_b_own_moments.csv``.
+LAW_B_ORDERS = (24, 40)
+
+
+def law_b() -> pd.DataFrame:
+    """``law_b_own_moments.csv``."""
+    rows = []
+    for (label_law, learners, estimator), _ in tail.LAW_B_FITS.items():
+        for order in LAW_B_ORDERS:
+            moments = tail.law_b_own_moments(label_law, learners, estimator, order)
+            for quantity, reading in moments.items():
+                rows.append(
+                    {
+                        "law": label_law,
+                        "learners": learners,
+                        "estimator": estimator,
+                        "quantity": quantity,
+                        "order": order,
+                        "mass": reading.mass,
+                        "sd": reading.sd,
+                        "skewness": reading.skewness,
+                        "kappa": reading.kappa,
+                        "n_kappa": reading.n_kappa,
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--probe", action="store_true", help="refit the 48 probe draws")
+    parser.add_argument("--law-p", action="store_true", help="the law-P own-curve tail sizes")
+    parser.add_argument("--checkpoint", type=Path, help="keep the law-P fits and chunks here")
+    parser.add_argument("--law-b", action="store_true", help="the law-B own-curve tail sizes")
     args = parser.parse_args()
+    if args.law_b:
+        law_b().to_csv(HERE / "law_b_own_moments.csv", index=False, float_format="%.12g")
+        return
+    if args.law_p:
+        if args.checkpoint is not None:
+            args.checkpoint.mkdir(parents=True, exist_ok=True)
+        moments, grid = law_p(args.checkpoint)
+        moments.to_csv(HERE / "law_p_moments.csv", index=False, float_format="%.10g")
+        grid.to_csv(HERE / "law_p_quadrature.csv", index=False, float_format="%.12g")
+        return
     committed_reading().to_csv(HERE / "reading.csv", index=False, float_format="%.6g")
     quadrature().to_csv(HERE / "quadrature.csv", index=False, float_format="%.12g")
     diagonal().to_csv(HERE / "diagonal.csv", index=False, float_format="%.15g")

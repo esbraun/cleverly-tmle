@@ -36,23 +36,34 @@ from __future__ import annotations
 
 import itertools
 import math
+import pickle
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from functools import cache
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
 
 from tests.studies import mtp_boundaries_common as law
+from tests.studies import mtp_boundaries_own_curve as own_b
+from tests.studies import mtp_pricing_common as pricing_law
+from tests.studies import mtp_pricing_own_curve as own_p
 from tests.studies.longitudinal_sdr_properties import WALD_GATED_STEP, WALD_REGIME_FACTOR
 
 __all__ = [
     "TAIL_SD_TARGET",
+    "MonteCarloTail",
     "TailSize",
     "classify",
     "diagonal_variance",
     "gated_size",
+    "law_b_blocks",
     "law_b_moments",
+    "law_b_own_moments",
+    "law_p_curves",
+    "law_p_moments",
+    "law_p_quadrature",
     "tail_size",
 ]
 
@@ -461,3 +472,337 @@ def diagonal_variance(
 def moments_covariance(left: str, right: str | None = None, order: int = 40) -> float:
     r""":math:`E[D^L D^R]` by the moment grid, the reference :func:`diagonal_variance` meets."""
     return _covariance_by_moments(left, left if right is None else right, order)
+
+
+# ------------------------------------------------------------- law P, by Monte Carlo
+
+
+#: The fits whose own curves :func:`law_p_moments` reads at each ``tau``:
+#: ``(learners, estimator)``.  ``"revenue"`` is the property learners on the revenue, read at
+#: ``tau = 3`` only, where the revenue cell is.
+LAW_P_FITS: dict[int, tuple[tuple[str, str], ...]] = {
+    tau: (
+        ("primary", "ltmle"),
+        ("primary", "sdr"),
+        ("property", "ltmle"),
+        *((("revenue", "ltmle"),) if tau == 3 else ()),
+    )
+    for tau in (2, 3, 5)
+}
+#: The rows of the limit fit, the draws the moments read, and the rows of one chunk.
+LAW_P_FIT_ROWS = 10_000_000
+LAW_P_DRAWS = 100_000_000
+LAW_P_CHUNK = 1_000_000
+#: The seeds of the limit fit (plus ``tau``) and of the draws (plus ``1000 tau + chunk``).
+LAW_P_FIT_SEED = 2026111300
+LAW_P_DRAW_SEED = 2026111400
+#: The bootstrap resamples of the chunks and the one-sided level of the declared bound.
+LAW_P_BOOTSTRAP = 10_000
+LAW_P_BOOTSTRAP_SEED = 2026111500
+LAW_P_LEVEL = 0.99
+
+
+@dataclass(frozen=True)
+class MonteCarloTail:
+    """The moments of one own curve of law P from chunked draws.
+
+    Parameters
+    ----------
+    draws : int
+        The draws read.
+    sd : float
+        The SD of the curve.
+    skewness : float
+        Its skewness.
+    kappa : float
+        Its raw kurtosis.
+    kappa_lower : float
+        The 1% quantile of the chunk bootstrap of ``kappa``.
+    kappa_upper : float
+        The 99% quantile, at which the tail size is declared.
+    """
+
+    draws: int
+    sd: float
+    skewness: float
+    kappa: float
+    kappa_lower: float
+    kappa_upper: float
+
+    @property
+    def n_kappa(self) -> int:
+        """The tail size at the 99% upper bound of ``kappa``."""
+        return tail_size(self.kappa_upper)
+
+
+def _central(sums: np.ndarray) -> tuple[float, float, float]:
+    """``(SD, skewness, kappa)`` from the count and the first four power sums."""
+    count, s1, s2, s3, s4 = sums
+    m1, m2, m3, m4 = s1 / count, s2 / count, s3 / count, s4 / count
+    variance = m2 - m1**2
+    third = m3 - 3 * m1 * m2 + 2 * m1**3
+    fourth = m4 - 4 * m1 * m3 + 6 * m1**2 * m2 - 3 * m1**4
+    return float(np.sqrt(variance)), float(third / variance**1.5), float(fourth / variance**2)
+
+
+def _power_sums(curve: np.ndarray, weight: np.ndarray | None = None) -> np.ndarray:
+    w = np.ones_like(curve) if weight is None else weight
+    return np.array([np.sum(w * curve**k) for k in range(5)])
+
+
+def law_p_fit(
+    tau: int, learners: str, estimator: str, rows: int = LAW_P_FIT_ROWS
+) -> own_p.OwnCurve:
+    """The own curve's limit nuisances: one fit on ``rows`` draws of law P."""
+    frame = pricing_law.sample(rows, LAW_P_FIT_SEED + tau, tau)
+    cols = own_p.columns(frame, tau)
+    del frame
+    return own_p.OwnCurve(tau, estimator, learners).fit(cols)  # type: ignore[arg-type]
+
+
+def law_p_curves(
+    tau: int, *, rows: int = LAW_P_FIT_ROWS, checkpoint: Path | None = None
+) -> dict[tuple[str, str], own_p.OwnCurve]:
+    """Every fit of :data:`LAW_P_FITS` at ``tau``, kept in ``checkpoint`` when one is given."""
+    curves: dict[tuple[str, str], own_p.OwnCurve] = {}
+    for learners, estimator in LAW_P_FITS[tau]:
+        stored = None if checkpoint is None else checkpoint / f"tau{tau}_{learners}_{estimator}.pkl"
+        if stored is not None and stored.exists():
+            curves[learners, estimator] = pickle.loads(stored.read_bytes())
+            continue
+        curves[learners, estimator] = law_p_fit(tau, learners, estimator, rows)
+        if stored is not None:
+            stored.write_bytes(pickle.dumps(curves[learners, estimator]))
+    return curves
+
+
+def law_p_moments(
+    tau: int,
+    *,
+    draws: int = LAW_P_DRAWS,
+    rows: int = LAW_P_FIT_ROWS,
+    chunk: int = LAW_P_CHUNK,
+    checkpoint: Path | None = None,
+) -> dict[tuple[str, str, str], MonteCarloTail]:
+    """The moments of each own curve of :data:`LAW_P_FITS` at ``tau``, by Monte Carlo.
+
+    The limit nuisances come from one fit on ``rows`` draws (:func:`law_p_fit`).  The curve is
+    then evaluated on ``draws`` fresh draws in chunks of ``chunk``, each chunk's power sums kept,
+    and ``kappa``'s 99% upper bound read from :data:`LAW_P_BOOTSTRAP` resamples of the chunks.
+    The cumulative ratio of five-node ``price_down`` puts its tail on rare rows, so a single
+    :math:`10^6`-row fit read ``kappa`` 1,362 to 3,682; the bound carries that noise into the
+    declared tail size.
+
+    Parameters
+    ----------
+    tau : int
+        Nodes, 2, 3 or 5.
+    draws : int, default=LAW_P_DRAWS
+        The draws the moments read, a multiple of ``chunk``.
+    rows : int, default=LAW_P_FIT_ROWS
+        The rows of the limit fit.
+    chunk : int, default=LAW_P_CHUNK
+        The rows of one chunk.
+    checkpoint : pathlib.Path or None, default=None
+        A directory that keeps each fit and each chunk's sums, so a stopped run resumes.
+
+    Returns
+    -------
+    dict
+        ``(learners, estimator, quantity) -> MonteCarloTail``, the quantities
+        ``ey[<plan>]`` and ``ate[<plan>]`` of every plan.
+    """
+    curves = law_p_curves(tau, rows=rows, checkpoint=checkpoint)
+    names: list[tuple[str, str, str]] = []
+    parts: list[np.ndarray] = []
+    for k in range(draws // chunk):
+        stored = None if checkpoint is None else checkpoint / f"tau{tau}_chunk{k:04d}.npz"
+        if stored is not None and stored.exists():
+            saved = np.load(stored, allow_pickle=False)
+            names = [tuple(name.split("|")) for name in saved["names"]]
+            parts.append(saved["sums"])
+            continue
+        frame = pricing_law.sample(chunk, LAW_P_DRAW_SEED + 1000 * tau + k, tau)
+        cols = own_p.columns(frame, tau)
+        names, rows_of = [], []
+        known = {label: own_p.ratios(cols, label, tau) for label in pricing_law.LABELS}
+        for (learners, estimator), curve in curves.items():
+            for quantity, values in curve.quantities(cols, known).items():
+                names.append((learners, estimator, quantity))
+                rows_of.append(_power_sums(values))
+        sums = np.array(rows_of)
+        parts.append(sums)
+        if stored is not None:
+            np.savez(stored, names=np.array(["|".join(n) for n in names]), sums=sums)
+    stacked = np.stack(parts)  # (chunks, quantities, 5)
+    rng = np.random.default_rng(LAW_P_BOOTSTRAP_SEED + tau)
+    counts = rng.multinomial(
+        stacked.shape[0], np.full(stacked.shape[0], 1.0 / stacked.shape[0]), size=LAW_P_BOOTSTRAP
+    )
+    out = {}
+    for j, name in enumerate(names):
+        pooled = stacked[:, j, :].sum(axis=0)
+        sd, skewness, kappa = _central(pooled)
+        resampled = counts @ stacked[:, j, :]
+        kappas = np.array([_central(row)[2] for row in resampled])
+        out[name] = MonteCarloTail(
+            draws=round(pooled[0]),
+            sd=sd,
+            skewness=skewness,
+            kappa=kappa,
+            kappa_lower=float(np.quantile(kappas, 1.0 - LAW_P_LEVEL)),
+            kappa_upper=float(np.quantile(kappas, LAW_P_LEVEL)),
+        )
+    return out
+
+
+def law_p_quadrature(curve: own_p.OwnCurve, order: int) -> dict[str, TailSize]:
+    """The moments of a two-node own curve by quadrature (:func:`own_p.quadrature_columns`).
+
+    It checks the Monte Carlo of :func:`law_p_moments` at ``tau = 2``, where the law admits
+    a grid: the same limit nuisances, integrated rather than drawn.
+    """
+    if curve.tau != 2:
+        raise ValueError("the law-P quadrature is written for two nodes")
+    sums: dict[str, np.ndarray] = {}
+    for cols, weight in own_p.quadrature_columns(order):
+        for quantity, values in curve.quantities(cols).items():
+            sums[quantity] = sums.get(quantity, 0.0) + _power_sums(values, weight)
+    out = {}
+    for quantity, total in sums.items():
+        sd, skewness, kappa = _central(total)
+        out[quantity] = TailSize(
+            mass=float(total[0]),
+            mean=float(total[1] / total[0]),
+            sd=sd,
+            skewness=skewness,
+            kappa=kappa,
+        )
+    return out
+
+
+# ------------------------------------------------------- law B, the fits' own curves
+
+
+#: The own curves :func:`law_b_own_moments` reads: ``(law, learners, estimator) -> plans``.
+#: The primary learners read every plan of the primary scenarios; the calibration learners read
+#: the plans of the calibration cells (``LTMLE`` under ``p1`` to ``p5``, ``SDR`` under ``p4``
+#: and ``p5``).
+LAW_B_FITS: dict[tuple[str, str, str], tuple[str, ...]] = {
+    ("B", "primary", "ltmle"): law.B_LABELS,
+    ("B", "primary", "sdr"): law.B_LABELS,
+    ("B", "correct", "ltmle"): law.B_LABELS,
+    ("B", "correct", "sdr"): (law.REFERENCE, "p4"),
+    ("B_atom", "primary", "ltmle"): law.B_ATOM_LABELS,
+    ("B_atom", "primary", "sdr"): law.B_ATOM_LABELS,
+    ("B_atom", "correct", "ltmle"): law.B_ATOM_LABELS,
+    ("B_atom", "correct", "sdr"): law.B_ATOM_LABELS,
+}
+
+
+def law_b_blocks(label_law: str, order: int) -> list[own_b.Block]:
+    """The grid of :func:`law_b_moments` as weighted blocks of the own-curve fit.
+
+    Each block holds :data:`_W1_CHUNK` ``W1`` nodes at one ``W2``: the node-1 points
+    ``(W1, A1)`` with their mass, and under each the ``(L2, A2)`` points with their
+    conditional mass and the outcome mean.  On law B' the atom is one more ``A2`` column.
+    """
+    atom = label_law == "B_atom"
+    nodes, weights = law.w1_nodes(order)
+    out = []
+    for start, w2 in itertools.product(range(0, nodes.size, _W1_CHUNK), (0.0, 1.0)):
+        w1, weight_w = nodes[start : start + _W1_CHUNK], weights[start : start + _W1_CHUNK]
+        u = float(law.upper(w2))
+        a1, weight_a1 = law.dose_nodes(u, order, _extra(u))
+        a2, weight_a2 = law.dose_nodes(u, order, _extra(u))
+        if atom:
+            a2, weight_a2 = np.append(a2, law.ATOM), np.append(weight_a2, 1.0)
+        ww, aa = np.meshgrid(w1, a1, indexing="ij")
+        mass = 0.5 * np.outer(weight_w, weight_a1) * law.tn_pdf(aa, law.mean1(ww, w2), u)
+        w_flat, a_flat = ww.ravel(), aa.ravel()
+        l2s, a2s, inners, ys = [], [], [], []
+        for l2 in (0.0, 1.0):
+            p = law.p_l2(w_flat, a_flat)
+            p = p if l2 else 1.0 - p
+            mean = law.mean2(w_flat[:, None], w2, a_flat[:, None], l2)
+            density = law.tn_pdf(a2[None, :], mean, u)
+            if atom:
+                p_atom = law.p_atom(w_flat[:, None], l2)
+                density = (1.0 - p_atom) * density
+                density[:, -1] = p_atom[:, 0]
+            shape = density.shape
+            l2s.append(np.full(shape, l2))
+            a2s.append(np.broadcast_to(a2[None, :], shape))
+            inners.append(p[:, None] * weight_a2[None, :] * density)
+            ys.append(law.outcome_mean(w_flat[:, None], a_flat[:, None], l2, a2[None, :]))
+        out.append(
+            own_b.Block(
+                w1=w_flat,
+                w2=np.full(w_flat.size, w2),
+                a1=a_flat,
+                mass=mass.ravel(),
+                l2=np.hstack(l2s),
+                a2=np.hstack(a2s),
+                inner=np.hstack(inners),
+                y=np.hstack(ys),
+                atom=atom,
+            )
+        )
+    return out
+
+
+def law_b_own_moments(
+    label_law: str, learners: str, estimator: str, order: int = 40
+) -> dict[str, TailSize]:
+    """The moments of a fit's own curve on law B or B', with its limit nuisances.
+
+    The limits solve the population normal equations of the declared learners on the grid of
+    :func:`law_b_blocks` (:class:`~tests.studies.mtp_boundaries_own_curve.OwnCurve`), and the
+    moments of ``ey[<plan>]`` and ``ate[<plan>]`` integrate the curve on the same grid.
+
+    Parameters
+    ----------
+    label_law : {"B", "B_atom"}
+        The law.
+    learners : {"primary", "correct"}
+        The primary scenarios' learners, or the calibration cells'.
+    estimator : {"ltmle", "sdr"}
+        The recursion.
+    order : int, default=40
+        The Gauss-Legendre order of each segment.
+
+    Returns
+    -------
+    dict of str to TailSize
+        Each quantity's moments.
+    """
+    labels = LAW_B_FITS[label_law, learners, estimator]
+    blocks = law_b_blocks(label_law, order)
+    curve = own_b.OwnCurve(estimator, learners, labels).fit(lambda: blocks)  # type: ignore[arg-type]
+    sums: dict[str, np.ndarray] = {}
+    for block in blocks:
+        parts = {label: curve.parts(curve.plans[label], block) for label in labels}
+        reference = parts[law.REFERENCE]
+        for label, (base, slope) in parts.items():
+            quantities = [(f"ey[{label}]", base, slope)]
+            if label != law.REFERENCE:
+                quantities.append((f"ate[{label}]", base - reference[0], slope - reference[1]))
+            for name, b, s in quantities:
+                total = np.zeros(5)
+                for y in (0.0, 1.0):
+                    chance = block.y if y else 1.0 - block.y
+                    value = b + s * y
+                    weight = block.weight * chance
+                    total += np.array([np.sum(weight * value**k) for k in range(5)])
+                sums[name] = sums.get(name, 0.0) + total
+    out = {}
+    for name, total in sums.items():
+        sd, skewness, kappa = _central(total)
+        out[name] = TailSize(
+            mass=float(total[0]),
+            mean=float(total[1] / total[0]),
+            sd=sd,
+            skewness=skewness,
+            kappa=kappa,
+        )
+    return out
