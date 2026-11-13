@@ -29,6 +29,7 @@ __all__ = [
     "fit_learner",
     "predict_mean",
     "predict_probabilities",
+    "seed_unset",
     "supports_sample_weight",
 ]
 
@@ -80,6 +81,76 @@ def clone_learner(estimator: Learner) -> Learner:
             "copied, wrap it in an estimator whose __init__ only stores its arguments and "
             "builds that state in fit."
         ) from exc
+
+
+def seed_unset(learner: Learner, seed: int | None) -> Learner:
+    """Give every ``random_state`` of ``learner`` that is ``None`` the seed ``seed``.
+
+    A learner whose own ``random_state`` is ``None`` and whose fit is stochastic (SAGA,
+    forests, bagging, neural networks) draws from numpy's global generator, so a fit that
+    carries a seed would still not be a function of its data and that seed.  Following
+    scikit-learn's own meta-estimators, the enclosing seed reaches every such parameter, at
+    any depth of ``get_params(deep=True)``.  An explicit seed (an integer, a ``RandomState``
+    or a ``Generator``) is kept.
+
+    Parameters
+    ----------
+    learner : Learner
+        The learner template.  It is never mutated.
+    seed : int or None
+        The enclosing seed.  ``None`` is a caller asking for no seed, and leaves
+        ``learner`` as it is.
+
+    Returns
+    -------
+    Learner
+        ``learner`` itself when nothing is unset, when ``seed`` is ``None``, or when it has no
+        ``get_params``; otherwise a clone with the unset parameters set to ``seed``.
+
+    Raises
+    ------
+    MethodConfigurationError
+        When ``learner`` has no ``set_params`` and a nested ``random_state`` is unset, so the
+        seed cannot be given to it.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly.learners._fitting import seed_unset
+    >>> seed_unset(LogisticRegression(solver="saga"), 3).random_state
+    3
+    >>> seed_unset(LogisticRegression(random_state=7), 3).random_state
+    7
+    >>> model = LinearRegression()
+    >>> seed_unset(model, 3) is model
+    True
+    """
+    if seed is None:
+        return learner
+    get_params = getattr(learner, "get_params", None)
+    if not callable(get_params):
+        return learner
+    unset = [
+        name
+        for name, value in get_params(deep=True).items()
+        if (name == "random_state" or name.endswith("__random_state")) and value is None
+    ]
+    if not unset:
+        return learner
+    if callable(getattr(learner, "set_params", None)):
+        seeded = clone_learner(learner)
+        seeded.set_params(**dict.fromkeys(unset, seed))
+        return seeded
+    if unset != ["random_state"]:
+        raise MethodConfigurationError(
+            f"{type(learner).__name__} has no set_params, so the fit's seed cannot reach its "
+            f"unset nested parameters {sorted(unset)}, and its fit would draw from numpy's "
+            "global generator. Give those parameters a seed of your own, or pass a learner "
+            "whose get_params and set_params round-trip its constructor arguments, which "
+            "every scikit-learn estimator, pipeline and search does."
+        )
+    # What sklearn.base.clone already relies on for an object with get_params alone.
+    return type(learner)(**{**get_params(deep=False), "random_state": seed})
 
 
 def _final_estimator(estimator: Learner) -> tuple[Learner, str | None]:

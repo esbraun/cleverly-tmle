@@ -31,6 +31,7 @@ import scipy.linalg
 from sklearn.base import BaseEstimator, TransformerMixin, clone
 
 from .._typing import BoolArray, FloatArray, IntArray
+from ..learners._fitting import seed_unset
 
 __all__ = [
     "COLLINEARITY_TOLERANCE",
@@ -394,6 +395,7 @@ class WorkingDictionary:
         *,
         controls_only: bool,
         covariate_names: Sequence[str] | None = None,
+        random_state: int | None = None,
     ) -> WorkingDictionary:
         """Fit a clone of ``basis`` on the selection rows and keep the supported columns.
 
@@ -414,13 +416,19 @@ class WorkingDictionary:
         covariate_names : sequence of str or None
             The names of the columns of ``covariates``, which name the dictionary's columns.
             ``None`` names them ``x0``, ``x1``, and so on.
+        random_state : int or None
+            The fit's seed, which every ``random_state`` of ``basis`` that is ``None`` takes,
+            so a stochastic basis (random features) fits the same way on every run.
+            ``None`` leaves ``basis`` as it is.
 
         Returns
         -------
         WorkingDictionary
             The fitted dictionaries.
         """
-        fitted = clone(WorkingBasis() if basis is None else basis).fit(covariates)
+        fitted = clone(WorkingBasis() if basis is None else seed_unset(basis, random_state)).fit(
+            covariates
+        )
         raw = _with_constant(fitted, covariates)
         marked = getattr(fitted, "unscreened_", None)
         unscreened = np.r_[

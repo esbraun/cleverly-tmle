@@ -189,7 +189,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .drift import DriftRecord
 from .._summary import Detail, Summary, check_detail
 from ..interventions.policy import Support as DeclaredSupport
-from ..learners._fitting import supports_sample_weight
+from ..learners._fitting import seed_unset, supports_sample_weight
 from ..learners.crossfit import (
     CrossFitPlan,
     Folds,
@@ -1296,7 +1296,14 @@ class _LongitudinalReplayRecipe:
 
 
 def _replay_random_state_omissions(learners: Sequence[Learner]) -> tuple[str, ...]:
-    """Return stable reasons the recursive learner templates cannot replay exactly."""
+    """Return stable reasons the recursive learner templates cannot replay exactly.
+
+    A ``random_state`` of ``None`` inside the library of a :class:`SuperLearner` whose own
+    ``random_state`` is set is not an omission: the ensemble gives every candidate with no
+    seed of its own its seed at fit
+    (:func:`~cleverly.learners._fitting.seed_unset`), so it is read as that inherited seed.
+    A ``None`` that no seed reaches is.
+    """
 
     omissions: list[str] = []
 
@@ -1306,33 +1313,38 @@ def _replay_random_state_omissions(learners: Sequence[Learner]) -> tuple[str, ..
         elif isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
             omissions.append(LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER)
 
-    seen: set[int] = set()
+    seen: set[tuple[int, int]] = set()
 
-    def visit(value: Any) -> None:
-        if id(value) in seen:
+    def visit(value: Any, inherited: Any) -> None:
+        if (id(value), id(inherited)) in seen:
             return
-        seen.add(id(value))
+        seen.add((id(value), id(inherited)))
         if isinstance(value, Mapping):
             for item in value.values():
-                visit(item)
+                visit(item, inherited)
             return
         if isinstance(value, (tuple, list)):
             for item in value:
                 # Named Super Learner candidates are ``(name, estimator)`` pairs; the
                 # string is harmless and the estimator is reached on the next item.
-                visit(item)
+                visit(item, inherited)
             return
         get_params = getattr(value, "get_params", None)
         if not callable(get_params):
             return
-        for name, item in get_params(deep=False).items():
+        params = get_params(deep=False)
+        own = params.get("random_state")
+        seed = inherited if own is None else own
+        for name, item in params.items():
             if name == "random_state":
-                classify(item)
+                classify(seed)
+            elif isinstance(value, SuperLearner) and name == "library":
+                visit(item, seed)
             else:
-                visit(item)
+                visit(item, inherited)
 
     for learner in learners:
-        visit(learner)
+        visit(learner, None)
     return tuple(dict.fromkeys(omissions))
 
 
@@ -8837,10 +8849,12 @@ class ParametricGFormula(_Baseline):
             n_draws=self.n_draws,
             n_derivative_draws=self.n_derivative_draws,
             covariate_types=self.covariate_types,
-            covariate_learner=self.covariate_learner,
-            outcome_learner=self._declared_outcome,
-            hazard_learner=self.hazard_learner,
-            treatment_learner=self.treatment_learner,
+            # A declared learner with no seed of its own takes the fit's, as resolve_learner
+            # gives it on every other estimator, so a seeded fit repeats exactly.
+            covariate_learner=seed_unset(self.covariate_learner, self.random_state),
+            outcome_learner=seed_unset(self._declared_outcome, self.random_state),
+            hazard_learner=seed_unset(self.hazard_learner, self.random_state),
+            treatment_learner=seed_unset(self.treatment_learner, self.random_state),
             seed=seed,
             exact=self._exact,
             reference=self.reference,
