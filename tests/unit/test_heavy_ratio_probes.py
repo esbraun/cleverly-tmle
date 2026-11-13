@@ -81,6 +81,15 @@ def test_probe1_bootstrap_intervals_keep_the_coupling() -> None:
     )
 
 
+def test_probe1_the_linearized_bca_covers_the_cited_span() -> None:
+    """The refusal text and the ``"available"`` advice quote the linearized BCa interval as
+    covering 0.908 to 0.923 on the five-node ``price_down`` plan."""
+    bca = _summary("probe1")
+    bca = bca[bca.interval == "bca"]
+    assert len(bca) == 4
+    assert _span(bca, "coverage", 3) == (0.908, 0.923)
+
+
 def test_probe4_the_unprojected_pseudo_outcome_runs_narrow() -> None:
     """Law B ``p4``, ``SDR``: projected SE ratio 0.982 and coverage 0.950; unprojected 0.799
     and 0.904."""

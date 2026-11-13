@@ -104,6 +104,22 @@ def test_the_diagonal_form_is_exact_on_every_plan() -> None:
     assert float(p4["form"].iloc[0]) == pytest.approx(3.1357, abs=1e-4)
 
 
+@pytest.mark.parametrize("plan", ["p1", "p2", "p3"])
+def test_the_diagonal_form_recomputes_at_another_order(plan: str) -> None:
+    """Witness 1 on ``p1`` to ``p3``, recomputed: the order-24 form meets the committed
+    order-40 second moment, so a change to the form or a grid that has not converged fails."""
+    table = pd.read_csv(HERE / "diagonal.csv").set_index(["plan", "right"])
+    form = tail.diagonal_variance(plan, order=24)
+    assert form == pytest.approx(table.loc[(plan, plan), "moments"], rel=1e-9)
+
+
+def test_a_p1_quadrature_row_recomputes_at_another_order() -> None:
+    """Convergence, recomputed: ``p1``'s order-24 tail size meets its committed order-40 one."""
+    table = pd.read_csv(HERE / "quadrature.csv").set_index(["plan", "quantity", "order"])
+    moments = tail.law_b_moments("p1", "ey", 24)
+    assert moments.kappa == pytest.approx(table.loc[("p1", "ey", 40), "kappa"], rel=1e-9)
+
+
 def test_one_quadrature_row_recomputes() -> None:
     table = pd.read_csv(HERE / "quadrature.csv").set_index(["plan", "quantity", "order"])
     moments = tail.law_b_moments("p4", "ate", 40)
