@@ -586,6 +586,7 @@ def registered() -> tuple[StudyRecord, ...]:
     """
     from tests.studies.adaptive_tmle_selective import STUDY as ADAPTIVE_TMLE_SELECTIVE
     from tests.studies.adaptive_tmle_trial import STUDY as ADAPTIVE_TMLE_TRIAL
+    from tests.studies.asymmetric_wald import STUDY as ASYMMETRIC_WALD
     from tests.studies.band_t_reference import STUDY as BAND_T_REFERENCE
     from tests.studies.band_t_reference_held_out import STUDY as BAND_T_REFERENCE_HELD_OUT
     from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
@@ -859,6 +860,7 @@ def registered() -> tuple[StudyRecord, ...]:
         OPTION_PATIENCE,
         ISOTONIC_BINDING,
         SMALL_SAMPLE_WALD,
+        ASYMMETRIC_WALD,
         DOSE_RESPONSE,
         MISSINGNESS_TILT_INFERENCE,
         DOSE_RESPONSE_NPCAUSAL,

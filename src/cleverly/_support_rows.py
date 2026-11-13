@@ -5830,8 +5830,15 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
     "small-sample-wald": (
         "It measures the small-sample Wald interval rule, computed from the public inference "
         "functions. The shipped default reads the rule's logit interval for an unclustered mean "
-        "of a yes/no outcome. No shipped fit reports the rule's intervals for a difference or a "
-        "continuous outcome, so no row names them."
+        "of a yes/no outcome; asymmetric-wald measures the intervals that replaced the rule's "
+        "for a difference and a continuous outcome. An interval rule is no fit configuration, "
+        "so no row names it."
+    ),
+    "asymmetric-wald": (
+        "It measures the interval constructions the shipped default reads for a bounded "
+        "difference (correlated MOVER) and an unclustered continuous-outcome target (the "
+        "skew-widened t), across fits. An interval rule is no fit configuration, and each fit's "
+        "support row keeps citing the studies of that fit, so no row names it."
     ),
     "dose-response": (
         "It measures the kernel-smoothed dose-response curve of DoseResponseTMLE, which is no "

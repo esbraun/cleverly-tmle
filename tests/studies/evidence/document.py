@@ -393,6 +393,25 @@ def measured(row: Any) -> str:
                 f"margin {render(float(row.alternative_bias_margin))}"
             )
         return measured
+    if family in _TAIL_FAMILIES and pd.notna(getattr(row, "below_count", None)):
+        # ``asymmetric-wald``: the legs read the first 2,000 fits and the tail clause all of
+        # them, so the row prints the lower leg, the shown fits' upper end and both tails.
+        tails = (
+            f"tails {int(row.below_count)} below and {int(row.above_count)} above, 99% lower "
+            f"ends {render(float(row.below_ci_lower))} and {render(float(row.above_ci_lower))}"
+        )
+        if family == "witness":
+            return tails
+        measured = (
+            f"lower leg {_interval(row.lower_leg_ci_lower, row.lower_leg_ci_upper)}, shown "
+            f"upper end {render(float(row.leg_shown_ci_upper))}, {tails}"
+        )
+        if family == "owner_coverage":
+            measured += (
+                f", paired gain {int(row.gain_b)} against {int(row.gain_c)}, "
+                f"lower bound {render(float(row.gain_lower))}"
+            )
+        return measured
     if family in _TWO_LEG_FAMILIES:
         # ``small-sample-wald``: a coverage cell is judged on two legs that read different
         # denominators, the lower leg over every requested fit and the upper leg over the
@@ -982,6 +1001,9 @@ _TWO_LEG_FAMILIES = frozenset(
     }
 )
 _PAIRED_GAIN_CELLS = ("boundary_mean", "student_ey1")
+#: The ``asymmetric-wald`` families, whose rows carry the tail counts.  A row of these families
+#: with tail counts is that study's; mirrored from ``tests.studies.asymmetric_wald``.
+_TAIL_FAMILIES = frozenset({"heldout_coverage", "owner_coverage", "reported", "control", "witness"})
 
 #: Families whose per-cell verdict is the bias claim.  Mirrors the classification the gate in
 #: ``tests/unit/test_method_evidence.py`` applies; a family missing from both fails there.

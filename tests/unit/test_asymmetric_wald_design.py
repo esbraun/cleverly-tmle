@@ -881,3 +881,36 @@ def test_the_smoke_injects_a_failure_the_harness_records() -> None:
     with pytest.raises(RuntimeError) as bare:
         raise RuntimeError("from test code")
     assert not recordable(bare.value)
+
+
+# ---------------------------------------------------------------- the evidence descriptions
+
+
+def test_the_cell_descriptions_name_the_study_cells() -> None:
+    """The evidence descriptions word each cell, its rule and its controls; a renamed cell, a
+    moved family or a changed control must reach them."""
+    from tests.studies.evidence import descriptions, document
+
+    cells = [(group, cell) for group in study.GROUPS for cell in group.cells]
+    gated = {
+        family: tuple(cell.name for _, cell in cells if cell.family == family)
+        for family in study.COVERAGE_FAMILIES
+    }
+    assert gated == descriptions._AW_GATED
+    assert set(descriptions._AW_REPORTED) == {
+        cell.name for _, cell in cells if cell.family == study.REPORTED
+    }
+    assert {name for name, _ in _cells_named(cells)} <= set(descriptions._AW_CELLS)
+    for group, cell in cells:
+        assert descriptions._aw_kind(cell.name) == study.kind_of(group, cell), cell.name
+        if cell.family in study.COVERAGE_FAMILIES:
+            assert descriptions._aw_controls(cell.name) == study.controls_of(group, cell)
+    assert set(descriptions._AW_GAINS) == set(study.PAIRED_GAINS)
+    assert {*study.COVERAGE_FAMILIES, study.REPORTED, study.CONTROL, study.WITNESS} == set(
+        document._TAIL_FAMILIES
+    )
+
+
+def _cells_named(cells: list[tuple[Any, Any]]) -> list[tuple[str, Any]]:
+    """The study's cells that carry a description of their own (every non-witness cell)."""
+    return [(cell.name, cell) for _, cell in cells if cell.family != study.WITNESS]

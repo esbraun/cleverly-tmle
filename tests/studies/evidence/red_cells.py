@@ -436,8 +436,11 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "property",
         "simultaneous_coverage/strata__simultaneous_band",
     ),
-    # The committed rows of that arm mean under the identity normal interval, which the logit
-    # interval of a bounded mean replaced: a standing record of the replaced interval.
+    # Committed rows under an interval the shipped default replaced, kept as the standing
+    # record of the replaced interval: that arm mean under the identity normal interval, which
+    # the logit interval of a bounded mean replaced, and ``small-sample-wald``'s bounded
+    # difference and skewed continuous means under the normal reference and the moment-df t,
+    # which correlated MOVER and the skew-widened t replaced (``asymmetric-wald``).
     "F3-normal-reference": (
         *_keys(
             "canonical-stratified-tmle",
@@ -449,6 +452,13 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "canonical-stratified-tmle",
             "property",
             "interval_calibration/v2_ey1__correctly_specified",
+        ),
+        *_keys(
+            "small-sample-wald",
+            "property",
+            "heldout_coverage/ho_sparse_treat_ate",
+            "heldout_coverage/ho_hurdle_ey1",
+            "diagnosis_continuous/lognormal06_ey1",
         ),
     ),
     # Two default bands that cover just under the band on the Mammen logit band of Wave 2, read
@@ -482,21 +492,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "heldout_coverage/ho_logit_msm_a",
             "heldout_coverage/ho_logit_msm_w",
         ),
-    ),
-    # ``small-sample-wald``'s held-out bounded difference whose treated arm sits near 1 and
-    # carries most of its variance: the rule's normal reference refuted for differences.
-    "F3-difference-near-bound": _keys(
-        "small-sample-wald",
-        "property",
-        "heldout_coverage/ho_sparse_treat_ate",
-    ),
-    # ``small-sample-wald``'s skewed continuous means in a small stratum: the moment-df t
-    # refuted for skewed outcomes, on held-out law H2 and on a diagnosis law.
-    "F3-skewed-continuous": _keys(
-        "small-sample-wald",
-        "property",
-        "heldout_coverage/ho_hurdle_ey1",
-        "diagnosis_continuous/lognormal06_ey1",
     ),
     # Stratum 2 of the identity-MSM study: a calibration cell and the paired W row that is
     # inconclusive on its calibration leg.  ``tests/unit/test_band_shortfall_reading.py``.

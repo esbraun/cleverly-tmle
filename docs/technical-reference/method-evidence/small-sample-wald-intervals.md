@@ -9,12 +9,14 @@ the estimate reads holds one observed outcome value in its stratum
 (`cleverly.inference.constant_outcome_cells`), or when a bounded estimate lies on or outside its
 bounds.
 
-The shipped intervals are unchanged. The study computes the rule from the public functions the
-default would read (`tests/studies/small_sample_wald.py`, `rule_interval`), so it measures the
-rule before any default reads it. **Only bounded means are supported.** The run refutes the rule
-for bounded differences with one arm near its bound and for skewed continuous outcomes, and the
-logistic working-model coefficients of a small stratum stay red on their SE. [Result](#result)
-names each refuted class and its owner.
+The study computed the rule from the public functions (`tests/studies/small_sample_wald.py`,
+`rule_interval`), so it measured the rule before any default read it. **Only bounded means are
+supported**, and the default now reads the rule's logit interval for them. The run refutes the
+rule for bounded differences with one arm near its bound and for skewed continuous outcomes, and
+the logistic working-model coefficients of a small stratum stay red on their SE. [Result](#result)
+names each refuted class and its owner. For the two refuted classes the default reads the
+asymmetric intervals that [asymmetric-wald](asymmetric-wald-intervals.md) measured on new held-out
+laws.
 
 **No canonical implementation is compared.** No published implementation applies a range-logit
 or moment-df interval to a TMLE influence curve with these withholding triggers, so no comparison
@@ -172,8 +174,8 @@ rule withholds the interval there.
 | owner | cells | reading |
 | --- | --- | --- |
 | `X8-logit-small-stratum` | `heldout_coverage/ho_logit_msm_a`, `heldout_coverage/ho_logit_msm_w` | the logistic working-model coefficients of H3's stratum 2 cover 0.935 and 0.8835 under the normal reference, with SE ratios of 0.941 and 0.889 and coverage of 0.949 and 0.9495 at the empirical SD. A post-run diagnosis on fresh draws ([`tests/diagnostics/fix3_postrun/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/fix3_postrun)) found the fitted curve tracking H3's exact efficient influence function at n = 400,000, with root-n SE within 1% of the efficiency SD. The SE ratios of 0.945 and 0.891 at n = 2,000 rise to 1.025 and 0.989 at n = 8,000. The reading is the O(1/n) SE shortfall this owner already holds on the alternating law |
-| `F3-difference-near-bound` | `heldout_coverage/ho_sparse_treat_ate` | H1's difference covers 0.9285 with an SE ratio of 0.985 and coverage of 0.956 at the empirical SD. Its interval lies above the truth in 0.0555 of fits and below it in 0.016, and the shipped normal interval on the same fits covers 0.926. On fresh draws ([`tests/diagnostics/fix3_postrun/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/fix3_postrun)) the treated arm, whose mean sits near 1, carries a median 0.907 of the difference's variance. The rule's premise that a difference escapes the coupling of estimate and SE near a bound is refuted |
-| `F3-skewed-continuous` | `heldout_coverage/ho_hurdle_ey1`, `diagnosis_continuous/lognormal06_ey1` | the moment-df t covers 0.9304 on H2, over the completed fits, and 0.9335 on the lognormal law of skewness 2.0, with coverage of 0.947 and 0.9545 at the empirical SD. The misses are one-sided (0.055 against 0.015 and 0.055 against 0.0115), which no symmetric df corrects. On H2 a second part adds to the skewness: the saturated outcome model's smallest stratum-2 cell holds about 6.5 rows, and its leverage shrinks the residuals. On fresh draws ([`tests/diagnostics/fix3_postrun/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/fix3_postrun)) a hand-built curve matches the fit's, and dividing each residual by the cell's leverage moves the SE ratio of `ey[1][V=2]` from 0.934 to 0.966 |
+| `F3-normal-reference` (formerly `F3-difference-near-bound`) | `heldout_coverage/ho_sparse_treat_ate` | H1's difference covers 0.9285 with an SE ratio of 0.985 and coverage of 0.956 at the empirical SD. Its interval lies above the truth in 0.0555 of fits and below it in 0.016, and the shipped normal interval on the same fits covers 0.926. On fresh draws ([`tests/diagnostics/fix3_postrun/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/fix3_postrun)) the treated arm, whose mean sits near 1, carries a median 0.907 of the difference's variance. The rule's premise that a difference escapes the coupling of estimate and SE near a bound is refuted |
+| `F3-normal-reference` (formerly `F3-skewed-continuous`) | `heldout_coverage/ho_hurdle_ey1`, `diagnosis_continuous/lognormal06_ey1` | the moment-df t covers 0.9304 on H2, over the completed fits, and 0.9335 on the lognormal law of skewness 2.0, with coverage of 0.947 and 0.9545 at the empirical SD. The misses are one-sided (0.055 against 0.015 and 0.055 against 0.0115), which no symmetric df corrects. On H2 a second part adds to the skewness: the saturated outcome model's smallest stratum-2 cell holds about 6.5 rows, and its leverage shrinks the residuals. On fresh draws ([`tests/diagnostics/fix3_postrun/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/fix3_postrun)) a hand-built curve matches the fit's, and dividing each residual by the cell's leverage moves the SE ratio of `ey[1][V=2]` from 0.934 to 0.966 |
 
 Three declared falsifiers fired, each on a red cell: the composition falsifier on
 `ho_sparse_treat_ate`, the df falsifier on `ho_hurdle_ey1` and the binary-coefficient falsifier on
@@ -187,6 +189,10 @@ declaration expected.
 `canonical-stratified-tmle`. Its two primary truth rows and its pointwise cell moved to
 `F3-normal-reference` when the shipped default took the rule for bounded means. They stay as the
 record of the identity interval, beside an audit file that recomputes them under the shipped rule.
+This study's three refuted cells moved to `F3-normal-reference` in the same way when the shipped
+default took correlated MOVER for bounded differences and the skew-widened t for continuous
+targets, which [asymmetric-wald](asymmetric-wald-intervals.md) measured on fresh seeds of the
+same laws. They stay as the record of the rule this study refuted.
 
 ## Measured values
 
@@ -249,9 +255,9 @@ from the committed results and checked at the precision printed.
 
 | limitation | what it means for use |
 | --- | --- |
-| The shipped intervals are unchanged | The study measures the rule computed from public functions. No shipped fit reports the rule's interval until the default reads it |
-| Bounded differences | Refuted when one arm sits near its bound and carries most of the difference's variance (`F3-difference-near-bound`). Differences keep the normal interval on the identity scale, which is as red on that law |
-| Skewed continuous outcomes | Refuted at moderate skewness in a small stratum, and on H2 also by a saturated learner's leverage on cells of about 6.5 rows (`F3-skewed-continuous`). Continuous targets keep the normal reference |
+| The rule measured before the default read it | The study measured the rule computed from public functions. The default reads it for bounded means only |
+| Bounded differences | Refuted when one arm sits near its bound and carries most of the difference's variance. A bounded difference now takes correlated MOVER, measured by [asymmetric-wald](asymmetric-wald-intervals.md), and this study's committed row stays as the record of the refuted rule (`F3-normal-reference`) |
+| Skewed continuous outcomes | Refuted at moderate skewness in a small stratum, and on H2 also by a saturated learner's leverage on cells of about 6.5 rows. A continuous target now takes the skew-widened t, measured by [asymmetric-wald](asymmetric-wald-intervals.md), and this study's committed rows stay as the record of the refuted rule (`F3-normal-reference`) |
 | Binary working-model coefficients | Keep the normal reference. In a stratum of about 300 rows their SE falls short at O(1/n) (`X8-logit-small-stratum`), and no t reference repairs it |
 | Withheld intervals | At n = 500 the rule withholds about a tenth of the intervals of the boundary mean, each counted as a miss. The interval shown on the other fits covers, and a withheld interval is a claim limit, not a coverage |
 | Held-out laws now seen | H1 to H3 have been looked at. A revised rule chosen because it wins on them is in-sample, so it needs its own declaration on new held-out laws |

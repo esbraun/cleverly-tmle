@@ -3852,6 +3852,10 @@ STUDY_ARMS: dict[tuple[str, str], str] = {
         "without L_t"
     ),
 }
+#: Cells described for one study only, keyed by ``(slug, family, cell)``, for a study whose
+#: family and cell names coincide with another study's but whose cells differ.
+STUDY_CELLS: dict[tuple[str, str, str], tuple[str, str]] = {}
+
 STUDY_ARM_CELLS: dict[tuple[str, str, str, str], tuple[str, str]] = {
     ("point-survival-curve", "clustered_inference", label, "cluster_robust"): (
         "the cluster-robust interval from the cluster-level influence curve of a single-fold "
@@ -4977,6 +4981,8 @@ def cell(
     if size is not None:
         base = size.group("cell")
     scoped = STUDY_ARM_CELLS.get((slug, family, arm.group("arm"), base)) if arm and slug else None
+    if slug is not None and (slug, family, key) in STUDY_CELLS:
+        return STUDY_CELLS[slug, family, key]
     try:
         tested, required = (
             scoped
@@ -8382,7 +8388,14 @@ PROPERTIES.update(
         ),
         "control": "the gated cells' fits read under the rejected candidate intervals",
         "reported": "the rule's interval at other sizes, fits and owner laws, with no verdict",
-        "witness": "the plug-in interval misses on the constant-cell fits the rule withholds",
+        "witness": (
+            "a deliberately broken interval, or the plug-in interval the rule withholds, misses "
+            "where it should, so the instrument can tell"
+        ),
+        "owner_coverage": (
+            "the corrected interval repairs the owner cells it targets, with a paired gain over "
+            "today's interval"
+        ),
     }
 )
 _SSW_BOUNDARY = "the stratified law of `canonical-stratified-tmle`, stratified TMLE"
@@ -8614,6 +8627,202 @@ CELLS.update(
             "the fits of boundary_mean_n500_ey1 whose treated V = 2 cell holds one outcome "
             "value: the plug-in interval on the range-logit scale, the point itself on a bound",
             "reported: its coverage's 99% upper end below 0.50 shows why the interval is withheld",
+        ),
+    }
+)
+
+
+#: ``asymmetric-wald`` (Fix-3 PR 3): correlated MOVER for a bounded difference and the
+#: skew-widened t for a continuous target.  Mirrored from ``tests.studies.asymmetric_wald``,
+#: which this module cannot import; ``tests/unit/test_asymmetric_wald_design.py`` pins the
+#: cells described here to the study's.  Its family and some cell names coincide with
+#: ``small-sample-wald``'s, so its cells are described per study (:data:`STUDY_CELLS`).
+_AW_SLUG = "asymmetric-wald"
+IMPLEMENTATIONS["cleverly-asymmetric-wald"] = (
+    "`cleverly` stratified TMLE with the PR 3 interval rule: correlated MOVER on the two arms' "
+    "range-logit intervals for a bounded difference, the range-logit normal interval for a "
+    "bounded mean, and the skew-widened t at max(df, 5) for a continuous outcome, with no "
+    "interval when an arm's stratum holds one outcome value or an estimate sits on a bound"
+)
+STUDY_SCENARIOS[(_AW_SLUG, "boundary_v2")] = STUDY_SCENARIOS[(_SSW_SLUG, "boundary_v2")]
+STUDY_ESTIMANDS[(_AW_SLUG, "ate[V=2]")] = (
+    "average treatment effect in stratum V = 2, with MOVER's interval (a withheld one counts as "
+    "a miss)"
+)
+_AW_CELLS = {
+    "d1_ey1": "held-out law D1, a sparse treated arm near 0 in a small stratum, treated mean in "
+    "V = 2, n = 3,000",
+    "d1_ate": "held-out law D1, a sparse treated arm near 0 in a small stratum, effect in V = 2, "
+    "n = 3,000",
+    "d1_ey0": "held-out law D1, untreated mean in V = 2, n = 3,000",
+    "d1_ate_v0": "held-out law D1, effect in the large stratum V = 0, n = 3,000",
+    "d2_ey0": "held-out law D2, a sparse untreated arm near 1 with a continuous covariate, "
+    "untreated mean, n = 2,000",
+    "d2_ate": "held-out law D2, a sparse untreated arm near 1 with a continuous covariate, "
+    "effect, n = 2,000",
+    "d2_ey1": "held-out law D2, treated mean, n = 2,000",
+    "c1_ey1": "held-out law C1, right-skewed gamma errors scaled by arm, treated mean in V = 2, "
+    "n = 2,500",
+    "c1_ate": "held-out law C1, right-skewed gamma errors scaled by arm, effect in V = 2, "
+    "n = 2,500",
+    "c1_ey0": "held-out law C1, untreated mean in V = 2, n = 2,500",
+    "c2_ey1": "held-out law C2, a left-skewed Beta outcome with a coarse covariate, treated mean "
+    "in V = 2, n = 2,000",
+    "c2_ate": "held-out law C2, effect in V = 2, n = 2,000",
+    "c2_ey0": "held-out law C2, untreated mean in V = 2, n = 2,000",
+    "c3_ey1": "held-out law C3, symmetric Laplace errors (the no-harm control), treated mean in "
+    "V = 2, n = 2,500",
+    "c3_ate": "held-out law C3, symmetric Laplace errors (the no-harm control), effect in V = 2, "
+    "n = 2,500",
+    "c3_ey0": "held-out law C3, untreated mean in V = 2, n = 2,500",
+    "ho_sparse_treat_ate": "study 1's held-out law H1, a sparse treated arm near 1 with no "
+    "strata, effect, n = 2,000",
+    "ho_hurdle_ey1": "study 1's held-out law H2, a point mass at 0 and a gamma part, saturated "
+    "cell-mean outcome model, treated mean in V = 2, n = 2,000",
+    "ho_hurdle_ate": "study 1's held-out law H2, effect in V = 2, n = 2,000",
+    "ho_hurdle_ey0": "study 1's held-out law H2, untreated mean in V = 2, n = 2,000",
+    "lognormal06_ey1": "a continuous outcome with a lognormal error of skewness 2.0, treated mean "
+    "in V = 2, n = 2,000",
+    "student_ey1": "a continuous outcome with a Student t error on 3 df, treated mean in V = 2, "
+    "n = 2,000",
+    "student_ate": "a continuous outcome with a Student t error on 3 df, effect in V = 2, "
+    "n = 2,000",
+    "lognormal_ey1": "a continuous outcome with a lognormal error of skewness 6.2 (the stated "
+    "limit), treated mean in V = 2, n = 2,000",
+    "boundary_2000_ate": "the stratified law of `canonical-stratified-tmle`, effect in V = 2, "
+    "n = 2,000",
+    "boundary_1000_ate": "the stratified law of `canonical-stratified-tmle`, effect in V = 2, "
+    "n = 1,000",
+    "rare_ate": "a rare binary outcome, three strata, effect in V = 2, n = 2,000",
+    "identity_msm_v2_w": "the alternating Beta-outcome law, identity working MSM, W coefficient "
+    "in V = 2, n = 2,000",
+}
+_AW_BINARY = ("d1", "d2", "ho_sparse_treat", "boundary", "rare")
+
+
+def _aw_kind(name: str) -> str:
+    """``difference``, ``mean`` or ``continuous``, as the study's ``kind_of`` reads a cell."""
+    if not name.startswith(_AW_BINARY):
+        return "continuous"
+    return "difference" if "_ate" in name else "mean"
+
+
+def _aw_rule(name: str) -> str:
+    kind = _aw_kind(name)
+    return {
+        "difference": "MOVER's interval",
+        "mean": "the range-logit normal interval",
+        "continuous": "the skew-widened t",
+    }[kind]
+
+
+def _aw_controls(name: str) -> tuple[str, ...]:
+    """The controls a gated cell is re-read under, as the study's ``controls_of`` picks them."""
+    kind = _aw_kind(name)
+    if kind == "difference":
+        return (
+            "normal_reference_control",
+            "range_logit_control",
+            "logit_t_control",
+            "cf_shift_control",
+        )
+    if kind == "mean":
+        return ("normal_reference_control", "logit_t_control")
+    return ("normal_reference_control", "capped_t_control", "cf_shift_control")
+
+
+_AW_GATED = {
+    "heldout_coverage": (
+        "d1_ey1",
+        "d1_ate",
+        "d2_ey0",
+        "d2_ate",
+        "c1_ey1",
+        "c1_ate",
+        "c2_ey1",
+        "c3_ey1",
+        "c3_ate",
+    ),
+    "owner_coverage": ("ho_sparse_treat_ate", "ho_hurdle_ey1", "lognormal06_ey1"),
+}
+_AW_REPORTED = (
+    "d1_ey0",
+    "d1_ate_v0",
+    "d2_ey1",
+    "c1_ey0",
+    "c2_ate",
+    "c2_ey0",
+    "c3_ey0",
+    "ho_hurdle_ate",
+    "ho_hurdle_ey0",
+    "student_ey1",
+    "student_ate",
+    "lognormal_ey1",
+    "boundary_2000_ate",
+    "boundary_1000_ate",
+    "rare_ate",
+    "identity_msm_v2_w",
+)
+_AW_GAINS = {
+    "ho_sparse_treat_ate": "the identity normal interval",
+    "ho_hurdle_ey1": "the t interval at max(df, 5)",
+    "lognormal06_ey1": "the t interval at max(df, 5)",
+}
+_AW_LEGS = (
+    "on the first 2,000 fits, the lower leg's 99% lower end at least 0.92, lost and withheld "
+    "fits as misses, and the shown fits' 99% upper end at most 0.98; on all 4,000, each side's "
+    "one-sided miss rate with a 99% lower end at most 0.040"
+)
+_AW_CONTROLS = {
+    "normal_reference_control": "the normal interval on the identity scale",
+    "range_logit_control": "the normal interval on the difference's own range-logit scale",
+    "logit_t_control": "a Student t interval on the range-logit scale at max(df, 5)",
+    "capped_t_control": "a Student t interval at max(df, 5), without the skew widening",
+    "cf_shift_control": "the two-sided Cornish-Fisher shift by the curve's acceleration",
+}
+STUDY_CELLS.update(
+    {
+        **{
+            (_AW_SLUG, family, name): (
+                f"{_AW_CELLS[name]}: {_aw_rule(name)}",
+                _AW_LEGS
+                + (
+                    f", and the exact 99.5% lower bound of the paired gain over {_AW_GAINS[name]} "
+                    "above 1/2"
+                    if name in _AW_GAINS
+                    else ""
+                ),
+            )
+            for family, names in _AW_GATED.items()
+            for name in names
+        },
+        **{
+            (_AW_SLUG, "control", f"{name}__{control}"): (
+                f"{_AW_CELLS[name]}: the same fits read under {_AW_CONTROLS[control]}",
+                "reported with no verdict; a falsifier may read it",
+            )
+            for names in _AW_GATED.values()
+            for name in names
+            for control in _aw_controls(name)
+        },
+        **{
+            (_AW_SLUG, "reported", name): (
+                f"{_AW_CELLS[name]}: {_aw_rule(name)}",
+                "reported with no verdict: both legs and both tails",
+            )
+            for name in _AW_REPORTED
+        },
+        (_AW_SLUG, "witness", "sign_flip_witness"): (
+            "the fits of ho_hurdle_ey1 read under the skew-widened t with the acceleration's sign "
+            "flipped, a deliberate mutation",
+            "reported: it must fail its heavy-side tail clause, which shows the clause sees a "
+            "wrong sign",
+        ),
+        (_AW_SLUG, "witness", "mover_swap_witness"): (
+            "the fits of ho_sparse_treat_ate read under MOVER with each arm's two sides swapped, "
+            "a deliberate mutation",
+            "reported: it must fail its heavy-side tail clause, which shows the clause sees a "
+            "wrong pairing",
         ),
     }
 )

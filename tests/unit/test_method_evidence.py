@@ -1437,7 +1437,26 @@ class TestPublishedVerdicts:
         # requested fit and the shown fits' upper end, restated here from the declaration rather
         # than read from the module; the paired-gain cells also need the gain's lower bound
         # above 1/2, and the leverage rows an SE-ratio interval containing 1.
-        two_legs = published.loc[published["property"].isin(SMALL_SAMPLE_TWO_LEG_PROPERTIES)]
+        # ``asymmetric-wald`` shares those family names but reads its legs on the first 2,000
+        # fits and a tail clause on all 4,000: each side's one-sided miss rate with a 99% lower
+        # end at most 0.040. An owner cell also needs its paired gain above 1/2, and a witness
+        # passes when its tail clause fails. Restated from the declaration.
+        if study.slug == "asymmetric-wald":
+            for row in published.itertuples():
+                tails = row.below_ci_lower <= 0.04 and row.above_ci_lower <= 0.04
+                if row.property == "witness":
+                    expected = not tails
+                else:
+                    expected = (
+                        row.lower_leg_ci_lower >= 0.92 and row.leg_shown_ci_upper <= 0.98 and tails
+                    )
+                    if row.property == "owner_coverage":
+                        expected = expected and row.gain_lower > 0.5
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its legs and tails"
+                )
+        ssw = published.iloc[0:0] if study.slug == "asymmetric-wald" else published
+        two_legs = ssw.loc[ssw["property"].isin(SMALL_SAMPLE_TWO_LEG_PROPERTIES)]
         for row in two_legs.itertuples():
             expected = row.lower_leg_ci_lower >= 0.92 and row.shown_ci_upper <= 0.98
             if row.cell in ("boundary_mean", "student_ey1"):
@@ -1447,7 +1466,7 @@ class TestPublishedVerdicts:
             assert bool(row.passed) is bool(expected), (
                 f"{row.cell} publishes passed={row.passed} against its own coverage legs"
             )
-        for row in published.loc[published["property"] == "non_h1"].itertuples():
+        for row in ssw.loc[ssw["property"] == "non_h1"].itertuples():
             expected = (
                 row.coverage_ci_upper < 0.90
                 if row.role == "control"
@@ -1456,7 +1475,7 @@ class TestPublishedVerdicts:
             assert bool(row.passed) is bool(expected), (
                 f"{row.cell} publishes passed={row.passed} against its own non-H1 endpoint"
             )
-        for row in published.loc[published["property"] == "witness"].itertuples():
+        for row in ssw.loc[ssw["property"] == "witness"].itertuples():
             assert bool(row.passed) is bool(row.coverage_ci_upper < 0.50), (
                 f"{row.cell} publishes passed={row.passed} against its own witness ceiling"
             )
@@ -1832,6 +1851,8 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         *SMALL_SAMPLE_TWO_LEG_PROPERTIES,
         "non_h1",
         "witness",
+        # ``asymmetric-wald``'s owner cells: legs, tails and the paired gain (checked above).
+        "owner_coverage",
         # X82 SL: each size row answers to its own rejection count and each power row to its
         # own detection count (checked below against the study's declared thresholds).
         "refuter_size",
