@@ -31,7 +31,15 @@ from .._typing import FloatArray, IntArray
 from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, ConvergenceWarning, DataError
 from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
-from ._targeting import Norm, Problem, WalkResult, default_cutoff, walk
+from ._targeting import (
+    Norm,
+    Problem,
+    WalkResult,
+    default_cutoff,
+    point_weights,
+    restricted_weights,
+    walk,
+)
 from .cox import HazardSelection, default_library, select_hazard
 from .result import (
     BAND_SUPPORT,
@@ -39,6 +47,7 @@ from .result import (
     ContinuousSurvivalResult,
     build_estimates,
     continuous_survival_support,
+    risk_names,
 )
 
 __all__ = ["ContinuousSurvivalRecord", "ContinuousSurvivalTMLE"]
@@ -234,6 +243,13 @@ class ContinuousSurvivalTMLE:
     ----------
     horizons : sequence of float
         The target times :math:`t_1 < \dots < t_K`.
+    restricted_horizons : sequence of float
+        The restriction times :math:`\tau_1 < \dots < \tau_R` of the restricted means.  Each
+        :math:`\tau` adds the restricted mean time lost to each cause,
+        :math:`E \int_0^\tau F_j(u \mid a, L)\, du`, of both arms to the targets the walk
+        solves, so :meth:`ContinuousSurvivalResult.rmtl` and
+        :meth:`~ContinuousSurvivalResult.rmst` can read them.  The extra targets change the walk,
+        so the risks of such a fit differ slightly from those of a fit without them.
     arms : mapping of str to level, or None
         The label of each treatment level, two levels.  ``None`` labels the two observed
         levels by ``str(level)``.
@@ -289,6 +305,7 @@ class ContinuousSurvivalTMLE:
         self,
         horizons: Sequence[float],
         *,
+        restricted_horizons: Sequence[float] = (),
         arms: Mapping[str, Any] | None = None,
         reference: str | None = None,
         causes: Mapping[int, str] | None = None,
@@ -316,6 +333,11 @@ class ContinuousSurvivalTMLE:
             raise ValueError("horizons are positive finite target times, at least one")
         if any(b <= a for a, b in pairwise(times)):
             raise ValueError("horizons are strictly increasing")
+        restricted = tuple(float(t) for t in restricted_horizons)
+        if any(not np.isfinite(t) or t <= 0 for t in restricted):
+            raise ValueError("restricted_horizons are positive finite restriction times")
+        if any(b <= a for a, b in pairwise(restricted)):
+            raise ValueError("restricted_horizons are strictly increasing")
         if norm not in ("covariance", "variance", "euclidean"):
             raise ValueError("norm is 'covariance', 'variance' or 'euclidean'")
         if treatment_learner is not None and not cross_fit:
@@ -327,6 +349,7 @@ class ContinuousSurvivalTMLE:
                 "pushes the propensities to 0 and 1."
             )
         self.horizons = times
+        self.restricted_horizons = restricted
         self.arms = None if arms is None else dict(arms)
         self.reference = reference
         self.causes = None if causes is None else {int(k): str(v) for k, v in causes.items()}
@@ -486,28 +509,42 @@ class ContinuousSurvivalTMLE:
         n = T.size
         codes = list(causes)
         J = len(codes)
-        last = self.horizons[-1]
+        restricted = self.restricted_horizons
+        # The first and last time some target reads, with what the refusals call it.
+        first, first_kind = self.horizons[0], "target time"
+        if restricted and restricted[0] < first:
+            first, first_kind = restricted[0], "restricted horizon"
+        ends = [(self.horizons[-1], "target time", "risk")]
+        if restricted:
+            ends.append((restricted[-1], "restricted horizon", "restricted mean"))
         for a in (0, 1):
             for code, label in causes.items():
                 first_event = T[(a == A) & (code == D)]
-                if first_event.size == 0 or first_event.min() > self.horizons[0]:
+                if first_event.size == 0 or first_event.min() > first:
+                    what = "risk" if first_kind == "target time" else "restricted mean"
                     raise _gap(
                         f"Arm {arm_labels[a]!r} has no event of cause {label!r} at or before "
-                        f"the first target time {_time_text(self.horizons[0])}, so that risk's "
+                        f"the first {first_kind} {_time_text(first)}, so that {what}'s "
                         "influence curve is zero and its interval undefined. Choose a later "
-                        "first target time."
+                        f"first {first_kind}."
                     )
         for a in (0, 1):
             followed = float(T[a == A].max())
-            if followed < last:
-                raise _gap(
-                    f"Arm {arm_labels[a]!r} is followed only to {_time_text(followed)}, before "
-                    f"the last target time {_time_text(last)}, so its risk there would be an "
-                    "extrapolation of the hazard model with no data behind it. Choose target "
-                    "times within every arm's follow-up."
-                )
+            for end, kind, what in ends:
+                if followed < end:
+                    raise _gap(
+                        f"Arm {arm_labels[a]!r} is followed only to {_time_text(followed)}, "
+                        f"before the last {kind} {_time_text(end)}, so its {what} there would "
+                        "be an extrapolation of the hazard model with no data behind it. "
+                        f"Choose {kind}s within every arm's follow-up."
+                    )
+        last = max(end for end, _, _ in ends)
         grid = np.unique(T[last >= T])
         target_index = np.searchsorted(grid, self.horizons, side="right") - 1
+        target_weights = np.vstack(
+            [point_weights(target_index, grid.size)]
+            + [restricted_weights(grid, tau)[None, :] for tau in restricted]
+        )
         X = np.column_stack([A.astype(float), L])
         rng = np.random.default_rng(self.random_state)
         folds = (
@@ -590,7 +627,7 @@ class ContinuousSurvivalTMLE:
         # Indicators stay boolean: arithmetic with the float hazards promotes them on use.
         at_risk = T[:, None] >= grid[None, :]
         events = np.stack([(T[:, None] == grid[None, :]) & (D[:, None] == code) for code in codes])
-        problem = Problem(A, at_risk, events, weight, target_index)
+        problem = Problem(A, at_risk, events, weight, target_weights)
         cutoff = default_cutoff(n) if self.tol is None else float(self.tol)
         # Handed over through a list so no name here keeps the initial jumps alive once the
         # walk has replaced them (~400 MB at n = 4,000).
@@ -634,28 +671,39 @@ class ContinuousSurvivalTMLE:
             grid_size=int(grid.size),
         )
         observed = T[D > 0]
-        shares = [float(np.mean(observed <= time)) for time in self.horizons]
+        # Risks first, then restricted means, in the order of the weight rows.
+        shares = [float(np.mean(observed <= time)) for time in (*self.horizons, *restricted)]
         settings = {key: getattr(self, key) for key in MEASURED_DEFAULTS}
 
-        def support(scale: str, k: int) -> Support:
+        def support(scale: str, q: int) -> Support:
             return continuous_survival_support(
                 scale=scale,
-                event_share=shares[k],
+                event_share=shares[q],
                 n=n,
                 causes=J,
                 cross_fitted=self.cross_fit,
                 default_nuisances=self._default_nuisances,
                 settings=settings,
+                restricted=q >= len(self.horizons),
             )
 
         estimates = build_estimates(
-            result, arm_labels, causes, self.horizons, n=n, alpha=self.alpha, support=support
+            result,
+            arm_labels,
+            causes,
+            self.horizons,
+            n=n,
+            alpha=self.alpha,
+            support=support,
+            restricted=restricted,
         )
         bands = None
         if self.simultaneous:
             from ..inference.multiplier import simultaneous_bands
 
-            banded = {k: v for k, v in estimates.items() if not k.startswith("rr_regimen")}
+            # The band covers the risks and their differences, as the study's band row reads.
+            risks = risk_names(arm_labels, tuple(causes.values()), self.horizons)
+            banded = {k: estimates[k] for k in risks}
             bands = simultaneous_bands(
                 banded,
                 alpha=self.alpha,
@@ -674,6 +722,7 @@ class ContinuousSurvivalTMLE:
             horizons=self.horizons,
             n=n,
             backend=backend,
+            restricted_horizons=restricted,
         )
 
 
@@ -692,7 +741,13 @@ def _off_grid_share(
     keep = index >= 0
     if not keep.any():
         return 1.0
-    shifted = Problem(problem.arm, problem.at_risk, problem.events, problem.weight, index[keep])
+    shifted = Problem(
+        problem.arm,
+        problem.at_risk,
+        problem.events,
+        problem.weight,
+        point_weights(index[keep], grid.size),
+    )
     evaluation = evaluate(shifted, result.dlam)
     sigma = evaluation.sigma
     informative = sigma > 0

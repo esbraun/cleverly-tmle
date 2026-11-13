@@ -11,7 +11,11 @@ last target time.  Hazards are jumps there, held for both arms of every unit,
 Aalen-Johansen sums :math:`F_j(t) = \sum_{u \le t} S(u^-)\, d\Lambda_j(u)`, with :math:`S` the
 product limit, so the incidences and the survival add to one at every step.
 
-Targets are ordered arm-major, then cause, then time: ``p = (a * J + j) * K + k``.
+Each target is a weighted sum of one arm's cause-:math:`j` incidence over the grid,
+:math:`\sum_m \omega_{q,m} F_j(u_m \mid a, L)`: a risk at a target time is the unit vector of
+its grid position, and a restricted mean time lost up to :math:`\tau` has the weights
+:math:`\Delta_m(\tau) = \min(u_{m+1}, \tau) - u_m` for :math:`u_m \le \tau` (X6 part (c)).
+Targets are ordered arm-major, then cause, then weight row: ``p = (a * J + j) * Q + q``.
 """
 
 from __future__ import annotations
@@ -49,16 +53,17 @@ class Problem:
         ``(J, n, M)`` indicator of an event of each cause at :math:`u_m`.
     weight : ndarray
         ``(2, n, M)`` the bounded :math:`1 / (\\pi(a \\mid L)\\, S_c(u_m^- \\mid a, L))`.
-    target_index : ndarray
-        ``(K,)`` the grid position of each target time: the last :math:`m` with
-        :math:`u_m \\le t_k`.
+    target_weights : ndarray
+        ``(Q, M)`` the grid weights :math:`\\omega_{q,m}` of each target of one arm and cause.
+        A risk at :math:`t_k` is the unit vector of the last :math:`m` with
+        :math:`u_m \\le t_k` (:func:`point_weights`).
     """
 
     arm: IntArray
     at_risk: np.ndarray
     events: np.ndarray
     weight: FloatArray
-    target_index: IntArray
+    target_weights: FloatArray
 
     @property
     def n(self) -> int:
@@ -71,9 +76,57 @@ class Problem:
         return int(self.events.shape[0])
 
     @property
+    def n_rows(self) -> int:
+        """The number of weight rows, the targets of one arm and cause."""
+        return int(self.target_weights.shape[0])
+
+    @property
     def n_targets(self) -> int:
-        """The number of targets, two arms by every cause and time."""
-        return 2 * self.n_causes * int(self.target_index.size)
+        """The number of targets, two arms by every cause and weight row."""
+        return 2 * self.n_causes * self.n_rows
+
+
+def point_weights(index: IntArray, size: int) -> FloatArray:
+    """``(K, M)`` the unit weight rows of risks at the grid positions ``index``.
+
+    Parameters
+    ----------
+    index : ndarray
+        ``(K,)`` grid positions, each in ``range(size)``.
+    size : int
+        The grid size :math:`M`.
+
+    Returns
+    -------
+    ndarray
+        Row ``k`` is one at ``index[k]`` and zero elsewhere.
+    """
+    out = np.zeros((len(index), size))
+    out[np.arange(len(index)), np.asarray(index, dtype=int)] = 1.0
+    return out
+
+
+def restricted_weights(grid: FloatArray, tau: float) -> FloatArray:
+    r"""``(M,)`` the grid weights of :math:`\int_0^\tau F(u)\, du` for a step function on the grid.
+
+    With :math:`F` right-continuous, zero before :math:`u_1` and constant between grid points,
+    :math:`\int_0^\tau F = \sum_{u_m \le \tau} F(u_m) \{\min(u_{m+1}, \tau) - u_m\}` exactly,
+    with :math:`u_{M+1} = \infty`.
+
+    Parameters
+    ----------
+    grid : ndarray
+        ``(M,)`` the sorted grid.
+    tau : float
+        The restriction time.
+
+    Returns
+    -------
+    ndarray
+        The weight of each grid point, zero past :math:`\tau`.
+    """
+    upper = np.minimum(np.append(grid[1:], np.inf), tau)
+    return np.where(grid <= tau, upper - grid, 0.0)
 
 
 def curves(dlam: FloatArray) -> tuple[FloatArray, FloatArray]:
@@ -144,10 +197,11 @@ def evaluate(problem: Problem, dlam: FloatArray) -> Evaluation:
         The plug-in, score and influence curves.
     """
     survival, incidence = curves(dlam)
-    J, K = problem.n_causes, problem.target_index.size
+    J, Q = problem.n_causes, problem.n_rows
     n = problem.n
-    parts = np.zeros((n, 2 * J * K))
-    plugins = np.zeros((n, 2 * J * K))
+    rows = problem.target_weights.T  # (M, Q)
+    parts = np.zeros((n, 2 * J * Q))
+    plugins = np.zeros((n, 2 * J * Q))
     for a in (0, 1):
         mask = (problem.arm == a).astype(float)[:, None]
         # In place, since each (J, n, M) temporary is hundreds of MB at n = 4,000.
@@ -159,35 +213,36 @@ def evaluate(problem: Problem, dlam: FloatArray) -> Evaluation:
         ratio = total / survival[a]
         cum_ratio = np.cumsum(ratio, axis=1)
         for j in range(J):
+            # Each target's score part is the weighted sum over the grid of the point
+            # targets' parts, sum_m w_m {N_j(u_m) - F_j(u_m) R(u_m) + C_j(u_m)}, with R and C
+            # the cumulated ratios; a unit row picks one grid position exactly.
             cum_own = np.cumsum(weighted[j], axis=1)
-            cum_f = np.cumsum(incidence[a, j] * ratio, axis=1)
-            for k, m in enumerate(problem.target_index):
-                p = (a * J + j) * K + k
-                f_k = incidence[a, j][:, m]
-                parts[:, p] = cum_own[:, m] - f_k * cum_ratio[:, m] + cum_f[:, m]
-                plugins[:, p] = f_k
+            cum_own -= incidence[a, j] * cum_ratio
+            cum_own += np.cumsum(incidence[a, j] * ratio, axis=1)
+            block = slice((a * J + j) * Q, (a * J + j + 1) * Q)
+            parts[:, block] = cum_own @ rows
+            plugins[:, block] = incidence[a, j] @ rows
     psi = plugins.mean(axis=0)
     influence = parts + plugins - psi
     return Evaluation(psi, parts.mean(axis=0), influence, survival, incidence)
 
 
 def _direction(problem: Problem, evaluation: Evaluation, v: FloatArray) -> FloatArray:
-    """``(2, J, n, M)`` the combined clever covariate :math:`\\sum_p v_p c_p(u, a, L_i)`.
+    r"""``(2, J, n, M)`` the combined clever covariate :math:`\sum_p v_p c_p(u, a, L_i)`.
 
-    Built from reverse cumulative sums over time, so a step costs :math:`O(JnM)`.
+    A target with grid weights :math:`\omega_m` has the clever covariate
+    :math:`1\{l = j\} W(u) - \{\sum_{u_m \ge u} \omega_m F_j(u_m) - W(u) F_j(u)\} / S(u)`,
+    :math:`W(u) = \sum_{u_m \ge u} \omega_m`, divided by :math:`\pi S_c`.  Both sums are
+    reverse cumulative sums over time, so a step costs :math:`O(JnM)` for any weights.
     """
-    J, K = problem.n_causes, problem.target_index.size
+    J, Q = problem.n_causes, problem.n_rows
     n, M = problem.at_risk.shape
     out = np.zeros((2, J, n, M))
     for a in (0, 1):
-        own = np.zeros((J, M))  # sum of v over targets of cause j with t_k >= u_m
-        weighted_f = np.zeros((J, n, M))  # sum of v F_j(t_k) over the same targets
-        for j in range(J):
-            for k, m in enumerate(problem.target_index):
-                p = (a * J + j) * K + k
-                own[j, m] += v[p]
-                weighted_f[j, :, m] += v[p] * evaluation.incidence[a, j][:, m]
-        own = np.cumsum(own[:, ::-1], axis=1)[:, ::-1]
+        # The weight each grid point carries for cause j: sum_q v_(a,j,q) w_(q,m).
+        own = v[a * J * Q : (a + 1) * J * Q].reshape(J, Q) @ problem.target_weights
+        weighted_f = evaluation.incidence[a] * own[:, None, :]  # (J, n, M)
+        own = np.cumsum(own[:, ::-1], axis=1)[:, ::-1]  # W(u)
         weighted_f = np.cumsum(weighted_f[:, :, ::-1], axis=2)[:, :, ::-1]
         shared = (weighted_f - evaluation.incidence[a] * own[:, None, :]).sum(axis=0)
         shared = shared / evaluation.survival[a]
