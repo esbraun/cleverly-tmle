@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.kernel_approximation import RBFSampler
 from sklearn.linear_model import LinearRegression, LogisticRegression, LogisticRegressionCV
@@ -31,15 +33,22 @@ from cleverly import (
     AdaptiveTMLEMethod,
     AdaptiveTMLEResult,
     CausalStudy,
+    ConditionalContrast,
     CrossFitting,
     ModelSpec,
     SuperLearner,
     TrialATE,
     TrialWithExternalData,
 )
+from cleverly.bases import Linear, Sieve
+from cleverly.estimators import TMLE
 from cleverly.exceptions import MethodConfigurationError
 from cleverly.learners._fitting import seed_unset
 from cleverly.learners.super_learner import resolve_learner
+from cleverly.longitudinal import ParametricGFormula
+from cleverly.sensitivity import marginal_sensitivity_bounds
+from tests.unit.test_ep_contract import MODIFIERS, law_study, oracle
+from tests.unit.test_marginal_sensitivity import gaussian_frame
 
 #: Two global seeds under which an unseeded stochastic fit differs.
 GLOBAL_SEEDS = (1, 2)
@@ -321,3 +330,82 @@ def test_an_atmle_working_basis_without_a_seed_is_reproducible(
     monkeypatch.setattr(working_basis_module, "seed_unset", _identity)
     first, second = (_under(seed, fit) for seed in GLOBAL_SEEDS)
     assert first != second
+
+
+# ------------------------------------------------- user learners fitted outside resolve_learner
+
+
+class _RecordsSeed(BaseEstimator, RegressorMixin):
+    """A mean regressor that records the ``random_state`` it is fitted with."""
+
+    seen: ClassVar[list[Any]] = []
+
+    def __init__(self, random_state: Any = None) -> None:
+        self.random_state = random_state
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _RecordsSeed:
+        type(self).seen.append(self.random_state)
+        self.mean_ = float(np.average(y, weights=sample_weight))
+        return self
+
+    def predict(self, X: Any) -> np.ndarray:
+        return np.full(len(X), self.mean_)
+
+
+@pytest.fixture
+def recorded() -> Iterator[list[Any]]:
+    _RecordsSeed.seen.clear()
+    yield _RecordsSeed.seen
+    _RecordsSeed.seen.clear()
+
+
+def test_the_marginal_bounds_seed_declared_learners_with_the_draw_seed(
+    recorded: list[Any],
+) -> None:
+    result = (
+        TMLE(
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(),
+            random_state=11,
+            q_bounds=(-12.0, 12.0),
+            n_folds=5,
+        )
+        .fit(gaussian_frame(), outcome="Y", treatment="A", covariates=["W1", "W2"])
+        .single()
+    )
+    assert result.repeats[0].seed == 11
+    marginal_sensitivity_bounds(
+        result,
+        1.5,
+        quantile_learner=lambda tau: _RecordsSeed(),
+        pseudo_outcome_learner=_RecordsSeed(),
+    )
+    assert recorded
+    assert set(recorded) == {11}
+
+
+def test_the_ep_final_learner_takes_the_fit_seed(recorded: list[Any]) -> None:
+    effect = law_study().identify(ConditionalContrast(MODIFIERS))
+    effect.estimate(
+        "ep",
+        sieve=Sieve(Linear(["W"]), size=1),
+        final_learner=_RecordsSeed(),
+        **{**oracle(), "random_state": 5},
+    )
+    assert recorded
+    assert set(recorded) == {5}
+
+
+@pytest.mark.parametrize("random_state", [3, None])
+def test_the_parametric_g_formula_seeds_declared_learners(random_state: int | None) -> None:
+    declared = RandomForestClassifier()
+    estimator = ParametricGFormula(
+        {"always": 1, "never": 0},
+        covariate_types={"L2": "normal"},
+        treatment_learner=declared,
+        random_state=random_state,
+    )
+    settings = estimator._gformula_settings(None)  # type: ignore[arg-type]
+    assert settings is not None
+    assert settings.treatment_learner.random_state == random_state
+    assert declared.random_state is None
