@@ -307,10 +307,10 @@ def fit(
             survival_model=settings.pop("survival_model", "hazard"),
             targeting=targeting,
             step_size=STEP,
-            tol=TOL,
+            tol=settings.pop("tol", TOL),
             g_bounds=(1e-8, 1.0),
             outcome_learner=learner if learner is not None else Wrong(),
-            treatment_learner=CellProbabilities(),
+            treatment_learner=settings.pop("treatment_learner", CellProbabilities()),
             censoring_learner=CellMeans(),
             **settings,
         ).fit(
@@ -945,3 +945,190 @@ def test_each_policy_walk_reports_a_monotone_curve(reading: str) -> None:
         for cause in ("relapse", "death"):
             curve = [risk(result, label, t, cause) for t in (1, 2, 3)]
             assert all(later >= earlier for earlier, later in pairwise(curve))
+
+
+# ------------------------------------------------------------------ the influence curve
+
+#: The regimens of each influence-curve case: two policy walks, and at a categorical node a
+#: static arm on the shared walk, with the contrast reference.
+IC_CASES = [
+    ("categorical", {"up": "up", "random": "random", "zero": 0}, "zero"),
+    ("continuous", {"up": "up", "random": "random"}, "up"),
+    ("mixed", {"up": "up", "random": "random"}, "up"),
+]
+
+
+def _ic_regimens(reading: str, spec: dict[str, Any]) -> dict[str, Any]:
+    return {
+        label: policy(reading, kind) if isinstance(kind, str) else kind
+        for label, kind in spec.items()
+    }
+
+
+def _saturated(law: GridLaw, reading: str, spec: dict[str, Any], reference: str, **kw: Any) -> Any:
+    return fit(
+        law,
+        _ic_regimens(reading, spec),
+        reading,
+        learner=CellMeans(),
+        reference=reference,
+        **kw,
+    )
+
+
+@pytest.mark.parametrize("targeting", ["one_step", "iterative"])
+@pytest.mark.parametrize(("reading", "spec", "reference"), IC_CASES)
+def test_the_influence_curve_is_the_iterated_mean_curve(
+    reading: str, spec: dict[str, Any], reference: str, targeting: str
+) -> None:
+    """With saturated hazards and the true mechanism, each curve is the efficient one.
+
+    The iterated-mean fit of the same plans, saturated as well, reports the efficient
+    influence function at the truth, so the hazard fit's curve equals it row by row: for a
+    policy, a randomizer, a contrast of two policy walks, and a contrast of a policy walk
+    with a static arm on the shared walk.  So do the standard errors.
+    """
+    law = _law(reading)
+    hazard = _saturated(law, reading, spec, reference, targeting=targeting)
+    iterated = _saturated(
+        law,
+        reading,
+        spec,
+        reference,
+        survival_model="iterated_mean",
+        targeting="iterative",
+        pseudo_learner=CellMeans(),
+    )
+    curves, expected = hazard.influence_curves, iterated.influence_curves
+    contrasts = [name for name in curves if name.startswith("ate_regimen[")]
+    assert len(contrasts) == (2 if reading == "categorical" else 1) * law.n_times
+    assert set(curves) == set(expected)
+    for name, curve in curves.items():
+        assert np.ptp(curve) > 0.1
+        np.testing.assert_allclose(curve, expected[name], rtol=0.0, atol=1e-10)
+        assert np.sqrt(hazard.estimates[name].variance) == pytest.approx(
+            np.sqrt(iterated.estimates[name].variance), rel=1e-8
+        )
+
+
+def test_an_influence_curve_without_its_plug_in_term_misses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mutation drops :math:`\\sum_b p_b F_j(t \\mid d_b(A, W), W) - \\psi` from the curve."""
+    law = _law("continuous")
+    spec, reference = {"up": "up", "random": "random"}, "up"
+    exact = _saturated(law, "continuous", spec, reference).influence_curves
+
+    def no_plug_in(state: Any, inputs: Any, horizons: Any) -> Any:
+        terms, _ = hazard_module._score_terms(state, inputs, horizons)
+        index = [t - 1 for t in horizons]
+        levels = state.levels(inputs.q, inputs.weights)[:, :, index]
+        return levels, terms * inputs.weights
+
+    monkeypatch.setattr(hazard_module, "influence", no_plug_in)
+    mutated = _saturated(law, "continuous", spec, reference).influence_curves
+    for label in ("up", "random"):
+        name = f"risk_regimen[{label} @ t=2]"
+        assert np.max(np.abs(mutated[name] - exact[name])) > MISSED
+
+
+# ------------------------------------------------------------------ settings
+
+
+#: Targeting settings that pass to each policy walk, with the algorithms they apply to.
+#: ``step_bound=`` searches its step length to ``sqrt(eps)`` (the ``tmle3`` tolerance), which
+#: floors the per-horizon relative score near ``1e-9`` on these laws, as it does for a static
+#: arm, so that case reads convergence at ``tol=1e-7`` and its estimate within ``1e-7``.
+SETTINGS = [
+    ({"node_bounds": {1: (0.0, 0.9), 2: (0.0, 0.9)}}, ("one_step", "iterative"), EXACT),
+    ({"node_bounds": {1: (0.1, 0.9), 2: (0.1, 0.9)}}, ("one_step", "iterative"), EXACT),
+    ({"iterate": "best"}, ("one_step", "iterative"), EXACT),
+    ({"step_bound": 0.5, "tol": 1e-7}, ("iterative",), 1e-7),
+]
+
+
+@pytest.mark.parametrize("reading", ["categorical", "continuous"])
+@pytest.mark.parametrize(
+    ("settings", "targeting", "accuracy"),
+    [
+        (settings, targeting, accuracy)
+        for settings, targetings, accuracy in SETTINGS
+        for targeting in targetings
+    ],
+)
+def test_a_targeting_setting_keeps_the_policy_walk_exact(
+    settings: dict[str, Any], targeting: str, accuracy: float, reading: str
+) -> None:
+    """Bounded nodes (with a zero and a positive floor), the best iterate and a step bound."""
+    law = _law(reading)
+    result = fit(law, {"up": policy(reading, "up")}, reading, targeting=targeting, **settings)
+    for t in (1, 2):
+        truth = law.truth(UP, t)
+        assert risk(result, "up", t) == pytest.approx(truth, abs=accuracy)
+        assert abs(initial_level(result, "up", t) - truth) > MISSED
+        assert result.fits[f"up @ t={t}"].hazard.converged
+
+
+def test_a_bounded_empty_slot_cell_under_a_floor_is_excluded() -> None:
+    """A bounded node with a positive floor excludes its empty (node, cause) cell of the slots.
+
+    The death hazard is zero at node 1 for every dose, below the floor, so the cell is not
+    held at zero but excluded, as on a level state.
+    """
+    law = GridLaw(causes=2, empty=lambda node, w, f, a: node == 1)
+    bounds = {"relapse": {1: (0.05, 0.8)}, "death": {1: (0.05, 0.2)}}
+    with captured("mtp_inputs") as calls:
+        # The per-horizon algorithm, whose iteration cap keeps an unsolvable cell cheap.
+        result = fit(
+            law,
+            {"up": policy("continuous", "up")},
+            "continuous",
+            targeting="iterative",
+            node_bounds=bounds,
+        )
+    (inputs,) = calls
+    assert inputs.excluded is not None and inputs.excluded[0, 0, 1]
+    assert not inputs.empty[0, 0, 1]
+    assert not inputs.excluded[1].any()
+    # The shipped record names the excluded cell (node, key, cause) and its failure class.
+    for record in (fit.hazard for fit in result.fits.values()):
+        assert record.bound_excludes_data == ((1, 0, 1),)
+        assert record.converged or record.failure == "bound_excludes_data"
+
+
+@pytest.mark.parametrize("targeting", ["one_step", "iterative"])
+def test_a_declared_stopping_rule_stops_the_policy_walk(targeting: str) -> None:
+    """``stopping="scaled_var"`` stops each walk at an iterate that meets its rule, early."""
+    law = _law("continuous")
+    regimens = {"up": policy("continuous", "up")}
+    plain = fit(law, regimens, "continuous", targeting=targeting)
+    ruled = fit(law, regimens, "continuous", targeting=targeting, stopping="scaled_var")
+    for t in (1, 2):
+        record = ruled.fits[f"up @ t={t}"].hazard
+        assert record.stopping == "scaled_var"
+        assert record.converged
+        assert record.rule_ratio is not None and record.rule_ratio <= 1.0
+        assert 1 <= record.n_iter <= plain.fits[f"up @ t={t}"].hazard.n_iter
+    assert any(
+        ruled.fits[f"up @ t={t}"].hazard.n_iter < plain.fits[f"up @ t={t}"].hazard.n_iter
+        for t in (1, 2)
+    )
+
+
+def test_clusters_sum_the_policy_curve_within_a_cluster() -> None:
+    """With ``id=`` the estimate is unchanged and the variance is the cluster-summed curve's."""
+    law = _law("continuous")
+    frame = law.frame()
+    clustered = frame.assign(cid=np.arange(len(frame)) // 2)
+    regimens = {"up": policy("continuous", "up")}
+    plain = fit(law, regimens, "continuous")
+    paired = fit(law, regimens, "continuous", frame=clustered, keywords={"id": "cid"})
+    cluster = clustered["cid"].to_numpy()
+    for t in (1, 2):
+        name = f"risk_regimen[up @ t={t}]"
+        assert risk(paired, "up", t) == pytest.approx(risk(plain, "up", t), abs=1e-12)
+        curve = paired.influence_curves[name]
+        sums = np.bincount(cluster, weights=curve)
+        expected = len(sums) * np.var(sums, ddof=1) / len(curve) ** 2
+        assert paired.estimates[name].variance == pytest.approx(expected, rel=1e-10)
+        assert paired.estimates[name].variance > 1.5 * plain.estimates[name].variance
