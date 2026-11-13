@@ -380,12 +380,12 @@ def wald_statistic(
         ``(value - null) / std_error``, ``nan`` when the standard error is not positive.
     pvalue : float
         ``2 * Phi(-d)``, or ``2 * F_t(-d; df)``, with
-        ``d = max(0, |statistic| - margin / std_error)``.
+        ``d = max(0, |statistic| - margin / std_error)``; ``nan`` when the statistic is ``nan``.
     """
     if not np.isfinite(std_error) or std_error <= 0:
         return float("nan"), float("nan")
     z = (value - null) / std_error
-    distance = max(0.0, abs(z) - margin / std_error)
+    distance = float(np.maximum(0.0, abs(z) - margin / std_error))
     tail = stats.norm.sf(distance) if df is None else stats.t.sf(distance, df)
     return float(z), float(2.0 * tail)
 

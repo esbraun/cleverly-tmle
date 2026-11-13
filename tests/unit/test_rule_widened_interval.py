@@ -32,11 +32,13 @@ import pandas as pd
 import pytest
 from scipy import stats
 
-from cleverly.estimators import DRTMLE
+from cleverly.estimators import DRTMLE, TMLE
 from cleverly.inference import Transform, simultaneous_bands
+from cleverly.inference.delta import wald_ci, wald_statistic
 from cleverly.inference.influence import ParameterEstimate
 from tests.conftest import linear_drtmle
 from tests.studies import _option_stopping_laws as laws
+from tests.studies import canonical_tmle
 from tests.unit import test_stopping_rule_engines as engines
 from tests.unit._source_mutation import mutate
 
@@ -204,6 +206,39 @@ class TestTheWidenedInterval:
         )
 
 
+class TestAnUndefinedStatistic:
+    """A ``nan`` value or null gives a ``nan`` p-value, with or without a margin."""
+
+    @pytest.mark.parametrize("margin", [0.0, 0.3])
+    @pytest.mark.parametrize(("value", "null"), [(float("nan"), 0.0), (1.0, float("nan"))])
+    def test_the_p_value_is_nan(self, value: float, null: float, margin: float) -> None:
+        statistic, pvalue = wald_statistic(value, null, 1.0, margin=margin)
+        assert np.isnan(statistic)
+        assert np.isnan(pvalue)
+
+    def test_a_wald_test_against_a_nan_null_is_undefined(self) -> None:
+        for estimate in (ruled()["ate"], relative()["ate"]):
+            assert np.isnan(estimate.wald_test(null=float("nan")).pvalue)
+
+    def test_the_mutation_that_clips_with_the_builtin_max_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        delta = importlib.import_module("cleverly.inference.delta")
+        mutate(
+            monkeypatch,
+            delta,
+            delta,
+            "wald_statistic",
+            [
+                (
+                    "distance = float(np.maximum(0.0, abs(z) - margin / std_error))",
+                    "distance = max(0.0, abs(z) - margin / std_error)",
+                )
+            ],
+        )
+        assert not np.isnan(delta.wald_statistic(float("nan"), 0.0, 1.0)[1])
+
+
 class TestTheWitness:
     """The residual is not at roundoff, so the identities above see the widening."""
 
@@ -251,28 +286,84 @@ class TestTheWitness:
         assert abs(below - expected) > 1e-9 or abs(above - expected) > 1e-9
 
 
-class TestTheDefaultRule:
-    def test_point_fits_are_not_widened(self) -> None:
-        for name, estimate in relative().estimates.items():
-            assert not estimate.rule_widened, name
-            assert estimate.ci == estimate.plugin_interval, name
+def plain_wald(estimate: ParameterEstimate) -> tuple[float, float]:
+    """The plain Wald interval, built from :func:`wald_ci` without the estimate's own code.
 
-    def test_a_doubly_robust_fit_is_not_widened(self) -> None:
-        estimator = DRTMLE(
-            **linear_drtmle(cross_fit=False, estimands=("ate", "ey1", "ey0"), targeting="one_step")
+    Mapped to the reported scale as ``ParameterEstimate`` maps it, so a default-rule fit's
+    ``ci`` equals it bit for bit.
+    """
+    low, high = wald_ci(
+        estimate.inference_value,
+        estimate.std_error,
+        estimate.alpha,
+        df=estimate.reference_df,
+    )
+    if estimate.transform is not None:
+        mapped = sorted(
+            (float(estimate.transform.inverse(low)), float(estimate.transform.inverse(high)))
         )
-        result = estimator.fit(engines._lin(), outcome="Y", treatment="A").single()
-        for name, estimate in result.estimates.items():
-            assert not estimate.rule_widened, name
-            assert estimate.ci == estimate.plugin_interval, name
+        return (mapped[0], mapped[1])
+    if estimate.scale == "ratio":
+        return (float(np.exp(low)), float(np.exp(high)))
+    return (low, high)
 
-    @pytest.mark.parametrize("fit", [hazard, end_of_study])
-    def test_longitudinal_fits_are_not_widened(self, fit: Any) -> None:
-        for name, estimate in fit("relative").estimates.items():
-            assert not estimate.rule_widened, name
-            assert estimate.ci == estimate.plugin_interval, name
 
-    def test_the_mutation_that_widens_every_fit_fails(
+@functools.cache
+def relative_drtmle() -> Any:
+    estimator = DRTMLE(
+        **linear_drtmle(cross_fit=False, estimands=("ate", "ey1", "ey0"), targeting="one_step")
+    )
+    return estimator.fit(engines._lin(), outcome="Y", treatment="A").single()
+
+
+def default_rule_fits() -> dict[str, Any]:
+    return {
+        "tmle": relative(),
+        "drtmle": relative_drtmle(),
+        "hazard": hazard("relative"),
+        "end_of_study": end_of_study("relative"),
+    }
+
+
+def assert_plain_estimate(estimate: ParameterEstimate) -> None:
+    """No flag, no margin, and ``ci`` the plain interval exactly."""
+    assert not estimate.rule_widened, estimate.name
+    assert estimate.residual_margin == 0.0, estimate.name
+    assert estimate.ci == plain_wald(estimate), estimate.name
+
+
+def assert_plain(result: Any) -> None:
+    """Every estimate of a default-rule fit is plain (:func:`assert_plain_estimate`)."""
+    for estimate in result.estimates.values():
+        assert_plain_estimate(estimate)
+
+
+class TestTheDefaultRule:
+    @pytest.mark.parametrize("fit", ["tmle", "drtmle", "hazard", "end_of_study"])
+    def test_a_default_rule_fit_reports_the_plain_interval_exactly(self, fit: str) -> None:
+        assert_plain(default_rule_fits()[fit])
+
+    def test_the_default_rule_residual_is_not_zero(self) -> None:
+        # The witness that makes the control able to fail: a margin of |score| would move
+        # the interval, because the relative walk stops at tol, not at an exact zero.
+        scores = [
+            abs(estimate.score)
+            for result in default_rule_fits().values()
+            for estimate in result.estimates.values()
+        ]
+        assert max(scores) > 0.0
+
+    def test_the_mutation_that_widens_every_interval_fails_the_control(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            ParameterEstimate, "_residual_margin", lambda self, widen: abs(self.score)
+        )
+        for result in default_rule_fits().values():
+            with pytest.raises(AssertionError):
+                assert_plain(result)
+
+    def test_the_mutation_that_flags_every_fit_fails_the_control(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         mutate(
@@ -282,8 +373,9 @@ class TestTheDefaultRule:
             "_estimates_for",
             [('rule_widened=self.stopping != "relative"', "rule_widened=True")],
         )
-        result = laws.fit_point("binary", l1_sample(), stopping="relative")
-        assert any(estimate.rule_widened for estimate in result.estimates.values())
+        result = laws.fit_point("binary", l1_sample(), stopping="relative", targeting="one_step")
+        with pytest.raises(AssertionError):
+            assert_plain(result)
 
 
 # ------------------------------------------------------------------------------ derived
@@ -358,6 +450,167 @@ class TestDerivedEstimates:
         assert below != pytest.approx(
             Z * estimate.std_error + abs(estimate.score), rel=0.0, abs=EXACT
         )
+
+
+class TestInheritanceSites:
+    """Each builder that assembles an estimate from others inherits the flag.
+
+    One fit per site, on the cheapest path that reaches it, with a mutation that forces the
+    site's flag to ``False`` as the control.
+    """
+
+    SITE = "rule_widened=any(part.rule_widened for part in parts)"
+
+    @staticmethod
+    def cross_fitted(**settings: Any) -> Any:
+        frame = laws.draw_l1("binary", 1_000, 7)[0]
+        covariates = ["W1", "W2", "W3"]
+        if "strata" in settings:
+            frame = frame.assign(V=(frame["W1"] > 0).astype(int))
+            covariates = [*covariates, "V"]
+        strata = settings.pop("strata", None)
+        estimator = TMLE(
+            estimands=("ey1", "ey0", "ate"),
+            simultaneous=False,
+            g_bounds=canonical_tmle.G_BOUNDS,
+            random_state=0,
+            stopping="scaled_var",
+            targeting="one_step",
+            max_iter=laws.ONE_STEP_MAX_ITER,
+            tol=laws.TOL,
+            cross_fit=True,
+            n_folds=2,
+            **laws.point_learners("binary"),
+            **settings,
+        )
+        columns: dict[str, Any] = {"covariates": covariates}
+        if strata is not None:
+            columns["strata"] = strata
+        return estimator.fit(frame, outcome="Y", treatment="A", **columns).single()
+
+    @staticmethod
+    def assert_inherited(estimates: dict[str, ParameterEstimate]) -> None:
+        for name, estimate in estimates.items():
+            assert estimate.rule_widened, name
+            assert_widened(estimate)
+        assert max(abs(e.score) / e.std_error for e in estimates.values()) > 1e-4
+
+    @staticmethod
+    def repeated_contrast() -> ParameterEstimate:
+        # A point fit refuses a contrast of median-combined repeats; a longitudinal one
+        # computes it in every draw and combines the draws by the median rule.
+        from cleverly.longitudinal import LTMLE
+        from tests.studies import canonical_point_survival_curve as curve
+
+        estimator = LTMLE(
+            curve.REGIMENS,
+            reference=curve.REFERENCE,
+            n_folds=2,
+            repeats=2,
+            simultaneous=False,
+            survival_model="hazard",
+            targeting="one_step",
+            step_size=laws.L4_STEP_SIZE,
+            tol=laws.TOL,
+            max_iter=laws.ONE_STEP_MAX_ITER,
+            random_state=0,
+            stopping="scaled_var",
+            **laws.l4_learners("primary"),
+        )
+        result = estimator.fit(curve.LAW.container(laws.draw_l4(800, 3)[0]))
+        assert result.n_repeats == 2
+        return result.contrast(lambda p: p[0] - p[1], [laws.L4_RISK, "risk_regimen[arm0 @ t=5]"])
+
+    def test_the_median_over_repeats_inherits(self) -> None:
+        self.assert_inherited({"contrast": self.repeated_contrast()})
+
+    def test_the_mutation_that_drops_the_median_inheritance_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mutate(
+            monkeypatch,
+            influence_module,
+            results_module,
+            "median_estimates",
+            [(self.SITE, "rule_widened=False")],
+        )
+        with pytest.raises(AssertionError):
+            self.assert_inherited({"contrast": self.repeated_contrast()})
+
+    def test_the_fold_average_inherits(self) -> None:
+        self.assert_inherited(self.cross_fitted(cv_evaluation=True).estimates)
+
+    def test_the_mutation_that_drops_the_fold_average_inheritance_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mutate(
+            monkeypatch,
+            tmle_module,
+            tmle_module,
+            "_average_over_folds",
+            [(self.SITE, "rule_widened=False")],
+        )
+        with pytest.raises(AssertionError):
+            self.assert_inherited(self.cross_fitted(cv_evaluation=True).estimates)
+
+    def stratified(self) -> dict[str, ParameterEstimate]:
+        result = self.cross_fitted(cv_evaluation=True, strata=("V",))
+        marginal = {name: e for name, e in result.estimates.items() if "[" not in name}
+        assert set(marginal) == {"ey1", "ey0", "ate"}
+        return marginal
+
+    def test_the_stratum_mixture_inherits(self) -> None:
+        self.assert_inherited(self.stratified())
+
+    def test_the_mutation_that_drops_the_stratum_mixture_inheritance_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        strata_module = importlib.import_module("cleverly.estimators._strata")
+        mutate(
+            monkeypatch,
+            strata_module,
+            tmle_module,
+            "stratum_mixture",
+            [(self.SITE, "rule_widened=False")],
+        )
+        with pytest.raises(AssertionError):
+            self.assert_inherited(self.stratified())
+
+    @staticmethod
+    def msm_coefficients(rule: str) -> dict[str, ParameterEstimate]:
+        from tests.unit import test_stopping_rule_longitudinal as longitudinal
+
+        result = longitudinal.working_model(rule)
+        return {n: e for n, e in result.estimates.items() if n.startswith("msm_regimen[")}
+
+    def test_the_working_model_coefficients_inherit(self) -> None:
+        # The node walks of this fit solve their score far inside the rule, so the residual
+        # is at roundoff and the flag is what the control reads.
+        for rule, flagged in (("scaled_var", True), ("relative", False)):
+            coefficients = self.msm_coefficients(rule)
+            assert coefficients
+            for name, estimate in coefficients.items():
+                assert estimate.rule_widened is flagged, (rule, name)
+                assert_widened(estimate) if flagged else assert_plain_estimate(estimate)
+
+    def test_the_mutation_that_drops_the_working_model_inheritance_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        longitudinal_module = importlib.import_module("cleverly.longitudinal.estimator")
+        mutate(
+            monkeypatch,
+            longitudinal_module,
+            longitudinal_module,
+            "_msm_estimates",
+            [
+                (
+                    "rule_widened=any(_rule_widened(fit) for fit in msm_fit.fits)",
+                    "rule_widened=False",
+                )
+            ],
+        )
+        coefficients = self.msm_coefficients("scaled_var")
+        assert not any(estimate.rule_widened for estimate in coefficients.values())
 
 
 # ------------------------------------------------------------------------------ units
