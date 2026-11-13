@@ -32,6 +32,26 @@ coverage 0.9325 with lower endpoint 0.918 against the 0.92 calibration floor, wi
 inside its band. No package defect was found: at 40 clusters the declared rule keeps the normal
 reference, and that variance has J - V = 30 degrees of freedom. The record switched to
 ``reporting`` with owner F28 before the one re-run. No margin, budget, law or learner changed.
+
+**Fix-4 (regeneration).** The diagnosis above was the missing piece: the fold-evaluated
+variance has ``J - V`` degrees of freedom, and the fit now reports t with ``J - V`` at every
+cluster count, so the covariate pair reads ``t_30``. The pair is re-measured on a fresh stream
+(``covariate_fold_evaluated_t_reference``) at :data:`COVARIATE_REPLICATES` replications, sized
+in ``tests/unit/test_clustered_unequal_study.py`` without the committed reading. The
+fold-evaluated pair at informative sizes left the study: ``cv_evaluation=True`` now refuses
+clusters of unequal size and redirects to the stacked report, which the ``cluster_robust`` pair
+measures on the same law. Every retained pair keeps its seeds and reproduces.
+
+The covariate fits also publish a reported arm, ``normal_reference_fold_evaluated_cluster_covariate``:
+the same point and standard error with the normal quantile, so the run shows on the same draws
+what ``t_30`` buys over the reference the fit reported before Fix-4. It states no verdict.
+
+Declared reading of the covariate positive cell, before the run: red with a 99% SE-ratio
+interval that contains 1 and a coverage interval that contains 0.95 is ``finite-sample`` and
+stays under F28. A red on the low side of the SE ratio is first compared with the design test's
+kurtosis ratio (above 0.98) and with the committed 0.981, because under perfect calibration the
+statistic reads below 1 (0.9917 under normal theory at 30 df); it is then routed by the guide's
+rule. Any other red cell is a defect suspect and is diagnosed before anything else.
 """
 
 from __future__ import annotations
@@ -58,6 +78,8 @@ PRIMARY_REPLICATES = 800
 #: The nominal row count. Each draw holds ``PRIMARY_N // 10`` clusters of mean size 10.
 PRIMARY_N = 2_000
 PROPERTY_REPLICATES = 2_400
+#: The replications of the fold-evaluated covariate pair (Fix-4), sized by its design test.
+COVARIATE_REPLICATES = 4_000
 N_FOLDS = 5
 SEED = 20262401
 RESAMPLING_SEED = 20262402
@@ -75,12 +97,11 @@ PROPERTY_CELLS = {
     "clustered_inference": (
         "cluster_robust",
         "iid_control",
-        "cluster_robust_fold_evaluated",
-        "iid_control_fold_evaluated",
         "cluster_robust_drtmle",
         "iid_control_drtmle",
         "cluster_robust_fold_evaluated_cluster_covariate",
         "iid_control_fold_evaluated_cluster_covariate",
+        "normal_reference_fold_evaluated_cluster_covariate",
     ),
     "estimand_weighting": (
         "individual_average",

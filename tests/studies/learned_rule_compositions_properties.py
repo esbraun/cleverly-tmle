@@ -95,8 +95,8 @@ def suffixes(record: StudyRecord) -> dict[tuple[str, str], tuple[Any, ...]]:
 #: quadrature of :func:`~tests.studies._learned_rule_compositions_law.cluster_covariance`.
 FEW_CLUSTER_BOUND = 1.616137
 
-#: The few-cluster fit's own critical value: the t reference with ``min(J - 2, J - V) = 20``
-#: degrees of freedom at 30 clusters in 10 folds, so a control interval is the fit's form.
+#: The few-cluster fit's own critical value: the t reference with ``J - V = 20`` degrees of
+#: freedom at 30 clusters in 10 folds, so a control interval is the fit's form.
 FEW_CLUSTER_DF = 20
 FEW_CLUSTER_CRITICAL = float(student_t.ppf(1.0 - STUDY.margins.alpha / 2.0, FEW_CLUSTER_DF))
 

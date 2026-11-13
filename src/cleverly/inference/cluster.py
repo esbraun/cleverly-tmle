@@ -49,11 +49,13 @@ __all__ = [
     "cluster_weight_mass",
     "cross_validated_variance",
     "fewest_clusters",
+    "fold_evaluated_reference_df",
     "influence_variance",
     "positive_mass_clause",
     "stacked_second_moment_covariance",
     "stacked_second_moment_variance",
     "unequal_cluster_sizes",
+    "unequal_positive_cluster_mass",
 ]
 
 
@@ -475,6 +477,60 @@ def unequal_cluster_sizes(cluster: IntArray, weights: FloatArray | None = None) 
     return bool(float(np.ptp(mass)) > WEIGHT_MASS_RTOL * float(np.max(np.abs(mass))))
 
 
+def unequal_positive_cluster_mass(
+    cluster: IntArray, mass: FloatArray, total: FloatArray
+) -> tuple[float, float, int] | None:
+    """The spread of a per-cluster mass over the clusters with positive total mass.
+
+    ``mass`` and ``total`` are per-row arrays. ``total`` is the observation weight of each
+    row, or ones on an unweighted fit; ``mass`` is ``total`` restricted to the rows that one
+    estimand's denominator reads, such as the treated rows of the ATT. Both are summed by
+    cluster. Only the clusters with positive total mass count, and among them a cluster whose
+    ``mass`` sums to zero counts with mass 0. The masses differ when their range exceeds
+    :data:`WEIGHT_MASS_RTOL` times the largest. Unlike :func:`unequal_cluster_sizes`, row
+    counts do not enter: equal mass from unequal row counts is equal.
+
+    Parameters
+    ----------
+    cluster : ndarray of int
+        The cluster label of each row.
+    mass : ndarray of float
+        The denominator mass of each row.
+    total : ndarray of float
+        The total weight mass of each row.
+
+    Returns
+    -------
+    tuple of (float, float, int) or None
+        The smallest and largest per-cluster mass and the number of clusters with positive
+        total mass when the masses differ, and ``None`` when they are equal.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference.cluster import unequal_positive_cluster_mass
+    >>> cluster = np.repeat(np.arange(4), 3)
+    >>> ones = np.ones(12)
+    >>> unequal_positive_cluster_mass(cluster, ones, ones) is None
+    True
+    >>> treated = np.array([1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0], dtype=float)
+    >>> unequal_positive_cluster_mass(cluster, treated, ones)
+    (1.0, 2.0, 4)
+    """
+    _, inverse = np.unique(np.asarray(cluster).reshape(-1), return_inverse=True)
+    inverse = inverse.reshape(-1)
+    totals = np.bincount(inverse, weights=np.asarray(total, dtype=float).reshape(-1))
+    masses = np.bincount(
+        inverse, weights=np.asarray(mass, dtype=float).reshape(-1), minlength=totals.size
+    )[totals > 0.0]
+    if masses.size == 0:
+        return None
+    low, high = float(masses.min()), float(masses.max())
+    if high - low <= WEIGHT_MASS_RTOL * max(abs(low), abs(high)):
+        return None
+    return low, high, int(masses.size)
+
+
 def fewest_clusters(
     cluster: IntArray,
     strata: IntArray | None = None,
@@ -692,3 +748,75 @@ def cluster_reference_df(
             "interval reads the reference"
         )
     return count - 2
+
+
+def fold_evaluated_reference_df(
+    cluster: IntArray,
+    validation_folds: int,
+    weights: FloatArray | None = None,
+    rows: BoolArray | None = None,
+) -> int:
+    r"""The degrees of freedom of the Student t reference of one fold-evaluated estimate.
+
+    :math:`J - V`, where :math:`J` counts the clusters with positive weight mass among
+    ``rows`` and :math:`V` is the number of validation folds, at every cluster count. The
+    fold-evaluated variance of :func:`cross_validated_variance` centres the cluster totals
+    inside each fold, so it pools :math:`J_v - 1` degrees of freedom from each fold. Under
+    the normal one-way model with equal folds the studentised estimate is exactly
+    :math:`t_{J - V}`; otherwise the count is an approximation. With :math:`V` fixed,
+    :math:`t_{J - V}` tends to the normal as :math:`J` grows, so the rule needs no cutoff.
+
+    Parameters
+    ----------
+    cluster : ndarray of int
+        The cluster label of each row.
+    validation_folds : int
+        The number of validation folds the estimate averages over.
+    weights : ndarray of float or None, default None
+        The observation weight of each row. ``None`` counts every cluster.
+    rows : ndarray of bool or None, default None
+        The rows the estimate reads, such as one baseline stratum. ``None`` reads all.
+
+    Returns
+    -------
+    int
+        The degrees of freedom :math:`J - V`.
+
+    Raises
+    ------
+    ValueError
+        When ``validation_folds`` is below 2, or when :math:`J - V` is below 1. A fit
+        reaches neither: it refuses fewer than two realised folds, and it refuses a
+        validation fold with fewer than two positive-mass clusters, so :math:`J \ge 2V`.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference.cluster import fold_evaluated_reference_df
+    >>> fold_evaluated_reference_df(np.repeat(np.arange(40), 3), validation_folds=10)
+    30
+    >>> fold_evaluated_reference_df(np.repeat(np.arange(12), 3), validation_folds=3)
+    9
+    >>> cluster = np.repeat(np.arange(12), 3)
+    >>> fold_evaluated_reference_df(
+    ...     cluster, validation_folds=3, weights=np.where(cluster < 2, 0.0, 1.0)
+    ... )
+    7
+    """
+    folds = int(validation_folds)
+    if folds < 2:
+        raise ValueError(
+            f"a fold-evaluated estimate averages over at least 2 validation folds; got {folds}"
+        )
+    labels = np.asarray(cluster).reshape(-1)
+    keep = np.ones(labels.size, dtype=bool) if rows is None else np.asarray(rows, dtype=bool)
+    if weights is not None:
+        keep = keep & (np.asarray(weights, dtype=float).reshape(-1) > 0.0)
+    df = int(np.unique(labels[keep]).size) - folds
+    if df < 1:
+        raise ValueError(
+            f"a fold-evaluated estimate over {folds} validation folds needs more than {folds} "
+            f"clusters with positive weight mass; these rows hold {df + folds}. A fit refuses "
+            "a validation fold with fewer than two such clusters"
+        )
+    return df
