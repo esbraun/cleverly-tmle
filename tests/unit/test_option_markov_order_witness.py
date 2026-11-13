@@ -162,8 +162,8 @@ class TestTheWindowWitness:
         late = mutated(
             LongitudinalData,
             "history_design",
-            "max(1, self.window_start(time) - 1)",
-            "self.window_start(time)",
+            "first = self.window_arm_start(time)",
+            "first = self.window_start(time)",
         )
         monkeypatch.setattr(LongitudinalData, "history_design", late)
         with pytest.raises(AssertionError):

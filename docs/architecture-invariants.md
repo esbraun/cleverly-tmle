@@ -734,7 +734,8 @@ outcome design at node $t$ reads `W` and a window of the last nodes. The `histor
 `policy_frame` that a rule or a policy reads keep the full history. So a window never changes a
 resolved plan. A rule node in the window adds its assigned arm to the outcome design, because the
 window does not determine that arm. The outcome and mechanism designs read the arms of the same
-nodes, from $t-k-1$. `tests/unit/test_longitudinal_markov_order.py` pins both
+nodes, from $t-k-1$, or from node 1 on a held design, whose decision is the arm of every node.
+`LongitudinalData.window_arm_start` is the one home of that start. `tests/unit/test_longitudinal_markov_order.py` pins both
 frames in `test_the_frames_keep_the_full_history`, and a dropped rule block fails an exact-law
 check there.
 
