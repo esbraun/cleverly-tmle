@@ -140,3 +140,18 @@ def test_the_quoted_composite_numbers() -> None:
     assert audit.coverage(frame, "covered_shipped")[key] == pytest.approx(0.92625)
     rows = frame.loc[(frame["scenario"] + "/" + frame["estimand"]) == key]
     assert _cp_lower(rows["covered_shipped"]) == pytest.approx(0.8992, abs=5e-5)
+
+
+def test_the_quoted_pricing_numbers() -> None:
+    """`mtp-pricing-calibration`: the five-node `price_down` levels pass their floor on logit."""
+    frame = audit.read(audit.record_for("mtp-pricing"))
+    for scenario, before, after, lower in (
+        ("pricing_ltmle_tau5", 0.917, 0.933, 0.9100),
+        ("pricing_sdr_tau5", 0.923, 0.935, 0.9123),
+    ):
+        key = f"{scenario}/ey_regimen[price_down]"
+        assert audit.coverage(frame, "covered_committed")[key] == pytest.approx(before)
+        assert audit.coverage(frame, "covered_shipped")[key] == pytest.approx(after)
+        rows = frame.loc[(frame["scenario"] + "/" + frame["estimand"]) == key]
+        assert _cp_lower(rows["covered_shipped"]) == pytest.approx(lower, abs=5e-5)
+        assert _cp_lower(rows["covered_shipped"]) >= 0.90 > _cp_lower(rows["covered_committed"])

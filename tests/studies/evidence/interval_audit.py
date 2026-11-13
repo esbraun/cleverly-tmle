@@ -355,10 +355,24 @@ def _composite_audit() -> Audit:
     )
 
 
+def _pricing_audit() -> Audit:
+    # No scan: a longitudinal level whose last-node regression reads a constant outcome takes
+    # ``constant_node_plugin``, which the committed rows already record.  The range check
+    # reads the committed estimate.
+    record = record_for("mtp-pricing")
+    return Audit(
+        truth={
+            scenario: tuple(name for name in names if name.startswith("ey_regimen["))
+            for scenario, names in record.scenarios.items()
+        }
+    )
+
+
 #: Study slug to the factory of its audit declaration.
 AUDITS: dict[str, Callable[[], Audit]] = {
     "canonical-stratified-tmle": _stratified_audit,
     "composite-missing-drtmle": _composite_audit,
+    "mtp-pricing": _pricing_audit,
 }
 
 
