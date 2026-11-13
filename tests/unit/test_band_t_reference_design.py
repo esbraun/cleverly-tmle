@@ -504,3 +504,11 @@ def test_the_failure_accounting_gates_coverage_and_not_the_gain(module: Any) -> 
     assert [clause.statistic for clause in rule.clauses] == [
         clause.statistic for clause in plain.clauses
     ]
+
+
+@pytest.mark.parametrize("module", [study, held_out], ids=["main", "held_out"])
+def test_the_configuration_names_no_key_the_record_owns(module: Any) -> None:
+    """``write_manifest`` refuses a configuration key the record owns, after the fits ran."""
+    from tests.studies.evidence.manifest import RECORD_CONFIGURATION_KEYS
+
+    assert not RECORD_CONFIGURATION_KEYS & set(module.CONFIGURATION)

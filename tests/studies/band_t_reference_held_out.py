@@ -110,7 +110,7 @@ CONFIGURATION = {
     "primary_law": main_study.CONFIGURATION["primary_law"],
     "band_rule": main_study.CONFIGURATION["band_rule"],
     "cell": {"source": HELD_OUT_CELL.source, "n": HELD_OUT_CELL.n, "rows": ()},
-    "replicates": f"band-t-reference's declared R ({REPLICATES})",
+    "declared_replicates_source": f"band-t-reference's declared R ({REPLICATES})",
 }
 
 
