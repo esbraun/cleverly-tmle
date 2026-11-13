@@ -32,6 +32,7 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import DRTMLE, TMLE
+from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.inference import cluster as cluster_module
 from cleverly.inference import influence_variance
 from tests.conftest import OracleTreatment
@@ -256,7 +257,6 @@ class TestUnequalSizesKeepTheInterval:
         "settings",
         [
             pytest.param({}, id="stacked"),
-            pytest.param({"cv_evaluation": True}, id="cv_evaluation"),
             pytest.param({"targeting_scheme": "fold"}, id="fold targeting"),
             pytest.param({"repeats": 2}, id="repeats"),
         ],
@@ -282,6 +282,24 @@ class TestUnequalSizesKeepTheInterval:
             low, high = estimate.ci
             assert low < estimate.psi < high or estimate.scale == "ratio"
             assert estimate.reference_df is None
+
+    def test_a_fold_evaluated_fit_refuses_and_redirects(self, sixty_clusters: Any) -> None:
+        """The equal fold average of ratios over unequal clusters carries a ratio bias."""
+        estimator = TMLE(
+            outcome_learner=LogisticRegression(C=1e6, max_iter=1000),
+            treatment_learner=OracleTreatment(ExactPropensity()),
+            n_folds=5,
+            cv_evaluation=True,
+            estimands=("ey0", "ey1", "ate"),
+            simultaneous=False,
+            random_state=0,
+        )
+        with pytest.raises(CapabilityError) as raised:
+            estimator.fit(
+                sixty_clusters, outcome="Y", treatment="A", covariates=["W1", "W2"], id="cluster"
+            )
+        assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+        assert "their sizes differ" in str(raised.value)
 
     def test_unequal_weight_mass_and_a_drtmle_fit_keep_the_interval(
         self, sixty_clusters: Any

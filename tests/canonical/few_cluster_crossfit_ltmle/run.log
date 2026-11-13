@@ -1,0 +1,21 @@
+=== few-cluster-cross-fitted-ltmle declared run
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\tests\canonical\few_cluster_crossfit_ltmle\regenerate.py' --output 'C:\Users\erics\fix4\s5' --jobs 16
+commit: 4ff3670b54a113fe298d5e62aeb622a9bac6da1d; upstream 4ff3670b54a113fe298d5e62aeb622a9bac6da1d
+clean tree: True
+cleverly 0.2.4 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\src\cleverly\__init__.py
+python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 112, sha256 abd701a921e373fce350777589111aafe00d4dd021197fb228e5726e03d9d302
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-11-13T00:48:16+00:00
+finished: 2026-11-13T00:51:35+00:00
+wall seconds: 199.1
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 81198944d9235543f3a0f68005b0f2f3fdee03a758dea79e426ab8c282a5caaa
+sha256 performance-tests.csv: f15a8891dd11c618bd56b0a6a5bd6e6f7dd12d47e6c103db22fcc75c6dcb40c6
+sha256 properties.csv: 8d15f5bcdeff16520a00fc93d25e4773f92629f37d73e4b367b7da4b55092eda
+sha256 property-replicates.parquet: 0fbc6b1195842d3295820746dbdac98b0926babdbf988435b6686ef1f8fe14d3
+sha256 replicates.parquet: cf816990e71fab44448dd7223cb8d83285ce44175e1b1ae6524a500eb278e15a
+sha256 summary.csv: c948cd4c60fa194b6847d65293bdadda57f3f38ffd69eb177b12dc037faaf025
+

@@ -42,7 +42,7 @@ The table gives the three primary settings and the few-cluster property cell.
 | `fold_targeted` | `non_exceptional`, $0.1 + W_1$ | `targeting_scheme="fold"`: each validation fold fits its own fluctuation on its own rows | 2,000 |
 | `weighted` | `misspecified_limit`, $0.8 W_1 + W_1^2 - 0.3$ | the known weight $w = 1 + 1.5 \cdot 1\{W_1 > 0\}$ through `weights=`. The rule is the plug-in of the weighted outcome regression, and the target is the value in the weighted population | 2,000 |
 | `clustered` | `non_exceptional` plus a cluster effect $u \sim N(0, 1.5^2)$ on the logit scale, shared by the rows of a cluster | `id=` with 200 clusters of 10 rows. Folds move whole clusters, and the variance sums the curve within clusters | 2,000 |
-| `clustered_few` | as `clustered` | 30 clusters of 34 rows, so the fit reports a t interval with $\min(J - 2, J - V) = 20$ degrees of freedom | 1,020 |
+| `clustered_few` | as `clustered` | 30 clusters of 34 rows, so the fit reports a t interval with $J - V = 20$ degrees of freedom | 1,020 |
 
 The outcome learner has no $W_1^2$ term, so at `misspecified_limit` the weighted and the
 unweighted rules have different limits. `tests/unit/test_learned_rule_compositions.py` checks the
@@ -60,7 +60,7 @@ seeds, the truth rule and the run form before any run.
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| learned-rule law with the blip 0.1 + W1 and a cluster effect of SD 1.5 on the logit scale, 200 clusters of 10 rows | `ey_learned_rule[learned rule]` | fold average of the value of the rule learned on each fold's training rows from its outcome regression | `cleverly` fold-evaluated CV-TMLE of the learned-rule value, with fold targeting, known weights or clusters | -0.0013 to 0.000572 | 0.9445 | 0.9926 | pass |
+| learned-rule law with the blip 0.1 + W1 and a cluster effect of SD 1.5 on the logit scale, 200 clusters of 10 rows | `ey_learned_rule[learned rule]` | fold average of the value of the rule learned on each fold's training rows from its outcome regression | `cleverly` fold-evaluated CV-TMLE of the learned-rule value, with fold targeting, known weights or clusters | -0.0013 to 0.000572 | 0.9465 | 0.9926 | pass |
 | learned-rule law with the blip 0.1 + W1, fold targeting | `ey_learned_rule[learned rule]` | fold average of the value of the rule learned on each fold's training rows from its outcome regression | `cleverly` fold-evaluated CV-TMLE of the learned-rule value, with fold targeting, known weights or clusters | -0.000597 to 0.000644 | 0.9427 | 0.9746 | pass |
 | learned-rule law with the blip 0.8 W1 + W1^2 - 0.3 and the known weight 1 + 1.5 * 1{W1 > 0}, a misspecified outcome learner | `ey_learned_rule[learned rule]` | fold average of the value of the rule learned on each fold's training rows from its outcome regression | `cleverly` fold-evaluated CV-TMLE of the learned-rule value, with fold targeting, known weights or clusters | -0.0011 to 0.000245 | 0.9537 | 0.9916 | pass |
 <!-- /generated -->
@@ -84,7 +84,7 @@ bounds, and they size the noise controls only.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `interval_calibration` | `clustered__declared` | positive | the learned-rule law with the blip 0.1 + W1 and a cluster effect, in 200 clusters of 10 rows: the declared fit with the study's logistic learners | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9384 to 0.9513, SE ratio 0.9725 to 1.0111 | pass |
+| `interval_calibration` | `clustered__declared` | positive | the learned-rule law with the blip 0.1 + W1 and a cluster effect, in 200 clusters of 10 rows: the declared fit with the study's logistic learners | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9394 to 0.9522, SE ratio 0.9725 to 1.0111 | pass |
 | `interval_calibration` | `clustered__noise_control` | control | the learned-rule law with the blip 0.1 + W1 and a cluster effect, in 200 clusters of 10 rows: a declared scale of independent noise is added to each estimate | the SE-ratio interval must fall below the calibration band | coverage 0.8268 to 0.8476, SE ratio 0.6984 to 0.7272 | pass |
 | `interval_calibration` | `clustered__row_variance_control` | control | the learned-rule law with the blip 0.1 + W1 and a cluster effect, in 200 clusters of 10 rows: the same estimate with the row-level standard error that ignores the clusters | the SE-ratio interval must fall below the calibration band | coverage 0.7923 to 0.8147, SE ratio 0.6443 to 0.6695 | pass |
 | `interval_calibration` | `clustered__shrunken_se_control` | control | the learned-rule law with the blip 0.1 + W1 and a cluster effect, in 200 clusters of 10 rows: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8163 to 0.8376, SE ratio 0.6803 to 0.7079 | pass |
@@ -97,7 +97,7 @@ bounds, and they size the noise controls only.
 | `interval_calibration` | `weighted__declared` | positive | the learned-rule law with the blip 0.8 W1 + W1^2 - 0.3 and the known weight 1 + 1.5 * 1{W1 > 0}: the declared fit with the study's logistic learners | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9343 to 0.9476, SE ratio 0.9498 to 0.9889 | pass |
 | `interval_calibration` | `weighted__noise_control` | control | the learned-rule law with the blip 0.8 W1 + W1^2 - 0.3 and the known weight 1 + 1.5 * 1{W1 > 0}: a declared scale of independent noise is added to each estimate | the SE-ratio interval must fall below the calibration band | coverage 0.8222 to 0.8433, SE ratio 0.6872 to 0.7158 | pass |
 | `interval_calibration` | `weighted__shrunken_se_control` | control | the learned-rule law with the blip 0.8 W1 + W1^2 - 0.3 and the known weight 1 + 1.5 * 1{W1 > 0}: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8021 to 0.8242, SE ratio 0.6647 to 0.6921 | pass |
-| `targeting_necessity` | `fold_targeted__targeted` | positive | the learned-rule law with the blip 0.1 + W1, fitted with fold targeting: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0010 to 0.000789, margin 0.0045 | pass |
+| `targeting_necessity` | `fold_targeted__targeted` | positive | the learned-rule law with the blip 0.1 + W1, fitted with fold targeting: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0010 to 0.000787, margin 0.0045 | pass |
 | `targeting_necessity` | `fold_targeted__untargeted` | control | the learned-rule law with the blip 0.1 + W1, fitted with fold targeting: the identical fit with every fluctuation step removed | bias interval must fall entirely outside the margin | bias 0.0204 to 0.0218, margin 0.0036 | pass |
 <!-- /generated -->
 
@@ -111,7 +111,7 @@ declared logistic outcome learner.
 | --- | --- | --- |
 | primary coverage, `fold_targeted` | 0.9427 | `performance-tests.csv` |
 | primary coverage, `weighted` | 0.9537 | `performance-tests.csv` |
-| primary coverage, `clustered` | 0.9445 | `performance-tests.csv` |
+| primary coverage, `clustered` | 0.9465 | `performance-tests.csv` |
 | coverage of the t interval at 30 clusters | 0.9400 to 0.9528 | `properties.csv`, `clustered_few__declared` |
 | coverage with the row-level SE under clusters | 0.7923 to 0.8147 | `properties.csv`, `clustered__row_variance_control` |
 | rule rows that the truth harness checked | 2,000 in each of 12,000 primary replications | `harness.csv.gz`, `rule_rows_checked` |
@@ -125,7 +125,7 @@ it as a failed fit, and no rule reads the count. A harness refit whose rule diff
 fit's rule would have stopped the run, and the run completed.
 
 The targeted arm of `targeting_necessity` uses an outcome learner that omits $W_1$. It covers
-0.9186, with a 99% interval of 0.9040 to 0.9317 and an SE ratio of 0.8978, over 2,655
+0.9186, with a 99% interval of 0.9040 to 0.9317 and an SE ratio of 0.8977, over 2,655
 replications. The family gates bias only, so these numbers are descriptive. They are not a
 calibration claim for a misspecified outcome learner.
 
@@ -161,7 +161,7 @@ the committed results and checked at the precision printed.
 | `max_se_ratio_ci_upper` | 1.0227 | highest bootstrap primary SE-ratio endpoint |
 | `performance[cleverly-learned-rule-compositions/fold_targeted/ey_learned_rule[learned rule]]:coverage` | 0.9427 | primary coverage at `fold_targeted` |
 | `performance[cleverly-learned-rule-compositions/weighted/ey_learned_rule[learned rule]]:coverage` | 0.9537 | primary coverage at `weighted` |
-| `performance[cleverly-learned-rule-compositions/clustered/ey_learned_rule[learned rule]]:coverage` | 0.9445 | primary coverage at `clustered` |
+| `performance[cleverly-learned-rule-compositions/clustered/ey_learned_rule[learned rule]]:coverage` | 0.9465 | primary coverage at `clustered` |
 | `performance[cleverly-learned-rule-compositions/clustered/ey_learned_rule[learned rule]]:se_ratio` | 0.9926 | primary SE ratio at `clustered` |
 | `properties[interval_calibration/fold_targeted__declared]:se_ratio_ci_lower` | 0.9739 | fold-targeted calibration SE-ratio lower endpoint, against 0.93 |
 | `properties[interval_calibration/fold_targeted__declared]:se_ratio_ci_upper` | 1.0125 | its upper endpoint, against 1.07 |
@@ -178,11 +178,11 @@ the committed results and checked at the precision printed.
 | `properties[interval_calibration/fold_targeted__shrunken_se_control]:se_ratio_ci_upper` | 0.7082 | shrunken-SE control upper endpoint at `fold_targeted`, which must lie below 0.93 |
 | `properties[interval_calibration/clustered_few__noise_control]:se_ratio_ci_upper` | 0.7194 | noise control upper endpoint at `clustered_few`, which must lie below 0.93 |
 | `properties[targeting_necessity/fold_targeted__untargeted]:standardized_bias` | 1.4800 | bias of the fit without its fluctuations, in error SDs |
-| `properties[targeting_necessity/fold_targeted__targeted]:targeting_displacement` | 1.1774 | paired displacement, against 0.5 |
+| `properties[targeting_necessity/fold_targeted__targeted]:targeting_displacement` | 1.1773 | paired displacement, against 0.5 |
 | `properties[targeting_necessity/fold_targeted__targeted]:coverage` | 0.9186 | coverage of the targeted arm, which no verdict reads |
 | `properties[targeting_necessity/fold_targeted__targeted]:coverage_ci_lower` | 0.9040 | its 99% lower endpoint |
 | `properties[targeting_necessity/fold_targeted__targeted]:coverage_ci_upper` | 0.9317 | its 99% upper endpoint |
-| `properties[targeting_necessity/fold_targeted__targeted]:se_ratio` | 0.8978 | SE ratio of the targeted arm, which no verdict reads |
+| `properties[targeting_necessity/fold_targeted__targeted]:se_ratio` | 0.8977 | SE ratio of the targeted arm, which no verdict reads |
 | `mean_oracle_se_fold_targeted` | 0.0149 | mean oracle SE of the fixed fold rules at `fold_targeted`, from `harness.csv.gz`. No rule reads it |
 | `mean_oracle_se_weighted` | 0.0160 | mean oracle SE at `weighted` |
 | `mean_oracle_se_clustered` | 0.0151 | mean row-level oracle SE at `clustered` |
@@ -227,7 +227,7 @@ the committed results and checked at the precision printed.
 | Equal cluster sizes only | The study draws 200 clusters of 10 and 30 clusters of 34. A learned-rule fit with unequal sizes reads experimental, because sizes that depend on the outcome put a ratio bias in the fold-evaluated point |
 | Known weights only | The weight is a fixed function of $W_1$. Estimated weights refuse, and a fit with both weights and clusters reads experimental |
 | One learner class for coverage | The primary and calibration cells use a logistic outcome model with treatment interactions. The learner that omits $W_1$ enters a bias verdict only, so the row does not claim coverage with it |
-| Two cluster counts in ten folds | The t reference is measured at 30 clusters with 20 degrees of freedom, and the normal reference at 200 clusters. Fewer clusters are not tested |
+| Two cluster counts in ten folds | The t reference is measured at 30 clusters with 20 degrees of freedom and at 200 clusters with 190, since a fold-evaluated fit takes $J - V$ at every cluster count. The first run read the 200-cluster cells on the normal reference. Fewer clusters are not tested |
 | One primary size | The primary settings run at n = 2,000, and this study has no root-n ladder. The [gated study](learned-rule-cvtmle.md) measures the rate of the pooled fit |
 | A binary treatment and a binary outcome | A continuous outcome with declared `q_bounds` is not tested. The package refuses more than two arms, missing outcomes, strata, repeats and the full-refit bootstrap for the learned rule |
 | The truth harness needs deterministic learners | The truth refits each fold's learner with the fit's weights. A learner that draws its own randomness cannot give the same rule again |
