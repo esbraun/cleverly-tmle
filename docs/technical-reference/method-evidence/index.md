@@ -136,6 +136,8 @@ survival-node-bounds
 known-treatment-mechanism
 known-mechanism-dr-tmle
 dr-tmle-foldwise
+dr-tmle-foldwise-n1500
+multi-arm-dr-tmle-foldwise
 dr-tmle-one-inconsistent-nuisance
 adaptive-iptw
 adaptive-iptw-pairing
