@@ -407,9 +407,9 @@ def skew_widened_ci(
 
     .. math::
 
-        \hat\psi - s \max(q, q - a K) - r, \qquad \hat\psi + s \max(q, q + a K) + r,
+        \hat\psi - s \max(q, q - a K) - m, \qquad \hat\psi + s \max(q, q + a K) + m,
 
-    with ``s`` the standard error and ``r`` the ``margin``. For ``a > 0`` the upper limit moves
+    with ``s`` the standard error and ``m`` the ``margin``. For ``a > 0`` the upper limit moves
     out by ``a K s`` and the lower one stays at the t limit, and the reverse for ``a < 0``. The
     interval is the convex hull of the t interval and the Cornish-Fisher-corrected interval
     ``[psi - s (q - a K), psi + s (q + a K)]``, so it contains the t interval on every sample

@@ -27,6 +27,7 @@ import pytest
 from scipy import stats
 
 from cleverly.inference import (
+    cornish_fisher_factor,
     curve_acceleration,
     implied_correlation,
     make_estimate,
@@ -36,7 +37,6 @@ from cleverly.inference import (
 )
 from cleverly.inference import delta as delta_module
 from cleverly.inference import influence as influence_module
-from cleverly.inference.delta import cornish_fisher_factor
 from tests.studies import canonical_stratified_tmle as stratified_tmle
 from tests.studies import stratified_law as l1
 from tests.unit._source_mutation import mutate
@@ -154,6 +154,30 @@ def test_dropping_the_estimate_mask_fails(monkeypatch: pytest.MonkeyPatch) -> No
     expect_failure(test_the_estimate_reads_its_carrying_rows)
 
 
+def test_a_second_moment_estimate_reads_its_curve_uncentred() -> None:
+    curve = _skewed_curve()
+    estimate = make_estimate(
+        "ey1", 1.0, curve, n=curve.size, rule_widened=False, covariance_rule="second_moment"
+    )
+    uncentred = curve_acceleration(curve, rows=curve != 0.0, centered=False)
+    assert estimate.acceleration == pytest.approx(uncentred, rel=EXACT)
+    # The witness: on these rows, off zero, the two readings differ.
+    assert uncentred != pytest.approx(curve_acceleration(curve, rows=curve != 0.0), rel=1e-2)
+
+
+def test_centring_every_rule_fails_the_second_moment_witness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mutate(
+        monkeypatch,
+        influence_module,
+        influence_module.ParameterEstimate,
+        "_acceleration",
+        [('centered=self.covariance_rule == "centered"', "centered=True")],
+    )
+    expect_failure(test_a_second_moment_estimate_reads_its_curve_uncentred)
+
+
 def test_a_clustered_or_zero_variance_estimate_has_no_acceleration() -> None:
     curve = _skewed_curve()
     clustered = make_estimate(
@@ -218,39 +242,47 @@ def test_the_margin_adds_to_each_side() -> None:
     assert (low, high) == pytest.approx((base_low - 0.1, base_high + 0.1), rel=EXACT)
 
 
+_POSITIVE = "test_a_positive_acceleration_moves_only_the_upper_limit"
+_NEGATIVE = "test_a_negative_acceleration_moves_only_the_lower_limit"
+
+
 @pytest.mark.parametrize(
-    "edit",
+    ("edit", "rejected_by"),
     [
         # The sign: widen the side the skew does not point to (one exchange of the two signs).
-        [
-            ("critical - shift)", "critical @@ shift)"),
-            ("critical + shift)", "critical - shift)"),
-            ("critical @@ shift)", "critical + shift)"),
-        ],
-        # A two-sided shift instead of the hull.
-        [("max(critical, critical - shift)", "(critical - shift)")],
+        (
+            [
+                ("critical - shift)", "critical @@ shift)"),
+                ("critical + shift)", "critical - shift)"),
+                ("critical @@ shift)", "critical + shift)"),
+            ],
+            {_POSITIVE, _NEGATIVE},
+        ),
+        # A two-sided shift instead of the hull: it narrows the lower side when a > 0, and
+        # equals the hull's lower side when a < 0.
+        ([("max(critical, critical - shift)", "(critical - shift)")], {_POSITIVE}),
         # No widening at all.
-        [("shift = float(acceleration) * cornish_fisher_factor(alpha)", "shift = 0.0")],
+        (
+            [("shift = float(acceleration) * cornish_fisher_factor(alpha)", "shift = 0.0")],
+            {_POSITIVE, _NEGATIVE},
+        ),
     ],
     ids=["sign", "two-sided shift", "no widening"],
 )
 def test_each_part_of_the_construction_is_needed(
-    monkeypatch: pytest.MonkeyPatch, edit: list[tuple[str, str]]
+    monkeypatch: pytest.MonkeyPatch, edit: list[tuple[str, str]], rejected_by: set[str]
 ) -> None:
     mutate(monkeypatch, delta_module, delta_module, "skew_widened_ci", edit)
     monkeypatch.setattr(
         "tests.unit.test_asymmetric_intervals.skew_widened_ci", delta_module.skew_widened_ci
     )
-    failures = 0
-    for witness in (
-        test_a_positive_acceleration_moves_only_the_upper_limit,
-        test_a_negative_acceleration_moves_only_the_lower_limit,
-    ):
+    failed = set()
+    for name in (_POSITIVE, _NEGATIVE):
         try:
-            witness()
+            globals()[name]()
         except AssertionError:
-            failures += 1
-    assert failures >= 1
+            failed.add(name)
+    assert failed == rejected_by
 
 
 def test_zero_acceleration_is_the_capped_t() -> None:

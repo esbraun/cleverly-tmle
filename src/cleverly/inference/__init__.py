@@ -11,6 +11,7 @@ from .cluster import (
 )
 from .delta import (
     Transform,
+    cornish_fisher_factor,
     delta_method,
     implied_correlation,
     log_odds_ratio_influence,
@@ -56,6 +57,7 @@ __all__ = [
     "cluster_members",
     "cluster_sums",
     "constant_outcome_cells",
+    "cornish_fisher_factor",
     "counterfactual_means",
     "cross_validated_variance",
     "curve_acceleration",

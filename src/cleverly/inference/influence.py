@@ -891,7 +891,7 @@ def curve_acceleration(curve: FloatArray, *, rows: Any = None, centered: bool = 
     values. It equals :math:`\hat\gamma / (6 \sqrt{m})` in the terms' sample skewness
     :math:`\hat\gamma`, so it is of order :math:`m^{-1/2}` on a skewed curve and of order
     :math:`1/m` on a symmetric one. It is invariant to a positive rescaling of the curve and
-    changes sign with it.
+    changes sign under a negative rescaling.
 
     Parameters
     ----------
