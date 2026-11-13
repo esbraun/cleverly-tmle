@@ -514,8 +514,8 @@ the 81 per-cell 99% tests.
 A red cell also binds a row whose band another cell licenses: the
 `categorical_ltmle` cell of `default-simultaneous-bands` measures the default band of row
 `G08.in_sample` at joint coverage 0.9191 to 0.9458, so that row's default band reads
-`experimental` with the reading as its reason. Rows `T30` and `T13` carry the red
-`cde_z0` and `strata` readings the same way. The reading binds the default band only:
+`experimental` with the reading as its reason. Rows `T30` and `T13` carry their red default
+readings, from the `cde_z0` and `strata` cells, as band shortfalls the same way. The reading binds the default band only:
 [the t reference](#the-t-reference) has cells of its own on those rows.
 
 Row `D09` licenses its band at 1,000 draws, the count `multi-arm-mar-drtmle` pins by design, and
@@ -644,11 +644,15 @@ $\nu_1$. `kish_count()` computes $K_j$, and `SimultaneousBands.reference_df` and
 $K_j$ is $n/\hat\kappa_j$, with $\hat\kappa_j$ the sample kurtosis of the curve: a few large
 terms give a small count. It is the realised-term degrees of freedom of
 [Fay and Graubard (2001, Appendix B)](../references.md#multiple-testing), a Satterthwaite count shrunk by a factor of 2 to 3.
-Reading each estimate on its own $t$ reference at the multiplier's tail is the
-comparison-specific construction of
-[Pallmann, Ritz and Hothorn (2018, section 2.4)](../references.md#multiple-testing), whose df
-are residual df of Gaussian models. No source derives the Kish count for an
-influence-curve estimator, so the finite-sample claim rests on the study, cell by cell. To first
+For families whose comparisons carry different df,
+[Pallmann, Ritz and Hothorn (2018, sections 2.3 and 2.4)](../references.md#multiple-testing)
+give comparison-specific critical values and a normal or $t$ copula on univariate $t$ margins.
+Reading each estimate on its own $t$ reference at the multiplier's tail is the per-estimate
+mapping of their normal-copula variant. Their df are residual df of Gaussian models, not a Kish
+count, and no source derives the Kish count for an influence-curve estimator, so the
+finite-sample claim rests on the study, cell by cell.
+
+To first
 order $c_j/\hat c - 1 = (\hat c^2 + 1)/(4\nu_j)$, and since $K_j \to \infty$ under a fixed law
 with finite fourth curve moment, the $t$ band has the default band's limit. The floor 5 bounds
 the widening of a coordinate whose count rests on a few terms: its $c_j$ is at most the
@@ -684,8 +688,13 @@ passing `*__t_band` cell whose controls passed. A licence covers the whole key o
 The paired gain of each $t$ band over the default band of the same fits is reported on the
 study page with its 99% interval and gates nothing. On the three rows whose default band is
 red, the default band of the same fits covers 0.9371 (`G08.in_sample`), 0.9382 (`T30`) and
-0.9450 (`T13`). The default band stays the default. A row's red default-band reading binds only
-the default band, so on those three rows `band_reference="t"` gives a `supported` band and the
+0.9450 (`T13`), with 99% intervals at 5,600 replications of 0.9283 to 0.9452, 0.9295 to 0.9462
+and 0.9367 to 0.9526: all inside $[0.92, 0.98]$, and the `T13` interval includes 0.95. Those
+controls are not the default band's registered cells and license nothing; by owner decision the
+red verdicts stand on the registered 2,400-replication cells.
+
+The default band stays the default. A row's red default-band reading binds only the default
+band, so on those three rows `band_reference="t"` gives a `supported` band and the
 default band reads `experimental` with the reading as its reason. The held-out
 [`band-t-reference-held-out` study](method-evidence/band-t-reference-held-out.md) reads the
 strata law at $n = 1000$, where the floor binds on most fits, at joint coverage 0.9543. It

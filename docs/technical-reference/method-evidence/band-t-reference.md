@@ -190,7 +190,11 @@ the rows.
 it, and a gain below its declared value would license or block nothing. Every 99% gain interval
 lies above zero, and each red cell's lower limit clears its declared $10^{-4}$. The `t` band
 reaches nominal coverage on the three red shapes, where the default band of the same fits covers
-0.9371, 0.9382 and 0.9450. At $n = 8000$ the gain shrinks toward zero, as the large-df expansion
+0.9371, 0.9382 and 0.9450. Their 99% intervals at 5,600 replications, 0.9283 to 0.9452,
+0.9295 to 0.9462 and 0.9367 to 0.9526, all lie inside $[0.92, 0.98]$, and the `strata` interval
+includes 0.95. These controls are not the default band's registered cells and license nothing:
+by owner decision the red verdicts stand on the registered 2,400-replication cells of
+`default-simultaneous-bands`. At $n = 8000$ the gain shrinks toward zero, as the large-df expansion
 $c_j/c - 1 \approx (c^2 + 1)/(4\nu_j)$ predicts. `tests/unit/test_band_t_reference_design.py`
 rebuilds the table from `properties.csv` and `t-band-replicates.csv`.
 
@@ -272,7 +276,7 @@ from the committed results and checked at the precision printed.
 | Plain fits only | No cell is clustered, weighted or repeated. A `t` band of any of those shapes reads experimental on every row |
 | Joint coverage only | The gate reads the joint coverage of the band. Over-coverage of a sparse coordinate can offset under-coverage elsewhere, and per-coordinate tails are recorded, not gated |
 | The paired gains are reported, not gated | The study does not show as a gate that the `t` reference widens the band where the default band is red. The deterministic widening check and the reported gains are that evidence |
-| The default band is unchanged | The three red default-band cells stay red and stay owned. A fit that keeps the default band on those rows reads experimental |
+| The default band is unchanged | The three red default-band cells stay red and stay owned. Their normal-reference controls here read inside $[0.92, 0.98]$ at 5,600 replications (`strata` 0.9367 to 0.9526, which includes 0.95), but they are not the registered cells and license nothing; by owner decision the red verdicts stand on the registered 2,400-replication cells. A fit that keeps the default band on those rows reads experimental |
 | No comparator | No pinned implementation publishes a band with a per-estimate t reference |
 
 ## Reproduction
