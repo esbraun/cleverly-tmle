@@ -214,7 +214,9 @@ class Law:
         """``P(C_k = 1 | W, A, L_k)``."""
         return 1.0 - self.dropout(node, a, w1, w2, l)
 
-    def cause_hazards(self, node: int, a: int, w1: int, w2: int, l: int | None) -> tuple[float, ...]:
+    def cause_hazards(
+        self, node: int, a: int, w1: int, w2: int, l: int | None
+    ) -> tuple[float, ...]:
         """The cause-specific hazards at node ``k`` given followed and event-free."""
         out: list[float] = []
         taken = 0.0
@@ -305,14 +307,15 @@ class Law:
             "W2": column(lambda p: p[1]),
             "A": column(lambda p: p[2]),
         }
+
+        def at(name: str, node: int) -> np.ndarray:
+            return column(lambda p: self.value(p, name, node))
+
         for node in range(2, self.n_times + 1):
-            out[f"L{node}"] = column(lambda p, k=node: self.value(p, "L", k))
+            out[f"L{node}"] = at("L", node)
         for node in range(1, self.n_times + 1):
-            out[f"C{node}"] = column(lambda p, k=node: self.value(p, "C", k))
-        codes = {
-            node: column(lambda p, k=node: self.value(p, "Y", k))
-            for node in range(1, self.n_times + 1)
-        }
+            out[f"C{node}"] = at("C", node)
+        codes = {node: at("Y", node) for node in range(1, self.n_times + 1)}
         _outcomes(out, codes, self.causes)
         return pd.DataFrame(out)
 
@@ -463,8 +466,11 @@ def _vector_logit(
 
 
 def _vector(factor: Covariate, a: np.ndarray, w1: np.ndarray, previous: np.ndarray) -> np.ndarray:
-    eta = factor.intercept + factor.w1 * w1 + np.asarray(factor.arm)[a] + factor.previous * (
-        previous == 1
+    eta = (
+        factor.intercept
+        + factor.w1 * w1
+        + np.asarray(factor.arm)[a]
+        + factor.previous * (previous == 1)
     )
     return np.asarray(expit(eta))
 

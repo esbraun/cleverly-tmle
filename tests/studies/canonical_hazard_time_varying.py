@@ -51,7 +51,7 @@ import pandas as pd
 from cleverly._support_rows import long_row
 from cleverly.interventions import ModifiedPolicy, Piece
 from cleverly.longitudinal import LTMLE
-from cleverly.longitudinal import hazard_backward
+from cleverly.longitudinal.hazard_backward import untargeted
 from tests.parallel import STUDY_JOBS
 from tests.studies import hazard_time_varying_law as law
 from tests.studies.evidence import replication
@@ -508,7 +508,7 @@ def untargeted_fit(
     Each continuation is fitted on the untargeted pseudo-outcomes of the later nodes, so its
     estimates are the plug-in the targeting-necessity family reads.
     """
-    with hazard_backward.untargeted():
+    with untargeted():
         return fit(fit_label, frame, configuration=configuration, weights=weights)
 
 

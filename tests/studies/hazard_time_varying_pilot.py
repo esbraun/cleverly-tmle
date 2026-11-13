@@ -253,9 +253,7 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
         except Exception as error:  # a refusal is a pilot finding, recorded with its class
             return [_row(label, replicate, refusal=type(error).__name__)]
     fit_label, _ = PILOTS[label]
-    frame = properties.draw(
-        fit_label, PILOT_N, stream_seed(study.STUDY, "pilot", label, replicate)
-    )
+    frame = properties.draw(fit_label, PILOT_N, stream_seed(study.STUDY, "pilot", label, replicate))
     records = properties.FitRecords()
     try:
         if label == "fits_differ_mechanism_correct":

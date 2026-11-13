@@ -61,6 +61,7 @@ harness refuses a cell that lost more than its bound.
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Sequence
 from typing import Any
 
@@ -238,8 +239,7 @@ def iterated_fit(
 
 def _curve_names(law_name: str, label: str, cause: int) -> list[str]:
     return [
-        study.risk_name(law_name, label, t, cause)
-        for t in range(1, law.LAWS[law_name].n_times + 1)
+        study.risk_name(law_name, label, t, cause) for t in range(1, law.LAWS[law_name].n_times + 1)
     ]
 
 
@@ -253,7 +253,7 @@ def largest_decrease(result: Any, law_name: str) -> tuple[float, float]:
     for label in study.labels(law_name):
         for cause in range(1, current.causes + 1):
             names = _curve_names(law_name, label, cause)
-            for before_name, after_name in zip(names[:-1], names[1:], strict=True):
+            for before_name, after_name in itertools.pairwise(names):
                 before, after = result[before_name], result[after_name]
                 drop = float(before.psi - after.psi)
                 curve = np.asarray(before.influence_curve) - np.asarray(after.influence_curve)
