@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from scipy.special import expit
+from sklearn.dummy import DummyRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.exceptions import (
@@ -47,7 +48,7 @@ from tests.discrete_law_hazard_time_varying import CellMeans, CellProbabilities,
 
 TOL = 1e-10
 EXACT = 1e-8
-MISSED = 1e-5
+MISSED = 1e-3
 STEP = 2e-2
 NEVER, ALWAYS = "never", "always"
 STATIC = {NEVER: 0, ALWAYS: 1}
@@ -68,6 +69,18 @@ def wrong_hazard() -> NoL:
 def wrong_continuation() -> NoL:
     """Cell means over ``(W, A, s)``: the continuation without ``L_k``."""
     return NoL(CellMeans())
+
+
+def covariate_case() -> dict[str, Any]:
+    """The detection case of a covariate-term mutation.
+
+    The hazard reads ``L_k`` but is misspecified (additive logistic on the full node design),
+    and the continuation omits ``L_k`` (a constant).  With a hazard without ``L_k`` as well,
+    every fitted ``Q_{k+1}`` is a function of ``(W, A)``, which a continuation without ``L_k``
+    reproduces, so the covariate term is exactly zero at the initial fit and a defect in it
+    shows only through second-order movement.
+    """
+    return {"hazard": Logistic(), "continuation": DummyRegressor()}
 
 
 def fit(
@@ -116,13 +129,18 @@ def one_hot(level: int, arms: int = 2) -> Callable[[int, int], np.ndarray]:
     return lambda w1, w2: np.eye(arms)[level]
 
 
-def worst_miss(law: HeldLaw, result: Any, densities: dict[str, Callable[..., np.ndarray]]) -> float:
+def worst_miss(
+    law: HeldLaw,
+    result: Any,
+    densities: dict[str, Callable[..., np.ndarray]],
+    horizons: Any = None,
+) -> float:
     """The largest distance of an estimate from the enumerated truth."""
     causes = {1: None} if law.causes == 1 else {1: "relapse", 2: "death"}
     miss = 0.0
     for label, density in densities.items():
         for j, cause in causes.items():
-            for t in range(1, law.n_times + 1):
+            for t in range(1, law.n_times + 1) if horizons is None else horizons:
                 miss = max(miss, abs(estimate(result, label, t, cause) - law.truth(density, t, j)))
     return miss
 
@@ -443,6 +461,15 @@ def up_density(law: HeldLaw) -> Callable[[int, int], np.ndarray]:
     return density
 
 
+@pytest.mark.parametrize("causes", [1, 2])
+def test_a_misspecified_hazard_reading_the_covariate_is_exact(causes: int) -> None:
+    """The covariate-term detection case unmutated: the one witness whose covariate term is first
+    order at the initial fit."""
+    law = HeldLaw(causes=causes)
+    result = fit(law, REGIMENS, **covariate_case())
+    assert worst_miss(law, result, DENSITIES) < EXACT
+
+
 @pytest.mark.parametrize("ratio", ["density", "classifier"])
 def test_a_one_level_up_policy_on_three_arms_is_exact(ratio: str) -> None:
     """A modified treatment policy at node 1 of a three-arm held design returns the truth."""
@@ -556,17 +583,15 @@ def _detect(law: HeldLaw, regimens: dict[str, Any], densities: dict[str, Any], *
 def test_mutation_no_continuation_term() -> None:
     """Sub-nodes after 0 leave the score and the direction; a saturated continuation controls it.
 
-    The detection case reads ``L_k`` in the hazard learner.  With a hazard learner without
-    ``L_k`` the targeted pseudo-outcome depends on ``L_k`` only through the fluctuation, so
-    the covariate term is about 1e-7 and the defect is invisible.  ``T = 3``: at ``T = 4`` the
-    control's frozen walk at node 2 needs about 1e5 steps to reach ``tol``.
+    Detection is :func:`covariate_case`.  ``T = 3``: at ``T = 4`` the control's frozen walk at
+    node 2 needs about 1e5 steps to reach ``tol``, a property of a walk with frozen directions.
     """
     law = HeldLaw(n_times=3)
     with (
         mutated_panel(lambda panel: _drop(panel, slice(1, None))),
         frozen_direction(slice(1, None)),
     ):
-        assert _detect(law, STATIC, STATIC_DENSITIES, hazard=Logistic()) > MISSED
+        assert _detect(law, STATIC, STATIC_DENSITIES, **covariate_case()) > MISSED
         control = _detect(
             law, STATIC, STATIC_DENSITIES, hazard=Logistic(), continuation=CellMeans()
         )
@@ -598,7 +623,7 @@ def test_mutation_weight_without_its_own_node_retention(censored: bool) -> None:
     """The covariate term weighted by ``h_k c_k``; the control law has no dropout."""
     law = HeldLaw(censored=censored)
     with mutated_panel(_with_retention(law, law.frame())):
-        miss = _detect(law, STATIC, STATIC_DENSITIES)
+        miss = _detect(law, STATIC, STATIC_DENSITIES, **covariate_case())
     assert miss > MISSED if censored else miss < EXACT
 
 
@@ -620,7 +645,7 @@ def test_mutation_stale_pseudo_outcome(saturated: bool) -> None:
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(backward, "walk_curve", walk_spy)
         patch.setattr(backward, "pseudo_distribution", stale)
-        kw = {"hazard": CellMeans(), "continuation": CellMeans()} if saturated else {}
+        kw = {"hazard": CellMeans(), "continuation": CellMeans()} if saturated else covariate_case()
         miss = _detect(law, STATIC, STATIC_DENSITIES, **kw)
     assert miss < EXACT if saturated else miss > MISSED
 
@@ -651,7 +676,7 @@ def test_mutation_hard_at_risk(last_only: bool) -> None:
     """``rho`` replaced by one at every later sub-node; events at the last node only control it."""
     law = HeldLaw(last_only=last_only)
     with mutated_panel(_hard_at_risk):
-        miss = _detect(law, STATIC, STATIC_DENSITIES)
+        miss = _detect(law, STATIC, STATIC_DENSITIES, **covariate_case())
     assert miss < EXACT if last_only else miss > MISSED
 
 
@@ -673,10 +698,19 @@ def tail_dropped() -> Iterator[None]:
 
 @pytest.mark.parametrize("n_times", [4, 2])
 def test_mutation_continuation_kappa_without_its_tail(n_times: int) -> None:
-    """At ``T = 2`` node 1's one continuation sub-node is the horizon, where the tail is zero."""
+    """The fit reports ``t = T`` only.  At ``T = 2`` the tail at node 1's one continuation
+    sub-node, which is the horizon, is zero: the control.
+
+    Do not widen this to every horizon.  A node walk that targets every ``t >= k`` solves the
+    per-horizon prefix sums of the continuation residuals, and when the tail ratio is the same
+    for every unit the mutated score family spans the correct one, so the mutation changes
+    nothing (1.3e-10 with a constant continuation).  With one target per node the tail enters
+    at first order.
+    """
     law = HeldLaw(n_times=n_times)
     with tail_dropped():
-        miss = _detect(law, STATIC, STATIC_DENSITIES)
+        result = fit(law, STATIC, horizons=[n_times], **covariate_case())
+    miss = worst_miss(law, result, STATIC_DENSITIES, horizons=[n_times])
     assert miss > MISSED if n_times == 4 else miss < EXACT
 
 
@@ -894,16 +928,53 @@ def test_the_companions_still_refuse_covariates_after_baseline(l1_only: bool) ->
 # -------------------------------------------------------------- carried settings
 
 
-def test_markov_order_zero_with_the_right_mechanism_is_exact() -> None:
-    """Without dropout, law (H)'s nuisances read ``L_k`` alone, so the order-0 window loses nothing.
+def _markov_data(law: HeldLaw) -> LongitudinalData:
+    return replace(LongitudinalData.from_frame(law.frame(), **law.columns()), markov_order=0)
 
-    With dropout it would not: retention reads the held ``A``, which the order-0 window at a
-    node ``k >= 3`` leaves out, so the mechanism is wrong and the iterated-mean fit misses too.
+
+@pytest.mark.parametrize("l1_only", [False, True])
+def test_h32_a_markov_order_is_refused_before_any_learner(l1_only: bool) -> None:
+    law = HeldLaw(n_times=4, censored=False)
+    frame, columns = _l1_or_l2(law, l1_only)
+    data = replace(LongitudinalData.from_frame(frame, **columns), markov_order=0)
+    message = (
+        "markov_order=0 with survival_model='hazard' is not built. On a design with one "
+        "baseline treatment held over the nodes, the window starts its treatment blocks after "
+        "node 1"
+    )
+    with pytest.raises(CapabilityError, match=_escape(message)) as raised:
+        LTMLE(STATIC, survival_model="hazard", targeting="one_step", **_refuse()).fit(data)
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+
+
+def test_the_window_would_pool_the_node_hazards_over_the_arms() -> None:
+    """Why H32 exists: saturated outcome learners and a wrong mechanism under ``markov_order=0``.
+
+    Outcome-side double robustness should make the fit exact.  With the refusal lifted the
+    hazard fit misses, because the order-0 window leaves the held treatment out of the node
+    hazard designs from node 3 on; the iterated-mean fit on the same data, whose static arms
+    regress on followers only, is exact.
     """
+    from sklearn.dummy import DummyClassifier
+
     law = HeldLaw(censored=False)
-    data = replace(LongitudinalData.from_frame(law.frame(), **law.columns()), markov_order=0)
-    result = fit(law, STATIC, frame=data, columns={})
-    assert worst_miss(law, result, STATIC_DENSITIES) < EXACT
+    data = _markov_data(law)
+    assert data.history_design(3, include_current=True).shape[1] == 3  # W1, W2, L3: no A
+    settings = {
+        "frame": data,
+        "columns": {},
+        "hazard": CellMeans(),
+        "continuation": CellMeans(),
+        "treatment_learner": DummyClassifier(strategy="prior"),
+    }
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(backward, "refuse_hazard_markov", lambda data: None)
+        lifted = fit(law, STATIC, **settings)
+    assert worst_miss(law, lifted, STATIC_DENSITIES) > MISSED
+    reference = fit(
+        law, STATIC, survival_model="iterated_mean", targeting="iterative", **settings
+    )
+    assert worst_miss(law, reference, STATIC_DENSITIES) < EXACT
 
 
 def test_node_bounds_bound_the_node_hazard_only() -> None:

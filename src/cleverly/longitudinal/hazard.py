@@ -3341,7 +3341,7 @@ def refuse_hazard_design(
     Raises
     ------
     CapabilityError
-        On any refused design.
+        On any refused design, ``markov_order=`` included (H32).
     MethodConfigurationError
         On the per-horizon algorithm (H28) or a declared stopping rule (H30) beside covariates
         after baseline.
@@ -3363,6 +3363,7 @@ def refuse_hazard_design(
         )
     if survival_model != "hazard":
         return
+    from . import hazard_backward
     from .hazard_backward import (
         hazard_iterative_refusal,
         hazard_msm_refusal,
@@ -3400,6 +3401,7 @@ def refuse_hazard_design(
                 "node, declare treatment='A'."
             ),
         )
+    hazard_backward.refuse_hazard_markov(data)
     later = later_covariates(data)
     if later:
         if targeting != "one_step":

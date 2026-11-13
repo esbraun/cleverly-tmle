@@ -79,7 +79,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..estimators._nuisance import cross_fit_predictions
-from ..exceptions import Refusal, RefusalReason
+from ..exceptions import CapabilityError, Refusal, RefusalReason
 from ..fluctuation._score import relative_score
 from ..learners.crossfit import Folds
 from .data import LongitudinalData, RegimenMasks
@@ -110,6 +110,8 @@ __all__ = [
     "hazard_iterative_refusal",
     "hazard_msm_refusal",
     "hazard_replay_refusal",
+    "hazard_markov_refusal",
+    "refuse_hazard_markov",
     "hazard_stopping_refusal",
     "later_covariates",
     "node_panel",
@@ -217,6 +219,54 @@ def hazard_stopping_refusal(rule: str) -> Refusal:
         "walks is implemented.",
         alternative="Use stopping='relative' (the default).",
     )
+
+
+def hazard_markov_refusal(order: int) -> Refusal:
+    """The refusal of ``markov_order=`` beside ``survival_model="hazard"`` (H32).
+
+    The order-``k`` window of :meth:`LongitudinalData.history_design` starts its treatment
+    blocks at node ``t - k - 1`` and skips identity nodes, so on a held design every node
+    hazard design after node ``k + 2`` loses the held treatment (and a block at node 1).  The
+    hazards are then pooled over the arms the regimens compare, which only a correct
+    mechanism repairs.
+
+    Parameters
+    ----------
+    order : int
+        The declared Markov order.
+
+    Returns
+    -------
+    Refusal
+        An ``api_redirection`` refusal.
+    """
+    return Refusal(
+        RefusalReason.API_REDIRECTION,
+        f"markov_order={order} with survival_model='hazard' is not built. On a design with one "
+        "baseline treatment held over the nodes, the window starts its treatment blocks after "
+        "node 1, so the node hazard designs past the window leave out the held treatment, and "
+        "a covariate declared at node 1 with it. Those hazards would be pooled over the arms "
+        "the regimens compare, and the estimate would rest on the treatment and censoring "
+        "models alone.",
+        alternative="Use survival_model='iterated_mean' with markov_order=, or omit markov_order=.",
+    )
+
+
+def refuse_hazard_markov(data: LongitudinalData) -> None:
+    """Raise H32 when ``data`` declares a Markov order.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel of a hazard fit.
+
+    Raises
+    ------
+    CapabilityError
+        When ``data.markov_order`` is set.
+    """
+    if data.markov_order is not None:
+        raise CapabilityError.from_refusal(hazard_markov_refusal(data.markov_order))
 
 
 #: The refusal of a hazard replay on a fit with covariates after baseline (H31).
