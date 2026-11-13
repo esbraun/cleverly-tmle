@@ -13,6 +13,7 @@ import pytest
 from scipy.special import expit
 from scipy.stats import norm
 
+from cleverly.survival.result import MEASURED_EVENT_SHARE
 from tests.studies import continuous_survival as study
 from tests.studies import continuous_survival_law as law
 from tests.studies import continuous_survival_pilot as pilot
@@ -111,6 +112,20 @@ class TestTheLaw:
 
     def test_the_target_times_are_the_event_time_quartiles(self) -> None:
         assert law.event_time_quartiles(n=400_000) == pytest.approx(law.TIMES, abs=0.011)
+
+    def test_the_measured_event_share_holds_the_gated_times_and_not_the_early_one(self) -> None:
+        # The support of a fit reads the share of observed events by each time; on draws of the
+        # study's size every gated time must fall inside the measured band and the early time
+        # outside it, or the label would flip between draws of the measured configuration.
+        low, high = MEASURED_EVENT_SHARE
+        for replicate in range(200):
+            frame = law.sample(
+                study.PRIMARY_N, replicate_seed(study.STUDY, study.GATED_CELL, replicate)
+            )
+            observed = frame.loc[frame["event"] > 0, "time"].to_numpy()
+            shares = [np.mean(observed <= time) for time in law.TIMES]
+            assert shares[0] < low
+            assert all(low <= share <= high for share in shares[1:])
 
     def test_the_gated_and_early_targets_partition_the_truths(self) -> None:
         assert set(law.GATED) | set(law.EARLY) == set(law.TRUTH)

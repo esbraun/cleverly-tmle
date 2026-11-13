@@ -138,6 +138,70 @@ grid the times are grid times. On the wide layout they count time points, so for
 $\Delta$ apart, multiply by $\Delta$ to get calendar time.
 :::
 
+## Exact event times, without a grid
+
+When you know the exact time of each event and of each censoring, `grid="continuous"` skips the
+check-time grid: no event is moved to a later check time. It fits a treatment given once at the
+start with two levels, one event type or several competing ones, and reports each risk at the
+times in `horizons=`.
+
+```python
+import numpy as np
+import pandas as pd
+
+rng = np.random.default_rng(0)
+n = 1_000
+x = rng.normal(size=n)
+treated = rng.binomial(1, 1 / (1 + np.exp(-x)))
+relapse_rate = np.exp(-1.5 + 0.5 * x - treated)
+death_rate = np.exp(-2.0 - 0.5 * x - 0.5 * treated)
+event_time = rng.exponential(1 / (relapse_rate + death_rate))
+cause = np.where(rng.uniform(size=n) < relapse_rate / (relapse_rate + death_rate), 1, 2)
+dropout = rng.exponential(1 / 0.15, size=n)
+exact = pd.DataFrame(
+    {
+        "time": np.minimum(event_time, dropout),
+        "event": np.where(event_time <= dropout, cause, 0),  # 0 means censored
+        "treated": treated,
+        "x": x,
+    }
+)
+exact_design = TimeToEvent(
+    time="time",
+    event="event",
+    treatment="treated",
+    baseline=("x",),
+    grid="continuous",
+    causes={1: "relapse", 2: "death"},
+)
+exact_risks = CausalStudy(exact, design=exact_design).estimate(
+    RegimeContrast({"treated": 1, "control": 0}, reference="control", horizons=(1.0, 2.0)),
+    random_state=0,
+)
+for time in (1, 2):
+    difference = exact_risks[f"ate_regimen[treated vs control, relapse @ t={time}]"]
+    print(time, round(difference.psi, 3), difference.support.label)
+```
+
+Each line is the difference in the risk of relapse between treating everyone and no one, by
+time 1 and by time 2, with its label. The fit models each event's rate over time with Cox
+regressions and the treatment with logistic regression, picks among a few of each by
+cross-validation, and fits each person's predictions on the other rows. It then corrects the risks
+with the one-step method of Rytgaard and van der Laan (2024). It needs no learners, and a fit
+takes a few seconds at 1,000 people.
+
+A [simulation study](../technical-reference/method-evidence/continuous-time-survival.md) with two
+competing events at 1,000 people found the risks unbiased and their 95% intervals covering 92% to
+95% of the time, at the times by which half and three quarters of the events had happened. At the
+time by which a quarter had happened the intervals were too narrow, and some covered only 88% of
+the time. So an estimate reads `supported` only at a time by which 40% to 85% of the recorded
+events have happened, which is why the first line above reads `experimental`. It also needs the
+default settings with cross-fitting, two competing events, and a risk or a difference rather than a
+ratio. When some people had almost no chance of one treatment, the study's intervals covered as
+little as 37% of the time.
+[Continuous-time survival and competing risks](../technical-reference/continuous-time-survival.md)
+gives the method, its conditions and what it refuses.
+
 ## Treatments over time with an event outcome
 
 When the treatment can change at each time point, declare the event as a sequence of outcome

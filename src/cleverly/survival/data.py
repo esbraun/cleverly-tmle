@@ -295,7 +295,7 @@ def continuous_kwargs(method: Any) -> dict[str, Any]:
         # None is the package default: a band whenever a fit reports several parameters,
         # which this one always does.
         "simultaneous": True if inference.simultaneous is None else bool(inference.simultaneous),
-        "n_multiplier": (1000 if inference.n_multiplier == "auto" else int(inference.n_multiplier)),
+        "n_multiplier": int(inference.n_multiplier),
         "multiplier_kind": inference.multiplier_kind,
         "band_scale": inference.band_scale,
         "random_state": method.runtime.random_state,

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 import numpy as np
 
@@ -12,17 +12,158 @@ from .._support import Support
 from ..inference.influence import ParameterEstimate, make_estimate
 from ..utils.frames import emit_frame
 
-#: Until the validation study registers a support row, every estimate is experimental.
-UNVALIDATED: Support = Support(
-    "experimental",
-    "No validation study covers the continuous-time survival TMLE yet.",
+#: The registered study that measures :class:`~cleverly.survival.ContinuousSurvivalTMLE`.
+CONTINUOUS_SURVIVAL_STUDY: Final[str] = "continuous-time-survival"
+
+#: The share of the observed events (any cause) at or before a target time that the study's
+#: gated times reach.  Its gated times sit at the median and the upper quartile of the observed
+#: event times (shares 0.5 and 0.75); at the lower quartile (0.25) the influence-curve standard
+#: error read up to 8% below the sampling spread and coverage fell to 0.88, so that time was
+#: published without a verdict.  The band leaves at least five sampling standard deviations at
+#: n = 1,000 between each gated time and its edge.
+MEASURED_EVENT_SHARE: Final[tuple[float, float]] = (0.4, 0.85)
+
+#: The limits every continuous-time estimate states, supported or not.
+CONTINUOUS_LIMITS: Final[tuple[str, ...]] = (
+    "One law (van Hage et al. 2025, scenario 1, with an arm-specific term): a three-level factor "
+    "and a normal covariate, a binary treatment, two causes with constant hazards and "
+    "independent censoring, n = 1,000, the default libraries, cross-fitted. The double "
+    "robustness cells add covariate-dependent censoring. At n = 4,000 the same fit covered "
+    "0.918 to 0.960 over 400 draws (reported, not gated).",
+    "Under near-violations of positivity (treatment probabilities near 0 or 1) the intervals "
+    "under-cover badly: a reported cell at n = 4,000 covered 0.37 to 0.97.",
+)
+
+#: The constructor settings the study measures at their defaults, each with its default.
+MEASURED_DEFAULTS: Final[Mapping[str, Any]] = {
+    "norm": "covariance",
+    "g_bounds": "auto",
+    "max_iter": 500,
+    "step_size": 0.1,
+    "tol": None,
+    "tilt": "all",
+}
+
+
+def _experimental(reason: str) -> Support:
+    return Support("experimental", reason, ("X91",), limits=CONTINUOUS_LIMITS)
+
+
+def continuous_survival_support(
+    *,
+    scale: str,
+    event_share: float,
+    causes: int,
+    cross_fitted: bool,
+    default_nuisances: bool,
+    settings: Mapping[str, Any],
+) -> Support:
+    """The support of one continuous-time estimate.
+
+    An estimate reads ``supported`` when the registered ``continuous-time-survival`` study
+    measures its configuration: a risk or a risk difference with two causes, at a time by which
+    between 40% and 85% of the observed events have happened (:data:`MEASURED_EVENT_SHARE`),
+    from a cross-fitted fit with the default libraries and the settings of
+    :data:`MEASURED_DEFAULTS`.  Otherwise it reads ``experimental`` with every reason that
+    applies.
+
+    Parameters
+    ----------
+    scale : {"level", "difference", "ratio"}
+        The estimate's scale.
+    event_share : float
+        The share of the observed events, any cause, at or before the estimate's time.
+    causes : int
+        The number of event types.
+    cross_fitted : bool
+        Whether the nuisances are fitted out of fold.
+    default_nuisances : bool
+        Whether the hazard and censoring libraries and the treatment learner are the defaults.
+    settings : mapping of str to Any
+        The fit's values of the keys of :data:`MEASURED_DEFAULTS`.
+
+    Returns
+    -------
+    Support
+        The estimate's support.
+
+    Examples
+    --------
+    >>> from cleverly.survival.result import MEASURED_DEFAULTS, continuous_survival_support
+    >>> support = continuous_survival_support(
+    ...     scale="level", event_share=0.6, causes=2, cross_fitted=True,
+    ...     default_nuisances=True, settings=MEASURED_DEFAULTS,
+    ... )
+    >>> support.label
+    'supported'
+    >>> continuous_survival_support(
+    ...     scale="ratio", event_share=0.6, causes=2, cross_fitted=True,
+    ...     default_nuisances=True, settings=MEASURED_DEFAULTS,
+    ... ).label
+    'experimental'
+    """
+    reasons: list[str] = []
+    if scale == "ratio":
+        reasons.append("No registered study measures a continuous-time risk ratio.")
+    low, high = MEASURED_EVENT_SHARE
+    if event_share < low:
+        reasons.append(
+            f"Only {event_share:.0%} of the observed events happen by this time. The "
+            f"registered study gates times by which {low:.0%} to {high:.0%} have happened; at "
+            "its earliest time (25%) the standard error ran low and coverage fell to 0.88."
+        )
+    elif event_share > high:
+        reasons.append(
+            f"{event_share:.0%} of the observed events happen by this time, beyond the "
+            f"{high:.0%} that the registered study's latest gated time reaches."
+        )
+    if causes != 2:
+        reasons.append(
+            "The registered study measures two causes; no study measures a single event type "
+            "or more than two."
+        )
+    if not cross_fitted:
+        reasons.append(
+            "The fit is in-sample. The registered study gates cross-fitted fits; the in-sample "
+            "fit covered 0.855 to 0.950 at n = 1,000 (reported, not gated)."
+        )
+    if not default_nuisances:
+        reasons.append(
+            "The fit replaces a default library or the default treatment learner, and the "
+            "registered study measures the defaults only."
+        )
+    changed = sorted(key for key, value in MEASURED_DEFAULTS.items() if settings[key] != value)
+    if changed:
+        reasons.append(
+            f"The fit sets {', '.join(changed)} away from the default, and the registered study "
+            "measures the defaults only."
+        )
+    if reasons:
+        return _experimental(" ".join(reasons))
+    return Support(
+        "supported",
+        f"The registered {CONTINUOUS_SURVIVAL_STUDY} study measures this configuration.",
+        (CONTINUOUS_SURVIVAL_STUDY,),
+        limits=CONTINUOUS_LIMITS,
+    )
+
+
+#: The support of a simultaneous band: the study measures pointwise intervals only.
+BAND_SUPPORT: Final[Support] = _experimental(
+    "No registered study measures the simultaneous band of the continuous-time TMLE; the "
+    "study measures pointwise intervals only."
 )
 
 if TYPE_CHECKING:
     from ._targeting import WalkResult
     from .engine import ContinuousSurvivalRecord
 
-__all__ = ["ContinuousSurvivalResult", "build_estimates"]
+__all__ = [
+    "CONTINUOUS_SURVIVAL_STUDY",
+    "ContinuousSurvivalResult",
+    "build_estimates",
+    "continuous_survival_support",
+]
 
 
 def _t(time: float) -> str:
@@ -84,6 +225,7 @@ def build_estimates(
     *,
     n: int,
     alpha: float,
+    support: Callable[[str, int], Support],
 ) -> dict[str, ParameterEstimate]:
     """Assemble the risks, risk differences and risk ratios from the targeted walk.
 
@@ -101,6 +243,8 @@ def build_estimates(
         The number of units.
     alpha : float
         Significance level.
+    support : callable
+        The support of an estimate, given its scale and its time's index.
 
     Returns
     -------
@@ -126,7 +270,8 @@ def build_estimates(
                     scale="level",
                     alpha=alpha,
                     bounds=(0.0, 1.0),
-                    support=UNVALIDATED,
+                    rule_widened=False,
+                    support=support("level", k),
                 )
     for j, cause in enumerate(labels):
         for k, time in enumerate(horizons):
@@ -141,7 +286,8 @@ def build_estimates(
                 scale="difference",
                 alpha=alpha,
                 bounds=(-1.0, 1.0),
-                support=UNVALIDATED,
+                rule_widened=False,
+                support=support("difference", k),
             )
             name = contrast_name("rr_regimen", arms[1], arms[0], label, time)
             if psi[p0] > 0 and psi[p1] > 0:
@@ -154,7 +300,8 @@ def build_estimates(
                     scale="ratio",
                     alpha=alpha,
                     log_psi=float(np.log(psi[p1] / psi[p0])),
-                    support=UNVALIDATED,
+                    rule_widened=False,
+                    support=support("ratio", k),
                 )
     return out
 

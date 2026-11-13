@@ -735,6 +735,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.clustered_few_cluster_tmle import STUDY as CLUSTERED_FEW_CLUSTER_TMLE
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.conditional_projection import STUDY as CONDITIONAL_PROJECTION
+    from tests.studies.continuous_survival import STUDY as CONTINUOUS_SURVIVAL
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
     from tests.studies.dose_response import STUDY as DOSE_RESPONSE
     from tests.studies.dose_response_npcausal import STUDY as DOSE_RESPONSE_NPCAUSAL
@@ -845,6 +846,7 @@ def registered() -> tuple[StudyRecord, ...]:
         SEPARABLE_EFFECTS,
         SURVIVAL_CTMLE,
         SURVIVAL_DR_TMLE,
+        CONTINUOUS_SURVIVAL,
         TARGETING_CURVES,
         SCORE_ASSESSMENT,
         OPTION_STOPPING_POINT,

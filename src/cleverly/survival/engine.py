@@ -19,19 +19,27 @@ Two departures are stated in the design (X91 part G, rev 2):
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import pairwise
 from typing import Any, Final, Literal
 
 import numpy as np
 
 from .._refusal import NO_ALTERNATIVE, RefusalReason
+from .._support import Support
 from .._typing import FloatArray, IntArray
 from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, ConvergenceWarning, DataError
+from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
 from ._targeting import Norm, Problem, WalkResult, default_cutoff, walk
 from .cox import HazardSelection, default_library, select_hazard
-from .result import ContinuousSurvivalResult, build_estimates
+from .result import (
+    BAND_SUPPORT,
+    MEASURED_DEFAULTS,
+    ContinuousSurvivalResult,
+    build_estimates,
+    continuous_survival_support,
+)
 
 __all__ = ["ContinuousSurvivalRecord", "ContinuousSurvivalTMLE"]
 
@@ -273,7 +281,7 @@ class ContinuousSurvivalTMLE:
         Multiplier draws of the band.
     multiplier_kind : str
         The multiplier distribution, as :func:`~cleverly.inference.simultaneous_bands` takes.
-    band_scale : {"identity", "logit"}
+    band_scale : {"logit", "identity"}
         The scale of the band of a bounded estimate.
     """
 
@@ -299,9 +307,9 @@ class ContinuousSurvivalTMLE:
         random_state: int | None = None,
         tilt: Literal["all", "factual"] = "all",
         simultaneous: bool = False,
-        n_multiplier: int = 1000,
-        multiplier_kind: str = "rademacher",
-        band_scale: str = "identity",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: str = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
     ) -> None:
         times = tuple(float(t) for t in horizons)
         if not times or any(not np.isfinite(t) or t <= 0 for t in times):
@@ -330,6 +338,9 @@ class ContinuousSurvivalTMLE:
             tuple(censoring_library) if censoring_library else default_library()
         )
         self.treatment_learner = treatment_learner
+        self._default_nuisances = (
+            hazard_library is None and censoring_library is None and treatment_learner is None
+        )
         self.norm: Norm = norm
         self.g_bounds = g_bounds
         self.max_iter = int(max_iter)
@@ -622,8 +633,22 @@ class ContinuousSurvivalTMLE:
             n_folds=self.n_folds if self.cross_fit else 1,
             grid_size=int(grid.size),
         )
+        observed = T[D > 0]
+        shares = [float(np.mean(observed <= time)) for time in self.horizons]
+        settings = {key: getattr(self, key) for key in MEASURED_DEFAULTS}
+
+        def support(scale: str, k: int) -> Support:
+            return continuous_survival_support(
+                scale=scale,
+                event_share=shares[k],
+                causes=J,
+                cross_fitted=self.cross_fit,
+                default_nuisances=self._default_nuisances,
+                settings=settings,
+            )
+
         estimates = build_estimates(
-            result, arm_labels, causes, self.horizons, n=n, alpha=self.alpha
+            result, arm_labels, causes, self.horizons, n=n, alpha=self.alpha, support=support
         )
         bands = None
         if self.simultaneous:
@@ -638,6 +663,7 @@ class ContinuousSurvivalTMLE:
                 random_state=self.random_state,
                 band_scale=self.band_scale,  # type: ignore[arg-type]
             )
+            bands = replace(bands, support=BAND_SUPPORT)
         return ContinuousSurvivalResult(
             estimates=estimates,
             simultaneous=bands,

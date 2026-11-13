@@ -712,3 +712,33 @@ def test_pairs_that_reach_the_survival_floor_are_held_and_the_walk_still_converg
         fit = study.fit_with(frame, study.engine(cross_fit=False, hazard_wrong=True))
     assert fit.record.frozen_share > 0.0
     assert fit.record.converged
+
+
+def test_the_support_reads_the_measured_configuration_and_times() -> None:
+    frame = _sample(600, seed=4)
+    observed = frame.loc[frame["event"] > 0, "time"].to_numpy()
+    early, middle, late = (float(np.quantile(observed, q)) for q in (0.25, 0.5, 0.75))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = ContinuousSurvivalTMLE(
+            [early, middle, late], simultaneous=True, n_multiplier=200, random_state=0
+        ).fit(frame, time="time", event="event", treatment="Z", baseline=["X3"])
+    labels = {name: estimate.support.label for name, estimate in fit.items()}
+    for name, label in labels.items():
+        gated = not name.startswith("rr_regimen") and f"t={early:g}]" not in name
+        assert label == ("supported" if gated else "experimental"), name
+    early_name = next(name for name in fit if f"t={early:g}]" in name)
+    assert "coverage fell to 0.88" in fit[early_name].support.reason
+    assert fit.simultaneous is not None
+    assert fit.simultaneous.support.label == "experimental"
+    in_sample = ContinuousSurvivalTMLE([middle], cross_fit=False, random_state=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        refit = in_sample.fit(frame, time="time", event="event", treatment="Z", baseline=["X3"])
+    assert all(estimate.support.label == "experimental" for estimate in refit.values())
+    assert all("in-sample" in estimate.support.reason for estimate in refit.values())
+    changed = ContinuousSurvivalTMLE([middle], step_size=0.05, random_state=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        stepped = changed.fit(frame, time="time", event="event", treatment="Z", baseline=["X3"])
+    assert all("step_size" in estimate.support.reason for estimate in stepped.values())
