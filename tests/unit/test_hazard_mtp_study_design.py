@@ -11,6 +11,7 @@ artifact.  Nothing here reads a study run.
 
 from __future__ import annotations
 
+import functools
 import math
 import warnings
 from typing import Any
@@ -23,6 +24,8 @@ from scipy.optimize import root
 from scipy.stats import norm
 from sklearn.base import BaseEstimator, ClassifierMixin
 
+from cleverly.interventions import ModifiedPolicy, Randomizer
+from cleverly.learners.density import bin_edges
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.bounds import DEFAULT_LTMLE_G_BOUNDS
 from tests.studies import canonical_hazard_mtp as study
@@ -34,6 +37,7 @@ from tests.studies import repeated_sizing as sizing
 from tests.studies.evidence.property_verdicts import design_power, power_cell_pass_probability
 from tests.studies.evidence.registry import registered
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
+from tests.studies.oracle_density_bins import oracle_bins
 
 pytestmark = pytest.mark.xdist_group("hazard_mtp_study_design")
 
@@ -107,9 +111,47 @@ def _arms(current: law.Law, w1: int, w2: int) -> list[tuple[int, float]]:
     return [(0, 1.0 - p), (1, p)]
 
 
+def _phi(z: float) -> float:
+    return 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+
+
+def _pdf(current: law.Law, mean: float, a: float) -> float:
+    """The dose density at ``a`` given its location, truncated when the law is."""
+    value = math.exp(-0.5 * ((a - mean) / current.scale) ** 2) / (
+        current.scale * math.sqrt(2.0 * math.pi)
+    )
+    if current.bounds is None:
+        return value
+    low, high = current.bounds
+    if not low <= a <= high:
+        return 0.0
+    return value / (_phi((high - mean) / current.scale) - _phi((low - mean) / current.scale))
+
+
+def _support(current: law.Law, mean: float, span: float = 14.0) -> tuple[float, float, list]:
+    """The integration range of a dose and the points where the policy or the ratio jump.
+
+    The normal mass beyond 14 scales is below 1e-40.
+    """
+    if current.bounds is None:
+        return mean - span * current.scale, mean + span * current.scale, []
+    low, high = current.bounds
+    cuts = [low + current.shift]
+    if current.cap is not None:
+        cuts += [current.cap - current.shift]
+    return low, high, sorted(c for c in cuts if low < c < high)
+
+
+def _mapped(current: law.Law, a: float) -> float:
+    """The policy's dose, written apart from the law module: shifted, held past the cap."""
+    if not current.continuous:
+        return min(a + 1.0, 5.0)
+    moved = a + current.shift
+    return a if current.cap is not None and moved > current.cap else moved
+
+
 def _quadrature_truth(current: law.Law, horizon: int, natural: bool) -> float:
     """``E F(t | d(F, A), W)`` by adaptive quadrature over the Gaussian dose."""
-    shift = 0.0 if natural else current.shift
     total = 0.0
     for w1, w2 in law.STRATA:
         for f, share in _arms(current, w1, w2):
@@ -118,16 +160,15 @@ def _quadrature_truth(current: law.Law, horizon: int, natural: bool) -> float:
             def integrand(
                 a: float, f: int = f, mean: float = mean, w1: int = w1, w2: int = w2
             ) -> float:
-                density = math.exp(-0.5 * ((a - mean) / current.scale) ** 2) / (
-                    current.scale * math.sqrt(2.0 * math.pi)
-                )
-                return density * _backward(current, f, a + shift, w1, w2, horizon)
+                dose = a if natural else _mapped(current, a)
+                return _pdf(current, mean, a) * _backward(current, f, dose, w1, w2, horizon)
 
-            # The normal mass beyond 14 scales is below 1e-40.
+            low, high, cuts = _support(current, mean)
             value, _ = quad(
                 integrand,
-                mean - 14 * current.scale,
-                mean + 14 * current.scale,
+                low,
+                high,
+                points=cuts or None,
                 epsabs=1e-13,
                 epsrel=1e-13,
                 limit=200,
@@ -148,7 +189,15 @@ def _closed_ratio(current: law.Law, f: int, a: float, w1: int, w2: int) -> float
             return 0.0
         return float((g[index - 1] + (g[5] if index == 5 else 0.0)) / g[index])
     mean, delta = _location(current, f, w1, w2), current.shift
-    return math.exp((delta * (a - mean) - delta**2 / 2.0) / current.scale**2)
+    smooth = math.exp((delta * (a - mean) - delta**2 / 2.0) / current.scale**2)
+    if current.bounds is None:
+        return smooth
+    # Truncated: the normalizers of g(a - delta) and g(a) cancel; the pre-image must lie in the
+    # support, and past the cap the smooth piece is empty and the unit keeps its dose.
+    low, _ = current.bounds
+    cap = math.inf if current.cap is None else current.cap
+    moved = smooth if (a - delta >= low and a <= cap) else 0.0
+    return moved + (1.0 if a > cap - delta else 0.0)
 
 
 def _hazard_form(
@@ -167,12 +216,7 @@ def _hazard_form(
     :math:`F(t \\mid d(f, a), W) + \\sum_{k \\le t} \\frac{r R_k}{G_k} H_k (dN(k) - \\lambda(k))`
     with :math:`H_k = 1 - (F(t) - F(k)) / S(k)`.
     """
-    if natural:
-        mapped = a
-    elif current.continuous:
-        mapped = a + current.shift
-    else:
-        mapped = min(a + 1.0, 5.0)
+    mapped = a if natural else _mapped(current, a)
     total = _backward(current, f, mapped, w1, w2, horizon)
     ratio = 1.0 if natural else _closed_ratio(current, f, a, w1, w2)
     if ratio == 0.0:
@@ -209,7 +253,7 @@ class TestTheTruths:
                         )
                 assert current.truth(horizon, natural=natural) == pytest.approx(expected, abs=1e-14)
 
-    @pytest.mark.parametrize("law_name", ["gaussian", "vector"])
+    @pytest.mark.parametrize("law_name", ["gaussian", "truncated", "vector"])
     def test_the_quadrature_reaches_1e_10(self, law_name: str) -> None:
         current = law.LAWS[law_name]
         for horizon in range(1, current.n_times + 1):
@@ -227,12 +271,18 @@ class TestTheTruths:
         np.testing.assert_allclose(
             [
                 properties.TRUTHS[f"{fit}_{arm}"]
-                for fit in ("levels", "gaussian_density", "vector")
+                for fit in ("levels", "gaussian_density", "gaussian_classifier", "vector")
                 for arm in ("contrast", "risk")
             ],
-            [-0.062287, 0.443993, -0.071498, 0.424736, -0.040366, 0.199694],
+            [-0.062287, 0.443993, -0.063804, 0.432631, -0.071498, 0.424736, -0.040366, 0.199694],
             atol=5e-6,
         )
+        for fit in ("gaussian_crossfit", "untruncated_density"):
+            for arm in ("contrast", "risk"):
+                assert (
+                    properties.TRUTHS[f"{fit}_{arm}"]
+                    == properties.TRUTHS[f"gaussian_classifier_{arm}"]
+                )
         for scenario in study.SCENARIOS:
             assert study.TRUTH[scenario] == study.truths(study.FITS[scenario][0])
 
@@ -260,7 +310,8 @@ class TestTheTruths:
         over all eight strata, six levels and five visits is 0.028 (``A = 0`` at ``W1 = 1,
         W2 = 3``), above twice the default bound.  On the continuous laws the treatment factor
         of the cumulative is one, so the bound reads the retention alone, whose smallest value
-        is 0.64.
+        is 0.64.  On ``truncated`` the ratio is bounded over the whole support (5.74 at the
+        cap, the smooth part plus the held unit's one).
         """
         smallest = self._smallest_cumulative(law.LEVELS_LAW)
         assert smallest == pytest.approx(0.0281, abs=1e-4)
@@ -268,6 +319,7 @@ class TestTheTruths:
         for name, expected in {
             "levels": {"ratio_max": 3.117, "g_min": 0.0353, "retained_min": 0.716},
             "gaussian": {"ratio_max": 7.181, "retained_min": 0.637},
+            "truncated": {"ratio_max": 5.738, "retained_min": 0.707},
             "vector": {"ratio_max": 7.181, "retained_min": 0.708, "arm_min": 0.310},
         }.items():
             reading = law.positivity(law.LAWS[name])
@@ -320,11 +372,21 @@ class TestTheEfficiencyBounds:
                         _closed_ratio(current, point.f, point.a, w1, w2), rel=1e-12
                     )
 
-    @pytest.mark.parametrize("law_name", ["gaussian", "vector"])
-    def test_the_quadrature_bound_is_the_adaptive_bound(self, law_name: str) -> None:
-        """The contrast's bound by adaptive quadrature of the hazard form's square."""
+    @pytest.mark.parametrize("arm", ["contrast", "risk"])
+    @pytest.mark.parametrize(
+        ("law_name", "fit_label"),
+        [
+            ("gaussian", "gaussian_classifier"),
+            ("truncated", "gaussian_density"),
+            ("vector", "vector"),
+        ],
+    )
+    def test_the_quadrature_bound_is_the_adaptive_bound(
+        self, law_name: str, fit_label: str, arm: str
+    ) -> None:
+        """Each bound by adaptive quadrature of the hazard form's square, risk and contrast."""
         current = law.LAWS[law_name]
-        label = f"{'gaussian_density' if law_name == 'gaussian' else 'vector'}_contrast"
+        label = f"{fit_label}_{arm}"
         horizon = current.n_times
         psi = properties.TRUTHS[label]
         total = 0.0
@@ -335,21 +397,20 @@ class TestTheEfficiencyBounds:
                 def integrand(
                     a: float, f: int = f, mean: float = mean, w1: int = w1, w2: int = w2
                 ) -> float:
-                    density = norm.pdf((a - mean) / current.scale) / current.scale
                     second = 0.0
                     for mass, time, event in current.outcomes(f, a, w1, w2):
-                        curve = (
-                            _hazard_form(current, horizon, False, f, a, w1, w2, time, event)
-                            - _hazard_form(current, horizon, True, f, a, w1, w2, time, event)
-                            - psi
-                        )
-                        second += mass * curve**2
-                    return density * second
+                        curve = _hazard_form(current, horizon, False, f, a, w1, w2, time, event)
+                        if arm == "contrast":
+                            curve -= _hazard_form(current, horizon, True, f, a, w1, w2, time, event)
+                        second += mass * (curve - psi) ** 2
+                    return _pdf(current, mean, a) * second
 
+                low, high, cuts = _support(current, mean, span=12.0)
                 value, _ = quad(
                     integrand,
-                    mean - 12 * current.scale,
-                    mean + 12 * current.scale,
+                    low,
+                    high,
+                    points=cuts or None,
                     epsabs=1e-12,
                     epsrel=1e-11,
                     limit=200,
@@ -361,20 +422,117 @@ class TestTheEfficiencyBounds:
         np.testing.assert_allclose(
             [
                 properties.EFFICIENCY_SD[f"{fit}_{arm}"]
-                for fit in ("levels", "gaussian_density", "vector")
+                for fit in ("levels", "gaussian_density", "gaussian_classifier", "vector")
                 for arm in ("contrast", "risk")
             ],
-            [0.32477, 0.62191, 0.35776, 0.63649, 0.29602, 0.50372],
+            [0.32477, 0.62191, 0.39649, 0.66004, 0.35776, 0.63649, 0.29602, 0.50372],
             atol=5e-5,
         )
 
-    @pytest.mark.parametrize("fit_label", ["levels", "gaussian_classifier"])
+    @pytest.mark.parametrize(
+        "fit_label", ["levels", "gaussian_density", "gaussian_classifier", "vector"]
+    )
     def test_a_large_fit_reports_the_bound(self, fit_label: str) -> None:
         frame = study.law_of(fit_label).draw(40_000, 20261119)
         result = study.fit(fit_label, frame)
         for label, name in properties.COEFFICIENTS[fit_label]:
             curve = np.asarray(result[name].influence_curve)
             assert np.std(curve) == pytest.approx(properties.EFFICIENCY_SD[label], rel=0.05), label
+
+
+# ---------------------------------------------------------------------------- the IC gap
+
+
+@functools.cache
+def _ic_gaps(fit_label: str) -> dict[str, tuple[list[float], float]]:
+    """Each arm's IC gap: the small-size draws and the one large-size draw.
+
+    The gap is SD(IC - EIF) / bound on the same draw, with the exact per-unit EIF of
+    :meth:`~tests.studies.hazard_mtp_law.Law.frame_curves`.
+    """
+    small_n, large_n = properties.IC_GAP_SIZES
+    current = study.law_of(fit_label)
+    out: dict[str, tuple[list[float], float]] = {}
+    gaps: dict[str, dict[int, list[float]]] = {}
+    jobs = [(small_n, r) for r in range(properties.IC_GAP_DRAWS)] + [(large_n, 0)]
+    for n, r in jobs:
+        frame = current.draw(n, stream_seed(study.STUDY, "design_ic_gap", fit_label, n, r))
+        result = study.fit(fit_label, frame)
+        for label, name in properties.COEFFICIENTS[fit_label]:
+            arm = label.rsplit("_", 1)[1]
+            eif = current.frame_curves(properties.target(label), frame)
+            curve = np.asarray(result[name].influence_curve)
+            gap = float(np.std(curve - eif) / properties.EFFICIENCY_SD[label])
+            gaps.setdefault(arm, {}).setdefault(n, []).append(gap)
+    for arm, by_n in gaps.items():
+        out[arm] = (by_n[small_n], by_n[large_n][0])
+    return out
+
+
+class TestTheInfluenceCurveGap:
+    """Each fit's influence curve approaches the exact efficient influence function.
+
+    The density route on the untruncated Gaussian law is the witness: its quantile tail bins
+    are wider than the shift, so its gap stays large at n = 20,000; that law is reported, not
+    gated.  Every gated fit label meets the declared bounds of
+    :data:`~tests.studies.hazard_mtp_properties.IC_GAP_BOUND`.
+    """
+
+    def test_the_vectorized_curve_is_the_unit_curve(self) -> None:
+        for current in law.LAWS.values():
+            frame = current.draw(300, 11)
+            horizon = current.n_times
+            aim = law.Target(((1.0, horizon, False), (-1.0, horizon, True)))
+            vector = current.frame_curves(aim, frame)
+            if current.kind == "vector":
+                units = [
+                    (int(f), a, int(w1), int(w2), float(c == 1), int(c == 1 and y == 1))
+                    for w1, w2, f, a, c, y in frame[["W1", "W2", "F", "A", "C1", "Y1"]].itertuples(
+                        index=False
+                    )
+                ]
+            else:
+                units = [
+                    (0, a, int(w1), int(w2), t, int(e))
+                    for a, w1, w2, t, e in frame[["A", "W1", "W2", "time", "event"]].itertuples(
+                        index=False
+                    )
+                ]
+            scalar = np.array(
+                [
+                    current.unit_curve(horizon, False, *unit)
+                    - current.unit_curve(horizon, True, *unit)
+                    for unit in units
+                ]
+            )
+            np.testing.assert_allclose(vector, scalar - aim.value(current), atol=1e-12)
+
+    @pytest.mark.parametrize("fit_label", study.CALIBRATION_FITS)
+    def test_a_gated_fit_meets_the_declared_bound(self, fit_label: str) -> None:
+        small_n, large_n = properties.IC_GAP_SIZES
+        for arm, (small, large) in _ic_gaps(fit_label).items():
+            median = float(np.median(small))
+            assert median <= properties.IC_GAP_BOUND[small_n], (arm, small)
+            assert large <= properties.IC_GAP_BOUND[large_n], (arm, large)
+            assert large <= properties.IC_GAP_FALL * median, (arm, median, large)
+
+    @pytest.mark.parametrize("fit_label", study.REPORTED_FITS)
+    def test_the_untruncated_density_route_does_not(self, fit_label: str) -> None:
+        _, large_n = properties.IC_GAP_SIZES
+        small, large = _ic_gaps(fit_label)["contrast"]
+        assert large > properties.IC_GAP_BOUND[large_n]
+        assert large > properties.IC_GAP_FALL * float(np.median(small))
+
+    def test_no_gated_dose_lands_where_the_bins_are_wider_than_the_shift(self) -> None:
+        """On ``truncated`` every quantile bin the ratio reads, at the oracle count, is narrower
+        than the shift; on ``gaussian`` the top bins are wider."""
+        for law_name, wider in (("truncated", False), ("gaussian", True)):
+            current = law.LAWS[law_name]
+            frame = current.draw(2_000, stream_seed(study.STUDY, "design_bins", law_name, 0))
+            dose = frame["A"].to_numpy(dtype=float)
+            edges = bin_edges(dose, oracle_bins(dose.size))
+            widest = float(np.max(np.diff(edges)))
+            assert (widest > current.shift) is wider, (law_name, widest)
 
 
 # ---------------------------------------------------------------------------- robustness
@@ -390,6 +548,57 @@ class TestTheRobustnessCells:
                     configuration,
                     label,
                 )
+
+    def test_the_randomizer_mixes_its_branches_exactly(self) -> None:
+        """A two-branch randomizer on the exact sample, with the wrong hazard learner.
+
+        The policy moves a unit one level up with probability 0.25 and keeps its level
+        otherwise, so its risk is ``0.25 psi_up + 0.75 psi_natural``.  The hazard learner is
+        wrong and the mechanism correct, so only the weighted walk can reach it: the initial
+        hazards miss it, which is the nonzero witness.
+        """
+        current = law.LEVELS_LAW
+        frame = current.exact_frame()
+
+        def apply(a: Any, h: Any, e: Any) -> Any:
+            del h
+            return study._up(a, None) if e == "up" else np.asarray(a, dtype=float)
+
+        plans = {
+            "random": ModifiedPolicy(
+                "random",
+                apply=apply,
+                randomizer=Randomizer(("up", "stay"), (0.25, 0.75)),
+                policy_kind="known",
+            ),
+            study.NATURAL: study.regimens("levels")[study.NATURAL],
+        }
+        result = _quiet(
+            LTMLE(
+                plans,
+                reference=study.NATURAL,
+                n_folds=1,
+                survival_model="hazard",
+                targeting=study.ALGORITHM,
+                tol=study.TOL,
+                random_state=0,
+                **study.learners("levels", frame, "mechanism_correct"),
+            ).fit,
+            current.container(frame, weights="wt"),
+        )
+        initial = {}
+        for regimen_fit in result.fits.values():
+            record = regimen_fit.hazard
+            for (label, _, horizon), value in zip(
+                record.targets, record.initial_levels, strict=True
+            ):
+                initial[(label, horizon)] = float(value)
+        for horizon in range(1, current.n_times + 1):
+            truth = 0.25 * current.truth(horizon) + 0.75 * current.truth(horizon, natural=True)
+            assert result[study.risk_name("random", horizon)].psi == pytest.approx(truth, abs=EXACT)
+        last = current.n_times
+        truth = 0.25 * current.truth(last) + 0.75 * current.truth(last, natural=True)
+        assert abs(initial[("random", last)] - truth) > 1e-3
 
     def test_the_both_wrong_control_is_discriminated(self, exact_fits: dict[str, Any]) -> None:
         result = exact_fits["both_wrong"]
@@ -429,7 +638,13 @@ POSITIVE_ARMS: dict[str, int] = {
     )
 }
 #: The wrong hazard learner's plug-in contrast gap, in efficiency SEs at n = 2,000, by fit.
-WRONG_GAPS = {"levels": 3.473, "gaussian_density": 5.458, "vector": 3.529}
+WRONG_GAPS = {
+    "levels": 3.473,
+    "gaussian_density": 4.786,
+    "gaussian_classifier": 5.458,
+    "gaussian_crossfit": 5.458,
+    "vector": 3.529,
+}
 
 
 def _tolerated_bias(replicates: int) -> float:
@@ -460,22 +675,18 @@ def _independent_wrong_limit(current: law.Law, aim: law.Target) -> float:
                     entering *= float(current.retained(node, 0, a, w1, w2))
                     lam = float(current.hazard(node, 0, a, w1, w2))
                     p = 1.0 / (1.0 + math.exp(-(beta[0] + beta[1] * a)))
-                    return (
-                        norm.pdf((a - mean) / current.scale)
-                        / current.scale
-                        * entering
-                        * (lam - p)
-                        * (1.0, a)[j]
-                    )
+                    return _pdf(current, mean, a) * entering * (lam - p) * (1.0, a)[j]
 
+                low, high, cuts = _support(current, mean, span=12.0)
                 for j in range(2):
                     out[j] += (
                         law.MASS
                         * quad(
                             integrand,
-                            mean - 12 * current.scale,
-                            mean + 12 * current.scale,
+                            low,
+                            high,
                             args=(j,),
+                            points=cuts or None,
                             epsabs=1e-13,
                             limit=200,
                         )[0]
@@ -487,30 +698,25 @@ def _independent_wrong_limit(current: law.Law, aim: law.Target) -> float:
         fitted.append(solved.x)
     total = 0.0
     for coefficient, horizon, natural in aim.terms:
-        shift = 0.0 if natural else current.shift
         for w1, w2 in law.STRATA:
             mean = _location(current, 0, w1, w2)
 
             def plug(
-                a: float, horizon: int = horizon, shift: float = shift, mean: float = mean
+                a: float, horizon: int = horizon, natural: bool = natural, mean: float = mean
             ) -> float:
+                dose = a if natural else _mapped(current, a)
                 survival, running = 1.0, 0.0
                 for node in range(horizon):
-                    lam = 1.0 / (1.0 + math.exp(-(fitted[node][0] + fitted[node][1] * (a + shift))))
+                    lam = 1.0 / (1.0 + math.exp(-(fitted[node][0] + fitted[node][1] * dose)))
                     running += survival * lam
                     survival *= 1.0 - lam
-                return norm.pdf((a - mean) / current.scale) / current.scale * running
+                return _pdf(current, mean, a) * running
 
+            low, high, cuts = _support(current, mean, span=12.0)
             total += (
                 coefficient
                 * law.MASS
-                * quad(
-                    plug,
-                    mean - 12 * current.scale,
-                    mean + 12 * current.scale,
-                    epsabs=1e-13,
-                    limit=200,
-                )[0]
+                * quad(plug, low, high, points=cuts or None, epsabs=1e-13, limit=200)[0]
             )
     return total
 
@@ -531,11 +737,13 @@ class TestTheWrongHazardLearner:
             limit = law.wrong_hazard_limit(law.LEVELS_LAW, properties.target(label))
             assert properties.plug_in(result, name) == pytest.approx(limit, abs=1e-7)
 
-    def test_the_gaussian_limit_is_the_independent_solve(self) -> None:
-        label = "gaussian_density_contrast"
-        aim = properties.target(label)
-        assert law.wrong_hazard_limit(law.GAUSSIAN_LAW, aim) == pytest.approx(
-            _independent_wrong_limit(law.GAUSSIAN_LAW, aim), abs=1e-9
+    @pytest.mark.parametrize("fit_label", ["gaussian_density", "gaussian_classifier"])
+    def test_the_gaussian_limit_is_the_independent_solve(self, fit_label: str) -> None:
+        """The truncated law (density route) and the untruncated one (classifier route)."""
+        current = study.law_of(fit_label)
+        aim = properties.target(f"{fit_label}_contrast")
+        assert law.wrong_hazard_limit(current, aim) == pytest.approx(
+            _independent_wrong_limit(current, aim), abs=1e-9
         )
 
     @pytest.mark.parametrize("fit_label", pilot.WRONG_LEARNER_FITS)
@@ -690,9 +898,11 @@ class TestTheSizes:
     def test_every_positive_arm_passes_at_its_exact_limit(self) -> None:
         """Each positive bias arm passes with probability at least 0.99 at standardized bias 0.
 
-        The ``levels`` positive limits are the truth (:class:`TestTheRobustnessCells`); the
-        Gaussian ratio routes' limits are the truth up to the binning of the density, and their
-        finite-sample bias is read from the wrong-learner pilots.  The largest |bias| each
+        The ``levels`` positive limits are the truth (:class:`TestTheRobustnessCells`).  The
+        continuous fit labels' limits are the truth because their ratio is consistent: a
+        correctly specified classifier, or the truncated law's density at a growing bin count
+        (:class:`TestTheInfluenceCurveGap`).  Their finite-sample bias is read from the
+        wrong-learner pilots.  The largest |bias| each
         count tolerates at 0.99 is :func:`_tolerated_bias`.
         """
         for cell, replicates in POSITIVE_ARMS.items():
@@ -802,11 +1012,12 @@ def _paired_ratios(
 
 @pytest.mark.parametrize("fit_label", study.DIFFERENCE_FITS)
 class TestTheFitsDifferPilot:
-    """The ``iterated_mean_difference`` readings of plan X70 section 5 on the gated laws.
+    """The ``iterated_mean_difference`` readings of plan X70 section 5, reported and not gated.
 
-    The floors and their reading live in :func:`~tests.studies.hazard_mtp_properties.fits_differ_reading`;
-    a decision on that reading is pending with the project owner.  Each fit's coverage and SE
-    ratio are reported side by side and are not gated.
+    :func:`~tests.studies.hazard_mtp_properties.fits_differ_reading` states the paired ratios and
+    the decreasing share with its interval beside the plan's floors; no test asserts a floor,
+    because the owner's decision on the requirement is pending.  Each fit's coverage and SE
+    ratio are reported side by side.
     """
 
     @staticmethod
@@ -821,14 +1032,26 @@ class TestTheFitsDifferPilot:
         assert rows["refusal"].fillna("").eq("").all()
         assert rows["replicate"].nunique() == pilot.FITS_DIFFER_DRAWS
 
-    def test_the_two_fits_differ_enough(self, fit_label: str) -> None:
+    def test_the_reading_is_complete_and_finite(self, fit_label: str) -> None:
         rows = self._rows(fit_label)
         decreases = rows.loc[rows["estimand"] == "largest_decrease", "estimate"]
+        assert len(decreases) == pilot.FITS_DIFFER_DRAWS
+        assert np.isfinite(decreases.to_numpy(dtype=float)).all()
+        for column in ("estimate", "iterated_estimate", "isotonic_estimate"):
+            values = rows.loc[rows["estimand"] != "largest_decrease", column]
+            assert np.isfinite(values.to_numpy(dtype=float)).all(), column
+        ratios = _paired_ratios(rows, fit_label)
+        ratios |= {
+            f"{label} (isotonic)": value
+            for label, value in _paired_ratios(rows, fit_label, "isotonic_estimate").items()
+        }
         reading = properties.fits_differ_reading(
-            _paired_ratios(rows, fit_label), int((decreases > 0.0).sum()), len(decreases)
+            ratios, int((decreases > 0.0).sum()), len(decreases)
         )
-        assert reading["paired_passes"], reading
-        assert reading["monotone_passes"], reading
+        assert all(np.isfinite(value) and value > 0.0 for value in reading["ratios"].values())
+        low, high = reading["share_interval"]
+        assert 0.0 <= low <= reading["share"] <= high <= 1.0
+        print(reading["text"])
 
 
 @pytest.mark.skipif(
@@ -841,18 +1064,16 @@ def test_the_mechanism_correct_ratios_are_reported() -> None:
     assert all(np.isfinite(value) and value > 0.0 for value in ratios.values()), ratios
 
 
-def test_the_reading_is_declared_in_one_place() -> None:
+def test_the_reading_is_reported_with_the_floors_in_its_text() -> None:
+    """The floors are named constants that the reading's text quotes and no verdict reads."""
     assert properties.PAIRED_DIFFERENCE_FLOOR == 0.05
     assert properties.NON_MONOTONE_FLOOR == 0.10
-    reading = properties.fits_differ_reading(
-        {"levels_contrast": 0.06, "levels_risk": 0.02}, 20, 200
-    )
-    assert reading["paired_passes"] and reading["monotone_passes"]
-    low, high = reading["share_interval"]
-    assert low < 0.1 < high
-    assert not properties.fits_differ_reading(
-        {"levels_contrast": 0.04, "levels_risk": 0.2}, 20, 200
-    )["paired_passes"]
+    reading = properties.fits_differ_reading({"levels_contrast": 0.03, "levels_risk": 0.02}, 0, 200)
+    assert not {key for key in reading if key.endswith("passes")}
+    assert reading["largest_ratio"] == 0.03 and reading["contrast_ratio"] == 0.03
+    assert reading["share_interval"] == (0.0, pytest.approx(0.0261, abs=1e-4))
+    assert "0.05" in reading["text"] and "0.1" in reading["text"]
+    assert "Reported, not gated" in reading["text"]
 
 
 # ---------------------------------------------------------------------------- cells and seeds
@@ -886,7 +1107,11 @@ class TestTheCells:
         assert study.STUDY.slug not in {record.slug for record in registered()}
 
     def test_the_seeds_are_distinct(self) -> None:
-        others = registered()
+        from tests.studies import canonical_hazard_msm
+
+        # hazard-msm (X70 part (d)) is declared but not registered, so it is named here.
+        others = [*registered(), canonical_hazard_msm.STUDY]
+        assert canonical_hazard_msm.STUDY.slug not in {r.slug for r in registered()}
         assert study.SEED not in {record.seed for record in others}
         assert study.RESAMPLING_SEED not in {record.resampling_seed for record in others}
         seeds = [
