@@ -175,7 +175,11 @@ The solver applies the options at each node of each regimen.
 | truncation replay | the replay recipe repeats the options, so a replay reruns the same node solve |
 
 A fit under a declared rule prints a `stopping_rule` note in `res.summary()`: the largest score
-remainder in standard errors and the coverage a Wald interval keeps at it. When a node misses its
+remainder in standard errors. Each Wald interval and band adds the remainder of its own quantity
+to its half-width, and the bootstrap is refused
+("The interval under a declared rule" in [stopping rules](point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate)).
+A level reads the remainder of its hazard walk or node fluctuations, and a contrast the mean of its
+own curve, which carries both regimens' remainders. When a node misses its
 rule, a `score_unsolved` warning names each node over its threshold once for each stacked solve. A
 `LongitudinalResult` has no `score_check()`, so the summary note is its report.
 
@@ -445,21 +449,40 @@ $\tilde S(k-1)/S(k-1 \mid a)$ does not cancel, and `g_bounds=` does not bound th
 **Targeting.** `cleverly.longitudinal.separable` targets each factor apart, on the logit scale of
 $\lambda_D$ and of $h_Y$, with one coefficient per factor and per target, along the one-step walk
 of the hazard engine. When the walk's relative score stops halving over 50 steps, the fit
-continues with Newton steps on the same factor-wise submodel at the current covariates, the
-classical iterative TMLE, and reports the state with the smallest relative score. Both phases
-solve the same factor scores, so the robustness below holds for either.
+continues with the classical iterative TMLE (van der Laan and Rubin 2006): it freezes the clever
+covariates, fits each factor's coefficients by maximum likelihood on that factor's rows, and
+recomputes the covariates. If that stops short, Newton steps on the full Jacobian of the factor
+scores finish the fit. Each phase is capped (30 iterative updates, 20 Newton steps, and six steps
+without a 10% fall in the relative score), and the fit reports the state with the smallest
+relative score; `HazardFit.phase` names the phase that reached it. Every phase moves each factor
+only along its own covariates at its own level, so the robustness below holds whichever phase
+converges. The reported state is a finite number of finite-dimensional fluctuations of the
+initial fit, so the structure of the cross-fitted argument of Zheng and van der Laan (2011) applies to it; that
+needs the caps.
 
 The static arms of the same fit go through the same walk as separable interventions with equal levels, so one pair of
 factors carries every reported curve. At the truth this is the shipped static estimate and curve.
 From a fitted start it is a different TMLE of the same static parameter. The initial hazards are
 fitted in the declared order.
 
-With cross-fitted initial hazards, a separable fit can stop short of `tol` and warn. An
-out-of-fold start does not solve the cell scores, and when targets outnumber the free cells of a
-factor at a level, part of the remaining score lies along nearly redundant target directions,
-which none of the solvers tried brings within `tol`. In the `separable-effects` pilot at
-n = 16,000 this happened in 2.6% of two-fold primary fits and 2.2% of 8,000 calibration fits, at
-relative scores between $10^{-3}$ and $2 \times 10^{-2}$, and never in sample.
+With cross-fitted initial hazards, the root lies far from an out-of-fold start. In the
+`separable-effects` study the 12 targets that move a factor at a level have rank 10 or 11 among
+its 12 (fold, $W$, node) cells, so solving their scores pulls those cells toward their own fold's
+empirical hazard, by up to two logits. Along the one or two directions per factor that the
+targets leave free, the reported state depends on the solver's path: on 60 draws of that study,
+a prototype of two solvers that both reach `tol` gave estimates up to 0.13 standard errors
+apart.
+
+When the rows of a cell hold no event of a cause (or only such events), that cell's score is
+solved only at a hazard of zero (or one), outside the bound set by `alpha`. The fit then
+stops with the cell on the bound, warns, and reports `failure="cell_separated"`, as separation
+stops a logistic regression. In the `separable-effects` study at n = 16,000 this happened in
+102 of 15,600 two-fold fits (0.65%), at relative scores of at most $2.3 \times 10^{-5}$, and
+never in sample. Three more two-fold fits stopped at 1.2 to 2.4 times `tol`
+(`failure="newton_stalled"`): their remaining score lies in two directions where the Jacobian of
+the scores is singular to rounding, which the Newton steps discard. Steps forced along them reach
+a root within `tol` that moves no estimate by more than 0.0015 standard errors
+(`tests/studies/separable_effects_stalls.py`).
 
 **Robustness.** With the treatment and censoring mechanisms right, the estimate is consistent when
 $\lambda_D$ is right at both levels or $h_Y$ is right at both levels, the counterparts of
@@ -1380,9 +1403,28 @@ estimate with the unprojected half-widths, and that band loses coverage. The tes
 level, and the identity check fails.
 
 The `isotonic_t2` cell of the [point survival curve study](method-evidence/point-survival-curve.md)
-fits `isotonic=True` on a curve that rises by about nine standard errors, so the projection moved
-no level in its 4,800 replications. On that law the projection left the interval unchanged. No registered study measures an interval after a projection that moves
-a level.
+fits `isotonic=True` with saturated cell-mean learners, so the projection moved no level in its
+4,800 replications. On a two-horizon iterated-mean fit the difference of the two levels is
+$D = P_n[H_1\, dY] + P_n[(1 - H_1)\, dQ^*]$ up to the node-1 score residuals, with
+$dY = (1 - Y_1) Q^*_{2} \ge 0$ and $dQ^*$ the gap between the two horizons' node-1 regressions.
+The second term is zero when the node regressions are saturated cell means and the treatment
+and censoring mechanisms are cell shares that no `g_bounds` truncation touches, because $H_1$
+then sums to the cell count in each cell. Such a fit never binds once the node-1 score is
+solved, while a residual left by a loose solver tolerance can still move a level slightly.
+
+A logistic outcome learner beside a linear pseudo-outcome learner on a continuous covariate can
+bind. The registered study [binding isotonic projection](method-evidence/isotonic-binding.md)
+fits that pairing on a two-node law with a continuous covariate and a strictly increasing risk.
+
+| claim | cell | measured |
+| --- | --- | --- |
+| the interval at the projected level, with the unprojected SE, is calibrated where the projection binds | `interval_calibration/projected_t1` | coverage 0.942, SE ratio 0.98, inside the calibration bands |
+| the projection moves the never horizon-1 level | `binding_witness/never_t1` | 0.354 of draws |
+| it moves the level materially | `material_move/never_t1` | at least 0.1 SE on 0.193 of draws, at most 0.564 SE |
+
+The projected and unprojected intervals disagree on 0.64% of draws, so the study bounds the
+coverage the projection costs at these move sizes and cannot show a gain. A flat truth and other
+learner pairings are untested.
 
 ### Known node mechanisms
 
@@ -1702,6 +1744,37 @@ The SDR threshold reads every row, so a fold's transform depends on its held-out
 one number. A continuous node's bin edges read the held-out rows in the same way
 (`cleverly.longitudinal.sdr`).
 
+Targeting solves the trimmed score at every node, so in the limit the trimmed fit misses the
+truth by $\sum_t P_0[(\tilde R_t - R_t)(Q^*_{t+1} - Q^*_t)]$, with $Q^*_{T+1} = Y$. The factor
+$\tilde R_t - R_t$ does not vanish on the trimmed share, so the fit is consistent when every
+outcome regression is, and double robustness is lost there. With a correct parametric outcome
+regression the extra term is of order $n^{-1/2}$ and the plug-in curve omits it. With a
+nonparametric outcome regression the term decays at that regression's rate, which is slower.
+
+**Evidence.** The registered study [`option-ratio-trim`](method-evidence/option-ratio-trim.md)
+backs the point-only support rows `G56`. On a two-node law with weak support it measures the bias of LTMLE and SDR
+trimmed at $q = 0.95$ with linear outcome regressions, which contain every iterated regression
+of the law, in sample and cross-fitted. A W-blind outcome regression gives the control: trimmed,
+its exact bias is 0.068 (LTMLE) and 0.083 (SDR), about 2 SDs at $n = 2{,}000$. Untrimmed, double
+robustness removes it. The study claims the point estimate only, and only with the linear
+outcome regressions; the `G56` rows pin that learner, so a trimmed fit with another outcome
+learner reads `experimental`.
+
+In the committed run the trimmed fits' biases are within 0.025 SD
+and the controls read 1.90 (LTMLE) and 2.43 (SDR) SDs. The untrimmed fits with correct
+regressions cover 0.896 (LTMLE) and 0.905 (SDR) on this law, with SE ratios 0.928 and 0.939.
+No registered cell measures a larger n. A separate diagnosis outside the study found the
+shortfall to be a finite-sample effect of the heavy weight tail: coverage rose to 0.946 at
+$n = 16{,}000$, and $n$ times the mean squared standard error converged to the exact efficient
+variance (6.23 against 6.25 for LTMLE).
+
+On the 4,000-draw pilot the plug-in SE of a correctly specified trimmed fit was 0.57 of the
+spread of its estimates, so the diagnostic is not a standard error. At $q = 0.99$ the W-blind
+controls read 0.41 and 0.52 SDs, too close to the 0.45 SD floor to gate, so the study reports
+them. `tests/unit/test_option_ratio_trim_witness.py` fits the quadrature form of the law at the
+law's own quantile. The trimmed W-blind LTMLE limit equals the remainder above at $10^{-8}$, and
+a clever covariate without the trim, or a node-1 trim not carried to node 2, fails that check.
+
 ### Markov order
 
 `LongitudinalTreatment(markov_order=k)` declares a statistical-model restriction of order $k$.
@@ -1746,6 +1819,34 @@ whose outcome reads a rule arm at $t-k-1$, order 0 returns the truth through the
 regressions. A window one node short, a dropped rule block and an arm window that starts at
 $t-k$ each fail an exact-law check. `SDR` reads the same designs, and the
 same file runs the witnesses and the rule-block control on `SDR`.
+
+The restriction is a statement about the observed-data law, so data can contradict it, but the
+fit does not test it. It shrinks the model's tangent space, so the efficient influence curve of
+the restricted model can differ from the full-history one. The windowed fit uses the
+full-history curve form on smaller designs, so a study can claim a valid interval under the
+restriction and claims no efficiency.
+
+**Evidence.** The registered study
+[`option-markov-order`](method-evidence/option-markov-order.md) backs the support row `G57`.
+Its law has four nodes, and the treatment and outcome read one node back, so order 1 is the
+smallest correct window. The study measures the interval of order 1 on
+$E[Y^{\text{always}}]$ and the ATE and of order 2 on the ATE, beside the full-history fit on the
+same draws; the three cells cover 0.946, 0.943 and 0.940. Order 0 drops both sides. Its exact-law ATE bias is 1.37 SDs at $n = 2{,}000$, where
+the SD is the limit fit's plug-in curve SD, $\sqrt{E[D^2]/n}$, not the estimator's sampling SD.
+
+On a second law the treatment reads only $A_{t-1}$, which the order-0 window keeps, and the
+outcome leans on $L_3$, which it drops. There the order-0 fit is unbiased for
+$E[Y^{\text{never}}]$ through its mechanisms, and with intercept-only mechanisms it misses by
+0.54 plug-in SDs (about 1.2 sampling SDs), so the mechanisms do the rescue.
+
+A first version of the law had a heavy-tailed cumulative ratio, from weak support for the
+always-treated path. Its order-1 and full-history fits both covered 0.919 for $E[Y^{\text{always}}]$ at $n = 2{,}000$. The shortfall
+was the law's, not the window's, so the declared law replaced it.
+
+`tests/unit/test_option_markov_order_witness.py` fits the study law's quadrature form with
+probability weights. Order 1, order 2 and the full history return the truth to $10^{-8}$, and
+order 0 misses it. A window one node short fails the order-1 check, and a mechanism arm window
+that starts at $t-k$ fails the second law's check.
 
 ### Pooled censoring
 
@@ -2064,8 +2165,10 @@ mutation control that fails it.
 Two registered studies measure the fit, and both publish under `reporting`. The
 [clustered cross-fitted study](method-evidence/clustered-cross-fitted-longitudinal-tmle.md) pairs
 the fit with R `lmtp` 1.5.4 at 100 clusters of 40 rows. Its four cluster-robust pairs and five
-paired comparisons pass. Its band covers 0.933, and the lower end of that coverage's 99% interval,
-0.919, falls below 0.92, the lower edge of the calibration band. The `band-finite-sample` owner holds that cell. The
+paired comparisons pass. Its band, on the default since band-finite-sample (Mammen multiplier,
+logit scale, 10,000 draws), covers 0.939 with a 99% interval of 0.926 to 0.951, inside the
+calibration band. The former Rademacher identity-scale band covered 0.933 on the same fits and
+was red. The
 [few-cluster study](method-evidence/few-cluster-cross-fitted-longitudinal-tmle.md) measures the
 $t$ reference at 20 and 30 clusters, and all 8 scored cells pass.
 

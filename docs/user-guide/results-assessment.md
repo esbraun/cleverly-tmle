@@ -224,9 +224,16 @@ clusters, or 20 for longitudinal TMLE, the interval carries the `experimental` l
 the fit reports no interval. For TMLE and DR-TMLE, these rules also apply to one reported
 stratum.
 [Clusters](../technical-reference/inference.md#clusters) gives the rules and the estimators they
-cover. Use
-`Inference(simultaneous=True)` when the reported family, rather than each interval separately,
-needs error control.
+cover.
+
+Use `Inference(simultaneous=True)` when the reported family, rather than each interval separately,
+needs error control. The band it adds holds for all the estimates at once, so it is wider than
+each interval. For a probability of a binary outcome the band is built on the log-odds scale, and
+for a difference of two probabilities on the matching scale for differences. Its limits then stay
+inside the possible range and can sit unevenly around the estimate. The dose-response curve is the
+exception: its band stays on the share scale itself, so a limit can fall below 0 or above 1.
+[Simultaneous bands](../technical-reference/inference.md#simultaneous-bands) gives the options and
+which of them registered studies measure.
 
 A contrast inherits the inference status of its inputs. On a fit whose status supplies no
 inference, the contrast refuses `ci` as its inputs do. The fit builds no simultaneous band.

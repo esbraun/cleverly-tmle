@@ -12,9 +12,9 @@ a declared grid, and a Wald test of the non-constant terms all carry intervals.
 | output | interval | why |
 | --- | --- | --- |
 | projection coefficients on either scale, with or without missing outcomes | Wald, with the joint covariance | a pathwise-differentiable parameter of fixed dimension whose remainder is a product of nuisance errors |
-| heterogeneity test | joint Wald chi-square, df the number of non-constant terms | a fixed-dimension stack of the coefficients |
+| heterogeneity test | joint Wald chi-square, df the number of non-constant terms; below 40 clusters, the Hotelling $F$ reference | a fixed-dimension stack of the coefficients |
 | curve $\varphi(v)^\top\beta$ at declared points; band over a declared finite grid | pointwise Wald; multiplier band | linear in $\beta$; the shipped multiplier band over a fixed finite set |
-| risk difference and calibration of a fixed external score (`assess_score`) | Wald | the efficient influence curve of the risk at a fixed function; the calibration is a projection onto $(1, s(V))$ |
+| risk difference and calibration of a fixed external score, and the paired risk difference of two (`assess_score`, `compare=`), on either scale | Wald, from one TMLE fit | the efficient influence curve of the risk at a fixed function, and its difference for two; the calibration is a projection onto $(1, s(V))$ |
 | the conditional effect itself, with no basis (`model=None`), by `method="ep"` | none: `predict(interval=True)` refuses | not pathwise differentiable; the EP learner's theorems give rates, not a limit law |
 
 The [user guide page](../user-guide/conditional-effects.md) gives the workflow.
@@ -122,6 +122,18 @@ $\varphi(V)\{\operatorname{expit}(\eta) - 1\{a = t\}\}$, plus the $O(\lVert\beta
 term of a Z-estimator. The interval holds when both nuisances converge at the product rate. One
 consistent nuisance gives a consistent point estimate, not a valid interval.
 
+The score assessment's parameters have the same product remainder with weight $c_a(W)$ (see
+[External scores](#external-scores)), and it is not of the linear-remainder form either: the
+fluctuation's features are known functions of the fixed scores, and the only estimated quantity
+inside them, the log-ratio calibration $\beta_k$, enters quadratically. A single score's risk
+difference adds the error of its best constant. On the difference scale that is
+$(\widehat{\mathrm{ATE}} - \mathrm{ATE})^2$. On the log-ratio scale $c_n$ minimizes the estimated
+risk among constants, so the row is biased upward by about
+$\operatorname{Var}(R_n'(c_0))/(2R''(c_0))$, which is $O(1/n)$, and its curve evaluated at $c_n$
+overstates the SE slightly. The [score-assessment study](method-evidence/score-assessment.md)
+measured 0.09 to 0.13 SD of bias on the calibration groups' log-ratio rows at n = 4,000 (0.08
+to 0.10 under a wrong outcome regression) and 0.03 to 0.05 SD on the difference scale at 2,000. The paired row carries neither term, because the constant cancels.
+
 ## Curve, band and heterogeneity test
 
 The curve at a declared point is $\varphi(v)^\top\hat\beta$, with standard error
@@ -135,8 +147,11 @@ outside a declared domain is refused unless `Modifiers(outside="clip")` maps it 
 end, for the fit and for prediction alike.
 
 `heterogeneity_test()` tests $\beta_j = 0$ for every term except the intercept, a Wald
-chi-square on as many degrees of freedom. It tests the absence of variation along the basis, not
-the absence of heterogeneity.
+chi-square on as many degrees of freedom $q$. A clustered fit with $J < 40$ clusters, whose
+coefficients read $t$ on $\nu = J - 2$ degrees of freedom, reads the statistic $T$ by the
+Hotelling law instead: $T(\nu - q + 1)/(\nu q)$ against $F(q, \nu - q + 1)$, the square of
+that $t$ at $q = 1$. A basis with $q > \nu$ has no such reference and is refused. The test is of
+the absence of variation along the basis, not the absence of heterogeneity.
 
 ## The EP learner
 
@@ -204,30 +219,106 @@ score before and after the regression.
 
 ## External scores
 
-`assess_score` reads a column $s(V)$ computed from declared adjustment columns and estimates,
-from the outcome and treatment fits of an ATE fit on the same study, two one-step functionals.
+`assess_score` reads a column $s(V)$ computed from declared adjustment columns by a rule fitted
+on other rows. From one TMLE fluctuation of an ATE fit on the same study it estimates three
+parameters of the score, and with `compare=` the same three of a second score $s_2$ and the
+paired risk difference of the two. Each carries a Wald interval from its influence curve.
 
-The **risk difference** compares the risk of the score with that of the best constant. On the
-difference scale $R(s) = E[s^2 - 2s\tau]$, the best constant is the ATE with $R = -\mathrm{ATE}^2$,
-and
+**Difference scale.** The risk of a score is $R(s) = E[s^2 - 2s\tau] = E[(s - \tau)^2] - E[\tau^2]$.
+The best constant is the ATE, with $R = -\mathrm{ATE}^2$, and the **risk difference**
+$R(s) + \mathrm{ATE}^2$ is negative when the score predicts $\tau$ better than the constant does.
+The **paired risk difference** is
 
 $$
-\mathrm{IC} = \{s^2 - 2s\tilde D - R(s)\} + 2\,\mathrm{ATE}\,(\tilde D - \mathrm{ATE}).
+\psi_{12} = R(s_1) - R(s_2) = E[(s_1 - \tau)^2] - E[(s_2 - \tau)^2],
 $$
 
-The influence curve of the risk at a fixed function is van der Laan, Carone and Luedtke,
-Theorem 1, as Section 3.1 specializes it. The derivative of $R(c)$ in $c$ vanishes at the best
-constant, so estimating the constant adds no term. On the log-ratio scale, with
-$L(\theta) = (\bar Q_t + \bar Q_r)\log(1 + e^\theta) - \bar Q_t\theta$ and its augmentation
-$\Delta_L(\theta)$, the curve is $[L(s) + \Delta_L(s) - R(s)] - [L(c) + \Delta_L(c) - R(c)]$ with
-$c = \log(E\bar Q_t / E\bar Q_r)$ held fixed.
+the difference of the two scores' mean squared errors for the conditional effect, negative when
+$s_1$ predicts better. When both scores read only $V$, the $E[\operatorname{Var}(\tau \mid V)]$
+terms cancel and $\psi_{12}$ is the difference of mean squared errors for $E[\tau \mid V]$.
+
+**Log-ratio scale.** With $\ell_t(\theta) = \log(1 + e^{-\theta})$ and
+$\ell_r(\theta) = \log(1 + e^{\theta})$, the risk is $R_L(s) = E[\bar Q_t\ell_t(s) + \bar Q_r\ell_r(s)]$,
+the loss of the log-CRR projection. The best constant is $c = \log(E\bar Q_t / E\bar Q_r)$, and
+the paired risk is $R_L(s_1) - R_L(s_2)$. Since
+$R_L(s) - R_L(\theta^*) = E[(\bar Q_t + \bar Q_r)\,\mathrm{KL}(\pi_t \,\|\, \operatorname{expit} s)]$
+with $\pi_t = \bar Q_t / (\bar Q_t + \bar Q_r)$ and $\theta^* = \log(\bar Q_t / \bar Q_r)$, the
+paired risk is a difference of weighted Bernoulli divergences from the true log-CRR.
 
 The **calibration** is the projection of the contrast onto $(1, s(V))$, the CATE or log-CRR
-projection with that basis. Both intervals need $s$ to be a fixed function, fitted on other
-rows. A score fitted on this study's outcomes or treatments is an estimated index, and the
-projection onto it has a remainder the interval ignores. `score_kind="external"` is the
-declaration the interval rests on. A column equal to an in-sample curve of the same identified
-effect, or named with the `effect_curve:` prefix, is refused, and that detection is best effort.
+projection with that basis: a slope of 1 and an intercept of 0 say the score is calibrated.
+
+**Influence curves.** Each risk has the form $E[k(W) + c_t(W)\bar Q_t + c_r(W)\bar Q_r]$ with
+known weight functions, for example $k = s^2$, $c_t = -2s$, $c_r = 2s$ on the difference scale
+and $k = 0$, $c_t = \ell_t(s)$, $c_r = \ell_r(s)$ on the log-ratio scale. Its efficient influence
+curve at a fixed $s$ is van der Laan, Carone and Luedtke, Theorem 1 (arXiv:2402.01972v2):
+
+$$
+k + c_t\bar Q_t + c_r\bar Q_r - R + \sum_{a \in \{t, r\}} \frac{1\{A = a\}\Delta}{g(a \mid W)\Pi(a, W)}\,c_a(W)\,(Y - \bar Q_a).
+$$
+
+The single-score risk difference adds the comparator's curve, $2\,\mathrm{ATE}(\tilde D - \mathrm{ATE})$
+on the difference scale and the curve of $R_L(c)$ with $c$ held fixed on the log-ratio scale; the
+derivative of $R(c)$ in $c$ vanishes at the best constant, so estimating it adds no first-order
+term. The paired curve is the difference of the two single-score curves, and the comparator
+terms cancel exactly:
+$\mathrm{IC}_{12} = (s_1^2 - s_2^2) - 2(s_1 - s_2)\tilde D - \psi_{12}$ on the difference scale.
+The two blocks and the paired row form one fixed-dimension stack on the same rows.
+
+**The TMLE.** The ATE fit supplies cross-fitted $\bar Q^0$, $g$ and $\Pi$. On the difference
+scale the columns $\{1, s_1, s_2\}$ are reduced to an orthonormal basis of their span by the thin
+SVD of the targeting curves, and one logistic fluctuation of $\bar Q^0$ runs along
+$H = \sum_a 1\{A = a\}B_a(W)/(g\Pi)(a, W)$ with numerators $B$ at arm $t$ and $-B$ at arm $r$.
+Every parameter on this scale is linear in $\tau$ with features in that span, so one solve
+targets all of them. On the log-ratio scale $c_t \ne -c_r$, so the numerators are arm specific:
+$(1, 0)$ and $(0, 1)$ for the arm means that fix $c$, $(\ell_t(s_k), \ell_r(s_k))$ for each risk,
+and the log-CRR projection's covariate for each calibration. The calibration columns read
+$\beta_k$, so the fluctuation and the projection alternate until the relative shift in $\beta$
+is within tolerance, and a fit that does not settle raises a `DataError`. Every reported value
+is the substitution estimate from the targeted $\bar Q^*$, for example
+$\hat\psi_{12} = P_n[s_1^2 - s_2^2] - 2P_n[(s_1 - s_2)(\bar Q^*_t - \bar Q^*_r)]$.
+
+**Reduced-span retry.** Near a calibration slope of about 0 or 0.5, a score's log-ratio
+numerators are collinear to second order, and the rounds can cycle. A fit whose full-span rounds
+do not settle reruns from its best round along the span without its thinnest direction, then
+without its two thinnest, at most one per score. It reports the first that settles with every
+numerator within $10^{-3}$ of the reduced span and every original score equation, the dropped
+ones included, inside the `scaled_var` threshold at the accepted $\bar Q^*$; otherwise it raises
+the `DataError`. The span record's `reduced` counts the dropped directions, and such a fit reads
+`experimental`. Coverage at a true slope near 0 or 0.5, where the retry keeps firing as $n$
+grows, is not measured.
+
+**Why a TMLE.** The TMLE and the one-step share the influence curve and the remainder, so
+neither is more efficient. The substitution has three exact properties the one-step lacks. The
+paired estimate on the difference scale is $P_n(s_1 - \tau^*)^2 - P_n(s_2 - \tau^*)^2$ against one
+bounded $\tau^*$, and the single-score risk difference is at least $-\operatorname{Var}_n(\tau^*)$, so it never says a
+score beats the constant by more than the estimated heterogeneity. The log-ratio calibration
+projects $\bar Q^*$ under a strictly convex loss, so it is unique, where the one-step's weights
+$D_t + D_r$ can be negative. Every estimate is a functional of one $\bar Q^*$. The one-step
+$P_n[s^2 - 2s\tilde D]$ survives as an auxiliary: at the targeted fit it equals the substitution
+to the solver's tolerance, which the tests check, and the `score-assessment` study publishes it
+at the initial fit beside the TMLE.
+
+With `compare=` the span grows from $\{1, s_1\}$ to $\{1, s_1, s_2\}$, so the first score's own
+rows differ in finite samples from a call without it. Both are valid TMLEs with the same
+influence curve and remainder.
+
+**Conditions.** The remainder is the product of nuisance errors of
+[Remainders](#remainders), with $c_a$ in place of $s(a)\varphi$, so the intervals need both
+nuisances to converge at the product rate, strong positivity, a bounded outcome and bounded
+scores. With a known mechanism, complete outcomes and a truncation that does not bind, any
+outcome regression will do. A single score's risk difference also carries the best-constant term
+of Remainders, and the paired row does not.
+
+Every interval needs each score to be a fixed function, fitted on other rows. A score fitted on
+this study's outcomes or treatments is an estimated index: the target becomes the random
+$R(s_n)$, and the projection onto it has a remainder the interval ignores. Out-of-fold
+predictions of a model trained on these rows are not external either, because the function
+changes with the fold and depends on these rows' outcomes. `score_kind="external"` is the
+declaration the interval rests on, for both columns. A column equal to an in-sample curve of the
+same identified effect, or named with the `effect_curve:` prefix, is refused, and that detection
+is best effort. The paired interval covers $R(s_1) - R(s_2)$ for the one pair named before the
+fit; trying many pairs and reporting the best is a selection it does not cover.
 
 ## Targeting curves
 
@@ -363,6 +454,11 @@ cluster-robust variance, and folds are grouped by cluster. With missing outcomes
 covariate carries $\Delta/\Pi$, and a cross-fitted fit meets the
 [arm-indexed contract](scope-and-refusals.md#missing-outcome-arm-indexed-contract).
 
+`assess_score` inherits all three from its ATE fit, without a study. A clustered assessment
+follows the library's few-cluster rule: with fewer than 40 clusters the interval takes a $t$
+reference on $J - 2$ degrees of freedom, from 3 to 9 clusters it is labelled
+`few_cluster_plugin`, and below 3 only the point estimate is reported.
+
 ## Assessing a curve
 
 `EffectCurveResult.diagnostics` reads the producing fit for `support()`, `nuisance_models()`
@@ -403,6 +499,7 @@ each reading against its formula.
 | missing treatments, an intermediate, a continuous or vector treatment, `strata=`, `repeats` above 1, the full-refit bootstrap | the projection's clever covariate, covariance or study cell for the composition is not built | `implementation_gap`, roadmap P1 |
 | a sensitivity analysis or refutation of a projection fit | each is defined for a mean or a contrast of means | `implementation_gap`, roadmap P1 |
 | `heterogeneity_test()` on a basis without an intercept column | its coefficients being zero says the contrast is zero, not that it is constant | `invalid_declaration` |
+| `heterogeneity_test()` on a clustered fit with fewer than 40 clusters and more than $J - 2$ non-constant terms | the Hotelling reference on $J - 2$ degrees of freedom has no law for more terms | `inference_gap` |
 | `method="ep"` for an estimand other than `ConditionalContrast` | it estimates a different target | `different_estimand` |
 | `predict(interval=True)` on an EP curve, or a non-default `Inference` on `EPMethod` | EPL proves rates, not a limit law for the curve | `inference_gap` |
 | `method="ep"` with `model=Sieve(basis)` sized by cross-validation | the model is a declared projection target; pass the sieve as `sieve=` with `model=None` | `invalid_declaration` |
@@ -410,14 +507,21 @@ each reading against its formula.
 | `final_learner=` on the log-ratio scale | the weighted logistic final stage with a declared learner is not built | `implementation_gap`, roadmap P1 |
 | `EPMethod` with `cross_fit=False`, `repeats` above 1, `cv_evaluation=True`, a non-default targeting scheme, or a fluctuation setting | the debiasing pools every row with its own out-of-fold nuisances and fits no fluctuation | `invalid_declaration` |
 | `assess_score` without `score_kind="external"`, with `computed_from` outside the adjustment set, or on an in-sample curve | the interval needs a fixed function of adjustment columns | `invalid_declaration` |
-| `targeting_curve` under the same three conditions, for the score or the `compare=` column | as `assess_score` | `invalid_declaration` |
+| `assess_score` with `compare=` naming the score column, or a column with the same value on every row | the paired risk is 0 with no spread | `DataError` |
+| `assess_score` with `compare=` a sequence of two or more columns | a joint interval over every pair of three or more scores is not built | `implementation_gap`, roadmap X98 |
+| `assess_score` with `repeats` above 1 | a median over splits of jointly targeted risks has no reviewed joint covariance | `inference_gap` |
+| `assess_score` with `n_bootstrap` above 0 | the refit bootstrap is not built; the influence-curve intervals are reported | `inference_gap` |
+| `assess_score` with `target_weights=True`, a declared stopping rule, a non-pooled targeting scheme or `cv_evaluation=True` | every row loads several score columns, which the weighted submodel cannot carry; the fluctuation is one pooled solve under the relative stopping test | `implementation_gap`, roadmap X98 |
+| `targeting_curve` without `score_kind="external"`, with `computed_from` outside the adjustment set, or on an in-sample curve, for the score or the `compare=` column | as `assess_score` | `invalid_declaration` |
 | `curve.diagnostics.targeting_curve(split=...)` with a split that is not a fraction in $(0, 1)$ | a fold average of fold-specific curves is a property of the learning algorithm; its only source (Imai and Li 2023, Section 4) covers difference-in-means scores in a randomized experiment | `invalid_declaration` |
 | a targeting curve with `repeats` above 1 | a median over splits of a whole curve has no reviewed joint law | `inference_gap` |
 | a targeting curve with `target_weights=True` or a declared stopping rule | every row loads several weight columns, which the weighted submodel cannot carry; a declared stopping rule needs a stopping context no curve builds | `implementation_gap`, roadmap X92 |
+| a targeting curve on an ATE fit with a non-pooled targeting scheme or `cv_evaluation=True` | the curve fits one pooled fluctuation over every evaluation row | `implementation_gap`, roadmap X92 |
+| a targeting curve on an ATE fit with `n_bootstrap` above 0 | the curve's intervals come from its half-sample bootstrap | `inference_gap` |
 | `compare=` on route 2 of an engine fit | the column is read from the producing study, which an engine fit does not keep | `invalid_declaration` |
 
 Each one is raised before any learner is fitted, and `tests/unit/test_conditional_contrast.py`
-pins its text.
+pins its text, the score assessment's among them.
 
 ## Status and evidence
 
@@ -437,7 +541,12 @@ passed every one of its 64 property cells and its three primary tests. Its suppo
 | `T49.missing`, `T50.missing` | outcomes missing at random |
 
 A pooled outcome regression on this axis, a composition no group measured (weights with
-clusters, for example), the simultaneous band and the external-score check read `experimental`.
+clusters, for example) and the simultaneous band read `experimental`. On this axis the
+outcome-regression option reads the other way round from the point estimands: the measured fit
+is the per-arm one, and the support key holds `outcome_by_arm`, so a pooled projection matches
+no row. The key keeps that label now that the point study `option-outcome-by-arm` is registered and the
+option's fit condition is deleted (`tests/unit/test_option_outcome_by_arm_witness.py`). The external-score check
+has its own measured configurations, below.
 The study was declared in `tests/studies/conditional_projection.py` with its verdicts in
 `tests/studies/conditional_projection_properties.py`, and its declared run is
 `python -m tests.canonical.conditional_projection.regenerate`, whose docstring holds the
@@ -494,6 +603,50 @@ The fast-tier instruments are:
 - Gâteaux checks of the score risk on both scales, on the complete and the missing-outcome law, with the risk curve that omits the term for the
   constant as a mutation that must fail, and the true CATE calibrated to intercept 0 and slope 1
   (`tests/unit/test_conditional_contrast.py`).
+
+The registered [score-assessment study](method-evidence/score-assessment.md)
+(`tests/studies/score_assessment.py`, run by
+`python -m tests.canonical.score_assessment.regenerate`) passed its primary test and all 49
+property cells, with no failed fit. Its 32 calibration rows, at R = 15,200, read SE ratios from
+0.989 to 1.017 and coverage from 0.948 to 0.953. The paired Wald test rejects in 0.050 of the
+replications at equal risks and in 0.896 at the declared difference. Under a declared wrong
+outcome regression every TMLE risk difference stays within 0.11 SD of the truth, while the
+untargeted plug-in misses by 4 to 49 SD. An estimate of `assess_score` reads `supported` when
+its configuration is one a group measured, with a binary treatment, iid unweighted rows,
+complete outcomes, cross-fitted nuisances and a fluctuation settled on the full span:
+
+| scale, outcome, mechanism | single-score rows | paired row |
+| --- | --- | --- |
+| difference, binary, estimated | `conditional-projection` `assess_score_2k`; `score-assessment` `paired_2k` | `paired_2k` |
+| difference, binary, known | `paired_trial_2k` | `paired_trial_2k` |
+| difference, continuous, estimated | `paired_cont_2k` | `paired_cont_2k`, `equal_cont_2k`, `power_cont_2k` |
+| log ratio, binary, estimated | `single_crr_4k`, `paired_crr_4k` | `paired_crr_4k` |
+
+`cleverly.effect_curves.SCORE_ASSESSMENT_MEASURED` and `SCORE_PAIRED_MEASURED` hold the table,
+and `tests/unit/test_score_assessment_tmle.py` checks that every group it names ran and passed.
+Weights, clusters, missing outcomes, a pair of arms of a multi-arm treatment, an ATE fit without
+cross-fitting, a reduced-span fit and every other configuration read `experimental`. The
+difference-scale groups run at n = 2,000 and the log-ratio groups at 4,000: at 2,000 rows the
+pilot's SE ratio of 1.047, the best-constant term plus an unexplained excess, predicted that no
+replication count up to 50,000 meets the calibration rule, and no interval was measured there.
+The study page gives that term's measured size, the reduced-span counts, and the limits of what
+the study can see.
+
+The score assessment's fast-tier instruments (`tests/unit/test_score_assessment_tmle.py`) are:
+
+- the paired point against the functional and its curve against the Gâteaux derivative on a
+  three-cell law, on both scales, with the sign following the order, and mutations of the
+  second-moment term, the residual term and the cancelled comparator term, each with a witness
+  that the term is not small;
+- on a six-cell law where the fluctuation does not saturate, the paired row equal to the
+  difference of the single rows of one fit; every estimate exact under a wrong outcome
+  regression and the oracle mechanism, while three mutations of the numerators miss it; and the
+  substitution equal to the one-step at the targeted fit;
+- the targeted regressions in range where the one-step's weights turn negative, the log-ratio
+  calibration as the unique minimizer of a convex loss, and a loud failure when the log-ratio
+  alternation cannot settle;
+- missing outcomes, observation weights and the three cluster cases, the support labels and
+  their tables, and the report.
 
 The [`ep-cate` study](method-evidence/ep-cate.md), declared in `tests/studies/ep_cate.py` with
 its verdicts in `tests/studies/ep_cate_properties.py` and run by

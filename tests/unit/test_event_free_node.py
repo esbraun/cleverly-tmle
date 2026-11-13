@@ -353,7 +353,12 @@ def test_the_warning_caps_the_names_it_lists() -> None:
 
     estimates = {
         f"risk_regimen[a @ t={k}]": make_estimate(
-            f"risk_regimen[a @ t={k}]", 0.0, np.zeros(10), n=10, inference="constant_node_plugin"
+            f"risk_regimen[a @ t={k}]",
+            0.0,
+            np.zeros(10),
+            n=10,
+            inference="constant_node_plugin",
+            rule_widened=False,
         )
         for k in range(1, 26)
     }

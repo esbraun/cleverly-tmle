@@ -102,8 +102,10 @@ follows ([Theory and comparators](../../architecture-invariants.md#theory-and-co
 | `double_robustness` | at $h = 1.0$, $a_0 = 3.5$, with a density that ignores $W$ and the declared outcome sieve, is the 99% bias interval inside $\pm 0.25$ SD. With the dose-only spline outcome and the declared density, does targeting bring the estimate at least 1.5 efficient SEs closer to the truth than its plug-in | with the dose-only spline outcome and the density that ignores $W$, the bias interval must lie wholly outside $\pm 0.25$ SD. An untargeted fit reads a gain of 0 |
 
 The band fits seed their multiplier draws with `random_state=0`, so every replication reads the
-same 1,000 draws, and the band cell measures coverage conditional on that one draw. Its critical
-value sits within 0.02 of the oracle value 2.751, which moves the joint coverage by about 0.003.
+same draws, and the band cell measures coverage conditional on that one draw. Since
+band-finite-sample the band uses 10,000 Mammen draws on the identity scale, because the curve's
+estimates carry no range. At the former 1,000 draws its critical value sat within 0.02 of the
+oracle value 2.751, which moves the joint coverage by about 0.003.
 The calibration cell reads the pair $(1.0, 2.5)$ of the same fits. Fitted alone on 20 shared
 pilot draws, the pair gave the same estimate to within $10^{-6}$ of its SE.
 
@@ -147,7 +149,7 @@ carry the population statement with the true density.
 | `interval_calibration` | `interior_h1_a2_5__noise_control` | control | the binary dose-response law, the smoothed curve at dose 2.5 and bandwidth 1.0, an interior pair, n = 4,000: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8299 to 0.8511, SE ratio 0.7068 to 0.7354, empirical efficiency ratio 1.3917 to 1.4479, reported efficiency ratio 1.0230 to 1.0238 | pass |
 | `interval_calibration` | `interior_h1_a2_5__shrunken_se_control` | control | the binary dose-response law, the smoothed curve at dose 2.5 and bandwidth 1.0, an interior pair, n = 4,000: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8270 to 0.8483, SE ratio 0.6905 to 0.7185, empirical efficiency ratio 0.9971 to 1.0374, reported efficiency ratio 0.7161 to 0.7167 | pass |
 | `simultaneous_coverage` | `binary_curve__pointwise_joint_control` | control | the binary dose-response law, the smoothed curve at doses 0.25, 1.5, 2.5, 3.5 and 4.75 and bandwidths 0.5, 1.0 and 1.5 (15 pairs), n = 4,000: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.6658 to 0.6928 | pass |
-| `simultaneous_coverage` | `binary_curve__simultaneous_band` | positive | the binary dose-response law, the smoothed curve at doses 0.25, 1.5, 2.5, 3.5 and 4.75 and bandwidths 0.5, 1.0 and 1.5 (15 pairs), n = 4,000: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9293 to 0.9434 | pass |
+| `simultaneous_coverage` | `binary_curve__simultaneous_band` | positive | the binary dose-response law, the smoothed curve at doses 0.25, 1.5, 2.5, 3.5 and 4.75 and bandwidths 0.5, 1.0 and 1.5 (15 pairs), n = 4,000: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9310 to 0.9450 | pass |
 <!-- /generated -->
 
 ## Claim boundary

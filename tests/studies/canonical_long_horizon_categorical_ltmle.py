@@ -80,7 +80,7 @@ the simultaneous band                  The studentized bootstrap sup-t band at B
                                        band, not switch its construction.  The pointwise
                                        control must stay below nominal.
 the Wald-curve band                    Reporting; no verdict.  Cell ``k5__ic_band`` publishes
-(``k5__ic_band``)                      the Rademacher band of the influence curves beside the
+(``k5__ic_band``)                      the multiplier band of the influence curves beside the
                                        gated band.
 the overfitting positive               Its SE-ratio interval leaves [0.85, 1.20], or the coverage
 (``crossfit_overfitting``)             gain over the in-sample control falls short.  Defect

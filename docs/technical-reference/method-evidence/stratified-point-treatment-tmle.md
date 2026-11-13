@@ -197,9 +197,9 @@ the truth. `tests/unit/test_stratified_influence_exact.py` checks the score bloc
 | `interval_calibration` | `v2_par__noise_control` | control | population attributable risk in stratum V = 2: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8007 to 0.8413, SE ratio 0.6634 to 0.7141, empirical efficiency ratio 1.3974 to 1.5047, reported efficiency ratio 0.9926 to 1.0027 | pass |
 | `interval_calibration` | `v2_par__shrunken_se_control` | control | population attributable risk in stratum V = 2: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8085 to 0.8485, SE ratio 0.6668 to 0.7195, empirical efficiency ratio 0.9695 to 1.0471, reported efficiency ratio 0.6949 to 0.7018 | pass |
 | `simultaneous_coverage` | `crossfit_strata__pointwise_joint_control` | control | the three marginal and nine stratum parameters of the cross-fitted fit: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.5999 to 0.6512 | pass |
-| `simultaneous_coverage` | `crossfit_strata__simultaneous_band` | positive | the three marginal and nine stratum parameters of the cross-fitted fit: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9038 to 0.9329 | **fail** |
+| `simultaneous_coverage` | `crossfit_strata__simultaneous_band` | positive | the three marginal and nine stratum parameters of the cross-fitted fit: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9374 to 0.9608 | pass |
 | `simultaneous_coverage` | `strata__pointwise_joint_control` | control | the six marginal and eighteen stratum parameters of the in-sample fit: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.5688 to 0.6208 | pass |
-| `simultaneous_coverage` | `strata__simultaneous_band` | positive | the six marginal and eighteen stratum parameters of the in-sample fit: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.8881 to 0.9194 | **fail** |
+| `simultaneous_coverage` | `strata__simultaneous_band` | positive | the six marginal and eighteen stratum parameters of the in-sample fit: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9196 to 0.9462 | **fail** |
 | `stratum_targeting_necessity` | `v0_ate__marginal_fluctuation` | control | average treatment effect in stratum V = 0: the same outcome regression with one marginal fluctuation per arm, averaged inside each stratum | bias interval must fall entirely outside the margin | bias -0.0371 to -0.0341, margin 0.0052 | pass |
 | `stratum_targeting_necessity` | `v0_ate__stratified` | positive | average treatment effect in stratum V = 0: the stratified fit with an outcome regression that omits the stratum, so the per-stratum score blocks do all the adjusting | bias interval inside the equivalence margin | bias -0.0023 to 0.0023, margin 0.0077 | pass |
 | `stratum_targeting_necessity` | `v2_ate__marginal_fluctuation` | control | average treatment effect in stratum V = 2: the same outcome regression with one marginal fluctuation per arm, averaged inside each stratum | bias interval must fall entirely outside the margin | bias 0.0758 to 0.0784, margin 0.0044 | pass |
@@ -208,23 +208,28 @@ the truth. `tests/unit/test_stratified_influence_exact.py` checks the score bloc
 
 ## Result
 
-The study publishes under the `reporting` policy. The declared run had five red verdicts, and the
+The study publishes under the `reporting` policy. Four verdicts are red, and the
 [red-cell ledger](red-cells.md) names `strata-boundary-mean` as their owner. Every other primary
-test, paired comparison and property cell passed.
+test, paired comparison and property cell passed. The band rows are those of the band-finite-sample
+rerun, which re-measured both bands on the committed fits with the new default band (Mammen
+multiplier, 10,000 draws, each probability on its logit scale and each difference on its
+$\operatorname{atanh}$ scale). Under the former band (Rademacher, identity scale) both bands were
+red, at joint coverage 0.9046 and 0.9192 (`tests/canonical/band-rerun-decision.json`).
 
 | verdict | result | reading |
 | --- | --- | --- |
 | paired comparison with `tmle3` | 9 of 9 equivalent | the stratum arm means and ATEs agree with `tmle_stratified` |
 | primary truth test of `ey[1][V=2]`, both implementations | red. Coverage 0.9170 for each, with the lower 99% endpoint below the 0.90 floor | the bias is inside its margin and the SE ratio is 0.985. The treated mean of stratum 2 is 0.9358. At n = 2,000 the stratum holds about 157 treated rows and about 9 expected non-events, so its Wald interval under-covers, and `tmle3` shows the same coverage on the same draws |
 | `v2_ey1` calibration cell | red. Coverage 0.9208 | the same mean, in the property sample |
-| `strata` and `crossfit_strata` bands | red. Joint coverage 0.9046 and 0.9192 | the declared diagnostic read the same rows at the design critical values, 2.846 and 2.778. That oracle band covers 0.9121 and 0.9258, so it also under-covers, and the multiplier is not the main cause. The package critical values average 2.816 and 2.750, which account for the 0.0075 and 0.0066 between the two coverages. Each band inherits the shortfall of the pointwise interval above |
+| `strata` band | red. Joint coverage 0.9337, with a 99% interval from 0.9196 to 0.9462 | the declared diagnostic read the same rows at the design critical value, 2.846. That oracle band covers 0.9350, so it also under-covers, and the multiplier is not the main cause. The package critical value averages 2.834, which accounts for the 0.0013 between the two coverages. The band inherits the shortfall of the pointwise interval above |
+| `crossfit_strata` band | pass. Joint coverage 0.9500 | the band over the 12 cross-fitted parameters |
 | the other 17 calibration cells, three cross-fitted cells, and their controls | pass | every stratum parameter, ATT, ATC and PAR included, is calibrated at its efficiency bound |
 | double robustness and stratum targeting | pass | the marginal-fluctuation control moves at least 1.1515 empirical SDs in each outer stratum, and the stratified fit stays inside its margin |
 
 The route is the finite-sample one. The default band stays on, because nothing in the band's
 construction failed. The study module records the diagnostic, and
 [`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py) rebuilds
-every number of it from the committed rows. [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) owns the five red verdicts.
+every number of it from the committed rows. [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) owns the four red verdicts.
 
 ## Refusals
 
@@ -249,16 +254,16 @@ from the committed results and checked at the precision printed.
 | `paired_tests_total` | 9 | external comparisons declared |
 | `paired_tests_passed` | 9 | external comparisons passing |
 | `property_cells_total` | 83 | repeated-sampling property cells |
-| `property_cells_passed` | 80 | cells whose own and family verdicts pass |
+| `property_cells_passed` | 81 | cells whose own and family verdicts pass |
 | `max_standardized_bias` | 0.0626 | largest absolute primary bias in empirical standard deviations |
 | `min_coverage` | 0.9170 | lowest measured primary-study coverage |
 | `min_se_ratio_ci_lower` | 0.9160 | lowest bootstrap primary SE-ratio endpoint |
 | `max_se_ratio_ci_upper` | 1.0844 | highest bootstrap primary SE-ratio endpoint |
-| `properties[simultaneous_coverage/strata__simultaneous_band]:coverage` | 0.9046 | joint coverage of the in-sample band over 24 parameters |
-| `properties[simultaneous_coverage/strata__simultaneous_band]:coverage_ci_upper` | 0.9194 | its 99% upper endpoint |
+| `properties[simultaneous_coverage/strata__simultaneous_band]:coverage` | 0.9337 | joint coverage of the in-sample band over 24 parameters |
+| `properties[simultaneous_coverage/strata__simultaneous_band]:coverage_ci_upper` | 0.9462 | its 99% upper endpoint |
 | `properties[simultaneous_coverage/strata__pointwise_joint_control]:coverage` | 0.5950 | joint coverage of the pointwise intervals of the same fits |
-| `properties[simultaneous_coverage/crossfit_strata__simultaneous_band]:coverage` | 0.9192 | joint coverage of the cross-fitted band over 12 parameters |
-| `properties[simultaneous_coverage/crossfit_strata__simultaneous_band]:coverage_ci_upper` | 0.9329 | its 99% upper endpoint |
+| `properties[simultaneous_coverage/crossfit_strata__simultaneous_band]:coverage` | 0.9500 | joint coverage of the cross-fitted band over 12 parameters |
+| `properties[simultaneous_coverage/crossfit_strata__simultaneous_band]:coverage_ci_upper` | 0.9608 | its 99% upper endpoint |
 | `properties[simultaneous_coverage/crossfit_strata__pointwise_joint_control]:coverage` | 0.6258 | joint coverage of the cross-fitted pointwise intervals |
 | `properties[interval_calibration/v2_ey1__correctly_specified]:coverage` | 0.9208 | coverage of the treated mean in the smallest stratum |
 | `properties[stratum_targeting_necessity/v0_ate__stratified]:targeting_displacement` | 1.1515 | displacement of the marginal-fluctuation control, the less displaced outer stratum |

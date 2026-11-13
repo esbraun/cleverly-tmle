@@ -155,7 +155,9 @@ def engine_fit(frame: pd.DataFrame, shift_d: bool, shift_y: bool) -> _EngineFit:
         shifted, inputs, [TARGET], step_size=STEP_SIZE, tol=TOL, warn=False
     )
     levels, curves = influence(targeted, inputs, [TARGET])
-    estimate = make_estimate(ROBUSTNESS_ESTIMAND, float(levels[0]), curves[0], n=len(frame))
+    estimate = make_estimate(
+        ROBUSTNESS_ESTIMAND, float(levels[0]), curves[0], n=len(frame), rule_widened=False
+    )
     return _EngineFit(estimate, record)
 
 
@@ -196,13 +198,18 @@ def _draw(key: _Key) -> pd.DataFrame:
 
 
 #: The per-row convergence columns, and the reported summary column they give.
-CONVERGENCE_COLUMNS = ("converged", "relative_score")
+CONVERGENCE_COLUMNS = ("converged", "relative_score", "failure", "phase")
 CONVERGENCE_SUMMARY = ("nonconverged_fits",)
 
 
 def _converged(result: Any) -> dict[str, Any]:
-    converged, _, score = study.convergence(result)
-    return {"converged": int(converged), "relative_score": score}
+    converged, failure, score, phase = study.convergence(result)
+    return {
+        "converged": int(converged),
+        "relative_score": score,
+        "failure": failure,
+        "phase": phase,
+    }
 
 
 def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
@@ -324,6 +331,23 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     return convergence_reading(finish(summary, rates), rows)
 
 
+#: Whether each fitted property cell's fits are cross-fitted; the derived calibration controls
+#: reuse their base cell's fits and are not counted again.
+CROSS_FITTED_CELLS: dict[str, bool] = {
+    **{cell: spec is None for cell, spec in ROBUSTNESS_CELLS.items()},
+    **{
+        f"{label}__correctly_specified": scenario == study.CROSS_FITTED
+        for label, (scenario, _) in CALIBRATION_CELLS.items()
+    },
+}
+
+
+def convergence_suspects(rows: pd.DataFrame) -> list[str]:
+    """:func:`~tests.studies.separable_effects.convergence_suspects` on the fitted cells."""
+    fits = rows.loc[rows["cell"].isin(list(CROSS_FITTED_CELLS))]
+    return study.convergence_suspects(fits, CROSS_FITTED_CELLS)
+
+
 def convergence_reading(summary: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
     """Report each cell's unconverged fits; the column decides no verdict.
 
@@ -339,7 +363,7 @@ def convergence_reading(summary: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFra
     pandas.DataFrame
         ``summary`` with :data:`CONVERGENCE_SUMMARY` filled where the rows carry it.
     """
-    if not set(CONVERGENCE_COLUMNS) <= set(rows.columns):
+    if "converged" not in rows.columns:
         return summary
     out = summary.copy()
     out["nonconverged_fits"] = np.nan

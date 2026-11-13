@@ -20,7 +20,13 @@ from ._typing import (
 from .exceptions import MethodConfigurationError, Refusal, RefusalReason
 from .fluctuation._score import check_iterate, check_step_bound, check_stopping_rule
 from .inference.bootstrap import Resampling
-from .inference.multiplier import BandScale, MultiplierKind
+from .inference.multiplier import (
+    DEFAULT_BAND_SCALE,
+    DEFAULT_KIND,
+    DEFAULT_N_REPLICATES,
+    BandScale,
+    MultiplierKind,
+)
 from .learners.crossfit import SplitPlan, _cross_fit_policy_refusal
 from .learners.library import _validate_learner
 from .longitudinal.pooled_hazards import check_hazard_pooling
@@ -39,8 +45,6 @@ __all__ = [
     "BASELINE_POINT_REFUSAL",
     "BASELINE_RATIO_TRIM_REFUSAL",
     "DEFAULT_LONGITUDINAL_G_BOUNDS",
-    "DEFAULT_LONGITUDINAL_MULTIPLIER",
-    "DEFAULT_POINT_MULTIPLIER",
     "IPSI_NO_FLUCTUATION",
     "IPSI_POINT_REFUSAL",
     "IPSI_RATIO_TRIM_REFUSAL",
@@ -76,13 +80,9 @@ __all__ = [
 ]
 
 
-#: What ``"auto"`` resolves to, per engine.  These restate the engines' own signature defaults
-#: rather than importing them, because importing ``cleverly.estimators`` here would invert this
-#: module's place in the dependency order.  A restated default is a default that can drift, so
-#: ``tests.unit.test_causal_study`` reads both signatures and fails when one of these stops
-#: matching -- which is what makes the duplication safe rather than merely tidy.
-DEFAULT_POINT_MULTIPLIER = 1000
-DEFAULT_LONGITUDINAL_MULTIPLIER = 2000
+#: What ``g_bounds="auto"`` resolves to on the sequential engine.  It restates that engine's own
+#: signature default rather than importing it, because importing ``cleverly.estimators`` here
+#: would invert this module's place in the dependency order.
 DEFAULT_LONGITUDINAL_G_BOUNDS = (0.01, 1.0)
 
 #: Why the SDR estimator refuses a fluctuation setting. The setting has no meaning on an
@@ -179,7 +179,7 @@ REPEATED_OUTCOME_REFUSAL = Refusal(
         "{kinds} fit{verb} one. Each horizon is the end-of-study fit of the panel truncated "
         "after it."
     ),
-    roadmap="X32b",
+    roadmap="X71",
 )
 #: Why an estimator with no logistic node fluctuation refuses ``node_bounds=``. The condition
 #: holds ``{estimator}``, which :func:`node_bounds_refusal` fills in.
@@ -779,15 +779,15 @@ class Inference:
         Whether multi-parameter results include simultaneous bands.  ``None`` is the
         engine's own default: no band for :class:`~cleverly.longitudinal.SurvivalCTMLE`,
         which has none, and a band everywhere else.
-    n_multiplier : int or {"auto"}, default="auto"
-        Multiplier draws for simultaneous bands.
-    multiplier_kind : {"rademacher", "mammen", "normal"}, default="rademacher"
+    n_multiplier : int, default=10_000
+        Multiplier draws for simultaneous bands, on every engine.
+    multiplier_kind : {"rademacher", "mammen", "normal"}, default="mammen"
         Distribution of multiplier weights.
-    band_scale : {"logit", "identity"}, default="identity"
+    band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a probability or of a difference of two probabilities.
         ``"logit"`` builds it on the logit of the estimate's position in its range, so it
-        stays inside the range and can be asymmetric
-        (:func:`~cleverly.inference.simultaneous_bands`).
+        stays inside the range and can be asymmetric; ``"identity"`` builds it on the
+        estimate's own scale (:func:`~cleverly.inference.simultaneous_bands`).
 
     See Also
     --------
@@ -820,15 +820,10 @@ class Inference:
     n_bootstrap: int = 0
     bootstrap_resampling: Resampling = "auto"
     simultaneous: bool | None = None
-    #: Multiplier-bootstrap draws behind the simultaneous bands.  ``"auto"`` is each engine's
-    #: own default, which is not one number: the point path draws 1000 and the sequential path
-    #: draws 2000.  A single literal here would silently pick one of them for the other engine
-    #: -- and it did, halving every study-driven longitudinal fit's draws with nothing to read
-    #: that said so.  Resolved in :meth:`TMLEMethod.estimator_kwargs`, exactly as ``g_bounds``
-    #: is; the stored configuration keeps ``"auto"`` so it still says "the engine's default".
-    n_multiplier: int | Literal["auto"] = "auto"
-    multiplier_kind: MultiplierKind = "rademacher"
-    band_scale: BandScale = "identity"
+    #: Multiplier-bootstrap draws behind the simultaneous bands, the same on every engine.
+    n_multiplier: int = DEFAULT_N_REPLICATES
+    multiplier_kind: MultiplierKind = DEFAULT_KIND
+    band_scale: BandScale = DEFAULT_BAND_SCALE
 
 
 @dataclass(frozen=True)
@@ -1294,8 +1289,6 @@ class TMLEMethod:
             # point-treatment policy and has no sequential meaning.
             if common["g_bounds"] == "auto":
                 common["g_bounds"] = DEFAULT_LONGITUDINAL_G_BOUNDS
-            if common["n_multiplier"] == "auto":
-                common["n_multiplier"] = DEFAULT_LONGITUDINAL_MULTIPLIER
             common["ratio_trim"] = targeting.ratio_trim
             common["hazard_pooling"] = models.hazard_pooling
             return common
@@ -1311,8 +1304,6 @@ class TMLEMethod:
                 "a point-treatment functional has no curve. Remove them, or declare a "
                 "longitudinal or TimeToEvent design"
             )
-        if common["n_multiplier"] == "auto":
-            common["n_multiplier"] = DEFAULT_POINT_MULTIPLIER
         common.update(
             {
                 "treatment_learner": models.treatment_learner,

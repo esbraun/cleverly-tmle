@@ -37,7 +37,7 @@ from ..dose_response import (
 )
 from ..exceptions import CapabilityError, DataError, DataWarning, RefusalReason
 from ..inference.influence import ParameterEstimate, make_estimate
-from ..inference.multiplier import SimultaneousBands, simultaneous_bands
+from ..inference.multiplier import DEFAULT_N_REPLICATES, SimultaneousBands, simultaneous_bands
 from ..learners.density import ConditionalDensity, bin_edges, default_density_bins
 from ..utils.frames import frame_from_dict
 from ._nuisance import NuisanceEstimates, fit_nuisances
@@ -336,6 +336,13 @@ DOSE_RESPONSE_MEASURED: Final[Mapping[tuple[str, str, bool], str]] = {
 #: pairs of the binary declaration).  A band of any other configuration reads experimental.
 DOSE_RESPONSE_BAND_MEASURED: Final[tuple[str, str, bool]] = ("binary", "logistic", False)
 
+#: The multiplier draws the band cell measured: the Mammen multiplier at the default draw count,
+#: as band-finite-sample Wave 2 regenerated it.  The band stays on the identity scale, because
+#: the curve's estimates carry no range (:func:`make_estimate` gets no ``bounds``), so the
+#: default ``band_scale="logit"`` has nothing to map and its limits can leave [0, 1].  A band
+#: with fewer draws reads experimental.
+DOSE_RESPONSE_BAND_DRAWS: Final[int] = DEFAULT_N_REPLICATES
+
 
 def dose_response_support(
     *,
@@ -344,14 +351,16 @@ def dose_response_support(
     strata: bool,
     cross_fitted: bool,
     weighted: bool,
+    n_replicates: int = DEFAULT_N_REPLICATES,
 ) -> tuple[Support, Support]:
     """The support of a dose-response fit's pointwise intervals and of its band.
 
     A fit's intervals read ``supported`` when its configuration is one of
     :data:`DOSE_RESPONSE_MEASURED` and it is cross-fitted and unweighted.  Its band reads
-    ``supported`` when, in addition, the configuration is :data:`DOSE_RESPONSE_BAND_MEASURED`.
-    Otherwise each reads ``experimental``, with every reason that applies.  A pair below the
-    support floor is experimental whatever this returns (status ``low_dose_support_plugin``).
+    ``supported`` when, in addition, the configuration is :data:`DOSE_RESPONSE_BAND_MEASURED`
+    and the band uses at least :data:`DOSE_RESPONSE_BAND_DRAWS` multiplier draws.  Otherwise
+    each reads ``experimental``, with every reason that applies.  A pair below the support
+    floor is experimental whatever this returns (status ``low_dose_support_plugin``).
 
     Parameters
     ----------
@@ -365,6 +374,8 @@ def dose_response_support(
         Whether the nuisances are fitted out of fold.
     weighted : bool
         Whether the rows carry observation weights.
+    n_replicates : int, default=10_000
+        The multiplier draws behind the band.
 
     Returns
     -------
@@ -414,7 +425,25 @@ def dose_response_support(
         limits=limits,
     )
     if configuration == DOSE_RESPONSE_BAND_MEASURED:
-        return pairs, pairs
+        if n_replicates >= DOSE_RESPONSE_BAND_DRAWS:
+            return pairs, Support(
+                "supported",
+                f"The registered {DOSE_RESPONSE_STUDY} study measures this band (scenario "
+                f"{scenario}): the Mammen multiplier at {DOSE_RESPONSE_BAND_DRAWS:,} draws on "
+                "the identity scale, because the curve's estimates carry no range.",
+                (DOSE_RESPONSE_STUDY,),
+                limits=(
+                    *limits,
+                    "The band is built on the identity scale, so its limits can leave [0, 1].",
+                ),
+            )
+        return pairs, Support(
+            "experimental",
+            f"The registered {DOSE_RESPONSE_STUDY} study measured this band at "
+            f"{DOSE_RESPONSE_BAND_DRAWS:,} multiplier draws, and this band uses "
+            f"{n_replicates:,}.",
+            limits=limits,
+        )
     band = Support(
         "experimental",
         "The registered dose-response study measures the simultaneous band on a binary outcome "
@@ -487,8 +516,8 @@ class DoseResponseTMLE:
         A cross-fitted fit of a continuous outcome needs it, as every cross-fitted fit does.
     alpha : float
         The level of the intervals and of the band.
-    n_replicates : int
-        Multiplier draws behind the band.
+    n_replicates : int, default=10_000
+        Multiplier draws behind the band, with the Mammen multiplier.
     random_state : int or None
         Seed of the split, the learners and the band.
     n_jobs : int
@@ -508,7 +537,7 @@ class DoseResponseTMLE:
         fluctuation: Literal["logistic", "linear"] = "logistic",
         q_bounds: tuple[float, float] | None = None,
         alpha: float = 0.05,
-        n_replicates: int = 1000,
+        n_replicates: int = DEFAULT_N_REPLICATES,
         random_state: int | None = None,
         n_jobs: int = 1,
     ) -> None:
@@ -645,6 +674,7 @@ class DoseResponseTMLE:
             strata=data.strata is not None,
             cross_fitted=self.cross_fit,
             weighted=not np.allclose(data.weights, data.weights[0]),
+            n_replicates=self.n_replicates,
         )
         coarse = self._target(data, nuisance, rule, 0, configured)
         refined = self._target(data, nuisance, fine, rule.n_nodes, configured)
@@ -661,12 +691,15 @@ class DoseResponseTMLE:
             random_state=self.random_state,
             cluster=data.cluster,
         )
-        # simultaneous_bands() leaves the band unclassified; it carries its pairs' support and the
-        # band's own measured configuration.
+        # simultaneous_bands() leaves the band unclassified.  With every pair supported, the band
+        # reads its own measured configuration; otherwise it joins the pairs' reasons.
+        pair_support = combine_support(estimate.support for estimate in estimates.values())
         band = replace(
             band,
-            support=combine_support(
-                [*(estimate.support for estimate in estimates.values()), band_configured]
+            support=(
+                band_configured
+                if pair_support.label == "supported"
+                else combine_support([pair_support, band_configured])
             ),
         )
         notes: list[str] = []
@@ -818,5 +851,7 @@ class DoseResponseTMLE:
                 alpha=self.alpha,
                 inference="low_dose_support_plugin" if below else "influence_curve",
                 support=_pair_support(configured, below),
+                # Each pair's fluctuation solves its score or the fit refuses (above).
+                rule_widened=False,
             )
         return estimates, tuple(supports), scores

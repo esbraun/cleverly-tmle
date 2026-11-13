@@ -9,8 +9,9 @@
   interval is built on?
 * :func:`influence`: how few units carry the variance of the influence values?
 
-Every quantity is descriptive and none carries an interval the object does not hold; each
-note says so. Nothing is refitted and nothing is drawn at random.
+Every quantity is descriptive and none carries an interval the object does not hold;
+:func:`~cleverly.plotting.notes` says so for each figure. Nothing is refitted and nothing is drawn
+at random.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ import math
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -107,18 +108,19 @@ def _finish(
     *,
     owned: bool,
 ) -> None:
-    """The title, subtitle, key and notes: at the figure's edge on a figure the plot made.
+    """The title, subtitle and key: at the figure's edge on a figure the plot made.
 
-    A figure the plot created takes the figure-level header and notes, anchored at the
-    figure's left edge and wrapped to its width, so a square panel or a column of panels
-    never pushes them past the edge. On the caller's axes they go on that axes.
+    A figure the plot created takes the figure-level header, anchored at the figure's left
+    edge and wrapped to its width, so a square panel or a column of panels never pushes it
+    past the edge. On the caller's axes it goes on that axes. The notes are recorded, not
+    drawn.
     """
     if owned:
         _core.figure_header(fig, title, subtitle, key_sources=axes)
-        _core.figure_notes(fig, found)
+        _core.add_notes(fig, found)
     else:
         _core.header(axes[0], title, subtitle, key_sources=axes)
-        _core.notes(axes[-1], found)
+        _core.add_notes(axes[-1], found)
 
 
 # ------------------------------------------------------------------------- calibration
@@ -180,7 +182,7 @@ def _curve(calibration: Any, title: str | None, ax: Axes | None) -> Figure:
     _finish(
         fig,
         [axis],
-        title or "Do the predicted effects match the measured ones?",
+        title or "Predicted and measured effects",
         subtitle,
         found,
         owned=ax is None,
@@ -295,11 +297,9 @@ def _probability_text(models: list[Any], context: _Context) -> tuple[str, list[s
     elif not slopes:
         subtitle = "No calibration slope is shown for these models"
     elif basis == "out_of_fold":
-        subtitle = (
-            f"Logistic calibration slope of the out-of-fold predictions (1 = calibrated): {slopes}"
-        )
+        subtitle = f"Out-of-fold calibration slope (1 = calibrated): {slopes}"
     else:
-        subtitle = f"Logistic calibration slope (1 = calibrated): {slopes}"
+        subtitle = f"Calibration slope (1 = calibrated): {slopes}"
     where = {
         "out_of_fold": "cross-fitted (out-of-fold) predictions",
         "in_sample": "in-sample predictions (the fit used one fold)",
@@ -343,10 +343,16 @@ def _probability_text(models: list[Any], context: _Context) -> tuple[str, list[s
     return subtitle, found
 
 
+@_core.labelled
 def calibration(
     source: Any,
     *,
-    title: str | None = None,
+    title: str | Literal[False] | None = None,
+    subtitle: str | Literal[False] | None = None,
+    xlabel: str | Sequence[str] | None = None,
+    ylabel: str | Sequence[str] | None = None,
+    legend: str | Literal[False] = "top",
+    figsize: tuple[float, float] | None = None,
     ax: Axes | None = None,
 ) -> Figure:
     """Plot whether predictions match what was measured, bin by bin.
@@ -371,14 +377,28 @@ def calibration(
     collaborative working treatment model or a declared treatment law shows none either,
     because neither is an estimate of the treatment law.
 
-    Bins are descriptive: no interval is drawn, and the note says so.
+    Bins are descriptive: no interval is drawn.
 
     Parameters
     ----------
     source : CurveCalibration or NuisanceModelReport or NuisanceDiagnostics or TMLEResult
         What to plot.
-    title : str or None, default=None
-        The title.
+    title : str, False or None, default=None
+        The title; a short description of the figure when omitted, and none when ``False``.
+    subtitle : str, False or None, default=None
+        The line under the title; the plot's own, which names the estimate and its headline
+        number, when omitted, and none when ``False``.
+    xlabel : str, sequence of str or None, default=None
+        The x-axis label. A string replaces the first labelled panel's label and the same
+        label wherever it repeats; a sequence gives each labelled panel its own, in reading
+        order.
+    ylabel : str, sequence of str or None, default=None
+        The y-axis label, given as for ``xlabel``.
+    legend : {"top", "right", "bottom"} or False, default="top"
+        Where the key goes: above the axes, right of them, or under the figure; ``False``
+        draws no key.
+    figsize : tuple of float or None, default=None
+        Width and height in inches of a figure the plot creates.
     ax : Axes or None, default=None
         Axes to draw on. Only for a single panel.
 
@@ -396,6 +416,14 @@ def calibration(
     See Also
     --------
     cleverly.plotting.learners : Which learners carry the models.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes say the bins are descriptive,
+    which predictions they use, and how the slope and intercept are computed.
 
     Examples
     --------
@@ -423,11 +451,11 @@ def calibration(
     ... )
     >>> fig = calibration(result)
     >>> fig.texts[0].get_text()
-    'Are the predicted probabilities calibrated?'
+    'Calibration of predicted probabilities'
     >>> plt.close(fig)
     """
     if hasattr(source, "bins") and hasattr(source, "slope") and hasattr(source, "intercept"):
-        return _curve(source, title, ax)
+        return _curve(source, title or None, ax)
     models, context = _probability_models(source)
     count = len(models)
     if ax is not None and count > 1:
@@ -464,7 +492,7 @@ def calibration(
         else:
             _core.corner_label(axis, 0.97, words, _core.PALETTE[0])
     subtitle, found = _probability_text(models, context)
-    heading = title or "Are the predicted probabilities calibrated?"
+    heading = title or "Calibration of predicted probabilities"
     _finish(fig, axes, heading, subtitle, found, owned=ax is None)
     return fig
 
@@ -565,7 +593,7 @@ def _libraries(libraries: list[_Library], title: str | None, extra: Sequence[str
         "flatters it.",
         *extra,
     ]
-    _finish(fig, axes, title or "Which learners carry the fit?", subtitle, found, owned=True)
+    _finish(fig, axes, title or "Learner risks and weights", subtitle, found, owned=True)
     return fig
 
 
@@ -685,7 +713,7 @@ def _ctmle(selection: Any, ax: Axes | None) -> Figure:
     _finish(
         fig,
         [axis],
-        "How sharp was the choice of treatment model?",
+        "Treatment model selection",
         subtitle,
         found,
         owned=ax is None,
@@ -693,7 +721,18 @@ def _ctmle(selection: Any, ax: Axes | None) -> Figure:
     return fig
 
 
-def learners(source: Any, *, ax: Axes | None = None) -> Figure:
+@_core.labelled
+def learners(
+    source: Any,
+    *,
+    title: str | Literal[False] | None = None,
+    subtitle: str | Literal[False] | None = None,
+    xlabel: str | Sequence[str] | None = None,
+    ylabel: str | Sequence[str] | None = None,
+    legend: str | Literal[False] = "top",
+    figsize: tuple[float, float] | None = None,
+    ax: Axes | None = None,
+) -> Figure:
     """Plot which learners carry a fit.
 
     A :class:`~cleverly.learners.SuperLearnerDiagnostics` draws two panels with the
@@ -716,6 +755,22 @@ def learners(source: Any, *, ax: Axes | None = None) -> Figure:
     source : SuperLearnerDiagnostics or CTMLESelection or NuisanceModelReport or TMLEResult
         What to plot. A fitted ``SuperLearner`` holds the first as ``diagnostics_``. A fit's
         ``NuisanceDiagnostics`` is accepted too.
+    title : str, False or None, default=None
+        The title; a short description of the figure when omitted, and none when ``False``.
+    subtitle : str, False or None, default=None
+        The line under the title; the plot's own, which names the estimate and its headline
+        number, when omitted, and none when ``False``.
+    xlabel : str, sequence of str or None, default=None
+        The x-axis label. A string replaces the first labelled panel's label and the same
+        label wherever it repeats; a sequence gives each labelled panel its own, in reading
+        order.
+    ylabel : str, sequence of str or None, default=None
+        The y-axis label, given as for ``xlabel``.
+    legend : {"top", "right", "bottom"} or False, default="top"
+        Where the key goes: above the axes, right of them, or under the figure; ``False``
+        draws no key.
+    figsize : tuple of float or None, default=None
+        Width and height in inches of a figure the plot creates.
     ax : Axes or None, default=None
         Axes to draw on. Only for a collaborative selection, which is one panel.
 
@@ -736,6 +791,14 @@ def learners(source: Any, *, ax: Axes | None = None) -> Figure:
     --------
     cleverly.plotting.calibration : Whether the models' probabilities are calibrated.
 
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes say the risks are descriptive
+    and what the criterion adds to the loss.
+
     Examples
     --------
     >>> import matplotlib
@@ -755,7 +818,7 @@ def learners(source: Any, *, ax: Axes | None = None) -> Figure:
     ... ).fit(x, y)
     >>> fig = learners(ensemble.diagnostics_)
     >>> fig.texts[0].get_text()
-    'Which learners carry the fit?'
+    'Learner risks and weights'
     >>> plt.close(fig)
     """
     role = None
@@ -818,13 +881,19 @@ def _spread_word(estimate: Any) -> str:
     return SPREAD_LABELS[spread_name("std_err", estimate.inference)]
 
 
+@_core.labelled
 def repeats(
     result: Any,
     *,
     name: str | None = None,
     outcome_label: str | None = None,
     units: str | None = None,
-    title: str | None = None,
+    title: str | Literal[False] | None = None,
+    subtitle: str | Literal[False] | None = None,
+    xlabel: str | Sequence[str] | None = None,
+    ylabel: str | Sequence[str] | None = None,
+    legend: str | Literal[False] = "top",
+    figsize: tuple[float, float] | None = None,
     ax: Axes | None = None,
 ) -> Figure:
     """Plot the estimate from each cross-fitting repeat against the reported estimate.
@@ -848,8 +917,22 @@ def repeats(
         name when omitted.
     units : str or None, default=None
         Units of the outcome, for the axis label.
-    title : str or None, default=None
-        The title.
+    title : str, False or None, default=None
+        The title; a short description of the figure when omitted, and none when ``False``.
+    subtitle : str, False or None, default=None
+        The line under the title; the plot's own, which names the estimate and its headline
+        number, when omitted, and none when ``False``.
+    xlabel : str, sequence of str or None, default=None
+        The x-axis label. A string replaces the first labelled panel's label and the same
+        label wherever it repeats; a sequence gives each labelled panel its own, in reading
+        order.
+    ylabel : str, sequence of str or None, default=None
+        The y-axis label, given as for ``xlabel``.
+    legend : {"top", "right", "bottom"} or False, default="top"
+        Where the key goes: above the axes, right of them, or under the figure; ``False``
+        draws no key.
+    figsize : tuple of float or None, default=None
+        Width and height in inches of a figure the plot creates.
     ax : Axes or None, default=None
         Axes to draw on.
 
@@ -867,6 +950,14 @@ def repeats(
     See Also
     --------
     cleverly.estimators.TMLEResult.repeat_spread : The spread of the repeats as numbers.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes say the points are descriptive
+    and which estimates are experimental.
 
     Examples
     --------
@@ -892,7 +983,7 @@ def repeats(
     ... )
     >>> fig = repeats(result)
     >>> fig.texts[0].get_text()
-    'Does the estimate depend on how the data were split?'
+    'Estimate across repeated splits'
     >>> plt.close(fig)
     """
     draws = tuple(result.repeats)
@@ -954,10 +1045,9 @@ def repeats(
     _finish(
         fig,
         [axis],
-        title or "Does the estimate depend on how the data were split?",
-        f"{_core.estimand_words(label)}: {len(values)} cross-fitting repeats. The spread "
-        f"across repeats (SD) is {spread:.3g}, against a {_spread_word(estimate)} of "
-        f"{error:.3g}{both}",
+        title or "Estimate across repeated splits",
+        f"{_core.estimand_words(label)}: {len(values)} cross-fitting repeats, SD "
+        f"{spread:.3g} against a {_spread_word(estimate)} of {error:.3g}{both}",
         [
             "Descriptive: each point is the estimate from one fold split; no interval is "
             "drawn for a single repeat.",
@@ -1059,13 +1149,19 @@ def _inverse_ticks(
     )
 
 
+@_core.labelled
 def bootstrap(
     source: Any,
     *,
     name: str | None = None,
     level: float = 0.95,
     units: str | None = None,
-    title: str | None = None,
+    title: str | Literal[False] | None = None,
+    subtitle: str | Literal[False] | None = None,
+    xlabel: str | Sequence[str] | None = None,
+    ylabel: str | Sequence[str] | None = None,
+    legend: str | Literal[False] = "top",
+    figsize: tuple[float, float] | None = None,
     ax: Axes | None = None,
 ) -> Figure:
     """Plot the bootstrap replicates with a normal curve for comparison.
@@ -1094,8 +1190,22 @@ def bootstrap(
         Coverage of the percentile limits, for a bare ``BootstrapResult``.
     units : str or None, default=None
         Units of the outcome, for the axis label.
-    title : str or None, default=None
-        The title.
+    title : str, False or None, default=None
+        The title; a short description of the figure when omitted, and none when ``False``.
+    subtitle : str, False or None, default=None
+        The line under the title; the plot's own, which names the estimate and its headline
+        number, when omitted, and none when ``False``.
+    xlabel : str, sequence of str or None, default=None
+        The x-axis label. A string replaces the first labelled panel's label and the same
+        label wherever it repeats; a sequence gives each labelled panel its own, in reading
+        order.
+    ylabel : str, sequence of str or None, default=None
+        The y-axis label, given as for ``xlabel``.
+    legend : {"top", "right", "bottom"} or False, default="top"
+        Where the key goes: above the axes, right of them, or under the figure; ``False``
+        draws no key.
+    figsize : tuple of float or None, default=None
+        Width and height in inches of a figure the plot creates.
     ax : Axes or None, default=None
         Axes to draw on.
 
@@ -1113,6 +1223,15 @@ def bootstrap(
     See Also
     --------
     cleverly.inference.BootstrapResult.interval : The percentile interval as numbers.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes say the histogram is
+    descriptive, how rows were resampled, and whether the bootstrap interval is
+    experimental.
 
     Examples
     --------
@@ -1136,7 +1255,7 @@ def bootstrap(
     ... )
     >>> fig = result.bootstrap.plot("ate")
     >>> fig.texts[0].get_text()
-    'Is the bootstrap distribution close to normal?'
+    'Bootstrap replicates'
     >>> plt.close(fig)
     """
     result = source if hasattr(source, "estimates") else None
@@ -1269,7 +1388,7 @@ def bootstrap(
     _finish(
         fig,
         [axis],
-        title or "Is the bootstrap distribution close to normal?",
+        title or "Bootstrap replicates",
         f"{words}: {values.size} replicates, {read.spread_word} {read.spread:.3g}{reported}; "
         f"{read.limits_word} {read.low:.3g} to {read.high:.3g}",
         found,
@@ -1324,12 +1443,18 @@ def _top_words(top: int, count: int, unit: str) -> tuple[str, str]:
     return f"the top {top} of {count} {plural} ({taken}) carry", f"Top {top} {plural}"
 
 
+@_core.labelled
 def influence(
     source: Any,
     *,
     name: str | None = None,
     cluster: Any = None,
-    title: str | None = None,
+    title: str | Literal[False] | None = None,
+    subtitle: str | Literal[False] | None = None,
+    xlabel: str | Sequence[str] | None = None,
+    ylabel: str | Sequence[str] | None = None,
+    legend: str | Literal[False] = "top",
+    figsize: tuple[float, float] | None = None,
     ax: Axes | None = None,
 ) -> Figure:
     """Plot how concentrated the uncertainty is in a few rows or clusters.
@@ -1346,7 +1471,7 @@ def influence(
     The curve describes the stored influence values. On a fit with several cross-fitting
     repeats the stored curve is the median draw's (the mean of the two central draws for
     an even count), and on a fit evaluated within folds the reported variance is not
-    computed from this curve; the note says so.
+    computed from this curve; :func:`~cleverly.plotting.notes` says so.
 
     Parameters
     ----------
@@ -1357,8 +1482,22 @@ def influence(
     cluster : array-like or None, default=None
         Cluster codes, one per row. A fit supplies its own; a bare estimate from a
         clustered fit needs them.
-    title : str or None, default=None
-        The title.
+    title : str, False or None, default=None
+        The title; a short description of the figure when omitted, and none when ``False``.
+    subtitle : str, False or None, default=None
+        The line under the title; the plot's own, which names the estimate and its headline
+        number, when omitted, and none when ``False``.
+    xlabel : str, sequence of str or None, default=None
+        The x-axis label. A string replaces the first labelled panel's label and the same
+        label wherever it repeats; a sequence gives each labelled panel its own, in reading
+        order.
+    ylabel : str, sequence of str or None, default=None
+        The y-axis label, given as for ``xlabel``.
+    legend : {"top", "right", "bottom"} or False, default="top"
+        Where the key goes: above the axes, right of them, or under the figure; ``False``
+        draws no key.
+    figsize : tuple of float or None, default=None
+        Width and height in inches of a figure the plot creates.
     ax : Axes or None, default=None
         Axes to draw on.
 
@@ -1377,6 +1516,15 @@ def influence(
     --------
     cleverly.assessment.DiagnosticsFacade.influence : The Kish effective count, skewness and
         kurtosis of the same curve.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes say the curve is descriptive,
+    whether influence values are summed within clusters, and when the curve is not the
+    reported variance.
 
     Examples
     --------
@@ -1400,7 +1548,7 @@ def influence(
     ... )
     >>> fig = influence(result)
     >>> fig.texts[0].get_text()
-    'How concentrated is the uncertainty?'
+    'Concentration of the uncertainty'
     >>> plt.close(fig)
     """
     result = source if hasattr(source, "estimates") else None
@@ -1477,8 +1625,7 @@ def influence(
     axis.set_xlabel(f"Top share of {units}, largest squared influence first")
     axis.set_ylabel("Share of the sum of squared influence values")
     subtitle = (
-        f"{_core.estimand_words(label)}: {headline} {_percent(top_share)} of the sum of "
-        "squared influence values"
+        f"{_core.estimand_words(label)}: {headline} {_percent(top_share)} of the squared influence"
     )
     from ..inference.sparse import influence_row
 
@@ -1518,7 +1665,7 @@ def influence(
     _finish(
         fig,
         [axis],
-        title or "How concentrated is the uncertainty?",
+        title or "Concentration of the uncertainty",
         subtitle,
         found,
         owned=ax is None,

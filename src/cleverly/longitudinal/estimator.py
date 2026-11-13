@@ -104,7 +104,6 @@ from .._typing import (
 )
 from .._warnings import FitWarning, records_fit
 from .._warnings import warn as _warn
-from ..estimators._option_support import stopping_conditions
 from ..exceptions import (
     CapabilityError,
     CleverlyError,
@@ -121,6 +120,7 @@ from ..exceptions import (
 from ..fluctuation._score import (
     StopContext,
     check_iterate,
+    check_rule_bootstrap,
     check_step_bound,
     check_stopping_rule,
 )
@@ -150,6 +150,9 @@ from ..inference.influence import (
     with_precedent_status,
 )
 from ..inference.multiplier import (
+    DEFAULT_BAND_SCALE,
+    DEFAULT_KIND,
+    DEFAULT_N_REPLICATES,
     SimultaneousBands,
     median_bands,
     out_of_range,
@@ -4131,6 +4134,7 @@ def _estimates(
             reference_df=reference_df,
             support=_support_of(classification, status, reference_df),
             bounds=parameter_bounds("mean", data.family),
+            rule_widened=_rule_widened(fit),
         )
     for fit in fits.values():
         if fit.regimen.label == reference.label:
@@ -4156,6 +4160,7 @@ def _estimates(
             reference_df=reference_df,
             support=_support_of(classification, status, reference_df),
             bounds=parameter_bounds("difference", data.family),
+            rule_widened=_rule_widened(fit) or _rule_widened(base),
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
 
@@ -4169,6 +4174,21 @@ def _as_reported(draw: ParameterEstimate, reported: ParameterEstimate) -> Parame
         inference=reported.inference,
         reference_df=draw.reference_df if supplies_inference(reported.inference) else None,
         support=reported.support,
+    )
+
+
+def _rule_widened(fit: RegimenFit) -> bool:
+    """Whether a regimen's fit ran under a declared stopping rule.
+
+    The hazard model or any node's fluctuation that declares a rule other than
+    ``"relative"`` stops before its score is solved, so the estimate's interval adds the
+    remaining score (:attr:`~cleverly.inference.ParameterEstimate.rule_widened`).
+    """
+    if fit.hazard is not None and fit.hazard.stopping != "relative":
+        return True
+    return any(
+        step.fluctuation is not None and step.fluctuation.stopping != "relative"
+        for step in fit.steps
     )
 
 
@@ -4310,6 +4330,7 @@ def _msm_estimates(
                 inference=inference,
                 reference_df=reference_df,
                 support=_support_of(classification, inference, reference_df),
+                rule_widened=any(_rule_widened(fit) for fit in msm_fit.fits),
             )
     return _Reported(estimates=estimates, index=None, contributors=contributors)
 
@@ -4366,9 +4387,9 @@ class _SequentialEstimator:
         q_bounds: tuple[float, float] | None = None,
         alpha_sig: float = 0.05,
         simultaneous: bool = True,
-        n_multiplier: int = 2000,
-        multiplier_kind: str = "rademacher",
-        band_scale: str = "identity",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: str = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -4441,6 +4462,7 @@ class _SequentialEstimator:
             raise ValueError(f"n_folds must be at least 1; got {self.n_folds}")
         if self.n_bootstrap and self.n_bootstrap < 2:
             raise ValueError(f"n_bootstrap must be 0 or at least 2; got {self.n_bootstrap}")
+        check_rule_bootstrap(getattr(self, "stopping", "relative"), self.n_bootstrap)
         if (
             isinstance(self.repeats, bool)
             or not isinstance(self.repeats, (int, np.integer))
@@ -4606,9 +4628,9 @@ class _SequentialEstimator:
             )
         if getattr(self, "targeting", None) != "one_step":
             refuse(
-                "a Separable regimen is targeted by the one-step walk over the two hazard "
-                "factors; the per-horizon algorithm restarts at each horizon and has no "
-                "factor-wise form.",
+                "a Separable regimen targets the two hazard factors at every horizon at "
+                "once, in the separable engine behind targeting='one_step'; the per-horizon "
+                "algorithm restarts at each horizon and does not target the factors apart.",
                 "Set targeting='one_step'.",
                 reason=RefusalReason.API_REDIRECTION,
             )
@@ -5173,7 +5195,6 @@ class _SequentialEstimator:
                 known_factors=_known_factors(prepared),
                 has_msm=self.msm is not None,
                 regimen_kinds=regimen_kinds(plans) | ({"separable"} if separable else set()),
-                conditions=stopping_conditions(getattr(self, "stopping", "relative")),
                 tuned_cap=tuned_folds is not None,
                 # Every plan of one fit shares its first cause (``resolve_separable``).
                 separable_first=separable[0].first + 1 if separable else None,
@@ -6342,7 +6363,7 @@ class _SequentialEstimator:
                 classification,
                 status,
                 (estimate.support for estimate in estimates.values()),
-                options=(self.multiplier_kind, getattr(self, "band_scale", "identity")),
+                options=(self.multiplier_kind, self.band_scale),
                 draws=int(self.n_multiplier),
             ),
         )
@@ -6843,11 +6864,11 @@ class LTMLE(_SequentialEstimator):
         correlated parameters, which is what the bands are for; see
         :mod:`cleverly.inference.multiplier`.  A fit whose inference status supplies no
         inference builds no band, and :meth:`LongitudinalResult.summary` says so.
-    n_multiplier : int
+    n_multiplier : int, default=10_000
         The number of multiplier draws behind each band.
-    multiplier_kind : {"rademacher", "mammen", "normal"}
+    multiplier_kind : {"rademacher", "mammen", "normal"}, default="mammen"
         The distribution of the multiplier draws.
-    band_scale : {"logit", "identity"}
+    band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
@@ -7021,9 +7042,9 @@ class LTMLE(_SequentialEstimator):
         alpha: float = 0.9995,
         alpha_sig: float = 0.05,
         simultaneous: bool = True,
-        n_multiplier: int = 2000,
-        multiplier_kind: str = "rademacher",
-        band_scale: str = "identity",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: str = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
         max_iter: int = 20,
         tol: float = 1e-10,
         random_state: int | None = None,
@@ -7201,11 +7222,11 @@ class SDR(_SequentialEstimator):
         Significance level for confidence intervals.
     simultaneous : bool
         Whether to report simultaneous confidence bands, as for :class:`LTMLE`.
-    n_multiplier : int
+    n_multiplier : int, default=10_000
         The number of multiplier draws behind each band.
-    multiplier_kind : {"rademacher", "mammen", "normal"}
+    multiplier_kind : {"rademacher", "mammen", "normal"}, default="mammen"
         The distribution of the multiplier draws.
-    band_scale : {"logit", "identity"}
+    band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
@@ -7294,9 +7315,9 @@ class SDR(_SequentialEstimator):
         q_bounds: tuple[float, float] | None = None,
         alpha_sig: float = 0.05,
         simultaneous: bool = True,
-        n_multiplier: int = 2000,
-        multiplier_kind: str = "rademacher",
-        band_scale: str = "identity",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: str = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7487,11 +7508,11 @@ class IPSI(_SequentialEstimator):
     simultaneous : bool
         Whether to report simultaneous confidence bands over the plans and horizons.  The
         band covers the declared plans only, not a continuum of :math:`\delta`.
-    n_multiplier : int
+    n_multiplier : int, default=10_000
         The number of multiplier draws behind each band.
-    multiplier_kind : {"rademacher", "mammen", "normal"}
+    multiplier_kind : {"rademacher", "mammen", "normal"}, default="mammen"
         The distribution of the multiplier draws.
-    band_scale : {"logit", "identity"}
+    band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
@@ -7571,9 +7592,9 @@ class IPSI(_SequentialEstimator):
         q_bounds: tuple[float, float] | None = None,
         alpha_sig: float = 0.05,
         simultaneous: bool = True,
-        n_multiplier: int = 2000,
-        multiplier_kind: str = "rademacher",
-        band_scale: str = "identity",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: str = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7813,9 +7834,9 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
         q_bounds: tuple[float, float] | None = None,
         alpha_sig: float = 0.05,
         simultaneous: bool = True,
-        n_multiplier: int = 2000,
-        multiplier_kind: str = "rademacher",
-        band_scale: str = "identity",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: str = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7953,11 +7974,11 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
         Significance level for confidence intervals.
     simultaneous : bool
         Whether to report simultaneous confidence bands, as for :class:`LTMLE`.
-    n_multiplier : int
+    n_multiplier : int, default=10_000
         The number of multiplier draws behind each band.
-    multiplier_kind : {"rademacher", "mammen", "normal"}
+    multiplier_kind : {"rademacher", "mammen", "normal"}, default="mammen"
         The distribution of the multiplier draws.
-    band_scale : {"logit", "identity"}
+    band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
@@ -8173,11 +8194,11 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
         Significance level for confidence intervals.
     simultaneous : bool
         Whether to report simultaneous confidence bands, as for :class:`LTMLE`.
-    n_multiplier : int
+    n_multiplier : int, default=10_000
         The number of multiplier draws behind each band.
-    multiplier_kind : {"rademacher", "mammen", "normal"}
+    multiplier_kind : {"rademacher", "mammen", "normal"}, default="mammen"
         The distribution of the multiplier draws.
-    band_scale : {"logit", "identity"}
+    band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).

@@ -81,8 +81,16 @@ from ..inference.influence import (
     Scale,
     has_t_reference,
     make_estimate,
+    satterthwaite_df,
 )
-from ..inference.multiplier import SimultaneousBands, simultaneous_bands
+from ..inference.multiplier import (
+    DEFAULT_BAND_SCALE,
+    DEFAULT_KIND,
+    DEFAULT_N_REPLICATES,
+    SimultaneousBands,
+    out_of_range,
+    simultaneous_bands,
+)
 from ..inference.results import (
     estimate_covariance,
     estimate_curves,
@@ -1154,27 +1162,27 @@ def _satterthwaite_df(
     It uses the empirical variance of the per-unit terms and ``2 b**2 / (S - 1)`` for the
     between-split part ``b``.  It approximates each entry by a scaled chi-squared law, as
     Bell and McCaffrey (2002) and Imbens and Kolesar (2016) do for a robust variance with
-    high-leverage rows.  The joint test takes the smallest value over the contrasts.
+    high-leverage rows.  The joint test takes the smallest value over the contrasts.  One
+    split reads :func:`~cleverly.inference.satterthwaite_df` of each contrast's unit sums.
     """
     count = len(curves)
     units = [
         np.asarray(curve if cluster is None else cluster_sums(curve, cluster), dtype=float)
         for curve in curves
     ]
+    if count == 1:
+        columns = units[0].reshape(units[0].shape[0], -1).T
+        return float(min(satterthwaite_df(column) for column in columns))
     centered = [unit - unit.mean(axis=0) for unit in units]
     m = centered[0].shape[0]
     n = curves[0].shape[0]
     # influence_covariance scales the centered sum of squares by m / ((m - 1) n**2).
     scale = m / ((m - 1) * n**2)
     diagonal = np.diag(covariance)
-    if count == 1:
-        terms = centered[0] ** 2
-        between_variance = np.zeros_like(diagonal)
-    else:
-        total = np.sum(centered, axis=0)
-        terms = (total**2 - np.sum([unit**2 for unit in centered], axis=0)) / (count * (count - 1))
-        between = np.var(differences, axis=0, ddof=1) / count
-        between_variance = 2.0 * between**2 / (count - 1)
+    total = np.sum(centered, axis=0)
+    terms = (total**2 - np.sum([unit**2 for unit in centered], axis=0)) / (count * (count - 1))
+    between = np.var(differences, axis=0, ddof=1) / count
+    between_variance = 2.0 * between**2 / (count - 1)
     term_variance = scale**2 * np.sum((terms - terms.mean(axis=0)) ** 2, axis=0)
     error = term_variance + between_variance
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -1267,11 +1275,11 @@ class StructuralNestedMean:
         The significance level of the intervals.
     simultaneous : bool, default=True
         Whether to report simultaneous bands.
-    n_multiplier : int, default=2000
+    n_multiplier : int, default=10_000
         Multiplier draws of the bands.
-    multiplier_kind : str, default="rademacher"
+    multiplier_kind : str, default="mammen"
         The multiplier law.
-    band_scale : str, default="identity"
+    band_scale : str, default="logit"
         The scale of the band of a bounded estimate
         (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None, default=None
@@ -1346,9 +1354,9 @@ class StructuralNestedMean:
         min_eigenvalue: float = DEFAULT_MIN_EIGENVALUE,
         alpha_sig: float = 0.05,
         simultaneous: bool = True,
-        n_multiplier: int = 2000,
-        multiplier_kind: str = "rademacher",
-        band_scale: str = "identity",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: str = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -1799,6 +1807,8 @@ class StructuralNestedMean:
                 inference=status,
                 reference_df=df,
                 support=support,
+                # The blip estimating equations are solved exactly; no stopping rule.
+                rule_widened=False,
             )
 
         estimates: dict[str, ParameterEstimate] = {}
@@ -1856,6 +1866,9 @@ class StructuralNestedMean:
         chosen = {name: estimates[name] for name in family if estimates[name].supplies_inference}
         if not self.simultaneous or len(chosen) < 2 or has_t_reference(chosen):
             return None
+        # A logit band needs every bounded estimate strictly inside its range.
+        if out_of_range(chosen, self.band_scale):
+            return None
         bands = simultaneous_bands(
             chosen,
             alpha=self.alpha_sig,
@@ -1871,7 +1884,7 @@ class StructuralNestedMean:
                 classification,
                 status,
                 (estimate.support for estimate in chosen.values()),
-                options=(self.multiplier_kind, getattr(self, "band_scale", "identity")),
+                options=(self.multiplier_kind, self.band_scale),
                 draws=int(self.n_multiplier),
             ),
         )

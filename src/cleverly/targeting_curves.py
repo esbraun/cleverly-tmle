@@ -44,6 +44,7 @@ from typing import Any, Final, Literal
 import numpy as np
 from scipy.special import digamma
 
+from ._pooled_targeting import TARGETING_SPAN_RTOL, solve_pooled, span_basis
 from ._typing import FloatArray, IntArray
 from .exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from .inference.delta import reference_quantile, two_sided_pvalue
@@ -52,17 +53,20 @@ from .utils.frames import frame_from_dict
 __all__ = [
     "DEFAULT_GRID",
     "TARGETING_ATOM_SHARE",
+    "TARGETING_BOOTSTRAP_REFUSAL",
     "TARGETING_MEASURED",
     "TARGETING_MEASURED_TOP_ROWS",
     "TARGETING_MIN_CLUSTERS",
     "TARGETING_MIN_TOP_ROWS",
     "TARGETING_PAIRED_MEASURED",
     "TARGETING_REPEATS_REFUSAL",
+    "TARGETING_SCHEME_REFUSAL",
     "TARGETING_SPAN_RTOL",
     "TARGETING_SPLIT_REFUSAL",
     "TargetingCurve",
     "TargetingEvaluation",
     "block_weights",
+    "check_targeting_settings",
     "check_targeting_spec",
     "half_sample_draws",
     "targeting_fit",
@@ -87,6 +91,24 @@ TARGETING_SPLIT_REFUSAL = Refusal(
     alternative="Pass split=0.5.",
 )
 
+#: Why a targeting curve refuses fold-wise targeting and fold evaluation of its ATE fit.
+TARGETING_SCHEME_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "A targeting curve fits one pooled fluctuation over every evaluation row from the "
+    "cross-fitted nuisances, so fold-wise targeting or fold evaluation of the ATE fit would be "
+    "ignored.",
+    alternative="Fit with targeting_scheme='pooled' and cv_evaluation=False.",
+    roadmap="X92",
+)
+
+#: Why a targeting curve refuses a refit bootstrap of its ATE fit.
+TARGETING_BOOTSTRAP_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "A targeting curve's intervals come from its half-sample bootstrap; a refit bootstrap of "
+    "the ATE fit would be computed and ignored.",
+    alternative="Fit with n_bootstrap=0; n_half_samples= sets the curve's own draws.",
+)
+
 #: The default grid of treated fractions, as grf's ``rank_average_treatment_effect``.
 DEFAULT_GRID: Final[tuple[float, ...]] = tuple(round(0.1 * k, 1) for k in range(1, 11))
 
@@ -108,9 +130,6 @@ TARGETING_ATOM_SHARE: Final = 0.01
 #: :data:`cleverly._inference_status.FEW_CLUSTER_THRESHOLD`, which keeps its own meaning (the
 #: Student-t reference); this guard has no source of its own.
 TARGETING_MIN_CLUSTERS: Final = 40
-
-#: The relative singular-value tolerance of the span basis the fluctuation runs along.
-TARGETING_SPAN_RTOL: Final = 1e-10
 
 #: Below this size relative to the largest targeted score a standard error counts as zero
 #: (``TOC(1)`` and a degenerate draw): rounding in a mean of the scores is of that order.
@@ -904,41 +923,12 @@ def check_groups(
     return tuple(snapped)
 
 
-def _span_basis(columns: FloatArray) -> tuple[FloatArray, float]:
-    """An orthonormal basis of the column span, scaled to ``B'B = n I``, and the residual.
-
-    Returns the basis and the largest relative norm of a column's component outside it.
-    """
-    n = columns.shape[0]
-    u, singular, _ = np.linalg.svd(columns, full_matrices=False)
-    keep = singular > TARGETING_SPAN_RTOL * singular[0]
-    basis = u[:, keep] * math.sqrt(n)
-    residual = columns - basis @ (basis.T @ columns) / n
-    norms = np.linalg.norm(columns, axis=0)
-    relative = np.linalg.norm(residual, axis=0) / np.where(norms > 0.0, norms, 1.0)
-    return basis, float(np.max(relative)) if relative.size else 0.0
-
-
-def _clever_propensity(nuisance: Any, g_bounds: tuple[float, float]) -> FloatArray:
-    """The truncated mechanism the clever covariate divides by: the scores' own ``g``."""
-    return np.asarray(nuisance.propensity.bounded(tuple(g_bounds)), dtype=float)
-
-
 def _fluctuation_keys(grid: Sequence[float]) -> list[tuple[str, float]]:
     """The weight columns of one score the fluctuation targets: TOC below 1 and the two areas.
 
     The gains and the group effects are linear combinations of these and the shared constant.
     """
     return [*(("toc", q) for q in grid if q < 1.0), ("autoc", 1.0), ("qini", 1.0)]
-
-
-def _arm_matrix(values: Any, n: int, k: int) -> FloatArray | None:
-    if values is None:
-        return None
-    array = np.asarray(values, dtype=float)
-    if array.ndim == 1:
-        return np.repeat(array[:, None], k, axis=1)
-    return array
 
 
 @dataclass(frozen=True)
@@ -957,14 +947,6 @@ def _target(
     pair: tuple[float, float],
 ) -> _Targeted:
     """One pooled fluctuation along the span of every score's weight columns."""
-    from .effect_curves import _pseudo_outcomes
-    from .estimators.targeting import solve_submodel
-    from .fluctuation.submodel import effect_modification_submodel
-
-    nuisance = fit.nuisance
-    spec = fit.config.targeting_spec
-    g_bounds = (float(fit.config.g_bounds[0]), float(fit.config.g_bounds[1]))
-    lower = float(fit.config.missingness_bound)
     mass = np.asarray(data.weights, dtype=float)
     n = int(mass.size)
     keys = _fluctuation_keys(grid)
@@ -972,70 +954,17 @@ def _target(
     for layout in layouts.values():
         blocks.append(_row_columns(layout, mass, grid, keys))
     columns = np.column_stack(blocks)
-    basis, out_of_span = _span_basis(columns)
-    arms = tuple(nuisance.arms)
-    t, r = pair
-    numerators = np.zeros((n, len(arms), basis.shape[1]))
-    numerators[:, arms.index(t), :] = basis
-    numerators[:, arms.index(r), :] = -basis
-    propensity = _clever_propensity(nuisance, g_bounds)
-    missingness = _arm_matrix(nuisance.bounded_missingness(lower), n, len(arms))
-    submodel = effect_modification_submodel(
-        np.asarray(data.treatment, dtype=float),
-        propensity,
-        arms=arms,
-        missingness=missingness,
-        msm=numerators,
-    )
-    scaler = nuisance.scaler
-    fluctuation = solve_submodel(
-        scaler.scale(np.asarray(data.outcome, dtype=float)),
-        nuisance.outcome,
-        submodel,
-        mass,
-        np.asarray(data.observed, dtype=bool),
-        spec,
-        warn=False,
-    )
-    if not fluctuation.converged or fluctuation.failure is not None:
-        code = fluctuation.failure or "max_iter_reached"
-        raise DataError(
-            f"the targeting step of the targeting curve did not converge ({code}): "
-            f"{fluctuation.describe_failure()}. Widen g_bounds, or check the overlap of the "
-            "treatment arms in the evaluation rows."
-        )
-    condition = float(getattr(fluctuation, "hessian_condition", float("nan")))
-    if math.isfinite(condition) and condition > 1e12:
-        raise DataError(
-            "the targeting step of the targeting curve did not converge (singular_hessian): "
-            "the Newton Hessian was singular or near-singular, so the fluctuation is barely "
-            "identified; usually two clever-covariate columns that are nearly collinear."
-        )
-    targeted = fluctuation.targeted
-    q_t = scaler.unscale_levels(np.asarray(targeted.arms[t], dtype=float))
-    q_r = scaler.unscale_levels(np.asarray(targeted.arms[r], dtype=float))
-    initial_t, initial_r, d_t, d_r = _pseudo_outcomes(
-        nuisance, data, pair, g_bounds=g_bounds, missingness_bound=lower
-    )
-    # The targeted scores: the pseudo-outcomes with Q* in place of the initial fit, read from
-    # the scores' own truncated mechanism (not the clever covariate's helper).
-    scores_g = np.asarray(nuisance.propensity.bounded(g_bounds), dtype=float)
-    observed = np.asarray(data.observed, dtype=bool)
-    treatment = np.asarray(data.treatment, dtype=float)
-    y = np.where(observed, np.asarray(data.outcome, dtype=float), 0.0)
-    pi_t: Any = 1.0 if missingness is None else missingness[:, arms.index(t)]
-    pi_r: Any = 1.0 if missingness is None else missingness[:, arms.index(r)]
-    weight_t = observed * (treatment == t) / (scores_g[:, arms.index(t)] * pi_t)
-    weight_r = observed * (treatment == r) / (scores_g[:, arms.index(r)] * pi_r)
-    gamma_star = (q_t - q_r) + weight_t * (y - q_t) - weight_r * (y - q_r)
-    del initial_t, initial_r
+    basis, out_of_span = span_basis(columns)
+    pooled = solve_pooled(fit, data, basis, -basis, pair, what="the targeting curve")
+    q_t, q_r, y = pooled.q_t, pooled.q_r, pooled.y
+    gamma_star = (q_t - q_r) + pooled.weight_t * (y - q_t) - pooled.weight_r * (y - q_r)
     span = {
         "columns": float(columns.shape[1]),
         "rank": float(basis.shape[1]),
         "out_of_span": out_of_span,
-        "score_norm": float(fluctuation.score_norm),
+        "score_norm": pooled.score_norm,
     }
-    return _Targeted(q_t - q_r, gamma_star, d_t - d_r, span)
+    return _Targeted(q_t - q_r, gamma_star, pooled.d_t - pooled.d_r, span)
 
 
 def _spread(draws: FloatArray) -> float:
@@ -1076,6 +1005,31 @@ def check_targeting_spec(spec: Any) -> None:
             alternative="Fit with stopping='relative'.",
             roadmap="X92",
         )
+
+
+def check_targeting_settings(estimator: Any) -> None:
+    """Refuse an ATE estimator's settings that a targeting curve would silently drop.
+
+    Both routes call it before the ATE fit: the targeting settings of
+    :func:`check_targeting_spec`, then fold-wise targeting, fold evaluation and a refit
+    bootstrap, none of which the pooled fluctuation and the half-sample bootstrap read.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The ATE estimator, before it fits.
+
+    Raises
+    ------
+    CapabilityError
+        For ``target_weights=True``, a declared stopping rule, ``targeting_scheme="fold"``,
+        ``cv_evaluation=True`` or ``n_bootstrap`` above 0.
+    """
+    check_targeting_spec(estimator.targeting_spec())
+    if estimator.targeting_scheme != "pooled" or bool(estimator.cv_evaluation):
+        raise CapabilityError(refusal=TARGETING_SCHEME_REFUSAL)
+    if int(estimator.n_bootstrap) > 0:
+        raise CapabilityError(refusal=TARGETING_BOOTSTRAP_REFUSAL)
 
 
 def targeting_fit(

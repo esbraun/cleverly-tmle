@@ -20,6 +20,7 @@ Writing for readers <writing-for-readers>
 Example notebooks <example-notebooks>
 Release notes template <release-notes-template>
 Roadmap <../roadmap>
+Delivered roadmap items <../roadmap-delivered>
 Architecture invariants <../architecture-invariants>
 Fast tests and validation studies <testing-strategy>
 Method benchmarking strategy <method-benchmarking>

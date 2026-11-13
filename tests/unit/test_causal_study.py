@@ -54,14 +54,13 @@ from cleverly.datasets import (
 )
 from cleverly.estimators import TMLE
 from cleverly.exceptions import PositivityWarning, RefusalReason
+from cleverly.inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
 from cleverly.inference.results import reported_status
 from cleverly.interventions import Incremental, Shift, Stochastic
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal.estimator import DEFAULT_LTMLE_G_BOUNDS
 from cleverly.methods import (
     DEFAULT_LONGITUDINAL_G_BOUNDS,
-    DEFAULT_LONGITUDINAL_MULTIPLIER,
-    DEFAULT_POINT_MULTIPLIER,
     SHORTCUTS,
     SURVIVAL_DRIFT_MAX_ITER,
 )
@@ -1230,35 +1229,28 @@ def test_a_shortcut_named_like_a_field_sets_that_field() -> None:
             )
 
 
-def test_auto_resolves_to_each_engines_own_default_and_says_so_when_they_move() -> None:
-    """``Inference`` serves two engines whose defaults are not the same number.
+def test_every_engine_and_the_method_share_one_default_band() -> None:
+    """``Inference`` serves two engines, and both draw the same default band.
 
-    ``n_multiplier`` was a single literal 1000, which matches ``TMLE`` and silently halved
-    every study-driven longitudinal fit: ``LTMLE`` draws 2000. Nothing reported the change,
-    and the parity suite could not see it because it turns simultaneous bands off. ``"auto"``
-    now defers to the engine, exactly as ``g_bounds`` already did.
-
-    The resolved values are restated in ``cleverly.methods`` rather than imported, so this
-    reads both engine signatures and fails when a restatement stops matching -- otherwise the
-    duplication would be free to drift back apart.
+    The engines once drew 1,000 and 2,000 multiplier draws, and ``"auto"`` deferred to each.
+    Both now default to the Mammen multiplier at 10,000 draws on the logit scale, so the method
+    states the default once and an engine that drifts from it fails here.
     """
     point = inspect.signature(TMLE).parameters
     sequential = inspect.signature(LTMLE).parameters
-    assert point["n_multiplier"].default == DEFAULT_POINT_MULTIPLIER
-    assert sequential["n_multiplier"].default == DEFAULT_LONGITUDINAL_MULTIPLIER
-    assert DEFAULT_POINT_MULTIPLIER != DEFAULT_LONGITUDINAL_MULTIPLIER, (
-        "if the engines ever agree, delete the sentinel rather than keeping a split that "
-        "no longer splits anything"
-    )
+    for parameters in (point, sequential):
+        assert parameters["n_multiplier"].default == DEFAULT_N_REPLICATES == 10_000
+        assert parameters["multiplier_kind"].default == DEFAULT_KIND == "mammen"
+        assert parameters["band_scale"].default == DEFAULT_BAND_SCALE == "logit"
     assert DEFAULT_LONGITUDINAL_G_BOUNDS == DEFAULT_LTMLE_G_BOUNDS
 
     method = TMLEMethod()
-    assert method.inference.n_multiplier == "auto"
-    assert method.estimator_kwargs()["n_multiplier"] == DEFAULT_POINT_MULTIPLIER
-    assert (
-        method.estimator_kwargs(longitudinal=True)["n_multiplier"]
-        == DEFAULT_LONGITUDINAL_MULTIPLIER
-    )
+    assert method.inference.n_multiplier == DEFAULT_N_REPLICATES
+    for longitudinal in (False, True):
+        kwargs = method.estimator_kwargs(longitudinal=longitudinal)
+        assert kwargs["n_multiplier"] == DEFAULT_N_REPLICATES
+        assert kwargs["multiplier_kind"] == DEFAULT_KIND
+        assert kwargs["band_scale"] == DEFAULT_BAND_SCALE
     # An explicit request still wins on both paths.
     asked = TMLEMethod().with_overrides(n_multiplier=400)
     assert asked.estimator_kwargs()["n_multiplier"] == 400

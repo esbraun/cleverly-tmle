@@ -1,9 +1,9 @@
 r"""Simultaneous confidence bands via the multiplier bootstrap.
 
 Reporting several estimands with a 95% interval each does not give 95% confidence
-that *all seven* contain their truth -- with correlated estimates the joint
-coverage is somewhere below that, and the usual fixes (Bonferroni) are needlessly
-wide precisely because the estimates are correlated.
+that *all* of them contain their truth: with correlated estimates the joint coverage is
+somewhere below that, and the usual fix (Bonferroni) is needlessly wide precisely because
+the estimates are correlated.
 
 The multiplier bootstrap uses the influence curves, which are already available,
 to get the joint distribution right.  Draw i.i.d. mean-zero, unit-variance
@@ -16,14 +16,62 @@ multipliers :math:`\xi_i` and form
     \qquad
     t^*_b = \max_j \frac{|R^*_{b,j}|}{\widehat{se}_j}.
 
-The :math:`1 - \alpha` quantile :math:`\hat c` of :math:`t^*` gives bands
-:math:`\hat\psi_j \pm \hat c \cdot \widehat{se}_j` with asymptotic *joint* coverage
-:math:`1 - \alpha`.  Because :math:`\hat c` adapts to the observed correlation, it
-sits between the pointwise critical value (1.96) and the Bonferroni one, and
-collapses to 1.96 when only one estimand is requested.
+The :math:`1 - \alpha` quantile :math:`\hat c` of :math:`t^*` is the critical value.
+Because :math:`\hat c` adapts to the observed correlation, it sits between the pointwise
+critical value (1.96) and the Bonferroni one, and collapses to 1.96 when only one estimand
+is requested.  No resampling of the data is involved, so this costs one matrix product per
+block of replicates.
 
-No resampling of the data is involved, so this costs one matrix product per block
-of replicates -- cheap enough to run by default.
+The default band
+----------------
+
+``simultaneous_bands()``, ``median_bands()`` and every estimator with a band default to
+``band_scale="logit"``, ``kind="mammen"`` and ``n_replicates=10_000`` (``n_multiplier`` on
+an estimator).  The band-finite-sample review of the six-regimen ``longitudinal-sdr`` cell
+chose them; ``docs/technical-reference/inference.md`` gives the evidence and which rows
+measure them.
+
+**Why the transform.**  A band :math:`\hat\psi_j \pm \hat c\,\widehat{se}_j` is a Wald
+interval at a larger critical value, and for a probability its standard error moves with
+its estimate: an estimate above 0.5 that comes out high has a small standard error, so the
+interval misses on one side more often than the nominal rate.  At the band's critical value
+that tail is where joint coverage is lost.  Under ``band_scale="logit"`` an estimate with
+known :attr:`~cleverly.inference.ParameterEstimate.bounds` :math:`(a, b)` is banded on
+:math:`f(\psi) = \operatorname{logit}((\psi - a) / (b - a))`, which is the logit of a
+probability and the ``atanh`` of a difference of two probabilities, and mapped back.  The
+band stays inside the parameter's range, and its limits are no longer symmetric around the
+estimate.  Every other estimand keeps its own inference scale (the log scale for a ratio).
+A bounded estimate on or outside its range with a positive standard error has no logit
+band: the functions here raise, and a fit skips its band and says why in ``summary()``.
+Pointwise intervals stay on the identity scale.
+
+**Why the critical value is the same on either scale.**  The delta method carries column
+:math:`j` to the transformed scale by multiplying its influence curve and its standard
+error by the same factor :math:`f'(\hat\psi_j)`.  The max-t statistic divides one by the
+other, so its law, and :math:`\hat c`, do not change.  Only the band limits move.
+
+**Why Mammen.**  First-order theory ties the multiplier kinds: Chernozhukov, Chetverikov
+and Kato (2013, Theorems 3.1 and 3.2; 2017, Corollary 4.2) and Chernozhukov, Chetverikov,
+Kato and Koike (2022, Theorem 2.2) give one bound for every multiplier that meets their
+moment condition.  Mammen's two-point law also matches :math:`E\xi^3 = 1`.  Deng and Zhang
+(2020) prove a faster rate for a wild bootstrap with that third moment, and their
+simulations on skewed data rank Mammen first.  The influence curve of a binomial outcome is
+skewed.  No theorem ranks the kinds for this studentized statistic, so Mammen is a default
+chosen between first-order equivalent kinds, and ``"rademacher"`` stays available.
+
+**Why 10,000 draws.**  At 1,000 or 2,000 draws the Monte Carlo error of a 95% quantile of
+:math:`t^*` is a visible part of a band's coverage error.  The faster Mammen fill below
+keeps 10,000 draws affordable.
+
+**Why no bootstrap-t.**  The standard error is held fixed in every draw.  A bootstrap-t
+that re-estimates it per draw on the identity scale calibrates a statistic the band does
+not invert, and none of the results cited above analyses a maximum with the standard
+error re-estimated in each resample.  The bootstrap-t of the transformed
+statistic was computed on the registered draws of the ``longitudinal-sdr`` cell and
+covered less than the fixed-SE band.  A resample can also omit every unit that carries a
+sparse column, which makes its critical value unbounded; a multiplier keeps every unit in
+every draw.  Hall (1986) notes that a fixed-variance bootstrap leaves a one-sided term of
+order :math:`n^{-1/2}`, so this module claims first-order validity only.
 
 Where the time goes, and why the block is sized in bytes
 --------------------------------------------------------
@@ -87,7 +135,7 @@ For ``kind="normal"`` the draws are a linear map of a Gaussian, so
 1.5 s.
 
 Why that speed is not free, and why the default is not ``"normal"``
-------------------------------------------------------------------
+-------------------------------------------------------------------
 
 The closed form exists *because* the Gaussian max-t law depends on the influence
 curves only through their covariance.  Everything above second moments is discarded,
@@ -114,10 +162,10 @@ Under a well-behaved influence curve the three kinds are interchangeable.  Under
 leverage ``"normal"`` is biased conservative -- bands several percent wider than the
 data warrant -- and the bias does not wash out by n = 2,000.
 
-So ``"rademacher"`` is the default: it tracks the truth most closely, and its minimal
-fourth moment (:math:`E\xi^4 = 1`, against 3 for a Gaussian) minimises the
-variability of the bootstrap distribution.  ``"mammen"`` additionally matches
-:math:`E\xi^3 = 1`, the term an Edgeworth expansion wants, and sits between the two.
+So the default is a two-point kind.  ``"rademacher"`` has the minimal fourth moment
+(:math:`E\xi^4 = 1`, against 3 for a Gaussian), which minimises the variability of the
+bootstrap distribution.  ``"mammen"`` additionally matches :math:`E\xi^3 = 1`, the term an
+Edgeworth expansion wants, which is why it is the default (above).
 Reach for ``"normal"`` when ``n`` is large, the influence curves are well behaved, and
 the resampling cost actually shows up in a profile -- it is an opt-in speed trade,
 not a free one.
@@ -146,8 +194,9 @@ from .influence import ParameterEstimate, with_precedent_status
 T_REFERENCE_BAND_REFUSAL = Refusal(
     RefusalReason.INFERENCE_GAP,
     "simultaneous_bands() has no joint result for an estimate with a Student t reference. "
-    f"The fit reads fewer than {FEW_CLUSTER_THRESHOLD} clusters with positive weight mass, "
-    "and no source read here gives a simultaneous band at that count.",
+    f"The estimate reads fewer than {FEW_CLUSTER_THRESHOLD} clusters with positive weight "
+    "mass, or it is averaged over cross-fitting folds, and no source read here gives a "
+    "simultaneous band calibrated to a t reference.",
     alternative="Report the pointwise intervals, which use the t reference.",
     roadmap="F28",
 )
@@ -167,6 +216,9 @@ KNOWN_REGIME_BAND_REFUSAL = Refusal(
 )
 
 __all__ = [
+    "DEFAULT_BAND_SCALE",
+    "DEFAULT_KIND",
+    "DEFAULT_N_REPLICATES",
     "BandScale",
     "SimultaneousBands",
     "median_bands",
@@ -183,6 +235,12 @@ MultiplierKind = Literal["rademacher", "mammen", "normal"]
 BandScale = Literal["logit", "identity"]
 
 _BAND_SCALES: tuple[str, ...] = ("logit", "identity")
+
+#: The default band: the scale, the multiplier kind and the draws every band function and
+#: estimator uses unless told otherwise (the module docstring says why).
+DEFAULT_BAND_SCALE: BandScale = "logit"
+DEFAULT_KIND: MultiplierKind = "mammen"
+DEFAULT_N_REPLICATES: int = 10_000
 
 #: Target footprint of the multiplier buffer, in bytes.  The block is derived from this
 #: and ``n`` rather than fixed, because what the timing tracks is the footprint: see the
@@ -520,11 +578,11 @@ def simultaneous_bands(
     estimates: Mapping[str, ParameterEstimate] | Sequence[ParameterEstimate],
     *,
     alpha: float = 0.05,
-    n_replicates: int = 1000,
-    kind: MultiplierKind = "rademacher",
+    n_replicates: int = DEFAULT_N_REPLICATES,
+    kind: MultiplierKind = DEFAULT_KIND,
     random_state: int | None = None,
     cluster: IntArray | None = None,
-    band_scale: BandScale = "identity",
+    band_scale: BandScale = DEFAULT_BAND_SCALE,
 ) -> SimultaneousBands:
     """Joint confidence bands over a set of estimates.
 
@@ -546,15 +604,15 @@ def simultaneous_bands(
         The estimates to band jointly.
     alpha : float
         Joint significance level.
-    n_replicates : int
+    n_replicates : int, default=10_000
         Multiplier draws.
-    kind : {"rademacher", "mammen", "normal"}, default="rademacher"
+    kind : {"rademacher", "mammen", "normal"}, default="mammen"
         Distribution of the multiplier weights.
     random_state : int or None
         Seed for those draws.
     cluster : ndarray or None
         ``(n,)`` cluster codes. Weights are drawn per cluster when given.
-    band_scale : {"logit", "identity"}, default="identity"
+    band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a bounded estimate. Every other estimate keeps its own
         inference scale.
 
@@ -756,12 +814,15 @@ def _band_endpoints(
 
     Returns the bands and the scale each was built on.  A bounded estimate under
     ``band_scale="logit"`` reads its standard error on the range-logit scale by the delta
-    method; a zero standard error gives the point band.
+    method; a zero standard error gives the point band.  An estimate of a fit under a
+    declared stopping rule adds its
+    :attr:`~cleverly.inference.ParameterEstimate.residual_margin` to the half-width on its
+    inference scale, which the range-logit map carries by the same slope.
     """
     bands: dict[str, tuple[float, float]] = {}
     scales: dict[str, str] = {}
     for name, estimate in items:
-        half_width = critical * estimate.std_error
+        half_width = critical * estimate.std_error + estimate.residual_margin
         transform = estimate.transform
         ranged = _range_transform(estimate, band_scale)
         if ranged is not None:
@@ -806,11 +867,11 @@ def median_bands(
     combined: Mapping[str, ParameterEstimate],
     *,
     alpha: float = 0.05,
-    n_replicates: int = 1000,
-    kind: MultiplierKind = "rademacher",
+    n_replicates: int = DEFAULT_N_REPLICATES,
+    kind: MultiplierKind = DEFAULT_KIND,
     random_state: int | None = None,
     cluster: IntArray | None = None,
-    band_scale: BandScale = "identity",
+    band_scale: BandScale = DEFAULT_BAND_SCALE,
 ) -> SimultaneousBands:
     r"""Joint bands of a repeated fit: the median critical value around the median estimates.
 
@@ -832,15 +893,15 @@ def median_bands(
         The median-combined estimates to band, in band order.
     alpha : float
         Joint significance level.
-    n_replicates : int
+    n_replicates : int, default=10_000
         Multiplier draws behind each critical value.
-    kind : {"rademacher", "mammen", "normal"}, default="rademacher"
+    kind : {"rademacher", "mammen", "normal"}, default="mammen"
         Distribution of the multiplier weights.
     random_state : int or None
         Seed for those draws, the same for every draw of the split.
     cluster : ndarray or None
         ``(n,)`` cluster codes. Weights are drawn per cluster when given.
-    band_scale : {"logit", "identity"}, default="identity"
+    band_scale : {"logit", "identity"}, default="logit"
         The scale of the band of a bounded estimate, as in :func:`simultaneous_bands`.
 
     Returns

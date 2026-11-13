@@ -717,6 +717,10 @@ class HazardFit:
     share_clipped : tuple of tuple
         ``(node, cause index, share)`` at every bounded node and cause: the share of the
         ``(unit, level)`` initial hazards that the bound clipped.
+    phase : {"walk", "iterative", "jacobian"} or None
+        For a separable fit, the targeting phase that reached the reported state: the
+        one-step walk, the iterative TMLE, or Newton steps on the full score Jacobian.
+        ``None`` for every other fit.
     """
 
     algorithm: HazardAlgorithm
@@ -739,6 +743,7 @@ class HazardFit:
     best_iterate: int | None = None
     bound_excludes_data: tuple[tuple[int, int, int], ...] = ()
     share_clipped: tuple[tuple[int, int, float], ...] = ()
+    phase: Literal["walk", "iterative", "jacobian"] | None = None
 
     @property
     def relative_score(self) -> float:

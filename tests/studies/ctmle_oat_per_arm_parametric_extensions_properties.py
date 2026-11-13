@@ -73,7 +73,7 @@ import pandas as pd
 from scipy.stats import norm
 
 from cleverly.exceptions import DataError
-from cleverly.inference.multiplier import simultaneous_bands
+from cleverly.inference.multiplier import out_of_range, simultaneous_bands
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ctmle_oat_per_arm_parametric_extensions import (
     BUDGETS,
@@ -237,6 +237,10 @@ def shipped_banded(result: Any) -> Any:
         name: dataclasses.replace(estimate, inference="influence_curve")
         for name, estimate in result.estimates.items()
     }
+    if out_of_range(diagnostic, estimator.band_scale):
+        # No logit band over an estimate outside its range, as a fit skips its own; the
+        # joint rows count it as not covered.
+        return dataclasses.replace(result, simultaneous=None, estimates=diagnostic)
     bands = simultaneous_bands(
         diagnostic,
         alpha=estimator.alpha_sig,
@@ -244,6 +248,7 @@ def shipped_banded(result: Any) -> Any:
         kind=estimator.multiplier_kind,
         random_state=estimator.random_state,
         cluster=result.data.cluster,
+        band_scale=estimator.band_scale,
     )
     return dataclasses.replace(result, simultaneous=bands)
 

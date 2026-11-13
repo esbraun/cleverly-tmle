@@ -1200,7 +1200,7 @@ class TruncationCurve:
         ... )
         >>> fig = result.diagnostics.truncation_curve().plot()
         >>> fig.axes[0].get_ylabel()
-        'Average effect (ate)'
+        'Average effect'
         >>> plt.close(fig)
         """
         from .plotting import sensitivity

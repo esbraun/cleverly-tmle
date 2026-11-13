@@ -13,7 +13,9 @@ record moved to `reporting` before one re-run, as the route declared.
 The re-run reused the R
 `lmtp` rows of the first run (`python -m tests.canonical.lmtp_clustered_ltmle.regenerate --skip-reference`) and refit the Python and property phases. The red cell
 reads no R input. The route named F28 as the owner. The diagnosis matched the reading of the
-[`band-finite-sample`](../../roadmap.md#red-cell-owners) owner, which now holds the cell.
+[`band-finite-sample`](../../roadmap.md#red-cell-owners) owner, which then held the cell. The
+band-finite-sample rerun re-measured the band on the committed fits with the new default band,
+and the cell passes, so no cell of the study is red.
 
 ## What was compared
 
@@ -79,7 +81,7 @@ Comparator-backed: a paired comparison with `lmtp` on the same samples. Each row
 | `clustered_inference` | `iid_control_survival` | control | the survival contrast's curve treated as independent rows | the SE-ratio upper endpoint must not exceed the declared IID-control ceiling | coverage 0.7876 to 0.8143, SE ratio 0.6415 to 0.6720, paired coverage gain 0.1353 to 0.1590 | pass |
 | `clustered_inference` | `iid_control_unequal` | control | the unequal-size contrast's curve treated as independent rows | the SE-ratio upper endpoint must not exceed the declared IID-control ceiling | coverage 0.6622 to 0.6935, SE ratio 0.4952 to 0.5191, paired coverage gain 0.2553 to 0.2847 | pass |
 | `simultaneous_coverage` | `clustered_regimens__pointwise_joint_control` | control | the three regimen means and two contrasts of the cross-fitted clustered LTMLE, with cluster multipliers: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8111 to 0.8509 | pass |
-| `simultaneous_coverage` | `clustered_regimens__simultaneous_band` | positive | the three regimen means and two contrasts of the cross-fitted clustered LTMLE, with cluster multipliers: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9191 to 0.9458 | **fail** |
+| `simultaneous_coverage` | `clustered_regimens__simultaneous_band` | positive | the three regimen means and two contrasts of the cross-fitted clustered LTMLE, with cluster multipliers: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9255 to 0.9511 | pass |
 <!-- /generated -->
 
 The `clustered_inference` family has four pairs, at 6,000 replications each. Each pair reads one
@@ -89,11 +91,11 @@ the dynamic contrast on shared fits, the static contrast at cluster sizes unifor
 the risk contrast at `t=2` on the survival law. The `simultaneous_coverage` cell reads the band
 over the five reported names with cluster multipliers, at 2,400 replications.
 
-## Readings of the red cells
+## The band cell
 
 | cell | reading |
 | --- | --- |
-| `clustered_regimens__simultaneous_band` | the band covered 0.9333, with a 99% interval from 0.919 to 0.946, against the band 0.92 to 0.98. Its mean critical value is 2.387 against the design oracle 2.409. The max-t statistic has a 95% quantile of 2.50, because the five pointwise SE ratios read 0.976 to 0.997 at 100 clusters. R `lmtp` reads the same pointwise shortfall on the same draws, with SE ratios 0.978 to 1.000. With the oracle critical value the band covers 0.939, so the multiplier explains a small part of the shortfall. The point-treatment clustered band of the [default-band study](default-simultaneous-bands.md) also covers below 0.95 at 200 clusters, 0.938, and passes. The diagnosis found no defect in the band construction. `tests/unit/test_band_shortfall_reading.py` rebuilds the reading |
+| `clustered_regimens__simultaneous_band` | the band-finite-sample rerun read the committed fits with the default band: Mammen cluster multipliers, 10,000 draws, each regimen mean on its logit scale and each contrast on its $\operatorname{atanh}$ scale. The band covers 0.9392, with a 99% interval from 0.926 to 0.951, inside the band 0.92 to 0.98 (`tests/canonical/band-rerun-decision.json`). Under the former band (Rademacher, identity scale, 2,000 draws) it covered 0.9333, with a 99% interval from 0.919 to 0.946, and was red. The max-t statistic still reads the pointwise shortfall: the five pointwise SE ratios read 0.976 to 0.997 at 100 clusters, and R `lmtp` reads SE ratios 0.978 to 1.000 on the same draws. The point-treatment clustered band of the [default-band study](default-simultaneous-bands.md) also covers below 0.95 at 200 clusters and passes |
 
 ## Measured values and declared margins
 
@@ -105,7 +107,7 @@ over the five reported names with cluster multipliers, at 2,400 replications.
 | `independent_tests_total` | 10 | truth tests reported |
 | `paired_tests_passed` | 5 | paired comparisons passing |
 | `paired_tests_total` | 5 | paired comparisons reported |
-| `property_cells_passed` | 9 | property cells passing |
+| `property_cells_passed` | 10 | property cells passing |
 | `property_cells_total` | 10 | property cells reported |
 | `max_standardized_bias` | 0.0155 | largest primary standardized bias |
 | `min_coverage` | 0.9381 | lowest primary coverage |

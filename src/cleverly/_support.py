@@ -44,6 +44,7 @@ __all__ = [
     "RECORD_ENVIRONMENT_VARIABLE",
     "REGIMEN_KINDS",
     "UNCLASSIFIED",
+    "UNMEASURED_BAND_OPTION",
     "BandOption",
     "Classification",
     "Kind",
@@ -121,8 +122,14 @@ UNCLASSIFIED: Final[Support] = Support(
 #: ``band_scale`` its limits are built on.
 BandOption = tuple[str, str]
 
-#: The band configuration of a default fit, which every row's band cells measured.
-DEFAULT_BAND_OPTION: Final[BandOption] = ("rademacher", "identity")
+#: The band configuration of a default fit: the Mammen multiplier, on the logit scale.  It is
+#: the configuration every registered band cell measures since band-finite-sample.
+DEFAULT_BAND_OPTION: Final[BandOption] = ("mammen", "logit")
+
+#: Why a band built with an option no row lists is experimental: band-finite-sample regenerated
+#: every registered band cell with :data:`DEFAULT_BAND_OPTION`, so the Rademacher and normal
+#: multipliers and ``band_scale="identity"`` keep no gated cell.
+UNMEASURED_BAND_OPTION: Final[str] = "no registered study after band-finite-sample"
 
 _TWO_ROWS_REASON: Final[str] = "This estimate combines estimates of two support rows."
 
@@ -304,12 +311,18 @@ class SupportKey:
         holds the known factors.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
-        point key on the policy axis holds the policy density ``ratio``, and ``tuned_cap`` when a
-        policy has a cap tuned on the data. A longitudinal key holds the inverse-probability
-        ``normalization``, the policy density ``ratio``, the ``survival_model``, the hazard
-        ``targeting`` algorithm, the ``isotonic`` projection, whether the fit declares
-        ``node_bounds``, the ``hazard_pooling``, whether it declares a ``ratio_trim``, the data's
-        ``markov_order``, and whether a regimen has a ``tuned_cap``. No key holds the band's
+        point key holds the ``stopping`` rule, whether the fit declares ``outcome_by_arm=True``,
+        a ``patience`` or a ``treatment_adjustment`` subset, and under a declared stopping rule
+        the ``step_bound`` (``"none"``, ``"search"`` or ``"fixed"``) and the reported
+        ``iterate``; under ``stopping="relative"`` those two read ``"none"`` and ``"last"``,
+        because the walk then stops only at a solved score equation. A point key on the policy
+        axis holds the policy density ``ratio``, and ``tuned_cap`` when a policy has a cap tuned
+        on the data. A longitudinal key holds the inverse-probability ``normalization``, the
+        policy density ``ratio``, the ``survival_model``, the hazard ``targeting`` algorithm,
+        the ``isotonic`` projection, whether the fit declares ``node_bounds``, the
+        ``hazard_pooling``, whether it declares a ``ratio_trim``, whether the data declare a
+        ``markov_order``, whether a regimen has a ``tuned_cap``, and the ``stopping``,
+        ``step_bound`` and ``iterate`` of a point key. No key holds the band's
         ``multiplier_kind`` or ``band_scale``: pointwise inference never reads them, so they
         are checked against the row's ``band_options`` by :func:`band_support` alone.
     """
@@ -655,6 +668,29 @@ def _unequal_clusters(data: Any) -> bool:
     return bool(sizes.min() != sizes.max())
 
 
+def _stopping_options(estimator: Any) -> dict[str, str]:
+    """The stopping rule of a fit and, under a declared rule, its step bound and iterate.
+
+    Under ``stopping="relative"`` the walk stops only where the score equation is solved to
+    ``tol``, so a step bound or ``iterate="best"`` leaves the estimator the default one (see
+    :mod:`cleverly.estimators._option_support`) and the key records the defaults. Under a
+    declared rule the walk stops early, where the bound and the reported iterate move the
+    estimate, so the key records them.
+    """
+    stopping = str(getattr(estimator, "stopping", "relative"))
+    if stopping == "relative":
+        return {"stopping": stopping, "step_bound": "none", "iterate": "last"}
+    if getattr(estimator, "step_bound", None) is None:
+        bound = "none"
+    else:
+        bound = "search" if getattr(estimator, "step_search", True) else "fixed"
+    return {
+        "stopping": stopping,
+        "step_bound": bound,
+        "iterate": str(getattr(estimator, "iterate", "last")),
+    }
+
+
 def point_key(
     estimator: Any, data: Any, estimands: Sequence[str]
 ) -> tuple[SupportKey, dict[str, type | None]]:
@@ -742,6 +778,10 @@ def point_key(
         "fluctuation": estimator.fluctuation,
         "targeting": estimator.targeting,
         "target_weights": estimator.target_weights,
+        **_stopping_options(estimator),
+        "outcome_by_arm": bool(getattr(estimator, "outcome_by_arm", False)),
+        "patience": getattr(estimator, "patience", None) is not None,
+        "treatment_adjustment": getattr(data, "treatment_covariate_names", None) is not None,
     }
     if method == "drtmle":
         for name in ("guard", "reduction", "update_order", "randomized"):
@@ -936,8 +976,9 @@ def longitudinal_key(
             ("node_bounds", bool(getattr(estimator, "node_bounds", None))),
             ("hazard_pooling", _option(getattr(estimator, "hazard_pooling", "node"))),
             ("ratio_trim", getattr(estimator, "ratio_trim", None) is not None),
-            ("markov_order", _option(getattr(data, "markov_order", None))),
+            ("markov_order", getattr(data, "markov_order", None) is not None),
             ("tuned_cap", tuned_cap),
+            *_stopping_options(estimator).items(),
         ),
     )
     learners = {
@@ -1052,7 +1093,7 @@ class SupportRow:
         Pairs of a kind and the target families that kind covers. A kind with no pair covers
         every family of the row. A fit that holds a family outside the pair reads the kind as
         unlicensed.
-    band_options : tuple of tuple of str, default (("rademacher", "identity"),)
+    band_options : tuple of tuple of str, default (("mammen", "logit"),)
         The ``(multiplier_kind, band_scale)`` pairs the row's band cells measured. A band built
         with another pair is experimental, and the fit's other estimates keep the row. The
         field means nothing on a row that does not license ``band``.
@@ -1224,6 +1265,33 @@ _KIND_NAMES: Final[Mapping[str, str]] = {
 }
 
 
+def _named_axis(axis: str, key: SupportKey, row_key: SupportKey) -> str:
+    """``axis`` with the qualifiers or options on which ``key`` and ``row_key`` differ.
+
+    A reader then learns which declaration keeps the nearest row from covering the fit. An
+    option reads ``name=value`` with the fit's value when that value is a bool, an integer,
+    ``None`` or a word, and its bare name otherwise (a value the fit lacks, a float, a tuple or
+    a class name), so the reason never holds a full stop, a comma or a parenthesis inside the
+    parentheses, and :func:`cleverly._summary._estimates.plain_support_reason` can still split
+    it.
+    """
+    if axis == "qualifiers":
+        return f"qualifiers ({' and '.join(sorted(key.qualifiers ^ row_key.qualifiers))})"
+    if axis != "options":
+        return axis
+    mine, theirs = dict(key.options), dict(row_key.options)
+    named = []
+    for name in sorted(mine.keys() | theirs.keys()):
+        if name in mine and name in theirs and mine[name] == theirs[name]:
+            continue
+        value = mine.get(name)
+        plain = isinstance(value, (bool, int, type(None))) or (
+            isinstance(value, str) and value.isidentifier()
+        )
+        named.append(f"{name}={value!r}" if name in mine and plain else name)
+    return f"options ({' and '.join(named)})"
+
+
 def _sentence(text: str) -> str:
     """``text`` as a sentence: opened with a capital letter and closed with a full stop."""
     text = text.strip()
@@ -1290,14 +1358,8 @@ def support_for(
             nearest_id, axes = classification.nearest
             nearest = next((r for r in registered_rows() if r.id == nearest_id), None)
             study = "" if nearest is None or not nearest.evidence else f" ({nearest.evidence[0]})"
-            if nearest is not None and "qualifiers" in axes:
-                # Name the qualifiers that differ, so a reader learns which declaration
-                # keeps the row from covering the fit.
-                differing = sorted(classification.key.qualifiers ^ nearest.key.qualifiers)
-                axes = tuple(
-                    f"qualifiers ({' and '.join(differing)})" if axis == "qualifiers" else axis
-                    for axis in axes
-                )
+            if nearest is not None:
+                axes = tuple(_named_axis(axis, classification.key, nearest.key) for axis in axes)
             text += f" Nearest row: {nearest_id}{study}, differing on {', '.join(axes)}."
         reasons.append(text)
     elif not row.licenses(kind, classification.key.family):
@@ -1395,7 +1457,7 @@ def band_support(
     kind : {"band", "bootstrap_band"}, default="band"
         The band's kind: the influence-curve multiplier band, or the studentized bootstrap
         sup-t band.
-    options : tuple of str, default ("rademacher", "identity")
+    options : tuple of str, default ("mammen", "logit")
         The band's ``(multiplier_kind, band_scale)``. Read only for ``kind="band"``.
     draws : int or None, default=None
         The band's multiplier draws. An option whose row names a measured draw count needs
@@ -1431,7 +1493,7 @@ def band_support(
             option_reasons.append(
                 f"Row {row.id} measured its simultaneous band with {listed} only, and this "
                 f"band uses multiplier_kind={multiplier_kind!r} with "
-                f"band_scale={band_scale!r}."
+                f"band_scale={band_scale!r}, which has {UNMEASURED_BAND_OPTION}."
             )
         option_reasons.extend(
             text for option, text in row.band_option_shortfalls if option == options
@@ -1657,7 +1719,6 @@ def classify_longitudinal_fit(
     known_factors: Iterable[str],
     has_msm: bool,
     regimen_kinds: Iterable[str],
-    conditions: Sequence[Refusal] = (),
     tuned_cap: bool = False,
     separable_first: int | None = None,
 ) -> Classification | None:
@@ -1683,9 +1744,6 @@ def classify_longitudinal_fit(
         Whether the fit reports working-model coefficients.
     regimen_kinds : iterable of str
         The kinds of regimen the fit reports: members of :data:`REGIMEN_KINDS`.
-    conditions : sequence of Refusal, default ()
-        The conditions the fit meets, such as a declared stopping rule. Each one makes the fit
-        experimental.
     tuned_cap : bool, default False
         Whether a regimen has a policy cap tuned on the data.
     separable_first : int or None, default None
@@ -1708,7 +1766,7 @@ def classify_longitudinal_fit(
             tuned_cap=tuned_cap,
             separable_first=separable_first,
         )
-        classification = classify_key(key, learners, conditions)
+        classification = classify_key(key, learners)
     except Exception as error:
         directory = recording_directory()
         if directory is not None:

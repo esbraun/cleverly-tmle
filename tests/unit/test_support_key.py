@@ -8,8 +8,10 @@ of a fit with it off.
 
 from __future__ import annotations
 
+import copy
 import json
 import warnings
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -22,16 +24,21 @@ from cleverly._refusal import Refusal, RefusalReason
 from cleverly._support import (
     DEFAULT_BAND_OPTION,
     RECORD_ENVIRONMENT_VARIABLE,
+    UNMEASURED_BAND_OPTION,
     Classification,
     Support,
     SupportKey,
     SupportRow,
     band_support,
+    classify,
     classify_key,
     combine_support,
+    longitudinal_key,
     point_key,
     recording_directory,
+    support_for,
 )
+from cleverly._support_rows import POINT_ROWS
 from cleverly.data.causal_data import CausalData
 from cleverly.datasets import (
     make_binary_outcome,
@@ -43,9 +50,11 @@ from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError
 from cleverly.interventions import Incremental, Shift, Static, Stochastic
 from cleverly.interventions.learned import LearnedRule
-from cleverly.longitudinal import LTMLE
+from cleverly.longitudinal import LTMLE, LongitudinalData
 from tests.conftest import linear_in_sample
+from tests.studies.support_cases import CASES, Observed
 from tests.unit._inference_status_support import LONGITUDINAL_N, longitudinal_learners
+from tests.unit.test_longitudinal_markov_order import _panel as markov_panel
 from tests.unit.test_sequential_design import COLUMNS, multivalue_panel
 
 SUPPORTED_A = Support("supported", "A study covers it.", ("study-a",), row="R1", limits=("l1",))
@@ -125,6 +134,12 @@ class TestPointKey:
             "fluctuation": "logistic",
             "targeting": "iterative",
             "target_weights": False,
+            "stopping": "relative",
+            "step_bound": "none",
+            "iterate": "last",
+            "outcome_by_arm": False,
+            "patience": False,
+            "treatment_adjustment": False,
         }
         assert learners["outcome"] is LinearRegression
         assert learners["treatment"] is LogisticRegression
@@ -286,6 +301,255 @@ class TestPointKey:
         assert _support._dependence(19, 10) == "t"
 
 
+#: The point options of X76 and their values in a fit that declares none of them.
+OPTION_DEFAULTS: dict[str, Any] = {
+    "stopping": "relative",
+    "step_bound": "none",
+    "iterate": "last",
+    "outcome_by_arm": False,
+    "patience": False,
+    "treatment_adjustment": False,
+}
+RULES = ("relative", "scaled_var", "sample_size")
+#: Every valid step setting: the full Newton step, a bound with a line search, the whole bound.
+STEPS = ((None, True, "none"), (0.05, True, "search"), (0.05, False, "fixed"))
+
+
+def t01_binary() -> tuple[Any, CausalData, tuple[str, ...]]:
+    """The estimator, data and estimands of the case that stands for ``T01.binary``."""
+    built = next(case for case in CASES if case.row == "T01.binary").build()
+    assert not isinstance(built, Observed)
+    return built
+
+
+def with_settings(estimator: Any, **settings: Any) -> Any:
+    changed = copy.copy(estimator)
+    for name, value in settings.items():
+        setattr(changed, name, value)
+    return changed
+
+
+def long_key(estimator: Any, data: Any) -> SupportKey:
+    return longitudinal_key(
+        estimator,
+        data,
+        outcome_kind="end_of_study",
+        cross_fitted=False,
+        known_factors=(),
+        has_msm=False,
+        regimen_kinds={"static"},
+    )[0]
+
+
+class TestOptionKeys:
+    """The targeting and fitting options of X76 enter the keys (Fix-8 PR 0).
+
+    A key that drops an option puts a fit that declares it on the row of the default fit,
+    which reads supported, so each test asserts the row id or the exact key value.
+    """
+
+    @pytest.mark.parametrize(
+        ("estimator", "roles", "name", "value"),
+        [
+            *((TMLE, {"stopping": rule}, "stopping", rule) for rule in RULES),
+            (TMLE, {"outcome_by_arm": True}, "outcome_by_arm", True),
+            (TMLE, {"outcome_by_arm": False}, "outcome_by_arm", False),
+            (CTMLE, {"patience": 2}, "patience", True),
+            (CTMLE, {"patience": None}, "patience", False),
+        ],
+    )
+    def test_each_point_option_lands_in_the_key_and_moves_only_itself(
+        self, frame: Any, estimator: type, roles: dict[str, Any], name: str, value: Any
+    ) -> None:
+        base, _ = key_of(estimator(**linear_in_sample()), frame)
+        moved, _ = key_of(estimator(**linear_in_sample(**roles)), frame)
+        assert {key: dict(base.options)[key] for key in OPTION_DEFAULTS} == OPTION_DEFAULTS
+        assert dict(moved.options) == dict(base.options) | {name: value}
+
+    @pytest.mark.parametrize(
+        ("subset", "declared"),
+        [(None, False), (["W1"], True), ([], True), (["W1", "W2", "W3", "W4"], False)],
+    )
+    def test_a_treatment_adjustment_subset_is_keyed_when_it_restricts(
+        self, frame: Any, subset: list[str] | None, declared: bool
+    ) -> None:
+        # The data read the whole adjustment set as no restriction, so that fit is the
+        # default one; an empty subset is a restriction (a mechanism that reads nothing).
+        base, _ = key_of(TMLE(**linear_in_sample()), frame)
+        roles = {} if subset is None else {"treatment_covariates": subset}
+        moved, _ = key_of(TMLE(**linear_in_sample()), frame, **roles)
+        assert dict(moved.options) == dict(base.options) | {"treatment_adjustment": declared}
+
+    @pytest.mark.parametrize("rule", RULES)
+    @pytest.mark.parametrize(("bound", "search", "step"), STEPS)
+    @pytest.mark.parametrize("iterate", ["last", "best"])
+    def test_step_bound_and_iterate_are_keyed_under_a_declared_rule_only(
+        self, frame: Any, rule: str, bound: float | None, search: bool, step: str, iterate: str
+    ) -> None:
+        settings = {"stopping": rule, "step_bound": bound, "step_search": search}
+        key, _ = key_of(TMLE(**linear_in_sample(**settings, iterate=iterate)), frame)
+        expected = (
+            {"stopping": rule, "step_bound": "none", "iterate": "last"}
+            if rule == "relative"
+            else {"stopping": rule, "step_bound": step, "iterate": iterate}
+        )
+        assert {name: dict(key.options)[name] for name in expected} == expected
+
+    def test_a_relative_step_bound_keeps_t01_and_a_rule_step_bound_leaves_it(self) -> None:
+        estimator, data, estimands = t01_binary()
+        relative = classify(with_settings(estimator, step_bound=0.05), data, estimands)
+        assert relative.row is not None and relative.row.id == "T01.binary"
+        assert dict(relative.key.options)["step_bound"] == "none"
+        ruled = classify(
+            with_settings(estimator, stopping="sample_size", step_bound=0.05), data, estimands
+        )
+        assert dict(ruled.key.options)["step_bound"] == "search"
+        assert ruled.row is None and ruled.nearest == ("T01.binary", ("options",))
+
+    def test_control_a_step_bound_keyed_under_relative_leaves_t01(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Mutation control: a key that records the step bound whatever the rule moves the
+        # relative step-bound fit off T01, so the test above would fail.
+        def everywhere(estimator: Any) -> dict[str, str]:
+            bound = "none" if estimator.step_bound is None else "search"
+            return {"stopping": estimator.stopping, "step_bound": bound, "iterate": "last"}
+
+        monkeypatch.setattr(_support, "_stopping_options", everywhere)
+        estimator, data, estimands = t01_binary()
+        assert classify(with_settings(estimator, step_bound=0.05), data, estimands).row is None
+
+    @pytest.mark.parametrize(
+        "settings",
+        [
+            *({"stopping": rule} for rule in RULES[1:]),
+            *({"stopping": rule, "iterate": "best"} for rule in RULES[1:]),
+            *({"stopping": rule, "step_bound": 0.05} for rule in RULES[1:]),
+            {"outcome_by_arm": True},
+        ],
+    )
+    def test_a_declared_option_moves_the_fit_off_its_row(self, settings: dict[str, Any]) -> None:
+        estimator, data, estimands = t01_binary()
+        moved = classify(with_settings(estimator, **settings), data, estimands)
+        assert moved.row is None
+        assert moved.nearest == ("T01.binary", ("options",))
+        # Control: the same key with the option at its default is the T01 fit, so a key
+        # that drops the option reads supported.
+        options = tuple(
+            (key, OPTION_DEFAULTS.get(key, value) if key in settings else value)
+            for key, value in moved.key.options
+        )
+        reset = classify_key(replace(moved.key, options=options), moved.learners)
+        assert reset.row is not None and reset.row.id == "T01.binary"
+
+    def test_a_declared_treatment_adjustment_moves_the_fit_off_its_row(self) -> None:
+        estimator, data, estimands = t01_binary()
+        assert classify(estimator, data, estimands).row.id == "T01.binary"  # type: ignore[union-attr]
+        restricted = replace(data, treatment_covariate_names=data.covariate_names[:1])
+        moved = classify(estimator, restricted, estimands)
+        assert dict(moved.key.options)["treatment_adjustment"] is True
+        assert moved.row is None and moved.nearest == ("T01.binary", ("options",))
+
+    def test_control_without_the_stopping_option_a_rule_fit_reads_t01(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Mutation control: keys and rows without the stopping options put a rule fit on
+        # T01, which would fail the row-id assertions above.
+        monkeypatch.setattr(_support, "_stopping_options", lambda estimator: {})
+        estimator, data, estimands = t01_binary()
+        key, learners = point_key(with_settings(estimator, stopping="scaled_var"), data, estimands)
+        stopping = {"stopping", "step_bound", "iterate"}
+        rows = [
+            replace(
+                row,
+                key=replace(
+                    row.key,
+                    options=tuple(item for item in row.key.options if item[0] not in stopping),
+                ),
+            )
+            for row in POINT_ROWS
+        ]
+        ruled = classify_key(key, learners, rows=rows)
+        assert ruled.row is not None and ruled.row.id == "T01.binary"
+
+    @pytest.mark.parametrize(
+        ("settings", "named"),
+        [
+            ({"stopping": "scaled_var"}, "options (stopping='scaled_var')"),
+            (
+                {"stopping": "sample_size", "step_bound": 0.05, "step_search": False},
+                "options (step_bound='fixed' and stopping='sample_size')",
+            ),
+            ({"outcome_by_arm": True}, "options (outcome_by_arm=True)"),
+        ],
+    )
+    def test_the_nearest_row_reason_names_each_differing_option(
+        self, settings: dict[str, Any], named: str
+    ) -> None:
+        estimator, data, estimands = t01_binary()
+        moved = classify(with_settings(estimator, **settings), data, estimands)
+        reason = support_for(moved, "influence_curve").reason
+        assert reason == (
+            "No registered study covers this configuration. Nearest row: T01.binary "
+            f"(canonical-tmle), differing on {named}."
+        )
+
+    def test_an_option_value_with_punctuation_or_no_value_reads_its_bare_name(self) -> None:
+        # A float, a dotted name, a tuple and an option the fit lacks would put a full stop, a
+        # comma or a parenthesis in the reason, which the plain reader splits on.
+        row_key = next(row for row in POINT_ROWS if row.id == "T01.binary").key
+        options = {name: value for name, value in row_key.options if name != "patience"}
+        options |= {"target_weights": 0.5, "fluctuation": "a.b", "guard": ("Q", "g")}
+        options |= {"tuned_cap": True}
+        fit = replace(row_key, options=tuple(sorted(options.items())))
+        assert _support._named_axis("options", fit, row_key) == (
+            "options (fluctuation and guard and patience and target_weights and tuned_cap=True)"
+        )
+        assert _support._named_axis("splitting", fit, row_key) == "splitting"
+
+    @pytest.mark.parametrize("rule", RULES)
+    @pytest.mark.parametrize(("bound", "search", "step"), STEPS)
+    @pytest.mark.parametrize("iterate", ["last", "best"])
+    def test_the_longitudinal_key_reads_the_rule_with_the_point_convention(
+        self, rule: str, bound: float | None, search: bool, step: str, iterate: str
+    ) -> None:
+        data = LongitudinalData.from_frame(multivalue_panel(n=120, seed=43), **COLUMNS)
+        estimator = LTMLE(
+            {"never": 0, "always": 1},
+            reference="never",
+            stopping=rule,
+            step_bound=bound,
+            step_search=search,
+            iterate=iterate,
+        )
+        options = dict(long_key(estimator, data).options)
+        expected = (
+            {"stopping": rule, "step_bound": "none", "iterate": "last"}
+            if rule == "relative"
+            else {"stopping": rule, "step_bound": step, "iterate": iterate}
+        )
+        assert {name: options[name] for name in expected} == expected
+
+    @pytest.mark.parametrize(
+        ("order", "declared"), [(None, False), (0, True), (1, True), (2, True)]
+    )
+    def test_the_longitudinal_key_records_a_declared_markov_order_as_a_flag(
+        self, order: int | None, declared: bool
+    ) -> None:
+        # Order 0 is a declared restriction too, so a key that reads the order's truth value
+        # fails here. Four nodes, so orders 1 and 2 restrict the history.
+        data = LongitudinalData.from_frame(
+            markov_panel(),
+            outcome="Y",
+            treatment=[f"A{t}" for t in range(1, 5)],
+            baseline=["W"],
+            time_varying=[[f"L{t}"] for t in range(1, 5)],
+        )
+        estimator = LTMLE({"never": 0, "always": 1}, reference="never")
+        options = dict(long_key(estimator, data.with_markov_order(order)).options)
+        assert options["markov_order"] is declared
+
+
 class TestKeyAxes:
     def test_differing_axes_name_each_moved_axis_once(self, frame: Any) -> None:
         base, _ = key_of(TMLE(**linear_in_sample()), frame)
@@ -372,14 +636,24 @@ class TestBandSupport:
         return Support("supported", "Row RB covers this configuration.", ("study-b",), row="RB")
 
     def test_the_default_option_is_supported(self, classification: Classification) -> None:
+        """Every row's band cells measured the default band since band-finite-sample."""
         band = band_support(classification, "influence_curve", [self.supported()])
-        assert band.label == "supported"
-        assert (
-            band_support(
-                classification, "influence_curve", [self.supported()], options=DEFAULT_BAND_OPTION
-            )
-            == band
+        assert band == band_support(
+            classification, "influence_curve", [self.supported()], options=DEFAULT_BAND_OPTION
         )
+        assert DEFAULT_BAND_OPTION == ("mammen", "logit")
+        assert band.label == "supported"
+
+    @pytest.mark.parametrize(
+        "option", [("rademacher", "identity"), ("normal", "identity"), ("mammen", "identity")]
+    )
+    def test_an_option_no_study_measures_names_why(
+        self, classification: Classification, option: tuple[str, str]
+    ) -> None:
+        band = band_support(classification, "influence_curve", [self.supported()], options=option)
+        assert band.label == "experimental"
+        assert UNMEASURED_BAND_OPTION == "no registered study after band-finite-sample"
+        assert UNMEASURED_BAND_OPTION in band.reason
 
     @pytest.mark.parametrize("option", [("mammen", "identity"), ("rademacher", "logit")])
     def test_an_unlisted_option_makes_the_band_experimental(
@@ -393,29 +667,31 @@ class TestBandSupport:
 
     def test_a_listed_option_is_supported(self, frame: Any) -> None:
         key, learners = key_of(TMLE(**linear_in_sample()), frame)
-        row = band_row(key, band_options=(DEFAULT_BAND_OPTION, ("mammen", "logit")))
+        row = band_row(key, band_options=(DEFAULT_BAND_OPTION, ("rademacher", "identity")))
         classification = classify_key(key, learners, rows=[row])
         band = band_support(
-            classification, "influence_curve", [self.supported()], options=("mammen", "logit")
+            classification,
+            "influence_curve",
+            [self.supported()],
+            options=("rademacher", "identity"),
         )
         assert band.label == "supported"
 
     def test_an_option_shortfall_reads_for_that_option_alone(self, frame: Any) -> None:
         key, learners = key_of(TMLE(**linear_in_sample()), frame)
-        sentence = "Row RB is red for the default band: joint coverage 0.91 to 0.94."
+        option = ("rademacher", "identity")
+        sentence = "Row RB is red for the Rademacher band: joint coverage 0.91 to 0.94."
         row = band_row(
             key,
-            band_options=(DEFAULT_BAND_OPTION, ("mammen", "logit")),
-            band_option_shortfalls=((DEFAULT_BAND_OPTION, sentence),),
+            band_options=(DEFAULT_BAND_OPTION, option),
+            band_option_shortfalls=((option, sentence),),
         )
         classification = classify_key(key, learners, rows=[row])
-        shipped = band_support(classification, "influence_curve", [self.supported()])
-        assert shipped.label == "experimental"
-        assert sentence in shipped.reason
-        other = band_support(
-            classification, "influence_curve", [self.supported()], options=("mammen", "logit")
-        )
-        assert other.label == "supported"
+        red = band_support(classification, "influence_curve", [self.supported()], options=option)
+        assert red.label == "experimental"
+        assert sentence in red.reason
+        default = band_support(classification, "influence_curve", [self.supported()])
+        assert default.label == "supported"
 
     def test_the_bootstrap_band_reads_no_multiplier(self, classification: Classification) -> None:
         band = band_support(
@@ -427,27 +703,27 @@ class TestBandSupport:
         )
         assert band.label == "supported"
 
-    def test_the_sdr_row_lists_the_option_its_redeclared_cell_measures(self) -> None:
-        from cleverly._support_rows import LONGITUDINAL_ROWS, SDR_MEASURED_BAND_OPTION
-
-        rows = {row.id: row for row in LONGITUDINAL_ROWS}
-        assert rows["G23.cross_fitted"].band_options == (
-            DEFAULT_BAND_OPTION,
-            SDR_MEASURED_BAND_OPTION,
+    def test_every_band_row_lists_the_default_option_at_its_measured_draws(self) -> None:
+        from cleverly._support_rows import (
+            BAND_CELLS,
+            BAND_OPTION_DRAWS,
+            DEFAULT_BAND_DRAWS,
+            LONGITUDINAL_ROWS,
+            POINT_ROWS,
         )
-        assert SDR_MEASURED_BAND_OPTION == ("mammen", "logit")
-        others = [row for row in rows.values() if row.id != "G23.cross_fitted"]
-        assert {row.band_options for row in others} == {(DEFAULT_BAND_OPTION,)}
+
+        rows = {row.id: row for row in (*POINT_ROWS, *LONGITUDINAL_ROWS)}
+        banded = {row_id: row for row_id, row in rows.items() if "band" in row.kinds}
+        assert set(banded) == set(BAND_CELLS)
+        assert {row.band_options for row in banded.values()} == {(DEFAULT_BAND_OPTION,)}
+        assert dict(BAND_OPTION_DRAWS) == {"D09": 1_000}
+        for row_id, row in banded.items():
+            measured = BAND_OPTION_DRAWS.get(row_id, DEFAULT_BAND_DRAWS)
+            assert row.band_option_draws == ((DEFAULT_BAND_OPTION, measured),)
         row = rows["G23.cross_fitted"]
         classification = Classification(row.key, {}, row)
         support = _support.support_for(classification, "influence_curve")
-        mammen = band_support(
-            classification,
-            "influence_curve",
-            [support],
-            options=SDR_MEASURED_BAND_OPTION,
-            draws=10_000,
-        )
+        mammen = band_support(classification, "influence_curve", [support], draws=10_000)
         normal = band_support(
             classification, "influence_curve", [support], options=("normal", "identity")
         )
@@ -455,15 +731,19 @@ class TestBandSupport:
         assert normal.label == "experimental"
         # The cell measured 10,000 draws; fewer, or an unstated count, is experimental.
         for draws in (2_000, None):
-            fewer = band_support(
-                classification,
-                "influence_curve",
-                [support],
-                options=SDR_MEASURED_BAND_OPTION,
-                draws=draws,
-            )
+            fewer = band_support(classification, "influence_curve", [support], draws=draws)
             assert fewer.label == "experimental"
             assert "10,000 multiplier draws" in str(fewer.reason)
+        # D09's cell pins 1,000 draws, so 1,000 is enough there.
+        row = rows["D09"]
+        classification = Classification(row.key, {}, row)
+        support = _support.support_for(classification, "influence_curve")
+        assert band_support(classification, "influence_curve", [support], draws=1_000).label == (
+            "supported"
+        )
+        assert band_support(classification, "influence_curve", [support], draws=999).label == (
+            "experimental"
+        )
 
     def test_a_row_without_the_band_gives_one_reason(self, frame: Any) -> None:
         key, learners = key_of(TMLE(**linear_in_sample()), frame)

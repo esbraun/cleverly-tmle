@@ -33,6 +33,7 @@ from scipy.special import expit
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import CausalStudy, ConditionalContrast, PointTreatment
+from cleverly import _pooled_targeting as pt
 from cleverly import targeting_curves as tc
 from cleverly.bases import Linear, Modifiers
 from cleverly.data import CausalData
@@ -445,9 +446,9 @@ def test_dropping_the_autoc_column_breaks_its_identity(monkeypatch: pytest.Monke
 def test_an_untruncated_mechanism_in_the_clever_covariate_breaks_the_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    propensity = tc._clever_propensity
+    propensity = pt.clever_propensity
     monkeypatch.setattr(
-        tc, "_clever_propensity", lambda nuisance, bounds: propensity(nuisance, (1e-6, 1 - 1e-6))
+        pt, "clever_propensity", lambda nuisance, bounds: propensity(nuisance, (1e-6, 1 - 1e-6))
     )
     assert _identity_gap(_continuous_curve()) > MUTATION_FLOOR
 
@@ -468,7 +469,7 @@ def test_skipping_the_reduction_fails_as_a_singular_fluctuation(
 ) -> None:
     fit, data, w = _misspecified()
     score = np.floor(2.0 * (w[:, 0] + 1.0))
-    monkeypatch.setattr(tc, "_span_basis", lambda columns: (columns, 0.0))
+    monkeypatch.setattr(tc, "span_basis", lambda columns: (columns, 0.0))
     with pytest.raises(DataError, match="singular_hessian"):
         tc.targeting_fit(fit, data, {"S": score}, pair=(1.0, 0.0), n_half_samples=5)
 
@@ -891,6 +892,47 @@ def test_route_two_refuses_its_fluctuation_settings_before_any_learner(
         curve.diagnostics.targeting_curve(n_half_samples=10, random_state=0)
 
 
+_DROPPED_SETTINGS = [
+    ({"targeting_scheme": "fold"}, "TARGETING_SCHEME_REFUSAL"),
+    ({"cv_evaluation": True}, "TARGETING_SCHEME_REFUSAL"),
+    ({"n_bootstrap": 20}, "TARGETING_BOOTSTRAP_REFUSAL"),
+]
+
+#: The roadmap item each dropped setting's refusal names: the fold settings are an
+#: implementation gap tracked by X92, the refit bootstrap an inference gap that names none.
+_DROPPED_ROADMAP = {"TARGETING_SCHEME_REFUSAL": "X92", "TARGETING_BOOTSTRAP_REFUSAL": None}
+
+
+@pytest.mark.parametrize(("change", "refusal"), _DROPPED_SETTINGS)
+def test_route_one_refuses_settings_the_curve_would_drop_before_any_learner(
+    change: dict[str, Any], refusal: str
+) -> None:
+    with pytest.raises(CapabilityError) as caught:
+        _route_one(**{**change, "outcome_learner": _NeverFitted()})
+    assert caught.value.refusal is getattr(tc, refusal)
+    assert caught.value.refusal.roadmap == _DROPPED_ROADMAP[refusal]
+
+
+@pytest.mark.parametrize(("change", "refusal"), _DROPPED_SETTINGS)
+def test_route_two_refuses_settings_the_curve_would_drop_before_any_learner(
+    change: dict[str, Any], refusal: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cleverly import _curve_assessment as ca
+
+    curve = _split_curve_fit()
+    kwargs = ca._ate_kwargs
+    monkeypatch.setattr(ca, "_ate_kwargs", lambda *a, **k: {**kwargs(*a, **k), **change})
+
+    def never(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("a learner was fitted before the refusal")
+
+    monkeypatch.setattr(LinearRegression, "fit", never)
+    monkeypatch.setattr(LogisticRegression, "fit", never)
+    with pytest.raises(CapabilityError) as caught:
+        curve.diagnostics.targeting_curve(n_half_samples=10, random_state=0)
+    assert caught.value.refusal is getattr(tc, refusal)
+
+
 @_quiet
 def test_an_outcome_on_a_tiny_scale_keeps_its_intervals() -> None:
     """The zero-spread guard is relative: the same law with Y in units of 1e-13 keeps every
@@ -982,13 +1024,13 @@ def test_a_known_mechanism_is_read_from_the_data_and_divides_the_clever_covariat
     )
     effect = study.identify(ConditionalContrast(Modifiers(["W1"])))
     seen: list[np.ndarray] = []
-    clever = tc._clever_propensity
+    clever = pt.clever_propensity
 
     def spy(nuisance: Any, g_bounds: tuple[float, float]) -> Any:
         seen.append(clever(nuisance, g_bounds))
         return seen[-1]
 
-    monkeypatch.setattr(tc, "_clever_propensity", spy)
+    monkeypatch.setattr(pt, "clever_propensity", spy)
     status = tc.targeting_status
     declared: list[bool] = []
 

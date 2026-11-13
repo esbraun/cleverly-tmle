@@ -305,9 +305,10 @@ def gating_findings(
     only as a finite-sample red under the beta brief's three-condition reading: it is a
     calibration positive or a truth row, the 99% interval of its SE ratio contains 1, its
     coverage interval contains 0.95, and :data:`~tests.studies.evidence.red_cells.OWNERS`
-    names its owner (the owner row records the diagnosis that found no defect).  A red control
-    or pair arm is a defect suspect and never passes.  Without committed tables there is
-    nothing to read, and the result is empty.
+    names its owner (the owner row records the diagnosis that found no defect).  Any other red
+    gating row (a control, a pair arm, a witness or a necessity positive) is a defect suspect
+    and never passes.  Without committed tables there is nothing to read, and the result is
+    empty.
 
     Parameters
     ----------
@@ -342,7 +343,9 @@ def gating_findings(
     def judge(key: Any, row: Any, may_be_finite: bool) -> None:
         owner = red_cells.OWNERS.get(key)
         if not may_be_finite:
-            out.append(f"{key.key} is a red control or pair arm: a defect suspect")
+            out.append(
+                f"{key.key} is a red gating row outside the calibration positives: a defect suspect"
+            )
         elif not finite_sample(row):
             out.append(f"{key.key} is red outside the finite-sample reading")
         elif owner is None:

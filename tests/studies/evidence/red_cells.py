@@ -425,7 +425,7 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "paired",
         "continuous_modified_policy/ate_policy[+0.25 vs natural course]",
     ),
-    # The arm mean near 0.94 in the smallest stratum, and the two bands that include it.
+    # The arm mean near 0.94 in the smallest stratum, and the in-sample band that includes it.
     "strata-boundary-mean": (
         *_keys(
             "canonical-stratified-tmle",
@@ -438,45 +438,54 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "property",
             "interval_calibration/v2_ey1__correctly_specified",
             "simultaneous_coverage/strata__simultaneous_band",
-            "simultaneous_coverage/crossfit_strata__simultaneous_band",
         ),
     ),
-    # Four default bands and the cluster multiplier band of the cross-fitted clustered LTMLE,
-    # which cover just under the band, read as finite-sample by
-    # ``tests/unit/test_band_shortfall_reading.py``.
-    "band-finite-sample": (
-        *_keys(
-            "clustered-cross-fitted-ltmle",
-            "property",
-            "simultaneous_coverage/clustered_regimens__simultaneous_band",
-        ),
-        *_keys(
-            "canonical-ltmle-survival",
-            "property",
-            "simultaneous_coverage/all_reported__simultaneous_band",
-        ),
-        *_keys(
-            "default-simultaneous-bands",
-            "property",
-            "simultaneous_coverage/categorical_ltmle__simultaneous_band",
-            "simultaneous_coverage/categorical_ltmle_crossfit__simultaneous_band",
-            "simultaneous_coverage/cde_z0__simultaneous_band",
-        ),
+    # Two default bands that cover just under the band on the Mammen logit band of Wave 2, read
+    # as finite-sample by ``tests/unit/test_band_shortfall_reading.py``.
+    "band-finite-sample": _keys(
+        "default-simultaneous-bands",
+        "property",
+        "simultaneous_coverage/categorical_ltmle__simultaneous_band",
+        "simultaneous_coverage/cde_z0__simultaneous_band",
     ),
-    # The calibration draws of the multi-arm missing-outcome DR-TMLE study, and the band read
-    # off the same fits.  ``tests/unit/test_band_shortfall_reading.py`` rebuilds the reading.
+    # The calibration draws of the multi-arm missing-outcome DR-TMLE study.
+    # ``tests/unit/test_band_shortfall_reading.py`` rebuilds the reading.
     "F4-calibration-draws": _keys(
         "multi-arm-mar-drtmle",
         "property",
         "interval_calibration/ate__correctly_specified",
-        "simultaneous_coverage/arms__simultaneous_band",
     ),
     # The logit-MSM slope in the smallest stratum of the stratified incremental and MSM
     # study.  ``tests/unit/test_band_shortfall_reading.py`` rebuilds the reading.
-    "X8-logit-small-stratum": _keys(
-        "canonical-stratified-incremental-msm",
+    # ``small-sample-wald`` adds held-out law H3's two gated logit-MSM coefficients, read in
+    # the post-run review as the same O(1/n) SE shortfall at about 300 stratum rows.
+    "X8-logit-small-stratum": (
+        *_keys(
+            "canonical-stratified-incremental-msm",
+            "property",
+            "interval_calibration/logit_v2_a__correctly_specified",
+        ),
+        *_keys(
+            "small-sample-wald",
+            "property",
+            "heldout_coverage/ho_logit_msm_a",
+            "heldout_coverage/ho_logit_msm_w",
+        ),
+    ),
+    # ``small-sample-wald``'s held-out bounded difference whose treated arm sits near 1 and
+    # carries most of its variance: the rule's normal reference refuted for differences.
+    "F3-difference-near-bound": _keys(
+        "small-sample-wald",
         "property",
-        "interval_calibration/logit_v2_a__correctly_specified",
+        "heldout_coverage/ho_sparse_treat_ate",
+    ),
+    # ``small-sample-wald``'s skewed continuous means in a small stratum: the moment-df t
+    # refuted for skewed outcomes, on held-out law H2 and on a diagnosis law.
+    "F3-skewed-continuous": _keys(
+        "small-sample-wald",
+        "property",
+        "heldout_coverage/ho_hurdle_ey1",
+        "diagnosis_continuous/lognormal06_ey1",
     ),
     # Stratum 2 of the identity-MSM study: a calibration cell and the paired W row that is
     # inconclusive on its calibration leg.  ``tests/unit/test_band_shortfall_reading.py``.
@@ -601,28 +610,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "truth",
         "cleverly-learned-rule-cvtmle/exceptional/ey_learned_rule[learned rule]",
         "cleverly-learned-rule-cvtmle/weak_blip/ey_learned_rule[learned rule]",
-    ),
-    # The finite-sample limits of clustered intervals: the fold-evaluated covariate pair of the
-    # unequal-size study, and the few-cluster study's unequal-size fold-evaluated bias cells and
-    # DR-TMLE IID controls.
-    "F28": (
-        *_keys(
-            "clustered-unequal-cvtmle",
-            "property",
-            "clustered_inference/cluster_robust_fold_evaluated_cluster_covariate",
-            "clustered_inference/iid_control_fold_evaluated_cluster_covariate",
-        ),
-        *_keys(
-            "clustered-few-cluster-tmle",
-            "property",
-            "few_cluster_reference/drtmle_crossfit__equal10__j10__iid_t_control",
-            "few_cluster_reference/drtmle_crossfit__equal10__j20__iid_t_control",
-            "few_cluster_reference/drtmle_crossfit__equal10__j30__iid_t_control",
-            "few_cluster_reference/drtmle_crossfit__unequal_informative__j10__iid_t_control",
-            "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j10__t_reference",
-            "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j20__t_reference",
-            "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j30__t_reference",
-        ),
     ),
     "F1-power-design": (
         *_keys("stochastic-categorical-ltmle", "property", "power/mix__alternative"),

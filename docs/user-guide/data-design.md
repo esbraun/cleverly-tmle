@@ -48,6 +48,13 @@ study = CausalStudy(
   the `experimental` label, and below 3 the fit reports no interval. For TMLE and DR-TMLE, these
   rules also apply to one reported stratum. [Clusters](../technical-reference/inference.md#clusters)
   gives the rules and the estimators they cover.
+
+  A fit that averages one estimate per cross-fitting fold (`cv_evaluation=True`) uses the cluster
+  count minus the number of folds, at every cluster count. Outside learned treatment rules, that
+  fit needs clusters of equal size, or of equal total weight on a weighted fit, and the effect
+  among the treated also needs the same number of treated rows in each cluster. Otherwise it
+  refuses and points to the default, which estimates from all folds at once
+  ([clusters of unequal mass](../technical-reference/cv-tmle.md#clusters-of-unequal-mass)).
 - `strata` requests subgroup parameters and preserves the stratum in structured parameter keys.
   A stratum variable must also appear in `adjustment`: it conditions the reported parameter, so a
   design that stratified on a variable it did not adjust for is refused rather than fitted.

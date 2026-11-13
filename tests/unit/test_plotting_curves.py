@@ -61,6 +61,7 @@ from cleverly.plotting import _core, _curves, curve
 from cleverly.plotting import _forest as forest_module
 from cleverly.plotting._curves import _Point, _select
 from cleverly.validation.longitudinal import _longitudinal_stagewise
+from tests.unit.test_plotting_core import assert_no_note_text
 
 pytestmark = pytest.mark.xdist_group("plotting_curves")
 
@@ -588,8 +589,9 @@ def assert_style(fig: Any) -> None:
 
     White face, a title, no overlaid axes, a y label or row labels on every axes, an x label
     on the bottom axes, and every coloured artist (lines, markers, collections, patches) in
-    a palette colour, at most three per axes.
+    a palette colour, at most three per axes. No figure draws a note.
     """
+    assert_no_note_text(fig)
     assert matplotlib.colors.to_hex(fig.get_facecolor(), keep_alpha=True) == "#ffffffff"
     positions = [tuple(np.round(ax.get_position().bounds, 6)) for ax in fig.axes]
     assert len(set(positions)) == len(positions), "two axes overlay each other"
@@ -720,11 +722,11 @@ class TestOverTime:
         assert list(null.get_ydata()) == [0.0, 0.0]
         assert key_texts(top) == [
             "95% pointwise interval",
-            "95% simultaneous band (multiplier)",
+            "95% simultaneous band",
             "No difference",
         ] or set(key_texts(top)) == {
             "95% pointwise interval",
-            "95% simultaneous band (multiplier)",
+            "95% simultaneous band",
             "No difference",
         }
         assert top.get_legend().get_texts()
@@ -935,20 +937,24 @@ class TestOverTime:
         assert not ribbons(top, _core.GID_BAND) and not band_marks(top).size
         assert ribbons(top, _core.GID_INTERVAL)
         assert "95% pointwise interval" in key_texts(top)
-        assert "95% simultaneous band (multiplier)" not in key_texts(top)
+        assert "95% simultaneous band" not in key_texts(top)
         # Mutation control: the fit with the band draws one.
         assert ribbons(curve(result).axes[0], _core.GID_BAND)
 
     def test_the_band_kind_and_the_other_band_are_named(self) -> None:
         result = boot()
         both = curve(result)
-        assert "95% simultaneous band (multiplier)" in key_texts(both.axes[0])
-        assert "bootstrap sup-t" in _core.note_text(both)
+        assert "95% simultaneous band" in key_texts(both.axes[0])
+        assert "band drawn is the multiplier band" in _core.note_text(both)
+        assert "also holds a bootstrap sup-t" in _core.note_text(both)
         chosen = curve(result, band="bootstrap")
-        assert "95% simultaneous band (bootstrap sup-t)" in key_texts(chosen.axes[0])
+        assert "95% simultaneous band" in key_texts(chosen.axes[0])
+        assert "band drawn is the bootstrap sup-t band" in _core.note_text(chosen)
         assert "band='multiplier'" in _core.note_text(chosen)
         only = curve(replace(result, simultaneous=None))
-        assert "95% simultaneous band (bootstrap sup-t)" in key_texts(only.axes[0])
+        assert "band drawn is the bootstrap sup-t band" in _core.note_text(only)
+        # The kind is a note, never a word in the key.
+        assert not any("sup-t" in text for text in key_texts(chosen.axes[0]))
         with pytest.raises(ValueError, match="no bootstrap band"):
             curve(full(), band="bootstrap")
         assert not ribbons(curve(result, band="none").axes[0], _core.GID_BAND)
@@ -1381,12 +1387,10 @@ class TestLevelMeans:
         for x, _lo, hi in model:
             assert hi == pytest.approx(fitted.upper[int(x)])
         assert ax.get_xlabel() == "Dose level"
-        assert ax.get_title(loc="left") == (
-            "How does the mean outcome change with the treatment level?"
-        )
+        assert ax.get_title(loc="left") == ("Mean outcome by treatment level")
         # Plan 4.2: the interval kind is "pointwise" beside a band, and the series are
         # named by direct labels at their ends, not by a second key.
-        assert key_texts(ax) == ["95% pointwise interval", "95% simultaneous band (multiplier)"]
+        assert key_texts(ax) == ["95% pointwise interval", "95% simultaneous band"]
         assert set(_label_colours(ax)) == {"Mean at each level", "Working model"}
         assert_style(fig)
 
@@ -1419,7 +1423,7 @@ class TestLevelMeans:
 
     def test_the_fit_of_the_working_model_can_be_the_first_argument(self) -> None:
         fig = curve(msm_fit(), means=level_means())
-        assert fig.axes[0].get_title(loc="left").startswith("How does the mean outcome")
+        assert fig.axes[0].get_title(loc="left").startswith("Mean outcome by")
         with pytest.raises(ValueError, match="pass means="):
             curve(msm_fit())
 
@@ -1549,7 +1553,7 @@ class TestPolicies:
         assert tuple(anchor.get_xydata()[0]) == (0.0, 0.0)
         (null,) = [ln for ln in ax.lines if ln.get_gid() == "cleverly-reference"]
         assert list(null.get_ydata()) == [0.0, 0.0]
-        assert ax.get_title(loc="left") == "How does the effect change as the policy shifts?"
+        assert ax.get_title(loc="left") == "Effect by policy"
         assert "compared with shift 0" in _subtitle(fig)
         assert "capped at 3.0" in _subtitle(fig)
         assert ax.get_xlabel().startswith("Shift added to the treatment")
@@ -1566,7 +1570,7 @@ class TestPolicies:
             marks, sorted(result.parameter_keys.items(), key=lambda kv: kv[1].value), strict=True
         ):
             assert (lo, hi) == pytest.approx(result.simultaneous.bands[alias])
-        assert "95% simultaneous band (multiplier)" in key_texts(ax)
+        assert "95% simultaneous band" in key_texts(ax)
         assert "95% pointwise interval" in key_texts(ax)
         assert "experimental" in _core.note_text(ax.figure)
         # Mutation control: with no band on the fit nothing is marked, and the bars are each
@@ -1581,7 +1585,7 @@ class TestPolicies:
         ax = fig.axes[0]
         assert ax.get_xscale() == "log"
         assert [t.get_text() for t in ax.get_xticklabels()] == ["0.5", "1", "2", "4"]
-        assert ax.get_title(loc="left") == "How does the mean outcome change as the policy shifts?"
+        assert ax.get_title(loc="left") == "Mean outcome by policy"
         xs = sorted(float(ln.get_xdata()[0]) for ln in lines(ax, "cleverly-point"))
         assert xs == [0.5, 1.0, 2.0, 4.0]
         assert not [ln for ln in ax.lines if ln.get_gid() == "cleverly-reference"]
@@ -1633,8 +1637,10 @@ class TestPolicies:
         fig = curve(mixed_family())
         assert fig.axes[0].get_title(loc="left") == forest_module.TITLE
         assert "No single parameter orders these policies" in _subtitle(fig)
-        titled = curve(mixed_family(), title="Two policies")
+        titled = curve(mixed_family(), title="Two policies", subtitle="Shift and scale")
         assert titled.axes[0].get_title(loc="left") == "Two policies"
+        # The reader's subtitle wins over the one curve() passes to the forest plot.
+        assert _subtitle(titled) == "Shift and scale"
 
     def test_an_object_that_is_not_a_result_is_refused(self) -> None:
         with pytest.raises(TypeError, match="curve\\(\\) draws"):
@@ -1718,7 +1724,7 @@ class TestEffectCurve:
         result = _quiet(_effect(Linear(["W", "Z"])), grid=grid, alpha=0.1, random_state=0)
         ax = curve(result, modifier="W", at={"Z": 0.0}).axes[0]
         assert "90% pointwise interval" in key_texts(ax)
-        assert "90% simultaneous band (multiplier)" in key_texts(ax)
+        assert "90% simultaneous band" in key_texts(ax)
         # Mutation control: an explicit level overrides it.
         chosen = curve(result, modifier="W", at={"Z": 0.0}, alpha=0.05).axes[0]
         assert "95% pointwise interval" in key_texts(chosen)
@@ -1749,7 +1755,7 @@ class TestEffectCurve:
         np.testing.assert_allclose(marks[:, 2], result.band.upper)
         assert len(ribbons(ax, _core.GID_INTERVAL)) == 1
         assert not ribbons(ax, _core.GID_BAND)
-        assert "95% simultaneous band (multiplier)" in key_texts(ax)
+        assert "95% simultaneous band" in key_texts(ax)
         note = _core.note_text(ax.figure)
         assert "No registered study measures its joint coverage" in note
         assert "Brackets mark it at those points only" in note
@@ -2223,7 +2229,7 @@ class TestLevelWords:
     def test_per_level_means_are_asked_about_the_treatment_level(self) -> None:
         for fig in (curve(level_means()), curve(arm_means(), levels=CONTACTS)):
             title = fig.axes[0].get_title(loc="left")
-            assert title == "How does the mean outcome change with the treatment level?"
+            assert title == "Mean outcome by treatment level"
             assert "dose" not in title
 
     def test_a_declared_continuous_treatment_is_a_dose(self) -> None:
@@ -2231,9 +2237,9 @@ class TestLevelWords:
 
         dose = SimpleNamespace(data=SimpleNamespace(is_continuous_treatment=True))
         arms = SimpleNamespace(data=SimpleNamespace(is_continuous_treatment=False))
-        assert _curves._level_title(arms, dose).endswith("with the dose?")
+        assert _curves._level_title(arms, dose) == "Mean outcome by dose"
         # Control: neither fit declares a dose.
-        assert _curves._level_title(arms, None).endswith("with the treatment level?")
+        assert _curves._level_title(arms, None) == "Mean outcome by treatment level"
         assert not level_means().data.is_continuous_treatment
 
 

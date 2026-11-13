@@ -16,7 +16,12 @@ import numpy as np
 from matplotlib.colors import to_hex
 
 from cleverly.plotting import PALETTE, _core
-from tests.unit.test_plotting_core import _colors, _is_grey
+from tests.unit.test_plotting_core import (
+    _colors,
+    _is_grey,
+    assert_no_note_text,
+    assert_short_title,
+)
 
 
 def assert_style(fig: Any) -> None:
@@ -29,6 +34,8 @@ def assert_style(fig: Any) -> None:
     """
     assert to_hex(fig.get_facecolor(), keep_alpha=True) == "#ffffffff"
     assert fig.axes[0].get_title(loc="left"), "the figure has no title"
+    assert_no_note_text(fig)
+    assert_short_title(fig)
     fig.canvas.draw()
     panels = [ax for ax in fig.axes if ax.axison]
     assert panels, "the figure has no panel"

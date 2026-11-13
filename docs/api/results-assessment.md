@@ -54,6 +54,10 @@ validation fold.
 
 `TMLEResult.effect_curve()` returns an `EffectCurveResult` for a fit of a `ConditionalContrast`,
 and `TMLEResult.heterogeneity_test()` returns a `HeterogeneityTest`.
-`IdentifiedEffect.assess_score()` returns a `ScoreAssessment` for a score fitted on other data.
+`IdentifiedEffect.assess_score()` returns a `ScoreAssessment` for a score fitted on other data:
+its risk difference against the best constant and its calibration intercept and slope. With
+`compare=` it also holds the second score's three parameters in `compared` and the paired risk
+difference of the two. Every estimate comes from one TMLE fit and carries a Wald interval and a
+support label; `status` is the worst of them, and `span` records the fluctuation's span.
 `IdentifiedEffect.targeting_curve()` and `EffectCurveResult.diagnostics.targeting_curve()` return
 a `TargetingCurve`: how much treating by a score first gains over treating at random.

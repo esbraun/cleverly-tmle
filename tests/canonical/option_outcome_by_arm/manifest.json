@@ -1,0 +1,178 @@
+{
+  "schema_version": 2,
+  "study": "per-arm outcome regressions on point TMLE",
+  "slug": "option-outcome-by-arm",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "8d2826ecc407f8548b4a83cca777822a43efffef",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2800,
+    "n": 2000,
+    "seed": 20267531,
+    "resampling_seed": 20267532,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "LB": [
+        "ate",
+        "ey1",
+        "ey0"
+      ]
+    },
+    "construction": "in-sample and stacked point TMLE with outcome_by_arm=True",
+    "laws": "W1, W2 ~ N(0, 1) iid; g0 = expit(0.4 W1 + 0.4 W2); eta1 = -0.2 + 0.9 W1 + 0.2 W2, eta0 = -0.5 + 0.1 W1 + 0.7 W2",
+    "law_LB": "Y | A=a, W ~ Bernoulli(expit(eta_a))",
+    "law_LB-c": "Y | A=a, W ~ N(eta_a, 1)",
+    "law_LB-b": "Y | A=a, W ~ Beta(24 m, 24 (1 - m)), m = expit(eta_a)",
+    "outcome_learners": {
+      "by_arm": "per arm, on W: unpenalized logistic GLM (LB), linear regression (LB-c), fractional logistic GLM (LB-b), by Newton or least squares",
+      "by_arm_intercept": "per arm, intercept only",
+      "pooled": "one main-terms regression on (A, W1, W2) of the same family"
+    },
+    "treatment_learners": {
+      "glm": "unpenalized logistic GLM on (W1, W2)",
+      "intercept": "intercept only"
+    },
+    "estimands": [
+      "ey1",
+      "ey0",
+      "ate"
+    ],
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "q_bounds": "declared [0.0, 1.0] on LB-b only",
+    "max_iter": 100,
+    "tol": 1e-10,
+    "cross_fit": "False, except the stacked cells (5 folds)",
+    "simultaneous_intervals": false,
+    "settings": {
+      "binary_in_sample": {
+        "law": "LB",
+        "outcome": "by_arm",
+        "mechanism": "glm",
+        "cross_fit": false
+      },
+      "binary_stacked": {
+        "law": "LB",
+        "outcome": "by_arm",
+        "mechanism": "glm",
+        "cross_fit": true
+      },
+      "continuous_in_sample": {
+        "law": "LB-c",
+        "outcome": "by_arm",
+        "mechanism": "glm",
+        "cross_fit": false
+      },
+      "bounded_stacked": {
+        "law": "LB-b",
+        "outcome": "by_arm",
+        "mechanism": "glm",
+        "cross_fit": true
+      },
+      "pooled_binary_in_sample": {
+        "law": "LB",
+        "outcome": "pooled",
+        "mechanism": "glm",
+        "cross_fit": false
+      },
+      "pooled_binary_stacked": {
+        "law": "LB",
+        "outcome": "pooled",
+        "mechanism": "glm",
+        "cross_fit": true
+      },
+      "pooled_continuous_in_sample": {
+        "law": "LB-c",
+        "outcome": "pooled",
+        "mechanism": "glm",
+        "cross_fit": false
+      },
+      "pooled_bounded_stacked": {
+        "law": "LB-b",
+        "outcome": "pooled",
+        "mechanism": "glm",
+        "cross_fit": true
+      },
+      "q_intercept": {
+        "law": "LB",
+        "outcome": "by_arm_intercept",
+        "mechanism": "glm",
+        "cross_fit": false
+      },
+      "both_intercept": {
+        "law": "LB",
+        "outcome": "by_arm_intercept",
+        "mechanism": "intercept",
+        "cross_fit": false
+      }
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_option_outcome_by_arm.py": "d407e599d8a50410701aeaf634c77c30176295e6b472873f3e33cfd3ce7ffddc",
+    "tests/studies/option_outcome_by_arm_properties.py": "49c48e110c48ae2348be5d333f23d4a3e4ec4ffe11d152ec5ccd958dde2b9f3a",
+    "tests/studies/_option_by_arm_law.py": "af41d1f2fe311c7b8513cb905c4974877fcbb87cd658896076c5b84353007e0b",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/repeated_sizing.py": "22ea0fd4b646ca559ca497ccc2116e5c8c45fb1b5c89670437212736a03fdaed",
+    "src/cleverly/estimators/_nuisance.py": "ec5a9f35c449602c5fe612ad8bd9948f701f4a1c53550123a0c57d2b0e706fe4",
+    "src/cleverly/estimators/tmle.py": "2fc1efe148024cb00c7a487bfb083da9765e821062a52d31f8c6fe525c13dbf2",
+    "src/cleverly/fluctuation/iterative.py": "4820e69a1b5321ff8e5f6035dad6b13b9bf7d0c9c95191a73418a9eb6318d543",
+    "src/cleverly/inference/influence.py": "1f09c77a106447fbd43627f095777dc48270cb3995bf2028d59be42b207ed9e2",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "3429d7c7a3cbc6c155291bf455609e2cfa16ef84d29b27ff03575dde7c259e27",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "376af3cc5eb8fba468813e939cb37d1e7cdd10b8970c8c1b73c3fc076dd0144e",
+    "summary.csv": "d5fb4881adad695e08ad7699030355c9b0815dc3efd5e91463bb4c45d0676e15",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "0e91aff50c59048634e0c61052841c05d9ced6fa362627d2fc9e83fb2a79a288",
+    "property-replicates.parquet": "208bb5581a34d3d467e4dbb5fa45aa8a4d2dd9e230d94a62c516fa4af9201dee",
+    "properties.csv": "e5b9ad89741375f5fc76285a5b73bd29858dd52a850816dabd655b48e3089058"
+  }
+}

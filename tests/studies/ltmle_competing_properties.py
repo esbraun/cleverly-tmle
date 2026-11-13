@@ -12,7 +12,9 @@ cross-fitted study shares :func:`generate_for` and :func:`summarize_for` and kee
   ``horizons=(1, 2)`` and the calibration learners, n = 32,000 and R = 2,400 on the stream
   ``stream_seed(STUDY, "property_sample", "simultaneous_coverage", "curve_always", r)``.  The
   band covers both causes at both horizons;
-* every band uses the engine's defaults: 2000 rademacher draws seeded by ``random_state=0``.
+* every band uses the engine's defaults seeded by ``random_state=0``: since band-finite-sample
+  the Mammen multiplier at 10,000 draws on the logit scale (2,000 Rademacher draws on the
+  identity scale before it).
   The truth is ``law.TRUTH``;
 * each band passes when its 99% joint-coverage interval lies inside ``[0.92, 0.98]``, and each
   pointwise control passes when the 99% upper endpoint of joint coverage is below 0.95;

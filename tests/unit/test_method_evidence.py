@@ -359,6 +359,7 @@ class TestArtifacts:
         self, study: StudyRecord
     ) -> None:
         """A partial run may not overwrite a historical producer with its new source."""
+        from tests.studies.evidence import band_rerun
         from tests.studies.evidence.seed_repair import (
             PLAN_PATH,
             ROW_FILES,
@@ -397,6 +398,17 @@ class TestArtifacts:
                     assert (
                         carried_rows_findings(study.slug, study.artifacts, ROW_FILES.values()) == []
                     ), "changed rows still name only their historical producer"
+            return
+        if manifest["generation_mode"] == band_rerun.MODE:
+            band_plan = band_rerun.PLAN_PATH.read_bytes()
+            band_rerun.validate_composite_manifest(manifest, band_plan)
+            rows = read_rows(study.artifact("property-replicates.parquet"))
+            assert digest(csv_text(rows)) == manifest["composite"]["composite_property_csv_sha256"]
+            moved = json.loads(band_plan)["studies"][study.slug]["moved_cells"]
+            assert (
+                band_rerun.carried_digest(rows, moved)
+                == manifest["composite"]["carried_property_rows_sha256"]
+            ), "a band rerun changed a row its band does not determine"
             return
         plan_raw = PLAN_PATH.read_bytes()
         validate_composite_manifest(manifest, plan_raw)
@@ -1015,7 +1027,11 @@ class TestPublishedVerdicts:
             assert reported["passed"].all() and reported["property_passed"].all(), (
                 f"{family} publishes a failed verdict, and it declares no margin to fail"
             )
-            assert reported[["coverage_ci_lower", "coverage_ci_upper"]].notna().all().all(), (
+            # A fitted-slope row reports its slope interval in place of a coverage interval.
+            interval = reported[["coverage_ci_lower", "coverage_ci_upper"]].notna().all(axis=1)
+            if {"slope_ci_lower", "slope_ci_upper"} <= set(reported.columns):
+                interval |= reported[["slope_ci_lower", "slope_ci_upper"]].notna().all(axis=1)
+            assert interval.all(), (
                 f"{family} publishes no coverage interval, which is what it reports"
             )
         for family in sorted(families & BIAS_GATED_PROPERTIES):
@@ -1065,6 +1081,27 @@ class TestPublishedVerdicts:
                 )
                 assert bool(row.passed) is expected, (
                     f"{row.cell} publishes passed={row.passed} against its own count {count}"
+                )
+
+        # X76 (a): a positive residual-share or widened-coverage row answers to the lower limit
+        # of its exact interval, the plain control to the upper limit, against the study's
+        # declared floors and ceiling.
+        limits = published.loc[
+            published["property"].isin({"residual_witness", "residual_necessity"})
+        ]
+        if not limits.empty:
+            declared = study.runner()
+            for row in limits.itertuples():
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    expected = True
+                elif row.property == "residual_witness":
+                    expected = row.coverage_ci_lower >= declared.WITNESS_SHARE
+                elif row.role == "positive":
+                    expected = row.coverage_ci_lower >= declared.NECESSITY_FLOOR
+                else:
+                    expected = row.coverage_ci_upper < declared.NECESSITY_CEILING
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own limit"
                 )
 
         root_n = published.loc[published["property"] == "root_n_and_efficiency"]
@@ -1396,6 +1433,34 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its corrected-MAR endpoint"
             )
 
+        # ``small-sample-wald``: a coverage row answers to its two legs, the lower leg over every
+        # requested fit and the shown fits' upper end, restated here from the declaration rather
+        # than read from the module; the paired-gain cells also need the gain's lower bound
+        # above 1/2, and the leverage rows an SE-ratio interval containing 1.
+        two_legs = published.loc[published["property"].isin(SMALL_SAMPLE_TWO_LEG_PROPERTIES)]
+        for row in two_legs.itertuples():
+            expected = row.lower_leg_ci_lower >= 0.92 and row.shown_ci_upper <= 0.98
+            if row.cell in ("boundary_mean", "student_ey1"):
+                expected = expected and row.gain_lower > 0.5
+            if str(row.cell).startswith("leverage_"):
+                expected = expected and row.se_ratio_ci_lower <= 1.0 <= row.se_ratio_ci_upper
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own coverage legs"
+            )
+        for row in published.loc[published["property"] == "non_h1"].itertuples():
+            expected = (
+                row.coverage_ci_upper < 0.90
+                if row.role == "control"
+                else row.lower_leg_ci_lower >= 0.92
+            )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own non-H1 endpoint"
+            )
+        for row in published.loc[published["property"] == "witness"].itertuples():
+            assert bool(row.passed) is bool(row.coverage_ci_upper < 0.50), (
+                f"{row.cell} publishes passed={row.passed} against its own witness ceiling"
+            )
+
         correction = published.loc[published["property"] == "correction_necessity"]
         if not correction.empty:
             properties = study.properties()
@@ -1566,6 +1631,9 @@ class TestPublishedVerdicts:
         if not clustered.empty:
             margins = study.margins
             for row in clustered.itertuples():
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    # A reported arm states no verdict; the reported-row check above reads it.
+                    continue
                 if row.role == "positive":
                     expected = (
                         margins.calibration_se_ratio[0]
@@ -1726,14 +1794,44 @@ BIAS_GATED_PROPERTIES = frozenset(
         # X39: a positive's bias interval inside the margin, a control's outside it, each on
         # its own stream.
         "censoring_necessity",
+        # X76's option studies: the trimmed fits' bias inside the margin, the trimmed W-blind
+        # control outside it (``option-ratio-trim``); the order-0 control and the blind-mechanism
+        # control outside it (``option-markov-order``); the slow outcome rate at n = 16,000
+        # outside it (``option-treatment-adjustment``).
+        "trim_point",
+        "trim_necessity",
+        "order_necessity",
+        "order_double_robustness",
+        "patience_bias",
+        "ordered_late_confounder",
+        "ordered_whole_path",
+        "instrument_slow_outcome",
     }
 )
 
 #: Families whose rows answer to other endpoints -- coverage, an SE ratio, a rejection rate,
 #: a fitted slope.  Listed rather than inferred so that a family added to a study has to be
 #: classified here before its verdicts count.
+#: ``small-sample-wald``'s coverage families and the reported and control rows read by the same
+#: two legs (the per-row check above restates the rule).
+SMALL_SAMPLE_TWO_LEG_PROPERTIES = frozenset(
+    {
+        "corrected_coverage",
+        "diagnosis_bounded",
+        "diagnosis_continuous",
+        "heldout_coverage",
+        "reported",
+        "control",
+    }
+)
 ENDPOINT_GATED_PROPERTIES = frozenset(
     {
+        # ``small-sample-wald``: each row answers to its own coverage legs, its non-H1 endpoint
+        # or its witness ceiling (checked above).  The reported and control rows keep their own
+        # reading in ``passed`` with the diagnostic role, so they are never red.
+        *SMALL_SAMPLE_TWO_LEG_PROPERTIES,
+        "non_h1",
+        "witness",
         # X82 SL: each size row answers to its own rejection count and each power row to its
         # own detection count (checked below against the study's declared thresholds).
         "refuter_size",
@@ -1831,8 +1929,11 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # from below.
         "unclustered_se",
         # X33's binding witness: the iterated-mean cell answers to two share floors, and the
-        # hazard cell carries the diagnostic role and states no verdict.
+        # hazard cell carries the diagnostic role and states no verdict.  ``isotonic-binding``
+        # names its binding share the same, and its material-move share beside it; each answers
+        # to the lower limit of its share's exact interval.
         "binding_witness",
+        "material_move",
         # X21's bias rows of AdaptiveIPTW: a positive row's standardized bias inside the
         # margin, a control's outside it.  The ladder rows read the same equivalence endpoint.
         "bias",
@@ -1843,6 +1944,16 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "oracle_comparison",
         "calibration",
         "risk_comparison",
+        # X76 (a), the stopping-rule studies: a witness row's share of draws whose residual
+        # reaches 0.01 SE against its floor, and the necessity pair's plain interval below a
+        # ceiling and widened interval above a floor.  Checked row by row below.
+        "residual_witness",
+        "residual_necessity",
+        # X76 (c), the patience study: a stop share or a share of models without W1 against
+        # its floor, and the paired greedy difference against 0.25 whole-path SDs.
+        "patience_witness",
+        "late_confounder_stop",
+        "greedy_late_confounder",
     }
 )
 
@@ -1858,6 +1969,44 @@ SAME_DRAW_FAMILIES = {
     "adaptive-iptw": (
         frozenset({"bias", "interval_calibration"}),
         frozenset({"bias", "targeting_necessity"}),
+    ),
+    # ``option-ratio-trim``: every fit reads one draw of law LE per replicate, so the trimmed
+    # and untrimmed fits differ on the same data in the setting alone.  The necessity pair
+    # shows that trimming leaves a remainder that double robustness otherwise removes, on the
+    # draws whose correct-outcome fits the point cells measure.
+    "option-ratio-trim": (frozenset({"trim_necessity", "trim_point"}),),
+    # ``isotonic-binding``: the interval at the projected level and the two move shares read one
+    # fit per draw of law LG2, so the shares say how often the level the interval is centred at
+    # moved on exactly the draws the calibration cell reads.
+    "isotonic-binding": (frozenset({"interval_calibration", "binding_witness", "material_move"}),),
+    # The stopping-rule studies (X76 (a)): the witness reads the share of draws on which the
+    # rule leaves a residual of at least 0.01 SE, on the fits whose widened interval the
+    # calibration cell measures, so it shows that those cells measure a binding rule.  On L4 the
+    # necessity pair refits the same draws with intercept-only hazards and every threshold
+    # times 8.  It shares those draws for convenience, not need: its claim does not read the
+    # calibration fits, and no claim reads the two verdicts jointly.  The committed run drew it
+    # on the calibration stream, so the exception admits it; the next regeneration gives
+    # ``residual_necessity`` its own seed stream and drops it from this set.
+    "option-stopping-point": (frozenset({"interval_calibration", "residual_witness"}),),
+    "option-stopping-ltmle": (
+        frozenset({"interval_calibration", "residual_witness"}),
+        frozenset({"interval_calibration", "residual_necessity", "residual_witness"}),
+    ),
+    # ``option-patience`` (X76 (c)): each law is one stream, fitted once per declared fit, so a
+    # patient fit and its whole path differ on the same draw in the counter alone.  On LC1 the
+    # stop share shows that the bias cell measures a stopped path; on LC3 the share of ordered
+    # fits without W1 explains the ordered control, the whole ordered path is its positive on
+    # the same draws, and the greedy cell pairs the greedy fits on those draws.
+    "option-patience": (
+        frozenset({"patience_bias", "patience_witness"}),
+        frozenset(
+            {
+                "greedy_late_confounder",
+                "late_confounder_stop",
+                "ordered_late_confounder",
+                "ordered_whole_path",
+            }
+        ),
     ),
 }
 
@@ -1944,6 +2093,34 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # with its summary statistics and no verdict.
         "support_loss",
         "learned_mechanism",
+        # X76's option studies: the readings beside each gated cell, reported with no verdict.
+        # The pooled fits beside the per-arm fits (``option-outcome-by-arm``); the 0.99 trims,
+        # the untrimmed correct fits and the trimmed share (``option-ratio-trim``); the
+        # full-history and order-0 fits (``option-markov-order``); the reference fits, the
+        # constructed-error ladder, its fitted slope and the parametric fit
+        # (``option-treatment-adjustment``).
+        "pooled_outcome",
+        # X76 (a): the plain interval beside each widened one, the relative fit on the same
+        # draws, the threshold-times-1 and relative references of the necessity law, the
+        # contrasts of L2, and the step-bounded walk, each reported with no verdict.
+        "plain_interval",
+        "relative_reference",
+        "necessity_reference",
+        "contrast_residual",
+        "step_bound",
+        "trim_reported",
+        "markov_reported",
+        "reported_estimate",
+        "reported_stop",
+        "reported_displacement",
+        "instrument_reference",
+        "instrument_slow_outcome_ladder",
+        "instrument_slow_outcome_rate",
+        "instrument_parametric",
+        # ``isotonic-binding``: the unprojected and horizon-2 levels, the always regimen and the
+        # larger-move law, reported with no verdict.
+        "reported_levels",
+        "reported_large_move",
     }
 )
 
@@ -3895,7 +4072,12 @@ class TestPropertyFailures:
                 selected = summary.loc[
                     (summary["property"] == row["property"]) & summary["cell"].isin(cells)
                 ]
-                roles = sorted(selected["role"].astype(str))
+                # A reported arm may share the group; the pair reads only the two roles.
+                roles = sorted(
+                    role
+                    for role in selected["role"].astype(str)
+                    if role != property_verdicts.DIAGNOSTIC_ROLE
+                )
                 if roles != ["control", "positive"]:
                     wrong.append((row["property"], row["cell"], roles))
         assert wrong == []

@@ -36,16 +36,17 @@ family                            cells, replications and size
                                   (``all_reported``), each with its pointwise control
 ================================  =========================================================
 
-**The isotonic cell does not exercise a binding projection.**  Its curve rises from 0.375 at
-node 1 to 0.758 at node 2, a step of about nine standard errors at n = 2,000, so the declared
-binding share is zero (``X14-impl-review.md`` F4).  The cell checks that the projection
-leaves a regular curve's inference unchanged.  It is not evidence for an interval after a
-projection that moves a level.  No law gives such evidence inside the theory.  The increment
-between two horizons is the event mass at the later node, so the binding share is about
-:math:`\\Phi(-\\sqrt{m})`, with :math:`m` the expected number of observed events there.  On
-this law with the arm-1 node-2 hazard lowered to 0.02, the share is 0.136 at n = 2,000 with
-1.3 expected events.  A projection binds often only where a node has almost no events, and
-there Westling, van der Laan and Carone (2020), Theorem 2, does not apply.
+**The isotonic cell does not exercise a binding projection.**  Its declared binding share is
+zero (``X14-impl-review.md`` F4), and the cell checks that the projection leaves a regular
+curve's inference unchanged.  It is not evidence for an interval after a projection that moves
+a level.  The reason is its learners: each horizon's level is the mean of its targeted node-1
+regression, and the node-1 fluctuation solves its score, so the difference of the two levels is
+:math:`D = P_n[H_1\\, dY] + P_n[(1 - H_1)\\, dQ^*]` up to the score residuals, with
+:math:`dY = (1 - Y_1) Q^*_2 \\ge 0` and :math:`dQ^*` the gap between the two horizons' node-1
+regressions.  Saturated cell-mean regressions with cell-share mechanisms that no ``g_bounds``
+truncation touches make the second term zero, so once the node-1 score is solved
+:math:`D \\ge 0` whatever the event count.  A projection binds only when the two node-1 fits differ (Fix-8 plan
+section 2.7); the declared study ``isotonic-binding`` measures such a law.
 
 A curve band is the shipped multiplier band (:func:`cleverly.inference.multiplier.
 simultaneous_bands`, 2,000 rademacher draws, ``random_state=0``) over the five risks of one
@@ -59,13 +60,20 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from functools import partial
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from cleverly.inference.multiplier import simultaneous_bands
+from cleverly.inference.multiplier import (
+    DEFAULT_BAND_SCALE,
+    DEFAULT_KIND,
+    DEFAULT_N_REPLICATES,
+    out_of_range,
+    simultaneous_bands,
+)
 from cleverly.interventions import Stochastic
 from cleverly.longitudinal import LTMLE
 from cleverly.longitudinal.regimen import DynamicRegimen
@@ -137,8 +145,14 @@ CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 #: arm's empirical standard deviations.  The plug-in contrast is zero in every sample.
 TARGETING_DISPLACEMENT = 0.25
 CONFIGURATIONS = ("both_correct", "outcome_correct", "mechanism_correct", "both_wrong")
-#: The shipped band's settings, which the curve bands repeat.
-MULTIPLIER = {"n_replicates": 2000, "kind": "rademacher", "random_state": 0}
+#: The shipped band's settings, which the curve bands repeat: the library's default band, at
+#: the seed every fit of the study passes.
+MULTIPLIER = {
+    "n_replicates": DEFAULT_N_REPLICATES,
+    "kind": DEFAULT_KIND,
+    "band_scale": DEFAULT_BAND_SCALE,
+    "random_state": 0,
+}
 CURVE_ARMS = ("arm1", "arm0")
 JOINT_LABEL = "all_reported"
 ISOTONIC_DIAGNOSTIC = "isotonic_t2__moved"
@@ -519,15 +533,34 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 
 
 class _Family:
-    """One fit's estimates with a band over a subfamily, as :func:`joint_coverage_rows` reads."""
+    """One fit's estimates with a band over a subfamily, as :func:`joint_coverage_rows` reads.
+
+    A subfamily with an estimate outside its range has no logit band, as a fit skips its own,
+    and :func:`joint_coverage_rows` counts it as not covered.
+    """
 
     def __init__(self, result: Any, names: Sequence[str], cluster: Any = None) -> None:
         self._result = result
-        self.simultaneous = simultaneous_bands(
-            {name: result[name] for name in names},
-            alpha=STUDY.margins.alpha,
-            cluster=cluster,
-            **MULTIPLIER,
+        # The band's own settings, which the refused band's critical value reads.
+        self.estimator = SimpleNamespace(
+            alpha_sig=STUDY.margins.alpha,
+            n_multiplier=MULTIPLIER["n_replicates"],
+            multiplier_kind=MULTIPLIER["kind"],
+            band_scale=MULTIPLIER["band_scale"],
+            random_state=MULTIPLIER["random_state"],
+        )
+        self.data = SimpleNamespace(cluster=cluster)
+        family = {name: result[name] for name in names}
+        self.estimates = family
+        self.simultaneous = (
+            None
+            if out_of_range(family, str(MULTIPLIER["band_scale"]))
+            else simultaneous_bands(
+                family,
+                alpha=STUDY.margins.alpha,
+                cluster=cluster,
+                **MULTIPLIER,  # type: ignore[arg-type]
+            )
         )
 
     def __getitem__(self, name: str) -> Any:

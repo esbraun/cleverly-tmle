@@ -436,10 +436,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
     result = namespace["result"]
     robustness = namespace["robustness"]
     assert robustness == result.sensitivity.robustness_value()
-    assert (
-        figure_title(namespace["confounding_fig"])
-        == "How strong would hidden confounding need to be?"
-    )
+    assert figure_title(namespace["confounding_fig"]) == "Sensitivity to hidden confounding"
     elements = result.sensitivity.elements(estimand="ate")
     at_rv = result.sensitivity.omitted_confounding(cf_y=robustness["rv"], cf_d=robustness["rv"])
     # "The residual outcome variance ... more than doubles", so the implied cf_y is a clip.

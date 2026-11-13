@@ -357,7 +357,8 @@ class SensitivityContour(_Rows):
         ----------
         **kwargs
             Passed to :func:`cleverly.plotting.confounding`: ``robustness=``, ``benchmarks=``,
-            ``multiples=``, ``null=``, ``x_label=``, ``y_label=``, ``title=`` and ``ax=``.
+            ``multiples=``, ``null=``, ``ax=`` and the formatting keywords ``title=``,
+            ``subtitle=``, ``xlabel=``, ``ylabel=``, ``legend=`` and ``figsize=``.
 
         Returns
         -------
@@ -556,7 +557,7 @@ class MissingnessTilt(_Rows):
         ... )
         >>> fig = result.sensitivity.missingness(gamma=[-1.0, 0.0, 1.0]).plot()
         >>> fig.axes[0].get_ylabel()
-        'Average effect (ate)'
+        'Average effect'
         >>> plt.close(fig)
         """
         from ..plotting import sensitivity

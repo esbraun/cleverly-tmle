@@ -11,7 +11,7 @@ interval).
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -79,12 +79,18 @@ def _percent(value: float) -> str:
     return f"{100.0 * value:.1f}%"
 
 
+@_core.labelled
 def zipper(
     study: Any,
     *,
     estimand: str | Sequence[str] | None = None,
     labels: dict[str, str] | None = None,
-    title: str | None = None,
+    title: str | Literal[False] | None = None,
+    subtitle: str | Literal[False] | None = None,
+    xlabel: str | Sequence[str] | None = None,
+    ylabel: str | Sequence[str] | None = None,
+    legend: str | Literal[False] = "top",
+    figsize: tuple[float, float] | None = None,
 ) -> Figure:
     """Plot every replication's interval, sorted by centre, with the misses coloured.
 
@@ -106,8 +112,22 @@ def zipper(
         The estimands to draw, one panel each; every estimand of the study when omitted.
     labels : dict or None, default=None
         Words for each estimand, keyed by its alias.
-    title : str or None, default=None
-        The title.
+    title : str, False or None, default=None
+        The title; a short description of the figure when omitted, and none when ``False``.
+    subtitle : str, False or None, default=None
+        The line under the title; the plot's own, which names the estimate and its headline
+        number, when omitted, and none when ``False``.
+    xlabel : str, sequence of str or None, default=None
+        The x-axis label. A string replaces the first labelled panel's label and the same
+        label wherever it repeats; a sequence gives each labelled panel its own, in reading
+        order.
+    ylabel : str, sequence of str or None, default=None
+        The y-axis label, given as for ``xlabel``.
+    legend : {"top", "right", "bottom"} or False, default="top"
+        Where the key goes: above the axes, right of them, or under the figure; ``False``
+        draws no key.
+    figsize : tuple of float or None, default=None
+        Width and height in inches of a figure the plot creates.
 
     Returns
     -------
@@ -125,6 +145,14 @@ def zipper(
     See Also
     --------
     cleverly.validation.CoverageStudy : The study that produces the records.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes count the intervals that miss
+    below and above the true value and say which estimates are experimental.
 
     Examples
     --------
@@ -150,7 +178,7 @@ def zipper(
     ... ).run()
     >>> fig = zipper(study)
     >>> fig.axes[0].get_title(loc="left")
-    'Do the intervals cover the true value?'
+    'Interval coverage'
     >>> plt.close(fig)
     """
     from .._summary._estimates import plain_support_reason
@@ -164,7 +192,7 @@ def zipper(
         if name not in study.summaries:
             raise KeyError(f"the study did not measure {name!r}; it did {list(study.summaries)}")
     columns = min(len(names), _COLUMNS)
-    fig, head, axes, foot = strip_figure(len(names), columns, panel=_PANEL)
+    fig, head, axes = strip_figure(len(names), columns, panel=_PANEL)
     coverage: list[str] = []
     found: list[str] = []
     experimental: dict[str, list[str]] = {}
@@ -226,7 +254,7 @@ def zipper(
             experimental.setdefault(reasons, []).append((labels or {}).get(name, name))
     _core.header(
         head,
-        title or "Do the intervals cover the true value?",
+        title or "Interval coverage",
         f"Coverage over {study.n_replicates} replications of n = {study.n}: "
         + ", ".join(coverage)
         + f" (aimed at {_percent(1.0 - float(study.alpha))})",
@@ -250,7 +278,7 @@ def zipper(
         )
     if study.n_failed:
         found.append(f"{study.n_failed} replications failed and are not drawn.")
-    _core.notes(foot, found)
+    _core.add_notes(fig, found)
     fit_height(fig, axes, columns, _PANEL[1])
     return fig
 

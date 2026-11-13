@@ -74,6 +74,11 @@ def _settings(overrides: dict[str, Any]) -> dict[str, Any]:
         "learner_folds": 2,
         "g_bounds": G_BOUNDS,
         "random_state": 11,
+        # The band the golden records were captured with, before band-finite-sample moved the
+        # default; the records pin the repeats refactor, not the band's options.
+        "multiplier_kind": "rademacher",
+        "band_scale": "identity",
+        "n_multiplier": 2000,
     }
     settings.update(overrides)
     if settings.get("repeats", 1) == 1:

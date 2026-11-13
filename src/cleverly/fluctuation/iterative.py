@@ -80,7 +80,10 @@ CarryItem: TypeAlias = "InitialFit | tuple[InitialFit, Submodel]"
 #: multiples of one another), and ``max_iter_reached`` at a tolerance that is simply
 #: too tight for the conditioning of the problem.  ``bound_excludes_data`` is set by the
 #: bounded node fluctuation of a longitudinal fit (``node_bounds=``), which checks that the
-#: score equation has a root before it runs a step.
+#: score equation has a root before it runs a step.  ``newton_stalled`` and
+#: ``cell_separated`` are set by the separable-effects targeting
+#: (:mod:`cleverly.longitudinal.separable`): its fallbacks stopped short, or a cell's score is
+#: solved only at a hazard of zero or one, beyond the bound set by ``alpha``.
 #:
 #: These are *reported*, not raised.  Raising would break the sensitivity sweeps that
 #: deliberately push the truncation bound into bad territory to show what happens.
@@ -93,6 +96,7 @@ TargetingFailure = Literal[
     "max_iter_reached",
     "bound_excludes_data",
     "newton_stalled",
+    "cell_separated",
 ]
 
 #: ``|epsilon|`` past which the fluctuation is treated as running away, which is what
@@ -135,8 +139,13 @@ _FAILURE_TEXT: dict[str, str] = {
         "at that node"
     ),
     "newton_stalled": (
-        "the Newton steps of a separable hazard fit stopped lowering the relative score; "
-        "the reported state is the best one reached"
+        "the iterative and Newton steps of a separable hazard fit stopped lowering the "
+        "relative score; the reported state is the best one reached"
+    ),
+    "cell_separated": (
+        "a hazard that the targets move solves its score only at zero or one, because the "
+        "rows of one cell hold no event of that cause (or only events); the bound set by "
+        "alpha stops the fluctuation short, as separation does in a logistic fit"
     ),
 }
 

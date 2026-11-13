@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._inference_status import (
+    NO_LOGIT_RANGE_BANDS,
     NO_SIMULTANEOUS_BANDS,
     NO_T_REFERENCE_BANDS,
     T_REFERENCE_NOTE,
@@ -35,6 +36,7 @@ from .._summary._learners import is_parametric, learner_name
 from .._summary._render import decimals_for
 from ..estimators._point_summary import _bands, _decimals_of, _warning_notes
 from ..inference.cluster import fewest_clusters
+from ..inference.multiplier import out_of_range
 from ._summary import _covariates, _time_points, estimates_repr, population_facts
 
 if TYPE_CHECKING:
@@ -259,6 +261,11 @@ def _settings(result: StructuralNestedMeanResult) -> SummarySection:
             lines.append(NO_SIMULTANEOUS_BANDS)
         elif t_reference:
             lines.append(NO_T_REFERENCE_BANDS)
+        elif outside := out_of_range(
+            {name: value for name, value in estimates.items() if value.supplies_inference},
+            str(getattr(result.estimator, "band_scale", "identity")),
+        ):
+            lines.append(NO_LOGIT_RANGE_BANDS.format(names=", ".join(outside)))
     if t_reference and data.cluster is not None:
         lines.append(
             T_REFERENCE_NOTE.format(

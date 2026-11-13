@@ -69,7 +69,7 @@ a control that passes                  A design defect, because its exact displa
                                        design test first.  Fix the control or the law under a
                                        fresh declaration, never by buying replications or
                                        lowering its floor.
-the simultaneous band                  The Wald-curve (Rademacher multiplier) band of the
+the simultaneous band                  The Wald-curve multiplier band of the
 (``simultaneous_coverage``)            influence curves (cell ``k5__simultaneous_band``).  Its
                                        rev 4.2 pilot passed (joint coverage 0.9425, R = 4,000).
                                        Its 99 percent joint-coverage interval leaves (0.92,

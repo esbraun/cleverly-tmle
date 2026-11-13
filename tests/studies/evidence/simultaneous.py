@@ -26,7 +26,13 @@ far the family sat from its band.
 A band the package refuses to build (a logit band over an estimate on or outside its range)
 counts as not covered: its row records the critical value the band would have used and the
 sentinel statistic ``critical + 1.0`` (:data:`REFUSED_MARGIN`).  It is not a lost replicate,
-and it adds no column; :func:`scale_coverage_rows` reports the refusals in a diagnostic cell.
+and it adds no column; :func:`scale_coverage_rows` reports the refusals in a diagnostic cell,
+and :func:`joint_coverage_rows` records them the same way for a fit on the default band.
+
+While :data:`BAND_OBSERVER` holds a list, :func:`joint_coverage_rows` appends one record per
+band it reads (its label, whether the band was refused, the number of estimates outside their
+range, the smallest Kish count of the banded influence curves and the band's options).  The
+targeted band rerun's smoke reads it; it never changes a row.
 """
 
 from __future__ import annotations
@@ -36,6 +42,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from cleverly.inference import kish_count
 from cleverly.inference.multiplier import out_of_range, simultaneous_bands
 from tests.studies.evidence.properties import PropertyCell
 
@@ -60,6 +67,8 @@ DIAGNOSTIC = "diagnostic"
 #: The relative distance from its critical value inside which a row's statistic may disagree
 #: with its coverage indicator: the two are computed along different float paths.
 _TIE_TOLERANCE = 1e-9
+#: Where :func:`joint_coverage_rows` reports each band it reads, or ``None`` when nobody reads.
+BAND_OBSERVER: list[dict[str, Any]] | None = None
 
 
 def joint_cells(label: str) -> tuple[str, str]:
@@ -282,6 +291,69 @@ def _pointwise_reading(
     return float(statistic), bool(covered)
 
 
+def refused_scale(result: Any, estimates: Mapping[str, Any]) -> str | None:
+    """The band scale under which the fit refused its band, or ``None``.
+
+    The fit's estimator names its ``band_scale``.  The band is refused when an estimate of the
+    fit that supplies inference, inside ``estimates`` or not, lies on or outside its range on
+    that scale (:func:`~cleverly.inference.multiplier.out_of_range`), as the fit decides it.
+    """
+    scale = getattr(getattr(result, "estimator", None), "band_scale", None)
+    if scale is None:
+        return None
+    every = dict(getattr(result, "estimates", estimates))
+    inferential = {name: value for name, value in every.items() if value.supplies_inference}
+    return str(scale) if out_of_range(inferential, str(scale)) else None
+
+
+def refused_critical_value(result: Any, estimates: Mapping[str, Any]) -> float:
+    """The critical value a refused band would have used.
+
+    The identity band over the same estimates at the fit's own alpha, multiplier kind, draws,
+    seed and clusters: the critical value does not depend on the scale.  On a repeated fit it
+    is the critical value of the combined estimates' curves, not the median over the draws of
+    the split, which a refused band never computes.
+    """
+    estimator = result.estimator
+    inferential = {name: value for name, value in estimates.items() if value.supplies_inference}
+    data = getattr(result, "data", None)
+    bands = simultaneous_bands(
+        inferential,
+        alpha=float(getattr(estimator, "alpha_sig", 0.05)),
+        n_replicates=int(estimator.n_multiplier),
+        kind=estimator.multiplier_kind,
+        random_state=estimator.random_state,
+        cluster=None if data is None else getattr(data, "cluster", None),
+        band_scale="identity",
+    )
+    return float(bands.critical_value)
+
+
+def _observe(
+    label: str, result: Any, estimates: Mapping[str, Any], bands: Any, refused: str | None
+) -> None:
+    """Report one band to :data:`BAND_OBSERVER` when it holds a list."""
+    if BAND_OBSERVER is None:
+        return
+    estimator = getattr(result, "estimator", None)
+    BAND_OBSERVER.append(
+        {
+            "label": label,
+            "refused": refused is not None,
+            "out_of_range": len(out_of_range(estimates, "logit")),
+            "kish_min": min(
+                (kish_count(value.influence_curve) for value in estimates.values()),
+                default=math.inf,
+            ),
+            "band_scale": getattr(bands, "band_scale", getattr(estimator, "band_scale", None)),
+            "kind": getattr(bands, "kind", getattr(estimator, "multiplier_kind", None)),
+            "n_replicates": getattr(
+                bands, "n_replicates", getattr(estimator, "n_multiplier", None)
+            ),
+        }
+    )
+
+
 def joint_coverage_rows(
     result: Any,
     truth: Mapping[str, float],
@@ -324,16 +396,32 @@ def joint_coverage_rows(
     Raises
     ------
     AssertionError
-        If the fit reported no band, a band over a different family, or a row whose
-        coverage indicator is not its statistic inside its critical value.
+        If the fit reported no band and did not refuse one, a band over a different family,
+        or a row whose coverage indicator is not its statistic inside its critical value.
+
+    Notes
+    -----
+    A fit that refused its logit band (an estimate on or outside its range,
+    :func:`refused_scale`) gets the not-covered band row of the module docstring, with
+    :func:`refused_critical_value` as its critical value.
     """
-    bands = result.simultaneous
-    if bands is None:
-        raise AssertionError(f"the {label} fit reported no simultaneous band")
-    if set(bands.bands) != set(names):
-        raise AssertionError(f"the {label} band covers {sorted(bands.bands)}, not {sorted(names)}")
     estimates = {name: result[name] for name in names}
-    band_statistic, band_critical, band = _band_reading(bands, estimates, truth)
+    bands = result.simultaneous
+    refused = refused_scale(result, estimates)
+    if bands is None:
+        if refused is None:
+            raise AssertionError(f"the {label} fit reported no simultaneous band")
+        critical = refused_critical_value(result, estimates)
+        band_statistic, band_critical, band = critical + REFUSED_MARGIN, critical, False
+    else:
+        if refused is not None:
+            raise AssertionError(f"the {label} fit built a band over an out-of-range estimate")
+        if set(bands.bands) != set(names):
+            raise AssertionError(
+                f"the {label} band covers {sorted(bands.bands)}, not {sorted(names)}"
+            )
+        band_statistic, band_critical, band = _band_reading(bands, estimates, truth)
+    _observe(label, result, estimates, bands, refused)
     point_statistic, pointwise = _pointwise_reading(estimates, truth)
     band_cell, control_cell = joint_cells(label)
     return [

@@ -5,6 +5,13 @@ the design critical value ``c*`` of ``tests/unit/test_simultaneous_cell_design.p
 records the max-t statistic in ``estimate``, so the oracle band covers a replication exactly when
 ``estimate <= c*``, and the package band covers it when ``estimate <= std_error``.
 
+The rows are the band-finite-sample Wave 2 rows: Mammen multiplier, 10,000 draws, each probability
+banded on its logit scale, so ``estimate`` is the max-t statistic on that scale.  ``c*`` was
+designed for the identity-scale statistic; the delta method gives both statistics the same limit
+law, so the oracle reading carries over to first order.  The cells this reading once explained that
+pass on the Wave 2 rows (the cross-fitted strata, survival, cross-fitted categorical, clustered
+and multi-arm missing-outcome bands) left the ledger with it.
+
 The reading is finite-sample when the oracle band also under-covers.  The package critical value
 then accounts for only the small gap between the two coverages.  For the strata and survival
 cells ``c*`` comes from the exact law.  For a default-band shape it comes from the package's own
@@ -25,7 +32,6 @@ from tests.studies import default_band_properties, stratified_law
 from tests.studies.default_band_properties import design, design_correlation
 from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import ROOT
-from tests.unit.test_clustered_crossfit_ltmle_design import BAND_DESIGN
 from tests.unit.test_simultaneous_cell_design import EXACT
 
 
@@ -43,61 +49,19 @@ READINGS = {
         "tmle3_stratified",
         lambda: _exact("canonical-stratified-tmle/strata", 2400),
         2.846,
-        2.816,
-        0.9046,
-        0.9121,
-    ),
-    "crossfit_strata": (
-        "tmle3_stratified",
-        lambda: _exact("canonical-stratified-tmle/crossfit_strata", 2400),
-        2.778,
-        2.750,
-        0.9192,
-        0.9258,
-    ),
-    "all_reported": (
-        "ltmle_survival",
-        lambda: _exact("canonical-ltmle-survival/all_reported", 9600),
-        2.622,
-        2.605,
-        0.9214,
-        0.9241,
+        2.834,
+        0.9337,
+        0.9350,
     ),
     "categorical_ltmle": (
         "default_bands",
         lambda: _shape("categorical_ltmle"),
         2.689,
-        2.680,
-        0.9250,
-        0.9267,
-    ),
-    "categorical_ltmle_crossfit": (
-        "default_bands",
-        lambda: _shape("categorical_ltmle_crossfit"),
-        2.689,
-        2.680,
-        0.9317,
-        0.9325,
-    ),
-    "cde_z0": ("default_bands", lambda: _shape("cde_z0"), 2.331, 2.312, 0.9171, 0.9200),
-    # The cross-fitted clustered LTMLE band. ``c*`` is the design critical value pinned before the
-    # run from ten fits of the study's own subject.
-    "clustered_regimens": (
-        "lmtp_clustered_ltmle",
-        lambda: BAND_DESIGN[1],
-        2.409,
-        2.387,
+        2.685,
         0.9333,
-        0.9392,
-    ),
-    "arms": (
-        "drtmle_mar_multi_arm",
-        lambda: _exact("multi-arm-mar-drtmle/arms", 2400),
-        2.508,
-        2.500,
         0.9337,
-        0.9342,
     ),
+    "cde_z0": ("default_bands", lambda: _shape("cde_z0"), 2.331, 2.316, 0.9267, 0.9308),
 }
 
 

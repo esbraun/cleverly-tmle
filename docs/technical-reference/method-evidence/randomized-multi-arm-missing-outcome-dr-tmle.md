@@ -85,7 +85,7 @@ Comparator-backed: a paired comparison with `drtmle-r-multi-arm-mar` on the same
 | `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5201 to -0.4675 | pass |
 | `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5008 to -0.4977 | pass |
 | `simultaneous_coverage` | `arms__pointwise_joint_control` | control | the multi-arm fit's three arm means, two differences, two risk ratios and two odds ratios: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.7713 to 0.8142 | pass |
-| `simultaneous_coverage` | `arms__simultaneous_band` | positive | the multi-arm fit's three arm means, two differences, two risk ratios and two odds ratios: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9196 to 0.9462 | **fail** |
+| `simultaneous_coverage` | `arms__simultaneous_band` | positive | the multi-arm fit's three arm means, two differences, two risk ratios and two odds ratios: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9228 to 0.9488 | pass |
 | `type_i_error` | `l3_ate_mid__randomized_sharp_null` | positive | L3 difference, mid versus high: a randomized law whose two compared arms share one outcome regression, so the contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling, and coverage clears the floor | rejection 0.0583, 0.0423 to 0.0780 | pass |
 <!-- /generated -->
 
@@ -95,17 +95,28 @@ two-arm study does. The grid also tests root-n contraction, interval calibration
 controls, the size and power of the Wald test, the five-reduction score reduction, and the joint
 coverage of the band over all nine estimates.
 
-Two positive cells are red, and both read the same 2,400 calibration fits. The SE-ratio interval
-of `ate__correctly_specified` ends at 0.9294 against a floor of 0.93. The joint-coverage interval
-of `arms__simultaneous_band` ends at 0.9196 against 0.92. The study publishes them red under the
-`reporting` policy.
+One positive cell is red. The SE-ratio interval of `ate__correctly_specified` ends at 0.9294
+against a floor of 0.93, and the study publishes it red under the `reporting` policy.
 
 The owner `F4-calibration-draws` in the [roadmap](../../roadmap.md#red-cell-owners) records the
 diagnosis. The spread of that draw set is
 1.037 times its mean standard error. Two independent cells of the same configuration read 0.997
 and 0.989. Pooled over all three cells, the ratio is 1.020, with a 99% interval of 0.991 to 1.047. A
-Bartlett test across the cells gives p = 0.20, so the draw set differs by no more than chance. The
-oracle band covers as the package band does.
+Bartlett test across the cells gives p = 0.20, so the draw set differs by no more than chance.
+
+The band reads the same 2,400 fits. The study fixes `n_multiplier=1_000` by design, so its band is
+the Mammen multiplier on the logit scale at 1,000 draws rather than the default 10,000. The band
+rows are those of the band-finite-sample rerun: the default band moved from the Rademacher
+multiplier on the identity scale. A targeted rerun of the band fits alone missed the replay rule
+(tolerance 1e-9): one estimate of the pointwise control at replication r75 moved by 5.7e-9, with the
+baseline run under Python 3.13.7 and NumPy 2.5.3 and the rerun under 3.13.16 and 2.5.4. So the
+study was rerun whole on its own seeds with the new band
+(`tests/canonical/drtmle_mar_multi_arm/band_rerun/complete-rerun.json` records the miss, and
+`tests/canonical/band-rerun-decision.json` the readings).
+
+Under the former band `arms__simultaneous_band` was
+red, with a joint-coverage interval ending at 0.9196 against 0.92. With the new band it covers
+0.9367, with a 99% interval from 0.9228 to 0.9488, and passes.
 
 ## Measured values and declared margins
 
@@ -117,7 +128,7 @@ oracle band covers as the package band does.
 | `independent_tests_total` | 18 | truth tests reported |
 | `paired_tests_passed` | 9 | paired comparisons passing |
 | `paired_tests_total` | 9 | paired comparisons reported |
-| `property_cells_passed` | 20 | property cells passing |
+| `property_cells_passed` | 21 | property cells passing |
 | `property_cells_total` | 22 | property cells reported |
 | `max_standardized_bias` | 0.0467 | largest primary standardized bias |
 | `min_coverage` | 0.9300 | lowest primary coverage |
@@ -152,6 +163,10 @@ oracle band covers as the package band does.
 | `margin:shrunken_se_factor` | 0.7000 | negative-control SE multiplier |
 | `margin:correction_score_ratio` | 0.0100 | maximum closed-to-initial score-endpoint ratio |
 | `margin:uncorrected_score_floor` | 0.0010 | unresolved initial-score floor |
+| `margin:reference_failure_bound` | 0.0100 | share of drtmle fits a cell may lose |
+| `margin:reference_failures_allowed` | 8 | drtmle fits a cell may lose |
+| `margin:subject_failure_bound` | 0.0100 | share of `cleverly` fits a cell may lose |
+| `margin:subject_failures_allowed` | 8 | `cleverly` fits a cell may lose |
 
 ## Limits
 

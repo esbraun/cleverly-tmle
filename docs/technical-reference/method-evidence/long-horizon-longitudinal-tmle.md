@@ -277,7 +277,7 @@ $1.3 \times 10^{-2}$). It is not a registered study and publishes no page. Its a
 | `rule_necessity` | `respond__k5__declared_rule` | positive | the mean under the covariate rule `respond` at 5 decisions: the declared covariate rule assigns the highest arm where it is on | bias interval inside the equivalence margin | bias -0.0027 to 0.0017, margin 0.0096 | pass |
 | `rule_necessity` | `respond__k5__reversed_rule` | control | the mean under the covariate rule `respond` at 5 decisions: the same fit reverses the rule's two assignments | bias interval must fall entirely outside the margin | bias 0.0430 to 0.0447, margin 0.0037 | pass |
 | `simultaneous_coverage` | `k5__pointwise_joint_control` | control | the pointwise 95% intervals of the same fits, read as one joint set | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.6721 to 0.7100 | pass |
-| `simultaneous_coverage` | `k5__simultaneous_band` | positive | the Wald-curve band of the influence curves over the six plans of the five-decision fit, read as one joint set | joint coverage interval inside the calibration coverage band | joint coverage 0.9307 to 0.9502 | pass |
+| `simultaneous_coverage` | `k5__simultaneous_band` | positive | the Wald-curve band of the influence curves over the six plans of the five-decision fit, read as one joint set | joint coverage interval inside the calibration coverage band | joint coverage 0.9356 to 0.9543 | pass |
 | `support_loss` | `policy__k5__n4000__default_bounds` | diagnostic | the mean under the known stochastic policy at 5 decisions, n = 4,000, with the default mechanism bounds of 0.01 | reported: bias, SE ratio and coverage, with no verdict | bias -0.0059 to -0.0045, coverage 0.8315 to 0.8728, SE ratio 0.7867, binding share by node 0, 0, 0.000752, 0.0258, 0.1319 | reported |
 | `support_loss` | `policy__k5__n4000__no_bounds` | diagnostic | the mean under the known stochastic policy at 5 decisions, n = 4,000, with no mechanism bounds | reported: bias, SE ratio and coverage, with no verdict | bias -0.0013 to 0.000360, coverage 0.9322 to 0.9586, SE ratio 0.9852, binding share by node 0, 0, 0, 0, 0 | reported |
 | `support_loss` | `static__k5__n4000__default_bounds` | diagnostic | the mean under the static plan at 5 decisions, n = 4,000, with the default mechanism bounds of 0.01 | reported: bias, SE ratio and coverage, with no verdict | bias -0.0198 to -0.0142, coverage 0.7692 to 0.8163, SE ratio 0.6716, binding share by node 0, 0, 0, 0.0053, 0.0146 | reported |
@@ -310,7 +310,7 @@ primary draws. The table above lists every cell. This section states what each f
 | `rule_necessity` | the declared dynamic rule `respond` against its reversal. The reversed rule must miss the declared truth | $n$ = 4,000 and 116,000, 2,000 replications |
 | `policy_necessity` | the declared stochastic policy against the control `mix_reversed`, which fits a reversed policy. The control must miss the declared truth | $n$ = 4,000 and 16,000, 2,000 replications |
 | `type_i_error`, `power` | the paired contrast `coin` against `coinlast` at $K$ = 5: the sharp null must not reject above 0.10, and the alternative must reject at least 0.80 | $n$ = 52,000, 2,000 replications |
-| `simultaneous_coverage` | the Wald-curve (Rademacher multiplier) band over the six $K$ = 5 plans, with its pointwise control. The study fits no bootstrap band | $n$ = 76,000, 4,000 replications |
+| `simultaneous_coverage` | the Wald-curve band (the default: Mammen multiplier, logit scale, 10,000 draws) over the six $K$ = 5 plans, with its pointwise control. The band-finite-sample rerun re-measured it on the committed fits. The study fits no bootstrap band | $n$ = 76,000, 4,000 replications |
 | `support_loss` (reported) | the estimate with the default mechanism bounds against an unbounded fit, for `static` and `policy` at $K$ = 5. The table reports the binding share of each node. It states no verdict | $n$ = 4,000, 2,000 replications |
 | `learned_mechanism` (reported) | `respond_vs_ref` at $K$ = 5 with a learned treatment mechanism. The table reports the summary statistics and states no verdict | $n$ = 40,000, 2,000 replications |
 
@@ -402,7 +402,7 @@ the committed results and checked at the precision printed.
 | the MSM scenario reports Wald rows only | the MSM fit runs no bootstrap, so a coefficient below $2 n_\kappa$ would have no gated interval. Both coefficients run above that size |
 | no cross-fitted fit | this study fits in sample. The cross-fitted binary fit has no scenario here, and the cross-fitted bootstrap is experimental (X20) |
 | support loss is reported and not gated | the `support_loss` rows report the binding share per node. The study states no rule for how much support loss an estimate tolerates |
-| the simultaneous band is the Wald-curve band | the study gates the Rademacher multiplier band of the influence curves. The studentized bootstrap band is in the categorical study |
+| the simultaneous band is the Wald-curve band | the study gates the default multiplier band of the influence curves. The studentized bootstrap band is in the categorical study |
 
 The causal interpretation requires consistency, sequential exchangeability, longitudinal positivity, and
 conditionally independent censoring. The calibration, bias and rate families test the validity of the interval

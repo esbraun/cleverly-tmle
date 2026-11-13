@@ -3,12 +3,16 @@
 Three families, each with its own sample stream:
 
 ``clustered_inference`` (gated)
-    Four pairs of a cluster-robust arm and an IID control, each pair one fit on one draw:
-    the stacked fit, the fold-evaluated fit (``cv_evaluation=True``), the cross-fitted
-    ``DRTMLE``, all on the informative law at 200 clusters; and the fold-evaluated fit on the
-    cluster-level covariate law at 40 clusters of 30 rows in 10 folds, for the treated mean
-    ``ey1``. That last pair is the
-    configuration of the shipped fold-evaluated variance defect that commit 6c237420 fixed.
+    Three pairs of a cluster-robust arm and an IID control, each pair one fit on one draw:
+    the stacked fit and the cross-fitted ``DRTMLE``, both on the informative law at 200
+    clusters; and the fold-evaluated fit on the cluster-level covariate law at 40 equal
+    clusters of 30 rows in 10 folds, for the treated mean ``ey1``, on t with ``J - V = 30``
+    degrees of freedom. That last pair is the configuration of the shipped fold-evaluated
+    variance defect that commit 6c237420 fixed; it runs :data:`COVARIATE_REPLICATES`
+    replications on its own stream, and its fits also publish a reported arm,
+    :data:`COVARIATE_NORMAL_CELL`, the same point and SE with the normal quantile. The
+    fold-evaluated pair on the informative law left with Fix-4, because ``cv_evaluation=True``
+    refuses clusters of unequal size.
     The rules are :func:`~tests.studies.evidence.property_verdicts.clustered_inference_verdicts`.
 ``estimand_weighting`` (gated)
     One draw of the informative law, fitted twice: unweighted, and with ``weights`` equal to
@@ -41,6 +45,7 @@ from tests.studies.canonical_drtmle import G_BOUNDS as DRTMLE_G_BOUNDS
 from tests.studies.canonical_drtmle import ColumnLogistic
 from tests.studies.clustered_unequal_cvtmle import (
     CLUSTER_AVERAGE,
+    COVARIATE_REPLICATES,
     INFORMATIVE,
     PRIMARY_N,
     PROPERTY_REPLICATES,
@@ -79,7 +84,6 @@ CONTROL_COVERAGE_CEILING = 0.50
 #: Each clustered pair: (positive cell, control cell, fit kind).
 PAIRS = (
     ("cluster_robust", "iid_control", "stacked"),
-    ("cluster_robust_fold_evaluated", "iid_control_fold_evaluated", "fold_evaluated"),
     ("cluster_robust_drtmle", "iid_control_drtmle", "drtmle"),
     (
         "cluster_robust_fold_evaluated_cluster_covariate",
@@ -117,12 +121,33 @@ class DeclaredLaw:
 
 
 def _law_name(kind: str) -> str:
-    base = "cluster_covariate" if kind == "covariate_fold_evaluated" else "informative"
+    base = "cluster_covariate" if kind == COVARIATE_KIND else "informative"
     return f"{base}:{kind}"
+
+
+#: The fit kind of the covariate pair, and the stream label it draws from since Fix-4. A fresh
+#: stream, because the committed draws of the pair were already re-scored before the
+#: declaration.
+COVARIATE_KIND = "covariate_fold_evaluated"
+COVARIATE_STREAM = "covariate_fold_evaluated_t_reference"
+#: The reported arm of the covariate fits: the positive arm's point and standard error with the
+#: normal quantile, the reference the fit reported before Fix-4, so the run publishes on the
+#: same draws what ``t_30`` buys. It states no verdict.
+COVARIATE_NORMAL_CELL = "normal_reference_fold_evaluated_cluster_covariate"
 
 
 def _seed(family: str, label: str, replicate: int) -> int:
     return stream_seed(STUDY, "property_sample", family, label, replicate)
+
+
+def _stream(kind: str) -> str:
+    """The stream label of a pair's draws."""
+    return COVARIATE_STREAM if kind == COVARIATE_KIND else kind
+
+
+def _replicates(kind: str) -> int:
+    """The declared replications of a pair."""
+    return COVARIATE_REPLICATES if kind == COVARIATE_KIND else PROPERTY_REPLICATES
 
 
 def declared_cells() -> tuple[PropertyCell, ...]:
@@ -135,8 +160,22 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     cells: list[PropertyCell] = []
     for positive, control, kind in PAIRS:
         for cell, role in ((positive, "positive"), (control, "control")):
-            estimand = COVARIATE_TARGET if kind == "covariate_fold_evaluated" else TARGET
-            cells.append(_cell(CLUSTERED, cell, role, kind, kind, estimand))
+            estimand = COVARIATE_TARGET if kind == COVARIATE_KIND else TARGET
+            cells.append(
+                _cell(CLUSTERED, cell, role, kind, _stream(kind), estimand, _replicates(kind))
+            )
+        if kind == COVARIATE_KIND:
+            cells.append(
+                _cell(
+                    CLUSTERED,
+                    COVARIATE_NORMAL_CELL,
+                    DIAGNOSTIC_ROLE,
+                    kind,
+                    _stream(kind),
+                    COVARIATE_TARGET,
+                    _replicates(kind),
+                )
+            )
     for cell, _, estimand, role in WEIGHTING_CELLS:
         cells.append(_cell(WEIGHTING, cell, role, "weighting", "paired", estimand))
     for cell in ("cluster_sum", "cluster_mean"):
@@ -144,7 +183,15 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     return tuple(cells)
 
 
-def _cell(family: str, cell: str, role: str, kind: str, label: str, estimand: str) -> Any:
+def _cell(
+    family: str,
+    cell: str,
+    role: str,
+    kind: str,
+    label: str,
+    estimand: str,
+    replicates: int = PROPERTY_REPLICATES,
+) -> Any:
     return PropertyCell(
         property=family,
         cell=cell,
@@ -152,7 +199,7 @@ def _cell(family: str, cell: str, role: str, kind: str, label: str, estimand: st
         outcome_learner=lambda: None,
         treatment_learner=lambda: None,
         n=PRIMARY_N,
-        replicates=PROPERTY_REPLICATES,
+        replicates=replicates,
         seed=_seed(family, label, 0),
         role=role,
         estimand=estimand,
@@ -164,6 +211,7 @@ def _iid(estimate: Any) -> float:
 
 
 def _covariate_fit(frame: pd.DataFrame) -> tuple[Any, float]:
+    """The fold-evaluated ``ey1`` fit of one covariate draw, which reads t with J - V df."""
     result = (
         TMLE(
             outcome_learner=LogisticRegression(C=1e6, max_iter=1000),
@@ -182,15 +230,16 @@ def _covariate_fit(frame: pd.DataFrame) -> tuple[Any, float]:
         .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"], id="cluster")
         .single()
     )
-    return result[COVARIATE_TARGET], laws.covariate_truth()[COVARIATE_TARGET]
+    estimate = result[COVARIATE_TARGET]
+    if estimate.reference_df != COVARIATE_CLUSTERS - COVARIATE_FOLDS:
+        raise AssertionError(f"the covariate fit reports reference_df {estimate.reference_df}")
+    return estimate, laws.covariate_truth()[COVARIATE_TARGET]
 
 
 def _informative_fit(kind: str, drawn: Any) -> tuple[Any, float]:
     frame, truth = drawn
     if kind == "stacked":
         return fit_cleverly(frame, INFORMATIVE)[TARGET], truth[TARGET]
-    if kind == "fold_evaluated":
-        return fit_cleverly(frame, INFORMATIVE, cv_evaluation=True)[TARGET], truth[TARGET]
     if kind == "drtmle":
         settings = tmle_settings(
             reduced_outcome_learner=LinearRegression(),
@@ -212,14 +261,14 @@ def _informative_fit(kind: str, drawn: Any) -> tuple[Any, float]:
 
 def _draw_pair(payload: tuple[int, int, int, str, str, str]) -> Any:
     seed, kind = payload[2], payload[5]
-    if kind == "covariate_fold_evaluated":
+    if kind == COVARIATE_KIND:
         return laws.draw_cluster_covariate(COVARIATE_CLUSTERS, np.random.default_rng(seed))
     return draw_from_seed(INFORMATIVE, PRIMARY_N, seed)
 
 
 def _pair_rows(payload: tuple[int, int, int, str, str, str], drawn: Any) -> list[dict[str, Any]]:
     replicate, requested, _, positive, control, kind = payload
-    if kind == "covariate_fold_evaluated":
+    if kind == COVARIATE_KIND:
         estimate, truth = _covariate_fit(drawn)
     else:
         estimate, truth = _informative_fit(kind, drawn)
@@ -245,7 +294,21 @@ def _pair_rows(payload: tuple[int, int, int, str, str, str], drawn: Any) -> list
         standard_error=_iid(estimate),
         critical=CRITICAL,
     )
-    return [robust, iid]
+    if kind != COVARIATE_KIND:
+        return [robust, iid]
+    normal = control_row(
+        property_name=CLUSTERED,
+        cell=COVARIATE_NORMAL_CELL,
+        replicate=replicate,
+        n=PRIMARY_N,
+        requested=requested,
+        truth=truth,
+        estimate=float(estimate.psi),
+        standard_error=float(robust["std_error"]),
+        critical=CRITICAL,
+        role=DIAGNOSTIC_ROLE,
+    )
+    return [robust, iid, normal]
 
 
 def _draw_informative(payload: tuple[int, int, int]) -> Any:
@@ -314,9 +377,15 @@ def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
     replicates = PROPERTY_REPLICATES if budget is None else budget
     out: list[tuple[Any, ...]] = []
     for positive, control, kind in PAIRS:
+        pair = _replicates(kind) if budget is None else budget
         out.extend(
-            ((_pair_rows, (r, replicates, _seed(CLUSTERED, kind, r), positive, control, kind)),)
-            for r in range(replicates)
+            (
+                (
+                    _pair_rows,
+                    (r, pair, _seed(CLUSTERED, _stream(kind), r), positive, control, kind),
+                ),
+            )
+            for r in range(pair)
         )
     out.extend(
         ((_weighting_rows, (r, replicates, _seed(WEIGHTING, "paired", r))),)
@@ -343,7 +412,8 @@ def _cells_of(key: tuple[Any, ...]) -> list[str]:
     """The ``property/cell`` names the key's rows fill."""
     function, payload = key[0]
     if function is _pair_rows:
-        return [f"{CLUSTERED}/{payload[3]}", f"{CLUSTERED}/{payload[4]}"]
+        normal = [f"{CLUSTERED}/{COVARIATE_NORMAL_CELL}"] if payload[5] == COVARIATE_KIND else []
+        return [f"{CLUSTERED}/{payload[3]}", f"{CLUSTERED}/{payload[4]}", *normal]
     if function is _weighting_rows:
         return [f"{WEIGHTING}/{cell}" for cell, *_ in WEIGHTING_CELLS]
     return [f"{AGGREGATION}/cluster_sum", f"{AGGREGATION}/cluster_mean"]
@@ -422,6 +492,9 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         clustered_inference_verdicts(
             summary, rows, STUDY, positive_cell=positive, control_cell=control
         )
+    reported = (summary["property"] == CLUSTERED) & (summary["role"] == DIAGNOSTIC_ROLE)
+    summary.loc[reported, "passed"] = True
+    summary.loc[reported, "property_passed"] = True
     estimand_weighting_verdicts(summary)
     aggregation_diagnostics(summary)
     return finish(summary, rates)
@@ -434,7 +507,10 @@ def exact_propensity() -> OracleTreatment:
 
 #: The pairs that share a ``clustered_inference`` joint verdict (RM39b2 rev 3, section 5.0).
 PROPERTY_GROUPS = {
-    "clustered_inference": tuple((positive, control) for positive, control, _ in PAIRS)
+    "clustered_inference": tuple(
+        (positive, control, *((COVARIATE_NORMAL_CELL,) if kind == COVARIATE_KIND else ()))
+        for positive, control, kind in PAIRS
+    )
 }
 
 

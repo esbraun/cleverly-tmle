@@ -25,6 +25,7 @@ from cleverly.dose_response import (
     pair_name,
 )
 from cleverly.estimators.dose_response import (
+    DOSE_RESPONSE_BAND_DRAWS,
     DOSE_RESPONSE_BAND_MEASURED,
     DOSE_RESPONSE_MEASURED,
     DOSE_RESPONSE_STUDY,
@@ -351,7 +352,52 @@ def test_a_measured_configuration_reads_supported(fitted) -> None:  # type: igno
     for estimate in fitted.estimates.values():
         assert estimate.support.label == "supported"
         assert estimate.support.evidence == (DOSE_RESPONSE_STUDY,)
+    # The band cell measured the Mammen multiplier at 10,000 draws on the identity scale.
     assert fitted.band.support.label == "supported"
+    assert fitted.band.support.evidence == (DOSE_RESPONSE_STUDY,)
+    assert "identity scale" in fitted.band.support.reason
+    assert fitted.band.kind == "mammen"
+    assert fitted.band.n_replicates == DOSE_RESPONSE_BAND_DRAWS == 10_000
+
+
+def test_the_band_is_not_range_bounded(fitted) -> None:  # type: ignore[no-untyped-def]
+    """The default ``band_scale="logit"`` maps nothing here: the estimates carry no range.
+
+    Each band is the identity-scale ``psi +/- c * se``, so a limit can leave [0, 1]; a band
+    built on the logit of a bounded estimate would be asymmetric around ``psi``.
+    """
+    band = fitted.band
+    assert band.band_scale == "logit"
+    for name, estimate in fitted.estimates.items():
+        assert estimate.bounds is None
+        assert band.scales[name] == "identity"
+        low, high = band.bands[name]
+        half = band.critical_value * estimate.std_error
+        assert (low, high) == pytest.approx((estimate.psi - half, estimate.psi + half), abs=1e-12)
+
+
+def test_a_band_with_fewer_draws_than_its_cell_reads_experimental() -> None:
+    measured = {"outcome": "binary", "fluctuation": "logistic", "strata": False}
+    common = {"cross_fitted": True, "weighted": False}
+    pairs, band = dose_response_support(**measured, **common, n_replicates=1_000)
+    assert (pairs.label, band.label) == ("supported", "experimental")
+    assert "10,000 multiplier draws" in band.reason and "1,000" in band.reason
+    # The control: the measured draw count is supported.
+    assert dose_response_support(**measured, **common)[1].label == "supported"
+
+
+def test_the_band_reads_its_measured_cell() -> None:
+    """The committed band cell is green and read the estimator's default band."""
+    import pandas as pd
+
+    from tests.studies import dose_response as study
+    from tests.studies.evidence.registry import ROOT
+
+    properties = pd.read_csv(ROOT / "tests" / "canonical" / "dose_response" / "properties.csv")
+    cell = properties.set_index("cell").loc["binary_curve__simultaneous_band"]
+    assert bool(cell["passed"])
+    band = study.estimator("binary")
+    assert band.n_replicates == DOSE_RESPONSE_BAND_DRAWS
 
 
 def test_an_in_sample_fit_reads_experimental() -> None:

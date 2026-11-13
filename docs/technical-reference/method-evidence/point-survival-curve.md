@@ -160,11 +160,11 @@ Comparator-backed: a paired comparison with `tmle3` on the same samples. Each ro
 | `root_n_rate` | `survival_t5__empirical_sd` | positive | difference of arm 1 and arm 0 at visit 5, five-visit held law: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5740 to -0.4845 | pass |
 | `root_n_rate` | `survival_t5__reported_se` | positive | difference of arm 1 and arm 0 at visit 5, five-visit held law: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5026 to -0.5013 | pass |
 | `simultaneous_coverage` | `all_reported__pointwise_joint_control` | control | every parameter the calibration fit reports: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.6469 to 0.6719 | pass |
-| `simultaneous_coverage` | `all_reported__simultaneous_band` | positive | every parameter the calibration fit reports: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9393 to 0.9513 | pass |
+| `simultaneous_coverage` | `all_reported__simultaneous_band` | positive | every parameter the calibration fit reports: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9442 to 0.9558 | pass |
 | `simultaneous_coverage` | `curve_arm0__pointwise_joint_control` | control | the arm-0 risk curve alone, at the five visits: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8247 to 0.8443 | pass |
-| `simultaneous_coverage` | `curve_arm0__simultaneous_band` | positive | the arm-0 risk curve alone, at the five visits: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9411 to 0.9530 | pass |
+| `simultaneous_coverage` | `curve_arm0__simultaneous_band` | positive | the arm-0 risk curve alone, at the five visits: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9448 to 0.9562 | pass |
 | `simultaneous_coverage` | `curve_arm1__pointwise_joint_control` | control | the arm-1 risk curve alone, at the five visits: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8284 to 0.8479 | pass |
-| `simultaneous_coverage` | `curve_arm1__simultaneous_band` | positive | the arm-1 risk curve alone, at the five visits: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9394 to 0.9514 | pass |
+| `simultaneous_coverage` | `curve_arm1__simultaneous_band` | positive | the arm-1 risk curve alone, at the five visits: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9438 to 0.9554 | pass |
 | `targeting_necessity` | `survival_t5__targeted` | positive | difference of arm 1 and arm 0 at visit 5, five-visit held law: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.000485 to 0.0032, margin 0.0062 | pass |
 | `targeting_necessity` | `survival_t5__untargeted` | control | difference of arm 1 and arm 0 at visit 5, five-visit held law: the identical fit with every fluctuation step removed | bias interval must fall entirely outside the margin | bias 0.1405 to 0.1405, margin 0 | pass |
 <!-- /generated -->
@@ -201,21 +201,34 @@ each node and both arms, so its plug-in contrast is zero in every sample.
 
 The per-horizon calibration, weighted and clustered cells use `targeting="iterative"` with
 `max_iter=100`. They run the per-horizon algorithm with weights and with clusters. The primary
-study does not use it. The curve bands are the shipped multiplier band (`simultaneous_bands`, 2,000
-rademacher draws, `random_state=0`) over the five risks of one arm. This is the band a fit of that
+study does not use it. The curve bands are the shipped multiplier band (`simultaneous_bands`, 10,000
+Mammen draws on the logit scale, `random_state=0`) over the five risks of one arm. The band rows are
+those of the band-finite-sample rerun, which re-measured the committed fits with this band when it
+replaced the Rademacher band on the identity scale at 2,000 draws. This is the band a fit of that
 one regimen reports.
 
 **The isotonic cell does not exercise a binding projection.** The `isotonic_t2` cell fits
-`survival_model="iterated_mean"` with `isotonic=True` on a law with a treatment at two nodes. Its
-curve rises from 0.375 at node 1 to 0.758 at node 2. That step is about nine standard errors at
-n = 2,000. The diagnostic `isotonic_t2__moved` therefore records that the projection moved the level
-in none of the 4,800 replications. The cell shows that the projection leaves the inference of a
-regular curve unchanged. It is not evidence for an interval after a projection that moves a level.
+`survival_model="iterated_mean"` with `isotonic=True` on a law with a treatment at two nodes. The
+diagnostic `isotonic_t2__moved` records that the projection moved the level in none of the 4,800
+replications. The cell shows that the projection leaves the inference of a regular curve
+unchanged. It is not evidence for an interval after a projection that moves a level.
 
-The property module gives the reason. The increment between two horizons is the event mass at the
-later node. The binding share is about $\Phi(-\sqrt{m})$, with $m$ the expected number of observed
-events there. A projection binds often only where a node has almost no events. There Westling, van
-der Laan and Carone (2020), Theorem 2, does not apply.
+The reason is the cell's learners, not the size of the step. Each horizon's level is the mean of
+its targeted node-1 regression, and the node-1 fluctuation solves its score. The difference of
+two levels is therefore $D = P_n[H_1\, dY] + P_n[(1 - H_1)\, dQ^*]$, up to the score
+residuals. Here $H_1$ is the node-1 clever covariate, $dY = (1 - Y_1) Q^*_{2}$ is nonnegative,
+and $dQ^*$ is the gap between the two horizons' node-1 regressions.
+
+The second term is zero when the regressions are saturated cell means and the treatment and censoring mechanisms are cell
+shares that no `g_bounds` truncation touches, because $H_1$ then sums to the cell count in each
+cell. Given a solved node-1 score, $D \ge 0$ whatever the number of events. The cell meets
+both conditions, and it solves the score to `tol=1e-10`.
+
+A projection can bind only when the two horizons' node-1 fits differ, as with a logistic
+outcome learner beside a linear pseudo-outcome learner on a continuous covariate. It binds when
+the true increment is small against the noise of that gap. The registered study
+[binding isotonic projection](isotonic-binding.md) measures such a law.
+`tests/unit/test_isotonic_binding_witness.py` checks the identity on a sample of each kind.
 
 ## Measured values
 
@@ -276,7 +289,7 @@ der Laan and Carone (2020), Theorem 2, does not apply.
 | the declared `tmle3` settings differ | the bounds, the censoring convention, the step and the stopping rule differ by construction. The pairs read under the default margins and not as an exactness check |
 | one primary scenario | the 15 truth tests read the five-visit `survival` law. The other laws enter the property cells only |
 | learners that contain the truth | the primary fit uses unpenalized logistic regressions. The property cells use correct additive or saturated learners, apart from the declared wrong ones. A flexible learner is outside the evidence |
-| the isotonic cell does not bind | the diagnostic reports a binding share of zero, so no cell supports an interval after a projection that moves a level |
+| the isotonic cell does not bind | the cell's saturated learners cannot move a level, and its diagnostic reports a binding share of zero. No cell here supports an interval after a projection that moves a level. The [binding isotonic projection](isotonic-binding.md) study measures one: on its law the projection moved the never horizon-1 level on 0.354 of draws, by at least 0.1 SE on 0.193 and by at most 0.564 SE, and the interval at the projected level read coverage 0.942. A flat truth and other learner pairings are untested |
 | the per-horizon algorithm has three cells only | `targeting="iterative"` appears in one calibration, one weighted and one clustered cell. It has no double-robustness or necessity cell here. The [hazard study](point-survival-hazard.md) holds those cells |
 | no cross-fitting | every fit uses one fold. The [cross-fitted study](point-survival-curve-crossfit.md) covers five folds |
 

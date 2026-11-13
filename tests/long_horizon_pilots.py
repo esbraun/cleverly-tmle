@@ -874,7 +874,7 @@ def _band_fit(stream: D.Stream, drawn: pd.DataFrame) -> dict[str, Any]:
     assert config is not None
     arm = properties.Arm("k5", "positive", config, read="band", plans=stream.plans)
     result = properties._call(arm, drawn, stream.plans, simultaneous=True, reference=None)
-    names = sorted(result.simultaneous.bands)
+    names = properties.band_names(result)
     band, pointwise = joint_coverage_rows(
         result,
         properties._band_truths(config.K, config.m, config.law, names),
@@ -918,7 +918,7 @@ def _band_boot_fit(stream: D.Stream, drawn: pd.DataFrame) -> dict[str, Any]:
         reference=None,
         n_bootstrap=D.B_GATE,
     )
-    names = sorted(result.simultaneous.bands)
+    names = properties.band_names(result)
     band, ic, pointwise = properties.band_rows(
         result, config, names, label="k5", replicate=0, n=stream.n, requested=0
     )

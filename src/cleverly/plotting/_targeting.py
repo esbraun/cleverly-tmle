@@ -1,12 +1,12 @@
 """V7: how much treating by a priority score first gains over treating at random.
 
 Three views of one :class:`~cleverly.targeting_curves.TargetingCurve`. The TOC view draws the
-targeting operator characteristic at each grid point against 0, with its pointwise intervals
-and the sup-t band as bracket marks at the grid points (the band holds there only). The gain
-view draws the cumulative gain against the random-targeting line ``q * ATE``; the interval on
-each gain is the TOC interval scaled by ``q``, the uncertainty of the gap to that line, and a
-note says so. The difference view draws ``TOC_A(q) - TOC_B(q)`` of a paired comparison with
-pointwise intervals against 0 and no band.
+targeting operator characteristic at each grid point against 0, with its pointwise intervals and the
+sup-t band as bracket marks at the grid points (the band holds there only). The gain view draws the
+cumulative gain against the random-targeting line ``q * ATE``; the interval on each gain is the TOC
+interval scaled by ``q``, the uncertainty of the gap to that line, and
+:func:`~cleverly.plotting.notes` says so. The difference view draws ``TOC_A(q) - TOC_B(q)`` of a
+paired comparison with pointwise intervals against 0 and no band.
 
 The curve is estimated at the grid points only, so nothing is drawn between them except a thin
 guide line through the points.
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from . import _core
 
@@ -142,13 +142,19 @@ def _subtitle(curve: Any, name: str) -> str:
     return f"{text}; {curve.n_eval:,} rows"
 
 
+@_core.labelled
 def targeting(
     curve: Any,
     *,
     view: str = "toc",
     score: str | None = None,
     ax: Axes | None = None,
-    title: str | None = None,
+    title: str | Literal[False] | None = None,
+    subtitle: str | Literal[False] | None = None,
+    xlabel: str | Sequence[str] | None = None,
+    ylabel: str | Sequence[str] | None = None,
+    legend: str | Literal[False] = "top",
+    figsize: tuple[float, float] | None = None,
     outcome_label: str | None = None,
     labels: Mapping[str, str] | None = None,
 ) -> Figure:
@@ -168,8 +174,22 @@ def targeting(
         Which score to draw on the TOC and gain views; the primary score when omitted.
     ax : Axes or None, default=None
         The axes to draw on; a new figure when omitted.
-    title : str or None, default=None
-        The title.
+    title : str, False or None, default=None
+        The title; a short description of the figure when omitted, and none when ``False``.
+    subtitle : str, False or None, default=None
+        The line under the title; the plot's own, which names the estimate and its headline
+        number, when omitted, and none when ``False``.
+    xlabel : str, sequence of str or None, default=None
+        The x-axis label. A string replaces the first labelled panel's label and the same
+        label wherever it repeats; a sequence gives each labelled panel its own, in reading
+        order.
+    ylabel : str, sequence of str or None, default=None
+        The y-axis label, given as for ``xlabel``.
+    legend : {"top", "right", "bottom"} or False, default="top"
+        Where the key goes: above the axes, right of them, or under the figure; ``False``
+        draws no key.
+    figsize : tuple of float or None, default=None
+        Width and height in inches of a figure the plot creates.
     outcome_label : str or None, default=None
         The outcome's quantity in your words, such as ``"order share"``, for the y axis; the
         axis says "the mean outcome" or "effect" when omitted.
@@ -186,6 +206,15 @@ def targeting(
     ------
     ValueError
         For an unknown view or score, or the difference view of a curve with no comparison.
+
+    Notes
+    -----
+    The figure carries no note text. It does not mark an experimental fit or band, one whose
+    interval has no checked coverage because no registered study covers it or a stated
+    condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
+    the figure before you publish it. For this plot the notes mark the experimental top
+    fractions, say that each interval is for the gap to the random line, and say where the
+    band holds.
 
     Examples
     --------
@@ -290,7 +319,7 @@ def targeting(
                     [lo for _, lo, _ in drawn],
                     [hi for _, _, hi in drawn],
                     color=_core.SECONDARY_INK,
-                    label=_core.band_label(level, "bootstrap sup-t"),
+                    label=_core.band_label(level),
                     band=True,
                 )
                 lines.append("The band holds jointly at the grid points only.")
@@ -313,14 +342,14 @@ def targeting(
         lines.append(f"Experimental: {'; '.join(reasons)}.")
     _core.legend(axis)
     question = (
-        f"Does {first} rank the effect better than {second}?"
+        f"Ranking by {first} against {second}"
         if view == "difference"
-        else f"How much does treating by {said} first gain over treating at random?"
+        else f"Gain from treating by {said} first"
     )
     _core.header(
         axis,
         title or question,
         _subtitle(curve, name),
     )
-    _core.notes(axis, lines)
+    _core.add_notes(axis, lines)
     return fig

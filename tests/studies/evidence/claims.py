@@ -749,8 +749,9 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         "bound_necessity",
     }:
         declared["margin:necessity_displacement"] = record.properties().NECESSITY_DISPLACEMENT
-    # X33's binding witness: the floor each of its two shares must reach.
-    if "binding_witness" in record.property_cells:
+    # X33's binding witness: the floor each of its two shares must reach.  ``isotonic-binding``
+    # names its share family the same and declares its floors in ``SHARE_FLOORS`` instead.
+    if "binding_witness" in record.property_cells and hasattr(record.properties(), "WITNESS_SHARE"):
         declared["margin:witness_share"] = record.properties().WITNESS_SHARE
     # X33's failure rule: the largest share of unconverged fits a gated cell may carry.
     if hasattr(record.properties(), "UNCONVERGED_SHARE"):

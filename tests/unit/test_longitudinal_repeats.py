@@ -611,7 +611,8 @@ def test_band_uses_split_adjusted_se_and_median_critical_value(design: str, repe
     On the three-draw law-D fit draw 1's critical value is the median, so a regression to
     draw 1 would pass there.  Both fixtures here have a draw-1 value away from the median.
     """
-    result = _fit(design, repeats=repeats)
+    # On the identity scale the band is symmetric around the estimate, which the loop reads.
+    result = _fit(design, repeats=repeats, band_scale="identity")
     band = result.simultaneous
     draws = np.array(band.draw_critical_values)
     assert len(draws) == repeats and len(set(draws.tolist())) == repeats
@@ -759,7 +760,10 @@ def test_elementwise_median_can_be_indefinite() -> None:
     """Three draws with one point and covariances ``[[4,2],[2,1]]``, ``[[1,2],[2,4]]``, ``I``."""
     n = 400
     raw = np.random.default_rng(3).normal(size=(n, 2))
-    base = [make_estimate(name, 0.5, raw[:, j], n=n, scale="level") for j, name in enumerate("ab")]
+    base = [
+        make_estimate(name, 0.5, raw[:, j], n=n, scale="level", rule_widened=False)
+        for j, name in enumerate("ab")
+    ]
     whitening = np.linalg.inv(
         np.linalg.cholesky(estimate_covariance({e.name: e for e in base}, ["a", "b"]))
     ).T
@@ -771,7 +775,7 @@ def test_elementwise_median_can_be_indefinite() -> None:
         curves = white @ root.T
         draws.append(
             {
-                name: make_estimate(name, 0.5, curves[:, j], n=n, scale="level")
+                name: make_estimate(name, 0.5, curves[:, j], n=n, scale="level", rule_widened=False)
                 for j, name in enumerate("ab")
             }
         )

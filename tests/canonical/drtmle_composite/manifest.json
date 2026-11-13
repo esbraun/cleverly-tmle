@@ -5,14 +5,16 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-composite-drtmle",
-      "cleverly_version": "0.1.2",
-      "cleverly_commit": "c6dc7a936801c703c85a5a56dd80407b209c2bac",
+      "cleverly_version": "0.2.3",
+      "cleverly_commit": "91a56e7bfa463e4bfa56bbbadc081406cef9584b",
       "cleverly_worktree_clean": true,
-      "python": "3.13.7",
-      "numpy": "2.5.3",
+      "python": "3.13.16",
+      "numpy": "2.5.4",
       "scipy": "1.18.1",
-      "pandas": "3.0.6",
-      "scikit_learn": "1.9.1"
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
     },
     "reference": {
       "implementation": "drtmle-r-composite",
@@ -28,6 +30,10 @@
     "seed": 20262301,
     "resampling_seed": 20262302,
     "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-composite-drtmle": 0.01,
+      "drtmle-r-composite": 0.01
+    },
     "scenarios": {
       "binary_observational_mar": [
         "ey0",
@@ -76,6 +82,7 @@
     "reduced_learners": "LinearRegression, LogisticRegression(C=1e6)",
     "max_outer": 100,
     "tmle_pairing": "guard=() composite TMLE against out$tmle",
+    "property_failure_bound": 0.01,
     "margins": {
       "confidence_level": 0.99,
       "alpha": 0.05,
@@ -103,34 +110,34 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_composite_drtmle.py": "7566d327088389c76aca8233b41a59793d3db6fb81097e50fa6ebe4a6aa66595",
-    "tests/studies/composite_drtmle_properties.py": "3db9d3313405bf25ab7eb66468bdca66c3269dbd84e667466cca365d8e3202a3",
-    "tests/studies/mar_arm_indexed_laws.py": "4e9d846330f321d36b19469fc01f629501a2a3c328af9111c4129a1634a9ce38",
-    "tests/discrete_law_mar.py": "039979331ea4ae60916ec451710a6372590ba7e8db22d01d92df881742afb715",
+    "tests/studies/canonical_composite_drtmle.py": "86a479310350f6b91baecab2706e829543c7ab004b80e72f639ec740d37a7176",
+    "tests/studies/composite_drtmle_properties.py": "7f879f76cf6c8763e03c6aca2d6fe984d15219b4ef4207db37030e4f3e6411d0",
+    "tests/studies/mar_arm_indexed_laws.py": "e0dcefb065e63ab025531cff9a62ae0dc1ab8a1e55bbd5579f7eefe6ebda1ee6",
+    "tests/discrete_law_mar.py": "1f09bb866e1c4c4c6975e9e58632d7acb05fff5d4abf7dc95e1081dab413b2d3",
     "tests/discrete_law_multi.py": "af84143ddb6547e43f3dedfc5bbddae579ef20572f6d22ef5d13119c53cd463f",
     "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
-    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
-    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
-    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
-    "tests/studies/evidence/properties.py": "9c8e6a923bb16fd6637dbec77492c43aef29d9a5f825799a20ce5002ca5e9590",
-    "tests/studies/evidence/property_verdicts.py": "6bddb3468d8135bc663df0d92fc52aadea539efdee0cd1ed84ef0e3e12658076",
-    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
-    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
-    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
+    "tests/studies/evidence/comparison.py": "30a584e78e19060d23638ff27704a969acb3f7799eca5b522dc4cfa0ec06a056",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "f7130e95147b06e2ab81f13704a921effb783b94a72a3e9a94050614d68f7699",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/evidence/simultaneous.py": "0407058d966ab0c455baeab27608b8090015271c512b779e966165e79a97ffc5"
   },
   "reference_sha256": {
     "tests/canonical/drtmle/Dockerfile": "470471189bf2b407411d6a89a533e073fd4f2dffb971a9480702658d5da88fe2",
-    "tests/canonical/drtmle_composite/run_study.R": "a801c62d3428281df19f34ddcc31f5ee8ba3f99e6773cefd230f650ee951cb7e",
-    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
+    "tests/canonical/drtmle_composite/run_study.R": "90661fce3b358f9d074012f0d763b9363e6d74e49e7fe3fc5f4eb7f19f8b2e51",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
     "tests/canonical/multi_arm_helpers.R": "1dcda209b2cf34d969c1582d65a42f825915a276ba1b4557a09f17930422d1a3"
   },
   "sha256": {
-    "replicates.parquet": "3d0a849ef5ebe3a540a637c0f9cd916f0f68df2ec54956d059a1569b39fe7147",
+    "replicates.parquet": "b481544e00514797ba1f44c4320bd28af4284b46280fa6090ad4b8bbb9816f85",
     "summary.csv": "363cc53e2490837d7c37f849947d6deec2a0c40a159a49913c85d8115b5b78e1",
-    "equivalence.csv": "8dd3ba2d94d6af54f9988c76481387d399f0d8251e29887b3b6bf40b47a7321f",
+    "equivalence.csv": "9be4cd33a6c66a06136eaf3042948f4ca230ec079631d3081363e32003386ae7",
     "performance-tests.csv": "6c683138a759d2d98305e02ce80de737d2f38a3011bacaf76dd48b0fcd2f29dd",
-    "property-replicates.parquet": "55a9d80f5d150366212e4e7c452224a5da2d701633d82fa7852d5031876ab1f2",
-    "properties.csv": "246767a404794284fc391ff40f91cf4b840d223b7ac1c6f0b97c54f71dce7d22",
+    "property-replicates.parquet": "793f3a6a07943a07ee8597aede51268428e99a83de1f24d402f4935c54c093dc",
+    "properties.csv": "4245aadd56da5bac6d720864d438f4637d549b21123121ef2e269f6e38e11dff",
     "fit-exits.csv": "1d5a2529b965a610dad0fca58e5a1589df2da8549e9f1f23d6d5d3ffd8102ae5"
   }
 }

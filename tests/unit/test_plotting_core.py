@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from matplotlib.colors import to_hex
+from matplotlib.text import Text
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
@@ -34,6 +35,7 @@ from cleverly.plotting import (
     PALETTE,
     _core,
     forest,
+    notes,
     overlap,
     sensitivity,
     style,
@@ -140,14 +142,51 @@ def test_a_plot_leaves_the_callers_settings_alone(binary_fit: Any) -> None:
     assert dict(matplotlib.rcParams) == before
 
 
+#: The longest default title a plot writes: a short description, so a report can carry it.
+SHORT_TITLE = 50
+
+
+def assert_short_title(fig: Any) -> None:
+    """The figure's title is a short description, not a question.
+
+    The title is the bold text on the figure (a figure-level header) or the left title of
+    the first panel. A reader's own title can be anything; the defaults are short.
+    """
+    texts = [t.get_text() for t in fig.findobj(Text) if t.get_gid() == _core.GID_TITLE]
+    title = (texts or [fig.axes[0].get_title(loc="left")])[0]
+    assert title, "the figure has no title"
+    assert len(title) <= SHORT_TITLE, f"the title is longer than {SHORT_TITLE}: {title!r}"
+    assert not title.rstrip().endswith("?"), f"the title is a question: {title!r}"
+
+
+def assert_no_note_text(fig: Any) -> None:
+    """No text the figure draws carries a note the plot recorded.
+
+    Notes live in :func:`cleverly.plotting.notes` and the plot's docstring, never on the
+    figure. Each note is compared by its first 40 characters, its words joined by spaces.
+    """
+    drawn = [
+        " ".join(text.get_text().split())
+        for text in fig.findobj(Text)
+        if text.get_visible() and text.get_text().strip()
+    ]
+    for note in notes(fig):
+        head = " ".join(note.split())[:40]
+        for text in drawn:
+            assert head not in text, f"the figure draws its note {head!r}"
+
+
 def _style_checks(fig: Any) -> None:
     """Every figure: opaque white face, a title, labelled axes, at most three palette colours.
 
     Every coloured (not grey) artist must wear a palette colour, so an off-palette series
-    fails too, and an axes needs a y label or row labels in its ticks.
+    fails too, and an axes needs a y label or row labels in its ticks. No figure draws a
+    note.
     """
+    assert_no_note_text(fig)
     assert to_hex(fig.get_facecolor(), keep_alpha=True) == "#ffffffff"
     assert _title(fig)
+    assert_short_title(fig)
     positions = [tuple(np.round(ax.get_position().bounds, 6)) for ax in fig.axes]
     assert len(positions) == len(set(positions)), "two axes overlay each other (a twin axis)"
     fig.canvas.draw()
@@ -484,8 +523,8 @@ def test_marginal_subtitle_names_where_the_range_and_where_its_interval_include_
     assert bounds.limit_breakdown == 4.0
     subtitle = _core.subtitle_text(bounds.plot().axes[0]) or ""
     flat = " ".join(subtitle.split())
-    assert "the range excludes no effect at every gamma up to 4" in flat
-    assert "its 95% interval first includes it at gamma = 4" in flat
+    assert "range clear of no effect up to gamma = 4" in flat
+    assert "its 95% interval reaches it at gamma = 4" in flat
     assert "no gamma on this grid reaches no effect" not in flat
     # Control: when the range itself includes zero, both breakdowns are named with their gamma.
     reached = _odds_bounds(
@@ -496,13 +535,11 @@ def test_marginal_subtitle_names_where_the_range_and_where_its_interval_include_
         ]
     )
     flat = " ".join((_core.subtitle_text(reached.plot().axes[0]) or "").split())
-    assert (
-        "the range first includes no effect at gamma = 3, and its 95% interval at gamma = 2" in flat
-    )
+    assert "range reaches no effect at gamma = 3, its 95% interval at gamma = 2" in flat
     # Control: neither reaches zero.
     never = _odds_bounds([(1.0, 0.10, 0.10, 0.06, 0.14), (2.0, 0.06, 0.14, 0.03, 0.17)])
     flat = " ".join((_core.subtitle_text(never.plot().axes[0]) or "").split())
-    assert "neither the range nor its 95% interval includes no effect at any gamma up to 2" in flat
+    assert "range and its 95% interval clear of no effect up to gamma = 2" in flat
 
 
 def test_marginal_plot_control_fails_without_the_warnings(
@@ -529,7 +566,9 @@ def test_outcome_label_names_the_effect_on_the_sensitivity_axes(
     tilt = missing_fit.sensitivity.missingness(gamma=[-1.0, 0.0, 1.0])
     assert tilt.plot(outcome_label="Score").axes[0].get_ylabel().endswith(" on score")
     assert _core.estimand_axis_label("ey1", "Order share") == "Order share treated"
-    assert _core.estimand_axis_label("ate", None) == "Average effect (ate)"
+    assert _core.estimand_axis_label("ate", None) == "Average effect"
+    # Control: a qualified alias keeps its name, since the words alone would not say which.
+    assert _core.estimand_words("ate[high vs low]") == "Average effect (ate[high vs low])"
 
 
 def test_units_are_added_to_the_sensitivity_axes(binary_fit: Any, missing_fit: Any) -> None:
@@ -540,7 +579,7 @@ def test_units_are_added_to_the_sensitivity_axes(binary_fit: Any, missing_fit: A
     tilt = missing_fit.sensitivity.missingness(gamma=[-1.0, 0.0, 1.0])
     assert tilt.plot(units="points").axes[0].get_ylabel().endswith(" (points)")
     # Control: without units nothing is appended.
-    assert tilt.plot().axes[0].get_ylabel() == "Average effect (ate)"
+    assert tilt.plot().axes[0].get_ylabel() == "Average effect"
 
 
 def test_the_marginal_null_line_sits_clear_of_the_bottom_edge() -> None:
@@ -551,10 +590,14 @@ def test_the_marginal_null_line_sits_clear_of_the_bottom_edge() -> None:
     assert 0.0 - low > 0.02 * (high - low), "the null line is not on the spine"
 
 
-def test_the_truncation_subtitle_keeps_its_limit_interval_on_one_line(binary_fit: Any) -> None:
+def test_the_truncation_cap_is_on_the_axis_and_the_limits_used_in_the_subtitle(
+    binary_fit: Any,
+) -> None:
     fig = binary_fit.diagnostics.truncation_curve().plot()
     (raw,) = [t.get_text() for t in fig.axes[0].texts if t.get_gid() == _core.GID_SUBTITLE]
-    assert "[limit,\u00a01\u00a0-\u00a0limit]" in raw, "no breaking space inside the interval"
+    assert "\n" not in raw, "the subtitle wraps"
+    assert "the fit used [" in raw
+    assert "[limit, 1 - limit]" in fig.axes[-1].get_xlabel()
 
 
 def test_missingness_plot_marks_the_main_analysis(missing_fit: Any) -> None:
@@ -827,7 +870,7 @@ def test_forest_skips_the_null_a_transform_cannot_reach(binary_fit: Any) -> None
     assert len(_lines(forest(plain, include_null=True).axes[0], "cleverly-reference")) == 1
 
 
-def test_notes_sit_inside_the_figure_after_drawing(binary_fit: Any) -> None:
+def test_notes_are_recorded_and_never_drawn(binary_fit: Any) -> None:
     withheld = dataclasses.replace(binary_fit["ate"], inference=WITHHELD)
     figures = (
         forest(withheld),
@@ -835,14 +878,25 @@ def test_notes_sit_inside_the_figure_after_drawing(binary_fit: Any) -> None:
         binary_fit.diagnostics.truncation_curve().plot(),
     )
     for fig in figures:
-        fig.canvas.draw()
-        renderer = fig.canvas.get_renderer()
-        notes = [text for ax in fig.axes for text in ax.texts if text.get_gid() == _core.GID_NOTES]
-        for text in notes:
-            extent = text.get_window_extent(renderer)
-            assert extent.x0 >= fig.bbox.x0 - 1
-            assert extent.x1 <= fig.bbox.x1 + 1
-            assert extent.y0 >= fig.bbox.y0 - 1
+        assert notes(fig), "the plot recorded no notes"
+        assert_no_note_text(fig)
+
+
+def test_the_note_check_rejects_a_drawn_note(binary_fit: Any) -> None:
+    """Control: a recorded note drawn under the axes must fail the check."""
+    fig = forest(dataclasses.replace(binary_fit["ate"], inference=WITHHELD))
+    fig.text(0.01, 0.01, notes(fig)[0], fontsize=8)
+    with pytest.raises(AssertionError, match="draws its note"):
+        assert_no_note_text(fig)
+
+
+def test_notes_drop_repeats_and_blank_lines() -> None:
+    fig, ax = plt.subplots()
+    _core.add_notes(ax, ["first", "", "second"])
+    _core.add_notes(fig, ["second", "third"])
+    assert notes(fig) == ("first", "second", "third")
+    assert _core.note_text(fig) == "first second third"
+    assert notes(plt.figure()) == ()
 
 
 def _nearest_row_reason(qualifiers: str) -> Support:
@@ -1117,17 +1171,15 @@ def test_a_true_value_near_the_null_brings_it_back(binary_fit: Any) -> None:
     assert len(_lines(fig.axes[0], "cleverly-reference")) == 1
 
 
-def test_forest_title_is_a_question() -> None:
-    assert forest_module.TITLE.endswith("?")
-    from cleverly import plotting
-
-    assert forest_module.TITLE[:1].lower() + forest_module.TITLE[1:] in (plotting.__doc__ or "")
+def test_forest_title_is_short_and_descriptive() -> None:
+    assert len(forest_module.TITLE) <= SHORT_TITLE and not forest_module.TITLE.endswith("?")
 
 
 def test_overlap_reads_the_treatment_words_beside_arm_labels(binary_fit: Any) -> None:
     labels = {1: "Smoking mothers", 0: "Non-smoking mothers"}
     worded = overlap(binary_fit, labels=labels, treatment_label="smoking").axes[0]
-    assert worded.get_xlabel() == "Predicted probability of smoking: smoking mothers"
+    # one panel: the treatment's words name the probability, and the bars name the groups
+    assert worded.get_xlabel() == "Predicted probability of smoking"
     plain = overlap(binary_fit, labels=labels).axes[0]
     assert plain.get_xlabel() == "Predicted probability of being in the group: smoking mothers"
     # The group names in the figure keep the caller's capitals.
@@ -1212,3 +1264,94 @@ def test_a_null_left_off_by_hand_is_really_off_the_axis(
     # Mutation control: without the clamp the autoscale margin puts the null back on.
     monkeypatch.setattr(forest_module, "_keep_off", lambda *args, **kwargs: None)
     assert forest(close, include_null=False).axes[0].get_xlim()[0] <= 0.0
+
+
+# ----------------------------------------------------------------------- formatting keywords
+
+
+def test_title_and_subtitle_take_a_string_or_false(binary_fit: Any) -> None:
+    fig = forest(binary_fit, title="Effect of the offer", subtitle="Main analysis")
+    ax = fig.axes[0]
+    assert ax.get_title(loc="left") == "Effect of the offer"
+    assert _core.subtitle_text(ax) == "Main analysis"
+    bare = forest(binary_fit, title=False, subtitle=False).axes[0]
+    assert bare.get_title(loc="left") == ""
+    assert _core.subtitle_text(bare) is None
+    # Control: the defaults stay when neither keyword is given.
+    plain = forest(binary_fit).axes[0]
+    assert plain.get_title(loc="left") == forest_module.TITLE
+    assert _core.subtitle_text(plain)
+
+
+def test_the_formatting_keywords_refuse_what_they_cannot_draw(binary_fit: Any) -> None:
+    with pytest.raises(TypeError, match="title must be a string, False or None"):
+        forest(binary_fit, title=True)
+    with pytest.raises(TypeError, match="subtitle must be a string, False or None"):
+        forest(binary_fit, subtitle=3)
+    with pytest.raises(ValueError, match="legend must be one of"):
+        forest(binary_fit, legend="left")
+    with pytest.raises(ValueError, match="xlabel gives 7 labels for 1 labelled panels"):
+        overlap(binary_fit, xlabel=list("abcdefg"))
+
+
+def test_xlabel_and_ylabel_rename_the_axes(binary_fit: Any) -> None:
+    ax = overlap(binary_fit, xlabel="Chance of treatment", ylabel="Share").axes[0]
+    assert ax.get_xlabel() == "Chance of treatment"
+    assert ax.get_ylabel() == "Share"
+    listed = overlap(binary_fit, xlabel=["Chance of treatment"]).axes[0]
+    assert listed.get_xlabel() == "Chance of treatment"
+    # Control: the plot's own words stay without the keywords.
+    assert overlap(binary_fit).axes[0].get_xlabel().startswith("Predicted probability")
+
+
+def test_a_string_label_renames_every_panel_that_shares_it(binary_fit: Any) -> None:
+    fig = binary_fit.diagnostics.truncation_curve().plot(xlabel="Limit")
+    shared = [ax.get_xlabel() for ax in fig.axes if ax.axison and ax.get_xlabel()]
+    assert shared and set(shared) == {"Limit"}
+
+
+@pytest.mark.parametrize("place", ["right", "bottom"])
+def test_the_key_can_sit_right_of_the_axes_or_under_the_figure(binary_fit: Any, place: str) -> None:
+    top = forest(binary_fit)
+    labels = _core.key_labels(top)
+    assert labels, "the forest plot draws a key"
+    moved = forest(binary_fit, legend=place)
+    assert _core.key_labels(moved) == labels
+    moved.canvas.draw()
+    renderer = moved.canvas.get_renderer()
+    axes_box = moved.axes[0].get_window_extent(renderer)
+    keys = [
+        legend for legend in [*moved.legends, *(ax.get_legend() for ax in moved.axes)] if legend
+    ]
+    assert len(keys) == 1
+    box = keys[0].get_window_extent(renderer)
+    if place == "right":
+        assert box.x0 >= axes_box.x1 - 1.0
+    else:
+        assert box.y1 <= axes_box.y0 + 1.0
+    # The key is part of the figure a tight save keeps.
+    tight = moved.get_tightbbox(renderer)
+    inches = box.transformed(moved.dpi_scale_trans.inverted())
+    assert tight.x0 - 0.01 <= inches.x0 and inches.x1 <= tight.x1 + 0.01
+    assert tight.y0 - 0.01 <= inches.y0 and inches.y1 <= tight.y1 + 0.01
+
+
+def test_legend_false_draws_no_key(binary_fit: Any) -> None:
+    assert _core.key_labels(forest(binary_fit, legend=False)) == []
+    # Control: the default draws one.
+    assert _core.key_labels(forest(binary_fit))
+
+
+def test_figsize_sets_the_size_of_a_figure_the_plot_makes(binary_fit: Any) -> None:
+    fig = overlap(binary_fit, figsize=(5.0, 3.0))
+    assert tuple(fig.get_size_inches()) == (5.0, 3.0)
+    # Control: the plot's own size otherwise.
+    assert tuple(overlap(binary_fit).get_size_inches()) != (5.0, 3.0)
+
+
+def test_a_plot_drawn_on_a_callers_axes_keeps_the_callers_figure_size(binary_fit: Any) -> None:
+    fig, ax = plt.subplots(figsize=(4.0, 3.0))
+    bounds = marginal_sensitivity_bounds(binary_fit, gamma=(1.0, 2.0))
+    bounds.plot(ax=ax, figsize=(9.0, 9.0), title="Mine")
+    assert tuple(fig.get_size_inches()) == (4.0, 3.0)
+    assert ax.get_title(loc="left") == "Mine"

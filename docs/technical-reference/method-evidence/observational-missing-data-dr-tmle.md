@@ -95,7 +95,7 @@ Comparator-backed: a paired comparison with `drtmle-r-composite` on the same sam
 | law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | L1: two-arm binary-outcome observational law with a MAR outcome and a MAR treatment whose recording depends on the treatment | `ate` | average treatment effect | -0.000015 | 0.0024 | 1.0007 | 0.0012 | matching implementation | 0.0013 vs 0.0500 | equivalent |
-| L1: two-arm binary-outcome observational law with a MAR outcome and a MAR treatment whose recording depends on the treatment | `ey0` | counterfactual mean under no treatment | 0.000003 | 0.000578 | 1.0019 | -0.0037 | matching implementation | 0.0010 vs 0.0500 | equivalent |
+| L1: two-arm binary-outcome observational law with a MAR outcome and a MAR treatment whose recording depends on the treatment | `ey0` | counterfactual mean under no treatment | 0.000003 | 0.000578 | 1.0019 | -0.0038 | matching implementation | 0.0010 vs 0.0500 | equivalent |
 | L1: two-arm binary-outcome observational law with a MAR outcome and a MAR treatment whose recording depends on the treatment | `ey1` | counterfactual mean under treatment | -0.000012 | 0.0031 | 1.0002 | 0 | matching implementation | 0.000654 vs 0.0500 | equivalent |
 | L1: two-arm binary-outcome observational law with a MAR outcome and a MAR treatment whose recording depends on the treatment | `or` | marginal odds ratio, reported on the log scale | -0.000134 | 0.0021 | 1.0008 | 0 | matching implementation | 0.0013 vs 0.0500 | equivalent |
 | L1: two-arm binary-outcome observational law with a MAR outcome and a MAR treatment whose recording depends on the treatment | `rr` | marginal risk ratio, reported on the log scale | -0.000030 | 0.0013 | 1.0011 | 0 | matching implementation | 0.0012 vs 0.0500 | equivalent |
@@ -154,11 +154,11 @@ Comparator-backed: a paired comparison with `drtmle-r-composite` on the same sam
 | `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5292 to -0.4748 | pass |
 | `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5017 to -0.4969 | pass |
 | `simultaneous_coverage` | `composite_binary__pointwise_joint_control` | control | the two arm means, the difference, the risk ratio and the odds ratio of the two-arm law with a MAR outcome and treatment: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8474 to 0.8836 | pass |
-| `simultaneous_coverage` | `composite_binary__simultaneous_band` | positive | the two arm means, the difference, the risk ratio and the odds ratio of the two-arm law with a MAR outcome and treatment: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9250 to 0.9507 | pass |
+| `simultaneous_coverage` | `composite_binary__simultaneous_band` | positive | the two arm means, the difference, the risk ratio and the odds ratio of the two-arm law with a MAR outcome and treatment: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9287 to 0.9537 | pass |
 | `simultaneous_coverage` | `composite_observational__pointwise_joint_control` | control | the two arm means, the difference, the risk ratio and the odds ratio of the two-arm law with an observational MAR outcome: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8659 to 0.9000 | pass |
-| `simultaneous_coverage` | `composite_observational__simultaneous_band` | positive | the two arm means, the difference, the risk ratio and the odds ratio of the two-arm law with an observational MAR outcome: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9337 to 0.9578 | pass |
+| `simultaneous_coverage` | `composite_observational__simultaneous_band` | positive | the two arm means, the difference, the risk ratio and the odds ratio of the two-arm law with an observational MAR outcome: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9388 to 0.9619 | pass |
 | `simultaneous_coverage` | `composite_three_arm__pointwise_joint_control` | control | the three arm means, two differences, two risk ratios and two odds ratios of the three-arm law with a MAR outcome and treatment: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.7994 to 0.8402 | pass |
-| `simultaneous_coverage` | `composite_three_arm__simultaneous_band` | positive | the three arm means, two differences, two risk ratios and two odds ratios of the three-arm law with a MAR outcome and treatment: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9383 to 0.9615 | pass |
+| `simultaneous_coverage` | `composite_three_arm__simultaneous_band` | positive | the three arm means, two differences, two risk ratios and two odds ratios of the three-arm law with a MAR outcome and treatment: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9443 to 0.9663 | pass |
 | `treatment_complete_case` | `drop_unrecorded__control` | control | the rows with an unrecorded treatment dropped, and the rest fitted with delta= alone | bias interval must fall entirely outside the margin | bias -0.0487 to -0.0422, margin 0.0089 | pass |
 | `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0533, 0.0380 to 0.0723 | pass |
 <!-- /generated -->
@@ -189,7 +189,15 @@ three-arm scenario. `tests/unit/test_composite_high_arm_reading.py` recomputes t
 The power cell runs at n = 1,000, not at the plan's n = 500. At n = 500 the planned power of the
 two-sided test is 0.738, and at n = 1,000 it is 0.957. The design of the band cells is in
 `tests/unit/test_simultaneous_cell_design.py`: pointwise joint coverage 0.8832, 0.8835 and 0.8220,
-and control power 1.0 at 2,400 replications.
+and control power 1.0 at 2,400 replications. The study fixes `n_multiplier=1_000` by design, so
+its bands measure the Mammen multiplier on the logit scale at 1,000 draws rather than the default
+10,000. When the default band moved from the Rademacher multiplier on the identity scale, a
+targeted rerun of the band fits alone missed the replay rule (tolerance 1e-9): one estimate of the
+observational pointwise control at replication r855 moved by 1.3e-9, with the baseline run under
+Python 3.13.7 and NumPy 2.5.3 and the rerun under 3.13.16 and 2.5.4. So the band-finite-sample
+rerun ran the whole study again on its own seeds with the new band, and no verdict changed
+(`tests/canonical/drtmle_composite/band_rerun/complete-rerun.json` records the miss, and
+`tests/canonical/band-rerun-decision.json` the readings).
 
 ## Measured values and declared margins
 
@@ -236,6 +244,10 @@ and control power 1.0 at 2,400 replications.
 | `margin:uncorrected_score_floor` | 0.0010 | unresolved initial-score floor |
 | `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit. No cell of this study reads it |
 | `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit. No cell of this study reads it |
+| `margin:reference_failure_bound` | 0.0100 | share of drtmle fits a cell may lose |
+| `margin:reference_failures_allowed` | 8 | drtmle fits a cell may lose |
+| `margin:subject_failure_bound` | 0.0100 | share of `cleverly` fits a cell may lose |
+| `margin:subject_failures_allowed` | 8 | `cleverly` fits a cell may lose |
 
 ## Limits
 

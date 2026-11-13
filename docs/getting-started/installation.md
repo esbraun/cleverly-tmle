@@ -17,10 +17,10 @@ sklearn-compatible objects directly:
 python -m pip install "cleverly[all]"
 ```
 
-Pin the complete version you analysed with, for example 0.2.3:
+Pin the complete version you analysed with, for example 0.2.4:
 
 ```bash
-python -m pip install "cleverly[all]==0.2.3"
+python -m pip install "cleverly[all]==0.2.4"
 ```
 
 A later release can still contain a public API change. A result that one release saves loads in another release with a warning, and

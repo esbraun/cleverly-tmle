@@ -161,6 +161,10 @@ CONFIGURATION = {
     "r_survival_outcome": False,
     "cross_fit": False,
     "simultaneous_intervals": False,
+    # The manifest records this configuration as the baseline run declared it, and the
+    # band-finite-sample composite gate compares it with that baseline, so
+    # the text still names the former band.  The band rows now read the default band (Mammen,
+    # logit scale, 10,000 draws); the composite's replacement record names it.
     "band_cells": (
         "the interval_calibration fits declare simultaneous=True with the engine's default "
         "2000 rademacher draws seeded by random_state=0, which leaves every pointwise result "

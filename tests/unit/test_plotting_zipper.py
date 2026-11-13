@@ -47,7 +47,7 @@ class _Estimator:
         shift = 0.25 * (frame.seed % 5 - 2)
         return _Result(
             {
-                "rd": make_estimate("rd", 0.1 + shift, curve, n=N_ROWS),
+                "rd": make_estimate("rd", 0.1 + shift, curve, n=N_ROWS, rule_widened=False),
                 "rr": make_estimate(
                     "rr",
                     float(np.exp(0.2 + shift)),
@@ -55,8 +55,11 @@ class _Estimator:
                     n=N_ROWS,
                     scale="ratio",
                     log_psi=0.2 + shift,
+                    rule_widened=False,
                 ),
-                "few": make_estimate("few", 0.1 + shift, curve, n=N_ROWS, reference_df=6),
+                "few": make_estimate(
+                    "few", 0.1 + shift, curve, n=N_ROWS, reference_df=6, rule_widened=False
+                ),
             }
         )
 
@@ -139,7 +142,7 @@ class TestIntervalLimitsOnTheRecords:
             assert record.upper == pytest.approx(record.estimate + half)
             assert record.support == "supported" and record.support_reason == ""
         fig = plotting.zipper(real)
-        assert fig.axes[1].get_xlabel().splitlines()[0] == "Average effect (ate)"
+        assert fig.axes[1].get_xlabel().splitlines()[0] == "Average effect"
         assert "experimental" not in _core.note_text(fig)
         _close(fig)
 
@@ -210,7 +213,7 @@ class TestTheZipper:
     def test_the_subtitle_and_labels_state_coverage_and_the_target(self, study: Any) -> None:
         fig = plotting.zipper(study, estimand="rd", labels={"rd": "Risk difference"})
         head = fig.axes[0]
-        assert head.get_title(loc="left") == "Do the intervals cover the true value?"
+        assert head.get_title(loc="left") == "Interval coverage"
         records = [r for r in study.replications if r.estimand == "rd"]
         coverage = 100 * np.mean([r.covered for r in records])
         subtitle = _core.subtitle_text(head)
@@ -278,6 +281,7 @@ class TestTheHonestyRules:
                         curve - curve.mean(),
                         n=N_ROWS,
                         inference="working_mechanism_plugin",
+                        rule_widened=False,
                     )
                 }
                 return result
@@ -370,30 +374,46 @@ class TestTheLayout:
             assert_text_inside(fig)
             _close(fig)
 
-    def test_the_header_and_notes_strips_are_sized_from_their_text(self, study: Any) -> None:
+    def test_the_header_strip_is_sized_from_its_text(self, study: Any) -> None:
         one = plotting.zipper(study, estimand="rd")
-        three = plotting.zipper(study, labels={"rd": "A risk difference " * 12})
+        title = "Coverage of the risk difference intervals across the replications " * 3
+        long = plotting.zipper(study, estimand="rd", title=title)
         heights = []
-        for fig in (one, three):
+        for fig in (one, long):
             fig.canvas.draw()
             renderer = fig.canvas.get_renderer()
             heights.append(fig.axes[1].get_window_extent().height / fig.dpi)
-            # no empty band: the notes end, and the title starts, near the figure's edges
-            notes = [t for t in fig.axes[-1].texts if t.get_gid() == _core.GID_NOTES]
-            bottom = notes[0].get_window_extent(renderer).y0 / fig.dpi
-            top = fig.get_figheight() - fig.axes[0].title.get_window_extent(renderer).y1 / fig.dpi
-            assert 0.0 <= bottom < 0.25
+            # no empty band: the title starts, and the panels end, near the figure's edges
+            title = fig.axes[0]._left_title
+            top = fig.get_figheight() - title.get_window_extent(renderer).y1 / fig.dpi
+            bottom = fig.axes[-1].get_tightbbox(renderer).y0 / fig.dpi
             assert 0.0 <= top < 0.25
-        # the panels keep their height; longer notes make the figure taller, not the panels
+            assert 0.0 <= bottom < 0.25
+        # the panels keep their height; a longer header makes the figure taller, not the panels
         assert heights[0] == pytest.approx(heights[1], abs=0.05)
-        assert three.get_figheight() > one.get_figheight() + 0.3
+        assert long.get_figheight() > one.get_figheight() + 0.3
         _close(one)
-        _close(three)
+        _close(long)
+
+    def test_a_chosen_size_is_kept_and_the_panels_take_what_the_header_leaves(
+        self, study: Any
+    ) -> None:
+        fig = plotting.zipper(study, estimand="rd", figsize=(6.0, 5.0))
+        assert tuple(fig.get_size_inches()) == (6.0, 5.0)
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        title = fig.axes[0]._left_title
+        assert title.get_window_extent(renderer).y1 / fig.dpi <= 5.0
+        # Control: without figsize= the strip figure sizes itself from its text.
+        plain = plotting.zipper(study, estimand="rd")
+        assert tuple(plain.get_size_inches()) != (6.0, 5.0)
+        _close(fig)
+        _close(plain)
 
 
 class TestTheChecksThemselves:
     def test_the_style_check_rejects_an_off_palette_unlabelled_figure(self) -> None:
-        fig, head, (panel,), _ = strip_figure(1, 1, panel=(3.0, 2.0))
+        fig, head, (panel,) = strip_figure(1, 1, panel=(3.0, 2.0))
         head.set_title("A title", loc="left")
         panel.set_xlabel("x")
         panel.set_yticks([])
@@ -403,14 +423,13 @@ class TestTheChecksThemselves:
             assert_style(fig)
         _close(fig)
 
-    def test_the_inside_check_rejects_a_note_off_the_page(self, study: Any) -> None:
+    def test_the_inside_check_rejects_a_text_off_the_page(self, study: Any) -> None:
         fig = plotting.zipper(study, estimand="rd")
         assert_text_inside(fig)
         stray = fig.axes[-1].annotate(
-            "a note that runs off the right edge",
+            "a text that runs off the right edge",
             xy=(0.98, 0.02),
             xycoords="figure fraction",
-            gid=_core.GID_NOTES,
         )
         stray.set_in_layout(False)
         with pytest.raises(AssertionError, match="runs off"):

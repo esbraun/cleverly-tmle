@@ -259,13 +259,13 @@ from those bounds. For L3 and L4 the adapter forms Wald intervals from the per-a
 | `mar_robustness` | `l4_ate_mid__only_treatment_wrong` | positive | L4 difference, mid versus high: only the treatment mechanism is wrong | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.0122 to 0.0101, margin 0.0373, SE ratio 1.2520 | pass |
 | `mar_robustness` | `l4_ate_mid__outcome_and_response_wrong` | control | L4 difference, mid versus high: the outcome regression and the observation mechanism are both wrong | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias 1.4891 to 1.5278, margin 0.0648, SE ratio 1.4437 | pass |
 | `simultaneous_coverage` | `l1__pointwise_joint_control` | control | L1, two arms and a binary outcome: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8575 to 0.8957 | pass |
-| `simultaneous_coverage` | `l1__simultaneous_band` | positive | L1, two arms and a binary outcome: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9255 to 0.9533 | pass |
+| `simultaneous_coverage` | `l1__simultaneous_band` | positive | L1, two arms and a binary outcome: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9289 to 0.9560 | pass |
 | `simultaneous_coverage` | `l2__pointwise_joint_control` | control | L2, two arms and a bounded continuous outcome: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8761 to 0.9119 | pass |
-| `simultaneous_coverage` | `l2__simultaneous_band` | positive | L2, two arms and a bounded continuous outcome: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9422 to 0.9665 | pass |
+| `simultaneous_coverage` | `l2__simultaneous_band` | positive | L2, two arms and a bounded continuous outcome: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9434 to 0.9674 | pass |
 | `simultaneous_coverage` | `l3__pointwise_joint_control` | control | L3, three arms and a binary outcome: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8047 to 0.8487 | pass |
-| `simultaneous_coverage` | `l3__simultaneous_band` | positive | L3, three arms and a binary outcome: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9344 to 0.9604 | pass |
+| `simultaneous_coverage` | `l3__simultaneous_band` | positive | L3, three arms and a binary outcome: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9378 to 0.9630 | pass |
 | `simultaneous_coverage` | `l4__pointwise_joint_control` | control | L4, three arms and a bounded continuous outcome: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8021 to 0.8463 | pass |
-| `simultaneous_coverage` | `l4__simultaneous_band` | positive | L4, three arms and a bounded continuous outcome: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9372 to 0.9626 | pass |
+| `simultaneous_coverage` | `l4__simultaneous_band` | positive | L4, three arms and a bounded continuous outcome: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9417 to 0.9661 | pass |
 <!-- /generated -->
 
 The table below states what each family checks.
@@ -323,10 +323,10 @@ bootstrap draws are therefore correlated across the pairs.
 | `max_standardized_bias` | 0.0636 | largest primary standardized bias |
 | `min_coverage` | 0.9300 | lowest primary coverage |
 | `max_margin_utilization` | 1.924e-07 | largest share of the paired margin used |
-| `properties[simultaneous_coverage/l1__simultaneous_band]:coverage` | 0.9405 | L1 band joint coverage |
-| `properties[simultaneous_coverage/l2__simultaneous_band]:coverage` | 0.9555 | L2 band joint coverage |
-| `properties[simultaneous_coverage/l3__simultaneous_band]:coverage` | 0.9485 | L3 band joint coverage |
-| `properties[simultaneous_coverage/l4__simultaneous_band]:coverage` | 0.9510 | L4 band joint coverage |
+| `properties[simultaneous_coverage/l1__simultaneous_band]:coverage` | 0.9435 | L1 band joint coverage |
+| `properties[simultaneous_coverage/l2__simultaneous_band]:coverage` | 0.9565 | L2 band joint coverage |
+| `properties[simultaneous_coverage/l3__simultaneous_band]:coverage` | 0.9515 | L3 band joint coverage |
+| `properties[simultaneous_coverage/l4__simultaneous_band]:coverage` | 0.9550 | L4 band joint coverage |
 | `properties[simultaneous_coverage/l3__pointwise_joint_control]:coverage` | 0.8275 | L3 pointwise joint coverage |
 | `properties[mar_robustness/l1_ate__outcome_and_response_wrong]:bias` | -0.4788 | L1 ATE bias of the control |
 | `properties[mar_robustness/l3_ate_mid__outcome_and_response_wrong]:bias` | 0.1529 | L3 mid-versus-high bias of the control |
@@ -403,7 +403,8 @@ bootstrap draws are therefore correlated across the pairs.
   performance for every learner library or tuning procedure.
 - The exact efficient standard errors describe the finite laws. No calibration cell claims
   efficiency-bound attainment.
-- The band cells measure the default Rademacher multiplier band over one law's reported estimands.
+- The band cells measure the default band (Mammen multiplier, logit scale, 10,000 draws) over one
+  law's reported estimands. The band-finite-sample rerun re-measured them on the committed fits.
   They do not cover other multiplier kinds, other estimand sets, or bands across laws.
 - The external comparison conditions on the stitched nuisance predictions from `cleverly`. It does
   not compare nuisance training. The continuous comparison rests on the planted-row scale

@@ -312,7 +312,7 @@ class MarginalSensitivityBounds:
         ... ).fit(frame, outcome="Y", treatment="A", covariates=["W"]).single()
         >>> fig = marginal_sensitivity_bounds(fit, gamma=(1.0, 1.5, 2.0, 3.0)).plot()
         >>> fig.axes[0].get_ylabel()
-        'Range of the average effect (ate)'
+        'Range of the average effect'
         >>> plt.close(fig)
         """
         from ..plotting import sensitivity

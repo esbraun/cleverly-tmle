@@ -38,6 +38,7 @@ from cleverly.datasets import (
     make_shift_dose,
 )
 from cleverly.estimators import TMLE
+from cleverly.inference.multiplier import DEFAULT_N_REPLICATES
 from cleverly.interventions import Incremental, Shift, Static
 from cleverly.longitudinal import LTMLE
 from cleverly.msm import MSM
@@ -317,7 +318,7 @@ def test_an_unnarrowed_fit_reports_the_engines_own_bands() -> None:
 
 
 def test_a_longitudinal_fit_draws_the_multipliers_its_engine_declares() -> None:
-    """The study path drew 1000 where ``LTMLE`` declares 2000, so every band was narrower."""
+    """The study path once drew 1000 where ``LTMLE`` declared 2000, so every band was narrower."""
     frame, _ = make_longitudinal(n=220, seed=28)
     regimens = {"always": 1, "never": 0, "early": (1, 0)}
     model = MSM(
@@ -332,7 +333,7 @@ def test_a_longitudinal_fit_draws_the_multipliers_its_engine_declares() -> None:
         MSMProjection(model, regimens=regimens), **{**settings, "cross_fit": False}
     )
     assert new.simultaneous is not None
-    assert new.simultaneous.n_replicates == 2000
+    assert new.simultaneous.n_replicates == DEFAULT_N_REPLICATES
     assert_identical(old, new, check_bands=True)
 
 
@@ -398,9 +399,11 @@ def test_a_narrowed_longitudinal_family_gets_its_own_critical_value() -> None:
     """
     frame, _ = make_longitudinal(n=260, seed=33)
     regimens = {"always": 1, "never": 0, "early": (1, 0)}
-    engine = LTMLE(regimens, reference="never", **BAND_LONG_SETTINGS).fit(frame, **LONG_COLUMNS)
+    # On the identity scale a band contains the pointwise interval, which the loop reads.
+    settings = {**BAND_LONG_SETTINGS, "band_scale": "identity"}
+    engine = LTMLE(regimens, reference="never", **settings).fit(frame, **LONG_COLUMNS)
     study = CausalStudy(frame, design=LongitudinalTreatment(**LONG_COLUMNS))
-    means = study.estimate(RegimeMean(regimens, reference="never"), **BAND_LONG_SETTINGS)
+    means = study.estimate(RegimeMean(regimens, reference="never"), **settings)
 
     assert len(means.estimates) == 3 and len(engine.estimates) == 5
     assert set(means.simultaneous.bands) == set(means.estimates)

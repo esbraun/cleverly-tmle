@@ -3,7 +3,8 @@
 A projection curve of a conditional contrast on a compact trial-like frame, with and without a
 band over a declared grid, on the log-ratio scale, and with its in-sample predictions moved
 outside the range of a difference of two means, so each curve note code fires. One check of an
-external score on each scale.
+external score on each scale, a comparison of two scores, and a comparison on two clusters, whose
+rows carry no interval.
 """
 
 from __future__ import annotations
@@ -43,7 +44,15 @@ def _frame() -> pd.DataFrame:
     a = rng.binomial(1, expit(0.3 * w2))
     y = rng.binomial(1, expit(-0.5 + 0.4 * w2 + a * (age - 50) / 40))
     return pd.DataFrame(
-        {"Y": y, "A": a, "age": age, "W2": w2, "score": 0.01 * (age - 50) + 0.05 * w2}
+        {
+            "Y": y,
+            "A": a,
+            "age": age,
+            "W2": w2,
+            "score": 0.01 * (age - 50) + 0.05 * w2,
+            "other": 0.005 * (age - 50),
+            "site": np.arange(n) % 2,
+        }
     )
 
 
@@ -138,6 +147,41 @@ def score_log_ratio() -> Any:
         )
 
 
+def score_paired() -> Any:
+    """The comparison of two external scores on the difference scale."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return _effect("difference").assess_score(
+            "score",
+            computed_from=["age", "W2"],
+            score_kind="external",
+            compare="other",
+            compare_computed_from=["age"],
+            **_learners(),
+        )
+
+
+def score_two_clusters() -> Any:
+    """A comparison on two clusters: every row reports its point with no interval."""
+    study = CausalStudy(
+        _frame(),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("age", "W2"), cluster="site"),
+    )
+    effect = study.identify(
+        ConditionalContrast(Modifiers(["age"], domains={"age": (18, 90)}), model=Linear(["age"]))
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return effect.assess_score(
+            "score",
+            computed_from=["age", "W2"],
+            score_kind="external",
+            compare="other",
+            compare_computed_from=["age"],
+            **_learners(),
+        )
+
+
 @functools.cache
 def curve_checks() -> dict[str, Any]:
     """The held-out checks of a curve over two modifiers, by class name.
@@ -227,14 +271,22 @@ def read_score_assessment(check: Any, text: str) -> None:
     text : str
         Its short printed summary.
     """
-    _, rows = _table(text, "Estimates")
-    assert [cells[0] for cells in rows] == list(check.estimates)
-    for cells, estimate in zip(rows, check.estimates.values(), strict=True):
-        low, high = estimate.ci
-        for shown, value in zip(
-            cells[1:5], (estimate.psi, estimate.std_error, low, high), strict=True
-        ):
-            assert close(shown, float(value)), (cells, value)
+    facts = header_values(text)
+    assert facts["Status"] == check.status
+    labels, rows = _table(text, "Estimates")
+    assert labels == ["score", "parameter", "estimate", "std err", "lower", "upper", "status"]
+    expected = check.rows()
+    shown = [(s, "risk_difference" if n == check.paired_name else n) for s, n, _ in expected]
+    assert [(cells[0], cells[1]) for cells in rows] == shown
+    for cells, (_, _, estimate) in zip(rows, expected, strict=True):
+        assert close(cells[2], float(estimate.psi)), (cells, estimate.psi)
+        if estimate.supplies_inference:
+            low, high = estimate.ci
+            for shown, value in zip(cells[3:6], (estimate.std_error, low, high), strict=True):
+                assert close(shown, float(value)), (cells, value)
+        else:
+            assert cells[3:6] == ["*", "*", "*"], cells
+        assert cells[6] == estimate.support.label
 
 
 FIXTURES: dict[str, Case] = {
@@ -250,4 +302,8 @@ FIXTURES: dict[str, Case] = {
     ),
     "score_difference": Case(score_difference, names=("score",), fidelity=read_score_assessment),
     "score_log_ratio": Case(score_log_ratio, names=("score",), fidelity=read_score_assessment),
+    "score_paired": Case(score_paired, names=("score", "other"), fidelity=read_score_assessment),
+    "score_two_clusters": Case(
+        score_two_clusters, names=("score", "other"), fidelity=read_score_assessment
+    ),
 }
