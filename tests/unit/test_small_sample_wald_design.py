@@ -794,3 +794,35 @@ def test_a_misdeclared_family_is_refused() -> None:
     assert study.rule_columns(frame, "ey[1][V=2]", estimate, "binomial")["bound_high"] == 1.0
     with pytest.raises(ValueError, match="misdeclared"):
         study.rule_columns(frame, "ey[1][V=2]", estimate, "gaussian")
+
+
+def test_a_binary_coefficient_passes_the_family_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Confirmation X1: a logit-MSM coefficient is a binomial-family level with no bounds."""
+    frame = l1.sample(2000, 20261113)
+    estimate = study.msm_properties.fit_msm(frame)["msm[a][V=2]"]
+    assert estimate.bounds is None and estimate.scale == "level"
+    columns = study.rule_columns(frame, "msm[a][V=2]", estimate, "binomial")
+    assert columns["interval_scale"] == "identity" and math.isinf(columns["df"])
+    # Mutation control: the check applied to coefficients too stops the declared run.
+    monkeypatch.setattr(study, "is_outcome_mean", lambda estimand: True)
+    with pytest.raises(ValueError, match="misdeclared"):
+        study.rule_columns(frame, "msm[a][V=2]", estimate, "binomial")
+
+
+def test_the_falsifier_hook_reads_unstamped_rows() -> None:
+    """The hook runs before the driver stamps failures: a cell short of fits must not stop it."""
+    cell = "ho_hurdle_ey1"
+    rows = pd.concat(
+        [
+            synthetic_rows(cell, family=study.HELDOUT, role="positive", requested=2000,
+                           failed=3, covers=1870),
+            synthetic_rows(f"{cell}__kish_control", family=study.CONTROL,
+                           role=study.DIAGNOSTIC, requested=2000, failed=3, covers=1900),
+        ],
+        ignore_index=True,
+    ).assign(failed_replicates=0)  # fmt: skip
+    with pytest.raises(ValueError, match="recorded failures"):
+        props.summarize_properties(rows)
+    table = props.falsifier_table(rows).set_index(["falsifier", "cell"])
+    assert bool(table.loc[("df", cell), "fired"])
+    assert props.stamped(rows)["failed_replicates"].unique().tolist() == [3]

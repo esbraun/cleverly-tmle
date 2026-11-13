@@ -343,7 +343,25 @@ def generate_property_artifacts(
         The rows, and :data:`FALSIFIERS_FILE` by name.
     """
     rows = _fit_all(n_jobs, budget, groups)
-    return rows, {FALSIFIERS_FILE: falsifiers(summarize_properties(rows))}
+    return rows, {FALSIFIERS_FILE: falsifier_table(rows)}
+
+
+def stamped(rows: pd.DataFrame) -> pd.DataFrame:
+    """``rows`` with each cell's ``failed_replicates`` set to its missing replicates.
+
+    The hook that writes :data:`FALSIFIERS_FILE` runs before the driver stamps the rows from
+    the failure records.  A failed key costs every cell it writes one replicate, so a cell's
+    gap is its failures, which is what the driver's stamp will record.
+    """
+    out = rows.copy()
+    sizes = out.groupby(["property", "cell"])["replicate"].transform("size")
+    out["failed_replicates"] = out["requested_replicates"] - sizes
+    return out
+
+
+def falsifier_table(rows: pd.DataFrame) -> pd.DataFrame:
+    """:func:`falsifiers` of the summary of the rows as fitted, stamped by :func:`stamped`."""
+    return falsifiers(summarize_properties(stamped(rows)))
 
 
 # ------------------------------------------------------------------------------ the summary

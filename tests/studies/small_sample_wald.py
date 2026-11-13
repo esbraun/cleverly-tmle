@@ -532,6 +532,12 @@ RULE_COLUMNS = ("nu", "kish", "bound_low", "bound_high", "rule_lower", "rule_upp
 EXTRA_PROPERTY_COLUMNS = (*SMALL_SAMPLE_COLUMNS, *RULE_COLUMNS)
 
 
+def is_outcome_mean(estimand: str) -> bool:
+    """Whether an estimand is an outcome mean or a difference of two, not a working-model
+    coefficient: only those carry bounds exactly when the outcome is binary."""
+    return not estimand.startswith("msm[")
+
+
 def rule_columns(frame: pd.DataFrame, estimand: str, estimate: Any, family: str) -> dict[str, Any]:
     """The study's columns of one estimate, and whether its rule interval covers ``truth``.
 
@@ -542,7 +548,8 @@ def rule_columns(frame: pd.DataFrame, estimand: str, estimate: Any, family: str)
     trigger = withheld_trigger(frame, estimand, estimate)
     limits = bounded(estimate)
     if (
-        estimate.scale in ("level", "difference")
+        is_outcome_mean(estimand)
+        and estimate.scale in ("level", "difference")
         and estimate.n_clusters >= estimate.n
         and (limits is None) != (family == "gaussian")
     ):
