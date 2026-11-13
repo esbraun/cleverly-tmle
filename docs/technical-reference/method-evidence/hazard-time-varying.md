@@ -161,8 +161,9 @@ Each figure is the exact-sample limit, and every positive arm's targeted fit ret
 on the exact sample to $10^{-7}$. With a hazard that omits $L$, every fitted continuation is a
 function of $(W, A)$, so the covariate term is zero before targeting and the `mechanism_correct`
 arms cannot see it. With the hazard correct, the hazard term is zero, so the
-`continuation_wrong` arm reaches the truth only through the covariate term. The
-`one_cause` plug-in limit is also computed from the law by an independent logistic fit on the
+`continuation_wrong` arm reaches the truth only through the covariate term.
+
+The `one_cause` plug-in limit is also computed from the law by an independent logistic fit on the
 at-risk cells, and with dropout that does not read $L_k$ it lies within one standard error of
 the truth, so the gap comes from the informative dropout. The `both_wrong` control and the
 untargeted necessity arm read one bias: with every factor a function of $(W, A)$, which the
