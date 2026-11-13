@@ -29,6 +29,7 @@ from tests.studies import _option_stopping_cells as grid
 from tests.studies import _option_stopping_laws as laws
 from tests.studies import canonical_option_stopping_point as study
 from tests.studies import canonical_tmle
+from tests.studies import mtp_study_tools as tools
 from tests.studies import option_stopping_pilot as pilot
 from tests.studies import option_stopping_point_properties as properties
 from tests.studies import repeated_sizing as sizing
@@ -38,6 +39,8 @@ MARGINS = study.STUDY.margins
 PRE_READ_COVERAGE = 0.937
 #: The pilot share under which a W cell is declared reported instead of gated (plan 5.1).
 PRE_READ_WITNESS = 0.7
+#: 24 calibration cells, 2 gated W cells and the N pair.
+GATING_COUNT = 28
 
 
 @pytest.fixture(scope="module")
@@ -197,7 +200,7 @@ class TestTheSizes:
         assert floor == 3_200
         assert product(floor) == pytest.approx(0.980, abs=1e-3)
 
-    def test_the_pooled_predictive_rule_does_not_raise_it(self, summary: pd.DataFrame) -> None:
+    def test_the_pooled_predictive_rule_sets_the_replications(self, summary: pd.DataFrame) -> None:
         ratios = {}
         for cell in calibration_cells():
             if cell.role != "positive":
@@ -306,3 +309,37 @@ class TestTheFits:
         fit = study.STREAMS["binary"].fits["ss_newton_step_bound"]
         assert fit.keywords["step_bound"] == study.STEP_BOUND
         assert fit.keywords["stopping"] == "sample_size"
+
+
+class TestTheRedCellReading:
+    """The declared red-cell reading, applied by code to the committed tables.
+
+    The gated cells are every ``interval_calibration`` cell (the positives and their derived
+    controls), the gated W cells and the N pair; the ``cleverly`` truth rows gate too.  Without
+    committed tables the result is empty, so the test bites at registration.
+    """
+
+    @staticmethod
+    def gating_cells() -> tuple[str, ...]:
+        roles = {(c.family, c.name): c.role for c in study.CELLS}
+        calibration = tuple(
+            f"interval_calibration/{cell}" for cell in study.PROPERTY_CELLS["interval_calibration"]
+        )
+        witnesses = tuple(
+            f"{family}/{name}"
+            for (family, name), role in roles.items()
+            if family == "residual_witness" and role == "positive"
+        )
+        necessity = tuple(
+            f"residual_necessity/{cell}" for cell in study.PROPERTY_CELLS["residual_necessity"]
+        )
+        return calibration + witnesses + necessity
+
+    def test_the_gating_cells_are_declared(self) -> None:
+        declared = {f"{f}/{c}" for f, cells in study.PROPERTY_CELLS.items() for c in cells}
+        cells = self.gating_cells()
+        assert set(cells) <= declared
+        assert len(cells) == len(set(cells)) == GATING_COUNT
+
+    def test_no_red_gating_row_lacks_an_admissible_reading(self) -> None:
+        assert tools.gating_findings(study.STUDY, self.gating_cells(), ("cleverly",)) == []

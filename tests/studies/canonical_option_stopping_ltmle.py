@@ -30,6 +30,11 @@ reported                    the plain interval of every K cell; the arm-1 risk a
 
 Every cell publishes its rule-met share and the distribution of its absolute residual.
 
+On L3 the per-node Newton walk lands at the default fit: its pilot residual is about
+7.6e-11 SE under either rule, and its coverage and SE ratio equal the relative fit's.  The L3
+cells therefore show no rule effect, and they license only the Newton walk under a rule, not
+a one-step end-of-study walk.  The design test pins that equality.
+
 **No comparator**, for the reason ``option-stopping-point`` gives.  **Publication policy** is
 ``reporting``; the red-cell reading is declared in
 ``tests/canonical/option_stopping_ltmle/regenerate.py`` before any run.  **Declared, not

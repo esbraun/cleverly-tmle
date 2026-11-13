@@ -21,6 +21,7 @@ import cleverly.fluctuation._score as score_module
 from tests.studies import _option_stopping_cells as grid
 from tests.studies import _option_stopping_laws as laws
 from tests.studies import canonical_option_stopping_ltmle as study
+from tests.studies import mtp_study_tools as tools
 from tests.studies import option_stopping_ltmle_properties as properties
 from tests.studies import option_stopping_pilot as pilot
 from tests.studies import repeated_sizing as sizing
@@ -29,6 +30,8 @@ MARGINS = study.STUDY.margins
 PRE_READ_COVERAGE = 0.937
 PRE_READ_WITNESS = 0.7
 N_CELL = "mechanism_correct_sv_one_step_K8"
+#: 12 calibration cells, the gated W cell and the N pair.
+GATING_COUNT = 15
 
 
 @pytest.fixture(scope="module")
@@ -135,6 +138,23 @@ class TestThePreRead:
     def test_the_gated_witness_reads_a_share_of_at_least_0_7(self, summary: pd.DataFrame) -> None:
         assert label_reading(summary, "l4_sv_one_step")["residual_share"] >= PRE_READ_WITNESS
 
+    def test_the_rule_cells_meet_their_rule(self, summary: pd.DataFrame) -> None:
+        rows = summary.loc[summary["study"] == "ltmle"]
+        assert (rows["rule_met_share"] >= 0.99).all()
+
+    @pytest.mark.parametrize("fit", ["sv_newton", "ss_newton"])
+    def test_the_l3_newton_walk_lands_at_the_relative_fit(
+        self, summary: pd.DataFrame, fit: str
+    ) -> None:
+        # The rule never binds on L3's per-node Newton walk, so its cells carry the relative
+        # fit's evidence and license only that walk (design review S2).
+        ruled = reading(summary, "L3", fit, laws.L3_CONTRAST)
+        relative = reading(summary, "L3", "rel_newton", laws.L3_CONTRAST)
+        assert ruled["coverage"] == relative["coverage"]
+        assert ruled["se_ratio"] == pytest.approx(relative["se_ratio"], rel=1e-9)
+        assert ruled["residual_share"] == 0.0
+        assert ruled["mean_abs_residual"] < 1e-9
+
 
 class TestTheSizes:
     def test_the_product_floor(self) -> None:
@@ -146,7 +166,7 @@ class TestTheSizes:
         assert floor == 2_800
         assert product(floor) == pytest.approx(0.969, abs=1e-3)
 
-    def test_the_pooled_predictive_rule_does_not_raise_it(self, summary: pd.DataFrame) -> None:
+    def test_the_pooled_predictive_rule_sets_the_replications(self, summary: pd.DataFrame) -> None:
         ratios = {
             f"{label}__widened": float(label_reading(summary, label)["se_ratio"])
             for label in study.CALIBRATION_LABELS
@@ -215,3 +235,37 @@ class TestTheFits:
         b1 = abs(plain[laws.L4_RISK].score) / plain[laws.L4_RISK].std_error
         assert b8 > 2.0 * b1
         assert scaled[laws.L4_RISK].rule_widened and plain[laws.L4_RISK].rule_widened
+
+
+class TestTheRedCellReading:
+    """The declared red-cell reading, applied by code to the committed tables.
+
+    The gated cells are every ``interval_calibration`` cell (the positives and their derived
+    controls), the gated W cells and the N pair; the ``cleverly`` truth rows gate too.  Without
+    committed tables the result is empty, so the test bites at registration.
+    """
+
+    @staticmethod
+    def gating_cells() -> tuple[str, ...]:
+        roles = {(c.family, c.name): c.role for c in study.CELLS}
+        calibration = tuple(
+            f"interval_calibration/{cell}" for cell in study.PROPERTY_CELLS["interval_calibration"]
+        )
+        witnesses = tuple(
+            f"{family}/{name}"
+            for (family, name), role in roles.items()
+            if family == "residual_witness" and role == "positive"
+        )
+        necessity = tuple(
+            f"residual_necessity/{cell}" for cell in study.PROPERTY_CELLS["residual_necessity"]
+        )
+        return calibration + witnesses + necessity
+
+    def test_the_gating_cells_are_declared(self) -> None:
+        declared = {f"{f}/{c}" for f, cells in study.PROPERTY_CELLS.items() for c in cells}
+        cells = self.gating_cells()
+        assert set(cells) <= declared
+        assert len(cells) == len(set(cells)) == GATING_COUNT
+
+    def test_no_red_gating_row_lacks_an_admissible_reading(self) -> None:
+        assert tools.gating_findings(study.STUDY, self.gating_cells(), ("cleverly",)) == []

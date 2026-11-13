@@ -13,8 +13,12 @@ Sizes. Every property cell runs 6,800 replications: plan section 5.0's product f
 and the arm-pooled predictive rule at the 2,000-draw pilot raises it, because the cells of one
 law read the same draws and the pilot holds one SE-ratio reading per law. The pilot's four gated
 calibration cells read widened coverage 0.9445 (L3) to 0.9530 (L4 ``scaled_var``). The primary
-phase runs 2,800 replications. Measured on the 4-vCPU cloud machine: 6.4 CPU-hours of fits,
-about 13 with the harness.
+phase runs 2,800 replications. Measured on the 4-vCPU cloud machine: about 7.3 CPU-hours of
+fits (6.4 for the property cells, 0.9 for the primary phase), about 15 with the harness.
+
+On L3 the per-node Newton walk never binds: its pilot residual is about 7.6e-11 SE under either
+rule, identical in coverage and SE ratio to the relative fit. The L3 cells license only that
+Newton walk, not a one-step end-of-study walk under a rule.
 
 Red-cell reading (declared before any run; Fix-8 plan section 5.0 and ``guide/studies.md``).
 
@@ -32,6 +36,11 @@ Red-cell reading (declared before any run; Fix-8 plan section 5.0 and ``guide/st
   A red N positive is a defect suspect.
 * A red W cell (L4 ``scaled_var``, share of draws whose residual is at least 0.01 SE, lower
   limit below 0.5) is a red of the study's witness; the K cells keep their own verdicts.
+* A red primary row (a ``cleverly`` truth row) reads as a red calibration positive does: finite
+  sample only under the same three conditions, with an owner row, and otherwise a defect suspect.
+* No red control, W cell or N cell takes an owner row.
+  ``tests/unit/test_option_stopping_ltmle_design.py`` applies this reading through
+  ``tests.studies.mtp_study_tools.gating_findings`` to the gated cells and the truth rows.
 * Every ``diagnostic`` row (plain intervals, the arm-1 risk, relative fits, the N fit's
   contrast, the ``mechanism_correct`` fit at threshold times 1, rule-met shares and residual
   distributions) is published and turns no cell red.

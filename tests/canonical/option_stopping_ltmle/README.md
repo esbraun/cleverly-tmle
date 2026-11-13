@@ -4,6 +4,11 @@ This study measures the interval of a fit under `stopping="scaled_var"` or
 `stopping="sample_size"`, which adds the remaining score to its half-width (Fix-8 plan
 sections 2.1 and 5). It has no comparator.
 
+On L3 the per-node Newton walk lands at the default fit: its pilot residual is about 7.6e-11 SE
+under either rule, and its coverage and SE ratio equal the relative fit's. The L3 cells therefore
+show no rule effect, and they license only the Newton walk under a rule, not a one-step
+end-of-study walk.
+
 | file | role |
 | --- | --- |
 | `tests/studies/canonical_option_stopping_ltmle.py` | The record, the streams, the cells and the primary phase. |
