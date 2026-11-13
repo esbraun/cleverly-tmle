@@ -37,6 +37,7 @@ __all__ = [
     "PooledCensoring",
     "check_hazard_pooling",
     "fit_pooled_censoring",
+    "hazard_pooled_mtp_refusal",
     "node_time",
     "refuse_pooled_designs",
     "stacked_design",
@@ -98,15 +99,29 @@ def refuse_pooled_designs(data: LongitudinalData, mtp: Sequence[str] = ()) -> No
             alternative="Use hazard_pooling='node'.",
         )
     if mtp:
-        raise CapabilityError(
-            refusal=Refusal(
-                RefusalReason.API_REDIRECTION,
-                f"hazard_pooling='pooled' cannot take the modified treatment policy {mtp[0]!r}. "
-                "The pooled hazard fit predicts every regimen at its plan's treatment values "
-                "and builds no design at a shifted dose.",
-                "Set hazard_pooling='node', which predicts each shifted dose from its own design.",
-            )
-        )
+        raise CapabilityError.from_refusal(hazard_pooled_mtp_refusal(mtp[0]))
+
+
+def hazard_pooled_mtp_refusal(label: str) -> Refusal:
+    """The refusal of pooled hazards beside a modified treatment policy regimen (H24).
+
+    Parameters
+    ----------
+    label : str
+        The policy regimen's label.
+
+    Returns
+    -------
+    Refusal
+        An ``api_redirection``.
+    """
+    return Refusal(
+        RefusalReason.API_REDIRECTION,
+        f"hazard_pooling='pooled' cannot take the modified treatment policy {label!r}. "
+        "The pooled hazard fit predicts every regimen at its plan's treatment values "
+        "and builds no design at a shifted dose.",
+        "Set hazard_pooling='node', which predicts each shifted dose from its own design.",
+    )
 
 
 def node_time(data: LongitudinalData, time: int) -> float:

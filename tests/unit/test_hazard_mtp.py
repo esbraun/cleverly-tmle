@@ -58,6 +58,8 @@ HAZARD = (
 )
 #: The two-cause split ``(P(cause 1), P(cause 2))`` at risk, by ``(w + 2a + f + node) % 3``.
 PAIRS = ((0.25, 0.25), (0.50, 0.25), (0.25, 0.50))
+#: The split at a full cell, where every unit at risk has an event, by the same index.
+FULL_PAIRS = ((0.50, 0.50), (0.75, 0.25), (0.25, 0.75))
 
 
 @dataclass(frozen=True)
@@ -78,6 +80,9 @@ class GridLaw:
     empty : Callable or None
         ``(node, w, f, a) -> bool``: the cells at which cause 2 never occurs.  Its mass
         moves to cause 1.
+    full : Callable or None
+        ``(node, w, f, a) -> bool``: the cells at which every unit at risk has an event,
+        split over the two causes by :data:`FULL_PAIRS`.
     """
 
     n_times: int = 2
@@ -85,6 +90,7 @@ class GridLaw:
     causes: int = 1
     censored: bool = True
     empty: Callable[[int, int, int, int], bool] | None = None
+    full: Callable[[int, int, int, int], bool] | None = None
     support: tuple[tuple[Any, ...], ...] = field(init=False)
     counts: np.ndarray = field(init=False)
 
@@ -115,6 +121,8 @@ class GridLaw:
         """The cause-specific hazards at node ``k`` given at risk."""
         if self.causes == 1:
             return (min(HAZARD[node - 1][w][a] + 0.25 * f, 0.75),)
+        if self.full is not None and self.full(node, w, f, a):
+            return FULL_PAIRS[(w + 2 * a + f + node) % 3]
         first, second = PAIRS[(w + 2 * a + f + node) % 3]
         if self.empty is not None and self.empty(node, w, f, a):
             return (first + second, 0.0)
@@ -146,8 +154,15 @@ class GridLaw:
 
     def frame(self) -> pd.DataFrame:
         """The exact sample, one row per unit."""
-        cells = np.repeat(np.arange(len(self.support)), self.counts)
+        return self._frame(np.repeat(np.arange(len(self.support)), self.counts))
 
+    def weighted_frame(self) -> pd.DataFrame:
+        """The law as data: one row per support point, with its count in the column ``wt``."""
+        frame = self._frame(np.arange(len(self.support)))
+        frame["wt"] = self.counts.astype(float)
+        return frame
+
+    def _frame(self, cells: np.ndarray) -> pd.DataFrame:
         def column(i: int) -> np.ndarray:
             raw = [np.nan if point[i] is None else float(point[i]) for point in self.support]
             return np.array(raw)[cells]
@@ -171,9 +186,12 @@ class GridLaw:
         out: dict[str, Any] = {
             "baseline": ["W"],
             "censoring": [f"C{k}" for k in nodes],
-            "treatment": [["F", "A"]] if reading == "mixed" else "A",
+            "treatment": [["F", "A"]] if reading in ("mixed", "doses") else "A",
         }
-        if reading != "categorical":
+        if reading == "doses":
+            # The flag read as a second dose: a vector with no categorical component.
+            out["continuous_treatment"] = ["F", "A"]
+        elif reading != "categorical":
             out["continuous_treatment"] = ["A"]
         if self.causes == 2:
             out["outcome"] = {
@@ -237,7 +255,7 @@ def _pieces_up() -> tuple[Piece, ...]:
 
 def policy(reading: str, kind: str) -> Any:
     """The policy ``kind`` ("up", "random" or "natural") on a node of ``reading``."""
-    if reading == "mixed":
+    if reading in ("mixed", "doses"):
         if kind == "natural":
             return JointPolicy(kind, components={}, policy_kind="known")
         return JointPolicy(kind, components={"A": policy("continuous", kind)}, policy_kind="known")
@@ -272,9 +290,15 @@ def fit(
     *,
     learner: Any = None,
     targeting: str = "one_step",
+    frame: pd.DataFrame | None = None,
+    keywords: dict[str, Any] | None = None,
     **settings: Any,
 ) -> Any:
-    """A hazard fit of ``regimens`` on the exact sample of ``law``."""
+    """A hazard fit of ``regimens`` on the exact sample of ``law``.
+
+    ``frame`` replaces the sample, and ``keywords`` adds ``fit`` keywords such as
+    ``weights=`` or ``id=``.
+    """
     with warnings.catch_warnings(), exact_bins():
         warnings.simplefilter("ignore")
         return LTMLE(
@@ -289,7 +313,11 @@ def fit(
             treatment_learner=CellProbabilities(),
             censoring_learner=CellMeans(),
             **settings,
-        ).fit(law.frame(), **law.columns(reading))
+        ).fit(
+            law.frame() if frame is None else frame,
+            **law.columns(reading),
+            **(keywords or {}),
+        )
 
 
 def risk(result: Any, label: str, horizon: int, cause: str | None = None) -> float:
@@ -349,7 +377,9 @@ CASES = [
 
 
 def _law(reading: str, **settings: Any) -> GridLaw:
-    return GridLaw(flag=True, n_times=1, **settings) if reading == "mixed" else GridLaw(**settings)
+    if reading in ("mixed", "doses"):
+        return GridLaw(flag=True, n_times=1, **settings)
+    return GridLaw(**settings)
 
 
 @pytest.mark.parametrize("targeting", ["one_step", "iterative"])
@@ -370,6 +400,103 @@ def test_a_policy_on_a_wrong_hazard_is_exact(
         assert risk(result, kind, t) == pytest.approx(truth, abs=EXACT)
         assert abs(initial_level(result, kind, t) - truth) > MISSED
         assert result.fits[f"{kind} @ t={t}"].hazard.converged
+
+
+@pytest.mark.parametrize("targeting", ["one_step", "iterative"])
+@pytest.mark.parametrize("ratio", ["density", "classifier"])
+def test_a_vector_of_doses_is_exact(ratio: str, targeting: str) -> None:
+    """A vector node with no categorical component keys every slot to one cell (M1).
+
+    The flag is read as a second dose, so the node has no categorical component and its held
+    cell is (node, cause).  The hazard fit returns the truth and the iterated-mean fit of the
+    same plan; before the fix the slot keys raised on an empty component list.
+    """
+    law = _law("doses")
+    with captured("mtp_slots") as calls:
+        result = fit(law, {"up": policy("doses", "up")}, "doses", targeting=targeting, ratio=ratio)
+    slots = next(slot for slot in calls if slot is not None)
+    assert slots.n_keys == 1 and not slots.keys.any()
+    truth = law.truth(UP, 1)
+    assert risk(result, "up", 1) == pytest.approx(truth, abs=EXACT)
+    assert abs(initial_level(result, "up", 1) - truth) > MISSED
+    iterated = fit(
+        law,
+        {"up": policy("doses", "up")},
+        "doses",
+        ratio=ratio,
+        survival_model="iterated_mean",
+        targeting="iterative",
+        pseudo_learner=CellMeans(),
+    )
+    assert risk(result, "up", 1) == pytest.approx(risk(iterated, "up", 1), abs=EXACT)
+
+
+def _set_flag(a: Any, h: Any) -> Any:
+    return np.ones(len(a))
+
+
+#: A mixed policy that moves the categorical component: set ``F = 1`` and raise the dose.
+FLAG_UP = JointPolicy(
+    "flag up",
+    components={
+        "F": ModifiedPolicy("flag", apply=_set_flag, policy_kind="known"),
+        "A": Shift(1.0, cap=2.0),
+    },
+    policy_kind="known",
+)
+
+
+def _flag_up_truth(law: GridLaw, horizon: int, cause: int = 1) -> float:
+    """``E F_j(t | F = 1, d(A), W)`` over the law of ``(W, F, A)``."""
+    psi = 0.0
+    for w in (0, 1):
+        for f in (0, 1):
+            pf = 0.25 if f == w else 0.75
+            for a in range(3):
+                mass = 0.5 * pf * DOSE[(w + f) % 2, a]
+                psi += mass * law.incidence(w, 1, up(a), horizon, cause)
+    return psi
+
+
+@pytest.mark.parametrize("targeting", ["one_step", "iterative"])
+@pytest.mark.parametrize("ratio", ["density", "classifier"])
+def test_a_mixed_policy_that_moves_the_flag_is_exact(ratio: str, targeting: str) -> None:
+    """Setting ``F`` moves each ``F = 0`` unit's shifted slot to the other categorical cell."""
+    law = _law("mixed")
+    with captured("mtp_slots") as calls:
+        result = fit(law, {"flag up": FLAG_UP}, "mixed", targeting=targeting, ratio=ratio)
+    slots = next(slot for slot in calls if slot is not None)
+    unflagged = law.frame()["F"].to_numpy() == 0.0
+    assert slots.n_keys == 2
+    assert np.all(slots.keys[unflagged, 1] != slots.keys[unflagged, 0])
+    assert np.all(slots.keys[~unflagged, 1] == slots.keys[~unflagged, 0])
+    truth = _flag_up_truth(law, 1)
+    assert risk(result, "flag up", 1) == pytest.approx(truth, abs=EXACT)
+    assert abs(initial_level(result, "flag up", 1) - truth) > MISSED
+
+
+@pytest.mark.parametrize("targeting", ["one_step", "iterative"])
+@pytest.mark.parametrize(("reading", "kind"), [("categorical", "up"), ("continuous", "random")])
+def test_a_weighted_law_as_data_is_exact(reading: str, kind: str, targeting: str) -> None:
+    """One row per support point, weighted by its count: the walk still returns the truth.
+
+    The observation weights are not one, so ``omega = w r / G`` carries them.
+    """
+    law = _law(reading)
+    frame = law.weighted_frame()
+    assert frame["wt"].nunique() > 1
+    result = fit(
+        law,
+        {kind: policy(reading, kind)},
+        reading,
+        targeting=targeting,
+        frame=frame,
+        keywords={"weights": "wt"},
+    )
+    for t in range(1, law.n_times + 1):
+        truth = law.truth(BRANCHES[kind], t)
+        assert risk(result, kind, t) == pytest.approx(truth, abs=EXACT)
+        assert abs(initial_level(result, kind, t) - truth) > MISSED
 
 
 # ------------------------------------------------------------------ the weight
@@ -466,17 +593,20 @@ def test_the_weight_is_the_iterated_mean_clever_weight(reading: str, ratio: str)
     assert np.ptp(inputs.inverse_observed()[inputs.at_risk]) > 0.1
 
 
-def test_the_loss_is_weighted_by_omega() -> None:
+@pytest.mark.parametrize("weighted", [False, True])
+def test_the_loss_is_weighted_by_omega(weighted: bool) -> None:
     """The walk loss's derivative along each covariate is minus ``n`` times its weighted score.
 
     The weighted submodel puts :math:`\\omega` in the loss, so
     :math:`d/d\\epsilon\\, L(\\eta + \\epsilon \\kappa) = -\\sum_i \\sum_k \\omega_{ik} \\kappa
     (dN - \\lambda)`.  The mutation weights the loss by the observation weight alone, and the
-    identity fails by more than the derivative's error.
+    identity fails by more than the derivative's error.  On the law as weighted data a
+    second mutation drops ``w`` from :math:`\\omega`, and the identity fails too.
     """
     law = _law("continuous")
+    data = {"frame": law.weighted_frame(), "keywords": {"weights": "wt"}} if weighted else {}
     with captured("mtp_inputs") as calls, captured("fit_hazards") as initial:
-        fit(law, {"up": policy("continuous", "up")}, "continuous")
+        fit(law, {"up": policy("continuous", "up")}, "continuous", **data)
     (inputs,) = calls
     empty, full = inputs.held_cells()
     state = hazard_module.HazardState.from_hazards(
@@ -503,6 +633,11 @@ def test_the_loss_is_weighted_by_omega() -> None:
     unweighted = replace(inputs, loss_weight=np.repeat(inputs.weights[:, None], 2, axis=1))
     gap = np.abs(derivative(unweighted) - expected)
     assert np.max(gap) > 1e-2 * np.max(np.abs(expected))
+    if weighted:
+        assert np.ptp(inputs.weights) > 0.0
+        no_w = replace(inputs, loss_weight=inputs.loss_weight / inputs.weights[:, None])
+        gap = np.abs(derivative(no_w) - expected)
+        assert np.max(gap) > 1e-2 * np.max(np.abs(expected))
 
 
 # ------------------------------------------------------------------ the slots
@@ -710,6 +845,44 @@ def test_a_held_mixed_cell_holds_the_slots_of_its_categorical_values() -> None:
     for cause, code in (("relapse", 1), ("death", 2)):
         truth = law.truth(UP, 1, code)
         assert risk(result, "up", 1, cause) == pytest.approx(truth, abs=EXACT)
+
+
+def test_a_full_dose_cell_holds_every_slot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every follower at node 2 has an event: every slot's all-cause hazard there stays one.
+
+    Without the hold the clipped logits leave the no-event probability positive and a score
+    the walk cannot solve: it stops at 1,500 steps with a relative score above ``1e-5``,
+    where the held walk converges in under 200 steps.
+    """
+    law = GridLaw(causes=2, full=lambda node, w, f, a: node == 2)
+    with captured("_target") as calls, captured("mtp_inputs") as inputs:
+        result = fit(law, {"up": policy("continuous", "up")}, "continuous")
+    np.testing.assert_array_equal(inputs[0].full, [[False], [True]])
+    for state in _final_states(calls):
+        np.testing.assert_array_equal(state.hazards[:, 1].sum(axis=-1), 1.0)
+    record = result.fits["up, death @ t=2"].hazard
+    assert record.converged and record.n_iter < 200
+    for cause, code in (("relapse", 1), ("death", 2)):
+        truth = law.truth(UP, 2, code)
+        assert risk(result, "up", 2, cause) == pytest.approx(truth, abs=EXACT)
+
+    original = hazard_module._held_cells
+
+    def unheld(*args: Any, **kwargs: Any) -> Any:
+        empty, full, excluded = original(*args, **kwargs)
+        return empty, np.zeros_like(full), excluded
+
+    walk = hazard_module.walk_curve
+
+    def capped(*args: Any, **kwargs: Any) -> Any:
+        return walk(*args, **{**kwargs, "max_steps": 1_500})
+
+    monkeypatch.setattr(hazard_module, "_held_cells", unheld)
+    monkeypatch.setattr(hazard_module, "walk_curve", capped)
+    mutated = fit(law, {"up": policy("continuous", "up")}, "continuous")
+    record = mutated.fits["up, death @ t=2"].hazard
+    assert not record.converged
+    assert record.relative_score > 1e-5
 
 
 # ------------------------------------------------------------------ cross-fitting

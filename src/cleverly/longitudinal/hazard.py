@@ -108,7 +108,7 @@ from ..msm import ProjectionFit, solve_projection
 from .data import LongitudinalData
 from .msm import MSMRegimenFit, RegimenMSM
 from .pooled_hazards import refuse_pooled_designs, stacked_design
-from .regimen import DynamicRegimen, Plan, declares_tuned
+from .regimen import Plan, RegimenSpec, declares_tuned
 from .sequential import NodeBound, RegimenFit
 
 __all__ = [
@@ -1430,10 +1430,17 @@ def mtp_slots(data: LongitudinalData, plan: Plan) -> MTPSlots | None:
         values = (observed, *(np.asarray(block, dtype=float) for block in targets))
         # The categorical components of each slot, which key its held cell.
         labelled = [index for index, levels in enumerate(data.component_levels[0]) if levels]
-        stacked = np.stack([block[:, labelled] for block in values], axis=1)  # (n, U, c)
-        codes, inverse = np.unique(stacked.reshape(-1, len(labelled)), axis=0, return_inverse=True)
-        keys = np.asarray(inverse, dtype=np.int64).reshape(data.n, len(values))
-        n_keys = int(codes.shape[0])
+        if labelled:
+            stacked = np.stack([block[:, labelled] for block in values], axis=1)  # (n, U, c)
+            codes, inverse = np.unique(
+                stacked.reshape(-1, len(labelled)), axis=0, return_inverse=True
+            )
+            keys = np.asarray(inverse, dtype=np.int64).reshape(data.n, len(values))
+            n_keys = int(codes.shape[0])
+        else:
+            # A vector of doses alone: its cell is (node, cause), as at a continuous node.
+            keys = np.zeros((data.n, len(values)), dtype=np.int64)
+            n_keys = 1
     probabilities = np.asarray(plan.policy_at(1), dtype=float)
     return MTPSlots(plan.label, kind, values, probabilities, keys, n_keys)
 
@@ -1530,20 +1537,28 @@ def mtp_inputs(
     )
     weights = np.asarray(data.weights, dtype=float)
     loss_weight = weights[:, None] * ratio
-    if slots is None:
-        base = hazard_inputs(data, [plan], level_cumulative, alpha=alpha, node_bounds=node_bounds)
-        inverse = np.repeat(ratio[:, :, None], base.n_levels, axis=2)
-        return replace(base, inverse=inverse, loss_weight=loss_weight)
     at_risk, events = event_indicators(data)
-    empty, full, excluded = _held_cells(
-        at_risk, events, weights, slots.keys[:, 0], slots.n_keys, node_bounds
-    )
-    q = np.concatenate([np.zeros((data.n, 1)), slots.probabilities], axis=1)[None]
+    if slots is None:
+        # The slots are the levels: the observed level keys each unit's cell, and the
+        # policy's carry over the levels is ``q``.
+        n_slots = len(level_cumulative)
+        observed = np.asarray(
+            np.nan_to_num(np.asarray(data.node_values(1), dtype=float)[:, 0], nan=0.0),
+            dtype=np.int64,
+        )
+        cell_keys, n_cells, cells = observed, n_slots, None
+        q = regimen_weights(data, [plan])
+    else:
+        n_slots = slots.n_slots
+        observed = np.zeros(data.n, dtype=np.int64)
+        cell_keys, n_cells, cells = slots.keys[:, 0], slots.n_keys, slots.keys
+        q = np.concatenate([np.zeros((data.n, 1)), slots.probabilities], axis=1)[None]
+    empty, full, excluded = _held_cells(at_risk, events, weights, cell_keys, n_cells, node_bounds)
     return HazardInputs(
         at_risk=at_risk,
         events=events,
-        observed=np.zeros(data.n, dtype=np.int64),
-        inverse=np.repeat(ratio[:, :, None], slots.n_slots, axis=2),
+        observed=observed,
+        inverse=np.repeat(ratio[:, :, None], n_slots, axis=2),
         q=q,
         weights=weights,
         alpha=alpha,
@@ -1552,7 +1567,7 @@ def mtp_inputs(
         node_bounds=node_bounds,
         excluded=excluded,
         loss_weight=loss_weight,
-        cells=slots.keys,
+        cells=cells,
     )
 
 
@@ -3276,7 +3291,7 @@ def refuse_hazard_settings(
 
 def refuse_hazard_design(
     data: LongitudinalData,
-    regimens: Sequence[object],
+    regimens: Sequence[RegimenSpec],
     *,
     survival_model: str,
     isotonic: bool,
@@ -3351,7 +3366,7 @@ def refuse_hazard_design(
         )
     for regimen in regimens:
         label = getattr(regimen, "label", "")
-        if isinstance(regimen, DynamicRegimen) and declares_tuned([regimen]):
+        if declares_tuned([regimen]):
             raise CapabilityError.from_refusal(hazard_tuned_cap_refusal(label))
         if msm and bool(getattr(regimen, "has_mtp", False)):
             raise CapabilityError.from_refusal(hazard_msm_mtp_refusal(label))
