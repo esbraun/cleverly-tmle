@@ -20,8 +20,10 @@ primary publishes MOVER's interval of ``strata-boundary-mean``'s ``ate[V=2]`` at
 withheld interval as the point, a miss); the shipped interval of the same fits is in
 ``primary-shipped.csv``, which no verdict reads.
 
-Declaration. Every number is the design test's (``tests/unit/test_asymmetric_wald_design.py``):
-12 gated cells, each R = 4,000; the coverage legs read the first 2,000 replicates by index, and
+Declaration (plan rev 6, sections 9.5 to 9.8, after review ``pr3-review.md`` and its
+remediation). Every number is the design test's (``tests/unit/test_asymmetric_wald_design.py``):
+12 gated cells (nine held-out, three owner), 16 reported cells, 37 control rows and two
+witnesses, each cell R = 4,000; the coverage legs read the first 2,000 replicates by index, and
 the tail clause (threshold 0.040), the C3 width clause (threshold 1.08), the witnesses and the
 paired gains read all 4,000. At perfect calibration the 12 cells and the three paired gains pass
 together with probability at least 0.9720; with the owner cells at their exploratory readings
