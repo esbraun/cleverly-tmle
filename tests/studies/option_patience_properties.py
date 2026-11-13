@@ -24,7 +24,7 @@ reading       the row
   bias rule by role (:func:`~tests.studies.evidence.property_verdicts.bias_role_verdicts`):
   a positive's 99% bias interval inside 0.25 of its own SD, a control's beyond it.
 - ``patience_witness`` and ``late_confounder_stop`` read the exact interval of their share
-  (:func:`coverage_limit_verdicts`): the lower limit at least
+  (:func:`~tests.studies.evidence.property_verdicts.coverage_limit_verdicts`): the lower limit at least
   :data:`~tests.studies.canonical_option_patience.WITNESS_SHARE`.
 - ``greedy_late_confounder`` reads the 99% Student interval of the mean paired difference
   against 0.25 SD of the greedy whole-path estimates on the same draws (:data:`PAIRED_MARGIN`,
@@ -64,7 +64,10 @@ from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     bias_role_rule,
     bias_role_verdicts,
+    coverage_limit_rule,
+    coverage_limit_verdicts,
     finish,
+    reported_verdicts,
 )
 from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.schema import reported_inference
@@ -403,50 +406,6 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
 # ---------------------------------------------------------------------------- verdicts
 
 
-def coverage_limit_verdicts(summary: pd.DataFrame, *, family: str, floor: float) -> None:
-    """Read a family's exact ``covered`` intervals: a positive passes at a lower limit >= floor.
-
-    The rows' ``covered`` column holds the event the family declares (the reading), so the
-    interval is that share's exact Clopper-Pearson interval.
-
-    Parameters
-    ----------
-    summary : pandas.DataFrame
-        The cell summary; this writes ``passed`` on the family's rows.
-    family : str
-        The property family.
-    floor : float
-        The least lower limit of a positive row.
-
-    Raises
-    ------
-    ValueError
-        When a row of the family is not a positive.
-    """
-    mask = summary["property"] == family
-    for index in summary.index[mask]:
-        if str(summary.loc[index, "role"]) != "positive":
-            raise ValueError(f"{family} has a {summary.loc[index, 'role']!r} row")
-        coverage = summary_interval(summary, index, "coverage")
-        summary.loc[index, "passed"] = bool(coverage.low >= floor)
-
-
-def coverage_limit_rule(family: str, *, floor: float) -> pf.FamilyRule:
-    """The rule of :func:`coverage_limit_verdicts`: S2 on the lower limit of each positive."""
-    return pf.FamilyRule(
-        families=frozenset({family}),
-        shared="coverage_limit_verdicts",
-        clauses=(
-            pf.proportion_clause(
-                "share floor",
-                statistic="S2",
-                judge=pf.floor_judge(lambda ctx: floor),
-                applies=pf.roles("positive"),
-            ),
-        ),
-    )
-
-
 def _cell_rows(rows: pd.DataFrame, family: str, cell: str) -> pd.DataFrame:
     return rows.loc[(rows["property"] == family) & (rows["cell"] == cell)]
 
@@ -517,16 +476,6 @@ def conditional_columns(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
         summary.loc[index, "conditional_bias_over_sd"] = bias / whole_sd
 
 
-def reported_verdicts(summary: pd.DataFrame) -> None:
-    """Publish the reported families' rows, which state no verdict."""
-    mask = summary["property"].isin(REPORTED_FAMILIES)
-    roles = set(summary.loc[mask, "role"].astype(str))
-    if roles - {DIAGNOSTIC_ROLE}:
-        raise ValueError(f"a reported family publishes roles {sorted(roles)}")
-    summary.loc[mask, "passed"] = True
-    summary.loc[mask, "property_passed"] = True
-
-
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The bias, share and paired verdicts; every reported family published."""
     summary, rates = apply_shared_verdicts(rows, STUDY, extra_columns=EXTRA_COLUMNS, rate_labels=())
@@ -536,14 +485,17 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     paired_columns(summary, rows)
     paired_verdicts(summary, rows)
     conditional_columns(summary, rows)
-    reported_verdicts(summary)
+    reported_verdicts(summary, families=REPORTED_FAMILIES)
     return finish(summary, rates)
 
 
 #: The failure accounting's declared rules.
 PROPERTY_RULES = (
     bias_role_rule(BIAS_FAMILIES),
-    *(coverage_limit_rule(family, floor=study.WITNESS_SHARE) for family in SHARE_FAMILIES),
+    *(
+        coverage_limit_rule(family, floor=study.WITNESS_SHARE, ceiling=None)
+        for family in SHARE_FAMILIES
+    ),
     paired_rule(),
 )
 
