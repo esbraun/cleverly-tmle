@@ -157,9 +157,9 @@ HAZARD_MSM_ISOTONIC_REFUSAL = Refusal(
     "msm= with isotonic=True is not built. The isotonic projection moves the levels of one "
     "curve and leaves their influence curves as they were, and a working model fitted to "
     "projected levels has no influence curve this package derives.",
-    "Fit msm= with isotonic=False (survival_model='iterated_mean'), or, where the design "
-    "admits a hazard fit, with survival_model='hazard' and targeting='one_step', whose curves "
-    "are monotone.",
+    "Set isotonic=False. survival_model='iterated_mean' takes msm= on every design, and "
+    "survival_model='hazard' with targeting='one_step' takes it where the design admits a "
+    "hazard fit and projects monotone curves.",
 )
 
 #: The refusal of ``msm=`` beside the per-horizon hazard algorithm (H14).
@@ -718,7 +718,7 @@ class HazardFit:
         the coefficients projected from the initial hazards.
     sigma : FloatArray or None
         The fixed diagonal metric of a one-step walk.  A working-model walk uses the full
-        covariance of its targets' curves, whose diagonal this is.
+        covariance of its targets' curves, and this is that covariance's floored diagonal.
     norm_trace : tuple of float
         The accepted :math:`\\Sigma`-norm of the score of a one-step walk.
     walk_loss_trace : tuple of float
@@ -1941,9 +1941,12 @@ def _full_metric(curves: FloatArray, sigma: FloatArray) -> FloatArray:
     A working model's coefficient scores are strongly correlated (an intercept, a dose and a
     trend share most of their cells), and a diagonal metric then walks a narrow valley in
     thousands of steps.  The full covariance whitens the scores, so every direction of the
-    score decays at about the same rate along the submodel.  Any fixed positive definite
-    metric leaves the solutions of the score equations unchanged (Rytgaard and van der Laan
-    2024, Remark 2).
+    score decays at about the same rate along the submodel.  The metric is fixed at the
+    initial fit, as Rytgaard and van der Laan (2024), Remark 2, fix their diagonal one.  It
+    changes the direction of each step and not where the walk may stop: a step is accepted
+    only when the metric norm of the score does not rise, the walk stops on the relative
+    score, which does not read the metric, and the norm of a positive definite metric is
+    zero only at a zero score.
     """
     flat = curves.reshape(-1, curves.shape[-1])
     metric = flat @ flat.T / flat.shape[1]
@@ -2426,7 +2429,6 @@ def target_hazard_msm(
     alpha: float,
     tol: float,
     step_size: float,
-    node_bounds: HazardBounds | None = None,
     stopping: str = "relative",
     stop: StopContext | None = None,
     iterate: str = "last",
@@ -2471,8 +2473,6 @@ def target_hazard_msm(
         Relative-score tolerance.
     step_size : float
         The first step of the walk.
-    node_bounds : HazardBounds or None
-        The bounded nodes, from :func:`hazard_bounds`.
     stopping : {"relative", "scaled_var", "sample_size"}
         The stopping rule.
     stop : StopContext or None
@@ -2489,10 +2489,9 @@ def target_hazard_msm(
         horizon, for the diagnostics, and one
         :class:`~cleverly.longitudinal.msm.MSMRegimenFit` per cause.
     """
-    inputs = hazard_inputs(data, plans, cumulative, alpha=alpha, node_bounds=node_bounds)
-    start = HazardState.from_hazards(
-        initial.hazards, inputs.bounds, inputs.empty, inputs.full, node_bounds
-    )
+    # No node is bounded: ``node_bounds=`` beside ``msm=`` is refused at construction (R-i3).
+    inputs = hazard_inputs(data, plans, cumulative, alpha=alpha)
+    start = HazardState.from_hazards(initial.hazards, inputs.bounds, inputs.empty, inputs.full)
     causes: tuple[str | None, ...] = data.cause_labels or (None,)
     horizons = tuple(horizons)
     combination = MSMTargets.of(model, [plan.label for plan in plans], horizons)
@@ -2511,9 +2510,7 @@ def target_hazard_msm(
         combination=combination,
     )
     reports = dict.fromkeys(horizons, shared)
-    if inputs.node_bounds is not None:
-        reports = _bounded_records(reports, initial.hazards, inputs, data)
-    state, record = reports[horizons[0]]
+    state, record = shared
     fits = _cell_fits(data, plans, inputs, reports, horizons, observed_cumulative)
     terms, _ = _score_terms(state, inputs, horizons)
     weights = np.asarray(inputs.weights, dtype=float)

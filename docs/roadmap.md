@@ -814,7 +814,8 @@ that node.
 node, with baseline covariates only. The
 [hazard and isotonic survival refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
 list each design it refuses. Each refusal names `survival_model="iterated_mean"` with
-`isotonic=True` as the working alternative. Part (d) is shipped:
+`isotonic=True` as the working alternative. The code of part (d) is in, with its rows labelled
+`experimental` until its registered study passes:
 [a working model over the hazard curve](technical-reference/longitudinal-tmle.md#a-working-model-over-the-hazard-curve).
 
 | part | what to add | published source |

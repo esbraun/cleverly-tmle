@@ -127,9 +127,10 @@ def test_h5_a_working_model_with_the_isotonic_projection_is_refused(survival_mod
     message = (
         "msm= with isotonic=True is not built. The isotonic projection moves the levels of "
         "one curve and leaves their influence curves as they were, and a working model fitted "
-        "to projected levels has no influence curve this package derives. Fit msm= with "
-        "isotonic=False (survival_model='iterated_mean'), or, where the design admits a hazard "
-        "fit, with survival_model='hazard' and targeting='one_step', whose curves are monotone."
+        "to projected levels has no influence curve this package derives. Set isotonic=False. "
+        "survival_model='iterated_mean' takes msm= on every design, and survival_model='hazard' "
+        "with targeting='one_step' takes it where the design admits a hazard fit and projects "
+        "monotone curves."
     )
     with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
         LTMLE(

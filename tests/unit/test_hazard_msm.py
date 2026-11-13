@@ -23,7 +23,7 @@ import pytest
 from sklearn.linear_model import LogisticRegression
 
 from cleverly.exceptions import ConvergenceWarning, WeightingWarning
-from cleverly.interventions import ModifiedPolicy
+from cleverly.interventions import ModifiedPolicy, Stochastic
 from cleverly.longitudinal import LTMLE
 from cleverly.longitudinal import hazard as hazard_module
 from cleverly.longitudinal.estimator import (
@@ -34,8 +34,10 @@ from cleverly.longitudinal.hazard import MSMTargets
 from cleverly.msm import MSM
 from tests.discrete_law_point_survival import CellMeans, CellProbabilities, PointLaw
 
-REGIMENS = {"a0": 0, "a1": 1, "a2": 2}
-DOSE = {"a0": 0.0, "a1": 1.0, "a2": 2.0}
+REGIMENS: dict[str, Any] = {"a0": 0, "a1": 1, "a2": 2}
+DOSE = {"a0": 0.0, "a1": 1.0, "a2": 2.0, "q": 1.0}
+#: ``q(a | w)`` of the known stochastic regimen, indexed ``[w, a]``.
+POLICY = np.array([[0.25, 0.5, 0.25], [0.5, 0.25, 0.25]])
 LAW = PointLaw("survival", 2)
 COMPETING = PointLaw("survival", 2, causes=2)
 #: The first one-step step, as in ``test_hazard_survival_law.py``.
@@ -66,9 +68,38 @@ def _design(modifier: bool) -> Callable[[Any, int, Any], np.ndarray]:
     return design
 
 
-def _msm(modifier: bool = True, link: str = "logit") -> MSM:
+def _policy(frame: Any) -> np.ndarray:
+    return POLICY[np.asarray(frame["W"], dtype=int)]
+
+
+STOCHASTIC = Stochastic(_policy, "q", density_kind="known")
+
+
+def _projection_weight(label: Any, horizon: int, frame: Any) -> np.ndarray:
+    """A projection weight ``h`` that varies with ``V = W`` and with the cell."""
+    w = np.asarray(frame["W"], dtype=float)
+    return (1.0 + w) * (1.0 + 0.5 * DOSE[str(label)]) / float(horizon)
+
+
+def _msm(modifier: bool = True, link: str = "logit", *, weighted: bool = False) -> MSM:
     terms = ("1", "a", "t", "aW") if modifier else ("1", "a", "t")
+    if weighted:
+        return MSM(
+            design=_design(modifier),
+            terms=terms,
+            design_kind="known",
+            link=link,
+            weights=_projection_weight,
+            weights_kind="known",
+        )
     return MSM(design=_design(modifier), terms=terms, design_kind="known", link=link)
+
+
+def _assignment(label: str, w: int) -> np.ndarray:
+    """``q_r(a | w)`` of each regimen: a point mass, or the known policy."""
+    if label == "q":
+        return POLICY[w]
+    return np.eye(3)[REGIMENS[label]]
 
 
 def _saturated() -> MSM:
@@ -92,10 +123,11 @@ def _fit(
     *,
     learner: Any = None,
     frame: pd.DataFrame | None = None,
+    regimens: dict[str, Any] | None = None,
     **columns: Any,
 ) -> Any:
     return LTMLE(
-        REGIMENS,
+        regimens or REGIMENS,
         n_folds=1,
         survival_model="hazard",
         targeting="one_step",
@@ -116,23 +148,34 @@ def _expit(x: Any) -> Any:
 
 
 def _exact_beta(
-    law: PointLaw, probs: Any, model: MSM, cause: int = 1, *, link: str = "logit"
+    law: PointLaw,
+    probs: Any,
+    model: MSM,
+    cause: int = 1,
+    *,
+    link: str = "logit",
+    labels: tuple[str, ...] = tuple(REGIMENS),
 ) -> Any:
     """The projection of the law's cell risks onto ``model``, by Newton's method.
 
     Every operation is a sum, a product, a quotient or an exponential, so the value is
     analytic in ``probs`` and complex probabilities give complex-step derivatives.
     """
-    labels = list(REGIMENS)
     cells = [(label, t) for t in range(1, law.n_times + 1) for label in labels]
     frame = pd.DataFrame({"W": [0.0, 1.0]})
     design = np.stack([model.design(label, t, frame) for label, t in cells], axis=1)  # (2, C, p)
+    h = np.ones((2, len(cells)))
+    if model.weights is not None:
+        h = np.column_stack([model.weights(label, t, frame) for label, t in cells])
     total = law._mass(probs, {})
     share = [law._mass(probs, {"W": w}) / total for w in (0, 1)]
     psi = np.array(
         [
             [
-                law._regression(probs, {"W": w, "A": REGIMENS[label]}, 1, t, cause)
+                sum(
+                    _assignment(label, w)[a] * law._regression(probs, {"W": w, "A": a}, 1, t, cause)
+                    for a in range(3)
+                )
                 for label, t in cells
             ]
             for w in (0, 1)
@@ -143,15 +186,25 @@ def _exact_beta(
         eta = np.einsum("wcp,p->wc", design, beta)
         mean = _expit(eta) if link == "logit" else eta
         slope = mean * (1.0 - mean) if link == "logit" else np.ones_like(eta)
-        score = sum(share[w] * design[w].T @ (psi[w] - mean[w]) for w in (0, 1))
-        jacobian = sum(share[w] * (design[w].T * slope[w]) @ design[w] for w in (0, 1))
+        score = sum(share[w] * design[w].T @ (h[w] * (psi[w] - mean[w])) for w in (0, 1))
+        jacobian = sum(share[w] * (design[w].T * (h[w] * slope[w])) @ design[w] for w in (0, 1))
         beta = beta + np.linalg.solve(jacobian, score)
     return beta
 
 
-def _exact_eif(law: PointLaw, model: MSM, cause: int = 1, *, step: float = 1e-30) -> np.ndarray:
-    """``(support, p)`` efficient influence function of the projection, by complex step."""
-    base = law.probs.astype(complex)
+def _exact_eif(
+    law: PointLaw,
+    model: MSM,
+    cause: int = 1,
+    *,
+    probs: np.ndarray | None = None,
+    step: float = 1e-30,
+) -> np.ndarray:
+    """``(support, p)`` efficient influence function of the projection, by complex step.
+
+    ``probs`` is the law the derivative is taken at, the sample's own law by default.
+    """
+    base = (law.probs if probs is None else probs).astype(complex)
     out = []
     for point in range(len(law.support)):
         mass = np.zeros_like(base)
@@ -233,10 +286,6 @@ def test_the_influence_curve_is_the_exact_efficient_influence_function() -> None
     eif = _exact_eif(LAW, model)
     rows = LAW.first_row_of()
     np.testing.assert_allclose(fit.influence_curves[rows], eif, rtol=0.0, atol=1e-10)
-    # Mutation: without M^{-1} the curve's SD moves by more than 10 per cent.
-    unscaled = fit.influence_curves @ fit.projection.jacobian.T
-    sd, mutated = fit.influence_curves.std(axis=0), unscaled.std(axis=0)
-    assert np.all(np.abs(mutated / sd - 1.0) > 0.10)
 
 
 def test_a_saturated_design_reproduces_the_cell_estimates() -> None:
@@ -252,23 +301,79 @@ def test_a_saturated_design_reproduces_the_cell_estimates() -> None:
         )
 
 
-def test_a_weighted_fit_gives_the_projection_of_the_tilted_law() -> None:
+def test_a_weighted_fit_gives_the_projection_and_the_curve_of_the_tilted_law() -> None:
+    """Observation weights tilt the law: the saturated curve is ``(w / E w) D*(P_w)`` exactly."""
     frame = LAW.frame()
     weights = 1 + frame["W"].to_numpy(dtype=int) + (frame["A"].to_numpy() == 2).astype(int)
     weighted = frame.assign(wt=weights.astype(float))
+    rows = LAW.first_row_of()
+    tilted = LAW.probs * weights[rows]
+    tilted = tilted / tilted.sum()
     model = _msm()
+    truth = _exact_beta(LAW, tilted, model).real
+    assert np.max(np.abs(truth - _exact_beta(LAW, LAW.probs, model).real)) > 1e-2
     with pytest.warns(WeightingWarning):
         oracle = _fit(LAW, model, frame=weighted, weights="wt")
     with pytest.warns(WeightingWarning):
         wrong = _fit(LAW, model, learner=Additive(), frame=weighted, weights="wt")
-    unweighted = _beta(_fit(LAW, model))
-    assert np.max(np.abs(_beta(oracle) - unweighted)) > 1e-3
-    np.testing.assert_allclose(_beta(wrong), _beta(oracle), rtol=0.0, atol=WRONG)
-    # Mutation: dropping w from the bracket divides each row of the curve by its weight.
-    fit = oracle.msm_fits[0]
+    np.testing.assert_allclose(_beta(oracle), truth, rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(_beta(wrong), truth, rtol=0.0, atol=WRONG)
     scale = weights / weights.mean()
-    dropped = fit.influence_curves / scale[:, None]
-    assert np.max(np.abs(dropped.std(axis=0) / fit.influence_curves.std(axis=0) - 1.0)) > 0.01
+    expected = scale[rows, None] * _exact_eif(LAW, model, probs=tilted)
+    np.testing.assert_allclose(
+        oracle.msm_fits[0].influence_curves[rows], expected, rtol=0.0, atol=1e-10
+    )
+
+
+def test_a_projection_weight_that_varies_with_v_and_the_cell() -> None:
+    """``h`` enters the walked scores, the direction, the projection and the curve."""
+    model = _msm(weighted=True)
+    truth = _exact_beta(LAW, LAW.probs, model).real
+    assert np.max(np.abs(truth - _exact_beta(LAW, LAW.probs, _msm()).real)) > 1e-2
+    wrong = _fit(LAW, model, learner=Additive())
+    np.testing.assert_allclose(_beta(wrong), truth, rtol=0.0, atol=WRONG)
+    oracle = _fit(LAW, model).msm_fits[0]
+    np.testing.assert_allclose(oracle.beta, truth, rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(
+        oracle.influence_curves[LAW.first_row_of()],
+        _exact_eif(LAW, model),
+        rtol=0.0,
+        atol=1e-10,
+    )
+
+
+def test_each_competing_cause_gets_its_own_exact_curve() -> None:
+    model = _msm()
+    result = _fit(COMPETING, model)
+    rows = COMPETING.first_row_of()
+    for index, code in enumerate((1, 2)):
+        np.testing.assert_allclose(
+            result.msm_fits[index].influence_curves[rows],
+            _exact_eif(COMPETING, model, code),
+            rtol=0.0,
+            atol=1e-10,
+        )
+
+
+def test_a_known_stochastic_regimen_gives_the_exact_projection() -> None:
+    regimens = {"a0": 0, "a2": 2, "q": STOCHASTIC}
+    model = _msm()
+    truth = _exact_beta(LAW, LAW.probs, model, labels=tuple(regimens)).real
+    result = _fit(LAW, model, learner=Additive(), regimens=regimens)
+    np.testing.assert_allclose(_beta(result), truth, rtol=0.0, atol=WRONG)
+
+
+def test_clusters_sum_the_coefficient_curve_within_a_cluster() -> None:
+    frame = LAW.frame()
+    clustered = frame.assign(cid=np.arange(len(frame)) // 2)
+    model = _msm()
+    plain = _fit(LAW, model, learner=Additive())
+    paired = _fit(LAW, model, learner=Additive(), frame=clustered, id="cid")
+    np.testing.assert_allclose(_beta(paired), _beta(plain), rtol=0.0, atol=1e-12)
+    name = "msm_regimen[aW]"
+    paired_se = float(np.sqrt(paired.estimates[name].variance))
+    plain_se = float(np.sqrt(plain.estimates[name].variance))
+    assert paired_se != pytest.approx(plain_se, rel=1e-3)
 
 
 def test_a_walk_stopped_short_is_not_converged(monkeypatch: pytest.MonkeyPatch) -> None:
