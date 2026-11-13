@@ -100,7 +100,9 @@ from ..fluctuation._score import (
 )
 from ..fluctuation.iterative import TargetingFailure, _line_step
 from ..learners.crossfit import Folds
+from ..msm import ProjectionFit, solve_projection
 from .data import LongitudinalData
+from .msm import MSMRegimenFit, RegimenMSM
 from .pooled_hazards import refuse_pooled_designs, stacked_design
 from .regimen import Plan
 from .sequential import NodeBound, RegimenFit
@@ -146,6 +148,26 @@ HAZARD_STEP_BOUND_ONE_STEP_REFUSAL = Refusal(
     "targeting='one_step' with survival_model='hazard' already walks the universal "
     "least-favorable submodel in steps of step_size.",
     "step_bound= bounds the steps of targeting='iterative'.",
+)
+
+#: The refusal of ``msm=`` beside ``isotonic=True`` (H5).
+HAZARD_MSM_ISOTONIC_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "msm= with isotonic=True is not built. The isotonic projection moves the levels of one "
+    "curve and leaves their influence curves as they were, and a working model fitted to "
+    "projected levels has no influence curve this package derives.",
+    "Set isotonic=False. survival_model='iterated_mean' takes msm= on every design, and "
+    "survival_model='hazard' with targeting='one_step' takes it where the design admits a "
+    "hazard fit and projects monotone curves.",
+)
+
+#: The refusal of ``msm=`` beside the per-horizon hazard algorithm (H14).
+HAZARD_MSM_PER_HORIZON_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "msm= with survival_model='hazard' needs targeting='one_step'. A working model's cells "
+    "span the horizons, and the per-horizon algorithm restarts from the initial hazards at "
+    "each horizon, so no one set of hazards solves the coefficient scores.",
+    "Set targeting='one_step'.",
 )
 
 #: The roadmap item that tracks a ratio trim on the hazard path.
@@ -674,7 +696,8 @@ class HazardFit:
     targets : tuple of tuple
         ``(regimen, cause, horizon)`` of every target, in score order.  A separable-effects
         fit targets each hazard factor apart and appends the factor,
-        ``(regimen, cause, horizon, factor)``.
+        ``(regimen, cause, horizon, factor)``.  A working-model fit targets the score of
+        every coefficient, ``(term, cause)``.
     converged : bool
         Whether every target's relative score reached ``tol`` at the reported hazards.  Under
         a declared stopping rule, whether the rule ratio is at most one there.
@@ -690,9 +713,11 @@ class HazardFit:
         The relative score after each iteration or accepted step, starting at the initial
         fit.
     initial_levels : FloatArray
-        The plug-in value of every target at the initial hazards.
+        The plug-in value of every target at the initial hazards.  For a working-model fit,
+        the coefficients projected from the initial hazards.
     sigma : FloatArray or None
-        The fixed diagonal metric of a one-step walk.
+        The fixed diagonal metric of a one-step walk.  A working-model walk uses the full
+        covariance of its targets' curves, and this is that covariance's floored diagonal.
     norm_trace : tuple of float
         The accepted :math:`\\Sigma`-norm of the score of a one-step walk.
     walk_loss_trace : tuple of float
@@ -723,7 +748,10 @@ class HazardFit:
     """
 
     algorithm: HazardAlgorithm
-    targets: tuple[tuple[str, str | None, int] | tuple[str, str | None, int, str], ...]
+    targets: tuple[
+        tuple[str, str | None, int] | tuple[str, str | None, int, str] | tuple[str, str | None],
+        ...,
+    ]
     converged: bool
     n_iter: int
     score_initial: FloatArray
@@ -1126,7 +1154,18 @@ def _observed(state: HazardState, inputs: HazardInputs) -> _Observed:
 def _score_terms(
     state: HazardState, inputs: HazardInputs, horizons: Sequence[int]
 ) -> tuple[FloatArray, FloatArray]:
-    """``(R, J, H, n)`` score term of every unit, and ``(R, J, H)`` score scale.
+    """``(R, J, H, n)`` score term of every unit, and ``(R, J, H)`` score scale."""
+    terms, scale, _ = _score_parts(state, inputs, horizons)
+    return terms, scale
+
+
+def _score_parts(
+    state: HazardState, inputs: HazardInputs, horizons: Sequence[int]
+) -> tuple[FloatArray, FloatArray, FloatArray]:
+    """The score terms and scale of :func:`_score_terms`, and each unit's scale row.
+
+    The third array is ``(R, J, H, n)``: the term of each unit in the mean that gives the
+    scale, which a working-model fit sums over the cells with weights of its own.
 
     The score term of target ``(r, j, t)`` is
     :math:`q_r(A) \\sum_{k \\le t} \\frac{R_k}{g G_k}[\\mathrm{res}_j(k) -
@@ -1152,6 +1191,7 @@ def _score_terms(
     n_causes = inputs.n_causes
     weight = np.abs(inputs.weights)
     scale = np.empty((inputs.n_regimens, n_causes, len(horizons)))
+    rows = np.empty((inputs.n_regimens, n_causes, len(horizons), inputs.n))
     mask = inputs.at_risk
     for h, t in enumerate(horizons):
         nodes = np.arange(inputs.n_times) < t
@@ -1161,8 +1201,10 @@ def _score_terms(
             )
             size = np.abs(1.0 - c) + (n_causes - 1) * np.abs(c)
             per_row = np.where(mask & nodes[None, :], inverse * size, 0.0).sum(axis=1)
-            scale[:, j, h] = (weight[None, :] * q * per_row[None, :]).mean(axis=1)
-    return terms, scale
+            row = weight[None, :] * q * per_row[None, :]
+            rows[:, j, h] = row
+            scale[:, j, h] = row.mean(axis=1)
+    return terms, scale, rows
 
 
 def scores(
@@ -1241,31 +1283,36 @@ def direction(
     horizons : sequence of int
         The target horizons, counted from one.
     coefficients : FloatArray
-        ``(R, J, H)`` coefficient of every target.
+        ``(R, J, H)`` coefficient of every target, or ``(n, R, J, H)`` coefficients that
+        differ by unit, as the cell coefficients of a working-model target do
+        (:class:`MSMTargets`).
 
     Returns
     -------
     FloatArray
         The logit increment per unit coefficient.
     """
-    n_regimens, n_causes, _ = coefficients.shape
-    by_node = np.zeros((n_regimens, n_causes, inputs.n_times))
+    # A shared coefficient is a unit axis of length one, which broadcasts over the units
+    # with the same arithmetic as the per-unit array.
+    per_unit = coefficients if coefficients.ndim == 4 else coefficients[None]
+    _, n_regimens, n_causes, _ = per_unit.shape
+    by_node = np.zeros((per_unit.shape[0], n_regimens, n_causes, inputs.n_times))
     for h, t in enumerate(horizons):
-        by_node[:, :, t - 1] += coefficients[:, :, h]
+        by_node[..., t - 1] += per_unit[..., h]
     # Sums over t >= k: a reversed running sum over the nodes.
-    tail = np.flip(np.cumsum(np.flip(by_node, axis=2), axis=2), axis=2)
+    tail = np.flip(np.cumsum(np.flip(by_node, axis=3), axis=3), axis=3)
     incidence, survival = state.incidence, state.survival
     out = np.zeros_like(state.logits)
     for r in range(n_regimens):
         inner = np.zeros_like(state.logits)
         for j in range(n_causes):
-            weighted = by_node[r, j][None, :, None] * incidence[..., j]
+            weighted = by_node[:, r, j][:, :, None] * incidence[..., j]
             expected = np.flip(np.cumsum(np.flip(weighted, axis=1), axis=1), axis=1)
             spill = _per_survivor(
-                expected - incidence[..., j] * tail[r, j][None, :, None], survival
+                expected - incidence[..., j] * tail[:, r, j][:, :, None], survival
             )
             inner -= spill[..., None]
-            inner[..., j] += tail[r, j][None, :, None]
+            inner[..., j] += tail[:, r, j][:, :, None]
         out += inputs.q[r][:, None, :, None] * inner
     step = np.asarray(inputs.inverse[..., None] * out, dtype=float)
     bounds = state.node_bounds
@@ -1856,18 +1903,22 @@ def _rule_state(
     score: FloatArray,
     stop: StopContext,
     stopping: str,
+    combination: MSMTargets | None = None,
 ) -> tuple[FloatArray, float]:
     """Thresholds and the largest score over its threshold, at ``state``.
 
     The contribution of a target is its influence curve under unit weights, and its score
     part under other weights, as declared difference D4 of the targeting options reads a
-    point fit (finding M4 of the bounded-hazard design).
+    point fit (finding M4 of the bounded-hazard design).  A working-model target sums the
+    contributions of its cells through ``combination``.
     """
     if np.allclose(inputs.weights, 1.0, rtol=0.0, atol=1e-12):
         _, curves = influence(state, inputs, horizons)
     else:
         terms, _ = _score_terms(state, inputs, horizons)
         curves = terms * inputs.weights
+    if combination is not None:
+        curves = combination.combine(curves)
     contributions = curves.reshape(-1, inputs.n).T
     return rule_ratio_at(score.reshape(-1), contributions, stop, stopping)
 
@@ -1913,11 +1964,213 @@ def _bounded_hazard_step(
     return state.moved(length * move, bounds)
 
 
+@dataclass(frozen=True)
+class MSMTargets:
+    r"""The coefficient scores of a working model, as per-unit sums of the cell scores.
+
+    Cell :math:`c = (r, t)` of the working model reads target ``(r, j, t)`` of the walk for
+    each cause :math:`j`.  With :math:`C_{icm} = h(c, V_i)\varphi_m(c, V_i)`, the model's
+    :attr:`~cleverly.longitudinal.msm.RegimenMSM.weighted_design`, the score of coefficient
+    :math:`m` of cause :math:`j` is :math:`P_n\, w \sum_c C_{icm}\, \mathrm{term}_{cj}(O_i)`,
+    and the walk's direction along a coefficient vector :math:`\gamma_j` is :func:`direction`
+    with the per-unit cell coefficients :math:`\sum_m \gamma_{jm} C_{icm}`.  Targeting the
+    cells instead solves these scores only when :math:`h\varphi` does not vary with
+    :math:`V`.
+
+    Parameters
+    ----------
+    model : RegimenMSM
+        The evaluated working model.
+    regimen : IntArray
+        ``(C,)`` regimen index of each cell, in the walk's regimen order.
+    horizon : IntArray
+        ``(C,)`` index of each cell's horizon among the walk's horizons.
+    n_regimens : int
+        The regimens the walk targets.
+    n_horizons : int
+        The horizons the walk targets.
+    """
+
+    model: RegimenMSM
+    regimen: IntArray
+    horizon: IntArray
+    n_regimens: int
+    n_horizons: int
+
+    @classmethod
+    def of(cls, model: RegimenMSM, labels: Sequence[str], horizons: Sequence[int]) -> MSMTargets:
+        """The targets of ``model`` over regimens ``labels`` and ``horizons``.
+
+        Parameters
+        ----------
+        model : RegimenMSM
+            The evaluated working model.
+        labels : sequence of str
+            The regimen labels, in the walk's order.
+        horizons : sequence of int
+            The walk's horizons, counted from one.
+
+        Returns
+        -------
+        MSMTargets
+            The cell maps.
+        """
+        labels, horizons = list(labels), list(horizons)
+        return cls(
+            model,
+            np.array([labels.index(cell.label) for cell in model.cells], dtype=np.int64),
+            np.array([horizons.index(cell.horizon) for cell in model.cells], dtype=np.int64),
+            len(labels),
+            len(horizons),
+        )
+
+    def combine(self, primitive: FloatArray, *, absolute: bool = False) -> FloatArray:
+        r"""``(J, p, n)`` per-unit coefficient sums of ``(R, J, H, n)`` per-unit cell arrays.
+
+        Parameters
+        ----------
+        primitive : FloatArray
+            One value per regimen, cause, horizon and unit.
+        absolute : bool, default False
+            Whether to sum with :math:`|C|`, as a score scale does.
+
+        Returns
+        -------
+        FloatArray
+            :math:`\sum_c C_{icm}\, x_{r_c j h_c i}` for every cause, coefficient and unit.
+        """
+        design = self.model.weighted_design
+        if absolute:
+            design = np.abs(design)
+        gathered = primitive[self.regimen, :, self.horizon]  # (C, J, n)
+        return np.asarray(np.einsum("cjn,ncm->jmn", gathered, design), dtype=float)
+
+    def coefficients(self, gamma: FloatArray) -> FloatArray:
+        r"""``(n, R, J, H)`` per-unit cell coefficients of the coefficient direction ``gamma``.
+
+        Parameters
+        ----------
+        gamma : FloatArray
+            ``(J, p)`` weight of every coefficient score.
+
+        Returns
+        -------
+        FloatArray
+            :math:`\sum_m \gamma_{jm} C_{icm}` filed at each cell's regimen and horizon.
+        """
+        per_cell = np.einsum("ncm,jm->ncj", self.model.weighted_design, gamma)
+        out = np.zeros((per_cell.shape[0], self.n_regimens, gamma.shape[0], self.n_horizons))
+        for c, (r, h) in enumerate(zip(self.regimen, self.horizon, strict=True)):
+            out[:, r, :, h] += per_cell[:, c]
+        return out
+
+    def plug_ins(
+        self, state: HazardState, inputs: HazardInputs, horizons: Sequence[int], cause: int
+    ) -> FloatArray:
+        r"""``(n, C)`` plug-in :math:`\Psi_{c,j}(W_i)` of every cell for cause ``cause``.
+
+        Parameters
+        ----------
+        state : HazardState
+            The hazards.
+        inputs : HazardInputs
+            The targeting inputs.
+        horizons : sequence of int
+            The walk's horizons, counted from one.
+        cause : int
+            The cause index.
+
+        Returns
+        -------
+        FloatArray
+            :math:`\sum_a q_r(a \mid W_i) F_j(t \mid a, W_i)` at each cell :math:`(r, t)`.
+        """
+        mixtures = {int(r): state.mixture(inputs.q[r], cause) for r in set(self.regimen)}
+        return np.column_stack(
+            [
+                mixtures[int(r)][:, horizons[h] - 1]
+                for r, h in zip(self.regimen, self.horizon, strict=True)
+            ]
+        )
+
+    def project(
+        self, state: HazardState, inputs: HazardInputs, horizons: Sequence[int], cause: int
+    ) -> tuple[FloatArray, ProjectionFit]:
+        """The plug-ins of :meth:`plug_ins` and their projection onto the working model.
+
+        Parameters
+        ----------
+        state : HazardState
+            The hazards.
+        inputs : HazardInputs
+            The targeting inputs.
+        horizons : sequence of int
+            The walk's horizons, counted from one.
+        cause : int
+            The cause index.
+
+        Returns
+        -------
+        tuple
+            The ``(n, C)`` plug-ins and the :func:`cleverly.msm.solve_projection` fit.
+        """
+        plug = self.plug_ins(state, inputs, horizons, cause)
+        model = self.model
+        return plug, solve_projection(
+            model.design, model.weights, plug, inputs.weights, str(model.link)
+        )
+
+
+def _full_metric(curves: FloatArray, sigma: FloatArray) -> FloatArray:
+    """The ``(m, m)`` empirical covariance of the walked targets' curves, floored on its diagonal.
+
+    A working model's coefficient scores are strongly correlated (an intercept, a dose and a
+    trend share most of their cells), and a diagonal metric then walks a narrow valley in
+    thousands of steps.  The full covariance whitens the scores, so every direction of the
+    score decays at about the same rate along the submodel.  The metric is fixed at the
+    initial fit, as Rytgaard and van der Laan (2024), Remark 2, fix their diagonal one.  It
+    changes the direction of each step and not where the walk may stop: a step is accepted
+    only when the metric norm of the score does not rise, the walk stops on the relative
+    score, which does not read the metric, and the norm of a positive definite metric is
+    zero only at a zero score.
+    """
+    flat = curves.reshape(-1, curves.shape[-1])
+    metric = flat @ flat.T / flat.shape[1]
+    index = np.arange(metric.shape[0])
+    metric[index, index] = sigma.reshape(-1)
+    # A ridge of the floor keeps a singular covariance (a coefficient whose curve is a
+    # combination of the others') invertible.
+    return np.asarray(metric + SIGMA_FLOOR * np.eye(metric.shape[0]), dtype=float)
+
+
+def _metric_norm(score: FloatArray, sigma: FloatArray, metric: FloatArray | None) -> float:
+    """The walk's score norm: diagonal ``sigma``, or the full ``metric`` when one is set."""
+    if metric is None:
+        return float(np.sqrt(np.sum(score**2 / sigma)))
+    flat = score.reshape(-1)
+    return float(np.sqrt(max(float(flat @ np.linalg.solve(metric, flat)), 0.0)))
+
+
+def _walk_scores(
+    state: HazardState,
+    inputs: HazardInputs,
+    horizons: Sequence[int],
+    combination: MSMTargets | None,
+) -> tuple[FloatArray, FloatArray]:
+    """The scores and scales the walk targets: of the cells, or of the coefficients."""
+    if combination is None:
+        return scores(state, inputs, horizons)
+    terms, _, rows = _score_parts(state, inputs, horizons)
+    score = combination.combine(terms * inputs.weights).mean(axis=-1)
+    scale = combination.combine(rows, absolute=True).mean(axis=-1)
+    return np.asarray(score, dtype=float), np.asarray(scale, dtype=float)
+
+
 def walk_curve(
     initial: HazardState,
     inputs: HazardInputs,
     horizons: Sequence[int],
-    targets: tuple[tuple[str, str | None, int], ...],
+    targets: tuple[tuple[str, str | None, int], ...] | tuple[tuple[str, str | None], ...],
     *,
     step_size: float,
     tol: float,
@@ -1926,6 +2179,7 @@ def walk_curve(
     stopping: str = "relative",
     stop: StopContext | None = None,
     iterate: str = "last",
+    combination: MSMTargets | None = None,
 ) -> tuple[HazardState, HazardFit]:
     """Walk the universal least favorable submodel over every target (part (b)).
 
@@ -1960,6 +2214,9 @@ def walk_curve(
         The units and the span a declared rule reads.
     iterate : {"last", "best"}
         Which step the walk reports.
+    combination : MSMTargets or None, default None
+        A working model whose coefficient scores the walk targets in place of the cell
+        scores.  ``targets`` then names ``(term, cause)`` of every coefficient.
 
     Returns
     -------
@@ -1972,10 +2229,21 @@ def walk_curve(
     bounds = inputs.bounds
     state = initial
     levels, curves = influence(state, inputs, horizons)
+    if combination is not None:
+        # The metric of a coefficient target is its cell-centred curve, and its initial
+        # level the coefficients projected from the initial hazards.
+        curves = combination.combine(curves)
+        levels = np.stack(
+            [
+                combination.project(state, inputs, horizons, j)[1].beta
+                for j in range(inputs.n_causes)
+            ]
+        )
     sigma = np.maximum(np.mean(curves**2, axis=-1), SIGMA_FLOOR)
-    score, scale = scores(state, inputs, horizons)
+    metric = None if combination is None else _full_metric(curves, sigma)
+    score, scale = _walk_scores(state, inputs, horizons, combination)
     first = score.reshape(-1).copy()
-    norm = float(np.sqrt(np.sum(score**2 / sigma)))
+    norm = _metric_norm(score, sigma, metric)
     trace = [relative_score(score.reshape(-1), scale.reshape(-1))]
     norms = [norm]
     losses = [walk_loss(state, inputs)]
@@ -1983,7 +2251,7 @@ def walk_curve(
     ratio: float | None = None
     if declared:
         assert stop is not None
-        thresholds, ratio = _rule_state(state, inputs, horizons, score, stop, stopping)
+        thresholds, ratio = _rule_state(state, inputs, horizons, score, stop, stopping, combination)
     best = BestIterate(last_on_ties=True) if iterate == "best" else None
 
     def met() -> bool:
@@ -1994,10 +2262,15 @@ def walk_curve(
     dx = float(step_size)
     steps = 0
     while not met() and steps < max_steps and norm > 0.0:
-        coefficients = score / sigma / norm
+        if combination is None:
+            coefficients = score / sigma / norm
+        else:
+            assert metric is not None
+            gamma = np.linalg.solve(metric, score.reshape(-1)).reshape(score.shape) / norm
+            coefficients = combination.coefficients(gamma)
         candidate = state.moved(dx * direction(state, inputs, horizons, coefficients), bounds)
-        candidate_score, candidate_scale = scores(candidate, inputs, horizons)
-        candidate_norm = float(np.sqrt(np.sum(candidate_score**2 / sigma)))
+        candidate_score, candidate_scale = _walk_scores(candidate, inputs, horizons, combination)
+        candidate_norm = _metric_norm(candidate_score, sigma, metric)
         if candidate_norm > norm:
             dx *= 0.5
             if dx < _MIN_STEP:
@@ -2010,7 +2283,9 @@ def walk_curve(
         losses.append(walk_loss(state, inputs))
         if declared:
             assert stop is not None
-            thresholds, ratio = _rule_state(state, inputs, horizons, score, stop, stopping)
+            thresholds, ratio = _rule_state(
+                state, inputs, horizons, score, stop, stopping, combination
+            )
         if best is not None:
             best.offer(steps, norm, (state, score, scale, thresholds, ratio))
     reported: int | None = None
@@ -2282,6 +2557,19 @@ def target_regimens(
             )
     if inputs.node_bounds is not None:
         reports = _bounded_records(reports, initial.hazards, inputs, data)
+    return _cell_fits(data, plans, inputs, reports, horizons, observed_cumulative)
+
+
+def _cell_fits(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    inputs: HazardInputs,
+    reports: dict[int, tuple[HazardState, HazardFit]],
+    horizons: tuple[int, ...],
+    observed_cumulative: tuple[FloatArray, FloatArray],
+) -> dict[tuple[str, str | None, int], RegimenFit]:
+    """One :class:`RegimenFit` per regimen, cause and horizon, at each horizon's report."""
+    causes: tuple[str | None, ...] = data.cause_labels or (None,)
     inverse = inputs.inverse_observed()
     q = inputs.q_observed()
     out: dict[tuple[str, str | None, int], RegimenFit] = {}
@@ -2315,6 +2603,126 @@ def target_regimens(
     return out
 
 
+def target_hazard_msm(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    initial: InitialHazards,
+    cumulative: Sequence[FloatArray],
+    observed_cumulative: tuple[FloatArray, FloatArray],
+    model: RegimenMSM,
+    *,
+    horizons: Sequence[int],
+    alpha: float,
+    tol: float,
+    step_size: float,
+    stopping: str = "relative",
+    stop: StopContext | None = None,
+    iterate: str = "last",
+    max_steps: int = 20_000,
+) -> tuple[dict[tuple[str, str | None, int], RegimenFit], tuple[MSMRegimenFit, ...]]:
+    r"""Target the coefficient scores of a working model, and project each cause's curve.
+
+    One walk of :func:`walk_curve` moves the hazards along the coefficient scores
+    :math:`P_n\, w \sum_c h\varphi\, D^{(1)}_{c,j}` of every cause together
+    (:class:`MSMTargets`).  At the targeted hazards each cause's plug-ins
+    :math:`\Psi^*_{c,j}(W_i)` are projected by :func:`cleverly.msm.solve_projection`, and
+    the coefficients' influence curve is
+
+    .. math::
+
+        D^*_\beta = M^{-1} \sum_c h\varphi\, w\,
+            \big[D^{(1)}_{c,j} + \Psi^*_{c,j}(W) - m(c, V; \hat\beta)\big],
+
+    the curve of :func:`~cleverly.longitudinal.msm.fit_regimens_msm` with the cell
+    residual replaced by the hazard part of the cell's curve (Rosenblum and van der Laan
+    2010, (17)).  A hazard fit has no outcome scaler, so the plug-ins enter raw.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        A survival panel of a held design.
+    plans : sequence of Plan
+        The regimens' plans, in report order.
+    initial : InitialHazards
+        The initial hazards from :func:`fit_hazards`.
+    cumulative : sequence of FloatArray
+        One ``(n, T)`` bounded :math:`g G_k` per treatment level.
+    observed_cumulative : tuple of FloatArray
+        The unbounded and bounded ``(n, T)`` :math:`g G_k` at each unit's observed level.
+    model : RegimenMSM
+        The working model, evaluated at every ``(regimen, horizon)`` cell.
+    horizons : sequence of int
+        The reported horizons, counted from one.
+    alpha : float
+        The probability bound.
+    tol : float
+        Relative-score tolerance.
+    step_size : float
+        The first step of the walk.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The stopping rule.
+    stop : StopContext or None
+        The units and the span a declared rule reads.
+    iterate : {"last", "best"}
+        Which step the walk reports.
+    max_steps : int
+        The step cap of the walk.
+
+    Returns
+    -------
+    tuple
+        One :class:`~cleverly.longitudinal.sequential.RegimenFit` per regimen, cause and
+        horizon, for the diagnostics, and one
+        :class:`~cleverly.longitudinal.msm.MSMRegimenFit` per cause.
+    """
+    # No node is bounded: ``node_bounds=`` beside ``msm=`` is refused at construction (R-i3).
+    inputs = hazard_inputs(data, plans, cumulative, alpha=alpha)
+    start = HazardState.from_hazards(initial.hazards, inputs.bounds, inputs.empty, inputs.full)
+    causes: tuple[str | None, ...] = data.cause_labels or (None,)
+    horizons = tuple(horizons)
+    combination = MSMTargets.of(model, [plan.label for plan in plans], horizons)
+    targets = tuple((term, cause) for cause in causes for term in model.terms)
+    shared = walk_curve(
+        start,
+        inputs,
+        horizons,
+        targets,
+        step_size=step_size,
+        tol=tol,
+        max_steps=max_steps,
+        stopping=stopping,
+        stop=stop,
+        iterate=iterate,
+        combination=combination,
+    )
+    reports = dict.fromkeys(horizons, shared)
+    state, record = shared
+    fits = _cell_fits(data, plans, inputs, reports, horizons, observed_cumulative)
+    terms, _ = _score_terms(state, inputs, horizons)
+    weights = np.asarray(inputs.weights, dtype=float)
+    out: list[MSMRegimenFit] = []
+    for j, cause in enumerate(causes):
+        plug, projection = combination.project(state, inputs, horizons, j)
+        residual = terms[combination.regimen, j, combination.horizon].T  # (n, C)
+        bracket = residual + plug - model.fitted(projection.beta)
+        contribution = np.einsum("ikp,ik->ip", model.weighted_design, weights[:, None] * bracket)
+        curves = np.linalg.solve(projection.jacobian, contribution.T).T
+        out.append(
+            MSMRegimenFit(
+                model=model,
+                cause=cause,
+                beta=projection.beta,
+                influence_curves=np.asarray(curves, dtype=float),
+                projection=projection,
+                fits=tuple(fits[(cell.label, cause, cell.horizon)] for cell in model.cells),
+                nodes=(),
+                fluctuation_design=model.fluctuation_design,
+                hazard=record,
+            )
+        )
+    return fits, tuple(out)
+
+
 # ------------------------------------------------------------------------ refusals
 
 
@@ -2329,7 +2737,7 @@ def refuse_hazard_settings(
     step_bound: float | None = None,
     ratio_trim: float | None = None,
 ) -> None:
-    """Refuse a hazard or isotonic setting that needs no data (H4, H5, H6, H8, H13, R-d1).
+    """Refuse a hazard or isotonic setting that needs no data (H4-H6, H8, H13, H14, R-d1).
 
     ``iterate=`` and ``stopping=`` apply to both hazard algorithms, and ``step_bound=`` to
     ``targeting="iterative"``.  The one-step walk takes its steps in ``step_size``, so a step
@@ -2361,7 +2769,8 @@ def refuse_hazard_settings(
     CapabilityError
         On a combination that is not built.
     MethodConfigurationError
-        On ``step_bound=`` beside the one-step hazard walk.
+        On ``step_bound=`` beside the one-step hazard walk, or ``msm=`` beside the
+        per-horizon hazard algorithm.
     """
     if survival_model not in ("iterated_mean", "hazard"):
         raise ValueError(
@@ -2384,18 +2793,10 @@ def refuse_hazard_settings(
             "treatment, or keep targeting='iterative' and set isotonic=True for a monotone "
             "curve"
         )
-    if msm and (survival_model == "hazard" or isotonic):
-        option = "survival_model='hazard'" if survival_model == "hazard" else "isotonic=True"
-        raise CapabilityError(
-            f"msm= with {option} is not built. A working model reports coefficients over "
-            "regimen and horizon cells.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            roadmap=HAZARD_ROADMAP,
-            alternative=(
-                "Fit msm= with survival_model='iterated_mean' and isotonic=False, or report "
-                "the curve and take contrasts."
-            ),
-        )
+    if msm and isotonic:
+        raise CapabilityError.from_refusal(HAZARD_MSM_ISOTONIC_REFUSAL)
+    if msm and survival_model == "hazard" and targeting != "one_step":
+        raise MethodConfigurationError.from_refusal(HAZARD_MSM_PER_HORIZON_REFUSAL)
     if survival_model == "hazard" and targeting == "one_step" and step_bound is not None:
         raise MethodConfigurationError.from_refusal(HAZARD_STEP_BOUND_ONE_STEP_REFUSAL)
     if survival_model == "hazard" and ratio_trim is not None:

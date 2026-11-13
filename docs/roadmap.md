@@ -81,7 +81,7 @@ The readiness labels are defined under
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X91](#x91-survival-targets-across-the-estimators) Survival targets across the estimators | 2 | published support for parts (b) and (g); natural extension for parts (c) and (d); audited source for part (f); all five shipped; part (e) refused; the R `lmtp` comparator runs of the eliminated-competing-events study are pending | the shipped survival and competing-risk paths of `LTMLE` |
-| [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read | the shipped hazard targeting on a held baseline treatment |
+| [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read; part (d) shipped | the shipped hazard targeting on a held baseline treatment |
 | [X6](#x6-continuous-time-survival-and-competing-risks) Continuous-time survival and competing risks | 2 | published support; the one-step TMLE of a baseline treatment shipped as X91 part (g); the early-time standard error is open | the shipped `ContinuousSurvivalTMLE` |
 | [X80](#x80-ratio-trimming-on-the-hazard-path) Ratio trimming on the hazard path | 3 | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` |
 
@@ -819,7 +819,12 @@ gates its default cross-fitted fit at n = 1,000. This item holds what remains.
 node, with baseline covariates only. The
 [hazard and isotonic survival refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
 list each design it refuses. Each refusal names `survival_model="iterated_mean"` with
-`isotonic=True` as the working alternative.
+`isotonic=True` as the working alternative. Part (d) is delivered: the subsection "A working
+model over the hazard curve" of
+[hazard-based survival targeting](technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
+states it, and the [hazard working-model study](technical-reference/method-evidence/hazard-msm.md)
+validates it, with support rows `G60`. That study reports the agreement of the hazard fit and the
+iterated-mean fit, as the acceptance below asks.
 
 | part | what to add | published source |
 | --- | --- | --- |
@@ -831,7 +836,9 @@ list each design it refuses. Each refusal names `survival_model="iterated_mean"`
 Acceptance:
 
 - exact-law witnesses for each new clever covariate, with a mutation control that drops it;
-- a registered study for each part, on a law where the per-horizon and the hazard fits differ.
+- a registered study for each part. Each study also reports how far the hazard fit and the
+  iterated-mean fit differ on its laws. Both fits are efficient, so with correct nuisance fits they
+  differ by an amount that shrinks faster than $1/\sqrt{n}$, and the study reports that agreement rather than requiring a gap.
 
 ### X7. Two-phase and outcome-dependent sampling
 

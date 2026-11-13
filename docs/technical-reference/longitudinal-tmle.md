@@ -1163,6 +1163,42 @@ $\Sigma$. `test_the_bounded_walk_loss_never_rises` checks the walk loss of a bou
 | `truncation_curve()` | a rerun of the targeting at each bound from the stored initial hazards. It refits no learner |
 | `n_bootstrap=` | shown with the label `experimental`. No support row lists `bootstrap` for a hazard fit |
 
+#### A working model over the hazard curve
+
+`msm=` with `survival_model="hazard"` and `targeting="one_step"` projects the hazard fit's cells onto
+a working model, as `msm=` does on an iterated-mean fit
+([marginal structural models](msm-projections.md#the-longitudinal-projection)). A cell is a regimen
+$r$ and a horizon $t$, and each cause $j$ gets its own projection. The implementation is
+`target_hazard_msm` in `longitudinal/hazard.py`.
+
+| item | contract |
+| --- | --- |
+| estimand | $\beta_j$ solves $E\bigl[\sum_c h(c, V)\,\varphi(c, V)\,\{\Psi_{c,j}(W) - m(c, V; \beta)\}\bigr] = 0$, with $\Psi_{c,j}(W) = \sum_a q_r(a \mid W) F_j(t \mid a, W)$ and $V$ among the baseline covariates. Under the logit link this is the parameter of Rosenblum and van der Laan (2010), (14). It is defined whether or not $m$ holds |
+| influence curve | $D^*_\beta = M^{-1} \sum_c h\varphi\, w\,\bigl[D^{(1)}_{c,j} + \Psi_{c,j}(W) - m(c, V; \beta)\bigr]$, where $D^{(1)}_{c,j}$ is the hazard part of the cell's influence curve above, $w$ the observation weight, and $M = E[\sum_c h\,\tfrac{dm}{d\eta}\,\varphi\varphi^\top]$. The chain rule of Rosenblum and van der Laan (2010), (17), applied to the cell curves. It is the iterated-mean MSM curve with the cell residual replaced by $D^{(1)}_{c,j}$ |
+| targets | the $p$ coefficient scores of each cause, $P_n\, w \sum_c h\varphi\, D^{(1)}_{c,j}$, walked together over every cause. Each is a per-unit sum of the cell scores, so the walk's direction is the cell direction with per-unit coefficients $\sum_m \gamma_{jm} h\varphi_m$. Solving the cell scores instead solves these only when $h\varphi$ does not vary with $V$ |
+| projection | `cleverly.msm.solve_projection` of the targeted plug-ins $\Psi^*_{c,j}(W_i)$, the solver of the iterated-mean MSM. A hazard fit has no outcome scaler, so the plug-ins enter raw |
+| metric | the full empirical covariance of the targets' cell-centred curves at the initial fit, floored at $10^{-12}$ on its diagonal and fixed for the walk. The coefficient scores of an intercept, a dose and a trend share most of their cells, and a diagonal metric then walks thousands of steps. It is fixed at the initial fit, as Remark 2 of Rytgaard and van der Laan (2024) fixes its diagonal metric. A metric changes the direction of each step, not where the walk stops: the stopping rule reads the relative score and not the metric, and the norm of a positive definite metric is zero only at a zero score |
+| remainder | each cell's hazard remainder, a sum over nodes of products of the hazard error and the error of $q/(gG)$ (Moore and van der Laan 2009, Section 4.1.2), plus the second-order term of the projection. No regression is fitted on an estimated index |
+| settings | competing causes, observation weights, clusters, cross-fitting, the declared `stopping=` rules and `iterate="best"` apply as on the cell walk. A declared rule reads the coefficient targets |
+| refused | the per-horizon algorithm (H14) and `isotonic=True` (H5) ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)). `node_bounds=` beside `msm=` stays refused on either survival model (R-i3) |
+
+`result.msm_fits[j].hazard` holds the walk record, shared by every cause: its targets are
+`(term, cause)` pairs and its initial levels are the coefficients projected from the initial
+hazards. `converged` reads the walk and the projection. `diagnostics.score_equations()` gives one
+`solver` row per term and cause, at the last horizon. `truncation_curve()` re-targets the
+coefficient scores from the stored initial hazards. Each cell's fit in `result.fits` reads the
+walked hazards and serves the positivity diagnostics; its own score is not solved.
+
+| evidence | what it shows |
+| --- | --- |
+| `tests/unit/test_hazard_msm.py` | on finite laws realised exactly, a wrong hazard learner with the true mechanism gives the exact projection within `1e-8`, for one cause and for each of two competing causes, while its plug-in misses. The parameter is computed by a Newton solve in the test, and its efficient influence function by complex-step derivatives; with saturated hazards the curve equals it within `1e-10`. The same holds for observation weights, against the projection and the curve of the tilted law; for a projection weight $h$ that varies with $V$ and the cell; for the curve of each competing cause; and for a known stochastic regimen. Clusters leave the coefficients unchanged and move the variance. Mutation: targeting the cells misses the modifier's coefficient, with a control on a model without a modifier. A saturated design reproduces the cell estimates. A diagonal metric reaches the same coefficients in more than ten times the steps |
+
+The [hazard working-model study](method-evidence/hazard-msm.md) covers the in-sample fit of a
+held two-level baseline treatment with correctly specified logistic learners, on one cause and
+on two competing causes. Support rows `G60` license its point estimates and Wald intervals, and
+the simultaneous band on one cause. Another composition, such as cross-fitting, observation
+weights, clusters or a flexible learner, matches no row and is labelled `experimental`.
+
 #### Targeting rules on the hazard walk
 
 `stopping=`, `iterate=` and `step_bound=` act on the hazard targeting as follows. A default fit
@@ -1345,7 +1381,7 @@ one cause only, because with two causes `survtmle` uses a different scale.
 | `tests/unit/test_survival_monotone.py` | the W1 witness of the monotonicity table |
 | `tests/unit/test_hazard_empty_cells.py` | the hold, its mutation, and the status |
 | `tests/unit/test_hazard_full_cells.py` | the hold of a full cell at one, its mutation, the status, and per-horizon convergence. With two and three causes, a full cell keeps the fitted shares, the maximum-likelihood fallback reads it over the causes alone, and a correct split survives a wrong treatment model. The upper clip keeps the cause ratios of a unit outside a full cell, and with one cause it equals the plain clip. Each has a deliberate mutation |
-| `tests/unit/test_hazard_refusals.py` | each refusal H1 to H11, by type and message, before any learner |
+| `tests/unit/test_hazard_refusals.py` | each refusal H1 to H11 and H14, by type and message, before any learner |
 | `tests/unit/test_hazard_targeting_rules.py` | the targeting rules on both algorithms, and H13 |
 | `tests/unit/test_hazard_node_bounds.py` | bounded hazards: the refusals, the identities, the exact checks, the finite-sample witness, the held cells and the mutation controls |
 | `tests/e2e/test_hazard_survival.py` | the `TimeToEvent` study path with three arms, two causes, a policy, weights, clusters and two folds. Also the replay, the bootstrap diagnostic, the summary, the nuisance report, and `save` and `load` |

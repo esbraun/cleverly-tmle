@@ -1797,6 +1797,25 @@ missingness-tilt-inference,interval_calibration,se ratio in calibration band,se/
 missingness-tilt-inference,targeting_necessity,bias discriminated,pair_collapse
 missingness-tilt-inference,targeting_necessity,bias equivalent,bias
 missingness-tilt-inference,targeting_necessity,least displacement over labels,control_concentrated
+hazard-msm,double_robustness,bias discriminated,pair_collapse
+hazard-msm,double_robustness,bias equivalent,bias
+hazard-msm,double_robustness,se ratio in union band,se/0.05
+hazard-msm,interval_calibration,coverage in calibration band,shift/0.7
+hazard-msm,interval_calibration,efficiency above band,pair_collapse
+hazard-msm,interval_calibration,efficiency empirical in efficiency band,mixed/2
+hazard-msm,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+hazard-msm,interval_calibration,se ratio below band,se_high
+hazard-msm,interval_calibration,se ratio in calibration band,affine
+hazard-msm,power,rejection floor,rejection/0.01
+hazard-msm,root_n_and_efficiency,bias equivalent,bias
+hazard-msm,root_n_and_efficiency,coverage floor,coverage/0.5
+hazard-msm,root_n_and_efficiency,se ratio sanity,se_high
+hazard-msm,root_n_rate,slope in root-n band,contract
+hazard-msm,simultaneous_coverage,joint coverage below nominal,se_low
+hazard-msm,simultaneous_coverage,joint coverage in calibration band,se_low
+hazard-msm,targeting_necessity,bias discriminated,pair_collapse
+hazard-msm,targeting_necessity,bias equivalent,bias
+hazard-msm,targeting_necessity,least displacement over labels,control_concentrated
 option-stopping-ltmle,interval_calibration,coverage in calibration band,shift/0.7
 option-stopping-ltmle,interval_calibration,noise se ratio below band,se_high
 option-stopping-ltmle,interval_calibration,se ratio below band,se_high

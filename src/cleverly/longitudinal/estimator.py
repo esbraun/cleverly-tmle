@@ -260,6 +260,7 @@ from .hazard import (
     project_curves,
     refuse_hazard_design,
     refuse_hazard_settings,
+    target_hazard_msm,
     target_regimens,
 )
 from .ipsi import IPSICell, fit_cells_ipsi
@@ -1607,6 +1608,8 @@ class _HazardBlock(NamedTuple):
     plans: tuple[Plan, ...]
     #: What :meth:`_SequentialEstimator._parametric` answered.
     parametric: bool
+    #: One projection per cause of a working-model fit, empty without one.
+    msm_fits: tuple[MSMRegimenFit, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -3535,8 +3538,9 @@ def _run_hazard(
     step_search: bool = True,
     iterate: str = "last",
     separable: Sequence[SeparablePlan] = (),
-) -> dict[str, RegimenFit]:
-    """Target the initial hazards and file one fit per regimen, cause and horizon.
+    msm: RegimenMSM | None = None,
+) -> tuple[dict[str, RegimenFit], tuple[MSMRegimenFit, ...]]:
+    """Target the initial hazards, and file the fits and any working-model projections.
 
     The one driver :meth:`LTMLE.fit` and :func:`_refit_bound` share on a hazard fit.
 
@@ -3583,11 +3587,15 @@ def _run_hazard(
         The separable interventions.  When there is one, every regimen is targeted by
         :func:`~cleverly.longitudinal.separable.target_separable`, on initial hazards
         fitted in the declared order.
+    msm : RegimenMSM or None, default None
+        The evaluated working model.  With one, the walk targets its coefficient scores
+        (:func:`~cleverly.longitudinal.hazard.target_hazard_msm`).
 
     Returns
     -------
-    dict of str to RegimenFit
-        The fits keyed by :func:`_fit_key`.
+    tuple
+        The fits keyed by :func:`_fit_key`, and one projection per cause of a working-model
+        fit, empty without one.
     """
     pairs = [mechanism.cumulative_with_unbounded(data, level, g_bounds) for level in levels]
     rows = np.arange(data.n)
@@ -3595,6 +3603,8 @@ def _run_hazard(
     unbounded = np.stack([pair[0] for pair in pairs], axis=2)[rows, :, observed]
     bounded = np.stack([pair[1] for pair in pairs], axis=2)[rows, :, observed]
     if separable:
+        # The separable refusals refuse msm= beside a Separable regimen.
+        assert msm is None
         targeted = target_separable(
             data,
             plans,
@@ -3610,7 +3620,31 @@ def _run_hazard(
         return {
             _fit_key(label, cause, horizon, True): fit
             for (label, cause, horizon), fit in targeted.items()
-        }
+        }, ()
+    node_scale = hazard_bounds(node_bounds, data.n_times, data.cause_labels or (None,))
+    stop = None if stopping == "relative" else StopContext(data.cluster, 1.0)
+    if msm is not None:
+        # R-i3 refuses node_bounds= beside msm= at construction.
+        assert node_scale is None
+        cells, msm_fits = target_hazard_msm(
+            data,
+            plans,
+            initial,
+            [pair[1] for pair in pairs],
+            (unbounded, bounded),
+            msm,
+            horizons=horizons,
+            alpha=alpha,
+            tol=tol,
+            step_size=step_size,
+            stopping=stopping,
+            stop=stop,
+            iterate=iterate,
+        )
+        return {
+            _fit_key(label, cause, horizon, True): fit
+            for (label, cause, horizon), fit in cells.items()
+        }, msm_fits
     fits = target_regimens(
         data,
         plans,
@@ -3623,16 +3657,16 @@ def _run_hazard(
         max_iter=max_iter,
         tol=tol,
         step_size=step_size,
-        node_bounds=hazard_bounds(node_bounds, data.n_times, data.cause_labels or (None,)),
+        node_bounds=node_scale,
         stopping=stopping,
-        stop=None if stopping == "relative" else StopContext(data.cluster, 1.0),
+        stop=stop,
         step_bound=step_bound,
         step_search=step_search,
         iterate=iterate,
     )
     return {
         _fit_key(label, cause, horizon, True): fit for (label, cause, horizon), fit in fits.items()
-    }
+    }, ()
 
 
 def _project_fits(
@@ -5421,6 +5455,7 @@ class _SequentialEstimator:
         replay_recipe: _LongitudinalReplayRecipe,
         node_bounds: dict[str | None, dict[int, NodeBound]] | None,
         separable: tuple[SeparablePlan, ...],
+        msm: RegimenMSM | None = None,
     ) -> _HazardBlock:
         """Fit the mechanism and the initial hazards of one draw, and target the hazards.
 
@@ -5452,12 +5487,14 @@ class _SequentialEstimator:
             The resolved hazard-scale node bounds.
         separable : tuple of SeparablePlan
             The separable interventions.
+        msm : RegimenMSM or None, default None
+            The evaluated working model, ``None`` without one.
 
         Returns
         -------
         _HazardBlock
-            The mechanism, the fits, the initial hazards, the recipe, the plans and the
-            parametric flag.
+            The mechanism, the fits, the initial hazards, the recipe, the plans, the
+            parametric flag and any working-model projections.
         """
         outcome_learner, pseudo_learner, treatment_learner, censoring_learner, competing = learners
         mechanism = self._fit_mechanism(
@@ -5510,7 +5547,7 @@ class _SequentialEstimator:
                 separable,
             ),
         )
-        fits = _run_hazard(
+        fits, msm_fits = _run_hazard(
             prepared,
             plans,
             levels,
@@ -5529,8 +5566,9 @@ class _SequentialEstimator:
             step_search=targeting["step_search"],
             iterate=targeting["iterate"],
             separable=separable,
+            msm=msm,
         )
-        return _HazardBlock(mechanism, fits, initial, replay_recipe, plans, parametric)
+        return _HazardBlock(mechanism, fits, initial, replay_recipe, plans, parametric, msm_fits)
 
     def _draw_status(
         self,
@@ -5680,10 +5718,11 @@ class _SequentialEstimator:
                 replay_recipe=replay_recipe,
                 node_bounds=node_bounds,
                 separable=separable,
+                msm=model,
             )
             mechanism, fits, initial = block.mechanism, block.fits, block.initial
             replay_recipe, plans, parametric = block.replay_recipe, block.plans, block.parametric
-            msm_fits = ()
+            msm_fits = block.msm_fits
         else:
             mechanism = self._fit_mechanism(
                 prepared,
@@ -9048,7 +9087,7 @@ def _refit_bound(
     fits: dict[str, RegimenFit]
     msm_fits: tuple[MSMRegimenFit, ...]
     if recipe.hazard is not None and draw.initial_hazards is not None:
-        fits = _run_hazard(
+        fits, msm_fits = _run_hazard(
             result.data,
             recipe.plans,
             recipe.hazard.levels,
@@ -9067,8 +9106,8 @@ def _refit_bound(
             step_search=recipe.step_search,
             iterate=recipe.iterate,
             separable=recipe.hazard.separable,
+            msm=result.msm,
         )
-        msm_fits = ()
     else:
         if recipe.outcome_learner is None or recipe.pseudo_learner is None:
             _refuse_replay(

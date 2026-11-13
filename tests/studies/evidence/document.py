@@ -933,6 +933,25 @@ def measured(row: Any) -> str:
         if str(row.role) != "diagnostic" and pd.notna(row.threshold):
             measured += f", threshold {render(float(row.threshold))}"
         return measured
+    if family == "iterated_mean_difference":
+        # hazard-msm (X70 part (d)): reported with no verdict.  A paired difference prints its
+        # SD over the efficiency-bound SE, a fit row its coverage and SE ratio, and the curve
+        # row the share of draws whose iterated-mean risk curve decreases.
+        cell = str(row.cell)
+        if pd.notna(getattr(row, "paired_sd_over_bound", float("nan"))):
+            return (
+                f"paired SD over bound {render(float(row.paired_sd_over_bound))}, mean "
+                f"difference {_interval(row.bias_ci_lower, row.bias_ci_upper)}"
+            )
+        if cell.endswith("__iterated_curve_decrease"):
+            return (
+                f"decreasing share {render(float(row.rejection_rate))}, 99% interval "
+                f"{_interval(row.rejection_ci_lower, row.rejection_ci_upper)}"
+            )
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
     return f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
 
 
