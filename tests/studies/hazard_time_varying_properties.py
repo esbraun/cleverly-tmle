@@ -264,21 +264,25 @@ def largest_decrease(result: Any, law_name: str) -> tuple[float, float]:
     return best
 
 
-def largest_excess(result: Any, law_name: str) -> float:
-    """The largest sum of the cumulative incidences over the causes, minus one.
+def largest_excess(result: Any, law_name: str) -> tuple[float, float]:
+    """The largest sum of the cumulative incidences minus one, and its standard error.
 
     Over both regimens and every horizon; negative when the curves are coherent with room.
     """
+    best: tuple[float, float] | None = None
     current = law.LAWS[law_name]
-    excess = -np.inf
     for label in study.labels(law_name):
         for t in range(1, current.n_times + 1):
-            total = sum(
-                float(result[study.risk_name(law_name, label, t, j)].psi)
-                for j in range(1, current.causes + 1)
-            )
-            excess = max(excess, total - 1.0)
-    return float(excess)
+            risks = [
+                result[study.risk_name(law_name, label, t, j)] for j in range(1, current.causes + 1)
+            ]
+            excess = sum(float(risk.psi) for risk in risks) - 1.0
+            curve = sum(np.asarray(risk.influence_curve) for risk in risks)
+            error = float(np.std(curve) / np.sqrt(curve.size))
+            if best is None or excess > best[0]:
+                best = (excess, error)
+    assert best is not None
+    return best
 
 
 def draw(fit_label_: str, n: int, seed: int) -> pd.DataFrame:
@@ -740,8 +744,8 @@ def _difference_rows(
     rows.append(_reading_row(f"{label}__iterated_curve_decrease", drop, error, common_row))
     if label in study.COHERENCE_FITS:
         for arm, result in zip(study.COHERENCE_ARMS, (hazard, iterated, isotonic), strict=True):
-            excess = largest_excess(result, law_name)
-            rows.append(_reading_row(f"{label}__{arm}", excess, 0.0, common_row))
+            excess, error = largest_excess(result, law_name)
+            rows.append(_reading_row(f"{label}__{arm}", excess, error, common_row))
     return rows
 
 

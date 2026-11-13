@@ -185,7 +185,7 @@ def _fits_differ(
                     fit_label=fit,
                     estimand=f"largest_excess_{arm}",
                     truth=0.0,
-                    estimate=properties.largest_excess(result, law_name),
+                    estimate=properties.largest_excess(result, law_name)[0],
                 )
             )
     return rows
