@@ -61,6 +61,7 @@ weighted data and returns the plug-in of each target.
 
 from __future__ import annotations
 
+import itertools
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -69,6 +70,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from numpy.polynomial.hermite_e import hermegauss
+from numpy.polynomial.legendre import leggauss
 from scipy.stats import norm
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -84,6 +86,9 @@ MASS = 0.125
 QUADRATURE_NODES = 120
 _NODES, _WEIGHTS = hermegauss(QUADRATURE_NODES)
 _WEIGHTS = _WEIGHTS / math.sqrt(2.0 * math.pi)
+#: The Gauss-Legendre nodes on each smooth piece of a truncated dose.
+PIECE_NODES = 60
+_LEGENDRE_NODES, _LEGENDRE_WEIGHTS = leggauss(PIECE_NODES)
 
 
 def _expit(x: Any) -> Any:
@@ -174,6 +179,10 @@ class Law:
         :math:`c_F`, the arm's shift of the dose location on ``vector``.
     arm : tuple of float
         :math:`(a_0, a_1, a_2)` of :math:`P(F = 1 \\mid W)` on ``(1, W1, W2)``, logit scale.
+    bounds : tuple of float or None
+        :math:`(l, u)`, the fixed interval a Gaussian dose is truncated to, or ``None``.
+    cap : float or None
+        The shift's cap: a unit whose shifted dose would pass it keeps its own dose.
     """
 
     name: str
@@ -186,6 +195,8 @@ class Law:
     shift: float = 0.0
     flag_shift: float = 0.0
     arm: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    bounds: tuple[float, float] | None = None
+    cap: float | None = None
     _cache: dict[Any, Any] = field(default_factory=dict, compare=False, repr=False, hash=False)
 
     @property
@@ -224,9 +235,16 @@ class Law:
         return _expit(a0 + a1 * np.asarray(w1, dtype=float) + a2 * np.asarray(w2, dtype=float))
 
     def density(self, a: Any, f: Any, w1: Any, w2: Any) -> Any:
-        """The Gaussian dose density :math:`g(a \\mid f, W)`."""
-        z = (np.asarray(a, dtype=float) - self.location(f, w1, w2)) / self.scale
-        return norm.pdf(z) / self.scale
+        """The Gaussian dose density :math:`g(a \\mid f, W)`, truncated to :attr:`bounds`."""
+        a = np.asarray(a, dtype=float)
+        location = self.location(f, w1, w2)
+        z = (a - location) / self.scale
+        if self.bounds is None:
+            return norm.pdf(z) / self.scale
+        low, high = self.bounds
+        mass = norm.cdf((high - location) / self.scale) - norm.cdf((low - location) / self.scale)
+        inside = (a >= low) & (a <= high)
+        return np.where(inside, norm.pdf(z) / (self.scale * mass), 0.0)
 
     def drop(self, f: Any, a: Any, w1: Any, w2: Any) -> Any:
         """The drop-out probability at a visit where drop-out acts."""
@@ -255,7 +273,10 @@ class Law:
         """The policy's treatment :math:`d(f, a)`."""
         if self.kind == "levels":
             return f, np.minimum(np.asarray(a, dtype=float) + 1.0, float(LEVELS[-1]))
-        return f, np.asarray(a, dtype=float) + self.shift
+        moved = np.asarray(a, dtype=float) + self.shift
+        if self.cap is None:
+            return f, moved
+        return f, np.where(moved > self.cap, np.asarray(a, dtype=float), moved)
 
     def ratio(self, f: int, a: float, w1: int, w2: int) -> float:
         """:math:`r = g^d(f, a \\mid W) / g(f, a \\mid W)` of the policy."""
@@ -266,7 +287,24 @@ class Law:
                 return 0.0
             mapped = g[index - 1] + (g[index] if index == LEVELS[-1] else 0.0)
             return float(mapped / g[index])
-        return float(self.density(a - self.shift, f, w1, w2) / self.density(a, f, w1, w2))
+        moved = (
+            0.0
+            if self.cap is not None and a > self.cap
+            else self.density(a - self.shift, f, w1, w2)
+        )
+        held = 1.0 if self.cap is not None and a > self.cap - self.shift else 0.0
+        return float(moved / self.density(a, f, w1, w2)) + held
+
+    def pieces(self, f: int, w1: int, w2: int) -> tuple[tuple[float, float], ...]:
+        """The smooth pieces of a truncated dose: the ratio and the policy are smooth inside."""
+        assert self.bounds is not None
+        low, high = self.bounds
+        cuts = {low, high, low + self.shift}
+        if self.cap is not None:
+            cuts |= {self.cap, self.cap - self.shift}
+        edges = sorted(c for c in cuts if low <= c <= high)
+        del f, w1, w2
+        return tuple((a, b) for a, b in itertools.pairwise(edges) if b > a)
 
     def points(self, w1: int, w2: int) -> tuple[Point, ...]:
         """Every treatment value given ``W``, an exact list or a quadrature over the dose."""
@@ -283,6 +321,16 @@ class Law:
                 p = float(self.flagged(w1, w2))
                 arms = ((0, 1.0 - p), (1, p))
             for f, share in arms:
+                if self.bounds is not None:
+                    for low, high in self.pieces(f, w1, w2):
+                        half = (high - low) / 2.0
+                        doses = low + half * (_LEGENDRE_NODES + 1.0)
+                        mass = self.density(doses, f, w1, w2) * half * _LEGENDRE_WEIGHTS
+                        out += [
+                            Point(f, float(a), share * float(m))
+                            for a, m in zip(doses, mass, strict=True)
+                        ]
+                    continue
                 centre = float(self.location(f, w1, w2))
                 out += [
                     Point(f, centre + self.scale * float(z), share * float(weight))
@@ -334,6 +382,11 @@ class Law:
             a = np.minimum((u > cumulative).sum(axis=1), len(LEVELS) - 1).astype(float)
             return np.zeros(n), a
         f = (rng.random(n) < self.flagged(w1, w2)).astype(float)
+        if self.bounds is not None:
+            location = self.location(f, w1, w2)
+            low, high = (norm.cdf((b - location) / self.scale) for b in self.bounds)
+            u = low + (high - low) * rng.random(n)
+            return f, np.asarray(location + self.scale * norm.ppf(u), dtype=float)
         a = self.location(f, w1, w2) + self.scale * rng.standard_normal(n)
         return f, np.asarray(a, dtype=float)
 
@@ -476,6 +529,69 @@ class Law:
             z = (1.0 if event else 0.0) if (event and node == last) else float(q[node + 1])
             total += ratio / cumulative * (z - float(q[node]))
         return total
+
+    def ratios(self, f: Any, a: Any, w1: Any, w2: Any) -> np.ndarray:
+        """:meth:`ratio` at one treatment per row."""
+        f, a = np.asarray(f, dtype=float), np.asarray(a, dtype=float)
+        if self.kind == "levels":
+            g = self.level_probabilities(w1, w2)
+            index = np.rint(a).astype(int)
+            rows = np.arange(index.size)
+            below = g[rows, np.maximum(index - 1, 0)]
+            top = np.where(index == LEVELS[-1], g[rows, index], 0.0)
+            return np.asarray(np.where(index == 0, 0.0, (below + top) / g[rows, index]))
+        cap = np.inf if self.cap is None else self.cap
+        moved = np.where(a > cap, 0.0, self.density(a - self.shift, f, w1, w2))
+        return np.asarray(moved / self.density(a, f, w1, w2) + (a > cap - self.shift))
+
+    def unit_curves(
+        self, horizon: int, natural: bool, f: Any, a: Any, w1: Any, w2: Any, time: Any, event: Any
+    ) -> np.ndarray:
+        """:meth:`unit_curve` at one outcome per row, vectorized over the rows."""
+        f, a = np.asarray(f, dtype=float), np.asarray(a, dtype=float)
+        w1, w2 = np.asarray(w1, dtype=float), np.asarray(w2, dtype=float)
+        time, event = np.asarray(time, dtype=float), np.asarray(event, dtype=int)
+
+        def regression(dose: np.ndarray) -> np.ndarray:
+            out = np.zeros((horizon + 2, dose.size))
+            for node in range(horizon, 0, -1):
+                lam = self.hazard(node, f, dose, w1, w2)
+                out[node] = lam + (1.0 - lam) * out[node + 1]
+            return out
+
+        mapped = a if natural else self.policy(f, a)[1]
+        total = regression(np.asarray(mapped, dtype=float))[1]
+        ratio = np.ones_like(a) if natural else self.ratios(f, a, w1, w2)
+        q = regression(a)
+        last = np.where(event == 1, time, time + 1.0).astype(int)
+        cumulative = np.ones_like(a)
+        for node in range(1, horizon + 1):
+            active = node <= last
+            cumulative = np.where(
+                active, cumulative * self.retained(node, f, a, w1, w2), cumulative
+            )
+            dropped = (event == 0) & (node == last)
+            z = np.where((event == 1) & (node == last), 1.0, q[node + 1])
+            step = np.divide(ratio, cumulative) * (z - q[node])
+            total = total + np.where(active & ~dropped & (ratio != 0.0), step, 0.0)
+        return np.asarray(total)
+
+    def frame_curves(self, target: Target, frame: pd.DataFrame) -> np.ndarray:
+        """The centred efficient influence function of ``target`` at each row of a drawn frame."""
+        if self.kind == "vector":
+            kept = frame["C1"].to_numpy(dtype=float) == 1.0
+            fired = kept & (frame["Y1"].fillna(0.0).to_numpy(dtype=float) == 1.0)
+            f = frame["F"].to_numpy(dtype=float)
+            time, event = np.where(kept, 1.0, 0.0), fired.astype(int)
+        else:
+            f = np.zeros(len(frame))
+            time, event = frame["time"].to_numpy(dtype=float), frame["event"].to_numpy(dtype=int)
+        columns = (frame["A"].to_numpy(dtype=float), frame["W1"], frame["W2"])
+        curve = sum(
+            c * self.unit_curves(t, natural, f, *columns, time, event)
+            for c, t, natural in target.terms
+        )
+        return np.asarray(curve - target.value(self))
 
 
 # ---------------------------------------------------------------------------- targets
@@ -663,6 +779,9 @@ class GaussianDoseHazard(BaseEstimator):
         The sample's history and dose.
     marginal : bool
         Whether to ignore the history.
+    bounds : tuple of float or None
+        The interval the dose is truncated to.  The location model is then the truncated
+        normal regression, fitted by maximum likelihood with the interval known.
     """
 
     bin_design = "index"
@@ -673,11 +792,13 @@ class GaussianDoseHazard(BaseEstimator):
         covariates: tuple[str, ...] = ("W1", "W2"),
         frame: pd.DataFrame | None = None,
         marginal: bool = False,
+        bounds: tuple[float, float] | None = None,
     ) -> None:
         self.edges = edges
         self.covariates = covariates
         self.frame = frame
         self.marginal = marginal
+        self.bounds = bounds
 
     def _is_arm(self, X: Any) -> bool:
         return "F" in self.covariates and np.asarray(X).shape[1] == len(self.covariates) - 1
@@ -708,8 +829,19 @@ class GaussianDoseHazard(BaseEstimator):
         self.coef_ = np.asarray(model.coef_ if model is not None else [], dtype=float)
         self.intercept_ = float(model.intercept_) if model is not None else float(dose.mean())
         self.scale_ = float(np.sqrt(np.mean((dose - fitted) ** 2)))
+        if self.bounds is not None:
+            self.intercept_, self.coef_, self.scale_ = _truncated_fit(
+                history, dose, self.bounds, self.intercept_, self.coef_, self.scale_
+            )
         self.classes_ = np.array([0.0, 1.0])
         return self
+
+    def _cdf(self, x: np.ndarray, mean: Any) -> np.ndarray:
+        if self.bounds is None:
+            return np.asarray(norm.cdf((x - mean) / self.scale_))
+        low, high = (norm.cdf((b - mean) / self.scale_) for b in self.bounds)
+        value = (norm.cdf((x - mean) / self.scale_) - low) / (high - low)
+        return np.asarray(np.clip(value, 0.0, 1.0))
 
     def predict_proba(self, X: Any) -> np.ndarray:
         design = np.asarray(X, dtype=float)
@@ -729,12 +861,37 @@ class GaussianDoseHazard(BaseEstimator):
         last = len(edges) - 2
         lower = np.where(index == 0, -np.inf, edges[np.clip(index, 0, last + 1)])
         upper = np.where(index >= last, np.inf, edges[np.clip(index + 1, 0, last + 1)])
-        cdf_lower = norm.cdf((lower - mean) / self.scale_)
-        stopped = norm.cdf((upper - mean) / self.scale_) - cdf_lower
+        cdf_lower = self._cdf(lower, mean)
+        stopped = self._cdf(upper, mean) - cdf_lower
         survived = 1.0 - cdf_lower
         hazard = np.divide(stopped, survived, out=np.ones_like(stopped), where=survived > 0)
         hazard = np.clip(hazard, 1e-12, 1.0 - 1e-12)
         return np.column_stack([1.0 - hazard, hazard])
+
+
+def _truncated_fit(
+    history: np.ndarray,
+    dose: np.ndarray,
+    bounds: tuple[float, float],
+    intercept: float,
+    coef: np.ndarray,
+    scale: float,
+) -> tuple[float, np.ndarray, float]:
+    """The maximum-likelihood truncated normal regression of ``dose`` on ``history``."""
+    from scipy.optimize import minimize
+
+    design = np.column_stack([np.ones(dose.size), history])
+    low, high = bounds
+
+    def loss(theta: np.ndarray) -> float:
+        mean, sd = design @ theta[:-1], math.exp(theta[-1])
+        mass = norm.cdf((high - mean) / sd) - norm.cdf((low - mean) / sd)
+        z = (dose - mean) / sd
+        return float(np.mean(theta[-1] + 0.5 * z**2 + np.log(np.maximum(mass, 1e-300))))
+
+    start = np.concatenate([[intercept], coef, [math.log(scale)]])
+    theta = minimize(loss, start, method="BFGS", options={"gtol": 1e-10, "maxiter": 1_000}).x
+    return float(theta[0]), np.asarray(theta[1:-1], dtype=float), float(math.exp(theta[-1]))
 
 
 # ---------------------------------------------------------------------------- the wrong limit
@@ -806,8 +963,8 @@ def wrong_hazard_limit(law: Law, target: Target) -> float:
 def positivity(law: Law) -> dict[str, float]:
     """The overlap of a law over every covariate value and treatment point.
 
-    ``ratio_max`` is the largest policy ratio over the support (over the central 99.9% of a
-    Gaussian dose), ``g_min`` the smallest level probability on ``levels``, ``retained_min``
+    ``ratio_max`` is the largest policy ratio over the support (over the central 99.9% of an
+    untruncated Gaussian dose, over the whole interval of a truncated one), ``g_min`` the smallest level probability on ``levels``, ``retained_min``
     the smallest retention through the last visit, and ``arm_min`` the smallest arm
     probability on ``vector``.
     """
@@ -821,6 +978,8 @@ def positivity(law: Law) -> dict[str, float]:
     for w1, w2 in STRATA:
         if law.kind == "levels":
             values: Sequence[tuple[int, float]] = [(0, float(a)) for a in LEVELS]
+        elif law.bounds is not None:
+            values = [(0, float(a)) for a in np.linspace(*law.bounds, 401)]
         else:
             fs = (0, 1) if law.kind == "vector" else (0,)
             values = [
@@ -864,4 +1023,27 @@ VECTOR_LAW = Law(
     flag_shift=0.5,
     arm=(-0.6, 0.8, 0.2),
 )
-LAWS = {"levels": LEVELS_LAW, "gaussian": GAUSSIAN_LAW, "vector": VECTOR_LAW}
+#: The gated law of the density route: the Gaussian dose truncated to :data:`TRUNCATION` and the
+#: shift capped at its top, so every dose the ratio is read at lies where the density's
+#: quantile bins are narrower than the shift.  On the untruncated law the top bins are wider
+#: than the shift and the binned ratio misses there (``test_hazard_mtp_study_design.py``,
+#: ``TestTheInfluenceCurveGap``).
+TRUNCATION = (0.0, 5.5)
+TRUNCATED_LAW = Law(
+    "truncated",
+    "gaussian",
+    5,
+    HAZARD,
+    CENTRE,
+    SCALE,
+    DROPOUT,
+    shift=1.0,
+    bounds=TRUNCATION,
+    cap=TRUNCATION[1],
+)
+LAWS = {
+    "levels": LEVELS_LAW,
+    "gaussian": GAUSSIAN_LAW,
+    "truncated": TRUNCATED_LAW,
+    "vector": VECTOR_LAW,
+}
