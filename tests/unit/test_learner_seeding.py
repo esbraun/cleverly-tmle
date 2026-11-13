@@ -456,3 +456,24 @@ def test_a_generator_seed_keeps_and_seeds_its_candidates() -> None:
     assert fitted[0].learner_names_ == ("saga", "glm")
     assert isinstance(fitted[0].fitted_learners_[0].random_state, int)
     assert np.array_equal(fitted[0].predict_proba(x), fitted[1].predict_proba(x))
+
+
+def test_a_generator_seed_is_drawn_only_when_a_candidate_needs_it() -> None:
+    """Seeded candidates leave a Generator where the fold draw left it; an unseeded one draws."""
+    from sklearn.naive_bayes import GaussianNB
+
+    x, y = _draw()
+
+    def state_after(candidate: Any) -> Any:
+        rng = np.random.default_rng(0)
+        SuperLearner(
+            [("only", candidate)],
+            task="classification",
+            n_folds=3,
+            random_state=rng,  # type: ignore[arg-type]
+        ).fit(x, y)
+        return rng.bit_generator.state
+
+    folds_only = state_after(GaussianNB())
+    assert state_after(LogisticRegression(random_state=1)) == folds_only
+    assert state_after(LogisticRegression()) != folds_only

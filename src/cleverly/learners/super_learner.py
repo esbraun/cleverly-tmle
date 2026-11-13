@@ -353,9 +353,13 @@ class SuperLearner(BaseEstimator):
         )
         # Every candidate with no seed of its own takes the ensemble's.  scikit-learn refuses a
         # Generator as a random_state, so a Generator seed gives one integer drawn from it,
-        # after the fold draw: the fit stays a function of the generator's state.
+        # after the fold draw: the fit stays a function of the generator's state.  The draw
+        # happens only when some candidate needs it, so a library whose candidates all carry
+        # their own seeds leaves the generator where the fold draw left it.
         seed: Any = self.random_state
-        if isinstance(seed, np.random.Generator):
+        if isinstance(seed, np.random.Generator) and any(
+            seed_unset(estimator, 0) is not estimator for _, estimator in library
+        ):
             seed = int(seed.integers(2**32))
         library = [(name, seed_unset(estimator, seed)) for name, estimator in library]
 
