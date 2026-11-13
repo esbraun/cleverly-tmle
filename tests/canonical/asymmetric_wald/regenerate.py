@@ -30,6 +30,9 @@ together with probability at least 0.9720; with the owner cells at their explora
 the designed chance of no red row is at least 0.9032, so the designed chance of a red row is at
 most 0.097, almost all of it ``ho_hurdle_ey1``. Witness powers 0.99621 and 1.00000. The
 held-out laws D1, D2, C1, C2 and C3 had no estimator fitted on them before this declaration.
+It supersedes the declaration at ``65f052eb``, under which only the pre-run smokes ran (on
+non-held-out groups): the post-fit smoke injected an unrecordable error and stopped, and the
+smoke now injects the class a failed H2 fit raises. No number, cell, clause or seed changed.
 
 The width clause's bootstrap (review 5, nit R6-1), fixed before the run: the statistic is the
 ratio of mean widths of the skew-widened interval over the capped t across the cell's shown
