@@ -797,3 +797,89 @@ def test_a_replay_at_the_fitted_bound_is_bit_identical() -> None:
     assert _fitted_replay_matches(result, result.repeats[0], replay)
     frame = result.diagnostics.truncation_curve(bounds=[0.01, 0.05])
     assert len(frame) > 0
+
+
+# ------------------------------------------------------------------------ working model
+
+
+TWO = PathLaw(n_times=2)
+PATHS = {"00": (0, 0), "01": (0, 1), "10": (1, 0), "11": (1, 1)}
+
+
+def _msm_design(modifier: bool) -> Callable[[Any, int, Any], np.ndarray]:
+    def design(label: Any, horizon: int, frame: Any) -> np.ndarray:
+        w = np.asarray(frame["W"], dtype=float)
+        dose = float(sum(PATHS[str(label)]))
+        columns = [np.ones_like(w), np.full_like(w, dose), np.full_like(w, float(horizon))]
+        if modifier:
+            columns.append(dose * w)
+        return np.column_stack(columns)
+
+    return design
+
+
+def _msm(modifier: bool) -> Any:
+    from cleverly.msm import MSM
+
+    terms = ("1", "dose", "t", "dose x W") if modifier else ("1", "dose", "t")
+    return MSM(design=_msm_design(modifier), terms=terms, design_kind="known", link="logit")
+
+
+def _path_incidence(law: PathLaw, w: int, path: tuple[int, ...], horizon: int) -> float:
+    survival, incidence, previous = 1.0, 0.0, 0
+    for node, a in enumerate(path[:horizon], start=1):
+        lam = law.hazards(node, w, a, previous)
+        incidence += survival * lam[0]
+        survival *= 1.0 - sum(lam)
+        previous = a
+    return incidence
+
+
+def _exact_beta(law: PathLaw, modifier: bool) -> np.ndarray:
+    """The projection of the law's cell risks onto the logistic working model, by Newton."""
+    design = _msm_design(modifier)
+    cells = [(label, t) for t in (1, 2) for label in PATHS]
+    frame = pd.DataFrame({"W": [0.0, 1.0]})
+    phi = np.stack([design(label, t, frame) for label, t in cells], axis=1)  # (2, C, p)
+    psi = np.array(
+        [[_path_incidence(law, w, PATHS[label], t) for label, t in cells] for w in (0, 1)]
+    )
+    beta = np.zeros(phi.shape[2])
+    for _ in range(60):
+        mean = 1.0 / (1.0 + np.exp(-np.einsum("wcp,p->wc", phi, beta)))
+        score = sum(0.5 * phi[w].T @ (psi[w] - mean[w]) for w in (0, 1))
+        jacobian = sum(0.5 * (phi[w].T * (mean[w] * (1.0 - mean[w]))) @ phi[w] for w in (0, 1))
+        beta = beta + np.linalg.solve(jacobian, score)
+    return beta
+
+
+def _msm_fit(modifier: bool) -> Any:
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*read their influence curve from few rows")
+        return ltmle(PATHS, msm=_msm(modifier), tol=1e-12).fit(TWO.frame(), **TWO.columns())
+
+
+def test_a_working_model_over_the_paths_gives_the_exact_projection() -> None:
+    """``msm=`` over the four static paths of two nodes: a dose term and a modifier."""
+    truth = _exact_beta(TWO, True)
+    fit_ = _msm_fit(True).msm_fits[0]
+    assert fit_.converged
+    np.testing.assert_allclose(fit_.beta, truth, rtol=0.0, atol=EXACT)
+    plug_in = fit_.hazard.initial_levels
+    assert np.max(np.abs(plug_in - truth)) > MISSED
+
+
+def test_mutation_targeting_the_cells_misses_with_a_modifier_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cell scores solve the coefficient scores only when the design is free of ``W``."""
+    walk = hazard_module.walk_curve
+
+    def cells(*args: Any, combination: Any = None, **kwargs: Any) -> Any:
+        return walk(*args, **kwargs)
+
+    monkeypatch.setattr(hazard_module, "walk_curve", cells)
+    mutated = _msm_fit(True).msm_fits[0].beta
+    assert abs(mutated[3] - _exact_beta(TWO, True)[3]) > MISSED
+    control = _msm_fit(False).msm_fits[0].beta
+    np.testing.assert_allclose(control, _exact_beta(TWO, False), rtol=0.0, atol=EXACT)
