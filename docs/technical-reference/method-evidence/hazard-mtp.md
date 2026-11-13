@@ -124,9 +124,9 @@ deviations at 1,200 replicates and below 0.077 at 800.
 
 With correctly specified parametric learners the hazard fit and the iterated-mean fit are both
 efficient, so on the gated laws they differ by $o_P(n^{-1/2})$. A 200-draw scratch run before the
-declaration read the SD of their paired difference at 2% to 4% of an efficiency standard error on
-`levels` and `gaussian`, and at 1% to 2% when both regressions omit $W$ and the mechanism is
-correct, and no iterated-mean curve decreased in 200 draws per law. Plan X70 section 5 asks for a
+declaration read the SD of their paired difference at most 4% of an efficiency standard error for
+every estimate on `levels` and `gaussian`. With both regressions omitting $W$ and the mechanism
+correct, it read at most 2%. No iterated-mean curve decreased in 200 draws per law. Plan X70 section 5 asks for a
 paired ratio of 0.05 and a decreasing share of 0.10. The design test reads both floors on the
 committed pilot, and a decision on that reading is pending with the project owner.
 
