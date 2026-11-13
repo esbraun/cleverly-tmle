@@ -197,7 +197,9 @@ class Law:
     arm: tuple[float, float, float] = (0.0, 0.0, 0.0)
     bounds: tuple[float, float] | None = None
     cap: float | None = None
-    _cache: dict[Any, Any] = field(default_factory=dict, compare=False, repr=False, hash=False)
+    _cache: dict[Any, Any] = field(
+        default_factory=dict, init=False, compare=False, repr=False, hash=False
+    )
 
     @property
     def grid(self) -> tuple[float, ...]:
@@ -363,11 +365,19 @@ class Law:
 
     def truth(self, horizon: int, *, natural: bool = False) -> float:
         """:math:`\\psi(t)` of the policy, or of the natural course."""
+        key = ("truth", horizon, natural)
+        if key in self._cache:
+            return float(self._cache[key])
         total = 0.0
         for w1, w2 in STRATA:
-            for point in self.points(w1, w2):
-                f, a = (point.f, point.a) if natural else self.policy(point.f, point.a)
-                total += MASS * point.mass * float(self.curve(f, a, w1, w2)[horizon - 1])
+            points = self.points(w1, w2)
+            f = np.array([float(point.f) for point in points])
+            a = np.array([point.a for point in points])
+            mass = np.array([point.mass for point in points])
+            if not natural:
+                f, a = self.policy(f, a)
+            total += MASS * float(np.sum(mass * self.curve(f, a, w1, w2)[horizon - 1]))
+        self._cache[key] = total
         return total
 
     # ------------------------------------------------------------------ sampling
@@ -613,29 +623,61 @@ class Target:
         return sum(c * law.truth(t, natural=natural) for c, t, natural in self.terms)
 
 
+def support_rows(law: Law) -> dict[str, np.ndarray]:
+    """Every ``(W, F, A)`` support point and outcome of a law, as arrays with their mass.
+
+    The outcomes are those of :meth:`Law.outcomes`, laid out for every point at once; ``mass``
+    is :math:`P(W) P(F, A \\mid W) P(\\text{outcome} \\mid F, A, W)`.
+    """
+    key = ("support_rows",)
+    if key in law._cache:
+        return dict(law._cache[key])
+    points = [(w1, w2, point) for w1, w2 in STRATA for point in law.points(w1, w2)]
+    w1 = np.array([float(w) for w, _, _ in points])
+    w2 = np.array([float(w) for _, w, _ in points])
+    f = np.array([float(point.f) for _, _, point in points])
+    a = np.array([point.a for _, _, point in points])
+    base = np.array([MASS * point.mass for _, _, point in points])
+    pieces: list[tuple[np.ndarray, float, int]] = []
+    alive = np.ones_like(a)
+    for node in range(1, law.n_times + 1):
+        stay = np.asarray(law.retained(node, f, a, w1, w2), dtype=float)
+        if law.drops_at(node):
+            pieces.append((alive * (1.0 - stay), float(node - 1), 0))
+        alive = alive * stay
+        lam = np.asarray(law.hazard(node, f, a, w1, w2), dtype=float)
+        pieces.append((alive * lam, float(node), 1))
+        alive = alive * (1.0 - lam)
+    pieces.append((alive, float(law.n_times), 0))
+    out = {
+        "f": np.tile(f, len(pieces)),
+        "a": np.tile(a, len(pieces)),
+        "w1": np.tile(w1, len(pieces)),
+        "w2": np.tile(w2, len(pieces)),
+        "time": np.repeat([time for _, time, _ in pieces], a.size),
+        "event": np.repeat([event for _, _, event in pieces], a.size),
+        "mass": np.concatenate([base * probability for probability, _, _ in pieces]),
+    }
+    law._cache[key] = out
+    return dict(out)
+
+
 def efficiency_sd(law: Law, target: Target) -> float:
     """The exact efficiency bound of ``target`` as a standard deviation.
 
-    The function raises when the enumerated curve does not have mean zero.
+    The sum runs over every support point and outcome (:func:`support_rows`), with the curve of
+    :meth:`Law.unit_curves`.  The function raises when the enumerated curve does not have mean
+    zero.
     """
-    psi = target.value(law)
-    first = second = 0.0
-    for w1, w2 in STRATA:
-        for point in law.points(w1, w2):
-            for mass, time, event in law.outcomes(point.f, point.a, w1, w2):
-                curve = (
-                    sum(
-                        c * law.unit_curve(t, natural, point.f, point.a, w1, w2, time, event)
-                        for c, t, natural in target.terms
-                    )
-                    - psi
-                )
-                probability = MASS * point.mass * mass
-                first += probability * curve
-                second += probability * curve**2
+    rows = support_rows(law)
+    columns = (rows["f"], rows["a"], rows["w1"], rows["w2"], rows["time"], rows["event"])
+    curve = sum(
+        c * law.unit_curves(t, natural, *columns) for c, t, natural in target.terms
+    ) - target.value(law)
+    first = float(np.sum(rows["mass"] * curve))
     if abs(first) > 1e-9:  # pragma: no cover - guards the enumeration
         raise AssertionError(f"the influence function has mean {first}, not zero")
-    return math.sqrt(second)
+    return math.sqrt(float(np.sum(rows["mass"] * curve**2)))
 
 
 # ---------------------------------------------------------------------------- learners
