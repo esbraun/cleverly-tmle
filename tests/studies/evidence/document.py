@@ -127,11 +127,16 @@ ACCEPTED_LABEL = "accepted (named exception)"
 
 
 def _accepted_by_exception(slug: str, implementation: str, scenario: str, estimand: str) -> bool:
-    """Whether a truth row is the one its owner accepted by a named exception."""
-    # Imported here because ``red_cells`` itself imports this module.
-    from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION, RedKey
+    """Whether a truth row was accepted as valid by a named exception.
 
-    return RedKey(slug, "truth", f"{implementation}/{scenario}/{estimand}") in ACCEPTED_BY_EXCEPTION
+    An exception whose row also has an owner only lifts the ``reporting`` requirement, so that
+    row still prints as failed.
+    """
+    # Imported here because ``red_cells`` itself imports this module.
+    from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION, OWNERS, RedKey
+
+    key = RedKey(slug, "truth", f"{implementation}/{scenario}/{estimand}")
+    return key in ACCEPTED_BY_EXCEPTION and key not in OWNERS
 
 
 def _comparison_result(row: Any) -> str:
