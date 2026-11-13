@@ -25,7 +25,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, Learner
 from ..estimators._nuisance import cross_fit_predictions
-from ..exceptions import CapabilityError, RefusalReason
+from ..exceptions import CapabilityError, Refusal, RefusalReason
 from ..learners.crossfit import Folds
 from ..learners.super_learner import SuperLearnerDiagnostics
 from .data import LongitudinalData
@@ -65,19 +65,24 @@ def check_hazard_pooling(hazard_pooling: str) -> None:
         raise ValueError(f"hazard_pooling must be 'node' or 'pooled'; got {hazard_pooling!r}")
 
 
-def refuse_pooled_designs(data: LongitudinalData) -> None:
-    """Refuse a pooled fit on a design whose node designs differ.
+def refuse_pooled_designs(data: LongitudinalData, mtp: Sequence[str] = ()) -> None:
+    """Refuse a pooled fit on a design whose node designs differ, or beside a hazard policy.
 
     Parameters
     ----------
     data : LongitudinalData
         The prepared panel.
+    mtp : sequence of str, default ()
+        The labels of the modified treatment policy regimens of a ``survival_model="hazard"``
+        fit, empty on every other fit.  The pooled hazard fit builds no design at a shifted
+        dose, so the first one is refused (H24).
 
     Raises
     ------
     CapabilityError
         When the design has a treatment decision at more than one node, or time-varying
-        covariates, so its node designs have different columns.
+        covariates, so its node designs have different columns, or when ``mtp`` names a
+        regimen.
     """
     reasons = []
     if not data.treatment_held and data.n_times > 1:
@@ -91,6 +96,16 @@ def refuse_pooled_designs(data: LongitudinalData) -> None:
             "differ.",
             reason=RefusalReason.INVALID_DECLARATION,
             alternative="Use hazard_pooling='node'.",
+        )
+    if mtp:
+        raise CapabilityError(
+            refusal=Refusal(
+                RefusalReason.API_REDIRECTION,
+                f"hazard_pooling='pooled' cannot take the modified treatment policy {mtp[0]!r}. "
+                "The pooled hazard fit predicts every regimen at its plan's treatment values "
+                "and builds no design at a shifted dose.",
+                "Set hazard_pooling='node', which predicts each shifted dose from its own design.",
+            )
         )
 
 

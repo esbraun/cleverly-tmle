@@ -105,7 +105,7 @@ from ..msm import ProjectionFit, solve_projection
 from .data import LongitudinalData
 from .msm import MSMRegimenFit, RegimenMSM
 from .pooled_hazards import refuse_pooled_designs, stacked_design
-from .regimen import Plan
+from .regimen import DynamicRegimen, Plan, declares_tuned
 from .sequential import NodeBound, RegimenFit
 
 __all__ = [
@@ -119,17 +119,27 @@ __all__ = [
     "HazardInputs",
     "HazardState",
     "InitialHazards",
+    "MTPSlots",
     "check_hazard_node_bounds",
     "clip_logits",
     "clipped_shares",
     "fit_hazards",
     "hazard_bounds",
     "hazard_inputs",
+    "hazard_msm_mtp_refusal",
+    "hazard_mtp_replay_refusal",
+    "hazard_separable_mtp_refusal",
+    "hazard_tuned_cap_refusal",
+    "mtp_inputs",
+    "mtp_slots",
     "project_curves",
     "refuse_hazard_design",
     "refuse_hazard_settings",
+    "refuse_separable_mtp",
+    "slot_design",
     "softmax_logits",
     "solve_per_horizon",
+    "target_mtp",
     "target_regimens",
     "walk_curve",
     "walk_loss",
@@ -170,6 +180,119 @@ HAZARD_MSM_PER_HORIZON_REFUSAL = Refusal(
     "each horizon, so no one set of hazards solves the coefficient scores.",
     "Set targeting='one_step'.",
 )
+
+
+def hazard_tuned_cap_refusal(label: str) -> Refusal:
+    """The refusal of a tuned cap on a hazard fit (H16).
+
+    Parameters
+    ----------
+    label : str
+        The regimen's label.
+
+    Returns
+    -------
+    Refusal
+        An ``api_redirection``.
+    """
+    return Refusal(
+        RefusalReason.API_REDIRECTION,
+        f"regimen {label!r} tunes its cap from the treatment law, and survival_model='hazard' "
+        "does not build the tuner's term in the influence curve.",
+        "Use survival_model='iterated_mean', which builds it.",
+    )
+
+
+def hazard_msm_mtp_refusal(label: str) -> Refusal:
+    """The refusal of ``msm=`` beside a modified treatment policy on a hazard fit (H19).
+
+    Parameters
+    ----------
+    label : str
+        The policy regimen's label.
+
+    Returns
+    -------
+    Refusal
+        An ``api_redirection``.
+    """
+    return Refusal(
+        RefusalReason.API_REDIRECTION,
+        f"msm= with survival_model='hazard' cannot take the modified treatment policy "
+        f"{label!r}. Each such policy is targeted by its own weighted walk, and a coefficient "
+        "score sums cells of every regimen, so no one walk solves it.",
+        "Fit msm= with survival_model='iterated_mean', which takes a modified treatment "
+        "policy cell.",
+    )
+
+
+def hazard_separable_mtp_refusal(label: str) -> Refusal:
+    """The refusal of a separable regimen beside a modified treatment policy (H20).
+
+    Parameters
+    ----------
+    label : str
+        The policy regimen's label.
+
+    Returns
+    -------
+    Refusal
+        An ``api_redirection``.
+    """
+    return Refusal(
+        RefusalReason.API_REDIRECTION,
+        f"a Separable regimen and the modified treatment policy {label!r} cannot share one "
+        "fit. A separable fit targets every regimen of the fit on the two hazard factors, and "
+        "a modified treatment policy needs its own weighted walk.",
+        "Fit the separable regimens and the modified treatment policy in two LTMLE calls.",
+    )
+
+
+def hazard_mtp_replay_refusal(label: str) -> Refusal:
+    """The refusal of a truncation replay of a fit with a modified treatment policy walk (H25).
+
+    Parameters
+    ----------
+    label : str
+        The policy regimen's label.
+
+    Returns
+    -------
+    Refusal
+        An ``api_redirection``.
+    """
+    return Refusal(
+        RefusalReason.API_REDIRECTION,
+        "the truncation replay re-targets the retained initial hazards of one shared walk, and "
+        f"regimen {label!r} was targeted by its own weighted walk, whose slot hazards and loss "
+        "weights the replay does not rebuild.",
+        "Refit with each g_bounds= value, or replay a fit without a modified treatment policy.",
+    )
+
+
+def refuse_separable_mtp(regimens: Sequence[object]) -> None:
+    """Refuse a modified treatment policy beside a separable regimen (H20), before any learner.
+
+    Called before the companion check of
+    :func:`~cleverly.longitudinal.separable.refuse_separable_companions`, so a policy meets
+    the hazard refusal that names its own walk.
+
+    Parameters
+    ----------
+    regimens : sequence of Regimen or DynamicRegimen
+        The resolved regimens declared beside the separable entries.
+
+    Raises
+    ------
+    CapabilityError
+        When a regimen holds a modified treatment policy.
+    """
+    for regimen in regimens:
+        if bool(getattr(regimen, "has_mtp", False)):
+            raise CapabilityError.from_refusal(
+                hazard_separable_mtp_refusal(getattr(regimen, "label", ""))
+            )
+
 
 #: The roadmap item that tracks a ratio trim on the hazard path.
 HAZARD_RATIO_TRIM_ROADMAP = "X80"
@@ -368,11 +491,21 @@ class InitialHazards:
         predicts zero there and fits no learner.
     diagnostics : tuple
         Super Learner diagnostics per node and cause, in cause order.
+    slots : dict of str to FloatArray
+        By regimen label, the ``(n, T, U, J)`` hazards at each slot of a modified treatment
+        policy at a continuous or mixed baseline node (:class:`MTPSlots`).  Empty on every
+        other fit.
+    observed : FloatArray or None
+        ``(n, T, J)`` the hazards at each unit's observed treatment on a fit whose baseline
+        node is continuous or mixed, which has no levels.  ``None`` on a categorical node,
+        where the observed level of ``hazards`` holds them.
     """
 
     hazards: FloatArray
     no_event_nodes: tuple[tuple[int, int], ...] = ()
     diagnostics: tuple[tuple[object, ...], ...] = ()
+    slots: dict[str, FloatArray] = field(default_factory=dict)
+    observed: FloatArray | None = None
 
 
 @dataclass(frozen=True)
@@ -411,6 +544,18 @@ class HazardInputs:
         the bound: an empty cell under a positive lower bound, and every cause of a full
         cell.  No such cell is held, so the fluctuation pins it at the clip.  ``None`` when
         no node is bounded.
+    loss_weight : FloatArray or None
+        ``(n, T)`` loss weight :math:`\\omega_k = w\\, r(A, W) / G_k(A, W)` of a modified
+        treatment policy walk, ``None`` on every other fit.  When it is set the clever
+        covariate is :math:`\\kappa_{j,t}` alone, with no :math:`q / (g G)` factor, the loss
+        and the score of node :math:`k` are weighted by :math:`\\omega_k`, ``inverse`` holds
+        :math:`r / G_k` at every slot (only the observed slot is read), and ``q`` carries the
+        branch probabilities of the plug-in alone.
+    cells : IntArray or None
+        ``(n, L)`` the held-cell key of each unit's slot, ``None`` when the slots are the
+        treatment levels.  On a slot state the cell arrays ``empty``, ``full`` and
+        ``excluded`` are indexed by key in place of level, and every slot whose key is ``c``
+        takes the hold of cell ``c``.
     """
 
     at_risk: BoolArray
@@ -424,6 +569,8 @@ class HazardInputs:
     full: BoolArray
     node_bounds: HazardBounds | None = None
     excluded: BoolArray | None = None
+    loss_weight: FloatArray | None = None
+    cells: IntArray | None = None
 
     @property
     def n(self) -> int:
@@ -455,9 +602,47 @@ class HazardInputs:
     def rows(self) -> IntArray:
         return np.arange(self.n)
 
+    @property
+    def weighted(self) -> bool:
+        """Whether the walk weights its loss (a modified treatment policy walk)."""
+        return self.loss_weight is not None
+
+    def node_weights(self) -> FloatArray:
+        """``(n, T)`` the weight of each unit's loss term at each node.
+
+        The observation weight, or the loss weight :math:`\\omega_k` of a weighted walk.
+        """
+        if self.loss_weight is not None:
+            return np.asarray(self.loss_weight, dtype=float)
+        return np.broadcast_to(self.weights[:, None], self.at_risk.shape)
+
     def q_observed(self) -> FloatArray:
-        """``(R, n)`` :math:`q_r(A \\mid W)` at the observed level."""
+        """``(R, n)`` :math:`q_r(A \\mid W)` at the observed level.
+
+        A weighted walk carries its ratio in ``inverse`` and in its loss weight, so its
+        factor here is one.
+        """
+        if self.weighted:
+            return np.ones((self.n_regimens, self.n))
         return np.asarray(self.q[:, self.rows, self.observed], dtype=float)
+
+    def held_cells(self) -> tuple[BoolArray, BoolArray]:
+        """``empty`` and ``full`` in the shape the state reads.
+
+        On a level state these are the ``(T, L, J)`` and ``(T, L)`` cell arrays.  On a slot
+        state each unit's slot reads the cell of its key, so they are ``(n, T, L, J)`` and
+        ``(n, T, L)``.
+
+        Returns
+        -------
+        tuple of BoolArray
+            The held-at-zero and held-at-one arrays.
+        """
+        if self.cells is None:
+            return self.empty, self.full
+        empty = np.moveaxis(self.empty[:, self.cells], 0, 1)
+        full = np.moveaxis(self.full[:, self.cells], 0, 1)
+        return np.asarray(empty, dtype=bool), np.asarray(full, dtype=bool)
 
     def inverse_observed(self) -> FloatArray:
         """``(n, T)`` the inverse mechanism at the observed level."""
@@ -471,7 +656,11 @@ class HazardInputs:
         :func:`~cleverly.longitudinal.sequential.constant_nodes` reports.  A cell of a
         bounded node that the bound excludes is not held, so it is left out.
         """
-        read = np.any(self.q[regimen] > 0.0, axis=0)
+        if self.cells is None:
+            read = np.any(self.q[regimen] > 0.0, axis=0)
+        else:
+            read = np.zeros(self.full.shape[1], dtype=bool)
+            read[np.unique(self.cells[self.q[regimen] > 0.0])] = True
         flagged = (self.empty.any(axis=2) | self.full)[:horizon][:, read].any(axis=1)
         return tuple(int(k) + 1 for k in np.flatnonzero(flagged))
 
@@ -515,6 +704,15 @@ def clip_logits(
     return np.asarray(np.clip(shifted, low, high), dtype=float)
 
 
+def _per_unit(cells: BoolArray, ndim: int) -> BoolArray:
+    """A cell array with a unit axis: shared cells gain a leading axis of one.
+
+    A level state holds one ``(T, L, ...)`` cell array for every unit, and a slot state one
+    per unit, ``(n, T, L, ...)``, already of ``ndim`` axes.
+    """
+    return cells if cells.ndim == ndim else cells[None]
+
+
 def softmax_logits(hazards: FloatArray, high: float, full: BoolArray | None = None) -> FloatArray:
     """``(n, T, L, J)`` softmax logits of hazards, before the clip into the bounds.
 
@@ -545,7 +743,7 @@ def softmax_logits(hazards: FloatArray, high: float, full: BoolArray | None = No
     largest = lam.max(axis=-1)
     spent = reference <= 0.0
     if full is not None:
-        spent = spent | np.asarray(full, dtype=bool)[None]
+        spent = spent | _per_unit(np.asarray(full, dtype=bool), 3)
     with np.errstate(divide="ignore", invalid="ignore"):
         eta = np.log(lam) - np.log(reference)[..., None]
         topped = np.log(lam) - np.log(largest)[..., None] + high
@@ -586,7 +784,7 @@ class HazardState:
             denominator = 1.0 + events
             none = 1.0 / denominator
         else:
-            held = np.asarray(self.full, dtype=bool)[None]
+            held = _per_unit(np.asarray(self.full, dtype=bool), 3)
             denominator = np.where(held, events, 1.0 + events)
             none = np.where(held, 0.0, 1.0 / denominator)
         hazards = expo / denominator[..., None]
@@ -641,7 +839,7 @@ class HazardState:
                 eta[:, k] = np.log(share) - np.log(1.0 - share)
         eta = clip_logits(np.nan_to_num(eta, nan=low, posinf=high, neginf=low), bounds, bounded)
         if empty is not None:
-            eta = np.where(np.asarray(empty, dtype=bool)[None], -np.inf, eta)
+            eta = np.where(_per_unit(np.asarray(empty, dtype=bool), 4), -np.inf, eta)
         return cls(eta, full, node_bounds)
 
     def moved(self, delta: FloatArray, bounds: tuple[float, float]) -> HazardState:
@@ -879,6 +1077,7 @@ def fit_hazards(
     n_jobs: int = 1,
     hazard_pooling: str = "node",
     cause_order: Sequence[int] | None = None,
+    slots: Sequence[MTPSlots] = (),
 ) -> InitialHazards:
     """Fit the sequential pseudo-hazards at every node and cause, out of fold.
 
@@ -909,6 +1108,11 @@ def fit_hazards(
         The cause indices in fit order, ``None`` for code order.  A separable fit fits its
         declared first cause first, so that :math:`\\rho` of the second cause is its hazard
         among those free of the first.
+    slots : sequence of MTPSlots
+        The slots of each modified treatment policy at a continuous or mixed baseline node.
+        Every slot is predicted from the same fit, at :func:`slot_design`, and the observed
+        treatment is predicted at the fit's own design.  ``"pooled"`` is refused beside one
+        (H24).
 
     Returns
     -------
@@ -930,6 +1134,10 @@ def fit_hazards(
             cause_order=cause_order,
         )
     hazards = np.zeros((data.n, data.n_times, len(levels), n_causes))
+    slot_hazards = {
+        entry.label: np.zeros((data.n, data.n_times, entry.n_slots, n_causes)) for entry in slots
+    }
+    observed = np.zeros((data.n, data.n_times, n_causes)) if slots else None
     no_events: list[tuple[int, int]] = []
     diagnostics: list[tuple[object, ...]] = []
     for time in range(1, data.n_times + 1):
@@ -938,8 +1146,10 @@ def fit_hazards(
             plan.label: data.history_design(time, treatment=plan.values, include_current=True)
             for plan in levels
         }
+        slot_keys = _slot_predictions(data, time, slots, design, predict)
         earlier = np.zeros(data.n, dtype=bool)
         taken = np.zeros((data.n, len(levels)))
+        slot_taken = {label: np.zeros((data.n, len(keys))) for label, keys in slot_keys.items()}
         # Filed by cause index, so the nuisance report reads cause order whatever the fit
         # order.
         node_diagnostics: dict[int, tuple[object, ...]] = {}
@@ -950,6 +1160,7 @@ def fit_hazards(
                 no_events.append((time, cause))
                 node_diagnostics[cause] = ()
                 rho = np.zeros((data.n, len(levels)))
+                predictions = None
             else:
                 constant: list[int] = []
                 predictions, fold_diagnostics = cross_fit_predictions(
@@ -967,12 +1178,58 @@ def fit_hazards(
                     constant_folds=constant,
                 )
                 node_diagnostics[cause] = tuple(fold_diagnostics)
-                rho = np.column_stack([predictions[plan.label] for plan in levels])
+                rho = (
+                    np.column_stack([predictions[plan.label] for plan in levels])
+                    if levels
+                    else np.zeros((data.n, 0))
+                )
             hazards[:, time - 1, :, cause] = rho * (1.0 - taken)
             taken = taken + hazards[:, time - 1, :, cause]
+            for label, keys in slot_keys.items():
+                slot_rho = (
+                    np.zeros((data.n, len(keys)))
+                    if predictions is None
+                    else np.column_stack([predictions[key] for key in keys])
+                )
+                slot_hazards[label][:, time - 1, :, cause] = slot_rho * (1.0 - slot_taken[label])
+                slot_taken[label] = slot_taken[label] + slot_hazards[label][:, time - 1, :, cause]
+            if observed is not None:
+                # Slot 0 of every policy is the observed treatment.
+                observed[:, time - 1, cause] = slot_hazards[slots[0].label][:, time - 1, 0, cause]
             earlier = earlier | (target > 0)
         diagnostics.extend(node_diagnostics[cause] for cause in range(n_causes))
-    return InitialHazards(hazards, tuple(sorted(no_events)), tuple(diagnostics))
+    return InitialHazards(
+        hazards, tuple(sorted(no_events)), tuple(diagnostics), slot_hazards, observed
+    )
+
+
+#: The prediction key of the observed treatment's design, shared by every policy's slot 0.
+_OBSERVED_SLOT = "\x00hazard-observed"
+
+
+def _slot_predictions(
+    data: LongitudinalData,
+    time: int,
+    slots: Sequence[MTPSlots],
+    design: FloatArray,
+    predict: dict[str, FloatArray],
+) -> dict[str, tuple[str, ...]]:
+    """Add each policy slot's design at node ``time`` to ``predict``; the keys by policy.
+
+    The observed slot reads the fit's own design, so its prediction is the out-of-fold fit
+    at the observed treatment.  A key never clashes with a level plan's label.
+    """
+    out: dict[str, tuple[str, ...]] = {}
+    if slots:
+        predict[_OBSERVED_SLOT] = design
+    for entry in slots:
+        keys = [_OBSERVED_SLOT]
+        for slot in range(1, entry.n_slots):
+            key = f"\x00hazard-slot-{entry.label}-{slot}"
+            predict[key] = slot_design(data, time, entry, slot)
+            keys.append(key)
+        out[entry.label] = tuple(keys)
+    return out
 
 
 def _fit_pooled_hazards(
@@ -1076,10 +1333,245 @@ def hazard_inputs(
     inverse = np.stack([1.0 / np.asarray(c, dtype=float) for c in cumulative], axis=2)
     observed = np.asarray(np.nan_to_num(data.treatment[:, 0], nan=0.0), dtype=np.int64)
     weights = np.asarray(data.weights, dtype=float)
-    n_levels = inverse.shape[2]
-    # (n, T, L): the rows at risk of positive weight, by observed level.
+    empty, full, excluded = _held_cells(
+        at_risk, events, weights, observed, inverse.shape[2], node_bounds
+    )
+    return HazardInputs(
+        at_risk=at_risk,
+        events=events,
+        observed=observed,
+        inverse=inverse,
+        q=regimen_weights(data, plans),
+        weights=weights,
+        alpha=alpha,
+        empty=empty,
+        full=full,
+        node_bounds=node_bounds,
+        excluded=excluded,
+    )
+
+
+@dataclass(frozen=True)
+class MTPSlots:
+    """The slots of a modified treatment policy at a continuous or mixed baseline node.
+
+    Slot 0 is each unit's observed treatment and slot ``b`` the treatment branch ``b`` of
+    the policy assigns it, all of the unit's own values.  Every unit has its own values, so
+    the hazards are predicted at each slot for each unit.
+
+    Parameters
+    ----------
+    label : str
+        The regimen's label.
+    kind : {"continuous", "mixed"}
+        The kind of the baseline node.
+    values : tuple of FloatArray
+        One entry per slot: the ``(n,)`` dose at a continuous node, the ``(n, d)`` component
+        values at a mixed one.
+    probabilities : FloatArray
+        ``(n, B)`` the probability of each branch, the plug-in's mixture weights.
+    keys : IntArray
+        ``(n, 1 + B)`` the held-cell key of each slot: zero at a continuous node, whose
+        cell is (node, cause), and the code of the slot's categorical component values at a
+        mixed node, whose cell is (node, categorical values, cause).
+    n_keys : int
+        The number of keys.
+    """
+
+    label: str
+    kind: str
+    values: tuple[FloatArray, ...]
+    probabilities: FloatArray
+    keys: IntArray
+    n_keys: int
+
+    @property
+    def n_slots(self) -> int:
+        """The slots: the observed treatment and one per branch."""
+        return len(self.values)
+
+
+def mtp_slots(data: LongitudinalData, plan: Plan) -> MTPSlots | None:
+    """The slots of ``plan``'s modified treatment policy at a continuous or mixed node.
+
+    At a categorical node every slot value is a treatment level, so the walk keeps the
+    level state and reads the policy's level map through its carry weights; this returns
+    ``None`` there, and on a plan with no policy at the baseline decision.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel of a held design.
+    plan : Plan
+        A resolved plan.
+
+    Returns
+    -------
+    MTPSlots or None
+        The slots, built from the plan's branch targets (``Plan.carry_targets(1)``).
+    """
+    kind = data.node_kind(1)
+    if kind == "categorical" or not plan.is_mtp_node(1):
+        return None
+    targets = plan.carry_targets(1)
+    assert targets is not None
+    observed = np.nan_to_num(np.asarray(data.node_values(1), dtype=float), nan=0.0)
+    if kind == "continuous":
+        values: tuple[FloatArray, ...] = (
+            observed[:, 0],
+            *(np.asarray(dose, dtype=float).reshape(-1) for dose in targets),
+        )
+        keys = np.zeros((data.n, len(values)), dtype=np.int64)
+        n_keys = 1
+    else:
+        values = (observed, *(np.asarray(block, dtype=float) for block in targets))
+        # The categorical components of each slot, which key its held cell.
+        labelled = [index for index, levels in enumerate(data.component_levels[0]) if levels]
+        stacked = np.stack([block[:, labelled] for block in values], axis=1)  # (n, U, c)
+        codes, inverse = np.unique(stacked.reshape(-1, len(labelled)), axis=0, return_inverse=True)
+        keys = np.asarray(inverse, dtype=np.int64).reshape(data.n, len(values))
+        n_keys = int(codes.shape[0])
+    probabilities = np.asarray(plan.policy_at(1), dtype=float)
+    return MTPSlots(plan.label, kind, values, probabilities, keys, n_keys)
+
+
+def slot_design(data: LongitudinalData, time: int, slots: MTPSlots, slot: int) -> FloatArray:
+    """The hazard design of node ``time`` at slot ``slot`` of a modified treatment policy.
+
+    At a continuous node it is :meth:`~LongitudinalData.history_design` at the slot's dose.
+    At a mixed node :meth:`~LongitudinalData.history_design` ignores an assignment and
+    reads the observed components, so the node-1 component block of the observed design is
+    replaced by :meth:`~LongitudinalData.component_design` at the slot's values.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel of a held design.
+    time : int
+        The node, counted from one.
+    slots : MTPSlots
+        The policy's slots.
+    slot : int
+        The slot, zero for the observed treatment.
+
+    Returns
+    -------
+    FloatArray
+        The design, one row per unit.
+    """
+    values = slots.values[slot]
+    if slots.kind == "continuous":
+        assigned = np.repeat(values[:, None], data.n_times, axis=1)
+        return data.history_design(time, treatment=assigned, include_current=True)
+    observed = data.history_design(time, include_current=True)
+    block = data.component_design(1)
+    width = block.shape[1]
+    # On a held design the node-1 block is the last one: every later node is held.
+    if not np.array_equal(observed[:, -width:], block):  # pragma: no cover - layout guard
+        raise AssertionError("the node-1 component block is not the last block of the design")
+    return np.hstack([observed[:, :-width], data.component_design(1, values=values)])
+
+
+def mtp_inputs(
+    data: LongitudinalData,
+    plan: Plan,
+    slots: MTPSlots | None,
+    cumulative: FloatArray,
+    level_cumulative: Sequence[FloatArray],
+    *,
+    alpha: float,
+    node_bounds: HazardBounds | None = None,
+) -> HazardInputs:
+    r"""The weighted targeting inputs of one modified treatment policy regimen.
+
+    The loss weight of node :math:`k` is
+    :math:`\omega_k = w \cdot` ``plan.cumulative_numerator(data)[:, k]`` /
+    ``cumulative[:, k]``, the convention of the iterated-mean fit of the same plan: at a
+    categorical node the numerator is :math:`g^d(A \mid W)` and the bounded cumulative holds
+    :math:`g(A \mid W) G_k`, and at a continuous or mixed node the numerator is the ratio
+    :math:`r` and the treatment factor of the cumulative is one.
+
+    At a categorical node the slots are the treatment levels and the cells are the shipped
+    level cells.  At a continuous node every slot of a unit shares the (node, cause) cell, and
+    at a mixed node the (node, categorical values, cause) cell of its categorical values.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel of a held design.
+    plan : Plan
+        The policy's plan, with its ratio numerator attached.
+    slots : MTPSlots or None
+        The slots at a continuous or mixed node, ``None`` at a categorical one.
+    cumulative : FloatArray
+        ``(n, T)`` the bounded cumulative mechanism of the plan, evaluated at the plan
+        alone.
+    level_cumulative : sequence of FloatArray
+        One ``(n, T)`` bounded :math:`g G_k` per level at a categorical node, empty
+        elsewhere.  Only the cells are read from it.
+    alpha : float
+        The probability bound.
+    node_bounds : HazardBounds or None
+        The bounded nodes.
+
+    Returns
+    -------
+    HazardInputs
+        The inputs of the policy's own walk.
+    """
+    numerator = plan.cumulative_numerator(data)
+    assert numerator is not None
+    denominator = np.asarray(cumulative, dtype=float)
+    ratio = np.divide(
+        numerator, denominator, out=np.zeros(denominator.shape), where=denominator > 0.0
+    )
+    weights = np.asarray(data.weights, dtype=float)
+    loss_weight = weights[:, None] * ratio
+    if slots is None:
+        base = hazard_inputs(data, [plan], level_cumulative, alpha=alpha, node_bounds=node_bounds)
+        inverse = np.repeat(ratio[:, :, None], base.n_levels, axis=2)
+        return replace(base, inverse=inverse, loss_weight=loss_weight)
+    at_risk, events = event_indicators(data)
+    empty, full, excluded = _held_cells(
+        at_risk, events, weights, slots.keys[:, 0], slots.n_keys, node_bounds
+    )
+    q = np.concatenate([np.zeros((data.n, 1)), slots.probabilities], axis=1)[None]
+    return HazardInputs(
+        at_risk=at_risk,
+        events=events,
+        observed=np.zeros(data.n, dtype=np.int64),
+        inverse=np.repeat(ratio[:, :, None], slots.n_slots, axis=2),
+        q=q,
+        weights=weights,
+        alpha=alpha,
+        empty=empty,
+        full=full,
+        node_bounds=node_bounds,
+        excluded=excluded,
+        loss_weight=loss_weight,
+        cells=slots.keys,
+    )
+
+
+def _held_cells(
+    at_risk: BoolArray,
+    events: FloatArray,
+    weights: FloatArray,
+    observed: IntArray,
+    n_cells: int,
+    node_bounds: HazardBounds | None,
+) -> tuple[BoolArray, BoolArray, BoolArray | None]:
+    """The ``(T, K, J)`` empty, ``(T, K)`` full and excluded cells over ``n_cells`` keys.
+
+    A cell is the rows at risk of positive weight whose observed key is ``c``: the
+    treatment level on a level state, and the key of the observed slot on a slot state.
+    At a bounded node an empty cell is held at zero only under a lower bound of zero, and
+    no full cell is held (finding M3 of the bounded-hazard design).  Every other such cell
+    is an ordinary cell that the bound excludes.
+    """
+    # (n, T, K): the rows at risk of positive weight, by observed key.
     followers = (at_risk & (weights > 0.0)[:, None])[:, :, None] & (
-        observed[:, None, None] == np.arange(n_levels)[None, None, :]
+        observed[:, None, None] == np.arange(n_cells)[None, None, :]
     )
     present = followers.any(axis=0)
     happened = events > 0.0
@@ -1095,19 +1587,7 @@ def hazard_inputs(
         excluded = at & ((empty & floor) | (full[:, :, None] & ~held))
         empty = held
         full = full & ~node_bounds.bounded[:, None]
-    return HazardInputs(
-        at_risk=at_risk,
-        events=events,
-        observed=observed,
-        inverse=inverse,
-        q=regimen_weights(data, plans),
-        weights=weights,
-        alpha=alpha,
-        empty=empty,
-        full=full,
-        node_bounds=node_bounds,
-        excluded=excluded,
-    )
+    return empty, full, excluded
 
 
 # ------------------------------------------------------------------- the EIF algebra
@@ -1314,8 +1794,12 @@ def direction(
             )
             inner -= spill[..., None]
             inner[..., j] += tail[:, r, j][:, :, None]
-        out += inputs.q[r][:, None, :, None] * inner
-    step = np.asarray(inputs.inverse[..., None] * out, dtype=float)
+        if inputs.weighted:
+            # The weight sits in the loss, so the covariate at every slot is kappa alone.
+            out += inner
+        else:
+            out += inputs.q[r][:, None, :, None] * inner
+    step = out if inputs.weighted else np.asarray(inputs.inverse[..., None] * out, dtype=float)
     bounds = state.node_bounds
     if bounds is not None and bounds.active:
         step = step * bounds.scale[None, :, None, :]
@@ -1369,6 +1853,13 @@ def walk_loss(state: HazardState, inputs: HazardInputs, *, last_node: int | None
         terms[:, bounds.bounded] = _quasi_terms(
             inputs.events, state.logits[rows, :, levels], bounds
         )
+    if inputs.weighted:
+        # A modified treatment policy walk weights node k of each unit by omega_k.
+        weight = inputs.node_weights()
+        counted = inputs.at_risk & (weight != 0.0)
+        if last_node is not None:
+            counted = counted & (np.arange(inputs.n_times) < last_node)[None, :]
+        return -float(np.sum(np.where(counted, weight * terms, 0.0)))
     counted = inputs.at_risk & (inputs.weights != 0.0)[:, None]
     if last_node is not None:
         counted = counted & (np.arange(inputs.n_times) < last_node)[None, :]
@@ -1378,7 +1869,8 @@ def walk_loss(state: HazardState, inputs: HazardInputs, *, last_node: int | None
 def _clever_observed(state: HazardState, inputs: HazardInputs, horizon: int) -> FloatArray:
     """``(R * J, n, T, J)`` :math:`h^m_l(k, A, W)` at the observed level, for one horizon."""
     obs = _observed(state, inputs)
-    inverse = inputs.inverse_observed()
+    # A weighted walk's covariate is kappa alone: its ratio sits in the loss weight.
+    inverse = np.ones(inputs.at_risk.shape) if inputs.weighted else inputs.inverse_observed()
     q = inputs.q_observed()
     nodes = (np.arange(inputs.n_times) < horizon)[None, :]
     out = []
@@ -1630,18 +2122,20 @@ def _newton(
     base = state.logits[rows, :, levels]
     held = np.isneginf(base)
     cut = inputs.bounds
-    w = inputs.weights[:, None]
+    # (n, 1), or the (n, T) loss weight of a weighted walk: every use broadcasts over nodes.
+    w = inputs.node_weights() if inputs.weighted else inputs.weights[:, None]
     mask = inputs.at_risk
     n = inputs.n
     epsilon = np.zeros(clever.shape[0])
     bounds = state.node_bounds
     # (n, T) the observed cells whose all-cause hazard is held at one: their softmax has no
     # no-event category, as in HazardState.  hazard_inputs holds no full cell at a bounded node.
-    full = (
-        np.zeros(mask.shape, dtype=bool)
-        if state.full is None
-        else np.asarray(state.full, dtype=bool)[:, levels].T
-    )
+    if state.full is None:
+        full = np.zeros(mask.shape, dtype=bool)
+    elif np.ndim(state.full) == 3:
+        full = np.asarray(state.full, dtype=bool)[rows, :, levels]
+    else:
+        full = np.asarray(state.full, dtype=bool)[:, levels].T
 
     def softmax(eta: FloatArray) -> tuple[FloatArray, FloatArray]:
         expo = np.exp(eta)
@@ -2219,7 +2713,13 @@ def clipped_shares(hazards: FloatArray, inputs: HazardInputs) -> tuple[tuple[int
             lower = bounds.lower[k, j] + (1.0 - alpha) * bounds.scale[k, j]
             upper = bounds.lower[k, j] + alpha * bounds.scale[k, j]
             values = np.asarray(hazards[:, k, :, j], dtype=float)
-            counted = ~np.broadcast_to(inputs.empty[k, :, j][None, :], values.shape)
+            held = inputs.empty[k, :, j]
+            # A slot state reads the hold of each slot's cell key.
+            counted = ~(
+                np.broadcast_to(held[None, :], values.shape)
+                if inputs.cells is None
+                else held[inputs.cells]
+            )
             outside = counted & ((values < lower) | (values > upper))
             total = int(np.count_nonzero(counted))
             share = float(np.count_nonzero(outside)) / total if total else 0.0
@@ -2334,13 +2834,50 @@ def target_regimens(
     start = HazardState.from_hazards(
         initial.hazards, inputs.bounds, inputs.empty, inputs.full, node_bounds
     )
-    causes: tuple[str | None, ...] = data.cause_labels or (None,)
     horizons = tuple(horizons)
+    reports = _target(
+        data,
+        [plan.label for plan in plans],
+        start,
+        inputs,
+        horizons,
+        algorithm=algorithm,
+        max_iter=max_iter,
+        tol=tol,
+        step_size=step_size,
+        stopping=stopping,
+        stop=stop,
+        step_bound=step_bound,
+        step_search=step_search,
+        iterate=iterate,
+    )
+    if inputs.node_bounds is not None:
+        reports = _bounded_records(reports, initial.hazards, inputs, data)
+    return _cell_fits(data, plans, inputs, reports, horizons, observed_cumulative)
+
+
+def _target(
+    data: LongitudinalData,
+    labels: Sequence[str],
+    start: HazardState,
+    inputs: HazardInputs,
+    horizons: tuple[int, ...],
+    *,
+    algorithm: HazardAlgorithm,
+    max_iter: int,
+    tol: float,
+    step_size: float,
+    stopping: str,
+    stop: StopContext | None,
+    step_bound: float | None,
+    step_search: bool,
+    iterate: str,
+) -> dict[int, tuple[HazardState, HazardFit]]:
+    """One walk over every horizon, or one per-horizon fit per horizon, by horizon."""
+    causes: tuple[str | None, ...] = data.cause_labels or (None,)
     reports: dict[int, tuple[HazardState, HazardFit]] = {}
     if algorithm == "one_step":
-        targets = tuple(
-            (plan.label, cause, t) for plan in plans for cause in causes for t in horizons
-        )
+        targets = tuple((label, cause, t) for label in labels for cause in causes for t in horizons)
         shared = walk_curve(
             start,
             inputs,
@@ -2352,26 +2889,128 @@ def target_regimens(
             stop=stop,
             iterate=iterate,
         )
-        reports = dict.fromkeys(horizons, shared)
-    else:
-        for t in horizons:
-            targets = tuple((plan.label, cause, t) for plan in plans for cause in causes)
-            reports[t] = solve_per_horizon(
-                start,
-                inputs,
-                t,
-                targets,
-                max_iter=max_iter,
-                tol=tol,
-                stopping=stopping,
-                stop=stop,
-                step_bound=step_bound,
-                step_search=step_search,
-                iterate=iterate,
-            )
+        return dict.fromkeys(horizons, shared)
+    for t in horizons:
+        targets = tuple((label, cause, t) for label in labels for cause in causes)
+        reports[t] = solve_per_horizon(
+            start,
+            inputs,
+            t,
+            targets,
+            max_iter=max_iter,
+            tol=tol,
+            stopping=stopping,
+            stop=stop,
+            step_bound=step_bound,
+            step_search=step_search,
+            iterate=iterate,
+        )
+    return reports
+
+
+def target_mtp(
+    data: LongitudinalData,
+    plan: Plan,
+    initial: InitialHazards,
+    inputs: HazardInputs,
+    observed_cumulative: tuple[FloatArray, FloatArray],
+    *,
+    node_ratio: FloatArray | None,
+    horizons: Sequence[int],
+    algorithm: HazardAlgorithm,
+    max_iter: int,
+    tol: float,
+    step_size: float,
+    stopping: str = "relative",
+    stop: StopContext | None = None,
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
+) -> dict[tuple[str, str | None, int], RegimenFit]:
+    r"""Target one modified treatment policy regimen by its own weighted walk.
+
+    The clever covariate is :math:`\kappa_{j,t}(k, a, W)` at every slot and the loss of node
+    :math:`k` is weighted by :math:`\omega_k = w\, r(A, W) / G_k(A, W)` at the observed
+    treatment (:func:`mtp_inputs`), so a walk that solves the weighted scores solves the
+    efficient influence function of
+    :math:`\psi_{d,j}(t) = E \sum_b p_b F_j(t \mid d_b(A, W), W)` (Díaz Muñoz and van der
+    Laan 2012, Result 1, with the chain rule), and the plug-in mixes the branch slots.  Every
+    horizon and cause of the regimen share the walk, so its curve is monotone.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        A survival panel of a held design.
+    plan : Plan
+        The policy's plan, with its ratio numerator attached.
+    initial : InitialHazards
+        The initial hazards from :func:`fit_hazards`.
+    inputs : HazardInputs
+        The policy's weighted inputs from :func:`mtp_inputs`.
+    observed_cumulative : tuple of FloatArray
+        The unbounded and bounded ``(n, T)`` cumulative mechanism of the plan, for the
+        diagnostics.
+    node_ratio : FloatArray or None
+        The plan's raw per-node ratio, for the diagnostics.
+    horizons : sequence of int
+        The reported horizons, counted from one.
+    algorithm : {"per_horizon", "one_step"}
+        The targeting algorithm.
+    max_iter : int
+        Outer iterations per horizon of a per-horizon fit.
+    tol : float
+        Relative-score tolerance.
+    step_size : float
+        The first step of a one-step walk.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The stopping rule.
+    stop : StopContext or None
+        The units and the span a declared rule reads.
+    step_bound : float or None
+        The longest per-horizon step in :math:`\epsilon`.
+    step_search : bool
+        Whether a bounded step searches its length.
+    iterate : {"last", "best"}
+        Which iterate each algorithm reports.
+
+    Returns
+    -------
+    dict
+        One :class:`~cleverly.longitudinal.sequential.RegimenFit` per ``(regimen, cause,
+        horizon)``, cause-outer, then horizon.
+    """
+    hazards = initial.hazards if inputs.cells is None else initial.slots[plan.label]
+    empty, full = inputs.held_cells()
+    start = HazardState.from_hazards(hazards, inputs.bounds, empty, full, inputs.node_bounds)
+    horizons = tuple(horizons)
+    reports = _target(
+        data,
+        [plan.label],
+        start,
+        inputs,
+        horizons,
+        algorithm=algorithm,
+        max_iter=max_iter,
+        tol=tol,
+        step_size=step_size,
+        stopping=stopping,
+        stop=stop,
+        step_bound=step_bound,
+        step_search=step_search,
+        iterate=iterate,
+    )
     if inputs.node_bounds is not None:
-        reports = _bounded_records(reports, initial.hazards, inputs, data)
-    return _cell_fits(data, plans, inputs, reports, horizons, observed_cumulative)
+        reports = _bounded_records(reports, hazards, inputs, data)
+    return _cell_fits(
+        data,
+        [plan],
+        inputs,
+        reports,
+        horizons,
+        observed_cumulative,
+        numerator=plan.cumulative_numerator(data),
+        node_ratio=node_ratio,
+    )
 
 
 def _cell_fits(
@@ -2381,8 +3020,15 @@ def _cell_fits(
     reports: dict[int, tuple[HazardState, HazardFit]],
     horizons: tuple[int, ...],
     observed_cumulative: tuple[FloatArray, FloatArray],
+    *,
+    numerator: FloatArray | None = None,
+    node_ratio: FloatArray | None = None,
 ) -> dict[tuple[str, str | None, int], RegimenFit]:
-    """One :class:`RegimenFit` per regimen, cause and horizon, at each horizon's report."""
+    """One :class:`RegimenFit` per regimen, cause and horizon, at each horizon's report.
+
+    A modified treatment policy's fit also files the plan's cumulative ratio numerator and
+    its raw per-node ratio, as the iterated-mean fit of the plan does.
+    """
     causes: tuple[str | None, ...] = data.cause_labels or (None,)
     inverse = inputs.inverse_observed()
     q = inputs.q_observed()
@@ -2413,6 +3059,8 @@ def _cell_fits(
                     hazard=record,
                     hazard_clever=clever,
                     hazard_constant_nodes=inputs.constant_nodes(r, t),
+                    cumulative_numerator=numerator,
+                    node_ratio=node_ratio,
                 )
     return out
 
@@ -2624,11 +3272,18 @@ def refuse_hazard_settings(
 
 
 def refuse_hazard_design(
-    data: LongitudinalData, regimens: Sequence[object], *, survival_model: str, isotonic: bool
+    data: LongitudinalData,
+    regimens: Sequence[object],
+    *,
+    survival_model: str,
+    isotonic: bool,
+    msm: bool = False,
 ) -> None:
-    """Refuse a design the hazard model or the projection does not support (H1-H3, H7, H11).
+    """Refuse a design the hazard model or the projection does not support (H1-H3, H16, H19).
 
-    Called after the data and the regimens are read, before any learner.
+    Called after the data and the regimens are read, before any learner.  A modified
+    treatment policy at the baseline decision is fitted on a categorical, continuous or
+    mixed node (X70 part (c)), except with a tuned cap (H16) or beside ``msm=`` (H19).
 
     Parameters
     ----------
@@ -2640,6 +3295,8 @@ def refuse_hazard_design(
         The ``survival_model=`` value.
     isotonic : bool
         The ``isotonic=`` value.
+    msm : bool, default False
+        Whether ``msm=`` was passed.
 
     Raises
     ------
@@ -2689,31 +3346,9 @@ def refuse_hazard_design(
                 "isotonic=True makes its curve monotone."
             ),
         )
-    # Read the kind, not ``is_continuous_node``: a vector with a dose has no one-column
-    # answer, and it needs the same density this refusal names.
-    kind = data.node_kind(1)
-    if kind != "categorical":
-        what = "is continuous" if kind == "continuous" else "is a vector with a dose"
-        raise CapabilityError(
-            "survival_model='hazard' needs a categorical baseline treatment, and treatment "
-            f"{data.decision_name(1)!r} {what}. The hazard plug-in would need the "
-            "treatment density at every dose, and that construction is not built.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            roadmap=HAZARD_ROADMAP,
-            alternative="Use survival_model='iterated_mean'.",
-        )
     for regimen in regimens:
-        if bool(getattr(regimen, "has_mtp", False)):
-            label = getattr(regimen, "label", "")
-            raise CapabilityError(
-                f"regimen {label!r} is a modified treatment policy, and "
-                "survival_model='hazard' does not support one. Its plug-in evaluates the "
-                "event and censoring hazards at the shifted dose, and that construction is "
-                "not built.",
-                reason=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap=HAZARD_ROADMAP,
-                alternative=(
-                    "Use survival_model='iterated_mean', which supports a modified treatment "
-                    "policy at baseline."
-                ),
-            )
+        label = getattr(regimen, "label", "")
+        if isinstance(regimen, DynamicRegimen) and declares_tuned([regimen]):
+            raise CapabilityError.from_refusal(hazard_tuned_cap_refusal(label))
+        if msm and bool(getattr(regimen, "has_mtp", False)):
+            raise CapabilityError.from_refusal(hazard_msm_mtp_refusal(label))
