@@ -184,7 +184,7 @@ def parameter_bounds(kind: BoundedKind | None, family: str) -> tuple[float, floa
     return _BINARY_RANGES[kind]
 
 
-def out_of_range(psi: float, bounds: tuple[float, float] | None) -> bool:
+def outside_bounds(psi: float, bounds: tuple[float, float] | None) -> bool:
     """Whether an estimate lies on or outside its open range, in float arithmetic."""
     if bounds is None:
         return False
@@ -238,7 +238,7 @@ def bounded_status(
         return inference
     if constant_cell:
         return CONSTANT_ARM_CELL_STATUS
-    if out_of_range(psi, bounds):
+    if outside_bounds(psi, bounds):
         return OUT_OF_RANGE_STATUS
     return inference
 
@@ -1153,7 +1153,7 @@ class ParameterEstimate:
             return (float("nan"), float("nan"))
         center = self.inference_value
         df = self.reference_df
-        scale = None if out_of_range(self.psi, self.bounds) else self._range_scale()
+        scale = None if outside_bounds(self.psi, self.bounds) else self._range_scale()
         if scale is not None:
             low, high = wald_ci(
                 float(scale.forward(self.psi)),
@@ -1185,7 +1185,7 @@ class ParameterEstimate:
 
     def _test_scale(self) -> Transform | None:
         """The range-logit map the test reads, or ``None`` for the inference scale."""
-        return None if out_of_range(self.psi, self.bounds) else self._range_scale()
+        return None if outside_bounds(self.psi, self.bounds) else self._range_scale()
 
     def _map_null(self, null: float | None) -> tuple[float, float]:
         scale = self._test_scale()

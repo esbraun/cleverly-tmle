@@ -92,6 +92,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 import numpy as np
 
 from .._inference_status import (
+    CONSTANT_ARM_CELL_STATUS,
     HELD_OUT_SCALE,
     InferenceStatus,
     supplies_inference,
@@ -187,6 +188,8 @@ from ..inference.influence import (
     ClusterReference,
     CorrectionParts,
     ParameterEstimate,
+    bounded_status,
+    constant_outcome_cells,
     has_t_reference,
     make_estimate,
     median_estimates,
@@ -276,6 +279,7 @@ from ..targets import (
     targets_for,
 )
 from ..targets.base import READS_SINK, parameter_name, stratum_alias
+from ..targets.builtin import BUILTIN_TARGETS
 from ..targets.population_intervention import (
     NATURAL_COURSE_TARGET,
     POPULATION_INTERVENTION_TARGETS,
@@ -5056,6 +5060,7 @@ class TMLE:
                     indices,
                     marginal_names,
                 )
+                fold_evaluated = _carry_cell_status(fold_evaluated, pooled)
                 fold_evaluated_report.update(fold_evaluated)
                 fold_estimates.update(per_fold_values)
                 estimates.update(fold_evaluated)
@@ -5066,8 +5071,11 @@ class TMLE:
                 )
                 for index in indices
             ]  # regimes ride along on `nuisance`, and are sliced per fold below
-            fold_evaluated = _average_over_folds(
-                per_fold, tuple(pooled), indices, n=data.n, cluster=data.cluster, alpha=level
+            fold_evaluated = _carry_cell_status(
+                _average_over_folds(
+                    per_fold, tuple(pooled), indices, n=data.n, cluster=data.cluster, alpha=level
+                ),
+                pooled,
             )
             fold_evaluated_report.update(fold_evaluated)
             fold_estimates.update(
@@ -5922,8 +5930,15 @@ class TMLE:
         index: IntArray | None = None,
         drop_undefined: bool = False,
         natural_course: ArmMean | None = None,
+        cell_rows: IntArray | None = None,
     ) -> dict[str, ParameterEstimate]:
         """Build every estimand that this fluctuation supports.
+
+        ``cell_rows`` are the rows a bounded built-in estimate's constant-cell check reads
+        (:func:`~cleverly.inference.influence.bounded_status`): the stratum's rows for a stratum
+        estimate. ``None`` reads every row on the whole sample and sets no status on a
+        fold-evaluated call, whose estimates take the whole-sample status
+        (:func:`_carry_cell_status`).
 
         ``index`` restricts every input to one validation fold, which is what the
         fold-evaluated CV-TMLE needs; ``None`` uses the whole sample.  Weights are
@@ -6025,16 +6040,45 @@ class TMLE:
         # distribution, and `context.means` computes the counterfactual means once.
         out: dict[str, ParameterEstimate] = {}
         target_group = "mean" if group == "natural_course" else group
+        if cell_rows is None and index is None:
+            cell_rows = np.arange(data.n, dtype=np.int64)
+        cells: frozenset[float] | None = None
         for target in targets_for(target_group, requested):
             try:
                 # One target is one functional, not one number: with K arms `ey` is a mean
                 # per arm and `ate` a contrast per non-reference arm, and each comes back
                 # under its own name.
                 bounds = parameter_bounds(target.bounded, data.family)
+                builtin = target in BUILTIN_TARGETS
                 for estimate in target.build(context):
-                    out[estimate.name] = (
-                        estimate if bounds is None else replace(estimate, bounds=bounds)
-                    )
+                    changes: dict[str, Any] = {}
+                    if bounds is not None:
+                        changes["bounds"] = bounds
+                    if builtin:
+                        # A custom target's functional need not be an outcome mean, so it
+                        # records no family.
+                        changes["outcome_family"] = data.family
+                    if bounds is not None and cell_rows is not None:
+                        constant = False
+                        if target.parameter_axis == "arm":
+                            if cells is None:
+                                cells = frozenset(
+                                    float(arm)
+                                    for arm in constant_outcome_cells(
+                                        data.outcome,
+                                        data.treatment,
+                                        cell_rows,
+                                        weights=data.weights,
+                                        observed=data.observed,
+                                    )
+                                )
+                            # A target that records no reads counts as reading every arm.
+                            reads = context.reads.get(estimate.name, frozenset(codes))
+                            constant = bool(cells & reads)
+                        changes["inference"] = bounded_status(
+                            estimate.inference, estimate.psi, bounds, constant_cell=constant
+                        )
+                    out[estimate.name] = replace(estimate, **changes) if changes else estimate
             except ValueError:
                 # A target that declares `undefined_when` may legitimately fail on a
                 # subsample; anything else failing is a bug and must not be swallowed.
@@ -6104,6 +6148,7 @@ class TMLE:
                 reference,
                 index=index,
                 natural_course=None if not natural_course else natural_course[code],
+                cell_rows=index,
             )
             label = data.stratum_label(code)
             for estimate in estimates.values():
@@ -6119,7 +6164,9 @@ class TMLE:
                     alpha=estimate.alpha,
                     log_psi=estimate.log_psi,
                     covariance_rule=estimate.covariance_rule,
+                    inference=estimate.inference,
                     bounds=estimate.bounds,
+                    outcome_family=estimate.outcome_family,
                 )
                 codes[name] = code
         return out, codes
@@ -6454,6 +6501,44 @@ def _second_moment_over_n_squared(curve: FloatArray) -> float:
     """
     values = np.asarray(curve, dtype=float)
     return float(np.sum(np.square(values)) / values.size**2)
+
+
+def _carry_cell_status(
+    estimates: Mapping[str, ParameterEstimate],
+    pooled: Mapping[str, ParameterEstimate],
+) -> dict[str, ParameterEstimate]:
+    """Fold-evaluated estimates with the whole-sample constant cell and their own range check.
+
+    A fold-evaluated estimate reads the rows of its stratum, or of the whole sample, so it
+    takes ``"constant_arm_cell_plugin"`` when the estimate of the same name built on those rows
+    has it, and ``"out_of_range_plugin"`` when its own value lies on or outside its bounds
+    (:func:`~cleverly.inference.influence.bounded_status`). No fold's own rows set a status.
+    It also keeps the outcome family of that estimate.
+
+    Parameters
+    ----------
+    estimates : mapping of str to ParameterEstimate
+        The fold-evaluated estimates.
+    pooled : mapping of str to ParameterEstimate
+        The estimates of the same names built on the whole sample and on each stratum.
+
+    Returns
+    -------
+    dict of str to ParameterEstimate
+        ``estimates``, each with its status and family.
+    """
+    out: dict[str, ParameterEstimate] = {}
+    for name, estimate in estimates.items():
+        source = pooled.get(name)
+        constant = source is not None and source.inference == CONSTANT_ARM_CELL_STATUS
+        out[name] = replace(
+            estimate,
+            inference=bounded_status(
+                estimate.inference, estimate.psi, estimate.bounds, constant_cell=constant
+            ),
+            outcome_family=None if source is None else source.outcome_family,
+        )
+    return out
 
 
 def _average_over_folds(

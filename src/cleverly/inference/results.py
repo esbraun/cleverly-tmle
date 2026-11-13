@@ -28,6 +28,7 @@ from .influence import (
     _SECOND_MOMENT_CLUSTER_REFUSAL,
     BootstrapSummary,
     CovarianceRule,
+    OutcomeFamily,
     ParameterEstimate,
     Scale,
     _median_adjusted_variance,
@@ -55,6 +56,7 @@ __all__ = [
     "repeat_spread",
     "reported_status",
     "select_estimates",
+    "shared_family",
     "smooth_contrast",
     "sole_estimate",
     "split_noise_lines",
@@ -140,6 +142,24 @@ def inference_status(
     if len(fit_level) < len(statuses):
         return precedent_status(statuses)
     return statuses.pop()
+
+
+def shared_family(estimates: Sequence[ParameterEstimate]) -> OutcomeFamily | None:
+    """The outcome family every input of a derived estimate records, or ``None``.
+
+    Parameters
+    ----------
+    estimates : sequence of ParameterEstimate
+        The inputs of the derived estimate.
+
+    Returns
+    -------
+    str or None
+        The one :attr:`~cleverly.inference.ParameterEstimate.outcome_family` the inputs share,
+        and ``None`` when they record different families or any records none.
+    """
+    families = {estimate.outcome_family for estimate in estimates}
+    return families.pop() if len(families) == 1 else None
 
 
 def reported_status(estimates: Mapping[str, ParameterEstimate]) -> InferenceStatus:
@@ -266,6 +286,7 @@ def smooth_contrast(
         inference=status,
         reference_df=minimum_reference_df([estimates[key] for key in chosen]),
         support=combine_support((estimates[key].support for key in chosen), kind="derived"),
+        outcome_family=shared_family([estimates[key] for key in chosen]),
     )
     return estimate if transform is None else replace(estimate, transform=transform)
 
@@ -356,6 +377,7 @@ def transform_estimate(
         inference=estimate.inference,
         reference_df=estimate.reference_df,
         support=estimate.support,
+        outcome_family=estimate.outcome_family,
     )
     return replace(mapped, transform=transform)
 
@@ -892,6 +914,7 @@ def ratio_contrast(
         inference=status,
         reference_df=minimum_reference_df([estimates[key] for key in chosen]),
         support=combine_support((estimates[key].support for key in chosen), kind="derived"),
+        outcome_family=shared_family([estimates[key] for key in chosen]),
     )
 
 

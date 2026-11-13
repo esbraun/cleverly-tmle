@@ -783,7 +783,12 @@ CONSTANT_NODE_STATUS: Final = "constant_node_plugin"
 #: status. A derived estimate that reads such a parameter takes it too. A reader therefore
 #: asks each estimate's ``supplies_inference``, and never the fit's status alone.
 PARAMETER_STATUSES: Final[frozenset[str]] = frozenset(
-    {CONSTANT_NODE_STATUS, "stack_failure_plugin", "constant_arm_cell_plugin", "out_of_range_plugin"}
+    {
+        CONSTANT_NODE_STATUS,
+        "stack_failure_plugin",
+        "constant_arm_cell_plugin",
+        "out_of_range_plugin",
+    }
 )
 
 #: The status of a bounded mean whose estimate reads a treatment arm that holds a single
