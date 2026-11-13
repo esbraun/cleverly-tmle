@@ -17,6 +17,7 @@ one line of ``_bounded_step`` each and ask the same reference comparison to fail
 from __future__ import annotations
 
 import importlib
+import itertools
 import re
 import warnings
 from itertools import pairwise
@@ -522,10 +523,11 @@ class TestTheLineStep:
 
 # ------------------------------------------------------------------------------ the walk's exit
 
-#: The exit of ``_solve_fluctuation_bounded``: literal under the search, ``tol`` for the fixed step.
+#: The exit of ``_solve_fluctuation_bounded``: a zero length or a revisited state under the search,
+#: ``tol`` for the fixed step.
 NEW_EXIT = """if not met and (
-            (length == 0.0 or np.array_equal(current.observed[mask], before))
-            if step_search
+            (length == 0.0 or visited.seen(current.observed[mask]))
+            if visited is not None
             else float(np.max(np.abs(step))) <= tol
         ):"""
 #: The exit before the search was exact, for both modes.
@@ -581,10 +583,39 @@ class TestTheWalkExit:
         s = setting()
         for delta in (0.05, DELTA, 0.3):
             fit = walk_solver(s, 40, step_bound=delta, tol=1e-300)
-            # Measured: the walk stops after 10 to 16 iterations with the smallest relative
-            # score at 4.2e-18 to 8.0e-18, when a step no longer changes a prediction.
+            # The walk stops when a step no longer changes a prediction or the predictions
+            # return to an earlier state.  Which of the two, and when, depends on the machine's
+            # floating-point kernels.  Measured with AVX-512: 10 to 16 iterations, the smallest
+            # relative score at 4.2e-18 to 8.0e-18.  Without it: 9 to 17 iterations, 1.3e-18 to
+            # 3.0e-18, and the 0.15 walk ends in a cycle of one-ulp changes, which only the
+            # revisit exit stops.
             assert fit.n_iter < 40
             assert min(fit.trace) <= 1e-14
+
+    def test_a_walk_that_returns_to_a_visited_state_stops(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The predictions alternate between two states, as in a round-off cycle at the floor.
+        # A check against the last state only would run this walk to ``max_iter``.
+        s = setting()
+        a = s["initial"]
+        b = InitialFit(
+            np.full(s["n"], 0.45), {0.0: np.full(s["n"], 0.45), 1.0: np.full(s["n"], 0.45)}
+        )
+        states = itertools.cycle([b, a])
+        monkeypatch.setattr(iterative_module, "apply_logistic", lambda *args: next(states))
+        fit = walk_solver(s, 40, step_bound=DELTA)
+        assert fit.n_iter == 2 and not fit.converged
+        assert fit.failure == "max_iter_reached"
+        states = itertools.cycle([b, a])
+        mutate(
+            monkeypatch,
+            iterative_module,
+            iterative_module,
+            "_solve_fluctuation_bounded",
+            [("visited.seen(current.observed[mask])", "False")],
+        )
+        assert walk_solver(s, 40, step_bound=DELTA).n_iter == 40
 
     def test_the_bounded_loss_search_stays_above_the_floor(
         self, monkeypatch: pytest.MonkeyPatch
