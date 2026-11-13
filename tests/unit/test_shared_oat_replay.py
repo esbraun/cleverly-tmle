@@ -8,6 +8,14 @@ study's own ``fit_cleverly`` and compares it with the committed row.
 
 The tolerance is ``rtol=1e-10``: the artifacts were written on another machine, and Linux and
 Windows differ in the last few bits.  The rows are read with ``float_precision="round_trip"``.
+
+The rows were written under the identity interval.  The package now forms the interval of a
+bounded mean (``interval_scale`` ``"range_logit"``) on the logit scale, which moves the endpoints
+of the ``ey`` rows and nothing they were computed from.  For those rows the replay checks the
+committed endpoints against the identity interval of the refit, and the shipped endpoints
+against the logit interval of the committed estimate and standard error
+(:func:`~tests.studies.evidence.interval_audit.logit_interval`), so the estimate, the standard
+error and both intervals stay pinned.
 """
 
 from __future__ import annotations
@@ -15,8 +23,10 @@ from __future__ import annotations
 from types import ModuleType
 
 import pytest
+from scipy import stats
 
 from tests.studies import canonical_ctmle_oat, canonical_multi_arm_ctmle_oat
+from tests.studies.evidence.interval_audit import logit_interval
 from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.schema import reported_inference
 
@@ -45,5 +55,14 @@ def test_replication_zero_refits_to_the_committed_rows(module: ModuleType) -> No
             row = rows.loc[name]
             assert estimate.psi == pytest.approx(row["estimate"], rel=1e-10, abs=1e-14)
             assert std_error == pytest.approx(row["std_error"], rel=1e-10)
-            assert low == pytest.approx(row["ci_lower"], rel=1e-10, abs=1e-14)
-            assert high == pytest.approx(row["ci_upper"], rel=1e-10, abs=1e-14)
+            committed_interval = (row["ci_lower"], row["ci_upper"])
+            if estimate.interval_scale == "range_logit":
+                assert row["inference_scale"] == "identity"
+                half = stats.norm.ppf(1.0 - estimate.alpha / 2.0) * std_error
+                low_logit, high_logit = logit_interval(
+                    row["estimate"], row["std_error"], alpha=estimate.alpha
+                )
+                assert (low, high) == pytest.approx((low_logit, high_logit), rel=1e-10, abs=1e-14)
+                low, high = estimate.psi - half, estimate.psi + half
+            assert low == pytest.approx(committed_interval[0], rel=1e-10, abs=1e-14)
+            assert high == pytest.approx(committed_interval[1], rel=1e-10, abs=1e-14)

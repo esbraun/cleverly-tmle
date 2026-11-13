@@ -808,6 +808,11 @@ $R$ is the indicator of the rows the representer reads. On complete data $R$ is 
 [Second mechanisms and strata of the bound](#omitted-variable-bounds-robustness-value-benchmark-and-contours) defines $R$ for the other
 fits. The two primitives are exposed as `elements()`.
 
+The bounds and their confidence limits are formed on the identity scale for every target. On an
+unclustered mean of a yes/no outcome, whose reported interval is on the logit scale
+([small-sample scale](inference.md#small-sample-scale)), the limits at zero strength are therefore
+identity-scale limits and do not reduce to the reported interval.
+
 The estimate of $\nu^2$ reads the fitted treatment mechanism, so it needs a consistent assignment
 model. On a wrong model, the doubly robust estimate of $\nu^2$ falls below $\nu_0^2$ by
 $\lVert \hat\alpha - \alpha_0 \rVert^2$. The bounds then read too narrow, and the robustness value

@@ -745,6 +745,7 @@ def stratum_mixture(
         alpha=alpha,
         covariance_rule="centered",
         bounds=parts[0].bounds,
+        outcome_family=parts[0].outcome_family,
         # The marginal curve is the probability-weighted sum of the stratum curves, so its
         # mean is the weighted sum of their residuals.
         rule_widened=any(part.rule_widened for part in parts),

@@ -83,7 +83,9 @@ from ..fluctuation.submodel import Submodel
 from ..inference.influence import (
     ArmMean,
     ClusterReference,
+    OutcomeFamily,
     ParameterEstimate,
+    family_of,
     make_estimate,
     stamp_inference,
 )
@@ -1770,13 +1772,17 @@ class AdaptiveIPTW(TMLE):
         )
 
     def _targets(
-        self, context: _IptwContext, group: str, requested: Sequence[str]
+        self,
+        context: _IptwContext,
+        group: str,
+        requested: Sequence[str],
+        family: OutcomeFamily | None = None,
     ) -> dict[str, ParameterEstimate]:
-        """Build every requested target of ``group`` from a context."""
+        """Build every requested target of ``group`` from a context, recording ``family``."""
         out: dict[str, ParameterEstimate] = {}
         for target in targets_for(group, requested):
             for estimate in target.build(context):
-                out[estimate.name] = estimate
+                out[estimate.name] = replace(estimate, outcome_family=family)
         sink = READS_SINK.get()
         if sink is not None:
             sink.update(context.reads)
@@ -1812,7 +1818,7 @@ class AdaptiveIPTW(TMLE):
 
         owner_means, natural = means_on(None, self.form)
         context = self._context(data, nuisance, owner_means, natural, level, reference, None)
-        estimates = self._targets(context, group, requested)
+        estimates = self._targets(context, group, requested, family_of(data))
         stratum_of: dict[str, int] = {}
         if data.strata is not None:
             for code, _ in enumerate(stratum_probabilities(data)):
@@ -1822,7 +1828,9 @@ class AdaptiveIPTW(TMLE):
                     data, nuisance, owner_s, natural_s, level, reference, rows
                 )
                 label = data.stratum_label(code)
-                for estimate in self._targets(stratum_context, group, requested).values():
+                for estimate in self._targets(
+                    stratum_context, group, requested, family_of(data)
+                ).values():
                     name = stratum_alias(estimate.name, label)
                     curve = embed_stratum_curve(estimate.influence_curve, rows, data.n)
                     estimates[name] = make_estimate(
@@ -1835,6 +1843,7 @@ class AdaptiveIPTW(TMLE):
                         alpha=estimate.alpha,
                         log_psi=estimate.log_psi,
                         covariance_rule=estimate.covariance_rule,
+                        outcome_family=estimate.outcome_family,
                         rule_widened=estimate.rule_widened,
                     )
                     stratum_of[name] = code
@@ -1860,7 +1869,13 @@ class AdaptiveIPTW(TMLE):
             for owner, (psi, curve) in _owner_values(solved, form, weights, None).items():
                 name = NATURAL_COURSE_KEY if owner is None else labels[owner]
                 estimate = make_estimate(
-                    name, psi, curve, n=data.n, cluster=data.cluster, rule_widened=False
+                    name,
+                    psi,
+                    curve,
+                    n=data.n,
+                    cluster=data.cluster,
+                    outcome_family=family_of(data),
+                    rule_widened=False,
                 )
                 out[name] = (psi, float(estimate.plugin_std_error))
             return out

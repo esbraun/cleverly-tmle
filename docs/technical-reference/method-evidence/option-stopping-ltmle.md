@@ -24,6 +24,15 @@ The laws and the threshold scale are in `tests/studies/_option_stopping_laws.py`
 `tests/unit/test_stopping_rule_longitudinal.py` and `tests/unit/test_hazard_targeting_rules.py`
 check each node's threshold and the walk's stop by hand.
 
+The committed rows record the identity interval. The package now builds the interval of an
+unclustered risk of a binary outcome on the logit scale
+([small-sample scale](../inference.md#small-sample-scale)), and the residual enters there as
+$\lvert r_n\rvert / (\psi_n(1 - \psi_n))$. The differences keep their interval. On the same
+committed estimates, standard errors and residuals, the L4 arm-1 risk row covers 0.9582 against
+the recorded 0.9564. The `residual_necessity` pair reads 0.9768 widened, with an exact 99% lower
+limit of 0.9716, and 0.8701 plain, with an upper limit of 0.8805, so neither verdict changes
+(`tests/canonical/interval-audit-screen.csv`).
+
 ## Accuracy against known truth
 
 <!-- generated: accuracy -->

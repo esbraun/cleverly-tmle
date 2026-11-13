@@ -9,6 +9,7 @@ limit, the refusals, the unchanged default band and the one-estimate case.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import numpy as np
@@ -503,19 +504,20 @@ def test_one_estimate_gets_a_t_interval_wider_than_its_own() -> None:
 
 # ----------------------------------------------------------- 11 and 13: the family rule
 #
-# No builder sets "constant_arm_cell_plugin" or "out_of_range_plugin" until the pointwise row
-# (Fix-3) lands its statuses. These tests drive the band's two rules through two withheld
-# statuses that exist today, patched in as the names the band reads, so the mechanism is pinned
-# now. Tests 11 and 13 on stratified fits land with the statuses themselves.
+# These tests pin the band's two rules on synthetic curves. The constant-cell rule runs through
+# a withheld status that is easy to stamp, patched in as the name the band reads. The family's
+# member "c" sits at 1.0, so ``make_estimate`` stamps it ``"out_of_range_plugin"`` itself, and
+# the out-of-range rule runs on that real status. Both statuses as the builder of a bounded mean
+# sets them on stratified fits are tested in tests/unit/test_small_sample_scale.py.
 
 
 @pytest.fixture
 def stand_in_statuses(monkeypatch: pytest.MonkeyPatch) -> tuple[str, str]:
+    from cleverly._inference_status import OUT_OF_RANGE_STATUS
     from cleverly.inference import multiplier
 
     monkeypatch.setattr(multiplier, "CONSTANT_ARM_CELL_STATUS", "constant_node_plugin")
-    monkeypatch.setattr(multiplier, "OUT_OF_RANGE_STATUS", "stack_failure_plugin")
-    return "constant_node_plugin", "stack_failure_plugin"
+    return "constant_node_plugin", OUT_OF_RANGE_STATUS
 
 
 def _family_estimates(status: dict[str, str] | None = None) -> dict[str, object]:
@@ -538,7 +540,7 @@ def _family_estimates(status: dict[str, str] | None = None) -> dict[str, object]
 
 
 class TestTheFamilyRule:
-    def test_no_current_estimate_is_a_constant_cell_or_an_out_of_range_member(self) -> None:
+    def test_another_withheld_status_is_neither_a_constant_cell_nor_a_member(self) -> None:
         from cleverly.inference.multiplier import band_member, constant_arm_members
 
         estimates = _family_estimates({"c": "constant_node_plugin"})
@@ -587,7 +589,8 @@ class TestTheFamilyRule:
 
         _, outside = stand_in_statuses
         withheld = _family_estimates({"c": outside})
-        plain = _family_estimates()
+        assert withheld["c"].inference == outside  # type: ignore[attr-defined]
+        plain = {**withheld, "c": dataclasses.replace(withheld["c"], inference="influence_curve")}  # type: ignore[type-var]
         assert band_member(withheld["c"])  # type: ignore[arg-type]
         # The logit band refuses it with today's refusal, not the constant-cell one.
         for estimates in (withheld, plain):

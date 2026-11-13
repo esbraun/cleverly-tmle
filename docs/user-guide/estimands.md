@@ -237,7 +237,7 @@ the highest predicted outcome, and a tie goes to the first option in sorted orde
 [study](../technical-reference/method-evidence/learned-rule-arms.md) measured this with three
 options, ten folds scored one at a time (`fold_evaluation=True`) and 2,000 rows, on data where
 one option's predicted outcome was clearly the highest for almost every unit. Over 3,200 samples
-its 95% interval covered the target 0.9425 of the time. With three options and
+its 95% interval covered the target 0.942 of the time. With three options and
 `fold_evaluation=True`, cleverly marks the estimate supported at any number of folds, although
 the study measured ten only.
 

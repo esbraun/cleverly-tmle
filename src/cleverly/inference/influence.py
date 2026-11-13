@@ -54,7 +54,7 @@ import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, fields, replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 import numpy as np
 from scipy.special import expit
@@ -63,7 +63,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._summary import Detail, Summary
 
 from .._inference_status import (
+    CONSTANT_ARM_CELL_STATUS,
+    OUT_OF_RANGE_STATUS,
     PARAMETER_STATUSES,
+    UNREPORTED_INTERVAL_STATUSES,
     InferenceStatus,
     is_labelled,
     precedent_status,
@@ -108,6 +111,7 @@ __all__ = [
     "bootstrap_column",
     "bootstrap_is_diagnostic",
     "bootstrap_line",
+    "bounded_status",
     "constant_outcome_cells",
     "counterfactual_mean_parts",
     "counterfactual_means",
@@ -179,6 +183,99 @@ def parameter_bounds(kind: BoundedKind | None, family: str) -> tuple[float, floa
     if kind is None or family != "binomial":
         return None
     return _BINARY_RANGES[kind]
+
+
+def outside_bounds(psi: float, bounds: tuple[float, float] | None) -> bool:
+    """Whether an estimate lies on or outside its open range, in float arithmetic.
+
+    A ``nan`` estimate is not outside its range: it has no value to place, and its interval is
+    ``(nan, nan)`` under any status.
+    """
+    if bounds is None or math.isnan(psi):
+        return False
+    low, high = bounds
+    return not (low < psi < high)
+
+
+def family_of(data: Any) -> OutcomeFamily | None:
+    """The outcome family an estimate of ``data`` records: its resolved family, or ``None``.
+
+    Parameters
+    ----------
+    data : object
+        A validated data container with a ``family`` attribute.
+
+    Returns
+    -------
+    {"binomial", "gaussian"} or None
+        The resolved family, and ``None`` for a container that records none.
+    """
+    family = getattr(data, "family", None)
+    if family == "binomial":
+        return "binomial"
+    if family == "gaussian":
+        return "gaussian"
+    return None
+
+
+def bounded_status(
+    inference: InferenceStatus,
+    psi: float,
+    bounds: tuple[float, float] | None,
+    *,
+    constant_cell: bool = False,
+    reads_out_of_range: bool = False,
+) -> InferenceStatus:
+    """The status a builder gives an estimate that reads bounded means.
+
+    ``"constant_arm_cell_plugin"`` when a treatment arm the estimate reads holds a single
+    observed outcome value in its stratum, else ``"out_of_range_plugin"`` when the estimate
+    lies on or outside ``bounds`` or reads a mean that does, else ``inference``. The constant
+    cell wins when both apply, because it is the cause. Either replaces ``"influence_curve"``
+    and every status that shows its interval, and neither replaces a status that already
+    withholds it. An estimate without ``bounds``, such as a risk ratio, takes a status only
+    from ``constant_cell`` and ``reads_out_of_range``.
+
+    Parameters
+    ----------
+    inference : str
+        The status the estimate was built with, one of :data:`InferenceStatus`.
+    psi : float
+        The estimate.
+    bounds : tuple of float or None
+        The open range of the parameter, from :func:`parameter_bounds`. ``None`` sets no range
+        check on ``psi`` itself.
+    constant_cell : bool, default=False
+        Whether an arm the estimate reads holds one observed outcome value, from
+        :func:`constant_outcome_cells`.
+    reads_out_of_range : bool, default=False
+        Whether a bounded mean the estimate is a function of lies on or outside its range,
+        so that a contrast or ratio of it inherits the status.
+
+    Returns
+    -------
+    str
+        One of :data:`InferenceStatus`.
+
+    Examples
+    --------
+    >>> from cleverly.inference.influence import bounded_status
+    >>> bounded_status("influence_curve", 1.0, (0.0, 1.0))
+    'out_of_range_plugin'
+    >>> bounded_status("influence_curve", 0.3, (0.0, 1.0), constant_cell=True)
+    'constant_arm_cell_plugin'
+    >>> bounded_status("influence_curve", 0.3, (0.0, 1.0))
+    'influence_curve'
+    >>> bounded_status("influence_curve", 1.4, None, constant_cell=True)
+    'constant_arm_cell_plugin'
+    """
+    if not supplies_inference(inference):
+        return inference
+    if constant_cell:
+        return CONSTANT_ARM_CELL_STATUS
+    if reads_out_of_range or outside_bounds(psi, bounds):
+        return OUT_OF_RANGE_STATUS
+    return inference
 
 
 # ``InferenceStatus`` and ``supplies_inference`` live in the leaf module
@@ -414,6 +511,11 @@ class WaldTest:
     transform : str or None, default=None
         The name of the transform the estimate's interval is built on, or ``None`` when
         the estimate carries none. The test is computed on that scale.
+    interval_scale : str, default="identity"
+        The scale the test and the estimate's interval are computed on, as
+        :attr:`ParameterEstimate.interval_scale` gives it. On ``"range_logit"`` the null is
+        mapped through the logit, and a null on or outside the open range has an infinite
+        statistic and p-value 0.
     """
 
     name: str
@@ -424,6 +526,7 @@ class WaldTest:
     scale: Scale
     reference_df: int | None = None
     transform: str | None = None
+    interval_scale: str = "identity"
 
     def to_dict(self) -> dict[str, Any]:
         """The test as a mapping of its fields.
@@ -432,7 +535,7 @@ class WaldTest:
         -------
         dict of str to Any
             ``estimand``, ``null``, ``null_inference_value``, ``statistic``, ``p_value``,
-            ``scale``, ``reference_df`` and ``transform``.
+            ``scale``, ``reference_df``, ``transform`` and ``interval_scale``.
         """
         return {
             "estimand": self.name,
@@ -443,6 +546,7 @@ class WaldTest:
             "scale": self.scale,
             "reference_df": self.reference_df,
             "transform": self.transform,
+            "interval_scale": self.interval_scale,
         }
 
     def summary(self, *, detail: Detail = "short") -> Summary:
@@ -1045,12 +1149,34 @@ class ParameterEstimate:
     def interval_scale(self) -> str:
         """The scale :attr:`ci` is formed on.
 
-        The transform's name for a transformed estimate, ``"log"`` for a ratio and
-        ``"identity"`` otherwise.
+        The transform's name for a transformed estimate, ``"log"`` for a ratio,
+        ``"range_logit"`` for an unclustered mean of a binary outcome (:attr:`bounds`
+        ``(0, 1)`` on the ``"level"`` scale) and ``"identity"`` otherwise.
         """
         if self.transform is not None:
             return self.transform.name
+        if self._range_scale() is not None:
+            return "range_logit"
         return "log" if self.scale == "ratio" else "identity"
+
+    def _range_scale(self) -> Transform | None:
+        """The range-logit map of a bounded unclustered mean, or ``None``.
+
+        An unclustered estimate with :attr:`bounds` ``(0, 1)``, the ``"level"`` scale and no
+        :attr:`transform` forms its interval and test on the logit scale with the normal
+        reference. A difference keeps the identity scale, and a clustered estimate keeps its
+        reference. An estimate with a Student t reference keeps it too, which covers singleton
+        clusters: their count equals :attr:`n`, but a stratum with few of them reads a t.
+        """
+        if (
+            self.transform is not None
+            or self.scale != "level"
+            or self.bounds != (0.0, 1.0)
+            or self.n_clusters < self.n
+            or self.reference_df is not None
+        ):
+            return None
+        return Transform.range_logit(*self.bounds)
 
     def _plugin_std_error(self) -> float:
         """The plug-in standard error, under any inference status.
@@ -1087,10 +1213,34 @@ class ParameterEstimate:
         One body for :attr:`ci` and :attr:`plugin_interval`, for the same reason
         :meth:`_plugin_std_error` has one. ``widen`` adds the remaining score to the
         half-width on the inference scale, before any map back to the reported scale.
+
+        Under a status of :data:`~cleverly._inference_status.UNREPORTED_INTERVAL_STATUSES` it
+        is ``(nan, nan)``. On a bounded unclustered mean (:meth:`_range_scale`) it is the
+        interval on the logit scale, mapped back, with the normal reference; the remaining
+        score enters that scale as ``abs(score) * f'(psi)``, the delta-method image of the
+        level-scale margin under the same slope that carries the standard error. The check
+        that the estimate lies inside its range runs first, so the map is never evaluated at
+        or beyond a bound. An estimate on or outside its range that carries no withheld
+        status, which only a hand-built estimate can, keeps the identity interval.
         """
+        if self.inference in UNREPORTED_INTERVAL_STATUSES:
+            return (float("nan"), float("nan"))
         center = self.inference_value
         df = self.reference_df
         margin = self._residual_margin(widen)
+        scale = None if outside_bounds(self.psi, self.bounds) else self._range_scale()
+        if scale is not None:
+            slope = scale.slope(self.psi)
+            low, high = wald_ci(
+                float(scale.forward(self.psi)),
+                self._plugin_std_error() * slope,
+                self.alpha,
+                df=None,
+                margin=margin * slope,
+            )
+            if not (np.isfinite(low) and np.isfinite(high)):
+                return (float("nan"), float("nan"))
+            return (float(scale.inverse(low)), float(scale.inverse(high)))
         if self.transform is not None:
             low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df, margin=margin)
             if not (np.isfinite(low) and np.isfinite(high)):
@@ -1106,11 +1256,26 @@ class ParameterEstimate:
         return wald_ci(center, self._plugin_std_error(), self.alpha, df=df, margin=margin)
 
     def _null_inference_value(self, null: float | None) -> tuple[float, float]:
-        """The null on the reported scale and on the inference scale."""
+        """The null on the reported scale and on the scale the test is computed on."""
         with np.errstate(divide="ignore", invalid="ignore"):
             return self._map_null(null)
 
+    def _test_scale(self) -> Transform | None:
+        """The range-logit map the test reads, or ``None`` for the inference scale."""
+        return None if outside_bounds(self.psi, self.bounds) else self._range_scale()
+
     def _map_null(self, null: float | None) -> tuple[float, float]:
+        scale = self._test_scale()
+        if scale is not None:
+            reported = 0.0 if null is None else float(null)
+            low, high = cast("tuple[float, float]", self.bounds)
+            # A null on or outside the open range maps to an infinite value, so its p-value
+            # is 0: the interval lies inside the range and excludes it.
+            if reported <= low:
+                return reported, float("-inf")
+            if reported >= high:
+                return reported, float("inf")
+            return reported, float(scale.forward(reported))
         if null is None:
             null = 1.0 if self.scale == "ratio" else 0.0
             if self.transform is not None:
@@ -1148,13 +1313,26 @@ class ParameterEstimate:
         null lies outside the widened interval.
         """
         reported, mapped = self._null_inference_value(null)
-        statistic, pvalue = wald_statistic(
-            self.inference_value,
-            mapped,
-            self._plugin_std_error(),
-            df=self.reference_df,
-            margin=self.residual_margin,
-        )
+        scale = self._test_scale()
+        if self.inference in UNREPORTED_INTERVAL_STATUSES:
+            statistic, pvalue = float("nan"), float("nan")
+        elif scale is not None:
+            slope = scale.slope(self.psi)
+            statistic, pvalue = wald_statistic(
+                float(scale.forward(self.psi)),
+                mapped,
+                self._plugin_std_error() * slope,
+                df=None,
+                margin=self.residual_margin * slope,
+            )
+        else:
+            statistic, pvalue = wald_statistic(
+                self.inference_value,
+                mapped,
+                self._plugin_std_error(),
+                df=self.reference_df,
+                margin=self.residual_margin,
+            )
         return WaldTest(
             name=self.name,
             null=reported,
@@ -1164,6 +1342,7 @@ class ParameterEstimate:
             scale=self.scale,
             reference_df=self.reference_df,
             transform=None if self.transform is None else self.transform.name,
+            interval_scale=self.interval_scale,
         )
 
     def _plugin_pvalue(self) -> float:
@@ -1260,6 +1439,12 @@ class ParameterEstimate:
     @property
     def ci(self) -> tuple[float, float]:
         """Confidence interval at level ``1 - alpha``.
+
+        On a bounded unclustered mean (:attr:`interval_scale` ``"range_logit"``) the limits are
+        mapped back from the logit scale, so an estimate within about ``1e-12`` of a bound with
+        a wide standard error can show a limit that rounds to the bound itself, ``0.0`` or
+        ``1.0``, in float arithmetic. The test of that bound still reads it as outside the open
+        range and gives p-value 0. The interval holds the open range in exact arithmetic.
 
         Raises
         ------
@@ -1385,7 +1570,8 @@ class ParameterEstimate:
         columns take the same diagnostic names when :func:`bootstrap_is_diagnostic` is
         ``True``. A fit with a bootstrap adds ``bootstrap_support``, the label of the bootstrap
         summary. A transformed estimate adds ``transform`` and ``transform_psi``, the estimate
-        on the transform's scale. An estimate with a Student t reference adds ``reference_df``,
+        on the transform's scale. ``interval_scale`` names the scale the interval is formed on
+        (:attr:`interval_scale`). An estimate with a Student t reference adds ``reference_df``,
         and its bootstrap columns take the diagnostic names. An estimate under a declared
         stopping rule adds ``rule_widened`` (``True``) and ``residual_margin``, so a consumer
         can tell that ``ci_lower`` and ``ci_upper`` include the margin. ``std_err`` is present
@@ -1413,6 +1599,7 @@ class ParameterEstimate:
             row["rule_widened"] = True
             row["residual_margin"] = self.residual_margin
         row["scale"] = self.scale
+        row["interval_scale"] = self.interval_scale
         if self.log_psi is not None:
             row["log_psi"] = self.log_psi
         if self.transform is not None:
@@ -1701,7 +1888,8 @@ def make_estimate(
         The support the estimate carries. A caller that builds an estimate inside a classified
         fit passes the support of that fit.
     bounds : tuple of float or None, default=None
-        The open interval the parameter lies in, from :func:`parameter_bounds`.
+        The open interval the parameter lies in, from :func:`parameter_bounds`. An estimate
+        on or outside it takes ``"out_of_range_plugin"`` (:func:`bounded_status`).
     outcome_family : {"binomial", "gaussian"} or None, default=None
         The family of the outcome, when the caller knows it.
 
@@ -1723,6 +1911,7 @@ def make_estimate(
             f"covariance_rule must be 'centered' or 'second_moment'; got {covariance_rule!r}"
         )
     n_clusters = n if cluster is None else int(np.unique(cluster).size)
+    inference = bounded_status(inference, float(psi), bounds)
     return ParameterEstimate(
         name=name,
         psi=float(psi),
@@ -1843,11 +2032,11 @@ def restamp_parameter_statuses(
     A parameter status (:data:`~cleverly._inference_status.PARAMETER_STATUSES`) belongs to
     one estimate of one draw, such as an arm whose stacked curve failed on that draw's
     split. The median over draws reads every draw, so it takes the status of the most
-    restrictive draw. An estimate holds a parameter status only beside an
-    ``"influence_curve"`` fit status (:func:`stamp_inference`), so the restamp applies when
-    every other draw of the estimand also reports ``"influence_curve"``. Draws with
-    different fit statuses keep them, and :func:`median_estimates` refuses the
-    combination: that guard finds a real defect.
+    restrictive draw. An estimate holds a parameter status only beside a fit status that
+    shows its interval (:func:`stamp_inference`), so the restamp applies when every other
+    draw of the estimand reports that one fit status. Draws with different fit statuses keep
+    them, and :func:`median_estimates` refuses the combination: that guard finds a real
+    defect.
 
     The order of the stamps on a repeated fit is this restamp, then the median. A support
     record reads the final status and is stamped on each draw before the restamp, so a
@@ -1874,7 +2063,7 @@ def restamp_parameter_statuses(
         if not any(status in PARAMETER_STATUSES for status in statuses):
             continue
         fit_level = {status for status in statuses if status not in PARAMETER_STATUSES}
-        if not fit_level <= {"influence_curve"}:
+        if len(fit_level) > 1 or not all(supplies_inference(status) for status in fit_level):
             continue
         status = precedent_status(statuses)
         support = _record_of([report[name] for report in out], status)
@@ -2025,6 +2214,7 @@ def median_estimates(
             reference_df=minimum_reference_df(parts),
             support=parts[0].support,
             bounds=parts[0].bounds,
+            outcome_family=parts[0].outcome_family,
             rule_widened=any(part.rule_widened for part in parts),
         )
     return out

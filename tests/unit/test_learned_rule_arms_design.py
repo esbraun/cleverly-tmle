@@ -272,7 +272,9 @@ def test_the_cells() -> None:
     assert properties.TARGETING_DISPLACEMENT == 0.5
     assert study.COVERAGE_SHRINK == 0.60
     assert study.STUDY.truth_varies_by_replicate and not study.STUDY.calibration_efficiency_ratio
-    assert study.STUDY.publication_policy == "gated"
+    # Reporting since the shipped logit interval turned the conservative cell red
+    # (owner `learned-rule-arms-coverage-draws`).
+    assert study.STUDY.publication_policy == "reporting"
     assert study.PRIMARY_N == properties.CALIBRATION_N == 2_000
     assert properties.FAMILY_LEARNERS == {
         "interval_calibration": "declared",
