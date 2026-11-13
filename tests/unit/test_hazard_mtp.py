@@ -373,6 +373,7 @@ def test_a_policy_on_a_wrong_hazard_is_exact(
 
 # ------------------------------------------------------------------ the weight
 
+
 def _drop(law: GridLaw, part: str) -> Callable[..., Any]:
     """An ``mtp_inputs`` that drops the density ratio, or ``1 / G_k``, from the weight."""
     original = hazard_module.mtp_inputs
@@ -505,6 +506,7 @@ def test_the_loss_is_weighted_by_omega() -> None:
 
 # ------------------------------------------------------------------ the slots
 
+
 def test_each_slot_is_predicted_at_its_own_design() -> None:
     """A dose slot reads the shifted dose; a mixed slot splices the shifted components.
 
@@ -595,6 +597,7 @@ def test_the_randomizer_mixes_its_branch_slots(monkeypatch: pytest.MonkeyPatch) 
 
 # ------------------------------------------------------------------ one walk per policy
 
+
 def test_each_policy_has_its_own_walk(monkeypatch: pytest.MonkeyPatch) -> None:
     """Two policies and a static arm: two weighted walks and the shared walk.
 
@@ -634,6 +637,7 @@ def test_each_policy_has_its_own_walk(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ------------------------------------------------------------------ held cells
+
 
 def _final_states(result_calls: list[Any]) -> list[Any]:
     return [state for reports in result_calls for state, _ in reports.values()]
@@ -709,6 +713,7 @@ def test_a_held_mixed_cell_holds_the_slots_of_its_categorical_values() -> None:
 
 # ------------------------------------------------------------------ cross-fitting
 
+
 def test_the_slot_hazards_are_cross_fitted() -> None:
     """Each held-out row's shifted-slot hazard is the training folds' fit at its shifted dose.
 
@@ -740,6 +745,7 @@ def test_the_slot_hazards_are_cross_fitted() -> None:
 
 
 # ------------------------------------------------------------------ monotone curves
+
 
 @pytest.mark.parametrize("reading", ["categorical", "continuous"])
 def test_each_policy_walk_reports_a_monotone_curve(reading: str) -> None:
