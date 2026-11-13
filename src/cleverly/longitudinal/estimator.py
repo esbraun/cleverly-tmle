@@ -154,6 +154,8 @@ from ..inference.multiplier import (
     DEFAULT_KIND,
     DEFAULT_N_REPLICATES,
     SimultaneousBands,
+    band_member,
+    constant_arm_members,
     median_bands,
     out_of_range,
     simultaneous_bands,
@@ -5868,8 +5870,14 @@ class _SequentialEstimator:
             for name, estimate in result.estimates.items()
             if estimate.supplies_inference and name in bootstrap.std_errors
         }
-        # As for the multiplier band, no source gives a t-calibrated joint band.
-        if not self.simultaneous or len(banded) < 2 or has_t_reference(banded):
+        # As for the multiplier band, no source gives a t-calibrated joint band, and a family
+        # with a constant arm cell builds none.
+        if (
+            not self.simultaneous
+            or len(banded) < 2
+            or has_t_reference(banded)
+            or constant_arm_members(result.estimates)
+        ):
             return result
         band = bootstrap_band(
             bootstrap,
@@ -6305,8 +6313,12 @@ class _SequentialEstimator:
         # A parameter whose status withholds its interval, such as a constant-node risk, stays
         # out of the band, which is then a joint statement over the others. A parameter that
         # shows a labelled interval stays in, and its experimental label reaches the band.
+        # The two exceptions of ``TMLE.fit`` hold here too: a constant arm cell skips the
+        # band, and an estimate on or outside its range stays a member.
+        if constant_arm_members(estimates):
+            return None
         estimates = {
-            name: estimate for name, estimate in estimates.items() if estimate.supplies_inference
+            name: estimate for name, estimate in estimates.items() if band_member(estimate)
         }
         if not self.simultaneous or len(estimates) < 2:
             return None

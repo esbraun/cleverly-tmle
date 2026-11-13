@@ -182,7 +182,12 @@ import numpy as np
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._summary import Detail, Summary
 
-from .._inference_status import FEW_CLUSTER_THRESHOLD
+from .._inference_status import (
+    CONSTANT_ARM_CELL_STATUS,
+    FEW_CLUSTER_THRESHOLD,
+    NO_CONSTANT_ARM_BANDS,
+    OUT_OF_RANGE_STATUS,
+)
 from .._support import UNCLASSIFIED, Support, combine_support
 from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import CapabilityError, Refusal, RefusalReason, refuse_inference
@@ -214,12 +219,40 @@ KNOWN_REGIME_BAND_REFUSAL = Refusal(
     roadmap="X11",
 )
 
+
+def constant_arm_band_refusal(names: Sequence[str]) -> Refusal:
+    """Why no band covers a family that holds an estimate with a constant arm cell.
+
+    Parameters
+    ----------
+    names : sequence of str
+        The members whose status is :data:`CONSTANT_ARM_CELL_STATUS`.
+
+    Returns
+    -------
+    Refusal
+        The ``inference_gap`` refusal :func:`simultaneous_bands` and :func:`median_bands`
+        raise, whose condition is the line a fit's summary prints.
+    """
+    return Refusal(
+        RefusalReason.INFERENCE_GAP,
+        NO_CONSTANT_ARM_BANDS.format(names=", ".join(names)),
+        alternative=(
+            "Report the pointwise estimates; a band needs two observed outcome values in "
+            "every treatment arm of every stratum its estimates read."
+        ),
+    )
+
+
 __all__ = [
     "DEFAULT_BAND_SCALE",
     "DEFAULT_KIND",
     "DEFAULT_N_REPLICATES",
     "BandScale",
     "SimultaneousBands",
+    "band_member",
+    "constant_arm_band_refusal",
+    "constant_arm_members",
     "median_bands",
     "multiplier_critical_value",
     "out_of_range",
@@ -649,7 +682,7 @@ def simultaneous_bands(
     _refuse_out_of_range(items, band_scale)
     n = items[0][1].n
     ic = np.column_stack([estimate.influence_curve for _, estimate in items])
-    se = np.array([estimate.std_error for _, estimate in items])
+    se = np.array([_band_std_error(estimate) for _, estimate in items])
     critical = multiplier_critical_value(
         ic,
         se,
@@ -672,6 +705,63 @@ def simultaneous_bands(
     )
 
 
+def constant_arm_members(
+    estimates: Mapping[str, ParameterEstimate] | Sequence[tuple[str, ParameterEstimate]],
+) -> tuple[str, ...]:
+    """The members of a band's family whose status is ``"constant_arm_cell_plugin"``.
+
+    Such an estimate reads a treatment arm whose observed outcomes in its stratum take a single
+    value, so its standard error leaves that arm's variance out and no band covers it.  A band
+    over a family that holds one is refused rather than built over the others, because that
+    band would be a statement about a family the data chose.
+
+    Parameters
+    ----------
+    estimates : mapping of str to ParameterEstimate, or sequence of pairs
+        The band's family, before any member is filtered out.
+
+    Returns
+    -------
+    tuple of str
+        The names, in order.
+    """
+    pairs = estimates.items() if isinstance(estimates, Mapping) else estimates
+    return tuple(
+        name for name, estimate in pairs if str(estimate.inference) == CONSTANT_ARM_CELL_STATUS
+    )
+
+
+def band_member(estimate: ParameterEstimate) -> bool:
+    """Whether an estimate belongs to a fit's band family.
+
+    An estimate that supplies inference does, and so does a bounded estimate on or outside its
+    range (status ``"out_of_range_plugin"``), which keeps the band behaviour it had before the
+    status: the logit band refuses it and the identity band covers it.  Every other withheld
+    estimate leaves the band.
+
+    Parameters
+    ----------
+    estimate : ParameterEstimate
+        A reported estimate.
+
+    Returns
+    -------
+    bool
+        ``True`` for a member.
+    """
+    return bool(estimate.supplies_inference) or str(estimate.inference) == OUT_OF_RANGE_STATUS
+
+
+def _band_std_error(estimate: ParameterEstimate) -> float:
+    """The standard error a band reads: the body :attr:`ParameterEstimate.std_error` returns.
+
+    The same arithmetic on the same curve, so the band of an estimate that supplies inference
+    is unchanged, and a band member with status ``"out_of_range_plugin"`` reads its plug-in
+    standard error without the accessor's refusal.
+    """
+    return estimate._plugin_std_error()
+
+
 def _checked_items(
     estimates: Mapping[str, ParameterEstimate] | Sequence[ParameterEstimate],
 ) -> list[tuple[str, ParameterEstimate]]:
@@ -683,10 +773,18 @@ def _checked_items(
     )
     if not items:
         raise ValueError("no estimates supplied")
+    # A constant arm cell refuses the band itself, ahead of the estimate's own refusal, so the
+    # error names the band's status rather than the estimate's.
+    constant = constant_arm_members(items)
+    if constant:
+        raise CapabilityError.from_refusal(constant_arm_band_refusal(constant))
     # An *inferential* use, unlike the tolerance scales elsewhere in the package: a band
     # is a joint coverage claim.  Refused here, naming the operation, rather than left to
     # raise out of ``estimate.std_error`` below under an accessor the caller never wrote.
+    # A bounded estimate on or outside its range stays a member (:func:`band_member`).
     for _, estimate in items:
+        if str(estimate.inference) == OUT_OF_RANGE_STATUS:
+            continue
         refuse_inference(estimate.inference, operation="simultaneous_bands()")
     if any(estimate.reference_df is not None for _, estimate in items):
         raise CapabilityError.from_refusal(T_REFERENCE_BAND_REFUSAL)
@@ -781,7 +879,7 @@ def out_of_range(estimates: Mapping[str, ParameterEstimate], band_scale: str) ->
         if _range_transform(estimate, band_scale) is None:
             continue
         low, high = estimate.bounds  # type: ignore[misc]
-        if float(estimate.std_error) > 0.0 and not (low < float(estimate.psi) < high):
+        if float(_band_std_error(estimate)) > 0.0 and not (low < float(estimate.psi) < high):
             out.append(name)
     return tuple(out)
 
@@ -818,13 +916,14 @@ def _band_endpoints(
     bands: dict[str, tuple[float, float]] = {}
     scales: dict[str, str] = {}
     for name, estimate in items:
-        half_width = critical * estimate.std_error
+        std_error = _band_std_error(estimate)
+        half_width = critical * std_error
         transform = estimate.transform
         ranged = _range_transform(estimate, band_scale)
         if ranged is not None:
             psi = float(estimate.psi)
             scales[name] = ranged.name
-            if estimate.std_error == 0.0:
+            if std_error == 0.0:
                 bands[name] = (psi, psi)
                 continue
             center = float(ranged.forward(psi))
@@ -924,7 +1023,7 @@ def median_bands(
         critical_values.append(
             multiplier_critical_value(
                 np.column_stack([estimate.influence_curve for _, estimate in draw_items]),
-                np.array([estimate.std_error for _, estimate in draw_items]),
+                np.array([_band_std_error(estimate) for _, estimate in draw_items]),
                 n=draw_items[0][1].n,
                 cluster=cluster,
                 alpha=alpha,

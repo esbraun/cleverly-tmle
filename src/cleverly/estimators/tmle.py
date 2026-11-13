@@ -204,6 +204,8 @@ from ..inference.multiplier import (
     DEFAULT_KIND,
     DEFAULT_N_REPLICATES,
     MultiplierKind,
+    band_member,
+    constant_arm_members,
     known_regime_estimates,
     out_of_range,
     simultaneous_bands,
@@ -2327,12 +2329,14 @@ class TMLE:
         # An estimate whose parameter status withholds its interval stays out of the band,
         # which is then a joint statement over the others, and below two of them no band is
         # built. This is the rule of ``LTMLE._bands`` (docs/architecture-invariants.md, row
-        # "a band"), and ``summary()`` names the estimates left out.
-        banded = {
-            name: estimate for name, estimate in estimates.items() if estimate.supplies_inference
-        }
+        # "a band"), and ``summary()`` names the estimates left out. Two statuses are the
+        # exceptions (``band_member``, ``constant_arm_members``): a bounded estimate on or
+        # outside its range stays a member, and an estimate with a constant arm cell skips
+        # the whole band, because a band over the others would cover a family the data chose.
+        banded = {name: estimate for name, estimate in estimates.items() if band_member(estimate)}
         if (
             self.simultaneous
+            and not constant_arm_members(estimates)
             and len(banded) > 1
             and supplies_inference(result.inference_status)
             and not has_t_reference(banded)
