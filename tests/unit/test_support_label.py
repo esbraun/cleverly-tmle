@@ -188,6 +188,9 @@ def assert_golden_summary(result: Any, name: str) -> None:
 def assert_numbers_equal(actual: dict[str, Any], golden: dict[str, Any]) -> None:
     """Every number of ``actual`` that is not a label key equals the golden one, ``rtol=1e-10``."""
     kept = {key: value for key, value in actual.items() if not key.startswith(LABEL_KEYS)}
+    # ``interval_scale`` came after the golden copies. These fits have a continuous outcome,
+    # so their intervals stay on the identity scale and no number moves.
+    assert kept.pop("interval_scale", "identity") == "identity"
     assert set(kept) == set(golden)
     for key, value in kept.items():
         if isinstance(value, float):
@@ -437,7 +440,11 @@ class TestAWithheldStatusWinsOverAShownOne:
         monkeypatch.setattr(results_module, "precedent_status", single_tier)
         assert adaptive_weighted_fit().inference_status == "estimated_weight_plugin"
         result = constant_node_fit(15)
-        assert result["risk_regimen[control @ t=1]"].inference == "few_cluster_plugin"
+        # The mutant drops the constant-node status. The level then sits on its bound 0, so
+        # the range check stamps the bounded status over the shown cluster status.
+        level = result["risk_regimen[control @ t=1]"]
+        assert level.psi == 0.0
+        assert level.inference == "out_of_range_plugin"
         contrast = result.contrast(
             lambda psi: psi[0] - psi[1],
             ["risk_regimen[control @ t=1]", "risk_regimen[control @ t=3]"],
