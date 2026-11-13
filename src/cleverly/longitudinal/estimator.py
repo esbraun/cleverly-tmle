@@ -4773,6 +4773,20 @@ class _SequentialEstimator:
                 "Fit the separable regimens with baseline covariates only.",
                 reason=RefusalReason.INFERENCE_GAP,
             )
+        if is_multinode(data):
+            # H18: the separable engine targets the two hazard factors of one held baseline
+            # treatment, and a design with a treatment at several nodes has none.
+            raise CapabilityError(
+                "a Separable regimen is built for one baseline treatment held over every node, "
+                f"and this design declares a treatment at {data.n_decisions} nodes. A separable "
+                "effect splits that one treatment into the components that act on each cause.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative=(
+                    "Declare one baseline treatment held over every node, as treatment='A', for "
+                    "separable effects. A treatment at several nodes takes static regimens, "
+                    "known rules and known policies."
+                ),
+            )
         settings = (
             (getattr(self, "node_bounds", None) is not None, "node_bounds="),
             (getattr(self, "stopping", "relative") != "relative", "stopping="),
