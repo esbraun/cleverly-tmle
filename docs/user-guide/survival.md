@@ -205,6 +205,44 @@ covered as little as 37% of the time.
 [Continuous-time survival and competing risks](../technical-reference/continuous-time-survival.md)
 gives the method, its conditions and what it refuses.
 
+### Restricted means and risk ratios with exact times
+
+With exact times, call `ContinuousSurvivalTMLE` directly to get the restricted mean survival time
+(RMST), the average time without either event up to a cut-off, and the restricted mean time lost
+to one event. Name each cut-off in `restricted_horizons=` before the fit.
+
+```python
+from cleverly.survival import ContinuousSurvivalTMLE
+
+exact_fit = ContinuousSurvivalTMLE(
+    (0.5, 2.0),
+    restricted_horizons=(2.0,),
+    arms={"treated": 1, "control": 0},
+    reference="control",
+    causes={1: "relapse", 2: "death"},
+    random_state=0,
+).fit(exact, time="time", event="event", treatment="treated", baseline=["x"])
+gained = exact_fit.rmst("treated", 2.0, versus="control")
+lost = exact_fit.rmtl("treated", 2.0, "relapse", versus="control")
+ratio = exact_fit.ratio(
+    "cif_regimen[treated, relapse @ t=2]", "cif_regimen[control, relapse @ t=2]"
+)
+print(round(gained.psi, 3), round(lost.psi, 3), round(ratio.psi, 2), ratio.support.label)
+```
+
+The first number is the time without relapse or death that treating everyone adds, on average,
+over the first 2 time units, and the second is the time lost to relapse that it saves. The third
+is the ratio of the two risks of relapse by time 2. Each has an interval in `.ci`. All three read
+`experimental`, because no simulation study has measured them yet.
+
+The fit adjusts its predicted event rates until each reported number satisfies the equation its
+interval rests on. A cut-off it was not told about was never part of that adjustment, so `rmst`
+and `rmtl` refuse one, and `ratio` and `curve` refuse a time missing from the first argument, the
+target times. The "What is refused" table of
+[continuous-time survival](../technical-reference/continuous-time-survival.md) lists each case.
+The extra cut-offs join the adjustment, so the risks of this fit differ slightly
+from those of a fit without them.
+
 ## Treatments over time with an event outcome
 
 When the treatment can change at each time point, declare the event as a sequence of outcome
