@@ -22,7 +22,7 @@ and the same fold vector.  Replications 800 and above continue the stream.
 regime on a size ladder, with the ``both_wrong`` control: :data:`FAMILY`, fitted and judged by
 :mod:`tests.studies.stratified_drtmle_foldwise_ladder` (the record's properties module, which
 holds the design, the pairing with the X8 cells' stream and the declared reading).  Each rung's
-level row is judged on coverage and SE ratio only, its bias published; the marginal ATE's and
+level row is judged on its SE ratio only, its bias and coverage published; the marginal ATE's and
 ``v1``'s rate rows are gated by the declared slope reading, and the control's by its failure to
 contract.
 
@@ -30,13 +30,27 @@ contract.
 
 **Reading, declared.**  ``publication_policy="gated"``.  Every primary row answers to the shared
 ``Margins()`` of ``performance-tests.csv``.  A red bias row is a defect suspect.
-:data:`EXPECTED_FINITE_SAMPLE` names ``ey[1][V=2]`` before the run: its pooled coverage
-(:data:`POOLED_SMALL_STRATUM_COVERAGE`) is below the floor, so no budget makes it pass, and the
-budget is sized over the other rows.  If it is red, :func:`small_stratum_reading` reads it: an
-SE-ratio interval containing 1, a coverage interval containing the pooled coverage and a bias
-row that passes make it ``expected finite-sample``, owned by ``X8-drtmle-small-stratum``;
-anything else is a defect suspect.  Any other red primary row is a defect suspect: the
-declaration names no other finite-sample owner.
+
+:data:`EXPECTED_FINITE_SAMPLE` names ``ey[1][V=2]`` before the run, and the budget is sized
+over the other rows.  Its predictive pass is :data:`SMALL_STRATUM_CEILING_PASS` (0.725) at the
+8,000 ceiling, its coverage clause 0.731, and :data:`SMALL_STRATUM_DECLARED_PASS` (0.596) at the
+declared 4,000, so it is red about two runs in five.  If it is red,
+:func:`small_stratum_reading` reads it: an SE-ratio interval containing 1, a coverage interval
+containing the pooled coverage (:data:`POOLED_SMALL_STRATUM_COVERAGE`) and a bias row that
+passes make it ``expected finite-sample``; anything else is a defect suspect.  The realistic
+reading (Fix-6 rev 2.6, finding S1): the fold-wise pilot's SE ratio for the row is 0.905, 99%
+interval 0.854 to 0.956 on 1,000 draws, so a red row cannot meet the finite-sample rule.  A red
+``ey[1][V=2]`` is therefore a defect suspect whose fix is Fix-3's small-sample correction for
+strata of about 400 rows; it is held by :data:`SMALL_STRATUM_OWNER`
+(``X8-drtmle-small-stratum``, Fix-3's owner) until Fix-3 re-reads it, and ``D13`` names it as
+a limit.
+
+Owners named before the run (finding S2): any other red calibration row that meets the
+finite-sample rule (SE-ratio interval containing 1, coverage interval containing 0.95, bias
+passing) reads ``finite-sample`` and goes to
+:data:`~tests.studies.drtmle_foldwise_sizing.FINITE_SAMPLE_OWNER` (``Fix6-finite-sample``).
+Every other red row, a red ladder rung SE-ratio row included, is a defect suspect and is
+diagnosed.
 
 **Declared before any run** (the Fix-6 declaration).  The primary budget is 4,000
 replications (:data:`PRIMARY_REPLICATES`), the budget :func:`rule` gives over the committed
@@ -51,10 +65,10 @@ The diagnosis item of the plan review is closed: the ``both_correct`` marginal A
 the 200-draw pilot, reads 0.035 SD on the pilot's 1,000 draws, below the 0.12 SD at which it
 would have been diagnosed before this declaration.
 
-Every coverage row, the ladder's rungs included, gates the interval the library ships at this
-declaration, the normal Wald interval on the identity scale
-(:func:`tests.studies.evidence.schema.reported_inference`); a later change to the shipped
-interval is re-read by that row's owner.  A property row carries ``estimate``, ``std_error``,
+Every gated coverage row gates the interval the library ships at this declaration, the normal
+Wald interval on the identity scale (:func:`tests.studies.evidence.schema.reported_inference`);
+a later change to the shipped interval is re-read by that row's owner.  The ladder's rungs
+publish the same interval's coverage without gating it.  A property row carries ``estimate``, ``std_error``,
 ``truth`` and ``covered`` and no bounds: its identity-scale bounds are ``estimate`` plus or
 minus ``z * std_error`` from those committed columns.
 """
@@ -106,6 +120,12 @@ SIZED_ESTIMANDS = tuple(name for name in ESTIMANDS if name not in EXPECTED_FINIT
 #: ``ey[1][V=2]``'s coverage in ``canonical-stratified-drtmle``'s ``performance-tests.csv``
 #: (pooled, n = 2,000, R = 800), the reading a fold-wise red row must be consistent with.
 POOLED_SMALL_STRATUM_COVERAGE = 0.9
+#: ``ey[1][V=2]``'s predictive pass at the 8,000 ceiling and at the declared budget, under the
+#: rule's planning draws (:func:`small_stratum_pass`).
+SMALL_STRATUM_CEILING_PASS = 0.725
+SMALL_STRATUM_DECLARED_PASS = 0.596
+#: The owner that holds a red ``ey[1][V=2]`` until Fix-3 re-reads it.
+SMALL_STRATUM_OWNER = "X8-drtmle-small-stratum"
 SMALL_STRATUM_CLEAN = "clean"
 SMALL_STRATUM_FINITE_SAMPLE = "expected finite-sample"
 SMALL_STRATUM_DEFECT = "defect suspect"
@@ -139,6 +159,34 @@ def small_stratum_reading(row: Mapping[str, Any]) -> str:
     ):
         return SMALL_STRATUM_FINITE_SAMPLE
     return SMALL_STRATUM_DEFECT
+
+
+def small_stratum_pass(
+    replicates: int, planning: Mapping[str, Pilot | LadderPlan] | None = None
+) -> float:
+    """The predictive pass of the :data:`EXPECTED_FINITE_SAMPLE` row alone at a budget.
+
+    Parameters
+    ----------
+    replicates : int
+        The budget.
+    planning : Mapping or None
+        Pilot group to its summary; the committed summaries when ``None``.
+
+    Returns
+    -------
+    float
+        The probability, under :func:`rule`'s planning draws, that every clause of the row
+        passes.
+    """
+    pilot = planned(planning, PLANNING_GROUP, Pilot)
+    alone = without(pilot, [row for row in pilot.rows if row not in EXPECTED_FINITE_SAMPLE])
+    rule = Rule(
+        pilots={"primary": alone},
+        units={"primary": (("primary",), PRIMARY_FLOOR)},
+        seed=PLANNING_SEED,
+    )
+    return rule.unit_pass("primary", replicates)
 
 
 # ---------------------------------------------------------------------- the ladder's cells

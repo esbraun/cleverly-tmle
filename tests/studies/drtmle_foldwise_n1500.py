@@ -13,9 +13,12 @@ and 3,000 only (``drtmle-foldwise``), so this record fits it at the red cells' o
 ``stream_seed(canonical-drtmle, "property", "double_robustness", <scenario>, str(r + offset))``
 with the offset :func:`tests.studies.drtmle_properties.cells` declares (11,000 for
 ``outcome_correct``, 12,000 for ``treatment_correct``).  Replication ``r < 800`` is therefore
-the RM18 cell's registered replication ``r``: the same rows and the same fold vector.  A reader
-pairs the two ``property-replicates.parquet`` files on ``(cell, replicate)`` to read the
-pooled-minus-fold-wise displacement at n = 1,500; it is published, not gated.  Replications 800
+the RM18 cell's registered replication ``r``: the same rows and the same fold vector.  The
+pooled-minus-fold-wise displacement at n = 1,500 on those paired draws is published in
+:data:`DISPLACEMENT_FILE`, not gated (:func:`pooled_displacement`).  It reads the committed
+pooled estimates of the RM18 cells' ``property-replicates.parquet`` on ``(cell, replicate)``
+rather than refitting them, which is exact because the replicates align: the design test refits
+one paired draw pooled and reproduces the committed estimate to 1e-10.  Replications 800
 and above continue the same stream.  :data:`RESAMPLING_SEED` is fresh, so every bootstrap of
 this record is drawn from a stream no other study uses.
 
@@ -30,8 +33,12 @@ both nuisances are right.  The acceptance reads "when both paired cells of
 **Reading, declared.**  Each cell is ``role="positive"`` in the shared ``double_robustness``
 family: its 99% interval of the standardized bias inside 0.25 empirical SD, with the reported
 SE inside the union-model band.  The pooled-minus-fold-wise displacement is published, not
-gated.  ``publication_policy="gated"``.  A red row is a defect suspect, diagnosed and fixed
-under a fresh declaration; no replication is added after a verdict.
+gated.  ``publication_policy="gated"``.  A red cell is a defect suspect, diagnosed and fixed
+under a fresh declaration; no replication is added after a verdict.  A red primary calibration
+row that meets the finite-sample rule (SE-ratio interval containing 1, coverage interval
+containing 0.95, bias passing) reads ``finite-sample`` and goes to
+:data:`~tests.studies.drtmle_foldwise_sizing.FINITE_SAMPLE_OWNER` (``Fix6-finite-sample``),
+named before any run; every other red row is a defect suspect.
 
 **Declared before any run** (the Fix-6 declaration).  The budgets (:data:`BUDGETS`) are
 2,000 ``both_correct`` replications and 5,600 per paired cell, the budgets :func:`rule` gives
@@ -55,7 +62,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+import numpy as np
 import pandas as pd
+from scipy.stats import norm
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_drtmle as canonical
@@ -192,6 +201,9 @@ def assert_declared() -> None:
         )
 
 
+#: The published, ungated displacement table.
+DISPLACEMENT_FILE = "pooled-displacement.csv"
+
 # ------------------------------------------------------------------------- the registration
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {FAMILY: SCENARIOS}
 
@@ -238,6 +250,7 @@ STUDY = StudyRecord(
     property_cells=PROPERTY_CELLS,
     calibration_efficiency_ratio=False,
     publication_policy="gated",
+    property_artifacts=(DISPLACEMENT_FILE,),
 )
 
 CONFIGURATION: dict[str, Any] = {
@@ -372,6 +385,99 @@ def payloads(budget: int | None = None) -> list[_Key]:
     declared = BUDGETS["cells"]
     count = declared if budget is None else min(budget, declared)
     return [((scenario, r, count),) for scenario in SCENARIOS for r in range(count)]
+
+
+DISPLACEMENT_COLUMNS = (
+    "property",
+    "cell",
+    "n",
+    "pairs",
+    "pooled_bias",
+    "foldwise_bias",
+    "displacement",
+    "displacement_se",
+    "displacement_ci_lower",
+    "displacement_ci_upper",
+    "standardized_displacement",
+)
+
+
+def pooled_displacement(rows: pd.DataFrame, pooled: pd.DataFrame | None = None) -> pd.DataFrame:
+    """The pooled-minus-fold-wise displacement of each cell on its paired draws.
+
+    Each fold-wise replication ``r`` below the RM18 cell's registered budget is paired with
+    that cell's committed pooled replication ``r`` (the same draw).  Per cell: the number of
+    pairs, both fits' mean error on the paired draws, the mean of ``pooled - foldwise``
+    with its standard error and 99% normal interval, and that mean over the fold-wise
+    estimates' empirical SD on the paired draws.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        This record's property replication rows.
+    pooled : pandas.DataFrame or None
+        The pooled rows; ``canonical-drtmle``'s committed ``property-replicates.parquet``
+        when ``None``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per cell, :data:`DISPLACEMENT_COLUMNS`.
+    """
+    if pooled is None:
+        pooled = pd.read_parquet(canonical.STUDY.artifact("property-replicates.parquet"))
+    theirs = pooled.loc[
+        (pooled["property"] == FAMILY) & pooled["cell"].isin(SCENARIOS),
+        ["cell", "replicate", "estimate", "truth"],
+    ]
+    ours = rows.loc[rows["property"] == FAMILY, ["cell", "replicate", "estimate", "truth"]]
+    paired = ours.merge(theirs, on=["cell", "replicate"], suffixes=("_foldwise", "_pooled"))
+    if not np.allclose(paired["truth_foldwise"], paired["truth_pooled"]):
+        raise ValueError("the paired rows do not share their truth")
+    z = float(norm.ppf(1 - STUDY.margins.alpha / 2))
+    out = []
+    for cell in SCENARIOS:
+        group = paired.loc[paired["cell"] == cell]
+        difference = group["estimate_pooled"] - group["estimate_foldwise"]
+        mean = float(difference.mean())
+        se = float(difference.std(ddof=1) / np.sqrt(len(group)))
+        out.append(
+            {
+                "property": FAMILY,
+                "cell": cell,
+                "n": PRIMARY_N,
+                "pairs": len(group),
+                "pooled_bias": float((group["estimate_pooled"] - group["truth_pooled"]).mean()),
+                "foldwise_bias": float(
+                    (group["estimate_foldwise"] - group["truth_foldwise"]).mean()
+                ),
+                "displacement": mean,
+                "displacement_se": se,
+                "displacement_ci_lower": mean - z * se,
+                "displacement_ci_upper": mean + z * se,
+                "standardized_displacement": mean / float(group["estimate_foldwise"].std(ddof=1)),
+            }
+        )
+    return pd.DataFrame(out, columns=list(DISPLACEMENT_COLUMNS))
+
+
+def generate_property_artifacts(
+    *, n_jobs: int = STUDY_JOBS
+) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+    """Fit every paired replication and the displacement table from the same rows.
+
+    Parameters
+    ----------
+    n_jobs : int
+        Worker processes.
+
+    Returns
+    -------
+    tuple
+        The replication rows, and :data:`DISPLACEMENT_FILE` to its table.
+    """
+    rows = generate_property_rows(n_jobs=n_jobs)
+    return rows, {DISPLACEMENT_FILE: pooled_displacement(rows)}
 
 
 #: The share of a cell's requested replications that the accounting lets a run lose, declared

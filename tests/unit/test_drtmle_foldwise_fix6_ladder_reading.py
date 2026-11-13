@@ -1,6 +1,6 @@
 """Mutation controls for the declared reading of ``stratified-drtmle-foldwise``'s ladder.
 
-Each branch of :func:`slope_reading`, :func:`control_reading`, :func:`calibration_reading` and
+Each branch of :func:`slope_reading`, :func:`control_reading`, :func:`se_ratio_reading` and
 :func:`x8_acceptance` in :mod:`tests.studies.stratified_drtmle_foldwise_ladder` is pinned on a
 hand-built interval or summary, at its boundaries.  Synthetic replication rows with a known bias
 law then run through :func:`summarize_properties`, so a reading that is computed but not wired
@@ -15,6 +15,7 @@ from collections.abc import Callable
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.stats import norm
 
 from tests.studies import stratified_drtmle_foldwise as primary
 from tests.studies import stratified_drtmle_foldwise_ladder as ladder
@@ -70,23 +71,39 @@ def test_the_control_must_fail_to_contract(high: float, reading: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("coverage", "se_ratio", "reading"),
+    ("se_ratio", "reading"),
     [
-        ((0.92, 0.97), (0.9, 1.1), ladder.CLEAN),
-        ((0.90, 0.97), (0.8, 1.2), ladder.CLEAN),
-        # Red on coverage, but both intervals reach the nominal values.
-        ((0.89, 0.96), (0.9, 1.1), ladder.FINITE_SAMPLE),
-        # Red on the SE band, but both intervals reach the nominal values.
-        ((0.92, 0.97), (0.85, 1.25), ladder.FINITE_SAMPLE),
-        ((0.85, 0.94), (0.9, 1.1), ladder.DEFECT_SUSPECT),
-        ((0.92, 0.97), (0.4, 0.6), ladder.DEFECT_SUSPECT),
-        ((0.89, 0.96), (1.05, 1.3), ladder.DEFECT_SUSPECT),
+        ((0.9, 1.1), ladder.CLEAN),
+        ((0.8, 1.2), ladder.CLEAN),
+        # The finite-sample rule no longer rescues a rung: an SE-ratio red is a defect suspect.
+        ((0.85, 1.25), ladder.DEFECT_SUSPECT),
+        ((0.79, 1.0), ladder.DEFECT_SUSPECT),
+        ((0.4, 0.6), ladder.DEFECT_SUSPECT),
     ],
 )
-def test_the_calibration_reading_follows_the_finite_sample_rule(
-    coverage: tuple[float, float], se_ratio: tuple[float, float], reading: str
+def test_a_rung_is_read_on_its_se_ratio_alone(se_ratio: tuple[float, float], reading: str) -> None:
+    assert ladder.se_ratio_reading(Interval(*se_ratio), MARGINS) == reading
+
+
+@pytest.mark.parametrize(
+    ("bias", "se_ratio", "coverage"),
+    [
+        (0.0, 1.0, 0.95),
+        (0.5, 1.0, 0.9209),
+        (-0.5, 1.0, 0.9209),
+        (0.0, 0.9, 0.9223),
+        (1.0, 1.1, 0.8754),
+    ],
+)
+def test_the_implied_coverage_is_the_normal_wald_coverage(
+    bias: float, se_ratio: float, coverage: float
 ) -> None:
-    assert ladder.calibration_reading(Interval(*coverage), Interval(*se_ratio), MARGINS) == reading
+    assert ladder.implied_coverage(bias, se_ratio) == pytest.approx(coverage, abs=1e-4)
+    # Its formula, from an independent normal integral.
+    z = norm.ppf(0.975)
+    grid = np.linspace(-z * se_ratio, z * se_ratio, 200_001)
+    mass = np.trapezoid(norm.pdf(grid - bias), grid)
+    assert ladder.implied_coverage(bias, se_ratio) == pytest.approx(mass, abs=1e-8)
 
 
 # ------------------------------------------------------------------------- the acceptance
@@ -120,7 +137,6 @@ SECOND_ORDER = (ladder.CONSISTENT, ladder.CONSISTENT)
     ("slopes", "controls", "level", "outcome"),
     [
         (SECOND_ORDER, FAILS, ladder.CLEAN, ladder.ACCEPTED),
-        (SECOND_ORDER, FAILS, ladder.FINITE_SAMPLE, ladder.ACCEPTED),
         (SECOND_ORDER, FAILS, ladder.DEFECT_SUSPECT, ladder.DEFECT),
         ((ladder.CONSISTENT, ladder.CONTRACTING), FAILS, ladder.CLEAN, ladder.DEFECT),
         ((ladder.NOT_CONTRACTING, ladder.CONSISTENT), FAILS, ladder.CLEAN, ladder.DEFECT),
@@ -312,3 +328,30 @@ def test_an_understated_standard_error_on_one_rung_is_a_defect_suspect() -> None
     assert seen[ladder.level_cell("v0_ate", ladder.POSITIVE, 4_000)] == ladder.DEFECT_SUSPECT
     assert seen[ladder.level_cell("v0_ate", ladder.POSITIVE, 2_000)] == ladder.CLEAN
     assert ladder.x8_acceptance(summary) == ladder.DEFECT
+
+
+@pytest.mark.usefixtures("cheap_bootstrap")
+def test_a_rung_whose_coverage_alone_is_low_stays_clean_and_publishes_its_implied_coverage() -> (
+    None
+):
+    """Coverage is published, not gated: a rung at 0.85 coverage with a clean SE ratio passes."""
+    rows = synthetic_rows(
+        law(
+            {label: second_order() for label in ladder.READ_LABELS},
+            {label: constant() for label in ladder.READ_LABELS},
+        )
+    )
+    cell = ladder.level_cell("marginal_ate", ladder.POSITIVE, 2_000)
+    mask = rows["cell"] == cell
+    rows.loc[mask, "covered"] = (rows.loc[mask, "replicate"] % 20 >= 3).astype(int)
+    summary = summarize(rows)
+    row = summary.set_index("cell").loc[cell]
+    assert row["coverage"] == pytest.approx(0.85)
+    assert row["coverage_ci_upper"] < MARGINS.coverage_floor
+    assert row["reading"] == ladder.CLEAN and bool(row["passed"])
+    expected = ladder.implied_coverage(float(row["standardized_bias"]), float(row["se_ratio"]))
+    assert row["implied_coverage"] == pytest.approx(expected)
+    assert row["implied_coverage"] < 0.5  # the synthetic bias is 2.4 SD at n = 2,000
+    levels = summary.loc[~summary["cell"].str.contains("__rate_")]
+    assert levels["implied_coverage"].notna().all()
+    assert ladder.x8_acceptance(summary) == ladder.ACCEPTED

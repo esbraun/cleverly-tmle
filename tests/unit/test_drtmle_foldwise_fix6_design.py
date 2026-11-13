@@ -34,6 +34,7 @@ from tests.studies import stratified_drtmle_foldwise as unit_s
 from tests.studies import stratified_drtmle_foldwise_ladder as ladder
 from tests.studies import stratified_drtmle_properties as x8
 from tests.studies.drtmle_foldwise_sizing import (
+    FINITE_SAMPLE_OWNER,
     PLANNING_PATH,
     SET_ASIDE_THRESHOLD,
     LadderPlan,
@@ -87,16 +88,17 @@ RM18_ACCEPTANCE = (
     "rows passing; a red cell there is a defect suspect and the owner does not close. The "
     "three cells keep their verdicts."
 )
-#: The ``X8-drtmle-one-sided-bias`` acceptance as declared: Fix-6's D4 text, unchanged.
+#: The ``X8-drtmle-one-sided-bias`` acceptance as declared: Fix-6's D4 text, with the record's
+#: slug and the rung clause of rev 2.6.
 X8_ACCEPTANCE = (
     'The four cells fit `reduced_crossfit="pooled"` and keep their verdicts. The owner closes '
     "as a finite-sample limit of the default when, in `stratified-drtmle-foldwise`, the "
     "99% slope interval of log |bias| on log n has its upper end below -1/2 for the marginal "
     "ATE and for `v1` (each read whatever its realised half-width; a half-width above 0.25 for "
     "either reads `not resolved`, and the owner does not close), the `both_wrong` control "
-    "fails to contract, and no rung's SE-ratio or coverage row is a defect suspect under the "
-    "finite-sample rule. Otherwise the red is a defect suspect and is diagnosed, and this "
-    "owner does not close."
+    "fails to contract, and no rung's SE-ratio row is red (each rung's coverage is published "
+    "beside the coverage its measured bias and SE ratio imply). Otherwise the red is a defect "
+    "suspect and is diagnosed, and this owner does not close."
 )
 
 
@@ -315,6 +317,49 @@ def test_unit_b_declares_the_rm18_acceptance_verbatim() -> None:
     assert unit_b.RM18_ACCEPTANCE == RM18_ACCEPTANCE
 
 
+def test_the_finite_sample_owners_are_named_before_the_run() -> None:
+    assert FINITE_SAMPLE_OWNER == "Fix6-finite-sample"
+    assert unit_s.SMALL_STRATUM_OWNER == "X8-drtmle-small-stratum"
+    for module in (unit_b, unit_m, unit_s):
+        assert "Fix6-finite-sample" in (module.__doc__ or "")
+
+
+def test_unit_b_publishes_the_pooled_displacement_on_the_paired_draws() -> None:
+    assert unit_b.STUDY.property_artifacts == (unit_b.DISPLACEMENT_FILE,)
+    assert unit_b.DISPLACEMENT_FILE == "pooled-displacement.csv"
+    rng = np.random.default_rng(3)
+    ours, theirs = [], []
+    for cell, shift in (("outcome_correct", 0.01), ("treatment_correct", 0.05)):
+        foldwise_estimates = 0.1 + rng.normal(0.0, 0.02, 900)
+        for r, value in enumerate(foldwise_estimates):
+            ours.append(("double_robustness", cell, r, value, 0.1))
+            # Only the registered replications have a pooled pair.
+            if r < unit_b.REGISTERED_REPLICATES:
+                theirs.append(("double_robustness", cell, r, value + shift, 0.1))
+    columns = ["property", "cell", "replicate", "estimate", "truth"]
+    table = unit_b.pooled_displacement(
+        pd.DataFrame(ours, columns=columns), pd.DataFrame(theirs, columns=columns)
+    ).set_index("cell")
+    assert list(table.columns) == [c for c in unit_b.DISPLACEMENT_COLUMNS if c != "cell"]
+    assert (table["pairs"] == unit_b.REGISTERED_REPLICATES).all()
+    assert table.loc["outcome_correct", "displacement"] == pytest.approx(0.01)
+    assert table.loc["treatment_correct", "displacement"] == pytest.approx(0.05)
+    assert table["displacement_se"].max() < 1e-12
+    expected = table["pooled_bias"] - table["foldwise_bias"]
+    np.testing.assert_allclose(table["displacement"], expected)
+    # On the committed pooled rows a replicate pairs with the same draw.
+    committed = unit_b.pooled_displacement(
+        pd.DataFrame(
+            [
+                ("double_robustness", s, 0, 0.0, unit_b.canonical.truth()["ate"])
+                for s in unit_b.SCENARIOS
+            ],
+            columns=columns,
+        )
+    )
+    assert list(committed["pairs"]) == [1, 1]
+
+
 def test_unit_b_primary_is_the_gated_both_correct_regime_on_fresh_draws() -> None:
     record = unit_b.STUDY
     assert unit_b.PRIMARY_SCENARIOS == ("both_correct",)
@@ -515,6 +560,26 @@ def test_unit_s_primary_rule_sizes_every_row_but_the_expected_finite_sample_row(
     assert rule.units == {"primary": (("primary",), unit_s.PRIMARY_FLOOR)}
     assert rule.budget("primary") == (4_000, pytest.approx(0.95725, abs=PASS_TOLERANCE), True)
     assert rule.budget("primary")[0] == unit_s.PRIMARY_REPLICATES
+    # ey[1][V=2], set aside from the sizing, with the pass the declaration names (rev 2.6, S1).
+    assert unit_s.small_stratum_pass(8_000) == pytest.approx(
+        unit_s.SMALL_STRATUM_CEILING_PASS, abs=PASS_TOLERANCE
+    )
+    assert unit_s.small_stratum_pass(unit_s.PRIMARY_REPLICATES) == pytest.approx(
+        unit_s.SMALL_STRATUM_DECLARED_PASS, abs=PASS_TOLERANCE
+    )
+    assert (unit_s.SMALL_STRATUM_CEILING_PASS, unit_s.SMALL_STRATUM_DECLARED_PASS) == (0.725, 0.596)
+    assert unit_s.SMALL_STRATUM_CEILING_PASS < SET_ASIDE_THRESHOLD
+    # Its SE-ratio interval excludes 1, so a red row cannot meet the finite-sample rule.
+    small = piloted.index("se_ratio", "ey[1][V=2]")
+    ratio = piloted.se_ratio[piloted.rows.index("ey[1][V=2]")]
+    half = norm.ppf(0.995) * np.sqrt(
+        np.asarray(piloted.covariance)[small, small] / piloted.replicates
+    )
+    assert ratio == pytest.approx(0.905, abs=5e-4)
+    assert (ratio - half, ratio + half) == (
+        pytest.approx(0.854, abs=1e-3),
+        pytest.approx(0.956, abs=1e-3),
+    )
     # The diagnosis item is closed: the both-correct marginal ATE reads well below 0.12 SD.
     assert abs(piloted.bias[piloted.rows.index("ate")]) < 0.05
     # The rule drops the row from a pilot that carries it; with it kept, nothing sizes.

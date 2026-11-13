@@ -35,10 +35,10 @@ n = 2,000 rung (marginal 0.246, ``v1`` 0.145 SD), because a second-order bias ha
 from 2,000 to 8,000; that is the hypothesis the reading tests, and no margin moves.
 :func:`planned_control_budget` sizes the control so that it fails to contract with probability
 at least 0.99; it reads 1.000 at 400.  The ladder costs about :data:`CPU_HOURS` CPU-hours at the
-pilot's seconds per fit.  Every rung's coverage row gates the shipped identity-scale normal
-Wald interval, as the record's module docstring states.
+pilot's seconds per fit.  The rung rows were never in the sizing, so the rev 2.6 reading
+below changes no budget.
 
-**Reading, declared before the run** (:func:`slope_reading`, :func:`calibration_reading`,
+**Reading, declared before the run** (:func:`slope_reading`, :func:`se_ratio_reading`,
 :func:`x8_acceptance`).  The marginal and ``v1`` ``treatment_correct`` slopes are always read:
 
 =================================================  ==================================
@@ -55,21 +55,29 @@ The escape hatch is read first: X8's acceptance names both rows and reads a half
 0.25 as ``not resolved`` whatever the interval's position.  ``v0`` and ``v2`` publish their
 slopes at the width they reach and are ``not read``.  The ``both_wrong`` control's marginal and
 ``v1`` slopes must fail to contract (upper end at or above -1/2); a control that contracts is a
-design failure.  Each ``treatment_correct`` level row is ``clean`` when its exact coverage
-interval clears the 0.90 floor and its SE-ratio interval lies inside 0.8 to 1.2,
-``finite-sample`` when it is red but its SE-ratio interval contains 1 and its coverage interval
-contains 0.95, and ``defect suspect`` otherwise.  The control's level rows are ``not read``.
+design failure.  Each ``treatment_correct`` level row is ``clean`` when its 99% SE-ratio
+interval lies inside 0.8 to 1.2, and ``defect suspect`` otherwise (Fix-6 rev 2.6, finding B1).
+Its coverage is published, not gated, beside :func:`implied_coverage`, the coverage its measured
+standardized bias ``b`` and SE ratio ``r`` imply for a normal estimator,
+``Phi(z r - b) - Phi(-z r - b)`` with ``z = Phi^-1(0.975)``: at ``r = 1`` a bias of 0.5 SD
+alone gives 0.921.  A Wald interval around a biased estimate under-covers by exactly the bias
+the slope reading already reads, so gating coverage again would fail the acceptance most of the
+time under the second-order hypothesis it tests; a first-order term shows as SE
+miscalibration, which the SE-ratio row gates.  The control's level rows are ``not read``.
 
 **Verdicts.**  The record is gated.  A ``treatment_correct`` level row passes when it is
-``clean``: it is judged on coverage and SE ratio only, and its bias is published.  A read
+``clean``: it is judged on the SE ratio only, and its bias and coverage are published.  A read
 label's ``treatment_correct`` rate row passes when it reads ``consistent with second order``, and
 its control rate row when it fails to contract.  The ``not read`` rows pass by declaration.
+Every red row of the ladder, a rung SE-ratio row included, is a defect suspect and is diagnosed;
+no ladder row has a finite-sample owner.
 
 The ``X8-drtmle-one-sided-bias`` acceptance, declared verbatim before any run, is Fix-6's D4
 text as rev 2.1 left it, with the record named by its slug after the ladder became the property
-cells of ``stratified-drtmle-foldwise`` (:data:`X8_ACCEPTANCE`).  :func:`x8_acceptance` reads it: it holds when the marginal and
-``v1`` read ``consistent with second order``, the control fails to contract, and no level row
-is a ``defect suspect``.  Otherwise the red is a defect suspect and is diagnosed.
+cells of ``stratified-drtmle-foldwise``, and its rung clause as rev 2.6 words it
+(:data:`X8_ACCEPTANCE`).  :func:`x8_acceptance` reads it: it holds when the marginal and ``v1``
+read ``consistent with second order``, the control fails to contract, and no rung's SE-ratio
+row is red.  Otherwise the red is a defect suspect and is diagnosed.
 """
 
 from __future__ import annotations
@@ -79,6 +87,7 @@ from functools import cache
 from typing import Any
 
 import pandas as pd
+from scipy.stats import norm
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_stratified_drtmle as canonical
@@ -140,7 +149,6 @@ NOT_READ = "not read"
 FAILS_TO_CONTRACT = "fails to contract"
 CONTROL_CONTRACTS = "contracts: design failure"
 CLEAN = "clean"
-FINITE_SAMPLE = "finite-sample"
 DEFECT_SUSPECT = "defect suspect"
 
 ACCEPTED = "X8 acceptance holds"
@@ -154,13 +162,13 @@ X8_ACCEPTANCE = (
     "99% slope interval of log |bias| on log n has its upper end below -1/2 for the marginal "
     "ATE and for `v1` (each read whatever its realised half-width; a half-width above 0.25 for "
     "either reads `not resolved`, and the owner does not close), the `both_wrong` control "
-    "fails to contract, and no rung's SE-ratio or coverage row is a defect suspect under the "
-    "finite-sample rule. Otherwise the red is a defect suspect and is diagnosed, and this "
-    "owner does not close."
+    "fails to contract, and no rung's SE-ratio row is red (each rung's coverage is published "
+    "beside the coverage its measured bias and SE ratio imply). Otherwise the red is a defect "
+    "suspect and is diagnosed, and this owner does not close."
 )
 
 #: The columns this family adds to the summary.
-EXTRA_COLUMNS = ("reading", "half_width")
+EXTRA_COLUMNS = ("reading", "half_width", "implied_coverage")
 
 
 def slope_reading(interval: Interval) -> str:
@@ -204,31 +212,48 @@ def control_reading(interval: Interval) -> str:
     return FAILS_TO_CONTRACT if interval.high >= FIRST_ORDER_SLOPE else CONTROL_CONTRACTS
 
 
-def calibration_reading(coverage: Interval, se_ratio: Interval, margins: Margins) -> str:
-    """The reading of a ``treatment_correct`` level row's coverage and SE ratio.
+def se_ratio_reading(se_ratio: Interval, margins: Margins) -> str:
+    """The reading of a ``treatment_correct`` level row, on its SE ratio alone.
 
     Parameters
     ----------
-    coverage : Interval
-        The 99% exact interval of the 95% Wald coverage.
     se_ratio : Interval
         The 99% bootstrap interval of the mean reported SE over the empirical SD.
     margins : Margins
-        The coverage floor, the SE-ratio sanity band and the nominal level.
+        The SE-ratio sanity band.
 
     Returns
     -------
     str
-        :data:`CLEAN` when the coverage clears the floor and the SE ratio lies inside the band;
-        else :data:`FINITE_SAMPLE` when the SE-ratio interval contains 1 and the coverage
-        interval contains the nominal level (the finite-sample rule); else
-        :data:`DEFECT_SUSPECT`.
+        :data:`CLEAN` when the interval lies inside the band, else :data:`DEFECT_SUSPECT`.
     """
-    if coverage.low >= margins.coverage_floor and se_ratio.within(*margins.se_ratio_sanity):
-        return CLEAN
-    if se_ratio.contains(1.0) and coverage.contains(1.0 - margins.alpha):
-        return FINITE_SAMPLE
-    return DEFECT_SUSPECT
+    return CLEAN if se_ratio.within(*margins.se_ratio_sanity) else DEFECT_SUSPECT
+
+
+def implied_coverage(standardized_bias: float, se_ratio: float, level: float = 0.95) -> float:
+    """The coverage a normal estimator's measured bias and SE ratio imply for its Wald interval.
+
+    With error ``N(b * sd, sd^2)`` and reported SE ``r * sd``, the interval
+    ``estimate +/- z * SE`` covers with probability ``Phi(z r - b) - Phi(-z r - b)``.
+
+    Parameters
+    ----------
+    standardized_bias : float
+        ``b``, the mean error over the empirical SD.
+    se_ratio : float
+        ``r``, the mean reported SE over the empirical SD.
+    level : float
+        The interval's nominal level.
+
+    Returns
+    -------
+    float
+        The implied coverage.
+    """
+    z = float(norm.ppf(0.5 + level / 2))
+    return float(
+        norm.cdf(z * se_ratio - standardized_bias) - norm.cdf(-z * se_ratio - standardized_bias)
+    )
 
 
 # --------------------------------------------------------------------------------- the sizes
@@ -542,12 +567,14 @@ def _level_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
         )["se_ratio"]
         summary.loc[index, "se_ratio_ci_lower"] = ratio.low
         summary.loc[index, "se_ratio_ci_upper"] = ratio.high
+        summary.loc[index, "implied_coverage"] = implied_coverage(
+            float(row["standardized_bias"]), float(row["se_ratio"]), 1.0 - margins.alpha
+        )
         if row["role"] == "control":
             summary.loc[index, "reading"] = NOT_READ
             summary.loc[index, "passed"] = True
             continue
-        coverage = Interval(float(row["coverage_ci_lower"]), float(row["coverage_ci_upper"]))
-        reading = calibration_reading(coverage, ratio, margins)
+        reading = se_ratio_reading(ratio, margins)
         summary.loc[index, "reading"] = reading
         summary.loc[index, "passed"] = reading == CLEAN
 
@@ -624,8 +651,8 @@ def x8_acceptance(summary: pd.DataFrame) -> str:
     -------
     str
         :data:`DESIGN_FAILURE` when a read control slope contracts; else :data:`ACCEPTED` when
-        every read ``treatment_correct`` slope is consistent with second order and no level
-        row is a defect suspect; else :data:`DEFECT`.
+        every read ``treatment_correct`` slope is consistent with second order and no rung's
+        SE-ratio row is red; else :data:`DEFECT`.
     """
     own = summary.loc[summary["property"] == FAMILY].set_index("cell")
     controls = [own.loc[rate_cell(label, CONTROL), "reading"] for label in READ_LABELS]
@@ -676,12 +703,6 @@ def _rule() -> pf.FamilyRule:
         families=frozenset({FAMILY}),
         shared="summarize_properties",
         clauses=(
-            pf.proportion_clause(
-                "rung coverage floor",
-                statistic="S2",
-                judge=pf.floor_judge(lambda ctx: ctx.margins.coverage_floor),
-                applies=level,
-            ),
             pf.se_interval_clause(
                 "rung se ratio in sanity band",
                 which="se_ratio",

@@ -922,6 +922,12 @@ def write_planning(
     path.write_text(json.dumps(body, indent=1) + "\n", encoding="utf-8")
 
 
+#: The owner the Fix-6 declarations name, before any run, for a red calibration row that meets
+#: the finite-sample rule (SE-ratio interval containing 1, coverage interval containing 0.95,
+#: bias passing), other than ``stratified-drtmle-foldwise``'s ``ey[1][V=2]``.  Every other red
+#: row of the three records is a defect suspect and is diagnosed.
+FINITE_SAMPLE_OWNER = "Fix6-finite-sample"
+
 #: The committed planning summaries of the Fix-6 records: the sizing pilot's merged groups
 #: (1,000 replications per primary and cell group, 600 per ladder rung), written by
 #: ``python -m tests.diagnostics.fix6_foldwise_sizing.run --planning``.

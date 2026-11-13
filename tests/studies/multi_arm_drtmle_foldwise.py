@@ -29,8 +29,10 @@ and no theory claim is made for it: the record is read on its rows alone.
 **Reading, declared.**  ``publication_policy="gated"``.  Every row answers to the shared
 ``Margins()`` of ``performance-tests.csv``.  A red bias row is a defect suspect; a red
 calibration row is read under the finite-sample rule (the 99% SE-ratio interval contains 1 and
-the coverage is consistent with 0.95), and only then can it become a ``reporting`` row with an
-owner named in the declaration.
+the coverage interval contains 0.95, with the bias passing), and only then does it read
+``finite-sample`` and go to the owner the declaration names,
+:data:`~tests.studies.drtmle_foldwise_sizing.FINITE_SAMPLE_OWNER` (``Fix6-finite-sample``).
+Every other red row is a defect suspect and is diagnosed.
 
 **Declared before any run** (the Fix-6 declaration).  The budgets (:data:`BUDGETS`) are
 1,200 primary replications and 800 for the cell, the budgets :func:`rule` gives over the
