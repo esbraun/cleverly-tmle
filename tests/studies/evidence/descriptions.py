@@ -8182,6 +8182,286 @@ CELLS.update(
 )
 
 
+#: ``small-sample-wald`` (Fix-3): the small-sample Wald interval rule, read from the public
+#: functions the shipped default will read.  Mirrored from ``tests.studies.small_sample_wald``,
+#: which this module cannot import; ``tests/unit/test_small_sample_wald_design.py`` pins the
+#: cells described here to the study's.
+_SSW_SLUG = "small-sample-wald"
+IMPLEMENTATIONS["cleverly-small-sample-wald"] = (
+    "`cleverly` stratified TMLE with the small-sample Wald rule: a range-logit normal interval "
+    "for a bounded binary mean or difference, the normal interval on its own scale for any "
+    "other binary-outcome target, a Student t interval at max(df, 5) for a continuous outcome, "
+    "and no interval when an arm's stratum holds one outcome value or the estimate sits on a "
+    "bound"
+)
+STUDY_SCENARIOS[(_SSW_SLUG, "boundary_v2")] = (
+    "the binary-outcome law with three unequal baseline strata of `canonical-stratified-tmle`, "
+    "whose stratum V = 2 has a treated mean near 1, n = 2,000"
+)
+STUDY_ESTIMANDS[(_SSW_SLUG, "ey[1][V=2]")] = (
+    "mean outcome under treatment in stratum V = 2, with the rule's interval (a withheld one "
+    "counts as a miss)"
+)
+STUDY_ESTIMANDS[(_SSW_SLUG, "ate[V=2]")] = (
+    "average treatment effect in stratum V = 2, with the rule's interval (a withheld one counts "
+    "as a miss)"
+)
+PROPERTIES.update(
+    {
+        "corrected_coverage": (
+            "the small-sample rule's interval covers at the owner laws whose Wald interval "
+            "under-covers"
+        ),
+        "diagnosis_bounded": "the rule's interval covers a rare binary mean on a law that chose it",
+        "diagnosis_continuous": (
+            "the rule's Student t interval covers continuous-outcome targets on laws that chose it"
+        ),
+        "heldout_coverage": (
+            "the rule's interval covers on laws declared before any estimator was fitted on them"
+        ),
+        "non_h1": (
+            "the rule's interval covers with one inconsistent nuisance, and fails when the "
+            "treatment model converges slower than root n"
+        ),
+        "control": "the gated cells' fits read under the rejected candidate intervals",
+        "reported": "the rule's interval at other sizes, fits and owner laws, with no verdict",
+        "witness": "the plug-in interval misses on the constant-cell fits the rule withholds",
+    }
+)
+_SSW_BOUNDARY = "the stratified law of `canonical-stratified-tmle`, stratified TMLE"
+_SSW_LOGNORMAL = (
+    "a continuous outcome with a lognormal error, three strata, linear outcome and logistic "
+    "treatment models, n = 2,000"
+)
+#: Each cell's law, fit and target, by cell.
+_SSW_CELLS = {
+    "boundary_mean": f"{_SSW_BOUNDARY}, treated mean in V = 2, n = 2,000",
+    "boundary_mean_n8000": f"{_SSW_BOUNDARY}, treated mean in V = 2, n = 8,000",
+    "boundary_mean_n1000_ey1": f"{_SSW_BOUNDARY}, treated mean in V = 2, n = 1,000",
+    "boundary_mean_n1000_ate": f"{_SSW_BOUNDARY}, effect in V = 2, n = 1,000",
+    "boundary_mean_n500_ey1": f"{_SSW_BOUNDARY}, treated mean in V = 2, n = 500",
+    "boundary_mean_n500_ate": f"{_SSW_BOUNDARY}, effect in V = 2, n = 500",
+    "logit_msm_v2_a": (
+        "the alternating binary law, logistic working MSM (1, a, W), treatment coefficient in "
+        "V = 2, n = 2,000"
+    ),
+    "identity_msm_v2_w": (
+        "the alternating Beta-outcome law, identity working MSM, W coefficient in V = 2, n = 2,000"
+    ),
+    "identity_msm_v2_a": (
+        "the alternating Beta-outcome law, identity working MSM, treatment coefficient in "
+        "V = 2, n = 2,000"
+    ),
+    "rare_ey0": "a rare binary outcome, three strata, untreated mean in V = 2, n = 2,000",
+    "rare_ey1": "a rare binary outcome, three strata, treated mean in V = 2, n = 2,000",
+    "rare_ate": "a rare binary outcome, three strata, effect in V = 2, n = 2,000",
+    "student_ey1": (
+        "a continuous outcome with a Student t error on 3 df, treated mean in V = 2, n = 2,000"
+    ),
+    "student_ate": "a continuous outcome with a Student t error on 3 df, effect in V = 2, n = 2,000",
+    "lognormal06_ey1": (
+        "a continuous outcome with a lognormal error of skewness 2.0, treated mean in V = 2, "
+        "n = 2,000"
+    ),
+    "lognormal_ey1": (
+        "a continuous outcome with a lognormal error of skewness 6.2, treated mean in V = 2, "
+        "n = 2,000"
+    ),
+    "leverage_crossfit_ey1": (
+        f"{_SSW_BOUNDARY} with a random-forest outcome model, cross-fitted, treated mean in "
+        "V = 2, n = 2,000"
+    ),
+    "leverage_crossfit_ate": (
+        f"{_SSW_BOUNDARY} with a random-forest outcome model, cross-fitted, effect in V = 2, "
+        "n = 2,000"
+    ),
+    "leverage_in_sample_ey1": (
+        f"{_SSW_BOUNDARY} with a random-forest outcome model, in sample, treated mean in V = 2, "
+        "n = 2,000"
+    ),
+    "leverage_in_sample_ate": (
+        f"{_SSW_BOUNDARY} with a random-forest outcome model, in sample, effect in V = 2, n = 2,000"
+    ),
+    "composite_high": (
+        "the three-arm law of `canonical-composite-drtmle`, mean under the high arm, n = 2,000"
+    ),
+    "mar_multi_arm_ate": (
+        "the three-arm law with missing outcomes of `canonical-multi-arm-mar-drtmle`, low "
+        "against high, n = 2,000"
+    ),
+    "drtmle_v2_ey1": (
+        "the stratified law of `canonical-stratified-drtmle`, DR-TMLE, treated mean in V = 2, "
+        "n = 2,000"
+    ),
+    "drtmle_v2_ate": (
+        "the stratified law of `canonical-stratified-drtmle`, DR-TMLE, effect in V = 2, n = 2,000"
+    ),
+    "drtmle_v2_ey1_foldwise": (
+        "the stratified law of `canonical-stratified-drtmle`, DR-TMLE with fold-wise reduced "
+        "regressions, treated mean in V = 2, n = 2,000"
+    ),
+    "ho_sparse_treat_ey1": (
+        "held-out law H1, a sparse treated arm with no strata, treated mean, n = 2,000"
+    ),
+    "ho_sparse_treat_ate": "held-out law H1, a sparse treated arm with no strata, effect, n = 2,000",
+    "ho_sparse_treat_ey0": (
+        "held-out law H1, a sparse treated arm with no strata, untreated mean, n = 2,000"
+    ),
+    "ho_hurdle_ey1": (
+        "held-out law H2, a continuous outcome with a point mass at 0 and a gamma part, treated "
+        "mean in V = 2, n = 2,000"
+    ),
+    "ho_hurdle_ate": (
+        "held-out law H2, a continuous outcome with a point mass at 0 and a gamma part, effect "
+        "in V = 2, n = 2,000"
+    ),
+    "ho_hurdle_ey0": (
+        "held-out law H2, a continuous outcome with a point mass at 0 and a gamma part, "
+        "untreated mean in V = 2, n = 2,000"
+    ),
+    "ho_logit_msm_a": (
+        "held-out law H3, logistic working MSM (1, a, W), treatment coefficient in V = 2, n = 2,000"
+    ),
+    "ho_logit_msm_w": (
+        "held-out law H3, logistic working MSM (1, a, W), W coefficient in V = 2, n = 2,000"
+    ),
+    "ho_logit_msm_intercept": (
+        "held-out law H3, logistic working MSM (1, a, W), intercept in V = 2, n = 2,000"
+    ),
+}
+_SSW_GATED = {
+    "corrected_coverage": (
+        "boundary_mean",
+        "boundary_mean_n8000",
+        "logit_msm_v2_a",
+        "identity_msm_v2_w",
+    ),
+    "diagnosis_bounded": ("rare_ey0",),
+    "diagnosis_continuous": ("student_ey1", "student_ate", "lognormal06_ey1"),
+    "heldout_coverage": (
+        "ho_sparse_treat_ey1",
+        "ho_sparse_treat_ate",
+        "ho_hurdle_ey1",
+        "ho_hurdle_ate",
+        "ho_logit_msm_a",
+        "ho_logit_msm_w",
+    ),
+}
+_SSW_TWO_LEGS = (
+    "the lower leg's 99% lower end at least 0.92, lost and withheld fits as misses, and the "
+    "shown fits' 99% upper end at most 0.98"
+)
+_SSW_PAIRED = (
+    ", and the exact 99.5% lower bound of the paired gain over the normal interval above 1/2"
+)
+_SSW_CONTROLS = {
+    "normal_reference_control": "the normal interval on the identity scale",
+    "kish_control": "a Student t interval on the identity scale at max(Kish count, 5)",
+    "logit_t_control": "a Student t interval on the range-logit scale at max(df, 5)",
+    "capped_t_binary_control": "a Student t interval on the identity scale at max(df, 5)",
+}
+#: The controls each gated cell is re-read under: the range-logit one on a bounded target,
+#: the binary t on a binary-outcome target, the two identity ones everywhere.
+_SSW_BINARY = (
+    "boundary_mean",
+    "boundary_mean_n8000",
+    "logit_msm_v2_a",
+    "rare_ey0",
+    "ho_sparse_treat_ey1",
+    "ho_sparse_treat_ate",
+    "ho_logit_msm_a",
+    "ho_logit_msm_w",
+)
+_SSW_COEFFICIENT = ("logit_msm_v2_a", "identity_msm_v2_w", "ho_logit_msm_a", "ho_logit_msm_w")
+
+
+def _ssw_controls(name: str) -> tuple[str, ...]:
+    """The controls a gated cell is re-read under, as the study's ``controls_of`` picks them."""
+    out = ["normal_reference_control", "kish_control"]
+    if name in _SSW_BINARY and name not in _SSW_COEFFICIENT:
+        out.append("logit_t_control")
+    if name in _SSW_BINARY:
+        out.append("capped_t_binary_control")
+    return tuple(out)
+
+
+_SSW_REPORTED = (
+    "boundary_mean_n1000_ey1",
+    "boundary_mean_n1000_ate",
+    "boundary_mean_n500_ey1",
+    "boundary_mean_n500_ate",
+    "identity_msm_v2_a",
+    "rare_ey1",
+    "rare_ate",
+    "lognormal_ey1",
+    "leverage_crossfit_ey1",
+    "leverage_crossfit_ate",
+    "leverage_in_sample_ey1",
+    "leverage_in_sample_ate",
+    "composite_high",
+    "mar_multi_arm_ate",
+    "drtmle_v2_ey1",
+    "drtmle_v2_ate",
+    "drtmle_v2_ey1_foldwise",
+    "ho_sparse_treat_ey0",
+    "ho_hurdle_ey0",
+    "ho_logit_msm_intercept",
+)
+CELLS.update(
+    {
+        **{
+            (family, name): (
+                f"{_SSW_CELLS[name]}: the rule's interval",
+                _SSW_TWO_LEGS + (_SSW_PAIRED if name in ("boundary_mean", "student_ey1") else ""),
+            )
+            for family, names in _SSW_GATED.items()
+            for name in names
+        },
+        **{
+            ("control", f"{name}__{control}"): (
+                f"{_SSW_CELLS[name]}: the same fits read under {_SSW_CONTROLS[control]}",
+                "reported with no verdict; a falsifier may read it",
+            )
+            for names in _SSW_GATED.values()
+            for name in names
+            for control in _ssw_controls(name)
+        },
+        **{
+            ("reported", name): (
+                f"{_SSW_CELLS[name]}: the rule's interval",
+                "reported with no verdict: both legs, and the SE-ratio interval containing 1"
+                if name.startswith("leverage_")
+                else "reported with no verdict: both legs",
+            )
+            for name in _SSW_REPORTED
+        },
+        ("non_h1", "nonh1_glm_g_cf_ey1"): (
+            "law L of `drtmle-one-inconsistent-nuisance`, a wrong outcome regression and a "
+            "cross-fitted logistic treatment model, mean under treatment, n = 4,000: the rule's "
+            "interval",
+            "the lower leg's 99% lower end at least 0.92",
+        ),
+        ("non_h1", "nonh1_glm_g_cf_ey0"): (
+            "law L of `drtmle-one-inconsistent-nuisance`, a wrong outcome regression and a "
+            "cross-fitted logistic treatment model, mean under control, n = 4,000: the rule's "
+            "interval",
+            "the lower leg's 99% lower end at least 0.92",
+        ),
+        ("non_h1", "nonh1_slow_g_control"): (
+            "law L of `drtmle-one-inconsistent-nuisance`, a wrong outcome regression and a "
+            "treatment model that converges slower than root n, effect, n = 4,000: the rule's "
+            "interval",
+            "the coverage's 99% upper end below 0.90",
+        ),
+        ("witness", "constant_cell_witness"): (
+            "the fits of boundary_mean_n500_ey1 whose treated V = 2 cell holds one outcome "
+            "value: the plug-in interval on the range-logit scale, the point itself on a bound",
+            "reported: its coverage's 99% upper end below 0.50 shows why the interval is withheld",
+        ),
+    }
+)
+
+
 #: ``dose-response`` (X93 S1): CV-TMLE of the kernel-smoothed dose-response curve.  The scenario,
 #: estimand and cell names are those of ``tests/studies/dose_response.py`` and its properties
 #: module.
