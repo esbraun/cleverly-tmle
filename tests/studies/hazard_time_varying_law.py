@@ -756,12 +756,17 @@ class CellMeans(BaseEstimator, RegressorMixin):
         self.means_ = np.where(sizes > 0, totals / np.where(sizes > 0, sizes, 1.0), 0.0)
         total = float(np.sum(weights))
         self.default_ = float(np.sum(weights * target) / total) if total > 0 else 0.0
+        self.classes_ = np.array([0.0, 1.0])
         return self
 
     def predict(self, X: Any) -> np.ndarray:
         matrix = np.round(np.asarray(X, dtype=float), 9)
         lookup = {tuple(key): mean for key, mean in zip(self.keys_, self.means_, strict=True)}
         return np.array([lookup.get(tuple(row), self.default_) for row in matrix])
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        p = self.predict(X)
+        return np.column_stack([1.0 - p, p])
 
 
 def hazard_learner(correct: bool) -> _Columns:
