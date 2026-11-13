@@ -1,0 +1,115 @@
+{
+  "schema_version": 2,
+  "study": "Markov-order windows on LTMLE",
+  "slug": "option-markov-order",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "c957150e027d14b1d1c119acb72a9390abe4fd26",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2800,
+    "n": 2000,
+    "seed": 20267651,
+    "resampling_seed": 20267652,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "LF1": [
+        "ey_regimen[always]",
+        "ey_regimen[never]",
+        "ate_regimen[always vs never]"
+      ]
+    },
+    "construction": "in-sample LTMLE on LongitudinalData.with_markov_order(k)",
+    "laws": "W ~ U(0, 1); four nodes of binary L_t, A_t, retention C_t; L_t ~ Bernoulli(0.15 + 0.3 W + 0.3 L_{t-1} - 0.1 A_{t-1}); C_t ~ Bernoulli(expit(2.8 + 0.3 W - 0.4 L_t)); Y ~ Bernoulli(0.15 + 0.15 W + 0.15 L_4 + 0.35 L_3 - 0.05 A_4 - 0.05 A_3) under LF1",
+    "law_LF1": "A_t ~ Bernoulli(expit(-1.0 + 0.4 W - 0.5 L_t + 2.0 A_{t-1} + 1.5 L_{t-1}))",
+    "law_LF2": "A_t ~ Bernoulli(expit(-1.0 + 0.4 W - 0.5 L_t + 2.0 A_{t-1})); Y ~ Bernoulli(0.05 + 0.04 W + 0.9 L_3)",
+    "discarded_LF2_outcome": "LF1's outcome: the order-0 EY(never)/ATE control with intercept-only mechanisms read 0.205/-0.167 SD, inside the 0.25 margin (review M1)",
+    "discarded_law": "rev 2 LF1: A_t ~ Bernoulli(expit(-0.6 + 0.4 W - 0.5 L_t + 0.3 A_{t-1} + 1.5 L_{t-1})); windowed and full-history EY(always) both covered 0.919 at n = 2,000",
+    "regimens": {
+      "never": 0,
+      "always": 1
+    },
+    "outcome_learner": "LinearRegression (and pseudo_learner)",
+    "mechanism_learners": "unpenalized logistic regression by Newton (treatment, censoring)",
+    "orders": {
+      "lf1_order1": 1,
+      "lf1_order2": 2,
+      "lf1_full": null,
+      "lf1_order0": 0,
+      "lf2_order0": 0,
+      "lf2_order0_blind": 0
+    },
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "max_iter": 100,
+    "tol": 1e-10,
+    "n_folds": 1,
+    "simultaneous_intervals": false,
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_option_markov_order.py": "8b0344a99007767373ee6bd18d8518cacdfd762b8b63a5d66fa09a518b920f15",
+    "tests/studies/option_markov_order_properties.py": "cf51469ef9d7caeca0649c0ac6a53b41d21efbfe22d3ce52797582144a004f5f",
+    "tests/studies/_option_markov_law.py": "22418775e43a1eaaefe8e39976447245fed4aee604db8769af5d00a52a8d1cd8",
+    "tests/studies/canonical_ltmle.py": "a62ab3cbba09d59968723362a060e1d846ea51240ed8a71819ac7d7a11254d10",
+    "tests/studies/repeated_sizing.py": "22ea0fd4b646ca559ca497ccc2116e5c8c45fb1b5c89670437212736a03fdaed",
+    "src/cleverly/longitudinal/data.py": "7a0996662556249a3c11ff243619eafd4127112a5b2e10a1219ec3a67292bdd7",
+    "src/cleverly/longitudinal/estimator.py": "7b5f6a2ec40aa0b887bd457d8219e3fb1199ad8c1b63a87c16517cc1d9c43e30",
+    "src/cleverly/inference/influence.py": "1f09c77a106447fbd43627f095777dc48270cb3995bf2028d59be42b207ed9e2",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "3429d7c7a3cbc6c155291bf455609e2cfa16ef84d29b27ff03575dde7c259e27",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "22c1f41d60d3928a1ceb5fbc96da7c3fd3f6a3dfe4919362467b29e0f92e8ce9",
+    "summary.csv": "44b647892aa39ebe1cbc8f871b0d62c46ed4bc3c67cbfee86d0fdae6fba265f7",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "aa652f2cd1fbec14c9d89da9f56a8a0bfb3d40b9dccce2b3a8cdceb9ab582db9",
+    "property-replicates.parquet": "c2a657e95a91a2d1c90e5d8641c7033dfd0cb8336f3e628c5602f701b928d553",
+    "properties.csv": "4481674554e370d124f04204ad1faa7094379bfd712e03ceb33ed30eae846650"
+  }
+}

@@ -1807,6 +1807,8 @@ class StructuralNestedMean:
                 inference=status,
                 reference_df=df,
                 support=support,
+                # The blip estimating equations are solved exactly; no stopping rule.
+                rule_widened=False,
             )
 
         estimates: dict[str, ParameterEstimate] = {}

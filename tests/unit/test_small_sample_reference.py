@@ -131,7 +131,9 @@ def test_kish_as_the_df_fails_the_written_out_values(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(influence_module, "satterthwaite_df", influence_module.kish_count)
     with pytest.raises(AssertionError):
         check_written_out(influence_module.satterthwaite_df)
-    estimate = make_estimate("ey1", 0.5, _three_ones(), n=4, outcome_family="gaussian")
+    estimate = make_estimate(
+        "ey1", 0.5, _three_ones(), n=4, rule_widened=False, outcome_family="gaussian"
+    )
     # The estimate reads the module's function, so the mutation reaches it too.
     assert estimate.small_sample_df != pytest.approx(6.0)
 
@@ -142,7 +144,9 @@ def test_kish_as_the_df_fails_the_written_out_values(monkeypatch: pytest.MonkeyP
 def test_the_estimate_reads_only_the_rows_that_carry_its_curve() -> None:
     """Non-zero witness: a 10-row light stratum in 2,000 rows has df 10, not 6.68."""
     curve = _light_stratum()
-    estimate = make_estimate("ey1[V=2]", 0.5, curve, n=curve.size, outcome_family="gaussian")
+    estimate = make_estimate(
+        "ey1[V=2]", 0.5, curve, n=curve.size, rule_widened=False, outcome_family="gaussian"
+    )
     assert estimate.small_sample_df == pytest.approx(10.0, rel=1e-10)
     assert estimate.effective_df == pytest.approx(10.0, rel=1e-10)
     unmasked = satterthwaite_df(curve)
@@ -250,7 +254,7 @@ def test_both_counts_are_free_of_units(factor: float) -> None:
     assert satterthwaite_df(factor * curve, rows=mask) == pytest.approx(
         satterthwaite_df(curve, rows=mask), rel=EXACT
     )
-    estimate = make_estimate("x", 1.0, curve, n=curve.size)
+    estimate = make_estimate("x", 1.0, curve, n=curve.size, rule_widened=False)
     assert replace(estimate, influence_curve=factor * curve).small_sample_df == pytest.approx(
         estimate.small_sample_df, rel=EXACT
     )
@@ -262,7 +266,9 @@ def test_a_ratio_reads_its_log_scale_curve() -> None:
     ic_one = rng.normal(size=n) * np.where(rng.uniform(size=n) < 0.05, 8.0, 1.0)
     ic_zero = rng.normal(size=n)
     psi_one, psi_zero = 0.2, 0.6
-    ratio = ratio_estimates(psi_one, ic_one, psi_zero, ic_zero, n=n, which=("rr",))["rr"]
+    ratio = ratio_estimates(
+        psi_one, ic_one, psi_zero, ic_zero, n=n, rule_widened=False, which=("rr",)
+    )["rr"]
     log_curve = ic_one / psi_one - ic_zero / psi_zero
     assert ratio.small_sample_df == pytest.approx(
         satterthwaite_df(log_curve, rows=log_curve != 0.0), rel=EXACT
@@ -306,13 +312,18 @@ def test_the_reference_quantile_takes_a_fractional_df() -> None:
 def test_the_t_is_opt_in_by_family() -> None:
     curve = _three_ones()
     for family in (None, "binomial"):
-        assert make_estimate("x", 0.5, curve, n=4, outcome_family=family).effective_df is None
-    gaussian = make_estimate("x", 0.5, curve, n=4, outcome_family="gaussian")
+        assert (
+            make_estimate(
+                "x", 0.5, curve, n=4, rule_widened=False, outcome_family=family
+            ).effective_df
+            is None
+        )
+    gaussian = make_estimate("x", 0.5, curve, n=4, rule_widened=False, outcome_family="gaussian")
     assert gaussian.effective_df == 6.0
     heavy = np.zeros(400)
     heavy[0], heavy[1] = 1.0, -1.0
     heavy[2:] = 1e-4 * np.random.default_rng(0).normal(size=398)
-    capped = make_estimate("x", 0.5, heavy, n=400, outcome_family="gaussian")
+    capped = make_estimate("x", 0.5, heavy, n=400, rule_widened=False, outcome_family="gaussian")
     assert capped.small_sample_df < 5.0
     assert capped.effective_df == 5.0
 
@@ -320,10 +331,14 @@ def test_the_t_is_opt_in_by_family() -> None:
 def test_the_df_is_none_where_it_has_no_meaning() -> None:
     curve = np.random.default_rng(1).normal(size=60)
     cluster = np.repeat(np.arange(20), 3)
-    clustered = make_estimate("x", 0.5, curve, n=60, cluster=cluster, outcome_family="gaussian")
+    clustered = make_estimate(
+        "x", 0.5, curve, n=60, rule_widened=False, cluster=cluster, outcome_family="gaussian"
+    )
     assert clustered.small_sample_df is None
     assert clustered.effective_df == clustered.reference_df
-    flat = make_estimate("x", 0.5, np.zeros(10), n=10, outcome_family="gaussian")
+    flat = make_estimate(
+        "x", 0.5, np.zeros(10), n=10, rule_widened=False, outcome_family="gaussian"
+    )
     assert flat.small_sample_df is None
     assert flat.effective_df is None
 
@@ -331,7 +346,7 @@ def test_the_df_is_none_where_it_has_no_meaning() -> None:
 def test_the_df_never_sets_a_status_and_the_ci_does_not_read_it() -> None:
     heavy = 1e-3 * np.random.default_rng(4).normal(size=200)
     heavy[0] = 1.0
-    estimate = make_estimate("x", 0.5, heavy, n=200, outcome_family="gaussian")
+    estimate = make_estimate("x", 0.5, heavy, n=200, rule_widened=False, outcome_family="gaussian")
     assert estimate.small_sample_df < 2.1
     assert estimate.inference == "influence_curve"
     assert estimate.ci == wald_ci(0.5, estimate.std_error)
@@ -339,14 +354,18 @@ def test_the_df_never_sets_a_status_and_the_ci_does_not_read_it() -> None:
 
 def test_the_second_moment_rule_reads_uncentred_terms() -> None:
     curve = np.array([2.0, 1.0, 0.5, 0.0, 0.0])
-    estimate = make_estimate("x", 0.5, curve, n=5, covariance_rule="second_moment")
+    estimate = make_estimate(
+        "x", 0.5, curve, n=5, rule_widened=False, covariance_rule="second_moment"
+    )
     assert estimate.small_sample_df == satterthwaite_df(curve, rows=curve != 0, centered=False)
 
 
 def test_the_interval_scale_names_the_scale_of_the_shipped_interval() -> None:
     curve = np.random.default_rng(2).normal(size=50)
-    assert make_estimate("x", 0.5, curve, n=50).interval_scale == "identity"
-    ratio = make_estimate("rr", 2.0, curve, n=50, scale="ratio", log_psi=math.log(2.0))
+    assert make_estimate("x", 0.5, curve, n=50, rule_widened=False).interval_scale == "identity"
+    ratio = make_estimate(
+        "rr", 2.0, curve, n=50, rule_widened=False, scale="ratio", log_psi=math.log(2.0)
+    )
     assert ratio.interval_scale == "log"
 
 
@@ -391,7 +410,7 @@ def test_a_continuous_arm_with_one_value_is_constant() -> None:
 
 def test_a_small_sample_row_records_what_a_control_needs() -> None:
     curve = _light_stratum()
-    estimate = make_estimate("ey1[V=2]", 0.5, curve, n=curve.size)
+    estimate = make_estimate("ey1[V=2]", 0.5, curve, n=curve.size, rule_widened=False)
     gaussian = small_sample_columns(
         estimate, outcome_family="gaussian", interval_scale="identity", withheld=""
     )
@@ -445,6 +464,6 @@ def test_appended_zero_rows_move_only_the_unmasked_df() -> None:
         kish_count(curve, rows=curve != 0.0), rel=EXACT
     )
     assert satterthwaite_df(longer) < 0.95 * satterthwaite_df(curve)
-    shorter = make_estimate("x", 0.0, curve, n=curve.size)
-    extended = make_estimate("x", 0.0, longer, n=longer.size)
+    shorter = make_estimate("x", 0.0, curve, n=curve.size, rule_widened=False)
+    extended = make_estimate("x", 0.0, longer, n=longer.size, rule_widened=False)
     assert extended.small_sample_df == pytest.approx(shorter.small_sample_df, rel=EXACT)

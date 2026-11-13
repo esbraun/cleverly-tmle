@@ -935,9 +935,13 @@ warns with `ConvergenceWarning` and names the node. `SDR` refuses the option, be
 correction step.
 
 The [survival node-bounds study](../technical-reference/method-evidence/survival-node-bounds.md)
-fits node bounds and pooled censoring in repeated samples. No simulation study covers
-`ratio_trim=` or `markov_order=`, so such fits print `experimental`. Exact-law tests check both,
-and [Ratio trimming](../technical-reference/longitudinal-tmle.md#ratio-trimming),
+fits node bounds and pooled censoring in repeated samples. The
+[ratio-trim study](../technical-reference/method-evidence/option-ratio-trim.md) checks the capped
+point estimate, but only when every outcome model is a `LinearRegression`, so a capped fit with
+another outcome learner prints `experimental`. The
+[Markov-order study](../technical-reference/method-evidence/option-markov-order.md) checks the
+estimate and interval of a windowed `LTMLE` fit on four treatment nodes. Exact-law tests check
+both settings, and [Ratio trimming](../technical-reference/longitudinal-tmle.md#ratio-trimming),
 [Markov order](../technical-reference/longitudinal-tmle.md#markov-order),
 [Pooled censoring](../technical-reference/longitudinal-tmle.md#pooled-censoring) and
 [Node bounds](../technical-reference/longitudinal-tmle.md#node-bounds) state each rule and its

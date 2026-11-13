@@ -155,7 +155,9 @@ def engine_fit(frame: pd.DataFrame, shift_d: bool, shift_y: bool) -> _EngineFit:
         shifted, inputs, [TARGET], step_size=STEP_SIZE, tol=TOL, warn=False
     )
     levels, curves = influence(targeted, inputs, [TARGET])
-    estimate = make_estimate(ROBUSTNESS_ESTIMAND, float(levels[0]), curves[0], n=len(frame))
+    estimate = make_estimate(
+        ROBUSTNESS_ESTIMAND, float(levels[0]), curves[0], n=len(frame), rule_widened=False
+    )
     return _EngineFit(estimate, record)
 
 

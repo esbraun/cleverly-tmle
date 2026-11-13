@@ -1532,7 +1532,9 @@ class WorkingModelMeans:
     lower : ndarray or None
         The lower limit of the pointwise interval of :math:`m(a)`, built on the link scale
         from :math:`\varphi(a)^\top\hat\beta \pm z\sqrt{\varphi(a)^\top\hat\Sigma\varphi(a)}`
-        and mapped through the inverse link. ``None`` when the fit withholds inference.
+        and mapped through the inverse link. Under a declared stopping rule the half-width
+        adds :math:`\lvert\varphi(a)^\top s\rvert`, with :math:`s` the coefficients' scores.
+        ``None`` when the fit withholds inference.
     upper : ndarray or None
         The upper limit of that interval, ``None`` when the fit withholds inference.
     link_std_error : ndarray
@@ -1703,8 +1705,14 @@ def working_model_means(result: Any, *, alpha: float | None = None) -> WorkingMo
     lower = upper = None
     if all(estimate.supplies_inference for estimate in estimates):
         z = reference_quantile(level, df)
-        lower = np.asarray(link.inverse(linear - z * link_se), dtype=float)
-        upper = np.asarray(link.inverse(linear + z * link_se), dtype=float)
+        # Under a declared stopping rule the linear predictor phi' beta leaves the score
+        # phi' s, with s the coefficients' scores; each interval adds its absolute value on
+        # the link scale, as every coefficient's own interval does.
+        margin = np.zeros_like(linear)
+        if any(estimate.rule_widened for estimate in estimates):
+            margin = np.abs(phi @ np.array([estimate.score for estimate in estimates]))
+        lower = np.asarray(link.inverse(linear - (z * link_se + margin)), dtype=float)
+        upper = np.asarray(link.inverse(linear + (z * link_se + margin)), dtype=float)
     return WorkingModelMeans(
         levels=tuple(result.data.arm_label(code) for code in msm.arms),
         terms=tuple(msm.terms),

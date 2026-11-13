@@ -1,0 +1,167 @@
+{
+  "schema_version": 2,
+  "study": "treatment-mechanism covariates on point TMLE",
+  "slug": "option-treatment-adjustment",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "7833316a48167b5330bf8fa3718682f8b204a0a6",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2400,
+    "n": 2000,
+    "seed": 20267641,
+    "resampling_seed": 20267642,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "LDA": [
+        "ate",
+        "ey1",
+        "ey0"
+      ]
+    },
+    "construction": "in-sample and stacked point TMLE with treatment_covariates=(W1, W2)",
+    "law_LDA": "W1, W2, Z ~ N(0, 1) iid; g0 = expit(0.5 W1 - 0.5 W2); logit Qbar0 = -0.3 + 0.6 A + 0.7 W1 + 0.4 W2 + 0.8 Z",
+    "law_LDB": "W1, W2, Z ~ N(0, 1) iid; g0 = expit(0.5 W1 - 0.5 W2 + Z); logit Qbar0 = -0.3 + 0.6 A + 0.7 W1 + 0.4 W2",
+    "adjustment": [
+      "W1",
+      "W2",
+      "Z"
+    ],
+    "treatment_covariates": [
+      "W1",
+      "W2"
+    ],
+    "outcome_learners": {
+      "glm": "unpenalized logistic GLM on (A, W1, W2, Z), by Newton",
+      "intercept": "intercept only",
+      "slow": "the GLM plus the logit offset 1 n^(-1/4) Z, a constructed error (E[Z | W1, W2] = 0)"
+    },
+    "treatment_learners": {
+      "subset": "unpenalized logistic GLM on (W1, W2), declared by treatment_covariates",
+      "intercept": "intercept only, declared by treatment_covariates",
+      "full": "unpenalized logistic GLM on (W1, W2, Z), without the declaration"
+    },
+    "estimands": [
+      "ey1",
+      "ey0",
+      "ate"
+    ],
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "max_iter": 100,
+    "tol": 1e-10,
+    "cross_fit": "False, except the stacked calibration cell (the shipped default folds)",
+    "simultaneous_intervals": false,
+    "settings": {
+      "lda_in_sample": {
+        "law": "LDA",
+        "outcome": "glm",
+        "mechanism": "subset",
+        "cross_fit": false
+      },
+      "lda_stacked": {
+        "law": "LDA",
+        "outcome": "glm",
+        "mechanism": "subset",
+        "cross_fit": true
+      },
+      "lda_q_intercept": {
+        "law": "LDA",
+        "outcome": "intercept",
+        "mechanism": "subset",
+        "cross_fit": false
+      },
+      "lda_both_intercept": {
+        "law": "LDA",
+        "outcome": "intercept",
+        "mechanism": "intercept",
+        "cross_fit": false
+      },
+      "ldb_slow": {
+        "law": "LDB",
+        "outcome": "slow",
+        "mechanism": "subset",
+        "cross_fit": false
+      },
+      "ldb_slow_full": {
+        "law": "LDB",
+        "outcome": "slow",
+        "mechanism": "full",
+        "cross_fit": false
+      },
+      "ldb_parametric": {
+        "law": "LDB",
+        "outcome": "glm",
+        "mechanism": "subset",
+        "cross_fit": false
+      }
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_option_treatment_adjustment.py": "95b8c5b506f75bb79d73699f765b04e42bcadcaaa80196abad8862bfd0ec5eaa",
+    "tests/studies/option_treatment_adjustment_properties.py": "9d9a85ec57c61b207291ef2b82a3a50988c1fc779a692ef22133d9d5ddc371ee",
+    "tests/studies/_option_adjustment_laws.py": "e194552937077ccf01924b1a3c72d3561f5c195f02b7808318811a168669d53d",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/repeated_sizing.py": "22ea0fd4b646ca559ca497ccc2116e5c8c45fb1b5c89670437212736a03fdaed",
+    "src/cleverly/data/treatment_covariates.py": "a8076aaf5f3d0571d6d4662e08269d161b564530698ef7c487ce24525867d055",
+    "src/cleverly/estimators/tmle.py": "2fc1efe148024cb00c7a487bfb083da9765e821062a52d31f8c6fe525c13dbf2",
+    "src/cleverly/fluctuation/iterative.py": "4820e69a1b5321ff8e5f6035dad6b13b9bf7d0c9c95191a73418a9eb6318d543",
+    "src/cleverly/inference/influence.py": "1f09c77a106447fbd43627f095777dc48270cb3995bf2028d59be42b207ed9e2",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "3429d7c7a3cbc6c155291bf455609e2cfa16ef84d29b27ff03575dde7c259e27",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "ee68458d82f37ef4d61def12f03742a8e33c151c6344981b67d002faceda8eca",
+    "summary.csv": "a6901f42086af97b738c78b496e2edeef488a0e949dac52060abbef1243851c6",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "0474112eb09d957eea7f947d220717682e764ed5d33108d898e83139db953bc8",
+    "property-replicates.parquet": "09e0a88c3580d33c3a6f510dce981f7c048599b86a0f1f616b60c8ff8f85d0b7",
+    "properties.csv": "a1b0f4b4c5a58a816db3b5ae2c02a333f64b1d3a55103ffb8ca002abac9d6d21"
+  }
+}

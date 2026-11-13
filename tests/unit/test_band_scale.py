@@ -57,9 +57,13 @@ def _estimates(psis: tuple[float, float, float] = (0.85, 0.4, 0.3)) -> dict[str,
     """A level near 0.85, a difference near 0.4 and an unbounded level."""
     curves = _curves()
     return {
-        "ey1": make_estimate("ey1", psis[0], 0.3 * curves[:, 0], n=N, bounds=(0.0, 1.0)),
-        "ate": make_estimate("ate", psis[1], 0.4 * curves[:, 1], n=N, bounds=(-1.0, 1.0)),
-        "level": make_estimate("level", psis[2], 2.0 * curves[:, 2], n=N),
+        "ey1": make_estimate(
+            "ey1", psis[0], 0.3 * curves[:, 0], n=N, bounds=(0.0, 1.0), rule_widened=False
+        ),
+        "ate": make_estimate(
+            "ate", psis[1], 0.4 * curves[:, 1], n=N, bounds=(-1.0, 1.0), rule_widened=False
+        ),
+        "level": make_estimate("level", psis[2], 2.0 * curves[:, 2], n=N, rule_widened=False),
     }
 
 
@@ -367,7 +371,9 @@ class TestTheBoundaryRule:
 
     def test_a_zero_standard_error_at_a_bound_is_a_point_band(self) -> None:
         estimates = _estimates()
-        estimates["edge"] = make_estimate("edge", 1.0, np.zeros(N), n=N, bounds=(0.0, 1.0))
+        estimates["edge"] = make_estimate(
+            "edge", 1.0, np.zeros(N), n=N, bounds=(0.0, 1.0), rule_widened=False
+        )
         assert out_of_range(estimates, "logit") == ()
         assert _band(estimates).bands["edge"] == (1.0, 1.0)
 
@@ -402,7 +408,12 @@ class TestTheBoundaryRule:
         moved = dict(result.estimates)
         assert out_of_range(moved, "logit") == ()
         moved["ey1"] = make_estimate(
-            "ey1", 1.0, result["ey1"].influence_curve, n=result["ey1"].n, bounds=(0.0, 1.0)
+            "ey1",
+            1.0,
+            result["ey1"].influence_curve,
+            n=result["ey1"].n,
+            bounds=(0.0, 1.0),
+            rule_widened=False,
         )
         assert out_of_range(moved, "logit") == ("ey1",)
         from cleverly._inference_status import NO_LOGIT_RANGE_BANDS
