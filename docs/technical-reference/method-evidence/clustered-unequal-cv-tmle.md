@@ -63,12 +63,11 @@ record's size. The realized row count varies by draw.
 | `cluster_aggregation_rule` | `cluster_sum` | diagnostic | the cluster sum of the curve, as this package and R ltmle aggregate it | reported only | coverage 0.9356 to 0.9593, SE ratio 1.0161 | reported |
 | `clustered_inference` | `cluster_robust` | positive | five-fold point-treatment TMLE with cluster-robust ATE inference | SE-ratio and coverage intervals both stay inside their calibration bands | coverage 0.9420 to 0.9645, SE ratio 0.9616 to 1.0360, paired coverage gain 0.1858 to 0.2279 | pass |
 | `clustered_inference` | `cluster_robust_drtmle` | positive | cross-fitted DR-TMLE at unequal cluster sizes with cluster-robust inference | SE-ratio and coverage intervals both stay inside their calibration bands | coverage 0.9337 to 0.9578, SE ratio 0.9579 to 1.0334, paired coverage gain 0.1667 to 0.2083 | pass |
-| `clustered_inference` | `cluster_robust_fold_evaluated` | positive | fold-evaluated CV-TMLE at unequal cluster sizes, centered cluster variance per fold | SE-ratio and coverage intervals both stay inside their calibration bands | coverage 0.9402 to 0.9630, SE ratio 0.9817 to 1.0573, paired coverage gain 0.1725 to 0.2146 | pass |
-| `clustered_inference` | `cluster_robust_fold_evaluated_cluster_covariate` | positive | fold-evaluated CV-TMLE of the treated mean, 40 clusters in 10 folds, a covariate shared within a cluster | SE-ratio and coverage intervals both stay inside their calibration bands | coverage 0.9182 to 0.9450, SE ratio 0.9453 to 1.0187, paired coverage gain 0.4021 to 0.4542 | **fail** |
+| `clustered_inference` | `cluster_robust_fold_evaluated_cluster_covariate` | positive | fold-evaluated CV-TMLE of the treated mean, 40 clusters in 10 folds, a covariate shared within a cluster, on t with J - V = 30 degrees of freedom | SE-ratio and coverage intervals both stay inside their calibration bands | coverage 0.9478 to 0.9646, SE ratio 0.9908 to 1.0493, paired coverage gain 0.4183 to 0.4587 | pass |
 | `clustered_inference` | `iid_control` | control | the identical rows, point estimates, and influence curves treated as independent | the SE-ratio upper endpoint must not exceed the declared IID-control ceiling | coverage 0.7244 to 0.7704, SE ratio 0.5655 to 0.6080, paired coverage gain 0.1858 to 0.2279 | pass |
 | `clustered_inference` | `iid_control_drtmle` | control | the DR-TMLE curve treated as independent rows | the SE-ratio upper endpoint must not exceed the declared IID-control ceiling | coverage 0.7355 to 0.7809, SE ratio 0.5650 to 0.6098, paired coverage gain 0.1667 to 0.2083 | pass |
-| `clustered_inference` | `iid_control_fold_evaluated` | control | the fold-evaluated fit's curve treated as independent rows | the SE-ratio upper endpoint must not exceed the declared IID-control ceiling | coverage 0.7360 to 0.7813, SE ratio 0.5782 to 0.6222, paired coverage gain 0.1725 to 0.2146 | pass |
-| `clustered_inference` | `iid_control_fold_evaluated_cluster_covariate` | control | the same fold-evaluated curve treated as independent rows | the SE-ratio upper endpoint must not exceed the declared IID-control ceiling | coverage 0.4781 to 0.5310, SE ratio 0.3326 to 0.3580, paired coverage gain 0.4021 to 0.4542 | pass |
+| `clustered_inference` | `iid_control_fold_evaluated_cluster_covariate` | control | the same fold-evaluated curve treated as independent rows, with the normal quantile | the SE-ratio upper endpoint must not exceed the declared IID-control ceiling | coverage 0.4978 to 0.5387, SE ratio 0.3487 to 0.3691, paired coverage gain 0.4183 to 0.4587 | pass |
+| `clustered_inference` | `normal_reference_fold_evaluated_cluster_covariate` | diagnostic | the same fold-evaluated point and cluster-robust standard error with the normal quantile, the reference before Fix-4 | reported only | coverage 0.9375 to 0.9559, SE ratio 1.0192 | reported |
 | `estimand_weighting` | `cluster_average_truth` | control | the unweighted interval against the cluster-average mean | exact coverage upper bound falls below 0.50 | coverage 0 to 0.0022 | pass |
 | `estimand_weighting` | `cluster_average_weights` | positive | the interval with weights of one over the cluster size against the cluster-average mean | exact coverage lower bound clears the floor | coverage 0.9406 to 0.9634 | pass |
 | `estimand_weighting` | `individual_average` | positive | the unweighted interval against the row-weighted mean | exact coverage lower bound clears the floor | coverage 0.9379 to 0.9611 | pass |
@@ -92,6 +91,11 @@ binary cluster totals. The same fits publish a reported arm,
 normal quantile, so the run shows on the same draws what $t_{30}$ adds over the earlier reference.
 That arm states no verdict.
 
+On the fresh stream the covariate pair passes. The $t_{30}$ interval's coverage has the 99%
+interval 0.948 to 0.965, and its SE ratio 0.991 to 1.049. The normal arm on the same fits covers
+0.938 to 0.956, so the $t_{30}$ quantile adds about one percentage point of coverage on these
+draws.
+
 The first run also fitted a fold-evaluated pair on the informative law at 200 clusters. It passed,
 with a point biased by 0.13 empirical SDs against 0.02 for the stacked fit. That pair left the
 study, because `cv_evaluation=True` now refuses clusters of unequal size and redirects to the
@@ -113,7 +117,7 @@ beside the cluster sum.
 | `independent_tests_passed` | 9 | truth tests passing |
 | `independent_tests_total` | 9 | truth tests reported |
 | `property_cells_passed` | 10 | property cells passing |
-| `property_cells_total` | 12 | property cells reported |
+| `property_cells_total` | 10 | property cells reported |
 | `max_standardized_bias` | 0.0634 | largest primary standardized bias |
 | `min_coverage` | 0.9287 | lowest primary coverage |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |

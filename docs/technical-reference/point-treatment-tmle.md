@@ -1328,7 +1328,7 @@ data-adaptive target rather than a redirect.
 
 The [compositions study](method-evidence/learned-rule-compositions.md) measures each setting at
 n = 2,000, and its fits read supported. Coverage is 0.9427 under fold targeting, 0.9537 with
-known weights at `misspecified_limit`, and 0.9445 at 200 equal clusters of 10. At 30 clusters the
+known weights at `misspecified_limit`, and 0.9465 at 200 equal clusters of 10. At 30 clusters the
 t interval covers 0.9400 to 0.9528. The study draws equal cluster sizes only, so its key marks a
 learned-rule fit with unequal sizes (`unequal_clusters`), and such a fit reads experimental. A
 fit with both weights and clusters also reads experimental, because no cell measures it. Weights

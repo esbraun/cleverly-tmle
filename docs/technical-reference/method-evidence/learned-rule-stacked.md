@@ -84,7 +84,7 @@ drew the same partition; its truth weights the same fold values by $1/V$.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `fold_evaluated_reporting` | `clustered__fold_evaluated` | diagnostic | the learned-rule law with the blip 0.1 + W1 and a cluster effect, in 200 clusters whose size rises with the effect: the fold-evaluated fit (cv_evaluation=True) on every clustered calibration draw, with the same folds and rules, read against the 1/V average of the same fold values | none. The cell reports the fold-evaluated bias beside the stacked bias and their paired error difference | bias -0.0026 to -0.0015, coverage 0.9366 to 0.9495, paired error difference -0.0021 | reported |
+| `fold_evaluated_reporting` | `clustered__fold_evaluated` | diagnostic | the learned-rule law with the blip 0.1 + W1 and a cluster effect, in 200 clusters whose size rises with the effect: the fold-evaluated fit (cv_evaluation=True) on every clustered calibration draw, with the same folds and rules, read against the 1/V average of the same fold values | none. The cell reports the fold-evaluated bias beside the stacked bias and their paired error difference | bias -0.0026 to -0.0015, coverage 0.9386 to 0.9512, paired error difference -0.0021 | reported |
 | `interval_calibration` | `clustered__declared` | positive | the learned-rule law with the blip 0.1 + W1 and a cluster effect, in 200 clusters whose size rises with the effect: the declared stacked fit with the study's logistic learners | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9365 to 0.9494, SE ratio 0.9684 to 1.0066 | pass |
 | `interval_calibration` | `clustered__noise_control` | control | the learned-rule law with the blip 0.1 + W1 and a cluster effect, in 200 clusters whose size rises with the effect: a declared scale of independent noise is added to each estimate | the SE-ratio interval must fall below the calibration band | coverage 0.8191 to 0.8399, SE ratio 0.6933 to 0.7211 | pass |
 | `interval_calibration` | `clustered__row_variance_control` | control | the learned-rule law with the blip 0.1 + W1 and a cluster effect, in 200 clusters whose size rises with the effect: the same estimate with the row-level centred standard error that ignores the clusters | the SE-ratio interval must fall below the calibration band | coverage 0.8535 to 0.8725, SE ratio 0.7476 to 0.7771 | pass |
@@ -141,12 +141,12 @@ The fold-evaluated report keeps the qualifier, by theory and not by a failed ver
 bias is of order $V/J$ in absolute terms, so of order $V/\sqrt{J}$ in SDs, against $1/\sqrt{J}$
 for the stacked point. On the same draws the fold-evaluated estimate sits 0.00213 below the
 stacked one, about 0.11 stacked SDs, and its standardized bias is -0.107. That bias lies inside
-the 0.25 margin, and its interval reads an SE ratio of 0.986 and coverage of 0.9433, so at 200
+the 0.25 margin, and its interval reads an SE ratio of 0.986 and coverage of 0.9451, so at 200
 clusters it would pass the same bands. The oracle puts its bias at about -0.29 SD at 40 clusters.
 
-The first run read that coverage on the normal reference. A fold-evaluated fit now takes $t$ with
-$J - V$ degrees of freedom at every cluster count, $t_{190}$ here, and the study is regenerated on
-the same draws. The learned-rule value keeps the equal fold average at unequal sizes, because its
+The first run read a coverage of 0.9433 on the normal reference. A fold-evaluated fit now takes
+$t$ with $J - V$ degrees of freedom at every cluster count, $t_{190}$ here, and the study was
+regenerated on the same draws. The learned-rule value keeps the equal fold average at unequal sizes, because its
 target is defined by it ([clusters of unequal mass](../cv-tmle.md#clusters-of-unequal-mass)).
 
 ### The variance terms
@@ -230,7 +230,7 @@ the committed results and checked at the precision printed.
 | `properties[interval_calibration/rows__noise_control]:se_ratio_ci_upper` | 0.7247 | the highest noise-control upper endpoint |
 | `properties[fold_evaluated_reporting/clustered__fold_evaluated]:standardized_bias` | -0.1070 | the fold-evaluated report's standardized bias |
 | `properties[fold_evaluated_reporting/clustered__fold_evaluated]:se_ratio` | 0.9858 | its SE ratio |
-| `properties[fold_evaluated_reporting/clustered__fold_evaluated]:coverage` | 0.9433 | its coverage |
+| `properties[fold_evaluated_reporting/clustered__fold_evaluated]:coverage` | 0.9451 | its coverage |
 | `properties[fold_evaluated_reporting/clustered__fold_evaluated]:stacked_standardized_bias` | 0.0024 | the stacked report's standardized bias on the same draws |
 | `properties[fold_evaluated_reporting/clustered__fold_evaluated]:paired_error_difference` | -0.0021 | fold-evaluated error minus stacked error |
 | `properties[fold_evaluated_reporting/clustered__fold_evaluated]:paired_error_difference_se` | 0.000015 | its Monte Carlo SE |
