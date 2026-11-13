@@ -80,9 +80,9 @@ The readiness labels are defined under
 
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
-| [X91](#x91-survival-targets-across-the-estimators) Survival targets across the estimators | 2 | published support for part (b); natural extension for parts (c) and (d); audited source for part (f); all four shipped; part (e) refused; the R `lmtp` comparator runs of the eliminated-competing-events study are pending | the shipped survival and competing-risk paths of `LTMLE` |
+| [X91](#x91-survival-targets-across-the-estimators) Survival targets across the estimators | 2 | published support for parts (b) and (g); natural extension for parts (c) and (d); audited source for part (f); all five shipped; part (e) refused; the R `lmtp` comparator runs of the eliminated-competing-events study are pending | the shipped survival and competing-risk paths of `LTMLE` |
 | [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read | the shipped hazard targeting on a held baseline treatment |
-| [X6](#x6-continuous-time-survival-and-competing-risks) Continuous-time survival and competing risks | 2 | published support; pending source read | continuous-time intensity and targeting contracts |
+| [X6](#x6-continuous-time-survival-and-competing-risks) Continuous-time survival and competing risks | 2 | published support; the one-step TMLE of a baseline treatment shipped as X91 part (g); the early-time standard error is open | the shipped `ContinuousSurvivalTMLE` |
 | [X80](#x80-ratio-trimming-on-the-hazard-path) Ratio trimming on the hazard path | 3 | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` |
 
 ### Longitudinal and sequential estimators
@@ -798,21 +798,20 @@ efficient estimators.
 
 ### X6. Continuous-time survival and competing risks
 
-The shipped survival and competing-risk estimators use discrete time nodes. Rytgaard, Gerds and van
-der Laan (2022) derive the continuous-time construction, which changes the intensity model, the
-targeting step, and the remainder. The `concrete` package implements the one-step form of
-Rytgaard, Eriksson and van der Laan (2023). Its last release is 1.0.5, and CRAN archived it in
-2024, so pin it by commit before it becomes a comparator.
+`ContinuousSurvivalTMLE` ships the one-step TMLE of Rytgaard and van der Laan (2024) for the
+risks of competing causes under a binary baseline treatment, with no time grid (X91 part (g)).
+The registered study
+[continuous-time survival TMLE](technical-reference/method-evidence/continuous-time-survival.md)
+gates its default cross-fitted fit at n = 1,000. This item holds what remains.
 
-That comparator takes a binary baseline treatment under a static or dynamic intervention, which
-bounds the paired cells a first study can claim. A discrete-time study is not evidence for a
-continuous-time interval, so the existing longitudinal rows do not transfer. The discrete-time
-whole-curve targeting has shipped as
-[hazard-based survival targeting](technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting),
-with `survival_model="hazard"` and `targeting="one_step"`. On a discrete grid, a `concrete` intervention on the baseline treatment is a
-[held point-treatment design](technical-reference/longitudinal-tmle.md#one-baseline-treatment-held-over-the-nodes) with a plan at node 1. A stochastic intervention is a
-[known stochastic policy](technical-reference/longitudinal-tmle.md#known-stochastic-policies) at
-that node.
+| part | what to add | base |
+| --- | --- | --- |
+| (a) the early-time standard error | at the first quartile of the event times the influence-curve standard error ran up to 8% below the sampling spread at n = 1,000 (5% at 4,000) and coverage fell to 0.88, while the estimates were unbiased with the efficient spread. The fit labels a time by which fewer than 40% of the events have happened experimental. A diagnosis, then a corrected variance or a declared finite-sample rule, would lift the label | the study's `early-time.csv`; the pilot at n = 4,000 in `tests/studies/continuous_survival_pilot.csv.gz` |
+| (b) one event type and more than two causes | a study of each; both run today and read experimental | Rytgaard and van der Laan (2024), Section 3.1, covers any number of causes |
+| (c) the result's curve, contrasts, ratios and RMST | `curve()`, `contrast()`, `to_dict()`, `ratio()`, `rmst()` and `evalue` on `ContinuousSurvivalResult`, and a study of the risk ratio and the band | the influence curves the result already holds |
+| (d) a bootstrap | a full-refit bootstrap of the continuous-time fit | none read |
+| (e) time-varying treatment and covariates | the continuous-time intensity model and its targeting | Rytgaard, Gerds and van der Laan (2022), *Annals of Statistics* 50(5) |
+| (f) a comparator | `concrete` 1.0.5 implements the form of Rytgaard, Eriksson and van der Laan (2023), tilts only each unit's received arm, which a mutation test shows is not doubly robust, and is archived. Pin it by commit before any paired cell | the `concrete` source |
 
 ### X70. Hazard targeting beyond a held baseline treatment
 
@@ -1846,11 +1845,12 @@ measures; its R `lmtp` comparator runs are pending. This item carries further su
 | (d) | separable effects with baseline covariates | Stensrud, Young, Didelez, Robins and Hernán (2022), identification (8); `Separable` on hazard `LTMLE` ([separable effects](technical-reference/longitudinal-tmle.md#separable-effects)), a factor-wise TMLE by the chain rule | shipped: the registered study [separable effects](technical-reference/method-evidence/separable-effects.md) measures one and two folds; no comparator was located |
 | (e) | separable effects with time-varying common causes | Stensrud et al. (2021), Section 6.2, Equation (19) | refused: no source gives an efficient influence curve |
 | (f) | doubly robust inference for the survival curve | Díaz (2019), *Statistics in Medicine* 38(15), Section 5: a drift-corrected TMLE with univariate auxiliary regressions; the audit found four defects in eq. (9), corrected as [the references](references.md) record | shipped as `SurvivalDRTMLE` ([time-to-event outcomes](technical-reference/dr-tmle/theorem.md#time-to-event-outcomes)): the registered study [drift-corrected survival TMLE](technical-reference/method-evidence/survival-dr-tmle.md) gates every nuisance estimated and every mechanism declared with the hazard model wrong, with the support rows G51; no comparator was located. The compositions it refuses are [X62](#x62-other-dr-tmle-and-c-tmle-compositions) part (g) and [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| (g) | the absolute risks of competing causes in continuous time, with a binary baseline treatment | Rytgaard and van der Laan (2024), *Biometrika* 111(1): the one-step TMLE on the universal least favourable path of every cause hazard, stopped at $1/(\sqrt n \log n)$ | shipped as `ContinuousSurvivalTMLE` through `TimeToEvent(grid="continuous")` ([continuous-time survival](technical-reference/continuous-time-survival.md)): the registered study [continuous-time survival TMLE](technical-reference/method-evidence/continuous-time-survival.md) gates the default cross-fitted fit at n = 1,000 with two causes at the median and upper quartile of the event times. The first quartile's standard error runs low and stays in [X6](#x6-continuous-time-survival-and-competing-risks) |
 
 `AdaptiveIPTW` on a survival outcome and a structural nested failure-time model are not planned:
 no source extends either, and both refusals name `LTMLE`. The longitudinal sensitivity bounds stay
-with [F16](#f16-longitudinal-sensitivity-bound-estimation). The continuous-time TMLE is
-[X6](#x6-continuous-time-survival-and-competing-risks).
+with [F16](#f16-longitudinal-sensitivity-bound-estimation). The continuous-time TMLE is part (g), and
+[X6](#x6-continuous-time-survival-and-competing-risks) holds what it leaves open.
 
 Acceptance: each part that ships needs exact-law checks with a nonzero witness of each new term,
 a mutation control, and a registered study. Each request that stays refused needs a pre-fit

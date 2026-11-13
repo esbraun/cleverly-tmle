@@ -1539,6 +1539,18 @@ ARMS.update(
     }
 )
 
+#: The robustness label of ``continuous-time-survival`` (X91 part G).  Mirrored from
+#: ``tests.studies.continuous_survival_properties``, which this module cannot import; its
+#: calibration label ``both_rd`` takes this study's words from :data:`STUDY_ARMS`.
+ARMS.update(
+    {
+        "treated_c1": (
+            "the continuous-time competing-risks law with covariate-dependent censoring, the "
+            "treated arm's risk of cause 1 by t = 1.12, ten outer folds, n = 1,000"
+        ),
+    }
+)
+
 #: The calibration labels of the X76 option studies (``option-treatment-adjustment``,
 #: ``option-outcome-by-arm``, ``option-markov-order``).  Mirrored from their properties modules,
 #: which this module cannot import; :data:`STUDY_ARMS` gives each study's own words.
@@ -9661,6 +9673,68 @@ CELLS.update(
         ("reported_large_move", "stalled_fits"): (
             f"{_LG2_GS2}: the share of replications with a logistic fit stopped at max_iter",
             _DIAGNOSTIC_REQUIRED,
+        ),
+    }
+)
+
+
+#: ``continuous-time-survival`` (X91 part G): the one-step continuous-time TMLE of Rytgaard and
+#: van der Laan (2024) for the risks of two competing causes.  The scenario, estimand and cell
+#: names are those of ``tests/studies/continuous_survival.py`` and its properties module.
+_CONTINUOUS_SLUG = "continuous-time-survival"
+IMPLEMENTATIONS["cleverly-continuous-survival-tmle"] = (
+    "`cleverly` ContinuousSurvivalTMLE: one-step TMLE on the multinomial-logistic universal "
+    "least favourable path of every cause hazard, both arms tilted (Rytgaard and van der Laan "
+    "2024)"
+)
+STUDY_SCENARIOS[(_CONTINUOUS_SLUG, "both_cf_1k")] = (
+    "a three-level factor and a normal covariate, a binary treatment, two competing causes with "
+    "constant hazards and independent censoring (van Hage et al. 2025, scenario 1, with an "
+    "arm-specific term); the default Cox libraries and treatment learner, ten outer folds, "
+    "n = 1,000"
+)
+_CONTINUOUS_ARMS = {"treated": "treatment", "control": "no treatment"}
+for _arm, _words in _CONTINUOUS_ARMS.items():
+    for _cause in (1, 2):
+        for _time in ("1.12", "2.32"):
+            STUDY_ESTIMANDS[
+                (_CONTINUOUS_SLUG, f"cif_regimen[{_arm}, cause{_cause} @ t={_time}]")
+            ] = f"risk of cause {_cause} by t = {_time} under {_words}"
+for _cause in (1, 2):
+    for _time in ("1.12", "2.32"):
+        STUDY_ESTIMANDS[
+            (_CONTINUOUS_SLUG, f"ate_regimen[treated vs control, cause{_cause} @ t={_time}]")
+        ] = (
+            f"difference in the risk of cause {_cause} by t = {_time} between treatment and no "
+            "treatment"
+        )
+STUDY_ARMS[(_CONTINUOUS_SLUG, "both_rd")] = (
+    "the continuous-time competing-risks law, the difference in the risk of cause 1 by "
+    "t = 1.12 between treatment and no treatment, ten outer folds, n = 1,000"
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_CONTINUOUS_SLUG, "double_robustness", "treated_c1", "mechanism_correct"): (
+            "the event hazards wrong (a Cox model on the treatment alone), with the default "
+            "treatment learner and censoring library",
+            "bias interval inside the equivalence margin",
+        ),
+        (_CONTINUOUS_SLUG, "double_robustness", "treated_c1", "outcome_correct"): (
+            "the default event-hazard library, with the treatment model wrong (it omits the "
+            "normal covariate) and the censoring hazard wrong (a Cox model on the treatment "
+            "alone)",
+            "bias interval inside the equivalence margin",
+        ),
+        (_CONTINUOUS_SLUG, "double_robustness", "treated_c1", "both_wrong"): (
+            "the event hazards, the treatment model and the censoring hazard all wrong: no "
+            "sufficient condition holds",
+            "bias interval must fall entirely outside the margin",
+        ),
+        (_CONTINUOUS_SLUG, "interval_calibration", "both_rd", "correctly_specified"): (
+            "the default libraries, each of which holds the true model, read against the exact "
+            "efficient influence-curve spread",
+            "SE ratio and coverage intervals both inside their calibration bands, with both "
+            "efficiency-ratio intervals inside their bands",
         ),
     }
 )

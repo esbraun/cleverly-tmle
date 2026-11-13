@@ -97,6 +97,8 @@ from .methods import (
 from .msm import MSM, MSMSet, refuse_continuous_msm_mechanisms
 from .protocol import StudyProtocol, protocol_summary_lines
 from .provenance import fingerprint_array
+from .survival import ContinuousSurvivalResult, ContinuousSurvivalTMLE
+from .survival.data import ContinuousSurvivalData, continuous_kwargs, static_arms
 from .targets import TARGETS
 from .targets.base import (
     INTERMEDIATE_MECHANISM,
@@ -127,7 +129,7 @@ from .targets.population_intervention import (
     NATURAL_COURSE_TARGET,
     POPULATION_INTERVENTION_TARGETS,
 )
-from .utils.frames import as_frame
+from .utils.frames import as_frame, is_dataframe
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .assessment import AssessmentReport
@@ -1457,11 +1459,14 @@ class TimeToEvent:
         The baseline treatment column.
     baseline : sequence of str
         Covariates measured before the treatment.  The list names at least one column.
-    grid : sequence of float or None
+    grid : sequence of float, "continuous", or None
         The grid times, which are the visit times.  ``None`` needs integer times and uses
         :math:`g_k = k` up to the largest event time.  The fit costs :math:`K(K+1)/2`
         sequential regressions per regimen and cause, so a default grid on day-level times
-        can hold thousands of nodes.
+        can hold thousands of nodes.  ``"continuous"`` bins nothing: the times stay as
+        observed and ``TMLEMethod`` runs the continuous-time one-step TMLE of
+        :class:`cleverly.survival.ContinuousSurvivalTMLE` on a binary treatment, at the
+        target times that ``horizons=`` names.
     causes : mapping of int to str or None
         The label of each nonzero event code.  ``None`` reads codes ``{0, 1}`` as one event
         and any other codes as competing causes labelled ``str(code)``.
@@ -1526,7 +1531,7 @@ class TimeToEvent:
     event: str
     treatment: str
     baseline: Sequence[str]
-    grid: Sequence[float] | None = None
+    grid: Sequence[float] | Literal["continuous"] | None = None
     causes: Mapping[int, str] | None = None
     cluster: str | None = None
     weights: str | None = None
@@ -1582,7 +1587,36 @@ class TimeToEvent:
                 "over time needs LongitudinalTreatment on the wide layout"
             )
         object.__setattr__(self, "baseline", tuple(self.baseline))
-        if self.grid is not None:
+        if isinstance(self.grid, str):
+            if self.grid != "continuous":
+                raise ValueError("TimeToEvent(grid=) is a sequence of times, 'continuous' or None")
+            declared = [
+                name
+                for name, value, default in (
+                    ("cluster", self.cluster, None),
+                    ("weights", self.weights, None),
+                    ("weights_estimated", self.weights_estimated, False),
+                    ("continuous_treatment", self.continuous_treatment, False),
+                    ("treatment_probabilities", self.treatment_probabilities, None),
+                    ("treatment_support", self.treatment_support, None),
+                    ("dose_atoms", self.dose_atoms, ()),
+                    ("eliminate", self.eliminate, ()),
+                    ("censoring_probabilities", self.censoring_probabilities, None),
+                )
+                if value != default
+            ]
+            if declared:
+                raise CapabilityError(
+                    f"TimeToEvent(grid='continuous') cannot take {declared}: the "
+                    "continuous-time TMLE has no source or study for clusters, weights, a "
+                    "dose, declared mechanisms or eliminated causes (roadmap X6).",
+                    reason=RefusalReason.IMPLEMENTATION_GAP,
+                    alternative=(
+                        "Declare grid= for the binned survival estimators, which take them."
+                    ),
+                    roadmap="X6",
+                )
+        elif self.grid is not None:
             object.__setattr__(self, "grid", tuple(float(g) for g in self.grid))
         if self.causes is not None:
             object.__setattr__(self, "causes", dict(self.causes))
@@ -1591,6 +1625,11 @@ class TimeToEvent:
     def outcome(self) -> str:
         """The event-code column, which the identified functional names as the outcome."""
         return self.event
+
+    @property
+    def continuous(self) -> bool:
+        """Whether the times stay as observed (``grid="continuous"``)."""
+        return self.grid == "continuous"
 
     def prepare(self, data: Any) -> LongitudinalData:
         """Validate data and construct its held survival representation.
@@ -1605,6 +1644,20 @@ class TimeToEvent:
         LongitudinalData
             The held container with its time grid.
         """
+        if self.continuous:
+            if not is_dataframe(data):
+                raise DataError(
+                    "TimeToEvent(grid='continuous') reads a pandas or polars frame; a "
+                    "LongitudinalData container is already binned"
+                )
+            return ContinuousSurvivalData.from_frame(  # type: ignore[return-value]
+                data,
+                time=self.time,
+                event=self.event,
+                treatment=self.treatment,
+                baseline=self.baseline,
+                causes=self.causes,
+            )
         if isinstance(data, LongitudinalData) and data.eliminated:
             raise DataError(
                 "the supplied LongitudinalData already eliminates "
@@ -1620,7 +1673,7 @@ class TimeToEvent:
             event=self.event,
             treatment=self.treatment,
             baseline=self.baseline,
-            grid=self.grid,
+            grid=None if isinstance(self.grid, str) else self.grid,
             causes=self.causes,
             id=self.cluster,
             weights=self.weights,
@@ -2345,8 +2398,9 @@ class RegimeMean:
         ``CausalStudy.identify`` refuses a ``Shift`` or an ``Incremental`` here.
     reference : str or None
         Regimen label used as the reference for related contrasts.
-    horizons : sequence of int or None
-        Follow-up times to report for a longitudinal outcome.
+    horizons : sequence of float or None
+        Follow-up times to report for a longitudinal outcome: grid times on a binned
+        design, any times within every arm's follow-up on ``TimeToEvent(grid="continuous")``.
     """
 
     regimens: Any
@@ -2368,8 +2422,9 @@ class RegimeContrast:
         ``CausalStudy.identify`` refuses a ``Shift`` or an ``Incremental`` here.
     reference : str or None
         Reference regimen label. ``None`` uses the first regimen.
-    horizons : sequence of int or None
-        Follow-up times to report for a longitudinal outcome.
+    horizons : sequence of float or None
+        Follow-up times to report for a longitudinal outcome: grid times on a binned
+        design, any times within every arm's follow-up on ``TimeToEvent(grid="continuous")``.
 
     See Also
     --------
@@ -4536,9 +4591,54 @@ class ExplicitAdjustmentProvider:
             return self._identify_trial(study, estimand)
         if isinstance(estimand, TrialATE):
             raise CapabilityError.from_refusal(TRIAL_DESIGN_REFUSAL)
+        if isinstance(design, TimeToEvent) and design.continuous:
+            return self._identify_continuous(study, estimand)
         if isinstance(design, (LongitudinalTreatment, TimeToEvent, LongPanel)):
             return self._identify_longitudinal(study, estimand)
         return self._identify_point(study, estimand)
+
+    def _identify_continuous(self, study: CausalStudy, estimand: PointEstimand) -> IdentifiedEffect:
+        """Bind two static arms and their target times on a continuous-time design."""
+        design = study.design
+        data = study.data
+        assert isinstance(design, TimeToEvent) and isinstance(data, ContinuousSurvivalData)
+        if not isinstance(estimand, (RegimeMean, RegimeContrast)):
+            raise CapabilityError(
+                f"{type(estimand).__name__} has no continuous-time form. "
+                "TimeToEvent(grid='continuous') estimates the risks of two static arms "
+                "(RegimeMean) and their contrasts (RegimeContrast) at declared times "
+                "(roadmap X6).",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="Declare grid= for the binned survival estimators.",
+                roadmap="X6",
+            )
+        if not estimand.horizons:
+            raise DataError(
+                "TimeToEvent(grid='continuous') needs horizons=, the target times: there is "
+                "no grid to default to"
+            )
+        arms = static_arms(estimand.regimens, np.unique(data.treatment))
+        if estimand.reference is not None and estimand.reference not in arms:
+            raise DataError(f"reference {estimand.reference!r} is not one of {list(arms)}")
+        functional = BackdoorMeanContrast(
+            outcome=design.outcome,
+            treatment=(design.treatment,),
+            adjustment=tuple(design.baseline),
+            target=estimand.name,
+            axis="regimen",
+            reference=estimand.reference,
+            interventions=arms,
+            horizons=tuple(float(t) for t in estimand.horizons),
+            longitudinal=True,
+            history=((design.treatment, tuple(design.baseline)),),
+        )
+        return IdentifiedEffect(
+            estimand=estimand,
+            functional=functional,
+            identification=_LONGITUDINAL_IDENTIFICATION,
+            provider=self,
+            _study=study,
+        )
 
     def _identify_trial(self, study: CausalStudy, estimand: PointEstimand) -> IdentifiedEffect:
         """Bind :class:`TrialATE` to the pooled design, and refuse every other estimand."""
@@ -5571,6 +5671,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         """
         if self.functional.axis == "trial":
             return self._trial_methods()
+        if isinstance(getattr(self._study, "data", None), ContinuousSurvivalData):
+            return self._continuous_methods()
         point = not self.functional.longitudinal
         target = self.functional.target
         blocker = (
@@ -5682,6 +5784,33 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             records = self._effect_modification_methods(records)
         from ._summary._setup import question_text
 
+        return MethodAvailabilities(records, question=question_text(self))
+
+    def _continuous_methods(self) -> MethodAvailabilities:
+        """The methods of ``TimeToEvent(grid="continuous")``: the one-step TMLE alone (X91 G).
+
+        Every other method has no continuous-time form and refuses, as the fit does.
+        """
+        from ._summary._setup import question_text
+        from .survival.data import CONTINUOUS_METHOD_REFUSAL
+
+        names = (
+            "adaptive_iptw",
+            "collaborative_tmle",
+            "drtmle",
+            "sdr",
+            "ipsi",
+            "gcomp",
+            "ipw",
+            "parametric_gformula",
+            "riesz_tmle",
+            "ep",
+            "atmle",
+        )
+        records = (
+            MethodAvailability("tmle", True, None),
+            *(MethodAvailability(name, False, CONTINUOUS_METHOD_REFUSAL) for name in names),
+        )
         return MethodAvailabilities(records, question=question_text(self))
 
     def _trial_methods(self) -> MethodAvailabilities:
@@ -6139,6 +6268,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             raise MethodConfigurationError.from_refusal(refusal)
         if self.functional.axis == "trial":
             return self._estimate_trial(normalized)
+        if isinstance(self._study.data, ContinuousSurvivalData):
+            return self._estimate_continuous(normalized)
         if self.functional.longitudinal:
             return self._estimate_longitudinal(normalized)
         if isinstance(normalized, EPMethod):
@@ -6480,6 +6611,20 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 f"{list(selected)} != {list(result.estimates)}"
             )
         return selected
+
+    def _estimate_continuous(self, method: EstimationMethod) -> ContinuousSurvivalResult:
+        """Fit the continuous-time one-step TMLE (X91 part G)."""
+        assert self._study is not None
+        data = self._study.data
+        assert isinstance(data, ContinuousSurvivalData)
+        functional = self.functional
+        engine = ContinuousSurvivalTMLE(
+            functional.horizons or (),
+            arms=functional.interventions,
+            reference=functional.reference,
+            **continuous_kwargs(method),
+        )
+        return engine.fit_data(data)
 
     def _estimate_longitudinal(self, method: EstimationMethod) -> LongitudinalResult:
         assert self._study is not None and isinstance(self._study.data, LongitudinalData)

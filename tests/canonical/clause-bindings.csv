@@ -472,6 +472,15 @@ conditional-projection,interval_calibration,se ratio in calibration band,affine
 conditional-projection,power,rejection floor,affine
 conditional-projection,type_i_error,coverage floor,coverage/0.5
 conditional-projection,type_i_error,rejection ceiling,rejection/0.1
+continuous-time-survival,double_robustness,bias discriminated,pair_collapse
+continuous-time-survival,double_robustness,bias equivalent,bias
+continuous-time-survival,double_robustness,se ratio in union band,se/0.05
+continuous-time-survival,interval_calibration,coverage in calibration band,shift/0.7
+continuous-time-survival,interval_calibration,efficiency above band,pair_collapse
+continuous-time-survival,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/0.97
+continuous-time-survival,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+continuous-time-survival,interval_calibration,se ratio below band,se_high
+continuous-time-survival,interval_calibration,se ratio in calibration band,se/0.9
 cross-fitted-longitudinal-msm,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
 cross-fitted-longitudinal-msm,crossfit_overfitting,coverage gain,shift/3
 cross-fitted-longitudinal-msm,crossfit_overfitting,cross-fit se ratio honest,se_low

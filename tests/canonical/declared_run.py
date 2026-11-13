@@ -44,6 +44,7 @@ from typing import Any
 from tests.canonical.regenerate import (
     ARTIFACT_NAMES,
     OPTIONAL_ARTIFACT_NAMES,
+    PROPERTY_FAILURE_FILES,
     RUN_NOTES,
     Reference,
 )
@@ -124,10 +125,12 @@ def publish_run(
     if missing:
         raise RuntimeError(f"the run wrote no {missing} to {output}; nothing is copied")
     here.mkdir(parents=True, exist_ok=True)
-    # The failure records and their accounting exist only when a comparator failed (RM39 part
-    # a2).  One left in ``here`` by an earlier run would outlive this run's manifest.
-    optional = [name for name in OPTIONAL_ARTIFACT_NAMES if (output / name).exists()]
-    for name in OPTIONAL_ARTIFACT_NAMES:
+    # The failure records and their accounting exist only when a fit failed: the comparator's
+    # (RM39 part a2) and the property phase's (part b2).  One left in ``here`` by an earlier run
+    # would outlive this run's manifest.
+    every_optional = (*OPTIONAL_ARTIFACT_NAMES, *PROPERTY_FAILURE_FILES)
+    optional = [name for name in every_optional if (output / name).exists()]
+    for name in every_optional:
         if name not in optional:
             (here / name).unlink(missing_ok=True)
     names = (*names, *optional)
