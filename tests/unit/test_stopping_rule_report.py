@@ -9,7 +9,7 @@ set to ``"scaled_var"`` or ``"sample_size"``:
 * an estimand row is a ``"diagnostic"`` that cannot fail.  It carries ``residual_se``, the mean
   of the influence curve in standard errors, and, under ``scaled_var``, ``rule_bound_se``, the
   residual the rule implies before the fit is read.  Where that is an a priori cap (one score
-  column, rule met) it also carries ``coverage_floor``, the plain interval's asymptotic floor
+  column of an unstratified fit, rule met) it also carries ``coverage_floor``, the plain interval's asymptotic floor
   ``2 Phi(z - c) - 1``; no number computed from the realized residual bounds coverage, so
   every other row carries ``nan`` there (Fix-8 plan section 2.1);
 * ``summary()`` prints one pinned line, and a second pinned line when the rule was not met.
@@ -147,12 +147,13 @@ class TestThePinnedText:
     def test_the_residual_line_is_the_text_of_the_plan(self) -> None:
         assert RESIDUAL_LINE == (
             "stopping rule {rule}: the largest score residual is {b:.3g} standard errors, "
-            "on {name}. Each interval adds its own residual to its half-width."
+            "on {name}. Each Wald interval and band adds the residual of its own quantity to "
+            "its half-width."
         )
 
     def test_the_note_states_the_widening_and_no_coverage_number(self) -> None:
         text = vocabulary.NOTE_TEXTS["stopping_rule"]
-        assert "adds its own remainder to its half-width" in text
+        assert "Each Wald interval and band adds the remainder of its own quantity" in text
         assert "cover" not in text and "{bound}" not in text and "{level}" not in text
 
     def test_the_failure_line_is_the_text_of_the_plan(self) -> None:
@@ -212,8 +213,8 @@ class TestThePinnedText:
         worst = max(residuals, key=lambda name: residuals[name])
         expected = (
             f"stopping rule scaled_var: the largest score residual is {residuals[worst]:.3g} "
-            f"standard errors, on {worst}. Each interval adds its own residual to its "
-            "half-width."
+            f"standard errors, on {worst}. Each Wald interval and band adds the residual "
+            "of its own quantity to its half-width."
         )
         assert residual_line(estimates, "scaled_var") == expected
 
@@ -373,6 +374,35 @@ class TestTheEstimandRows:
         )
         assert np.isfinite(row.rule_bound_se)
         assert np.isnan(row.coverage_floor)
+
+    @staticmethod
+    def stratified_rows() -> dict[str, Any]:
+        """The diagnostic rows of the engines' stratified one-step ``scaled_var`` fit."""
+        frame, columns, _, _ = engines.KINDS["strata"]()
+        result = engines._fit("scaled_var", frame, columns=columns, targeting="one_step")
+        assert all(f.rule_ratio <= 1.0 for f in result.fluctuations.values())
+        return {r.name: r for r in score_check(result).rows if r.kind == "diagnostic"}
+
+    def test_a_stratified_fit_reports_no_floor(self) -> None:
+        # A stratum's block reads its threshold over the whole sample and its SE in the
+        # stratum, so its realized bound is data-dependent, not 1 / min(log n_u, 10).
+        rows = self.stratified_rows()
+        for name in ("ey1[V='high']", "ey0[V='low']", "att[V='high']"):
+            assert np.isfinite(rows[name].rule_bound_se)
+        assert all(np.isnan(r.coverage_floor) for r in rows.values())
+
+    def test_the_mutation_that_prints_a_floor_on_a_stratified_fit_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mutate(
+            monkeypatch,
+            score_module,
+            score_module,
+            "_rule_floor",
+            [('        or any(" | " in label for label in fluctuation.names)\n', "")],
+        )
+        with pytest.raises(AssertionError):
+            self.test_a_stratified_fit_reports_no_floor()
 
     def test_sample_size_reports_no_floor(self) -> None:
         rows = score_check(one_step("sample_size")).rows
@@ -666,8 +696,8 @@ class TestThePointSummary:
         worst = max(residuals, key=lambda name: residuals[name])
         expected = (
             f"stopping rule {rule}: the largest score residual is {residuals[worst]:.3g} "
-            f"standard errors, on {worst}. Each interval adds its own residual to its "
-            "half-width."
+            f"standard errors, on {worst}. Each Wald interval and band adds the residual "
+            "of its own quantity to its half-width."
         )
         # The check keeps the pinned line; the summary states the same remainder in words.
         assert score_check(result).rule_line() == expected

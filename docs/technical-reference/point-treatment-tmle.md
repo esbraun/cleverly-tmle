@@ -715,25 +715,38 @@ on the scale the interval is built on: the logit or log scale for a transformed 
 log scale for a ratio. It covers whenever $\lvert Z\rvert \le z$, whatever $B$ is, so it keeps
 its level asymptotically. `ParameterEstimate.rule_widened` records the widening, which every
 fit under `scaled_var` or `sample_size` sets. Each derived estimate inherits it with its own
-curve's mean: a contrast, a ratio, a transform, a stratum, a fold average and a simultaneous
-band, where each component adds its own residual. The p-value inverts the widened interval,
-$p = 2\Phi\bigl(-\max(0, \lvert T\rvert - \lvert r_n\rvert / \widehat{\mathrm{se}})\bigr)$, and
-the statistic $T$ stays the plain Wald statistic. `plugin_interval` is the widened interval
-too. Under the default rule `rule_widened` is `False` and the interval is unchanged.
-`tests/unit/test_rule_widened_interval.py` checks the arithmetic on each scale, a nonzero
-residual on a one-step walk, the inheritance, and mutations that drop the margin or add it on
-the reported scale.
+curve's mean: a contrast, a ratio, a transform, a stratum, a fold average, the median over
+repeats, a working-model coefficient and a simultaneous band, where each component adds its own
+residual. `plugin_interval` is the widened interval too. Under the default rule `rule_widened` is
+`False` and the interval is unchanged.
 
-The widened interval is conservative when the residual is small. A one-step `scaled_var` walk
-leaves a residual of at most $c$ standard errors on an arm mean, so the half-width grows by at
-most $c/z$ of itself, about 7 per cent at $n_u = 2{,}000$.
+The p-value inverts the widened interval,
+$p = 2\Phi\bigl(-\max(0, \lvert T\rvert - \lvert r_n\rvert / \widehat{\mathrm{se}})\bigr)$, and
+the statistic $T$ stays the plain Wald statistic. An interval built from the coefficients of a
+working model reads the linear functional $\varphi^\top\hat\beta$, whose residual is
+$\varphi^\top s$ for the coefficients' scores $s$. So an effect curve's pointwise interval and
+band, and a working model's fitted means on the link scale, add $\lvert\varphi^\top s\rvert$.
+`heterogeneity_test()` reads $\max(0, \sqrt{T} - m)^2$ in place of $T$, with
+$m = (s^\top\hat\Sigma^{-1}s)^{1/2}$, by the triangle inequality in the norm the statistic
+reads. An omitted-variable limit adds $\lvert r_n\rvert$ to its one-sided half-width.
+
+The full-refit bootstrap is refused under a declared rule. Each refit stops with its own residual,
+and no derivation bounds what those residuals do to the bootstrap law.
+`tests/unit/test_rule_widened_interval.py` checks the arithmetic on each scale, a nonzero
+residual on a one-step walk, the inheritance, each consumer above, the refusal, and mutations
+that drop the margin or add it on the reported scale.
+
+The widened interval costs little when the residual is small. A one-step `scaled_var` walk that
+met its rule leaves a residual of at most $c$ standard errors on an arm mean, so the half-width
+grows by at most $c/z$ of itself, about 7 per cent at $n_u = 2{,}000$. Under `sample_size` with
+small outcome units the residual can exceed a standard error, and the interval absorbs it.
 
 A cap $c$ fixed before the data are read gives a floor for the plain interval
 $\hat\psi \pm z\,\widehat{\mathrm{se}}$. If $\lvert B\rvert \le c$ on every draw, that interval
 covers whenever $\lvert Z\rvert \le z - c$, so its asymptotic coverage is at least
 $2\Phi(z - c) - 1$. The floor is sharp: $B = -c\,\operatorname{sign}(Z)$ attains it.
 `cleverly.fluctuation._score.rule_coverage_floor` computes it. Only an arm-mean column with unit
-weights under `scaled_var` has such a cap, $c = 1/\min(\log n_u, 10)$. A residual measured on the
+weights of an unstratified fit under `scaled_var` has such a cap, $c = 1/\min(\log n_u, 10)$. A residual measured on the
 fit is not a cap, because it was chosen by the data. The table gives the 95% floor at that cap.
 
 | $n_u$ | $c$ | floor of the plain 95% interval, one arm-mean column |
@@ -758,12 +771,12 @@ value on every fit.
 
 | output | content |
 | --- | --- |
-| `res.summary()` | the note "Under the declared stopping rule the estimating equation is solved up to a remainder worth {b} standard errors (on {name}). Each interval adds its own remainder to its half-width." It names the estimand with the largest residual. A residual below 0.001 prints as "less than 0.001" |
+| `res.summary()` | the note "Under the declared stopping rule the estimating equation is solved up to a remainder worth {b} standard errors (on {name}). Each Wald interval and band adds the remainder of its own quantity to its half-width." It names the estimand with the largest residual. A residual below 0.001 prints as "less than 0.001" |
 | `res.summary()`, rule missed | the warning "The fit did not meet its declared stopping rule for {names}, so the {spread} may be off by more than the rule allows. result.diagnostics.score_equations() gives the numbers." |
-| `score_check().rule_line()`, `rule_failure_line()` | the pinned lines "stopping rule {rule}: the largest score residual is {b:.3g} standard errors, on {name}. Each interval adds its own residual to its half-width." and "the targeting did not meet the {rule} stopping rule; {detail}". Each is empty when it does not apply. `score_check().one_line()` prints the second when the rule is missed |
+| `score_check().rule_line()`, `rule_failure_line()` | the pinned lines "stopping rule {rule}: the largest score residual is {b:.3g} standard errors, on {name}. Each Wald interval and band adds the residual of its own quantity to its half-width." and "the targeting did not meet the {rule} stopping rule; {detail}". Each is empty when it does not apply. `score_check().one_line()` prints the second when the rule is missed |
 | `score_check()`, fluctuation rows | the bar is `Fluctuation.thresholds`. A row passes when the rule ratio is at most one. The rule also judges the `(strata)` row of a stratified working model and the `(reduced)` row of a `DRTMLE` fit, because the rule stops those outcome solves too. A `(mechanism)` row keeps the default bar |
 | `score_check()`, `DRTMLE` correction rows | under a declared rule, a `D*_Q` or `D*_Y` row is a `"diagnostic"`, because it restates the outcome columns that the `(reduced)` row judges. A `D*_g`, `D*_A` or `D*_M` row and every identity row keep their bars |
-| `score_check()`, estimand rows | kind `"diagnostic"`. They cannot fail. They carry `residual_se` and, under `scaled_var`, `rule_bound_se`. A single-column row (an arm mean, `att`, `atc` or a stratum's arm mean) of a fit that met `scaled_var` also carries `coverage_floor`, the floor of the plain interval at its cap. Every other row carries `nan` there |
+| `score_check()`, estimand rows | kind `"diagnostic"`. They cannot fail. They carry `residual_se` and, under `scaled_var`, `rule_bound_se`. A single-column row (an arm mean, `att` or `atc`) of an unstratified fit that met `scaled_var` also carries `coverage_floor`, the floor of the plain interval at its cap. Every other row carries `nan` there, a stratum's row included, because a stratum block's bound depends on the data |
 | `score_check().to_frame()` | the columns `stopping`, `residual_se`, `coverage_floor` and `rule_bound_se`, only under a declared rule |
 
 The residual in standard errors is $\lvert P_n IC\rvert / \mathrm{se}$ on the scale of the
@@ -832,10 +845,10 @@ the rule does not change them.
 | `LTMLE`, per node | yes | the clusters of the panel, else the rows of the panel. The node solver receives every row. See [longitudinal targeting options](longitudinal-tmle.md#targeting-options-at-each-node) |
 | `SDR`, longitudinal `IPSI`, the sequential baselines | refused | none. They fit no fluctuation |
 
-The estimator builds the context once, in `_retarget_detailed`. So `TMLE.retarget`, the truncation
-curve and the bootstrap use the same context. `tests/unit/test_stopping_rule_engines.py` fits every
-point group of the table under both rules. It also covers a fold solve, a candidate solve, a
-truncation curve and a bootstrap.
+The estimator builds the context once, in `_retarget_detailed`. So `TMLE.retarget` and the
+truncation curve use the same context, and the bootstrap is refused under a rule.
+`tests/unit/test_stopping_rule_engines.py` fits every point group of the table under both rules.
+It also covers a fold solve, a candidate solve, a truncation curve and the bootstrap refusal.
 
 #### The step bound
 

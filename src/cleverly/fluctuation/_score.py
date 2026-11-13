@@ -30,7 +30,7 @@ import numpy as np
 
 from .._refusal import Refusal, RefusalReason
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray
-from ..exceptions import MethodConfigurationError
+from ..exceptions import CapabilityError, MethodConfigurationError
 from ..inference.delta import reference_quantile
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -40,6 +40,7 @@ __all__ = [
     "ITERATES",
     "LINEAR_RULE_REFUSAL",
     "RESIDUAL_LINE",
+    "RULE_BOOTSTRAP_REFUSAL",
     "RULE_FAILURE_LINE",
     "STEP_BOUND_ONE_STEP_REFUSAL",
     "STEP_SEARCH_REFUSAL",
@@ -49,6 +50,7 @@ __all__ = [
     "StopContext",
     "absolute_score_weights",
     "check_iterate",
+    "check_rule_bootstrap",
     "check_step_bound",
     "check_stopping_rule",
     "iterate_norm",
@@ -80,6 +82,19 @@ LINEAR_RULE_REFUSAL = Refusal(
     "fluctuation='linear' solves the score equation in one closed-form step, so it has no "
     "iterate, stopping rule or step bound to choose. Remove iterate=, stopping= and "
     "step_bound=, or use fluctuation='logistic'",
+)
+
+#: The refusal of the full-refit bootstrap beside a declared stopping rule.  Each refit stops
+#: under the rule with its own residual score, and no derivation bounds what those residuals do
+#: to the bootstrap law, so no margin can be added to a bootstrap interval the way one is added
+#: to the Wald interval.
+RULE_BOOTSTRAP_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "a declared stopping rule leaves a residual score in every bootstrap refit, and no "
+    "derivation bounds what those residuals do to the bootstrap law, so a bootstrap interval "
+    "under the rule could miss the margin the Wald interval adds.",
+    "Fit with n_bootstrap=0 and read the Wald interval, which adds the residual, or keep "
+    "stopping='relative' for the bootstrap.",
 )
 
 #: Raised by a solver that is asked to judge a declared rule and holds no
@@ -228,6 +243,18 @@ def check_stopping_rule(stopping: object, fluctuation: FluctuationKind | str) ->
         )
     if stopping != "relative" and fluctuation == "linear":
         raise MethodConfigurationError.from_refusal(LINEAR_RULE_REFUSAL)
+
+
+def check_rule_bootstrap(stopping: object, n_bootstrap: int) -> None:
+    """Refuse the full-refit bootstrap beside a declared stopping rule.
+
+    Raises
+    ------
+    CapabilityError
+        If ``stopping`` is a declared rule and ``n_bootstrap`` asks for replicates.
+    """
+    if stopping != "relative" and n_bootstrap:
+        raise CapabilityError.from_refusal(RULE_BOOTSTRAP_REFUSAL)
 
 
 #: The refusal of a step bound beside ``targeting="one_step"``, which already walks the universal
@@ -468,7 +495,7 @@ def ruled_warning(stopping: str, steps: int, ratio: float, cause: str) -> str:
 #: standard errors, and that the interval adds the residual to its half-width.
 RESIDUAL_LINE = (
     "stopping rule {rule}: the largest score residual is {b:.3g} standard errors, on {name}. "
-    "Each interval adds its own residual to its half-width."
+    "Each Wald interval and band adds the residual of its own quantity to its half-width."
 )
 
 #: The line a result prints when the targeting did not meet its declared stopping rule.

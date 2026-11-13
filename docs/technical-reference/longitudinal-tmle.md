@@ -175,7 +175,8 @@ The solver applies the options at each node of each regimen.
 | truncation replay | the replay recipe repeats the options, so a replay reruns the same node solve |
 
 A fit under a declared rule prints a `stopping_rule` note in `res.summary()`: the largest score
-remainder in standard errors. Each interval of the fit adds its own remainder to its half-width
+remainder in standard errors. Each Wald interval and band adds the remainder of its own quantity
+to its half-width, and the bootstrap is refused
 ("The interval under a declared rule" in [stopping rules](point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate)).
 A level reads the remainder of its hazard walk or node fluctuations, and a contrast the mean of its
 own curve, which carries both regimens' remainders. When a node misses its

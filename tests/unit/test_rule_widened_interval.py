@@ -674,3 +674,257 @@ class TestBands:
             assert widened.bands[name][1] - widened.bands[name][0] > (
                 unwidened.bands[name][1] - unwidened.bands[name][0]
             )
+
+
+# ------------------------------------------------------------------------------ consumers
+
+effect_curves_module = importlib.import_module("cleverly.effect_curves")
+msm_module = importlib.import_module("cleverly.msm")
+omitted_module = importlib.import_module("cleverly.sensitivity.omitted_variable")
+score_module = importlib.import_module("cleverly.fluctuation._score")
+
+#: The grid an effect curve is read on.
+CURVE_GRID = pd.DataFrame({"W1": np.linspace(-2.0, 2.0, 9)})
+
+
+@functools.cache
+def ruled_curve() -> Any:
+    """A one-step ``scaled_var`` projection of the CATE on ``W1``, on 1,000 rows of L1."""
+    from cleverly import CausalStudy, ConditionalContrast, PointTreatment
+    from cleverly.bases import Linear, Modifiers
+
+    frame = laws.draw_l1("binary", 1000, 20261112)[0]
+    covariates = tuple(column for column in frame.columns if column not in ("A", "Y"))
+    study = CausalStudy(
+        frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=covariates)
+    )
+    estimand = ConditionalContrast(
+        Modifiers(["W1"], domains={"W1": (-5.0, 5.0)}), model=Linear(["W1"])
+    )
+    return study.identify(estimand).estimate(
+        **laws.point_learners("binary"),
+        cross_fit=False,
+        random_state=0,
+        targeting="one_step",
+        stopping="scaled_var",
+    )
+
+
+@functools.cache
+def ruled_msm() -> Any:
+    """A one-step ``scaled_var`` logit working model over three dose levels."""
+    from cleverly import MSMProjection
+    from cleverly.msm import MSM
+    from tests.unit import test_plotting_curves as curves
+
+    study = curves._binary_study()
+    return study.identify(MSMProjection(MSM.linear(link="logit"))).estimate(
+        **curves._BINARY, targeting="one_step", stopping="scaled_var"
+    )
+
+
+def curve_scores(fit: Any) -> np.ndarray:
+    """The coefficients' scores, intercept first."""
+    return np.array([estimate.score for estimate in fit.estimates.values()])
+
+
+def curve_margin(fit: Any, w1: np.ndarray) -> np.ndarray:
+    """``|phi(w)' s|`` for the linear basis ``(1, w)``, computed from the estimates."""
+    scores = curve_scores(fit)
+    return np.abs(scores[0] + scores[1] * w1)
+
+
+def assert_prediction_widened(fit: Any) -> None:
+    table = fit.effect_curve().predict(CURVE_GRID, interval=True)
+    estimate = np.asarray(table["estimate"], dtype=float)
+    se = np.asarray(table["std_err"], dtype=float)
+    expected = Z * se + curve_margin(fit, CURVE_GRID["W1"].to_numpy())
+    np.testing.assert_allclose(estimate - np.asarray(table["ci_lower"]), expected, atol=EXACT)
+    np.testing.assert_allclose(np.asarray(table["ci_upper"]) - estimate, expected, atol=EXACT)
+
+
+def assert_band_widened(fit: Any) -> None:
+    band = fit.effect_curve().model.band(CURVE_GRID, random_state=0)
+    se = fit.effect_curve().model.std_error(CURVE_GRID)
+    expected = band.critical_value * se + curve_margin(fit, CURVE_GRID["W1"].to_numpy())
+    np.testing.assert_allclose(band.estimate - band.lower, expected, atol=EXACT)
+    np.testing.assert_allclose(band.upper - band.estimate, expected, atol=EXACT)
+
+
+def assert_heterogeneity_read_at_the_residual(fit: Any) -> None:
+    """One tested term: the test reads ``(|psi| - |s|)^2 / se^2`` on one df."""
+    test = fit.heterogeneity_test()
+    slope = list(fit.estimates.values())[1]
+    margin = abs(slope.score) * np.sqrt(test.statistic) / abs(slope.psi)
+    assert test.residual_margin == pytest.approx(margin, rel=1e-10)
+    read = max(0.0, np.sqrt(test.statistic) - margin) ** 2
+    assert test.p_value == pytest.approx(float(stats.chi2.sf(read, 1)), rel=1e-10)
+    assert test.p_value > float(stats.chi2.sf(test.statistic, 1))
+
+
+def assert_fitted_means_widened(fit: Any) -> None:
+    from cleverly.msm import working_model_means
+
+    means = working_model_means(fit)
+    levels = np.array([0.0, 1.0, 2.0])
+    scores = curve_scores(fit)
+    margin = np.abs(scores[0] + scores[1] * levels)
+    logit = stats.logistic.ppf
+    linear = logit(means.estimate)
+    half = Z * means.link_std_error + margin
+    np.testing.assert_allclose(logit(means.lower), linear - half, atol=1e-9)
+    np.testing.assert_allclose(logit(means.upper), linear + half, atol=1e-9)
+
+
+def ovb_pair(fit: Any) -> tuple[Any, Any]:
+    """The bounds of ``fit``'s ATE, and the same bounds with the margin switched off."""
+    from cleverly.sensitivity.omitted_variable import omitted_variable_bounds
+
+    widened = omitted_variable_bounds(fit, "ate", cf_y=0.02, cf_d=0.02)
+    draw = omitted_module._Draw
+    with pytest.MonkeyPatch.context() as patch:
+        # Each draw built without its flag: the same bounds from an unwidened estimate.
+        patch.setattr(
+            omitted_module, "_Draw", lambda psi, curve, elements, _: draw(psi, curve, elements)
+        )
+        plain_bounds = omitted_variable_bounds(fit, "ate", cf_y=0.02, cf_d=0.02)
+    return widened, plain_bounds
+
+
+def assert_limits_widened(fit: Any) -> None:
+    widened, plain_bounds = ovb_pair(fit)
+    margin = abs(fit["ate"].score)
+    assert widened.lower == plain_bounds.lower
+    assert widened.ci_lower == pytest.approx(plain_bounds.ci_lower - margin, rel=0.0, abs=EXACT)
+    assert widened.ci_upper == pytest.approx(plain_bounds.ci_upper + margin, rel=0.0, abs=EXACT)
+
+
+class TestWidenedConsumers:
+    """Every interval read from a widened fit adds the residual its own quantity leaves.
+
+    Each consumer is checked on a fit whose residual is far from zero, and a mutation that
+    drops the consumer's margin must fail the check.
+    """
+
+    def test_the_witnesses_carry_a_residual(self) -> None:
+        for fit in (ruled_curve(), ruled_msm()):
+            estimates = list(fit.estimates.values())
+            assert all(estimate.rule_widened for estimate in estimates)
+            assert max(abs(e.score) / e.std_error for e in estimates) > 1e-2
+        assert abs(ruled()["ate"].score) / ruled()["ate"].std_error > 1e-2
+
+    def test_an_effect_curve_interval_adds_the_curve_residual(self) -> None:
+        assert_prediction_widened(ruled_curve())
+
+    def test_an_effect_curve_band_adds_the_curve_residual(self) -> None:
+        assert_band_widened(ruled_curve())
+
+    def test_the_heterogeneity_test_reads_the_statistic_less_the_residual(self) -> None:
+        assert_heterogeneity_read_at_the_residual(ruled_curve())
+
+    def test_a_working_model_fitted_mean_adds_the_linear_predictor_residual(self) -> None:
+        assert_fitted_means_widened(ruled_msm())
+
+    def test_the_omitted_variable_limits_add_the_residual(self) -> None:
+        assert_limits_widened(ruled())
+
+    def test_the_mutation_that_drops_the_curve_margin_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mutate(
+            monkeypatch,
+            effect_curves_module,
+            effect_curves_module.ProjectionCurve,
+            "residual_margin",
+            [("if not self.rule_widened:", "if True:")],
+        )
+        with pytest.raises(AssertionError):
+            assert_prediction_widened(ruled_curve())
+        with pytest.raises(AssertionError):
+            assert_band_widened(ruled_curve())
+
+    def test_the_mutation_that_drops_the_heterogeneity_margin_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mutate(
+            monkeypatch,
+            effect_curves_module,
+            effect_curves_module,
+            "heterogeneity_test",
+            [("np.sqrt(statistic) - margin", "np.sqrt(statistic)")],
+        )
+        with pytest.raises(AssertionError):
+            assert_heterogeneity_read_at_the_residual(ruled_curve())
+
+    def test_the_mutation_that_drops_the_fitted_means_margin_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mutate(
+            monkeypatch,
+            msm_module,
+            msm_module,
+            "working_model_means",
+            [("if any(estimate.rule_widened for estimate in estimates):", "if False:")],
+        )
+        with pytest.raises(AssertionError):
+            assert_fitted_means_widened(ruled_msm())
+
+    def test_the_mutation_that_drops_the_limit_margin_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mutate(
+            monkeypatch,
+            omitted_module,
+            omitted_module,
+            "_limit",
+            [("quantile * error + max(margins)", "quantile * error")],
+        )
+        with pytest.raises(AssertionError):
+            assert_limits_widened(ruled())
+
+
+class TestTheBootstrapUnderARule:
+    """A declared rule refuses the full-refit bootstrap: no derivation bounds its law."""
+
+    @pytest.mark.parametrize("rule", ["scaled_var", "sample_size"])
+    def test_a_point_fit_refuses(self, rule: str) -> None:
+        from cleverly.exceptions import CapabilityError
+
+        with pytest.raises(CapabilityError, match="residual score in every bootstrap refit"):
+            TMLE(stopping=rule, n_bootstrap=20)
+
+    def test_a_longitudinal_fit_refuses(self) -> None:
+        from cleverly.exceptions import CapabilityError
+        from cleverly.longitudinal import LTMLE
+        from tests.unit import test_stopping_rule_longitudinal as longitudinal
+
+        with pytest.raises(CapabilityError, match="residual score in every bootstrap refit"):
+            LTMLE(longitudinal.PLANS, stopping="scaled_var", n_bootstrap=20)
+
+    def test_the_default_rule_keeps_the_bootstrap(self) -> None:
+        assert TMLE(n_bootstrap=20).n_bootstrap == 20
+
+    def test_the_mutation_that_drops_the_refusal_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mutate(
+            monkeypatch,
+            score_module,
+            tmle_module,
+            "check_rule_bootstrap",
+            [("and n_bootstrap:", "and False:")],
+        )
+        with pytest.raises(pytest.fail.Exception):
+            self.test_a_point_fit_refuses("scaled_var")
+
+
+class TestTheRecord:
+    def test_a_widened_estimate_records_its_margin(self) -> None:
+        estimate = ruled()["ate"]
+        row = estimate.to_dict()
+        assert row["rule_widened"] is True
+        assert row["residual_margin"] == abs(estimate.score) > 0.0
+
+    def test_a_default_rule_estimate_records_nothing(self) -> None:
+        row = relative()["ate"].to_dict()
+        assert "rule_widened" not in row and "residual_margin" not in row

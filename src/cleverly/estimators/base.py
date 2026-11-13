@@ -1586,6 +1586,7 @@ class TMLEResult:
             ),
             cluster=self.data.cluster,
             reference_df=minimum_reference_df([self.estimates[name] for name in names]),
+            rule_widened=any(self.estimates[name].rule_widened for name in names),
         )
         band = (
             None

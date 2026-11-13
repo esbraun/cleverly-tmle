@@ -94,6 +94,11 @@ class HeterogeneityTest:
     reference_df : int or None
         The degrees of freedom :math:`\nu = J - 2` of the covariance, which the Hotelling
         reference reads, or ``None`` for the chi-square reference.
+    residual_margin : float
+        Under a declared stopping rule, the remaining score of the tested coefficients in the
+        statistic's units, :math:`m = (s^\top \Sigma^{-1} s)^{1/2}` for their scores
+        :math:`s`; ``0.0`` otherwise.  The p-value then reads
+        :math:`\max(0, \sqrt{T} - m)^2` in place of :math:`T`.
     """
 
     statistic: float
@@ -102,6 +107,7 @@ class HeterogeneityTest:
     terms: tuple[str, ...]
     scale: str
     reference_df: int | None = None
+    residual_margin: float = 0.0
 
     def __str__(self) -> str:
         reference = (
@@ -109,9 +115,14 @@ class HeterogeneityTest:
             if self.reference_df is None
             else (f", Hotelling F reference on {self.df} and {self.reference_df - self.df + 1} df")
         )
+        margin = (
+            ""
+            if self.residual_margin == 0.0
+            else f", read at the stopping rule's residual {self.residual_margin:.3g}"
+        )
         return (
             f"Wald chi-square = {self.statistic:.3f} on {self.df} df, p = {self.p_value:.4g} "
-            f"(terms {', '.join(self.terms)}{reference})"
+            f"(terms {', '.join(self.terms)}{reference}{margin})"
         )
 
 
@@ -192,13 +203,24 @@ def heterogeneity_test(
     covariance = estimate_covariance(estimates, list(selected), cluster=cluster)
     beta = np.array([estimates[name].psi for name in selected])
     statistic = float(beta @ np.linalg.solve(covariance, beta))
+    # Under a declared stopping rule the coefficients' error is (P_n - P_0) D - s, with s the
+    # scores the walk left.  In the norm the statistic reads, the triangle inequality gives
+    # sqrt(T at the truth) <= sqrt(T of the noise) + m, so the test reads sqrt(T) - m.
+    margin = 0.0
+    if any(estimates[name].rule_widened for name in selected):
+        scores = np.array([estimates[name].score for name in selected])
+        margin = float(np.sqrt(max(0.0, float(scores @ np.linalg.solve(covariance, scores)))))
+    # ``np.clip`` keeps a ``nan`` statistic ``nan``, where the builtin ``max`` would not.
+    read = (
+        statistic if margin == 0.0 else float(np.clip(np.sqrt(statistic) - margin, 0.0, None)) ** 2
+    )
     if reference_df is None:
-        p_value = float(chi2.sf(statistic, df))
+        p_value = float(chi2.sf(read, df))
     else:
         # Hotelling: T (nu - q + 1) / (nu q) ~ F(q, nu - q + 1), with nu = J - 2.
         denominator = reference_df - df + 1
         p_value = float(
-            f_distribution.sf(statistic * denominator / (reference_df * df), df, denominator)
+            f_distribution.sf(read * denominator / (reference_df * df), df, denominator)
         )
     return HeterogeneityTest(
         statistic=statistic,
@@ -207,6 +229,7 @@ def heterogeneity_test(
         terms=tuple(terms[j] for j in keep),
         scale=scale,
         reference_df=reference_df,
+        residual_margin=margin,
     )
 
 
@@ -269,6 +292,9 @@ class ProjectionCurve:
     reference_df : int or None
         Degrees of freedom of the t reference the coefficients' intervals read, or ``None``
         for the normal reference.
+    rule_widened : bool
+        Whether the coefficients come from a fit under a declared stopping rule, so each
+        interval and band adds :meth:`residual_margin` to its half-width.
     """
 
     basis: Any
@@ -280,6 +306,30 @@ class ProjectionCurve:
     influence: FloatArray
     cluster: IntArray | None = None
     reference_df: int | None = None
+    rule_widened: bool = False
+
+    def residual_margin(self, frame: Any) -> FloatArray:
+        r"""What a declared stopping rule adds to the half-width at each row of ``frame``.
+
+        The curve at :math:`v` is the linear functional :math:`\varphi(v)^\top\hat\beta`,
+        so the score it leaves is :math:`\varphi(v)^\top s`, with :math:`s` the
+        coefficients' scores (the means of their influence curves), and the margin is its
+        absolute value.  Zero when :attr:`rule_widened` is false.
+
+        Parameters
+        ----------
+        frame : dataframe or mapping
+            Rows holding the modifier columns.
+
+        Returns
+        -------
+        ndarray
+            ``(m,)`` margins.
+        """
+        phi = self.design(frame)
+        if not self.rule_widened:
+            return np.zeros(phi.shape[0])
+        return np.asarray(np.abs(phi @ np.mean(self.influence, axis=0)), dtype=float)
 
     def design(self, frame: Any) -> FloatArray:
         """The basis at the rows of ``frame``, checked against the modifier schema.
@@ -373,11 +423,12 @@ class ProjectionCurve:
             random_state=random_state,
         )
         values = self.modifiers.values(grid, self.basis.columns)
+        half = critical * se + self.residual_margin(grid)
         return CurveBand(
             grid={name: np.asarray(value) for name, value in values.items()},
             estimate=estimate,
-            lower=estimate - critical * se,
-            upper=estimate + critical * se,
+            lower=estimate - half,
+            upper=estimate + half,
             critical_value=float(critical),
             alpha=alpha,
             n_replicates=n_replicates,
@@ -573,13 +624,15 @@ class EffectCurveResult:
         se = self.model.std_error(data)
         # The reference the coefficients' own intervals read: t on a few-cluster fit.
         z = reference_quantile(alpha, self.model.reference_df)
+        # Under a declared stopping rule each interval adds the score the curve leaves there.
+        half = z * se + self.model.residual_margin(data)
         backend = backend_of(as_frame(data)) if is_dataframe(data) else self.backend
         return frame_from_dict(
             {
                 "estimate": estimate,
                 "std_err": se,
-                "ci_lower": estimate - z * se,
-                "ci_upper": estimate + z * se,
+                "ci_lower": estimate - half,
+                "ci_upper": estimate + half,
             },
             backend=backend,
         )

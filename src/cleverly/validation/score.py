@@ -85,8 +85,8 @@ rows that report the residual in standard errors (``residual_se``).  Under ``sca
 also report the residual the rule implies before the fit is read (``rule_bound_se``).  Only an
 arm mean and a linear contrast of arm means have that bound.  A contrast has none that is small
 in general, because the threshold of a column uses the full arm curve, and the curves of two
-arms share terms that the contrast cancels.  Where the estimand is one score column (an arm
-mean, a conditional effect, or a stratum's arm mean) and the rule was met, the bound is the cap
+arms share terms that the contrast cancels.  Where the estimand of an unstratified fit is one score
+column (an arm mean or a conditional effect) and the rule was met, the bound is the cap
 ``1 / min(log n_u, 10)`` fixed before the data are read, and the row reports the asymptotic
 coverage floor of the plain interval at that cap (``coverage_floor``,
 :func:`~cleverly.fluctuation._score.rule_coverage_floor`).  No number computed from the
@@ -224,9 +224,9 @@ class ScoreCheckRow:
         The asymptotic coverage floor of the plain Wald interval (without the residual,
         ``dataclasses.replace(estimate, rule_widened=False).ci``) at the cap ``rule_bound_se``
         (:func:`~cleverly.fluctuation._score.rule_coverage_floor`). Reported only under
-        ``scaled_var`` for an estimand that is one score column, of a fit that met its rule,
-        where that cap is fixed before the data are read. ``nan`` elsewhere, a contrast
-        included.
+        ``scaled_var`` for an estimand of an unstratified fit that is one score column, of a
+        fit that met its rule, where that cap is fixed before the data are read. ``nan``
+        elsewhere, a contrast and a stratum's estimand included.
     rule_bound_se : float
         Under ``scaled_var``, the residual the rule implies before the fit is read:
         ``sum_j |g_j| threshold_j / se``, over the score columns the estimand is a combination
@@ -901,11 +901,14 @@ def _rule_floor(result: TMLEResult, name: str, bound: float) -> float:
     """The plain interval's coverage floor at an a priori residual cap, or ``nan``.
 
     The floor ``2 Phi(z - c) - 1`` needs a cap ``c`` fixed before the data are read. Under
-    ``scaled_var`` that holds for an estimand that is one score column with weight one (an
-    arm mean, a conditional effect, a stratum's arm mean): its threshold is the column's own
+    ``scaled_var`` that holds for an estimand of an unstratified fit that is one score column
+    with weight one (an arm mean, a conditional effect): its threshold is the column's own
     standard deviation over ``sqrt(n_u) min(log n_u, 10)``, so ``c = 1 / min(log n_u, 10)``.
     A sum of columns (a contrast, a marginal over strata) has a data-dependent ``c``, and a
-    fit whose walk missed its rule has no cap at all.
+    fit whose walk missed its rule has no cap at all.  A stratum's block has none either: its
+    threshold is the block's standard deviation over the whole sample, while its standard
+    error reads the stratum alone, so the realized bound is not ``c``.  It does bound the
+    residual on every draw, but it is chosen by the data, so no floor is printed.
     """
     mapped = _column_weights(result, name) if len(result.repeats) == 1 else None
     if mapped is None or not np.isfinite(bound):
@@ -915,6 +918,7 @@ def _rule_floor(result: TMLEResult, name: str, bound: float) -> float:
     if (
         fluctuation is None
         or len(weights) != 1
+        or any(" | " in label for label in fluctuation.names)
         or abs(next(iter(weights.values()))) != 1.0
         or fluctuation.rule_ratio is None
         or not fluctuation.rule_ratio <= 1.0

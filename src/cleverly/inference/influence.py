@@ -1146,8 +1146,11 @@ class ParameterEstimate:
         ``True``. A fit with a bootstrap adds ``bootstrap_support``, the label of the bootstrap
         summary. A transformed estimate adds ``transform`` and ``transform_psi``, the estimate
         on the transform's scale. An estimate with a Student t reference adds ``reference_df``,
-        and its bootstrap columns take the diagnostic names. ``std_err`` is present exactly when
-        :attr:`supplies_inference` is ``True``, so a programmatic consumer has a total test.
+        and its bootstrap columns take the diagnostic names. An estimate under a declared
+        stopping rule adds ``rule_widened`` (``True``) and ``residual_margin``, so a consumer
+        can tell that ``ci_lower`` and ``ci_upper`` include the margin. ``std_err`` is present
+        exactly when :attr:`supplies_inference` is ``True``, so a programmatic consumer has a
+        total test.
 
         Returns
         -------
@@ -1166,6 +1169,9 @@ class ParameterEstimate:
         row.update(self.spread_columns())
         if self.reference_df is not None:
             row["reference_df"] = self.reference_df
+        if self.rule_widened:
+            row["rule_widened"] = True
+            row["residual_margin"] = self.residual_margin
         row["scale"] = self.scale
         if self.log_psi is not None:
             row["log_psi"] = self.log_psi

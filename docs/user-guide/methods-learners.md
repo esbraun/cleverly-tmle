@@ -476,7 +476,7 @@ Four `Targeting` options choose how the targeting step runs. Each default runs t
 
 | option | what it chooses |
 | --- | --- |
-| `stopping="scaled_var"` or `"sample_size"` | the `tmle3` rule that decides the score equation is solved. The adjustment can stop with a small error left over, so every interval of the fit is widened by that leftover amount to keep its coverage. The result prints the leftover in standard errors |
+| `stopping="scaled_var"` or `"sample_size"` | the `tmle3` rule that decides the score equation is solved. The adjustment can stop with a small error left over, so each interval and band built from the fit's estimates is widened by the leftover amount it carries, to keep its coverage. The bootstrap is refused under these rules, because nothing bounds what the leftover does to it. The result prints the leftover in standard errors |
 | `step_bound=` and `step_search=` | the longest step of one iteration, and whether a line search sets its length |
 | `iterate="best"` | the iterate of smallest score norm, in place of the last |
 

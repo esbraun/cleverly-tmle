@@ -8,8 +8,9 @@ not reach a fit that leaves them:
 ========================  ==================  =====================================================
 option                    default             why the evidence of the default does not cover it
 ========================  ==================  =====================================================
-``stopping=``             ``"relative"``      the rule leaves a score residual by design, which
-                                              the interval adds to its half-width
+``stopping=``             ``"relative"``      the rule leaves a score residual, which the
+                                              interval adds, and no registered study measures
+                                              the widened interval
 ``outcome_by_arm=``       ``False``           another outcome regression; on the
                                               effect-modification axis the default is ``True``
 ``patience=``             ``None``            another collaborative selection
