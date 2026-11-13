@@ -14,8 +14,10 @@ to rounding, and recompute one law-B tail size cheaply.  The committed tail size
 from __future__ import annotations
 
 import warnings
+from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from tests.studies import canonical_mtp_boundaries as boundaries
@@ -24,6 +26,7 @@ from tests.studies import mtp_boundaries_common as law_b
 from tests.studies import mtp_boundaries_own_curve as own_b
 from tests.studies import mtp_pricing_common as law_p
 from tests.studies import mtp_pricing_own_curve as own_p
+from tests.studies import mtp_tail_size_common as tail
 
 #: The largest difference from ``cleverly``, in standard deviations of the curve.
 AGREEMENT = 1e-8
@@ -104,3 +107,66 @@ def test_the_numpy_boundaries_fit_is_cleverlys(
         gap = np.max(np.abs(theirs - curve.curve(label, block)[:, 0])) / np.std(theirs)
         assert gap < AGREEMENT, label
         assert abs(float(estimate.psi) - curve.plans[label].psi) < AGREEMENT
+
+
+# ------------------------------------------------------------- the committed tail sizes
+
+DIAGNOSTIC = Path(__file__).resolve().parents[1] / "diagnostics" / "fix5_heavy_ratios"
+
+
+def test_the_law_p_tail_sizes_are_declared_at_the_upper_bound() -> None:
+    frame = pd.read_csv(DIAGNOSTIC / "law_p_moments.csv")
+    expected = {
+        (tau, learners, estimator)
+        for tau, fits in tail.LAW_P_FITS.items()
+        for learners, estimator in fits
+    }
+    assert set(zip(frame.tau, frame.learners, frame.estimator, strict=True)) == expected
+    assert (frame.draws == tail.LAW_P_DRAWS).all()
+    assert (frame.kappa_lower <= frame.kappa).all()
+    assert (frame.kappa <= frame.kappa_upper).all()
+    for row in frame.itertuples():
+        assert row.n_kappa == tail.tail_size(row.kappa_upper)
+
+
+def test_the_two_node_monte_carlo_meets_the_quadrature() -> None:
+    """At ``tau = 2`` the two orders agree and the quadrature lies in the 99% band."""
+    moments = pd.read_csv(DIAGNOSTIC / "law_p_moments.csv").set_index(
+        ["tau", "learners", "estimator", "quantity"]
+    )
+    grid = pd.read_csv(DIAGNOSTIC / "law_p_quadrature.csv")
+    orders = sorted(grid.order.unique())
+    assert len(orders) == 2
+    by_order = [
+        grid[grid.order == order].set_index(["learners", "estimator", "quantity"])
+        for order in orders
+    ]
+    np.testing.assert_allclose(by_order[0].kappa, by_order[1].kappa, rtol=1e-6)
+    for key, row in by_order[1].iterrows():
+        mc = moments.loc[(2, *key)]
+        assert mc.kappa_lower <= row.kappa <= mc.kappa_upper, key
+
+
+def test_the_law_b_own_tail_sizes_agree_across_orders() -> None:
+    frame = pd.read_csv(DIAGNOSTIC / "law_b_own_moments.csv")
+    keys = ["law", "learners", "estimator", "quantity"]
+    low, high = (
+        frame[frame.order == order].set_index(keys) for order in sorted(frame.order.unique())
+    )
+    assert set(low.index) == set(high.index)
+    np.testing.assert_allclose(low.kappa, high.loc[low.index].kappa, rtol=1e-6)
+    np.testing.assert_allclose(high.mass, 1.0, atol=1e-10)
+    for row in high.itertuples():
+        assert row.n_kappa == tail.tail_size(row.kappa)
+
+
+def test_a_law_b_own_tail_size_recomputes() -> None:
+    """``SDR`` with the calibration learners on law B, at a coarse order (about 12 s)."""
+    committed = pd.read_csv(DIAGNOSTIC / "law_b_own_moments.csv").set_index(
+        ["law", "learners", "estimator", "quantity", "order"]
+    )
+    moments = tail.law_b_own_moments("B", "correct", "sdr", order=16)
+    for quantity in ("ey[p4]", "ate[p4]"):
+        assert moments[quantity].kappa == pytest.approx(
+            committed.loc[("B", "correct", "sdr", quantity, 40), "kappa"], rel=1e-4
+        )
