@@ -1495,7 +1495,8 @@ class ParameterEstimate:
         columns take the same diagnostic names when :func:`bootstrap_is_diagnostic` is
         ``True``. A fit with a bootstrap adds ``bootstrap_support``, the label of the bootstrap
         summary. A transformed estimate adds ``transform`` and ``transform_psi``, the estimate
-        on the transform's scale. An estimate with a Student t reference adds ``reference_df``,
+        on the transform's scale. ``interval_scale`` names the scale the interval is formed on
+        (:attr:`interval_scale`). An estimate with a Student t reference adds ``reference_df``,
         and its bootstrap columns take the diagnostic names. ``std_err`` is present exactly when
         :attr:`supplies_inference` is ``True``, so a programmatic consumer has a total test.
 
@@ -1517,6 +1518,7 @@ class ParameterEstimate:
         if self.reference_df is not None:
             row["reference_df"] = self.reference_df
         row["scale"] = self.scale
+        row["interval_scale"] = self.interval_scale
         if self.log_psi is not None:
             row["log_psi"] = self.log_psi
         if self.transform is not None:

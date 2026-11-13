@@ -51,6 +51,8 @@ PRECEDENCE = (
     "low_dose_support_plugin",
     "constant_node_plugin",
     "stack_failure_plugin",
+    "constant_arm_cell_plugin",
+    "out_of_range_plugin",
     "working_model_projection",
 )
 

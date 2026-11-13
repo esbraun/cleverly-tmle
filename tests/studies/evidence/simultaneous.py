@@ -143,12 +143,11 @@ def inference_scale(estimate: Any, truth: float) -> tuple[float, float]:
 def pointwise_scale(estimate: Any) -> str:
     """The scale an estimate's pointwise interval is built on.
 
-    Its own transform's name, ``"log"`` for a ratio, and ``"identity"`` otherwise, as
-    ``SimultaneousBands.scales`` names them.
+    Its :attr:`~cleverly.inference.ParameterEstimate.interval_scale`: its own transform's name,
+    ``"log"`` for a ratio, ``"range_logit"`` for a bounded unclustered mean, and ``"identity"``
+    otherwise, as ``SimultaneousBands.scales`` names them.
     """
-    if estimate.transform is not None:
-        return str(estimate.transform.name)
-    return "log" if estimate.scale == "ratio" else "identity"
+    return str(estimate.interval_scale)
 
 
 def standardized_deviation(estimate: Any, truth: float, scale: str) -> float:
@@ -279,7 +278,17 @@ def _band_reading(
 def _pointwise_reading(
     estimates: Mapping[str, Any], truth: Mapping[str, float]
 ) -> tuple[float, bool]:
-    """``(statistic, covered)`` of the pointwise intervals, the statistic on their scales."""
+    """``(statistic, covered)`` of the pointwise intervals, the statistic on their scales.
+
+    An estimate whose plug-in interval is not reported (a constant arm cell, or an estimate on
+    its bound) has no interval to cover the truth, so the row counts as a miss with an
+    infinite statistic.
+    """
+    if any(
+        not all(math.isfinite(limit) for limit in estimate.plugin_interval)
+        for estimate in estimates.values()
+    ):
+        return math.inf, False
     statistic = max(
         standardized_deviation(estimate, truth[name], pointwise_scale(estimate))
         for name, estimate in estimates.items()

@@ -677,14 +677,15 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "close to zero although the true outcome variance there can be positive, so the "
                 "plug-in standard error leaves that arm's variance out, and no "
                 "degrees-of-freedom rule can detect it. On the registered boundary law such "
-                "intervals covered in none of 218 samples. A contrast or ratio that reads such "
+                "intervals covered in none of 191 samples. A contrast or ratio that reads such "
                 "an estimate takes this status too, and a fit with such an estimate reports no "
                 "simultaneous band. The plug-in standard error remains as a diagnostic under "
                 "plugin_std_error. F41 in docs/roadmap.md holds the route that reopens it."
             ),
             assessment_note=(
                 "the reported spread is a constant-cell diagnostic: an arm the estimate reads "
-                "shows one outcome value, so the spread leaves that arm's variance out"
+                "shows one outcome value, so the spread leaves that arm's variance out, and F41 "
+                "in the roadmap holds the route that reopens it"
             ),
             bootstrap_note=(
                 "a diagnostic; a resample has the same constant cell, so the bootstrap spread "
@@ -710,7 +711,8 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             assessment_note=(
                 "the reported spread is an out-of-range diagnostic: the estimate lies on or "
-                "outside the parameter's range"
+                "outside the parameter's range, and F41 in the roadmap holds the route that "
+                "reopens it"
             ),
             bootstrap_note=(
                 "a diagnostic; the bootstrap does not repair an estimate on the edge of its range"

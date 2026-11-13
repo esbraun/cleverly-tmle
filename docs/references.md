@@ -2320,7 +2320,9 @@ sizes only the cluster sum is the delta-method variance of the row mean
 - Brown, Cai & DasGupta (2001), [*Interval Estimation for a Binomial
   Proportion*](https://doi.org/10.1214/ss/1009213286), DOI 10.1214/ss/1009213286. The Wald
   interval of a probability under-covers erratically at moderate counts, which is the reason for
-  `band_scale="logit"` ([the band scale](technical-reference/inference.md#the-band-scale)).
+  `band_scale="logit"` ([the band scale](technical-reference/inference.md#the-band-scale)) and
+  for the logit interval of a mean of a yes/no outcome
+  ([small-sample scale](technical-reference/inference.md#small-sample-scale)).
 - Mammen (1993), [*Bootstrap and Wild Bootstrap for High Dimensional Linear
   Models*](https://doi.org/10.1214/aos/1176349025), DOI 10.1214/aos/1176349025. The two-point
   multiplier of `multiplier_kind="mammen"`.
