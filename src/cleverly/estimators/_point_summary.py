@@ -12,7 +12,6 @@ ids, and cache keys. They stay on the result for programs.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
@@ -21,6 +20,7 @@ import numpy as np
 
 from .._inference_status import (
     MINIMUM_INTERVAL_CLUSTERS,
+    NO_CONSTANT_ARM_BANDS,
     NO_KNOWN_REGIME_BANDS,
     NO_LOGIT_RANGE_BANDS,
     NO_SIMULTANEOUS_BANDS,
@@ -57,7 +57,12 @@ from ..inference.influence import (
     BOOTSTRAP_INTERVAL_LABELS,
     bootstrap_is_diagnostic,
 )
-from ..inference.multiplier import known_regime_estimates, out_of_range
+from ..inference.multiplier import (
+    band_member,
+    constant_arm_members,
+    known_regime_estimates,
+    out_of_range,
+)
 from ..targets import TARGETS
 from ._method_summary import method_facts
 
@@ -725,8 +730,6 @@ def _fit_notes(
 
 def _score_notes(result: TMLEResult) -> list[Note]:
     """The notes on how well the fit solved its estimating equation."""
-    from ..fluctuation._score import wald_coverage_bound
-
     verdict = result.score_verdict
     notes: list[Note] = []
     if verdict.declared:
@@ -741,11 +744,6 @@ def _score_notes(result: TMLEResult) -> list[Note]:
         }
         if remainders:
             name, b = max(remainders.items(), key=lambda item: item[1])
-            alpha = float(result.estimates[name].alpha)
-            # A lower bound, so it is rounded down; a remainder below 0.001 is stated as
-            # that ceiling and its coverage computed there.
-            shown = max(b, _SMALLEST_REMAINDER)
-            bound = math.floor(wald_coverage_bound(shown, alpha) * 10000) / 100
             notes.append(
                 note(
                     "stopping_rule",
@@ -754,8 +752,6 @@ def _score_notes(result: TMLEResult) -> list[Note]:
                         if b < _SMALLEST_REMAINDER
                         else f"{b:.3g}",
                         name=name,
-                        level=f"{(1.0 - alpha) * 100:g}%",
-                        bound=f"{bound:.2f}%",
                     ),
                 )
             )
@@ -1068,13 +1064,16 @@ def _band_settings(result: TMLEResult) -> list[str]:
         return [NO_T_REFERENCE_BANDS]
     if known_regime_estimates(estimates):
         return [NO_KNOWN_REGIME_BANDS]
+    constant = constant_arm_members(estimates)
+    if constant:
+        return [NO_CONSTANT_ARM_BANDS.format(names=", ".join(constant))]
     outside = out_of_range(
-        {name: estimate for name, estimate in estimates.items() if estimate.supplies_inference},
+        {name: estimate for name, estimate in estimates.items() if band_member(estimate)},
         str(getattr(result.estimator, "band_scale", "identity")),
     )
     if outside:
         return [NO_LOGIT_RANGE_BANDS.format(names=", ".join(outside))]
-    withheld = [name for name, estimate in estimates.items() if not estimate.supplies_inference]
+    withheld = [name for name, estimate in estimates.items() if not band_member(estimate)]
     if withheld:
         return [
             "No simultaneous band: fewer than two rows have an interval. Left out: "

@@ -31,7 +31,9 @@ def _identity_gradient(values: np.ndarray) -> np.ndarray:
 
 @pytest.mark.parametrize("value", [0.4, 2.5])
 def test_identity_ratio_contrast_recovers_the_reported_scale(value: float) -> None:
-    source = make_estimate("rr", value, CURVE, n=4, scale="ratio", log_psi=np.log(value))
+    source = make_estimate(
+        "rr", value, CURVE, n=4, scale="ratio", log_psi=np.log(value), rule_widened=False
+    )
     logged = smooth_contrast(
         {"rr": source}, _identity, ["rr"], n=4, scale="ratio", gradient=_identity_gradient
     )
@@ -45,8 +47,10 @@ def test_identity_ratio_contrast_recovers_the_reported_scale(value: float) -> No
 
 
 def test_a_mixed_ratio_and_level_contrast_uses_each_reported_scale() -> None:
-    ratio = make_estimate("or", 2.5, CURVE, n=4, scale="ratio", log_psi=np.log(2.5))
-    level = make_estimate("ey", 0.4, CURVE[::-1], n=4, scale="level")
+    ratio = make_estimate(
+        "or", 2.5, CURVE, n=4, scale="ratio", log_psi=np.log(2.5), rule_widened=False
+    )
+    level = make_estimate("ey", 0.4, CURVE[::-1], n=4, scale="level", rule_widened=False)
     derived = smooth_contrast(
         {"or": ratio, "ey": level},
         lambda values: float(values[0] - values[1]),
@@ -68,11 +72,11 @@ def test_ratio_contrast_recovers_transformed_level_curves(
     # Construct both transformed inputs independently of smooth_contrast: one curve
     # is on the log scale and the other is on the logit scale.
     top = replace(
-        make_estimate("a", a, CURVE / a, n=4, scale="level"),
+        make_estimate("a", a, CURVE / a, n=4, scale="level", rule_widened=False),
         transform=Transform.log(),
     )
     bottom = replace(
-        make_estimate("b", b, curve_b / (b * (1.0 - b)), n=4, scale="level"),
+        make_estimate("b", b, curve_b / (b * (1.0 - b)), n=4, scale="level", rule_widened=False),
         transform=Transform.logit(),
     )
     derived = ratio_contrast(
@@ -102,7 +106,7 @@ def test_ratio_contrast_recovers_transformed_level_curves(
     ],
 )
 def test_a_transformed_input_is_mapped_back_before_the_next_contrast(transform: Transform) -> None:
-    source = make_estimate("ey", 0.4, CURVE, n=4, scale="level")
+    source = make_estimate("ey", 0.4, CURVE, n=4, scale="level", rule_widened=False)
     transformed = smooth_contrast(
         {"ey": source},
         _identity,
@@ -127,7 +131,7 @@ def test_a_transformed_input_is_mapped_back_before_the_next_contrast(transform: 
 @pytest.mark.parametrize("slope", [0.0, np.inf, np.nan])
 def test_a_noninvertible_input_scale_refuses_composition(slope: float) -> None:
     source = replace(
-        make_estimate("bad", 0.4, CURVE, n=4),
+        make_estimate("bad", 0.4, CURVE, n=4, rule_widened=False),
         transform=Transform("invalid slope", _identity_scalar, _identity_scalar, lambda x: slope),
     )
     with pytest.raises(ValueError, match="finite nonzero slope"):
@@ -140,7 +144,7 @@ def _identity_scalar(value: float) -> float:
 
 def test_a_nonfinite_transformed_input_refuses_composition() -> None:
     source = replace(
-        make_estimate("bad", 0.4, CURVE, n=4),
+        make_estimate("bad", 0.4, CURVE, n=4, rule_widened=False),
         transform=Transform("invalid value", lambda x: np.inf, _identity_scalar, lambda x: 1.0),
     )
     with pytest.raises(ValueError, match="finite transformed value"):
@@ -151,7 +155,7 @@ def test_a_nonfinite_transformed_input_refuses_composition() -> None:
 def test_an_interior_transformed_estimate_can_be_displayed_without_a_default_test(
     transform: Transform,
 ) -> None:
-    source = make_estimate("ey", 0.4, CURVE, n=4, scale="level")
+    source = make_estimate("ey", 0.4, CURVE, n=4, scale="level", rule_widened=False)
     estimate = smooth_contrast(
         {"ey": source}, _identity, ["ey"], n=4, transform=transform, gradient=_identity_gradient
     )
@@ -189,7 +193,9 @@ def test_invalid_ratio_draws_are_dropped_and_counted(
     }
     bootstrap = BootstrapResult(draws=draws, n_requested=6, n_failed=2, resampling="iid")
     estimates = {
-        name: make_estimate(name, 0.4, CURVE, n=4).with_bootstrap(bootstrap.interval(name))
+        name: make_estimate(name, 0.4, CURVE, n=4, rule_widened=False).with_bootstrap(
+            bootstrap.interval(name)
+        )
         for name in draws
     }
     function = ratio_function(kind, complement)  # type: ignore[arg-type]
@@ -213,7 +219,9 @@ def test_derived_bootstrap_does_not_swallow_a_user_callable_error() -> None:
     bootstrap = BootstrapResult(
         draws={"a": np.array([0.4, 0.6])}, n_requested=2, n_failed=0, resampling="iid"
     )
-    estimate = make_estimate("a", 0.4, CURVE, n=4).with_bootstrap(bootstrap.interval("a"))
+    estimate = make_estimate("a", 0.4, CURVE, n=4, rule_widened=False).with_bootstrap(
+        bootstrap.interval("a")
+    )
 
     def broken(values: np.ndarray) -> float:
         raise ValueError("the user's contrast is broken")
@@ -226,7 +234,9 @@ def test_a_nonfinite_callback_value_counts_as_a_derived_failure() -> None:
     bootstrap = BootstrapResult(
         draws={"a": np.array([0.4, 0.6, 0.8])}, n_requested=4, n_failed=1, resampling="iid"
     )
-    estimate = make_estimate("a", 0.4, CURVE, n=4).with_bootstrap(bootstrap.interval("a"))
+    estimate = make_estimate("a", 0.4, CURVE, n=4, rule_widened=False).with_bootstrap(
+        bootstrap.interval("a")
+    )
     summary = derived_bootstrap(
         {"a": estimate},
         bootstrap,

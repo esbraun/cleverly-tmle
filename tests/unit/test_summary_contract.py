@@ -547,6 +547,19 @@ def test_a_longitudinal_qualifier_difference_is_named_in_words() -> None:
     )
 
 
+def test_an_option_difference_keeps_the_settings_it_names() -> None:
+    reason = (
+        "No registered study covers this configuration. Nearest row: T01.binary "
+        "(canonical-tmle), differing on splitting, options (step_bound='search' and "
+        "stopping='scaled_var' and tuned_cap)."
+    )
+    assert plain_support_reason(reason) == (
+        "No validation study covers this kind of fit. The nearest validated kind of fit "
+        "differs in how the sample is split for the models, estimator options "
+        "(step_bound='search' and stopping='scaled_var' and tuned_cap)."
+    )
+
+
 def _point_qualifiers() -> set[str]:
     """Every qualifier ``cleverly._support.point_key`` can add, read from its source."""
     import ast

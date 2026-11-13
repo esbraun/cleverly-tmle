@@ -501,7 +501,7 @@ class TestTheLabelAndTheReference:
         assert "unequal_clusters" not in arm.qualifiers
 
     def test_few_clusters_take_the_t_reference(self) -> None:
-        """J = 30 clusters in V = 5 folds: ``df = min(J - 2, J - V) = 25``."""
+        """J = 30 clusters in V = 5 folds: ``df = J - V = 25``."""
         result = (
             support.learned_tmle()
             .fit(_clustered_frame(30, 10, 1, 1.5), id="cluster", **FIT)

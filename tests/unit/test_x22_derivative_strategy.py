@@ -88,16 +88,19 @@ def test_a_declared_rule_judges_the_derivative_score_and_stops_the_bounded_walk(
 
     The witness is nonzero: the derivative score at the stop is at most the rule's threshold
     and well above the ``relative`` bar, and the fit is C-TMLE0 (the derivative solve converged
-    under the declared rule).
+    under the declared rule).  The contrast is the budget: the declared walk stops at 25
+    iterations, and the budget of 50 sits at twice that.  The ``relative`` walk in the same
+    budget is still at a relative score of 1.25e-6 after 50 iterations, so it raises.  It
+    converges linearly and needs 98 (measured), so its slowness is the rate and not a stall.
     """
     n = len(lasso_frame())
-    settings: dict[str, Any] = {"step_bound": 1.0, "max_iter": 100}
+    settings: dict[str, Any] = {"step_bound": 1.0, "max_iter": 50}
     ruled = derivative_fit(stopping="sample_size", **settings)
     after = np.abs(ruled.extra["ctmle"].derivative_score_after)
     span = ruled.nuisance.scaler.range
     assert np.all(after * span <= 1.0 / n)
     assert np.max(after) > 1e-8
-    with pytest.raises(ValueError, match="did not converge in 100 iterations"):
+    with pytest.raises(ValueError, match="did not converge in 50 iterations"):
         derivative_fit(**settings)
 
 
@@ -137,7 +140,7 @@ def test_substituting_the_relative_rule_fails_the_bounded_walk_witness(
             )
         ],
     )
-    with pytest.raises(ValueError, match="did not converge in 100 iterations"):
+    with pytest.raises(ValueError, match="did not converge in 50 iterations"):
         witness()
 
 

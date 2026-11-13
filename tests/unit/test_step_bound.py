@@ -5,11 +5,13 @@ normalised score ``d = s / ||s||``, at most ``delta`` long.  With ``step_search=
 ``t*`` minimises the weighted mean quasi-loss along ``d`` over ``[0, delta]``, and with
 ``step_search=False`` it is ``delta``.  One score column makes ``d = sign(s)``.
 
-The reference below is written from the ``tmle3`` ``fit_submodel`` description with ``numpy`` and
-``scipy`` only, so the solver's helper is never compared with itself.  The mutation controls break
-one line of ``_bounded_step`` each and ask the same reference comparison to fail.  A ``t*`` that is
-not tiny is compared at ``1e-7``: the line search stops within ``xatol`` of ``1.5e-8``, and a step
-below about ``1e-5`` sits at the noise of that stop.
+The reference below is written from the ``tmle3`` ``fit_submodel`` description with ``numpy`` only,
+so the solver's helper is never compared with itself.  Its length is exact: bisection on the
+analytic slope of the loss down to adjacent floats.  The solver finds the same minimiser as the
+root of the same slope with ``brentq``, so the walks agree at ``1e-10``.  The measured gap is
+4.4e-16 over six steps at ``delta=0.15`` and 2.5e-12 over eight at ``delta=0.3``: the rounding of
+two root finders on one slope.  The mutation controls break
+one line of ``_bounded_step`` each and ask the same reference comparison to fail.
 """
 
 from __future__ import annotations
@@ -23,7 +25,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.optimize import minimize_scalar
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import SDRMethod, Targeting, TMLEMethod
@@ -66,7 +67,6 @@ estimator_module = importlib.import_module("cleverly.longitudinal.estimator")
 
 LO, HI = -3.0, 9.0
 SPAN = HI - LO
-XATOL = 1.4901161193847656e-08
 ALPHA = 0.9995
 
 #: The plan's pinned refusal texts (plan I-2.8).
@@ -101,8 +101,8 @@ def reference_walk(
 
     ``s`` is ``mean(w h (Y - Q*))`` over all rows, zero where the outcome is unobserved.  The
     direction is ``s / ||s||_2``.  The length is the minimiser of the weighted mean quasi-loss
-    along the direction by a bounded SciPy search with ``xatol = sqrt(eps)``, or ``delta``.  The
-    loss reads the fit's own covariate ``fit_x`` and weights ``fit_w``, which differ from
+    along the direction, found by :func:`bisect_length` on its analytic slope, or ``delta``.
+    The loss reads the fit's own covariate ``fit_x`` and weights ``fit_w``, which differ from
     ``(x, w)`` only in the weighted form (``target_weights``).
     """
     n = y.shape[0]
@@ -121,24 +121,38 @@ def reference_walk(
         direction = score / norm
         covariate = cov @ direction
 
-        def risk(t: float, p: np.ndarray = p, covariate: np.ndarray = covariate) -> float:
+        def slope(t: float, p: np.ndarray = p, covariate: np.ndarray = covariate) -> float:
             q = expit(logit(p) + t * covariate)
-            loss = -(y * np.log(q) + (1.0 - y) * np.log(1.0 - q))
-            return float(np.sum(wt[seen] * loss[seen]) / np.sum(wt[seen]))
+            return -float(np.sum(wt[seen] * ((y - q) * covariate)[seen]) / np.sum(wt[seen]))
 
-        if search:
-            found = minimize_scalar(
-                risk, bounds=(0.0, delta), method="bounded", options={"xatol": XATOL}
-            )
-            length = float(found.x)
-        else:
-            length = delta
+        length = bisect_length(slope, delta) if search else delta
         epsilon = epsilon + length * direction
         p = np.clip(expit(logit(p) + length * covariate), 1.0 - ALPHA, ALPHA)
         records.append(
             {"t": length, "d": direction, "score": score, "epsilon": epsilon.copy(), "p": p.copy()}
         )
     return records
+
+
+def bisect_length(slope: Any, delta: float) -> float:
+    """The minimiser over ``[0, delta]`` of a convex line loss, from its slope, by bisection.
+
+    0 when the slope at 0 is not negative, ``delta`` when the slope there is not positive, and
+    otherwise the midpoint at which the bracket can no longer shrink in floating point.
+    """
+    if not slope(0.0) < 0.0:
+        return 0.0
+    if slope(delta) <= 0.0:
+        return float(delta)
+    lo, hi = 0.0, float(delta)
+    while True:
+        mid = 0.5 * (lo + hi)
+        if mid <= lo or mid >= hi:
+            return mid
+        if slope(mid) < 0.0:
+            lo = mid
+        else:
+            hi = mid
 
 
 def setting(seed: int = 3, n_units: int = 60, per_unit: int = 4) -> dict[str, Any]:
@@ -194,7 +208,7 @@ DELTA = 0.15
 class TestEachStepAgainstTheReference:
     def test_the_searched_walk_takes_the_reference_step_at_every_iteration(self) -> None:
         s = setting()
-        assert deviation(s, DELTA, True, steps=6) < 1e-7
+        assert deviation(s, DELTA, True, steps=6) < 1e-10
 
     def test_the_fixed_walk_takes_the_whole_bound_at_every_iteration(self) -> None:
         s = setting()
@@ -225,7 +239,7 @@ class TestEachStepAgainstTheReference:
         )
         lengths = [record["t"] for record in walk]
         # (1) The first bounded step is below the Newton step, and it binds.
-        assert lengths[0] == pytest.approx(DELTA, abs=1e-6)
+        assert lengths[0] == DELTA
         assert float(np.linalg.norm(newton.epsilon)) > DELTA + 0.05
         # (2) A later step is interior: the search, not the bound, chose it.
         assert 1e-2 < lengths[1] < DELTA - 0.05
@@ -256,11 +270,12 @@ class TestEachStepAgainstTheReference:
     def test_a_bounded_walk_reaches_the_relative_tolerance_when_the_search_is_on(self) -> None:
         s = setting()
         fit = walk_solver(s, 100, step_bound=DELTA)
-        assert fit.converged and fit.failure is None and fit.n_iter < 100
+        # Measured: 6 iterations.
+        assert fit.converged and fit.failure is None and fit.n_iter <= 12
         assert fit.relative_score_norm <= 1e-10
-        # It lands on the Newton solution of the same score equation.
+        # It lands on the Newton solution of the same score equation (measured gap 2.3e-12).
         newton = walk_solver(s, 20)
-        np.testing.assert_allclose(fit.epsilon, newton.epsilon, atol=2e-6)
+        np.testing.assert_allclose(fit.epsilon, newton.epsilon, atol=1e-10)
 
     def test_a_fixed_step_walk_oscillates_about_the_root_and_never_converges(self) -> None:
         s = setting()
@@ -299,13 +314,35 @@ def edit(
     mutate(monkeypatch, iterative_module, owner, "_bounded_step", [(old, new)])
 
 
+#: The length line of ``_bounded_step``, the anchor of the step mutations.
+SHIPPED_STEP = "length = _line_step(slope, delta)"
+#: The step search this module shipped before: SciPy's bounded Brent method on loss values.
+LOSS_SEARCH = (
+    "from scipy.optimize import minimize_scalar\n"
+    "\n"
+    "    def loss(t):\n"
+    "        return -quasi_loglik(y, expit(offset + t * covariate), weights) / total\n"
+    "\n"
+    "    found = minimize_scalar(\n"
+    '        loss, bounds=(0.0, delta), method="bounded",\n'
+    '        options={"xatol": 1.4901161193847656e-08},\n'
+    "    )\n"
+    "    length = float(found.x)"
+)
+
+
+def loss_search(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Put the shipped bounded loss search back into ``_bounded_step``."""
+    edit(monkeypatch, SHIPPED_STEP, LOSS_SEARCH)
+
+
 class TestMutationControls:
     """Each control passes the clean comparison first, then fails it with one line broken."""
 
     @pytest.fixture
     def clean(self) -> dict[str, Any]:
         s = setting()
-        assert deviation(s, DELTA, True) < 1e-7
+        assert deviation(s, DELTA, True) < 1e-10
         assert deviation(s, 0.1, False) < 1e-12
         return s
 
@@ -327,16 +364,31 @@ class TestMutationControls:
         assert deviation(clean, 0.1, False) > 1e-2
         assert deviation(clean, DELTA, True) > 1e-2
 
-    def test_a_loose_line_search_fails(
+    def test_the_bounded_loss_search_fails(
         self, monkeypatch: pytest.MonkeyPatch, clean: dict[str, Any]
     ) -> None:
-        edit(monkeypatch, '"xatol": _STEP_SEARCH_XATOL', '"xatol": 1e-3')
-        assert deviation(clean, DELTA, True) > 1e-6
+        # The search this module shipped before: SciPy's bounded Brent method on loss values,
+        # which cannot place the minimiser closer than about sqrt(eps) (measured gap 1.7e-8 to
+        # 2.2e-8).
+        edit(monkeypatch, SHIPPED_STEP, LOSS_SEARCH)
+        assert deviation(clean, DELTA, True) > 1e-9
+
+    def test_a_loose_root_tolerance_fails(
+        self, monkeypatch: pytest.MonkeyPatch, clean: dict[str, Any]
+    ) -> None:
+        mutate(
+            monkeypatch,
+            iterative_module,
+            iterative_module,
+            "_line_step",
+            [("rtol=_ROOT_RTOL,", "rtol=1e-4,")],
+        )
+        assert deviation(clean, DELTA, True) > 1e-9
 
     def test_an_upper_bound_of_twice_the_step_bound_fails(
         self, monkeypatch: pytest.MonkeyPatch, clean: dict[str, Any]
     ) -> None:
-        edit(monkeypatch, "bounds=(0.0, delta)", "bounds=(0.0, 2.0 * delta)")
+        edit(monkeypatch, SHIPPED_STEP, "length = _line_step(slope, 2.0 * delta)")
         assert deviation(clean, DELTA, True) > 0.05
 
     def test_the_newton_direction_fails_on_two_columns(
@@ -357,13 +409,204 @@ class TestMutationControls:
     ) -> None:
         s = setting()
         s["ones"] = 0.5 + np.arange(s["n"]) / s["n"]
-        assert deviation(s, DELTA, True) < 1e-7
+        assert deviation(s, DELTA, True) < 1e-10
         edit(
             monkeypatch,
-            "-quasi_loglik(y, expit(offset + t * covariate), weights) / total",
-            "-quasi_loglik(y, expit(offset + t * covariate), np.ones_like(weights)) / total",
+            "return -float(np.sum(weights * (y - expit(offset + t * covariate)) * covariate)) / total",
+            "return -float(np.sum(np.ones_like(weights) * (y - expit(offset + t * covariate))"
+            " * covariate)) / float(np.ones_like(weights).sum())",
         )
         assert deviation(s, DELTA, True) > 1e-8
+
+
+# --------------------------------------------------------------------------------- the line step
+
+EPS = float(np.finfo(float).eps)
+ROOTS = (0.3, 1e-9, 1e-20)
+
+
+def smooth_slope(root: float) -> Any:
+    """A convex line loss's slope with its one root at ``root``."""
+    return lambda t: float(np.expm1(5.0 * (t - root)))
+
+
+def kinked_slope(t: float) -> float:
+    """A slope with a negative jump: the loss falls to ``t = 0.15``, rises, then falls to 0.8.
+
+    The second valley sits above the start, ``kinked_loss(0.8) = 0.28 > 0``, which is where a
+    bracketing root finder started on ``[0, 1]`` converges.
+    """
+    if t < 0.15:
+        return -1.0
+    if t < 0.6:
+        return 1.0
+    return t - 0.8
+
+
+def kinked_loss(t: float) -> float:
+    """The loss of :func:`kinked_slope`, zero at ``t = 0``."""
+    if t < 0.15:
+        return -t
+    if t < 0.6:
+        return t - 0.3
+    return 0.3 + (t * t - 0.36) / 2.0 - 0.8 * (t - 0.6)
+
+
+def found_roots(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """Record what every ``brentq`` call inside ``_line_step`` reports."""
+    seen: list[Any] = []
+    shipped = iterative_module.brentq
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        root, report = shipped(*args, **kwargs)
+        seen.append(report)
+        return root, report
+
+    monkeypatch.setattr(iterative_module, "brentq", spy)
+    return seen
+
+
+def line_step(monkeypatch: pytest.MonkeyPatch, edits: list[tuple[str, str]]) -> None:
+    mutate(monkeypatch, iterative_module, iterative_module, "_line_step", edits)
+
+
+class TestTheLineStep:
+    """``_line_step`` on synthetic lines whose minimiser is known exactly."""
+
+    @pytest.mark.parametrize("root", ROOTS)
+    def test_the_root_of_a_smooth_slope_is_exact(
+        self, monkeypatch: pytest.MonkeyPatch, root: float
+    ) -> None:
+        # 1e-20 is the nonzero witness that no absolute floor is left.
+        reports = found_roots(monkeypatch)
+        length = iterative_module._line_step(smooth_slope(root), 0.5)
+        assert abs(length - root) <= 8.0 * EPS * root
+        assert len(reports) == 1 and reports[0].converged
+
+    def test_a_slope_still_negative_at_the_bound_takes_the_bound(self) -> None:
+        assert iterative_module._line_step(smooth_slope(0.7), 0.5) == 0.5
+        assert iterative_module._line_step(lambda t: t - 0.5, 0.5) == 0.5
+
+    @pytest.mark.parametrize("start", [0.0, 1.0, float("nan")])
+    def test_no_descent_at_zero_takes_no_step(self, start: float) -> None:
+        assert iterative_module._line_step(lambda t: start + t, 0.5) == 0.0
+
+    def test_a_valley_above_the_start_is_cut_back_to_a_descent_step(self) -> None:
+        slack = 64.0 * EPS
+        raw = iterative_module._line_step(kinked_slope, 1.0)
+        # The precondition: the raw root sits in the higher valley, above the start.
+        assert raw == pytest.approx(0.8, abs=1e-12)
+        assert kinked_loss(raw) > kinked_loss(0.0) + slack
+        length = iterative_module._line_step(kinked_slope, 1.0, loss=kinked_loss, mass=1.0)
+        assert length > 0.0 and kinked_loss(length) <= kinked_loss(0.0) + slack
+
+    def test_a_loose_relative_tolerance_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Measured relative errors under rtol=1e-6: 1.2e-10 at 0.3 and 1.7e-9 at 1e-9.  The
+        # 1e-20 root is not used: brentq's last superlinear step lands within 1.5e-16 there.
+        line_step(monkeypatch, [("rtol=_ROOT_RTOL,", "rtol=1e-6,")])
+        for root in (0.3, 1e-9):
+            length = iterative_module._line_step(smooth_slope(root), 0.5)
+            assert abs(length - root) > 8.0 * EPS * root
+
+    def test_an_absolute_floor_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        line_step(monkeypatch, [("xtol=_ROOT_XTOL,", "xtol=1.4901161193847656e-08,")])
+        for root in (1e-9, 1e-20):
+            length = iterative_module._line_step(smooth_slope(root), 0.5)
+            assert abs(length - root) > 8.0 * EPS * root
+
+    def test_a_step_without_the_descent_check_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        line_step(monkeypatch, [("if loss(length) <= ceiling:", "if True:")])
+        length = iterative_module._line_step(kinked_slope, 1.0, loss=kinked_loss, mass=1.0)
+        assert kinked_loss(length) > kinked_loss(0.0) + 64.0 * EPS
+
+
+# ------------------------------------------------------------------------------ the walk's exit
+
+#: The exit of ``_solve_fluctuation_bounded``: literal under the search, ``tol`` for the fixed step.
+NEW_EXIT = """if not met and (
+            (length == 0.0 or np.array_equal(current.observed[mask], before))
+            if step_search
+            else float(np.max(np.abs(step))) <= tol
+        ):"""
+#: The exit before the search was exact, for both modes.
+SHIPPED_EXIT = "if not met and float(np.max(np.abs(step))) <= tol:"
+
+
+def shipped_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    mutate(
+        monkeypatch,
+        iterative_module,
+        iterative_module,
+        "_solve_fluctuation_bounded",
+        [(NEW_EXIT, SHIPPED_EXIT)],
+    )
+
+
+def steep_setting() -> dict[str, Any]:
+    """:func:`setting` with a treatment probability of 0.03 on nine rows in ten.
+
+    The clever covariate then reaches 33, so the loss curves along ``d`` faster than the
+    score scale grows, and the exact length runs at about a fifth of the relative score.
+    """
+    s = setting()
+    g1 = np.where(np.arange(s["n"]) % 10 == 0, 0.5, 0.03)
+    return {**s, "g1": g1, "a": (np.random.default_rng(1).random(s["n"]) < g1).astype(float)}
+
+
+class TestTheWalkExit:
+    def fits(self, s: dict[str, Any], frames: list[Any]) -> list[Any]:
+        out = [walk_solver(s, 30, step_bound=delta, step_search=False) for delta in (0.1, 0.3)]
+        for frame in frames:
+            for delta in (0.1, 0.3):
+                out.append(
+                    TestRelativeReachability.fit(
+                        frame, step_bound=delta, step_search=False, max_iter=30
+                    )
+                )
+        return out
+
+    def test_the_fixed_step_walk_is_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A fixed-step walk keeps the shipped ``max|step| <= tol`` exit, so it is bit identical
+        # to a walk with the shipped exit restored.
+        s = setting()
+        frames = [make_linear_ate(n=400, seed=2)[0], make_binary_outcome(n=400, seed=17)[0]]
+        clean = self.fits(s, frames)
+        shipped_exit(monkeypatch)
+        restored = self.fits(s, frames)
+        for a, b in zip(clean, restored, strict=True):
+            np.testing.assert_array_equal(a.epsilon, b.epsilon)
+            assert a.trace == b.trace and a.n_iter == b.n_iter and a.failure == b.failure
+
+    def test_the_walk_falls_to_the_round_off_floor(self) -> None:
+        s = setting()
+        for delta in (0.05, DELTA, 0.3):
+            fit = walk_solver(s, 40, step_bound=delta, tol=1e-300)
+            # Measured: the walk stops after 10 to 16 iterations with the smallest relative
+            # score at 4.2e-18 to 8.0e-18, when a step no longer changes a prediction.
+            assert fit.n_iter < 40
+            assert min(fit.trace) <= 1e-14
+
+    def test_the_bounded_loss_search_stays_above_the_floor(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loss_search(monkeypatch)
+        fit = walk_solver(setting(), 40, step_bound=DELTA, tol=1e-300)
+        assert min(fit.trace) > 1e-12
+
+    def test_a_step_shorter_than_tol_does_not_end_the_walk(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        s = steep_setting()
+        tol = 0.04
+        first = walk_solver(s, 1, step_bound=DELTA, tol=tol)
+        # The precondition: the first step is shorter than tol while the score is above it.
+        assert first.trace[0] > tol and first.trace[1] > tol
+        assert float(np.max(np.abs(first.epsilon))) < tol
+        fit = walk_solver(s, 60, step_bound=DELTA, tol=tol)
+        assert fit.converged and fit.n_iter > 1
+        shipped_exit(monkeypatch)
+        cut = walk_solver(s, 60, step_bound=DELTA, tol=tol)
+        assert not cut.converged and cut.n_iter == 1
 
 
 # ---------------------------------------------------------------- the weighted and observed rows
@@ -391,8 +634,8 @@ class TestWeightsAndMissingOutcomes:
                 warn=False,
                 step_bound=0.1,
             )
-            np.testing.assert_allclose(fit.epsilon, record["epsilon"], atol=1e-7)
-            np.testing.assert_allclose(fit.targeted.observed, record["p"], atol=1e-7)
+            np.testing.assert_allclose(fit.epsilon, record["epsilon"], atol=1e-10)
+            np.testing.assert_allclose(fit.targeted.observed, record["p"], atol=1e-10)
 
     @pytest.mark.parametrize("search", [True, False])
     def test_the_weighted_form_follows_the_unweighted_score_in_its_own_coordinates(
@@ -414,8 +657,8 @@ class TestWeightsAndMissingOutcomes:
         )
         for k, record in enumerate(walk, start=1):
             fit = walk_solver(s, k, step_bound=0.1, step_search=search, target_weights=True)
-            np.testing.assert_allclose(fit.epsilon, record["epsilon"], atol=1e-7)
-            np.testing.assert_allclose(fit.targeted.observed, record["p"], atol=1e-7)
+            np.testing.assert_allclose(fit.epsilon, record["epsilon"], atol=1e-10)
+            np.testing.assert_allclose(fit.targeted.observed, record["p"], atol=1e-10)
 
     def test_carried_fits_move_by_the_same_bounded_steps(self) -> None:
         s = setting()
@@ -459,10 +702,10 @@ class TestTheLongitudinalNode:
         walk = reference_walk(y, p0, x, w, 0.05, search, 6)
         for k, record in enumerate(walk, start=1):
             fit = _fluctuate_node(**{**base, "max_iter": k}, step_bound=0.05, step_search=search)
-            np.testing.assert_allclose(fit.epsilon, record["epsilon"], atol=1e-7)
+            np.testing.assert_allclose(fit.epsilon, record["epsilon"], atol=1e-10)
             # One column: the direction is the sign of the score, a unit step.
             assert record["d"][0] == np.sign(record["score"][0])
-        assert any(record["t"] == pytest.approx(0.05, abs=1e-6) for record in walk)
+        assert any(record["t"] == 0.05 for record in walk)
 
     def test_the_default_node_is_untouched_by_a_none_bound(self) -> None:
         base = self.node()
@@ -515,7 +758,7 @@ def assert_node_walks(result: Any, delta: float, search: bool) -> None:
         )
         if fluctuation.n_iter and walk:
             np.testing.assert_allclose(
-                fluctuation.epsilon, walk[-1]["epsilon"], atol=2e-7, err_msg=key
+                fluctuation.epsilon, walk[-1]["epsilon"], atol=1e-10, err_msg=key
             )
             moved += 1
     assert moved > 0
@@ -763,10 +1006,12 @@ class TestRelativeReachability:
     """The measurement behind the ``Targeting(step_bound=)`` docstring.
 
     On six arm-mean fits (a continuous and a binary outcome, bounds 0.01, 0.05 and 0.25) the
-    bounded walk with the search on reaches ``tol=1e-10`` with a sufficient iteration budget.
-    The count sits at the round-off floor, so it moves with the platform. Some fits finish
-    within the default budget, and others need more iterations. With the search off the walk
-    lands within one bound of the root and stays there, so ``relative`` is never reached.
+    bounded walk with the search on reaches ``tol=1e-10`` within the default ``max_iter=20``: 5
+    iterations on the continuous outcome and 7 or 8 on the binary one (measured).  The length is
+    the exact minimiser along the direction, so the walk contracts until the score meets the
+    tolerance, and a larger budget changes nothing.  The bounded search on loss values that
+    shipped before stalled at a relative score of 1e-9 to 1e-8 on all six.  With the search off
+    the walk lands within one bound of the root and stays there, so ``relative`` is never reached.
     """
 
     @staticmethod
@@ -783,27 +1028,30 @@ class TestRelativeReachability:
         return make_binary_outcome(n=400, seed=17)[0]
 
     @pytest.mark.parametrize("delta", [0.01, 0.05, 0.25])
-    def test_the_search_reaches_the_tolerance_with_a_sufficient_iteration_budget(
+    def test_the_search_reaches_the_tolerance_within_the_default_budget(
         self, frame: Any, delta: float
     ) -> None:
         default = self.fit(frame, step_bound=delta)
-        assert np.isfinite(default.relative_score_norm)
-        assert default.converged == (default.relative_score_norm <= 1e-10)
+        assert default.converged and default.failure is None
+        assert default.relative_score_norm <= 1e-10 and default.n_iter <= 12
         long = self.fit(frame, step_bound=delta, max_iter=1000)
-        assert long.converged and long.relative_score_norm <= 1e-10
-        if default.converged:
-            assert default.n_iter <= 20 and default.failure is None
-            np.testing.assert_array_equal(default.epsilon, long.epsilon)
-            np.testing.assert_array_equal(default.targeted.observed, long.targeted.observed)
-            return
-        assert default.n_iter == 20
-        # The linear learner on a binary outcome pins over 1% of the predictions at the shrink
-        # bounds, and the shipped classifier names that before the iteration cap.
-        assert default.failure in {"max_iter_reached", "bounds_pinned"}
-        assert default.failure == "max_iter_reached" or frame["Y"].nunique() == 2
-        # The unconverged walk is close, but not at the tolerance.
-        assert 1e-10 < default.relative_score_norm < 1e-7
-        assert long.n_iter > default.n_iter
+        assert long.n_iter == default.n_iter
+        np.testing.assert_array_equal(default.epsilon, long.epsilon)
+        np.testing.assert_array_equal(default.targeted.observed, long.targeted.observed)
+
+    def test_the_bounded_loss_search_misses_the_tolerance(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loss_search(monkeypatch)
+        frames = [make_linear_ate(n=400, seed=2)[0], make_binary_outcome(n=400, seed=17)[0]]
+        missed = [
+            not self.fit(frame, step_bound=delta).converged
+            for frame in frames
+            for delta in (0.01, 0.05, 0.25)
+        ]
+        # Measured: all six stop unconverged at 20 iterations, at 1.3e-9 to 8.2e-9.  One is
+        # enough, because where in the floor's band a walk wanders depends on the platform.
+        assert any(missed)
 
     def test_an_exhausted_walk_recovers_with_a_larger_iteration_budget(self) -> None:
         frame = make_linear_ate(n=400, seed=2)[0]
@@ -990,7 +1238,7 @@ class TestPlumbing:
         broken = solve_submodel(
             s["y"], s["initial"], submodel, s["ones"], observed, spec, warn=False
         )
-        assert float(np.linalg.norm(bounded.epsilon)) == pytest.approx(0.05, abs=1e-6)
+        assert float(np.linalg.norm(bounded.epsilon)) == pytest.approx(0.05, abs=1e-15)
         assert float(np.linalg.norm(broken.epsilon)) > 0.2
 
     def test_a_default_fit_equals_a_fit_that_names_the_defaults(self) -> None:

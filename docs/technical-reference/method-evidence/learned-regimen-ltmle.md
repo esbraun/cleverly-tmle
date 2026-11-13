@@ -105,7 +105,9 @@ SE sanity, every `interval_calibration`, `conservative_coverage`, `targeting_nec
 `fold_locality` verdict to pass. They did, so the registered row `G47` covers the learned
 two-node regimen under the cross-fitted censored fit with every option at its default. Node
 bounds, `ratio_trim=`, a stopping rule, a known mechanism, an uncensored panel and a continuous
-outcome with `q_bounds=` stay experimental.
+outcome with `q_bounds=` stay experimental. The support key records each of them apart from the
+row, so a learned-regimen fit with a stopping rule matches no row: the stopping-rule rows `G55`
+cover static regimens only.
 
 ### The calibration positive
 

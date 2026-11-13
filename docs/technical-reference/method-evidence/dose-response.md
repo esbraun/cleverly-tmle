@@ -102,8 +102,10 @@ follows ([Theory and comparators](../../architecture-invariants.md#theory-and-co
 | `double_robustness` | at $h = 1.0$, $a_0 = 3.5$, with a density that ignores $W$ and the declared outcome sieve, is the 99% bias interval inside $\pm 0.25$ SD. With the dose-only spline outcome and the declared density, does targeting bring the estimate at least 1.5 efficient SEs closer to the truth than its plug-in | with the dose-only spline outcome and the density that ignores $W$, the bias interval must lie wholly outside $\pm 0.25$ SD. An untargeted fit reads a gain of 0 |
 
 The band fits seed their multiplier draws with `random_state=0`, so every replication reads the
-same 1,000 draws, and the band cell measures coverage conditional on that one draw. Its critical
-value sits within 0.02 of the oracle value 2.751, which moves the joint coverage by about 0.003.
+same draws, and the band cell measures coverage conditional on that one draw. Since
+band-finite-sample the band uses 10,000 Mammen draws on the identity scale, because the curve's
+estimates carry no range. At the former 1,000 draws its critical value sat within 0.02 of the
+oracle value 2.751, which moves the joint coverage by about 0.003.
 The calibration cell reads the pair $(1.0, 2.5)$ of the same fits. Fitted alone on 20 shared
 pilot draws, the pair gave the same estimate to within $10^{-6}$ of its SE.
 

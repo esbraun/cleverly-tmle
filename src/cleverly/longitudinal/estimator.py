@@ -87,6 +87,7 @@ from .._support import (
     Classification,
     Support,
     SupportKey,
+    band_shape,
     band_support,
     classify_longitudinal_fit,
     combine_support,
@@ -104,7 +105,6 @@ from .._typing import (
 )
 from .._warnings import FitWarning, records_fit
 from .._warnings import warn as _warn
-from ..estimators._option_support import stopping_conditions
 from ..exceptions import (
     CapabilityError,
     CleverlyError,
@@ -121,6 +121,7 @@ from ..exceptions import (
 from ..fluctuation._score import (
     StopContext,
     check_iterate,
+    check_rule_bootstrap,
     check_step_bound,
     check_stopping_rule,
 )
@@ -150,10 +151,14 @@ from ..inference.influence import (
     with_precedent_status,
 )
 from ..inference.multiplier import (
+    DEFAULT_BAND_REFERENCE,
     DEFAULT_BAND_SCALE,
     DEFAULT_KIND,
     DEFAULT_N_REPLICATES,
     SimultaneousBands,
+    band_member,
+    check_band_reference,
+    constant_arm_members,
     median_bands,
     out_of_range,
     simultaneous_bands,
@@ -189,7 +194,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .drift import DriftRecord
 from .._summary import Detail, Summary, check_detail
 from ..interventions.policy import Support as DeclaredSupport
-from ..learners._fitting import supports_sample_weight
+from ..learners._fitting import seed_unset, supports_sample_weight
 from ..learners.crossfit import (
     CrossFitPlan,
     Folds,
@@ -255,6 +260,7 @@ from .hazard import (
     project_curves,
     refuse_hazard_design,
     refuse_hazard_settings,
+    target_hazard_msm,
     target_regimens,
 )
 from .ipsi import IPSICell, fit_cells_ipsi
@@ -1296,7 +1302,14 @@ class _LongitudinalReplayRecipe:
 
 
 def _replay_random_state_omissions(learners: Sequence[Learner]) -> tuple[str, ...]:
-    """Return stable reasons the recursive learner templates cannot replay exactly."""
+    """Return stable reasons the recursive learner templates cannot replay exactly.
+
+    A :class:`SuperLearner` seeds its library at fit with
+    :func:`~cleverly.learners._fitting.seed_unset` and its own ``random_state``, so the audit
+    reads each library member as that function returns it: the audit accepts exactly the
+    ``None`` seeds the fit replaces, and refuses one it does not reach (a ``None`` held in a
+    list or dict parameter, which ``get_params(deep=True)`` does not expand).
+    """
 
     omissions: list[str] = []
 
@@ -1307,6 +1320,12 @@ def _replay_random_state_omissions(learners: Sequence[Learner]) -> tuple[str, ..
             omissions.append(LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER)
 
     seen: set[int] = set()
+
+    def as_fitted(entry: Any, seed: Any) -> Any:
+        """A library entry as the ensemble's fit seeds it; the name of a pair is dropped."""
+        if isinstance(entry, tuple) and len(entry) == 2 and isinstance(entry[0], str):
+            entry = entry[1]
+        return seed_unset(entry, seed)
 
     def visit(value: Any) -> None:
         if id(value) in seen:
@@ -1325,9 +1344,12 @@ def _replay_random_state_omissions(learners: Sequence[Learner]) -> tuple[str, ..
         get_params = getattr(value, "get_params", None)
         if not callable(get_params):
             return
-        for name, item in get_params(deep=False).items():
+        params = get_params(deep=False)
+        for name, item in params.items():
             if name == "random_state":
                 classify(item)
+            elif isinstance(value, SuperLearner) and name == "library" and item is not None:
+                visit([as_fitted(entry, params.get("random_state")) for entry in item])
             else:
                 visit(item)
 
@@ -1586,6 +1608,8 @@ class _HazardBlock(NamedTuple):
     plans: tuple[Plan, ...]
     #: What :meth:`_SequentialEstimator._parametric` answered.
     parametric: bool
+    #: One projection per cause of a working-model fit, empty without one.
+    msm_fits: tuple[MSMRegimenFit, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -3514,8 +3538,9 @@ def _run_hazard(
     step_search: bool = True,
     iterate: str = "last",
     separable: Sequence[SeparablePlan] = (),
-) -> dict[str, RegimenFit]:
-    """Target the initial hazards and file one fit per regimen, cause and horizon.
+    msm: RegimenMSM | None = None,
+) -> tuple[dict[str, RegimenFit], tuple[MSMRegimenFit, ...]]:
+    """Target the initial hazards, and file the fits and any working-model projections.
 
     The one driver :meth:`LTMLE.fit` and :func:`_refit_bound` share on a hazard fit.
 
@@ -3562,11 +3587,15 @@ def _run_hazard(
         The separable interventions.  When there is one, every regimen is targeted by
         :func:`~cleverly.longitudinal.separable.target_separable`, on initial hazards
         fitted in the declared order.
+    msm : RegimenMSM or None, default None
+        The evaluated working model.  With one, the walk targets its coefficient scores
+        (:func:`~cleverly.longitudinal.hazard.target_hazard_msm`).
 
     Returns
     -------
-    dict of str to RegimenFit
-        The fits keyed by :func:`_fit_key`.
+    tuple
+        The fits keyed by :func:`_fit_key`, and one projection per cause of a working-model
+        fit, empty without one.
     """
     pairs = [mechanism.cumulative_with_unbounded(data, level, g_bounds) for level in levels]
     rows = np.arange(data.n)
@@ -3574,6 +3603,8 @@ def _run_hazard(
     unbounded = np.stack([pair[0] for pair in pairs], axis=2)[rows, :, observed]
     bounded = np.stack([pair[1] for pair in pairs], axis=2)[rows, :, observed]
     if separable:
+        # The separable refusals refuse msm= beside a Separable regimen.
+        assert msm is None
         targeted = target_separable(
             data,
             plans,
@@ -3589,7 +3620,31 @@ def _run_hazard(
         return {
             _fit_key(label, cause, horizon, True): fit
             for (label, cause, horizon), fit in targeted.items()
-        }
+        }, ()
+    node_scale = hazard_bounds(node_bounds, data.n_times, data.cause_labels or (None,))
+    stop = None if stopping == "relative" else StopContext(data.cluster, 1.0)
+    if msm is not None:
+        # R-i3 refuses node_bounds= beside msm= at construction.
+        assert node_scale is None
+        cells, msm_fits = target_hazard_msm(
+            data,
+            plans,
+            initial,
+            [pair[1] for pair in pairs],
+            (unbounded, bounded),
+            msm,
+            horizons=horizons,
+            alpha=alpha,
+            tol=tol,
+            step_size=step_size,
+            stopping=stopping,
+            stop=stop,
+            iterate=iterate,
+        )
+        return {
+            _fit_key(label, cause, horizon, True): fit
+            for (label, cause, horizon), fit in cells.items()
+        }, msm_fits
     fits = target_regimens(
         data,
         plans,
@@ -3602,16 +3657,16 @@ def _run_hazard(
         max_iter=max_iter,
         tol=tol,
         step_size=step_size,
-        node_bounds=hazard_bounds(node_bounds, data.n_times, data.cause_labels or (None,)),
+        node_bounds=node_scale,
         stopping=stopping,
-        stop=None if stopping == "relative" else StopContext(data.cluster, 1.0),
+        stop=stop,
         step_bound=step_bound,
         step_search=step_search,
         iterate=iterate,
     )
     return {
         _fit_key(label, cause, horizon, True): fit for (label, cause, horizon), fit in fits.items()
-    }
+    }, ()
 
 
 def _project_fits(
@@ -4134,6 +4189,7 @@ def _estimates(
             reference_df=reference_df,
             support=_support_of(classification, status, reference_df),
             bounds=parameter_bounds("mean", data.family),
+            rule_widened=_rule_widened(fit),
         )
     for fit in fits.values():
         if fit.regimen.label == reference.label:
@@ -4159,6 +4215,7 @@ def _estimates(
             reference_df=reference_df,
             support=_support_of(classification, status, reference_df),
             bounds=parameter_bounds("difference", data.family),
+            rule_widened=_rule_widened(fit) or _rule_widened(base),
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
 
@@ -4172,6 +4229,21 @@ def _as_reported(draw: ParameterEstimate, reported: ParameterEstimate) -> Parame
         inference=reported.inference,
         reference_df=draw.reference_df if supplies_inference(reported.inference) else None,
         support=reported.support,
+    )
+
+
+def _rule_widened(fit: RegimenFit) -> bool:
+    """Whether a regimen's fit ran under a declared stopping rule.
+
+    The hazard model or any node's fluctuation that declares a rule other than
+    ``"relative"`` stops before its score is solved, so the estimate's interval adds the
+    remaining score (:attr:`~cleverly.inference.ParameterEstimate.rule_widened`).
+    """
+    if fit.hazard is not None and fit.hazard.stopping != "relative":
+        return True
+    return any(
+        step.fluctuation is not None and step.fluctuation.stopping != "relative"
+        for step in fit.steps
     )
 
 
@@ -4313,6 +4385,7 @@ def _msm_estimates(
                 inference=inference,
                 reference_df=reference_df,
                 support=_support_of(classification, inference, reference_df),
+                rule_widened=any(_rule_widened(fit) for fit in msm_fit.fits),
             )
     return _Reported(estimates=estimates, index=None, contributors=contributors)
 
@@ -4372,6 +4445,7 @@ class _SequentialEstimator:
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -4408,6 +4482,8 @@ class _SequentialEstimator:
         self.n_multiplier = n_multiplier
         self.multiplier_kind = multiplier_kind
         self.band_scale = band_scale
+        self.band_reference = band_reference
+        check_band_reference(band_reference)
         self.random_state = random_state
         self.run_id = run_id
         self.n_jobs = n_jobs
@@ -4444,6 +4520,7 @@ class _SequentialEstimator:
             raise ValueError(f"n_folds must be at least 1; got {self.n_folds}")
         if self.n_bootstrap and self.n_bootstrap < 2:
             raise ValueError(f"n_bootstrap must be 0 or at least 2; got {self.n_bootstrap}")
+        check_rule_bootstrap(getattr(self, "stopping", "relative"), self.n_bootstrap)
         if (
             isinstance(self.repeats, bool)
             or not isinstance(self.repeats, (int, np.integer))
@@ -5176,7 +5253,6 @@ class _SequentialEstimator:
                 known_factors=_known_factors(prepared),
                 has_msm=self.msm is not None,
                 regimen_kinds=regimen_kinds(plans) | ({"separable"} if separable else set()),
-                conditions=stopping_conditions(getattr(self, "stopping", "relative")),
                 tuned_cap=tuned_folds is not None,
                 # Every plan of one fit shares its first cause (``resolve_separable``).
                 separable_first=separable[0].first + 1 if separable else None,
@@ -5379,6 +5455,7 @@ class _SequentialEstimator:
         replay_recipe: _LongitudinalReplayRecipe,
         node_bounds: dict[str | None, dict[int, NodeBound]] | None,
         separable: tuple[SeparablePlan, ...],
+        msm: RegimenMSM | None = None,
     ) -> _HazardBlock:
         """Fit the mechanism and the initial hazards of one draw, and target the hazards.
 
@@ -5410,12 +5487,14 @@ class _SequentialEstimator:
             The resolved hazard-scale node bounds.
         separable : tuple of SeparablePlan
             The separable interventions.
+        msm : RegimenMSM or None, default None
+            The evaluated working model, ``None`` without one.
 
         Returns
         -------
         _HazardBlock
-            The mechanism, the fits, the initial hazards, the recipe, the plans and the
-            parametric flag.
+            The mechanism, the fits, the initial hazards, the recipe, the plans, the
+            parametric flag and any working-model projections.
         """
         outcome_learner, pseudo_learner, treatment_learner, censoring_learner, competing = learners
         mechanism = self._fit_mechanism(
@@ -5468,7 +5547,7 @@ class _SequentialEstimator:
                 separable,
             ),
         )
-        fits = _run_hazard(
+        fits, msm_fits = _run_hazard(
             prepared,
             plans,
             levels,
@@ -5487,8 +5566,9 @@ class _SequentialEstimator:
             step_search=targeting["step_search"],
             iterate=targeting["iterate"],
             separable=separable,
+            msm=msm,
         )
-        return _HazardBlock(mechanism, fits, initial, replay_recipe, plans, parametric)
+        return _HazardBlock(mechanism, fits, initial, replay_recipe, plans, parametric, msm_fits)
 
     def _draw_status(
         self,
@@ -5638,10 +5718,11 @@ class _SequentialEstimator:
                 replay_recipe=replay_recipe,
                 node_bounds=node_bounds,
                 separable=separable,
+                msm=model,
             )
             mechanism, fits, initial = block.mechanism, block.fits, block.initial
             replay_recipe, plans, parametric = block.replay_recipe, block.plans, block.parametric
-            msm_fits = ()
+            msm_fits = block.msm_fits
         else:
             mechanism = self._fit_mechanism(
                 prepared,
@@ -5868,8 +5949,14 @@ class _SequentialEstimator:
             for name, estimate in result.estimates.items()
             if estimate.supplies_inference and name in bootstrap.std_errors
         }
-        # As for the multiplier band, no source gives a t-calibrated joint band.
-        if not self.simultaneous or len(banded) < 2 or has_t_reference(banded):
+        # As for the multiplier band, no source gives a t-calibrated joint band, and a family
+        # with a constant arm cell builds none.
+        if (
+            not self.simultaneous
+            or len(banded) < 2
+            or has_t_reference(banded)
+            or constant_arm_members(result.estimates)
+        ):
             return result
         band = bootstrap_band(
             bootstrap,
@@ -6305,8 +6392,13 @@ class _SequentialEstimator:
         # A parameter whose status withholds its interval, such as a constant-node risk, stays
         # out of the band, which is then a joint statement over the others. A parameter that
         # shows a labelled interval stays in, and its experimental label reaches the band.
+        # The two exceptions of ``TMLE.fit`` hold here too: a constant arm cell skips the
+        # band, and an estimate on or outside its range stays a member. No longitudinal
+        # builder sets either status yet.
+        if constant_arm_members(estimates):
+            return None
         estimates = {
-            name: estimate for name, estimate in estimates.items() if estimate.supplies_inference
+            name: estimate for name, estimate in estimates.items() if band_member(estimate)
         }
         if not self.simultaneous or len(estimates) < 2:
             return None
@@ -6328,6 +6420,7 @@ class _SequentialEstimator:
                 random_state=multiplier_seed,
                 cluster=data.cluster,
                 band_scale=self.band_scale,  # type: ignore[arg-type]
+                band_reference=self.band_reference,  # type: ignore[arg-type]
             )
         else:
             bands = simultaneous_bands(
@@ -6338,6 +6431,7 @@ class _SequentialEstimator:
                 random_state=self.random_state,
                 cluster=data.cluster,
                 band_scale=self.band_scale,  # type: ignore[arg-type]
+                band_reference=self.band_reference,  # type: ignore[arg-type]
             )
         return replace(
             bands,
@@ -6345,8 +6439,11 @@ class _SequentialEstimator:
                 classification,
                 status,
                 (estimate.support for estimate in estimates.values()),
-                options=(self.multiplier_kind, self.band_scale),
+                options=(self.multiplier_kind, self.band_scale, self.band_reference),
                 draws=int(self.n_multiplier),
+                shape=band_shape(
+                    weighted=data.is_weighted, repeated=len(repeats) > 1, cluster=data.cluster
+                ),
             ),
         )
 
@@ -6854,6 +6951,10 @@ class LTMLE(_SequentialEstimator):
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"t"`` bands each estimate at the critical value's tail on its own Student t
+        reference, with degrees of freedom from its influence curve
+        (:func:`~cleverly.inference.simultaneous_bands`).
     max_iter : int
         Maximum targeting iterations per node.
     tol : float
@@ -6893,9 +6994,9 @@ class LTMLE(_SequentialEstimator):
         differ.  The one-step hazard walk ranks its steps by the norm it walks on and takes the
         last of any tie, so ``"best"`` there reports the last accepted step.
     random_state : int or None
-        The seed of the outer split.  A default learner, and a
-        :class:`~cleverly.learners.SuperLearner` with no seed of its own, inherit it.
-        ``None`` draws a fresh seed for the split.
+        The seed of the outer split.  Every learner ``random_state`` that is ``None``,
+        including those of a :class:`~cleverly.learners.SuperLearner`'s candidates, inherits
+        it.  ``None`` draws a fresh seed for the split.
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int
@@ -7027,6 +7128,7 @@ class LTMLE(_SequentialEstimator):
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         max_iter: int = 20,
         tol: float = 1e-10,
         random_state: int | None = None,
@@ -7082,6 +7184,7 @@ class LTMLE(_SequentialEstimator):
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
             band_scale=band_scale,
+            band_reference=band_reference,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -7212,8 +7315,13 @@ class SDR(_SequentialEstimator):
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"t"`` bands each estimate at the critical value's tail on its own Student t
+        reference, with degrees of freedom from its influence curve
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
-        The seed of the outer split, inherited by a default learner.
+        The seed of the outer split, inherited by every learner ``random_state`` that is
+        ``None``, including a Super Learner's candidates.
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int
@@ -7300,6 +7408,7 @@ class SDR(_SequentialEstimator):
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7337,6 +7446,7 @@ class SDR(_SequentialEstimator):
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
             band_scale=band_scale,
+            band_reference=band_reference,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -7498,8 +7608,13 @@ class IPSI(_SequentialEstimator):
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"t"`` bands each estimate at the critical value's tail on its own Student t
+        reference, with degrees of freedom from its influence curve
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
-        The seed of the outer split, inherited by a default learner.
+        The seed of the outer split, inherited by every learner ``random_state`` that is
+        ``None``, including a Super Learner's candidates.
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int
@@ -7577,6 +7692,7 @@ class IPSI(_SequentialEstimator):
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7611,6 +7727,7 @@ class IPSI(_SequentialEstimator):
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
             band_scale=band_scale,
+            band_reference=band_reference,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -7819,6 +7936,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7859,6 +7977,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
             band_scale=band_scale,
+            band_reference=band_reference,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -7964,8 +8083,13 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"t"`` bands each estimate at the critical value's tail on its own Student t
+        reference, with degrees of freedom from its influence curve
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
-        The seed inherited by a default learner.
+        The seed inherited by every learner ``random_state`` that is ``None``, including a
+        Super Learner's candidates.
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int
@@ -8184,8 +8308,13 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"t"`` bands each estimate at the critical value's tail on its own Student t
+        reference, with degrees of freedom from its influence curve
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
-        The seed inherited by a default learner.
+        The seed inherited by every learner ``random_state`` that is ``None``, including a
+        Super Learner's candidates.
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int
@@ -8457,9 +8586,9 @@ class ParametricGFormula(_Baseline):
         ``horizons``, ``treatment_learner`` (the natural-treatment models and the diagnostic
         mechanism), ``censoring_learner``, ``competing_learner``, ``g_bounds``, ``q_bounds``,
         ``alpha_sig``, ``simultaneous``, ``n_multiplier``, ``multiplier_kind``, ``band_scale``,
-        ``random_state``, ``run_id``, ``n_jobs``, ``n_bootstrap``, ``bootstrap_resampling``,
-        ``density_bins`` and ``ratio``.  ``n_folds`` must be ``1``.  ``msm``, ``alpha``,
-        ``max_iter`` and ``tol`` are refused.
+        ``band_reference``, ``random_state``, ``run_id``, ``n_jobs``, ``n_bootstrap``,
+        ``bootstrap_resampling``, ``density_bins`` and ``ratio``.  ``n_folds`` must be ``1``.
+        ``msm``, ``alpha``, ``max_iter`` and ``tol`` are refused.
 
     See Also
     --------
@@ -8819,10 +8948,12 @@ class ParametricGFormula(_Baseline):
             n_draws=self.n_draws,
             n_derivative_draws=self.n_derivative_draws,
             covariate_types=self.covariate_types,
-            covariate_learner=self.covariate_learner,
-            outcome_learner=self._declared_outcome,
-            hazard_learner=self.hazard_learner,
-            treatment_learner=self.treatment_learner,
+            # A declared learner with no seed of its own takes the fit's, as resolve_learner
+            # gives it on every other estimator, so a seeded fit repeats exactly.
+            covariate_learner=seed_unset(self.covariate_learner, self.random_state),
+            outcome_learner=seed_unset(self._declared_outcome, self.random_state),
+            hazard_learner=seed_unset(self.hazard_learner, self.random_state),
+            treatment_learner=seed_unset(self.treatment_learner, self.random_state),
             seed=seed,
             exact=self._exact,
             reference=self.reference,
@@ -8956,7 +9087,7 @@ def _refit_bound(
     fits: dict[str, RegimenFit]
     msm_fits: tuple[MSMRegimenFit, ...]
     if recipe.hazard is not None and draw.initial_hazards is not None:
-        fits = _run_hazard(
+        fits, msm_fits = _run_hazard(
             result.data,
             recipe.plans,
             recipe.hazard.levels,
@@ -8975,8 +9106,8 @@ def _refit_bound(
             step_search=recipe.step_search,
             iterate=recipe.iterate,
             separable=recipe.hazard.separable,
+            msm=result.msm,
         )
-        msm_fits = ()
     else:
         if recipe.outcome_learner is None or recipe.pseudo_learner is None:
             _refuse_replay(

@@ -1,0 +1,11 @@
+property,cell,role,requested,failed,rate,bound,allowed,leg,complete_case,worst_case,imputation,leg_passed,gate_passed,reason
+heldout_coverage,ho_hurdle_ate,positive,2000,2,0.001,0.01,20,failure bound,2.0,20.0,,True,True,within bound
+heldout_coverage,ho_hurdle_ate,positive,2000,2,0.001,0.01,20,coverage lower leg,0.014906461462006582,0.01385733111172971,support: j=0 covered,True,True,within bound
+heldout_coverage,ho_hurdle_ate,positive,2000,2,0.001,0.01,20,"coverage upper leg, shown only",0.019200613439052994,0.019200613439052994,support: lost fits absent,True,True,within bound
+heldout_coverage,ho_hurdle_ate,positive,2000,2,0.001,0.01,20,informative-failure witness,11.684868425349567,0.9754754754754755,replicate 613: largest absolute standardized value,True,True,within bound
+heldout_coverage,ho_hurdle_ate,positive,2000,2,0.001,0.01,20,informative-failure witness,7.286766111161205,0.35585585585585583,replicate 1568: largest absolute standardized value,True,True,within bound
+heldout_coverage,ho_hurdle_ey1,positive,2000,2,0.001,0.01,20,failure bound,2.0,20.0,,True,False,complete case fails
+heldout_coverage,ho_hurdle_ey1,positive,2000,2,0.001,0.01,20,coverage lower leg,-0.00553386291965785,-0.00654323697194481,support: j=0 covered,False,False,complete case fails
+heldout_coverage,ho_hurdle_ey1,positive,2000,2,0.001,0.01,20,"coverage upper leg, shown only",0.03569980655892391,0.03569980655892391,support: lost fits absent,True,False,complete case fails
+heldout_coverage,ho_hurdle_ey1,positive,2000,2,0.001,0.01,20,informative-failure witness,11.684868425349567,0.9754754754754755,replicate 613: largest absolute standardized value,True,False,complete case fails
+heldout_coverage,ho_hurdle_ey1,positive,2000,2,0.001,0.01,20,informative-failure witness,7.286766111161205,0.35585585585585583,replicate 1568: largest absolute standardized value,True,False,complete case fails

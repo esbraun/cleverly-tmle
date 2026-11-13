@@ -79,13 +79,18 @@ working model and the ``(reduced)`` row of a doubly-robust fit, whose outcome so
 too; a ``(mechanism)`` row keeps the default bar.  A fit that met its rule passes although its
 score is above the default bar, and a fit that missed its rule fails although its score is
 below the default bar.  The influence-curve rows cannot fail under a rule, because the rule
-leaves a residual by design.  They become ``"diagnostic"`` rows that report the residual in
-standard errors (``residual_se``) and the coverage a Wald interval keeps at that residual
-(``coverage_bound``).  Under ``scaled_var`` they also report the residual the rule implies
-before the fit is read (``rule_bound_se``).  Only an arm mean and a linear contrast of arm
-means have an a priori bound.  A contrast has none that is small in general, because the
-threshold of a column uses the full arm curve, and the curves of two arms share terms that the
-contrast cancels.
+leaves a residual by design, and the reported interval adds that residual to its half-width
+(:attr:`~cleverly.inference.ParameterEstimate.rule_widened`).  They become ``"diagnostic"``
+rows that report the residual in standard errors (``residual_se``).  Under ``scaled_var`` they
+also report the residual the rule implies before the fit is read (``rule_bound_se``).  Only an
+arm mean and a linear contrast of arm means have that bound.  A contrast has none that is small
+in general, because the threshold of a column uses the full arm curve, and the curves of two
+arms share terms that the contrast cancels.  Where the estimand of an unstratified fit is one score
+column (an arm mean or a conditional effect) and the rule was met, the bound is the cap
+``1 / min(log n_u, 10)`` fixed before the data are read, and the row reports the asymptotic
+coverage floor of the plain interval at that cap (``coverage_floor``,
+:func:`~cleverly.fluctuation._score.rule_coverage_floor`).  No number computed from the
+realized residual bounds coverage, so every other row reports ``nan`` there.
 """
 
 from __future__ import annotations
@@ -102,8 +107,8 @@ from .._trial_family import refuse_augmented_trial
 from ..fluctuation._score import (
     RESIDUAL_LINE,
     residual_se,
+    rule_coverage_floor,
     rule_failure_line,
-    wald_coverage_bound,
 )
 from ..inference.influence import ParameterEstimate, spread_name
 from ..utils.frames import emit_frame
@@ -215,8 +220,13 @@ class ScoreCheckRow:
     residual_se : float
         On a ``"diagnostic"`` row of a fit under a declared rule, ``|P_n IC| / se`` of the
         estimand.  ``nan`` elsewhere.
-    coverage_bound : float
-        The coverage a Wald interval keeps at that residual (:func:`wald_coverage_bound`).
+    coverage_floor : float
+        The asymptotic coverage floor of the plain Wald interval (without the residual,
+        ``dataclasses.replace(estimate, rule_widened=False).ci``) at the cap ``rule_bound_se``
+        (:func:`~cleverly.fluctuation._score.rule_coverage_floor`). Reported only under
+        ``scaled_var`` for an estimand of an unstratified fit that is one score column, of a
+        fit that met its rule, where that cap is fixed before the data are read. ``nan``
+        elsewhere, a contrast and a stratum's estimand included.
     rule_bound_se : float
         Under ``scaled_var``, the residual the rule implies before the fit is read:
         ``sum_j |g_j| threshold_j / se``, over the score columns the estimand is a combination
@@ -253,7 +263,7 @@ class ScoreCheckRow:
     #: The three columns of the estimand rows of a fit under a declared rule.  ``nan`` is a
     #: sentinel for "this row does not carry it".
     residual_se: float = float("nan")
-    coverage_bound: float = float("nan")
+    coverage_floor: float = float("nan")
     rule_bound_se: float = float("nan")
 
     @property
@@ -358,8 +368,8 @@ class ScoreCheck:
         Returns
         -------
         str
-            The largest score residual in standard errors, the estimand it is on, and the
-            coverage a Wald interval keeps at that residual (:data:`RESIDUAL_LINE`).
+            The largest score residual in standard errors, the estimand it is on, and that
+            each interval adds its residual to its half-width (:data:`RESIDUAL_LINE`).
         """
         if not self.declared:
             return ""
@@ -367,13 +377,7 @@ class ScoreCheck:
         if not rows:
             return ""
         worst = max(rows, key=lambda row: row.residual_se)
-        return RESIDUAL_LINE.format(
-            rule=self.stopping,
-            b=worst.residual_se,
-            name=worst.name,
-            level=1.0 - self.alpha_sig,
-            bound=worst.coverage_bound,
-        )
+        return RESIDUAL_LINE.format(rule=self.stopping, b=worst.residual_se, name=worst.name)
 
     def rule_failure_line(self) -> str:
         """The pinned line when the targeting did not meet the rule, else ``""``.
@@ -440,7 +444,7 @@ class ScoreCheck:
             # is the one it always was.
             payload["stopping"] = [row.stopping for row in self.rows]
             payload["residual_se"] = [row.residual_se for row in self.rows]
-            payload["coverage_bound"] = [row.coverage_bound for row in self.rows]
+            payload["coverage_floor"] = [row.coverage_floor for row in self.rows]
             payload["rule_bound_se"] = [row.rule_bound_se for row in self.rows]
         return emit_frame(payload, data, backend=self.backend)
 
@@ -870,12 +874,12 @@ def _estimand_diagnostic(
     """An estimand row of a fit under a declared rule: a diagnostic, never a failure.
 
     A declared rule leaves a score residual by design, so the mean of an influence curve is
-    not held to the default bar.  The row reports the residual in standard errors and the
-    coverage a Wald interval keeps at it.  Under ``scaled_var`` it also reports the residual
-    the rule implies before the fit is read.
+    not held to the default bar.  The row reports the residual in standard errors.  Under
+    ``scaled_var`` it also reports the residual the rule implies before the fit is read and,
+    where that is an a priori cap (:func:`_rule_floor`), the plain interval's floor at it.
     """
     residual = residual_se(estimate)
-    alpha = result.config.alpha_sig
+    bound = _rule_bound_se(result, name, estimate) if rule == "scaled_var" else float("nan")
     return ScoreCheckRow(
         name=name,
         kind="diagnostic",
@@ -888,11 +892,39 @@ def _estimand_diagnostic(
         method=estimate.scale,
         stopping=rule,
         residual_se=residual,
-        coverage_bound=wald_coverage_bound(residual, alpha),
-        rule_bound_se=_rule_bound_se(result, name, estimate)
-        if rule == "scaled_var"
-        else float("nan"),
+        coverage_floor=_rule_floor(result, name, bound) if rule == "scaled_var" else float("nan"),
+        rule_bound_se=bound,
     )
+
+
+def _rule_floor(result: TMLEResult, name: str, bound: float) -> float:
+    """The plain interval's coverage floor at an a priori residual cap, or ``nan``.
+
+    The floor ``2 Phi(z - c) - 1`` needs a cap ``c`` fixed before the data are read. Under
+    ``scaled_var`` that holds for an estimand of an unstratified fit that is one score column
+    with weight one (an arm mean, a conditional effect): its threshold is the column's own
+    standard deviation over ``sqrt(n_u) min(log n_u, 10)``, so ``c = 1 / min(log n_u, 10)``.
+    A sum of columns (a contrast, a marginal over strata) has a data-dependent ``c``, and a
+    fit whose walk missed its rule has no cap at all.  A stratum's block has none either: its
+    threshold is the block's standard deviation over the whole sample, while its standard
+    error reads the stratum alone, so the realized bound is not ``c``.  It does bound the
+    residual on every draw, but it is chosen by the data, so no floor is printed.
+    """
+    mapped = _column_weights(result, name) if len(result.repeats) == 1 else None
+    if mapped is None or not np.isfinite(bound):
+        return float("nan")
+    group, weights = mapped
+    fluctuation = result.repeats[0].fluctuations.get(group)
+    if (
+        fluctuation is None
+        or len(weights) != 1
+        or any(" | " in label for label in fluctuation.names)
+        or abs(next(iter(weights.values()))) != 1.0
+        or fluctuation.rule_ratio is None
+        or not fluctuation.rule_ratio <= 1.0
+    ):
+        return float("nan")
+    return rule_coverage_floor(bound, result.config.alpha_sig)
 
 
 def _column_weights(result: TMLEResult, name: str) -> tuple[str, dict[int, float]] | None:

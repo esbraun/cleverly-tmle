@@ -1,0 +1,2 @@
+label,replicates,coverage,normal_coverage,gain,gain_sd,refused_share,constant_share,median_min_df,max_relative_widening
+strata_n1000,800,0.9575,0.945,0.0125,0.11117193440229614,0.0,0.01125,5.0,0.7565257797739753

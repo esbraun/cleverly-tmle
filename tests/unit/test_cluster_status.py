@@ -47,6 +47,7 @@ from cleverly import (
 from cleverly._inference_status import MINIMUM_INTERVAL_CLUSTERS, STATUS_RECORDS
 from cleverly.datasets import make_clustered
 from cleverly.estimators import DRTMLE, TMLE
+from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.inference import cluster as cluster_module
 from cleverly.inference.cluster import cluster_inference_status
 from tests.conftest import linear_in_sample
@@ -186,7 +187,6 @@ class TestUnequalCrossFittedClustersKeepTheInterval:
     @pytest.mark.parametrize(
         "scheme",
         [
-            pytest.param({"cv_evaluation": True}, id="cv_evaluation"),
             pytest.param({"targeting_scheme": "fold"}, id="fold targeting"),
             pytest.param({"repeats": 2, "simultaneous": False}, id="repeats"),
         ],
@@ -200,6 +200,16 @@ class TestUnequalCrossFittedClustersKeepTheInterval:
         if report is not None:
             assert report.inference == "influence_curve"
             assert np.all(np.isfinite(list(report.std_error.values())))
+
+    def test_cv_evaluation_refuses_and_redirects_to_the_stacked_report(
+        self, unequal_frame: Any
+    ) -> None:
+        """Unequal sizes make each fold's denominator random, so the equal fold average refuses."""
+        with pytest.raises(CapabilityError) as raised:
+            fit(unequal_frame, **CROSS_FITTED, cv_evaluation=True)
+        assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+        assert "their sizes differ (from 2 to 10 rows across 40 clusters)" in str(raised.value)
+        assert "Use the default, cv_evaluation=False" in str(raised.value)
 
 
 class TestTheNeighbouringFitsKeepTheirInterval:
@@ -614,8 +624,10 @@ class TestTheWorkflowPageRunsOnUnequalClusters:
 
 class TestASavedResultLoadsAsSaved:
     @pytest.mark.parametrize("route", ROUTES)
-    def test_a_cv_evaluation_fit_keeps_its_interval(self, unequal_frame: Any, route: str) -> None:
-        result = fit(unequal_frame, **CROSS_FITTED, cv_evaluation=True)
+    def test_a_cv_evaluation_fit_keeps_its_interval(self, equal_frame: Any, route: str) -> None:
+        # Equal sizes: at unequal sizes the fold-evaluated report refuses.
+        result = fit(equal_frame, **CROSS_FITTED, cv_evaluation=True)
+        assert result["ate"].reference_df == 35
         assert_round_trips(result, "influence_curve", route)
 
     @pytest.mark.parametrize("route", ROUTES)

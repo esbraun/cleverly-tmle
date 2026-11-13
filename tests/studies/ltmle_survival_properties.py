@@ -14,7 +14,9 @@ before any run:
   risks and contrasts form two exact duplicate pairs, and the family has eight distinct
   parameters.  The band draws from its own generator, so every pointwise number of those fits
   is unchanged;
-* every band uses the engine's defaults: 2000 rademacher draws seeded by ``random_state=0``.
+* every band uses the engine's defaults seeded by ``random_state=0``: since band-finite-sample
+  the Mammen multiplier at 10,000 draws on the logit scale (2,000 Rademacher draws on the
+  identity scale before it).
   The truth is ``law.TRUTH``;
 * each band passes when its 99% joint-coverage interval lies inside ``[0.92, 0.98]``, and each
   pointwise control passes when the 99% upper endpoint of joint coverage is below 0.95;

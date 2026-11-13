@@ -87,7 +87,7 @@ import copy
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from functools import partial
-from typing import TYPE_CHECKING, Any, Literal, cast, get_args
+from typing import TYPE_CHECKING, Any, Final, Literal, cast, get_args
 
 import numpy as np
 
@@ -99,6 +99,7 @@ from .._inference_status import (
 from .._support import (
     Classification,
     Preflight,
+    band_shape,
     band_support,
     classify_point_fit,
     record_fit,
@@ -154,6 +155,7 @@ from ..exceptions import (
 from ..fluctuation._score import (
     StopContext,
     check_iterate,
+    check_rule_bootstrap,
     check_step_bound,
     check_stopping_rule,
     relative_score,
@@ -181,6 +183,7 @@ from ..inference.cluster import (
     cross_validated_variance,
     fewest_clusters,
     influence_variance,
+    unequal_positive_cluster_mass,
 )
 from ..inference.influence import (
     ArmMean,
@@ -197,10 +200,14 @@ from ..inference.influence import (
     stamp_inference,
 )
 from ..inference.multiplier import (
+    DEFAULT_BAND_REFERENCE,
     DEFAULT_BAND_SCALE,
     DEFAULT_KIND,
     DEFAULT_N_REPLICATES,
     MultiplierKind,
+    band_member,
+    check_band_reference,
+    constant_arm_members,
     known_regime_estimates,
     out_of_range,
     simultaneous_bands,
@@ -664,6 +671,155 @@ def _default_treatment_kind(policies: Sequence[object]) -> Literal["discrete", "
     return "discrete" if categorical else "continuous"
 
 
+#: The alternative of :func:`fold_evaluated_cluster_refusal`.
+_CLUSTER_FOLD_ALTERNATIVE: Final[str] = (
+    "Use the default, cv_evaluation=False (CrossFitting(fold_evaluation=False) on a method). "
+    "It estimates the same effect from all folds at once, avoids this bias, and its interval "
+    "still accounts for the clustering."
+)
+
+
+def _mass_text(value: float, rows: bool) -> str:
+    """A per-cluster mass for a refusal: a row count, or a weight to three significant digits."""
+    if rows:
+        return str(round(value))
+    return np.format_float_positional(value, precision=3, unique=False, fractional=False, trim="-")
+
+
+def fold_evaluated_cluster_refusal(
+    data: CausalData,
+    estimator: TMLE,
+    estimands: Sequence[str],
+    reference: float,
+) -> CapabilityError | None:
+    r"""The refusal of a fold-evaluated clustered fit whose fold denominators are random.
+
+    ``cv_evaluation=True`` averages the validation-fold estimates with equal weight
+    :math:`1/V`. Each fold estimate is a ratio :math:`A_v/M_v` of two sums over the fold's
+    clusters: the targeted contribution and the estimand's denominator mass. The mass is the
+    total weight for the arm means, the ATE and every other admitted stem; the mass of each
+    non-reference arm for ``att``; and the reference arm's mass for ``atc``. When that mass
+    differs across the clusters with positive total weight, :math:`M_v` is random and each
+    fold estimate carries a ratio bias of order :math:`1/J_v`, so the equal average carries
+    about :math:`V` times the bias of the pooled ratio. Relative to the standard error that
+    shrinks only as :math:`V/\sqrt{J}`. The bias vanishes to first order when the cluster
+    effect is unrelated to the mass, which few clusters per fold cannot confirm. The only
+    fold aggregation without it is the ratio of the pooled sums, the stacked report, which
+    estimates the same parameter. So the fit refuses and redirects there, before any learner,
+    for the first requested estimand in report order whose mass differs.
+
+    Weighted masses print on the scale of the weights as supplied (``data.weight_spec.scale``
+    times the stored mean-one weights).
+
+    A learned-rule fit is not refused, although every fold estimate it reports carries the
+    same ratio term at unequal masses: the learned-rule value averages the values of ``V``
+    different fold rules with equal weight, and the pooled ratio would weight those rules by
+    fold mass, a different target, so no fold aggregation avoids the term. The known-regime
+    value (``ey_known_regime``) is reported on the same folds so that the contrast
+    (``ate_learned_rule``) differences two estimates of one fold set. All three stay
+    experimental at unequal sizes (the ``unequal_clusters`` support qualifier), and a regime
+    fit without ``learned_rule=`` and with ``cv_evaluation=False`` estimates the known-regime
+    value without the term. An unclustered fit keeps the equal average, whose ratio term is
+    :math:`O(V/\sqrt{n})` over :math:`n/V` independent rows per fold.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    estimator : TMLE
+        The estimator, read for ``cv_evaluation``, ``cross_fit`` and ``learned_rule``.
+    estimands : sequence of str
+        The resolved target names, in report order.
+    reference : float
+        The reference arm code, which ``atc`` reads and ``att`` skips.
+
+    Returns
+    -------
+    CapabilityError or None
+        The :attr:`~cleverly.exceptions.RefusalReason.API_REDIRECTION` refusal, or ``None``
+        when no requested estimand's denominator mass differs across clusters.
+    """
+    if (
+        not (estimator.cv_evaluation and estimator.cross_fit)
+        or data.cluster is None
+        or estimator.learned_rule is not None
+    ):
+        return None
+    weighted = data.is_weighted
+    total = np.asarray(data.weights, dtype=float) if weighted else np.ones(data.n)
+    binary = data.n_arms == 2 and reference == data.arm_codes[0]
+    treatment = np.asarray(data.treatment)
+    triggered: list[tuple[str, float | None, tuple[float, float, int]]] = []
+    for name in estimands:
+        stem = parameter_stem(name)
+        arms: list[float | None]
+        if stem == "att":
+            arms = [code for code in data.arm_codes if code != reference]
+        elif stem == "atc":
+            arms = [reference]
+        else:
+            arms = [None]
+        for arm in arms:
+            mass = total if arm is None else total * (treatment == arm)
+            spread = unequal_positive_cluster_mass(data.cluster, mass, total)
+            if spread is not None:
+                triggered.append((stem, arm, spread))
+    if not triggered:
+        return None
+    stem, arm, spread = triggered[0]
+    # The stored weights average one; the message speaks in the weights the user supplied.
+    scale = float(data.weight_spec.scale) if weighted else 1.0
+    low, high, clusters = (
+        _mass_text(spread[0] * scale, not weighted),
+        _mass_text(spread[1] * scale, not weighted),
+        spread[2],
+    )
+    span = f"from {low} to {high}"
+    if arm is None:
+        target = ""
+        if weighted:
+            differs = f"their total weight differs ({span} across {clusters} clusters)"
+            kind, larger = "clusters of different total weight", "heavier clusters"
+        else:
+            differs = f"their sizes differ ({span} rows across {clusters} clusters)"
+            kind, larger = "clusters of different sizes", "bigger clusters"
+    else:
+        rows = (
+            ("treated rows" if stem == "att" else "control rows")
+            if binary
+            else f"rows in arm {data.arm_label(arm)}"
+        )
+        target = f" for {stem}"
+        if stem == "att" and not binary:
+            label, versus = data.arm_label(arm), data.arm_label(reference)
+            target = f" for {parameter_name(stem, arm=label, versus=versus)}"
+        noun = f"total weight of {rows}" if weighted else f"number of {rows}"
+        differs = f"the {noun} per cluster differs ({span} across {clusters} clusters)"
+        kind = f"clusters that differ in their {noun}"
+        larger = (
+            f"clusters with more {rows}" if not weighted else f"clusters with more weight in {rows}"
+        )
+    alternative = _CLUSTER_FOLD_ALTERNATIVE
+    if unequal_positive_cluster_mass(data.cluster, total, total) is None:
+        # Only att or atc triggered: name every one of them, so the hint does not lead to a
+        # second refusal.
+        stems = " and ".join(dict.fromkeys(item[0] for item in triggered))
+        keep = '("ate", "ey1", "ey0")' if data.n_arms == 2 else '("ate", "ey")'
+        alternative += (
+            f" Or leave out {stems}: estimands={keep} can use cv_evaluation=True with these "
+            "clusters."
+        )
+    return CapabilityError.from_refusal(
+        Refusal(
+            RefusalReason.API_REDIRECTION,
+            f"cv_evaluation=True cannot be used with these clusters{target}: {differs}. "
+            f"With {kind}, giving every fold the same weight can bias the estimate, and the "
+            f"bias is largest when {larger} have different outcomes.",
+            alternative=alternative,
+        )
+    )
+
+
 class TMLE:
     """Targeted maximum likelihood estimator for a binary point treatment.
 
@@ -753,6 +909,14 @@ class TMLE:
         divides by the fold's own stratum share, and the marginal estimate is the share
         mixture of the stratum estimates.  Every other stratified request refuses before
         any learner (X28 in ``docs/roadmap.md``).
+
+        With ``id=`` and no learned rule, a request refuses before any learner when the
+        clusters differ in a requested estimand's denominator mass: total weight (row count
+        when unweighted) for the means and the ATE, the treated arm's mass for ``att`` and
+        the reference arm's for ``atc``. Each fold estimate is then a ratio of sums over
+        a few clusters, and the equal average carries a ratio bias; the stacked report
+        estimates the same parameter without it (:func:`fold_evaluated_cluster_refusal`).
+        ``estimands="all"`` drops such an ``att`` or ``atc`` instead.
 
         When this setting is true, ``result.cv_targeting`` holds the fold-evaluated
         report and the whole-sample plug-in at the same fold-reweighted fluctuation.
@@ -929,6 +1093,11 @@ class TMLE:
         ``"logit"`` (default) builds the band of a probability, or of a difference of two
         probabilities, on the logit of the estimate's position in its range; ``"identity"``
         on the estimate's own scale.  See :func:`~cleverly.inference.simultaneous_bands`.
+    band_reference:
+        ``"normal"`` (default) bands every estimate at the multiplier critical value;
+        ``"t"`` bands each estimate at the same tail of its own Student t reference, with
+        degrees of freedom from its influence curve.  See
+        :func:`~cleverly.inference.simultaneous_bands`.
     step_size, max_iter, tol:
         Targeting-step controls.
     stopping:
@@ -1150,6 +1319,7 @@ class TMLE:
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: MultiplierKind = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         step_size: float = 1e-3,
         max_iter: int = 20,
         tol: float = 1e-10,
@@ -1217,6 +1387,7 @@ class TMLE:
         self.n_multiplier = n_multiplier
         self.multiplier_kind = multiplier_kind
         self.band_scale = band_scale
+        self.band_reference = band_reference
         self.step_size = step_size
         self.max_iter = max_iter
         self.tol = tol
@@ -1232,6 +1403,7 @@ class TMLE:
         return False
 
     def _validate_settings(self) -> None:
+        check_band_reference(self.band_reference)
         if self.learned_rule is not None:
             if not isinstance(self.learned_rule, LearnedRule):
                 raise DataError(
@@ -1293,6 +1465,7 @@ class TMLE:
             raise ValueError(f"nuisance_bound must lie in (0, 0.5); got {self.nuisance_bound}")
         if self.n_bootstrap and self.n_bootstrap < 2:
             raise ValueError(f"n_bootstrap must be 0 or at least 2; got {self.n_bootstrap}")
+        check_rule_bootstrap(getattr(self, "stopping", "relative"), self.n_bootstrap)
         declared = [
             name
             for name, value in (
@@ -1990,7 +2163,20 @@ class TMLE:
         resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=False)
         resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=True)
         self._refuse_moved_known_values(data, estimands)
-        self._reference_arm(data)
+        reference = self._reference_arm(data)
+        if self.cv_evaluation and data.cluster is not None:
+            if self.estimands == "all":
+                # An ``all`` request drops what this fit cannot report, as it drops
+                # ``ey_obs``, ``par`` and ``paf`` above; a default or explicit request refuses.
+                estimands = tuple(
+                    name
+                    for name in estimands
+                    if parameter_stem(name) not in {"att", "atc"}
+                    or fold_evaluated_cluster_refusal(data, self, (name,), reference) is None
+                )
+            refusal = fold_evaluated_cluster_refusal(data, self, estimands, reference)
+            if refusal is not None:
+                raise refusal
         return Preflight(estimands, resolved.conditions)
 
     def _refuse_vector_compositions(self, data: CausalData) -> None:
@@ -2323,12 +2509,14 @@ class TMLE:
         # An estimate whose parameter status withholds its interval stays out of the band,
         # which is then a joint statement over the others, and below two of them no band is
         # built. This is the rule of ``LTMLE._bands`` (docs/architecture-invariants.md, row
-        # "a band"), and ``summary()`` names the estimates left out.
-        banded = {
-            name: estimate for name, estimate in estimates.items() if estimate.supplies_inference
-        }
+        # "a band"), and ``summary()`` names the estimates left out. Two statuses are the
+        # exceptions (``band_member``, ``constant_arm_members``): a bounded estimate on or
+        # outside its range stays a member, and an estimate with a constant arm cell skips
+        # the whole band, because a band over the others would cover a family the data chose.
+        banded = {name: estimate for name, estimate in estimates.items() if band_member(estimate)}
         if (
             self.simultaneous
+            and not constant_arm_members(estimates)
             and len(banded) > 1
             and supplies_inference(result.inference_status)
             and not has_t_reference(banded)
@@ -2355,6 +2543,7 @@ class TMLE:
                 random_state=self.random_state,
                 cluster=data.cluster,
                 band_scale=self.band_scale,  # type: ignore[arg-type]
+                band_reference=self.band_reference,  # type: ignore[arg-type]
             )
             result = replace(
                 result,
@@ -2364,8 +2553,9 @@ class TMLE:
                         classification,
                         result.inference_status,
                         (estimate.support for estimate in banded.values()),
-                        options=(self.multiplier_kind, self.band_scale),
+                        options=(self.multiplier_kind, self.band_scale, self.band_reference),
                         draws=int(self.n_multiplier),
+                        shape=band_shape(weighted=data.is_weighted, cluster=data.cluster),
                     ),
                 ),
             )
@@ -4851,6 +5041,12 @@ class TMLE:
         level = self.alpha_sig if alpha_sig is None else alpha_sig
         regimes = nuisance.regimes
         reference = self._reference_arm(data, regimes, nuisance.policies)
+        if self.cv_evaluation and not nuisance.folds.is_single:
+            # A sweep that changes the weights or the targets cannot reach a fold average
+            # the fit refuses.
+            refusal = fold_evaluated_cluster_refusal(data, self, requested, reference)
+            if refusal is not None:
+                raise refusal
         mean_bounds = g_bounds or resolve_g_bounds(
             self.g_bounds, self._bounds_n(data), for_att=False
         )
@@ -5100,7 +5296,8 @@ class TMLE:
         headline_reference: ClusterReference | None = cluster_reference
         if cluster_reference is not None and self.cv_evaluation and indices:
             # The headline is the fold-evaluated report, whose variance has J - V degrees of
-            # freedom (ClusterReference). The stacked report keeps J - 2.
+            # freedom at every cluster count (ClusterReference). The stacked report keeps
+            # J - 2 below 40 clusters and the normal reference from 40.
             headline_reference = cluster_reference.with_fold_evaluated(
                 fold_evaluated_report, len(indices)
             )
@@ -5989,6 +6186,9 @@ class TMLE:
             observed=observed,
             scaler=scaler,
             n=n,
+            # A declared stopping rule leaves the score unsolved by design, so every
+            # estimate adds the remaining score to its interval's half-width.
+            rule_widened=self.stopping != "relative",
             cluster=cluster,
             alpha_sig=alpha_sig,
             arms=codes,
@@ -6120,6 +6320,8 @@ class TMLE:
                     log_psi=estimate.log_psi,
                     covariance_rule=estimate.covariance_rule,
                     bounds=estimate.bounds,
+                    # The embedded curve's mean is the stratum's own residual.
+                    rule_widened=estimate.rule_widened,
                 )
                 codes[name] = code
         return out, codes
@@ -6482,6 +6684,11 @@ def _average_over_folds(
     A common validation update need not make any one fold's score zero, which is why
     :func:`cross_validated_variance` uses the uncentred fold second moments for rows; the
     cluster branch centres within each fold.
+
+    A clustered fit without a learned rule whose fold denominators are random never reaches
+    this average: its request refuses first (:func:`fold_evaluated_cluster_refusal`). The
+    ``cv_targeting`` diagnostic of a fold-targeted fit with ``cv_evaluation=False`` still
+    averages here.
     """
     out: dict[str, ParameterEstimate] = {}
     dropped: list[str] = []
@@ -6526,6 +6733,7 @@ def _average_over_folds(
             # rule. docs/technical-reference/inference.md states this contract.
             covariance_rule="centered",
             bounds=parts[0].bounds,
+            rule_widened=any(part.rule_widened for part in parts),
         )
 
     if dropped:

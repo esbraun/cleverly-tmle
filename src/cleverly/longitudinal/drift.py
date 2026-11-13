@@ -56,6 +56,12 @@ from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._typing import BoolArray, FloatArray, Learner
 from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, ConvergenceWarning, LongitudinalError
+from ..inference.multiplier import (
+    DEFAULT_BAND_REFERENCE,
+    DEFAULT_BAND_SCALE,
+    DEFAULT_KIND,
+    DEFAULT_N_REPLICATES,
+)
 from ..learners.crossfit import Folds
 from ..utils.bounds import bound
 from ._kernel import SmoothFit, smooth
@@ -73,6 +79,7 @@ from .estimator import (
     _Reported,
 )
 from .hazard import HazardFit, HazardState, InitialHazards, fit_hazards, hazard_inputs, level_label
+from .msm import RegimenMSM
 from .regimen import DynamicRegimen, Plan, resolve_regimens
 from .separable import split_separable
 from .sequential import Mechanism, NodeBound, RegimenFit
@@ -1485,6 +1492,16 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         A label for the run record.
     n_jobs : int, default=1
         Workers of the hazard learner.
+    n_multiplier : int, default=10_000
+        The multiplier draws of a band.  The fit builds no band (``simultaneous=True``
+        raises), so this and the next two keywords change nothing.  They take the package's
+        default band and any value, as on the other engines.
+    multiplier_kind : {"mammen", "rademacher", "normal"}, default="mammen"
+        The multiplier distribution of a band.
+    band_scale : {"logit", "identity"}, default="logit"
+        The scale of a band.
+    band_reference : {"normal", "t"}, default="normal"
+        The reference of a band.
 
     See Also
     --------
@@ -1554,8 +1571,10 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         survival_model: str = "hazard",
         targeting: str = "iterative",
         simultaneous: bool = False,
-        n_multiplier: int = 2000,
-        multiplier_kind: str = "rademacher",
+        n_multiplier: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: str = DEFAULT_KIND,
+        band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         repeats: int = 1,
         n_bootstrap: int = 0,
         bootstrap_resampling: Any = "auto",
@@ -1614,6 +1633,8 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             simultaneous=simultaneous,
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
+            band_scale=band_scale,
+            band_reference=band_reference,
             max_iter=max_iter,
             tol=tol,
             random_state=random_state,
@@ -1664,7 +1685,7 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             return ONE_STEP_REFUSAL
         if self.q_bounds is not None:
             return Q_BOUNDS_REFUSAL
-        if self.simultaneous or self.n_multiplier != 2000 or self.multiplier_kind != "rademacher":
+        if self.simultaneous:
             return BAND_REFUSAL
         if self.isotonic:
             return ISOTONIC_REFUSAL
@@ -1754,6 +1775,7 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         replay_recipe: _LongitudinalReplayRecipe,
         node_bounds: dict[str | None, dict[int, NodeBound]] | None,
         separable: tuple[Any, ...],
+        msm: RegimenMSM | None = None,
     ) -> _HazardBlock:
         """Fit the inherited nuisances, then run the drift correction per arm and horizon.
 
@@ -1783,6 +1805,8 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             Always ``None``: the constructor refuses node bounds.
         separable : tuple
             Always empty: the design refusal refuses a separable regimen.
+        msm : RegimenMSM or None, default None
+            Always ``None``: the constructor refuses ``msm=``.
 
         Returns
         -------
@@ -1803,6 +1827,7 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
                 replay_recipe=replay_recipe,
                 node_bounds=node_bounds,
                 separable=separable,
+                msm=msm,
             )
         outcome_learner, pseudo_learner, treatment_learner, censoring_learner, competing = learners
         mechanism = self._fit_mechanism(

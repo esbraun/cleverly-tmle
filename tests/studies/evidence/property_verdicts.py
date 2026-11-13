@@ -29,6 +29,7 @@ from tests.studies.evidence.properties import (
     coverage_gain_interval,
     largest_standardized_value,
     paired_displacement,
+    paired_se_ratio_interval,
     rate,
     ratio_intervals,
     require_accounted,
@@ -45,9 +46,12 @@ from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import BAND as SIMULTANEOUS_BAND
 from tests.studies.evidence.simultaneous import FAMILY as SIMULTANEOUS_FAMILY
 from tests.studies.evidence.simultaneous import (
+    REFERENCE_CONTROL,
+    REFERENCE_ROLE,
     SCALE_CONTROL,
     SCALE_GAIN_FLOOR,
     SCALE_ROLE,
+    T_BAND,
 )
 
 #: The informative-failure witness every property module declares as ``PROPERTY_WITNESS``
@@ -871,6 +875,7 @@ def simultaneous_coverage_verdicts(
     margins: Margins,
     rows: pd.DataFrame | None = None,
     record: StudyRecord | None = None,
+    reference_thresholds: Mapping[str, float | None] | None = None,
 ) -> None:
     """Read each joint-coverage cell against the rule its role answers to.
 
@@ -881,13 +886,16 @@ def simultaneous_coverage_verdicts(
     ``scale_control``) is the identity band at the band's own critical value: the 99% lower
     bound of the band's paired coverage gain over it must reach
     :data:`~tests.studies.evidence.simultaneous.SCALE_GAIN_FLOOR`, which is what shows the
-    band's scale does work.  It needs ``rows`` and ``record``.  A cell with the diagnostic
-    role reports its interval beside the band and declares no verdict.
+    band's scale does work.  It needs ``rows`` and ``record``.  A normal-reference control
+    (role ``reference_control``) reads :func:`reference_gain_verdict` at the threshold
+    ``reference_thresholds`` gives its label.  A cell with the diagnostic role reports its
+    interval beside the band and declares no verdict.
 
     Raises
     ------
     ValueError
-        If a scale control is read without ``rows`` and ``record``.
+        If a scale control is read without ``rows`` and ``record``, or a reference control
+        without ``rows``, ``record`` and a threshold entry for its label.
     """
     joint = summary["property"] == SIMULTANEOUS_FAMILY
     for index in summary.index[joint]:
@@ -902,6 +910,20 @@ def simultaneous_coverage_verdicts(
             summary.loc[index, "coverage_gain_ci_lower"] = low
             summary.loc[index, "coverage_gain_ci_upper"] = high
             summary.loc[index, "passed"] = bool(low >= SCALE_GAIN_FLOOR)
+            continue
+        if role == REFERENCE_ROLE:
+            cell = str(summary.loc[index, "cell"])
+            label = reference_label(cell)
+            if rows is None or record is None or reference_thresholds is None:
+                raise ValueError("a reference control's verdict reads the rows and the record")
+            if label not in reference_thresholds:
+                raise ValueError(f"{cell} has no declared gain clause")
+            low, high, passed = reference_gain_verdict(
+                rows, record, cell, reference_thresholds[label]
+            )
+            summary.loc[index, "coverage_gain_ci_lower"] = low
+            summary.loc[index, "coverage_gain_ci_upper"] = high
+            summary.loc[index, "passed"] = passed
             continue
         coverage = Interval(
             float(summary.loc[index, "coverage_ci_lower"]),
@@ -938,6 +960,40 @@ def scale_gain_interval(rows: pd.DataFrame, record: StudyRecord, cell: str) -> t
         confidence_level=record.margins.confidence_level,
         seed=scale_gain_seed(record, cell),
     )
+
+
+def reference_label(cell: str) -> str:
+    """The label of a normal-reference control cell."""
+    suffix = f"__{REFERENCE_CONTROL}"
+    if not cell.endswith(suffix):
+        raise ValueError(f"{cell} is not a normal-reference control cell")
+    return cell[: -len(suffix)]
+
+
+def reference_gain_verdict(
+    rows: pd.DataFrame, record: StudyRecord, cell: str, threshold: float | None
+) -> tuple[float, float, bool]:
+    """The paired gain of a ``t`` band over its normal-reference control, and its verdict.
+
+    The interval is :func:`coverage_gain_interval` on ``<label>/reference_gain``.  With a
+    threshold, the clause passes when the 99% lower limit reaches both the threshold and
+    :data:`~tests.studies.evidence.simultaneous.SCALE_GAIN_FLOOR` (the nonzero witness: a
+    ``t`` band with ``nu = inf`` gains exactly 0 on every replicate and fails).  ``None``
+    means the cell carries no gain clause (plan 5.2): the interval is reported and the
+    control passes, the cell's own 0.98 ceiling guarding over-coverage.
+    """
+    label = reference_label(cell)
+    family = rows.loc[rows["property"] == SIMULTANEOUS_FAMILY]
+    low, high = coverage_gain_interval(
+        family.loc[family["cell"] == f"{label}__{T_BAND}"],
+        family.loc[family["cell"] == cell],
+        replicates=record.margins.bootstrap_replicates,
+        confidence_level=record.margins.confidence_level,
+        seed=stream_seed(record, SIMULTANEOUS_FAMILY, f"{label}/reference_gain"),
+    )
+    if threshold is None:
+        return low, high, True
+    return low, high, bool(low >= max(float(threshold), SCALE_GAIN_FLOOR))
 
 
 def calibration_controls(
@@ -1910,32 +1966,191 @@ def finish(summary: pd.DataFrame, rates: list[dict[str, Any]]) -> pd.DataFrame:
     return summary.sort_values(["property", "cell"], ignore_index=True)
 
 
-#: The ``few_cluster_reference`` family, and what its ``iid_t_control`` SE-ratio upper bound
-#: must fall below.
+def coverage_limit_verdicts(
+    summary: pd.DataFrame,
+    *,
+    family: str,
+    floor: float | None = None,
+    ceiling: float | None = None,
+) -> None:
+    """Read a family's exact ``covered`` intervals against a floor and a ceiling, by role.
+
+    A positive row passes when the lower limit of its exact interval is at least ``floor``.
+    A control row passes when the upper limit is strictly below ``ceiling``, so a control
+    that fails to fail is red.  A :data:`DIAGNOSTIC_ROLE` row publishes its interval and states
+    no verdict.  The joint verdict is every gated row's.
+
+    The rows' ``covered`` column need not be a coverage indicator: a family that gates the
+    share of draws on which an event happened writes the event there, and the interval is
+    that share's exact interval.  The family's declaration says what the column holds.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The cell summary; this writes ``passed`` and ``property_passed`` on the family's rows.
+    family : str
+        The property family.
+    floor : float or None
+        The least lower limit of a positive row; ``None`` when the family has no positive row.
+    ceiling : float or None
+        The bound a control row's upper limit must fall below; ``None`` when it has none.
+
+    Raises
+    ------
+    ValueError
+        When a row's role has no limit to read.
+    """
+    mask = summary["property"] == family
+    passes: list[bool] = []
+    for index in summary.index[mask]:
+        role = str(summary.loc[index, "role"])
+        coverage = summary_interval(summary, index, "coverage")
+        if role == DIAGNOSTIC_ROLE:
+            summary.loc[index, "passed"] = True
+            continue
+        if role == "positive" and floor is not None:
+            passed = bool(coverage.low >= floor)
+        elif role == "control" and ceiling is not None:
+            passed = bool(coverage.high < ceiling)
+        else:
+            raise ValueError(f"{family} has a {role!r} row and no limit for that role")
+        summary.loc[index, "passed"] = passed
+        passes.append(passed)
+    if mask.any():
+        summary.loc[mask, "property_passed"] = bool(passes) and all(passes)
+
+
+def reported_verdicts(summary: pd.DataFrame, *, families: Sequence[str]) -> None:
+    """Publish the rows of reported families, which state no verdict.
+
+    Every row of each family must carry :data:`DIAGNOSTIC_ROLE`, which is what tells a
+    reader the row states no verdict; ``passed`` and ``property_passed`` are ``True`` for them,
+    as :func:`fold_policy_diagnostics` sets them.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The cell summary.
+    families : Sequence of str
+        The reported families.
+
+    Raises
+    ------
+    ValueError
+        When a row of a reported family carries another role.
+    """
+    mask = summary["property"].isin(list(families))
+    roles = set(summary.loc[mask, "role"].astype(str))
+    if roles - {DIAGNOSTIC_ROLE}:
+        raise ValueError(
+            f"reported families {sorted(families)} publish roles {sorted(roles)}; every row of a "
+            f"reported family carries {DIAGNOSTIC_ROLE!r}"
+        )
+    summary.loc[mask, "passed"] = True
+    summary.loc[mask, "property_passed"] = True
+
+
+#: The ``few_cluster_reference`` family, and what the upper bound of its ``iid_t_control``
+#: paired ratio, the mean IID SE over the mean cluster SE of the same fits, must fall below.
 FEW_CLUSTER_FAMILY = "few_cluster_reference"
 FEW_CLUSTER_IID_CONTROL_CEILING = 0.80
+#: The control-row columns that publish the two clauses of the IID control.
+FEW_CLUSTER_COLUMNS = (
+    "paired_se_ratio",
+    "paired_se_ratio_ci_lower",
+    "paired_se_ratio_ci_upper",
+    "paired_positive_se_ratio_ci_upper",
+)
+
+
+def few_cluster_pair(
+    summary: pd.DataFrame, groups: Sequence[Sequence[str]], cell: str
+) -> tuple[str, str]:
+    """The positive and control cells of the declared group that holds ``cell``.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The summary whose roles name the positive and the control.
+    groups : sequence of sequence of str
+        The module's declared groups of the family: the arms of one fit, size law and count.
+    cell : str
+        One cell of a group.
+
+    Returns
+    -------
+    tuple of str
+        The positive cell and the control cell.
+
+    Raises
+    ------
+    ValueError
+        When no group holds ``cell``, or its group is not one positive and one control cell.
+    """
+    members = next((tuple(group) for group in groups if cell in group), None)
+    if members is None:
+        raise ValueError(f"{FEW_CLUSTER_FAMILY}/{cell} is in no declared group")
+    selected = summary.loc[
+        (summary["property"] == FEW_CLUSTER_FAMILY) & summary["cell"].isin(members)
+    ]
+    positive = selected.loc[selected["role"] == "positive", "cell"]
+    control = selected.loc[selected["role"] == "control", "cell"]
+    if len(positive) != 1 or len(control) != 1:
+        raise ValueError(
+            f"{FEW_CLUSTER_FAMILY} group {members} is not one positive and one control"
+        )
+    return str(positive.iloc[0]), str(control.iloc[0])
 
 
 def few_cluster_reference_verdicts(
-    summary: pd.DataFrame, rows: pd.DataFrame, record: StudyRecord
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    groups: Sequence[Sequence[str]],
 ) -> None:
     """The positive, control and reported rules of every ``few_cluster_reference`` cell.
 
     A ``t_reference`` arm (positive) needs the 99% exact coverage lower bound at the coverage
-    floor and the bias inside the equivalence margin. An ``iid_t_control`` arm (control) needs
-    its SE-ratio upper bound below :data:`FEW_CLUSTER_IID_CONTROL_CEILING`. A diagnostic arm
-    states no verdict. Every cell publishes its SE-ratio interval, because at few clusters
-    excess width is as likely as under-coverage. ``clustered-few-cluster-tmle`` and
+    floor and the bias inside the equivalence margin. An ``iid_t_control`` arm (control) must
+    show that the law's clustering changes its fit's variance by more than any overstatement the
+    SE screen admits, through two clauses that must both hold:
+
+    1. the 99% upper bound of the paired ratio, the mean IID SE over the mean cluster SE of the
+       same fits (:func:`~tests.studies.evidence.properties.paired_se_ratio_interval`), is
+       below :data:`FEW_CLUSTER_IID_CONTROL_CEILING`;
+    2. the paired positive arm's SE-ratio upper bound is at most ``margins.se_ratio_sanity[1]``.
+
+    The paired ratio is the IID SE ratio over the cluster SE ratio, so it reads the cluster
+    effect only while the cluster SE is calibrated: a cluster SE inflated by a factor ``c``
+    gives a ratio of about ``1/c`` on a law with no cluster effect. Clause 2 bounds ``c``.
+    The control row publishes both clauses (:data:`FEW_CLUSTER_COLUMNS`) and keeps its own
+    IID SE-ratio interval, which the verdict does not read. A diagnostic arm states no verdict.
+    Every cell publishes its SE-ratio interval, because at few clusters excess width is as
+    likely as under-coverage. ``clustered-few-cluster-tmle`` and
     ``few-cluster-cross-fitted-ltmle`` both read this one rule.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The summary, updated in place.
+    rows : pandas.DataFrame
+        The replication rows.
+    record : StudyRecord
+        The study, for its margins and seed streams.
+    groups : sequence of sequence of str
+        The module's declared groups of the family (``PROPERTY_GROUPS``), which pair each
+        control with its positive arm.
     """
     margins = record.margins
     family = summary["property"] == FEW_CLUSTER_FAMILY
+
+    def cell_rows(cell: str) -> pd.DataFrame:
+        return rows.loc[(rows["property"] == FEW_CLUSTER_FAMILY) & (rows["cell"] == cell)]
+
     for index in summary.index[family.to_numpy()]:
         cell = str(summary.loc[index, "cell"])
-        role = str(summary.loc[index, "role"])
-        group = rows.loc[(rows["property"] == FEW_CLUSTER_FAMILY) & (rows["cell"] == cell)]
         ratio = se_ratio_interval(
-            group,
+            cell_rows(cell),
             replicates=margins.bootstrap_replicates,
             confidence_level=margins.confidence_level,
             seed=stream_seed(record, FEW_CLUSTER_FAMILY, cell),
@@ -1943,13 +2158,33 @@ def few_cluster_reference_verdicts(
         )
         summary.loc[index, "se_ratio_ci_lower"] = ratio.low
         summary.loc[index, "se_ratio_ci_upper"] = ratio.high
+    by_cell = {str(summary.loc[i, "cell"]): i for i in summary.index[family.to_numpy()]}
+    for index in summary.index[family.to_numpy()]:
+        cell = str(summary.loc[index, "cell"])
+        role = str(summary.loc[index, "role"])
         if role == "positive":
             summary.loc[index, "passed"] = bool(
                 summary.loc[index, "coverage_ci_lower"] >= margins.coverage_floor
                 and summary.loc[index, "bias_equivalent"]
             )
         elif role == "control":
-            summary.loc[index, "passed"] = bool(ratio.high < FEW_CLUSTER_IID_CONTROL_CEILING)
+            positive, _ = few_cluster_pair(summary, groups, cell)
+            paired = paired_se_ratio_interval(
+                cell_rows(cell),
+                cell_rows(positive),
+                replicates=margins.bootstrap_replicates,
+                confidence_level=margins.confidence_level,
+                seed=stream_seed(record, FEW_CLUSTER_FAMILY, cell),
+            )
+            positive_high = float(summary.loc[by_cell[positive], "se_ratio_ci_upper"])
+            summary.loc[index, "paired_se_ratio"] = paired.ratio
+            summary.loc[index, "paired_se_ratio_ci_lower"] = paired.interval.low
+            summary.loc[index, "paired_se_ratio_ci_upper"] = paired.interval.high
+            summary.loc[index, "paired_positive_se_ratio_ci_upper"] = positive_high
+            summary.loc[index, "passed"] = bool(
+                paired.interval.high < FEW_CLUSTER_IID_CONTROL_CEILING
+                and positive_high <= margins.se_ratio_sanity[1]
+            )
         else:
             summary.loc[index, "passed"] = True
         summary.loc[index, "property_passed"] = summary.loc[index, "passed"]
@@ -2411,6 +2646,19 @@ def calibration_rule(*, efficiency_band: tuple[float, float] | None) -> pf.Famil
 
 
 def _simultaneous_rule() -> pf.FamilyRule:
+    return simultaneous_rule()
+
+
+def simultaneous_rule(
+    reference_thresholds: Mapping[str, float | None] | None = None,
+) -> pf.FamilyRule:
+    """The joint-coverage family's accounting rule, with the reference clause when declared.
+
+    A study that gates a normal-reference control's paired gain passes the threshold of each
+    label, as :func:`simultaneous_coverage_verdicts` reads them.  ``band-t-reference`` reports
+    that gain and gates only coverage (Fix-2 plan rev 3.3), so it passes none.
+    """
+    extra = () if reference_thresholds is None else (_reference_gain_clause(reference_thresholds),)
     return pf.FamilyRule(
         families=frozenset({"simultaneous_coverage"}),
         shared="simultaneous_coverage_verdicts",
@@ -2428,7 +2676,58 @@ def _simultaneous_rule() -> pf.FamilyRule:
                 applies=pf.roles("control"),
             ),
             _scale_gain_clause(),
+            *extra,
         ),
+    )
+
+
+def _reference_gain_clause(thresholds: Mapping[str, float | None]) -> pf.Clause:
+    """The ``t`` band's paired gain over its normal-reference control, under the aligned fill.
+
+    The analogue of :func:`_scale_gain_clause` for :func:`reference_gain_verdict`: the pair is
+    the ``t`` band and the ``reference_control`` cell, and a label without a clause
+    (threshold ``None``) always passes.
+    """
+
+    def judge(iv: Interval, cell: str) -> pf.Judged:
+        threshold = thresholds[reference_label(cell)]
+        if threshold is None:
+            return pf.Judged(iv.low, True)
+        bound = max(float(threshold), SCALE_GAIN_FLOOR)
+        return pf.Judged(iv.low - bound, bool(iv.low >= bound))
+
+    def band(cell: str) -> str:
+        return f"{reference_label(cell)}__{T_BAND}"
+
+    def read(ctx: pf.Context, row: pd.Series) -> pf.Judged:
+        interval = Interval(
+            float(row["coverage_gain_ci_lower"]), float(row["coverage_gain_ci_upper"])
+        )
+        return judge(interval, str(row["cell"]))
+
+    def reads(ctx: pf.Context, row: pd.Series) -> list[tuple[str, str]]:
+        cell = str(row["cell"])
+        return [(SIMULTANEOUS_FAMILY, band(cell)), (SIMULTANEOUS_FAMILY, cell)]
+
+    def candidates(ctx: pf.Context, row: pd.Series) -> list[tuple[str, pf.Judged]]:
+        cell = str(row["cell"])
+        interval = pf.aligned_gain_interval(
+            ctx,
+            ctx.cell(SIMULTANEOUS_FAMILY, band(cell)),
+            ctx.cell(SIMULTANEOUS_FAMILY, cell),
+            stream_seed(ctx.record, SIMULTANEOUS_FAMILY, f"{reference_label(cell)}/reference_gain"),
+        )
+        return [("lost t band uncovered, lost normal band covered", judge(interval, cell))]
+
+    return pf.Clause(
+        "joint coverage gain over the normal reference",
+        "S7r",
+        pf.roles(REFERENCE_ROLE),
+        read,
+        candidates,
+        target="passed",
+        imputation=pf.SUPPORT,
+        reads=reads,
     )
 
 
@@ -2570,10 +2869,15 @@ def _few_cluster_rule() -> pf.FamilyRule:
                 applies=pf.roles("positive"),
             ),
             pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
-            pf.se_interval_clause(
-                "iid se ratio under its ceiling",
-                which="se_ratio",
+            pf.paired_se_ratio_clause(
+                "paired iid/cluster se ratio under its ceiling",
                 judge=pf.below_judge(lambda ctx: FEW_CLUSTER_IID_CONTROL_CEILING),
+                seed=_cell_seed(FEW_CLUSTER_FAMILY),
+                applies=pf.roles("control"),
+            ),
+            pf.paired_positive_se_clause(
+                "paired positive se ratio at most the sanity ceiling",
+                judge=pf.ceiling_judge(lambda ctx: ctx.margins.se_ratio_sanity[1]),
                 seed=_cell_seed(FEW_CLUSTER_FAMILY),
                 applies=pf.roles("control"),
                 truth_varies=lambda ctx: False,
@@ -2831,6 +3135,55 @@ def requirement_rule(family: str, *, shared: str) -> pf.FamilyRule:
             pf.bias_clause("bias discriminated", kind="beyond", applies=pf.roles("control")),
         ),
         group="family",
+    )
+
+
+def coverage_limit_rule(
+    family: str,
+    *,
+    floor: float | None,
+    ceiling: float | None,
+    shared: str = "coverage_limit_verdicts",
+) -> pf.FamilyRule:
+    """The rule of :func:`coverage_limit_verdicts`: S2 by role, joint over the family.
+
+    Parameters
+    ----------
+    family : str
+        The property family.
+    floor : float or None
+        A positive row's least lower limit, as the verdict reads it.
+    ceiling : float or None
+        The bound a control row's upper limit falls below, as the verdict reads it.
+    shared : str
+        The function that computes the verdict.
+
+    Returns
+    -------
+    FamilyRule
+        The rule, grouped by family.
+    """
+    clauses: list[pf.Clause] = []
+    if floor is not None:
+        clauses.append(
+            pf.proportion_clause(
+                "coverage floor",
+                statistic="S2",
+                judge=pf.floor_judge(lambda ctx: floor),
+                applies=pf.roles("positive"),
+            )
+        )
+    if ceiling is not None:
+        clauses.append(
+            pf.proportion_clause(
+                "coverage ceiling",
+                statistic="S2",
+                judge=pf.below_judge(lambda ctx: ceiling),
+                applies=pf.roles("control"),
+            )
+        )
+    return pf.FamilyRule(
+        families=frozenset({family}), shared=shared, clauses=tuple(clauses), group="family"
     )
 
 

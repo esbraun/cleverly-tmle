@@ -591,8 +591,9 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
         ),
         "t_reference": (
             "A row based on fewer than {threshold} clusters with positive weight mass, in "
-            "the fit or in its stratum, takes its interval and p-value from a t distribution "
-            "with the degrees of freedom in the df column, which widens them; a row marked "
+            "the fit or in its stratum, or averaged over cross-fitting folds, takes its "
+            "interval and p-value from a t distribution with the degrees of freedom in the df "
+            "column, which widens them; a row marked "
             "normal uses the normal distribution. The full summary gives the rule and its "
             "sources."
         ),
@@ -643,9 +644,8 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
         ),
         "stopping_rule": (
             "Under the declared stopping rule the estimating equation is solved up to a "
-            "remainder worth {b} standard errors of bias (on {name}). If the standard error "
-            "is right, a {level} interval with that bias still covers the truth at least "
-            "{bound} of the time."
+            "remainder worth {b} standard errors (on {name}). Each Wald interval and band "
+            "adds the remainder of its own quantity to its half-width."
         ),
         "bootstrap_experimental": (
             "No validation study covers the bootstrap interval of {names} for this kind of "
@@ -656,6 +656,11 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
             "them experimental."
         ),
         "bands_leave_out": "The bands leave out {names}, which have no interval.",
+        "bands_t_reference": (
+            "Each band takes the critical value's tail probability on its own Student t "
+            "reference, whose degrees of freedom the df column gives; a row with few large "
+            "contributions to its estimate gets a lower df and a wider band."
+        ),
         "folds_reduced": (
             "The fit asked for {declared} folds and used {used}, because the rarest group "
             "or the cluster count allowed no more."
@@ -3486,6 +3491,12 @@ INTERMEDIATE: Final = "Intermediate"
 CRITICAL_VALUE: Final = "Critical value"
 MULTIPLIER_DRAWS: Final = "Multiplier draws"
 MULTIPLIER_KIND: Final = "Multiplier weights"
+#: What the Reference header of a band summary prints for each ``band_reference``.
+BAND_REFERENCE_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {"normal": "normal", "t": "t, one df per row"}
+)
+#: The df cell of a ``"t"`` band row whose degrees of freedom the floor raised.
+BAND_DF_FLOOR_TEXT: Final = "{floor} (floor)"
 STATISTIC: Final = "statistic"
 
 HEADER_LABELS = HEADER_LABELS | {
@@ -4697,3 +4708,75 @@ BALANCE_READINGS: Final[Mapping[str, str]] = MappingProxyType(
         ),
     }
 )
+
+# ------------------------------------------------- continuous-time survival (X91 part G)
+
+#: The ``checkable`` note of a question on a continuous follow-up time, whose fit reports
+#: overlap through its record rather than through a diagnostics facade.
+CONTINUOUS_CHECKABLE: Final = (
+    "The data cannot confirm these conditions. Overlap (marked partly) can be probed: after a "
+    "fit, result.record.bounded_share and result.record.last_time_floor_share give the share "
+    "of units whose chance of an arm times staying uncensored fell below the floor. They read "
+    "fitted models, so small shares do not prove overlap."
+)
+#: The design word of a time-to-event design whose follow-up time is not binned.
+CONTINUOUS_DESIGN: Final = "time to an event, continuous follow-up"
+CONTINUOUS_SURVIVAL_TITLE: Final = "Risk by time, continuous follow-up (TMLE)"
+CONTINUOUS_QUESTION: Final = "risk of {causes} by each time"
+CONTINUOUS_TIMES: Final = "Times"
+CONTINUOUS_ARMS: Final = "Arms"
+CONTINUOUS_ARMS_TEXT: Final = "{treated} vs {reference}"
+CONTINUOUS_METHOD: Final = "one-step TMLE"
+CONTINUOUS_FOLDS: Final = ", {k} folds"
+EVENT_MODELS: Final = "Event model"
+TARGETING_STEPS: Final = "Update steps"
+TARGETING_READING: Final[Mapping[bool, str]] = MappingProxyType(
+    {True: "{steps}, converged", False: "{steps}, stopped early"}
+)
+USER_TREATMENT_MODEL: Final = "the learner passed in"
+SECTION_TARGETING: Final = "How the update ended"
+CONTINUOUS_TARGETING_LINES: Final[tuple[str, ...]] = (
+    "Distinct follow-up times in the window: {grid}",
+    "Largest |mean influence-curve value| / its standard deviation: {worst} (stopping rule "
+    "{cutoff})",
+    "Step halvings: {halvings}",
+    "Share of followed (unit, time) cells where the chance of the received arm times staying "
+    "uncensored was raised to its floor: {bounded}",
+    "Share of (unit, arm) pairs, over both arms, whose chance of that arm times staying "
+    "uncensored to the last time is below the floor: {last}",
+    "Share of (unit, arm) pairs held still for at least one update step because the step "
+    "would have taken their chance of no event by the last time below its floor: {frozen}",
+    "Share of {draws} random times in the window where the score equation also holds within "
+    "the stopping rule: {off_grid}",
+)
+CONTINUOUS_FIRST_FOLD: Final = (
+    "The models named above are the first fold's selections; each fold selects its own."
+)
+#: The assumptions a continuous-time survival fit states.
+CONTINUOUS_ASSUMPTIONS: Final[tuple[str, ...]] = (
+    "no unmeasured confounding: given the baseline covariates, the arm a unit got is "
+    "unrelated to its event times",
+    "censoring at random: given the arm and the baseline covariates, whether a unit is still "
+    "followed is unrelated to when its event would happen",
+    "both arms possible: every group of units with the same baseline covariates could get "
+    "either arm",
+    "follow-up reaches the last target time: every group could still be followed then",
+)
+
+CONTINUOUS_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "continuous_not_converged": "warning",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **CONTINUOUS_NOTE_CODES})
+
+CONTINUOUS_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "continuous_not_converged": (
+            "The update stopped after {steps} steps before every mean score fell below "
+            "its stopping rule; the largest is {worst} times the rule. The intervals may be "
+            "too narrow. result.record.standardized_score lists every target."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **CONTINUOUS_NOTE_TEXTS})

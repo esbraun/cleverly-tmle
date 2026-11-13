@@ -481,10 +481,35 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     ),
     # The logit-MSM slope in the smallest stratum of the stratified incremental and MSM
     # study.  ``tests/unit/test_band_shortfall_reading.py`` rebuilds the reading.
-    "X8-logit-small-stratum": _keys(
-        "canonical-stratified-incremental-msm",
+    # ``small-sample-wald`` adds held-out law H3's two gated logit-MSM coefficients, read in
+    # the post-run review as the same O(1/n) SE shortfall at about 300 stratum rows.
+    "X8-logit-small-stratum": (
+        *_keys(
+            "canonical-stratified-incremental-msm",
+            "property",
+            "interval_calibration/logit_v2_a__correctly_specified",
+        ),
+        *_keys(
+            "small-sample-wald",
+            "property",
+            "heldout_coverage/ho_logit_msm_a",
+            "heldout_coverage/ho_logit_msm_w",
+        ),
+    ),
+    # ``small-sample-wald``'s held-out bounded difference whose treated arm sits near 1 and
+    # carries most of its variance: the rule's normal reference refuted for differences.
+    "F3-difference-near-bound": _keys(
+        "small-sample-wald",
         "property",
-        "interval_calibration/logit_v2_a__correctly_specified",
+        "heldout_coverage/ho_sparse_treat_ate",
+    ),
+    # ``small-sample-wald``'s skewed continuous means in a small stratum: the moment-df t
+    # refuted for skewed outcomes, on held-out law H2 and on a diagnosis law.
+    "F3-skewed-continuous": _keys(
+        "small-sample-wald",
+        "property",
+        "heldout_coverage/ho_hurdle_ey1",
+        "diagnosis_continuous/lognormal06_ey1",
     ),
     # Stratum 2 of the identity-MSM study: a calibration cell and the paired W row that is
     # inconclusive on its calibration leg.  ``tests/unit/test_band_shortfall_reading.py``.
@@ -621,28 +646,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "truth",
         "cleverly-learned-rule-cvtmle/exceptional/ey_learned_rule[learned rule]",
         "cleverly-learned-rule-cvtmle/weak_blip/ey_learned_rule[learned rule]",
-    ),
-    # The finite-sample limits of clustered intervals: the fold-evaluated covariate pair of the
-    # unequal-size study, and the few-cluster study's unequal-size fold-evaluated bias cells and
-    # DR-TMLE IID controls.
-    "F28": (
-        *_keys(
-            "clustered-unequal-cvtmle",
-            "property",
-            "clustered_inference/cluster_robust_fold_evaluated_cluster_covariate",
-            "clustered_inference/iid_control_fold_evaluated_cluster_covariate",
-        ),
-        *_keys(
-            "clustered-few-cluster-tmle",
-            "property",
-            "few_cluster_reference/drtmle_crossfit__equal10__j10__iid_t_control",
-            "few_cluster_reference/drtmle_crossfit__equal10__j20__iid_t_control",
-            "few_cluster_reference/drtmle_crossfit__equal10__j30__iid_t_control",
-            "few_cluster_reference/drtmle_crossfit__unequal_informative__j10__iid_t_control",
-            "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j10__t_reference",
-            "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j20__t_reference",
-            "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j30__t_reference",
-        ),
     ),
     "F1-power-design": (
         *_keys("stochastic-categorical-ltmle", "property", "power/mix__alternative"),

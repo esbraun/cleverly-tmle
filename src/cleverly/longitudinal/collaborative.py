@@ -63,7 +63,12 @@ from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._typing import BoolArray, FloatArray, Learner
 from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, ConvergenceWarning, LongitudinalError
-from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
+from ..inference.multiplier import (
+    DEFAULT_BAND_REFERENCE,
+    DEFAULT_BAND_SCALE,
+    DEFAULT_KIND,
+    DEFAULT_N_REPLICATES,
+)
 from ..learners.crossfit import Folds, make_folds
 from ..learners.glm import _active_columns
 from ..utils.bounds import bound
@@ -91,6 +96,7 @@ from .hazard import (
     solve_per_horizon,
     walk_loss,
 )
+from .msm import RegimenMSM
 from .regimen import DynamicRegimen, Plan, resolve_regimens
 from .separable import split_separable
 from .sequential import Mechanism, NodeBound, RegimenFit
@@ -1502,6 +1508,7 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         repeats: int = 1,
         n_bootstrap: int = 0,
         bootstrap_resampling: Any = "auto",
@@ -1570,6 +1577,7 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
             band_scale=band_scale,
+            band_reference=band_reference,
             max_iter=max_iter,
             tol=tol,
             random_state=random_state,
@@ -1654,6 +1662,7 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             or self.n_multiplier != DEFAULT_N_REPLICATES
             or self.multiplier_kind != DEFAULT_KIND
             or self.band_scale != DEFAULT_BAND_SCALE
+            or self.band_reference != DEFAULT_BAND_REFERENCE
         ):
             return BAND_REFUSAL
         if (
@@ -1730,6 +1739,7 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         replay_recipe: _LongitudinalReplayRecipe,
         node_bounds: dict[str | None, dict[int, NodeBound]] | None,
         separable: tuple[Any, ...],
+        msm: RegimenMSM | None = None,
     ) -> _HazardBlock:
         """Fit :math:`\\hat Q_2` once, select each arm's mechanisms at each horizon, and report.
 
@@ -1760,6 +1770,8 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             Always ``None``: the constructor refuses node bounds.
         separable : tuple
             Always empty: the design refusal refuses a separable regimen.
+        msm : RegimenMSM or None, default None
+            Always ``None``: the constructor refuses ``msm=``.
 
         Returns
         -------

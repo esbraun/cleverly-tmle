@@ -20,8 +20,11 @@ implementation cross-fits a clustered longitudinal fit at few clusters with a t 
 
 **Property ``few_cluster_reference``.** The family and the verdict rule of
 ``clustered-few-cluster-tmle``: a ``t_reference`` arm (99% exact coverage lower bound at least
-0.90, bias within 0.25 empirical SD), an ``iid_t_control`` arm (SE-ratio upper bound below
-0.80), and a reported ``normal_reference`` arm.
+0.90, bias within 0.25 empirical SD), an ``iid_t_control`` arm (the upper bound of the paired
+ratio of the mean IID SE to the mean cluster SE below 0.80, and the paired ``t_reference``
+arm's SE-ratio upper bound at most 1.20), and a reported ``normal_reference`` arm. The
+two-clause control replaced the IID SE over the empirical SD with Fix-4, so this study is
+regenerated with the rows it shares with ``clustered-few-cluster-tmle``.
 
 Publication policy is ``reporting``, declared before any run. Every red cell is published and
 F28 owns it. No margin, budget, law, latent or learner changes after a result is seen.

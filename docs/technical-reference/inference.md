@@ -140,12 +140,16 @@ status. A shown status returns the plug-in interval and the estimate carries the
 
 A `TMLE` or `DRTMLE` fit with `treatment_adjustment=` keeps `"influence_curve"`. The interval is
 claimed only under the declared restriction, and every fit on the design prints it. A declared
-`stopping=` rule keeps the status too. It leaves a score residual that the summary reports in
-standard errors, with the coverage a Wald interval keeps at that residual.
+`stopping=` rule keeps the status too. It leaves a score residual $r_n$, and the interval adds
+$\lvert r_n\rvert$ to its half-width on the scale it is built on, so it keeps its level whatever
+the residual's dependence on the error. The p-value inverts that interval.
+"The interval under a declared rule" in [stopping rules](point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate)
+gives the derivation.
 
 At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
 reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
-that claim no coverage. On a non-inferential status they return a diagnostic.
+that claim no coverage, the widening of a declared stopping rule included. On a non-inferential
+status they return a diagnostic.
 
 One table in `cleverly._inference_status`, `STATUS_RECORDS`, holds the texts of each
 non-inferential status. The refusal, the `summary()` paragraph, the assessment note, and the
@@ -306,7 +310,7 @@ see that term, so `tests/unit/test_cluster_ratio_variance.py` checks it at sizes
 | path | variance at unequal sizes |
 | --- | --- |
 | in sample, and the stacked cross-fitted report | the cluster-sum variance above |
-| `cv_evaluation=True` | the centered cluster variance inside each validation fold ([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)). Each validation fold needs 2 clusters with positive weight mass |
+| `cv_evaluation=True` | refused, with a redirection to the stacked report, when the clusters differ in a requested estimand's denominator mass; a learned-rule fit is exempt ([CV-TMLE](cv-tmle.md#clusters-of-unequal-mass)). Where it runs, the centered cluster variance inside each validation fold, with 2 clusters of positive weight mass in each fold |
 | `targeting_scheme="fold"`, `DRTMLE` cross-fitted, and `repeats` above 1 | the variance of the shipped construction. Each sums the curve within clusters |
 | baseline strata | the stratum curve, embedded at $n/n_s$ and summed over the full cluster vector |
 
@@ -328,14 +332,14 @@ its intervals and p-values on a Student $t$ reference with $J-2$ degrees of free
 $J$ below 10 ($20$ for `LTMLE`) carries the experimental label and the status
 `"few_cluster_plugin"`.
 Nugent et al. (2024), Section 2.2, last paragraph, give the rule. At 40 clusters or more the normal
-reference stays. `ParameterEstimate.reference_df` holds the degrees of freedom, or `None` for the
-normal reference.
+reference stays, except for a fold-evaluated estimate, which takes $J-V$ at every cluster count.
+`ParameterEstimate.reference_df` holds the degrees of freedom, or `None` for the normal reference.
 
 | estimate | `reference_df` |
 | --- | --- |
 | a marginal estimate of the fit | $J-2$, with $J$ the positive-mass cluster count of the fit |
 | a baseline-stratum estimate | $J_s-2$, with $J_s$ the positive-mass cluster count of the stratum |
-| a fold-evaluated estimate over $V$ validation folds: the `cv_evaluation=True` report and the `fold_evaluated` report of `cv_targeting` | $\min(J-2, J-V)$. The package uses the pooled within-fold count as a reference rule |
+| a fold-evaluated estimate over $V$ validation folds: the `cv_evaluation=True` report and the `fold_evaluated` report of `cv_targeting` | $J-V$ at every cluster count, the pooled within-fold count. From 40 clusters too, so it is never `None` |
 | a derived estimate: `contrast()`, `ratio()`, and the median over `repeats` | the smallest `reference_df` of its inputs. `None` counts as infinite |
 | an in-fit `rr` or `or` | the value of the arm means it reads |
 | every estimate of a `"no_cluster_variance_plugin"` fit | `None`. The diagnostic keeps the normal reference |
@@ -347,7 +351,7 @@ missingness tilt and the omitted-variable limits read it through `wald_ci` and
 
 | request on a fit with a $t$ reference | result |
 | --- | --- |
-| the default simultaneous band | skipped. The summary states the reason. No source gives a $t$-calibrated band |
+| the default simultaneous band | skipped. The summary states the reason. No source gives a $t$-calibrated band. A clustered fold-evaluated fit carries a $t$ reference at every cluster count, so it has no simultaneous band at 40 clusters or more either; the stacked report keeps its band there |
 | `simultaneous_bands()` | `CapabilityError` |
 | the cluster bootstrap | printed as a percentile range from 3 to 9 clusters (3 to 19 for `LTMLE`), whatever the status. From 10 clusters it keeps the interval names and carries the label `experimental`, because no support row lists the `bootstrap` kind for a clustered fit |
 
@@ -357,16 +361,27 @@ totals with a common variance uses $J-1$. R `ltmle` uses $J-1$.
 The $J-2$ quantile is larger, but this comparison does not establish coverage for estimated
 TMLE curves.
 
-A fold-evaluated report takes $\min(J-2, J-V)$, using the pooled within-fold count.
-Unequal fold sizes and heterogeneous cluster variances do not give this sum of variances an
-exact $t_{J-V}$ reference. The registered few-cluster study measures the declared rule on its two
-size laws. An implementation review measured the difference at $J=10$ and $V=5$, with 2 clusters per fold.
-Over 1,500 draws, $t_{J-2}$ covered 0.935 and $t_{J-V}$ covered 0.955.
+A fold-evaluated report takes $t_{J-V}$ at every cluster count. Its variance centers the cluster
+totals inside each fold, so it pools $J_v-1$ degrees of freedom from each of the $V$ folds. Under
+the normal one-way model with equal folds the studentized estimate is exactly $t_{J-V}$. Unequal
+fold sizes and heterogeneous cluster variances make the count an approximation. With $V$ fixed,
+$t_{J-V}$ tends to the normal as $J$ grows, so the rule needs no cutoff at 40, where the stacked
+rule switches.
 
-Prefer the stacked report when cluster sizes depend on the outcome. There a fold-evaluated point
-has a bias of about $V$ times the stacked bias at few clusters per fold. The reference corrects
-the variance and not this bias. At 2, 4 and 6 clusters per fold the few-cluster study reads 0.61,
-0.43 and 0.32 empirical standard deviations ([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)).
+An implementation review measured the difference from $t_{J-2}$ at $J=10$ and
+$V=5$, with 2 clusters per fold: over 1,500 draws, $t_{J-2}$ covered 0.935 and $t_{J-V}$ covered
+0.955. The registered few-cluster study and the covariate pair of the unequal-size study, at 40
+clusters in 10 folds on $t_{30}$, measure the rule at equal cluster sizes.
+
+`cv_evaluation=True` refuses a clustered fit, before any learner, when the clusters differ in the
+denominator mass of a requested estimand: the total weight (the row count when unweighted) for
+the means and the ATE, the treated mass for `att` and the control mass for `atc`. Each fold point
+is then a ratio of cluster sums with a random denominator, and the equal $1/V$ average carries
+about $V$ times the ratio bias of the stacked point. The $t$ reference corrects the variance, not
+that bias. The refusal has code `api_redirection` and names the stacked report, which estimates
+the same parameter. A learned-rule fit is exempt, because its target is defined by the $1/V$
+average. [CV-TMLE](cv-tmle.md#clusters-of-unequal-mass) gives the trigger, the measured bias and
+the reason the stacked point is the only fold aggregation without it.
 
 Wang et al. (2024), Remark 3, caution against complex nuisance learners at about 20 clusters. The
 registered few-cluster evidence uses parametric nuisance learners only.
@@ -399,6 +414,8 @@ interval.
 | --- | --- |
 | `fewest_clusters` | the distinct cluster count with positive weight mass. On a fit with baseline strata, it also counts those clusters within each stratum and returns the smallest count |
 | `cluster_reference_df` | the positive-mass cluster count of the rows one estimate reads, as $J-2$, or `None` at 40 or more |
+| `fold_evaluated_reference_df` | the same count for a fold-evaluated estimate, as $J-V$ at every count |
+| `unequal_positive_cluster_mass` | the range of one estimand's denominator mass over the clusters with positive total mass, which the `cv_evaluation=True` refusal reads |
 | `cluster_sizes`, `cluster_weight_mass`, `unequal_cluster_sizes` | the row count and the weight mass of each cluster, for the summary facts only |
 
 The facts block of `TMLEResult.summary()` prints the cluster count. It adds unequal row or
@@ -465,9 +482,12 @@ estimates a familywise critical value.
 | `n_multiplier=` | the number of draws: 10,000 by default on every engine |
 | `multiplier_kind=` | the multiplier distribution: `mammen` (the default), `rademacher`, or `normal` |
 | `band_scale=` | the scale of the band of a probability or of a difference of two probabilities: `logit` (the default) or `identity` |
+| `band_reference=` | the reference each estimate's band slice is read on: `normal` (the default) or `t`, a Student $t$ per estimate ([The t reference](#the-t-reference)) |
 
 The default band (Mammen multiplier, logit scale, 10,000 draws) is the same for `simultaneous_bands()`,
-`median_bands()`, every estimator and `Inference`. The module docstring of
+`median_bands()`, every estimator and `Inference`. The logit scale maps only an estimate that carries
+its range. `DoseResponseTMLE` passes none, so its band is the Mammen band at 10,000 draws on the
+identity scale, and a limit can leave [0, 1]. The module docstring of
 [`inference/multiplier.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/multiplier.py)
 says why each choice holds, and `tests/unit/test_band_defaults.py` pins every signature to it. A
 projection curve's band (`ProjectionCurve.band()`, `TMLEResult.effect_curve()`) is a different
@@ -477,8 +497,9 @@ A band reads `supported` only when the fit's support row lists the band kind and
 cell measured the band for that row. `BAND_CELLS` in
 [`_support_rows.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/_support_rows.py)
 names each row's cells, and `tests/unit/test_band_cell_mapping.py` ties every entry to a positive
-`*__simultaneous_band` row of a study the row cites. The band must also use a multiplier kind and
-band scale that the row's cells measured. Any other choice makes the band `experimental` and
+`*__simultaneous_band` row of a study the row cites. `T_BAND_CELLS` does the same for the $t$
+reference. The band must also use a multiplier kind, band scale and reference that the row's
+cells measured. Any other choice makes the band `experimental` and
 leaves the pointwise intervals as they are, because pointwise inference never reads the
 multiplier.
 
@@ -487,11 +508,23 @@ Every committed band cell of a fit's multiplier band measures the default band. 
 The band-finite-sample rerun re-measured each cell the change moved on its committed fits
 (`tests/canonical/band-rerun-plan.json` lists them, and
 `tests/canonical/band-rerun-decision.json` records each reading). Every cell that `BAND_CELLS` maps
-to a row passes, so each row that lists the band kind lists `multiplier_kind="mammen"` with
-`band_scale="logit"`.
+to a row passes, so each row it names lists `multiplier_kind="mammen"` with
+`band_scale="logit"` and the normal reference. Five cells that were red before the rerun passed and left their red-cell
+ledgers under the declaration's rule that a red cell turns green when its rerun reading passes.
+That reading re-reads the same replicates under the new band, paired, rather than replicating
+them independently; the cells were selected on the same data; and no family-wise control spans
+the 81 per-cell 99% tests.
 
-Two studies pin 1,000 draws by design, so row `D09` needs at least 1,000 and
-every other row at least 10,000. Fewer draws make the band `experimental`. The `rademacher` and
+A red cell also binds a row whose band another cell licenses: the
+`categorical_ltmle` cell of `default-simultaneous-bands` measures the default band of row
+`G08.in_sample` at joint coverage 0.9191 to 0.9458, so that row's default band reads
+`experimental` with the reading as its reason. Rows `T30` and `T13` carry their red default
+readings, from the `cde_z0` and `strata` cells, as band shortfalls the same way. The reading binds the default band only:
+[the t reference](#the-t-reference) has cells of its own on those rows.
+
+Row `D09` licenses its band at 1,000 draws, the count `multi-arm-mar-drtmle` pins by design, and
+every other row needs at least 10,000. `composite-missing-drtmle` pins 1,000 draws too, but its
+band cells license no row. Fewer draws make the band `experimental`. The `rademacher` and
 `normal` multipliers and `band_scale="identity"` read `experimental` on every row, with the reason
 "no registered study after band-finite-sample". The `longitudinal-sdr` study still reports the
 former default band (Rademacher, identity scale, 2,000 draws) on its own fits, at joint coverage
@@ -591,6 +624,104 @@ and
 [`inference/bootstrap.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/bootstrap.py).
 Benjamini and Hochberg (1995) is the reference for the FDR-adjusted reporting; see
 [multiple testing](../references.md#multiple-testing).
+
+### The t reference
+
+`band_reference="t"` keeps the multiplier critical value $\hat c$ and reads estimate $j$ on its
+own Student $t$ reference:
+
+$$
+c_j = F^{-1}_{t,\nu_j}\bigl(\Phi(\hat c)\bigr), \qquad
+\nu_j = \max(K_j, 5), \qquad
+K_j = \frac{\bigl(\sum_i d_{ij}^2\bigr)^2}{\sum_i d_{ij}^4},
+$$
+
+where $d_{ij}$ is the centred influence curve of estimate $j$, or its centred cluster sums on a
+clustered fit. The slice of estimate $j$ is the default band's slice at $c_j$ in place of
+$\hat c$, on the same scale and with the same standard error, so $c_j \ge \hat c$ and the $t$
+band contains the default band. A zero curve has $\nu_j = \infty$ and $c_j = \hat c$. The
+statistic $u = \max_j \Phi^{-1}(F_{t,\nu_j}(|T_j|))$ is inside $\hat c$ exactly when every
+$|T_j|$ is inside its $c_j$. With one estimate the band is the two-sided $t$ interval at
+$\nu_1$. `kish_count()` computes $K_j$, and `SimultaneousBands.reference_df` and
+`critical_values` report $\nu_j$ and $c_j$.
+
+$K_j$ is $n/\hat\kappa_j$, with $\hat\kappa_j$ the sample kurtosis of the curve: a few large
+terms give a small count. It is the realised-term degrees of freedom of
+[Fay and Graubard (2001, Appendix B)](../references.md#multiple-testing), a Satterthwaite count shrunk by a factor of 2 to 3.
+For families whose comparisons carry different df,
+[Pallmann, Ritz and Hothorn (2018, sections 2.3 and 2.4)](../references.md#multiple-testing)
+give comparison-specific critical values and a normal or $t$ copula on univariate $t$ margins.
+Reading each estimate on its own $t$ reference at the multiplier's tail is the per-estimate
+mapping of their normal-copula variant. Their df are residual df of Gaussian models, not a Kish
+count, and no source derives the Kish count for an influence-curve estimator, so the
+finite-sample claim rests on the study, cell by cell.
+
+To first
+order $c_j/\hat c - 1 = (\hat c^2 + 1)/(4\nu_j)$, and since $K_j \to \infty$ under a fixed law
+with finite fourth curve moment, the $t$ band has the default band's limit. The floor 5 bounds
+the widening of a coordinate whose count rests on a few terms: its $c_j$ is at most the
+$t_5$ quantile at the same tail.
+
+The claim is joint coverage only. A passing cell can combine an over-covered sparse coordinate
+with slightly short ones. On a clustered, weighted or repeated fit (`median_bands` maps the
+median $\hat c$ with each combined curve's count) the band is built and reads `experimental`
+on every row, because no cell measures it there. `SurvivalCTMLE` refuses a non-default
+reference.
+
+The [`band-t-reference` study](method-evidence/band-t-reference.md) measured the $t$ band on
+eleven plain fit shapes, beside the default band of the same fits, at 5,600 replications per
+cell. Every $t$ band kept its 99% joint-coverage interval inside $[0.92, 0.98]$ and every
+pointwise control fell below 0.95, so the study licenses
+`("mammen", "logit", "t")` on the rows below. `T_BAND_CELLS` in
+[`_support_rows.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/_support_rows.py)
+maps each row to its cells, and `tests/unit/test_band_cell_mapping.py` ties every entry to a
+passing `*__t_band` cell whose controls passed. A licence covers the whole key of its row, at
+10,000 or more draws. On every other row the $t$ band reads `experimental`.
+
+| row | configuration | $t$ band joint coverage | default band on the row |
+| --- | --- | --- | --- |
+| `G08.in_sample` | in-sample categorical LTMLE | 0.9461 ($n = 2000$), 0.9496 ($n = 8000$) | `experimental`: its cell is red |
+| `G08.cross_fitted` | cross-fitted categorical LTMLE | 0.9502 | `experimental`: unlisted |
+| `G23.cross_fitted` | cross-fitted sequentially doubly robust fit | 0.9482 | `supported` |
+| `T01.binary` | ordinary in-sample TMLE, binary outcome | 0.9496 | `experimental`: unlisted |
+| `T13` | in-sample TMLE with baseline strata | 0.9545 ($n = 2000$), 0.9516 ($n = 8000$) | `experimental`: its cell is red |
+| `T14` | cross-fitted TMLE with baseline strata | 0.9620 | `supported` |
+| `T18` | in-sample point-treatment MSM | 0.9509 | `experimental`: unlisted |
+| `T30` | controlled direct effect with missing outcomes | 0.9543 ($n = 2000$), 0.9441 ($n = 8000$) | `experimental`: its cell is red |
+
+The paired gain of each $t$ band over the default band of the same fits is reported on the
+study page with its 99% interval and gates nothing. On the three rows whose default band is
+red, the default band of the same fits covers 0.9371 (`G08.in_sample`), 0.9382 (`T30`) and
+0.9450 (`T13`), with 99% intervals at 5,600 replications of 0.9283 to 0.9452, 0.9295 to 0.9462
+and 0.9367 to 0.9526: all inside $[0.92, 0.98]$, and the `T13` interval includes 0.95. Those
+controls are not the default band's registered cells and license nothing; by owner decision the
+red verdicts stand on the registered 2,400-replication cells.
+
+The default band stays the default. A row's red default-band reading binds only the default
+band, so on those three rows `band_reference="t"` gives a `supported` band and the
+default band reads `experimental` with the reading as its reason. The held-out
+[`band-t-reference-held-out` study](method-evidence/band-t-reference-held-out.md) reads the
+strata law at $n = 1000$, where the floor binds on most fits, at joint coverage 0.9543. It
+licenses no row.
+
+A band is built over every estimate that supplies inference, with two status rules. An estimate
+whose status is `"out_of_range_plugin"` stays in the family at its plug-in standard error. An
+estimate whose status is `"constant_arm_cell_plugin"` (a treatment arm whose observed outcomes in
+its stratum take one value) refuses the whole band with an `inference_gap` refusal, which the summary names:
+no band covers such an estimate, and a band over the remaining members would describe a family
+the data chose. No builder sets either status yet.
+
+The pointwise interval of a band member is the Wald interval $\hat\psi \pm 1.96\,\widehat{se}$ on
+the identity scale (the log scale for a ratio). The band and the pointwise interval share the
+centre and the standard error, so their nesting reduces to the critical values on one scale:
+
+| target | default band | $t$ band |
+| --- | --- | --- |
+| identity or log scale: an unbounded target, a ratio, or any target under `band_scale="identity"` | contains the pointwise interval when $\hat c \ge 1.96$ | contains it when $\hat c \ge 1.96$, since $c_j \ge \hat c$ |
+| bounded binary-outcome mean or difference under `band_scale="logit"` | not nested: the band sits on the range-logit scale | not nested |
+
+$\hat c \ge 1.96$ is not guaranteed for a multiplier quantile. The smallest $\hat c$ on the
+committed red-cell fits is 2.25.
 
 ### Evidence for the default band
 

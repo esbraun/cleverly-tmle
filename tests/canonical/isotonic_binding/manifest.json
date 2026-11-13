@@ -1,0 +1,108 @@
+{
+  "schema_version": 2,
+  "study": "Binding isotonic projection of a survival curve",
+  "slug": "isotonic-binding",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "617ac8f328b2ed902dade19c0f032e295101bc6f",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 2000,
+    "seed": 20267741,
+    "resampling_seed": 20267742,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "LG2": [
+        "risk_regimen[never @ t=1]"
+      ]
+    },
+    "construction": "in-sample LTMLE, survival_model='iterated_mean', isotonic=True",
+    "law": "W ~ N(0, 1); A1 ~ Bern(expit(gs W)); C1 ~ Bern(expit(2.5 - 0.5 W)); Y1 ~ Bern(expit(-1.5 + 1.6 W - 0.5 A1)); L2 ~ Bern(expit(-0.3 + 0.6 W + 0.4 A1)); A2 ~ Bern(expit(gs W + 0.8 L2 + 0.5 A1)); C2 ~ Bern(expit(2.0 - 0.5 W + 0.5 L2)); Y2 ~ Bern(0.01 expit(-0.5 + 1.2 W^2 - 0.4 A2)); gs = 1.5 (LG2), 2.0 (LG2-gs2, reported)",
+    "regimens": {
+      "never": 0,
+      "always": 1
+    },
+    "truths": {
+      "risk_regimen[never @ t=1]": 0.26074413608301905,
+      "risk_regimen[never @ t=2]": 0.2649341183357915,
+      "risk_regimen[always @ t=1]": 0.19716924608565511,
+      "risk_regimen[always @ t=2]": 0.20105989574613772
+    },
+    "outcome_learner": "LogisticRegression(C=inf, max_iter=100000, tol=1e-13)",
+    "pseudo_learner": "LinearRegression",
+    "mechanism_learners": "LogisticRegression(C=inf, max_iter=100000, tol=1e-13)",
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "max_iter": 100,
+    "tol": 1e-10,
+    "n_folds": 1,
+    "simultaneous_intervals": false,
+    "discarded_law": "LG (the two-node discrete survival law with binary W): its node regressions are saturated, so the projection cannot bind once the node-1 score is solved; its pilot binding came from sklearn's default tol 1e-4",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_isotonic_binding.py": "c291ddc7e62e1469ae45fd671493641cbfc84b715721ab3751a4dcb979fd7285",
+    "tests/studies/isotonic_binding_properties.py": "a9ebc3ea18003353f8c3b936fe61e75864e3290403fd7450030fa3294e0ae627",
+    "tests/studies/_isotonic_binding_law.py": "48668e86ab36baa04297b695417c9b6b97c1237881dc6918e90be74aa4515d0a",
+    "src/cleverly/longitudinal/estimator.py": "57388031e215a455f0596e465539cb8a9bd27f9a4a718d97fc8e3b072e6c9db5",
+    "src/cleverly/longitudinal/sequential.py": "f592d02ebcf1170dea4e0cb89c67ef6fcccbe7c84da87d88ed3b38b29640b645",
+    "src/cleverly/longitudinal/hazard.py": "d265f66e017559e95acb7cc17a931611cdcc69b8e156c0cada08d795b03449dd",
+    "src/cleverly/inference/influence.py": "1f09c77a106447fbd43627f095777dc48270cb3995bf2028d59be42b207ed9e2",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "3429d7c7a3cbc6c155291bf455609e2cfa16ef84d29b27ff03575dde7c259e27",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "23a1b4bc725906f61d4c064374445f49b2e86f99d8040cbd561859a3fd31d41c",
+    "summary.csv": "973b216cd43f9b92f0042f4b5a7797e96084ae6243f2afd1c99e442f92c1c712",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "fa8a3a25fc4683f9d81b4c8decee2f5544b9b0da418974f18004f78ee33595ff",
+    "property-replicates.parquet": "0b2d82c29eb09c8ce81773fc5c059a6b3261fd01a256cb851c7ac19e5f26376e",
+    "properties.csv": "032610631ded75f9097e89349049576ef3d1eeeaed71fc07b359df129fb8a1be"
+  }
+}

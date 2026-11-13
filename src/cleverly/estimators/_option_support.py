@@ -1,24 +1,25 @@
-"""The support conditions of the targeting and fitting options.
+"""The support condition of ``patience=`` on a pre-ordered C-TMLE path.
 
-A fit that declares one of these options runs, and its estimates carry the experimental label.
-Each option is implemented and tested on exact laws, and no registered study measures a fit that
-uses it. The registered studies ran each estimator at the defaults below, so their evidence does
-not reach a fit that leaves them:
+A fit that declares ``patience=`` on ``"ordered"``, ``"discrete"``, ``"lasso"`` or ``"learners"``
+runs, and its estimates carry the experimental label (:func:`patience_conditions`).  The
+condition is permanent, so it names no roadmap item.  On ``"greedy"`` the support key decides.
 
-========================  ==================  =====================================================
-option                    default             why the evidence of the default does not cover it
-========================  ==================  =====================================================
-``stopping=``             ``"relative"``      the rule leaves a score residual by design, and the
-                                              interval coverage depends on it
-``outcome_by_arm=``       ``False``           another outcome regression; on the
-                                              effect-modification axis the default is ``True``
-``patience=``             ``None``            another collaborative selection
-``treatment_adjustment=`` the adjustment set  another treatment mechanism, under a restriction
-========================  ==================  =====================================================
+The other options, and ``patience=`` on ``"greedy"``, have no condition.  The support key
+records each of them, so a fit that declares one lands on the row of the study that measured it
+or matches no row and reads experimental:
 
-The ``conditional-projection`` study fits every projection with one outcome regression per arm,
-so on the effect-modification axis the condition reverses: ``outcome_by_arm=True`` is the
-measured fit, and a pooled outcome regression carries the condition.
+=================================  =================================================  ==========
+option                             registered rows                                    study
+=================================  =================================================  ==========
+``stopping=``                      ``T52`` (point), ``G55`` (``LTMLE``)               X76 (a)
+``outcome_by_arm=True``            ``T53``                                            X76 (b)
+``patience=`` on ``"greedy"``      ``C12``                                            X76 (c)
+``treatment_adjustment=``          ``T54``                                            X76 (d)
+=================================  =================================================  ==========
+
+Under a declared rule the key also records ``step_bound=`` and ``iterate=``, which no row
+declares, so such a fit reads experimental.  On the effect-modification axis the key keeps a
+pooled projection fit off ``T49`` and ``T50``, whose study fits one outcome regression per arm.
 
 ``iterate="best"`` and ``step_bound=`` keep the support of the fit under
 ``stopping="relative"``.  The walk then stops only at a fit that solves the score equation to
@@ -27,7 +28,7 @@ Newton path reaches, to ``tol``.  A walk that stops short fails ``score_check()`
 solve that stops short does.
 
 Each function returns :class:`~cleverly._refusal.Refusal` conditions for a
-:class:`~cleverly._support.Preflight`.  X76 in ``docs/roadmap.md`` tracks the studies.
+:class:`~cleverly._support.Preflight`.
 """
 
 from __future__ import annotations
@@ -36,38 +37,49 @@ from typing import Any
 
 from .._refusal import Refusal, RefusalReason
 
-__all__ = ["OPTION_STUDIES_ROADMAP", "point_option_conditions", "stopping_conditions"]
+__all__ = [
+    "patience_conditions",
+    "point_option_conditions",
+]
 
-#: The roadmap item that tracks the registered studies of these options.
-OPTION_STUDIES_ROADMAP = "X76"
 
+def patience_conditions(estimator: Any) -> list[Refusal]:
+    """The condition of ``patience=`` on a C-TMLE path, or none for the whole path.
 
-def stopping_conditions(stopping: str) -> list[Refusal]:
-    """The condition of a declared stopping rule, or none under ``"relative"``.
+    On a pre-ordered path (``"ordered"``, ``"discrete"``, ``"lasso"``, ``"learners"``) the
+    order is fixed before any risk is read, so a candidate the outcome regression needs can sit
+    after ``patience`` candidates that only add noise.  The counter then stops before it with a
+    probability that does not shrink with the sample size, and the estimate keeps a bias no
+    study can rule out.  That condition is permanent, so it names no roadmap item.  The greedy
+    path adds the candidate that lowers the risk most at each step, and the support key labels
+    it: ``C12.greedy`` (study ``option-patience``) covers it, so it carries no condition here.
 
     Parameters
     ----------
-    stopping : str
-        The declared stopping rule.
+    estimator : CTMLE
+        The estimator, as constructed.  It is read and never modified.
 
     Returns
     -------
     list of Refusal
-        One condition under ``"scaled_var"`` or ``"sample_size"``, else none.
+        One condition when ``patience`` is set on a pre-ordered path, else none.
     """
-    if stopping == "relative":
+    patience = getattr(estimator, "patience", None)
+    if patience is None or str(getattr(estimator, "strategy", "greedy")) == "greedy":
         return []
     return [
         Refusal(
             RefusalReason.INFERENCE_GAP,
-            f"The declared rule stopping={stopping!r} stops adjusting the outcome predictions "
-            "before the estimating equation is solved, and no simulation study measures the "
-            "interval coverage at the remainder it leaves.",
+            f"The setting patience={patience} stops a pre-ordered candidate path after "
+            f"{patience} candidates whose cross-validated risk is not a new minimum. A "
+            "candidate the outcome regression needs that is ordered after them is never "
+            "scored, so the estimate can stay biased at every sample size (study "
+            "option-patience, cell ordered_late_confounder).",
             alternative=(
-                "stopping='relative' solves the score equation to tol, as the registered "
-                "studies do. The summary states the coverage bound at the residual."
+                "patience=None scores the whole path; on strategy='greedy' each step adds the "
+                "candidate that lowers the risk most, and the registered row C12.greedy covers it."
             ),
-            roadmap=OPTION_STUDIES_ROADMAP,
+            roadmap=None,
         )
     ]
 
@@ -80,65 +92,12 @@ def point_option_conditions(estimator: Any, data: Any) -> list[Refusal]:
     estimator : TMLE
         The estimator, as constructed.  It is read and never modified.
     data : CausalData
-        The prepared data, which carries the treatment-mechanism covariates.
+        The prepared data.  No remaining condition reads it; the support key reads its
+        treatment-mechanism covariates.
 
     Returns
     -------
     list of Refusal
-        One condition per declared option, in the order of the module table.
+        The ``patience=`` condition when the fit declares it, else none.
     """
-    conditions = stopping_conditions(str(getattr(estimator, "stopping", "relative")))
-    by_arm = bool(getattr(estimator, "outcome_by_arm", False))
-    if str(getattr(estimator, "_axis", "arm")) == "effect_modification":
-        if not by_arm:
-            conditions.append(
-                Refusal(
-                    RefusalReason.INFERENCE_GAP,
-                    "The projection fit pools the arms in one outcome regression, and the "
-                    "registered conditional-projection study measures the interval with one "
-                    "outcome regression per arm.",
-                    alternative=(
-                        "outcome_by_arm=True fits one outcome regression per arm, as the "
-                        "registered study does."
-                    ),
-                    roadmap=OPTION_STUDIES_ROADMAP,
-                )
-            )
-    elif by_arm:
-        conditions.append(
-            Refusal(
-                RefusalReason.INFERENCE_GAP,
-                "The setting outcome_by_arm=True fits one outcome regression per arm, and no "
-                "registered study covers that outcome fit.",
-                alternative=(
-                    "outcome_by_arm=False fits the one outcome regression the registered "
-                    "studies use."
-                ),
-                roadmap=OPTION_STUDIES_ROADMAP,
-            )
-        )
-    patience = getattr(estimator, "patience", None)
-    if patience is not None:
-        conditions.append(
-            Refusal(
-                RefusalReason.INFERENCE_GAP,
-                f"The setting patience={patience} can stop the cross-validated path before "
-                "its best candidate, and no registered study covers that selection.",
-                alternative="patience=None scores the whole path, as the registered studies do.",
-                roadmap=OPTION_STUDIES_ROADMAP,
-            )
-        )
-    if getattr(data, "treatment_covariate_names", None) is not None:
-        conditions.append(
-            Refusal(
-                RefusalReason.INFERENCE_GAP,
-                "The setting treatment_adjustment= fits the treatment mechanism on a subset of "
-                "the adjustment set, and no registered study covers that restriction.",
-                alternative=(
-                    "Omit treatment_adjustment= (treatment_covariates= in TMLE.fit) to fit the "
-                    "mechanism on the whole adjustment set."
-                ),
-                roadmap=OPTION_STUDIES_ROADMAP,
-            )
-        )
-    return conditions
+    return patience_conditions(estimator)

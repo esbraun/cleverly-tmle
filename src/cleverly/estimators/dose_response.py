@@ -336,9 +336,11 @@ DOSE_RESPONSE_MEASURED: Final[Mapping[tuple[str, str, bool], str]] = {
 #: pairs of the binary declaration).  A band of any other configuration reads experimental.
 DOSE_RESPONSE_BAND_MEASURED: Final[tuple[str, str, bool]] = ("binary", "logistic", False)
 
-#: The multiplier draws the band cell measured: the Mammen multiplier on the logit scale at the
-#: default draw count, as band-finite-sample Wave 2 regenerated it.  A band with fewer draws
-#: reads experimental.
+#: The multiplier draws the band cell measured: the Mammen multiplier at the default draw count,
+#: as band-finite-sample Wave 2 regenerated it.  The band stays on the identity scale, because
+#: the curve's estimates carry no range (:func:`make_estimate` gets no ``bounds``), so the
+#: default ``band_scale="logit"`` has nothing to map and its limits can leave [0, 1].  A band
+#: with fewer draws reads experimental.
 DOSE_RESPONSE_BAND_DRAWS: Final[int] = DEFAULT_N_REPLICATES
 
 
@@ -424,7 +426,17 @@ def dose_response_support(
     )
     if configuration == DOSE_RESPONSE_BAND_MEASURED:
         if n_replicates >= DOSE_RESPONSE_BAND_DRAWS:
-            return pairs, pairs
+            return pairs, Support(
+                "supported",
+                f"The registered {DOSE_RESPONSE_STUDY} study measures this band (scenario "
+                f"{scenario}): the Mammen multiplier at {DOSE_RESPONSE_BAND_DRAWS:,} draws on "
+                "the identity scale, because the curve's estimates carry no range.",
+                (DOSE_RESPONSE_STUDY,),
+                limits=(
+                    *limits,
+                    "The band is built on the identity scale, so its limits can leave [0, 1].",
+                ),
+            )
         return pairs, Support(
             "experimental",
             f"The registered {DOSE_RESPONSE_STUDY} study measured this band at "
@@ -679,12 +691,15 @@ class DoseResponseTMLE:
             random_state=self.random_state,
             cluster=data.cluster,
         )
-        # simultaneous_bands() leaves the band unclassified; it carries its pairs' support and the
-        # band's own measured configuration.
+        # simultaneous_bands() leaves the band unclassified.  With every pair supported, the band
+        # reads its own measured configuration; otherwise it joins the pairs' reasons.
+        pair_support = combine_support(estimate.support for estimate in estimates.values())
         band = replace(
             band,
-            support=combine_support(
-                [*(estimate.support for estimate in estimates.values()), band_configured]
+            support=(
+                band_configured
+                if pair_support.label == "supported"
+                else combine_support([pair_support, band_configured])
             ),
         )
         notes: list[str] = []
@@ -836,5 +851,7 @@ class DoseResponseTMLE:
                 alpha=self.alpha,
                 inference="low_dose_support_plugin" if below else "influence_curve",
                 support=_pair_support(configured, below),
+                # Each pair's fluctuation solves its score or the fit refuses (above).
+                rule_widened=False,
             )
         return estimates, tuple(supports), scores

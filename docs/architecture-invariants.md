@@ -73,6 +73,35 @@ committed rows are not the gate, because they drift across platforms in the last
 fit as an omitted option. *Reconsider when* a change moves a default on purpose. Then regenerate
 the studies it moves, in the same change.
 
+### A seeded fit is a function of its data and seed
+
+A fit that carries an integer seed must give the same result on every run, in every worker
+process. numpy's legacy global generator breaks that: each worker seeds it from OS entropy, and a
+learner whose `random_state` is `None` and whose fit is randomized (SAGA, SAG, liblinear, forests,
+bagging, neural networks) draws from it. So the seed must reach every learner a fit uses.
+
+- `SuperLearner(random_state=s)` gives `s` to every library candidate whose `random_state`
+  parameters are `None`, at any depth of `get_params(deep=True)`, on a clone.
+  `resolve_learner(..., random_state=s)` does the same for any learner an estimator passes it.
+  Both use `cleverly.learners._fitting.seed_unset`, which keeps explicit seeds and never mutates
+  the caller's object. `random_state=None` is the caller asking for no seed, and stays unseeded.
+- A user learner fitted outside those two routes takes the seed in scope through `seed_unset`:
+  the A-TMLE working basis (the fit's seed), the EP final learner (the TMLE seed), the learned-rule
+  EP learner (each fold's seed), the parametric g-formula learners (the estimator's
+  `random_state`), and the marginal sensitivity bounds' quantile and tail learners (the draw's
+  seed, or 0 when the draw has none, as the default candidates take).
+- A custom learner must take its randomness from its `random_state`. A learner that draws from
+  `np.random` directly cannot be seeded from outside.
+- No module seeds numpy's global generator.
+
+Two named exceptions have no seed in scope. The boundary learner of a tuned cap
+(`interventions/tuning.py`, `clone(tuner.learner)`) is one. `learned_rule_truth`
+(`datasets/treatment_rules.py`) refits the caller's outcome learner unseeded and documents that it
+needs a deterministic learner. `tests/unit/test_learner_seeding.py` fits a SAGA
+candidate under two global seeds and checks that a seeded fit is equal bit for bit and that an
+unseeded one differs. *Reconsider when* a learner needs a different seed per candidate; today every
+candidate takes the same seed, as `default_library(task, random_state=s)` already gives them.
+
 ### A declared stopping rule changes what the solver and the score check read
 
 A rule other than `"relative"` needs a stop context. The context holds the unit of each row and
@@ -87,11 +116,13 @@ it judges, through `rule_ratio_at`. It must not read the ratio the solver stored
 `tests/unit/test_stopping_rule_engines.py` recomputes the ratio by hand at every round.
 
 `score_check` reads the declared rule. Under a rule other than `"relative"`, a fluctuation row is
-held to `Fluctuation.thresholds`, and an estimand row is a `"diagnostic"` row that cannot fail.
-The diagnostic row reports the residual in standard errors and the coverage a Wald interval keeps
-at it. The default rule keeps its rows and its bar. *Reconsider when* a stopping rule gets a
-derivation that bounds the residual of a contrast. Then the estimand rows can carry that bound as a
-bar.
+held to `Fluctuation.thresholds`, and an estimand row is a `"diagnostic"` row that reports the
+residual in standard errors and cannot fail. The interval of every estimate of such a fit adds the
+residual to its half-width (`ParameterEstimate.rule_widened`), and an estimate derived from one
+inherits the flag. `cleverly.inference.influence.ParameterEstimate._residual_margin` is the one
+place the margin is computed, so a change to the half-width composes there. The default rule keeps
+its rows, its bar and its interval. *Reconsider when* a stopping rule gets a derivation that bounds
+the residual of a contrast, so that the estimand rows can carry that bound as a bar.
 
 ### Comparator fixtures ship pending
 
@@ -231,7 +262,7 @@ status that withholds inference comes first in `STATUS_RECORDS`, so it stays.
 | a longitudinal parameter | `_parameter_status` in `_estimates`: `constant_node_plugin` when `constant_nodes` of its fit, or of its reference fit for a contrast, is not empty. `_msm_estimates` never meets it, because `msm=` refuses a constant cell in the backward pass |
 | a longitudinal parameter under `repeats` above 1 | `with_precedent_status` over the draws, then `median_estimates`. Each draw's estimate of a name takes `precedent_status` of that name's draws, so a `constant_node_plugin` in one draw reaches the report. `median_derived`, `median_covariance` and `median_bands` apply the same stamp before they combine draws. `result.repeats[r].estimates` keep their own statuses |
 | `incidence_total()` | each total's own status, through `inference_status` over the incidences it sums |
-| a band | none. `LTMLE._bands` and `CausalStudy`'s `_narrow_bands` build the band over the estimates that supply inference, and below two of them they build none. Under `repeats` above 1 both use `median_bands`, which stamps each draw with the precedent status first |
+| a band | none. `LTMLE._bands` and `CausalStudy`'s `_narrow_bands` build the band over the estimates that supply inference, and below two of them they build none. Two status rules: an estimate at `"out_of_range_plugin"` stays in the family at its plug-in standard error (`band_member`), and one at `"constant_arm_cell_plugin"` refuses the whole band (`constant_arm_members`, an `inference_gap` refusal that the fit's summary names). Under `repeats` above 1 both use `median_bands`, which stamps each draw with the precedent status first |
 
 The same stamp sets the Student $t$ reference of a clustered fit. A builder records the rows an
 estimate reads, and not its degrees of freedom: `_stratum_estimates` returns the stratum code of
@@ -667,6 +698,9 @@ matrix, and attaches the trim to the mechanism. Every reader of the cumulative p
 `num / bound(num / R~)`, a truncation replay included. On a row whose ratios the trim never
 moved, that value is the untrimmed one, so a trim never changes a row it does not move.
 `tests/unit/test_longitudinal_ratio_trim.py` pins the composition at an upper bound below one.
+The support rows `G56` cover the trimmed point only, with `LinearRegression` outcome and
+pseudo-outcome regressions, because the trim removes double robustness on the trimmed share;
+their limit says so and that no interval is given (F30).
 
 A Markov order (`markov_order=k`) restricts the nuisance designs only. Each mechanism and
 outcome design at node $t$ reads `W` and a window of the last nodes. The `history_frame` and
@@ -676,6 +710,9 @@ window does not determine that arm. The outcome and mechanism designs read the a
 nodes, from $t-k-1$. `tests/unit/test_longitudinal_markov_order.py` pins both
 frames in `test_the_frames_keep_the_full_history`, and a dropped rule block fails an exact-law
 check there.
+
+The support row `G57` covers a window on `LTMLE`, and its limit states the
+restriction the window imposes on the outcome regression and the mechanisms.
 
 A cross-fitted per-regimen fit targets after its folds, not inside them. Each fold runs an
 untargeted backward regression sequence on its training rows. One pooled fluctuation per node then
@@ -791,7 +828,9 @@ levels and keep the band built at the unprojected levels. Westling, van der Laan
 (2020), Theorem 1 (iv) and (v), supports the projected limits.
 The mutations M10 and M13 in `tests/unit/test_isotonic_projection.py` move the influence curve or
 centre the band, and each one fails. *Reconsider when* a registered study shows the pointwise interval at a projected
-level fails where the true curve strictly increases.
+level fails where the true curve strictly increases; the registered study `isotonic-binding`
+reads that interval where a learner-class gap between the two horizons' node-1 regressions moves
+the level, and it passes there.
 
 ## Weights, bounds, and sensitivity
 

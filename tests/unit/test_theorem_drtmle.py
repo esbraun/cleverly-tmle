@@ -333,9 +333,11 @@ class TestTheReportedVarianceIsTheorem1s:
         u, v = positive_terms(arm)
         name = f"ey{arm}"
 
-        packaged = make_estimate(name, 0.0, curve - library_corrections(arm), n=law.N)
-        theorem = make_estimate(name, 0.0, curve - u - v, n=law.N)
-        ordinary = make_estimate(name, 0.0, curve, n=law.N)
+        packaged = make_estimate(
+            name, 0.0, curve - library_corrections(arm), n=law.N, rule_widened=False
+        )
+        theorem = make_estimate(name, 0.0, curve - u - v, n=law.N, rule_widened=False)
+        ordinary = make_estimate(name, 0.0, curve, n=law.N, rule_widened=False)
 
         assert packaged.variance == pytest.approx(theorem.variance, rel=1e-12)
         assert packaged.ci == pytest.approx(theorem.ci, rel=1e-12)

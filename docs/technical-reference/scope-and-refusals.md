@@ -137,7 +137,7 @@ roadmap item when one tracks the gap. A row marked `invalid_declaration` or
 | an interval that accounts for estimating the weights, on a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`) | `inference_gap` | [DR-TMLE refusals](dr-tmle/supported-estimands.md#refused-by-name). The fit takes the `"estimated_weight_plugin"` status. It reports its interval, p-value and standard error from the plug-in curve with the weights held fixed, under the experimental label. The argument that an interval conditions on the weights concerns $D^*$, and not the reduced regressions. `guard=()` fits the ordinary TMLE and keeps its interval. Constant weights fit the unweighted estimator and keep it too. [X50](../roadmap.md#x50-further-dr-tmle-compositions) part (f) reopens it |
 | a confidence interval, a p-value, or a standard error on a fit with `id=` and fewer than 3 positive-mass clusters in the fit or one reported baseline stratum; a validated interval from 3 clusters up to the floor, 10 for `TMLE` and `DRTMLE` and 20 for `LTMLE` and `SDR` | `inference_gap` | [clusters](inference.md#clusters). Below 3 clusters the fit takes the `"no_cluster_variance_plugin"` status: a Student $t$ reference with $J - 2$ degrees of freedom has none left, and the fit withholds every interval. From 3 clusters to one below the floor it takes the `"few_cluster_plugin"` status and reports its interval and p-value on that $t$ reference under the experimental label. From the floor to 39 clusters the interval keeps the $t$ reference, as Nugent et al. (2024), Section 2.2, recommend. Each floor is the smallest count that the registered few-cluster study measures for that fit. One such stratum sets the status of every estimate. `plugin_std_error` and `plugin_interval` keep the diagnostic on the normal reference (`cluster_inference_status` in `src/cleverly/inference/cluster.py`). [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds the measurements up to each floor, and [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) keeps fits below 3 clusters |
 | a confidence interval, a p-value, or a standard error on an `LTMLE` or `SDR` fit with `ratio_trim=` whose trim moves a positive per-node density ratio | `inference_gap` | [ratio trimming](longitudinal-tmle.md#ratio-trimming). The fit takes the `"trimmed_ratio_plugin"` status. A trim that binds keeps a fixed share of the ratios at every sample size, so the remainder keeps a term of the size of the outcome-regression error. No source read here gives an interval for the trimmed fit. The point estimate remains, and `plugin_std_error` and `plugin_interval` report the plug-in diagnostic, which is the standard error `lmtp` reports. [F30](../roadmap.md#f30-inference-after-quantile-ratio-trimming) reopens it |
-| `simultaneous_bands()` over an estimate with a Student $t$ reference, below 40 positive-mass clusters | `inference_gap` | [clusters](inference.md#few-clusters). No source read here gives a $t$-calibrated joint band. `simultaneous_bands()` raises `CapabilityError`, and a fit skips its default band and names the reason in `summary()`. The pointwise intervals remain. `tests/unit/test_few_cluster_reference.py` checks both |
+| `simultaneous_bands()` over an estimate with a Student $t$ reference: below 40 positive-mass clusters, or a clustered fold-evaluated estimate at any cluster count | `inference_gap` | [clusters](inference.md#few-clusters). No source read here gives a $t$-calibrated joint band. `simultaneous_bands()` raises `CapabilityError`, and a fit skips its default band and names the reason in `summary()`. The pointwise intervals remain. `tests/unit/test_few_cluster_reference.py` checks both |
 | `simultaneous_bands()` over a known-regime value (`ey_known_regime`) or a contrast with the learned rule (`ate_learned_rule`) | `inference_gap` | [learned rules](point-treatment-tmle.md#learned-rules). Joint normality gives each contrast its own interval, and a band over a data-adaptive value and fixed regimes has no witness ([X11](../roadmap.md#x11-learned-policy-follow-ups) (c2)). `simultaneous_bands()` raises `CapabilityError`, and a fit skips its default band and names the reason in `summary()`. The pointwise intervals remain. `tests/unit/test_learned_rule_contrast.py` checks both |
 | `simultaneous_bands(..., band_scale="logit")` over a probability or a difference of probabilities that lies on or outside its range with a positive standard error | `inference_gap` | [the band scale](inference.md#the-band-scale). The logit of a value on the boundary is infinite and outside it undefined, so no band on that scale exists there. `simultaneous_bands()` and `median_bands()` raise `CapabilityError`, and a fit skips its band and names the estimate in `summary()`. `band_scale="identity"` builds the band. `tests/unit/test_band_scale.py` checks both |
 | a contrast, a simultaneous band, any E-value branch, or `variable_importance()` on the fits of the status rows above that withhold the interval | `inference_gap` | [inference status](inference.md#inference-status). Each one is a confidence statement, or reads an interval that these fits do not supply. `variable_importance()` refuses at its entry point, because it adjusts one p-value per candidate. The E-value capability reports `unavailable` rather than raising inside the computation. `truncation_curve()`, `missingness_tilt()`, and the default `tipping_gamma()` still run. On a point-treatment fit their two frames rename their three spread columns. The longitudinal `truncation_curve()` publishes no spread. `LongitudinalResult.curve()` and `incidence_total()` rename their spread columns |
@@ -145,6 +145,7 @@ roadmap item when one tracks the gap. A row marked `invalid_declaration` or
 | a cross-fitted continuous outcome with `q_bounds=None`, for `TMLE`, `DRTMLE`, `CTMLE`, `LTMLE` and `SDR` above one fold | `invalid_declaration` | [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules). The sample outcome range would take the scale from held-out rows |
 | `CTMLE` with `id=`, at every `cross_fit` setting, on every strategy except `"derivative"` | `implementation_gap` | [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules). No clustered result covers the outcome-adaptive mechanism. Selector-based fits also lack a result for grouped selection and nested folds or candidate-selection variance. A `"derivative"` fit selects nothing and takes the clustered result of `TMLE` |
 | `cv_evaluation=True` or `targeting_scheme="fold"` with `id=`, when a validation fold holds 1 cluster | `invalid_declaration` | [the algorithm as implemented](cv-tmle.md#the-algorithm-as-implemented). Each fold's variance takes the variance of the cluster totals inside the fold, and 1 total has none. `TMLE` raises `CapabilityError` before any learner, for a generated or a supplied split. A generated split passes at no more folds than half the cluster count. `tests/unit/test_fold_evaluated_cluster_variance.py` checks it |
+| `cv_evaluation=True` (`CrossFitting(fold_evaluation=True)`) with `id=` and no learned rule, when the clusters with positive weight mass differ in a requested estimand's denominator mass: the total weight, or the row count when unweighted, for the means, the ATE and the other admitted targets; the treated mass for `att`; the control mass for `atc` | `api_redirection` | [clusters of unequal mass](cv-tmle.md#clusters-of-unequal-mass). Each fold point is a ratio with a random denominator over the few clusters of one fold, and the equal fold average carries about $V$ times the ratio bias of the stacked point. `TMLE` raises `CapabilityError` before any learner, and again on a sweep that changes the weights or the estimands. The message names the estimand, the range and the cluster count in plain words, such as "cv_evaluation=True cannot be used with these clusters: their sizes differ (from 10 to 20 rows across 40 clusters)." The alternative reads "Use the default, cv_evaluation=False (CrossFitting(fold_evaluation=False) on a method). It estimates the same effect from all folds at once, avoids this bias, and its interval still accounts for the clustering." `estimands="all"` drops such an `att` or `atc` instead. `tests/unit/test_fold_evaluated_cluster_refusal.py` pins the messages |
 | the `bootstrap_measurement_error` and `bootstrap_stability` refutations on a fit that declared `split_plan=` | `invalid_declaration` | [reusable outer split plans](cv-tmle.md#reusable-outer-split-plans). Each refits on resampled rows the fit never ran, and no rule here says which fold labels those rows inherit (`_PLAN_REFUSING_TESTS` in `src/cleverly/validation/refute.py`). `refute()` raises `CapabilityError` before it refits anything. The `subset` refutation runs, because each kept row carries its original fold label |
 | the longitudinal placebo on a vector node with a continuous component | `implementation_gap` | [longitudinal refutation](validation-methods.md#refutation-operations). Every refutation test has a longitudinal adapter, and that section gives each test's longitudinal draw and the refusals of the placebo. A mixed node has no Markov kernel, so the placebo cannot draw its trajectory. `refute()` raises `CapabilityError` before it refits anything. [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) tracks it |
 | a `placebo` on a dose whose declared support is a function, when a bound is finite on some rows and infinite on others, a declared atom lies outside some row's band, a vector component carries an atom or a zero-width band, a longitudinal node carries an atom, a held node has a callable band, or a cluster's bands share no dose on a placebo history | `implementation_gap`. A bound that is not a row-wise function of its frame, or a band that a placebo history inverts, is `invalid_declaration` | [the band-rank placebo](validation-methods.md#refutation-operations). A draw stratified by the bound pattern or by the atoms each band holds is exact, but it is not built. `refute()` raises `CapabilityError` before it refits anything. [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part J tracks them |
@@ -331,24 +332,38 @@ no condition masks it. The fit reads no learner before the preflight ends.
 | natural course, stacked | the same settings, and `repeats` above 1, `split_plan=`, weights, clusters, a continuous outcome | X53, X60, F2 |
 | `DRTMLE` with missing outcomes | `weights=` that tilt the target law | X62 |
 
-The targeting and fitting options also run as experimental. The condition is collected in the
-same preflight, and `tests/unit/test_option_support.py` checks each label against the fit
-without the option.
+`patience=` on a pre-ordered path runs as experimental. Its condition is collected in the same
+preflight, and `tests/unit/test_option_support.py` checks each label against the fit without the
+option. The support key records each option too (`point_key`, `longitudinal_key`), and
+`step_bound=` and `iterate=` only under a declared stopping rule. A fit that declares an
+option then matches only a row whose study declared it. Those are the `conditional-projection`
+rows, which fit one outcome regression per arm (`outcome_by_arm=True`), and the option rows
+below.
 
-| option | runs as experimental | keeps the label of the fit | roadmap |
-| --- | --- | --- | --- |
-| `stopping=` | `"scaled_var"` and `"sample_size"`, on a point fit and on `LTMLE` | `"relative"` | X76 |
-| `iterate=`, `step_bound=` | never on their own | under `stopping="relative"` the walk stops only at the solution of the score equation, to `tol` | none |
-| `outcome_by_arm=` | `True` | `False` | X76 |
-| `patience=` | any value | `None` | X76 |
-| `treatment_adjustment=` | a declared subset | the whole adjustment set | X76 |
+When the nearest row differs on options, the reason names each differing option, with
+the fit's value when that value is a word, an integer, a truth value or `None`. Each key value
+and the reason are checked in `tests/unit/test_support_key.py`.
 
-The longitudinal support rows read four fitting options (`_x33_options` in
-`src/cleverly/_support_rows.py`). No registered study fits `ratio_trim=` or a declared
-`markov_order`, so a fit with either matches no row and carries the experimental label. The rows
-`G45.mean_model` and `G45.hazard_model` of the [node-bounds study](method-evidence/survival-node-bounds.md)
-cover `node_bounds=` together with `hazard_pooling="pooled"` on a held survival design with two
-arms, fitted in sample. Any other
+| option | supported on | runs as experimental | keeps the label of the fit | roadmap |
+| --- | --- | --- | --- | --- |
+| `stopping=` | `"scaled_var"` and `"sample_size"` on the `T52` rows ([study](method-evidence/option-stopping-point.md)) and the `G55` rows ([study](method-evidence/option-stopping-ltmle.md)) | a rule outside those rows, for example with `step_bound=`, `iterate="best"`, a learned regimen or a one-step end-of-study `LTMLE` walk | `"relative"` | none |
+| `iterate=`, `step_bound=` | the rows of the fit without them | never on their own | under `stopping="relative"` the walk stops only at the solution of the score equation, to `tol` | none |
+| `outcome_by_arm=` | `True` on the `T53` rows ([study](method-evidence/option-outcome-by-arm.md)) | `True` outside those rows, for example for the ATT or the ATC | `False` | none |
+| `patience=` | `"greedy"` on the `C12.greedy` row ([study](method-evidence/option-patience.md)) | `"greedy"` outside that row, and every value on `"ordered"`, `"discrete"`, `"lasso"` and `"learners"`. On a pre-ordered strategy the label is permanent: the order is fixed before any risk is read, so the counter can stop before a candidate the outcome regression needs, at every sample size | `None` | none |
+| `treatment_adjustment=` | a declared subset on the `T54` rows ([study](method-evidence/option-treatment-adjustment.md)) | a declared subset outside those rows | the whole adjustment set | none |
+
+The longitudinal support rows read the fitting options of `_x33_options` in
+`src/cleverly/_support_rows.py`. The point-only rows `G56` of the
+[ratio-trim study](method-evidence/option-ratio-trim.md) cover `ratio_trim=` on `LTMLE` and
+`SDR` with linear outcome regressions, and the row `G57` of the
+[Markov-order study](method-evidence/option-markov-order.md) covers a declared `markov_order` on
+`LTMLE`. The rows `G55` of the
+[LTMLE stopping-rule study](method-evidence/option-stopping-ltmle.md) cover a declared stopping
+rule on the end-of-study Newton walk and on the held survival hazard walk, each with two static
+regimens. Any other longitudinal fit with a stopping rule carries the experimental label. The
+rows `G45.mean_model` and `G45.hazard_model` of the
+[node-bounds study](method-evidence/survival-node-bounds.md) cover `node_bounds=` together with
+`hazard_pooling="pooled"` on a held survival design with two arms, fitted in sample. Any other
 fit with `node_bounds=` or pooled censoring carries the experimental label.
 
 These requests stay refused, because the code returns a misleading number or has no path:
@@ -534,26 +549,36 @@ data. A refused replay carries the reason code `invalid_declaration`. `cleverly`
 no name for the omission code literals. Compare an omission code against the spelling in the
 table. The fitted-bound equality check is different: it can only run when the curve is invoked.
 
-Replay accepts an outcome or pseudo-outcome learner only when every `random_state` parameter it
-exposes is an explicit integer. The check reads that learner, each nested learner, and each member
-of a Super Learner library. It reads the declared parameter and not the fitted behavior, so a
-declared `random_state=None` is refused even where the fit is deterministic.
+Replay accepts an outcome or pseudo-outcome learner only when every `random_state` parameter of
+the learner as the fit resolved it holds an explicit integer. A fit with an integer `random_state`
+first gives that seed to every `random_state` of the learner that is `None`, at any depth, and a
+Super Learner with an integer `random_state` gives its own seed to every library member with no
+seed of its own. The check reads the resolved learner, each nested learner, and each member of a
+Super Learner library, and it reads each library member as the Super Learner's fit seeds it. A
+`None` held inside a list or dict parameter, such as a search grid, is out of that seed's reach
+and is refused. With `repeats` above 1 each draw passes its own seed, a fresh integer under
+`random_state=None`. The check reads the declared parameter and not the fitted behavior, so a
+`None` that no seed reaches is refused even where the fit is deterministic.
 
 | the learner you pass | what replay does |
 | --- | --- |
 | `LinearRegression()` | accepts it, because the class declares no `random_state` |
 | `LogisticRegression(random_state=0)` | accepts it, because the declared state is an explicit integer |
-| `LogisticRegression()` | refuses it as `longitudinal_replay_random_state_unseeded` |
+| `LogisticRegression()`, fit with an integer `random_state` | accepts it, because the fit gives the learner its seed |
+| `LogisticRegression()`, fit with `random_state=None` at one draw | refuses it as `longitudinal_replay_random_state_unseeded` |
+| `SuperLearner(library=[LogisticRegression()], random_state=None)`, fit with `random_state=None` at one draw | refuses it as `longitudinal_replay_random_state_unseeded` |
 | `LogisticRegression(random_state=rng)`, for a generator `rng` | refuses it as `longitudinal_replay_random_state_non_integer` |
 
 `tests/unit/test_longitudinal_truncation_refit.py` checks an unseeded learner, a non-integer state,
-an unseeded member of a nested Super Learner library, and a seeded stochastic learner that replays
-exactly.
+a library member that inherits an integer seed and replays exactly, the same member under an
+ensemble no seed reaches, and a seeded stochastic learner that replays exactly.
+`tests/unit/test_refusal_paths.py` checks that a forest with no seed of its own is refused under a
+fit with `random_state=None` and replays exactly under an integer `random_state`.
 
 | omission code | refusal code | replay boundary |
 | --- | --- | --- |
 | `longitudinal_replay_learner_unclonable` | `invalid_declaration` | an outcome or pseudo-outcome learner cannot be cloned |
-| `longitudinal_replay_random_state_unseeded` | `invalid_declaration` | a replayed learner or nested learner declares an unspecified random state |
+| `longitudinal_replay_random_state_unseeded` | `invalid_declaration` | a replayed learner or nested learner has a random state of `None` that no seed reaches |
 | `longitudinal_replay_random_state_non_integer` | `invalid_declaration` | a replayed learner or nested learner declares a non-integer random state |
 | `longitudinal_replay_fitted_bound_mismatch` | `invalid_declaration` | invocation-time preflight found that a full replay at the fitted bound differs from the stored fitted artifacts |
 
@@ -588,7 +613,7 @@ the type and the message of each one, with learners that raise if they are fitte
 | H3 | `survival_model="hazard"` on an end-of-study outcome | `fit` | `CapabilityError`, `invalid_declaration` | "survival_model='hazard' needs an event indicator at every node, and this fit declares one end-of-study outcome. A hazard is the chance of the event at a node among the units still at risk, so an outcome measured once has none." |
 | H3 | `isotonic=True` on an end-of-study outcome | `fit` | `CapabilityError`, `invalid_declaration` | "isotonic=True makes a curve over the horizons monotone, and an end-of-study fit reports one horizon." |
 | H4 | `targeting="one_step"` with `survival_model="iterated_mean"` | construction | `ValueError` | "targeting='one_step' requires survival_model='hazard'. The one-step walk moves one set of hazards toward the score equations of every horizon together (Cai and van der Laan 2020). A one-step update of the iterated-mean recursion is not built. Set survival_model='hazard' on a survival design with one baseline treatment, or keep targeting='iterative' and set isotonic=True for a monotone curve" |
-| H5 | `msm=` with `survival_model="hazard"` or `isotonic=True` | construction | `CapabilityError`, `implementation_gap` | "msm= with {option} is not built. A working model reports coefficients over regimen and horizon cells. X70 in docs/roadmap.md tracks this. Fit msm= with survival_model='iterated_mean' and isotonic=False, or report the curve and take contrasts." |
+| H5 | `msm=` with `isotonic=True` | construction | `CapabilityError`, `api_redirection` | "msm= with isotonic=True is not built. The isotonic projection moves the levels of one curve and leaves their influence curves as they were, and a working model fitted to projected levels has no influence curve this package derives. Set isotonic=False. survival_model='iterated_mean' takes msm= on every design, and survival_model='hazard' with targeting='one_step' takes it where the design admits a hazard fit and projects monotone curves." |
 | H6 | `pseudo_learner=` with `survival_model="hazard"` | construction | `ValueError` | "pseudo_learner= is not used with survival_model='hazard'. A hazard fit regresses the event indicator at each node and fits no pseudo-outcome. Pass the hazard learner as outcome_learner=" |
 | H7 | a modified treatment policy regimen with `survival_model="hazard"` | `fit` | `CapabilityError`, `implementation_gap` | "regimen {label!r} is a modified treatment policy, and survival_model='hazard' does not support one. Its plug-in evaluates the event and censoring hazards at the shifted dose, and that construction is not built. X70 in docs/roadmap.md tracks this. Use survival_model='iterated_mean', which supports a modified treatment policy at baseline." |
 | H8 | an unknown `targeting`, `survival_model` or `isotonic` value, or a `step_size` that is not positive and finite | construction | `ValueError` | "targeting must be 'iterative' or 'one_step'; got {v!r}", "survival_model must be 'iterated_mean' or 'hazard'; got {v!r}", "isotonic must be True or False; got {v!r}", and "step_size must be a positive finite number; got {v!r}". A `step_size` under `targeting="iterative"` is accepted and unused |
@@ -597,6 +622,7 @@ the type and the message of each one, with learners that raise if they are fitte
 | H11 | `survival_model="hazard"` with a continuous baseline treatment, or a vector with a dose | `fit` | `CapabilityError`, `implementation_gap` | "survival_model='hazard' needs a categorical baseline treatment, and treatment {name!r} is continuous. The hazard plug-in would need the treatment density at every dose, and that construction is not built. X70 in docs/roadmap.md tracks this. Use survival_model='iterated_mean'." A vector with a dose reads "is a vector with a dose" in place of "is continuous" |
 | H12 | a non-default `survival_model`, `targeting`, `step_size` or `isotonic` on `SDRMethod`, `IPSIMethod`, `GComputationMethod` or `IPWMethod` | method configuration | `MethodConfigurationError` | "survival_model=, a hazard targeting= algorithm, step_size= and isotonic= are settings of the targeted fit, method='tmle'. The {method} estimator fits no hazard, and no registered study measures its projected curve. Fit method='tmle', or remove them". The `SDR`, `IPSI`, `SequentialGComputation` and `SequentialIPW` engines do not take these keywords, and raise `TypeError` |
 | H13 | `step_bound=` with `targeting="one_step"` (R-c4) | construction | `MethodConfigurationError`, `api_redirection` | "targeting='one_step' with survival_model='hazard' already walks the universal least-favorable submodel in steps of step_size. step_bound= bounds the steps of targeting='iterative'." |
+| H14 | `msm=` with `survival_model="hazard"` and `targeting="iterative"` | construction | `MethodConfigurationError`, `api_redirection` | "msm= with survival_model='hazard' needs targeting='one_step'. A working model's cells span the horizons, and the per-horizon algorithm restarts from the initial hazards at each horizon, so no one set of hazards solves the coefficient scores. Set targeting='one_step'." |
 
 The fit checks H3 first, then H1, H2, H11 and H7. So a continuous treatment meets H11 before a
 modified treatment policy meets H7.
@@ -610,7 +636,7 @@ H2 needs a model and a fluctuation
 of each later covariate. Stitelman, De Gruttola and van der Laan (2012) and Rytgaard, Gerds and van
 der Laan (2022) treat such covariates. Neither source was read for this contract.
 
-[X70](../roadmap.md#x70-hazard-targeting-beyond-a-held-baseline-treatment) tracks H1, H2, H5, H7 and H11. Each message names the supported route. The roadmap carries no row for H4.
+[X70](../roadmap.md#x70-hazard-targeting-beyond-a-held-baseline-treatment) tracks H1, H2, H7 and H11. Each message names the supported route. The roadmap carries no row for H4.
 
 ### Collaborative TMLE of a risk curve
 

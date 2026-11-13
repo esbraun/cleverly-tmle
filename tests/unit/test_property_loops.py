@@ -120,7 +120,7 @@ class TestClusteredFewCluster:
             for arm, _ in clustered.arms(lost)
         ]
         # The other fits of the same draw published their rows.
-        other = [name for name in clustered.fits_at(10) if name != lost]
+        other = [name for name in clustered.fits_at(10, "equal10") if name != lost]
         for name in other:
             cell = clustered.cell_name(name, "equal10", 10, "t_reference")
             assert set(rows.loc[rows["cell"] == cell, "replicate"]) == set(range(5))

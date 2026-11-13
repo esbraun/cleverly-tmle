@@ -162,6 +162,14 @@ only. A cross-fitted `lmtp` 1.5.4 regimen fit differs from this construction twi
 on each training fold, and it targets each regimen with its own scalar fluctuation. Upstream
 commit `9996b04` classifies that training-fold update as a bug.
 
+**A hazard fit targets the coefficient scores on the hazards.** With `survival_model="hazard"`
+and `targeting="one_step"`, `LTMLE` walks one set of hazards along the coefficient scores of every
+cause and projects the targeted cell plug-ins with the same solver. It runs no backward pass.
+The subsection "A working model over the hazard curve" of
+[hazard-based survival targeting](longitudinal-tmle.md#hazard-based-survival-targeting) states
+that construction, and the [hazard working-model study](method-evidence/hazard-msm.md) measures
+its repeated-sampling properties on finite laws with one cause and with two competing causes.
+
 **Under a link, the targeting is still one backward pass.** The node covariate is the projection
 weight times the design, which is free of the coefficient, so each node fluctuates once. The
 pooled loss weight is the projection weight times the cumulative mechanism, the update of
@@ -374,6 +382,7 @@ guidance rather than an optional extra.
 | [point-treatment repeated-sampling study](method-evidence/point-treatment-msm-projection.md) | truth, R `tmle3` agreement, coefficient efficiency, robustness, targeting, and a load-bearing projection-measure control |
 | [ordinary longitudinal repeated-sampling study](method-evidence/ordinary-longitudinal-msm-projection.md) | projected joint R `ltmle` curves, longitudinal robustness, coefficient efficiency, targeting, and the projection-measure control |
 | [cross-fitted longitudinal repeated-sampling study](method-evidence/cross-fitted-longitudinal-msm-projection.md) | projected joint cross-fitted R `lmtp` curves, the same families at five folds, logit-link calibration, a fully grown tree pair, and a simultaneous band |
+| [hazard working-model study](method-evidence/hazard-msm.md) | the hazard fit's coefficients on one cause and two competing causes: exact truths and efficiency bounds, calibration, a simultaneous band, robustness to a wrong hazard learner, targeting necessity, the root-n rate and power, and its agreement with the iterated-mean fit, reported with no verdict |
 
 The registered rows cover fixed projections. In sample they cover the identity link. Under
 cross-fitting they cover the identity link and the calibration of a logit link. The continuous-dose

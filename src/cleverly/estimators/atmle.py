@@ -1776,7 +1776,8 @@ def fit_adaptive_tmle(
         The folds of the cross-validation that chooses each lasso penalty, stratified like
         the outer split.
     random_state : int, default=0
-        The seed of the outer split, when drawn, and of the inner splits.
+        The seed of the outer split, when drawn, of the inner splits, and of every
+        ``random_state`` of ``basis`` that is ``None``.
     outcome_family : {"gaussian", "binomial"}, default="gaussian"
         Whether the outcome regressions are regressions or classifiers.
     covariate_names : sequence of str or None, default=None
@@ -1897,7 +1898,7 @@ def fit_adaptive_tmle(
             int(seeds[index]),
         ).assignment
         dictionary, effect, bias = _select(
-            data, rows, values, inner, controls_only, basis, force_arm
+            data, rows, values, inner, controls_only, basis, random_state, force_arm
         )
         units.append(
             _unit(
@@ -1990,6 +1991,7 @@ def _select(
     inner: IntArray,
     controls_only: bool,
     basis: Any,
+    random_state: int,
     force_arm: bool,
 ) -> tuple[WorkingDictionary, Selection, Selection]:
     """Fit the dictionary and select both working models on the selection rows."""
@@ -2003,6 +2005,7 @@ def _select(
         bias_rows,
         controls_only=controls_only,
         covariate_names=data.names,
+        random_state=random_state,
     )
     observed = None if data.observed is None else data.observed[rows]
     response_a, response_s = pseudo_responses(data.y[rows], observed, values)

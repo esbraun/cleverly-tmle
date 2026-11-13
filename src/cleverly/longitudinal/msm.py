@@ -91,7 +91,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -138,6 +138,9 @@ from .sequential import (
     tuning_term,
     untargeted_fold_recursions,
 )
+
+if TYPE_CHECKING:
+    from .hazard import HazardFit
 
 __all__ = [
     "Cell",
@@ -532,10 +535,16 @@ class MSMRegimenFit:
     #: The ``(n, C, p)`` design the pass fluctuated along, in sample and cross-fitted alike:
     #: :attr:`RegimenMSM.fluctuation_design`, under every link.
     fluctuation_design: FloatArray
+    #: The walk record of a ``survival_model="hazard"`` fit, which targets the coefficient
+    #: scores on the hazards and has no node fluctuation; ``None`` on the recursion.
+    hazard: HazardFit | None = None
 
     @property
     def converged(self) -> bool:
-        return all(node.converged for node in self.nodes) and self.projection.converged
+        targeted = all(node.converged for node in self.nodes)
+        if self.hazard is not None:
+            targeted = targeted and self.hazard.converged
+        return targeted and self.projection.converged
 
     def summary(self, *, detail: Detail = "short") -> Summary:
         """The working model's link, its cells, and the coefficient of each term.

@@ -1705,9 +1705,18 @@ sizes only the cluster sum is the delta-method variance of the row mean
   [arXiv:2107.01537v2](https://arxiv.org/abs/2107.01537v2). The locators are those of arXiv v2.
   Section 3.1 gives the efficient influence curve and the clever covariates of several causes.
   Section 3.3, Definition 1, and Section 3.4 give the one-step walk. Remark 2 fixes the metric
-  $\hat\sigma^2 = P_n D^2$ at the initial estimator. Assumption 1 is the positivity condition. The
-  paper works in continuous time, and `cleverly` uses its discrete-time special case. Theorem 1 of
-  Section 4.2 assumes a refining grid, and `cleverly` does not claim it.
+  $\hat\sigma^2 = P_n D^2$ at the initial estimator. Assumption 1 is the positivity condition.
+  `targeting="one_step"` on a grid uses its discrete-time special case, and Theorem 1 of Section
+  4.2, which assumes a refining grid, is not claimed there. `ContinuousSurvivalTMLE` follows the
+  paper in continuous time, on the observed jump times, with the stopping bound
+  $1 / (\sqrt n \log n)$ of Section 4.3.
+- van Hage, le Cessie, van Maaren, Putter & van Geloven (2025), [*Doubly robust estimation of
+  marginal cumulative incidence curves for competing risk analysis*](https://doi.org/10.1002/sim.70066),
+  *Statistics in Medicine* 44:e70066, DOI 10.1002/sim.70066. Read first-hand with its supplement
+  (PMC12333911). Its scenario 1, with an arm-specific term added, is the law of the
+  [continuous-time survival study](technical-reference/method-evidence/continuous-time-survival.md),
+  and its scenario S2 that study's positivity cell. Its estimator, AIPW on pseudo-observations, is
+  not used.
 - Westling, van der Laan & Carone (2020), [*Correcting an estimator of a multivariate monotone
   function with isotonic regression*](https://doi.org/10.1214/20-EJS1740), *Electronic Journal of
   Statistics* 14(2), DOI 10.1214/20-EJS1740. Read first-hand in
@@ -2328,6 +2337,19 @@ sizes only the cluster sum is the delta-method variance of the row mean
   Maxima of Sums of High-Dimensional Random Vectors*](https://doi.org/10.1214/13-AOS1161),
   DOI 10.1214/13-AOS1161. First-order validity of the multiplier critical value of a max-$t$
   band.
+- Fay & Graubard (2001), [*Small-Sample Adjustments for Wald-Type Tests Using Sandwich
+  Estimators*](https://doi.org/10.1111/j.0006-341X.2001.01198.x), DOI
+  10.1111/j.0006-341X.2001.01198.x. Appendix B's realised-term degrees of freedom is the Kish
+  count of `band_reference="t"` ([the t reference](technical-reference/inference.md#the-t-reference)).
+  No source derives it for an influence-curve estimator; the
+  [`band-t-reference` study](technical-reference/method-evidence/band-t-reference.md) is the
+  finite-sample evidence for the band.
+- Pallmann, Ritz & Hothorn (2018), [*Simultaneous small-sample comparisons in longitudinal or
+  multi-endpoint trials using multiple marginal models*](https://doi.org/10.1002/sim.7610),
+  *Statistics in Medicine* 37(9):1562–1576. For families whose comparisons carry different df,
+  sections 2.3 and 2.4 give comparison-specific critical values and a normal or t copula on
+  univariate t margins. The normal-copula variant is the per-estimate mapping of
+  `band_reference="t"`. Their df are residual df of Gaussian models, not a Kish count.
 
 ## Calibration of prediction models
 

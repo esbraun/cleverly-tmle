@@ -122,23 +122,39 @@ def test_h4_a_one_step_iterated_mean_fit_is_refused() -> None:
         LTMLE({"a1": 1}, targeting="one_step", **_refusing())
 
 
-@pytest.mark.parametrize(
-    ("settings", "option"),
-    [
-        ({"survival_model": "hazard"}, "survival_model='hazard'"),
-        ({"isotonic": True}, "isotonic=True"),
-    ],
-)
-def test_h5_a_working_model_is_refused(settings: dict[str, Any], option: str) -> None:
+@pytest.mark.parametrize("survival_model", ["iterated_mean", "hazard"])
+def test_h5_a_working_model_with_the_isotonic_projection_is_refused(survival_model: str) -> None:
     message = (
-        f"msm= with {option} is not built. A working model reports coefficients over regimen "
-        "and horizon cells. X70 in docs/roadmap.md tracks this. Fit msm= with "
-        "survival_model='iterated_mean' and isotonic=False, or report the curve and take "
-        "contrasts."
+        "msm= with isotonic=True is not built. The isotonic projection moves the levels of "
+        "one curve and leaves their influence curves as they were, and a working model fitted "
+        "to projected levels has no influence curve this package derives. Set isotonic=False. "
+        "survival_model='iterated_mean' takes msm= on every design, and survival_model='hazard' "
+        "with targeting='one_step' takes it where the design admits a hazard fit and projects "
+        "monotone curves."
     )
     with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
-        LTMLE({"a1": 1}, msm=_msm(), **settings, **_refusing())
-    _assert_gap(raised.value)
+        LTMLE(
+            {"a1": 1},
+            msm=_msm(),
+            isotonic=True,
+            survival_model=survival_model,
+            targeting="one_step" if survival_model == "hazard" else "iterative",
+            **_refusing(),
+        )
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+    assert raised.value.refusal.roadmap is None
+
+
+def test_h14_a_working_model_on_the_per_horizon_algorithm_is_refused() -> None:
+    message = (
+        "msm= with survival_model='hazard' needs targeting='one_step'. A working model's "
+        "cells span the horizons, and the per-horizon algorithm restarts from the initial "
+        "hazards at each horizon, so no one set of hazards solves the coefficient scores. "
+        "Set targeting='one_step'."
+    )
+    with pytest.raises(MethodConfigurationError, match=re.escape(message)) as raised:
+        LTMLE({"a1": 1}, msm=_msm(), survival_model="hazard", **_refusing())
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
 
 
 @pytest.mark.parametrize("targeting", ["iterative", "one_step"])

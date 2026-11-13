@@ -586,6 +586,8 @@ def registered() -> tuple[StudyRecord, ...]:
     """
     from tests.studies.adaptive_tmle_selective import STUDY as ADAPTIVE_TMLE_SELECTIVE
     from tests.studies.adaptive_tmle_trial import STUDY as ADAPTIVE_TMLE_TRIAL
+    from tests.studies.band_t_reference import STUDY as BAND_T_REFERENCE
+    from tests.studies.band_t_reference_held_out import STUDY as BAND_T_REFERENCE_HELD_OUT
     from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
     from tests.studies.canonical_adaptive_iptw import STUDY as ADAPTIVE_IPTW
     from tests.studies.canonical_adaptive_iptw_pairing import STUDY as ADAPTIVE_IPTW_PAIRING
@@ -623,10 +625,12 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_drtmle import STUDY as CANONICAL_DRTMLE
     from tests.studies.canonical_full_refit_bootstrap import STUDY as FULL_REFIT_BOOTSTRAP
+    from tests.studies.canonical_hazard_msm import STUDY as HAZARD_MSM
     from tests.studies.canonical_incremental_interventions import (
         STUDY as CANONICAL_INCREMENTAL_INTERVENTIONS,
     )
     from tests.studies.canonical_ipsi_repeated import STUDY as CANONICAL_IPSI_REPEATED
+    from tests.studies.canonical_isotonic_binding import STUDY as ISOTONIC_BINDING
     from tests.studies.canonical_known_mechanism import STUDY as KNOWN_MECHANISM
     from tests.studies.canonical_known_mechanism_drtmle import STUDY as KNOWN_MECHANISM_DRTMLE
     from tests.studies.canonical_known_node_mechanisms import STUDY as KNOWN_NODE_MECHANISMS
@@ -682,6 +686,15 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_MULTI_ARM_MAR_DRTMLE,
     )
     from tests.studies.canonical_multi_arm_tmle import STUDY as CANONICAL_MULTI_ARM_TMLE
+    from tests.studies.canonical_option_markov_order import STUDY as OPTION_MARKOV_ORDER
+    from tests.studies.canonical_option_outcome_by_arm import STUDY as OPTION_OUTCOME_BY_ARM
+    from tests.studies.canonical_option_patience import STUDY as OPTION_PATIENCE
+    from tests.studies.canonical_option_ratio_trim import STUDY as OPTION_RATIO_TRIM
+    from tests.studies.canonical_option_stopping_ltmle import STUDY as OPTION_STOPPING_LTMLE
+    from tests.studies.canonical_option_stopping_point import STUDY as OPTION_STOPPING_POINT
+    from tests.studies.canonical_option_treatment_adjustment import (
+        STUDY as OPTION_TREATMENT_ADJUSTMENT,
+    )
     from tests.studies.canonical_parametric_gformula import STUDY as PARAMETRIC_GFORMULA
     from tests.studies.canonical_point_msm import STUDY as CANONICAL_POINT_MSM
     from tests.studies.canonical_point_survival import STUDY as POINT_SURVIVAL
@@ -725,6 +738,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.clustered_few_cluster_tmle import STUDY as CLUSTERED_FEW_CLUSTER_TMLE
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.conditional_projection import STUDY as CONDITIONAL_PROJECTION
+    from tests.studies.continuous_survival import STUDY as CONTINUOUS_SURVIVAL
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
     from tests.studies.dose_response import STUDY as DOSE_RESPONSE
     from tests.studies.dose_response_npcausal import STUDY as DOSE_RESPONSE_NPCAUSAL
@@ -771,6 +785,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
     from tests.studies.score_assessment import STUDY as SCORE_ASSESSMENT
     from tests.studies.separable_effects import STUDY as SEPARABLE_EFFECTS
+    from tests.studies.small_sample_wald import STUDY as SMALL_SAMPLE_WALD
     from tests.studies.stratified_drtmle_foldwise import STUDY as STRATIFIED_DRTMLE_FOLDWISE
     from tests.studies.survival_ctmle import STUDY as SURVIVAL_CTMLE
     from tests.studies.survival_dr_tmle import STUDY as SURVIVAL_DR_TMLE
@@ -837,8 +852,16 @@ def registered() -> tuple[StudyRecord, ...]:
         SEPARABLE_EFFECTS,
         SURVIVAL_CTMLE,
         SURVIVAL_DR_TMLE,
+        HAZARD_MSM,
+        CONTINUOUS_SURVIVAL,
         TARGETING_CURVES,
         SCORE_ASSESSMENT,
+        OPTION_STOPPING_POINT,
+        OPTION_TREATMENT_ADJUSTMENT,
+        OPTION_OUTCOME_BY_ARM,
+        OPTION_PATIENCE,
+        ISOTONIC_BINDING,
+        SMALL_SAMPLE_WALD,
         DOSE_RESPONSE,
         MISSINGNESS_TILT_INFERENCE,
         DOSE_RESPONSE_NPCAUSAL,
@@ -874,6 +897,9 @@ def registered() -> tuple[StudyRecord, ...]:
         LONG_HORIZON_LTMLE,
         LONG_HORIZON_CATEGORICAL_LTMLE,
         LONG_HORIZON_SDR,
+        OPTION_STOPPING_LTMLE,
+        OPTION_RATIO_TRIM,
+        OPTION_MARKOV_ORDER,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,
@@ -911,5 +937,7 @@ def registered() -> tuple[StudyRecord, ...]:
         REFUTER_CALIBRATION_POINT,
         REFUTER_CALIBRATION_BAND,
         DEFAULT_SIMULTANEOUS_BANDS,
+        BAND_T_REFERENCE,
+        BAND_T_REFERENCE_HELD_OUT,
         FULL_REFIT_BOOTSTRAP,
     )
