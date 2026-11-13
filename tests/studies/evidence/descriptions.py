@@ -1587,6 +1587,44 @@ ARMS.update(
     }
 )
 
+#: The labels of ``hazard-mtp``: the contrast or the policy's risk at the last visit of one fit
+#: label, a fit label's band over every estimate, and a fit label's own draws.  Mirrored from
+#: ``tests.studies.hazard_mtp_properties``, which this module cannot import.
+_HAZARD_MTP_FITS = {
+    "levels": "the six-level dose law under one level up",
+    "gaussian_density": "the Gaussian dose law under a shift of one, binned density ratio",
+    "gaussian_classifier": "the Gaussian dose law under a shift of one, classifier ratio",
+    "gaussian_crossfit": (
+        "the Gaussian dose law under a shift of one, classifier ratio, five outer folds"
+    ),
+    "vector": "the one-visit arm-and-dose law under a joint shift of the dose by one",
+}
+ARMS.update(
+    {
+        **{
+            f"{fit}_contrast": (
+                f"{words}, the risk difference against the natural course at the last visit"
+            )
+            for fit, words in _HAZARD_MTP_FITS.items()
+        },
+        **{
+            f"{fit}_risk": f"{words}, the policy's risk by the last visit"
+            for fit, words in _HAZARD_MTP_FITS.items()
+        },
+        **{
+            f"{fit}_curve": (
+                f"{words}, every risk and risk difference of both curves read as one joint set"
+            )
+            for fit in ("levels", "gaussian_density")
+            for words in (_HAZARD_MTP_FITS[fit],)
+        },
+        **{
+            fit: f"{_HAZARD_MTP_FITS[fit]}, the iterated-mean fit of the same plans, n = 2,000"
+            for fit in ("levels", "gaussian_density")
+        },
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -8700,5 +8738,87 @@ CELLS.update(
             "consecutive visits",
             "no verdict; the share of draws whose curve decreases somewhere is reported",
         ),
+    }
+)
+
+
+#: ``hazard-mtp``: a modified treatment policy at the baseline decision on the hazard path, one
+#: walk per policy.  The laws and fits are those of ``tests/studies/hazard_mtp_law.py``, which this
+#: module cannot import.
+_HAZARD_MTP_SLUG = "hazard-mtp"
+STUDY_SCENARIOS.update(
+    {
+        (_HAZARD_MTP_SLUG, "levels"): (
+            "five visits, one cause, a baseline dose on six levels with a multinomial-logit "
+            "mechanism, logistic visit dropout; the policy raises the dose one level"
+        ),
+        (_HAZARD_MTP_SLUG, "gaussian_density"): (
+            "five visits, one cause, a Gaussian baseline dose, logistic visit dropout; the policy "
+            "adds one to the dose, its ratio from a binned Gaussian density"
+        ),
+        (_HAZARD_MTP_SLUG, "gaussian_classifier"): (
+            "the same Gaussian dose law, the policy's ratio from a logistic classifier"
+        ),
+        (_HAZARD_MTP_SLUG, "vector"): (
+            "one visit, a binary arm beside a Gaussian dose, dropout at the visit; the joint "
+            "policy adds one to the dose and keeps the arm"
+        ),
+    }
+)
+STUDY_ESTIMANDS.update(
+    {
+        **{
+            (_HAZARD_MTP_SLUG, f"risk_regimen[{label} @ t={t}]"): (
+                f"the risk of the event by visit {t} under {words}"
+            )
+            for label, words in (("shift", "the policy"), ("natural", "the natural course"))
+            for t in range(1, 6)
+        },
+        **{
+            (_HAZARD_MTP_SLUG, f"ate_regimen[shift vs natural @ t={t}]"): (
+                f"the risk by visit {t} under the policy minus the risk under the natural course"
+            )
+            for t in range(1, 6)
+        },
+    }
+)
+CELLS.update(
+    {
+        ("iterated_mean_difference", "isotonic_difference"): (
+            "the hazard estimate minus the isotonic iterated-mean estimate of the same plans on "
+            "the same draw",
+            "no verdict; the SD of the difference over the efficiency-bound standard error is "
+            "reported",
+        ),
+    }
+)
+_HAZARD_MTP_DIFFERENCE_CELLS = {
+    "paired_difference": (
+        "the hazard estimate minus the iterated-mean estimate of the same plans on the same draw",
+        "no verdict; the SD of the difference over the efficiency-bound standard error is "
+        "reported",
+    ),
+    "hazard_fit": (
+        "the hazard fit of the plans, against the exact value",
+        "no verdict; coverage and SE ratio are reported beside the iterated-mean fit's",
+    ),
+    "iterated_fit": (
+        "the iterated-mean fit of the same plans on the same draw, against the exact value",
+        "no verdict; coverage and SE ratio are reported beside the hazard fit's",
+    ),
+    "mechanism_correct_difference": (
+        "the hazard estimate minus the iterated-mean estimate of the same plans on the same "
+        "draw, with both outcome regressions omitting W and the treatment and censoring models "
+        "correct",
+        "no verdict; the SD of the difference over the efficiency-bound standard error is "
+        "reported",
+    ),
+}
+STUDY_ARM_CELLS.update(
+    {
+        (_HAZARD_MTP_SLUG, "iterated_mean_difference", f"{fit}_{arm}", base): words
+        for fit in ("levels", "gaussian_density")
+        for arm in ("contrast", "risk")
+        for base, words in _HAZARD_MTP_DIFFERENCE_CELLS.items()
     }
 )
