@@ -586,6 +586,8 @@ def registered() -> tuple[StudyRecord, ...]:
     """
     from tests.studies.adaptive_tmle_selective import STUDY as ADAPTIVE_TMLE_SELECTIVE
     from tests.studies.adaptive_tmle_trial import STUDY as ADAPTIVE_TMLE_TRIAL
+    from tests.studies.band_t_reference import STUDY as BAND_T_REFERENCE
+    from tests.studies.band_t_reference_held_out import STUDY as BAND_T_REFERENCE_HELD_OUT
     from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
     from tests.studies.canonical_adaptive_iptw import STUDY as ADAPTIVE_IPTW
     from tests.studies.canonical_adaptive_iptw_pairing import STUDY as ADAPTIVE_IPTW_PAIRING
@@ -905,5 +907,7 @@ def registered() -> tuple[StudyRecord, ...]:
         REFUTER_CALIBRATION_POINT,
         REFUTER_CALIBRATION_BAND,
         DEFAULT_SIMULTANEOUS_BANDS,
+        BAND_T_REFERENCE,
+        BAND_T_REFERENCE_HELD_OUT,
         FULL_REFIT_BOOTSTRAP,
     )

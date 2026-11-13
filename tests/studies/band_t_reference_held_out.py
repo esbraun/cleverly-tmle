@@ -23,8 +23,8 @@ states.  The paired gain over the normal-reference control is a reported reading
 ``band-t-reference`` (plan rev 3.3): its declared value, :data:`REFERENCE_THRESHOLDS`, is
 published beside the gain interval and gates nothing.
 
-The pilot has run and is committed; the main run has not.  The study is not in :func:`~tests.studies.evidence.registry.registered`
-until its run commits artifacts.
+The pilot and the declared run (at commit ``71076110``) are committed, and the study is
+registered.  The cell passed, so it needs no owner; it still licenses no row.
 """
 
 from __future__ import annotations
@@ -68,8 +68,8 @@ STUDY = StudyRecord(
     name="held-out cell of the per-estimate t reference band",
     slug=SLUG,
     artifacts=ROOT / "tests" / "canonical" / "band_t_reference_held_out",
-    document="docs/technical-reference/method-evidence/band-t-reference.md",
-    anchor="band-t-reference-held-out",
+    document="docs/technical-reference/method-evidence/band-t-reference-held-out.md",
+    anchor="held-out-t-reference-band",
     scenarios={SCENARIO: ESTIMANDS},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

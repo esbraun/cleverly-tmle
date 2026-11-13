@@ -42,8 +42,9 @@ The primary scenario is the shipped ``TMLE()`` default fit of ``default-simultan
 with ``band_reference="t"``: the band changes no estimate, SE or pointwise interval, so its
 primary rows are that fit's pointwise results against the exact truth.
 
-The pilot has run and is committed; the main run has not.  The study is not in :func:`~tests.studies.evidence.registry.registered`
-until its run commits artifacts.
+The pilot and the declared run (5,600 replications per cell, at commit ``a11bcf62``) are
+committed, and the study is registered.  Every cell passed, so each licenses the triple on its
+rows (``_support_rows.T_BAND_CELLS``).
 """
 
 from __future__ import annotations
@@ -571,7 +572,7 @@ STUDY = StudyRecord(
     slug=SLUG,
     artifacts=ROOT / "tests" / "canonical" / "band_t_reference",
     document="docs/technical-reference/method-evidence/band-t-reference.md",
-    anchor="band-t-reference",
+    anchor="per-estimate-t-reference-band",
     scenarios={SCENARIO: ESTIMANDS},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
