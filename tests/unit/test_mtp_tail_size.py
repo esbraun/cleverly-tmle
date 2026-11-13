@@ -176,13 +176,18 @@ def test_the_one_branch_mutation_moves_the_estimate() -> None:
     assert abs(mutated.psi - shipped.psi) > 3 * shipped.std_error
 
 
-def test_a_residual_at_the_policy_dose_moves_the_exact_form() -> None:
-    """Witness 3a on ``p4``: the mutated recursion misses ``Var D`` by more than 1%.
+#: The floor of witness 3a for each plan (plan rev 3.3a).  ``p4`` moves by 2.7% and ``p1`` by
+#: 0.33%; both floors sit at least five orders above the 1e-8 tolerance of witness 1.
+POLICY_RESIDUAL_FLOOR = {"p1": 0.001, "p4": 0.01}
+
+
+@pytest.mark.parametrize("plan", sorted(POLICY_RESIDUAL_FLOOR))
+def test_a_residual_at_the_policy_dose_moves_the_exact_form(plan: str) -> None:
+    """Witness 3a: the mutated recursion misses ``Var D`` upward by more than the floor.
 
     The shipped form meets it to 1e-8 (witness 1).  The mutation takes each node's residual
-    against its regression at the policy dose.  On ``p1`` the exact move is 0.33%, below the
-    plan's 1% floor, so ``p1`` is not asserted here (reported to the plan).
+    against its regression at the policy dose, the closed-form issue of Tran et al. (2023).
     """
-    shipped = tail.diagonal_variance("p4")
-    mutated = tail.diagonal_variance("p4", shift="policy_residual")
-    assert mutated / shipped - 1.0 > 0.01
+    shipped = tail.diagonal_variance(plan)
+    mutated = tail.diagonal_variance(plan, shift="policy_residual")
+    assert mutated / shipped - 1.0 > POLICY_RESIDUAL_FLOOR[plan]
