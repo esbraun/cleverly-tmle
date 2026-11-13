@@ -628,8 +628,9 @@ terms give a small count. It is the realised-term degrees of freedom of
 [Fay and Graubard (2001, Appendix B)](../references.md#multiple-testing), a Satterthwaite count shrunk by a factor of 2 to 3. No source derives it for an
 influence-curve estimator, so the finite-sample claim rests on the study, cell by cell. To first
 order $c_j/\hat c - 1 = (\hat c^2 + 1)/(4\nu_j)$, and since $K_j \to \infty$ under a fixed law
-with finite fourth curve moment, the $t$ band has the default band's limit. The floor 5 keeps a
-coordinate whose count is a few terms from an unbounded width.
+with finite fourth curve moment, the $t$ band has the default band's limit. The floor 5 bounds
+the widening of a coordinate whose count rests on a few terms: its $c_j$ is at most the
+$t_5$ quantile at the same tail.
 
 The claim is joint coverage only. A passing cell can combine an over-covered sparse coordinate
 with slightly short ones. On a clustered, weighted or repeated fit (`median_bands` maps the
@@ -639,25 +640,24 @@ reference. The `band-t-reference` study is declared: its cells measure the $t$ b
 beside the default band on the same fits, and until its run no row licenses the option, so a
 $t$ band reads `experimental` everywhere.
 
-A band is built over every estimate that supplies inference, and over one exception. An estimate
+A band is built over every estimate that supplies inference, with two status rules. An estimate
 whose status is `"out_of_range_plugin"` stays in the family at its plug-in standard error. An
 estimate whose status is `"constant_arm_cell_plugin"` (a treatment arm whose observed outcomes in
-its stratum take one value) refuses the whole band under the band status `"constant_arm_cell"`:
+its stratum take one value) refuses the whole band with an `inference_gap` refusal, which the summary names:
 no band covers such an estimate, and a band over the remaining members would describe a family
-the data chose. No builder on this branch sets either status yet.
+the data chose. No builder sets either status yet.
 
-**[derivation]** Under the default band an unbounded target's slice can be narrower than a
-small-df pointwise $t$ interval; under the $t$ band it is not, when $\hat c \ge 1.96$:
+The pointwise interval of a band member is the Wald interval $\hat\psi \pm 1.96\,\widehat{se}$ on
+the identity scale (the log scale for a ratio). The band and the pointwise interval share the
+centre and the standard error, so their nesting reduces to the critical values on one scale:
 
-| target | pointwise interval | default band | $t$ band |
-| --- | --- | --- | --- |
-| bounded binary-outcome mean or difference, `band_scale="logit"` | range-logit, $z = 1.96$ | contains it when $\hat c \ge 1.96$ | contains it when $\hat c \ge 1.96$ |
-| unbounded | $t_{0.975,\max(\nu,5)}$ with $\nu = 2K/(1 - K/m)$ | can be narrower where $\nu$ is small | contains it, since $\max(K,5) \le \max(\nu,5)$ |
-| bounded, `band_scale="identity"` | range-logit | not nested | not nested |
+| target | default band | $t$ band |
+| --- | --- | --- |
+| identity or log scale: an unbounded target, a ratio, or any target under `band_scale="identity"` | contains the pointwise interval when $\hat c \ge 1.96$ | contains it when $\hat c \ge 1.96$, since $c_j \ge \hat c$ |
+| bounded binary-outcome mean or difference under `band_scale="logit"` | not nested: the band sits on the range-logit scale | not nested |
 
-The first and second rows describe the pointwise rule a separate change ships; on this branch
-every pointwise interval of a binary outcome keeps the identity scale. $\hat c \ge 1.96$ is not
-guaranteed for a multiplier quantile. The smallest $\hat c$ on the committed red-cell fits is 2.25.
+$\hat c \ge 1.96$ is not guaranteed for a multiplier quantile. The smallest $\hat c$ on the
+committed red-cell fits is 2.25.
 
 ### Evidence for the default band
 
