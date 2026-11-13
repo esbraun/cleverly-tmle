@@ -52,11 +52,17 @@ Three readings, written to this directory:
     nuisances from the population normal equations on the quadrature grid, at two orders.
     About an hour.
 
+``probe1.csv`` ... ``screen.csv`` (``--probes NAME ... --checkpoint DIR``)
+    The design probes the documentation cites, rebuilt from the shipped code by
+    :mod:`~tests.diagnostics.fix5_heavy_ratios.probes`, which describes each.  Each writes one
+    row per draw (``NAME_rows.csv.gz``) beside its summary.  About seven CPU-hours in all.
+
 ``tests/unit/test_heavy_ratio_reading.py`` rebuilds ``reading.csv`` and checks the other
 files against the code that produced them; ``tests/unit/test_mtp_tail_size.py`` reads the
-law-P files.
+law-P and law-B files and ``tests/unit/test_heavy_ratio_probes.py`` the probe summaries.
 
-    python -m tests.diagnostics.fix5_heavy_ratios.run [--probe] [--law-p --checkpoint DIR] [--law-b]
+    python -m tests.diagnostics.fix5_heavy_ratios.run [--probe] [--law-p] [--law-b]
+        [--probes NAME ...] [--checkpoint DIR]
 """
 
 from __future__ import annotations
@@ -70,6 +76,7 @@ import pandas as pd
 from sklearn.linear_model import LinearRegression
 
 from cleverly.longitudinal import LTMLE, SDR
+from tests.diagnostics.fix5_heavy_ratios import probes
 from tests.studies import canonical_mtp_pricing as pricing
 from tests.studies import mtp_pricing_common as common
 from tests.studies import mtp_tail_size_common as tail
@@ -313,7 +320,16 @@ def main() -> None:
     parser.add_argument("--law-p", action="store_true", help="the law-P own-curve tail sizes")
     parser.add_argument("--checkpoint", type=Path, help="keep the law-P fits and chunks here")
     parser.add_argument("--law-b", action="store_true", help="the law-B own-curve tail sizes")
+    parser.add_argument(
+        "--probes", nargs="+", choices=probes.PROBES, help="rebuild these design probes"
+    )
     args = parser.parse_args()
+    if args.probes:
+        if args.checkpoint is None:
+            parser.error("--probes needs --checkpoint")
+        for name in args.probes:
+            probes.run(name, args.checkpoint / name)
+        return
     if args.law_b:
         law_b().to_csv(HERE / "law_b_own_moments.csv", index=False, float_format="%.12g")
         return
