@@ -718,7 +718,10 @@ $$
 $$
 
 on the scale the interval is built on: the logit or log scale for a transformed estimate, the
-log scale for a ratio. It covers whenever $\lvert Z\rvert \le z$, whatever $B$ is, so it keeps
+log scale for a ratio. On an unclustered mean of a binary outcome, whose interval is built on the
+logit scale ([small-sample scale](inference.md#small-sample-scale)), the residual enters as
+$\lvert r_n\rvert / \bigl(\hat\psi(1 - \hat\psi)\bigr)$, the slope that carries the standard
+error. It covers whenever $\lvert Z\rvert \le z$, whatever $B$ is, so it keeps
 its level asymptotically. `ParameterEstimate.rule_widened` records the widening, which every
 fit under `scaled_var` or `sample_size` sets. Each derived estimate inherits it with its own
 curve's mean: a contrast, a ratio, a transform, a stratum, a fold average, the median over
@@ -740,7 +743,7 @@ The full-refit bootstrap is refused under a declared rule. Each refit stops with
 and no derivation bounds what those residuals do to the bootstrap law.
 `tests/unit/test_rule_widened_interval.py` checks the arithmetic on each scale, a nonzero
 residual on a one-step walk, the inheritance, each consumer above, the refusal, and mutations
-that drop the margin or add it on the reported scale.
+that drop the margin, add it on the reported scale, or add it unscaled on the logit scale.
 
 The widened interval costs little when the residual is small. A one-step `scaled_var` walk that
 met its rule leaves a residual of at most $c$ standard errors on an arm mean, so the half-width

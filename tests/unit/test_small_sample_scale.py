@@ -64,6 +64,7 @@ def _curve(se: float, n: int = 400, seed: int = 0) -> np.ndarray:
 
 
 def _mean(psi: float, se: float = 0.02, **kwargs: Any) -> Any:
+    kwargs.setdefault("rule_widened", False)
     return make_estimate("ey1", psi, _curve(se), n=400, scale="level", bounds=UNIT, **kwargs)
 
 
@@ -104,7 +105,14 @@ def test_the_identity_scale_fails_the_bounded_witness(monkeypatch: pytest.Monkey
 def test_a_heavy_curve_on_a_bounded_mean_keeps_the_normal_reference() -> None:
     curve = _heavy(8.0)
     estimate = make_estimate(
-        "ey1", 0.93, curve, n=400, scale="level", bounds=UNIT, outcome_family="binomial"
+        "ey1",
+        0.93,
+        curve,
+        n=400,
+        scale="level",
+        bounds=UNIT,
+        outcome_family="binomial",
+        rule_widened=False,
     )
     assert 3.0 < estimate.small_sample_df < 30.0
     se = estimate.std_error
@@ -121,12 +129,14 @@ def test_a_heavy_curve_on_a_bounded_mean_keeps_the_normal_reference() -> None:
 
 def test_no_t_ships_and_a_difference_keeps_its_identity_interval() -> None:
     curve = _heavy(8.0)
-    gaussian = make_estimate("ey1", 2.5, curve, n=400, scale="level", outcome_family="gaussian")
+    gaussian = make_estimate(
+        "ey1", 2.5, curve, n=400, scale="level", outcome_family="gaussian", rule_widened=False
+    )
     assert gaussian.effective_df is not None and gaussian.effective_df < 30.0
     assert gaussian.interval_scale == "identity"
     assert gaussian.ci == wald_ci(2.5, gaussian.std_error)
     difference = make_estimate(
-        "ate", 0.3, _curve(0.04), n=400, scale="difference", bounds=(-1.0, 1.0)
+        "ate", 0.3, _curve(0.04), n=400, scale="difference", bounds=(-1.0, 1.0), rule_widened=False
     )
     assert difference.interval_scale == "identity"
     assert difference.ci == wald_ci(0.3, difference.std_error)
@@ -134,10 +144,12 @@ def test_no_t_ships_and_a_difference_keeps_its_identity_interval() -> None:
 
 def test_reading_the_effective_df_fails_the_normal_witness(monkeypatch: pytest.MonkeyPatch) -> None:
     curve = _heavy(8.0)
-    gaussian = make_estimate("ey1", 2.5, curve, n=400, scale="level", outcome_family="gaussian")
+    gaussian = make_estimate(
+        "ey1", 2.5, curve, n=400, scale="level", outcome_family="gaussian", rule_widened=False
+    )
     shipped = gaussian.ci
 
-    def with_t(self: Any) -> tuple[float, float]:
+    def with_t(self: Any, *, widen: bool) -> tuple[float, float]:
         return wald_ci(self.psi, self._plugin_std_error(), self.alpha, df=self.effective_df)
 
     monkeypatch.setattr(influence_module.ParameterEstimate, "_wald_interval", with_t)
@@ -187,7 +199,9 @@ def test_removing_the_status_shows_an_interval_that_misses_and_rejects() -> None
 def test_a_constant_cell_member_refuses_the_band() -> None:
     estimates = {
         "ey1": replace(_mean(0.9995, se=5e-5), inference=CONSTANT_ARM_CELL_STATUS),
-        "ey0": make_estimate("ey0", 0.6, _curve(0.03, seed=1), n=400, scale="level", bounds=UNIT),
+        "ey0": make_estimate(
+            "ey0", 0.6, _curve(0.03, seed=1), n=400, scale="level", bounds=UNIT, rule_widened=False
+        ),
     }
     with pytest.raises(CapabilityError) as raised:
         simultaneous_bands(estimates, n_replicates=500, random_state=0)
@@ -198,7 +212,9 @@ def test_a_constant_cell_member_refuses_the_band() -> None:
 
 
 def test_the_df_never_sets_a_status_on_a_bounded_mean() -> None:
-    estimate = make_estimate("ey1", 0.6, _heavy(2.1), n=400, scale="level", bounds=UNIT)
+    estimate = make_estimate(
+        "ey1", 0.6, _heavy(2.1), n=400, scale="level", bounds=UNIT, rule_widened=False
+    )
     assert estimate.small_sample_df < 5.0
     assert estimate.inference == "influence_curve"
 
@@ -207,7 +223,9 @@ def test_replace_keeps_the_status_and_so_does_an_inheriting_contrast() -> None:
     withheld = replace(_mean(0.9995, se=5e-5), inference=CONSTANT_ARM_CELL_STATUS)
     healed = replace(withheld, influence_curve=_curve(0.03), variance=0.03**2)
     assert healed.inference == CONSTANT_ARM_CELL_STATUS
-    other = make_estimate("ey0", 0.6, _curve(0.03, seed=1), n=400, scale="level", bounds=UNIT)
+    other = make_estimate(
+        "ey0", 0.6, _curve(0.03, seed=1), n=400, scale="level", bounds=UNIT, rule_widened=False
+    )
     contrast = smooth_contrast(
         {"ey1": withheld, "ey0": other},
         lambda v: float(v[0] - v[1]),
@@ -242,6 +260,7 @@ def test_the_precedence_of_the_two_statuses() -> None:
         scale="level",
         inference="estimated_weight_plugin",
         outcome_family="gaussian",
+        rule_widened=False,
     )
     assert labelled.inference == "estimated_weight_plugin"
     assert labelled.ci == wald_ci(2.5, labelled.std_error)
@@ -263,6 +282,7 @@ def test_a_clustered_bounded_mean_keeps_its_cluster_reference() -> None:
         scale="level",
         bounds=UNIT,
         reference_df=reference.reference_df("ey1"),
+        rule_widened=False,
     )
     assert estimate.reference_df == reference.reference_df("ey1") == 18
     assert estimate.small_sample_df is None
@@ -283,7 +303,13 @@ def _fixtures() -> list[Any]:
         if kind == 0:
             out.append(
                 make_estimate(
-                    "ey1", float(rng.uniform(0.05, 0.95)), curve, n=400, scale="level", bounds=UNIT
+                    "ey1",
+                    float(rng.uniform(0.05, 0.95)),
+                    curve,
+                    n=400,
+                    scale="level",
+                    bounds=UNIT,
+                    rule_widened=False,
                 )
             )
         elif kind == 1:
@@ -295,13 +321,26 @@ def _fixtures() -> list[Any]:
                     n=400,
                     scale="difference",
                     bounds=(-1.0, 1.0),
+                    rule_widened=False,
                 )
             )
         elif kind == 2:
             psi = float(rng.uniform(0.5, 2.0))
-            out.append(make_estimate("rr", psi, curve, n=400, scale="ratio", log_psi=math.log(psi)))
+            out.append(
+                make_estimate(
+                    "rr",
+                    psi,
+                    curve,
+                    n=400,
+                    scale="ratio",
+                    log_psi=math.log(psi),
+                    rule_widened=False,
+                )
+            )
         else:
-            base = make_estimate("p", float(rng.uniform(0.2, 0.8)), curve, n=400, scale="level")
+            base = make_estimate(
+                "p", float(rng.uniform(0.2, 0.8)), curve, n=400, scale="level", rule_widened=False
+            )
             out.append(replace(base, transform=Transform.logit()))
     return out
 
@@ -331,9 +370,13 @@ def test_the_default_null_of_a_bounded_mean_is_outside_its_range() -> None:
 
 
 def test_an_out_of_range_member_keeps_the_rule_it_had() -> None:
-    edge = make_estimate("ey1", 1.0, _curve(0.02), n=400, scale="level", bounds=UNIT)
+    edge = make_estimate(
+        "ey1", 1.0, _curve(0.02), n=400, scale="level", bounds=UNIT, rule_widened=False
+    )
     assert edge.inference == OUT_OF_RANGE_STATUS
-    other = make_estimate("ey0", 0.6, _curve(0.03, seed=1), n=400, scale="level", bounds=UNIT)
+    other = make_estimate(
+        "ey0", 0.6, _curve(0.03, seed=1), n=400, scale="level", bounds=UNIT, rule_widened=False
+    )
     estimates = {"ey1": edge, "ey0": other}
     assert out_of_range(estimates, "logit") == ("ey1",)
     with pytest.raises(CapabilityError):
@@ -461,12 +504,16 @@ def test_a_contrast_or_ratio_inherits_the_range_status_of_a_mean_it_reads() -> N
     assert bounded_status("constant_node_plugin", 1.4, None, reads_out_of_range=True) == (
         "constant_node_plugin"
     )
-    ratio = make_estimate("rr", 1.4, _curve(0.05), n=400, scale="ratio", log_psi=math.log(1.4))
+    ratio = make_estimate(
+        "rr", 1.4, _curve(0.05), n=400, scale="ratio", log_psi=math.log(1.4), rule_widened=False
+    )
     pooled = {"rr": replace(ratio, inference=OUT_OF_RANGE_STATUS)}
     assert _carry_cell_status({"rr": ratio}, pooled)["rr"].inference == OUT_OF_RANGE_STATUS
     # A whole-sample mean that took the status from its own value passes on nothing: the fold
     # estimate makes its own range check.
-    edge = make_estimate("ey1", 1.0, _curve(0.02), n=400, scale="level", bounds=UNIT)
+    edge = make_estimate(
+        "ey1", 1.0, _curve(0.02), n=400, scale="level", bounds=UNIT, rule_widened=False
+    )
     inside = replace(_mean(0.6), inference="influence_curve")
     assert _carry_cell_status({"ey1": inside}, {"ey1": edge})["ey1"].inference == (
         "influence_curve"
@@ -492,12 +539,13 @@ def _discrete_policies() -> list[Any]:
 def _axis_settings(axis: str) -> dict[str, Any]:
     from cleverly.interventions import Incremental, RiskRatioTilt, Static
 
-    return {
+    settings: dict[str, dict[str, Any]] = {
         "regime": {"interventions": [Static(1), Static(0)]},
         "ipsi": {"incremental": [Incremental(2.0), Incremental(1.0)]},
         "rr_tilt": {"policies": [RiskRatioTilt(1.0), RiskRatioTilt(0.5)]},
         "policy": {"policies": _discrete_policies()},
-    }[axis]
+    }
+    return settings[axis]
 
 
 #: Per axis, the estimates that read the all-event treated arm and those that do not. A static
@@ -670,14 +718,18 @@ def test_a_composite_fit_reads_the_rows_with_a_recorded_treatment(
 
 @pytest.mark.parametrize("psi", [1.0, 1.0 - 1e-17, 0.0, -0.01])
 def test_an_estimate_on_its_bound_takes_the_out_of_range_status(psi: float) -> None:
-    estimate = make_estimate("ey1", psi, _curve(0.02), n=400, scale="level", bounds=UNIT)
+    estimate = make_estimate(
+        "ey1", psi, _curve(0.02), n=400, scale="level", bounds=UNIT, rule_widened=False
+    )
     assert estimate.inference == OUT_OF_RANGE_STATUS
     with pytest.raises(CapabilityError) as raised:
         _ = estimate.ci
     text = str(raised.value)
     assert status_record(OUT_OF_RANGE_STATUS).reason in text
     assert status_record(CONSTANT_ARM_CELL_STATUS).reason not in text
-    other = make_estimate("ey0", 0.6, _curve(0.03, seed=1), n=400, scale="level", bounds=UNIT)
+    other = make_estimate(
+        "ey0", 0.6, _curve(0.03, seed=1), n=400, scale="level", bounds=UNIT, rule_widened=False
+    )
     difference = smooth_contrast(
         {"ey1": estimate, "ey0": other},
         lambda v: float(v[0] - v[1]),
@@ -689,8 +741,12 @@ def test_an_estimate_on_its_bound_takes_the_out_of_range_status(psi: float) -> N
 
 
 def test_a_ratio_inherits_the_status_of_a_level() -> None:
-    edge = make_estimate("ey1", 1.0, _curve(0.02), n=400, scale="level", bounds=UNIT)
-    other = make_estimate("ey0", 0.6, _curve(0.03, seed=1), n=400, scale="level", bounds=UNIT)
+    edge = make_estimate(
+        "ey1", 1.0, _curve(0.02), n=400, scale="level", bounds=UNIT, rule_widened=False
+    )
+    other = make_estimate(
+        "ey0", 0.6, _curve(0.03, seed=1), n=400, scale="level", bounds=UNIT, rule_widened=False
+    )
     ratio = ratio_contrast({"ey1": edge, "ey0": other}, "ey1", "ey0", n=400, name="rr")
     assert ratio.inference == OUT_OF_RANGE_STATUS
 
@@ -737,7 +793,7 @@ def test_a_status_in_one_draw_withholds_every_draw() -> None:
 def test_a_fold_estimate_takes_no_status_from_its_own_rows() -> None:
     from cleverly.estimators.tmle import _carry_cell_status
 
-    fold = make_estimate("ey1", 0.6, _curve(0.03), n=400, scale="level")
+    fold = make_estimate("ey1", 0.6, _curve(0.03), n=400, scale="level", rule_widened=False)
     fold = replace(fold, bounds=UNIT)
     pooled = {"ey1": replace(_mean(0.6), outcome_family="binomial")}
     carried = _carry_cell_status({"ey1": fold}, pooled)["ey1"]
@@ -765,7 +821,9 @@ def test_the_logit_is_never_read_at_or_beyond_a_bound(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr(Transform, "range_logit", classmethod(spy))
     for psi in (0.0, 1.0, 1.0 - 1e-17, 1.02, 0.5, 0.999999):
-        estimate = make_estimate("ey1", psi, _curve(0.02), n=400, scale="level", bounds=UNIT)
+        estimate = make_estimate(
+            "ey1", psi, _curve(0.02), n=400, scale="level", bounds=UNIT, rule_widened=False
+        )
         shown = replace(estimate, inference="influence_curve")
         _ = shown.ci, shown.plugin_interval, shown._plugin_pvalue(), shown.wald_test(0.5)
         assert all(math.isfinite(limit) for limit in shown.ci)
@@ -774,7 +832,9 @@ def test_the_logit_is_never_read_at_or_beyond_a_bound(monkeypatch: pytest.Monkey
 
 
 def test_an_estimate_just_inside_its_bound_shows_the_whole_range() -> None:
-    estimate = make_estimate("ey1", 0.999999999999, _curve(0.1), n=400, scale="level", bounds=UNIT)
+    estimate = make_estimate(
+        "ey1", 0.999999999999, _curve(0.1), n=400, scale="level", bounds=UNIT, rule_widened=False
+    )
     assert estimate.inference == "influence_curve"
     assert estimate.ci == (0.0, 1.0)
     assert all(estimate.ci[0] <= truth <= estimate.ci[1] for truth in (1e-9, 0.5, 1 - 1e-9))
@@ -928,7 +988,7 @@ def test_a_custom_target_records_no_family() -> None:
                 outcome_learner=LinearRegression(),
                 treatment_learner=LogisticRegression(),
                 cross_fit=False,
-                estimands=("ate", "half_ate"),
+                estimands=["ate", "half_ate"],  # type: ignore[list-item]  # a registered custom target
                 random_state=0,
             )
             .fit(_gaussian_frame(), outcome="Y", treatment="A", covariates=["W"])
@@ -959,6 +1019,7 @@ def test_an_estimate_with_a_t_reference_keeps_it_on_singleton_clusters() -> None
         scale="level",
         bounds=UNIT,
         reference_df=12,
+        rule_widened=False,
     )
     assert estimate.n_clusters == estimate.n
     assert estimate.interval_scale == "identity"
@@ -972,9 +1033,19 @@ def test_a_narrowed_band_keeps_an_out_of_range_member_as_the_engine_does() -> No
 
     from cleverly.study import _narrow_bands
 
-    edge = make_estimate("ey1", 1.0, _curve(0.02), n=400, scale="level", bounds=UNIT)
+    edge = make_estimate(
+        "ey1", 1.0, _curve(0.02), n=400, scale="level", bounds=UNIT, rule_widened=False
+    )
     others = {
-        name: make_estimate(name, psi, _curve(0.03, seed=seed), n=400, scale="level", bounds=UNIT)
+        name: make_estimate(
+            name,
+            psi,
+            _curve(0.03, seed=seed),
+            n=400,
+            scale="level",
+            bounds=UNIT,
+            rule_widened=False,
+        )
         for name, psi, seed in (("ey0", 0.6, 1), ("ey2", 0.4, 2))
     }
     engine = simultaneous_bands(
@@ -992,7 +1063,9 @@ def test_a_narrowed_band_keeps_an_out_of_range_member_as_the_engine_does() -> No
 
 
 def test_a_nan_estimate_takes_no_range_status_and_shows_no_interval() -> None:
-    estimate = make_estimate("ey1", math.nan, _curve(0.02), n=400, scale="level", bounds=UNIT)
+    estimate = make_estimate(
+        "ey1", math.nan, _curve(0.02), n=400, scale="level", bounds=UNIT, rule_widened=False
+    )
     assert estimate.inference == "influence_curve"
     assert all(math.isnan(limit) for limit in estimate.ci)
     assert math.isnan(estimate.wald_test(0.5).pvalue)

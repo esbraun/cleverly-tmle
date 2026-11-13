@@ -91,7 +91,9 @@ held to `Fluctuation.thresholds`, and an estimand row is a `"diagnostic"` row th
 residual in standard errors and cannot fail. The interval of every estimate of such a fit adds the
 residual to its half-width (`ParameterEstimate.rule_widened`), and an estimate derived from one
 inherits the flag. `cleverly.inference.influence.ParameterEstimate._residual_margin` is the one
-place the margin is computed, so a change to the half-width composes there. The default rule keeps
+place the margin is computed, so a change to the half-width composes there. The interval of a
+bounded binary mean, built on the logit scale, carries the margin by the slope that carries its
+standard error. The default rule keeps
 its rows, its bar and its interval. *Reconsider when* a stopping rule gets a derivation that bounds
 the residual of a contrast, so that the estimand rows can carry that bound as a bar.
 

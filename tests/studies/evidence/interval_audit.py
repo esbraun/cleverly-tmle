@@ -45,6 +45,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 from scipy import stats
 from scipy.special import expit, logit
 
@@ -110,8 +111,14 @@ class Audit:
     scan: Callable[[], list[Withheld]] | None = None
 
 
-def logit_interval(estimate: Any, std_error: Any, *, alpha: float = 0.05) -> tuple[Any, Any]:
+def logit_interval(
+    estimate: Any, std_error: Any, *, alpha: float = 0.05, margin: Any = 0.0
+) -> tuple[Any, Any]:
     """The shipped interval of a bounded mean: the logit-scale normal interval mapped back.
+
+    A fit under a declared stopping rule adds its remaining score ``margin`` to the half-width
+    on the level scale, which the logit map carries by the slope that carries the standard
+    error (:meth:`~cleverly.inference.ParameterEstimate.residual_margin`).
 
     Parameters
     ----------
@@ -121,6 +128,8 @@ def logit_interval(estimate: Any, std_error: Any, *, alpha: float = 0.05) -> tup
         Their influence-curve standard errors.
     alpha : float, default=0.05
         One minus the level.
+    margin : array-like, default=0.0
+        The absolute remaining score of a fit under a declared stopping rule, else zero.
 
     Returns
     -------
@@ -128,7 +137,8 @@ def logit_interval(estimate: Any, std_error: Any, *, alpha: float = 0.05) -> tup
         The lower and upper endpoints.
     """
     p = np.asarray(estimate, dtype=float)
-    half = stats.norm.ppf(1.0 - alpha / 2.0) * np.asarray(std_error, dtype=float) / (p * (1 - p))
+    level = stats.norm.ppf(1.0 - alpha / 2.0) * np.asarray(std_error, dtype=float)
+    half = (level + np.asarray(margin, dtype=float)) / (p * (1 - p))
     return expit(logit(p) - half), expit(logit(p) + half)
 
 
@@ -497,6 +507,14 @@ SCREEN_REASONS: dict[str, str] = {
         "the flagged cells are bounded means, but the double_robustness and necessity rules gate "
         "bias and never coverage (the study module states it), so no verdict reads the interval"
     ),
+    "option-patience": (
+        "patience_witness/lc1_greedy reads a stop share in its covered column, not an interval; "
+        "the selector path withholds its interval (the study module states it)"
+    ),
+    "option-ratio-trim": (
+        "trim_necessity/ltmle_untrimmed is gated by the bias rule; no cell of the study reads "
+        "coverage (the property module states it)"
+    ),
     "score-assessment": (
         "the flagged cells are a calibration slope and a score test's power, not package "
         "intervals of a mean"
@@ -560,6 +578,46 @@ def _screen_groups(record: StudyRecord, heads: frozenset[str]) -> Iterator[tuple
             yield f"{prop}/{cell}", group
 
 
+#: The suffix of a stopping-rule study's cell whose ``covered`` column reads the residual, not an
+#: interval (``tests/studies/_option_stopping_cells.py``).
+WITNESS_SUFFIX = "__witness"
+#: The suffix of a stopping-rule study's cell that reads the widened interval.
+WIDENED_SUFFIX = "__widened"
+
+
+def _stopping_rule_study(record: StudyRecord) -> bool:
+    """Whether the study's property rows carry the residual of a declared stopping rule."""
+    path = record.artifacts / "property-replicates.parquet"
+    return path.exists() and "residual" in pq.read_schema(path).names
+
+
+def _screen_margin(key: str, group: Any, alpha: float, *, stopping_rule: bool) -> Any:
+    """The remaining-score margin each committed row's interval carried, on the level scale.
+
+    A stopping-rule study's property row carries the residual in standard errors, and its
+    widened cell reads ``|residual| * se``. Its truth row carries the identity-scale interval,
+    whose half-width beyond ``z * se`` is the margin; it is set to zero below ``1e-9 * se``,
+    where it is roundoff. Every other row carried none: an identity half-width beyond
+    ``z * se`` there is a t or cluster reference, which the screen does not model.
+    """
+    se = group["std_error"].to_numpy(dtype=float)
+    if not stopping_rule:
+        return np.zeros_like(se)
+    if "residual" in group.columns:
+        if not key.endswith(WIDENED_SUFFIX):
+            return np.zeros_like(se)
+        return np.abs(group["residual"].to_numpy(dtype=float)) * se
+    if {"ci_lower", "ci_upper", "inference_scale"} <= set(group.columns) and (
+        group["inference_scale"] == "identity"
+    ).all():
+        half = (
+            group["ci_upper"].to_numpy(dtype=float) - group["ci_lower"].to_numpy(dtype=float)
+        ) / 2
+        extra = half - stats.norm.ppf(1.0 - alpha / 2.0) * se
+        return np.where(extra > 1e-9 * se, extra, 0.0)
+    return np.zeros_like(se)
+
+
 def _pointwise_joint_controls(record: StudyRecord) -> int:
     path = record.artifacts / "property-replicates.parquet"
     if not path.exists():
@@ -597,13 +655,17 @@ def screen_row(record: StudyRecord, heads: frozenset[str] | None = None) -> dict
     candidates = moved = 0
     largest = 0.0
     flips: list[str] = []
+    stopping_rule = _stopping_rule_study(record)
     for key, group in _screen_groups(record, heads):
+        if stopping_rule and key.endswith(WITNESS_SUFFIX):
+            continue
         estimate = group["estimate"].to_numpy(dtype=float)
         truth = group["truth"].to_numpy(dtype=float)
         se = group["std_error"].to_numpy(dtype=float)
         finite = np.isfinite(estimate) & np.isfinite(truth) & np.isfinite(se)
         if not finite.any():
             continue
+        margin = _screen_margin(key, group, margins.alpha, stopping_rule=stopping_rule)[finite]
         estimate, truth, se = estimate[finite], truth[finite], se[finite]
         committed = group["covered"].to_numpy(dtype=int)[finite]
         unit = (estimate >= 0.0) & (estimate <= 1.0) & (truth >= 0.0) & (truth <= 1.0)
@@ -612,7 +674,9 @@ def screen_row(record: StudyRecord, heads: frozenset[str] | None = None) -> dict
         candidates += 1
         inside = (estimate > 0.0) & (estimate < 1.0)
         with np.errstate(divide="ignore", invalid="ignore"):
-            low, high = logit_interval(np.where(inside, estimate, 0.5), se, alpha=margins.alpha)
+            low, high = logit_interval(
+                np.where(inside, estimate, 0.5), se, alpha=margins.alpha, margin=margin
+            )
         covered = (inside & (low <= truth) & (truth <= high)).astype(int)
         if (covered == committed).all():
             continue

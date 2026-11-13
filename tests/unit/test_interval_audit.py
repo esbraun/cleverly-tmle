@@ -182,10 +182,17 @@ def test_the_quoted_pricing_numbers() -> None:
 def _package_estimate(estimate: float, std_error: float, alpha: float) -> Any:
     """The package's estimate of a bounded unclustered mean with this estimate and SE."""
     curve = np.tile([1.0, -1.0], 200)
-    unit = make_estimate("ey", 0.5, curve, n=400, scale="level")
+    unit = make_estimate("ey", 0.5, curve, n=400, scale="level", rule_widened=False)
     scaled = curve * (std_error / unit.std_error) if std_error > 0.0 else np.zeros(400)
     return make_estimate(
-        "ey", estimate, scaled, n=400, scale="level", alpha=alpha, bounds=(0.0, 1.0)
+        "ey",
+        estimate,
+        scaled,
+        n=400,
+        scale="level",
+        alpha=alpha,
+        bounds=(0.0, 1.0),
+        rule_widened=False,
     )
 
 
@@ -321,3 +328,49 @@ def test_every_flip_is_audited_or_explained(screen: pd.DataFrame) -> None:
     assert set(audit.SCREEN_REASONS) == explained
     assert set(screen.loc[screen["disposition"] == "audited", "study"]) == set(audit.AUDITS)
     assert set(screen.loc[screen["disposition"] == "rerun", "study"]) == set(audit.RERUN)
+
+
+@pytest.mark.parametrize("slug", ["option-stopping-point", "option-stopping-ltmle"])
+def test_the_screen_margin_reproduces_the_committed_widened_coverage(slug: str) -> None:
+    """On a stopping-rule study the screen's margin is the one each committed interval carried.
+
+    Read on the identity scale, ``estimate +/- (z se + margin)`` reproduces every committed
+    ``covered`` of the bounded groups the screen reads. With the margin dropped, at least one
+    group's coverage moves, so the margin is not zero at the truth.
+    """
+    record = audit.record_for(slug)
+    assert audit._stopping_rule_study(record)
+    z = float(stats.norm.ppf(1.0 - record.margins.alpha / 2.0))
+    moved_without = False
+    widened_groups = 0
+    for key, group in audit._screen_groups(record, audit.bounded_heads()):
+        if key.endswith(audit.WITNESS_SUFFIX):
+            continue
+        margin = audit._screen_margin(key, group, record.margins.alpha, stopping_rule=True)
+        estimate = group["estimate"].to_numpy(dtype=float)
+        truth = group["truth"].to_numpy(dtype=float)
+        half = z * group["std_error"].to_numpy(dtype=float)
+        committed = group["covered"].to_numpy(dtype=int)
+        covered = (estimate - half - margin <= truth) & (truth <= estimate + half + margin)
+        assert (covered.astype(int) == committed).all(), key
+        if (margin > 0).any():
+            widened_groups += 1
+            plain = (estimate - half <= truth) & (truth <= estimate + half)
+            moved_without |= bool((plain.astype(int) != committed).any())
+    assert widened_groups > 0
+    assert moved_without
+
+
+def test_the_screen_margin_is_the_package_margin_on_the_logit_scale() -> None:
+    """``logit_interval(margin=)`` is ``ci`` of a widened bounded mean of the package."""
+    estimate = _package_estimate(0.2, 0.02, 0.05)
+    curve = estimate.influence_curve + 0.004
+    widened = make_estimate(
+        "ey", 0.2, curve, n=400, scale="level", bounds=(0.0, 1.0), rule_widened=True
+    )
+    assert widened.residual_margin == pytest.approx(0.004, rel=1e-9)
+    low, high = audit.logit_interval([0.2], [widened.std_error], margin=[widened.residual_margin])
+    assert widened.ci == pytest.approx((low[0], high[0]), abs=1e-12)
+    assert widened.ci != pytest.approx(
+        tuple(x[0] for x in audit.logit_interval([0.2], [widened.std_error])), abs=1e-6
+    )

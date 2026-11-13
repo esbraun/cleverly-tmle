@@ -27,6 +27,14 @@ Every fit uses `max_iter=100` (200 for the one-step walk), `tol=1e-10` and `cano
 fast-tier witnesses in `tests/unit/test_rule_widened_interval.py` check the widened interval,
 the p-value and every consumer that reads it, each with a mutation that drops the residual.
 
+The committed rows record the identity interval. The package now builds the interval of an
+unclustered mean of a binary outcome on the logit scale
+([small-sample scale](../inference.md#small-sample-scale)), and the residual enters there as
+$\lvert r_n\rvert / (\psi_n(1 - \psi_n))$. The ATE cells read a difference, whose interval is
+unchanged. On the same committed estimates, standard errors and residuals, the binary arm-mean row
+covers 0.9603 against the recorded 0.9606, and no cell changes its verdict
+(`tests/canonical/interval-audit-screen.csv`).
+
 ## Accuracy against known truth
 
 <!-- generated: accuracy -->
