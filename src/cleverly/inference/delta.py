@@ -213,8 +213,17 @@ class Transform:
 
 
 def _normal_reference(df: float | None) -> bool:
-    """Whether ``df`` names the normal reference: ``None`` or infinite degrees of freedom."""
-    return df is None or df == math.inf
+    """Whether ``df`` names the normal reference, after refusing an unusable one.
+
+    ``None`` or infinite degrees of freedom name the normal.  Any other value must be a number
+    of at least 1, so NaN and ``df < 1`` are refused here, for every interval, limit and test
+    alike.
+    """
+    if df is None or df == math.inf:
+        return True
+    if not df >= 1:
+        raise ValueError(f"a Student t reference needs at least 1 degree of freedom; got {df}")
+    return False
 
 
 def reference_quantile(alpha: float, df: float | None = None) -> float:
@@ -246,10 +255,8 @@ def reference_quantile(alpha: float, df: float | None = None) -> float:
     """
     if not 0.0 < alpha < 1.0:
         raise ValueError(f"alpha must lie in (0, 1); got {alpha}")
-    if df is None or _normal_reference(df):
+    if _normal_reference(df):
         return float(stats.norm.ppf(1.0 - alpha / 2.0))
-    if not df >= 1:
-        raise ValueError(f"a Student t reference needs at least 1 degree of freedom; got {df}")
     return float(stats.t.ppf(1.0 - alpha / 2.0, df))
 
 
@@ -369,10 +376,11 @@ def wald_statistic(
     pvalue : float
         ``2 * Phi(-|statistic|)``, or ``2 * F_t(-|statistic|; df)``.
     """
+    normal = _normal_reference(df)
     if not np.isfinite(std_error) or std_error <= 0:
         return float("nan"), float("nan")
     z = (value - null) / std_error
-    tail = stats.norm.sf(abs(z)) if _normal_reference(df) else stats.t.sf(abs(z), df)
+    tail = stats.norm.sf(abs(z)) if normal else stats.t.sf(abs(z), df)
     return float(z), float(2.0 * tail)
 
 

@@ -279,8 +279,16 @@ def test_the_reference_quantile_takes_a_fractional_df() -> None:
     assert reference_quantile(0.05, math.inf) == pytest.approx(1.959963984540054, rel=EXACT)
     assert reference_quantile(0.05, math.inf) == reference_quantile(0.05)
     for refused in (0.5, 0.0, float("nan")):
-        with pytest.raises(ValueError, match="at least 1 degree"):
-            reference_quantile(0.05, refused)
+        # The interval, the one-sided limit and the test refuse the same df alike.
+        for call in (
+            lambda df: reference_quantile(0.05, df),
+            lambda df: one_sided_quantile(0.95, df),
+            lambda df: wald_ci(1.0, 0.5, df=df),
+            lambda df: wald_statistic(1.0, 0.0, 0.5, df=df),
+            lambda df: two_sided_pvalue(1.0, 0.5, df=df),
+        ):
+            with pytest.raises(ValueError, match="at least 1 degree"):
+                call(refused)
     assert one_sided_quantile(0.95, 17.5) == stats.t.ppf(0.95, 17.5)
     assert one_sided_quantile(0.95, math.inf) == one_sided_quantile(0.95)
     _, high = wald_ci(1.0, 0.5, df=17.5)
