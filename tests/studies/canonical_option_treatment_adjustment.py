@@ -43,8 +43,8 @@ truth.
 **Publication policy** is ``reporting``.  The red-cell reading is declared in
 ``tests/canonical/option_treatment_adjustment/regenerate.py`` before any run.
 
-**Declared, not registered.**  The record is not in ``registered()`` until its run is
-committed; the ``T54`` support rows and the evidence page land with that registration.
+**Registered.**  The declared run is committed at 8d2826ecc4, and the record is in
+``registered()``.  The ``T54`` support rows and the evidence page landed with the registration.
 """
 
 from __future__ import annotations
@@ -97,7 +97,7 @@ STUDY = StudyRecord(
     slug=SLUG,
     artifacts=ROOT / "tests" / "canonical" / "option_treatment_adjustment",
     document="docs/technical-reference/method-evidence/option-treatment-adjustment.md",
-    anchor="option-treatment-adjustment",
+    anchor="treatment-mechanism-covariates-on-point-tmle",
     scenarios={PRIMARY_SCENARIO: PRIMARY_ESTIMANDS},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

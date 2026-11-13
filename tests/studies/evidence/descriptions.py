@@ -1539,6 +1539,23 @@ ARMS.update(
     }
 )
 
+#: The calibration labels of the X76 option studies (``option-treatment-adjustment``,
+#: ``option-outcome-by-arm``, ``option-markov-order``).  Mirrored from their properties modules,
+#: which this module cannot import; :data:`STUDY_ARMS` gives each study's own words.
+ARMS.update(
+    {
+        "in_sample": "the in-sample fit",
+        "stacked": "the stacked cross-fitted fit",
+        "in_sample_binary": "the in-sample fit on a binary outcome",
+        "in_sample_continuous": "the in-sample fit on a continuous outcome",
+        "stacked_binary": "the stacked cross-fitted fit on a binary outcome",
+        "stacked_bounded": "the stacked cross-fitted fit on a bounded outcome",
+        "order1_ey": "the order-1 window, the mean under always",
+        "order1_ate": "the order-1 window, always against never",
+        "order2_ate": "the order-2 window, always against never",
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -8568,6 +8585,303 @@ STUDY_ESTIMANDS.update(
         (_ATMLE_SELECTIVE_SLUG, "psi"): (
             "the trial effect over the pooled covariate distribution, which the interval covers "
             "when the working model approximates the external bias"
+        ),
+    }
+)
+
+
+#: ``option-treatment-adjustment`` (X76 part (d)): point TMLE with the treatment mechanism fitted
+#: on the declared subset ``(W1, W2)`` of the adjustment set ``(W1, W2, Z)``.  The laws, settings
+#: and cells are those of ``tests/studies/_option_adjustment_laws.py`` and its properties module.
+_ADJUSTMENT_SLUG = "option-treatment-adjustment"
+_ADJUSTMENT_N = "n = 2,000"
+STUDY_SCENARIOS[(_ADJUSTMENT_SLUG, "LDA")] = (
+    "three standard-normal covariates W1, W2, Z; treatment depends on W1 and W2 only and the "
+    "outcome on all three (law LDA); logistic GLMs for the outcome on (A, W1, W2, Z) and for "
+    "the treatment on the declared subset (W1, W2), in sample, n = 2,000"
+)
+STUDY_ARMS.update(
+    {
+        (_ADJUSTMENT_SLUG, "in_sample"): (
+            f"law LDA, the ATE, in sample, {_ADJUSTMENT_N}: the treatment mechanism fitted on the "
+            "declared subset (W1, W2), which holds"
+        ),
+        (_ADJUSTMENT_SLUG, "stacked"): (
+            f"law LDA, the ATE, stacked over the default folds, {_ADJUSTMENT_N}: the treatment "
+            "mechanism fitted on the declared subset (W1, W2), which holds"
+        ),
+    }
+)
+_LDB = (
+    "law LDB (treatment also depends on the left-out covariate Z, so the declared restriction "
+    "fails), the ATE"
+)
+PROPERTIES.update(
+    {
+        "instrument_slow_outcome": (
+            "when the declared restriction fails and the outcome regression converges slower "
+            "than root-n, the term the restriction hides grows against the standard error"
+        ),
+        "instrument_slow_outcome_ladder": (
+            "the standardized bias of the slow-outcome fit at the smaller sizes, reported"
+        ),
+        "instrument_slow_outcome_rate": (
+            "the rate at which the slow-outcome fit's absolute bias shrinks with n, reported"
+        ),
+        "instrument_reference": (
+            "the same slow outcome regression with the treatment mechanism on the whole "
+            "adjustment set, reported beside the declared fit"
+        ),
+        "instrument_parametric": (
+            "the declared fit with a correct parametric outcome regression when the restriction "
+            "fails, reported"
+        ),
+    }
+)
+CELLS.update(
+    {
+        ("instrument_slow_outcome", "n16000"): (
+            f"{_LDB}, n = 16,000: the outcome GLM plus the constructed logit error n^(-1/4) Z and "
+            "the treatment mechanism on the declared subset",
+            "the 99% interval of the standardized bias must lie wholly beyond the margin",
+        ),
+        **{
+            ("instrument_slow_outcome_ladder", f"n{n}"): (
+                f"{_LDB}, n = {n:,}: the outcome GLM plus the constructed logit error n^(-1/4) Z "
+                "and the treatment mechanism on the declared subset",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for n in (1000, 4000)
+        },
+        ("instrument_slow_outcome_rate", "bias_slope"): (
+            f"{_LDB}: the slope of the log absolute bias on log n over n = 1,000, 4,000 and "
+            "16,000 for the slow-outcome fit",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        **{
+            ("instrument_reference", f"n{n}"): (
+                f"{_LDB}, n = {n:,}: the same slow outcome regression with the treatment "
+                "mechanism on (W1, W2, Z), without the declaration, on the slow-outcome cell's "
+                "draws",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for n in (1000, 4000, 16000)
+        },
+        ("instrument_parametric", "n2000"): (
+            f"{_LDB}, n = 2,000: the correct outcome GLM and the treatment mechanism on the "
+            "declared subset",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+    }
+)
+
+
+#: ``option-outcome-by-arm`` (X76 part (b)): point TMLE with one outcome regression per arm.  The
+#: laws, settings and cells are those of ``tests/studies/_option_by_arm_law.py`` and its
+#: properties module.
+_BY_ARM_SLUG = "option-outcome-by-arm"
+_BY_ARM_LAWS = {
+    "in_sample_binary": "law LB (binary outcome), in sample",
+    "in_sample_continuous": "law LB-c (normal outcome), in sample",
+    "stacked_binary": "law LB (binary outcome), stacked over five folds",
+    "stacked_bounded": "law LB-b (Beta outcome in (0, 1)), stacked over five folds",
+}
+STUDY_SCENARIOS[(_BY_ARM_SLUG, "LB")] = (
+    "two standard-normal covariates, a binary outcome whose regression differs by arm (law LB); "
+    "one main-terms logistic GLM per arm and a logistic treatment GLM, in sample, n = 2,000"
+)
+STUDY_ARMS.update(
+    {
+        (_BY_ARM_SLUG, label): (
+            f"{words}, the ATE, n = 2,000: one main-terms regression per arm, each correct"
+        )
+        for label, words in _BY_ARM_LAWS.items()
+    }
+)
+PROPERTIES["pooled_outcome"] = (
+    "the same fit with one pooled main-terms outcome regression on (A, W), reported beside the "
+    "per-arm fit"
+)
+CELLS.update(
+    {
+        ("pooled_outcome", label): (
+            f"{words}, the ATE, n = 2,000: one pooled main-terms regression on (A, W1, W2), "
+            "which misses the arm-by-covariate interaction, beside the correct treatment GLM, "
+            "on the calibration cell's draws",
+            _DIAGNOSTIC_REQUIRED,
+        )
+        for label, words in _BY_ARM_LAWS.items()
+    }
+)
+
+
+#: ``option-ratio-trim`` (X76 part (e)): ``LTMLE`` and ``SDR`` with ``ratio_trim=``.  The law and
+#: settings are those of ``tests/studies/_option_trim_law.py`` and its properties module.
+_TRIM_SLUG = "option-ratio-trim"
+_TRIM_LAW = (
+    "law LE (W uniform, two binary treatment nodes with weak support for always-treat at small "
+    "W, censoring at both nodes), the mean under always, n = 2,000"
+)
+STUDY_SCENARIOS[(_TRIM_SLUG, "LE")] = (
+    f"{_TRIM_LAW}: in-sample LTMLE with ratio_trim=0.95, linear outcome regressions and "
+    "logistic mechanisms; the point estimate only"
+)
+_TRIM_ESTIMATORS = {"ltmle": "LTMLE", "sdr": "SDR"}
+PROPERTIES.update(
+    {
+        "trim_point": (
+            "the trimmed point estimate stays unbiased when every outcome regression is correct"
+        ),
+        "trim_necessity": (
+            "the trim removes double robustness on the trimmed share: with a wrong outcome "
+            "regression the trimmed fit is biased where the untrimmed fit is not"
+        ),
+        "trim_reported": (
+            "the fits trimmed at 0.99, the untrimmed fits and the trimmed share, reported"
+        ),
+    }
+)
+CELLS.update(
+    {
+        **{
+            ("trim_point", f"{est}_{fold}"): (
+                f"{_TRIM_LAW}: {name} with ratio_trim=0.95, linear outcome regressions (correct "
+                f"on this law), {words}",
+                "bias interval inside the equivalence margin",
+            )
+            for est, name in _TRIM_ESTIMATORS.items()
+            for fold, words in (("in_sample", "in sample"), ("stacked", "five-fold cross-fitted"))
+        },
+        **{
+            ("trim_necessity", f"{est}_trimmed"): (
+                f"{_TRIM_LAW}: {name} with ratio_trim=0.95 and an outcome regression that ignores "
+                "W, in sample",
+                "the 99% interval of the standardized bias must lie wholly beyond the margin",
+            )
+            for est, name in _TRIM_ESTIMATORS.items()
+        },
+        **{
+            ("trim_necessity", f"{est}_untrimmed"): (
+                f"{_TRIM_LAW}: {name} untrimmed with the same outcome regression that ignores W, "
+                "in sample",
+                "bias interval inside the equivalence margin",
+            )
+            for est, name in _TRIM_ESTIMATORS.items()
+        },
+        **{
+            ("trim_reported", f"{est}_{q}_{label}"): (
+                f"{_TRIM_LAW}: {name} {trim}, {regression}, in sample",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for est, name in _TRIM_ESTIMATORS.items()
+            for q, regression in (
+                ("right", "linear outcome regressions"),
+                ("wrong", "an outcome regression that ignores W"),
+            )
+            for label, trim in (("trim99", "with ratio_trim=0.99"), ("untrimmed", "untrimmed"))
+            if (q, label) != ("wrong", "untrimmed")
+        },
+        ("trim_reported", "trimmed_share"): (
+            f"{_TRIM_LAW}: the share of per-node ratios the 0.95 trim caps in the in-sample LTMLE "
+            "fit, read against its population value",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+    }
+)
+
+
+#: ``option-markov-order`` (X76 part (f)): ``LTMLE`` on ``LongitudinalData.with_markov_order(k)``.
+#: The laws, settings and cells are those of ``tests/studies/_option_markov_law.py`` and its
+#: properties module.
+_MARKOV_SLUG = "option-markov-order"
+_LF1 = (
+    "law LF1 (four binary treatment nodes with censoring; treatment reads L_{t-1}, the outcome "
+    "reads L_3, so order 1 is the smallest correct window)"
+)
+_LF2 = (
+    "law LF2 (four binary treatment nodes with censoring; treatment reads only A_{t-1}, the "
+    "outcome reads L_3)"
+)
+STUDY_SCENARIOS[(_MARKOV_SLUG, "LF1")] = (
+    f"{_LF1}; in-sample LTMLE on the order-1 window with linear outcome regressions and "
+    "logistic mechanisms, n = 2,000"
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_MARKOV_SLUG, "ey_regimen[always]"): "mean outcome under treatment at all four nodes",
+        (_MARKOV_SLUG, "ey_regimen[never]"): "mean outcome under treatment at none of the nodes",
+        (_MARKOV_SLUG, "ate_regimen[always vs never]"): (
+            "difference in mean outcome between treatment at all four nodes and at none"
+        ),
+    }
+)
+STUDY_ARMS.update(
+    {
+        (_MARKOV_SLUG, "order1_ey"): f"{_LF1}, the mean under always, order 1, n = 2,000",
+        (_MARKOV_SLUG, "order1_ate"): f"{_LF1}, always against never, order 1, n = 2,000",
+        (_MARKOV_SLUG, "order2_ate"): f"{_LF1}, always against never, order 2, n = 2,000",
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_MARKOV_SLUG, "interval_calibration", label, "correctly_specified"): (
+            "every outcome regression and mechanism reads the window and is correctly "
+            "specified on it",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        )
+        for label in ("order1_ey", "order1_ate", "order2_ate")
+    }
+)
+PROPERTIES.update(
+    {
+        "order_necessity": (
+            "a window too short for both the outcome regression and the mechanisms leaves a bias"
+        ),
+        "order_double_robustness": (
+            "a window too short for the outcome regression alone is rescued by correct "
+            "mechanisms, and not by mechanisms that read no history"
+        ),
+        "markov_reported": "the full-history fit and the order-0 fits, reported",
+    }
+)
+CELLS.update(
+    {
+        ("order_necessity", "ate"): (
+            f"{_LF1}, always against never, n = 2,000: order 0, which drops L_{{t-1}} from the "
+            "treatment mechanism and L_3 from the outcome window",
+            "the 99% interval of the standardized bias must lie wholly beyond the margin",
+        ),
+        ("order_double_robustness", "ey_never"): (
+            f"{_LF2}, the mean under never, n = 2,000: order 0, the outcome window wrong and "
+            "every mechanism correct",
+            "bias interval inside the equivalence margin",
+        ),
+        ("order_double_robustness", "ey_never_blind_mechanisms"): (
+            f"{_LF2}, the mean under never, n = 2,000: order 0 with intercept-only treatment and "
+            "censoring mechanisms, so no fit removes the outcome error",
+            "the 99% interval of the standardized bias must lie wholly beyond the margin",
+        ),
+        ("markov_reported", "full_history_ey"): (
+            f"{_LF1}, the mean under always, n = 2,000: the full-history fit on the calibration "
+            "draws",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("markov_reported", "full_history_ate"): (
+            f"{_LF1}, always against never, n = 2,000: the full-history fit on the calibration "
+            "draws",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("markov_reported", "order0_ey"): (
+            f"{_LF1}, the mean under always, n = 2,000: the order-0 fit of the necessity cell",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("markov_reported", "lf2_order0_ey"): (
+            f"{_LF2}, the mean under always, n = 2,000: the order-0 fit with correct mechanisms",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("markov_reported", "lf2_order0_ate"): (
+            f"{_LF2}, always against never, n = 2,000: the order-0 fit with correct mechanisms",
+            _DIAGNOSTIC_REQUIRED,
         ),
     }
 )

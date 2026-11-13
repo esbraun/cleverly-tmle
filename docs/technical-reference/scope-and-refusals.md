@@ -331,30 +331,35 @@ no condition masks it. The fit reads no learner before the preflight ends.
 | natural course, stacked | the same settings, and `repeats` above 1, `split_plan=`, weights, clusters, a continuous outcome | X53, X60, F2 |
 | `DRTMLE` with missing outcomes | `weights=` that tilt the target law | X62 |
 
-The targeting and fitting options also run as experimental. The condition is collected in the
+The stopping rules and `patience=` run as experimental. The condition is collected in the
 same preflight, and `tests/unit/test_option_support.py` checks each label against the fit
 without the option. The support key records each option too (`point_key`, `longitudinal_key`),
 and `step_bound=` and `iterate=` only under a declared stopping rule. A fit that declares an
-option then matches only a row whose study declared it; today those are the `conditional-projection` rows, which fit one outcome
-regression per arm (`outcome_by_arm=True`). When the nearest row differs on options, the
-reason names each differing option, with the fit's value when that value is a word, an integer,
-a truth value or `None`. Each key value and the reason are checked in
-`tests/unit/test_support_key.py`.
+option then matches only a row whose study declared it. Those are the `conditional-projection`
+rows, which fit one outcome regression per arm (`outcome_by_arm=True`), and the option rows
+below.
 
-| option | runs as experimental | keeps the label of the fit | roadmap |
-| --- | --- | --- | --- |
-| `stopping=` | `"scaled_var"` and `"sample_size"`, on a point fit and on `LTMLE` | `"relative"` | X76 |
-| `iterate=`, `step_bound=` | never on their own | under `stopping="relative"` the walk stops only at the solution of the score equation, to `tol` | none |
-| `outcome_by_arm=` | `True` | `False` | X76 |
-| `patience=` | any value. On `"ordered"`, `"discrete"`, `"lasso"` and `"learners"` the label is permanent: the order is fixed before any risk is read, so the counter can stop before a candidate the outcome regression needs, at every sample size | `None` | X76 on `"greedy"`; none on a pre-ordered strategy |
-| `treatment_adjustment=` | a declared subset | the whole adjustment set | X76 |
+When the nearest row differs on options, the reason names each differing option, with
+the fit's value when that value is a word, an integer, a truth value or `None`. Each key value
+and the reason are checked in `tests/unit/test_support_key.py`.
+
+| option | supported on | runs as experimental | keeps the label of the fit | roadmap |
+| --- | --- | --- | --- | --- |
+| `stopping=` | no row | `"scaled_var"` and `"sample_size"`, on a point fit and on `LTMLE` | `"relative"` | X76 |
+| `iterate=`, `step_bound=` | the rows of the fit without them | never on their own | under `stopping="relative"` the walk stops only at the solution of the score equation, to `tol` | none |
+| `outcome_by_arm=` | `True` on the `T53` rows ([study](method-evidence/option-outcome-by-arm.md)) | `True` outside those rows, for example for the ATT or the ATC | `False` | none |
+| `patience=` | no row | any value. On `"ordered"`, `"discrete"`, `"lasso"` and `"learners"` the label is permanent: the order is fixed before any risk is read, so the counter can stop before a candidate the outcome regression needs, at every sample size | `None` | X76 on `"greedy"`; none on a pre-ordered strategy |
+| `treatment_adjustment=` | a declared subset on the `T54` rows ([study](method-evidence/option-treatment-adjustment.md)) | a declared subset outside those rows | the whole adjustment set | none |
 
 The longitudinal support rows read the fitting options of `_x33_options` in
-`src/cleverly/_support_rows.py`. No registered study fits `ratio_trim=`, a declared
-`markov_order` or a stopping rule, so a fit with any of them matches no row and carries the
-experimental label. The rows `G45.mean_model` and `G45.hazard_model` of the [node-bounds study](method-evidence/survival-node-bounds.md)
-cover `node_bounds=` together with `hazard_pooling="pooled"` on a held survival design with two
-arms, fitted in sample. Any other
+`src/cleverly/_support_rows.py`. The point-only rows `G56` of the
+[ratio-trim study](method-evidence/option-ratio-trim.md) cover `ratio_trim=` on `LTMLE` and
+`SDR` with linear outcome regressions, and the row `G57` of the
+[Markov-order study](method-evidence/option-markov-order.md) covers a declared `markov_order` on
+`LTMLE`. No registered study fits a longitudinal stopping rule, so such a fit matches no row and
+carries the experimental label. The rows `G45.mean_model` and `G45.hazard_model` of the
+[node-bounds study](method-evidence/survival-node-bounds.md) cover `node_bounds=` together with
+`hazard_pooling="pooled"` on a held survival design with two arms, fitted in sample. Any other
 fit with `node_bounds=` or pooled censoring carries the experimental label.
 
 These requests stay refused, because the code returns a misleading number or has no path:

@@ -29,8 +29,8 @@ truth.
 **Publication policy** is ``reporting``.  The red-cell reading is declared in
 ``tests/canonical/option_outcome_by_arm/regenerate.py`` before any run.
 
-**Declared, not registered.**  The record is not in ``registered()`` until its run is
-committed; the ``T53`` support rows and the evidence page land with that registration.
+**Registered.**  The declared run is committed at c957150e02, and the record is in
+``registered()``.  The ``T53`` support rows and the evidence page landed with the registration.
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ STUDY = StudyRecord(
     slug=SLUG,
     artifacts=ROOT / "tests" / "canonical" / "option_outcome_by_arm",
     document="docs/technical-reference/method-evidence/option-outcome-by-arm.md",
-    anchor="option-outcome-by-arm",
+    anchor="per-arm-outcome-regressions-on-point-tmle",
     scenarios={PRIMARY_SCENARIO: PRIMARY_ESTIMANDS},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

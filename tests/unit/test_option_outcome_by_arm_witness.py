@@ -21,10 +21,11 @@ quarters, and each ``(W1, W2)`` cell holds ``16 M`` rows, so ``P_n`` equals ``P_
 mechanism is not symmetric in ``W1`` and ``W2``: on the symmetric law ``logit g_0 = log 3 (W1 -
 W2)`` the pooled fit's two arm errors cancel, and the witness would read zero.
 
-The support tests read the key: a per-arm point fit is keyed off ``T01`` until ``T53``
-registers, and on the effect-modification axis the reversal holds, so the measured projection
-fit is the per-arm one (``T49``) and a pooled projection matches no row.  Both survive the
-deletion of the option's preflight conditions, which lands with ``T53``.
+The support tests read the rows: each study setting lands on its ``T53`` row and reads
+supported, the same fit without the option lands on ``T01``, and without ``T53`` in the table
+the per-arm fit matches no row.  On the effect-modification axis the reversal holds, so the
+measured projection fit is the per-arm one (``T49``) and a pooled projection matches no row.
+No preflight condition remains for the option; the key decides.
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ from tests.studies import _option_by_arm_law as law
 
 nuisance_module = importlib.import_module("cleverly.estimators._nuisance")
 tmle_module = importlib.import_module("cleverly.estimators.tmle")
+support_module = importlib.import_module("cleverly._support")
 
 #: Rows per ``(W1, W2)`` cell are ``16 M``.
 M = 2
@@ -252,38 +254,48 @@ class TestTheStudyFits:
         assert law.estimator(law.SETTINGS["continuous_in_sample"]).q_bounds is None
 
 
-def _no_conditions(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(tmle_module, "point_option_conditions", lambda estimator, data: [])
+def _without_rows(monkeypatch: pytest.MonkeyPatch, prefix: str) -> None:
+    """Drop every registered row whose id starts with ``prefix`` from the support table."""
+    rows = support_module.registered_rows()
+    monkeypatch.setattr(
+        support_module,
+        "registered_rows",
+        lambda: tuple(row for row in rows if not row.id.startswith(prefix)),
+    )
 
 
-class TestTheSupportKey:
-    def test_a_per_arm_point_fit_is_keyed_off_the_default_row(self) -> None:
-        """At registration this asserts ``T53``; a key without the option gives ``T01``."""
+class TestTheSupportRow:
+    @pytest.mark.parametrize(
+        ("setting", "row"),
+        [
+            ("binary_in_sample", "T53.in_sample.binary"),
+            ("continuous_in_sample", "T53.in_sample.continuous"),
+            ("binary_stacked", "T53.stacked.binary"),
+            ("bounded_stacked", "T53.stacked.bounded"),
+        ],
+    )
+    def test_a_per_arm_fit_reads_its_t53_row(self, setting: str, row: str) -> None:
+        frame = law.draw(law.SETTINGS[setting].law, 400, 0)
+        for estimate in law.fit(frame, setting).estimates.values():
+            assert (estimate.support.label, estimate.support.row) == ("supported", row)
+            assert any("option-outcome-by-arm" in limit for limit in estimate.support.limits)
+
+    def test_the_same_fit_without_the_option_reads_t01(self) -> None:
         frame = law.draw("LB", 400, 0)
-        by_arm = law.fit(frame, "binary_in_sample")["ate"].support
-        assert by_arm.label == "experimental"
-        assert by_arm.row is None
-        assert "outcome_by_arm" in by_arm.reason
-        assert law.fit(frame, "pooled_binary_in_sample")["ate"].support.row == "T01.binary"
+        support = law.fit(frame, "pooled_binary_in_sample")["ate"].support
+        assert (support.label, support.row) == ("supported", "T01.binary")
 
-    def test_the_key_alone_keeps_a_per_arm_point_fit_off_t01(
+    def test_without_t53_a_per_arm_fit_matches_no_row(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The deletion of the preflight condition, which lands with ``T53``, is safe."""
-        _no_conditions(monkeypatch)
-        frame = law.draw("LB", 400, 0)
-        support = law.fit(frame, "binary_in_sample")["ate"].support
-        assert support.label == "experimental"
-        assert support.row is None
+        """The key, not a fit condition, routes the fit: without ``T53`` it is experimental."""
+        _without_rows(monkeypatch, "T53")
+        support = law.fit(law.draw("LB", 400, 0), "binary_in_sample")["ate"].support
+        assert (support.label, support.row) == ("experimental", None)
         assert "outcome_by_arm=True" in support.reason
 
-    @pytest.mark.parametrize("conditions", [True, False])
-    def test_the_effect_modification_axis_measures_the_per_arm_fit(
-        self, monkeypatch: pytest.MonkeyPatch, conditions: bool
-    ) -> None:
+    def test_the_effect_modification_axis_measures_the_per_arm_fit(self) -> None:
         """The reversal: ``T49`` is the per-arm projection, and a pooled one matches no row."""
-        if not conditions:
-            _no_conditions(monkeypatch)
         from cleverly import CausalStudy
         from tests.studies import conditional_projection as projection
 
@@ -302,4 +314,5 @@ class TestTheSupportKey:
         for estimate in pooled.estimates.values():
             assert estimate.support.label == "experimental"
             assert estimate.support.row is None
-            assert ("pools the arms" in estimate.support.reason) is conditions
+            assert "No registered study covers this configuration" in estimate.support.reason
+            assert "pools the arms" not in estimate.support.reason

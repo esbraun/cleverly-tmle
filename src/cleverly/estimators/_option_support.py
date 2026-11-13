@@ -11,17 +11,16 @@ option                    default             why the evidence of the default do
 ``stopping=``             ``"relative"``      the rule leaves a score residual, which the
                                               interval adds, and no registered study measures
                                               the widened interval
-``outcome_by_arm=``       ``False``           another outcome regression; on the
-                                              effect-modification axis the default is ``True``
 ``patience=``             ``None``            another collaborative selection; on a pre-ordered
                                               path it can stop before a needed candidate at
                                               every sample size (permanent)
-``treatment_adjustment=`` the adjustment set  another treatment mechanism, under a restriction
 ========================  ==================  =====================================================
 
-The ``conditional-projection`` study fits every projection with one outcome regression per arm,
-so on the effect-modification axis the condition reverses: ``outcome_by_arm=True`` is the
-measured fit, and a pooled outcome regression carries the condition.
+``outcome_by_arm=`` and ``treatment_adjustment=`` have no condition.  The support key records
+both, so a fit that declares one lands on its registered row (``T53`` and ``T54``, studies
+``option-outcome-by-arm`` and ``option-treatment-adjustment``) or matches no row and reads
+experimental.  On the effect-modification axis the key also keeps a pooled projection fit off
+``T49`` and ``T50``, whose study fits one outcome regression per arm.
 
 ``iterate="best"`` and ``step_bound=`` keep the support of the fit under
 ``stopping="relative"``.  The walk then stops only at a fit that solves the score equation to
@@ -138,7 +137,8 @@ def point_option_conditions(estimator: Any, data: Any) -> list[Refusal]:
     estimator : TMLE
         The estimator, as constructed.  It is read and never modified.
     data : CausalData
-        The prepared data, which carries the treatment-mechanism covariates.
+        The prepared data.  No remaining condition reads it; the support key reads its
+        treatment-mechanism covariates.
 
     Returns
     -------
@@ -146,47 +146,5 @@ def point_option_conditions(estimator: Any, data: Any) -> list[Refusal]:
         One condition per declared option, in the order of the module table.
     """
     conditions = stopping_conditions(str(getattr(estimator, "stopping", "relative")))
-    by_arm = bool(getattr(estimator, "outcome_by_arm", False))
-    if str(getattr(estimator, "_axis", "arm")) == "effect_modification":
-        if not by_arm:
-            conditions.append(
-                Refusal(
-                    RefusalReason.INFERENCE_GAP,
-                    "The projection fit pools the arms in one outcome regression, and the "
-                    "registered conditional-projection study measures the interval with one "
-                    "outcome regression per arm.",
-                    alternative=(
-                        "outcome_by_arm=True fits one outcome regression per arm, as the "
-                        "registered study does."
-                    ),
-                    roadmap=OPTION_STUDIES_ROADMAP,
-                )
-            )
-    elif by_arm:
-        conditions.append(
-            Refusal(
-                RefusalReason.INFERENCE_GAP,
-                "The setting outcome_by_arm=True fits one outcome regression per arm, and no "
-                "registered study covers that outcome fit.",
-                alternative=(
-                    "outcome_by_arm=False fits the one outcome regression the registered "
-                    "studies use."
-                ),
-                roadmap=OPTION_STUDIES_ROADMAP,
-            )
-        )
     conditions += patience_conditions(estimator)
-    if getattr(data, "treatment_covariate_names", None) is not None:
-        conditions.append(
-            Refusal(
-                RefusalReason.INFERENCE_GAP,
-                "The setting treatment_adjustment= fits the treatment mechanism on a subset of "
-                "the adjustment set, and no registered study covers that restriction.",
-                alternative=(
-                    "Omit treatment_adjustment= (treatment_covariates= in TMLE.fit) to fit the "
-                    "mechanism on the whole adjustment set."
-                ),
-                roadmap=OPTION_STUDIES_ROADMAP,
-            )
-        )
     return conditions

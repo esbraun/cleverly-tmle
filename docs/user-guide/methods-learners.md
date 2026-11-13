@@ -482,7 +482,12 @@ Four `Targeting` options choose how the targeting step runs. Each default runs t
 
 `ModelSpec(outcome_by_arm=True)` fits one outcome regression for each treatment arm.
 `PointTreatment(treatment_adjustment=[...])` lets the treatment mechanism read a subset of the
-adjustment set. That declaration restricts the statistical model.
+adjustment set. That declaration restricts the statistical model. A simulation study checked
+each of these two settings for the means, the ATE, the risk ratio and the odds ratio, so a fit
+like the ones it ran prints `supported`. The same setting with the ATT or the ATC prints
+`experimental`.
+`CollaborativeTMLEMethod(patience=p)` stops the scoring of the candidate path early, and a fit
+that sets it prints `experimental`.
 [Stopping rules, step bound and best iterate](../technical-reference/point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate)
 and [treatment-mechanism covariates](../technical-reference/point-treatment-tmle.md#treatment-mechanism-covariates)
 state the contracts.

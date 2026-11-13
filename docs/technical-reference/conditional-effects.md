@@ -544,8 +544,8 @@ A pooled outcome regression on this axis, a composition no group measured (weigh
 clusters, for example) and the simultaneous band read `experimental`. On this axis the
 outcome-regression option reads the other way round from the point estimands: the measured fit
 is the per-arm one, and the support key holds `outcome_by_arm`, so a pooled projection matches
-no row. The key keeps that label when the option's fit condition is deleted with the point
-study `option-outcome-by-arm` (`tests/unit/test_option_outcome_by_arm_witness.py`). The external-score check
+no row. The key keeps that label now that the point study `option-outcome-by-arm` is registered and the
+option's fit condition is deleted (`tests/unit/test_option_outcome_by_arm_witness.py`). The external-score check
 has its own measured configurations, below.
 The study was declared in `tests/studies/conditional_projection.py` with its verdicts in
 `tests/studies/conditional_projection_properties.py`, and its declared run is

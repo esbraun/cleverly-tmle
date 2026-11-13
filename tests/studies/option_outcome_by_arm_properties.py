@@ -40,6 +40,7 @@ A replication that raises is not redrawn; the failure accounting of
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 import pandas as pd
@@ -181,13 +182,44 @@ def _role(family: str, cell: str) -> str:
     return "positive"
 
 
+class DeclaredLaw:
+    """The law a declared cell reads, with its exact truths.
+
+    Parameters
+    ----------
+    label : str
+        A key of :data:`tests.studies._option_by_arm_law.LAWS`.
+    """
+
+    def __init__(self, label: str) -> None:
+        self.label = label
+        self.name = f"option_outcome_by_arm__{label}"
+
+    def truth(self) -> dict[str, float]:
+        return dict(law.truth(self.label))
+
+
 def declared_cells() -> tuple[PropertyCell, ...]:
+    """Every sampled cell, and the calibration controls derived from its rows."""
+    fitted = _fitted_cells()
+    by_name = {f"{cell.property}/{cell.cell}": cell for cell in fitted}
+    derived = tuple(
+        dataclasses.replace(
+            by_name[parent], property=name.split("/")[0], cell=name.split("/")[1], role="control"
+        )
+        for parent, names in DERIVED_CELLS.items()
+        for name in names
+    )
+    return fitted + derived
+
+
+def _fitted_cells() -> tuple[PropertyCell, ...]:
     """Every sampled cell, with its role, size and replicate count."""
     return tuple(
         PropertyCell(
             property=spec.property,
             cell=spec.cell,
-            dgp=law.SETTINGS[spec.configuration].law,
+            dgp=DeclaredLaw(law.SETTINGS[spec.configuration].law),
             outcome_learner=lambda: None,
             treatment_learner=lambda: None,
             n=spec.n,

@@ -20,8 +20,8 @@ The mutation controls shorten the covariate window by one node, and start the ar
 window's first covariate node instead of one node before it.  The first fails the order-1
 witness and the second fails the double-robustness witness.
 
-The support tests read the key: a windowed fit records ``markov_order=True`` and matches no
-shipped row until ``G57`` registers.
+The support tests read the row: a windowed fit records ``markov_order=True`` and lands on
+``G57``, and the full-history fit of the same four nodes matches no row.
 """
 
 from __future__ import annotations
@@ -196,13 +196,29 @@ class TestTheWindowDesign:
                 )
 
 
-class TestTheSupportKey:
-    def test_a_windowed_fit_is_keyed_off_every_shipped_row(self) -> None:
-        """At registration this asserts ``G57``."""
+class TestTheSupportRow:
+    @pytest.mark.parametrize("name", ["lf1_order1", "lf1_order2"])
+    def test_a_windowed_fit_reads_g57(self, name: str) -> None:
         frame = law.draw("LF1", 400, 0)
-        windowed = law.fit(frame, "lf1_order1").estimates[law.ATE].support
-        assert windowed.label == "experimental"
-        assert windowed.row is None
-        assert "markov_order=True" in windowed.reason
+        for estimate in law.fit(frame, name).estimates.values():
+            assert (estimate.support.label, estimate.support.row) == ("supported", "G57")
+            assert any("order_necessity" in limit for limit in estimate.support.limits)
+
+    def test_the_same_fit_without_the_window_matches_no_row(self) -> None:
+        """The full-history four-node fit has no row: ``G57`` covers only a declared window."""
+        frame = law.draw("LF1", 400, 0)
         full = law.fit(frame, "lf1_full").estimates[law.ATE].support
-        assert "markov_order" not in (full.reason or "")
+        assert (full.label, full.row) == ("experimental", None)
+        assert "markov_order" not in full.reason
+
+    def test_a_windowed_fit_with_another_learner_still_reads_g57(self) -> None:
+        """``G57`` pins no learner class, so a windowed fit with a forest still lands on it.
+
+        The row's limit names the learners the study measured; the key reads the window.
+        """
+        from sklearn.ensemble import RandomForestRegressor
+
+        forest = RandomForestRegressor(n_estimators=5, max_depth=2, random_state=0)
+        frame = law.draw("LF1", 400, 0)
+        support = law.fit(frame, "lf1_order1", outcome_learner=forest, pseudo_learner=forest)
+        assert support.estimates[law.ATE].support.row == "G57"

@@ -94,10 +94,6 @@ SYNTHETIC_MODULES = (
     "tests.studies.longitudinal_sdr_properties",
     "tests.studies.option_stopping_point_properties",
     "tests.studies.option_stopping_ltmle_properties",
-    "tests.studies.option_treatment_adjustment_properties",
-    "tests.studies.option_outcome_by_arm_properties",
-    "tests.studies.option_markov_order_properties",
-    "tests.studies.option_ratio_trim_properties",
     "tests.studies.option_patience_properties",
 )
 

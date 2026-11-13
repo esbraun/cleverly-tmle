@@ -3086,16 +3086,102 @@ def _x76_stopping_point_rows() -> tuple[SupportRow, ...]:
     return ()
 
 
+#: The limit of every ``T53`` row (study ``option-outcome-by-arm``).
+_BY_ARM_LIMIT = (
+    "The study option-outcome-by-arm measures the interval of a fit with one main-terms "
+    "regression per arm. No study cell would read differently if outcome_by_arm=True were "
+    "ignored, because under the study's correct treatment mechanism the pooled fit is also "
+    "unbiased (cells pooled_outcome). The evidence that each arm's regression reads only its "
+    "own arm is the exact-law witness in tests/unit/test_option_outcome_by_arm_witness.py."
+)
+
+
 def _x76_by_arm_rows() -> tuple[SupportRow, ...]:
-    return ()
+    """``outcome_by_arm=True`` on ordinary TMLE (``T53``, study ``option-outcome-by-arm``)."""
+    slug = ["option-outcome-by-arm"]
+    by_arm = {"outcome_by_arm": True}
+    families = ("P1", "P2")
+    return (
+        *rows_over(
+            point_row(
+                "T53.in_sample",
+                slug,
+                families=families,
+                options=by_arm,
+                cells=[
+                    "interval_calibration/in_sample_binary__correctly_specified",
+                    "interval_calibration/in_sample_continuous__correctly_specified",
+                    "double_robustness/treatment_correct",
+                ],
+                limits=[_BY_ARM_LIMIT],
+            ),
+            "outcome",
+            {"binary": BINARY, "continuous": CONTINUOUS},
+        ),
+        *rows_over(
+            point_row(
+                "T53.stacked",
+                slug,
+                families=families,
+                splitting=("stacked",),
+                options=by_arm,
+                cells=[
+                    "interval_calibration/stacked_binary__correctly_specified",
+                    "interval_calibration/stacked_bounded__correctly_specified",
+                ],
+                limits=[_BY_ARM_LIMIT],
+            ),
+            "outcome",
+            {"binary": BINARY, "bounded": BOUNDED},
+        ),
+    )
 
 
 def _x76_patience_rows() -> tuple[SupportRow, ...]:
     return ()
 
 
+#: The limit of both ``T54`` rows (study ``option-treatment-adjustment``).
+_ADJUSTMENT_LIMIT = (
+    "The interval holds under the declared restriction that treatment depends on the "
+    "adjustment covariates only through the subset. A regression of the treatment on the "
+    "left-out covariates can check it, for the dependence that regression represents. When "
+    "treatment also depends on a left-out covariate, the estimate keeps the term the "
+    "restriction hides: with an outcome regression that converges slower than root-n its "
+    "standardized bias grows with n, to 1.88 SD at n = 16,000 (study "
+    "option-treatment-adjustment, cell instrument_slow_outcome), and with a correct "
+    "parametric outcome regression the interval under-covers (cell instrument_parametric: "
+    "SE ratio 0.91, coverage 0.925). Measured on a binary outcome with logistic regressions."
+)
+
+
 def _x76_adjustment_rows() -> tuple[SupportRow, ...]:
-    return ()
+    """``treatment_adjustment=`` on ordinary TMLE (``T54``, ``option-treatment-adjustment``)."""
+    slug = ["option-treatment-adjustment"]
+    declared = {"treatment_adjustment": True}
+    families = ("P1", "P2")
+    return (
+        point_row(
+            "T54.in_sample",
+            slug,
+            families=families,
+            options=declared,
+            cells=[
+                "interval_calibration/in_sample__correctly_specified",
+                "double_robustness/treatment_correct",
+            ],
+            limits=[_ADJUSTMENT_LIMIT],
+        ),
+        point_row(
+            "T54.stacked",
+            slug,
+            families=families,
+            splitting=("stacked",),
+            options=declared,
+            cells=["interval_calibration/stacked__correctly_specified"],
+            limits=[_ADJUSTMENT_LIMIT],
+        ),
+    )
 
 
 POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
@@ -5329,12 +5415,72 @@ def _x76_stopping_long_rows() -> tuple[SupportRow, ...]:
     return ()
 
 
+#: The limit of every ``G56`` row (study ``option-ratio-trim``).
+_TRIM_LIMIT = (
+    "The trimmed point estimate is consistent when every iterated outcome regression is. "
+    "The trim removes the double robustness on the trimmed share: with an outcome regression "
+    "that ignores W the trimmed fit is biased by 1.92 SD for LTMLE and 2.47 SD for SDR, where "
+    "the untrimmed fit is not (study option-ratio-trim, cells trim_necessity). Measured only "
+    "with LinearRegression outcome and pseudo-outcome regressions on a law where they are "
+    "correct; any other outcome learner reads experimental, and pinning the class does not "
+    "make a linear regression correct. No interval is given (F30): the plug-in standard "
+    "error is a diagnostic, 0.56 to 0.58 of the spread of the trimmed estimate, with "
+    "coverage 0.72 to 0.74."
+)
+
+
 def _x76_trim_rows() -> tuple[SupportRow, ...]:
-    return ()
+    """``ratio_trim=`` on ``LTMLE`` and ``SDR``: the point estimate (``G56``)."""
+    from sklearn.linear_model import LinearRegression
+
+    slug = ["option-ratio-trim"]
+    linear: dict[str, type] = {"outcome": LinearRegression, "pseudo": LinearRegression}
+    rows = []
+    for engine, label in (("tmle", "ltmle"), ("sdr", "sdr")):
+        for splitting, cell in (("in_sample", "in_sample"), ("cross_fitted", "stacked")):
+            rows.append(
+                long_row(
+                    f"G56.{label}.{splitting}",
+                    slug,
+                    engine=engine,
+                    splitting=(splitting,),
+                    ratio_trim=True,
+                    kinds=frozenset({"point"}),
+                    cells=[f"trim_point/{label}_{cell}"],
+                    limits=[_TRIM_LIMIT],
+                    learners=linear,
+                )
+            )
+    return tuple(rows)
 
 
 def _x76_markov_rows() -> tuple[SupportRow, ...]:
-    return ()
+    """A Markov-order window on ``LTMLE`` (``G57``, study ``option-markov-order``)."""
+    return (
+        long_row(
+            "G57",
+            ["option-markov-order"],
+            treatment=("2", "2", "2", "2"),
+            markov_order=True,
+            kinds=_LONG_WALD,
+            cells=[
+                "interval_calibration/order1_ey__correctly_specified",
+                "interval_calibration/order1_ate__correctly_specified",
+                "interval_calibration/order2_ate__correctly_specified",
+                "order_double_robustness/ey_never",
+            ],
+            limits=[
+                "The interval holds under the declared restriction: at every node the outcome "
+                "regression and the treatment and censoring mechanisms depend on the history "
+                "only through W and the last k + 1 nodes. The data can test it, and the fit "
+                "does not. When it fails for the outcome regression and the mechanisms, the "
+                "estimate is biased (study option-markov-order, cell order_necessity: 1.32 SD "
+                "at order 0). The interval is claimed valid, not efficient. Measured at orders "
+                "1 and 2 on four binary treatment nodes with censoring, in sample, with linear "
+                "outcome regressions and logistic mechanisms."
+            ],
+        ),
+    )
 
 
 #: A learned two-node regimen (``LearnedRegimen``, X11 (b)) keys the regimen kind ``learned``.

@@ -1495,18 +1495,19 @@ Acceptance: the study test of part (b).
 
 ### X76. Studies of the targeting and fitting options
 
-These options run, and each fit that declares one carries the experimental label. No registered
-study measures a fit that uses them. `src/cleverly/estimators/_option_support.py` writes each
-condition.
+These options run. Parts (b), (d), (e) and (f) are done: their registered studies back support
+rows, and a fit outside those rows carries the experimental label. A fit that declares an option
+of the open parts carries the experimental label, and
+`src/cleverly/estimators/_option_support.py` writes each remaining condition.
 
 | part | option | what a study measures |
 | --- | --- | --- |
 | (a) | `stopping="scaled_var"` and `"sample_size"`, point and longitudinal | the coverage of the interval widened by the residual the rule leaves, beside the plain interval. Declared as `option-stopping-point` and `option-stopping-ltmle`, not yet run |
-| (b) | `outcome_by_arm=True` | bias and coverage with one outcome regression per arm. Declared as `option-outcome-by-arm`, not yet run |
+| (b) | `outcome_by_arm=True` | bias and coverage with one outcome regression per arm. Done: [`option-outcome-by-arm`](technical-reference/method-evidence/option-outcome-by-arm.md), rows `T53` |
 | (c) | `patience=` on the cross-validated C-TMLE path | bias when the counter stops the greedy path early, beside the whole path. Declared as `option-patience`, not yet run. A pre-ordered strategy with `patience=` stays experimental permanently: the counter can stop before a needed candidate at every sample size |
-| (d) | `treatment_adjustment=` | bias and coverage under the declared restriction, with a correct mechanism model on the subset, and with a dropped covariate that affects only the treatment. Declared as `option-treatment-adjustment`, not yet run |
-| (e) | `ratio_trim=` on `LTMLE` and `SDR` | bias at a trim that binds on a law with weak support, beside the untrimmed fit. The trimmed fit reports no interval, so the study reads the point only. Declared as `option-ratio-trim`, not yet run |
-| (f) | `markov_order=` | bias and coverage on a law whose history beyond the declared order does not affect later nodes, and a law where it does. Declared as `option-markov-order`, not yet run |
+| (d) | `treatment_adjustment=` | bias and coverage under the declared restriction, with a correct mechanism model on the subset, and with a dropped covariate that affects only the treatment. Done: [`option-treatment-adjustment`](technical-reference/method-evidence/option-treatment-adjustment.md), rows `T54` |
+| (e) | `ratio_trim=` on `LTMLE` and `SDR` | bias at a trim that binds on a law with weak support, beside the untrimmed fit. The trimmed fit reports no interval, so the study reads the point only. Done: [`option-ratio-trim`](technical-reference/method-evidence/option-ratio-trim.md), point-only rows `G56` |
+| (f) | `markov_order=` | bias and coverage on a law whose history beyond the declared order does not affect later nodes, and a law where it does. Done: [`option-markov-order`](technical-reference/method-evidence/option-markov-order.md), row `G57` |
 | (g) | `isotonic=True` | bias and coverage on a law where the projection binds. The [point survival study](technical-reference/method-evidence/point-survival-curve.md) has one cell, and its projection does not bind |
 
 `iterate="best"` and `step_bound=` under `stopping="relative"` keep the support of the fit. That

@@ -299,21 +299,41 @@ class TestTheStudyFits:
         assert learner.offset == pytest.approx(laws.SLOW_OFFSET / 16_000**0.25, rel=1e-15)
         assert laws.outcome_learner(laws.SETTINGS["ldb_parametric"], 16_000).offset == 0.0
 
-    def test_a_declared_fit_is_keyed_off_the_default_row(self) -> None:
-        """The restriction reaches the support key: the declared fit leaves ``T01``.
+    @pytest.mark.parametrize(
+        ("setting", "row"), [("lda_in_sample", "T54.in_sample"), ("lda_stacked", "T54.stacked")]
+    )
+    def test_a_declared_fit_reads_its_t54_row(self, setting: str, row: str) -> None:
+        """The restriction reaches the support key: the declared fit lands on ``T54``.
 
-        At registration this asserts the ``T54`` row instead.  Dropping the option from the key
-        would put the declared fit on ``T01.binary``, which this test refuses.
+        Dropping the option from the key would put the declared fit on ``T01.binary``, which
+        this test refuses.
         """
         frame = laws.draw("LDA", 400, 0)
-        declared = laws.fit(frame, "lda_in_sample")["ate"].support
-        assert declared.label == "experimental"
-        assert declared.row is None
-        assert "treatment_adjustment" in declared.reason
+        for estimate in laws.fit(frame, setting).estimates.values():
+            assert (estimate.support.label, estimate.support.row) == ("supported", row)
+            assert any("instrument_slow_outcome" in limit for limit in estimate.support.limits)
+
+    def test_the_same_fit_without_the_declaration_reads_t01(self) -> None:
+        frame = laws.draw("LDA", 400, 0)
         free = (
             laws.estimator(laws.SETTINGS["lda_in_sample"], 400)
             .fit(frame, outcome="Y", treatment="A", covariates=list(laws.COVARIATES))
             .single()["ate"]
             .support
         )
-        assert free.row == "T01.binary"
+        assert (free.label, free.row) == ("supported", "T01.binary")
+
+    def test_without_t54_a_declared_fit_matches_no_row(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import cleverly._support as support_module
+
+        rows = support_module.registered_rows()
+        monkeypatch.setattr(
+            support_module,
+            "registered_rows",
+            lambda: tuple(row for row in rows if not row.id.startswith("T54")),
+        )
+        declared = laws.fit(laws.draw("LDA", 400, 0), "lda_in_sample")["ate"].support
+        assert (declared.label, declared.row) == ("experimental", None)
+        assert "treatment_adjustment" in declared.reason

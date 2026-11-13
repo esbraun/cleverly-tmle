@@ -1027,7 +1027,11 @@ class TestPublishedVerdicts:
             assert reported["passed"].all() and reported["property_passed"].all(), (
                 f"{family} publishes a failed verdict, and it declares no margin to fail"
             )
-            assert reported[["coverage_ci_lower", "coverage_ci_upper"]].notna().all().all(), (
+            # A fitted-slope row reports its slope interval in place of a coverage interval.
+            interval = reported[["coverage_ci_lower", "coverage_ci_upper"]].notna().all(axis=1)
+            if {"slope_ci_lower", "slope_ci_upper"} <= set(reported.columns):
+                interval |= reported[["slope_ci_lower", "slope_ci_upper"]].notna().all(axis=1)
+            assert interval.all(), (
                 f"{family} publishes no coverage interval, which is what it reports"
             )
         for family in sorted(families & BIAS_GATED_PROPERTIES):
@@ -1738,6 +1742,15 @@ BIAS_GATED_PROPERTIES = frozenset(
         # X39: a positive's bias interval inside the margin, a control's outside it, each on
         # its own stream.
         "censoring_necessity",
+        # X76's option studies: the trimmed fits' bias inside the margin, the trimmed W-blind
+        # control outside it (``option-ratio-trim``); the order-0 control and the blind-mechanism
+        # control outside it (``option-markov-order``); the slow outcome rate at n = 16,000
+        # outside it (``option-treatment-adjustment``).
+        "trim_point",
+        "trim_necessity",
+        "order_necessity",
+        "order_double_robustness",
+        "instrument_slow_outcome",
     }
 )
 
@@ -1871,6 +1884,11 @@ SAME_DRAW_FAMILIES = {
         frozenset({"bias", "interval_calibration"}),
         frozenset({"bias", "targeting_necessity"}),
     ),
+    # ``option-ratio-trim``: every fit reads one draw of law LE per replicate, so the trimmed
+    # and untrimmed fits differ on the same data in the setting alone.  The necessity pair
+    # shows that trimming leaves a remainder that double robustness otherwise removes, on the
+    # draws whose correct-outcome fits the point cells measure.
+    "option-ratio-trim": (frozenset({"trim_necessity", "trim_point"}),),
 }
 
 #: Families that publish numbers and no verdict.  A third list rather than a third entry in
@@ -1956,6 +1974,19 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # with its summary statistics and no verdict.
         "support_loss",
         "learned_mechanism",
+        # X76's option studies: the readings beside each gated cell, reported with no verdict.
+        # The pooled fits beside the per-arm fits (``option-outcome-by-arm``); the 0.99 trims,
+        # the untrimmed correct fits and the trimmed share (``option-ratio-trim``); the
+        # full-history and order-0 fits (``option-markov-order``); the reference fits, the
+        # constructed-error ladder, its fitted slope and the parametric fit
+        # (``option-treatment-adjustment``).
+        "pooled_outcome",
+        "trim_reported",
+        "markov_reported",
+        "instrument_reference",
+        "instrument_slow_outcome_ladder",
+        "instrument_slow_outcome_rate",
+        "instrument_parametric",
     }
 )
 
@@ -3943,10 +3974,6 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 UNCOMMITTED_MODULES: tuple[str, ...] = (
     "tests.studies.option_stopping_point_properties",
     "tests.studies.option_stopping_ltmle_properties",
-    "tests.studies.option_treatment_adjustment_properties",
-    "tests.studies.option_outcome_by_arm_properties",
-    "tests.studies.option_markov_order_properties",
-    "tests.studies.option_ratio_trim_properties",
     "tests.studies.option_patience_properties",
 )
 

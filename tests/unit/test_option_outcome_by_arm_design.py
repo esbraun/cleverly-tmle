@@ -86,14 +86,20 @@ class TestTheDeclaration:
         assert (law.MAX_ITER, law.TOL) == (100, 1e-10)
 
     def test_the_seeds_are_the_study_s_own(self) -> None:
-        seeds = {s for record in registered() for s in (record.seed, record.resampling_seed)}
+        seeds = {
+            s
+            for record in registered()
+            if record.slug != study.SLUG
+            for s in (record.seed, record.resampling_seed)
+        }
         assert not {study.SEED, study.RESAMPLING_SEED, pilot.PILOT_SEED} & seeds
 
-    def test_declared_and_not_registered(self) -> None:
-        assert study.SLUG not in {record.slug for record in registered()}
+    def test_registered_with_its_committed_run(self) -> None:
+        assert study.SLUG in {record.slug for record in registered()}
+        assert study.STUDY.artifact("property-replicates.parquet").exists()
         from tests.unit.test_method_evidence import UNCOMMITTED_MODULES
 
-        assert properties.__name__ in UNCOMMITTED_MODULES
+        assert properties.__name__ not in UNCOMMITTED_MODULES
 
     def test_the_record_declares_the_cells_the_module_builds(self) -> None:
         built: dict[str, set[str]] = {}

@@ -94,6 +94,8 @@ ep-assessment
 learned-rule-ep
 targeting-curves
 score-assessment
+option-treatment-adjustment
+option-outcome-by-arm
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 dose-response
@@ -151,6 +153,8 @@ repeated-outcome-sdr
 long-horizon-longitudinal-tmle
 long-horizon-categorical-longitudinal-tmle
 long-horizon-sequentially-doubly-robust-estimation
+option-ratio-trim
+option-markov-order
 omitted-variable-bound-standard-error
 omitted-variable-bound-plugin-standard-error
 ovb-limit-coverage

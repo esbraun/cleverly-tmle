@@ -72,6 +72,8 @@ X76_POINT_DEFAULTS: dict[str, Any] = {
 X76_POINT_ROW_OPTIONS: dict[str, dict[str, Any]] = {
     "T49": {"outcome_by_arm": True},
     "T50": {"outcome_by_arm": True},
+    "T53": {"outcome_by_arm": True},
+    "T54": {"treatment_adjustment": True},
 }
 X76_LONGITUDINAL_DEFAULTS: dict[str, Any] = {
     "ratio_trim": False,
@@ -79,6 +81,11 @@ X76_LONGITUDINAL_DEFAULTS: dict[str, Any] = {
     "stopping": "relative",
     "step_bound": "none",
     "iterate": "last",
+}
+#: The longitudinal rows, by id prefix, whose study declares an X76 option.
+X76_LONGITUDINAL_ROW_OPTIONS: dict[str, dict[str, Any]] = {
+    "G56": {"ratio_trim": True},
+    "G57": {"markov_order": True},
 }
 
 
@@ -527,7 +534,9 @@ class TestTheoryAndOptions:
             if row.key.engine == ("snmm",):
                 continue  # A structural key holds no fitting option (structural_key).
             options = dict(row.key.options)
-            expected = X76_LONGITUDINAL_DEFAULTS
+            expected = X76_LONGITUDINAL_DEFAULTS | X76_LONGITUDINAL_ROW_OPTIONS.get(
+                row.id.split(".")[0], {}
+            )
             assert {name: options.get(name) for name in expected} == expected, row.id
 
     def test_the_allowlist_holds_the_declared_options(self) -> None:

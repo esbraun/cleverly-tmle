@@ -982,10 +982,12 @@ at a product rate, and double robustness is unchanged. A per-arm fit helps where
 regression misses an arm-by-covariate interaction. An arm with few rows gives its regression
 few rows to learn from.
 
-**Evidence.** The declared study `option-outcome-by-arm` has not run, so a per-arm fit reads
-`experimental`. It will measure the interval of the per-arm fit in sample and stacked, on
-binary, continuous and bounded outcomes, and a double-robustness pair with per-arm intercepts.
-No study cell can show that the option was honoured: with the correct mechanism the pooled fit
+**Evidence.** The registered study
+[`option-outcome-by-arm`](method-evidence/option-outcome-by-arm.md) measures the interval of the
+per-arm fit in sample and stacked, on binary, continuous and bounded outcomes, and a
+double-robustness pair with per-arm intercepts. The support rows `T53.in_sample.*` and
+`T53.stacked.*` cover a per-arm fit of the means, the ATE, the risk ratio and the odds ratio;
+a per-arm fit of the ATT or the ATC reads `experimental`. No study cell can show that the option was honoured: with the correct mechanism the pooled fit
 is also unbiased in the exact-law limit, with an SE ratio of 1.0001 (binary) and 1.0010
 (bounded), so every cell would read the same if the option were ignored. The pooled rows are
 reported for comparison and are not evidence that the option helps. The per-arm fit is more
@@ -1110,11 +1112,12 @@ raw-scale outcome stub.
 the treatment mechanism both use $W_g$, and the interval is covered. Use `treatment_adjustment=`
 when the outcome regression needs the columns and the treatment mechanism does not.
 
-**Evidence.** No registered study covers a fit that declares `treatment_adjustment=`, so its
-estimates read experimental ([scope and refusals](scope-and-refusals.md#targeting-and-fitting-option-refusals)).
-The study `option-treatment-adjustment` is declared and has not run
-(`tests/canonical/option_treatment_adjustment/regenerate.py`). It reads the interval under the
-restriction, in sample and stacked, and double robustness with the mechanism on $W_g$. It also
+**Evidence.** The registered study
+[`option-treatment-adjustment`](method-evidence/option-treatment-adjustment.md) backs the support
+rows `T54.in_sample` and `T54.stacked`, which cover a declared restriction for the means, the
+ATE, the risk ratio and the odds ratio; the ATT and the ATC read `experimental`
+([scope and refusals](scope-and-refusals.md#targeting-and-fitting-option-refusals)). It reads
+the interval under the restriction, in sample and stacked, and double robustness with the mechanism on $W_g$. It also
 reads case B with an instrument $Z$, an outcome GLM on $W$ and the constructed outcome error
 $n^{-1/4} Z$ on the logit scale. That fit's exact-law bias is 0.95, 1.35 and 1.91 standard
 deviations at n = 1,000, 4,000 and 16,000, and with the mechanism on the whole set it stays

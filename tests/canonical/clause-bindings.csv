@@ -1778,31 +1778,31 @@ tests.studies.option_stopping_point_properties,interval_calibration,se ratio in 
 tests.studies.option_stopping_point_properties,residual_necessity,coverage ceiling,pair_collapse
 tests.studies.option_stopping_point_properties,residual_necessity,coverage floor,se_low
 tests.studies.option_stopping_point_properties,residual_witness,coverage floor,shift/3
-tests.studies.option_treatment_adjustment_properties,double_robustness,bias discriminated,pair_collapse
-tests.studies.option_treatment_adjustment_properties,double_robustness,bias equivalent,bias
-tests.studies.option_treatment_adjustment_properties,double_robustness,se ratio in union band,se/0.05
-tests.studies.option_treatment_adjustment_properties,instrument_slow_outcome,bias discriminated,control_diffuse
-tests.studies.option_treatment_adjustment_properties,interval_calibration,coverage in calibration band,shift/0.7
-tests.studies.option_treatment_adjustment_properties,interval_calibration,noise se ratio below band,se_high
-tests.studies.option_treatment_adjustment_properties,interval_calibration,se ratio below band,se_high
-tests.studies.option_treatment_adjustment_properties,interval_calibration,se ratio in calibration band,affine
-tests.studies.option_outcome_by_arm_properties,double_robustness,bias discriminated,pair_collapse
-tests.studies.option_outcome_by_arm_properties,double_robustness,bias equivalent,bias
-tests.studies.option_outcome_by_arm_properties,double_robustness,se ratio in union band,se/0.05
-tests.studies.option_outcome_by_arm_properties,interval_calibration,coverage in calibration band,shift/0.7
-tests.studies.option_outcome_by_arm_properties,interval_calibration,noise se ratio below band,none
-tests.studies.option_outcome_by_arm_properties,interval_calibration,se ratio below band,se_high
-tests.studies.option_outcome_by_arm_properties,interval_calibration,se ratio in calibration band,se/0.05
-tests.studies.option_markov_order_properties,interval_calibration,coverage in calibration band,bias
-tests.studies.option_markov_order_properties,interval_calibration,noise se ratio below band,se_high
-tests.studies.option_markov_order_properties,interval_calibration,se ratio below band,se_high
-tests.studies.option_markov_order_properties,interval_calibration,se ratio in calibration band,affine
-tests.studies.option_markov_order_properties,order_double_robustness,bias discriminated,pair_collapse
-tests.studies.option_markov_order_properties,order_double_robustness,bias equivalent,bias
-tests.studies.option_markov_order_properties,order_necessity,bias discriminated,control_diffuse
-tests.studies.option_ratio_trim_properties,trim_necessity,bias discriminated,pair_collapse
-tests.studies.option_ratio_trim_properties,trim_necessity,bias equivalent,bias
-tests.studies.option_ratio_trim_properties,trim_point,bias equivalent,bias
+option-treatment-adjustment,double_robustness,bias discriminated,pair_collapse
+option-treatment-adjustment,double_robustness,bias equivalent,bias
+option-treatment-adjustment,double_robustness,se ratio in union band,se/0.05
+option-treatment-adjustment,instrument_slow_outcome,bias discriminated,control_diffuse
+option-treatment-adjustment,interval_calibration,coverage in calibration band,shift/0.7
+option-treatment-adjustment,interval_calibration,noise se ratio below band,se_high
+option-treatment-adjustment,interval_calibration,se ratio below band,se_high
+option-treatment-adjustment,interval_calibration,se ratio in calibration band,se/0.05
+option-outcome-by-arm,double_robustness,bias discriminated,pair_collapse
+option-outcome-by-arm,double_robustness,bias equivalent,bias
+option-outcome-by-arm,double_robustness,se ratio in union band,se/0.05
+option-outcome-by-arm,interval_calibration,coverage in calibration band,shift/0.7
+option-outcome-by-arm,interval_calibration,noise se ratio below band,se_high
+option-outcome-by-arm,interval_calibration,se ratio below band,se_high
+option-outcome-by-arm,interval_calibration,se ratio in calibration band,se/0.05
+option-markov-order,interval_calibration,coverage in calibration band,bias
+option-markov-order,interval_calibration,noise se ratio below band,se_high
+option-markov-order,interval_calibration,se ratio below band,se_high
+option-markov-order,interval_calibration,se ratio in calibration band,affine
+option-markov-order,order_double_robustness,bias discriminated,pair_collapse
+option-markov-order,order_double_robustness,bias equivalent,bias
+option-markov-order,order_necessity,bias discriminated,control_diffuse
+option-ratio-trim,trim_necessity,bias discriminated,pair_collapse
+option-ratio-trim,trim_necessity,bias equivalent,bias
+option-ratio-trim,trim_point,bias equivalent,bias
 tests.studies.option_patience_properties,greedy_late_confounder,paired difference equivalent,bias
 tests.studies.option_patience_properties,late_confounder_stop,coverage floor,shift/3
 tests.studies.option_patience_properties,ordered_late_confounder,bias discriminated,control_diffuse

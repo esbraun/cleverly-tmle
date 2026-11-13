@@ -28,8 +28,8 @@ exact truth.
 **Publication policy** is ``reporting``.  The red-cell reading is declared in
 ``tests/canonical/option_markov_order/regenerate.py`` before any run.
 
-**Declared, not registered.**  The record is not in ``registered()`` until its run is
-committed; the ``G57`` support row and the evidence page land with that registration.
+**Registered.**  The declared run is committed at 03118448ab, and the record is in
+``registered()``.  The ``G57`` support row and the evidence page landed with the registration.
 """
 
 from __future__ import annotations
@@ -88,7 +88,7 @@ STUDY = StudyRecord(
     slug=SLUG,
     artifacts=ROOT / "tests" / "canonical" / "option_markov_order",
     document="docs/technical-reference/method-evidence/option-markov-order.md",
-    anchor="option-markov-order",
+    anchor="markov-order-windows-on-ltmle",
     scenarios={PRIMARY_SCENARIO: PRIMARY_ESTIMANDS},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

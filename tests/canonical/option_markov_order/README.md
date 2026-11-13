@@ -16,10 +16,10 @@ option, so every cell is read against its exact truth.
 
 ## State of this directory
 
-Declared, not run. No artifact is committed, so the record is not in `registered()`. The
-support row `G57` and the evidence page land with the registration, after the run. Until then a
-windowed fit stays experimental: the support key records `markov_order` and matches no shipped
-row.
+Registered. The declared run is committed here and the record is in `registered()`. The
+support row `G57` covers a windowed LTMLE fit on the key of `G01` with a four-node treatment,
+and its limit states the conditional-independence restriction the window imposes. The evidence
+page is `docs/technical-reference/method-evidence/option-markov-order.md`.
 
 ## Run
 

@@ -31,7 +31,9 @@ the fit alone.  Every cell reads the ATE.
 - ``instrument_slow_outcome`` reads
   :func:`~tests.studies.evidence.property_verdicts.bias_role_verdicts`: the 99% interval of the
   standardized bias lies wholly beyond the 0.25 margin.
-- Every other family is reported, with :data:`~tests.studies.evidence.property_verdicts.DIAGNOSTIC_ROLE`.
+- Every other family is reported, with
+  :data:`~tests.studies.evidence.property_verdicts.DIAGNOSTIC_ROLE`
+  (:func:`~tests.studies.evidence.property_verdicts.reported_verdicts`).
 
 Each instrument row's summary carries its exact-law limit: ``exact_bias_over_sd`` (the
 targeting limit's ATE bias over the stacked-equation SD) and ``exact_se_ratio`` (the limit of
@@ -45,6 +47,7 @@ A replication that raises is not redrawn; the failure accounting of
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 import pandas as pd
@@ -72,6 +75,7 @@ from tests.studies.evidence.property_verdicts import (
     calibration_verdicts,
     finish,
     fitted_rate_row,
+    reported_verdicts,
 )
 from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
@@ -204,13 +208,44 @@ def _role(family: str, cell: str) -> str:
     return "positive"
 
 
+class DeclaredLaw:
+    """The law a declared cell reads, with its exact truths.
+
+    Parameters
+    ----------
+    label : str
+        A key of :data:`tests.studies._option_adjustment_laws.LAWS`.
+    """
+
+    def __init__(self, label: str) -> None:
+        self.label = label
+        self.name = f"option_treatment_adjustment__{label}"
+
+    def truth(self) -> dict[str, float]:
+        return dict(laws.truth(self.label))
+
+
 def declared_cells() -> tuple[PropertyCell, ...]:
+    """Every sampled cell, and the calibration controls derived from its rows."""
+    fitted = _fitted_cells()
+    by_name = {f"{cell.property}/{cell.cell}": cell for cell in fitted}
+    derived = tuple(
+        dataclasses.replace(
+            by_name[parent], property=name.split("/")[0], cell=name.split("/")[1], role="control"
+        )
+        for parent, names in DERIVED_CELLS.items()
+        for name in names
+    )
+    return fitted + derived
+
+
+def _fitted_cells() -> tuple[PropertyCell, ...]:
     """Every sampled cell, with its role, size and replicate count."""
     return tuple(
         PropertyCell(
             property=spec.property,
             cell=spec.cell,
-            dgp=laws.SETTINGS[spec.configuration].law,
+            dgp=DeclaredLaw(laws.SETTINGS[spec.configuration].law),
             outcome_learner=lambda: None,
             treatment_learner=lambda: None,
             n=spec.n,
@@ -353,9 +388,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
             verdict=lambda fitted: True,
         )
     )
-    # The reported rows state no verdict; ``passed`` is True for them, as the shared
-    # diagnostics set it.
-    summary.loc[summary["property"].isin(REPORTED_FAMILIES), "passed"] = True
+    reported_verdicts(summary, families=REPORTED_FAMILIES)
     return finish(summary, rates)
 
 

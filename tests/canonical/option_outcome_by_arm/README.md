@@ -15,17 +15,15 @@ interaction (Fix-8 plan sections 2.2 and 5.3). It has no comparator.
 
 ## State of this directory
 
-Declared, not run. No artifact is committed, so the record is not in `registered()`. The
-support rows `T53.in_sample.{binary,continuous}` and `T53.stacked.{binary,bounded}`, the
-deletion of the two `outcome_by_arm` conditions in
-`src/cleverly/estimators/_option_support.py` and the evidence page land with the
-registration, after the run. The support key already keeps a per-arm point fit off `T01` and a
-pooled projection fit off `T49`/`T50`, so the deletion changes no label until `T53` exists. The `T53` limit text
-is to say that the study measures the interval of a per-arm fit, and that the evidence that the
-option is honoured is the fast-tier witness and the spy on the study's fits
-(`tests/unit/test_option_outcome_by_arm_witness.py`): no study cell would read differently if
-`outcome_by_arm=True` were ignored, because the pooled fit is also unbiased under the correct
-mechanism.
+Registered. The declared run is committed here and the record is in `registered()`. The
+support rows `T53.in_sample.{binary,continuous}` and `T53.stacked.{binary,bounded}` cover a
+per-arm fit that reads the ATE, the means, the risk ratio or the odds ratio, and the two
+`outcome_by_arm` conditions are gone from `src/cleverly/estimators/_option_support.py`. The
+`T53` limit says that the evidence that the option is honoured is the fast-tier witness and
+the spy on the study's fits (`tests/unit/test_option_outcome_by_arm_witness.py`): no study cell
+would read differently if `outcome_by_arm=True` were ignored, because the pooled fit is also
+unbiased under the correct mechanism. The evidence page is
+`docs/technical-reference/method-evidence/option-outcome-by-arm.md`.
 
 ## Run
 

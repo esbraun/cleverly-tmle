@@ -152,20 +152,37 @@ def sample_seed(replicate: int) -> int:
     return stream_seed(STUDY, "property_sample", STREAM, replicate)
 
 
+class DeclaredLaw:
+    """The law a declared cell reads, with its exact truths.
+
+    Parameters
+    ----------
+    label : str
+        The law, :data:`tests.studies._option_trim_law.LAW`.
+    """
+
+    def __init__(self, label: str) -> None:
+        self.label = label
+        self.name = f"option_ratio_trim__{label}"
+
+    def truth(self) -> dict[str, float]:
+        return {law.ESTIMAND: law.truth(), "trimmed_share": law.trimmed_share(law.TRIM)}
+
+
 def declared_cells() -> tuple[PropertyCell, ...]:
     """Every sampled cell, with its role, size and replicate count."""
     return tuple(
         PropertyCell(
             property=family,
             cell=cell,
-            dgp=law.LAW,
+            dgp=DeclaredLaw(law.LAW),
             outcome_learner=lambda: None,
             treatment_learner=lambda: None,
             n=N,
             replicates=REPLICATES,
             seed=sample_seed(0),
             role=_role(family, cell),
-            estimand=law.ESTIMAND,
+            estimand="trimmed_share" if (family, cell) == SHARE_CELL else law.ESTIMAND,
             fit_kwargs={"setting": setting},
         )
         for setting, outputs in FITS.items()

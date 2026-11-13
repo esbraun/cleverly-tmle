@@ -682,6 +682,12 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_MULTI_ARM_MAR_DRTMLE,
     )
     from tests.studies.canonical_multi_arm_tmle import STUDY as CANONICAL_MULTI_ARM_TMLE
+    from tests.studies.canonical_option_markov_order import STUDY as OPTION_MARKOV_ORDER
+    from tests.studies.canonical_option_outcome_by_arm import STUDY as OPTION_OUTCOME_BY_ARM
+    from tests.studies.canonical_option_ratio_trim import STUDY as OPTION_RATIO_TRIM
+    from tests.studies.canonical_option_treatment_adjustment import (
+        STUDY as OPTION_TREATMENT_ADJUSTMENT,
+    )
     from tests.studies.canonical_parametric_gformula import STUDY as PARAMETRIC_GFORMULA
     from tests.studies.canonical_point_msm import STUDY as CANONICAL_POINT_MSM
     from tests.studies.canonical_point_survival import STUDY as POINT_SURVIVAL
@@ -836,6 +842,8 @@ def registered() -> tuple[StudyRecord, ...]:
         SURVIVAL_DR_TMLE,
         TARGETING_CURVES,
         SCORE_ASSESSMENT,
+        OPTION_TREATMENT_ADJUSTMENT,
+        OPTION_OUTCOME_BY_ARM,
         DOSE_RESPONSE,
         MISSINGNESS_TILT_INFERENCE,
         DOSE_RESPONSE_NPCAUSAL,
@@ -871,6 +879,8 @@ def registered() -> tuple[StudyRecord, ...]:
         LONG_HORIZON_LTMLE,
         LONG_HORIZON_CATEGORICAL_LTMLE,
         LONG_HORIZON_SDR,
+        OPTION_RATIO_TRIM,
+        OPTION_MARKOV_ORDER,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,

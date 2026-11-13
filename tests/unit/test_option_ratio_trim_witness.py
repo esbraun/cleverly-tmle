@@ -19,9 +19,10 @@ type-7 quantile of every entry, zeros included.  The mutation controls drop the 
 clever covariate, carry a trim at node 1 to node 2 only where node 2 was trimmed too, and take
 the quantile of the positive entries; each fails a witness.
 
-The support tests read the key: a trimmed fit records ``ratio_trim=True``, matches no row until
-the ``G56`` rows register, and withholds its interval.  At registration the rows pin the outcome
-learners to ``LinearRegression``, so a trimmed fit with another outcome learner stays off them.
+The support tests read the rows: a trimmed fit with ``LinearRegression`` outcome regressions
+lands on its ``G56`` row, reads supported for the point and withholds its interval.  The rows pin
+the outcome learners to ``LinearRegression``, so a trimmed fit with another outcome learner
+matches no row, and the untrimmed fit stays on ``G01``.
 """
 
 from __future__ import annotations
@@ -215,14 +216,42 @@ class TestTheSampleTrim:
 
 
 class TestTheSupportKey:
+    @pytest.mark.parametrize(
+        ("name", "row"),
+        [
+            ("ltmle_in_sample_right_trim95", "G56.ltmle.in_sample"),
+            ("ltmle_stacked_right_trim95", "G56.ltmle.cross_fitted"),
+            ("sdr_in_sample_right_trim95", "G56.sdr.in_sample"),
+            ("sdr_stacked_right_trim95", "G56.sdr.cross_fitted"),
+        ],
+    )
+    def test_a_trimmed_linear_fit_reads_its_g56_row(self, name: str, row: str) -> None:
+        """The point estimate is supported on ``G56``, and the interval stays withheld."""
+        estimate = law.fit(law.draw(400, 0), name).estimates[law.ESTIMAND]
+        assert (estimate.support.label, estimate.support.row) == ("supported", row)
+        assert estimate.inference == TRIMMED_RATIO_STATUS
+        assert any("F30" in limit for limit in estimate.support.limits)
+
     @pytest.mark.parametrize("name", ["ltmle_in_sample_right_trim95", "sdr_in_sample_right_trim95"])
-    def test_a_trimmed_fit_is_keyed_off_every_shipped_row(self, name: str) -> None:
-        """At registration this asserts ``G56``."""
-        frame = law.draw(400, 0)
-        estimate = law.fit(frame, name).estimates[law.ESTIMAND]
-        assert estimate.support.label == "experimental"
-        assert estimate.support.row is None
+    def test_a_trimmed_fit_with_another_outcome_learner_matches_no_row(self, name: str) -> None:
+        """``G56`` pins ``LinearRegression``: a boosted outcome regression reads experimental."""
+        from sklearn.ensemble import HistGradientBoostingRegressor
+
+        boosted = HistGradientBoostingRegressor(max_iter=20, random_state=0)
+        estimate = law.fit(
+            law.draw(400, 0), name, outcome_learner=boosted, pseudo_learner=boosted
+        ).estimates[law.ESTIMAND]
+        assert (estimate.support.label, estimate.support.row) == ("experimental", None)
         assert "ratio_trim=True" in estimate.support.reason
+
+    def test_the_study_s_wrong_outcome_learner_matches_no_row(self) -> None:
+        """The W-blind control's learner class is not ``LinearRegression``, so it leaves ``G56``."""
+        support = (
+            law.fit(law.draw(400, 0), "ltmle_in_sample_wrong_trim95")
+            .estimates[law.ESTIMAND]
+            .support
+        )
+        assert (support.label, support.row) == ("experimental", None)
 
     def test_the_untrimmed_fit_is_the_default_row(self) -> None:
         frame = law.draw(400, 0)

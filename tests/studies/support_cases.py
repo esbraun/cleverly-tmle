@@ -3047,7 +3047,29 @@ def _x76_stopping_point_cases() -> tuple[RowCase, ...]:
 
 
 def _x76_by_arm_cases() -> tuple[RowCase, ...]:
-    return ()
+    """The cases of ``option-outcome-by-arm`` (X76 part (b)): ``T53``.
+
+    Each runs the study's own fit of one calibration setting on a draw of its law.
+    """
+    module, slug = "_option_by_arm_law", "option-outcome-by-arm"
+
+    def case(row: str, setting: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            setting,
+            f"{module}.py:357",
+            module,
+            lambda law: law.draw(law.SETTINGS[setting].law, 400, 0),
+            lambda law, frame: law.fit(frame, setting),
+        )
+
+    return (
+        case("T53.in_sample.binary", "binary_in_sample"),
+        case("T53.in_sample.continuous", "continuous_in_sample"),
+        case("T53.stacked.binary", "binary_stacked"),
+        case("T53.stacked.bounded", "bounded_stacked"),
+    )
 
 
 def _x76_patience_cases() -> tuple[RowCase, ...]:
@@ -3055,7 +3077,24 @@ def _x76_patience_cases() -> tuple[RowCase, ...]:
 
 
 def _x76_adjustment_cases() -> tuple[RowCase, ...]:
-    return ()
+    """The cases of ``option-treatment-adjustment`` (X76 part (d)): ``T54``.
+
+    Each runs the study's own fit of one calibration setting on a draw of law ``LDA``.
+    """
+    module, slug = "_option_adjustment_laws", "option-treatment-adjustment"
+
+    def case(row: str, setting: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            setting,
+            f"{module}.py:339",
+            module,
+            lambda law: law.draw("LDA", 400, 0),
+            lambda law, frame: law.fit(frame, setting),
+        )
+
+    return (case("T54.in_sample", "lda_in_sample"), case("T54.stacked", "lda_stacked"))
 
 
 def _x76_stopping_long_cases() -> tuple[RowCase, ...]:
@@ -3063,11 +3102,46 @@ def _x76_stopping_long_cases() -> tuple[RowCase, ...]:
 
 
 def _x76_trim_cases() -> tuple[RowCase, ...]:
-    return ()
+    """The cases of ``option-ratio-trim`` (X76 part (e)): ``G56``.
+
+    Each runs the study's own trimmed fit with correct outcome regressions on a draw of law
+    ``LE``.
+    """
+    module, slug = "_option_trim_law", "option-ratio-trim"
+
+    def case(row: str, setting: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            setting,
+            f"{module}.py:398",
+            module,
+            lambda law: law.draw(400, 0),
+            lambda law, frame: law.fit(frame, setting),
+        )
+
+    return (
+        case("G56.ltmle.in_sample", "ltmle_in_sample_right_trim95"),
+        case("G56.ltmle.cross_fitted", "ltmle_stacked_right_trim95"),
+        case("G56.sdr.in_sample", "sdr_in_sample_right_trim95"),
+        case("G56.sdr.cross_fitted", "sdr_stacked_right_trim95"),
+    )
 
 
 def _x76_markov_cases() -> tuple[RowCase, ...]:
-    return ()
+    """The case of ``option-markov-order`` (X76 part (f)): ``G57``, the order-1 fit on ``LF1``."""
+    module = "_option_markov_law"
+    return (
+        _observed(
+            "G57",
+            "option-markov-order",
+            "lf1_order1",
+            f"{module}.py:330",
+            module,
+            lambda law: law.draw("LF1", 400, 0),
+            lambda law, frame: law.fit(frame, "lf1_order1"),
+        ),
+    )
 
 
 #: The point-treatment cases: ordinary TMLE, DR-TMLE and C-TMLE.

@@ -1,8 +1,10 @@
 """The support label of a fit that declares a targeting or fitting option.
 
-A declared stopping rule, ``outcome_by_arm=True``, ``patience=`` and ``treatment_adjustment=``
-run, and their estimates carry the experimental label with roadmap X76 as the evidence
-(``cleverly.estimators._option_support``).  ``iterate="best"`` and ``step_bound=`` under
+A declared stopping rule and ``patience=`` run, and their estimates carry the experimental label
+with roadmap X76 as the evidence (``cleverly.estimators._option_support``).
+``outcome_by_arm=True`` and ``treatment_adjustment=`` have registered rows (``T53``, ``T54``);
+the key routes a fit that declares one, and a fit outside those rows matches no row.
+``iterate="best"`` and ``step_bound=`` under
 ``stopping="relative"`` keep the label of the fit without them.  The witness for each
 experimental case is the same fit without the option, which a registered row covers, and a
 mutation that removes both the preflight hook and the key's stopping options returns the
@@ -62,13 +64,17 @@ def test_a_declared_stopping_rule_is_experimental(rule: str) -> None:
     assert any(plain_support_reason(reason) in line for line in settings)
 
 
-def test_outcome_by_arm_is_experimental() -> None:
+def test_outcome_by_arm_carries_no_condition() -> None:
+    # The fixture asks for the ATT and ATC too (family P3), which T53 does not cover, so the
+    # fit matches no row; no X76 condition fires.  The study fits land on T53
+    # (tests/unit/test_option_outcome_by_arm_witness.py).
     result = point(outcome_by_arm=True)
     assert labels(result) == {"experimental"}
-    assert "outcome_by_arm=True" in result.estimates["ate"].support.reason
+    assert OPTION_STUDIES_ROADMAP not in evidence(result)
+    assert {estimate.support.row for estimate in result.estimates.values()} == {None}
 
 
-def test_a_treatment_restriction_is_experimental() -> None:
+def test_a_treatment_restriction_carries_no_condition() -> None:
     frame, _, _, _ = engines.KINDS["arm-means"]()
     from cleverly.estimators import TMLE
     from tests.conftest import linear_in_sample
@@ -85,8 +91,11 @@ def test_a_treatment_restriction_is_experimental() -> None:
         )
         .single()
     )
+    # As above: the ATT and ATC leave T54, whose study fits land on it
+    # (tests/unit/test_option_adjustment_witness.py).
     assert labels(result) == {"experimental"}
-    assert "treatment_adjustment=" in result.estimates["ate"].support.reason
+    assert OPTION_STUDIES_ROADMAP not in evidence(result)
+    assert {estimate.support.row for estimate in result.estimates.values()} == {None}
 
 
 def test_patience_is_experimental_and_the_whole_path_keeps_its_label() -> None:

@@ -1732,13 +1732,19 @@ outcome regression is, and double robustness is lost there. With a correct param
 regression the extra term is of order $n^{-1/2}$ and the plug-in curve omits it. With a
 nonparametric outcome regression the term decays at that regression's rate, which is slower.
 
-**Evidence.** The declared study `option-ratio-trim` has not run, so a trimmed fit reads
-`experimental`. On a two-node law with weak support it will measure the bias of LTMLE and SDR
+**Evidence.** The registered study [`option-ratio-trim`](method-evidence/option-ratio-trim.md)
+backs the point-only support rows `G56`. On a two-node law with weak support it measures the bias of LTMLE and SDR
 trimmed at $q = 0.95$ with linear outcome regressions, which contain every iterated regression
 of the law, in sample and cross-fitted. A W-blind outcome regression gives the control: trimmed,
 its exact bias is 0.068 (LTMLE) and 0.083 (SDR), about 2 SDs at $n = 2{,}000$. Untrimmed, double
 robustness removes it. The study claims the point estimate only, and only with the linear
-outcome regressions; the support rows it registers will pin that learner.
+outcome regressions; the `G56` rows pin that learner, so a trimmed fit with another outcome
+learner reads `experimental`.
+
+In the committed run the trimmed fits' biases are within 0.005 SD
+and the controls read 1.92 (LTMLE) and 2.47 (SDR) SDs. The untrimmed fits with correct
+regressions cover 0.884 (LTMLE) and 0.898 (SDR) on this law, with SE ratios 0.910 and 0.921;
+no cell can tell whether that is a finite-sample effect of the large weights.
 
 On the 4,000-draw pilot the plug-in SE of a correctly specified trimmed fit was 0.57 of the
 spread of its estimates, so the diagnostic is not a standard error. At $q = 0.99$ the W-blind
@@ -1798,11 +1804,12 @@ the restricted model can differ from the full-history one. The windowed fit uses
 full-history curve form on smaller designs, so a study can claim a valid interval under the
 restriction and claims no efficiency.
 
-**Evidence.** The declared study `option-markov-order` has not run, so a windowed fit reads
-`experimental`. Its law has four nodes, and the treatment and outcome read one node back, so
-order 1 is the smallest correct window. The study will measure the interval of order 1 on
+**Evidence.** The registered study
+[`option-markov-order`](method-evidence/option-markov-order.md) backs the support row `G57`.
+Its law has four nodes, and the treatment and outcome read one node back, so order 1 is the
+smallest correct window. The study measures the interval of order 1 on
 $E[Y^{\text{always}}]$ and the ATE and of order 2 on the ATE, beside the full-history fit on the
-same draws. Order 0 drops both sides. Its exact-law ATE bias is 1.37 SDs at $n = 2{,}000$, where
+same draws; the three cells cover 0.946, 0.943 and 0.940. Order 0 drops both sides. Its exact-law ATE bias is 1.37 SDs at $n = 2{,}000$, where
 the SD is the limit fit's plug-in curve SD, $\sqrt{E[D^2]/n}$, not the estimator's sampling SD.
 
 On a second law the treatment reads only $A_{t-1}$, which the order-0 window keeps, and the

@@ -352,8 +352,30 @@ def measured(row: Any) -> str:
                 f"margin {render(float(row.alternative_bias_margin))}"
             )
         return measured
-    if family == "root_n_rate":
+    if family in {"root_n_rate", "instrument_slow_outcome_rate"}:
         return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
+    if family in _X76_REPORTED:
+        # The reported fits of the X76 option studies: no verdict, so the row prints the
+        # bias, the coverage and the SE ratio beside the exact-law limit where the law fixes
+        # one.  The trimmed share is a proportion with a placeholder SE, so it prints its mean.
+        if str(row.cell) == "trimmed_share":
+            return (
+                f"mean share {render(float(row.mean_estimate))} against {render(float(row.truth))}"
+            )
+        measured = (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {render(float(row.coverage))}, SE ratio {render(float(row.se_ratio))}"
+        )
+        for column, label in (
+            ("exact_bias_over_sd", "exact bias"),
+            ("exact_se_ratio", "exact SE ratio"),
+            ("exact_bias", "exact bias"),
+        ):
+            limit = getattr(row, column, None)
+            if limit is not None and pd.notna(limit):
+                unit = " SD" if column == "exact_bias_over_sd" else ""
+                measured += f", {label} {render(float(limit))}{unit}"
+        return measured
     if family == "misspecification_control":
         # The control fails on its bias and its coverage while the standard error stays right,
         # so the row prints all three: the failure is the estimate's, not the interval's width.
@@ -855,6 +877,24 @@ _BIAS_GATED = frozenset(
         # X21: the estimated-mechanism bias cells, and the bias of the cube-root-rate ladder.
         "bias",
         "root_n_points",
+        # X76: the bias controls and positives of the option studies.
+        "instrument_slow_outcome",
+        "trim_point",
+        "trim_necessity",
+        "order_necessity",
+        "order_double_robustness",
+    }
+)
+
+#: The reported families of the X76 option studies, which carry the diagnostic role.
+_X76_REPORTED = frozenset(
+    {
+        "instrument_slow_outcome_ladder",
+        "instrument_reference",
+        "instrument_parametric",
+        "pooled_outcome",
+        "trim_reported",
+        "markov_reported",
     }
 )
 

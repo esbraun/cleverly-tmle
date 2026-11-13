@@ -16,10 +16,11 @@ covariate (Fix-8 plan sections 2.4 and 5.4). It has no comparator.
 
 ## State of this directory
 
-Declared, not run. No artifact is committed, so the record is not in `registered()`. The
-support rows `T54.in_sample` and `T54.stacked`, the deletion of the `treatment_adjustment=`
-condition in `src/cleverly/estimators/_option_support.py` and the evidence page land with the
-registration, after the run.
+Registered. The declared run is committed here and the record is in `registered()`. The
+support rows `T54.in_sample` and `T54.stacked` cover a declared `treatment_covariates=` fit
+that reads the ATE, the means, the risk ratio or the odds ratio, and the `treatment_adjustment=`
+condition is gone from `src/cleverly/estimators/_option_support.py`. The evidence page is
+`docs/technical-reference/method-evidence/option-treatment-adjustment.md`.
 
 ## Run
 

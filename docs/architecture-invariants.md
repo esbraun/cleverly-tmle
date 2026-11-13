@@ -669,6 +669,9 @@ matrix, and attaches the trim to the mechanism. Every reader of the cumulative p
 `num / bound(num / R~)`, a truncation replay included. On a row whose ratios the trim never
 moved, that value is the untrimmed one, so a trim never changes a row it does not move.
 `tests/unit/test_longitudinal_ratio_trim.py` pins the composition at an upper bound below one.
+The support rows `G56` cover the trimmed point only, with `LinearRegression` outcome and
+pseudo-outcome regressions, because the trim removes double robustness on the trimmed share;
+their limit says so and that no interval is given (F30).
 
 A Markov order (`markov_order=k`) restricts the nuisance designs only. Each mechanism and
 outcome design at node $t$ reads `W` and a window of the last nodes. The `history_frame` and
@@ -678,6 +681,9 @@ window does not determine that arm. The outcome and mechanism designs read the a
 nodes, from $t-k-1$. `tests/unit/test_longitudinal_markov_order.py` pins both
 frames in `test_the_frames_keep_the_full_history`, and a dropped rule block fails an exact-law
 check there.
+
+The support row `G57` covers a window on `LTMLE`, and its limit states the
+restriction the window imposes on the outcome regression and the mechanisms.
 
 A cross-fitted per-regimen fit targets after its folds, not inside them. Each fold runs an
 untargeted backward regression sequence on its training rows. One pooled fluctuation per node then

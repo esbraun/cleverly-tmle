@@ -16,25 +16,16 @@ the point estimate only. It has no comparator: every cell is read against the ex
 
 ## State of this directory
 
-Declared, not run. No artifact is committed, so the record is not in `registered()`. The four
+Registered. The declared run is committed here and the record is in `registered()`. The four
 `G56` support rows (the keys of `G01`, `G02`, `G23.in_sample` and `G23.cross_fitted` with
-`ratio_trim=True`, kind `point` only) and the evidence page land with the registration, after
-the run. The rows are to set `learners=` to `LinearRegression` for the outcome and
+`ratio_trim=True`, kind `point` only) pin `LinearRegression` for the outcome and
 pseudo-outcome regressions, so a trimmed fit with any other outcome learner stays
-experimental. Their limit text is to say that the trimmed point is consistent only when every iterated
-outcome regression is linear in the history, since the trim removes double robustness on the
-trimmed share (cell `trim_necessity/ltmle_trimmed`). Pinning `LinearRegression` fixes the
-learner class; it does not make a linear regression correct, so the text states the linearity
-condition rather than implying the pinned learner guarantees it. It is also to say that no
-interval is given (F30) and that the plug-in diagnostic is not a standard error: in the pilot
-it was 0.57 of the spread of the trimmed point, with coverage 0.73. No preflight condition
-exists for `ratio_trim`; the support key alone keeps a trimmed fit experimental until then.
-
-The evidence page is to narrate the default untrimmed fit's under-coverage in the pilot, 0.894
-for LTMLE and 0.903 for SDR, with standard-error ratios 0.936 and 0.949. It is a property of
-the default path on this weak-support law and turns no cell red. The page may call it a
-finite-sample effect of the large weights only after a larger-n run or a canonical `ltmle`
-comparison confirms that.
+experimental. Their limit says that the trimmed point is consistent only when every iterated
+outcome regression is correct, that no interval is given (F30), and that the plug-in diagnostic
+is not a standard error. The evidence page,
+`docs/technical-reference/method-evidence/option-ratio-trim.md`, narrates the default untrimmed
+fit's under-coverage on this law (0.884 for LTMLE and 0.898 for SDR in the committed run). No
+cell can tell whether it is a finite-sample effect.
 
 The primary row is point-only, so it passes on the bias leg alone. A smoke run cannot pass it:
 at 200 replicates the gate (`gating_findings`) reports it red with standardized bias 0.156,
