@@ -208,8 +208,9 @@ the truth. `tests/unit/test_stratified_influence_exact.py` checks the score bloc
 
 ## Result
 
-The study publishes under the `reporting` policy. Four verdicts are red, and the
-[red-cell ledger](red-cells.md) names `strata-boundary-mean` as their owner. Every other primary
+The study publishes under the `reporting` policy. Four verdicts are red. The
+[red-cell ledger](red-cells.md) names `strata-boundary-mean` as the owner of the band cell and
+`F3-normal-reference` as the owner of the three pointwise verdicts. Every other primary
 test, paired comparison and property cell passed. The band rows are those of the band-finite-sample
 rerun, which re-measured both bands on the committed fits with the new default band (Mammen
 multiplier, 10,000 draws, each probability on its logit scale and each difference on its
@@ -229,7 +230,16 @@ red, at joint coverage 0.9046 and 0.9192 (`tests/canonical/band-rerun-decision.j
 The route is the finite-sample one. The default band stays on, because nothing in the band's
 construction failed. The study module records the diagnostic, and
 [`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py) rebuilds
-every number of it from the committed rows. [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) owns the four red verdicts.
+every number of it from the committed rows. [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) owns the band verdict.
+
+The three pointwise verdicts record the identity interval of a mean near its bound. The package now
+forms the interval of an unclustered mean of a yes/no outcome on the logit scale
+([small-sample scale](../inference.md#small-sample-scale)). On the same committed estimates and
+standard errors that interval covers 0.950 for the `cleverly` row of `ey[1][V=2]` and 0.9496 for
+the `v2_ey1` cell (`tests/canonical/tmle3_stratified/interval-audit.csv`). The committed rows stay
+as the record of the identity interval under
+[`F3-normal-reference`](../../roadmap.md#red-cell-owners), and `tmle3` still reports the identity
+interval.
 
 ## Refusals
 
