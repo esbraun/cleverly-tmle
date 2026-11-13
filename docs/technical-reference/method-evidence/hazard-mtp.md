@@ -56,8 +56,9 @@ efficient influence function over the law's support.
 `tests/unit/test_hazard_mtp_study_design.py` checks the truths against a backward recursion,
 an adaptive quadrature to $10^{-10}$ and a fit on the exact `levels` sample. It checks the bounds
 against the cause-specific hazard form of the curve at every support point, against an adaptive
-quadrature of its square for both the risk and the contrast, and against the influence curve of
-a fit at n = 40,000.
+quadrature of its square for both the risk and the contrast. The `ic_gap` pilot label adds one
+fit at n = 40,000 per fit label, whose influence-curve SD lies within 2% of the bound, and the
+design test reads it from the committed pilot.
 
 ## The fits
 
@@ -85,18 +86,18 @@ which returns the policy's exact risk while the initial hazards miss it.
 The density route is gated on `truncated` only. On `gaussian` the policy ratio grows
 exponentially in the dose, and the top quantile bins of the shipped binned density are wider
 than the shift. A dose and its pre-image then share a bin, and the binned ratio reads one where
-the true ratio is 5 to 8. The design test measures each fit's influence-curve gap, the standard
-deviation of its influence curve minus the exact efficient influence function, in units of the
-efficiency bound:
+the true ratio is 5 to 8. The `ic_gap` pilot label measures each fit's influence-curve gap, the
+standard deviation of its influence curve minus the exact efficient influence function, in
+units of the efficiency bound, and the design test checks the committed readings:
 
 | fit label | median gap, 5 draws at n = 2,000 | gap at n = 20,000 |
 | --- | --- | --- |
-| `levels` | 0.19 | 0.05 |
-| `gaussian_density` | 0.09 | 0.03 |
-| `gaussian_classifier` | 0.12 | 0.04 |
-| `gaussian_crossfit` | 0.09 | 0.03 |
-| `vector` | 0.09 | 0.02 |
-| `untruncated_density` | 0.23 | 0.22 |
+| `levels` | 0.21 | 0.05 |
+| `gaussian_density` | 0.10 | 0.02 |
+| `gaussian_classifier` | 0.08 | 0.03 |
+| `gaussian_crossfit` | 0.10 | 0.04 |
+| `vector` | 0.08 | 0.03 |
+| `untruncated_density` | 0.31 | 0.26 |
 
 The figures are for the contrast. Every gated fit stays within 0.30 at n = 2,000 and 0.10 at
 n = 20,000, and its gap at least halves. The untruncated density route's gap does not fall, so

@@ -29,8 +29,8 @@ is re-sized, re-drawn or downgraded after a verdict is seen.
   ``hazard_mtp_properties.IC_GAP_BOUND`` and falls with n (``TestTheInfluenceCurveGap``).  The
   ``untruncated_density`` rows are reported with no verdict and cannot be red: on the
   untruncated law the shipped route's quantile tail bins are wider than the shift, and its gap
-  does not fall (0.22 SE at n = 20,000 on the design draw).  That is the shipped route's
-  limitation, disclosed on the evidence page and owned by its own row, not this study's.
+  does not fall (0.26 SE at n = 20,000 in the committed ``ic_gap`` pilot).  That is the shipped
+  route's limitation, disclosed on the evidence page and owned by its own row, not this study's.
 * A red calibration row, in the words of the plans guide (``guide/studies.md``, Red cells): "A
   red calibration row is a finite-sample red only when the 99% interval of its SE ratio
   contains 1, its coverage is consistent with 0.95, and the diagnosis finds no defect. It then
