@@ -125,10 +125,10 @@ from .sequential import NodeBound, RegimenFit
 __all__ = [
     "HAZARD_BOUND_EXCLUDES_DATA",
     "HAZARD_MARKOV_ORDER_REFUSAL",
+    "HAZARD_STEP_BOUND_ONE_STEP_REFUSAL",
     "PATH_DESIGN_BYTES",
     "PATH_PEAK_LIMIT",
     "PATH_STATE_BYTES",
-    "HAZARD_STEP_BOUND_ONE_STEP_REFUSAL",
     "SIGMA_FLOOR",
     "WALK_LOSS_TOLERANCE",
     "HazardAlgorithm",
@@ -144,8 +144,8 @@ __all__ = [
     "clipped_shares",
     "fit_hazards",
     "hazard_bounds",
-    "hazard_inputs",
     "hazard_first_node_mtp_refusal",
+    "hazard_inputs",
     "hazard_later_mtp_refusal",
     "hazard_later_tilt_refusal",
     "hazard_msm_mtp_refusal",
@@ -1786,7 +1786,8 @@ def is_multinode(data: LongitudinalData) -> bool:
 #: The traced peak of a multi-node hazard fit at ``iterate="best"``, in bytes per value of an
 #: ``(n, T, U, J)`` array: the walk state, its candidate and temporaries, the best iterate and
 #: the retained initial hazards (plan 2.4.3).  Measured with ``tracemalloc`` over whole one-step
-#: fits of a known policy with full support at every node (logistic learners, one fold): ``(n, T, J, p)`` of
+#: fits of a known policy with full support at every node (logistic learners, one fold), at
+#: ``(n, T, J, p)`` of
 #: ``(20000, 4, 1, 5)``, ``(20000, 5, 1, 6)``, ``(20000, 4, 2, 5)``, ``(20000, 4, 1, 44)`` and
 #: ``(40000, 4, 1, 5)`` peaked at 368, 874, 523, 362 and 712 MB.  Least squares gives 254 bytes
 #: per state value; a second cause adds less than a first, so 290 bytes covers every fixture.
@@ -2318,7 +2319,8 @@ def _path_score_parts(
     # (n, U, J, H)
     unweighted = (
         running_j[:, index].transpose(0, 2, 3, 1)
-        - incidence[:, index].transpose(0, 2, 3, 1) * running[:, index].transpose(0, 2, 1)[:, :, None]
+        - incidence[:, index].transpose(0, 2, 3, 1)
+        * running[:, index].transpose(0, 2, 1)[:, :, None]
     )
     terms = np.einsum("rnu,nujh->rjhn", inputs.q, unweighted)
     n_causes = inputs.n_causes
@@ -2795,7 +2797,7 @@ def _newton(
     term.  The gradient is the score :math:`h_j (dN_j - \\lambda_j)` at both kinds of node.
     The fit stops when every relative gradient is at most ``inner_tol``.
     """
-    rows, levels = inputs.rows, inputs.observed
+    levels = inputs.observed
     base = inputs.at_observed(state.logits)
     held = np.isneginf(base)
     cut = inputs.bounds
@@ -3837,9 +3839,7 @@ def target_hazard_msm(
             inputs.share_copies(initial.hazards), inputs.bounds, empty, full
         )
     else:
-        start = HazardState.from_hazards(
-            initial.hazards, inputs.bounds, inputs.empty, inputs.full
-        )
+        start = HazardState.from_hazards(initial.hazards, inputs.bounds, inputs.empty, inputs.full)
     causes: tuple[str | None, ...] = data.cause_labels or (None,)
     horizons = tuple(horizons)
     combination = MSMTargets.of(model, [plan.label for plan in plans], horizons)

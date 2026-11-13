@@ -769,6 +769,7 @@ every node is categorical and the regimens are static plans, known rules and kno
 whose treatment paths are enumerated as slots. It refuses any other design before any learner
 (H2, H3, H15, H17, H18 and H21 to H23 and H26 of
 [the hazard refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
+
 One hazard function sits in every slot whose treatment prefix through its node is the same, so a
 fluctuation moves every such copy by the sum over those slots and a held cell holds every copy;
 otherwise the state is not one law and the plug-in is not a substitution estimator

@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import itertools
 import re
-import tracemalloc
 import warnings
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -35,7 +34,7 @@ import pandas as pd
 import pytest
 
 from cleverly.exceptions import CapabilityError, RefusalReason
-from cleverly.interventions import ModifiedPolicy, Stochastic
+from cleverly.interventions import Stochastic
 from cleverly.longitudinal import LTMLE, DynamicRegimen
 from cleverly.longitudinal import hazard as hazard_module
 from tests.discrete_law_point_survival import CellMeans, CellProbabilities
@@ -193,7 +192,9 @@ class PathLaw:
 
     # ---------------------------------------------------------------- the truth
 
-    def truth(self, regimen: Callable[[int, int, int], float], horizon: int, cause: int = 1) -> float:
+    def truth(
+        self, regimen: Callable[[int, int, int], float], horizon: int, cause: int = 1
+    ) -> float:
         """``E sum_u q(u | W) F_j(t | u, W)`` by enumerating the paths.
 
         ``regimen(node, w, previous)`` is the probability of treating at the node.
@@ -254,9 +255,7 @@ def _rule_node(node: int) -> Callable[[Any], Any]:
 
 def _policy_density(node: int, n_times: int) -> Stochastic:
     def density(h: Any) -> np.ndarray:
-        previous = (
-            np.zeros(len(h)) if node == 1 else np.asarray(h[f"A{node - 1}"], dtype=float)
-        )
+        previous = np.zeros(len(h)) if node == 1 else np.asarray(h[f"A{node - 1}"], dtype=float)
         p = 0.3 + 0.4 * previous + 0.1 * np.asarray(h["W"], dtype=float)
         return np.column_stack([1.0 - p, p])
 
@@ -555,7 +554,7 @@ def test_mutation_copies_updated_apart_diverge(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_mutation_double_counted_slot_mass_misses(monkeypatch: pytest.MonkeyPatch) -> None:
-    """"always" also carries mass on the duplicate of its path that "stay" owns."""
+    """The "always" regimen also carries mass on the duplicate of its path that "stay" owns."""
     original = hazard_module.path_slots
 
     def doubled(data: Any, plans: Any) -> Any:
@@ -685,9 +684,6 @@ def test_an_empty_prefix_cell_holds_every_copy() -> None:
         result = ltmle(chosen).fit(EMPTY.frame(), **EMPTY.columns())
     ((args, (state, _)),) = calls
     inputs = args[1]
-    paths = np.stack([plan.values for plan in []], axis=0) if False else None
-    del paths
-    held = np.zeros(inputs.at_risk.shape + (inputs.n_levels,), dtype=bool)
     empty, _ = inputs.held_cells()
     held = empty[:, 1, :, 0]  # node 2, cause 1
     assert held[:, 0].all()  # every unit's "always" slot

@@ -617,7 +617,9 @@ the type and the message of each one, with learners that raise if they are fitte
 
 The fit checks H3 first, then H2. On a design with a treatment at several nodes it then checks
 H23, H22, and per regimen H21, H15 and H26, so a continuous or mixed later node meets H22 even
-though only a modified treatment policy can be declared there. H16 and H19 follow, regimen by
+though only a modified treatment policy can be declared there.
+
+H16 and H19 follow, regimen by
 regimen. H17 is checked once the regimens are resolved, before any learner. H18 and H20 are
 checked when the separable regimens are read, before the companion check of
 [separable effects](longitudinal-tmle.md#separable-effects) that refuses every other

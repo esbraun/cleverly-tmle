@@ -299,7 +299,7 @@ horizon on its own, so its curve can dip slightly. Two options prevent that.
 
 | option | what it does | what it needs |
 | --- | --- | --- |
-| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one treatment at baseline, held over every time point, and no covariate after baseline. The treatment can be categories, or a dose under a plan that changes each person's dose |
+| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | no covariate measured after baseline. The treatment is either one treatment at baseline, held over every time point, or a treatment with categories at each time point. A baseline treatment can also be a dose under a plan that changes each person's dose |
 | `isotonic=True` | projects each fitted curve and its band limits onto a curve that never decreases | a longitudinal TMLE (`LTMLE`) survival or competing-risk fit without `msm=`. The other longitudinal estimators have no `isotonic=` |
 
 Pass the hazard learner as `outcome_learner`. A hazard fit does not use `pseudo_learner`.
@@ -348,8 +348,18 @@ states each claim and its condition.
 :::
 
 :::{dropdown} Details: what the hazard model refuses, and its studies
-The hazard model refuses a treatment at several time points and a covariate after baseline.
-Each message points to the default model, which fits those designs.
+The hazard model refuses a covariate measured after baseline, and its message points to the
+default model, which fits that design.
+
+A treatment with categories at each time point also fits on the hazard model, when no covariate
+is measured after baseline. A plan can fix the treatment at each time point, follow a rule that
+reads the baseline covariates, or draw the treatment with known probabilities that may depend on
+the earlier treatments. The fit corrects the hazards of every treatment sequence the plan can
+follow. A plan that draws at many time points has many sequences, and a fit whose predicted
+memory use passes 2 GB is refused before any model is fitted. No registered study measures
+this fit yet, so its results are labelled `experimental`.
+[A treatment at several nodes on the hazard path](../technical-reference/longitudinal-tmle.md#a-treatment-at-several-nodes-on-the-hazard-path)
+gives the exact estimand and its checks.
 
 A plan that changes each person's dose, such as `Shift(1.0, cap=2.0)`, also fits on the hazard
 model. The treatment can be categories, a dose, or a dose recorded beside a yes/no treatment.
