@@ -21,6 +21,7 @@ updated fit, which is what makes this the "iterative" TMLE.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias, cast
@@ -937,6 +938,32 @@ _ROOT_MAXITER = 200
 _DESCENT_SLACK = 64.0
 
 
+class _Visited:
+    """The states a searched bounded walk has visited, by a digest of their bytes.
+
+    The searched step is a function of the current state alone (the fitted predictions on the
+    point walk, the logits on the hazard walk), so a walk that returns to a state it has visited
+    repeats the same cycle until ``max_iter``.  At the round-off floor a walk can settle into
+    such a cycle of one-ulp changes, whose length depends on the floating-point kernels of the
+    machine.  :meth:`seen` reports a revisit, and the walk stops there.
+    """
+
+    def __init__(self, state: FloatArray) -> None:
+        self._digests = {self._digest(state)}
+
+    @staticmethod
+    def _digest(state: FloatArray) -> bytes:
+        return hashlib.blake2b(np.ascontiguousarray(state).tobytes(), digest_size=16).digest()
+
+    def seen(self, state: FloatArray) -> bool:
+        """Whether ``state`` was visited before; record it if not."""
+        digest = self._digest(state)
+        if digest in self._digests:
+            return True
+        self._digests.add(digest)
+        return False
+
+
 def _line_step(
     slope: Callable[[float], float],
     delta: float,
@@ -1096,8 +1123,10 @@ def _solve_fluctuation_bounded(
     carried fits and ``epsilon`` by it, and recomputes the score.  The walk ends when the rule
     is met (``tol`` on the relative score under ``stopping="relative"``, the rule ratio under a
     declared rule), when the score is exactly zero, when a step moves nothing, or after
-    ``max_iter`` iterations.  Under ``step_search`` a step moves nothing when its length is 0
-    or no fitted prediction changed.  The fixed step keeps the test ``max|step| <= tol``.  A
+    ``max_iter`` iterations.  Under ``step_search`` the walk also ends when a step's length is
+    0 or the fitted predictions return to a state the walk has visited (no change at all is the
+    shortest such return): the step is a function of the predictions, so the walk would repeat
+    the cycle until ``max_iter``.  The fixed step keeps the test ``max|step| <= tol``.  A
     walk that has not met the rule reports ``converged=False`` and
     ``failure="max_iter_reached"``, which the caller reads as for any unconverged step.
 
@@ -1148,9 +1177,9 @@ def _solve_fluctuation_bounded(
     iterations = 0
     detail = NewtonDetail()
     best = BestIterate() if iterate == "best" else None
+    visited = _Visited(current.observed[mask]) if step_search else None
 
     while iterations < max_iter and not met and float(np.linalg.norm(score)) > 0.0:
-        before = current.observed[mask]
         step, length = _bounded_step(
             fit_submodel.observed[mask],
             y[mask],
@@ -1181,8 +1210,8 @@ def _solve_fluctuation_bounded(
                 (epsilon, current, carried, score, thresholds, ratio),
             )
         if not met and (
-            (length == 0.0 or np.array_equal(current.observed[mask], before))
-            if step_search
+            (length == 0.0 or visited.seen(current.observed[mask]))
+            if visited is not None
             else float(np.max(np.abs(step))) <= tol
         ):
             break
