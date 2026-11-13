@@ -8,20 +8,20 @@ interval of a binary mean to the logit scale, and fixes several targeting and fi
 - Results saved by an earlier release load with a `VersionMismatchWarning`, and the load does not
   migrate them. Fit each analysis again with this release.
 - The default simultaneous band is now `band_scale="logit"`, `multiplier_kind="mammen"` and
-  `n_multiplier=10_000`, so band endpoints and critical values change. Pointwise intervals,
-  estimates, standard errors, p-values, `CurveBand`, `effect_curve` and `bootstrap_band` are
-  unchanged. Pass the earlier values explicitly to reproduce an earlier band; such a band reads
+  `n_multiplier=10_000`, so band endpoints and critical values change. This change leaves
+  pointwise intervals, estimates, standard errors, p-values, `CurveBand`, `effect_curve` and
+  `bootstrap_band` as they were. Pass the earlier values explicitly to reproduce an earlier band; such a band reads
   experimental. ([#629](https://github.com/esbraun/cleverly-tmle/pull/629))
 - The interval of an unclustered mean of a binary outcome is now built on the logit scale, and
   `wald_test` inverts that interval. Differences, ratios, coefficients, continuous and clustered
-  estimates keep their intervals. ([#637](https://github.com/esbraun/cleverly-tmle/pull/637))
+  estimates, and estimates with a Student t reference, keep their intervals. ([#637](https://github.com/esbraun/cleverly-tmle/pull/637))
 - An estimate that reads an arm, or an arm-by-modifier cell, whose observed outcomes are all equal
   now withholds its interval and p-value with the status `constant_arm_cell_plugin`, and its
   contrasts inherit that status. A binary mean on or outside (0, 1) withholds its interval with
   `out_of_range_plugin`. ([#637](https://github.com/esbraun/cleverly-tmle/pull/637))
 - `cv_evaluation=True` on a clustered cross-fitted fit now refuses clusters of unequal mass in the
-  estimand's denominator. Use the default `cv_evaluation=False`, which estimates the same effect
-  without the fold-average ratio bias. ([#632](https://github.com/esbraun/cleverly-tmle/pull/632))
+  estimand's denominator, except for learned-rule targets. Use the default
+  `cv_evaluation=False`, which estimates the same effect without the fold-average ratio bias. ([#632](https://github.com/esbraun/cleverly-tmle/pull/632))
 - A fit that declares `stopping="scaled_var"` or `stopping="sample_size"` now widens every Wald
   interval by the unsolved score residual, and refuses the bootstrap.
   ([#635](https://github.com/esbraun/cleverly-tmle/pull/635))
@@ -69,7 +69,8 @@ interval of a binary mean to the logit scale, and fixes several targeting and fi
   ([#631](https://github.com/esbraun/cleverly-tmle/pull/631),
   [#635](https://github.com/esbraun/cleverly-tmle/pull/635))
 - The fold-wise DR-TMLE default reads supported for three arms (row D12) and for stratified point
-  estimates (row D13). ([#643](https://github.com/esbraun/cleverly-tmle/pull/643))
+  estimates (row D13). Stratified intervals read experimental, because the smallest stratum's
+  standard error runs about 12% short. ([#643](https://github.com/esbraun/cleverly-tmle/pull/643))
 
 ## Changed
 

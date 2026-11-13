@@ -418,9 +418,11 @@ def _composite_audit() -> Audit:
 
 
 def _stratified_drtmle_foldwise_audit() -> Audit:
-    # No scan: the constant-arm-cell trigger is applied by the point-treatment TMLE only, and a
-    # DR-TMLE fit reports no such status. The contraction ladder's cells read the marginal ate, a
-    # difference, whose interval is unchanged.
+    # No scan: DR-TMLE inherits the constant-arm-cell trigger, but no committed sample holds a
+    # constant arm-by-stratum cell. Regenerating all 4,000 samples of the primary scenario at
+    # n = 2,000 and reading ``constant_outcome_cells`` per stratum found none; the smallest
+    # minority-outcome count of any cell was 11 (review of the 0.2.5 release). The contraction
+    # ladder's cells read the marginal ate, a difference, whose interval is unchanged.
     means = tuple(f"ey[{arm}][V={stratum}]" for stratum in (0, 1, 2) for arm in (1, 0))
     return Audit(truth={"stratified_both_correct": means})
 
