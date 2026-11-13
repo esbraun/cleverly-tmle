@@ -138,6 +138,7 @@ from ..inference.cluster import (
     cluster_inference_status,
     cluster_reference_df,
     influence_covariance,
+    influence_variance,
 )
 from ..inference.delta import Transform
 from ..inference.influence import (
@@ -282,7 +283,7 @@ from .msm import (
     project_sdr_cells,
     refuse_evaluated_msm_functions,
 )
-from .policy_variance import policy_weighted_variance
+from .policy_variance import natural_levels, policy_weighted_variance
 from .pooled_hazards import check_hazard_pooling, refuse_pooled_designs
 from .ratio_trim import check_ratio_trim, trim_ratios
 from .regimen import (
@@ -2025,7 +2026,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         The curves of :attr:`estimates`.  On a fit with ``repeats > 1`` each is the curve of
         the draw at the median point, or the mean of the two central draws' curves at an
         even draw count.  It serves marginal diagnostics.  The reported variance is the
-        split-adjusted median rule and is not that curve's empirical variance.
+        split-adjusted median rule and is not that curve's empirical variance.  On a fit
+        with ``variance="policy_weighted"`` the curves do not carry that variance: an
+        estimate whose ``variance_source`` is ``"policy_weighted"`` reports a variance larger
+        than its curve's, which its ``policy`` record holds.
         """
         return estimate_curves(self.estimates)
 
@@ -2055,6 +2059,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             none, it is a diagnostic: the plug-in covariance of the reported curves on a
             single-draw fit, and the matrix rule over the per-draw plug-in candidates on a
             repeated fit.
+
+        Raises
+        ------
+        CapabilityError
+            On a fit with ``variance="policy_weighted"``, which defines the variance of each
+            linear functional as the larger of two variances, and that is not a covariance
+            matrix.  :meth:`contrast` reads the variance of a function of the estimates.
         """
         if self.n_repeats > 1:
             chosen = select_estimates(self.estimates, names)
@@ -4153,7 +4164,7 @@ def _estimates(
     alpha_sig: float,
     inference: InferenceStatus,
     classification: Classification | None = None,
-    policy: FloatArray | None = None,
+    policy: _PolicyMatrix | None = None,
 ) -> _Reported:
     """Compose every reported name, its estimate, its index and its fits, in one pass.
 
@@ -4176,7 +4187,7 @@ def _estimates(
         for field.
     classification : Classification or None, default None
         The fit's classification, from which each estimate's support is read.
-    policy : ndarray or None, default None
+    policy : _PolicyMatrix or None, default None
         Under ``variance="policy_weighted"``, the ``(k, k)`` policy-weighted covariance of
         the fits in the order of ``fits``, on the targeting scale
         (:func:`_policy_matrix`).  Every estimate then reads the larger of its
@@ -4186,6 +4197,107 @@ def _estimates(
     -------
     object
         The estimates, the parameter index, and the fits behind each name.
+    """
+    if policy is not None:
+        return _policy_estimates(
+            data,
+            fits,
+            scaler,
+            reference,
+            alpha_sig=alpha_sig,
+            inference=inference,
+            classification=classification,
+            policy=policy,
+        )
+    survival = data.is_survival
+    curve = data.reports_curve
+    # ``ey_regimen`` is a mean of the outcome (at each horizon, on a repeated outcome),
+    # ``risk_regimen`` a probability of an event by a horizon, and ``cif_regimen`` the
+    # probability of leaving through one particular cause by then.  E[Y_k] *is* the second, and
+    # with a single cause the
+    # second *is* the third -- so one name would not be wrong anywhere.  But the three
+    # come from different derivations, and a saved frame or a coverage study's truth
+    # dict keyed by name is where that would stop being a distinction without a
+    # difference.
+    head = _level_head(survival=survival, competing=data.is_competing, complement=False)
+    reference_df = _reference_df(data, inference)
+    estimates: dict[str, ParameterEstimate] = {}
+    # ``name -> (regimen, cause, horizon)``, composed forward here and never parsed
+    # back out of the name.  ``curve()`` reads it: with a cause beside the horizon
+    # inside one pair of brackets, recovering either by splitting the string would be
+    # guessing where a label ends, and a regimen called "a, b" would decide it wrongly.
+    index: dict[str, tuple[str, str | None, int]] = {}
+    contributors: dict[str, tuple[RegimenFit, ...]] = {}
+    for fit in fits.values():
+        name = parameter_name(head, arm=_index(fit.regimen.label, fit.cause, fit.horizon, curve))
+        index[name] = (fit.regimen.label, fit.cause, fit.horizon)
+        contributors[name] = (fit,)
+        status = _parameter_status(inference, fit)
+        estimates[name] = make_estimate(
+            name,
+            scaler.unscale_level(fit.psi_scaled),
+            scaler.unscale_influence(fit.influence_curve_scaled),
+            n=data.n,
+            cluster=data.cluster,
+            scale="level",
+            alpha=alpha_sig,
+            inference=status,
+            reference_df=reference_df,
+            support=_support_of(classification, status, reference_df),
+            bounds=parameter_bounds("mean", data.family),
+        )
+    for fit in fits.values():
+        if fit.regimen.label == reference.label:
+            continue
+        # The contrast is between the same two regimens at the same cause *and* the
+        # same horizon; a difference of incidences across either is not a treatment
+        # effect, and with two indexes there are now two ways to pair the wrong ones.
+        base = fits[_fit_key(reference.label, fit.cause, fit.horizon, curve)]
+        contrast = f"{fit.regimen.label} vs {reference.label}"
+        name = parameter_name(CONTRAST_HEAD, arm=_index(contrast, fit.cause, fit.horizon, curve))
+        index[name] = (contrast, fit.cause, fit.horizon)
+        contributors[name] = (fit, base)
+        status = _parameter_status(inference, fit, base)
+        estimates[name] = make_estimate(
+            name,
+            scaler.unscale_difference(fit.psi_scaled - base.psi_scaled),
+            scaler.unscale_influence(fit.influence_curve_scaled - base.influence_curve_scaled),
+            n=data.n,
+            cluster=data.cluster,
+            scale="difference",
+            alpha=alpha_sig,
+            inference=status,
+            reference_df=reference_df,
+            support=_support_of(classification, status, reference_df),
+            bounds=parameter_bounds("difference", data.family),
+        )
+    return _Reported(estimates=estimates, index=index, contributors=contributors)
+
+
+def _policy_estimates(
+    data: LongitudinalData,
+    fits: Mapping[str, RegimenFit],
+    scaler: OutcomeScaler,
+    reference: RegimenSpec,
+    *,
+    alpha_sig: float,
+    inference: InferenceStatus,
+    classification: Classification | None,
+    policy: _PolicyMatrix,
+) -> _Reported:
+    """:func:`_estimates` under ``variance="policy_weighted"``.
+
+    The same names, index and fits, and every estimate also reads the policy-weighted
+    covariance ``policy`` of the fits (:func:`_policy_matrix`, on the targeting scale) through
+    its gradient over the levels.  :func:`_estimates` keeps its own body, so the default fit
+    runs the shipped code.
+
+    The matrix is carried to the outcome scale by ``scaler.range**2``.  A natural level's
+    diagonal entry is then rewritten as :func:`~cleverly.inference.influence_variance` of the
+    unscaled curve, the same call on the same array as the level's own influence-curve
+    variance.  Rescaling the targeting-scale entry would differ from it in the last bit, and
+    the natural level would then read ``variance_source == "policy_weighted"`` with no
+    change of measure behind it.
     """
     survival = data.is_survival
     curve = data.reports_curve
@@ -4211,16 +4323,17 @@ def _estimates(
         parameter_name(head, arm=_index(fit.regimen.label, fit.cause, fit.horizon, curve))
         for fit in ordered
     ]
-    covariance = (
-        None
-        if policy is None
-        else PolicyCovariance(tuple(level_names), scaler.range**2 * np.asarray(policy, dtype=float))
-    )
+    matrix = scaler.range**2 * np.asarray(policy.matrix, dtype=float)
+    for position, (fit, natural) in enumerate(zip(ordered, policy.natural, strict=True)):
+        if natural:
+            matrix[position, position] = influence_variance(
+                np.asarray(scaler.unscale_influence(fit.influence_curve_scaled), dtype=float),
+                None,
+            )
+    covariance = PolicyCovariance(tuple(level_names), matrix)
 
     def carried(*weights: tuple[int, float]) -> dict[str, Any]:
         """The ``make_estimate`` arguments of the policy-weighted rule, for a gradient."""
-        if covariance is None:
-            return {}
         gradient = np.zeros(len(ordered))
         for position, weight in weights:
             gradient[position] += weight
@@ -4242,9 +4355,7 @@ def _estimates(
             alpha=alpha_sig,
             inference=status,
             reference_df=reference_df,
-            support=_support_of(
-                classification, status, reference_df, policy=covariance is not None
-            ),
+            support=_support_of(classification, status, reference_df, policy=True),
             bounds=parameter_bounds("mean", data.family),
         )
     for fit in fits.values():
@@ -4270,9 +4381,7 @@ def _estimates(
             alpha=alpha_sig,
             inference=status,
             reference_df=reference_df,
-            support=_support_of(
-                classification, status, reference_df, policy=covariance is not None
-            ),
+            support=_support_of(classification, status, reference_df, policy=True),
             bounds=parameter_bounds("difference", data.family),
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
@@ -4307,6 +4416,25 @@ def _support_of(
     return support_for(classification, status, reference_df, policy=policy)
 
 
+@dataclass(frozen=True)
+class _PolicyMatrix:
+    """The policy-weighted covariance of a fit's levels, and which levels are natural.
+
+    Parameters
+    ----------
+    matrix : ndarray
+        ``(k, k)`` the covariance of the fits in their order, on the targeting scale.
+    natural : tuple of bool
+        By fit, whether its plan moves no dose (:func:`natural_levels`).  Such a level's
+        diagonal entry is its influence-curve variance, and :func:`_policy_estimates`
+        writes it from the same curve as the estimate's own, so the two are equal to the
+        last bit.
+    """
+
+    matrix: FloatArray
+    natural: tuple[bool, ...]
+
+
 def _policy_matrix(
     data: LongitudinalData,
     fits: Mapping[str, RegimenFit],
@@ -4314,16 +4442,18 @@ def _policy_matrix(
     mechanism: Mechanism,
     *,
     seed: int | None,
-) -> FloatArray:
+) -> _PolicyMatrix:
     """The policy-weighted covariance of ``fits``, in their order, on the targeting scale."""
+    by_label = {plan.label: plan for plan in plans}
     with phase("policy_variance"):
-        return policy_weighted_variance(
+        matrix = policy_weighted_variance(
             data,
             list(fits.values()),
-            {plan.label: plan for plan in plans},
+            by_label,
             mechanism,
             seed=seed,
         )
+    return _PolicyMatrix(matrix, natural_levels(data, list(fits.values()), by_label))
 
 
 def _parameter_status(inference: InferenceStatus, *read: RegimenFit) -> InferenceStatus:
@@ -7231,8 +7361,10 @@ class LTMLE(_SequentialEstimator):
         contains the default one in every sample.  Each estimate's ``variance_source``
         says which variance it reports, and its ``policy`` record keeps both.  The option
         needs an in-sample (``n_folds=1``), unclustered, unweighted and uncensored fit of an
-        end-of-study outcome with ``simultaneous=False``.  Every other setting, and
-        ``msm=``, ``n_bootstrap``, ``ratio_trim`` and ``repeats``, raises
+        end-of-study outcome with ``simultaneous=False``, ``repeats=1`` and no ``msm=``,
+        ``n_bootstrap`` or ``ratio_trim``, with no node that holds a vector of treatments,
+        no treatment held from baseline, no data-tuned policy cap and no learned or
+        separable-effects regimen.  Any other setting or design raises
         :class:`~cleverly.exceptions.CapabilityError` before any learner.  Its coverage claim
         needs an exact or known ratio, or, with a learned ratio, a consistent outcome model.
     **refused : Any

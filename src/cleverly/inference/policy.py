@@ -150,7 +150,13 @@ class PolicyVariance:
 
     @property
     def source(self) -> VarianceSource:
-        """``"policy_weighted"`` when that variance is used and larger, else the curve's."""
+        """``"policy_weighted"`` when that variance is used and larger, else the curve's.
+
+        It names the larger variance, not the wider half-width. With a Student t reference
+        the default half-width ``t * SE_IC`` can exceed ``z * SE_pw`` while ``SE_pw`` is the
+        larger, and :meth:`interval` is then the default interval although this reads
+        ``"policy_weighted"``.
+        """
         if self.usable and self.policy_variance > self.influence_variance:
             return "policy_weighted"
         return "influence_curve"

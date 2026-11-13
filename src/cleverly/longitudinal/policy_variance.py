@@ -68,7 +68,7 @@ from .data import LongitudinalData
 from .regimen import Plan
 from .sequential import Mechanism, RegimenFit
 
-__all__ = ["VARIANCE_LEARNER", "policy_weighted_variance"]
+__all__ = ["VARIANCE_LEARNER", "natural_levels", "policy_weighted_variance"]
 
 #: The settings of every variance regression: a gradient-boosted tree regression with learning
 #: rate 0.1, an L2 penalty of 1, no early stopping, depth 5, 200 iterations and leaves of at
@@ -169,9 +169,7 @@ class _Parts:
             ),
             start=np.zeros(data.n),
         )
-        natural = all(
-            plan.is_mtp_node(time) and not _moves(plan, time) for time in range(1, data.n_times + 1)
-        )
+        natural = _natural(plan, data)
         return cls(
             plan,
             curve,
@@ -181,6 +179,36 @@ class _Parts:
             tuple(np.asarray(step.at_risk, dtype=bool) for step in steps),
             natural,
         )
+
+
+def natural_levels(
+    data: LongitudinalData, fits: Sequence[RegimenFit], plans: Mapping[str, Plan]
+) -> tuple[bool, ...]:
+    """By fit, whether its plan moves no dose at any node: the natural course.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    fits : sequence of RegimenFit
+        The fits, in the order of the matrix of :func:`policy_weighted_variance`.
+    plans : mapping of str to Plan
+        Each fit's plan by label.
+
+    Returns
+    -------
+    tuple of bool
+        ``True`` where :func:`policy_weighted_variance` puts the influence-curve variance on
+        the diagonal.
+    """
+    return tuple(_natural(plans[fit.regimen.label], data) for fit in fits)
+
+
+def _natural(plan: Plan, data: LongitudinalData) -> bool:
+    """Whether ``plan`` is a policy at every node that moves no dose."""
+    return all(
+        plan.is_mtp_node(time) and not _moves(plan, time) for time in range(1, data.n_times + 1)
+    )
 
 
 def _residuals(fit: RegimenFit) -> tuple[FloatArray, ...]:
