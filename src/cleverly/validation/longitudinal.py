@@ -1069,7 +1069,9 @@ def _hazard_score_row(result: Any, fit: Any, *, tolerance: float) -> Longitudina
     to the horizon, so the row sits at the horizon node.  A separable fit solves one per
     hazard factor, and the row reports the larger relative score of the two.  ``converged``
     is the targeting record's verdict over every target it solved together: a one-step walk and a
-    per-horizon Newton solve stop on the largest relative score of their targets.
+    per-horizon Newton solve stop on the largest relative score of their targets.  On a
+    backward pass (covariates after baseline) the row's relative score is the largest of the
+    target's node walks, each on its own scale, and its score stays the share-weighted sum.
     """
     record = fit.hazard
     # A separable fit records one score per hazard factor, ``(label, cause, horizon, factor)``;
@@ -1083,6 +1085,15 @@ def _hazard_score_row(result: Any, fit: Any, *, tolerance: float) -> Longitudina
     ]
     worst = int(np.argmax(relatives))
     score, relative = scores[worst], relatives[worst]
+    if record.nodes:
+        # A backward pass sums each node walk's score and scale; a stalled node would be
+        # diluted by the others, so the row reads the largest node relative score.
+        relative = max(
+            abs(float(node.score[i])) / max(float(node.score_scale[i]), 1e-300)
+            for node in record.nodes
+            for i, entry in enumerate(node.targets)
+            if tuple(entry[:3]) == key
+        )
     converged = bool(record.converged)
     return LongitudinalScoreRow(
         fit.regimen.label,

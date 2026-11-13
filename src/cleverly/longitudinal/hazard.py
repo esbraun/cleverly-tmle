@@ -957,7 +957,9 @@ class HazardFit:
         ``initial_levels`` is node 1's initial plug-in.  That plug-in's continuation was
         fitted on the *targeted* later nodes, so it is not the untargeted estimator's
         plug-in; :func:`~cleverly.longitudinal.hazard_backward.untargeted` gives that one.
-        Empty on every other fit.
+        The summed score of a stalled node is divided by the scale summed over every node and
+        can cancel against another node's, so :attr:`relative_score` reads the largest node
+        relative score instead.  Empty on every other fit.
     """
 
     algorithm: HazardAlgorithm
@@ -988,7 +990,13 @@ class HazardFit:
 
     @property
     def relative_score(self) -> float:
-        """The largest target score relative to its scale, at the reported hazards."""
+        """The largest target score relative to its scale, at the reported hazards.
+
+        On a backward pass the largest over the node walks, each read on its own score and
+        scale, so a stalled node walk is not diluted by the others.
+        """
+        if self.nodes:
+            return max(node.relative_score for node in self.nodes)
         return relative_score(self.score, self.score_scale)
 
 

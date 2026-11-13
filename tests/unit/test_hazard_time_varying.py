@@ -1146,6 +1146,55 @@ def test_a_node_walk_stopped_short_is_not_converged_and_warns() -> None:
     assert not result.fits["never @ t=4"].hazard.converged
 
 
+def test_one_stalled_node_walk_is_read_on_its_own_scale() -> None:
+    """One node walk stopped short: the record is not converged and its relative score is the
+    node's own, not the share-weighted sum over every node, which divides the stalled node's
+    score by the other nodes' scales.  The score-equation row reads the same and is unsolved."""
+    from cleverly.fluctuation._score import relative_score
+    from cleverly.validation.longitudinal import _hazard_score_row
+
+    law = HeldLaw()
+    walk = backward.walk_curve
+    calls: list[int] = []
+
+    def last_node_stalls(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        if len(calls) % law.n_times == 1:  # each pass walks the last node first
+            kwargs["max_steps"] = 1
+        return walk(*args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(backward, "walk_curve", last_node_stalls)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = LTMLE(
+                STATIC,
+                n_folds=1,
+                survival_model="hazard",
+                targeting="one_step",
+                step_size=STEP,
+                tol=TOL,
+                g_bounds=(1e-8, 1.0),
+                outcome_learner=wrong_hazard(),
+                pseudo_learner=wrong_continuation(),
+                treatment_learner=CellProbabilities(),
+                censoring_learner=CellMeans(),
+            ).fit(law.frame(), **law.columns())
+    fit_record = result.fits[f"never @ t={law.n_times}"]
+    record = fit_record.hazard
+    stalled = record.nodes[-1]
+    assert not stalled.converged and all(node.converged for node in record.nodes[:-1])
+    assert not record.converged
+    diluted = relative_score(record.score, record.score_scale)
+    assert record.relative_score == max(node.relative_score for node in record.nodes)
+    assert record.relative_score == stalled.relative_score > TOL
+    assert record.relative_score > diluted
+    row = _hazard_score_row(result, fit_record, tolerance=TOL)
+    assert row.relative_score > TOL
+    assert row.relative_score > diluted
+    assert not row.converged and not row.passed
+
+
 # ---------------------------------------------------------------- continuous L
 
 
